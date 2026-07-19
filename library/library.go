@@ -32,6 +32,11 @@ type VersionID int64
 type GroupID int64
 type ProjectID int64
 
+const (
+	libraryApplicationID = 1397443650 // "SKLB"
+	librarySchemaVersion = 1
+)
+
 type ErrorCode string
 
 const (
@@ -239,6 +244,10 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("open library: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, libraryApplicationID, librarySchemaVersion)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("identify library: %w", err)
+	}
 	if _, err := db.Exec(`
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE IF NOT EXISTS sources (

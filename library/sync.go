@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,15 +82,14 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context) (err error) {
 	defer check.Close()
 	var integrity string
 	err = check.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity)
-	var hasSkillsTable int
-	if err == nil {
-		err = check.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'skills'`).Scan(&hasSkillsTable)
-	}
 	if err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
-	if integrity != "ok" || hasSkillsTable != 1 {
-		return fmt.Errorf("validate pulled library: integrity=%q skills_table=%d", integrity, hasSkillsTable)
+	if integrity != "ok" {
+		return fmt.Errorf("validate pulled library: integrity=%q", integrity)
+	}
+	if err := validateLibrarySchema(ctx, check); err != nil {
+		return fmt.Errorf("validate pulled library: %w", err)
 	}
 	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
 		return fmt.Errorf("remap pulled projects: %w", err)
@@ -108,6 +108,37 @@ func openExistingLibrary(ctx context.Context, path string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
+	var applicationID, userVersion int
+	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
+		return err
+	}
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
+		return err
+	}
+	if applicationID != libraryApplicationID || userVersion != librarySchemaVersion {
+		return fmt.Errorf("unsupported database identity application_id=%d user_version=%d", applicationID, userVersion)
+	}
+	for _, table := range []string{"sources", "skills", "skill_versions", "blobs", "version_files", "groups", "skill_groups", "projects", "activations", "activation_groups"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count); err != nil {
+			return err
+		}
+		if count != 1 {
+			return fmt.Errorf("missing table %s", table)
+		}
+	}
+	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("foreign key check failed")
+	}
+	return rows.Err()
 }
 
 func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
@@ -316,9 +347,14 @@ func s3Request(ctx context.Context, method string, body []byte) ([]byte, error) 
 	defer resp.Body.Close()
 	response, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read S3 response: %w", err)
+		return nil, &Error{Code: SourceUnreachable, Message: "read S3 response: " + err.Error(), Err: err}
 	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+	var s3Error struct {
+		Code string `xml:"Code"`
+	}
+	_ = xml.Unmarshal(response, &s3Error)
+	permissionCode := map[string]bool{"AccessDenied": true, "InvalidAccessKeyId": true, "SignatureDoesNotMatch": true, "ExpiredToken": true, "InvalidToken": true}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || permissionCode[s3Error.Code] {
 		return nil, &Error{Code: Permission, Message: "S3 permission denied"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -347,11 +383,20 @@ func loadS3Config() (s3Config, error) {
 		return s3Config{}, fmt.Errorf("S3 bucket and AWS credentials are required")
 	}
 	if cfg.endpoint == "" {
-		cfg.endpoint = "https://" + cfg.bucket + ".s3." + cfg.region + ".amazonaws.com"
+		if strings.Contains(cfg.bucket, ".") {
+			cfg.endpoint = "https://s3." + cfg.region + ".amazonaws.com"
+			cfg.pathStyle = true
+		} else {
+			cfg.endpoint = "https://" + cfg.bucket + ".s3." + cfg.region + ".amazonaws.com"
+		}
 	} else {
 		cfg.pathStyle = true
 	}
-	if _, err := url.ParseRequestURI(cfg.endpoint); err != nil {
+	endpoint, err := url.ParseRequestURI(cfg.endpoint)
+	if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.User != nil {
+		if err == nil {
+			err = fmt.Errorf("endpoint must be an http(s) origin without credentials, query, or fragment")
+		}
 		return s3Config{}, fmt.Errorf("invalid S3 endpoint: %w", err)
 	}
 	return cfg, nil

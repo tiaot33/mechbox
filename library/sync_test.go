@@ -2,6 +2,7 @@ package library_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -72,7 +73,7 @@ func TestSyncPushThenPullReplacesLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectScope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".codex", "skills")}
-	if err := lib.Activate(ctx, original.ID, projectScope, library.ActivateOptions{}); err != nil {
+	if err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	oldHome := filepath.Join(t.TempDir(), "old-home")
@@ -147,6 +148,27 @@ func TestSyncPushThenPullReplacesLibrary(t *testing.T) {
 	}
 	if _, err := lib.GetSkill(ctx, original.ID); err != nil {
 		t.Fatalf("invalid pull corrupted local library: %v", err)
+	}
+	fakePath := filepath.Join(t.TempDir(), "fake.db")
+	fake, err := sql.Open("sqlite3", fakePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.Exec(`CREATE TABLE skills (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = os.ReadFile(fakePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.SyncPull(ctx); err == nil {
+		t.Fatal("SyncPull accepted a foreign SQLite database")
+	}
+	if _, err := lib.GetSkill(ctx, original.ID); err != nil {
+		t.Fatalf("foreign pull corrupted local library: %v", err)
 	}
 }
 
