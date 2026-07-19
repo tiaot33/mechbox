@@ -66,7 +66,6 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-
 	installed, err := lib.Install(ctx, library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +123,72 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	}
 }
 
+func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t *testing.T) {
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "source-one")
+	secondSource := filepath.Join(root, "source-two")
+	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# One\n"), 0o644)
+	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Two\n"), 0o644)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+
+	first, err := lib.Install(context.Background(), library.LocalSource{Path: firstSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.Install(context.Background(), library.LocalSource{Path: secondSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugging, err := lib.CreateGroup(context.Background(), "frontend debugging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipping, err := lib.CreateGroup(context.Background(), "shipping")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, membership := range []struct {
+		group library.Group
+		skill library.Skill
+	}{
+		{debugging, first},
+		{debugging, second},
+		{shipping, first},
+	} {
+		if err := lib.AddSkillToGroup(context.Background(), membership.group.ID, membership.skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	debuggingSkills, err := lib.ListGroupSkills(context.Background(), debugging.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shippingSkills, err := lib.ListGroupSkills(context.Background(), shipping.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := skillIDs(debuggingSkills), []library.SkillID{first.ID, second.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("debugging members = %v, want %v", got, want)
+	}
+	if got, want := skillIDs(shippingSkills), []library.SkillID{first.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("shipping members = %v, want %v", got, want)
+	}
+}
+
+func skillIDs(skills []library.Skill) []library.SkillID {
+	ids := make([]library.SkillID, len(skills))
+	for i, skill := range skills {
+		ids[i] = skill.ID
+	}
+	return ids
+}
 func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

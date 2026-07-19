@@ -17,6 +17,7 @@ import (
 type SkillID int64
 
 type VersionID int64
+type GroupID int64
 
 type SourceType string
 
@@ -63,6 +64,11 @@ type VersionDiff struct {
 	Deleted []string `json:"deleted"`
 }
 
+type Group struct {
+	ID   GroupID `json:"id"`
+	Name string  `json:"name"`
+}
+
 type Library interface {
 	Install(context.Context, LocalSource) (Skill, error)
 	Update(context.Context, SkillID) (Skill, error)
@@ -70,6 +76,9 @@ type Library interface {
 	ListVersions(context.Context, SkillID) ([]SkillVersion, error)
 	GetVersion(context.Context, VersionID) (SkillVersion, error)
 	DiffVersions(context.Context, VersionID, VersionID) (VersionDiff, error)
+	CreateGroup(context.Context, string) (Group, error)
+	AddSkillToGroup(context.Context, GroupID, SkillID) error
+	ListGroupSkills(context.Context, GroupID) ([]Skill, error)
 	Close() error
 }
 
@@ -113,11 +122,72 @@ func Open(path string) (Library, error) {
 			mode TEXT NOT NULL CHECK(mode IN ('regular', 'executable')),
 			PRIMARY KEY(version_id, path)
 		);
+		CREATE TABLE IF NOT EXISTS groups (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS skill_groups (
+			skill_id INTEGER NOT NULL REFERENCES skills(id),
+			group_id INTEGER NOT NULL REFERENCES groups(id),
+			PRIMARY KEY(skill_id, group_id)
+		);
 	`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize library: %w", err)
 	}
 	return &sqliteLibrary{db: db}, nil
+}
+
+func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (Group, error) {
+	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name) VALUES (?)`, name)
+	if err != nil {
+		return Group{}, fmt.Errorf("create group: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return Group{}, fmt.Errorf("read group id: %w", err)
+	}
+	return Group{ID: GroupID(id), Name: name}, nil
+}
+
+func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) error {
+	if _, err := l.db.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
+		return fmt.Errorf("add skill to group: %w", err)
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) ([]Skill, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id FROM skill_groups WHERE group_id = ? ORDER BY skill_id`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("list group skills: %w", err)
+	}
+	var ids []SkillID
+	for rows.Next() {
+		var id SkillID
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("read group skill: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close group skills: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read group skills: %w", err)
+	}
+
+	// ponytail: one lookup per member; replace with a joined mapper if large groups make this measurable.
+	skills := make([]Skill, 0, len(ids))
+	for _, id := range ids {
+		skill, err := l.GetSkill(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		skills = append(skills, skill)
+	}
+	return skills, nil
 }
 
 func (l *sqliteLibrary) Close() error {
