@@ -441,7 +441,7 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if err := lib.Activate(ctx, keepSkill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, removeSkill.ID, removeScope, library.ActivateOptions{}); err != nil {
+	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	untracked := filepath.Join(t.TempDir(), "untracked", removeSkill.Name, "mine.txt")
@@ -556,7 +556,14 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	removeScope := library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(removeProject.Path, ".claude", "skills")}
-	if err := lib.Activate(ctx, skill.ID, removeScope, library.ActivateOptions{}); err != nil {
+	group, err := lib.CreateGroup(ctx, "project group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	manualFile := filepath.Join(removeScope.Path, "manual-skill", "mine.txt")
@@ -587,6 +594,164 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	}
 	if _, err := os.Stat(manualFile); err != nil {
 		t.Fatalf("unknown unregister touched disk: %v", err)
+	}
+}
+
+func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "first")
+	secondSource := filepath.Join(root, "second")
+	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
+	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := lib.CreateGroup(ctx, "shipping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{first, second} {
+		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{first, second} {
+		if _, err := os.Stat(filepath.Join(scope.Path, skill.Name, "SKILL.md")); err != nil {
+			t.Fatalf("member %q was not projected: %v", skill.Name, err)
+		}
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantActivations := []library.Activation{
+		{SkillID: first.ID, Scope: scope, Individual: true, ViaGroups: []library.GroupID{group.ID}},
+		{SkillID: second.ID, Scope: scope, ViaGroups: []library.GroupID{group.ID}},
+	}
+	if !reflect.DeepEqual(activations, wantActivations) {
+		t.Fatalf("ListActivations() = %#v, want %#v", activations, wantActivations)
+	}
+
+	if err := lib.DeactivateGroup(ctx, group.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, first.Name, "SKILL.md")); err != nil {
+		t.Fatalf("independent activation was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, second.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("via-group-only activation remains: %v", err)
+	}
+	activations, err = lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantActivations = []library.Activation{{SkillID: first.ID, Scope: scope, Individual: true}}
+	if !reflect.DeepEqual(activations, wantActivations) {
+		t.Fatalf("ListActivations() after DeactivateGroup = %#v, want %#v", activations, wantActivations)
+	}
+}
+
+func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "first")
+	secondSource := filepath.Join(root, "second")
+	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
+	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := lib.CreateGroup(ctx, "shipping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{first, second} {
+		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	writeFile(t, filepath.Join(scope.Path, second.Name, "manual.txt"), []byte("manual"), 0o644)
+
+	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
+		t.Fatalf("ActivateGroup() conflict error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, first.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first member was partially activated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, second.Name, "manual.txt")); err != nil {
+		t.Fatalf("conflicting directory changed: %v", err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() = %#v, %v; want none", activations, err)
+	}
+}
+
+func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "example")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := lib.CreateGroup(ctx, "known")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownGroup := library.GroupID(9999)
+	unknownSkill := library.SkillID(9999)
+	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+
+	checks := []struct {
+		name string
+		err  error
+	}{
+		{"activate group", lib.ActivateGroup(ctx, unknownGroup, scope, library.ActivateOptions{})},
+		{"deactivate group", lib.DeactivateGroup(ctx, unknownGroup, scope)},
+		{"list group", func() error { _, err := lib.ListGroupSkills(ctx, unknownGroup); return err }()},
+		{"add to unknown group", lib.AddSkillToGroup(ctx, unknownGroup, skill.ID)},
+		{"add unknown skill", lib.AddSkillToGroup(ctx, group.ID, unknownSkill)},
+	}
+	for _, check := range checks {
+		if !library.IsCode(check.err, library.NotFound) {
+			t.Errorf("%s error = %v, want NotFound", check.name, check.err)
+		}
 	}
 }
 

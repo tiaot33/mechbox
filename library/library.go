@@ -138,8 +138,10 @@ type ActivateOptions struct {
 }
 
 type Activation struct {
-	SkillID SkillID `json:"skill_id"`
-	Scope   Scope   `json:"scope"`
+	SkillID    SkillID   `json:"skill_id"`
+	Scope      Scope     `json:"scope"`
+	Individual bool      `json:"individual"`
+	ViaGroups  []GroupID `json:"via_groups,omitempty"`
 }
 
 type Collection struct {
@@ -187,6 +189,8 @@ type Library interface {
 	ListScopes(context.Context) ([]Scope, error)
 	Activate(context.Context, SkillID, Scope, ActivateOptions) error
 	Deactivate(context.Context, SkillID, Scope) error
+	ActivateGroup(context.Context, GroupID, Scope, ActivateOptions) error
+	DeactivateGroup(context.Context, GroupID, Scope) error
 	ListActivations(context.Context) ([]Activation, error)
 	ListCollections(context.Context) ([]Collection, error)
 	Close() error
@@ -251,7 +255,16 @@ func Open(path string) (Library, error) {
 			skill_id INTEGER NOT NULL REFERENCES skills(id),
 			agent TEXT NOT NULL,
 			scope_path TEXT NOT NULL,
+			individual INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY(skill_id, agent, scope_path)
+		);
+		CREATE TABLE IF NOT EXISTS activation_groups (
+			skill_id INTEGER NOT NULL,
+			agent TEXT NOT NULL,
+			scope_path TEXT NOT NULL,
+			group_id INTEGER NOT NULL REFERENCES groups(id),
+			PRIMARY KEY(skill_id, agent, scope_path, group_id),
+			FOREIGN KEY(skill_id, agent, scope_path) REFERENCES activations(skill_id, agent, scope_path) ON DELETE CASCADE
 		);
 	`); err != nil {
 		_ = db.Close()
@@ -272,14 +285,25 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (Group, er
 	return Group{ID: GroupID(id), Name: name}, nil
 }
 
-func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) error {
+func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (err error) {
+	defer func() { err = typedError(err) }()
+	if err := l.requireGroup(ctx, groupID); err != nil {
+		return err
+	}
+	if err := l.requireSkill(ctx, skillID); err != nil {
+		return err
+	}
 	if _, err := l.db.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
 		return fmt.Errorf("add skill to group: %w", err)
 	}
 	return nil
 }
 
-func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) ([]Skill, error) {
+func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []Skill, err error) {
+	defer func() { err = typedError(err) }()
+	if err := l.requireGroup(ctx, groupID); err != nil {
+		return nil, err
+	}
 	rows, err := l.db.QueryContext(ctx, `SELECT skill_id FROM skill_groups WHERE group_id = ? ORDER BY skill_id`, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("list group skills: %w", err)
@@ -301,7 +325,7 @@ func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) ([
 	}
 
 	// ponytail: one lookup per member; replace with a joined mapper if large groups make this measurable.
-	skills := make([]Skill, 0, len(ids))
+	skills = make([]Skill, 0, len(ids))
 	for _, id := range ids {
 		skill, err := l.GetSkill(ctx, id)
 		if err != nil {
@@ -651,7 +675,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 		}
 		for _, activation := range activations {
 			if activation.SkillID == id {
-				if err := l.Deactivate(ctx, id, activation.Scope); err != nil {
+				if err := l.removeProjectedCopy(ctx, id, activation.Scope); err != nil {
 					return err
 				}
 			}
@@ -664,6 +688,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	defer tx.Rollback()
 	statements := []string{
+		`DELETE FROM activation_groups WHERE skill_id = ?`,
 		`DELETE FROM activations WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
@@ -767,7 +792,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		for _, activation := range activations {
 			for _, scope := range scopes {
 				if activation.Scope == scope {
-					if err := l.Deactivate(ctx, activation.SkillID, scope); err != nil {
+					if err := l.removeProjectedCopy(ctx, activation.SkillID, scope); err != nil {
 						return err
 					}
 				}
@@ -780,6 +805,9 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	}
 	defer tx.Rollback()
 	for _, scope := range scopes {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
+			return fmt.Errorf("remove project group activations: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
 			return fmt.Errorf("remove project activations: %w", err)
 		}
@@ -789,6 +817,17 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit unregister project: %w", err)
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, scope Scope) error {
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(scope.Path, skill.Name)); err != nil {
+		return fmt.Errorf("remove projected copy: %w", err)
 	}
 	return nil
 }
@@ -814,8 +853,12 @@ func (l *sqliteLibrary) ListScopes(ctx context.Context) ([]Scope, error) {
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
 	defer func() { err = typedError(err) }()
-	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
-		return fmt.Errorf("invalid scope")
+	return l.activate(ctx, id, scope, opts, true, 0)
+}
+
+func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions, individual bool, groupID GroupID) error {
+	if err := validateScope(scope); err != nil {
+		return err
 	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
@@ -862,10 +905,36 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 		_ = os.Rename(backup, target)
 		return fmt.Errorf("activate skill: %w", err)
 	}
-	if _, err := l.db.ExecContext(ctx, `INSERT OR REPLACE INTO activations(skill_id, agent, scope_path) VALUES (?, ?, ?)`, id, scope.Agent, scope.Path); err != nil {
+	individualValue := 0
+	if individual {
+		individualValue = 1
+	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		_ = os.RemoveAll(target)
+		_ = os.Rename(backup, target)
+		return fmt.Errorf("begin activation record: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (?, ?, ?, ?)
+		ON CONFLICT(skill_id, agent, scope_path) DO UPDATE SET individual = MAX(individual, excluded.individual)
+	`, id, scope.Agent, scope.Path, individualValue); err != nil {
 		_ = os.RemoveAll(target)
 		_ = os.Rename(backup, target)
 		return fmt.Errorf("record activation: %w", err)
+	}
+	if groupID != 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (?, ?, ?, ?)`, id, scope.Agent, scope.Path, groupID); err != nil {
+			_ = os.RemoveAll(target)
+			_ = os.Rename(backup, target)
+			return fmt.Errorf("record group activation: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		_ = os.RemoveAll(target)
+		_ = os.Rename(backup, target)
+		return fmt.Errorf("commit activation record: %w", err)
 	}
 	_ = os.RemoveAll(backup)
 	return nil
@@ -873,42 +942,190 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 
 func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope) (err error) {
 	defer func() { err = typedError(err) }()
-	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
-		return fmt.Errorf("invalid scope")
+	if err := validateScope(scope); err != nil {
+		return err
 	}
+	var individual bool
+	if err := l.db.QueryRowContext(ctx, `SELECT individual FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path).Scan(&individual); err != nil {
+		return fmt.Errorf("find activation: %w", err)
+	}
+	if !individual {
+		return &Error{Code: NotFound, Message: "deactivate skill: no independent activation"}
+	}
+	return l.deactivateOrigin(ctx, id, scope, true, 0)
+}
+
+func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, scope Scope, individual bool, groupID GroupID) error {
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
 	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin deactivation: %w", err)
+	}
+	defer tx.Rollback()
+	if individual {
+		if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 0 WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
+			return fmt.Errorf("remove independent activation: %w", err)
+		}
+	} else if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE skill_id = ? AND agent = ? AND scope_path = ? AND group_id = ?`, id, scope.Agent, scope.Path, groupID); err != nil {
+		return fmt.Errorf("remove group activation: %w", err)
+	}
+	var keep bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT individual OR EXISTS(
+			SELECT 1 FROM activation_groups
+			WHERE skill_id = ? AND agent = ? AND scope_path = ?
+		)
+		FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?
+	`, id, scope.Agent, scope.Path, id, scope.Agent, scope.Path).Scan(&keep); err != nil {
+		return fmt.Errorf("check activation origins: %w", err)
+	}
+	if !keep {
+		if err := os.RemoveAll(filepath.Join(scope.Path, skill.Name)); err != nil {
+			return fmt.Errorf("deactivate skill: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
+			return fmt.Errorf("remove activation: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit deactivation: %w", err)
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	if err := validateScope(scope); err != nil {
+		return err
+	}
+	if err := l.requireGroup(ctx, groupID); err != nil {
+		return err
+	}
+	skills, err := l.ListGroupSkills(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if opts.OnConflict != Overwrite {
+		for _, skill := range skills {
+			if _, err := os.Stat(filepath.Join(scope.Path, skill.Name)); err == nil {
+				return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("inspect activation target: %w", err)
+			}
+		}
+	}
+	// ponytail: runtime I/O failures can leave a partial group; stage every member first if all-or-nothing filesystem commits become necessary.
+	for _, skill := range skills {
+		if err := l.activate(ctx, skill.ID, scope, opts, false, groupID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
+	defer func() { err = typedError(err) }()
+	if err := validateScope(scope); err != nil {
+		return err
+	}
+	if err := l.requireGroup(ctx, groupID); err != nil {
+		return err
+	}
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id FROM activation_groups WHERE group_id = ? AND agent = ? AND scope_path = ? ORDER BY skill_id`, groupID, scope.Agent, scope.Path)
+	if err != nil {
+		return fmt.Errorf("list group activations: %w", err)
+	}
+	var ids []SkillID
+	for rows.Next() {
+		var id SkillID
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read group activation: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close group activations: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read group activations: %w", err)
+	}
+	if len(ids) == 0 {
+		return &Error{Code: NotFound, Message: "deactivate group: group is not active in scope"}
+	}
+	for _, id := range ids {
+		if err := l.deactivateOrigin(ctx, id, scope, false, groupID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) requireGroup(ctx context.Context, id GroupID) error {
 	var exists int
-	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path).Scan(&exists); err != nil {
-		return fmt.Errorf("find activation: %w", err)
+	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM groups WHERE id = ?`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("get group: %w", err)
 	}
-	if err := os.RemoveAll(filepath.Join(scope.Path, skill.Name)); err != nil {
-		return fmt.Errorf("deactivate skill: %w", err)
+	return nil
+}
+
+func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {
+	var exists int
+	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skills WHERE id = ?`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("get skill: %w", err)
 	}
-	if _, err := l.db.ExecContext(ctx, `DELETE FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
-		return fmt.Errorf("remove activation: %w", err)
+	return nil
+}
+
+func validateScope(scope Scope) error {
+	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
+		return fmt.Errorf("invalid scope")
 	}
 	return nil
 }
 
 func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Activation, err error) {
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, scope_path FROM activations ORDER BY skill_id, agent, scope_path`)
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, scope_path, individual FROM activations ORDER BY skill_id, agent, scope_path`)
 	if err != nil {
 		return nil, fmt.Errorf("list activations: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var activation Activation
-		if err := rows.Scan(&activation.SkillID, &activation.Scope.Agent, &activation.Scope.Path); err != nil {
+		if err := rows.Scan(&activation.SkillID, &activation.Scope.Agent, &activation.Scope.Path, &activation.Individual); err != nil {
 			return nil, fmt.Errorf("read activation: %w", err)
 		}
 		activations = append(activations, activation)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read activations: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close activations: %w", err)
+	}
+	for i := range activations {
+		rows, err := l.db.QueryContext(ctx, `SELECT group_id FROM activation_groups WHERE skill_id = ? AND agent = ? AND scope_path = ? ORDER BY group_id`, activations[i].SkillID, activations[i].Scope.Agent, activations[i].Scope.Path)
+		if err != nil {
+			return nil, fmt.Errorf("list activation groups: %w", err)
+		}
+		for rows.Next() {
+			var id GroupID
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("read activation group: %w", err)
+			}
+			activations[i].ViaGroups = append(activations[i].ViaGroups, id)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, fmt.Errorf("close activation groups: %w", err)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("read activation groups: %w", err)
+		}
 	}
 	return activations, nil
 }
