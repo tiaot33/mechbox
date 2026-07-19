@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -236,7 +237,78 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 
 type sqliteLibrary struct {
 	db *sql.DB
+	mu sync.RWMutex
 }
+
+type libraryOperationKey struct{}
+
+func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, func()) {
+	if ctx.Value(libraryOperationKey{}) == l {
+		return ctx, func() {}
+	}
+	l.mu.RLock()
+	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
+}
+
+const schemaSQL = `
+	CREATE TABLE IF NOT EXISTS sources (
+		id INTEGER PRIMARY KEY,
+		type TEXT NOT NULL,
+		locator TEXT NOT NULL,
+		last_fetched TEXT NOT NULL DEFAULT '',
+		last_seen_ref TEXT NOT NULL DEFAULT '',
+		UNIQUE(type, locator)
+	);
+	CREATE TABLE IF NOT EXISTS skills (
+		id INTEGER PRIMARY KEY,
+		source_id INTEGER NOT NULL REFERENCES sources(id),
+		name TEXT NOT NULL,
+		current_version_id INTEGER REFERENCES skill_versions(id),
+		UNIQUE(source_id, name)
+	);
+	CREATE TABLE IF NOT EXISTS skill_versions (
+		id INTEGER PRIMARY KEY,
+		skill_id INTEGER NOT NULL REFERENCES skills(id)
+	);
+	CREATE TABLE IF NOT EXISTS blobs (
+		fingerprint TEXT PRIMARY KEY,
+		content BLOB NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS version_files (
+		version_id INTEGER NOT NULL REFERENCES skill_versions(id),
+		path TEXT NOT NULL,
+		fingerprint TEXT NOT NULL REFERENCES blobs(fingerprint),
+		mode TEXT NOT NULL CHECK(mode IN ('regular', 'executable')),
+		PRIMARY KEY(version_id, path)
+	);
+	CREATE TABLE IF NOT EXISTS groups (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS skill_groups (
+		skill_id INTEGER NOT NULL REFERENCES skills(id),
+		group_id INTEGER NOT NULL REFERENCES groups(id),
+		PRIMARY KEY(skill_id, group_id)
+	);
+	CREATE TABLE IF NOT EXISTS projects (
+		id INTEGER PRIMARY KEY,
+		path TEXT NOT NULL UNIQUE
+	);
+	CREATE TABLE IF NOT EXISTS activations (
+		skill_id INTEGER NOT NULL REFERENCES skills(id),
+		agent TEXT NOT NULL,
+		scope_path TEXT NOT NULL,
+		individual INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY(skill_id, agent, scope_path)
+	);
+	CREATE TABLE IF NOT EXISTS activation_groups (
+		skill_id INTEGER NOT NULL,
+		agent TEXT NOT NULL,
+		scope_path TEXT NOT NULL,
+		group_id INTEGER NOT NULL REFERENCES groups(id),
+		PRIMARY KEY(skill_id, agent, scope_path, group_id),
+		FOREIGN KEY(skill_id, agent, scope_path) REFERENCES activations(skill_id, agent, scope_path) ON DELETE CASCADE
+	);`
 
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
@@ -244,78 +316,36 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("open library: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("configure library: %w", err)
+	}
+	var tableCount int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tableCount); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("inspect library: %w", err)
+	}
+	if tableCount > 0 {
+		if err := validateLibrarySchema(context.Background(), db); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("open library: %w", err)
+		}
+		return &sqliteLibrary{db: db}, nil
+	}
+	if _, err := db.Exec(schemaSQL); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("initialize library: %w", err)
+	}
 	if _, err := db.Exec(fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, libraryApplicationID, librarySchemaVersion)); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("identify library: %w", err)
-	}
-	if _, err := db.Exec(`
-		PRAGMA foreign_keys = ON;
-		CREATE TABLE IF NOT EXISTS sources (
-			id INTEGER PRIMARY KEY,
-			type TEXT NOT NULL,
-			locator TEXT NOT NULL,
-			last_fetched TEXT NOT NULL DEFAULT '',
-			last_seen_ref TEXT NOT NULL DEFAULT '',
-			UNIQUE(type, locator)
-		);
-		CREATE TABLE IF NOT EXISTS skills (
-			id INTEGER PRIMARY KEY,
-			source_id INTEGER NOT NULL REFERENCES sources(id),
-			name TEXT NOT NULL,
-			current_version_id INTEGER REFERENCES skill_versions(id),
-			UNIQUE(source_id, name)
-		);
-		CREATE TABLE IF NOT EXISTS skill_versions (
-			id INTEGER PRIMARY KEY,
-			skill_id INTEGER NOT NULL REFERENCES skills(id)
-		);
-		CREATE TABLE IF NOT EXISTS blobs (
-			fingerprint TEXT PRIMARY KEY,
-			content BLOB NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS version_files (
-			version_id INTEGER NOT NULL REFERENCES skill_versions(id),
-			path TEXT NOT NULL,
-			fingerprint TEXT NOT NULL REFERENCES blobs(fingerprint),
-			mode TEXT NOT NULL CHECK(mode IN ('regular', 'executable')),
-			PRIMARY KEY(version_id, path)
-		);
-		CREATE TABLE IF NOT EXISTS groups (
-			id INTEGER PRIMARY KEY,
-			name TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS skill_groups (
-			skill_id INTEGER NOT NULL REFERENCES skills(id),
-			group_id INTEGER NOT NULL REFERENCES groups(id),
-			PRIMARY KEY(skill_id, group_id)
-		);
-		CREATE TABLE IF NOT EXISTS projects (
-			id INTEGER PRIMARY KEY,
-			path TEXT NOT NULL UNIQUE
-		);
-		CREATE TABLE IF NOT EXISTS activations (
-			skill_id INTEGER NOT NULL REFERENCES skills(id),
-			agent TEXT NOT NULL,
-			scope_path TEXT NOT NULL,
-			individual INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY(skill_id, agent, scope_path)
-		);
-		CREATE TABLE IF NOT EXISTS activation_groups (
-			skill_id INTEGER NOT NULL,
-			agent TEXT NOT NULL,
-			scope_path TEXT NOT NULL,
-			group_id INTEGER NOT NULL REFERENCES groups(id),
-			PRIMARY KEY(skill_id, agent, scope_path, group_id),
-			FOREIGN KEY(skill_id, agent, scope_path) REFERENCES activations(skill_id, agent, scope_path) ON DELETE CASCADE
-		);
-	`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("initialize library: %w", err)
 	}
 	return &sqliteLibrary{db: db}, nil
 }
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name) VALUES (?)`, name)
 	if err != nil {
@@ -329,6 +359,8 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Gro
 }
 
 func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return err
@@ -343,6 +375,8 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 }
 
 func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
@@ -380,10 +414,14 @@ func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (s
 }
 
 func (l *sqliteLibrary) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	return l.db.Close()
 }
 
 func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	root, err := filepath.Abs(source.Path)
 	if err != nil {
@@ -397,6 +435,8 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill 
 }
 
 func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name string, files []File) (skill Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if source.Type == SourceLocal {
 		return Skill{}, fmt.Errorf("install fetched skill: local sources must use Install")
@@ -405,6 +445,8 @@ func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name 
 }
 
 func (l *sqliteLibrary) InstallRemote(ctx context.Context, source Source, opts InstallOptions) (installed []Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateSource(source); err != nil {
 		return nil, err
@@ -490,6 +532,8 @@ func (l *sqliteLibrary) install(ctx context.Context, source Source, name string,
 }
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (skill Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	skill, err = l.GetSkill(ctx, id)
 	if err != nil {
@@ -562,6 +606,8 @@ func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File)
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	var locator []byte
 	var fetched string
@@ -609,6 +655,8 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 }
 
 func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
 	if err != nil {
@@ -629,6 +677,8 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions 
 }
 
 func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	version = SkillVersion{ID: id}
 	if err := l.db.QueryRowContext(ctx, `SELECT skill_id FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID); err != nil {
@@ -658,6 +708,8 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version S
 }
 
 func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	oldVersion, err := l.GetVersion(ctx, oldID)
 	if err != nil {
@@ -695,6 +747,8 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 }
 
 func (l *sqliteLibrary) SourceHasUpdate(ctx context.Context, id SourceID, latestRef string) (available bool, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	var lastSeenRef string
 	if err := l.db.QueryRowContext(ctx, `SELECT last_seen_ref FROM sources WHERE id = ?`, id).Scan(&lastSeenRef); err != nil {
@@ -728,6 +782,8 @@ func validateSource(source Source) error {
 }
 
 func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skills ORDER BY name, id`)
 	if err != nil {
@@ -953,6 +1009,8 @@ func discoverSkills(files []File, fallbackName string) ([]fetchedSkill, error) {
 }
 
 func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if opts.ProjectedCopies != "" && opts.ProjectedCopies != Keep && opts.ProjectedCopies != Remove {
 		return fmt.Errorf("invalid projected copies option")
@@ -1000,6 +1058,8 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 }
 
 func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if path == "" {
 		return RegisteredProject{}, fmt.Errorf("register project: path is required")
@@ -1040,6 +1100,8 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 }
 
 func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []RegisteredProject, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id, path FROM projects ORDER BY path, id`)
 	if err != nil {
@@ -1067,6 +1129,8 @@ func projectScopes(path string) []Scope {
 }
 
 func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if opts.ProjectedCopies != "" && opts.ProjectedCopies != Keep && opts.ProjectedCopies != Remove {
 		return fmt.Errorf("invalid projected copies option")
@@ -1125,6 +1189,8 @@ func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, sco
 }
 
 func (l *sqliteLibrary) ListScopes(ctx context.Context) (scopes []Scope, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -1145,6 +1211,8 @@ func (l *sqliteLibrary) ListScopes(ctx context.Context) (scopes []Scope, err err
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	return l.activate(ctx, id, scope, opts, true, 0)
 }
@@ -1234,6 +1302,8 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope Scope, o
 }
 
 func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateScope(scope); err != nil {
 		return err
@@ -1290,6 +1360,8 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, scope 
 }
 
 func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateScope(scope); err != nil {
 		return err
@@ -1320,6 +1392,8 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 }
 
 func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateScope(scope); err != nil {
 		return err
@@ -1381,6 +1455,8 @@ func validateScope(scope Scope) error {
 }
 
 func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Activation, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, scope_path, individual FROM activations ORDER BY skill_id, agent, scope_path`)
 	if err != nil {
@@ -1443,6 +1519,8 @@ func typedError(err error) error {
 }
 
 func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Collection, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT source_id, id FROM skills ORDER BY source_id, id`)
 	if err != nil {

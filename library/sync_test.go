@@ -154,7 +154,7 @@ func TestSyncPushThenPullReplacesLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fake.Exec(`CREATE TABLE skills (id INTEGER PRIMARY KEY)`); err != nil {
+	if _, err := fake.Exec(`PRAGMA application_id = 1397443650; PRAGMA user_version = 1; CREATE TABLE skills (id INTEGER PRIMARY KEY)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := fake.Close(); err != nil {
@@ -169,6 +169,42 @@ func TestSyncPushThenPullReplacesLibrary(t *testing.T) {
 	}
 	if _, err := lib.GetSkill(ctx, original.ID); err != nil {
 		t.Fatalf("foreign pull corrupted local library: %v", err)
+	}
+}
+
+func TestOpenRejectsForeignDatabaseWithoutMutatingIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "foreign.db")
+	foreign, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := foreign.Exec(`CREATE TABLE notes (body TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := foreign.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if lib, err := library.Open(path); err == nil {
+		_ = lib.Close()
+		t.Fatal("Open accepted a foreign database")
+	}
+	foreign, err = sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer foreign.Close()
+	var applicationID, notes, libraryTables int
+	if err := foreign.QueryRow(`PRAGMA application_id`).Scan(&applicationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := foreign.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'notes'`).Scan(&notes); err != nil {
+		t.Fatal(err)
+	}
+	if err := foreign.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('skills', 'sources')`).Scan(&libraryTables); err != nil {
+		t.Fatal(err)
+	}
+	if applicationID != 0 || notes != 1 || libraryTables != 0 {
+		t.Fatalf("foreign database mutated: application_id=%d notes=%d library_tables=%d", applicationID, notes, libraryTables)
 	}
 }
 

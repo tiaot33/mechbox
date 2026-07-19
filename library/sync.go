@@ -28,6 +28,8 @@ type s3Config struct {
 }
 
 func (l *sqliteLibrary) SyncPush(ctx context.Context) (err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	snapshot, err := os.CreateTemp("", ".library-sync-*.db")
 	if err != nil {
@@ -94,6 +96,8 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context) (err error) {
 	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
 		return fmt.Errorf("remap pulled projects: %w", err)
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	return backupDatabase(ctx, l.db, check)
 }
 
@@ -121,14 +125,24 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 	if applicationID != libraryApplicationID || userVersion != librarySchemaVersion {
 		return fmt.Errorf("unsupported database identity application_id=%d user_version=%d", applicationID, userVersion)
 	}
-	for _, table := range []string{"sources", "skills", "skill_versions", "blobs", "version_files", "groups", "skill_groups", "projects", "activations", "activation_groups"} {
-		var count int
-		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count); err != nil {
-			return err
-		}
-		if count != 1 {
-			return fmt.Errorf("missing table %s", table)
-		}
+	actual, err := schemaFingerprint(ctx, db)
+	if err != nil {
+		return err
+	}
+	expectedDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return err
+	}
+	defer expectedDB.Close()
+	if _, err := expectedDB.Exec(schemaSQL); err != nil {
+		return err
+	}
+	expected, err := schemaFingerprint(ctx, expectedDB)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("schema fingerprint mismatch")
 	}
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
@@ -139,6 +153,26 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("foreign key check failed")
 	}
 	return rows.Err()
+}
+
+func schemaFingerprint(ctx context.Context, db *sql.DB) (string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	hash := sha256.New()
+	for rows.Next() {
+		var name, statement string
+		if err := rows.Scan(&name, &statement); err != nil {
+			return "", err
+		}
+		_, _ = fmt.Fprintf(hash, "%s\n%s\n", name, strings.Join(strings.Fields(statement), " "))
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
