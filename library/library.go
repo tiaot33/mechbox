@@ -16,6 +16,8 @@ import (
 
 type SkillID int64
 
+type VersionID int64
+
 type SourceType string
 
 const SourceLocal SourceType = "local"
@@ -49,9 +51,25 @@ type Skill struct {
 	Files  []File  `json:"files"`
 }
 
+type SkillVersion struct {
+	ID      VersionID `json:"id"`
+	SkillID SkillID   `json:"skill_id"`
+	Files   []File    `json:"files,omitempty"`
+}
+
+type VersionDiff struct {
+	Changed []string `json:"changed"`
+	Added   []string `json:"added"`
+	Deleted []string `json:"deleted"`
+}
+
 type Library interface {
 	Install(context.Context, LocalSource) (Skill, error)
+	Update(context.Context, SkillID) (Skill, error)
 	GetSkill(context.Context, SkillID) (Skill, error)
+	ListVersions(context.Context, SkillID) ([]SkillVersion, error)
+	GetVersion(context.Context, VersionID) (SkillVersion, error)
+	DiffVersions(context.Context, VersionID, VersionID) (VersionDiff, error)
 	Close() error
 }
 
@@ -141,23 +159,9 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill,
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill id: %w", err)
 	}
-	result, err = tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id) VALUES (?)`, skillID)
+	versionID, err := createVersion(ctx, tx, skillID, files)
 	if err != nil {
-		return Skill{}, fmt.Errorf("store skill version: %w", err)
-	}
-	versionID, err := result.LastInsertId()
-	if err != nil {
-		return Skill{}, fmt.Errorf("read version id: %w", err)
-	}
-	for _, file := range files {
-		sum := sha256.Sum256(file.Content)
-		fingerprint := hex.EncodeToString(sum[:])
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
-			return Skill{}, fmt.Errorf("store %s: %w", file.Path, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES (?, ?, ?, ?)`, versionID, file.Path, fingerprint, file.Mode); err != nil {
-			return Skill{}, fmt.Errorf("store %s metadata: %w", file.Path, err)
-		}
+		return Skill{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
 		return Skill{}, fmt.Errorf("select current version: %w", err)
@@ -166,6 +170,56 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill,
 		return Skill{}, fmt.Errorf("commit install: %w", err)
 	}
 	return Skill{ID: SkillID(skillID), Name: filepath.Base(root), Source: Source{Type: SourceLocal, Path: root}, Files: files}, nil
+}
+
+func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (Skill, error) {
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return Skill{}, err
+	}
+	files, err := readFiles(ctx, skill.Source.Path)
+	if err != nil {
+		return Skill{}, err
+	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Skill{}, fmt.Errorf("begin update: %w", err)
+	}
+	defer tx.Rollback()
+	versionID, err := createVersion(ctx, tx, int64(id), files)
+	if err != nil {
+		return Skill{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
+		return Skill{}, fmt.Errorf("select current version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Skill{}, fmt.Errorf("commit update: %w", err)
+	}
+	skill.Files = files
+	return skill, nil
+}
+
+func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File) (int64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id) VALUES (?)`, skillID)
+	if err != nil {
+		return 0, fmt.Errorf("store skill version: %w", err)
+	}
+	versionID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read version id: %w", err)
+	}
+	for _, file := range files {
+		sum := sha256.Sum256(file.Content)
+		fingerprint := hex.EncodeToString(sum[:])
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
+			return 0, fmt.Errorf("store %s: %w", file.Path, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES (?, ?, ?, ?)`, versionID, file.Path, fingerprint, file.Mode); err != nil {
+			return 0, fmt.Errorf("store %s metadata: %w", file.Path, err)
+		}
+	}
+	return versionID, nil
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (Skill, error) {
@@ -208,6 +262,91 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (Skill, error)
 		return Skill{}, fmt.Errorf("read skill files: %w", err)
 	}
 	return skill, nil
+}
+
+func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) ([]SkillVersion, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list skill versions: %w", err)
+	}
+	defer rows.Close()
+	var versions []SkillVersion
+	for rows.Next() {
+		version := SkillVersion{SkillID: id}
+		if err := rows.Scan(&version.ID); err != nil {
+			return nil, fmt.Errorf("read skill version: %w", err)
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read skill versions: %w", err)
+	}
+	return versions, nil
+}
+
+func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (SkillVersion, error) {
+	version := SkillVersion{ID: id}
+	if err := l.db.QueryRowContext(ctx, `SELECT skill_id FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID); err != nil {
+		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
+	}
+	rows, err := l.db.QueryContext(ctx, `
+		SELECT version_files.path, blobs.content, version_files.mode
+		FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE version_files.version_id = ?
+		ORDER BY version_files.path
+	`, id)
+	if err != nil {
+		return SkillVersion{}, fmt.Errorf("get skill version files: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var file File
+		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
+			return SkillVersion{}, fmt.Errorf("read skill version file: %w", err)
+		}
+		version.Files = append(version.Files, file)
+	}
+	if err := rows.Err(); err != nil {
+		return SkillVersion{}, fmt.Errorf("read skill version files: %w", err)
+	}
+	return version, nil
+}
+
+func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (VersionDiff, error) {
+	oldVersion, err := l.GetVersion(ctx, oldID)
+	if err != nil {
+		return VersionDiff{}, err
+	}
+	newVersion, err := l.GetVersion(ctx, newID)
+	if err != nil {
+		return VersionDiff{}, err
+	}
+	if oldVersion.SkillID != newVersion.SkillID {
+		return VersionDiff{}, fmt.Errorf("diff skill versions: versions belong to different skills")
+	}
+	oldFiles := make(map[string][sha256.Size]byte, len(oldVersion.Files))
+	for _, file := range oldVersion.Files {
+		oldFiles[file.Path] = sha256.Sum256(file.Content)
+	}
+	newFiles := make(map[string][sha256.Size]byte, len(newVersion.Files))
+	for _, file := range newVersion.Files {
+		newFiles[file.Path] = sha256.Sum256(file.Content)
+	}
+	var diff VersionDiff
+	for _, file := range oldVersion.Files {
+		newSum, ok := newFiles[file.Path]
+		if !ok {
+			diff.Deleted = append(diff.Deleted, file.Path)
+		} else if oldFiles[file.Path] != newSum {
+			diff.Changed = append(diff.Changed, file.Path)
+		}
+	}
+	for _, file := range newVersion.Files {
+		if _, ok := oldFiles[file.Path]; !ok {
+			diff.Added = append(diff.Added, file.Path)
+		}
+	}
+	return diff, nil
 }
 
 func readFiles(ctx context.Context, root string) ([]File, error) {
