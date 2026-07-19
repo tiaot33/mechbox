@@ -291,6 +291,13 @@ func TestSkillsFromSameSourceShareSource(t *testing.T) {
 	if first.Source.ID != second.Source.ID {
 		t.Fatalf("source IDs = %d and %d, want one shared Source", first.Source.ID, second.Source.ID)
 	}
+	collections, err := lib.ListCollections(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(collections) != 1 || !reflect.DeepEqual(skillIDs(collections[0].Skills), []library.SkillID{first.ID, second.ID}) {
+		t.Fatalf("ListCollections() = %#v, want both skills in one collection", collections)
+	}
 }
 
 func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
@@ -367,6 +374,39 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 
 	if err := lib.Activate(ctx, library.SkillID(9999), scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Activate() unknown skill error = %v", err)
+	}
+}
+
+func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "first-skill")
+	secondSource := filepath.Join(root, "second-skill")
+	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
+	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	first, err := lib.Install(context.Background(), library.LocalSource{Path: firstSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.Install(context.Background(), library.LocalSource{Path: secondSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.ListCollections(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []library.Collection{
+		{Source: first.Source, Skills: []library.Skill{first}},
+		{Source: second.Source, Skills: []library.Skill{second}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListCollections() = %#v, want %#v", got, want)
 	}
 }
 func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {

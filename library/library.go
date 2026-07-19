@@ -141,6 +141,11 @@ type Activation struct {
 	Scope   Scope   `json:"scope"`
 }
 
+type Collection struct {
+	Source Source  `json:"source"`
+	Skills []Skill `json:"skills"`
+}
+
 type Library interface {
 	Install(context.Context, LocalSource) (Skill, error)
 	InstallFetched(context.Context, Source, string, []File) (Skill, error)
@@ -157,6 +162,7 @@ type Library interface {
 	Activate(context.Context, SkillID, Scope, ActivateOptions) error
 	Deactivate(context.Context, SkillID, Scope) error
 	ListActivations(context.Context) ([]Activation, error)
+	ListCollections(context.Context) ([]Collection, error)
 	Close() error
 }
 
@@ -698,6 +704,50 @@ func typedError(err error) error {
 		code = SourceUnreachable
 	}
 	return &Error{Code: code, Message: err.Error(), Err: err}
+}
+
+func (l *sqliteLibrary) ListCollections(ctx context.Context) ([]Collection, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT source_id, id FROM skills ORDER BY source_id, id`)
+	if err != nil {
+		return nil, fmt.Errorf("list collections: %w", err)
+	}
+	type membership struct {
+		sourceID int64
+		skillID  SkillID
+	}
+	var memberships []membership
+	for rows.Next() {
+		var item membership
+		if err := rows.Scan(&item.sourceID, &item.skillID); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("read collection membership: %w", err)
+		}
+		memberships = append(memberships, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("read collections: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close collections: %w", err)
+	}
+
+	// ponytail: one lookup per skill; replace with a joined mapper if library size makes this measurable.
+	var collections []Collection
+	var currentSourceID int64
+	for _, item := range memberships {
+		skill, err := l.GetSkill(ctx, item.skillID)
+		if err != nil {
+			return nil, err
+		}
+		if len(collections) == 0 || item.sourceID != currentSourceID {
+			collections = append(collections, Collection{Source: skill.Source})
+			currentSourceID = item.sourceID
+		}
+		last := len(collections) - 1
+		collections[last].Skills = append(collections[last].Skills, skill)
+	}
+	return collections, nil
 }
 func readFiles(ctx context.Context, root string) ([]File, error) {
 	info, err := os.Stat(root)
