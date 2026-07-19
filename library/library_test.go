@@ -419,6 +419,69 @@ func skillNames(skills []library.Skill) []string {
 	return names
 }
 
+func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		closeFirst bool
+		want       library.ErrorCode
+		call       func(library.Library) error
+	}{
+		{name: "create group", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+			_, err := lib.CreateGroup(context.Background(), "group")
+			return err
+		}},
+		{name: "install fetched", want: library.Internal, call: func(lib library.Library) error {
+			_, err := lib.InstallFetched(context.Background(), library.Source{Type: library.SourceLocal}, "skill", nil)
+			return err
+		}},
+		{name: "list versions", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+			_, err := lib.ListVersions(context.Background(), 1)
+			return err
+		}},
+		{name: "get version", want: library.NotFound, call: func(lib library.Library) error {
+			_, err := lib.GetVersion(context.Background(), 9999)
+			return err
+		}},
+		{name: "diff versions", want: library.NotFound, call: func(lib library.Library) error {
+			_, err := lib.DiffVersions(context.Background(), 9998, 9999)
+			return err
+		}},
+		{name: "source update", want: library.NotFound, call: func(lib library.Library) error {
+			_, err := lib.SourceHasUpdate(context.Background(), 9999, "new")
+			return err
+		}},
+		{name: "list scopes", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+			_, err := lib.ListScopes(context.Background())
+			return err
+		}},
+		{name: "list collections", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+			_, err := lib.ListCollections(context.Background())
+			return err
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.closeFirst {
+				if err := lib.Close(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				t.Cleanup(func() { _ = lib.Close() })
+			}
+			err = test.call(lib)
+			typed, ok := err.(*library.Error)
+			if !ok || typed.Code != test.want {
+				t.Fatalf("error = %T %v, want *library.Error code %s", err, err, test.want)
+			}
+		})
+	}
+}
+
 func TestInstallFetchedSkillsPersistsTypedSources(t *testing.T) {
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {

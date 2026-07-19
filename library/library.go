@@ -304,7 +304,8 @@ func Open(path string) (Library, error) {
 	return &sqliteLibrary{db: db}, nil
 }
 
-func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (Group, error) {
+func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
+	defer func() { err = typedError(err) }()
 	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name) VALUES (?)`, name)
 	if err != nil {
 		return Group{}, fmt.Errorf("create group: %w", err)
@@ -384,7 +385,8 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill 
 	return l.install(ctx, Source{Type: SourceLocal, Locator: SourceLocator{Path: root}}, filepath.Base(root), files)
 }
 
-func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name string, files []File) (Skill, error) {
+func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name string, files []File) (skill Skill, err error) {
+	defer func() { err = typedError(err) }()
 	if source.Type == SourceLocal {
 		return Skill{}, fmt.Errorf("install fetched skill: local sources must use Install")
 	}
@@ -595,13 +597,13 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 	return skill, nil
 }
 
-func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) ([]SkillVersion, error) {
+func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
+	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("list skill versions: %w", err)
 	}
 	defer rows.Close()
-	var versions []SkillVersion
 	for rows.Next() {
 		version := SkillVersion{SkillID: id}
 		if err := rows.Scan(&version.ID); err != nil {
@@ -615,8 +617,9 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) ([]SkillVe
 	return versions, nil
 }
 
-func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (SkillVersion, error) {
-	version := SkillVersion{ID: id}
+func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
+	defer func() { err = typedError(err) }()
+	version = SkillVersion{ID: id}
 	if err := l.db.QueryRowContext(ctx, `SELECT skill_id FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID); err != nil {
 		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
 	}
@@ -643,7 +646,8 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (SkillVers
 	return version, nil
 }
 
-func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (VersionDiff, error) {
+func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
+	defer func() { err = typedError(err) }()
 	oldVersion, err := l.GetVersion(ctx, oldID)
 	if err != nil {
 		return VersionDiff{}, err
@@ -663,7 +667,6 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 	for _, file := range newVersion.Files {
 		newFiles[file.Path] = sha256.Sum256(file.Content)
 	}
-	var diff VersionDiff
 	for _, file := range oldVersion.Files {
 		newSum, ok := newFiles[file.Path]
 		if !ok {
@@ -680,7 +683,8 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 	return diff, nil
 }
 
-func (l *sqliteLibrary) SourceHasUpdate(ctx context.Context, id SourceID, latestRef string) (bool, error) {
+func (l *sqliteLibrary) SourceHasUpdate(ctx context.Context, id SourceID, latestRef string) (available bool, err error) {
+	defer func() { err = typedError(err) }()
 	var lastSeenRef string
 	if err := l.db.QueryRowContext(ctx, `SELECT last_seen_ref FROM sources WHERE id = ?`, id).Scan(&lastSeenRef); err != nil {
 		return false, fmt.Errorf("check source update: %w", err)
@@ -1109,12 +1113,13 @@ func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, sco
 	return nil
 }
 
-func (l *sqliteLibrary) ListScopes(ctx context.Context) ([]Scope, error) {
+func (l *sqliteLibrary) ListScopes(ctx context.Context) (scopes []Scope, err error) {
+	defer func() { err = typedError(err) }()
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, typedError(fmt.Errorf("find home directory: %w", err))
 	}
-	scopes := []Scope{
+	scopes = []Scope{
 		{Agent: AgentClaudeCode, Path: filepath.Join(home, ".claude", "skills")},
 		{Agent: AgentCodex, Path: filepath.Join(home, ".codex", "skills")},
 	}
@@ -1426,7 +1431,8 @@ func typedError(err error) error {
 	return &Error{Code: code, Message: err.Error(), Err: err}
 }
 
-func (l *sqliteLibrary) ListCollections(ctx context.Context) ([]Collection, error) {
+func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Collection, err error) {
+	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT source_id, id FROM skills ORDER BY source_id, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list collections: %w", err)
@@ -1453,7 +1459,6 @@ func (l *sqliteLibrary) ListCollections(ctx context.Context) ([]Collection, erro
 	}
 
 	// ponytail: one lookup per skill; replace with a joined mapper if library size makes this measurable.
-	var collections []Collection
 	var currentSourceID int64
 	for _, item := range memberships {
 		skill, err := l.GetSkill(ctx, item.skillID)
