@@ -7,14 +7,18 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/mattn/go-sqlite3"
 )
 
 type s3Config struct {
@@ -24,20 +28,23 @@ type s3Config struct {
 
 func (l *sqliteLibrary) SyncPush(ctx context.Context) (err error) {
 	defer func() { err = typedError(err) }()
-	if l.path == ":memory:" {
-		return fmt.Errorf("sync requires a file-backed library")
-	}
-	snapshot, err := os.CreateTemp(filepath.Dir(l.path), ".library-sync-*.db")
+	snapshot, err := os.CreateTemp("", ".library-sync-*.db")
 	if err != nil {
 		return fmt.Errorf("create sync snapshot: %w", err)
 	}
 	snapshotPath := snapshot.Name()
 	_ = snapshot.Close()
-	_ = os.Remove(snapshotPath)
 	defer os.Remove(snapshotPath)
-	quoted := strings.ReplaceAll(snapshotPath, "'", "''")
-	if _, err := l.db.ExecContext(ctx, "VACUUM INTO '"+quoted+"'"); err != nil {
+	snapshotDB, err := openExistingLibrary(ctx, snapshotPath)
+	if err != nil {
+		return fmt.Errorf("open sync snapshot: %w", err)
+	}
+	if err := backupDatabase(ctx, snapshotDB, l.db); err != nil {
+		_ = snapshotDB.Close()
 		return fmt.Errorf("snapshot library: %w", err)
+	}
+	if err := snapshotDB.Close(); err != nil {
+		return fmt.Errorf("close sync snapshot: %w", err)
 	}
 	// ponytail: full-replace sync holds one database image in memory; stream when libraries become large enough to measure.
 	data, err := os.ReadFile(snapshotPath)
@@ -50,14 +57,11 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context) (err error) {
 
 func (l *sqliteLibrary) SyncPull(ctx context.Context) (err error) {
 	defer func() { err = typedError(err) }()
-	if l.path == ":memory:" {
-		return fmt.Errorf("sync requires a file-backed library")
-	}
 	data, err := s3Request(ctx, http.MethodGet, nil)
 	if err != nil {
 		return err
 	}
-	download, err := os.CreateTemp(filepath.Dir(l.path), ".library-pull-*.db")
+	download, err := os.CreateTemp("", ".library-pull-*.db")
 	if err != nil {
 		return fmt.Errorf("create pull file: %w", err)
 	}
@@ -74,49 +78,23 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
+	defer check.Close()
 	var integrity string
 	err = check.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity)
 	var hasSkillsTable int
 	if err == nil {
 		err = check.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'skills'`).Scan(&hasSkillsTable)
 	}
-	_ = check.Close()
 	if err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
 	if integrity != "ok" || hasSkillsTable != 1 {
 		return fmt.Errorf("validate pulled library: integrity=%q skills_table=%d", integrity, hasSkillsTable)
 	}
-
-	backup, err := os.CreateTemp(filepath.Dir(l.path), ".library-backup-*.db")
-	if err != nil {
-		return fmt.Errorf("create library backup: %w", err)
+	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
+		return fmt.Errorf("remap pulled projects: %w", err)
 	}
-	backupPath := backup.Name()
-	_ = backup.Close()
-	_ = os.Remove(backupPath)
-	defer os.Remove(backupPath)
-	if err := l.db.Close(); err != nil {
-		return fmt.Errorf("close local library: %w", err)
-	}
-	if err := os.Rename(l.path, backupPath); err != nil {
-		l.db, _ = openExistingLibrary(context.Background(), l.path)
-		return fmt.Errorf("backup local library: %w", err)
-	}
-	restore := func(cause error) error {
-		_ = os.Remove(l.path)
-		_ = os.Rename(backupPath, l.path)
-		l.db, _ = openExistingLibrary(context.Background(), l.path)
-		return cause
-	}
-	if err := os.Rename(downloadPath, l.path); err != nil {
-		return restore(fmt.Errorf("replace local library: %w", err))
-	}
-	l.db, err = openExistingLibrary(ctx, l.path)
-	if err != nil {
-		return restore(fmt.Errorf("open pulled library: %w", err))
-	}
-	return nil
+	return backupDatabase(ctx, l.db, check)
 }
 
 func openExistingLibrary(ctx context.Context, path string) (*sql.DB, error) {
@@ -132,14 +110,198 @@ func openExistingLibrary(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
+func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
+	destinationConn, err := destination.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer destinationConn.Close()
+	sourceConn, err := source.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer sourceConn.Close()
+	return destinationConn.Raw(func(destinationDriver any) error {
+		destinationSQLite, ok := destinationDriver.(*sqlite3.SQLiteConn)
+		if !ok {
+			return fmt.Errorf("unexpected destination SQLite driver %T", destinationDriver)
+		}
+		return sourceConn.Raw(func(sourceDriver any) error {
+			sourceSQLite, ok := sourceDriver.(*sqlite3.SQLiteConn)
+			if !ok {
+				return fmt.Errorf("unexpected source SQLite driver %T", sourceDriver)
+			}
+			backup, err := destinationSQLite.Backup("main", sourceSQLite, "main")
+			if err != nil {
+				return err
+			}
+			for {
+				done, err := backup.Step(128)
+				if err != nil {
+					_ = backup.Close()
+					return err
+				}
+				if done {
+					return backup.Close()
+				}
+				select {
+				case <-ctx.Done():
+					_ = backup.Close()
+					return ctx.Err()
+				case <-time.After(time.Millisecond):
+				}
+			}
+		})
+	})
+}
+
+func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
+	paths := map[string]string{}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &paths); err != nil {
+			return fmt.Errorf("decode SKILLS_PROJECT_PATH_MAP: %w", err)
+		}
+	}
+	projectRows, err := db.QueryContext(ctx, `SELECT path FROM projects`)
+	if err != nil {
+		return err
+	}
+	var remoteProjects []string
+	for projectRows.Next() {
+		var path string
+		if err := projectRows.Scan(&path); err != nil {
+			_ = projectRows.Close()
+			return err
+		}
+		remoteProjects = append(remoteProjects, path)
+	}
+	if err := projectRows.Err(); err != nil {
+		_ = projectRows.Close()
+		return err
+	}
+	if err := projectRows.Close(); err != nil {
+		return err
+	}
+	oldPaths := make([]string, 0, len(paths))
+	for old, newPath := range paths {
+		if old == "" || newPath == "" {
+			return fmt.Errorf("project path mapping cannot be empty")
+		}
+		absolute, err := filepath.Abs(newPath)
+		if err != nil {
+			return err
+		}
+		paths[old] = filepath.Clean(absolute)
+		oldPaths = append(oldPaths, old)
+	}
+	sort.Slice(oldPaths, func(i, j int) bool { return len(oldPaths[i]) > len(oldPaths[j]) })
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
+		return err
+	}
+	for _, old := range oldPaths {
+		if _, err := tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE path = ?`, paths[old], old); err != nil {
+			return err
+		}
+	}
+	var hasActivationGroups int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'activation_groups'`).Scan(&hasActivationGroups); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT skill_id, agent, scope_path FROM activations`)
+	if err != nil {
+		return err
+	}
+	type activationPath struct {
+		skillID SkillID
+		agent   Agent
+		path    string
+	}
+	var activations []activationPath
+	for rows.Next() {
+		var activation activationPath
+		if err := rows.Scan(&activation.skillID, &activation.agent, &activation.path); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		activations = append(activations, activation)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, activation := range activations {
+		mapped := activation.path
+		for _, old := range oldPaths {
+			if candidate, ok := remapPath(activation.path, old, paths[old]); ok {
+				mapped = candidate
+				break
+			}
+		}
+		if mapped == activation.path && !isProjectScope(activation.path, remoteProjects) {
+			switch activation.agent {
+			case AgentClaudeCode:
+				mapped = filepath.Join(home, ".claude", "skills")
+			case AgentCodex:
+				mapped = filepath.Join(home, ".codex", "skills")
+			}
+		}
+		if mapped != activation.path {
+			if hasActivationGroups == 1 {
+				if _, err := tx.ExecContext(ctx, `UPDATE activation_groups SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE activations SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func isProjectScope(path string, projects []string) bool {
+	for _, project := range projects {
+		if _, ok := remapPath(path, project, project); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func remapPath(path, old, newPath string) (string, bool) {
+	if path == old {
+		return newPath, true
+	}
+	for _, separator := range []string{"/", `\`} {
+		if strings.HasPrefix(path, old+separator) {
+			relative := strings.ReplaceAll(path[len(old)+1:], `\`, "/")
+			return filepath.Join(newPath, filepath.FromSlash(relative)), true
+		}
+	}
+	return path, false
+}
+
 func s3Request(ctx context.Context, method string, body []byte) ([]byte, error) {
 	cfg, err := loadS3Config()
 	if err != nil {
 		return nil, err
 	}
-	resource := "/" + pathEscape(cfg.key)
+	resource := "/" + awsURIEncode(cfg.key, true)
 	if cfg.pathStyle {
-		resource = "/" + pathEscape(cfg.bucket) + resource
+		resource = "/" + awsURIEncode(cfg.bucket, false) + resource
 	}
 	requestURL := strings.TrimRight(cfg.endpoint, "/") + resource
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(body))
@@ -195,12 +357,20 @@ func loadS3Config() (s3Config, error) {
 	return cfg, nil
 }
 
-func pathEscape(value string) string {
-	parts := strings.Split(value, "/")
-	for i := range parts {
-		parts[i] = url.PathEscape(parts[i])
+func awsURIEncode(value string, preserveSlash bool) string {
+	const hexadecimal = "0123456789ABCDEF"
+	var encoded strings.Builder
+	for i := 0; i < len(value); i++ {
+		character := value[i]
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-._~", rune(character)) || preserveSlash && character == '/' {
+			encoded.WriteByte(character)
+			continue
+		}
+		encoded.WriteByte('%')
+		encoded.WriteByte(hexadecimal[character>>4])
+		encoded.WriteByte(hexadecimal[character&15])
 	}
-	return strings.Join(parts, "/")
+	return encoded.String()
 }
 
 func signS3Request(req *http.Request, payload []byte, cfg s3Config, now time.Time) {

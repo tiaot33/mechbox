@@ -230,8 +230,7 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 }
 
 type sqliteLibrary struct {
-	db   *sql.DB
-	path string
+	db *sql.DB
 }
 
 func Open(path string) (Library, error) {
@@ -304,7 +303,7 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize library: %w", err)
 	}
-	return &sqliteLibrary{db: db, path: path}, nil
+	return &sqliteLibrary{db: db}, nil
 }
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
