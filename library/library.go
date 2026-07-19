@@ -1,0 +1,259 @@
+package library
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+type SkillID int64
+
+type SourceType string
+
+const SourceLocal SourceType = "local"
+
+type FileMode string
+
+const (
+	ModeRegular    FileMode = "regular"
+	ModeExecutable FileMode = "executable"
+)
+
+type LocalSource struct {
+	Path string `json:"path"`
+}
+
+type Source struct {
+	Type SourceType `json:"type"`
+	Path string     `json:"path"`
+}
+
+type File struct {
+	Path    string   `json:"path"`
+	Content []byte   `json:"content"`
+	Mode    FileMode `json:"mode"`
+}
+
+type Skill struct {
+	ID     SkillID `json:"id"`
+	Name   string  `json:"name"`
+	Source Source  `json:"source"`
+	Files  []File  `json:"files"`
+}
+
+type Library interface {
+	Install(context.Context, LocalSource) (Skill, error)
+	GetSkill(context.Context, SkillID) (Skill, error)
+	Close() error
+}
+
+type sqliteLibrary struct {
+	db *sql.DB
+}
+
+func Open(path string) (Library, error) {
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		return nil, fmt.Errorf("open library: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`
+		PRAGMA foreign_keys = ON;
+		CREATE TABLE IF NOT EXISTS sources (
+			id INTEGER PRIMARY KEY,
+			type TEXT NOT NULL,
+			locator TEXT NOT NULL,
+			UNIQUE(type, locator)
+		);
+		CREATE TABLE IF NOT EXISTS skills (
+			id INTEGER PRIMARY KEY,
+			source_id INTEGER NOT NULL REFERENCES sources(id),
+			name TEXT NOT NULL,
+			current_version_id INTEGER REFERENCES skill_versions(id),
+			UNIQUE(source_id, name)
+		);
+		CREATE TABLE IF NOT EXISTS skill_versions (
+			id INTEGER PRIMARY KEY,
+			skill_id INTEGER NOT NULL REFERENCES skills(id)
+		);
+		CREATE TABLE IF NOT EXISTS blobs (
+			fingerprint TEXT PRIMARY KEY,
+			content BLOB NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS version_files (
+			version_id INTEGER NOT NULL REFERENCES skill_versions(id),
+			path TEXT NOT NULL,
+			fingerprint TEXT NOT NULL REFERENCES blobs(fingerprint),
+			mode TEXT NOT NULL CHECK(mode IN ('regular', 'executable')),
+			PRIMARY KEY(version_id, path)
+		);
+	`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("initialize library: %w", err)
+	}
+	return &sqliteLibrary{db: db}, nil
+}
+
+func (l *sqliteLibrary) Close() error {
+	return l.db.Close()
+}
+
+func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill, error) {
+	root, err := filepath.Abs(source.Path)
+	if err != nil {
+		return Skill{}, fmt.Errorf("resolve source path: %w", err)
+	}
+	files, err := readFiles(ctx, root)
+	if err != nil {
+		return Skill{}, err
+	}
+	locator, err := json.Marshal(LocalSource{Path: root})
+	if err != nil {
+		return Skill{}, fmt.Errorf("encode source: %w", err)
+	}
+
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Skill{}, fmt.Errorf("begin install: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO sources(type, locator) VALUES (?, ?)`, SourceLocal, locator); err != nil {
+		return Skill{}, fmt.Errorf("store source: %w", err)
+	}
+	var sourceID int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sources WHERE type = ? AND locator = ?`, SourceLocal, locator).Scan(&sourceID); err != nil {
+		return Skill{}, fmt.Errorf("read source: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, filepath.Base(root))
+	if err != nil {
+		return Skill{}, fmt.Errorf("store skill: %w", err)
+	}
+	skillID, err := result.LastInsertId()
+	if err != nil {
+		return Skill{}, fmt.Errorf("read skill id: %w", err)
+	}
+	result, err = tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id) VALUES (?)`, skillID)
+	if err != nil {
+		return Skill{}, fmt.Errorf("store skill version: %w", err)
+	}
+	versionID, err := result.LastInsertId()
+	if err != nil {
+		return Skill{}, fmt.Errorf("read version id: %w", err)
+	}
+	for _, file := range files {
+		sum := sha256.Sum256(file.Content)
+		fingerprint := hex.EncodeToString(sum[:])
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
+			return Skill{}, fmt.Errorf("store %s: %w", file.Path, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES (?, ?, ?, ?)`, versionID, file.Path, fingerprint, file.Mode); err != nil {
+			return Skill{}, fmt.Errorf("store %s metadata: %w", file.Path, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
+		return Skill{}, fmt.Errorf("select current version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Skill{}, fmt.Errorf("commit install: %w", err)
+	}
+	return Skill{ID: SkillID(skillID), Name: filepath.Base(root), Source: Source{Type: SourceLocal, Path: root}, Files: files}, nil
+}
+
+func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (Skill, error) {
+	var skill Skill
+	var locator []byte
+	err := l.db.QueryRowContext(ctx, `
+		SELECT skills.id, skills.name, sources.type, sources.locator
+		FROM skills JOIN sources ON sources.id = skills.source_id
+		WHERE skills.id = ?
+	`, id).Scan(&skill.ID, &skill.Name, &skill.Source.Type, &locator)
+	if err != nil {
+		return Skill{}, fmt.Errorf("get skill: %w", err)
+	}
+	var local LocalSource
+	if err := json.Unmarshal(locator, &local); err != nil {
+		return Skill{}, fmt.Errorf("decode source: %w", err)
+	}
+	skill.Source.Path = local.Path
+
+	rows, err := l.db.QueryContext(ctx, `
+		SELECT version_files.path, blobs.content, version_files.mode
+		FROM skills
+		JOIN version_files ON version_files.version_id = skills.current_version_id
+		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE skills.id = ?
+		ORDER BY version_files.path
+	`, id)
+	if err != nil {
+		return Skill{}, fmt.Errorf("get skill files: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var file File
+		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
+			return Skill{}, fmt.Errorf("read skill file: %w", err)
+		}
+		skill.Files = append(skill.Files, file)
+	}
+	if err := rows.Err(); err != nil {
+		return Skill{}, fmt.Errorf("read skill files: %w", err)
+	}
+	return skill, nil
+}
+
+func readFiles(ctx context.Context, root string) ([]File, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("read local source: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("read local source: %s is not a directory", root)
+	}
+
+	var files []File
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported file type: %s", path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		mode := ModeRegular
+		if info.Mode().Perm()&0o111 != 0 {
+			mode = ModeExecutable
+		}
+		files = append(files, File{Path: filepath.ToSlash(relative), Content: content, Mode: mode})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read local source: %w", err)
+	}
+	return files, nil
+}
