@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -20,6 +21,30 @@ type SourceID int64
 
 type VersionID int64
 type GroupID int64
+
+type ErrorCode string
+
+const (
+	NotFound          ErrorCode = "not_found"
+	AlreadyExists     ErrorCode = "already_exists"
+	SourceUnreachable ErrorCode = "source_unreachable"
+	Permission        ErrorCode = "permission"
+	Internal          ErrorCode = "internal"
+)
+
+type Error struct {
+	Code    ErrorCode `json:"code"`
+	Message string    `json:"message"`
+	Err     error     `json:"-"`
+}
+
+func (e *Error) Error() string { return e.Message }
+func (e *Error) Unwrap() error { return e.Err }
+
+func IsCode(err error, code ErrorCode) bool {
+	var libraryErr *Error
+	return errors.As(err, &libraryErr) && libraryErr.Code == code
+}
 
 type SourceType string
 
@@ -88,6 +113,34 @@ type Group struct {
 	Name string  `json:"name"`
 }
 
+type Agent string
+
+const (
+	AgentClaudeCode Agent = "claude-code"
+	AgentCodex      Agent = "codex"
+)
+
+type Scope struct {
+	Agent Agent  `json:"agent"`
+	Path  string `json:"path"`
+}
+
+type ConflictPolicy string
+
+const (
+	Fail      ConflictPolicy = "fail"
+	Overwrite ConflictPolicy = "overwrite"
+)
+
+type ActivateOptions struct {
+	OnConflict ConflictPolicy `json:"on_conflict"`
+}
+
+type Activation struct {
+	SkillID SkillID `json:"skill_id"`
+	Scope   Scope   `json:"scope"`
+}
+
 type Library interface {
 	Install(context.Context, LocalSource) (Skill, error)
 	InstallFetched(context.Context, Source, string, []File) (Skill, error)
@@ -100,6 +153,10 @@ type Library interface {
 	CreateGroup(context.Context, string) (Group, error)
 	AddSkillToGroup(context.Context, GroupID, SkillID) error
 	ListGroupSkills(context.Context, GroupID) ([]Skill, error)
+	ListScopes(context.Context) ([]Scope, error)
+	Activate(context.Context, SkillID, Scope, ActivateOptions) error
+	Deactivate(context.Context, SkillID, Scope) error
+	ListActivations(context.Context) ([]Activation, error)
 	Close() error
 }
 
@@ -153,6 +210,12 @@ func Open(path string) (Library, error) {
 			skill_id INTEGER NOT NULL REFERENCES skills(id),
 			group_id INTEGER NOT NULL REFERENCES groups(id),
 			PRIMARY KEY(skill_id, group_id)
+		);
+		CREATE TABLE IF NOT EXISTS activations (
+			skill_id INTEGER NOT NULL REFERENCES skills(id),
+			agent TEXT NOT NULL,
+			scope_path TEXT NOT NULL,
+			PRIMARY KEY(skill_id, agent, scope_path)
 		);
 	`); err != nil {
 		_ = db.Close()
@@ -217,7 +280,8 @@ func (l *sqliteLibrary) Close() error {
 	return l.db.Close()
 }
 
-func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill, error) {
+func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill Skill, err error) {
+	defer func() { err = typedError(err) }()
 	root, err := filepath.Abs(source.Path)
 	if err != nil {
 		return Skill{}, fmt.Errorf("resolve source path: %w", err)
@@ -341,11 +405,11 @@ func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File)
 	return versionID, nil
 }
 
-func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (Skill, error) {
-	var skill Skill
+func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
+	defer func() { err = typedError(err) }()
 	var locator []byte
 	var fetched string
-	err := l.db.QueryRowContext(ctx, `
+	err = l.db.QueryRowContext(ctx, `
 		SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
 		FROM skills JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
@@ -505,6 +569,136 @@ func validateSource(source Source) error {
 	return nil
 }
 
+func (l *sqliteLibrary) ListScopes(context.Context) ([]Scope, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, typedError(fmt.Errorf("find home directory: %w", err))
+	}
+	return []Scope{
+		{Agent: AgentClaudeCode, Path: filepath.Join(home, ".claude", "skills")},
+		{Agent: AgentCodex, Path: filepath.Join(home, ".codex", "skills")},
+	}, nil
+}
+
+func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
+		return fmt.Errorf("invalid scope")
+	}
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(scope.Path, skill.Name)
+	if _, err := os.Stat(target); err == nil && opts.OnConflict != Overwrite {
+		return &Error{Code: AlreadyExists, Message: "activate skill: target already exists"}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect activation target: %w", err)
+	}
+	if err := os.MkdirAll(scope.Path, 0o755); err != nil {
+		return fmt.Errorf("create scope: %w", err)
+	}
+	stage, err := os.MkdirTemp(scope.Path, "."+skill.Name+"-")
+	if err != nil {
+		return fmt.Errorf("stage activation: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(stage) }()
+	for _, file := range skill.Files {
+		if !filepath.IsLocal(file.Path) {
+			return fmt.Errorf("invalid skill path: %s", file.Path)
+		}
+		path := filepath.Join(stage, filepath.FromSlash(file.Path))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create activation directory: %w", err)
+		}
+		mode := os.FileMode(0o644)
+		if file.Mode == ModeExecutable {
+			mode = 0o755
+		}
+		if err := os.WriteFile(path, file.Content, mode); err != nil {
+			return fmt.Errorf("write activation file: %w", err)
+		}
+	}
+
+	backup := stage + ".old"
+	if _, err := os.Stat(target); err == nil {
+		if err := os.Rename(target, backup); err != nil {
+			return fmt.Errorf("replace activation: %w", err)
+		}
+	}
+	if err := os.Rename(stage, target); err != nil {
+		_ = os.Rename(backup, target)
+		return fmt.Errorf("activate skill: %w", err)
+	}
+	if _, err := l.db.ExecContext(ctx, `INSERT OR REPLACE INTO activations(skill_id, agent, scope_path) VALUES (?, ?, ?)`, id, scope.Agent, scope.Path); err != nil {
+		_ = os.RemoveAll(target)
+		_ = os.Rename(backup, target)
+		return fmt.Errorf("record activation: %w", err)
+	}
+	_ = os.RemoveAll(backup)
+	return nil
+}
+
+func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope) (err error) {
+	defer func() { err = typedError(err) }()
+	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
+		return fmt.Errorf("invalid scope")
+	}
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return err
+	}
+	var exists int
+	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path).Scan(&exists); err != nil {
+		return fmt.Errorf("find activation: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(scope.Path, skill.Name)); err != nil {
+		return fmt.Errorf("deactivate skill: %w", err)
+	}
+	if _, err := l.db.ExecContext(ctx, `DELETE FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
+		return fmt.Errorf("remove activation: %w", err)
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Activation, err error) {
+	defer func() { err = typedError(err) }()
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, scope_path FROM activations ORDER BY skill_id, agent, scope_path`)
+	if err != nil {
+		return nil, fmt.Errorf("list activations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var activation Activation
+		if err := rows.Scan(&activation.SkillID, &activation.Scope.Agent, &activation.Scope.Path); err != nil {
+			return nil, fmt.Errorf("read activation: %w", err)
+		}
+		activations = append(activations, activation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read activations: %w", err)
+	}
+	return activations, nil
+}
+
+func typedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var libraryErr *Error
+	if errors.As(err, &libraryErr) {
+		return err
+	}
+	code := Internal
+	if errors.Is(err, sql.ErrNoRows) {
+		code = NotFound
+	} else if errors.Is(err, fs.ErrPermission) {
+		code = Permission
+	} else if errors.Is(err, fs.ErrNotExist) {
+		code = SourceUnreachable
+	}
+	return &Error{Code: code, Message: err.Error(), Err: err}
+}
 func readFiles(ctx context.Context, root string) ([]File, error) {
 	info, err := os.Stat(root)
 	if err != nil {

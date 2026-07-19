@@ -2,6 +2,7 @@ package library_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -289,6 +290,83 @@ func TestSkillsFromSameSourceShareSource(t *testing.T) {
 	}
 	if first.Source.ID != second.Source.ID {
 		t.Fatalf("source IDs = %d and %d, want one shared Source", first.Source.ID, second.Source.ID)
+	}
+}
+
+func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "example-skill")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	ctx := context.Background()
+	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scopes, err := lib.ListScopes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 2 || scopes[0].Agent != library.AgentClaudeCode || scopes[1].Agent != library.AgentCodex {
+		t.Fatalf("ListScopes() = %#v", scopes)
+	}
+
+	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	target := filepath.Join(scope.Path, skill.Name)
+	writeFile(t, filepath.Join(target, "old.txt"), []byte("old"), 0o644)
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
+		t.Fatalf("Activate() conflict error = %v", err)
+	}
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "old.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("overwritten file still exists: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(target, "scripts", "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatal("activated script is not executable")
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activations) != 1 || activations[0].SkillID != skill.ID || activations[0].Scope != scope {
+		t.Fatalf("ListActivations() = %#v", activations)
+	}
+
+	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deactivated directory still exists: %v", err)
+	}
+	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
+		t.Fatalf("Deactivate removed library skill: %v", err)
+	}
+	activations, err = lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after deactivate = %#v, %v", activations, err)
+	}
+	writeFile(t, filepath.Join(target, "manual.txt"), []byte("manual"), 0o644)
+	if err := lib.Deactivate(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("Deactivate() inactive skill error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "manual.txt")); err != nil {
+		t.Fatalf("Deactivate() removed an untracked directory: %v", err)
+	}
+
+	if err := lib.Activate(ctx, library.SkillID(9999), scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("Activate() unknown skill error = %v", err)
 	}
 }
 func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {
