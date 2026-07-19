@@ -1,9 +1,14 @@
 package library_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -11,6 +16,221 @@ import (
 
 	"github.com/tiaot33/skills-tui/library"
 )
+
+func TestInstallRemoteURLDefaultsToAllSkills(t *testing.T) {
+	archive := zipArchive(t, map[string]string{
+		"first/SKILL.md":  "# First\n",
+		"first/guide.md":  "guide\n",
+		"second/SKILL.md": "# Second\n",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+
+	installed, err := lib.InstallRemote(context.Background(), library.Source{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL + "/skills.zip"},
+	}, library.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := skillNames(installed), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("installed skills = %v, want %v", got, want)
+	}
+	if installed[0].Source.ID == 0 || installed[0].Source.ID != installed[1].Source.ID {
+		t.Fatalf("source IDs = %d and %d, want one persisted Source", installed[0].Source.ID, installed[1].Source.ID)
+	}
+	collections, err := lib.ListCollections(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(collections) != 1 || !reflect.DeepEqual(skillNames(collections[0].Skills), []string{"first", "second"}) {
+		t.Fatalf("collections = %#v, want both remote skills grouped by Source", collections)
+	}
+	group, err := lib.CreateGroup(context.Background(), "remote group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSkillToGroup(context.Background(), group.ID, installed[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	if err := lib.ActivateGroup(context.Background(), group.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.RemoveSkill(context.Background(), installed[0].ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	activations, err := lib.ListActivations(context.Background())
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("activations after remote removal = %#v, %v; want none", activations, err)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, installed[0].Name, "SKILL.md")); err != nil {
+		t.Fatalf("default Keep removed remote projection: %v", err)
+	}
+	remaining, err := lib.ListSkills(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := skillNames(remaining), []string{"second"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("skills after remote removal = %v, want %v", got, want)
+	}
+}
+
+func TestInstallRemoteGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T) {
+	repository := t.TempDir()
+	runGit(t, repository, "init", "-b", "main")
+	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte("first\n"), 0o644)
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("second\n"), 0o644)
+	commitGit(t, repository, "initial")
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	ctx := context.Background()
+	installed, err := lib.InstallRemote(ctx, library.Source{
+		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
+	}, library.InstallOptions{Skills: []string{"first"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := skillNames(installed), []string{"first"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("installed skills = %v, want %v", got, want)
+	}
+
+	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte("updated\n"), 0o644)
+	commitGit(t, repository, "update")
+	updated, err := lib.Update(ctx, installed[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(updated.Files[0].Content); got != "updated\n" {
+		t.Fatalf("updated content = %q, want updated", got)
+	}
+	if updated.Source.LastSeenRef == "" || updated.Source.LastSeenRef == installed[0].Source.LastSeenRef {
+		t.Fatalf("updated source ref = %q, want new git commit", updated.Source.LastSeenRef)
+	}
+	persisted, err := lib.GetSkill(ctx, installed[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Source.LastSeenRef != updated.Source.LastSeenRef {
+		t.Fatalf("persisted source ref = %q, want %q", persisted.Source.LastSeenRef, updated.Source.LastSeenRef)
+	}
+	if _, err := lib.Update(ctx, installed[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("versions = %d, want 2 after changed and unchanged updates", len(versions))
+	}
+}
+
+func TestInstallRemoteStoreFetchesPackageVersionAndHonoursSelection(t *testing.T) {
+	archive := zipArchive(t, map[string]string{
+		"first/SKILL.md":  "# First\n",
+		"second/SKILL.md": "# Second\n",
+	})
+	var requestedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requestedPath = request.URL.EscapedPath()
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("SKILLS_STORE_URL", server.URL)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	installed, err := lib.InstallRemote(context.Background(), library.Source{
+		Type:    library.SourceStore,
+		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.2.3 beta"},
+	}, library.InstallOptions{Skills: []string{"second"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := skillNames(installed), []string{"second"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("installed skills = %v, want %v", got, want)
+	}
+	if got, want := requestedPath, "/owner%2Fpackage/1.2.3%20beta"; got != want {
+		t.Fatalf("store path = %q, want %q", got, want)
+	}
+}
+
+func TestInstallRemoteMapsFetchErrorsAndPreservesCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		code   library.ErrorCode
+	}{
+		{name: "permission", status: http.StatusForbidden, code: library.Permission},
+		{name: "unreachable", status: http.StatusServiceUnavailable, code: library.SourceUnreachable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+			}))
+			defer server.Close()
+			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lib.Close()
+			_, err = lib.InstallRemote(context.Background(), library.Source{
+				Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
+			}, library.InstallOptions{})
+			if !library.IsCode(err, test.code) {
+				t.Fatalf("error = %v, want code %s", err, test.code)
+			}
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	_, err = lib.InstallRemote(ctx, library.Source{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: "http://127.0.0.1/skills.zip"},
+	}, library.InstallOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestInstallRemoteRejectsUnsafeArchivePaths(t *testing.T) {
+	archive := zipArchive(t, map[string]string{"../SKILL.md": "unsafe\n"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	_, err = lib.InstallRemote(context.Background(), library.Source{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
+	}, library.InstallOptions{})
+	if !library.IsCode(err, library.SourceUnreachable) {
+		t.Fatalf("error = %v, want unsafe archive rejected as SourceUnreachable", err)
+	}
+}
 
 func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "example-skill")
@@ -189,6 +409,14 @@ func skillIDs(skills []library.Skill) []library.SkillID {
 		ids[i] = skill.ID
 	}
 	return ids
+}
+
+func skillNames(skills []library.Skill) []string {
+	names := make([]string, len(skills))
+	for i, skill := range skills {
+		names[i] = skill.Name
+	}
+	return names
 }
 
 func TestInstallFetchedSkillsPersistsTypedSources(t *testing.T) {
@@ -763,4 +991,37 @@ func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {
 	if err := os.WriteFile(path, content, mode); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func zipArchive(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for name, content := range files {
+		file, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func runGit(t *testing.T, directory string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", directory}, args...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
+}
+
+func commitGit(t *testing.T, repository, message string) {
+	t.Helper()
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message)
 }
