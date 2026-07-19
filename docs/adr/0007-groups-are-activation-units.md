@@ -9,5 +9,7 @@ A Group is orthogonal to a **Collection**: a Collection groups skills automatica
 - `groups` (id, name) + `skill_groups` (skill_id, group_id); many-to-many — a skill can be in several Groups.
 - Groups are flat; no group-within-a-group.
 - A Group references a skill's identity, not a specific version (pin/follow is a later Activation-behaviour decision).
-- Activating a Group expands to one activation record per member skill; how deactivation tracks "which activations came via this Group" belongs to the Activation layer (to be specified).
+- Activating a Group expands to one `activations` record per member skill. `activation_groups` records each Group that contributed to that projection, while `activations.individual` records a non-Group reason to retain it, normally an independent activation.
+- Deactivating a Group removes only that Group's provenance. The projected skill remains while an independent activation or another Group still contributes to it.
+- Deleting a Group is non-destructive: a projection contributed only by that Group becomes individually retained before the Group provenance is removed.
 - **Collection** stays derived (no table), as the automatic-by-Source counterpart to the manual-by-scenario Group.

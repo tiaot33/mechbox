@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,201 +27,13 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type SkillID int64
-type SourceID int64
-
-type VersionID int64
-type GroupID int64
-type ProjectID int64
-
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
 	librarySchemaVersion = 1
 )
 
-type ErrorCode string
-
-const (
-	NotFound          ErrorCode = "not_found"
-	AlreadyExists     ErrorCode = "already_exists"
-	SourceUnreachable ErrorCode = "source_unreachable"
-	Permission        ErrorCode = "permission"
-	Internal          ErrorCode = "internal"
-)
-
-type Error struct {
-	Code    ErrorCode `json:"code"`
-	Message string    `json:"message"`
-	Err     error     `json:"-"`
-}
-
-func (e *Error) Error() string { return e.Message }
-func (e *Error) Unwrap() error { return e.Err }
-
-func IsCode(err error, code ErrorCode) bool {
-	var libraryErr *Error
-	return errors.As(err, &libraryErr) && libraryErr.Code == code
-}
-
-type SourceType string
-
-const (
-	SourceGitHub SourceType = "github"
-	SourceURL    SourceType = "url"
-	SourceStore  SourceType = "store"
-	SourceLocal  SourceType = "local"
-)
-
-type FileMode string
-
-const (
-	ModeRegular    FileMode = "regular"
-	ModeExecutable FileMode = "executable"
-)
-
-type LocalSource struct {
-	Path string `json:"path"`
-}
-
-type SourceLocator struct {
-	Repository string `json:"repository,omitempty"`
-	Branch     string `json:"branch,omitempty"`
-	URL        string `json:"url,omitempty"`
-	PackageID  string `json:"package_id,omitempty"`
-	Version    string `json:"version,omitempty"`
-	Path       string `json:"path,omitempty"`
-}
-
-type Source struct {
-	ID          SourceID      `json:"id"`
-	Type        SourceType    `json:"type"`
-	Locator     SourceLocator `json:"locator"`
-	LastFetched time.Time     `json:"last_fetched"`
-	LastSeenRef string        `json:"last_seen_ref"`
-}
-
-type File struct {
-	Path    string   `json:"path"`
-	Content []byte   `json:"content"`
-	Mode    FileMode `json:"mode"`
-}
-
-type Skill struct {
-	ID     SkillID `json:"id"`
-	Name   string  `json:"name"`
-	Source Source  `json:"source"`
-	Files  []File  `json:"files"`
-}
-
-type SkillVersion struct {
-	ID      VersionID `json:"id"`
-	SkillID SkillID   `json:"skill_id"`
-	Files   []File    `json:"files,omitempty"`
-}
-
-type VersionDiff struct {
-	Changed []string `json:"changed"`
-	Added   []string `json:"added"`
-	Deleted []string `json:"deleted"`
-}
-
-type Group struct {
-	ID   GroupID `json:"id"`
-	Name string  `json:"name"`
-}
-
-type Agent string
-
-const (
-	AgentClaudeCode Agent = "claude-code"
-	AgentCodex      Agent = "codex"
-)
-
-type Scope struct {
-	Agent Agent  `json:"agent"`
-	Path  string `json:"path"`
-}
-
-type ConflictPolicy string
-
-const (
-	Fail      ConflictPolicy = "fail"
-	Overwrite ConflictPolicy = "overwrite"
-)
-
-type ActivateOptions struct {
-	OnConflict ConflictPolicy `json:"on_conflict"`
-}
-
-type Activation struct {
-	SkillID    SkillID   `json:"skill_id"`
-	Scope      Scope     `json:"scope"`
-	Individual bool      `json:"individual"`
-	ViaGroups  []GroupID `json:"via_groups,omitempty"`
-}
-
-type Collection struct {
-	Source Source  `json:"source"`
-	Skills []Skill `json:"skills"`
-}
-
-type RegisteredProject struct {
-	ID   ProjectID `json:"id"`
-	Path string    `json:"path"`
-}
-
-type ProjectedCopiesPolicy string
-
-const (
-	Keep   ProjectedCopiesPolicy = "keep"
-	Remove ProjectedCopiesPolicy = "remove"
-)
-
-type RemoveSkillOptions struct {
-	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
-}
-
-type UnregisterProjectOptions struct {
-	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
-}
-
-type InstallOptions struct {
-	Skills []string `json:"skills,omitempty"`
-}
-
-type Library interface {
-	Install(context.Context, LocalSource) (Skill, error)
-	InstallRemote(context.Context, Source, InstallOptions) ([]Skill, error)
-	InstallFetched(context.Context, Source, string, []File) (Skill, error)
-	Update(context.Context, SkillID) (Skill, error)
-	GetSkill(context.Context, SkillID) (Skill, error)
-	SourceHasUpdate(context.Context, SourceID, string) (bool, error)
-	ListVersions(context.Context, SkillID) ([]SkillVersion, error)
-	GetVersion(context.Context, VersionID) (SkillVersion, error)
-	DiffVersions(context.Context, VersionID, VersionID) (VersionDiff, error)
-	CreateGroup(context.Context, string) (Group, error)
-	ListGroups(context.Context) ([]Group, error)
-	RenameGroup(context.Context, GroupID, string) error
-	DeleteGroup(context.Context, GroupID) error
-	AddSkillToGroup(context.Context, GroupID, SkillID) error
-	RemoveSkillFromGroup(context.Context, GroupID, SkillID) error
-	ListGroupSkills(context.Context, GroupID) ([]Skill, error)
-	ListSkills(context.Context) ([]Skill, error)
-	RemoveSkill(context.Context, SkillID, RemoveSkillOptions) error
-	RegisterProject(context.Context, string) (RegisteredProject, error)
-	ListRegisteredProjects(context.Context) ([]RegisteredProject, error)
-	UnregisterProject(context.Context, ProjectID, UnregisterProjectOptions) error
-	ListScopes(context.Context) ([]Scope, error)
-	Activate(context.Context, SkillID, Scope, ActivateOptions) error
-	Deactivate(context.Context, SkillID, Scope) error
-	ActivateGroup(context.Context, GroupID, Scope, ActivateOptions) error
-	DeactivateGroup(context.Context, GroupID, Scope) error
-	ListActivations(context.Context) ([]Activation, error)
-	ListCollections(context.Context) ([]Collection, error)
-	SyncPush(context.Context) error
-	SyncPull(context.Context) error
-	Close() error
-}
+//go:embed schema.sql
+var schemaSQL string
 
 type fetchedSkill struct {
 	name  string
@@ -254,66 +67,7 @@ func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, fun
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-const schemaSQL = `
-	CREATE TABLE IF NOT EXISTS sources (
-		id INTEGER PRIMARY KEY,
-		type TEXT NOT NULL,
-		locator TEXT NOT NULL,
-		last_fetched TEXT NOT NULL DEFAULT '',
-		last_seen_ref TEXT NOT NULL DEFAULT '',
-		UNIQUE(type, locator)
-	);
-	CREATE TABLE IF NOT EXISTS skills (
-		id INTEGER PRIMARY KEY,
-		source_id INTEGER NOT NULL REFERENCES sources(id),
-		name TEXT NOT NULL,
-		current_version_id INTEGER REFERENCES skill_versions(id),
-		UNIQUE(source_id, name)
-	);
-	CREATE TABLE IF NOT EXISTS skill_versions (
-		id INTEGER PRIMARY KEY,
-		skill_id INTEGER NOT NULL REFERENCES skills(id)
-	);
-	CREATE TABLE IF NOT EXISTS blobs (
-		fingerprint TEXT PRIMARY KEY,
-		content BLOB NOT NULL
-	);
-	CREATE TABLE IF NOT EXISTS version_files (
-		version_id INTEGER NOT NULL REFERENCES skill_versions(id),
-		path TEXT NOT NULL,
-		fingerprint TEXT NOT NULL REFERENCES blobs(fingerprint),
-		mode TEXT NOT NULL CHECK(mode IN ('regular', 'executable')),
-		PRIMARY KEY(version_id, path)
-	);
-	CREATE TABLE IF NOT EXISTS groups (
-		id INTEGER PRIMARY KEY,
-		name TEXT NOT NULL
-	);
-	CREATE TABLE IF NOT EXISTS skill_groups (
-		skill_id INTEGER NOT NULL REFERENCES skills(id),
-		group_id INTEGER NOT NULL REFERENCES groups(id),
-		PRIMARY KEY(skill_id, group_id)
-	);
-	CREATE TABLE IF NOT EXISTS projects (
-		id INTEGER PRIMARY KEY,
-		path TEXT NOT NULL UNIQUE
-	);
-	CREATE TABLE IF NOT EXISTS activations (
-		skill_id INTEGER NOT NULL REFERENCES skills(id),
-		agent TEXT NOT NULL,
-		scope_path TEXT NOT NULL,
-		individual INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY(skill_id, agent, scope_path)
-	);
-	CREATE TABLE IF NOT EXISTS activation_groups (
-		skill_id INTEGER NOT NULL,
-		agent TEXT NOT NULL,
-		scope_path TEXT NOT NULL,
-		group_id INTEGER NOT NULL REFERENCES groups(id),
-		PRIMARY KEY(skill_id, agent, scope_path, group_id),
-		FOREIGN KEY(skill_id, agent, scope_path) REFERENCES activations(skill_id, agent, scope_path) ON DELETE CASCADE
-	);`
-
+// Open opens an existing Library database or initializes a new one at path.
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
