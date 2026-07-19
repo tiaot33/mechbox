@@ -1046,6 +1046,97 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 	}
 }
 
+func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
+	ctx := context.Background()
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	source := filepath.Join(t.TempDir(), "group-skill")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("group\n"), 0o644)
+	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupOnlySource := filepath.Join(t.TempDir(), "group-only")
+	writeFile(t, filepath.Join(groupOnlySource, "SKILL.md"), []byte("group only\n"), 0o644)
+	groupOnly, err := lib.Install(ctx, library.LocalSource{Path: groupOnlySource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := lib.CreateGroup(ctx, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.CreateGroup(ctx, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range []library.Group{first, second} {
+		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := lib.AddSkillToGroup(ctx, first.ID, groupOnly.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.RenameGroup(ctx, first.ID, "renamed"); err != nil {
+		t.Fatal(err)
+	}
+	groups, err := lib.ListGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := groups, []library.Group{{ID: first.ID, Name: "renamed"}, second}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListGroups() = %#v, want %#v", got, want)
+	}
+	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	if err := lib.ActivateGroup(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ActivateGroup(ctx, second.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.DeleteGroup(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, skill.Name, "SKILL.md")); err != nil {
+		t.Fatalf("DeleteGroup removed projected copy: %v", err)
+	}
+	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
+		t.Fatalf("DeleteGroup removed skill: %v", err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	wantActivations := []library.Activation{
+		{SkillID: skill.ID, Scope: scope, ViaGroups: []library.GroupID{second.ID}},
+		{SkillID: groupOnly.ID, Scope: scope, Individual: true},
+	}
+	if err != nil || !reflect.DeepEqual(activations, wantActivations) {
+		t.Fatalf("activations after DeleteGroup = %#v, %v; want %#v", activations, err, wantActivations)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, groupOnly.Name, "SKILL.md")); err != nil {
+		t.Fatalf("DeleteGroup removed group-only projected copy: %v", err)
+	}
+	groups, err = lib.ListGroups(ctx)
+	if err != nil || !reflect.DeepEqual(groups, []library.Group{second}) {
+		t.Fatalf("groups after DeleteGroup = %#v, %v", groups, err)
+	}
+	if err := lib.DeleteGroup(ctx, first.ID); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("second DeleteGroup error = %v, want NotFound", err)
+	}
+	if err := lib.RemoveSkillFromGroup(ctx, second.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	members, err := lib.ListGroupSkills(ctx, second.ID)
+	if err != nil || len(members) != 0 {
+		t.Fatalf("members after remove = %#v, %v", members, err)
+	}
+	if err := lib.RenameGroup(ctx, library.GroupID(9999), "missing"); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("RenameGroup unknown error = %v", err)
+	}
+}
+
 func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
