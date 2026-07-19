@@ -10,18 +10,25 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type SkillID int64
+type SourceID int64
 
 type VersionID int64
 type GroupID int64
 
 type SourceType string
 
-const SourceLocal SourceType = "local"
+const (
+	SourceGitHub SourceType = "github"
+	SourceURL    SourceType = "url"
+	SourceStore  SourceType = "store"
+	SourceLocal  SourceType = "local"
+)
 
 type FileMode string
 
@@ -34,9 +41,21 @@ type LocalSource struct {
 	Path string `json:"path"`
 }
 
+type SourceLocator struct {
+	Repository string `json:"repository,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	URL        string `json:"url,omitempty"`
+	PackageID  string `json:"package_id,omitempty"`
+	Version    string `json:"version,omitempty"`
+	Path       string `json:"path,omitempty"`
+}
+
 type Source struct {
-	Type SourceType `json:"type"`
-	Path string     `json:"path"`
+	ID          SourceID      `json:"id"`
+	Type        SourceType    `json:"type"`
+	Locator     SourceLocator `json:"locator"`
+	LastFetched time.Time     `json:"last_fetched"`
+	LastSeenRef string        `json:"last_seen_ref"`
 }
 
 type File struct {
@@ -71,8 +90,10 @@ type Group struct {
 
 type Library interface {
 	Install(context.Context, LocalSource) (Skill, error)
+	InstallFetched(context.Context, Source, string, []File) (Skill, error)
 	Update(context.Context, SkillID) (Skill, error)
 	GetSkill(context.Context, SkillID) (Skill, error)
+	SourceHasUpdate(context.Context, SourceID, string) (bool, error)
 	ListVersions(context.Context, SkillID) ([]SkillVersion, error)
 	GetVersion(context.Context, VersionID) (SkillVersion, error)
 	DiffVersions(context.Context, VersionID, VersionID) (VersionDiff, error)
@@ -98,6 +119,8 @@ func Open(path string) (Library, error) {
 			id INTEGER PRIMARY KEY,
 			type TEXT NOT NULL,
 			locator TEXT NOT NULL,
+			last_fetched TEXT NOT NULL DEFAULT '',
+			last_seen_ref TEXT NOT NULL DEFAULT '',
 			UNIQUE(type, locator)
 		);
 		CREATE TABLE IF NOT EXISTS skills (
@@ -203,9 +226,31 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill,
 	if err != nil {
 		return Skill{}, err
 	}
-	locator, err := json.Marshal(LocalSource{Path: root})
+	return l.install(ctx, Source{Type: SourceLocal, Locator: SourceLocator{Path: root}}, filepath.Base(root), files)
+}
+
+func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name string, files []File) (Skill, error) {
+	if source.Type == SourceLocal {
+		return Skill{}, fmt.Errorf("install fetched skill: local sources must use Install")
+	}
+	return l.install(ctx, source, name, files)
+}
+
+func (l *sqliteLibrary) install(ctx context.Context, source Source, name string, files []File) (Skill, error) {
+	if err := validateSource(source); err != nil {
+		return Skill{}, err
+	}
+	if name == "" {
+		return Skill{}, fmt.Errorf("install skill: name is required")
+	}
+	locator, err := json.Marshal(source.Locator)
 	if err != nil {
 		return Skill{}, fmt.Errorf("encode source: %w", err)
+	}
+	fetched := ""
+	if !source.LastFetched.IsZero() {
+		source.LastFetched = source.LastFetched.UTC()
+		fetched = source.LastFetched.Format(time.RFC3339Nano)
 	}
 
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -214,14 +259,17 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill,
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO sources(type, locator) VALUES (?, ?)`, SourceLocal, locator); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sources(type, locator, last_fetched, last_seen_ref) VALUES (?, ?, ?, ?)
+		ON CONFLICT(type, locator) DO UPDATE SET last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref
+	`, source.Type, locator, fetched, source.LastSeenRef); err != nil {
 		return Skill{}, fmt.Errorf("store source: %w", err)
 	}
 	var sourceID int64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM sources WHERE type = ? AND locator = ?`, SourceLocal, locator).Scan(&sourceID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sources WHERE type = ? AND locator = ?`, source.Type, locator).Scan(&sourceID); err != nil {
 		return Skill{}, fmt.Errorf("read source: %w", err)
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, filepath.Base(root))
+	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
 	if err != nil {
 		return Skill{}, fmt.Errorf("store skill: %w", err)
 	}
@@ -239,7 +287,8 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (Skill,
 	if err := tx.Commit(); err != nil {
 		return Skill{}, fmt.Errorf("commit install: %w", err)
 	}
-	return Skill{ID: SkillID(skillID), Name: filepath.Base(root), Source: Source{Type: SourceLocal, Path: root}, Files: files}, nil
+	source.ID = SourceID(sourceID)
+	return Skill{ID: SkillID(skillID), Name: name, Source: source, Files: files}, nil
 }
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (Skill, error) {
@@ -247,7 +296,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (Skill, error) {
 	if err != nil {
 		return Skill{}, err
 	}
-	files, err := readFiles(ctx, skill.Source.Path)
+	files, err := readFiles(ctx, skill.Source.Locator.Path)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -295,19 +344,24 @@ func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File)
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (Skill, error) {
 	var skill Skill
 	var locator []byte
+	var fetched string
 	err := l.db.QueryRowContext(ctx, `
-		SELECT skills.id, skills.name, sources.type, sources.locator
+		SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
 		FROM skills JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
-	`, id).Scan(&skill.ID, &skill.Name, &skill.Source.Type, &locator)
+	`, id).Scan(&skill.ID, &skill.Name, &skill.Source.ID, &skill.Source.Type, &locator, &fetched, &skill.Source.LastSeenRef)
 	if err != nil {
 		return Skill{}, fmt.Errorf("get skill: %w", err)
 	}
-	var local LocalSource
-	if err := json.Unmarshal(locator, &local); err != nil {
+	if err := json.Unmarshal(locator, &skill.Source.Locator); err != nil {
 		return Skill{}, fmt.Errorf("decode source: %w", err)
 	}
-	skill.Source.Path = local.Path
+	if fetched != "" {
+		skill.Source.LastFetched, err = time.Parse(time.RFC3339Nano, fetched)
+		if err != nil {
+			return Skill{}, fmt.Errorf("decode last fetched: %w", err)
+		}
+	}
 
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode
@@ -417,6 +471,38 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 		}
 	}
 	return diff, nil
+}
+
+func (l *sqliteLibrary) SourceHasUpdate(ctx context.Context, id SourceID, latestRef string) (bool, error) {
+	var lastSeenRef string
+	if err := l.db.QueryRowContext(ctx, `SELECT last_seen_ref FROM sources WHERE id = ?`, id).Scan(&lastSeenRef); err != nil {
+		return false, fmt.Errorf("check source update: %w", err)
+	}
+	return latestRef != lastSeenRef, nil
+}
+
+func validateSource(source Source) error {
+	switch source.Type {
+	case SourceGitHub:
+		if source.Locator.Repository == "" || source.Locator.Branch == "" {
+			return fmt.Errorf("install skill: github repository and branch are required")
+		}
+	case SourceURL:
+		if source.Locator.URL == "" {
+			return fmt.Errorf("install skill: url is required")
+		}
+	case SourceStore:
+		if source.Locator.PackageID == "" || source.Locator.Version == "" {
+			return fmt.Errorf("install skill: store package id and version are required")
+		}
+	case SourceLocal:
+		if source.Locator.Path == "" {
+			return fmt.Errorf("install skill: local path is required")
+		}
+	default:
+		return fmt.Errorf("install skill: unsupported source type %q", source.Type)
+	}
+	return nil
 }
 
 func readFiles(ctx context.Context, root string) ([]File, error) {

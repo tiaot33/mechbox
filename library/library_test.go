@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -36,8 +37,9 @@ func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 		ID:   installed.ID,
 		Name: "example-skill",
 		Source: library.Source{
-			Type: library.SourceLocal,
-			Path: source,
+			ID:      installed.Source.ID,
+			Type:    library.SourceLocal,
+			Locator: library.SourceLocator{Path: source},
 		},
 		Files: []library.File{
 			{Path: "SKILL.md", Content: []byte("# Example\n"), Mode: library.ModeRegular},
@@ -129,13 +131,11 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 	secondSource := filepath.Join(root, "source-two")
 	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# One\n"), 0o644)
 	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Two\n"), 0o644)
-
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-
 	first, err := lib.Install(context.Background(), library.LocalSource{Path: firstSource})
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +188,108 @@ func skillIDs(skills []library.Skill) []library.SkillID {
 		ids[i] = skill.ID
 	}
 	return ids
+}
+
+func TestInstallFetchedSkillsPersistsTypedSources(t *testing.T) {
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+
+	fetchedAt := time.Date(2026, time.July, 19, 10, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		source  library.Source
+		skill   string
+		wantRef string
+	}{
+		{
+			name: "github",
+			source: library.Source{Type: library.SourceGitHub, Locator: library.SourceLocator{
+				Repository: "github.com/example/skills", Branch: "main",
+			}, LastFetched: fetchedAt, LastSeenRef: "abc123"},
+			skill: "github-skill", wantRef: "def456",
+		},
+		{
+			name: "url",
+			source: library.Source{Type: library.SourceURL, Locator: library.SourceLocator{
+				URL: "https://example.com/url-skill.zip",
+			}, LastFetched: fetchedAt, LastSeenRef: "sha256:old"},
+			skill: "url-skill", wantRef: "sha256:new",
+		},
+		{
+			name: "store",
+			source: library.Source{Type: library.SourceStore, Locator: library.SourceLocator{
+				PackageID: "example/store-skill", Version: "1.0.0",
+			}, LastFetched: fetchedAt, LastSeenRef: "1.0.0"},
+			skill: "store-skill", wantRef: "1.1.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			installed, err := lib.InstallFetched(context.Background(), tt.source, tt.skill, []library.File{{
+				Path: "SKILL.md", Content: []byte("# " + tt.skill + "\n"), Mode: library.ModeRegular,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := lib.GetSkill(context.Background(), installed.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, installed) {
+				t.Fatalf("GetSkill() = %#v, want %#v", got, installed)
+			}
+			wantSource := tt.source
+			wantSource.ID = got.Source.ID
+			if got.Source.ID == 0 || !reflect.DeepEqual(got.Source, wantSource) {
+				t.Fatalf("Source = %#v, want persisted source %#v", got.Source, tt.source)
+			}
+
+			available, err := lib.SourceHasUpdate(context.Background(), got.Source.ID, got.Source.LastSeenRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if available {
+				t.Fatal("SourceHasUpdate() = true for the installed ref")
+			}
+			available, err = lib.SourceHasUpdate(context.Background(), got.Source.ID, tt.wantRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !available {
+				t.Fatal("SourceHasUpdate() = false for a newer ref")
+			}
+		})
+	}
+}
+
+func TestSkillsFromSameSourceShareSource(t *testing.T) {
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+
+	source := library.Source{
+		Type:        library.SourceGitHub,
+		Locator:     library.SourceLocator{Repository: "github.com/example/skills", Branch: "main"},
+		LastFetched: time.Now().UTC().Truncate(time.Second),
+		LastSeenRef: "abc123",
+	}
+	first, err := lib.InstallFetched(context.Background(), source, "first", []library.File{{Path: "SKILL.md", Content: []byte("# first\n"), Mode: library.ModeRegular}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.InstallFetched(context.Background(), source, "second", []library.File{{Path: "SKILL.md", Content: []byte("# second\n"), Mode: library.ModeRegular}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Source.ID != second.Source.ID {
+		t.Fatalf("source IDs = %d and %d, want one shared Source", first.Source.ID, second.Source.ID)
+	}
 }
 func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {
 	t.Helper()
