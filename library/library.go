@@ -21,6 +21,7 @@ type SourceID int64
 
 type VersionID int64
 type GroupID int64
+type ProjectID int64
 
 type ErrorCode string
 
@@ -146,15 +147,24 @@ type Collection struct {
 	Skills []Skill `json:"skills"`
 }
 
-type ProjectedCopies string
+type RegisteredProject struct {
+	ID   ProjectID `json:"id"`
+	Path string    `json:"path"`
+}
+
+type ProjectedCopiesPolicy string
 
 const (
-	Keep   ProjectedCopies = "keep"
-	Remove ProjectedCopies = "remove"
+	Keep   ProjectedCopiesPolicy = "keep"
+	Remove ProjectedCopiesPolicy = "remove"
 )
 
 type RemoveSkillOptions struct {
-	ProjectedCopies ProjectedCopies `json:"projected_copies"`
+	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
+}
+
+type UnregisterProjectOptions struct {
+	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
 }
 
 type Library interface {
@@ -171,6 +181,9 @@ type Library interface {
 	ListGroupSkills(context.Context, GroupID) ([]Skill, error)
 	ListSkills(context.Context) ([]Skill, error)
 	RemoveSkill(context.Context, SkillID, RemoveSkillOptions) error
+	RegisterProject(context.Context, string) (RegisteredProject, error)
+	ListRegisteredProjects(context.Context) ([]RegisteredProject, error)
+	UnregisterProject(context.Context, ProjectID, UnregisterProjectOptions) error
 	ListScopes(context.Context) ([]Scope, error)
 	Activate(context.Context, SkillID, Scope, ActivateOptions) error
 	Deactivate(context.Context, SkillID, Scope) error
@@ -229,6 +242,10 @@ func Open(path string) (Library, error) {
 			skill_id INTEGER NOT NULL REFERENCES skills(id),
 			group_id INTEGER NOT NULL REFERENCES groups(id),
 			PRIMARY KEY(skill_id, group_id)
+		);
+		CREATE TABLE IF NOT EXISTS projects (
+			id INTEGER PRIMARY KEY,
+			path TEXT NOT NULL UNIQUE
 		);
 		CREATE TABLE IF NOT EXISTS activations (
 			skill_id INTEGER NOT NULL REFERENCES skills(id),
@@ -665,15 +682,134 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	return nil
 }
 
-func (l *sqliteLibrary) ListScopes(context.Context) ([]Scope, error) {
+func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
+	defer func() { err = typedError(err) }()
+	if path == "" {
+		return RegisteredProject{}, fmt.Errorf("register project: path is required")
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return RegisteredProject{}, fmt.Errorf("resolve project path: %w", err)
+	}
+	project.Path, err = filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return RegisteredProject{}, fmt.Errorf("resolve project path: %w", err)
+	}
+	info, err := os.Stat(project.Path)
+	if err != nil {
+		return RegisteredProject{}, fmt.Errorf("read project path: %w", err)
+	}
+	if !info.IsDir() {
+		return RegisteredProject{}, fmt.Errorf("register project: %s is not a directory", project.Path)
+	}
+	project.Path = filepath.Clean(project.Path)
+	result, err := l.db.ExecContext(ctx, `INSERT OR IGNORE INTO projects(path) VALUES (?)`, project.Path)
+	if err != nil {
+		return RegisteredProject{}, fmt.Errorf("register project: %w", err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return RegisteredProject{}, fmt.Errorf("register project: %w", err)
+	}
+	if inserted == 0 {
+		return RegisteredProject{}, &Error{Code: AlreadyExists, Message: "register project: path already registered"}
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return RegisteredProject{}, fmt.Errorf("read project id: %w", err)
+	}
+	project.ID = ProjectID(id)
+	return project, nil
+}
+
+func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []RegisteredProject, err error) {
+	defer func() { err = typedError(err) }()
+	rows, err := l.db.QueryContext(ctx, `SELECT id, path FROM projects ORDER BY path, id`)
+	if err != nil {
+		return nil, fmt.Errorf("list registered projects: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var project RegisteredProject
+		if err := rows.Scan(&project.ID, &project.Path); err != nil {
+			return nil, fmt.Errorf("read registered project: %w", err)
+		}
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read registered projects: %w", err)
+	}
+	return projects, nil
+}
+
+func projectScopes(path string) []Scope {
+	return []Scope{
+		{Agent: AgentClaudeCode, Path: filepath.Join(path, ".claude", "skills")},
+		{Agent: AgentCodex, Path: filepath.Join(path, ".codex", "skills")},
+	}
+}
+
+func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	if opts.ProjectedCopies != "" && opts.ProjectedCopies != Keep && opts.ProjectedCopies != Remove {
+		return fmt.Errorf("invalid projected copies option")
+	}
+	var path string
+	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
+		return fmt.Errorf("get registered project: %w", err)
+	}
+	scopes := projectScopes(path)
+	if opts.ProjectedCopies == Remove {
+		activations, err := l.ListActivations(ctx)
+		if err != nil {
+			return err
+		}
+		for _, activation := range activations {
+			for _, scope := range scopes {
+				if activation.Scope == scope {
+					if err := l.Deactivate(ctx, activation.SkillID, scope); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin unregister project: %w", err)
+	}
+	defer tx.Rollback()
+	for _, scope := range scopes {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
+			return fmt.Errorf("remove project activations: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("unregister project: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit unregister project: %w", err)
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) ListScopes(ctx context.Context) ([]Scope, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, typedError(fmt.Errorf("find home directory: %w", err))
 	}
-	return []Scope{
+	scopes := []Scope{
 		{Agent: AgentClaudeCode, Path: filepath.Join(home, ".claude", "skills")},
 		{Agent: AgentCodex, Path: filepath.Join(home, ".codex", "skills")},
-	}, nil
+	}
+	projects, err := l.ListRegisteredProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, project := range projects {
+		scopes = append(scopes, projectScopes(project.Path)...)
+	}
+	return scopes, nil
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
