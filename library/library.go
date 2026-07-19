@@ -207,6 +207,8 @@ type Library interface {
 	DeactivateGroup(context.Context, GroupID, Scope) error
 	ListActivations(context.Context) ([]Activation, error)
 	ListCollections(context.Context) ([]Collection, error)
+	SyncPush(context.Context) error
+	SyncPull(context.Context) error
 	Close() error
 }
 
@@ -228,7 +230,8 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 }
 
 type sqliteLibrary struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 func Open(path string) (Library, error) {
@@ -301,7 +304,7 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize library: %w", err)
 	}
-	return &sqliteLibrary{db: db}, nil
+	return &sqliteLibrary{db: db, path: path}, nil
 }
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
