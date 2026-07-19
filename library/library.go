@@ -146,6 +146,17 @@ type Collection struct {
 	Skills []Skill `json:"skills"`
 }
 
+type ProjectedCopies string
+
+const (
+	Keep   ProjectedCopies = "keep"
+	Remove ProjectedCopies = "remove"
+)
+
+type RemoveSkillOptions struct {
+	ProjectedCopies ProjectedCopies `json:"projected_copies"`
+}
+
 type Library interface {
 	Install(context.Context, LocalSource) (Skill, error)
 	InstallFetched(context.Context, Source, string, []File) (Skill, error)
@@ -158,6 +169,8 @@ type Library interface {
 	CreateGroup(context.Context, string) (Group, error)
 	AddSkillToGroup(context.Context, GroupID, SkillID) error
 	ListGroupSkills(context.Context, GroupID) ([]Skill, error)
+	ListSkills(context.Context) ([]Skill, error)
+	RemoveSkill(context.Context, SkillID, RemoveSkillOptions) error
 	ListScopes(context.Context) ([]Scope, error)
 	Activate(context.Context, SkillID, Scope, ActivateOptions) error
 	Deactivate(context.Context, SkillID, Scope) error
@@ -571,6 +584,83 @@ func validateSource(source Source) error {
 		}
 	default:
 		return fmt.Errorf("install skill: unsupported source type %q", source.Type)
+	}
+	return nil
+}
+
+func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []Skill, err error) {
+	defer func() { err = typedError(err) }()
+	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skills ORDER BY name, id`)
+	if err != nil {
+		return nil, fmt.Errorf("list skills: %w", err)
+	}
+	var ids []SkillID
+	for rows.Next() {
+		var id SkillID
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("read skill id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("read skill ids: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read skill ids: %w", err)
+	}
+	for _, id := range ids {
+		skill, err := l.GetSkill(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		skills = append(skills, skill)
+	}
+	return skills, nil
+}
+
+func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	if opts.ProjectedCopies != "" && opts.ProjectedCopies != Keep && opts.ProjectedCopies != Remove {
+		return fmt.Errorf("invalid projected copies option")
+	}
+	if _, err := l.GetSkill(ctx, id); err != nil {
+		return err
+	}
+	if opts.ProjectedCopies == Remove {
+		activations, err := l.ListActivations(ctx)
+		if err != nil {
+			return err
+		}
+		for _, activation := range activations {
+			if activation.SkillID == id {
+				if err := l.Deactivate(ctx, id, activation.Scope); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remove skill: %w", err)
+	}
+	defer tx.Rollback()
+	statements := []string{
+		`DELETE FROM activations WHERE skill_id = ?`,
+		`DELETE FROM skill_groups WHERE skill_id = ?`,
+		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
+		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
+		`DELETE FROM skill_versions WHERE skill_id = ?`,
+		`DELETE FROM skills WHERE id = ?`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement, id); err != nil {
+			return fmt.Errorf("remove skill: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit remove skill: %w", err)
 	}
 	return nil
 }
