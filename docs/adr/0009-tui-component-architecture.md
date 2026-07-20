@@ -1,0 +1,32 @@
+# TUI component architecture: one `Run`, interface as the seam, calls confined to one file
+
+Context: ADR 0002 (Bubble Tea), ADR 0003 (centralised Chinese strings), ADR 0004 (the `Library` facade is the backend seam). Hard requirement: the `tui/` folder stays decoupled from the backend code. Four radically different designs were explored in parallel (minimal surface / own port with zero `library` imports / declarative screen kit / message-mediated screens); this ADR records the chosen one and why the others were rejected.
+
+## The decisions
+
+- **Exported surface: exactly one function.** `func Run(ctx context.Context, lib library.Library) error`. Screens, messages, commands, styles, strings — all unexported. `cmd/` imports only `context`, `library`, `tui`; it never imports Bubble Tea. `Run` borrows `lib` (caller opens and closes), blocks until quit, returns non-nil only for terminal-runtime failure — backend errors are rendered in the UI, never returned.
+- **The dependency rule (what "decoupled" means, precisely).**
+  - R1: `library` never imports `tui`; `cmd/skills` is the only place the two meet (composition root). `library.Open` and every other concrete-implementation symbol may appear only in `cmd/`.
+  - R2: `tui` imports `library` **only for symbols declared in `library/api.go`** — the `Library` interface, DTOs, option types, `Error`/`ErrorCode`/`IsCode`.
+  - R3: facade *method calls* are confined to `commands.go` (one unexported constructor per facade call = one `tea.Cmd`); `library.IsCode` is confined to `errors.go`. Everywhere else, library types are pure data carried in messages.
+  - R4: no DTO→view-model remapping layer — ADR 0004 already shaped the DTOs as the contract; re-wrapping them is layering without leverage.
+  - R5: enforcement is mechanical — an `arch_test.go` (go/parser over the package's own files) asserts the api.go whitelist and call confinement; violation fails `go test`, not a review comment.
+- **Layout: flat package, one file per concern.** `tui.go` (Run), `model.go` (root model: current screen, global keys, navigation), `screen_<name>.go` × 7 (browse / skill detail / groups / activation / projects / install / sync), `commands.go` (the adapter: `cmds{lib, ctx}` struct), `messages.go`, `errors.go` (ErrorCode → Chinese), `strings.go` (ADR 0003 table), `styles.go`, `components.go` (only what ≥2 screens actually share). Screens hold a `cmds` value, never a `library.Library` — they cannot name a facade method.
+- **Parameterized actions are navigation, not forms.** "Activate skill" pushes a scope-picker screen whose Enter performs the call (with an `O` = overwrite variant); same for "add to group". No widget-level form machinery. (Adopted from the declarative-kit design.)
+- **Shared list mechanics are extracted late, not early.** Only ~3 of 7 v1 screens are plain "list + detail + actions" (browse, groups, projects); detail is multi-pane, activation is a matrix, install is a wizard. When the third list-like screen lands, the repeated machinery (focus, scroll, spinner, error line) moves into `components.go` — rule of three, not an upfront framework.
+- **Screens re-fetch on entry; stale in-flight results are dropped.** The Library is the source of truth (this is also what makes Sync pull safe without invalidation machinery).
+- **Testing:** screens are state machines fed the messages a command *would* produce (no backend, no tea runtime); command constructors are tested against a hand-written in-memory `library.Library` fake; error mapping is one case per `ErrorCode`. Only `Run` itself needs a TTY and stays thin, untested assembly.
+
+## Alternatives rejected
+
+- **Own `Backend` port + view-models, zero `library` imports under `tui/`** — the strictest reading of "decoupled". Rejected: it duplicates ~15 DTOs and the error enum with no compiler protection against drift, taxes every facade change across four places, and contradicts ADR 0004, which deliberately designed `library.Library` (JSON-tagged DTOs, string `ErrorCode`, ctx-first) to be consumed directly by the UI. One production adapter today means a hypothetical seam; the decoupling that matters (interface-only dependency, composition root, call confinement, mechanical guard) is achieved without the duplication.
+- **Declarative screen kit (`Spec[R]`: columns + source + actions → complete screen)** — real leverage, but its premise fits only ~3 of the 7 v1 screens; the matrix, multi-pane detail, and wizard would fight the framework. Its picker-as-navigation pattern is adopted (above); the kit itself is deferred until repetition proves the shape.
+- **Message-mediated screens (pure state machines, intent/result protocol, central dispatcher)** — strongest confinement (screens cannot even name DTO types) and zero-runtime testability, but every interaction lives in three places and costs ~15 lines of plumbing; ~300 lines of protocol for 20 interactions. Its confinement is achieved more cheaply by R3 + the arch test. Revisit if multiple concurrently-live screens or replay ever become real requirements.
+
+## Consequences
+
+- **New screen:** one `screen_x.go` + one case in navigation + strings; `commands.go` grows only if new facade calls are needed. Exported surface unchanged.
+- **Facade gains a method:** `tui` compiles untouched (it consumes the interface); only the test fake must grow — compiler-guided. Adoption is one command constructor + one message type + one screen case.
+- **Backend moves behind RPC (ADR 0004's future):** `cmd` swaps `library.Open` for an RPC client; zero lines change under `tui/` — every call is already `ctx`-first, behind a spinner, with errors branched by serializable code.
+- **Facade gaps surfaced by the design (backend decisions, not TUI workarounds):** ① install flow has no way to list a remote source's skills before installing — v1 offers "install all" + optional name filter (`InstallOptions.Skills`), and a `ListRemoteSkills`-style method is a backend backlog item; ② `SourceHasUpdate(SourceID, latestRef)` is unusable by any frontend (only the backend can obtain `latestRef`) — a UI-consumable `CheckUpdate(ctx, SkillID)` belongs on the facade if update-checking becomes a feature; ③ `SkillVersion` carries no timestamp — the UI numbers versions v1…vn by list order.
+- `go.mod` gains `bubbletea`, `bubbles`, `lipgloss` (sanctioned by ADR 0002, used directly, no seam). `AGENTS.md` gains a `tui/` entry when the package lands.
