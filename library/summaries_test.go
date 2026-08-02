@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -17,15 +16,10 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	files := []library.File{
-		{Path: "SKILL.md", Content: []byte("# Example\n"), Mode: library.ModeRegular},
-		{Path: "run.sh", Content: []byte("#!/bin/sh\necho example\n"), Mode: library.ModeExecutable},
-	}
-	skill, err := lib.InstallFetched(ctx, library.Source{
-		Type:        library.SourceGitHub,
-		Locator:     library.SourceLocator{Repository: "https://github.com/example/skills", Branch: "main"},
-		LastFetched: time.Date(2026, 9, 6, 0, 0, 0, 123, time.UTC), LastSeenRef: "abc123",
-	}, "example", files)
+	root := filepath.Join(t.TempDir(), "example")
+	writeFile(t, filepath.Join(root, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeFile(t, filepath.Join(root, "run.sh"), []byte("#!/bin/sh\necho example\n"), 0o755)
+	skill, err := lib.Install(ctx, library.LocalSource{Path: root})
 	if err != nil {
 		t.Fatal(err)
 	}

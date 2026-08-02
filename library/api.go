@@ -213,17 +213,12 @@ type UnregisterProjectOptions struct {
 	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
 }
 
-// InstallOptions 限定远程安装时只装来源中的某些 skill;为空则全部安装。
-type InstallOptions struct {
-	Skills []string `json:"skills,omitempty"`
-}
-
 // Library 是未来 TUI 使用的完整进程内 API 门面。它不是 HTTP 或 RPC 契约;
 // 见 docs/adr/0004-backend-library-facade-seam.md。
 type Library interface {
 	// 安装与更新
 
-	// Install 把一个本地目录作为 skill 安装入库。
+	// Install 把一个本地目录作为 skill 安装入库(一次性,不经 Fetch 会话)。
 	Install(ctx context.Context, source LocalSource) (Skill, error)
 	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区(联网一次),返回句柄与
 	// 候选 skill 名清单;此时尚无内容进入 Library。本地目录不走 Fetch。
@@ -231,10 +226,9 @@ type Library interface {
 	// ListFetchSkills 只列出暂存中的候选名称,不联网、不入库;句柄在 30 分钟后或
 	// Close 时失效。过期、未知或其他 Library 实例的句柄返回 NotFound。
 	ListFetchSkills(ctx context.Context, id FetchID) ([]string, error)
-	// InstallRemote 抓取远程来源并安装其中发现的 skill;opts 可限定只安装一部分。
-	InstallRemote(ctx context.Context, source Source, opts InstallOptions) ([]Skill, error)
-	// InstallFetched 安装调用方已抓取好的文件,仅限远程来源(本地目录走 Install)。
-	InstallFetched(ctx context.Context, source Source, name string, files []File) (Skill, error)
+	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
+	// 要么所选 skill 全部入库,要么库保持不变;成功后该 Fetch 句柄被丢弃。
+	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
 	// Update 重新读取来源;内容有变化则生成新版本并设为当前版本。
 	Update(ctx context.Context, id SkillID) (Skill, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。

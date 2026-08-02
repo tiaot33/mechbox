@@ -422,6 +422,35 @@ func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (names 
 	return names, nil
 }
 
+func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []string) (installed []Skill, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+
+	l.fetchMu.Lock()
+	session := l.fetches[id]
+	l.fetchMu.Unlock()
+	if session == nil {
+		return nil, &Error{Code: NotFound, Message: "install fetch: unknown or discarded fetch"}
+	}
+	skills, err := selectSkills(session.skills, names)
+	if err != nil {
+		return nil, err
+	}
+	installed, err = l.installAll(ctx, session.source, skills)
+	if err != nil {
+		return nil, err
+	}
+	// 成功提交入库后丢弃该 Fetch:同一句柄不能再次使用。
+	l.fetchMu.Lock()
+	if current := l.fetches[id]; current != nil && current.timer != nil {
+		current.timer.Stop()
+	}
+	delete(l.fetches, id)
+	l.fetchMu.Unlock()
+	return installed, nil
+}
+
 func newFetchID() (FetchID, error) {
 	buffer := make([]byte, 16)
 	if _, err := rand.Read(buffer); err != nil {
@@ -430,44 +459,30 @@ func newFetchID() (FetchID, error) {
 	return FetchID(hex.EncodeToString(buffer)), nil
 }
 
-func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name string, files []File) (skill Skill, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	if source.Type == SourceLocal {
-		return Skill{}, fmt.Errorf("install fetched skill: local sources must use Install")
-	}
-	return l.install(ctx, source, name, files)
-}
-
-func (l *sqliteLibrary) InstallRemote(ctx context.Context, source Source, opts InstallOptions) (installed []Skill, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
+// installAll 在单个事务里原子提交多个来自同一来源的 skill:要么全部入库,要么库不变。
+func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []fetchedSkill) ([]Skill, error) {
 	if err := validateSource(source); err != nil {
 		return nil, err
 	}
-	if source.Type == SourceLocal {
-		return nil, fmt.Errorf("install remote: local sources must use Install")
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin install: %w", err)
 	}
-	skills, ref, err := fetchRemote(ctx, source)
+	defer tx.Rollback()
+	sourceID, err := upsertSource(ctx, tx, source)
 	if err != nil {
 		return nil, err
 	}
-	skills, err = selectSkills(skills, opts.Skills)
-	if err != nil {
-		return nil, err
-	}
-	source.LastFetched = time.Now().UTC()
-	source.LastSeenRef = ref
-	installed = make([]Skill, 0, len(skills))
-	// ponytail: skills commit independently; use one transaction if installs must become all-or-nothing.
+	installed := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
-		result, err := l.install(ctx, source, skill.name, skill.files)
+		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files)
 		if err != nil {
 			return nil, err
 		}
 		installed = append(installed, result)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit install: %w", err)
 	}
 	return installed, nil
 }
@@ -476,34 +491,53 @@ func (l *sqliteLibrary) install(ctx context.Context, source Source, name string,
 	if err := validateSource(source); err != nil {
 		return Skill{}, err
 	}
-	if name == "" {
-		return Skill{}, fmt.Errorf("install skill: name is required")
-	}
-	locator, err := json.Marshal(source.Locator)
-	if err != nil {
-		return Skill{}, fmt.Errorf("encode source: %w", err)
-	}
-	fetched := ""
-	if !source.LastFetched.IsZero() {
-		source.LastFetched = source.LastFetched.UTC()
-		fetched = source.LastFetched.Format(time.RFC3339Nano)
-	}
-
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Skill{}, fmt.Errorf("begin install: %w", err)
 	}
 	defer tx.Rollback()
 
+	sourceID, err := upsertSource(ctx, tx, source)
+	if err != nil {
+		return Skill{}, err
+	}
+	skill, err := insertSkill(ctx, tx, sourceID, source, name, files)
+	if err != nil {
+		return Skill{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Skill{}, fmt.Errorf("commit install: %w", err)
+	}
+	return skill, nil
+}
+
+// upsertSource 在事务内插入或更新来源行,返回其 id。
+func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error) {
+	locator, err := json.Marshal(source.Locator)
+	if err != nil {
+		return 0, fmt.Errorf("encode source: %w", err)
+	}
+	fetched := ""
+	if !source.LastFetched.IsZero() {
+		fetched = source.LastFetched.UTC().Format(time.RFC3339Nano)
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO sources(type, locator, last_fetched, last_seen_ref) VALUES (?, ?, ?, ?)
 		ON CONFLICT(type, locator) DO UPDATE SET last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref
 	`, source.Type, locator, fetched, source.LastSeenRef); err != nil {
-		return Skill{}, fmt.Errorf("store source: %w", err)
+		return 0, fmt.Errorf("store source: %w", err)
 	}
 	var sourceID int64
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM sources WHERE type = ? AND locator = ?`, source.Type, locator).Scan(&sourceID); err != nil {
-		return Skill{}, fmt.Errorf("read source: %w", err)
+		return 0, fmt.Errorf("read source: %w", err)
+	}
+	return sourceID, nil
+}
+
+// insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
+func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File) (Skill, error) {
+	if name == "" {
+		return Skill{}, fmt.Errorf("install skill: name is required")
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
 	if err != nil {
@@ -520,10 +554,8 @@ func (l *sqliteLibrary) install(ctx context.Context, source Source, name string,
 	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
 		return Skill{}, fmt.Errorf("select current version: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return Skill{}, fmt.Errorf("commit install: %w", err)
-	}
 	source.ID = SourceID(sourceID)
+	source.LastFetched = source.LastFetched.UTC()
 	return Skill{ID: SkillID(skillID), Name: name, Source: source, Files: files}, nil
 }
 
