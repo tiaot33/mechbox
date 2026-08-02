@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
@@ -34,12 +35,24 @@ const (
 	librarySchemaVersion = 1
 )
 
+// fetchTTL 是一次 Fetch 暂存被后端回收前的存活时间;超过后视为被放弃。
+const fetchTTL = 30 * time.Minute
+
 //go:embed schema.sql
 var schemaSQL string
 
 type fetchedSkill struct {
 	name  string
 	files []File
+}
+
+// fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
+// 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
+type fetchSession struct {
+	source  Source
+	ref     string
+	skills  []fetchedSkill
+	created time.Time
 }
 
 type contextReader struct {
@@ -57,6 +70,9 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 type sqliteLibrary struct {
 	db *sql.DB
 	mu sync.RWMutex
+
+	fetchMu sync.Mutex
+	fetches map[FetchID]*fetchSession
 }
 
 type libraryOperationKey struct{}
@@ -90,7 +106,7 @@ func Open(path string) (Library, error) {
 			_ = db.Close()
 			return nil, fmt.Errorf("open library: %w", err)
 		}
-		return &sqliteLibrary{db: db}, nil
+		return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		_ = db.Close()
@@ -100,7 +116,7 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("identify library: %w", err)
 	}
-	return &sqliteLibrary{db: db}, nil
+	return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
 }
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
@@ -315,6 +331,9 @@ func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummar
 func (l *sqliteLibrary) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.fetchMu.Lock()
+	l.fetches = map[FetchID]*fetchSession{}
+	l.fetchMu.Unlock()
 	return l.db.Close()
 }
 
@@ -331,6 +350,54 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill 
 		return Skill{}, err
 	}
 	return l.install(ctx, Source{Type: SourceLocal, Locator: SourceLocator{Path: root}}, filepath.Base(root), files)
+}
+
+func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch, err error) {
+	defer func() { err = typedError(err) }()
+	if spec.Type == SourceLocal {
+		return Fetch{}, fmt.Errorf("fetch: local sources must use Install")
+	}
+	source := Source{Type: spec.Type, Locator: spec.Locator}
+	if err := validateSource(source); err != nil {
+		return Fetch{}, err
+	}
+	skills, ref, err := fetchRemote(ctx, source)
+	if err != nil {
+		return Fetch{}, err
+	}
+	source.LastFetched = time.Now().UTC()
+	source.LastSeenRef = ref
+	id, err := newFetchID()
+	if err != nil {
+		return Fetch{}, err
+	}
+	names := make([]string, len(skills))
+	for i, skill := range skills {
+		names[i] = skill.name
+	}
+	l.fetchMu.Lock()
+	l.gcFetchesLocked()
+	l.fetches[id] = &fetchSession{source: source, ref: ref, skills: skills, created: time.Now()}
+	l.fetchMu.Unlock()
+	return Fetch{ID: id, Ref: ref, Skills: names}, nil
+}
+
+// gcFetchesLocked 清理已过期(超过 fetchTTL)的暂存;调用方须持有 fetchMu。
+func (l *sqliteLibrary) gcFetchesLocked() {
+	now := time.Now()
+	for id, session := range l.fetches {
+		if now.Sub(session.created) > fetchTTL {
+			delete(l.fetches, id)
+		}
+	}
+}
+
+func newFetchID() (FetchID, error) {
+	buffer := make([]byte, 16)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", fmt.Errorf("issue fetch handle: %w", err)
+	}
+	return FetchID(hex.EncodeToString(buffer)), nil
 }
 
 func (l *sqliteLibrary) InstallFetched(ctx context.Context, source Source, name string, files []File) (skill Skill, err error) {

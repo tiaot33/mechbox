@@ -85,6 +85,14 @@ type Source struct {
 	LastSeenRef string        `json:"last_seen_ref"` // 上次看到的远端标识(git commit 或内容哈希)
 }
 
+// SourceSpec 是发起 Fetch 时对远程来源的规格描述:只含类型与定位信息,不含
+// 任何持久化字段(id / last_fetched / last_seen_ref),前端因此无法构造出非法的
+// Source 记录。本地目录安装走 Install,不使用 SourceSpec。
+type SourceSpec struct {
+	Type    SourceType    `json:"type"`
+	Locator SourceLocator `json:"locator"`
+}
+
 // File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
 type File struct {
 	Path    string   `json:"path"`
@@ -107,6 +115,18 @@ type SkillSummary struct {
 	ID     SkillID `json:"id"`
 	Name   string  `json:"name"`
 	Source Source  `json:"source"`
+}
+
+// FetchID 是一次 Fetch 会话的不透明句柄,由 Library 签发。它不持久化、不参与
+// Sync、也不跨 Library 实例共享;进程退出、Close 或超时后被后端回收。
+type FetchID string
+
+// Fetch 是一次远程抓取的暂存结果:句柄 + 候选 skill 名 + 看到的远端标识。
+// 内容此时尚未进入 Library,后续须经 InstallFetch 选取后才提交入库。
+type Fetch struct {
+	ID     FetchID  `json:"id"`
+	Ref    string   `json:"ref"`    // 抓取时看到的远端标识(git commit 或内容哈希)
+	Skills []string `json:"skills"` // 可安装的候选 skill 名
 }
 
 // SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
@@ -205,6 +225,9 @@ type Library interface {
 
 	// Install 把一个本地目录作为 skill 安装入库。
 	Install(ctx context.Context, source LocalSource) (Skill, error)
+	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区(联网一次),返回句柄与
+	// 候选 skill 名清单;此时尚无内容进入 Library。本地目录不走 Fetch。
+	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
 	// InstallRemote 抓取远程来源并安装其中发现的 skill;opts 可限定只安装一部分。
 	InstallRemote(ctx context.Context, source Source, opts InstallOptions) ([]Skill, error)
 	// InstallFetched 安装调用方已抓取好的文件,仅限远程来源(本地目录走 Install)。

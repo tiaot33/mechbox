@@ -17,6 +17,40 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
+func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
+	archive := zipArchive(t, map[string]string{
+		"first/SKILL.md":  "# First\n",
+		"second/SKILL.md": "# Second\n",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+
+	fetch, err := lib.Fetch(context.Background(), library.SourceSpec{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetch.ID == "" || fetch.Ref == "" {
+		t.Fatalf("Fetch() = %#v, want opaque handle and remote ref", fetch)
+	}
+	if got, want := fetch.Skills, []string{"first", "second"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Fetch() candidates = %v, want %v", got, want)
+	}
+	skills, err := lib.ListSkills(context.Background())
+	if err != nil || len(skills) != 0 {
+		t.Fatalf("ListSkills() after Fetch = %#v, %v; want empty Library", skills, err)
+	}
+}
+
 func TestInstallRemoteURLDefaultsToAllSkills(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
 		"first/SKILL.md":  "# First\n",
