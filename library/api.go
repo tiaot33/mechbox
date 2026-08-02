@@ -25,6 +25,8 @@ const (
 	AlreadyExists     ErrorCode = "already_exists"     // 目标已存在(激活目录冲突、路径重复注册等)
 	SourceUnreachable ErrorCode = "source_unreachable" // 来源无法访问(网络故障、路径不存在等)
 	Permission        ErrorCode = "permission"         // 权限不足(文件系统或远端鉴权)
+	NotConfigured     ErrorCode = "not_configured"     // 所需配置缺失(如 Sync 未配置 S3/凭证)
+	Conflict          ErrorCode = "conflict"           // 与预期状态冲突(如 Sync 远端在预览后发生变化)
 	Internal          ErrorCode = "internal"           // 其他内部错误
 )
 
@@ -221,6 +223,26 @@ type UnregisterProjectOptions struct {
 	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
 }
 
+// RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
+// 预览时返回,执行时回传以绑定"用户确认的"与"实际推/拉的"是同一个远端对象。
+type RemoteIdentity string
+
+// SyncPreview 是 Sync 推/拉执行前的预览:远端身份 + 相关校验提示,不改动本地库,
+// 也不提交推送。调用方据此确认后再带着 Remote 调用对应的执行方法。
+type SyncPreview struct {
+	Remote       RemoteIdentity `json:"remote"`        // 当前远端身份;RemoteExists 为 false 时无意义
+	RemoteExists bool           `json:"remote_exists"` // 远端是否已存在对象
+	SchemaOK     bool           `json:"schema_ok"`     // 仅 pull:远端库的 schema 是否可接受
+	Warnings     []string       `json:"warnings,omitempty"`
+}
+
+// SyncResult 是 Sync 推/拉成功后的结果:操作后的远端身份 + 可能的警告。
+// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘投影可能与新库不一致)。
+type SyncResult struct {
+	Remote   RemoteIdentity `json:"remote"`
+	Warnings []string       `json:"warnings,omitempty"`
+}
+
 // Library 是未来 TUI 使用的完整进程内 API 门面。它不是 HTTP 或 RPC 契约;
 // 见 docs/adr/0004-backend-library-facade-seam.md。
 type Library interface {
@@ -306,10 +328,17 @@ type Library interface {
 
 	// 同步
 
-	// SyncPush 把整个数据库推送到 S3。
-	SyncPush(ctx context.Context) error
-	// SyncPull 从 S3 拉回整库并原子替换本地,替换前校验 schema 并重映射项目路径。
-	SyncPull(ctx context.Context) error
+	// PreviewSyncPush 报告推送目标的当前远端身份(若有),以便调用方知道可能覆盖远端。
+	PreviewSyncPush(ctx context.Context) (SyncPreview, error)
+	// PreviewSyncPull 报告远端库的身份与 schema 是否可接受,不替换本地库。
+	PreviewSyncPull(ctx context.Context) (SyncPreview, error)
+	// SyncPush 把整个数据库推送到 S3;expected 为预览时的远端身份,若远端已变则返回
+	// Conflict,调用方须重新预览。
+	SyncPush(ctx context.Context, expected RemoteIdentity) (SyncResult, error)
+	// SyncPull 从 S3 拉回整库并原子替换本地,替换前校验 schema 并重映射项目路径;
+	// expected 为预览时的远端身份,若远端已变则返回 Conflict。
+	// 不重建或清理磁盘投影,结果可能带警告提示投影相对新库已过时。
+	SyncPull(ctx context.Context, expected RemoteIdentity) (SyncResult, error)
 
 	Close() error
 }

@@ -27,64 +27,172 @@ type s3Config struct {
 	pathStyle                                                         bool
 }
 
-func (l *sqliteLibrary) SyncPush(ctx context.Context) (err error) {
+// pullProjectionWarning 提示 pull 后 agent 目录投影未随之重建,可能与新库不一致。
+const pullProjectionWarning = "agent 目录投影未随本次 pull 重建,可能与新库不一致"
+
+func (l *sqliteLibrary) PreviewSyncPush(ctx context.Context) (preview SyncPreview, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	identity, exists, err := remoteIdentity(ctx)
+	if err != nil {
+		return SyncPreview{}, err
+	}
+	return SyncPreview{Remote: identity, RemoteExists: exists}, nil
+}
+
+func (l *sqliteLibrary) PreviewSyncPull(ctx context.Context) (preview SyncPreview, err error) {
+	defer func() { err = typedError(err) }()
+	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
+	if err != nil {
+		return SyncPreview{}, err
+	}
+	schemaOK := validatePulledLibrary(ctx, data) == nil
+	preview = SyncPreview{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
+	if !schemaOK {
+		preview.Warnings = append(preview.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
+	}
+	preview.Warnings = append(preview.Warnings, pullProjectionWarning)
+	return preview, nil
+}
+
+func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	identity, _, err := remoteIdentity(ctx)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if identity != expected {
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync push: remote identity changed since preview"}
+	}
+	data, err := l.snapshotBytes(ctx)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	// 条件写让 check-then-act 变原子:HEAD 预检只是快速失败,真正的守卫是这里的前置条件——
+	// 预览时无对象则要求写入时仍无对象(If-None-Match: *),否则要求远端仍是预览时的身份
+	// (If-Match: expected)。窗口内远端若被改动,服务端拒绝(412),不会覆盖。
+	conditions := map[string]string{"If-Match": string(expected)}
+	if expected == "" {
+		conditions = map[string]string{"If-None-Match": "*"}
+	}
+	_, etag, err := s3Request(ctx, http.MethodPut, data, conditions)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	return SyncResult{Remote: RemoteIdentity(etag)}, nil
+}
+
+func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
+	defer func() { err = typedError(err) }()
+	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if RemoteIdentity(etag) != expected {
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since preview"}
+	}
+	download, err := os.CreateTemp("", ".library-pull-*.db")
+	if err != nil {
+		return SyncResult{}, fmt.Errorf("create pull file: %w", err)
+	}
+	downloadPath := download.Name()
+	defer os.Remove(downloadPath)
+	if _, err := download.Write(data); err != nil {
+		_ = download.Close()
+		return SyncResult{}, fmt.Errorf("write pulled library: %w", err)
+	}
+	if err := download.Close(); err != nil {
+		return SyncResult{}, fmt.Errorf("close pulled library: %w", err)
+	}
+	check, err := openExistingLibrary(ctx, downloadPath)
+	if err != nil {
+		return SyncResult{}, fmt.Errorf("validate pulled library: %w", err)
+	}
+	defer check.Close()
+	if err := validatePulledDatabase(ctx, check); err != nil {
+		return SyncResult{}, err
+	}
+	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
+		return SyncResult{}, fmt.Errorf("remap pulled projects: %w", err)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := backupDatabase(ctx, l.db, check); err != nil {
+		return SyncResult{}, err
+	}
+	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullProjectionWarning}}, nil
+}
+
+// remoteIdentity 通过 HEAD 读取远端对象的身份;对象不存在时返回 ("", false, nil)。
+func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
+	_, etag, err := s3Request(ctx, http.MethodHead, nil, nil)
+	if err != nil {
+		if IsCode(err, NotFound) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return RemoteIdentity(etag), true, nil
+}
+
+// snapshotBytes 生成当前库的事务性快照并读入内存。
+func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	snapshot, err := os.CreateTemp("", ".library-sync-*.db")
 	if err != nil {
-		return fmt.Errorf("create sync snapshot: %w", err)
+		return nil, fmt.Errorf("create sync snapshot: %w", err)
 	}
 	snapshotPath := snapshot.Name()
 	_ = snapshot.Close()
 	defer os.Remove(snapshotPath)
 	snapshotDB, err := openExistingLibrary(ctx, snapshotPath)
 	if err != nil {
-		return fmt.Errorf("open sync snapshot: %w", err)
+		return nil, fmt.Errorf("open sync snapshot: %w", err)
 	}
 	if err := backupDatabase(ctx, snapshotDB, l.db); err != nil {
 		_ = snapshotDB.Close()
-		return fmt.Errorf("snapshot library: %w", err)
+		return nil, fmt.Errorf("snapshot library: %w", err)
 	}
 	if err := snapshotDB.Close(); err != nil {
-		return fmt.Errorf("close sync snapshot: %w", err)
+		return nil, fmt.Errorf("close sync snapshot: %w", err)
 	}
 	// ponytail: full-replace sync holds one database image in memory; stream when libraries become large enough to measure.
 	data, err := os.ReadFile(snapshotPath)
 	if err != nil {
-		return fmt.Errorf("read sync snapshot: %w", err)
+		return nil, fmt.Errorf("read sync snapshot: %w", err)
 	}
-	_, err = s3Request(ctx, http.MethodPut, data)
-	return err
+	return data, nil
 }
 
-func (l *sqliteLibrary) SyncPull(ctx context.Context) (err error) {
-	defer func() { err = typedError(err) }()
-	data, err := s3Request(ctx, http.MethodGet, nil)
+// validatePulledLibrary 把下载的字节当作库文件校验完整性与 schema;仅用于预览判断。
+func validatePulledLibrary(ctx context.Context, data []byte) error {
+	download, err := os.CreateTemp("", ".library-preview-*.db")
 	if err != nil {
 		return err
-	}
-	download, err := os.CreateTemp("", ".library-pull-*.db")
-	if err != nil {
-		return fmt.Errorf("create pull file: %w", err)
 	}
 	downloadPath := download.Name()
 	defer os.Remove(downloadPath)
 	if _, err := download.Write(data); err != nil {
 		_ = download.Close()
-		return fmt.Errorf("write pulled library: %w", err)
+		return err
 	}
 	if err := download.Close(); err != nil {
-		return fmt.Errorf("close pulled library: %w", err)
+		return err
 	}
 	check, err := openExistingLibrary(ctx, downloadPath)
 	if err != nil {
-		return fmt.Errorf("validate pulled library: %w", err)
+		return err
 	}
 	defer check.Close()
+	return validatePulledDatabase(ctx, check)
+}
+
+// validatePulledDatabase 校验一个已打开的拉取库:完整性 + schema 身份。
+func validatePulledDatabase(ctx context.Context, check *sql.DB) error {
 	var integrity string
-	err = check.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity)
-	if err != nil {
+	if err := check.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
 	if integrity != "ok" {
@@ -93,12 +201,7 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context) (err error) {
 	if err := validateLibrarySchema(ctx, check); err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
-	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
-		return fmt.Errorf("remap pulled projects: %w", err)
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return backupDatabase(ctx, l.db, check)
+	return nil
 }
 
 func openExistingLibrary(ctx context.Context, path string) (*sql.DB, error) {
@@ -353,10 +456,14 @@ func remapPath(path, old, newPath string) (string, bool) {
 	return path, false
 }
 
-func s3Request(ctx context.Context, method string, body []byte) ([]byte, error) {
+// s3Request 发起一次已签名的 S3 请求,返回响应体与对象的 ETag(远端身份)。
+// 对象不存在(404)映射为 NotFound,便于预览区分"远端尚无对象"与真正的故障。
+// conditions 里的条件头(If-Match / If-None-Match)不参与签名(SigV4 只签指定头);
+// 服务端据其判定前置条件,不满足时返回 412,映射为 Conflict。
+func s3Request(ctx context.Context, method string, body []byte, conditions map[string]string) ([]byte, string, error) {
 	cfg, err := loadS3Config()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	resource := "/" + awsURIEncode(cfg.key, true)
 	if cfg.pathStyle {
@@ -365,17 +472,20 @@ func s3Request(ctx context.Context, method string, body []byte) ([]byte, error) 
 	requestURL := strings.TrimRight(cfg.endpoint, "/") + resource
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create S3 request: %w", err)
+		return nil, "", fmt.Errorf("create S3 request: %w", err)
 	}
 	signS3Request(req, body, cfg, time.Now().UTC())
+	for name, value := range conditions {
+		req.Header.Set(name, value)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, &Error{Code: SourceUnreachable, Message: "reach S3: " + err.Error(), Err: err}
+		return nil, "", &Error{Code: SourceUnreachable, Message: "reach S3: " + err.Error(), Err: err}
 	}
 	defer resp.Body.Close()
 	response, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &Error{Code: SourceUnreachable, Message: "read S3 response: " + err.Error(), Err: err}
+		return nil, "", &Error{Code: SourceUnreachable, Message: "read S3 response: " + err.Error(), Err: err}
 	}
 	var s3Error struct {
 		Code string `xml:"Code"`
@@ -383,12 +493,18 @@ func s3Request(ctx context.Context, method string, body []byte) ([]byte, error) 
 	_ = xml.Unmarshal(response, &s3Error)
 	permissionCode := map[string]bool{"AccessDenied": true, "InvalidAccessKeyId": true, "SignatureDoesNotMatch": true, "ExpiredToken": true, "InvalidToken": true}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || permissionCode[s3Error.Code] {
-		return nil, &Error{Code: Permission, Message: "S3 permission denied"}
+		return nil, "", &Error{Code: Permission, Message: "S3 permission denied"}
+	}
+	if resp.StatusCode == http.StatusNotFound || s3Error.Code == "NoSuchKey" {
+		return nil, "", &Error{Code: NotFound, Message: "S3 object not found"}
+	}
+	if resp.StatusCode == http.StatusPreconditionFailed || s3Error.Code == "PreconditionFailed" {
+		return nil, "", &Error{Code: Conflict, Message: "remote object changed since preview"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}
+		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}
 	}
-	return response, nil
+	return response, strings.Trim(resp.Header.Get("ETag"), `"`), nil
 }
 
 func loadS3Config() (s3Config, error) {
@@ -408,7 +524,7 @@ func loadS3Config() (s3Config, error) {
 		cfg.region = "us-east-1"
 	}
 	if cfg.bucket == "" || cfg.accessKey == "" || cfg.secretKey == "" {
-		return s3Config{}, fmt.Errorf("S3 bucket and AWS credentials are required")
+		return s3Config{}, &Error{Code: NotConfigured, Message: "sync: S3 bucket and AWS credentials are required"}
 	}
 	if cfg.endpoint == "" {
 		if strings.Contains(cfg.bucket, ".") {
@@ -425,7 +541,7 @@ func loadS3Config() (s3Config, error) {
 		if err == nil {
 			err = fmt.Errorf("endpoint must be an http(s) origin without credentials, query, or fragment")
 		}
-		return s3Config{}, fmt.Errorf("invalid S3 endpoint: %w", err)
+		return s3Config{}, &Error{Code: NotConfigured, Message: "invalid S3 endpoint: " + err.Error(), Err: err}
 	}
 	return cfg, nil
 }
