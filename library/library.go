@@ -1232,79 +1232,124 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope Scope, o
 	if err != nil {
 		return err
 	}
+	// 已有本 skill 在该 Scope 的投影记录时,目标目录是我们自己的投影,再次激活应当
+	// 幂等成功(刷新内容 / 补记依据),而非因目录存在而报冲突。
+	active, err := l.hasActivation(ctx, id, scope)
+	if err != nil {
+		return err
+	}
 	target := filepath.Join(scope.Path, skill.Name)
-	if _, err := os.Stat(target); err == nil && opts.OnConflict != Overwrite {
-		return &Error{Code: AlreadyExists, Message: "activate skill: target already exists"}
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(target); err == nil {
+		if !active && opts.OnConflict != Overwrite {
+			return &Error{Code: AlreadyExists, Message: "activate skill: target already exists"}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect activation target: %w", err)
 	}
 	if err := os.MkdirAll(scope.Path, 0o755); err != nil {
 		return fmt.Errorf("create scope: %w", err)
 	}
-	stage, err := os.MkdirTemp(scope.Path, "."+skill.Name+"-")
+	stage, err := l.stageSkill(scope, skill)
 	if err != nil {
-		return fmt.Errorf("stage activation: %w", err)
+		return err
 	}
 	defer func() { _ = os.RemoveAll(stage) }()
+	backup, err := moveStageIntoPlace(stage, target)
+	if err != nil {
+		return err
+	}
+	restore := func() {
+		_ = os.RemoveAll(target)
+		if backup != "" {
+			_ = os.Rename(backup, target)
+		}
+	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		restore()
+		return fmt.Errorf("begin activation record: %w", err)
+	}
+	defer tx.Rollback()
+	if err := recordActivationTx(ctx, tx, id, scope, individual, groupID); err != nil {
+		restore()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		restore()
+		return fmt.Errorf("commit activation record: %w", err)
+	}
+	if backup != "" {
+		_ = os.RemoveAll(backup)
+	}
+	return nil
+}
+
+// stageSkill 把 skill 的全部文件写入 scope 下的一个临时暂存目录,返回暂存路径。
+// 暂存好但尚未移入目标位置,便于分组激活先把所有成员备齐再统一落盘。
+func (l *sqliteLibrary) stageSkill(scope Scope, skill Skill) (string, error) {
+	stage, err := os.MkdirTemp(scope.Path, "."+skill.Name+"-")
+	if err != nil {
+		return "", fmt.Errorf("stage activation: %w", err)
+	}
 	for _, file := range skill.Files {
 		if !filepath.IsLocal(file.Path) {
-			return fmt.Errorf("invalid skill path: %s", file.Path)
+			_ = os.RemoveAll(stage)
+			return "", fmt.Errorf("invalid skill path: %s", file.Path)
 		}
 		path := filepath.Join(stage, filepath.FromSlash(file.Path))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Errorf("create activation directory: %w", err)
+			_ = os.RemoveAll(stage)
+			return "", fmt.Errorf("create activation directory: %w", err)
 		}
 		mode := os.FileMode(0o644)
 		if file.Mode == ModeExecutable {
 			mode = 0o755
 		}
 		if err := os.WriteFile(path, file.Content, mode); err != nil {
-			return fmt.Errorf("write activation file: %w", err)
+			_ = os.RemoveAll(stage)
+			return "", fmt.Errorf("write activation file: %w", err)
 		}
 	}
+	return stage, nil
+}
 
-	backup := stage + ".old"
+// moveStageIntoPlace 把暂存目录移到目标位置;目标已存在则先备份到返回的 backup 路径
+// (backup 为空表示目标原本不存在)。失败时尽力把备份复位。
+func moveStageIntoPlace(stage, target string) (backup string, err error) {
 	if _, err := os.Stat(target); err == nil {
+		backup = stage + ".old"
 		if err := os.Rename(target, backup); err != nil {
-			return fmt.Errorf("replace activation: %w", err)
+			return "", fmt.Errorf("replace activation: %w", err)
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect activation target: %w", err)
 	}
 	if err := os.Rename(stage, target); err != nil {
-		_ = os.Rename(backup, target)
-		return fmt.Errorf("activate skill: %w", err)
+		if backup != "" {
+			_ = os.Rename(backup, target)
+		}
+		return "", fmt.Errorf("activate skill: %w", err)
 	}
+	return backup, nil
+}
+
+// recordActivationTx 在事务内写入投影记录:活动行 + 可选的分组依据行。
+func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope Scope, individual bool, groupID GroupID) error {
 	individualValue := 0
 	if individual {
 		individualValue = 1
 	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		_ = os.RemoveAll(target)
-		_ = os.Rename(backup, target)
-		return fmt.Errorf("begin activation record: %w", err)
-	}
-	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (?, ?, ?, ?)
 		ON CONFLICT(skill_id, agent, scope_path) DO UPDATE SET individual = MAX(individual, excluded.individual)
 	`, id, scope.Agent, scope.Path, individualValue); err != nil {
-		_ = os.RemoveAll(target)
-		_ = os.Rename(backup, target)
 		return fmt.Errorf("record activation: %w", err)
 	}
 	if groupID != 0 {
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (?, ?, ?, ?)`, id, scope.Agent, scope.Path, groupID); err != nil {
-			_ = os.RemoveAll(target)
-			_ = os.Rename(backup, target)
 			return fmt.Errorf("record group activation: %w", err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		_ = os.RemoveAll(target)
-		_ = os.Rename(backup, target)
-		return fmt.Errorf("commit activation record: %w", err)
-	}
-	_ = os.RemoveAll(backup)
 	return nil
 }
 
@@ -1376,23 +1421,113 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return err
 	}
-	skills, err := l.ListGroupSkills(ctx, groupID)
+	members, err := l.ListGroupSkills(ctx, groupID)
 	if err != nil {
 		return err
 	}
+	// 组成员可跨来源并重名,但同名成员会投影到同一路径;整批落盘前拒绝这种冲突。
+	seen := make(map[string]bool, len(members))
+	for _, member := range members {
+		if seen[member.Name] {
+			return &Error{Code: AlreadyExists, Message: fmt.Sprintf("activate group: multiple members named %q project to the same target", member.Name)}
+		}
+		seen[member.Name] = true
+	}
 	if opts.OnConflict != Overwrite {
-		for _, skill := range skills {
-			if _, err := os.Stat(filepath.Join(scope.Path, skill.Name)); err == nil {
+		for _, member := range members {
+			// 已属本组/本 skill 自己的既有投影不算冲突,分组再次激活应幂等成功。
+			active, err := l.hasActivation(ctx, member.ID, scope)
+			if err != nil {
+				return err
+			}
+			if active {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(scope.Path, member.Name)); err == nil {
 				return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("inspect activation target: %w", err)
 			}
 		}
 	}
-	// ponytail: runtime I/O failures can leave a partial group; stage every member first if all-or-nothing filesystem commits become necessary.
-	for _, skill := range skills {
-		if err := l.activate(ctx, skill.ID, scope, opts, false, groupID); err != nil {
+	if len(members) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(scope.Path, 0o755); err != nil {
+		return fmt.Errorf("create scope: %w", err)
+	}
+
+	// 全组作为一个操作单元:先把每个成员备齐并统一落盘,再在单事务里记录;
+	// 任何一步失败都回滚本次操作的磁盘改动与记录,既有的独立激活不受影响。
+	type staged struct {
+		id     SkillID
+		target string
+		stage  string // 暂存目录;移入目标后置空
+		backup string // 被替换的原目标备份;"" 表示原本无目标
+		moved  bool   // 暂存是否已移入目标位置
+	}
+	var applied []*staged
+	rollback := func() {
+		for i := len(applied) - 1; i >= 0; i-- {
+			member := applied[i]
+			if member.moved {
+				_ = os.RemoveAll(member.target)
+				if member.backup != "" {
+					_ = os.Rename(member.backup, member.target)
+				}
+			}
+			if member.stage != "" {
+				_ = os.RemoveAll(member.stage)
+			}
+			if member.backup != "" {
+				_ = os.RemoveAll(member.backup)
+			}
+		}
+	}
+
+	for _, member := range members {
+		skill, err := l.GetSkill(ctx, member.ID)
+		if err != nil {
+			rollback()
 			return err
+		}
+		stage, err := l.stageSkill(scope, skill)
+		if err != nil {
+			rollback()
+			return err
+		}
+		applied = append(applied, &staged{id: skill.ID, target: filepath.Join(scope.Path, skill.Name), stage: stage})
+	}
+	for _, member := range applied {
+		backup, err := moveStageIntoPlace(member.stage, member.target)
+		if err != nil {
+			rollback()
+			return err
+		}
+		member.backup = backup
+		member.moved = true
+		member.stage = ""
+	}
+
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		rollback()
+		return fmt.Errorf("begin group activation: %w", err)
+	}
+	defer tx.Rollback()
+	for _, member := range applied {
+		if err := recordActivationTx(ctx, tx, member.id, scope, false, groupID); err != nil {
+			rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		rollback()
+		return fmt.Errorf("commit group activation: %w", err)
+	}
+	for _, member := range applied {
+		if member.backup != "" {
+			_ = os.RemoveAll(member.backup)
 		}
 	}
 	return nil
@@ -1430,12 +1565,87 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	if len(ids) == 0 {
 		return &Error{Code: NotFound, Message: "deactivate group: group is not active in scope"}
 	}
+
+	// 单连接约束下,先在开事务前把成员名字取齐(事务期间不能再走 l.db)。
+	names := make(map[SkillID]string, len(ids))
 	for _, id := range ids {
-		if err := l.deactivateOrigin(ctx, id, scope, false, groupID); err != nil {
+		skill, err := l.GetSkill(ctx, id)
+		if err != nil {
 			return err
 		}
+		names[id] = skill.Name
+	}
+
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin group deactivation: %w", err)
+	}
+	defer tx.Rollback()
+	var removeTargets []string
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE skill_id = ? AND agent = ? AND scope_path = ? AND group_id = ?`, id, scope.Agent, scope.Path, groupID); err != nil {
+			return fmt.Errorf("remove group activation: %w", err)
+		}
+		var keep bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT individual OR EXISTS(
+				SELECT 1 FROM activation_groups
+				WHERE skill_id = ? AND agent = ? AND scope_path = ?
+			)
+			FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?
+		`, id, scope.Agent, scope.Path, id, scope.Agent, scope.Path).Scan(&keep); err != nil {
+			return fmt.Errorf("check activation origins: %w", err)
+		}
+		if !keep {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
+				return fmt.Errorf("remove activation: %w", err)
+			}
+			removeTargets = append(removeTargets, filepath.Join(scope.Path, names[id]))
+		}
+	}
+
+	// 磁盘删除做成可逆:先把待删目录改名到暂存,提交后再真正删除;
+	// 任一步失败则撤销改名并回滚事务,该组去激活全有或全无。
+	var trashed [][2]string // {trash, target}
+	restore := func() {
+		for i := len(trashed) - 1; i >= 0; i-- {
+			_ = os.Rename(trashed[i][0], trashed[i][1])
+		}
+	}
+	for _, target := range removeTargets {
+		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			restore()
+			return fmt.Errorf("inspect deactivation target: %w", err)
+		}
+		trash, err := randomName(filepath.Join(scope.Path, ".deactivate-"))
+		if err != nil {
+			restore()
+			return err
+		}
+		if err := os.Rename(target, trash); err != nil {
+			restore()
+			return fmt.Errorf("deactivate skill: %w", err)
+		}
+		trashed = append(trashed, [2]string{trash, target})
+	}
+	if err := tx.Commit(); err != nil {
+		restore()
+		return fmt.Errorf("commit group deactivation: %w", err)
+	}
+	for _, entry := range trashed {
+		_ = os.RemoveAll(entry[0])
 	}
 	return nil
+}
+
+func randomName(prefix string) (string, error) {
+	buffer := make([]byte, 8)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", fmt.Errorf("generate temp name: %w", err)
+	}
+	return prefix + hex.EncodeToString(buffer), nil
 }
 
 func (l *sqliteLibrary) requireGroup(ctx context.Context, id GroupID) error {
@@ -1452,6 +1662,19 @@ func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {
 		return fmt.Errorf("get skill: %w", err)
 	}
 	return nil
+}
+
+// hasActivation 判断某 skill 在某 Scope 是否已有投影记录(不论依据是独立还是分组)。
+func (l *sqliteLibrary) hasActivation(ctx context.Context, id SkillID, scope Scope) (bool, error) {
+	var exists int
+	err := l.db.QueryRowContext(ctx, `SELECT 1 FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check activation: %w", err)
+	}
+	return true, nil
 }
 
 func validateScope(scope Scope) error {
