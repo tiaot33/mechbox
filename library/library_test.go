@@ -46,7 +46,7 @@ func TestInstallRemoteURLDefaultsToAllSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || !reflect.DeepEqual(skillNames(collections[0].Skills), []string{"first", "second"}) {
+	if len(collections) != 1 || !reflect.DeepEqual(summaryNames(collections[0].Skills), []string{"first", "second"}) {
 		t.Fatalf("collections = %#v, want both remote skills grouped by Source", collections)
 	}
 	group, err := lib.CreateGroup(context.Background(), "remote group")
@@ -74,7 +74,7 @@ func TestInstallRemoteURLDefaultsToAllSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := skillNames(remaining), []string{"second"}; !reflect.DeepEqual(got, want) {
+	if got, want := summaryNames(remaining), []string{"second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("skills after remote removal = %v, want %v", got, want)
 	}
 }
@@ -371,10 +371,10 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := skillIDs(debuggingSkills), []library.SkillID{first.ID, second.ID}; !reflect.DeepEqual(got, want) {
+	if got, want := summaryIDs(debuggingSkills), []library.SkillID{first.ID, second.ID}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("debugging members = %v, want %v", got, want)
 	}
-	if got, want := skillIDs(shippingSkills), []library.SkillID{first.ID}; !reflect.DeepEqual(got, want) {
+	if got, want := summaryIDs(shippingSkills), []library.SkillID{first.ID}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("shipping members = %v, want %v", got, want)
 	}
 }
@@ -393,6 +393,22 @@ func skillNames(skills []library.Skill) []string {
 		names[i] = skill.Name
 	}
 	return names
+}
+
+func summaryNames(skills []library.SkillSummary) []string {
+	names := make([]string, len(skills))
+	for i, skill := range skills {
+		names[i] = skill.Name
+	}
+	return names
+}
+
+func summaryIDs(skills []library.SkillSummary) []library.SkillID {
+	ids := make([]library.SkillID, len(skills))
+	for i, skill := range skills {
+		ids[i] = skill.ID
+	}
+	return ids
 }
 
 func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
@@ -554,7 +570,7 @@ func TestSkillsFromSameSourceShareSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || !reflect.DeepEqual(skillIDs(collections[0].Skills), []library.SkillID{first.ID, second.ID}) {
+	if len(collections) != 1 || !reflect.DeepEqual(summaryIDs(collections[0].Skills), []library.SkillID{first.ID, second.ID}) {
 		t.Fatalf("ListCollections() = %#v, want both skills in one collection", collections)
 	}
 }
@@ -652,12 +668,16 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []library.Collection{
-		{Source: first.Source, Skills: []library.Skill{first}},
-		{Source: second.Source, Skills: []library.Skill{second}},
+		{Source: first.Source, Skills: []library.SkillSummary{summaryOf(first)}},
+		{Source: second.Source, Skills: []library.SkillSummary{summaryOf(second)}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListCollections() = %#v, want %#v", got, want)
 	}
+}
+
+func summaryOf(skill library.Skill) library.SkillSummary {
+	return library.SkillSummary{ID: skill.ID, Name: skill.Name, Source: skill.Source}
 }
 
 func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {

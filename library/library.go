@@ -248,7 +248,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	return nil
 }
 
-func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []Skill, err error) {
+func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -276,15 +276,40 @@ func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (s
 	}
 
 	// ponytail: one lookup per member; replace with a joined mapper if large groups make this measurable.
-	skills = make([]Skill, 0, len(ids))
+	skills = make([]SkillSummary, 0, len(ids))
 	for _, id := range ids {
-		skill, err := l.GetSkill(ctx, id)
+		summary, err := l.getSummary(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		skills = append(skills, skill)
+		skills = append(skills, summary)
 	}
 	return skills, nil
+}
+
+// getSummary 读取一个 skill 的身份、名字与来源元数据,不含文件正文。
+func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
+	var summary SkillSummary
+	var locator []byte
+	var fetched string
+	err := l.db.QueryRowContext(ctx, `
+		SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
+		FROM skills JOIN sources ON sources.id = skills.source_id
+		WHERE skills.id = ?
+	`, id).Scan(&summary.ID, &summary.Name, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef)
+	if err != nil {
+		return SkillSummary{}, fmt.Errorf("get skill: %w", err)
+	}
+	if err := json.Unmarshal(locator, &summary.Source.Locator); err != nil {
+		return SkillSummary{}, fmt.Errorf("decode source: %w", err)
+	}
+	if fetched != "" {
+		summary.Source.LastFetched, err = time.Parse(time.RFC3339Nano, fetched)
+		if err != nil {
+			return SkillSummary{}, fmt.Errorf("decode last fetched: %w", err)
+		}
+	}
+	return summary, nil
 }
 
 func (l *sqliteLibrary) Close() error {
@@ -655,7 +680,7 @@ func validateSource(source Source) error {
 	return nil
 }
 
-func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []Skill, err error) {
+func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -679,11 +704,11 @@ func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []Skill, err err
 		return nil, fmt.Errorf("read skill ids: %w", err)
 	}
 	for _, id := range ids {
-		skill, err := l.GetSkill(ctx, id)
+		summary, err := l.getSummary(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		skills = append(skills, skill)
+		skills = append(skills, summary)
 	}
 	return skills, nil
 }
@@ -1396,7 +1421,7 @@ func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Coll
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(skills, func(a, b Skill) int {
+	slices.SortFunc(skills, func(a, b SkillSummary) int {
 		return cmp.Or(cmp.Compare(a.Source.ID, b.Source.ID), cmp.Compare(a.ID, b.ID))
 	})
 	for _, skill := range skills {

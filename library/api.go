@@ -100,6 +100,15 @@ type Skill struct {
 	Files  []File  `json:"files"`
 }
 
+// SkillSummary 是浏览列表用的精简条目:身份、名字与来源元数据,不含文件正文。
+// 列表接口(ListSkills / ListGroupSkills / Collection)返回它以保持轻量(尤其是 RPC);
+// 完整文件通过 GetSkill / GetVersion 获取。
+type SkillSummary struct {
+	ID     SkillID `json:"id"`
+	Name   string  `json:"name"`
+	Source Source  `json:"source"`
+}
+
 // SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
 type SkillVersion struct {
 	ID      VersionID `json:"id"`
@@ -155,9 +164,10 @@ type Activation struct {
 }
 
 // Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
+// Skills 是精简摘要,不含文件正文。
 type Collection struct {
-	Source Source  `json:"source"`
-	Skills []Skill `json:"skills"`
+	Source Source         `json:"source"`
+	Skills []SkillSummary `json:"skills"`
 }
 
 // RegisteredProject 是已注册的项目目录;注册后其 .claude/skills 与
@@ -225,11 +235,13 @@ type Library interface {
 	DeleteGroup(ctx context.Context, id GroupID) error
 	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
 	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
-	ListGroupSkills(ctx context.Context, groupID GroupID) ([]Skill, error)
+	// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
+	ListGroupSkills(ctx context.Context, groupID GroupID) ([]SkillSummary, error)
 
 	// skill 管理
 
-	ListSkills(ctx context.Context) ([]Skill, error)
+	// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
+	ListSkills(ctx context.Context) ([]SkillSummary, error)
 	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘投影副本的去留。
 	RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) error
 

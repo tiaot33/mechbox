@@ -109,8 +109,12 @@ func TestSyncPushThenPullReplacesLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(skills) != 1 || skills[0].Name != original.Name || string(skills[0].Files[0].Content) != "updated\n" {
+	if len(skills) != 1 || skills[0].Name != original.Name {
 		t.Fatalf("skills after pull = %#v", skills)
+	}
+	full, err := lib.GetSkill(ctx, original.ID)
+	if err != nil || string(full.Files[0].Content) != "updated\n" {
+		t.Fatalf("GetSkill after pull = %#v, %v", full, err)
 	}
 	versions, err := lib.ListVersions(ctx, original.ID)
 	if err != nil || len(versions) != 2 {
