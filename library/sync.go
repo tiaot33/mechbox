@@ -278,10 +278,6 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 			return err
 		}
 	}
-	var hasActivationGroups int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'activation_groups'`).Scan(&hasActivationGroups); err != nil {
-		return err
-	}
 	rows, err := tx.QueryContext(ctx, `SELECT skill_id, agent, scope_path FROM activations`)
 	if err != nil {
 		return err
@@ -324,10 +320,8 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 			}
 		}
 		if mapped != activation.path {
-			if hasActivationGroups == 1 {
-				if _, err := tx.ExecContext(ctx, `UPDATE activation_groups SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
-					return err
-				}
+			if _, err := tx.ExecContext(ctx, `UPDATE activation_groups SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
+				return err
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE activations SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
 				return err

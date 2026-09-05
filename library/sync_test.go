@@ -42,11 +42,7 @@ func TestSyncPushThenPullReplacesLibrary(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 
 	ctx := context.Background()
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeFile(t, filepath.Join(originalSource, "SKILL.md"), []byte("original\n"), 0o644)
 	original, err := lib.Install(ctx, library.LocalSource{Path: originalSource})
@@ -217,11 +213,7 @@ func TestSyncMapsS3Failures(t *testing.T) {
 	t.Setenv("AWS_REGION", "test-region")
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	lib := openTestLibrary(t)
 	if err := lib.SyncPush(context.Background()); !library.IsCode(err, library.Permission) {
 		t.Fatalf("permission error = %v", err)
 	}

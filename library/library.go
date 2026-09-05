@@ -3,6 +3,7 @@ package library
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -19,6 +20,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -910,7 +912,6 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	defer tx.Rollback()
 	statements := []string{
-		`DELETE FROM activation_groups WHERE skill_id = ?`,
 		`DELETE FROM activations WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
@@ -1033,9 +1034,6 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	}
 	defer tx.Rollback()
 	for _, scope := range scopes {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
-			return fmt.Errorf("remove project group activations: %w", err)
-		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
 			return fmt.Errorf("remove project activations: %w", err)
 		}
@@ -1394,41 +1392,16 @@ func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Coll
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT source_id, id FROM skills ORDER BY source_id, id`)
+	skills, err := l.ListSkills(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list collections: %w", err)
+		return nil, err
 	}
-	type membership struct {
-		sourceID int64
-		skillID  SkillID
-	}
-	var memberships []membership
-	for rows.Next() {
-		var item membership
-		if err := rows.Scan(&item.sourceID, &item.skillID); err != nil {
-			_ = rows.Close()
-			return nil, fmt.Errorf("read collection membership: %w", err)
-		}
-		memberships = append(memberships, item)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, fmt.Errorf("read collections: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("close collections: %w", err)
-	}
-
-	// ponytail: one lookup per skill; replace with a joined mapper if library size makes this measurable.
-	var currentSourceID int64
-	for _, item := range memberships {
-		skill, err := l.GetSkill(ctx, item.skillID)
-		if err != nil {
-			return nil, err
-		}
-		if len(collections) == 0 || item.sourceID != currentSourceID {
+	slices.SortFunc(skills, func(a, b Skill) int {
+		return cmp.Or(cmp.Compare(a.Source.ID, b.Source.ID), cmp.Compare(a.ID, b.ID))
+	})
+	for _, skill := range skills {
+		if len(collections) == 0 || collections[len(collections)-1].Source.ID != skill.Source.ID {
 			collections = append(collections, Collection{Source: skill.Source})
-			currentSourceID = item.sourceID
 		}
 		last := len(collections) - 1
 		collections[last].Skills = append(collections[last].Skills, skill)
