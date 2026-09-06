@@ -101,7 +101,7 @@ type Skill struct {
 }
 
 // SkillSummary 是浏览列表用的精简条目:身份、名字与来源元数据,不含文件正文。
-// 列表接口(ListSkills / ListGroupSkills / Collection)返回它以保持轻量(尤其是 RPC);
+// 列表接口(ListSkills / ListGroupSkills / ListCollections)返回它以保持轻量;
 // 完整文件通过 GetSkill / GetVersion 获取。
 type SkillSummary struct {
 	ID     SkillID `json:"id"`
