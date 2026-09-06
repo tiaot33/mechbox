@@ -21,7 +21,11 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	writeSource("old", "old")
 	lib := openTestLibrary(t)
-	skills, err := lib.InstallRemote(ctx, library.Source{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}}, library.InstallOptions{})
+	fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills, err := lib.InstallFetch(ctx, fetch.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
