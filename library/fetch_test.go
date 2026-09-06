@@ -158,7 +158,15 @@ func TestFetchSessionsAreNotSynced(t *testing.T) {
 				return nil, err
 			}
 		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(stored)), Header: make(http.Header)}, nil
+		header := make(http.Header)
+		if stored != nil {
+			header.Set("ETag", `"fetch-sync"`)
+		}
+		status := http.StatusOK
+		if stored == nil && r.Method != http.MethodPut {
+			status = http.StatusNotFound
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(stored)), Header: header}, nil
 	})
 	t.Setenv("SKILLS_S3_ENDPOINT", "https://s3.example")
 	t.Setenv("SKILLS_S3_BUCKET", "test-bucket")
@@ -171,11 +179,19 @@ func TestFetchSessionsAreNotSynced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.SyncPush(t.Context()); err != nil {
+	preview, err := lib.PreviewSyncPush(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.SyncPush(t.Context(), preview.Remote); err != nil {
 		t.Fatal(err)
 	}
 	other := openFetchLibrary(t, filepath.Join(t.TempDir(), "other.db"))
-	if err := other.SyncPull(t.Context()); err != nil {
+	preview, err = other.PreviewSyncPull(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.SyncPull(t.Context(), preview.Remote); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := other.ListFetchSkills(t.Context(), fetch.ID); !library.IsCode(err, library.NotFound) {
