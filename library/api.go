@@ -227,7 +227,9 @@ type Library interface {
 	// Close 时失效。过期、未知或其他 Library 实例的句柄返回 NotFound。
 	ListFetchSkills(ctx context.Context, id FetchID) ([]string, error)
 	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
-	// 要么所选 skill 全部入库,要么库保持不变;成功后该 Fetch 句柄被丢弃。
+	// 只读取暂存内容,不联网;要么所选 skill 全部入库,要么库保持不变。
+	// 成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
+	// 失败时保留句柄供重试,直至 Close 或过期。
 	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
 	// Update 重新读取来源;内容有变化则生成新版本并设为当前版本。
 	Update(ctx context.Context, id SkillID) (Skill, error)

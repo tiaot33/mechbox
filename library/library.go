@@ -428,8 +428,9 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 	defer func() { err = typedError(err) }()
 
 	l.fetchMu.Lock()
+	// 持锁直到提交并丢弃句柄,避免并发调用消费同一次 Fetch。
+	defer l.fetchMu.Unlock()
 	session := l.fetches[id]
-	l.fetchMu.Unlock()
 	if session == nil {
 		return nil, &Error{Code: NotFound, Message: "install fetch: unknown or discarded fetch"}
 	}
@@ -442,12 +443,10 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 		return nil, err
 	}
 	// 成功提交入库后丢弃该 Fetch:同一句柄不能再次使用。
-	l.fetchMu.Lock()
-	if current := l.fetches[id]; current != nil && current.timer != nil {
-		current.timer.Stop()
+	if session.timer != nil {
+		session.timer.Stop()
 	}
 	delete(l.fetches, id)
-	l.fetchMu.Unlock()
 	return installed, nil
 }
 
@@ -488,27 +487,11 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 }
 
 func (l *sqliteLibrary) install(ctx context.Context, source Source, name string, files []File) (Skill, error) {
-	if err := validateSource(source); err != nil {
-		return Skill{}, err
-	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Skill{}, fmt.Errorf("begin install: %w", err)
-	}
-	defer tx.Rollback()
-
-	sourceID, err := upsertSource(ctx, tx, source)
+	skills, err := l.installAll(ctx, source, []fetchedSkill{{name: name, files: files}})
 	if err != nil {
 		return Skill{}, err
 	}
-	skill, err := insertSkill(ctx, tx, sourceID, source, name, files)
-	if err != nil {
-		return Skill{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return Skill{}, fmt.Errorf("commit install: %w", err)
-	}
-	return skill, nil
+	return skills[0], nil
 }
 
 // upsertSource 在事务内插入或更新来源行,返回其 id。

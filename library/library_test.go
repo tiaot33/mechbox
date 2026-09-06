@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/library"
@@ -51,21 +52,14 @@ func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
 }
 
 func TestInstallFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
-	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  "# First\n",
-		"second/SKILL.md": "# Second\n",
-	})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(archive)
-	}))
-	t.Cleanup(server.Close)
+	repository := installFetchRepository(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	ctx := context.Background()
-	spec := library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL}}
+	ctx := t.Context()
+	spec := library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}}
 
 	pre, err := lib.Fetch(ctx, spec)
 	if err != nil {
@@ -77,21 +71,41 @@ func TestInstallFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 	if _, err := lib.InstallFetch(ctx, pre.ID, []string{"first"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reused fetch handle error = %v, want NotFound", err)
 	}
+	before, err := lib.ListSkills(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions, err := lib.ListVersions(ctx, before[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("changed second"), 0o644)
+	commitGit(t, repository, "changed")
 	batch, err := lib.Fetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// first 会先写入事务,随后 second 与已有条目冲突;整批必须回滚。
-	if _, err := lib.InstallFetch(ctx, batch.ID, []string{"first", "second"}); err == nil {
-		t.Fatal("InstallFetch accepted a batch whose later member collides")
+	if installed, err := lib.InstallFetch(ctx, batch.ID, []string{"first", "second"}); err == nil || len(installed) != 0 {
+		t.Fatalf("failed batch = %v, %v; want no results and error", installed, err)
 	}
 	skills, err := lib.ListSkills(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := skillNames(skills), []string{"second"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("skills after failed batch = %v, want only %v", got, want)
+	if !reflect.DeepEqual(skills, before) {
+		t.Fatalf("failed batch changed skills or Source: got %#v, want %#v", skills, before)
+	}
+	afterVersions, err := lib.ListVersions(ctx, before[0].ID)
+	if err != nil || !reflect.DeepEqual(afterVersions, versions) {
+		t.Fatalf("failed batch changed versions: %v, %v", afterVersions, err)
+	}
+	if err := os.RemoveAll(repository); err != nil {
+		t.Fatal(err)
+	}
+	if installed, err := lib.InstallFetch(ctx, batch.ID, []string{"first"}); err != nil || len(installed) != 1 {
+		t.Fatalf("retry from staged Fetch = %v, %v", installed, err)
 	}
 }
 
@@ -101,9 +115,9 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 		"first/guide.md":  "guide\n",
 		"second/SKILL.md": "# Second\n",
 	})
-	requests := 0
+	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests++
+		requests.Add(1)
 		_, _ = w.Write(archive)
 	}))
 	t.Cleanup(server.Close)
@@ -121,8 +135,8 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requests != 1 {
-		t.Fatalf("remote requests = %d, want Fetch only", requests)
+	if requests.Load() != 1 {
+		t.Fatalf("remote requests = %d, want Fetch only", requests.Load())
 	}
 	if got, want := skillNames(installed), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("installed skills = %v, want %v", got, want)
