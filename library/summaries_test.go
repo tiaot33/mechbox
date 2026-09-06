@@ -75,8 +75,8 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(full.Files, files) {
-		t.Fatalf("GetSkill files = %#v, want %#v", full.Files, files)
+	if !reflect.DeepEqual(full.Files, skill.Files) {
+		t.Fatalf("GetSkill files = %#v, want %#v", full.Files, skill.Files)
 	}
 	versions, err := lib.ListVersions(ctx, skill.ID)
 	if err != nil || len(versions) != 1 {
@@ -86,7 +86,7 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(version.Files, files) {
-		t.Fatalf("GetVersion files = %#v, want %#v", version.Files, files)
+	if !reflect.DeepEqual(version.Files, skill.Files) {
+		t.Fatalf("GetVersion files = %#v, want %#v", version.Files, skill.Files)
 	}
 }
