@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -196,5 +198,88 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	activations, err := lib.ListActivations(ctx)
 	if err != nil || len(activations) != 0 {
 		t.Fatalf("activations = %#v, %v", activations, err)
+	}
+}
+
+func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	group, err := lib.CreateGroup(ctx, "batch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := library.Scope{Agent: library.AgentCodex, Path: t.TempDir()}
+	var first library.Skill
+	for _, name := range []string{"first", "second"} {
+		source := filepath.Join(t.TempDir(), name)
+		writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
+		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first.ID == 0 {
+			first = skill
+		}
+		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(scope.Path, first.Name, "SKILL.md")
+	writeFile(t, target, []byte("original"), 0o644)
+	projected, release := make(chan struct{}), make(chan struct{})
+	resume := sync.OnceFunc(func() { close(release) })
+	defer resume()
+	pause := sync.OnceFunc(func() { close(projected); <-release })
+	base, cancel := context.WithCancel(ctx)
+	defer cancel()
+	fault := cancelAfterProjection{Context: base, cancel: cancel, changed: func() bool {
+		content, err := os.ReadFile(target)
+		if err != nil || string(content) != "first" {
+			return false
+		}
+		pause()
+		return true
+	}}
+	groupDone := make(chan error, 1)
+	go func() {
+		groupDone <- lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	}()
+	select {
+	case <-projected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("group never projected first member")
+	}
+	individualDone := make(chan error, 1)
+	go func() {
+		individualDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	}()
+	// 旧实现允许独立激活在回滚前提交;串行实现则等分组回滚后再完成。
+	var individualErr error
+	finished := false
+	select {
+	case individualErr = <-individualDone:
+		finished = true
+	case <-time.After(200 * time.Millisecond):
+	}
+	resume()
+	if err := <-groupDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("group error = %v", err)
+	}
+	if !finished {
+		individualErr = <-individualDone
+	}
+	if individualErr != nil {
+		t.Fatal(individualErr)
+	}
+	if content, err := os.ReadFile(target); err != nil || string(content) != "first" {
+		t.Fatalf("successful independent projection lost: %q, %v", content, err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	want := []library.Activation{{SkillID: first.ID, Scope: scope, Individual: true}}
+	if err != nil || !reflect.DeepEqual(activations, want) {
+		t.Fatalf("activations = %#v, %v; want %#v", activations, err, want)
+	}
+	if _, err := os.Stat(filepath.Join(scope.Path, "second")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial group projection remains: %v", err)
 	}
 }

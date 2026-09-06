@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,7 +48,16 @@ func (l *sqliteLibrary) PreviewSyncPull(ctx context.Context) (preview SyncPrevie
 	if err != nil {
 		return SyncPreview{}, err
 	}
-	schemaOK := validatePulledLibrary(ctx, data) == nil
+	_, cleanup, err := openPulledLibrary(ctx, data)
+	if err == nil {
+		defer cleanup()
+	} else if !errors.Is(err, errUnacceptableSchema) {
+		sqliteErr, ok := errors.AsType[sqlite3.Error](err)
+		if !ok || (sqliteErr.Code != sqlite3.ErrCorrupt && sqliteErr.Code != sqlite3.ErrNotADB) {
+			return SyncPreview{}, err
+		}
+	}
+	schemaOK := err == nil
 	preview = SyncPreview{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
 	if !schemaOK {
 		preview.Warnings = append(preview.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
@@ -97,27 +107,11 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	if RemoteIdentity(etag) != expected {
 		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since preview"}
 	}
-	download, err := os.CreateTemp("", ".library-pull-*.db")
+	check, cleanup, err := openPulledLibrary(ctx, data)
 	if err != nil {
-		return SyncResult{}, fmt.Errorf("create pull file: %w", err)
-	}
-	downloadPath := download.Name()
-	defer os.Remove(downloadPath)
-	if _, err := download.Write(data); err != nil {
-		_ = download.Close()
-		return SyncResult{}, fmt.Errorf("write pulled library: %w", err)
-	}
-	if err := download.Close(); err != nil {
-		return SyncResult{}, fmt.Errorf("close pulled library: %w", err)
-	}
-	check, err := openExistingLibrary(ctx, downloadPath)
-	if err != nil {
-		return SyncResult{}, fmt.Errorf("validate pulled library: %w", err)
-	}
-	defer check.Close()
-	if err := validatePulledDatabase(ctx, check); err != nil {
 		return SyncResult{}, err
 	}
+	defer cleanup()
 	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
 		return SyncResult{}, fmt.Errorf("remap pulled projects: %w", err)
 	}
@@ -169,27 +163,41 @@ func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-// validatePulledLibrary 把下载的字节当作库文件校验完整性与 schema;仅用于预览判断。
-func validatePulledLibrary(ctx context.Context, data []byte) error {
-	download, err := os.CreateTemp("", ".library-preview-*.db")
+// errUnacceptableSchema 只标记已确认的远端库校验失败,不包含本地 I/O 或取消。
+var errUnacceptableSchema = errors.New("unacceptable library schema")
+
+// openPulledLibrary 写入并校验临时库;失败时自行清理,成功后由调用方 defer cleanup()。
+func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error) {
+	download, err := os.CreateTemp("", ".library-pull-*.db")
 	if err != nil {
-		return err
+		return nil, nil, fmt.Errorf("create pull file: %w", err)
 	}
 	downloadPath := download.Name()
-	defer os.Remove(downloadPath)
+	var check *sql.DB
+	cleanup := func() {
+		if check != nil {
+			_ = check.Close()
+		}
+		_ = os.Remove(downloadPath)
+	}
 	if _, err := download.Write(data); err != nil {
 		_ = download.Close()
-		return err
+		cleanup()
+		return nil, nil, fmt.Errorf("write pulled library: %w", err)
 	}
 	if err := download.Close(); err != nil {
-		return err
+		cleanup()
+		return nil, nil, fmt.Errorf("close pulled library: %w", err)
 	}
-	check, err := openExistingLibrary(ctx, downloadPath)
+	check, err = openExistingLibrary(ctx, downloadPath)
+	if err == nil {
+		err = validatePulledDatabase(ctx, check)
+	}
 	if err != nil {
-		return err
+		cleanup()
+		return nil, nil, fmt.Errorf("validate pulled library: %w", err)
 	}
-	defer check.Close()
-	return validatePulledDatabase(ctx, check)
+	return check, cleanup, nil
 }
 
 // validatePulledDatabase 校验一个已打开的拉取库:完整性 + schema 身份。
@@ -199,7 +207,7 @@ func validatePulledDatabase(ctx context.Context, check *sql.DB) error {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
 	if integrity != "ok" {
-		return fmt.Errorf("validate pulled library: integrity=%q", integrity)
+		return fmt.Errorf("%w: integrity=%q", errUnacceptableSchema, integrity)
 	}
 	if err := validateLibrarySchema(ctx, check); err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
@@ -229,7 +237,7 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if applicationID != libraryApplicationID || userVersion != librarySchemaVersion {
-		return fmt.Errorf("unsupported database identity application_id=%d user_version=%d", applicationID, userVersion)
+		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
 	actual, err := schemaFingerprint(ctx, db)
 	if err != nil {
@@ -240,7 +248,7 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer expectedDB.Close()
-	if _, err := expectedDB.Exec(schemaSQL); err != nil {
+	if _, err := expectedDB.ExecContext(ctx, schemaSQL); err != nil {
 		return err
 	}
 	expected, err := schemaFingerprint(ctx, expectedDB)
@@ -248,7 +256,7 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if actual != expected {
-		return fmt.Errorf("schema fingerprint mismatch")
+		return fmt.Errorf("%w: schema fingerprint mismatch", errUnacceptableSchema)
 	}
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
@@ -256,7 +264,7 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 	}
 	defer rows.Close()
 	if rows.Next() {
-		return fmt.Errorf("foreign key check failed")
+		return fmt.Errorf("%w: foreign key check failed", errUnacceptableSchema)
 	}
 	return rows.Err()
 }

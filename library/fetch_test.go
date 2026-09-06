@@ -204,3 +204,20 @@ func TestFetchSessionsAreNotSynced(t *testing.T) {
 		t.Fatalf("SyncPush invalidated local handle: %v", err)
 	}
 }
+
+func TestFetchInvalidArgumentsHaveTypedErrors(t *testing.T) {
+	lib := openFetchLibrary(t, filepath.Join(t.TempDir(), "library.db"))
+	for _, spec := range []library.SourceSpec{
+		{Type: library.SourceLocal},
+		{Type: "unsupported"},
+		{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: "repo"}},
+		{Type: library.SourceGitHub, Locator: library.SourceLocator{Branch: "main"}},
+		{Type: library.SourceURL},
+		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "package"}},
+		{Type: library.SourceStore, Locator: library.SourceLocator{Version: "v1"}},
+	} {
+		if _, err := lib.Fetch(t.Context(), spec); !library.IsCode(err, library.InvalidArgument) {
+			t.Errorf("Fetch(%#v) = %v; want InvalidArgument", spec, err)
+		}
+	}
+}

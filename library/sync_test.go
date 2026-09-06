@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -527,5 +528,41 @@ func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	groups, err := lib.ListGroups(ctx)
 	if err != nil || len(groups) != 1 || groups[0].Name != "local-group" {
 		t.Fatalf("local library changed: %#v, %v", groups, err)
+	}
+}
+
+func TestPullPreviewReturnsTemporaryFileFailure(t *testing.T) {
+	newS3Stub(t)
+	lib := openTestLibrary(t)
+	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	// 在远端有效时制造本地暂存失败,不能把它伪装成 schema 不可接受。
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	if preview, err := lib.PreviewSyncPull(t.Context()); err == nil {
+		t.Fatalf("temporary file failure became successful preview: %#v", preview)
+	}
+}
+
+func TestPullPreviewPreservesCancellationDuringValidation(t *testing.T) {
+	newS3Stub(t)
+	lib := openTestLibrary(t)
+	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	temp := t.TempDir()
+	t.Setenv("TMPDIR", temp)
+	base, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// 下载完成并写入暂存库后才取消,确保覆盖校验阶段而非 HTTP 请求阶段。
+	fault := cancelAfterProjection{Context: base, cancel: cancel, changed: func() bool {
+		entries, _ := os.ReadDir(temp)
+		return len(entries) > 0
+	}}
+	if preview, err := lib.PreviewSyncPull(fault); !errors.Is(err, context.Canceled) {
+		t.Fatalf("validation cancellation = %#v, %v; want context.Canceled", preview, err)
+	}
+	if entries, err := os.ReadDir(temp); err != nil || len(entries) != 0 {
+		t.Fatalf("temporary database not cleaned up: %v, %v", entries, err)
 	}
 }

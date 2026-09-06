@@ -366,7 +366,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 		return Fetch{}, fmt.Errorf("fetch: library is closed")
 	}
 	if spec.Type == SourceLocal {
-		return Fetch{}, fmt.Errorf("fetch: local sources must use Install")
+		return Fetch{}, &Error{Code: InvalidArgument, Message: "fetch: local sources must use Install"}
 	}
 	source := Source{Type: spec.Type, Locator: spec.Locator}
 	if err := validateSource(source); err != nil {
@@ -635,25 +635,11 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	var locator []byte
-	var fetched string
-	err = l.db.QueryRowContext(ctx, `
-		SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
-		FROM skills JOIN sources ON sources.id = skills.source_id
-		WHERE skills.id = ?
-	`, id).Scan(&skill.ID, &skill.Name, &skill.Source.ID, &skill.Source.Type, &locator, &fetched, &skill.Source.LastSeenRef)
+	summary, err := l.getSummary(ctx, id)
 	if err != nil {
-		return Skill{}, fmt.Errorf("get skill: %w", err)
+		return Skill{}, err
 	}
-	if err := json.Unmarshal(locator, &skill.Source.Locator); err != nil {
-		return Skill{}, fmt.Errorf("decode source: %w", err)
-	}
-	if fetched != "" {
-		skill.Source.LastFetched, err = time.Parse(time.RFC3339Nano, fetched)
-		if err != nil {
-			return Skill{}, fmt.Errorf("decode last fetched: %w", err)
-		}
-	}
+	skill = Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
 
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode
@@ -794,22 +780,22 @@ func validateSource(source Source) error {
 	switch source.Type {
 	case SourceGitHub:
 		if source.Locator.Repository == "" || source.Locator.Branch == "" {
-			return fmt.Errorf("install skill: github repository and branch are required")
+			return &Error{Code: InvalidArgument, Message: "install skill: github repository and branch are required"}
 		}
 	case SourceURL:
 		if source.Locator.URL == "" {
-			return fmt.Errorf("install skill: url is required")
+			return &Error{Code: InvalidArgument, Message: "install skill: url is required"}
 		}
 	case SourceStore:
 		if source.Locator.PackageID == "" || source.Locator.Version == "" {
-			return fmt.Errorf("install skill: store package id and version are required")
+			return &Error{Code: InvalidArgument, Message: "install skill: store package id and version are required"}
 		}
 	case SourceLocal:
 		if source.Locator.Path == "" {
-			return fmt.Errorf("install skill: local path is required")
+			return &Error{Code: InvalidArgument, Message: "install skill: local path is required"}
 		}
 	default:
-		return fmt.Errorf("install skill: unsupported source type %q", source.Type)
+		return &Error{Code: InvalidArgument, Message: fmt.Sprintf("install skill: unsupported source type %q", source.Type)}
 	}
 	return nil
 }
@@ -1389,10 +1375,10 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope)
 	if !individual {
 		return &Error{Code: NotFound, Message: "deactivate skill: no independent activation"}
 	}
-	return l.deactivateOrigin(ctx, id, scope, true, 0)
+	return l.deactivateOrigin(ctx, id, scope)
 }
 
-func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, scope Scope, individual bool, groupID GroupID) error {
+func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, scope Scope) error {
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
@@ -1402,22 +1388,12 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, scope 
 		return fmt.Errorf("begin deactivation: %w", err)
 	}
 	defer tx.Rollback()
-	if individual {
-		if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 0 WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
-			return fmt.Errorf("remove independent activation: %w", err)
-		}
-	} else if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE skill_id = ? AND agent = ? AND scope_path = ? AND group_id = ?`, id, scope.Agent, scope.Path, groupID); err != nil {
-		return fmt.Errorf("remove group activation: %w", err)
+	if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 0 WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
+		return fmt.Errorf("remove independent activation: %w", err)
 	}
-	var keep bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT individual OR EXISTS(
-			SELECT 1 FROM activation_groups
-			WHERE skill_id = ? AND agent = ? AND scope_path = ?
-		)
-		FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?
-	`, id, scope.Agent, scope.Path, id, scope.Agent, scope.Path).Scan(&keep); err != nil {
-		return fmt.Errorf("check activation origins: %w", err)
+	keep, err := keepActivation(ctx, tx, id, scope)
+	if err != nil {
+		return err
 	}
 	if !keep {
 		if err := os.RemoveAll(filepath.Join(scope.Path, skill.Name)); err != nil {
@@ -1433,9 +1409,26 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, scope 
 	return nil
 }
 
+// keepActivation 在撤销依据后判断投影是否仍需保留。
+func keepActivation(ctx context.Context, tx *sql.Tx, id SkillID, scope Scope) (bool, error) {
+	var keep bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT individual OR EXISTS(
+			SELECT 1 FROM activation_groups
+			WHERE skill_id = ? AND agent = ? AND scope_path = ?
+		)
+		FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?
+	`, id, scope.Agent, scope.Path, id, scope.Agent, scope.Path).Scan(&keep); err != nil {
+		return false, fmt.Errorf("check activation origins: %w", err)
+	}
+	return keep, nil
+}
+
 func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
+	// ponytail: 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ctx = context.WithValue(ctx, libraryOperationKey{}, l)
 	defer func() { err = typedError(err) }()
 	if err := validateScope(scope); err != nil {
 		return err
@@ -1554,8 +1547,10 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 }
 
 func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
+	// ponytail: 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ctx = context.WithValue(ctx, libraryOperationKey{}, l)
 	defer func() { err = typedError(err) }()
 	if err := validateScope(scope); err != nil {
 		return err
@@ -1606,15 +1601,9 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE skill_id = ? AND agent = ? AND scope_path = ? AND group_id = ?`, id, scope.Agent, scope.Path, groupID); err != nil {
 			return fmt.Errorf("remove group activation: %w", err)
 		}
-		var keep bool
-		if err := tx.QueryRowContext(ctx, `
-			SELECT individual OR EXISTS(
-				SELECT 1 FROM activation_groups
-				WHERE skill_id = ? AND agent = ? AND scope_path = ?
-			)
-			FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?
-		`, id, scope.Agent, scope.Path, id, scope.Agent, scope.Path).Scan(&keep); err != nil {
-			return fmt.Errorf("check activation origins: %w", err)
+		keep, err := keepActivation(ctx, tx, id, scope)
+		if err != nil {
+			return err
 		}
 		if !keep {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?`, id, scope.Agent, scope.Path); err != nil {
@@ -1626,11 +1615,12 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 
 	// 磁盘删除做成可逆:先把待删目录改名到暂存,提交后再真正删除;
 	// 任一步失败则撤销改名并回滚事务,该组去激活全有或全无。
-	var trashed [][2]string // {trash, target}
+	type trashedProjection struct{ trash, target string }
+	var trashed []trashedProjection
 	restore := func() error {
 		var restoreErr error
 		for i := len(trashed) - 1; i >= 0; i-- {
-			restoreErr = errors.Join(restoreErr, os.Rename(trashed[i][0], trashed[i][1]))
+			restoreErr = errors.Join(restoreErr, os.Rename(trashed[i].trash, trashed[i].target))
 		}
 		return restoreErr
 	}
@@ -1650,13 +1640,13 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 		if err := os.Rename(target, trash); err != nil {
 			return errors.Join(fmt.Errorf("deactivate skill: %w", err), restore())
 		}
-		trashed = append(trashed, [2]string{trash, target})
+		trashed = append(trashed, trashedProjection{trash: trash, target: target})
 	}
 	if err := tx.Commit(); err != nil {
 		return errors.Join(fmt.Errorf("commit group deactivation: %w", err), restore())
 	}
 	for _, entry := range trashed {
-		_ = os.RemoveAll(entry[0])
+		_ = os.RemoveAll(entry.trash)
 	}
 	return nil
 }
