@@ -20,6 +20,7 @@ type ProjectID int64
 type ErrorCode string
 
 const (
+	InvalidArgument   ErrorCode = "invalid_argument"   // 参数无效
 	NotFound          ErrorCode = "not_found"          // 目标不存在
 	AlreadyExists     ErrorCode = "already_exists"     // 目标已存在(激活目录冲突、路径重复注册等)
 	SourceUnreachable ErrorCode = "source_unreachable" // 来源无法访问(网络故障、路径不存在等)
@@ -143,6 +144,13 @@ type VersionDiff struct {
 	Deleted []string `json:"deleted"` // 仅旧版本有
 }
 
+// UpdateResult 描述 Library 的更新结果;已激活的副本不会自动重写。
+type UpdateResult struct {
+	Skill   Skill  `json:"skill"`
+	Changed bool   `json:"changed"` // 内容或文件权限变化并生成了新版本
+	Note    string `json:"note"`    // 提醒前端已激活的副本可能落后于 Library
+}
+
 // Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0007)。
 type Group struct {
 	ID   GroupID `json:"id"`
@@ -231,12 +239,12 @@ type Library interface {
 	// 成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
 	// 失败时保留句柄供重试,直至 Close 或过期。
 	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
-	// Update 重新读取来源;内容有变化则生成新版本并设为当前版本。
-	Update(ctx context.Context, id SkillID) (Skill, error)
+	// Update 重新读取来源;内容有变化则生成新版本,只更新 Library,不重写激活副本。
+	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
-	// SourceHasUpdate 判断远端最新标识与上次抓取时看到的是否不同。
-	SourceHasUpdate(ctx context.Context, id SourceID, latestRef string) (bool, error)
+	// CheckUpdate 自行读取来源,比较目标 skill 的内容及权限;不修改 Library 或激活副本。
+	CheckUpdate(ctx context.Context, id SkillID) (bool, error)
 
 	// 版本历史
 

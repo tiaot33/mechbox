@@ -542,14 +542,52 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	return Skill{ID: SkillID(skillID), Name: name, Source: source, Files: files}, nil
 }
 
-func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (skill Skill, err error) {
+func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	skill, err = l.GetSkill(ctx, id)
-	if err != nil {
-		return Skill{}, err
+	if id <= 0 {
+		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}
 	}
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	latest, err := readUpdate(ctx, skill)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	changed := !filesEqual(skill.Files, latest.Files)
+	skill = latest
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return UpdateResult{}, fmt.Errorf("begin update: %w", err)
+	}
+	defer tx.Rollback()
+	if changed {
+		versionID, err := createVersion(ctx, tx, int64(id), skill.Files)
+		if err != nil {
+			return UpdateResult{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
+			return UpdateResult{}, fmt.Errorf("select current version: %w", err)
+		}
+	}
+	if skill.Source.Type != SourceLocal {
+		if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`,
+			skill.Source.LastFetched.Format(time.RFC3339Nano), skill.Source.LastSeenRef, skill.Source.ID); err != nil {
+			return UpdateResult{}, fmt.Errorf("update source: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return UpdateResult{}, fmt.Errorf("commit update: %w", err)
+	}
+	return UpdateResult{Skill: skill, Changed: changed, Note: "已激活的副本未重写,可能落后于 Library;需要时请重新激活。"}, nil
+}
+
+// readUpdate 读取目标 skill 的最新来源内容,不持久化来源状态。
+func readUpdate(ctx context.Context, skill Skill) (Skill, error) {
+	var err error
 	var files []File
 	if skill.Source.Type == SourceLocal {
 		files, err = readFiles(ctx, skill.Source.Locator.Path)
@@ -566,29 +604,6 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (skill Skill, er
 	}
 	if err != nil {
 		return Skill{}, err
-	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Skill{}, fmt.Errorf("begin update: %w", err)
-	}
-	defer tx.Rollback()
-	if !filesEqual(skill.Files, files) {
-		versionID, err := createVersion(ctx, tx, int64(id), files)
-		if err != nil {
-			return Skill{}, err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
-			return Skill{}, fmt.Errorf("select current version: %w", err)
-		}
-	}
-	if skill.Source.Type != SourceLocal {
-		if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`,
-			skill.Source.LastFetched.Format(time.RFC3339Nano), skill.Source.LastSeenRef, skill.Source.ID); err != nil {
-			return Skill{}, fmt.Errorf("update source: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return Skill{}, fmt.Errorf("commit update: %w", err)
 	}
 	skill.Files = files
 	return skill, nil
@@ -757,15 +772,22 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 	return diff, nil
 }
 
-func (l *sqliteLibrary) SourceHasUpdate(ctx context.Context, id SourceID, latestRef string) (available bool, err error) {
+func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available bool, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	var lastSeenRef string
-	if err := l.db.QueryRowContext(ctx, `SELECT last_seen_ref FROM sources WHERE id = ?`, id).Scan(&lastSeenRef); err != nil {
-		return false, fmt.Errorf("check source update: %w", err)
+	if id <= 0 {
+		return false, &Error{Code: InvalidArgument, Message: "check update: skill ID must be positive"}
 	}
-	return latestRef != lastSeenRef, nil
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	latest, err := readUpdate(ctx, skill)
+	if err != nil {
+		return false, err
+	}
+	return !filesEqual(skill.Files, latest.Files), nil
 }
 
 func validateSource(source Source) error {
@@ -1785,7 +1807,7 @@ func selectSkills(skills []fetchedSkill, selected []string) ([]fetchedSkill, err
 	}
 	if len(wanted) != 0 {
 		for name := range wanted {
-			return nil, fmt.Errorf("install remote: skill %q not found", name)
+			return nil, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name)}
 		}
 	}
 	return result, nil

@@ -8,5 +8,6 @@ Skills arrive from several kinds of origin and v1 supports all four. Making the 
 
 - **Collection** is not stored; it is a `GROUP BY source`.
 - **Self-developed skill** is `source.type = local`.
-- Each type has its own "check for updates / fetch new version" logic, but all of it compares against the same two `sources` fields (`last_fetched`, `last_seen_ref`).
+- 各 Source 类型复用自身的抓取逻辑。#25 的 `CheckUpdate(ctx, SkillID)` 自行读取来源,比较目标 Skill 的文件内容及权限,不写入 Library。`last_fetched` 与 `last_seen_ref` 记录抓取状态;它们由同一来源下的 Skills 共享,不能单独用于判断某个 Skill 是否需要更新。
 - Updating a skill means re-fetching from its Source, producing a new version (see `0005`).
+- #25 的 `Update` 返回 Skill、Changed 和激活副本可能滞后的提示;只有内容或权限变化才新增版本,已激活副本与激活记录保持不变。

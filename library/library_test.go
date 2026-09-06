@@ -204,24 +204,32 @@ func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T
 		t.Fatalf("installed skills = %v, want %v", got, want)
 	}
 
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("unrelated\n"), 0o644)
+	commitGit(t, repository, "unrelated skill")
+	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
+		t.Fatalf("unrelated commit CheckUpdate = %v, %v", available, err)
+	}
 	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte("updated\n"), 0o644)
 	commitGit(t, repository, "update")
+	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || !available {
+		t.Fatalf("changed skill CheckUpdate = %v, %v", available, err)
+	}
 	updated, err := lib.Update(ctx, installed[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(updated.Files[0].Content); got != "updated\n" {
+	if got := string(updated.Skill.Files[0].Content); got != "updated\n" {
 		t.Fatalf("updated content = %q, want updated", got)
 	}
-	if updated.Source.LastSeenRef == "" || updated.Source.LastSeenRef == installed[0].Source.LastSeenRef {
-		t.Fatalf("updated source ref = %q, want new git commit", updated.Source.LastSeenRef)
+	if updated.Skill.Source.LastSeenRef == "" || updated.Skill.Source.LastSeenRef == installed[0].Source.LastSeenRef {
+		t.Fatalf("updated source ref = %q, want new git commit", updated.Skill.Source.LastSeenRef)
 	}
 	persisted, err := lib.GetSkill(ctx, installed[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Source.LastSeenRef != updated.Source.LastSeenRef {
-		t.Fatalf("persisted source ref = %q, want %q", persisted.Source.LastSeenRef, updated.Source.LastSeenRef)
+	if persisted.Source.LastSeenRef != updated.Skill.Source.LastSeenRef {
+		t.Fatalf("persisted source ref = %q, want %q", persisted.Source.LastSeenRef, updated.Skill.Source.LastSeenRef)
 	}
 	if _, err := lib.Update(ctx, installed[0].ID); err != nil {
 		t.Fatal(err)
@@ -397,7 +405,7 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(current, updated) {
+	if !reflect.DeepEqual(current, updated.Skill) {
 		t.Fatalf("GetSkill() = %#v, Update() = %#v", current, updated)
 	}
 	versions, err := lib.ListVersions(ctx, installed.ID)
@@ -418,8 +426,8 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(second.Files, updated.Files) {
-		t.Fatalf("second version files = %#v, want %#v", second.Files, updated.Files)
+	if !reflect.DeepEqual(second.Files, updated.Skill.Files) {
+		t.Fatalf("second version files = %#v, want %#v", second.Files, updated.Skill.Files)
 	}
 
 	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
@@ -549,7 +557,7 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			return err
 		}},
 		{name: "source update", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.SourceHasUpdate(context.Background(), 9999, "new")
+			_, err := lib.CheckUpdate(context.Background(), 9999)
 			return err
 		}},
 		{name: "list scopes", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
