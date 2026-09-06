@@ -49,10 +49,10 @@ type fetchedSkill struct {
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
 type fetchSession struct {
-	source  Source
-	ref     string
-	skills  []fetchedSkill
-	created time.Time
+	source Source
+	ref    string
+	skills []fetchedSkill
+	timer  *time.Timer
 }
 
 type contextReader struct {
@@ -73,6 +73,7 @@ type sqliteLibrary struct {
 
 	fetchMu sync.Mutex
 	fetches map[FetchID]*fetchSession
+	closed  bool
 }
 
 type libraryOperationKey struct{}
@@ -332,7 +333,11 @@ func (l *sqliteLibrary) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fetchMu.Lock()
-	l.fetches = map[FetchID]*fetchSession{}
+	l.closed = true
+	for _, session := range l.fetches {
+		session.timer.Stop()
+	}
+	clear(l.fetches)
 	l.fetchMu.Unlock()
 	return l.db.Close()
 }
@@ -354,6 +359,12 @@ func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill 
 
 func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch, err error) {
 	defer func() { err = typedError(err) }()
+	l.fetchMu.Lock()
+	closed := l.closed
+	l.fetchMu.Unlock()
+	if closed {
+		return Fetch{}, fmt.Errorf("fetch: library is closed")
+	}
 	if spec.Type == SourceLocal {
 		return Fetch{}, fmt.Errorf("fetch: local sources must use Install")
 	}
@@ -376,20 +387,39 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 		names[i] = skill.name
 	}
 	l.fetchMu.Lock()
-	l.gcFetchesLocked()
-	l.fetches[id] = &fetchSession{source: source, ref: ref, skills: skills, created: time.Now()}
-	l.fetchMu.Unlock()
+	defer l.fetchMu.Unlock()
+	if l.closed {
+		return Fetch{}, fmt.Errorf("fetch: library is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return Fetch{}, err
+	}
+	session := &fetchSession{source: source, ref: ref, skills: skills}
+	l.fetches[id] = session
+	session.timer = time.AfterFunc(fetchTTL, func() {
+		l.fetchMu.Lock()
+		defer l.fetchMu.Unlock()
+		delete(l.fetches, id)
+	})
 	return Fetch{ID: id, Ref: ref, Skills: names}, nil
 }
 
-// gcFetchesLocked 清理已过期(超过 fetchTTL)的暂存;调用方须持有 fetchMu。
-func (l *sqliteLibrary) gcFetchesLocked() {
-	now := time.Now()
-	for id, session := range l.fetches {
-		if now.Sub(session.created) > fetchTTL {
-			delete(l.fetches, id)
-		}
+func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (names []string, err error) {
+	defer func() { err = typedError(err) }()
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+	l.fetchMu.Lock()
+	defer l.fetchMu.Unlock()
+	session, ok := l.fetches[id]
+	if !ok {
+		return nil, &Error{Code: NotFound, Message: "fetch session not found"}
+	}
+	names = make([]string, len(session.skills))
+	for i, skill := range session.skills {
+		names[i] = skill.name
+	}
+	return names, nil
 }
 
 func newFetchID() (FetchID, error) {

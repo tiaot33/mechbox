@@ -122,7 +122,7 @@ type SkillSummary struct {
 type FetchID string
 
 // Fetch 是一次远程抓取的暂存结果:句柄 + 候选 skill 名 + 看到的远端标识。
-// 内容此时尚未进入 Library,后续须经 InstallFetch 选取后才提交入库。
+// 内容此时尚未进入 Library。
 type Fetch struct {
 	ID     FetchID  `json:"id"`
 	Ref    string   `json:"ref"`    // 抓取时看到的远端标识(git commit 或内容哈希)
@@ -228,6 +228,9 @@ type Library interface {
 	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区(联网一次),返回句柄与
 	// 候选 skill 名清单;此时尚无内容进入 Library。本地目录不走 Fetch。
 	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
+	// ListFetchSkills 只列出暂存中的候选名称,不联网、不入库;句柄在 30 分钟后或
+	// Close 时失效。过期、未知或其他 Library 实例的句柄返回 NotFound。
+	ListFetchSkills(ctx context.Context, id FetchID) ([]string, error)
 	// InstallRemote 抓取远程来源并安装其中发现的 skill;opts 可限定只安装一部分。
 	InstallRemote(ctx context.Context, source Source, opts InstallOptions) ([]Skill, error)
 	// InstallFetched 安装调用方已抓取好的文件,仅限远程来源(本地目录走 Install)。
