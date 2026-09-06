@@ -88,6 +88,9 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
+	if IsCode(err, NotFound) && expected != "" {
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since preview"}
+	}
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -504,7 +507,12 @@ func s3Request(ctx context.Context, method string, body []byte, conditions map[s
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}
 	}
-	return response, strings.Trim(resp.Header.Get("ETag"), `"`), nil
+	etag := resp.Header.Get("ETag")
+	// 已存在的对象必须提供身份,不能把缺失 ETag 当作远端无对象。
+	if etag == "" && method != http.MethodPut {
+		return nil, "", &Error{Code: SourceUnreachable, Message: "S3 response missing ETag"}
+	}
+	return response, etag, nil
 }
 
 func loadS3Config() (s3Config, error) {

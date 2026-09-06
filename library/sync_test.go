@@ -31,7 +31,7 @@ type s3Stub struct {
 func (s *s3Stub) set(data []byte) {
 	s.stored = data
 	sum := sha256.Sum256(data)
-	s.etag = hex.EncodeToString(sum[:])
+	s.etag = `"` + hex.EncodeToString(sum[:]) + `"`
 }
 
 func newS3Stub(t *testing.T) *s3Stub {
@@ -54,13 +54,13 @@ func newS3Stub(t *testing.T) *s3Stub {
 				return
 			}
 			stub.set(data)
-			w.Header().Set("ETag", `"`+stub.etag+`"`)
+			w.Header().Set("ETag", stub.etag)
 		case http.MethodGet, http.MethodHead:
 			if len(stub.stored) == 0 {
 				http.Error(w, "missing", http.StatusNotFound)
 				return
 			}
-			w.Header().Set("ETag", `"`+stub.etag+`"`)
+			w.Header().Set("ETag", stub.etag)
 			if r.Method == http.MethodGet {
 				_, _ = w.Write(stub.stored)
 			} else if stub.afterHead != nil {
@@ -130,6 +130,9 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if pushPreview.RemoteExists || pushPreview.Remote != "" {
 		t.Fatalf("PreviewSyncPush() = %#v, want no remote object", pushPreview)
 	}
+	if len(stub.stored) != 0 {
+		t.Fatal("push preview uploaded a database")
+	}
 	pushResult, err := lib.SyncPush(ctx, pushPreview.Remote)
 	if err != nil {
 		t.Fatal(err)
@@ -166,6 +169,10 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if len(pullPreview.Warnings) == 0 {
 		t.Fatal("PreviewSyncPull() carried no projection warning")
 	}
+	beforePull, err := lib.ListSkills(ctx)
+	if err != nil || len(beforePull) != 1 || beforePull[0].Name != "extra" {
+		t.Fatalf("pull preview replaced local library: %#v, %v", beforePull, err)
+	}
 	pullResult, err := lib.SyncPull(ctx, pullPreview.Remote)
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +181,11 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		t.Fatalf("SyncPull() result = %#v, want remote identity and projection warning", pullResult)
 	}
 
+	for _, path := range []string{newProjectPath, newHome} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("pull rebuilt projection at %s: %v", path, err)
+		}
+	}
 	skills, err := lib.ListSkills(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -382,5 +394,138 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 	}
 	if _, err := lib.SyncPull(context.Background(), ""); !library.IsCode(err, library.NotConfigured) {
 		t.Fatalf("missing config pull error = %v, want NotConfigured", err)
+	}
+}
+
+func TestSyncPushPreviewPreservesRemoteAndMatchingOverwriteSucceeds(t *testing.T) {
+	stub := newS3Stub(t)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	ctx := t.Context()
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	before := bytes.Clone(stub.stored)
+	if _, err := lib.CreateGroup(ctx, "new-local-group"); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := lib.PreviewSyncPush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.RemoteExists || string(preview.Remote) != stub.etag || !bytes.Equal(before, stub.stored) {
+		t.Fatalf("push preview changed remote or returned wrong identity: %#v", preview)
+	}
+	result, err := lib.SyncPush(ctx, preview.Remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Remote == preview.Remote || bytes.Equal(before, stub.stored) {
+		t.Fatal("matching push did not update remote")
+	}
+	if _, err := lib.SyncPull(ctx, result.Remote); err != nil {
+		t.Fatal(err)
+	}
+	groups, err := lib.ListGroups(ctx)
+	if err != nil || len(groups) != 1 || groups[0].Name != "new-local-group" {
+		t.Fatalf("pushed library groups = %#v, %v", groups, err)
+	}
+}
+
+func TestSyncRejectsStalePreviewAfterRemoteCreationChangeOrDeletion(t *testing.T) {
+	stub := newS3Stub(t)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	ctx := t.Context()
+	preview, err := lib.PreviewSyncPush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intruder := []byte("another writer")
+	stub.set(intruder)
+	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+		t.Fatalf("push after creation = %v, want Conflict", err)
+	}
+	preview, err = lib.PreviewSyncPush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub.set([]byte("changed writer"))
+	before := bytes.Clone(stub.stored)
+	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+		t.Fatalf("push after change = %v, want Conflict", err)
+	}
+	if !bytes.Equal(before, stub.stored) {
+		t.Fatal("stale push changed remote")
+	}
+	stub.stored, stub.etag = nil, ""
+	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+		t.Fatalf("push after deletion = %v, want Conflict", err)
+	}
+	if _, err := lib.SyncPull(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+		t.Fatalf("pull after deletion = %v, want Conflict", err)
+	}
+}
+
+func TestAllSyncOperationsReportMissingConfiguration(t *testing.T) {
+	newS3Stub(t)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	for _, key := range []string{"SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, "")
+			_, pushPreviewErr := lib.PreviewSyncPush(t.Context())
+			_, pullPreviewErr := lib.PreviewSyncPull(t.Context())
+			_, pushErr := lib.SyncPush(t.Context(), "")
+			_, pullErr := lib.SyncPull(t.Context(), "")
+			for name, err := range map[string]error{"push preview": pushPreviewErr, "pull preview": pullPreviewErr, "push": pushErr, "pull": pullErr} {
+				if !library.IsCode(err, library.NotConfigured) {
+					t.Errorf("%s = %v, want NotConfigured", name, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
+	stub := newS3Stub(t)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	ctx := t.Context()
+	if _, err := lib.CreateGroup(ctx, "local-group"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	before := bytes.Clone(stub.stored)
+	stub.etag = ""
+	_, pushPreviewErr := lib.PreviewSyncPush(ctx)
+	_, pullPreviewErr := lib.PreviewSyncPull(ctx)
+	_, pushErr := lib.SyncPush(ctx, "")
+	_, pullErr := lib.SyncPull(ctx, "")
+	for name, err := range map[string]error{"push preview": pushPreviewErr, "pull preview": pullPreviewErr, "push": pushErr, "pull": pullErr} {
+		if !library.IsCode(err, library.SourceUnreachable) {
+			t.Errorf("%s without remote identity = %v, want SourceUnreachable", name, err)
+		}
+	}
+	if !bytes.Equal(before, stub.stored) {
+		t.Fatal("unidentified remote was overwritten")
+	}
+	groups, err := lib.ListGroups(ctx)
+	if err != nil || len(groups) != 1 || groups[0].Name != "local-group" {
+		t.Fatalf("local library changed: %#v, %v", groups, err)
 	}
 }
