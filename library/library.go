@@ -1239,7 +1239,7 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope Scope, o
 		return err
 	}
 	target := filepath.Join(scope.Path, skill.Name)
-	if _, err := os.Stat(target); err == nil {
+	if _, err := os.Lstat(target); err == nil {
 		if !active && opts.OnConflict != Overwrite {
 			return &Error{Code: AlreadyExists, Message: "activate skill: target already exists"}
 		}
@@ -1316,7 +1316,7 @@ func (l *sqliteLibrary) stageSkill(scope Scope, skill Skill) (string, error) {
 // moveStageIntoPlace 把暂存目录移到目标位置;目标已存在则先备份到返回的 backup 路径
 // (backup 为空表示目标原本不存在)。失败时尽力把备份复位。
 func moveStageIntoPlace(stage, target string) (backup string, err error) {
-	if _, err := os.Stat(target); err == nil {
+	if _, err := os.Lstat(target); err == nil {
 		backup = stage + ".old"
 		if err := os.Rename(target, backup); err != nil {
 			return "", fmt.Errorf("replace activation: %w", err)
@@ -1443,7 +1443,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 			if active {
 				continue
 			}
-			if _, err := os.Stat(filepath.Join(scope.Path, member.Name)); err == nil {
+			if _, err := os.Lstat(filepath.Join(scope.Path, member.Name)); err == nil {
 				return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("inspect activation target: %w", err)
@@ -1467,42 +1467,43 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		moved  bool   // 暂存是否已移入目标位置
 	}
 	var applied []*staged
-	rollback := func() {
+	rollback := func() error {
+		var restoreErr error
 		for i := len(applied) - 1; i >= 0; i-- {
 			member := applied[i]
 			if member.moved {
-				_ = os.RemoveAll(member.target)
-				if member.backup != "" {
-					_ = os.Rename(member.backup, member.target)
+				if err := os.RemoveAll(member.target); err != nil {
+					restoreErr = errors.Join(restoreErr, err)
+				} else if member.backup != "" {
+					// 复位失败时保留备份,避免丢失用户原始内容。
+					restoreErr = errors.Join(restoreErr, os.Rename(member.backup, member.target))
 				}
 			}
 			if member.stage != "" {
-				_ = os.RemoveAll(member.stage)
-			}
-			if member.backup != "" {
-				_ = os.RemoveAll(member.backup)
+				restoreErr = errors.Join(restoreErr, os.RemoveAll(member.stage))
 			}
 		}
+		return restoreErr
 	}
 
 	for _, member := range members {
 		skill, err := l.GetSkill(ctx, member.ID)
 		if err != nil {
-			rollback()
-			return err
+			return errors.Join(err, rollback())
 		}
 		stage, err := l.stageSkill(scope, skill)
 		if err != nil {
-			rollback()
-			return err
+			return errors.Join(err, rollback())
 		}
 		applied = append(applied, &staged{id: skill.ID, target: filepath.Join(scope.Path, skill.Name), stage: stage})
 	}
 	for _, member := range applied {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, rollback())
+		}
 		backup, err := moveStageIntoPlace(member.stage, member.target)
 		if err != nil {
-			rollback()
-			return err
+			return errors.Join(err, rollback())
 		}
 		member.backup = backup
 		member.moved = true
@@ -1511,19 +1512,16 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
-		rollback()
-		return fmt.Errorf("begin group activation: %w", err)
+		return errors.Join(fmt.Errorf("begin group activation: %w", err), rollback())
 	}
 	defer tx.Rollback()
 	for _, member := range applied {
 		if err := recordActivationTx(ctx, tx, member.id, scope, false, groupID); err != nil {
-			rollback()
-			return err
+			return errors.Join(err, rollback())
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		rollback()
-		return fmt.Errorf("commit group activation: %w", err)
+		return errors.Join(fmt.Errorf("commit group activation: %w", err), rollback())
 	}
 	for _, member := range applied {
 		if member.backup != "" {
@@ -1607,32 +1605,33 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	// 磁盘删除做成可逆:先把待删目录改名到暂存,提交后再真正删除;
 	// 任一步失败则撤销改名并回滚事务,该组去激活全有或全无。
 	var trashed [][2]string // {trash, target}
-	restore := func() {
+	restore := func() error {
+		var restoreErr error
 		for i := len(trashed) - 1; i >= 0; i-- {
-			_ = os.Rename(trashed[i][0], trashed[i][1])
+			restoreErr = errors.Join(restoreErr, os.Rename(trashed[i][0], trashed[i][1]))
 		}
+		return restoreErr
 	}
 	for _, target := range removeTargets {
-		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, restore())
+		}
+		if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
-			restore()
-			return fmt.Errorf("inspect deactivation target: %w", err)
+			return errors.Join(fmt.Errorf("inspect deactivation target: %w", err), restore())
 		}
 		trash, err := randomName(filepath.Join(scope.Path, ".deactivate-"))
 		if err != nil {
-			restore()
-			return err
+			return errors.Join(err, restore())
 		}
 		if err := os.Rename(target, trash); err != nil {
-			restore()
-			return fmt.Errorf("deactivate skill: %w", err)
+			return errors.Join(fmt.Errorf("deactivate skill: %w", err), restore())
 		}
 		trashed = append(trashed, [2]string{trash, target})
 	}
 	if err := tx.Commit(); err != nil {
-		restore()
-		return fmt.Errorf("commit group deactivation: %w", err)
+		return errors.Join(fmt.Errorf("commit group deactivation: %w", err), restore())
 	}
 	for _, entry := range trashed {
 		_ = os.RemoveAll(entry[0])

@@ -284,9 +284,9 @@ type Library interface {
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
-	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据。
+	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据;失败时撤销本次整组改动。
 	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
-	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除。
+	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
 	// ListActivations 列出全部投影记录及各自的保留依据。
 	ListActivations(ctx context.Context) ([]Activation, error)

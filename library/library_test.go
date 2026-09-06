@@ -1155,7 +1155,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 }
 
 func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
@@ -1192,6 +1192,11 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	}
 	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatalf("re-ActivateGroup under Fail policy = %v, want success", err)
+	}
+	activations, err = lib.ListActivations(ctx)
+	want[0].ViaGroups = []library.GroupID{group.ID}
+	if err != nil || !reflect.DeepEqual(activations, want) {
+		t.Fatalf("origins after reactivation = %#v, %v; want %#v", activations, err, want)
 	}
 }
 
