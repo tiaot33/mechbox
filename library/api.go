@@ -134,10 +134,11 @@ type File struct {
 
 // Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
 type Skill struct {
-	ID     SkillID `json:"id"`
-	Name   string  `json:"name"`
-	Source Source  `json:"source"`
-	Files  []File  `json:"files"`
+	ID         SkillID `json:"id"`
+	Name       string  `json:"name"`
+	Source     Source  `json:"source"`
+	GitTreeSHA string  `json:"git_tree_sha"` // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
+	Files      []File  `json:"files"`
 }
 
 // SkillSummary 是浏览列表用的精简条目:身份、名字与来源元数据,不含文件正文。
@@ -181,9 +182,10 @@ type Fetch struct {
 
 // SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
 type SkillVersion struct {
-	ID      VersionID `json:"id"`
-	SkillID SkillID   `json:"skill_id"`
-	Files   []File    `json:"files,omitempty"`
+	ID         VersionID `json:"id"`
+	SkillID    SkillID   `json:"skill_id"`
+	GitTreeSHA string    `json:"git_tree_sha"` // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
+	Files      []File    `json:"files,omitempty"`
 }
 
 // VersionDiff 是两个版本之间按文件路径归类的差异。

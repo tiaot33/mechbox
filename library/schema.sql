@@ -1,5 +1,6 @@
--- Library 的 SQLite v1 表结构,由 library.Open 嵌入执行。
+-- Library 的 SQLite 表结构,由 library.Open 嵌入执行。
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
+-- user_version=2 起 skill_versions 含 git_tree_sha;Open 将已有 v1 库迁移到当前版本。
 
 -- skill 的安装来源。
 CREATE TABLE IF NOT EXISTS sources (
@@ -23,7 +24,8 @@ CREATE TABLE IF NOT EXISTS skills (
 -- skill 的历史版本;本身只是一个版本号,文件清单在 version_files。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY,                          -- 自增;同一 skill 内按 id 升序即版本先后顺序
-    skill_id INTEGER NOT NULL REFERENCES skills(id)
+    skill_id INTEGER NOT NULL REFERENCES skills(id),
+    git_tree_sha TEXT NOT NULL DEFAULT ''            -- GitHub 来源该 Skill 目录的 git tree SHA;非 git 为空
 );
 
 -- 内容寻址的文件内容存储:指纹是内容的 sha256,相同内容跨版本、跨 skill 只存一份。

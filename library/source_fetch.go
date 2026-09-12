@@ -115,7 +115,34 @@ func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (re
 	}
 	result, err = discoverSkills(ctx, source, current)
 	result.ref = strings.TrimSpace(string(output))
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	for i, skill := range result.skills {
+		sha, shaErr := readGitTreeSHA(ctx, repository, skill.preview.Path)
+		if shaErr != nil {
+			return discoveredSource{}, shaErr
+		}
+		result.skills[i].gitTreeSHA = sha
+	}
+	return result, nil
+}
+
+// readGitTreeSHA 读取该 Skill 目录的 git tree 对象 SHA;根目录 Skill 用 commit 的 root tree。
+func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, error) {
+	spec := "HEAD^{tree}"
+	if skillPath != "" && skillPath != "." {
+		spec = "HEAD:" + skillPath
+	}
+	output, err := runSourceGit(ctx, "-C", repository, "rev-parse", spec)
+	if err != nil {
+		return "", err
+	}
+	sha := strings.ToLower(strings.TrimSpace(string(output)))
+	if !fullCommit.MatchString(sha) {
+		return "", fetchError(Internal, "read git tree", errors.New("invalid skill directory tree SHA"))
+	}
+	return sha, nil
 }
 
 func fetchArchive(ctx context.Context, location string) (result discoveredSource, err error) {

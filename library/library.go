@@ -26,7 +26,7 @@ import (
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 1
+	librarySchemaVersion = 2
 )
 
 // fetchTTL 是一次 Fetch 暂存被后端回收前的存活时间;超过后视为被放弃。
@@ -36,9 +36,10 @@ const fetchTTL = 30 * time.Minute
 var schemaSQL string
 
 type fetchedSkill struct {
-	name    string
-	preview FetchSkill
-	files   []File
+	name       string
+	preview    FetchSkill
+	files      []File
+	gitTreeSHA string // GitHub 来源该 Skill 目录的 tree SHA;其他来源为空
 }
 
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
@@ -82,7 +83,7 @@ func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, fun
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-// Open opens an existing Library database or initializes a new one at path.
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1 库会迁移到当前 schema。
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -99,6 +100,10 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("inspect library: %w", err)
 	}
 	if tableCount > 0 {
+		if err := migrateLibrary(context.Background(), db); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("open library: %w", err)
+		}
 		if err := validateLibrarySchema(context.Background(), db); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("open library: %w", err)
@@ -114,6 +119,86 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("identify library: %w", err)
 	}
 	return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
+}
+
+// migrateLibrary 把已有库升到当前 schema;身份不符则不改文件。
+func migrateLibrary(ctx context.Context, db *sql.DB) error {
+	var applicationID, userVersion int
+	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
+		return err
+	}
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
+		return err
+	}
+	if applicationID != libraryApplicationID {
+		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
+	}
+	switch userVersion {
+	case librarySchemaVersion:
+		return nil
+	case 1:
+		return migrateLibraryV1ToV2(ctx, db)
+	default:
+		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
+	}
+}
+
+// migrateLibraryV1ToV2 给 skill_versions 补上 git_tree_sha,并把 sqlite_master 写成与当前 schema.sql 一致。
+func migrateLibraryV1ToV2(ctx context.Context, db *sql.DB) error {
+	createSQL, err := canonicalTableSQL(ctx, "skill_versions")
+	if err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	defer db.ExecContext(ctx, `PRAGMA foreign_keys = ON`)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE skill_versions_migrate (id INTEGER PRIMARY KEY, skill_id INTEGER NOT NULL)`); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_versions_migrate(id, skill_id) SELECT id, skill_id FROM skill_versions`); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE skill_versions`); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, createSQL); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(id, skill_id, git_tree_sha) SELECT id, skill_id, '' FROM skill_versions_migrate`); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE skill_versions_migrate`); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion)); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	return nil
+}
+
+func canonicalTableSQL(ctx context.Context, name string) (string, error) {
+	expectedDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return "", err
+	}
+	defer expectedDB.Close()
+	if _, err := expectedDB.ExecContext(ctx, schemaSQL); err != nil {
+		return "", err
+	}
+	var createSQL string
+	if err := expectedDB.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&createSQL); err != nil {
+		return "", err
+	}
+	return createSQL, nil
 }
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
@@ -482,7 +567,7 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 	}
 	installed := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
-		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files)
+		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, skill.gitTreeSHA)
 		if err != nil {
 			return nil, err
 		}
@@ -526,7 +611,7 @@ func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error)
 }
 
 // insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File) (Skill, error) {
+func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, gitTreeSHA string) (Skill, error) {
 	if name == "" {
 		return Skill{}, fmt.Errorf("install skill: name is required")
 	}
@@ -538,7 +623,7 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill id: %w", err)
 	}
-	versionID, err := createVersion(ctx, tx, skillID, files)
+	versionID, err := createVersion(ctx, tx, skillID, files, gitTreeSHA)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -547,7 +632,7 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	}
 	source.ID = SourceID(sourceID)
 	source.LastFetched = source.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Source: source, Files: files}, nil
+	return Skill{ID: SkillID(skillID), Name: name, Source: source, GitTreeSHA: gitTreeSHA, Files: files}, nil
 }
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
@@ -561,19 +646,24 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	persistedSHA := skill.GitTreeSHA
 	latest, err := readUpdate(ctx, skill)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	changed := !filesEqual(skill.Files, latest.Files)
 	skill = latest
+	if !changed {
+		// 内容未变则不改已有版本的 git_tree_sha;是否有更新仍只比较文件与可执行位。
+		skill.GitTreeSHA = persistedSHA
+	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("begin update: %w", err)
 	}
 	defer tx.Rollback()
 	if changed {
-		versionID, err := createVersion(ctx, tx, int64(id), skill.Files)
+		versionID, err := createVersion(ctx, tx, int64(id), skill.Files, skill.GitTreeSHA)
 		if err != nil {
 			return UpdateResult{}, err
 		}
@@ -609,6 +699,7 @@ func readUpdate(ctx context.Context, skill Skill) (Skill, error) {
 		}
 		if err == nil {
 			files = fetched[0].files
+			skill.GitTreeSHA = fetched[0].gitTreeSHA
 			skill.Source.LastFetched = time.Now().UTC()
 		}
 	}
@@ -619,8 +710,8 @@ func readUpdate(ctx context.Context, skill Skill) (Skill, error) {
 	return skill, nil
 }
 
-func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File) (int64, error) {
-	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id) VALUES (?)`, skillID)
+func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, gitTreeSHA string) (int64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha) VALUES (?, ?)`, skillID, gitTreeSHA)
 	if err != nil {
 		return 0, fmt.Errorf("store skill version: %w", err)
 	}
@@ -650,6 +741,13 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 		return Skill{}, err
 	}
 	skill = Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
+	if err := l.db.QueryRowContext(ctx, `
+		SELECT skill_versions.git_tree_sha
+		FROM skills JOIN skill_versions ON skill_versions.id = skills.current_version_id
+		WHERE skills.id = ?
+	`, id).Scan(&skill.GitTreeSHA); err != nil {
+		return Skill{}, fmt.Errorf("get skill version: %w", err)
+	}
 
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode
@@ -680,14 +778,14 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions 
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
+	rows, err := l.db.QueryContext(ctx, `SELECT id, git_tree_sha FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("list skill versions: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		version := SkillVersion{SkillID: id}
-		if err := rows.Scan(&version.ID); err != nil {
+		if err := rows.Scan(&version.ID, &version.GitTreeSHA); err != nil {
 			return nil, fmt.Errorf("read skill version: %w", err)
 		}
 		versions = append(versions, version)
@@ -703,7 +801,7 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version S
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	version = SkillVersion{ID: id}
-	if err := l.db.QueryRowContext(ctx, `SELECT skill_id FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID); err != nil {
+	if err := l.db.QueryRowContext(ctx, `SELECT skill_id, git_tree_sha FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.GitTreeSHA); err != nil {
 		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
 	}
 	rows, err := l.db.QueryContext(ctx, `
