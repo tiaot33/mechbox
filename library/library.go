@@ -1,7 +1,6 @@
 package library
 
 import (
-	"archive/zip"
 	"bytes"
 	"cmp"
 	"context"
@@ -15,14 +14,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
-	"net/url"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,17 +36,19 @@ const fetchTTL = 30 * time.Minute
 var schemaSQL string
 
 type fetchedSkill struct {
-	name  string
-	files []File
+	name    string
+	preview FetchSkill
+	files   []File
 }
 
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
 type fetchSession struct {
-	source Source
-	ref    string
-	skills []fetchedSkill
-	timer  *time.Timer
+	source      Source
+	ref         string
+	skills      []fetchedSkill
+	diagnostics []CandidateDiagnostic
+	timer       *time.Timer
 }
 
 type contextReader struct {
@@ -372,19 +368,27 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := validateSource(source); err != nil {
 		return Fetch{}, err
 	}
-	skills, ref, err := fetchRemote(ctx, source)
+	if !validSubpath(spec.Subpath) || (spec.Subpath != "" && spec.Type != SourceGitHub) {
+		return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch subpath"}
+	}
+	for _, name := range spec.Names {
+		if !validSelectionName(name) {
+			return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
+		}
+	}
+	discovered, err := fetchRemote(ctx, source, spec.Subpath)
+	if err != nil {
+		return Fetch{}, err
+	}
+	discovered.skills, err = selectSkills(discovered.skills, spec.Names)
 	if err != nil {
 		return Fetch{}, err
 	}
 	source.LastFetched = time.Now().UTC()
-	source.LastSeenRef = ref
+	source.LastSeenRef = discovered.ref
 	id, err := newFetchID()
 	if err != nil {
 		return Fetch{}, err
-	}
-	names := make([]string, len(skills))
-	for i, skill := range skills {
-		names[i] = skill.name
 	}
 	l.fetchMu.Lock()
 	defer l.fetchMu.Unlock()
@@ -394,32 +398,36 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := ctx.Err(); err != nil {
 		return Fetch{}, err
 	}
-	session := &fetchSession{source: source, ref: ref, skills: skills}
+	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
 		defer l.fetchMu.Unlock()
 		delete(l.fetches, id)
 	})
-	return Fetch{ID: id, Ref: ref, Skills: names}, nil
+	return Fetch{ID: id, Ref: discovered.ref, FetchCandidates: session.candidates()}, nil
 }
 
-func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (names []string, err error) {
+func (s *fetchSession) candidates() FetchCandidates {
+	result := FetchCandidates{Skills: make([]FetchSkill, len(s.skills)), Diagnostics: slices.Clone(s.diagnostics)}
+	for i, skill := range s.skills {
+		result.Skills[i] = skill.preview
+	}
+	return result
+}
+
+func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (result FetchCandidates, err error) {
 	defer func() { err = typedError(err) }()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return result, err
 	}
 	l.fetchMu.Lock()
 	defer l.fetchMu.Unlock()
 	session, ok := l.fetches[id]
 	if !ok {
-		return nil, &Error{Code: NotFound, Message: "fetch session not found"}
+		return result, &Error{Code: NotFound, Message: "fetch session not found"}
 	}
-	names = make([]string, len(session.skills))
-	for i, skill := range session.skills {
-		names[i] = skill.name
-	}
-	return names, nil
+	return session.candidates(), nil
 }
 
 func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []string) (installed []Skill, err error) {
@@ -592,8 +600,10 @@ func readUpdate(ctx context.Context, skill Skill) (Skill, error) {
 	if skill.Source.Type == SourceLocal {
 		files, err = readFiles(ctx, skill.Source.Locator.Path)
 	} else {
-		var fetched []fetchedSkill
-		fetched, skill.Source.LastSeenRef, err = fetchRemote(ctx, skill.Source)
+		var discovered discoveredSource
+		discovered, err = fetchRemote(ctx, skill.Source, "")
+		fetched := discovered.skills
+		skill.Source.LastSeenRef = discovered.ref
 		if err == nil {
 			fetched, err = selectSkills(fetched, []string{skill.Name})
 		}
@@ -829,200 +839,6 @@ func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, 
 			return nil, err
 		}
 		skills = append(skills, summary)
-	}
-	return skills, nil
-}
-
-const maxFetchSize = 64 << 20
-
-func fetchRemote(ctx context.Context, source Source) ([]fetchedSkill, string, error) {
-	switch source.Type {
-	case SourceGitHub:
-		return fetchGitHub(ctx, source.Locator)
-	case SourceURL:
-		return fetchArchive(ctx, source.Locator.URL)
-	case SourceStore:
-		base := os.Getenv("SKILLS_STORE_URL")
-		if base == "" {
-			return nil, "", fetchError(SourceUnreachable, "fetch store source", errors.New("SKILLS_STORE_URL is not configured"))
-		}
-		location := strings.TrimRight(base, "/") + "/" + url.PathEscape(source.Locator.PackageID) + "/" + url.PathEscape(source.Locator.Version)
-		return fetchArchive(ctx, location)
-	default:
-		return nil, "", fmt.Errorf("install remote: unsupported source type %q", source.Type)
-	}
-}
-
-func fetchGitHub(ctx context.Context, locator SourceLocator) ([]fetchedSkill, string, error) {
-	root, err := os.MkdirTemp("", "skills-git-")
-	if err != nil {
-		return nil, "", fetchError(fetchErrorCode(err, ""), "fetch github source", err)
-	}
-	defer os.RemoveAll(root)
-	repository := filepath.Join(root, "repository")
-	command := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth", "1", "--single-branch", "--branch", locator.Branch, "--", locator.Repository, repository)
-	if output, err := command.CombinedOutput(); err != nil {
-		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
-		}
-		return nil, "", fetchError(fetchErrorCode(err, string(output)), "fetch github source", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output))))
-	}
-	command = exec.CommandContext(ctx, "git", "-C", repository, "rev-parse", "HEAD")
-	output, err := command.Output()
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
-		}
-		return nil, "", fetchError(fetchErrorCode(err, ""), "read github source ref", err)
-	}
-	if err := os.RemoveAll(filepath.Join(repository, ".git")); err != nil {
-		return nil, "", fetchError(fetchErrorCode(err, ""), "prepare github source", err)
-	}
-	files, err := readFiles(ctx, repository)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
-		}
-		return nil, "", fetchError(fetchErrorCode(err, ""), "read github source", err)
-	}
-	fallback := strings.TrimSuffix(filepath.Base(strings.TrimRight(locator.Repository, "/")), ".git")
-	skills, err := discoverSkills(files, fallback)
-	return skills, strings.TrimSpace(string(output)), err
-}
-
-func fetchArchive(ctx context.Context, location string) ([]fetchedSkill, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-	if err != nil {
-		return nil, "", fetchError(SourceUnreachable, "fetch source", err)
-	}
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
-		}
-		return nil, "", fetchError(fetchErrorCode(err, ""), "fetch source", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		code := SourceUnreachable
-		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-			code = Permission
-		}
-		return nil, "", fetchError(code, "fetch source", errors.New(response.Status))
-	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, maxFetchSize+1))
-	if err != nil {
-		return nil, "", fetchError(fetchErrorCode(err, ""), "read source", err)
-	}
-	if len(content) > maxFetchSize {
-		return nil, "", fetchError(SourceUnreachable, "read source", fmt.Errorf("archive exceeds %d bytes", maxFetchSize))
-	}
-	skills, err := readArchive(ctx, content)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
-		}
-		return nil, "", fetchError(SourceUnreachable, "read source", err)
-	}
-	sum := sha256.Sum256(content)
-	return skills, hex.EncodeToString(sum[:]), nil
-}
-
-func readArchive(ctx context.Context, content []byte) ([]fetchedSkill, error) {
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
-	if err != nil {
-		return nil, fmt.Errorf("read source archive: %w", err)
-	}
-	files := make([]File, 0, len(reader.File))
-	seen := make(map[string]bool, len(reader.File))
-	remaining := int64(maxFetchSize)
-	for _, archived := range reader.File {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		name := strings.TrimSuffix(archived.Name, "/")
-		if name == "" || !fs.ValidPath(name) || strings.Contains(name, `\`) {
-			return nil, fmt.Errorf("read source archive: unsafe path %q", archived.Name)
-		}
-		if archived.FileInfo().IsDir() {
-			continue
-		}
-		if !archived.Mode().IsRegular() {
-			return nil, fmt.Errorf("read source archive: unsupported file type %q", name)
-		}
-		if seen[name] {
-			return nil, fmt.Errorf("read source archive: duplicate path %q", name)
-		}
-		seen[name] = true
-		file, err := archived.Open()
-		if err != nil {
-			return nil, fmt.Errorf("read source archive: %w", err)
-		}
-		data, readErr := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, remaining+1))
-		closeErr := file.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("read source archive: %w", readErr)
-		}
-		if closeErr != nil {
-			return nil, fmt.Errorf("read source archive: %w", closeErr)
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		remaining -= int64(len(data))
-		if remaining < 0 {
-			return nil, fmt.Errorf("read source archive: expanded content exceeds %d bytes", maxFetchSize)
-		}
-		mode := ModeRegular
-		if archived.Mode().Perm()&0o111 != 0 {
-			mode = ModeExecutable
-		}
-		files = append(files, File{Path: name, Content: data, Mode: mode})
-	}
-	return discoverSkills(files, "skill")
-}
-
-func discoverSkills(files []File, fallbackName string) ([]fetchedSkill, error) {
-	rootSet := make(map[string]bool)
-	for _, file := range files {
-		if path.Base(file.Path) == "SKILL.md" {
-			rootSet[path.Dir(file.Path)] = true
-		}
-	}
-	if len(rootSet) == 0 {
-		return nil, fmt.Errorf("fetch source: no SKILL.md found")
-	}
-	roots := make([]string, 0, len(rootSet))
-	for root := range rootSet {
-		roots = append(roots, root)
-	}
-	sort.Strings(roots)
-	if rootSet["."] {
-		roots = []string{"."}
-	}
-	skills := make([]fetchedSkill, len(roots))
-	names := make(map[string]bool, len(roots))
-	for i, root := range roots {
-		name := path.Base(root)
-		if root == "." {
-			name = fallbackName
-		}
-		if names[name] {
-			return nil, fmt.Errorf("fetch source: duplicate skill name %q", name)
-		}
-		names[name] = true
-		skills[i].name = name
-		prefix := root + "/"
-		for _, file := range files {
-			if root == "." {
-				skills[i].files = append(skills[i].files, file)
-			} else if strings.HasPrefix(file.Path, prefix) {
-				copy := file
-				copy.Path = strings.TrimPrefix(file.Path, prefix)
-				skills[i].files = append(skills[i].files, copy)
-			}
-		}
-		sort.Slice(skills[i].files, func(a, b int) bool { return skills[i].files[a].Path < skills[i].files[b].Path })
 	}
 	return skills, nil
 }
@@ -1824,7 +1640,7 @@ func fetchErrorCode(err error, detail string) ErrorCode {
 		return Permission
 	}
 	lower := strings.ToLower(detail)
-	if strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied") || strings.Contains(lower, "could not read username") || strings.Contains(lower, "403") {
+	if strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied") || strings.Contains(lower, "could not read username") || strings.Contains(lower, "error: 403") || strings.Contains(lower, "http 403") {
 		return Permission
 	}
 	return SourceUnreachable

@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,
     type TEXT NOT NULL,                     -- 来源类型:github / url / store / local
-    locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+分支 / URL / 包ID+版本 / 本地路径)
+    locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 包ID+版本 / 本地路径)
     last_fetched TEXT NOT NULL DEFAULT '',  -- 上次抓取时间,RFC3339Nano;空串 = 从未抓取(本地来源恒为空)
     last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希),用于判断有无更新
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS sources (
 CREATE TABLE IF NOT EXISTS skills (
     id INTEGER PRIMARY KEY,
     source_id INTEGER NOT NULL REFERENCES sources(id), -- 安装时的来源
-    name TEXT NOT NULL,                                -- skill 名(目录名)
+    name TEXT NOT NULL,                                -- skill 名(远程取 frontmatter name,本地安装取目录名)
     current_version_id INTEGER REFERENCES skill_versions(id), -- 当前版本;读取和投影都用它
     UNIQUE(source_id, name)
 );

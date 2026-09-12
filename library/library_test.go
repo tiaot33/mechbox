@@ -19,8 +19,8 @@ import (
 
 func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  "# First\n",
-		"second/SKILL.md": "# Second\n",
+		"first/SKILL.md":  skillDocument("first", "# First\n"),
+		"second/SKILL.md": skillDocument("second", "# Second\n"),
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(archive)
@@ -42,7 +42,7 @@ func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
 	if fetch.ID == "" || fetch.Ref == "" {
 		t.Fatalf("Fetch() = %#v, want opaque handle and remote ref", fetch)
 	}
-	if got, want := fetch.Skills, []string{"first", "second"}; !reflect.DeepEqual(got, want) {
+	if got, want := fetch.Skills, []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Fetch() candidates = %v, want %v", got, want)
 	}
 	skills, err := lib.ListSkills(context.Background())
@@ -80,7 +80,7 @@ func TestInstallFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("changed second"), 0o644)
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "changed second")), 0o644)
 	commitGit(t, repository, "changed")
 	batch, err := lib.Fetch(ctx, spec)
 	if err != nil {
@@ -111,9 +111,9 @@ func TestInstallFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 
 func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  "# First\n",
+		"first/SKILL.md":  skillDocument("first", "# First\n"),
 		"first/guide.md":  "guide\n",
-		"second/SKILL.md": "# Second\n",
+		"second/SKILL.md": skillDocument("second", "# Second\n"),
 	})
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -184,8 +184,8 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T) {
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
-	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte("first\n"), 0o644)
-	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("second\n"), 0o644)
+	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "first\n")), 0o644)
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "second\n")), 0o644)
 	commitGit(t, repository, "initial")
 
 	lib := openTestLibrary(t)
@@ -204,12 +204,12 @@ func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T
 		t.Fatalf("installed skills = %v, want %v", got, want)
 	}
 
-	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("unrelated\n"), 0o644)
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "unrelated\n")), 0o644)
 	commitGit(t, repository, "unrelated skill")
 	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
 		t.Fatalf("unrelated commit CheckUpdate = %v, %v", available, err)
 	}
-	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte("updated\n"), 0o644)
+	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "updated\n")), 0o644)
 	commitGit(t, repository, "update")
 	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || !available {
 		t.Fatalf("changed skill CheckUpdate = %v, %v", available, err)
@@ -218,7 +218,7 @@ func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(updated.Skill.Files[0].Content); got != "updated\n" {
+	if got := string(updated.Skill.Files[0].Content); got != skillDocument("first", "updated\n") {
 		t.Fatalf("updated content = %q, want updated", got)
 	}
 	if updated.Skill.Source.LastSeenRef == "" || updated.Skill.Source.LastSeenRef == installed[0].Source.LastSeenRef {
@@ -245,8 +245,8 @@ func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T
 
 func TestInstallFetchStoreUsesPackageVersionAndSelection(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  "# First\n",
-		"second/SKILL.md": "# Second\n",
+		"first/SKILL.md":  skillDocument("first", "# First\n"),
+		"second/SKILL.md": skillDocument("second", "# Second\n"),
 	})
 	var requestedPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -594,8 +594,8 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 
 func TestInstallFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  "# First\n",
-		"second/SKILL.md": "# Second\n",
+		"first/SKILL.md":  skillDocument("first", "# First\n"),
+		"second/SKILL.md": skillDocument("second", "# Second\n"),
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(archive)
@@ -1334,7 +1334,7 @@ func zipArchive(t *testing.T, files map[string]string) []byte {
 
 func runGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-C", directory}, args...)...)
+	command := exec.Command("git", append([]string{"-c", "core.excludesFile=/dev/null", "-c", "commit.gpgsign=false", "-C", directory}, args...)...)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)
 	}

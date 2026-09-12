@@ -21,7 +21,7 @@ func (f fetchTransport) RoundTrip(r *http.Request) (*http.Response, error) { ret
 
 func mockFetchArchive(t *testing.T) library.SourceSpec {
 	t.Helper()
-	archive := zipArchive(t, map[string]string{"first/SKILL.md": "first", "second/SKILL.md": "second"})
+	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "first"), "second/SKILL.md": skillDocument("second", "second")})
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
@@ -54,13 +54,13 @@ func TestFetchListingIsReadOnlyAndSessionScoped(t *testing.T) {
 		t.Error("listing contacted remote source")
 		return nil, errors.New("offline")
 	})}
-	fetch.Skills[0] = "changed by caller"
+	fetch.Skills[0].Name = "changed by caller"
 	for range 2 {
 		names, err := lib.ListFetchSkills(ctx, fetch.ID)
-		if err != nil || !reflect.DeepEqual(names, []string{"first", "second"}) {
+		if err != nil || !reflect.DeepEqual(names.Skills, []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}) {
 			t.Fatalf("ListFetchSkills = %v, %v", names, err)
 		}
-		names[0] = "changed by caller"
+		names.Skills[0].Name = "changed by caller"
 	}
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills = %v, %v", skills, err)

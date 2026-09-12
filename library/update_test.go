@@ -15,8 +15,8 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	runGit(t, repository, "init", "-b", "main")
 	writeSource := func(first, second string) {
 		t.Helper()
-		writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(first), 0o644)
-		writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(second), 0o644)
+		writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", first)), 0o644)
+		writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", second)), 0o644)
 		commitGit(t, repository, "source state")
 	}
 	writeSource("old", "old")
@@ -66,7 +66,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	// 更新一个 skill 后,共享 Source 的抓取状态不能掩盖另一个 skill 的变化。
 	writeSource("new", "new")
 	result, err := lib.Update(ctx, first.ID)
-	if err != nil || !result.Changed || result.Note == "" || string(result.Skill.Files[0].Content) != "new" {
+	if err != nil || !result.Changed || result.Note == "" || string(result.Skill.Files[0].Content) != skillDocument("first", "new") {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
 	check(first.ID, false)
@@ -81,7 +81,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	for _, scope := range scopes {
 		content, err := os.ReadFile(filepath.Join(scope.Path, first.Name, "SKILL.md"))
-		if err != nil || string(content) != "old" {
+		if err != nil || string(content) != skillDocument("first", "old") {
 			t.Fatalf("projection changed: %q, %v", content, err)
 		}
 	}
@@ -103,7 +103,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := lib.CheckUpdate(ctx, first.ID); !library.IsCode(err, library.SourceUnreachable) {
-		t.Fatalf("unreachable check: %v", err)
+		t.Fatalf("unreachable check: %#v", err)
 	}
 	if _, err := lib.Update(ctx, first.ID); !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("unreachable update: %v", err)

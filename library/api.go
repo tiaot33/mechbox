@@ -50,7 +50,7 @@ func IsCode(err error, code ErrorCode) bool {
 type SourceType string
 
 const (
-	SourceGitHub SourceType = "github" // GitHub 仓库 + 分支
+	SourceGitHub SourceType = "github" // GitHub 仓库 + Git ref
 	SourceURL    SourceType = "url"    // 直接下载的 zip 压缩包
 	SourceStore  SourceType = "store"  // skill 商店(包 ID + 版本)
 	SourceLocal  SourceType = "local"  // 本地目录
@@ -72,7 +72,7 @@ type LocalSource struct {
 // SourceLocator 是来源的定位信息;不同 SourceType 只使用其中一部分字段。
 type SourceLocator struct {
 	Repository string `json:"repository,omitempty"` // github:仓库地址
-	Branch     string `json:"branch,omitempty"`     // github:分支
+	Branch     string `json:"branch,omitempty"`     // github:Git ref(分支、tag 或完整 SHA),保留已有字段名
 	URL        string `json:"url,omitempty"`        // url:压缩包地址
 	PackageID  string `json:"package_id,omitempty"` // store:包 ID
 	Version    string `json:"version,omitempty"`    // store:包版本
@@ -94,6 +94,35 @@ type Source struct {
 type SourceSpec struct {
 	Type    SourceType    `json:"type"`
 	Locator SourceLocator `json:"locator"`
+	Subpath string        `json:"subpath,omitempty"` // 本次 Fetch 的来源内目录,不进入 Source 身份
+	Names   []string      `json:"names,omitempty"`   // 本次 Fetch 的名称条件,不持久化
+}
+
+// ResolveSourceOptions 提供明确的 ref 和来源内路径;带斜杠的 ref 应显式传入。
+type ResolveSourceOptions struct {
+	Ref     string `json:"ref,omitempty"`
+	Subpath string `json:"subpath,omitempty"`
+}
+
+// SearchSkill 是市场展示结果;来源仍须经 ResolveSource 和 Fetch 验证。
+type SearchSkill struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	SourceInput string `json:"source_input"`
+	DetailURL   string `json:"detail_url"`
+	Installs    *int64 `json:"installs,omitempty"`
+}
+
+// SearchDiagnostic 描述无法转换为可安装 GitHub 来源的搜索条目。
+type SearchDiagnostic struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// SearchResult 包含可继续解析的搜索条目和不支持来源的诊断。
+type SearchResult struct {
+	Skills      []SearchSkill      `json:"skills"`
+	Diagnostics []SearchDiagnostic `json:"diagnostics,omitempty"`
 }
 
 // File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
@@ -124,12 +153,30 @@ type SkillSummary struct {
 // Sync、也不跨 Library 实例共享;进程退出、Close 或超时后被后端回收。
 type FetchID string
 
-// Fetch 是一次远程抓取的暂存结果:句柄 + 候选 skill 名 + 看到的远端标识。
-// 内容此时尚未进入 Library。
+// FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。
+type FetchSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Path        string `json:"path"`
+}
+
+// CandidateDiagnostic 说明一个路径为何未成为可安装候选。
+type CandidateDiagnostic struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// FetchCandidates 是一次暂存的候选与诊断;返回值不与会话共享可变数据。
+type FetchCandidates struct {
+	Skills      []FetchSkill          `json:"skills"`
+	Diagnostics []CandidateDiagnostic `json:"diagnostics,omitempty"`
+}
+
+// Fetch 是远程内容的暂存句柄及预览;此时尚无内容进入 Library。
 type Fetch struct {
-	ID     FetchID  `json:"id"`
-	Ref    string   `json:"ref"`    // 抓取时看到的远端标识(git commit 或内容哈希)
-	Skills []string `json:"skills"` // 可安装的候选 skill 名
+	ID  FetchID `json:"id"`
+	Ref string  `json:"ref"`
+	FetchCandidates
 }
 
 // SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
@@ -151,6 +198,13 @@ type UpdateResult struct {
 	Skill   Skill  `json:"skill"`
 	Changed bool   `json:"changed"` // 内容或文件权限变化并生成了新版本
 	Note    string `json:"note"`    // 提醒前端已激活的副本可能落后于 Library
+}
+
+// UpdateCheck 是一次批量检查中某个 Skill 的结果;Error 非空时 Available 无意义。
+type UpdateCheck struct {
+	SkillID   SkillID `json:"skill_id"`
+	Available bool    `json:"available"`
+	Error     *Error  `json:"error,omitempty"`
 }
 
 // Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0007)。
@@ -248,14 +302,19 @@ type SyncResult struct {
 type Library interface {
 	// 安装与更新
 
+	// ResolveSource 解析 GitHub 输入,省略 ref 时发现默认分支;只读且不创建 Fetch 会话。
+	ResolveSource(ctx context.Context, input string, opts ResolveSourceOptions) (SourceSpec, error)
+	// SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
+	SearchSkills(ctx context.Context, query string) (SearchResult, error)
+
 	// Install 把一个本地目录作为 skill 安装入库(一次性,不经 Fetch 会话)。
 	Install(ctx context.Context, source LocalSource) (Skill, error)
 	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区(联网一次),返回句柄与
 	// 候选 skill 名清单;此时尚无内容进入 Library。本地目录不走 Fetch。
 	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
-	// ListFetchSkills 只列出暂存中的候选名称,不联网、不入库;句柄在 30 分钟后或
+	// ListFetchSkills 只列出暂存中的候选元数据与诊断,不联网、不入库;句柄在 30 分钟后或
 	// Close 时失效。过期、未知或其他 Library 实例的句柄返回 NotFound。
-	ListFetchSkills(ctx context.Context, id FetchID) ([]string, error)
+	ListFetchSkills(ctx context.Context, id FetchID) (FetchCandidates, error)
 	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
 	// 只读取暂存内容,不联网;要么所选 skill 全部入库,要么库保持不变。
 	// 成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
@@ -267,6 +326,9 @@ type Library interface {
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
 	// CheckUpdate 自行读取来源,比较目标 skill 的内容及权限;不修改 Library 或激活副本。
 	CheckUpdate(ctx context.Context, id SkillID) (bool, error)
+	// CheckUpdates 去重保序,每个 Source 只读取一次;逐项错误不阻断其他来源。
+	// 整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library。
+	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 
 	// 版本历史
 

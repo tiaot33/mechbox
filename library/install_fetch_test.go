@@ -65,7 +65,7 @@ func TestInstallFetchConcurrentCallsConsumeHandleOnce(t *testing.T) {
 		for _, name := range fetch.Skills {
 			go func() {
 				<-start
-				_, err := lib.InstallFetch(ctx, fetch.ID, []string{name})
+				_, err := lib.InstallFetch(ctx, fetch.ID, []string{name.Name})
 				results <- err
 			}()
 		}
@@ -92,8 +92,8 @@ func installFetchRepository(t *testing.T) string {
 	t.Helper()
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
-	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte("first"), 0o644)
-	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte("second"), 0o644)
+	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "first")), 0o644)
+	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "second")), 0o644)
 	commitGit(t, repository, "initial")
 	return repository
 }
