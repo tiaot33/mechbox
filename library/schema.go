@@ -13,16 +13,44 @@ import (
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 2
+	librarySchemaVersion = 3
+	agentSeedSQL         = `
+		INSERT INTO agents(code, global_path, project_path) VALUES
+			('claude-code', '.claude/skills', '.claude/skills'),
+			('codex', '.agents/skills', '.agents/skills')
+		ON CONFLICT(code) DO NOTHING
+	`
 )
 
 //go:embed schema.sql
 var schemaSQL string
 
+// seedAgents 只补缺失代码,已有布局即使不同也不覆盖;库校验失败则撤销补种子。
+func seedAgents(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, agentSeedSQL); err != nil {
+		return err
+	}
+	if err := validateLibrarySchema(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// schemaReader 让 Open/Sync 的连接校验与迁移提交前的事务校验共用同一套规则。
+type schemaReader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 // errUnacceptableSchema 只标记已确认的库校验失败,不包含本地 I/O 或取消。
 var errUnacceptableSchema = errors.New("unacceptable library schema")
 
-func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
+func validateLibrarySchema(ctx context.Context, db schemaReader) error {
 	var applicationID, userVersion int
 	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
 		return err
@@ -52,6 +80,10 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 	if actual != expected {
 		return fmt.Errorf("%w: schema fingerprint mismatch", errUnacceptableSchema)
 	}
+	return validateForeignKeys(ctx, db)
+}
+
+func validateForeignKeys(ctx context.Context, db schemaReader) error {
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
 		return err
@@ -63,8 +95,8 @@ func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
 	return rows.Err()
 }
 
-func schemaFingerprint(ctx context.Context, db *sql.DB) (string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+func schemaFingerprint(ctx context.Context, db schemaReader) (string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	if err != nil {
 		return "", err
 	}
@@ -98,19 +130,48 @@ func migrateLibrary(ctx context.Context, db *sql.DB) error {
 	switch userVersion {
 	case librarySchemaVersion:
 		return nil
-	case 1:
-		return migrateLibraryV1ToV2(ctx, db)
+	case 1, 2:
+		return migrateLegacyLibrary(ctx, db, userVersion)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
 }
 
-// migrateLibraryV1ToV2 给 skill_versions 补上 git_tree_sha,并把 sqlite_master 写成与当前 schema.sql 一致。
-func migrateLibraryV1ToV2(ctx context.Context, db *sql.DB) error {
-	createSQL, err := canonicalTableSQL(ctx, "skill_versions")
-	if err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
+// migrateLegacyLibrary 在一个事务内扩展 v1/v2 库;旧路径暂不推断为全局或项目身份。
+func migrateLegacyLibrary(ctx context.Context, db *sql.DB, version int) error {
+	if err := validateForeignKeys(ctx, db); err != nil {
+		return err
 	}
+	var statements []string
+	if version == 1 {
+		createSQL, err := canonicalTableSQL(ctx, "skill_versions")
+		if err != nil {
+			return fmt.Errorf("migrate library schema: %w", err)
+		}
+		statements = append(statements,
+			`CREATE TABLE skill_versions_migrate AS SELECT id, skill_id FROM skill_versions`,
+			`DROP TABLE skill_versions`, createSQL,
+			`INSERT INTO skill_versions(id, skill_id) SELECT id, skill_id FROM skill_versions_migrate`,
+			`DROP TABLE skill_versions_migrate`,
+		)
+	}
+	statements = append(statements,
+		`CREATE TABLE activations_migrate AS SELECT skill_id, agent, scope_path, individual FROM activations`,
+		`CREATE TABLE activation_groups_migrate AS SELECT skill_id, agent, scope_path, group_id FROM activation_groups`,
+		`DROP TABLE activation_groups`,
+		`DROP TABLE activations`,
+		schemaSQL,
+		agentSeedSQL,
+		`INSERT INTO activations(skill_id, agent, scope_path, individual)
+		 SELECT skill_id, agent, scope_path, individual FROM activations_migrate`,
+		`INSERT INTO activation_groups(activation_id, skill_id, agent, scope_path, group_id)
+		 SELECT a.id, g.skill_id, g.agent, g.scope_path, g.group_id
+		 FROM activation_groups_migrate g JOIN activations a
+		 ON a.skill_id = g.skill_id AND a.agent = g.agent AND a.scope_path = g.scope_path`,
+		`DROP TABLE activation_groups_migrate`,
+		`DROP TABLE activations_migrate`,
+		fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion),
+	)
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		return fmt.Errorf("migrate library schema: %w", err)
 	}
@@ -120,25 +181,12 @@ func migrateLibraryV1ToV2(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("migrate library schema: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `CREATE TABLE skill_versions_migrate (id INTEGER PRIMARY KEY, skill_id INTEGER NOT NULL)`); err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("migrate library schema: %w", err)
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_versions_migrate(id, skill_id) SELECT id, skill_id FROM skill_versions`); err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DROP TABLE skill_versions`); err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, createSQL); err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(id, skill_id, git_tree_sha) SELECT id, skill_id, '' FROM skill_versions_migrate`); err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DROP TABLE skill_versions_migrate`); err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion)); err != nil {
+	if err := validateLibrarySchema(ctx, tx); err != nil {
 		return fmt.Errorf("migrate library schema: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

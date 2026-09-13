@@ -28,7 +28,7 @@ func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, fun
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1 库会迁移到当前 schema。
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1/v2 库会迁移到当前 schema。
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -49,19 +49,19 @@ func Open(path string) (Library, error) {
 			_ = db.Close()
 			return nil, fmt.Errorf("open library: %w", err)
 		}
-		if err := validateLibrarySchema(context.Background(), db); err != nil {
+	} else {
+		if _, err := db.Exec(schemaSQL); err != nil {
 			_ = db.Close()
-			return nil, fmt.Errorf("open library: %w", err)
+			return nil, fmt.Errorf("initialize library: %w", err)
 		}
-		return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
+		if _, err := db.Exec(fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, libraryApplicationID, librarySchemaVersion)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("identify library: %w", err)
+		}
 	}
-	if _, err := db.Exec(schemaSQL); err != nil {
+	if err := seedAgents(context.Background(), db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("initialize library: %w", err)
-	}
-	if _, err := db.Exec(fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, libraryApplicationID, librarySchemaVersion)); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("identify library: %w", err)
+		return nil, fmt.Errorf("open library: %w", err)
 	}
 	return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
 }

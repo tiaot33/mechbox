@@ -71,7 +71,7 @@ skill, err := lib.Install(ctx, library.LocalSource{Path: "/path/to/skill"})
 - 分组：`groups`、`skill_groups`
 - 项目和激活：`projects`、`activations`、`activation_groups`
 
-新数据库由 `library.Open` 自动初始化并写入应用标识和 schema version 2。已有 v1 Library 会先迁移，为历史版本补上 `git_tree_sha` 字段，再校验身份、表结构指纹和外键。迁移及共用 schema 校验集中在 `library/schema.go`。
+新数据库由 `library.Open` 自动初始化并写入应用标识和 schema version 3。已有 v1/v2 Library 在事务内迁移：v1 补上历史版本的 `git_tree_sha`，再增加 Agent 配置与 Activation 的全局／项目身份结构；提交前校验身份、表与索引指纹和外键。Open 只补缺失的 Agent 种子，不覆盖已有布局。当前为 expand 阶段：旧路径列与按路径激活行为保留，旧 Activation 标记为 `legacy`，路径到身份的映射及新门面由后续票完成。迁移及共用 schema 校验集中在 `library/schema.go`。
 
 ## 配置
 

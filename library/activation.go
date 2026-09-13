@@ -151,7 +151,10 @@ func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope Scope
 		return fmt.Errorf("record activation: %w", err)
 	}
 	if groupID != 0 {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (?, ?, ?, ?)`, id, scope.Agent, scope.Path, groupID); err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO activation_groups(activation_id, skill_id, agent, scope_path, group_id)
+			SELECT id, skill_id, agent, scope_path, ? FROM activations WHERE skill_id = ? AND agent = ? AND scope_path = ?
+		`, groupID, id, scope.Agent, scope.Path); err != nil {
 			return fmt.Errorf("record group activation: %w", err)
 		}
 	}
