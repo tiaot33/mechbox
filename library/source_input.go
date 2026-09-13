@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
@@ -357,4 +358,28 @@ func preferGitHubHTTPSError(httpsErr, sshErr error) error {
 		return httpsErr
 	}
 	return sshErr
+}
+
+func validateSource(source Source) error {
+	switch source.Type {
+	case SourceGitHub:
+		if source.Locator.Repository == "" || source.Locator.Branch == "" {
+			return &Error{Code: InvalidArgument, Message: "install skill: github repository and branch are required"}
+		}
+	case SourceURL:
+		if source.Locator.URL == "" {
+			return &Error{Code: InvalidArgument, Message: "install skill: url is required"}
+		}
+	case SourceStore:
+		if source.Locator.PackageID == "" || source.Locator.Version == "" {
+			return &Error{Code: InvalidArgument, Message: "install skill: store package id and version are required"}
+		}
+	case SourceLocal:
+		if source.Locator.Path == "" {
+			return &Error{Code: InvalidArgument, Message: "install skill: local path is required"}
+		}
+	default:
+		return &Error{Code: InvalidArgument, Message: fmt.Sprintf("install skill: unsupported source type %q", source.Type)}
+	}
+	return nil
 }

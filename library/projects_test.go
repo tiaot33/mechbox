@@ -1,0 +1,115 @@
+package library_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/tiaot33/skills-tui/library"
+)
+
+func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	if _, err := lib.RegisterProject(ctx, ""); err == nil {
+		t.Fatal("RegisterProject() accepted an empty path")
+	}
+
+	projectRoot := t.TempDir()
+	project, err := lib.RegisterProject(ctx, projectRoot+string(os.PathSeparator)+".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.ID == 0 || project.Path != wantRoot {
+		t.Fatalf("RegisterProject() = %#v, want canonical path %q", project, wantRoot)
+	}
+	if _, err := lib.RegisterProject(ctx, projectRoot); !library.IsCode(err, library.AlreadyExists) {
+		t.Fatalf("duplicate RegisterProject() error = %v", err)
+	}
+	projects, err := lib.ListRegisteredProjects(ctx)
+	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
+		t.Fatalf("ListRegisteredProjects() = %#v, %v", projects, err)
+	}
+	projectScopes := []library.Scope{
+		{Agent: library.AgentClaudeCode, Path: filepath.Join(project.Path, ".claude", "skills")},
+		{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".codex", "skills")},
+	}
+	scopes, err := lib.ListScopes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 4 || !reflect.DeepEqual(scopes[2:], projectScopes) {
+		t.Fatalf("ListScopes() project scopes = %#v, want %#v", scopes, projectScopes)
+	}
+
+	source := filepath.Join(t.TempDir(), "example-skill")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Activate(ctx, skill.ID, projectScopes[1], library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	keptProjection := filepath.Join(projectScopes[1].Path, skill.Name, "SKILL.md")
+	if _, err := os.Stat(keptProjection); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(keptProjection); err != nil {
+		t.Fatalf("default Keep removed project projection: %v", err)
+	}
+
+	removeProject, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	removeScope := library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(removeProject.Path, ".claude", "skills")}
+	group, err := lib.CreateGroup(ctx, "project group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	manualFile := filepath.Join(removeScope.Path, "manual-skill", "mine.txt")
+	writeFile(t, manualFile, []byte("mine"), 0o644)
+	if err := lib.UnregisterProject(ctx, removeProject.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(removeScope.Path, skill.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Remove left project projection behind: %v", err)
+	}
+	if _, err := os.Stat(manualFile); err != nil {
+		t.Fatalf("Remove touched an untracked directory: %v", err)
+	}
+	projects, err = lib.ListRegisteredProjects(ctx)
+	if err != nil || len(projects) != 0 {
+		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
+	}
+	scopes, err = lib.ListScopes(ctx)
+	if err != nil || len(scopes) != 2 {
+		t.Fatalf("ListScopes() after unregister = %#v, %v", scopes, err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after unregister = %#v, %v", activations, err)
+	}
+	if err := lib.UnregisterProject(ctx, library.ProjectID(9999), library.UnregisterProjectOptions{}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("UnregisterProject() unknown project error = %v", err)
+	}
+	if _, err := os.Stat(manualFile); err != nil {
+		t.Fatalf("unknown unregister touched disk: %v", err)
+	}
+}

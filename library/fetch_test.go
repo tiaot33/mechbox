@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -274,5 +275,119 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
+	archive := zipArchive(t, map[string]string{
+		"first/SKILL.md":  skillDocument("first", "# First\n"),
+		"second/SKILL.md": skillDocument("second", "# Second\n"),
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetch.ID == "" || fetch.Ref == "" {
+		t.Fatalf("Fetch() = %#v, want opaque handle and remote ref", fetch)
+	}
+	if got, want := fetch.Skills, []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Fetch() candidates = %v, want %v", got, want)
+	}
+	skills, err := lib.ListSkills(t.Context())
+	if err != nil || len(skills) != 0 {
+		t.Fatalf("ListSkills() after Fetch = %#v, %v; want empty Library", skills, err)
+	}
+}
+
+func TestFetchStoreRequiresConfiguredBaseURL(t *testing.T) {
+	t.Setenv("SKILLS_STORE_URL", "")
+	lib := openTestLibrary(t)
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		t.Fatal("unconfigured store contacted network")
+		return nil, nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
+		Type:    library.SourceStore,
+		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
+	})
+	if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+		t.Fatalf("unconfigured store = %#v, %v", fetch, err)
+	}
+}
+
+func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		code   library.ErrorCode
+	}{
+		{name: "permission", status: http.StatusForbidden, code: library.Permission},
+		{name: "unreachable", status: http.StatusServiceUnavailable, code: library.SourceUnreachable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+			}))
+			defer server.Close()
+			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lib.Close()
+			_, err = lib.Fetch(t.Context(), library.SourceSpec{
+				Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
+			})
+			if !library.IsCode(err, test.code) {
+				t.Fatalf("error = %v, want code %s", err, test.code)
+			}
+		})
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	_, err = lib.Fetch(ctx, library.SourceSpec{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: "http://127.0.0.1/skills.zip"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestFetchRejectsUnsafeArchivePaths(t *testing.T) {
+	archive := zipArchive(t, map[string]string{"../SKILL.md": "unsafe\n"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	_, err = lib.Fetch(t.Context(), library.SourceSpec{
+		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
+	})
+	if !library.IsCode(err, library.SourceUnreachable) {
+		t.Fatalf("error = %v, want unsafe archive rejected as SourceUnreachable", err)
 	}
 }

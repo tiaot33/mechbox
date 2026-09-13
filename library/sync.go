@@ -164,9 +164,6 @@ func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-// errUnacceptableSchema 只标记已确认的远端库校验失败,不包含本地 I/O 或取消。
-var errUnacceptableSchema = errors.New("unacceptable library schema")
-
 // openPulledLibrary 写入并校验临时库;失败时自行清理,成功后由调用方 defer cleanup()。
 func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error) {
 	download, err := os.CreateTemp("", ".library-pull-*.db")
@@ -227,67 +224,6 @@ func openExistingLibrary(ctx context.Context, path string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
-}
-
-func validateLibrarySchema(ctx context.Context, db *sql.DB) error {
-	var applicationID, userVersion int
-	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
-		return err
-	}
-	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
-		return err
-	}
-	if applicationID != libraryApplicationID || userVersion != librarySchemaVersion {
-		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
-	}
-	actual, err := schemaFingerprint(ctx, db)
-	if err != nil {
-		return err
-	}
-	expectedDB, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		return err
-	}
-	defer expectedDB.Close()
-	if _, err := expectedDB.ExecContext(ctx, schemaSQL); err != nil {
-		return err
-	}
-	expected, err := schemaFingerprint(ctx, expectedDB)
-	if err != nil {
-		return err
-	}
-	if actual != expected {
-		return fmt.Errorf("%w: schema fingerprint mismatch", errUnacceptableSchema)
-	}
-	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		return fmt.Errorf("%w: foreign key check failed", errUnacceptableSchema)
-	}
-	return rows.Err()
-}
-
-func schemaFingerprint(ctx context.Context, db *sql.DB) (string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	hash := sha256.New()
-	for rows.Next() {
-		var name, statement string
-		if err := rows.Scan(&name, &statement); err != nil {
-			return "", err
-		}
-		_, _ = fmt.Fprintf(hash, "%s\n%s\n", name, strings.Join(strings.Fields(statement), " "))
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
