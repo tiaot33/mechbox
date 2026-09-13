@@ -58,8 +58,8 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	}
 	want := []library.Activation{{
 		SkillID:    skill.ID,
-		Scope:      library.Scope{Agent: library.AgentCodex, Path: directory},
-		Identity:   scope,
+		Scope:      scope,
+		Directory:  directory,
 		Individual: true,
 	}}
 	if !reflect.DeepEqual(activations, want) {
@@ -139,10 +139,9 @@ func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	pathScope := library.Scope{Agent: library.AgentCodex, Path: directory}
 	wantActivations := []library.Activation{
-		{SkillID: first.ID, Scope: pathScope, Identity: scope, Individual: true, ViaGroups: []library.GroupID{group.ID}},
-		{SkillID: second.ID, Scope: pathScope, Identity: scope, ViaGroups: []library.GroupID{group.ID}},
+		{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
+		{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
 	}
 	if !reflect.DeepEqual(activations, wantActivations) {
 		t.Fatalf("ListActivations() = %#v, want %#v", activations, wantActivations)
@@ -161,7 +160,7 @@ func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantActivations = []library.Activation{{SkillID: first.ID, Scope: pathScope, Identity: scope, Individual: true}}
+	wantActivations = []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
 	if !reflect.DeepEqual(activations, wantActivations) {
 		t.Fatalf("ListActivations() after DeactivateGroup = %#v, want %#v", activations, wantActivations)
 	}
@@ -243,7 +242,7 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 		t.Fatalf("re-Activate did not refresh SKILL.md: %q, %v", content, err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: directory}, Identity: scope, Individual: true}}
+	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after re-Activate = %#v, %v; want %#v", activations, err, want)
 	}
@@ -367,7 +366,7 @@ func TestActivateGroupFailurePreservesIndependentActivation(t *testing.T) {
 		t.Fatalf("failed group activation left a partial member: %v", err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: first.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: directory}, Identity: scope, Individual: true}}
+	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}

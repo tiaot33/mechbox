@@ -285,7 +285,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 		t.Fatalf("successful independent projection lost: %q, %v", content, err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: first.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: directory}, Identity: scope, Individual: true}}
+	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("activations = %#v, %v; want %#v", activations, err, want)
 	}

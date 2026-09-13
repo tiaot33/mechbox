@@ -11,10 +11,15 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
+// 旧库里以绝对路径记录的 Activation 在 Open 时映射成 Scope 身份:路径等于某 Agent 现行布局
+// (或本产品 #44 之前写过的旧目录 .codex/skills)在当前 $HOME / 某已登记项目下算出的目录即可识别;
+// 映射到同一身份的多行合并保留全部依据;无法识别的行被丢弃,磁盘上任何文件夹都不动。
 func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
-	for _, version := range []int{1, 2, 3} {
+	for _, version := range []int{1, 2, 3, 4} {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
 			ctx := t.Context()
+			home := t.TempDir()
+			t.Setenv("HOME", home)
 			path := filepath.Join(t.TempDir(), "library.db")
 			schema, err := os.ReadFile(fmt.Sprintf("testdata/v%d.sql", version))
 			if err != nil {
@@ -34,39 +39,73 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 			if version >= 2 {
 				editLibraryFixture(t, path, `UPDATE skill_versions SET git_tree_sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' WHERE id = 1`)
 			}
+			// v3 库里 claude-code 带自定义布局且缺 codex 行:迁移按表里的规则识别路径,缺行补种子。
+			claudeGlobal, claudeProject := filepath.Join(".claude", "skills"), filepath.Join(".claude", "skills")
 			if version == 3 {
-				// 一行已有自定义规则,另一行缺失但被 Activation 引用,迁移须同时处理。
+				claudeGlobal, claudeProject = filepath.Join(".custom", "global"), filepath.Join(".custom", "project")
 				editLibraryFixture(t, path, `INSERT INTO agents(code, global_path, project_path) VALUES ('claude-code', '.custom/global', '.custom/project')`)
 			}
 			projectPath := t.TempDir()
 			editLibraryFixture(t, path, `INSERT INTO projects(id, path) VALUES (1, ?)`, projectPath)
-			// 同一 Agent 的多个旧路径不能在 expand 阶段被合并为一条全局身份。
-			want := []library.Activation{
-				{SkillID: 1, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(projectPath, ".codex", "skills")}, Individual: true, ViaGroups: []library.GroupID{1, 2}},
-				{SkillID: 1, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(projectPath, "custom")}, ViaGroups: []library.GroupID{2}},
+			legacyRows := []struct {
+				agent      string
+				path       string
+				individual bool
+				groups     []library.GroupID
+			}{
+				{"codex", filepath.Join(projectPath, ".codex", "skills"), true, []library.GroupID{1, 2}}, // 旧目录名 → 项目 Scope
+				{"codex", filepath.Join(projectPath, "custom"), false, []library.GroupID{2}},             // 无法识别 → 丢弃
+				{"codex", filepath.Join(home, ".codex", "skills"), true, nil},                            // 旧目录名 → 全局 Scope
+				{"codex", filepath.Join(home, ".agents", "skills"), false, []library.GroupID{1}},         // 现行目录 → 同一全局 Scope,合并
+				{"claude-code", filepath.Join(home, claudeGlobal), true, nil},                            // 按表里的规则识别
+				{"cursor", filepath.Join(home, ".cursor", "skills"), true, nil},                          // 未知 Agent → 丢弃
 			}
-			for _, activation := range want {
-				editLibraryFixture(t, path, `INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (1, 'codex', ?, ?)`, activation.Scope.Path, activation.Individual)
-				for _, groupID := range activation.ViaGroups {
-					if version == 3 {
+			for _, row := range legacyRows {
+				editLibraryFixture(t, path, `INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (1, ?, ?, ?)`, row.agent, row.path, row.individual)
+				for _, groupID := range row.groups {
+					if version >= 3 {
 						editLibraryFixture(t, path, `
 							INSERT INTO activation_groups(activation_id, skill_id, agent, scope_path, group_id)
 							SELECT id, skill_id, agent, scope_path, ? FROM activations WHERE scope_path = ?
-						`, groupID, activation.Scope.Path)
+						`, groupID, row.path)
 					} else {
-						editLibraryFixture(t, path, `INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, 'codex', ?, ?)`, activation.Scope.Path, groupID)
+						editLibraryFixture(t, path, `INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, ?, ?, ?)`, row.agent, row.path, groupID)
 					}
 				}
-				writeFile(t, filepath.Join(activation.Scope.Path, "example", "SKILL.md"), []byte("example\n"), 0o644)
+				writeFile(t, filepath.Join(row.path, "example", "SKILL.md"), []byte("example\n"), 0o644)
 			}
+			if version >= 3 {
+				// 已按身份记录的行原样保留(路径快照与之无关)。
+				editLibraryFixture(t, path, `INSERT INTO activations(skill_id, agent, project_id, scope_kind, scope_path, individual) VALUES (1, 'claude-code', 1, 'project', '/stale/snapshot', 0)`)
+				editLibraryFixture(t, path, `INSERT INTO activation_groups(activation_id, skill_id, agent, scope_path, group_id) SELECT id, skill_id, agent, scope_path, 2 FROM activations WHERE scope_path = '/stale/snapshot'`)
+			}
+
 			lib, err := library.Open(path)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = lib.Close() })
+			codexGlobal := library.GlobalScope{Agent: library.AgentCodex}
+			codexProject := library.ProjectScope{Agent: library.AgentCodex, ProjectID: 1}
+			want := []library.Activation{
+				{SkillID: 1, Scope: library.GlobalScope{Agent: library.AgentClaudeCode}, Directory: filepath.Join(home, claudeGlobal), Individual: true},
+			}
+			if version >= 3 {
+				want = append(want, library.Activation{SkillID: 1, Scope: library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: 1}, Directory: filepath.Join(projectPath, claudeProject), ViaGroups: []library.GroupID{2}})
+			}
+			want = append(want,
+				library.Activation{SkillID: 1, Scope: codexGlobal, Directory: filepath.Join(home, ".agents", "skills"), Individual: true, ViaGroups: []library.GroupID{1}},
+				library.Activation{SkillID: 1, Scope: codexProject, Directory: filepath.Join(projectPath, ".agents", "skills"), Individual: true, ViaGroups: []library.GroupID{1, 2}},
+			)
 			got, err := lib.ListActivations(ctx)
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("migrated activations = %#v, %v; want %#v", got, err, want)
+			}
+			// 迁移不搬迁、不删除任何旧目录里的文件夹,包括被丢弃行对应的那些。
+			for _, row := range legacyRows {
+				if _, err := os.Stat(filepath.Join(row.path, "example", "SKILL.md")); err != nil {
+					t.Fatalf("migration touched projected copy at %s: %v", row.path, err)
+				}
 			}
 			projects, err := lib.ListRegisteredProjects(ctx)
 			if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{{ID: 1, Path: projectPath}}) {
@@ -83,16 +122,26 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 			if history.GitTreeSHA != wantSHA {
 				t.Fatalf("migrated GitTreeSHA = %q, want %q", history.GitTreeSHA, wantSHA)
 			}
-			if err := lib.ActivateGroup(ctx, 2, want[1].Scope, library.ActivateOptions{}); err != nil {
+
+			// 迁移后 Agent 表完整,身份记录可直接再次激活(幂等)并继续参与操作:
+			// 撤组依据、撤独立依据、删组转独立保留。
+			agents, err := lib.ListAgents(ctx)
+			if err != nil || !reflect.DeepEqual(agents, []library.Agent{{Code: library.AgentClaudeCode}, {Code: library.AgentCodex}}) {
+				t.Fatalf("ListAgents() after migration = %#v, %v", agents, err)
+			}
+			if err := lib.Activate(ctx, 1, codexGlobal, library.ActivateOptions{}); err != nil {
+				t.Fatalf("re-Activate migrated global scope = %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "example", "SKILL.md")); err != nil {
+				t.Fatalf("re-Activate did not project into the current directory: %v", err)
+			}
+			if err := lib.DeactivateGroup(ctx, 2, codexProject); err != nil {
 				t.Fatal(err)
 			}
-			if err := lib.DeactivateGroup(ctx, 2, want[1].Scope); err != nil {
+			if err := lib.Deactivate(ctx, 1, codexGlobal); err != nil {
 				t.Fatal(err)
 			}
 			if err := lib.DeleteGroup(ctx, 1); err != nil {
-				t.Fatal(err)
-			}
-			if err := lib.DeactivateGroup(ctx, 2, want[0].Scope); err != nil {
 				t.Fatal(err)
 			}
 			if err := lib.Close(); err != nil {
@@ -105,19 +154,28 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = reopened.Close() })
-			want[0].ViaGroups = nil
-			got, err = reopened.ListActivations(ctx)
-			if err != nil || !reflect.DeepEqual(got, want[:1]) {
-				t.Fatalf("reopened activations = %#v, %v; want %#v", got, err, want[:1])
+			for i := range want {
+				want[i].ViaGroups = nil
+				if want[i].Scope == codexGlobal || want[i].Scope == codexProject {
+					want[i].Individual = true
+				}
 			}
-			if err := reopened.Deactivate(ctx, 1, want[0].Scope); err != nil {
-				t.Fatal(err)
+			if version >= 3 {
+				want[1].ViaGroups = []library.GroupID{2}
+			}
+			got, err = reopened.ListActivations(ctx)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("reopened activations = %#v, %v; want %#v", got, err, want)
 			}
 		})
 	}
 }
 
+// Open 只补缺失的 Agent 行、不覆盖已有布局;已按身份记录的 Activation 在重开后按现行规则派生目录,
+// 并可继续按身份激活。
 func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib, err := library.Open(path)
 	if err != nil {
@@ -131,39 +189,33 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
-	project, err := lib.RegisterProject(ctx, root)
+	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.Activation{
-		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(root, "claude")}, Individual: true},
-		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(root, "global")}, Individual: true},
-		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(root, "project")}, Individual: true},
+	scopes := []library.Scope{
+		library.GlobalScope{Agent: library.AgentClaudeCode},
+		library.GlobalScope{Agent: library.AgentCodex},
+		library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID},
 	}
-	for _, activation := range want {
-		if err := lib.Activate(ctx, skill.ID, activation.Scope, library.ActivateOptions{}); err != nil {
+	for _, scope := range scopes {
+		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// 只用 SQL 构造含全局/项目身份且缺 Agent 行的输入文件;结果仍由公开门面观察。
+	// 只用 SQL 构造缺 Agent 行且另一行布局被改过的输入文件;结果仍由公开门面观察。
 	editLibraryFixture(t, path, `
 		DELETE FROM agents WHERE code = 'codex';
 		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
 	`)
-	editLibraryFixture(t, path, `UPDATE activations SET scope_kind = 'global' WHERE scope_path <> ?`, want[2].Scope.Path)
-	editLibraryFixture(t, path, `UPDATE activations SET scope_kind = 'project', project_id = ? WHERE scope_path = ?`, project.ID, want[2].Scope.Path)
-	// 改成身份型后,ListActivations 按现行布局派生目录:claude-code 用表里保留的自定义规则,
-	// 补种子的 codex 用种子规则;项目 Scope 相对 Registered project 根。
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	want = []library.Activation{
-		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(home, ".custom", "global")}, Identity: library.GlobalScope{Agent: library.AgentClaudeCode}, Individual: true},
-		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(home, ".agents", "skills")}, Identity: library.GlobalScope{Agent: library.AgentCodex}, Individual: true},
-		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".agents", "skills")}, Identity: library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}, Individual: true},
+	// 目录按现行布局派生:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
+	want := []library.Activation{
+		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Individual: true},
+		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Individual: true},
+		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".agents", "skills"), Individual: true},
 	}
 	for range 2 {
 		reopened, err := library.Open(path)
@@ -176,7 +228,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 			t.Fatalf("ListActivations after Open = %#v, %v; want %#v", got, err, want)
 		}
 		for _, activation := range want {
-			if err := reopened.Activate(ctx, skill.ID, activation.Identity, library.ActivateOptions{}); err != nil {
+			if err := reopened.Activate(ctx, skill.ID, activation.Scope, library.ActivateOptions{}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -215,6 +267,8 @@ func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
 }
 
 func TestOpenFailedMigrationCanRetryWithoutLosingLegacyData(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	path := filepath.Join(t.TempDir(), "library.db")
 	schema, err := os.ReadFile("testdata/v2.sql")
 	if err != nil {
@@ -227,24 +281,23 @@ func TestOpenFailedMigrationCanRetryWithoutLosingLegacyData(t *testing.T) {
 		INSERT INTO sources(id, type, locator) VALUES (1, 'local', '{"path":"/legacy/source"}');
 		INSERT INTO skills(id, source_id, name) VALUES (1, 1, 'example');
 		INSERT INTO groups(id, name) VALUES (1, 'legacy');
-		INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (1, 'codex', '/legacy/scope', 1);
 		CREATE TABLE unexpected(data TEXT);
 	`)
+	directory := filepath.Join(home, ".agents", "skills")
+	editLibraryFixture(t, path, `INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (1, 'codex', ?, 1)`, directory)
 	if invalid, err := library.Open(path); err == nil {
 		_ = invalid.Close()
 		t.Fatal("Open accepted an unexpected table")
 	}
 	// 修复输入并继续按旧格式记录分组依据;失败的迁移不能留下只迁了一半的新表。
-	editLibraryFixture(t, path, `
-		DROP TABLE unexpected;
-		INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, 'codex', '/legacy/scope', 1);
-	`)
+	editLibraryFixture(t, path, `DROP TABLE unexpected`)
+	editLibraryFixture(t, path, `INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, 'codex', ?, 1)`, directory)
 	lib, err := library.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	want := []library.Activation{{SkillID: 1, Scope: library.Scope{Agent: library.AgentCodex, Path: "/legacy/scope"}, Individual: true, ViaGroups: []library.GroupID{1}}}
+	want := []library.Activation{{SkillID: 1, Scope: library.GlobalScope{Agent: library.AgentCodex}, Directory: directory, Individual: true, ViaGroups: []library.GroupID{1}}}
 	got, err := lib.ListActivations(t.Context())
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("activations after retry = %#v, %v; want %#v", got, err, want)

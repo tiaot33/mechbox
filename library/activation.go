@@ -11,57 +11,51 @@ import (
 	"path/filepath"
 )
 
-// scopeKind 是 activations.scope_kind 列的取值:身份型记录为 global / project,旧路径型为 legacy。
-type scopeKind string
-
-const (
-	scopeKindLegacy  scopeKind = "legacy"
-	scopeKindGlobal  scopeKind = "global"
-	scopeKindProject scopeKind = "project"
-)
-
-// resolvedScope 是一次激活操作的内部目标:Scope 的落库身份 + 本次操作实际读写的目录。
-// 身份型的目录由 Resolve 按现行布局算出;路径型的目录就是调用方传入的路径。
-type resolvedScope struct {
+// scopeRow 是 Scope 身份的落库形状:Agent 代码 + 可选项目(nil 为全局)。
+type scopeRow struct {
 	agent     AgentCode
-	kind      scopeKind
-	projectID *ProjectID // 仅 kind == scopeKindProject 时非 nil
+	projectID *ProjectID
+}
+
+// scopeOf 把 Scope 身份拆成落库列;nil 或未知实现返回 false。
+func scopeOf(scope Scope) (scopeRow, bool) {
+	switch scope := scope.(type) {
+	case GlobalScope:
+		return scopeRow{agent: scope.Agent}, true
+	case ProjectScope:
+		return scopeRow{agent: scope.Agent, projectID: new(scope.ProjectID)}, true
+	default:
+		return scopeRow{}, false
+	}
+}
+
+// scope 把落库列还原为门面上的 Scope 身份。
+func (r scopeRow) scope() Scope {
+	if r.projectID == nil {
+		return GlobalScope{Agent: r.agent}
+	}
+	return ProjectScope{Agent: r.agent, ProjectID: *r.projectID}
+}
+
+// predicate 给出匹配该 Scope 身份的 activations 行的 SQL 条件与参数;alias 是列名前缀(如 "a.")。
+func (r scopeRow) predicate(alias string) (string, []any) {
+	return alias + "agent = ? AND " + alias + "project_id IS ?", []any{r.agent, r.projectID}
+}
+
+// resolvedScope 是一次激活操作的内部目标:Scope 的落库身份 + 按现行布局算出的目录。
+type resolvedScope struct {
+	scopeRow
 	directory string
 }
 
-// resolveScope 把门面收到的 ScopeIdentity 变成内部目标;身份型的 NotFound 来自 Resolve。
-func (l *sqliteLibrary) resolveScope(ctx context.Context, scope ScopeIdentity) (resolvedScope, error) {
-	switch scope := scope.(type) {
-	case Scope:
-		if err := validateScope(scope); err != nil {
-			return resolvedScope{}, err
-		}
-		return resolvedScope{agent: scope.Agent, kind: scopeKindLegacy, directory: scope.Path}, nil
-	case GlobalScope:
-		directory, err := l.Resolve(ctx, scope)
-		if err != nil {
-			return resolvedScope{}, err
-		}
-		return resolvedScope{agent: scope.Agent, kind: scopeKindGlobal, directory: directory}, nil
-	case ProjectScope:
-		directory, err := l.Resolve(ctx, scope)
-		if err != nil {
-			return resolvedScope{}, err
-		}
-		return resolvedScope{agent: scope.Agent, kind: scopeKindProject, projectID: &scope.ProjectID, directory: directory}, nil
-	default:
-		return resolvedScope{}, &Error{Code: InvalidArgument, Message: "resolve scope: scope is required"}
+// resolveScope 把门面收到的 Scope 变成内部目标;未知 Agent / 未登记项目的 NotFound 来自 Resolve。
+func (l *sqliteLibrary) resolveScope(ctx context.Context, scope Scope) (resolvedScope, error) {
+	directory, err := l.Resolve(ctx, scope)
+	if err != nil {
+		return resolvedScope{}, err
 	}
-}
-
-// predicate 给出匹配该 Scope 的 activations 行的 SQL 条件与参数;alias 是列名前缀(如 "a.")。
-// 身份型按 (scope_kind, agent, project_id) 匹配;路径型只匹配 legacy 行的 (agent, scope_path),
-// 两种指认互不改写对方的记录。
-func (s resolvedScope) predicate(alias string) (string, []any) {
-	if s.kind == scopeKindLegacy {
-		return alias + "scope_kind = ? AND " + alias + "agent = ? AND " + alias + "scope_path = ?", []any{scopeKindLegacy, s.agent, s.directory}
-	}
-	return alias + "scope_kind = ? AND " + alias + "agent = ? AND " + alias + "project_id IS ?", []any{s.kind, s.agent, s.projectID}
+	row, _ := scopeOf(scope) // Resolve 已拒绝 nil 与未知实现
+	return resolvedScope{scopeRow: row, directory: directory}, nil
 }
 
 // rowQuerier 让 *sql.DB 与 *sql.Tx 共用同一个单行查询。
@@ -76,7 +70,7 @@ type activationRow struct {
 }
 
 // findActivation 找到某 skill 在某 Scope 的投影记录;不存在时返回 nil 而非错误。
-func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope resolvedScope) (*activationRow, error) {
+func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*activationRow, error) {
 	where, args := scope.predicate("")
 	var row activationRow
 	err := q.QueryRowContext(ctx, `SELECT id, individual FROM activations WHERE skill_id = ? AND `+where, append([]any{id}, args...)...).Scan(&row.id, &row.individual)
@@ -89,18 +83,52 @@ func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope resolve
 	return &row, nil
 }
 
-func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, scope Scope) error {
+// removeProjectedCopy 删除 skill 在 directory(某条 Activation 的派生目录)下的投影文件夹。
+func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, directory string) error {
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(scope.Path, skill.Name)); err != nil {
+	if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
 		return fmt.Errorf("remove projected copy: %w", err)
 	}
 	return nil
 }
 
-func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope ScopeIdentity, opts ActivateOptions) (err error) {
+// directoryClaimedByAnotherScope 判断该 skill 是否已有另一条不同身份的 Activation 解析到同一目录
+// (例如把 $HOME 本身登记为项目)。这种情况下不新建第二条记录去争同一个文件夹。
+// 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有库锁,期间没有并发写入,
+// 且单连接模式下事务内不能再走 l.db 调 Resolve。
+func (l *sqliteLibrary) directoryClaimedByAnotherScope(ctx context.Context, id SkillID, target resolvedScope) (bool, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT agent, project_id FROM activations WHERE skill_id = ?`, id)
+	if err != nil {
+		return false, fmt.Errorf("list skill activations: %w", err)
+	}
+	var others []scopeRow
+	for rows.Next() {
+		var row scopeRow
+		if err := rows.Scan(&row.agent, &row.projectID); err != nil {
+			_ = rows.Close()
+			return false, fmt.Errorf("read skill activation: %w", err)
+		}
+		others = append(others, row)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return false, fmt.Errorf("read skill activations: %w", err)
+	}
+	for _, other := range others {
+		directory, err := l.Resolve(ctx, other.scope())
+		if err != nil {
+			return false, err
+		}
+		if directory == target.directory {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -118,9 +146,16 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 	}
 	// 已有本 skill 在该 Scope 的投影记录时,目标目录是我们自己的投影,再次激活应当
 	// 幂等成功(刷新内容 / 补记依据),而非因目录存在而报冲突。
-	existing, err := findActivation(ctx, l.db, id, scope)
+	existing, err := findActivation(ctx, l.db, id, scope.scopeRow)
 	if err != nil {
 		return err
+	}
+	if existing == nil {
+		if claimed, err := l.directoryClaimedByAnotherScope(ctx, id, scope); err != nil {
+			return err
+		} else if claimed {
+			return &Error{Code: AlreadyExists, Message: "activate skill: another scope already projects this skill into the same directory"}
+		}
 	}
 	target := filepath.Join(scope.directory, skill.Name)
 	if _, err := os.Lstat(target); err == nil {
@@ -154,7 +189,7 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 		return fmt.Errorf("begin activation record: %w", err)
 	}
 	defer tx.Rollback()
-	if err := recordActivationTx(ctx, tx, id, scope, individual, groupID); err != nil {
+	if err := recordActivationTx(ctx, tx, id, scope.scopeRow, individual, groupID); err != nil {
 		restore()
 		return err
 	}
@@ -218,14 +253,8 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 }
 
 // recordActivationTx 在事务内写入投影记录:活动行 + 可选的分组依据行。
-// 已有记录只补独立标记;新记录带上 Scope 身份与本次目录。新记录若与另一条不同指认的记录
-// (旧路径型 legacy 行,或两个身份 Scope 解析到同一目录)撞上 UNIQUE(skill_id, agent, scope_path),
-// 不改写那条记录而返回 AlreadyExists:legacy 行到身份的映射属于 Open 迁移,不在 Activate 里悄悄做。
-func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope resolvedScope, individual bool, groupID GroupID) error {
-	individualValue := 0
-	if individual {
-		individualValue = 1
-	}
+// 已有记录只补独立标记;新记录只带 Scope 身份,不存目录。
+func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, individual bool, groupID GroupID) error {
 	existing, err := findActivation(ctx, tx, id, scope)
 	if err != nil {
 		return err
@@ -233,34 +262,27 @@ func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope resol
 	var activationID int64
 	if existing != nil {
 		activationID = existing.id
-		if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = MAX(individual, ?) WHERE id = ?`, individualValue, activationID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = MAX(individual, ?) WHERE id = ?`, individual, activationID); err != nil {
 			return fmt.Errorf("record activation: %w", err)
 		}
 	} else {
-		err := tx.QueryRowContext(ctx, `
-			INSERT INTO activations(skill_id, agent, project_id, scope_kind, scope_path, individual) VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT(skill_id, agent, scope_path) DO NOTHING
-			RETURNING id
-		`, id, scope.agent, scope.projectID, scope.kind, scope.directory, individualValue).Scan(&activationID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return &Error{Code: AlreadyExists, Message: "activate skill: another scope already projects this skill into the same directory"}
-		}
+		result, err := tx.ExecContext(ctx, `INSERT INTO activations(skill_id, agent, project_id, individual) VALUES (?, ?, ?, ?)`, id, scope.agent, scope.projectID, individual)
 		if err != nil {
+			return fmt.Errorf("record activation: %w", err)
+		}
+		if activationID, err = result.LastInsertId(); err != nil {
 			return fmt.Errorf("record activation: %w", err)
 		}
 	}
 	if groupID != 0 {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT OR IGNORE INTO activation_groups(activation_id, skill_id, agent, scope_path, group_id)
-			SELECT id, skill_id, agent, scope_path, ? FROM activations WHERE id = ?
-		`, groupID, activationID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(activation_id, group_id) VALUES (?, ?)`, activationID, groupID); err != nil {
 			return fmt.Errorf("record group activation: %w", err)
 		}
 	}
 	return nil
 }
 
-func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope ScopeIdentity) (err error) {
+func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope) (err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -268,7 +290,7 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope ScopeI
 	if err != nil {
 		return err
 	}
-	existing, err := findActivation(ctx, l.db, id, target)
+	existing, err := findActivation(ctx, l.db, id, target.scopeRow)
 	if err != nil {
 		return err
 	}
@@ -325,7 +347,7 @@ func keepActivation(ctx context.Context, tx *sql.Tx, activationID int64) (bool, 
 	return keep, nil
 }
 
-func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope ScopeIdentity, opts ActivateOptions) (err error) {
+func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (err error) {
 	// ponytail: 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -350,21 +372,27 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		}
 		seen[member.Name] = true
 	}
-	if opts.OnConflict != Overwrite {
-		for _, member := range members {
-			// 已属本组/本 skill 自己的既有投影不算冲突,分组再次激活应幂等成功。
-			existing, err := findActivation(ctx, l.db, member.ID, target)
-			if err != nil {
-				return err
-			}
-			if existing != nil {
-				continue
-			}
-			if _, err := os.Lstat(filepath.Join(target.directory, member.Name)); err == nil {
-				return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("inspect activation target: %w", err)
-			}
+	for _, member := range members {
+		// 已属本组/本 skill 自己的既有投影不算冲突,分组再次激活应幂等成功。
+		existing, err := findActivation(ctx, l.db, member.ID, target.scopeRow)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			continue
+		}
+		if claimed, err := l.directoryClaimedByAnotherScope(ctx, member.ID, target); err != nil {
+			return err
+		} else if claimed {
+			return &Error{Code: AlreadyExists, Message: "activate group: another scope already projects a member into the same directory"}
+		}
+		if opts.OnConflict == Overwrite {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(target.directory, member.Name)); err == nil {
+			return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect activation target: %w", err)
 		}
 	}
 	if len(members) == 0 {
@@ -433,7 +461,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	}
 	defer tx.Rollback()
 	for _, member := range applied {
-		if err := recordActivationTx(ctx, tx, member.id, target, false, groupID); err != nil {
+		if err := recordActivationTx(ctx, tx, member.id, target.scopeRow, false, groupID); err != nil {
 			return errors.Join(err, rollback())
 		}
 	}
@@ -448,7 +476,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	return nil
 }
 
-func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope ScopeIdentity) (err error) {
+func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
 	// ponytail: 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -573,8 +601,8 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 身份型行的 scope_path 只是落库时的快照,排序不依赖它;legacy 行之间仍按路径排。
-	rows, err := l.db.QueryContext(ctx, `SELECT id, skill_id, agent, scope_kind, project_id, scope_path, individual FROM activations ORDER BY skill_id, agent, scope_kind, project_id, scope_path`)
+	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。
+	rows, err := l.db.QueryContext(ctx, `SELECT id, skill_id, agent, project_id, individual FROM activations ORDER BY skill_id, agent, project_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list activations: %w", err)
 	}
@@ -584,18 +612,12 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 		var (
 			activation Activation
 			id         int64
-			kind       scopeKind
-			projectID  sql.NullInt64
+			row        scopeRow
 		)
-		if err := rows.Scan(&id, &activation.SkillID, &activation.Scope.Agent, &kind, &projectID, &activation.Scope.Path, &activation.Individual); err != nil {
+		if err := rows.Scan(&id, &activation.SkillID, &row.agent, &row.projectID, &activation.Individual); err != nil {
 			return nil, fmt.Errorf("read activation: %w", err)
 		}
-		switch kind {
-		case scopeKindGlobal:
-			activation.Identity = GlobalScope{Agent: activation.Scope.Agent}
-		case scopeKindProject:
-			activation.Identity = ProjectScope{Agent: activation.Scope.Agent, ProjectID: ProjectID(projectID.Int64)}
-		}
+		activation.Scope = row.scope()
 		ids = append(ids, id)
 		activations = append(activations, activation)
 	}
@@ -606,13 +628,9 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 		return nil, fmt.Errorf("close activations: %w", err)
 	}
 	for i := range activations {
-		// 身份型记录的目录是派生值:按现行布局重新 Resolve,而不是回读落库时的路径。
-		if activations[i].Identity != nil {
-			directory, err := l.Resolve(ctx, activations[i].Identity)
-			if err != nil {
-				return nil, err
-			}
-			activations[i].Scope.Path = directory
+		// 目录是派生值:按现行布局 Resolve,库里不存路径。
+		if activations[i].Directory, err = l.Resolve(ctx, activations[i].Scope); err != nil {
+			return nil, err
 		}
 		rows, err := l.db.QueryContext(ctx, `SELECT group_id FROM activation_groups WHERE activation_id = ? ORDER BY group_id`, ids[i])
 		if err != nil {

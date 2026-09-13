@@ -61,7 +61,7 @@ func TestResolveUnknownAgentOrProjectIsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cases := map[string]library.ScopeIdentity{
+	cases := map[string]library.Scope{
 		"unknown agent in global scope":    library.GlobalScope{Agent: "cursor"},
 		"unknown agent in project scope":   library.ProjectScope{Agent: "cursor", ProjectID: project.ID},
 		"unregistered project":             library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID + 1},
@@ -92,7 +92,7 @@ func TestResolveIsReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scopes := []library.ScopeIdentity{
+	scopes := []library.Scope{
 		library.GlobalScope{Agent: library.AgentCodex},
 		library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID},
 	}
@@ -139,7 +139,7 @@ func TestResolveReadsLayoutRulesFromAgentsTable(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 
-	cases := map[library.ScopeIdentity]string{
+	cases := map[library.Scope]string{
 		library.GlobalScope{Agent: library.AgentCodex}:                         filepath.Join(home, ".custom", "global"),
 		library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}: filepath.Join(project.Path, ".custom", "project"),
 		library.GlobalScope{Agent: "another"}:                                  filepath.Join(home, ".another", "skills"),

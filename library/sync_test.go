@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -112,13 +113,13 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectScope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".codex", "skills")}
+	projectScope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
 	if err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	oldHome := filepath.Join(t.TempDir(), "old-home")
 	t.Setenv("HOME", oldHome)
-	globalScope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(oldHome, ".codex", "skills")}
+	globalScope := library.GlobalScope{Agent: library.AgentCodex}
 	if err := lib.Activate(ctx, original.ID, globalScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -213,16 +214,18 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if len(projects) != 1 || projects[0].Path != newProjectPath {
 		t.Fatalf("projects after pull = %#v", projects)
 	}
+	// Activation 只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
+	// 不携带上一台机器的绝对路径。
 	activations, err := lib.ListActivations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	activationPaths := map[string]bool{}
-	for _, activation := range activations {
-		activationPaths[activation.Scope.Path] = true
+	wantActivations := []library.Activation{
+		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Individual: true},
+		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), ViaGroups: []library.GroupID{group.ID}},
 	}
-	if len(activations) != 2 || !activationPaths[filepath.Join(newProjectPath, ".codex", "skills")] || !activationPaths[filepath.Join(newHome, ".codex", "skills")] {
-		t.Fatalf("activations after pull = %#v", activations)
+	if !reflect.DeepEqual(activations, wantActivations) {
+		t.Fatalf("activations after pull = %#v, want %#v", activations, wantActivations)
 	}
 }
 

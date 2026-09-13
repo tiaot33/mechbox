@@ -79,20 +79,8 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 1
 		WHERE individual = 0
-			AND EXISTS (
-				SELECT 1 FROM activation_groups
-				WHERE activation_groups.skill_id = activations.skill_id
-					AND activation_groups.agent = activations.agent
-					AND activation_groups.scope_path = activations.scope_path
-					AND activation_groups.group_id = ?
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM activation_groups
-				WHERE activation_groups.skill_id = activations.skill_id
-					AND activation_groups.agent = activations.agent
-					AND activation_groups.scope_path = activations.scope_path
-					AND activation_groups.group_id <> ?
-			)`, id, id); err != nil {
+			AND EXISTS (SELECT 1 FROM activation_groups WHERE activation_id = activations.id AND group_id = ?)
+			AND NOT EXISTS (SELECT 1 FROM activation_groups WHERE activation_id = activations.id AND group_id <> ?)`, id, id); err != nil {
 		return fmt.Errorf("preserve group activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE group_id = ?`, id); err != nil {

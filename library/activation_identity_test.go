@@ -57,8 +57,8 @@ func TestActivateGlobalScopeProjectsIntoResolvedDirectory(t *testing.T) {
 	}
 	want := []library.Activation{{
 		SkillID:    skill.ID,
-		Scope:      library.Scope{Agent: library.AgentCodex, Path: directory},
-		Identity:   scope,
+		Scope:      scope,
+		Directory:  directory,
 		Individual: true,
 	}}
 	if !reflect.DeepEqual(activations, want) {
@@ -99,8 +99,8 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 	}
 	want := []library.Activation{{
 		SkillID:    skill.ID,
-		Scope:      library.Scope{Agent: library.AgentClaudeCode, Path: directory},
-		Identity:   scope,
+		Scope:      scope,
+		Directory:  directory,
 		Individual: true,
 	}}
 	if !reflect.DeepEqual(activations, want) {
@@ -162,7 +162,7 @@ func TestActivateIdentityScopeConflictPolicy(t *testing.T) {
 		t.Fatalf("re-Activate did not refresh SKILL.md: %q, %v", content, err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentClaudeCode, Path: directory}, Identity: scope, Individual: true}}
+	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after re-Activate = %#v, %v; want %#v", activations, err, want)
 	}
@@ -208,11 +208,10 @@ func TestActivateGroupOnIdentityScopePreservesIndependentActivation(t *testing.T
 			t.Fatalf("member %q was not projected: %v", skill.Name, err)
 		}
 	}
-	pathScope := library.Scope{Agent: library.AgentCodex, Path: directory}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{
-		{SkillID: first.ID, Scope: pathScope, Identity: scope, Individual: true, ViaGroups: []library.GroupID{group.ID}},
-		{SkillID: second.ID, Scope: pathScope, Identity: scope, ViaGroups: []library.GroupID{group.ID}},
+		{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
+		{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
 	}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
@@ -231,7 +230,7 @@ func TestActivateGroupOnIdentityScopePreservesIndependentActivation(t *testing.T
 		t.Fatalf("via-group-only activation remains: %v", err)
 	}
 	activations, err = lib.ListActivations(ctx)
-	want = []library.Activation{{SkillID: first.ID, Scope: pathScope, Identity: scope, Individual: true}}
+	want = []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after DeactivateGroup = %#v, %v; want %#v", activations, err, want)
 	}
@@ -288,7 +287,7 @@ func TestIdentityScopesOfOneSkillAreIndependentActivations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scopes := []library.ScopeIdentity{
+	scopes := []library.Scope{
 		library.GlobalScope{Agent: library.AgentClaudeCode},
 		library.GlobalScope{Agent: library.AgentCodex},
 		library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID},
@@ -320,7 +319,7 @@ func TestIdentityScopesOfOneSkillAreIndependentActivations(t *testing.T) {
 		t.Fatalf("ListActivations() after one Deactivate = %#v, %v; want 2", activations, err)
 	}
 	for _, activation := range activations {
-		if activation.Identity == scopes[0] {
+		if activation.Scope == scopes[0] {
 			t.Fatalf("deactivated scope still listed: %#v", activation)
 		}
 	}
@@ -393,7 +392,7 @@ func TestUnregisterProjectClearsIdentityProjectActivations(t *testing.T) {
 		t.Fatal(err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: globalDirectory}, Identity: global, Individual: true}}
+	want := []library.Activation{{SkillID: skill.ID, Scope: global, Directory: globalDirectory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after unregister = %#v, %v; want %#v", activations, err, want)
 	}
@@ -425,7 +424,7 @@ func TestDeleteGroupAndRemoveSkillOnIdentityScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentClaudeCode, Path: directory}, Identity: scope, Individual: true}}
+	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after DeleteGroup = %#v, %v; want %#v", activations, err, want)
 	}
@@ -479,51 +478,12 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 		}
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: directory}, Identity: global, Individual: true}}
+	want := []library.Activation{{SkillID: skill.ID, Scope: global, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
 		t.Fatalf("global projection lost: %v", err)
-	}
-}
-
-// 过渡期旧路径型 Activate 在 Resolve 出的目录留下的 legacy 记录,不会被身份型 Activate 悄悄
-// 接管(即使 Overwrite):返回 AlreadyExists,legacy 记录与副本保持原样;映射留给 Open 迁移。
-func TestActivateIdentityScopeDoesNotAdoptLegacyActivation(t *testing.T) {
-	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
-	lib := openTestLibrary(t)
-	skill := installExampleSkill(t, lib, "example-skill")
-	global := library.GlobalScope{Agent: library.AgentClaudeCode}
-	directory, err := lib.Resolve(ctx, global)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := library.Scope{Agent: library.AgentClaudeCode, Path: directory}
-	if err := lib.Activate(ctx, skill.ID, legacy, library.ActivateOptions{}); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, opts := range []library.ActivateOptions{{}, {OnConflict: library.Overwrite}} {
-		if err := lib.Activate(ctx, skill.ID, global, opts); !library.IsCode(err, library.AlreadyExists) {
-			t.Fatalf("Activate(%#v, %#v) over legacy activation = %v, want AlreadyExists", global, opts, err)
-		}
-	}
-	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: legacy, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
-		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
-	}
-	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("legacy projection lost: %v", err)
-	}
-	// 旧路径型 Deactivate 仍然管得住自己的记录。
-	if err := lib.Deactivate(ctx, skill.ID, legacy); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, skill.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy Deactivate left projection: %v", err)
 	}
 }
 
@@ -535,7 +495,7 @@ func TestActivateUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	lib := openTestLibrary(t)
 	skill := installExampleSkill(t, lib, "example-skill")
 
-	for name, scope := range map[string]library.ScopeIdentity{
+	for name, scope := range map[string]library.Scope{
 		"unknown agent":        library.GlobalScope{Agent: "cursor"},
 		"unregistered project": library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: 42},
 	} {

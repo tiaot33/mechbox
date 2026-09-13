@@ -1,0 +1,20 @@
+# Scope is an identity, not a path
+
+A **Scope** is one of exactly two kinds — an Agent's global level, or an Agent together with one Registered project — and the Library, not the caller, holds each Agent's current layout (the directory names it scans under `$HOME` and under a project root). Activation records only the Scope identity; the target directory is derived from the layout at the moment of listing or projecting. Nothing on the facade accepts a directory to activate into, and there is no method that lists "all scopes with their paths".
+
+We chose this over the earlier `Scope{Agent, Path}` because the directory name is the Agent vendor's decision, not the user's: when Codex moved from `.codex/skills` to `.agents/skills`, a path-shaped Scope forced the same suffix rule to be repeated in the target list, in per-project expansion, in Sync remapping and in every test, and an Activation keyed by absolute path had to be *guessed* into a new `$HOME` after Sync. Keying on identity means a layout change is one row in `agents`, and the same Activation resolves correctly on any machine.
+
+## Considered options
+
+- **`Scope{Agent, Path}` (rejected).** Lets a caller project anywhere; makes the Library a copy tool rather than the owner of where Agents look. Bakes stale directory names into records.
+- **One struct with an optional project field (rejected).** Hides the two kinds behind a nullable; the two levels are different things, so they are two Go types (`GlobalScope`, `ProjectScope`) behind a sealed `Scope` interface.
+- **User-editable Agent layouts (rejected).** Would let a Scope point where the Agent never scans. Layouts are seeded and repaired by the product; there is no facade to change them.
+
+## Consequences
+
+- `Activate` / `Deactivate` / `ActivateGroup` / `DeactivateGroup` / `Resolve` take a `Scope` identity. Unknown Agent code or unregistered project → `NotFound`. Callers compose targets from `ListAgents` × (global | `ListRegisteredProjects`); `ListScopes` is gone.
+- `ListActivations` returns `{SkillID, Scope, Directory, Individual, ViaGroups}`. `Directory` is derived read-only for comparing against disk; it is not accepted back as input.
+- Storage keys Activation by `(skill, agent, project_id NULL|id)`; no path column. Sync remaps only Registered project paths — Activations need no rewriting, since directories are re-derived from the local `$HOME` and the mapped roots.
+- **Layout changes do not migrate disk.** After a vendor changes its layout, only the current directory counts; folders the tool projected into a former directory are stale and are neither moved nor deleted. Users re-activate to place skills into the current directory.
+- **Opening a pre-identity library** maps a path-keyed Activation to an identity when its path equals what the Agent's layout (current, or the old `.codex/skills` this tool itself used to write) yields under the current `$HOME` or a registered project root; rows mapping to the same identity merge their retention reasons. A row that matches nothing — unknown Agent, arbitrary directory, another machine's paths — is dropped from the Library; its folder on disk is left untouched. Dropping was chosen over refusing to open (which would strand the whole Library behind rows the product itself wrote to now-meaningless paths) and over keeping a path column for them (which would re-introduce the path identity this ADR removes). This is a one-time recognition step, not a general path resolver.
+- `Scope` is a Go interface: it marshals to JSON, but has no kind discriminator for unmarshalling. The RPC boundary (ADR 0008) adds one if it needs to accept a Scope; the in-process facade does not.

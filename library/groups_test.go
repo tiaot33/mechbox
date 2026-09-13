@@ -160,10 +160,9 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		t.Fatalf("DeleteGroup removed skill: %v", err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	pathScope := library.Scope{Agent: library.AgentCodex, Path: directory}
 	wantActivations := []library.Activation{
-		{SkillID: skill.ID, Scope: pathScope, Identity: scope, ViaGroups: []library.GroupID{second.ID}},
-		{SkillID: groupOnly.ID, Scope: pathScope, Identity: scope, Individual: true},
+		{SkillID: skill.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{second.ID}},
+		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Individual: true},
 	}
 	if err != nil || !reflect.DeepEqual(activations, wantActivations) {
 		t.Fatalf("activations after DeleteGroup = %#v, %v; want %#v", activations, err, wantActivations)
