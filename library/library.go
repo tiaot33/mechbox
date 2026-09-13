@@ -1734,11 +1734,7 @@ func fetchError(code ErrorCode, operation string, err error) error {
 }
 
 func fetchErrorCode(err error, detail string) ErrorCode {
-	if errors.Is(err, fs.ErrPermission) {
-		return Permission
-	}
-	lower := strings.ToLower(detail)
-	if strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied") || strings.Contains(lower, "could not read username") || strings.Contains(lower, "error: 403") || strings.Contains(lower, "http 403") {
+	if errors.Is(err, fs.ErrPermission) || gitAuthFailure(strings.ToLower(detail)) {
 		return Permission
 	}
 	return SourceUnreachable

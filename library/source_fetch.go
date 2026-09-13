@@ -86,8 +86,8 @@ func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (re
 			}
 			firstErr := err
 			err = clone("git@github.com:" + remote)
-			if err != nil && ctx.Err() == nil && IsCode(firstErr, Permission) {
-				err = firstErr
+			if err != nil && ctx.Err() == nil {
+				err = preferGitHubHTTPSError(firstErr, err)
 			}
 		}
 	}
