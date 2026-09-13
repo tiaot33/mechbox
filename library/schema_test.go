@@ -156,6 +156,15 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	`)
 	editLibraryFixture(t, path, `UPDATE activations SET scope_kind = 'global' WHERE scope_path <> ?`, want[2].Scope.Path)
 	editLibraryFixture(t, path, `UPDATE activations SET scope_kind = 'project', project_id = ? WHERE scope_path = ?`, project.ID, want[2].Scope.Path)
+	// 改成身份型后,ListActivations 按现行布局派生目录:claude-code 用表里保留的自定义规则,
+	// 补种子的 codex 用种子规则;项目 Scope 相对 Registered project 根。
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	want = []library.Activation{
+		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(home, ".custom", "global")}, Identity: library.GlobalScope{Agent: library.AgentClaudeCode}, Individual: true},
+		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(home, ".agents", "skills")}, Identity: library.GlobalScope{Agent: library.AgentCodex}, Individual: true},
+		{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".agents", "skills")}, Identity: library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}, Individual: true},
+	}
 	for range 2 {
 		reopened, err := library.Open(path)
 		if err != nil {
@@ -167,7 +176,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 			t.Fatalf("ListActivations after Open = %#v, %v; want %#v", got, err, want)
 		}
 		for _, activation := range want {
-			if err := reopened.Activate(ctx, skill.ID, activation.Scope, library.ActivateOptions{}); err != nil {
+			if err := reopened.Activate(ctx, skill.ID, activation.Identity, library.ActivateOptions{}); err != nil {
 				t.Fatal(err)
 			}
 		}

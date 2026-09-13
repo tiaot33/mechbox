@@ -230,7 +230,9 @@ type Agent struct {
 }
 
 // Scope 是一个投影目标:哪个 agent 的哪个 skills 目录。
-// 这是 expand 阶段仍由 Activate 等接收的路径型 Scope;身份型 Scope 见 ScopeIdentity。
+// 这是 expand 阶段仍被 Activate 等接受的路径型 Scope;身份型 Scope 见 ScopeIdentity。
+// 过渡期它也实现 ScopeIdentity,以便旧调用继续编译;contract 阶段将删除它并把
+// ScopeIdentity 重命名为 Scope。
 type Scope struct {
 	Agent AgentCode `json:"agent"`
 	Path  string    `json:"path"`
@@ -238,7 +240,7 @@ type Scope struct {
 
 // ScopeIdentity 是按身份指认的投影目标:GlobalScope 或 ProjectScope 之一,不含路径。
 // 目录由 Library 按该 Agent 的现行布局算出(见 Resolve),调用方不自行拼路径。
-// 密封接口:只有本包的两种 Scope 类型能实现它。
+// 密封接口:只有本包的 Scope 类型能实现它;expand 阶段路径型 Scope 也暂时是其成员。
 type ScopeIdentity interface {
 	scopeIdentity()
 }
@@ -256,6 +258,7 @@ type ProjectScope struct {
 
 func (GlobalScope) scopeIdentity()  {}
 func (ProjectScope) scopeIdentity() {}
+func (Scope) scopeIdentity()        {} // 过渡期:旧路径型 Scope 仍可传给 Activate 等
 
 // ConflictPolicy 决定激活时目标目录已存在的处理方式。
 type ConflictPolicy string
@@ -270,11 +273,16 @@ type ActivateOptions struct {
 }
 
 // Activation 是一条投影记录:某 skill 出现在某个 Scope 里,以及它的保留依据。
+// expand 阶段两种指认并存:Identity 是按身份记录的 GlobalScope / ProjectScope(旧路径型
+// 记录为 nil);Scope 对身份型记录是派生值——Agent 加上按现行布局 Resolve 出的目录,
+// 只供对照磁盘,不应再作为 Activate 的输入。Identity 是接口字段:可 marshal,但 JSON 缺少种类
+// 判别符、无法直接 unmarshal;contract 阶段合并为 Scope 时一并处理。
 type Activation struct {
-	SkillID    SkillID   `json:"skill_id"`
-	Scope      Scope     `json:"scope"`
-	Individual bool      `json:"individual"`           // 存在独立(非分组)激活
-	ViaGroups  []GroupID `json:"via_groups,omitempty"` // 经由哪些分组激活
+	SkillID    SkillID       `json:"skill_id"`
+	Scope      Scope         `json:"scope"`
+	Identity   ScopeIdentity `json:"identity,omitempty"`
+	Individual bool          `json:"individual"`           // 存在独立(非分组)激活
+	ViaGroups  []GroupID     `json:"via_groups,omitempty"` // 经由哪些分组激活
 }
 
 // Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
@@ -415,15 +423,19 @@ type Library interface {
 	Resolve(ctx context.Context, scope ScopeIdentity) (string, error)
 
 	// 激活(投影)
+	//
+	// 四个方法都接受 ScopeIdentity:传 GlobalScope / ProjectScope 时目录由 Resolve 算出,
+	// 记录按身份落库,未知 Agent 或未登记项目返回 NotFound;expand 阶段传旧路径型 Scope
+	// 时仍按调用方给的目录投影。冲突策略、幂等刷新、整组原子性与多依据保留两种指认一致。
 
 	// Activate 把 skill 投影到 Scope,记为独立激活。
-	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
+	Activate(ctx context.Context, id SkillID, scope ScopeIdentity, opts ActivateOptions) error
 	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
-	Deactivate(ctx context.Context, id SkillID, scope Scope) error
+	Deactivate(ctx context.Context, id SkillID, scope ScopeIdentity) error
 	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据;失败时撤销本次整组改动。
-	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
+	ActivateGroup(ctx context.Context, groupID GroupID, scope ScopeIdentity, opts ActivateOptions) error
 	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。
-	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
+	DeactivateGroup(ctx context.Context, groupID GroupID, scope ScopeIdentity) error
 	// ListActivations 列出全部投影记录及各自的保留依据。
 	ListActivations(ctx context.Context) ([]Activation, error)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
@@ -112,18 +113,23 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
+	// expand 阶段两种记录并存:旧路径型按 projectScopes 的目录匹配,身份型按 ProjectID 匹配。
 	scopes := projectScopes(path)
+	belongsToProject := func(activation Activation) bool {
+		if project, ok := activation.Identity.(ProjectScope); ok {
+			return project.ProjectID == id
+		}
+		return slices.Contains(scopes, activation.Scope)
+	}
 	if opts.ProjectedCopies == Remove {
 		activations, err := l.ListActivations(ctx)
 		if err != nil {
 			return err
 		}
 		for _, activation := range activations {
-			for _, scope := range scopes {
-				if activation.Scope == scope {
-					if err := l.removeProjectedCopy(ctx, activation.SkillID, scope); err != nil {
-						return err
-					}
+			if belongsToProject(activation) {
+				if err := l.removeProjectedCopy(ctx, activation.SkillID, activation.Scope); err != nil {
+					return err
 				}
 			}
 		}
@@ -137,6 +143,9 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
 			return fmt.Errorf("remove project activations: %w", err)
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("unregister project: %w", err)
@@ -195,6 +204,9 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope ScopeIdentity) (direc
 			return "", fmt.Errorf("get registered project: %w", err)
 		}
 		return filepath.Join(root, filepath.FromSlash(layout.project)), nil
+	case Scope:
+		// 过渡期路径型 Scope 在类型上可传入,但它没有身份可解析。
+		return "", &Error{Code: InvalidArgument, Message: "resolve scope: path-type Scope has no identity; use GlobalScope or ProjectScope"}
 	default:
 		return "", &Error{Code: InvalidArgument, Message: "resolve scope: scope is required"}
 	}
