@@ -86,7 +86,7 @@ skill, err := lib.Install(ctx, library.LocalSource{Path: "/path/to/skill"})
 | `AWS_ACCESS_KEY_ID` | S3 access key | 无；同步时必填 |
 | `AWS_SECRET_ACCESS_KEY` | S3 secret key | 无；同步时必填 |
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
-| `SKILLS_PROJECT_PATH_MAP` | Pull 时旧项目路径到本机路径的 JSON 对象 | `{}` |
+| `SKILLS_PROJECT_PATH_MAP` | Pull 时旧项目路径到本机路径的 JSON 对象；每个项目只按拉回库里的原路径匹配一次，不链式改写；目标路径仍被其他项目占用或映射成环时 pull 以 `InvalidArgument` 失败、本地库不变 | `{}` |
 
 GitHub Source 通过本机 `git` 命令拉取；URL 和 store Source 返回 ZIP 文件。
 
