@@ -276,6 +276,59 @@ func TestInstallFetchStoreUsesPackageVersionAndSelection(t *testing.T) {
 	}
 }
 
+func TestFetchStoreRequiresConfiguredBaseURL(t *testing.T) {
+	t.Setenv("SKILLS_STORE_URL", "")
+	lib := openTestLibrary(t)
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		t.Fatal("unconfigured store contacted network")
+		return nil, nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
+		Type:    library.SourceStore,
+		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
+	})
+	if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+		t.Fatalf("unconfigured store = %#v, %v", fetch, err)
+	}
+}
+
+func TestInstallFetchStoreDoesNotRefetchAfterStaging(t *testing.T) {
+	archive := zipArchive(t, map[string]string{
+		"first/SKILL.md":  skillDocument("first", "# First\n"),
+		"second/SKILL.md": skillDocument("second", "# Second\n"),
+	})
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("SKILLS_STORE_URL", server.URL)
+
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, library.SourceSpec{
+		Type:    library.SourceStore,
+		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Close()
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("remote requests = %d, want Fetch only", requests.Load())
+	}
+	if got, want := skillNames(installed), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("installed skills = %v, want %v", got, want)
+	}
+}
+
 func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 	for _, test := range []struct {
 		name   string

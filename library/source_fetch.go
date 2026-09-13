@@ -21,7 +21,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const maxFetchSize = 64 << 20
+const (
+	maxFetchSize  = 64 << 20 // 下载与展开的字节上限
+	maxFetchFiles = 1000     // 展开文件个数上限;超限拒绝整个归档
+)
 
 type discoveredSource struct {
 	skills      []fetchedSkill
@@ -145,7 +148,13 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
+// fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。
 func fetchArchive(ctx context.Context, location string) (result discoveredSource, err error) {
+	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
 		return result, fetchError(SourceUnreachable, "fetch source", errors.New("invalid source URL"))
@@ -188,6 +197,9 @@ func readArchive(ctx context.Context, content []byte) (discoveredSource, error) 
 	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
 	if err != nil {
 		return discoveredSource{}, fetchError(SourceUnreachable, "read source archive", err)
+	}
+	if len(reader.File) > maxFetchFiles {
+		return discoveredSource{}, fetchError(SourceUnreachable, "read source archive", errors.New("archive exceeds file count limit"))
 	}
 	seen := make(map[string]bool)
 	remaining := uint64(maxFetchSize)

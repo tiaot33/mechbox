@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -128,6 +129,77 @@ func TestFetchArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.
 	}
 	if _, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("expanded limit = %v", err)
+	}
+}
+
+func TestFetchArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files int
+		ok    bool
+	}{
+		{"at limit", 1000, true},
+		{"over limit", 1001, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buffer bytes.Buffer
+			writer := zip.NewWriter(&buffer)
+			for i := range tc.files {
+				name := "good/SKILL.md"
+				content := skillDocument("good", "body")
+				if i > 0 {
+					name = fmt.Sprintf("extra/%d.txt", i)
+					content = "x"
+				}
+				entry, err := writer.Create(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := io.WriteString(entry, content); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			lib := openTestLibrary(t)
+			fetch, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
+			if !tc.ok {
+				if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+					t.Fatalf("file count limit = %#v, %v", fetch, err)
+				}
+				if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
+					t.Fatalf("Library = %v, %v", skills, err)
+				}
+				return
+			}
+			if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "good" {
+				t.Fatalf("at limit = %#v, %v", fetch, err)
+			}
+		})
+	}
+}
+
+type infiniteZeros struct{}
+
+func (infiniteZeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+func TestFetchArchiveRejectsOversizedDownloadWithoutCreatingSession(t *testing.T) {
+	lib := openTestLibrary(t)
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(io.LimitReader(infiniteZeros{}, 64<<20+1)), Header: make(http.Header)}, nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+	if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+		t.Fatalf("download size = %#v, %v", fetch, err)
+	}
+	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
+		t.Fatalf("Library = %v, %v", skills, err)
 	}
 }
 

@@ -221,3 +221,58 @@ func TestFetchInvalidArgumentsHaveTypedErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
+	t.Setenv("SKILLS_STORE_URL", "https://store.example/skills")
+	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "body")})
+	for _, spec := range []library.SourceSpec{
+		{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}},
+		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"}},
+	} {
+		t.Run(string(spec.Type), func(t *testing.T) {
+			lib := openFetchLibrary(t, ":memory:")
+			client := http.DefaultClient
+			t.Cleanup(func() { http.DefaultClient = client })
+
+			http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+				deadline, ok := r.Context().Deadline()
+				if !ok {
+					t.Error("download lacks timeout")
+				} else if remaining := time.Until(deadline); remaining > 30*time.Second {
+					t.Errorf("download timeout = %v, want at most 30s", remaining)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
+			})}
+			if _, err := lib.Fetch(t.Context(), spec); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+				cancel()
+				<-r.Context().Done()
+				return nil, r.Context().Err()
+			})
+			if _, err := lib.Fetch(ctx, spec); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancel = %v", err)
+			}
+
+			synctest.Test(t, func(t *testing.T) {
+				http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+					<-r.Context().Done()
+					return nil, r.Context().Err()
+				})
+				done := make(chan error, 1)
+				go func() {
+					_, err := lib.Fetch(t.Context(), spec)
+					done <- err
+				}()
+				synctest.Wait()
+				time.Sleep(30 * time.Second)
+				if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("timeout = %v", err)
+				}
+			})
+		})
+	}
+}
