@@ -7,6 +7,29 @@ import (
 	"path/filepath"
 )
 
+func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// 只读取稳定代码;布局规则留在表里,由解析与投影内部使用。
+	rows, err := l.db.QueryContext(ctx, `SELECT code FROM agents ORDER BY code`)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var agent Agent
+		if err := rows.Scan(&agent.Code); err != nil {
+			return nil, fmt.Errorf("read agent: %w", err)
+		}
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read agents: %w", err)
+	}
+	return agents, nil
+}
+
 func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()

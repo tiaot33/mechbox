@@ -335,7 +335,7 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 	}
 	type activationPath struct {
 		skillID SkillID
-		agent   Agent
+		agent   AgentCode
 		path    string
 	}
 	var activations []activationPath

@@ -215,18 +215,24 @@ type Group struct {
 	Name string  `json:"name"`
 }
 
-// Agent 是投影的目标 agent。
-type Agent string
+// AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
+type AgentCode string
 
 const (
-	AgentClaudeCode Agent = "claude-code"
-	AgentCodex      Agent = "codex"
+	AgentClaudeCode AgentCode = "claude-code"
+	AgentCodex      AgentCode = "codex"
 )
+
+// Agent 是 Library 持有的一个投影目标 agent。只暴露稳定代码;布局规则与
+// 绝对目录不出现在这里,目录由 Library 按现行布局算出,调用方不自行拼路径。
+type Agent struct {
+	Code AgentCode `json:"code"`
+}
 
 // Scope 是一个投影目标:哪个 agent 的哪个 skills 目录。
 type Scope struct {
-	Agent Agent  `json:"agent"`
-	Path  string `json:"path"`
+	Agent AgentCode `json:"agent"`
+	Path  string    `json:"path"`
 }
 
 // ConflictPolicy 决定激活时目标目录已存在的处理方式。
@@ -370,6 +376,9 @@ type Library interface {
 
 	// 项目与 Scope
 
+	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果只含稳定代码,
+	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,门面上没有增删改 Agent 的方法。
+	ListAgents(ctx context.Context) ([]Agent, error)
 	// RegisterProject 注册一个项目目录,使其 skills 目录成为可投影 Scope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
 	ListRegisteredProjects(ctx context.Context) ([]RegisteredProject, error)
