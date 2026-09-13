@@ -15,6 +15,18 @@ import (
 )
 
 const sourceTimeout = 30 * time.Second
+const defaultGitTimeout = 5 * time.Minute
+
+var errGitTimeout = errors.New("operation timed out")
+
+// gitTimeout 是 clone/fetch 的独立超时;默认 5 分钟,可用 SKILLS_GIT_TIMEOUT 覆盖。
+func gitTimeout() time.Duration {
+	parsed, err := time.ParseDuration(os.Getenv("SKILLS_GIT_TIMEOUT"))
+	if err != nil || parsed <= 0 {
+		return defaultGitTimeout
+	}
+	return parsed
+}
 
 var githubOwner = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
 var githubRepo = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
@@ -199,24 +211,92 @@ func validateGitRef(ctx context.Context, ref string) error {
 	return nil
 }
 
-// runSourceGit 使用本机认证配置,禁止凭证提示;不将可能含凭证的 Git 输出返回调用方。
+// runSourceGit 使用本机认证配置,禁止凭证提示;关闭 LFS smudge/filter,未安装 git-lfs 时仍可读普通文件。
+// 不将可能含凭证的 Git 输出返回调用方。
 func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	ssh, err := sourceSSHCommand(ctx)
 	if err != nil {
 		return nil, err
 	}
-	command := exec.CommandContext(ctx, "git", append([]string{"-c", "core.askPass=", "-c", "credential.interactive=false"}, args...)...)
-	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_SSH_COMMAND="+ssh+" -oBatchMode=yes")
+	commandCtx, cancel := context.WithTimeout(ctx, gitTimeout())
+	defer cancel()
+	command := exec.CommandContext(commandCtx, "git", append([]string{
+		"-c", "core.askPass=",
+		"-c", "credential.interactive=false",
+		"-c", "filter.lfs.smudge=",
+		"-c", "filter.lfs.process=",
+		"-c", "filter.lfs.required=false",
+		"-c", "protocol.ext.allow=never",
+	}, args...)...)
+	// exec.Cmd 对重复键保留最后一次赋值,因此安全相关变量放在调用方环境之后。
+	command.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=Never",
+		"GIT_SSH_COMMAND="+ssh+" -oBatchMode=yes",
+		"GIT_LFS_SKIP_SMUDGE=1",
+		"GIT_ALLOW_PROTOCOL=https:http:ssh:git:file",
+	)
 	command.WaitDelay = time.Second
 	cancelGitProcess(command)
 	output, err := command.CombinedOutput()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	if commandCtx.Err() != nil {
+		return nil, fetchError(SourceUnreachable, "git", errGitTimeout)
+	}
 	if err != nil {
-		return nil, fetchError(fetchErrorCode(err, string(output)), "git", errors.New("operation failed; check source, ref and authentication"))
+		return nil, gitCommandError(output)
 	}
 	return output, nil
+}
+
+func gitCommandError(output []byte) error {
+	detail := strings.ToLower(string(output))
+	switch {
+	case gitAuthFailure(detail):
+		return fetchError(Permission, "git", errors.New("authentication failed"))
+	case gitMissingRef(detail):
+		return fetchError(SourceUnreachable, "git", errors.New("ref not found"))
+	case gitUnreachable(detail):
+		return fetchError(SourceUnreachable, "git", errors.New("remote could not be reached"))
+	default:
+		return fetchError(SourceUnreachable, "git", errors.New("operation failed; check source, ref and authentication"))
+	}
+}
+
+func gitAuthFailure(detail string) bool {
+	return strings.Contains(detail, "authentication") ||
+		strings.Contains(detail, "permission denied") ||
+		strings.Contains(detail, "access denied") ||
+		strings.Contains(detail, "could not read username") ||
+		strings.Contains(detail, "could not read password") ||
+		strings.Contains(detail, "terminal prompts disabled") ||
+		strings.Contains(detail, "error: 403") ||
+		strings.Contains(detail, "error: 401") ||
+		strings.Contains(detail, "http 403") ||
+		strings.Contains(detail, "http 401")
+}
+
+func gitMissingRef(detail string) bool {
+	return strings.Contains(detail, "not found in upstream") ||
+		strings.Contains(detail, "couldn't find remote ref") ||
+		strings.Contains(detail, "could not find remote ref") ||
+		strings.Contains(detail, "could not find remote branch") ||
+		strings.Contains(detail, "not our ref") ||
+		(strings.Contains(detail, "remote branch") && strings.Contains(detail, "not found"))
+}
+
+func gitUnreachable(detail string) bool {
+	return strings.Contains(detail, "could not resolve host") ||
+		strings.Contains(detail, "couldn't resolve host") ||
+		strings.Contains(detail, "connection refused") ||
+		strings.Contains(detail, "couldn't connect") ||
+		strings.Contains(detail, "failed to connect") ||
+		strings.Contains(detail, "no route to host") ||
+		strings.Contains(detail, "network is unreachable") ||
+		strings.Contains(detail, "name or service not known") ||
+		strings.Contains(detail, "no such host")
 }
 
 // sourceSSHCommand 保持 Git 的认证命令优先级;GIT_SSH 是路径,其余值是 shell 命令。
@@ -262,11 +342,19 @@ func gitRemote(ctx context.Context, repository string, args ...string) ([]byte, 
 	if err != nil && ctx.Err() == nil {
 		if repo, ok := strings.CutPrefix(repository, "https://github.com/"); ok {
 			fallback, fallbackErr := call("git@github.com:" + repo)
-			if fallbackErr != nil && ctx.Err() == nil && IsCode(err, Permission) {
-				return nil, err
+			if fallbackErr != nil && ctx.Err() == nil {
+				return nil, preferGitHubHTTPSError(err, fallbackErr)
 			}
 			return fallback, fallbackErr
 		}
 	}
 	return output, err
+}
+
+// preferGitHubHTTPSError 在 SSH 回退也失败时保留 HTTPS 的认证失败,避免被 SSH 不可达盖掉。
+func preferGitHubHTTPSError(httpsErr, sshErr error) error {
+	if IsCode(httpsErr, Permission) {
+		return httpsErr
+	}
+	return sshErr
 }
