@@ -54,7 +54,6 @@ type githubCommitResponse struct {
 }
 
 type githubTreeResponse struct {
-	SHA       string            `json:"sha"`
 	Truncated bool              `json:"truncated"`
 	Tree      []githubTreeEntry `json:"tree"`
 }
@@ -64,11 +63,9 @@ type githubTreeEntry struct {
 	Mode string `json:"mode"`
 	Type string `json:"type"`
 	SHA  string `json:"sha"`
-	Size int    `json:"size"`
 }
 
 type githubBlobResponse struct {
-	SHA       string `json:"sha"`
 	Encoding  string `json:"encoding"`
 	Content   string `json:"content"`
 	Size      int    `json:"size"`
@@ -77,11 +74,7 @@ type githubBlobResponse struct {
 
 // githubOwnerRepo 仅识别 github.com 上的仓库;其他远端走 git 回退。
 func githubOwnerRepo(repository string) (owner, repo string, ok bool) {
-	parsed, err := parseGitHubInput(repository, ResolveSourceOptions{})
-	if err != nil {
-		return "", "", false
-	}
-	rest, ok := strings.CutPrefix(parsed.repository, "https://github.com/")
+	rest, ok := strings.CutPrefix(repository, "https://github.com/")
 	if !ok {
 		return "", "", false
 	}
@@ -95,30 +88,21 @@ func githubToken() string {
 }
 
 // fetchGitHubContents 用 GitHub Git Database API 按已解析的 owner/repo 与 ref 取 recursive tree。
-func fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string, preview bool) (discoveredSource, error) {
-	client := &githubClient{token: githubToken()}
-	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
+// 只取各候选 SKILL.md;安装再按 blob SHA 取所选目录。
+func fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
+	snap, err := fetchGitHubTreeSnapshot(ctx, owner, repo, locator)
 	if err != nil {
 		return discoveredSource{}, err
 	}
-	tree, err := client.recursiveTree(ctx, owner, repo, rootTree)
+	root, err := resolveGitHubSubpath(snap.entries, subpath)
 	if err != nil {
 		return discoveredSource{}, err
 	}
-	if tree.Truncated {
-		return discoveredSource{}, errGitHubContentsFallback
-	}
-	root, err := resolveGitHubSubpath(tree.Tree, subpath)
+	result, err := discoverFromGitHubTree(ctx, &snap, root)
 	if err != nil {
 		return discoveredSource{}, err
 	}
-	result, err := discoverFromGitHubTree(ctx, client, owner, repo, tree.Tree, root, rootTree, preview)
-	if err != nil {
-		return discoveredSource{}, err
-	}
-	result.ref = commit
-	result.githubOwner = owner
-	result.githubRepo = repo
+	result.ref = snap.ref
 	return result, nil
 }
 
@@ -152,7 +136,7 @@ func (c *githubClient) blob(ctx context.Context, owner, repo, sha string) ([]byt
 	if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
 		return nil, errGitHubContentsFallback
 	}
-	content, err := decodeGitHubBlob(payload.Content)
+	content, err := base64.StdEncoding.DecodeString(payload.Content)
 	if err != nil || len(content) != payload.Size {
 		return nil, errGitHubContentsFallback
 	}
@@ -163,35 +147,15 @@ func githubAPIURL(pattern string, owner, repo, object string) string {
 	return "https://" + githubAPIHost + fmt.Sprintf(pattern, url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(object))
 }
 
-func decodeGitHubBlob(content string) ([]byte, error) {
-	trimmed := strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
-			return -1
-		}
-		return r
-	}, content)
-	return base64.StdEncoding.DecodeString(trimmed)
-}
-
 func (c *githubClient) get(ctx context.Context, location string, dest any) error {
 	if !c.useToken {
 		err := githubAPIGetOnce(ctx, location, "", dest)
-		if err == nil {
-			return nil
-		}
-		if ctx.Err() != nil {
+		if err == nil || ctx.Err() != nil || c.token == "" || !isGitHubAuthRetry(err) {
 			return err
 		}
-		if c.token != "" && isGitHubAuthRetry(err) {
-			c.useToken = true
-		} else {
-			return err
-		}
+		c.useToken = true
 	}
-	if err := githubAPIGetOnce(ctx, location, c.token, dest); err != nil {
-		return err
-	}
-	return nil
+	return githubAPIGetOnce(ctx, location, c.token, dest)
 }
 
 // githubContentsUnavailable 表示快路径无法给出完整结果,Fetch 应回退浅克隆。
@@ -283,46 +247,22 @@ func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, er
 	return subpath, nil
 }
 
-func discoverFromGitHubTree(ctx context.Context, client *githubClient, owner, repo string, entries []githubTreeEntry, root, rootTree string, preview bool) (discoveredSource, error) {
-	byPath := make(map[string]githubTreeEntry, len(entries))
-	for _, entry := range entries {
-		byPath[entry.Path] = entry
-	}
+func discoverFromGitHubTree(ctx context.Context, snap *githubSourceSnapshot, root string) (discoveredSource, error) {
 	var result discoveredSource
-	skipped := []string{}
-	isSkipped := func(dir string) bool {
-		for _, prefix := range skipped {
-			if prefix == "." || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
-				return true
-			}
-		}
-		return false
-	}
-	for _, dir := range githubDiscoveryDirs(entries, root) {
+	for _, dir := range githubCandidateDirs(snap.entries, root, snap.byPath) {
 		if err := ctx.Err(); err != nil {
 			return discoveredSource{}, err
-		}
-		if isSkipped(dir) {
-			continue
-		}
-		if dir != root && slices.Contains(discoveryExcludedDirs, path.Base(dir)) {
-			skipped = append(skipped, dir)
-			continue
 		}
 		skillMD := "SKILL.md"
 		if dir != "." {
 			skillMD = path.Join(dir, "SKILL.md")
 		}
-		entry, ok := byPath[skillMD]
-		if !ok {
-			continue
-		}
-		skipped = append(skipped, dir)
+		entry := snap.byPath[skillMD]
 		if !githubRegularBlob(entry) {
 			result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: dir, Reason: "SKILL.md must be a regular file"})
 			continue
 		}
-		content, err := client.blob(ctx, owner, repo, entry.SHA)
+		content, err := snap.client.blob(ctx, snap.owner, snap.repo, entry.SHA)
 		if err != nil {
 			return discoveredSource{}, err
 		}
@@ -331,7 +271,7 @@ func discoverFromGitHubTree(ctx context.Context, client *githubClient, owner, re
 			result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: dir, Reason: err.Error()})
 			continue
 		}
-		blobs, treeSHA, err := githubSkillBlobs(entries, dir, rootTree, byPath)
+		blobs, treeSHA, err := githubSkillBlobs(snap.entries, dir, snap.rootTree, snap.byPath)
 		if err != nil {
 			return discoveredSource{}, err
 		}
@@ -341,16 +281,7 @@ func discoverFromGitHubTree(ctx context.Context, client *githubClient, owner, re
 				break
 			}
 		}
-		skill := fetchedSkill{name: previewSkill.Name, preview: previewSkill, gitTreeSHA: treeSHA, blobs: blobs}
-		if !preview {
-			files, err := fetchGitHubSkillFiles(ctx, client, owner, repo, blobs)
-			if err != nil {
-				return discoveredSource{}, err
-			}
-			skill.files = files
-			skill.blobs = nil
-		}
-		result.skills = append(result.skills, skill)
+		result.skills = append(result.skills, fetchedSkill{name: previewSkill.Name, preview: previewSkill, gitTreeSHA: treeSHA, blobs: blobs})
 	}
 	return finishDiscovery(result)
 }
@@ -359,26 +290,9 @@ func githubDiscoveryDirs(entries []githubTreeEntry, root string) []string {
 	seen := map[string]bool{root: true}
 	dirs := []string{root}
 	add := func(dir string) {
-		for {
-			if !githubUnderRoot(dir, root) {
-				return
-			}
-			if seen[dir] {
-				if dir == root {
-					return
-				}
-				parent := path.Dir(dir)
-				if parent == dir {
-					return
-				}
-				dir = parent
-				continue
-			}
+		for githubUnderRoot(dir, root) && !seen[dir] {
 			seen[dir] = true
 			dirs = append(dirs, dir)
-			if dir == root {
-				return
-			}
 			parent := path.Dir(dir)
 			if parent == dir {
 				return
@@ -392,9 +306,9 @@ func githubDiscoveryDirs(entries []githubTreeEntry, root string) []string {
 		}
 		if entry.Type == "tree" {
 			add(entry.Path)
-			continue
+		} else {
+			add(path.Dir(entry.Path))
 		}
-		add(path.Dir(entry.Path))
 	}
 	slices.Sort(dirs)
 	return dirs
@@ -412,15 +326,9 @@ func githubRegularBlob(entry githubTreeEntry) bool {
 }
 
 func githubSkillBlobs(entries []githubTreeEntry, skillPath, rootTree string, byPath map[string]githubTreeEntry) ([]githubBlob, string, error) {
-	treeSHA := rootTree
-	if skillPath != "" && skillPath != "." {
-		entry, ok := byPath[skillPath]
-		if !ok || entry.Type != "tree" || !fullCommit.MatchString(strings.ToLower(entry.SHA)) {
-			return nil, "", errGitHubContentsFallback
-		}
-		treeSHA = strings.ToLower(entry.SHA)
-	} else if !fullCommit.MatchString(treeSHA) {
-		return nil, "", errGitHubContentsFallback
+	treeSHA, err := githubDirTreeSHA(skillPath, rootTree, byPath)
+	if err != nil {
+		return nil, "", err
 	}
 	var blobs []githubBlob
 	for _, entry := range entries {
@@ -440,7 +348,7 @@ func githubSkillBlobs(entries []githubTreeEntry, skillPath, rootTree string, byP
 		}
 		blobs = append(blobs, githubBlob{path: rel, sha: entry.SHA, mode: mode})
 	}
-	slices.SortFunc(blobs, func(a, b githubBlob) int { return strings.Compare(a.path, b.path) })
+	slices.SortFunc(blobs, func(a, b githubBlob) int { return cmp.Compare(a.path, b.path) })
 	return blobs, treeSHA, nil
 }
 
@@ -475,7 +383,6 @@ func fetchGitHubSkillFiles(ctx context.Context, client *githubClient, owner, rep
 		}
 		files = append(files, File{Path: blob.path, Content: bytes.Clone(content), Mode: blob.mode})
 	}
-	slices.SortFunc(files, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
 	return files, nil
 }
 
@@ -496,7 +403,6 @@ type githubRemoteSkill struct {
 	path       string
 	gitTreeSHA string
 	files      []File
-	hasFiles   bool
 }
 
 // readGitHubSnapshot 对同一 Source 只远程读一次 tree(或一次克隆),供检查与更新共用。
@@ -556,7 +462,7 @@ func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubR
 			return githubRemoteSkill{}, err
 		}
 		found := selected[0]
-		return githubRemoteSkill{path: found.preview.Path, gitTreeSHA: found.gitTreeSHA, files: found.files, hasFiles: true}, nil
+		return githubRemoteSkill{path: found.preview.Path, gitTreeSHA: found.gitTreeSHA, files: found.files}, nil
 	}
 	dirs := githubCandidateDirs(s.entries, ".", s.byPath)
 	if skill.GitTreeSHA != "" {
@@ -620,7 +526,7 @@ func (s *githubSourceSnapshot) locateByName(ctx context.Context, skill Skill, di
 }
 
 func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote githubRemoteSkill) ([]File, error) {
-	if remote.hasFiles {
+	if remote.files != nil {
 		return remote.files, nil
 	}
 	blobs, _, err := githubSkillBlobs(s.entries, remote.path, s.rootTree, s.byPath)
@@ -683,14 +589,10 @@ func githubCandidateDirs(entries []githubTreeEntry, root string, byPath map[stri
 		if dir != "." {
 			skillMD = path.Join(dir, "SKILL.md")
 		}
-		entry, ok := byPath[skillMD]
-		if !ok {
+		if _, ok := byPath[skillMD]; !ok {
 			continue
 		}
 		skipped = append(skipped, dir)
-		if !githubRegularBlob(entry) {
-			continue
-		}
 		dirs = append(dirs, dir)
 	}
 	return dirs

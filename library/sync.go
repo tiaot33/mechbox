@@ -2,6 +2,7 @@ package library
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -16,7 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -373,7 +374,7 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 		paths[old] = filepath.Clean(absolute)
 		oldPaths = append(oldPaths, old)
 	}
-	sort.Slice(oldPaths, func(i, j int) bool { return len(oldPaths[i]) > len(oldPaths[j]) })
+	slices.SortFunc(oldPaths, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -565,7 +566,7 @@ func loadS3Config() (s3Config, error) {
 func awsURIEncode(value string, preserveSlash bool) string {
 	const hexadecimal = "0123456789ABCDEF"
 	var encoded strings.Builder
-	for i := 0; i < len(value); i++ {
+	for i := range len(value) {
 		character := value[i]
 		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-._~", rune(character)) || preserveSlash && character == '/' {
 			encoded.WriteByte(character)

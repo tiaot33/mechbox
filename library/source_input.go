@@ -333,7 +333,7 @@ func gitRemote(ctx context.Context, repository string, args ...string) ([]byte, 
 		insert--
 	}
 	call := func(repository string) ([]byte, error) {
-		command := append([]string{}, args[:insert]...)
+		command := slices.Clone(args[:insert])
 		command = append(command, "--", repository)
 		command = append(command, args[insert:]...)
 		return runSourceGit(ctx, command...)

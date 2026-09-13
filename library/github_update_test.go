@@ -467,10 +467,10 @@ func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture,
 	}
 	var fetched []string
 	for _, req := range api.snapshot() {
-		if !strings.HasPrefix(req.path, "/repos/owner/repo/git/blobs/") {
+		sha, ok := strings.CutPrefix(req.path, "/repos/owner/repo/git/blobs/")
+		if !ok {
 			continue
 		}
-		sha := strings.TrimPrefix(req.path, "/repos/owner/repo/git/blobs/")
 		filePath := ""
 		for p, entry := range fx.paths {
 			if entry.SHA == sha {

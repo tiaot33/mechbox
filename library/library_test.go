@@ -33,7 +33,7 @@ func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 
-	fetch, err := lib.Fetch(context.Background(), library.SourceSpec{
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
 	})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
 	if got, want := fetch.Skills, []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Fetch() candidates = %v, want %v", got, want)
 	}
-	skills, err := lib.ListSkills(context.Background())
+	skills, err := lib.ListSkills(t.Context())
 	if err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills() after Fetch = %#v, %v; want empty Library", skills, err)
 	}
@@ -124,7 +124,7 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 
 	lib := openTestLibrary(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	fetch, err := lib.Fetch(ctx, library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL + "/skills.zip"},
 	})
@@ -144,35 +144,35 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	if installed[0].Source.ID == 0 || installed[0].Source.ID != installed[1].Source.ID {
 		t.Fatalf("source IDs = %d and %d, want one persisted Source", installed[0].Source.ID, installed[1].Source.ID)
 	}
-	collections, err := lib.ListCollections(context.Background())
+	collections, err := lib.ListCollections(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(collections) != 1 || !reflect.DeepEqual(summaryNames(collections[0].Skills), []string{"first", "second"}) {
 		t.Fatalf("collections = %#v, want both remote skills grouped by Source", collections)
 	}
-	group, err := lib.CreateGroup(context.Background(), "remote group")
+	group, err := lib.CreateGroup(t.Context(), "remote group")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(context.Background(), group.ID, installed[0].ID); err != nil {
+	if err := lib.AddSkillToGroup(t.Context(), group.ID, installed[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
-	if err := lib.ActivateGroup(context.Background(), group.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.RemoveSkill(context.Background(), installed[0].ID, library.RemoveSkillOptions{}); err != nil {
+	if err := lib.RemoveSkill(t.Context(), installed[0].ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	activations, err := lib.ListActivations(context.Background())
+	activations, err := lib.ListActivations(t.Context())
 	if err != nil || len(activations) != 0 {
 		t.Fatalf("activations after remote removal = %#v, %v; want none", activations, err)
 	}
 	if _, err := os.Stat(filepath.Join(scope.Path, installed[0].Name, "SKILL.md")); err != nil {
 		t.Fatalf("default Keep removed remote projection: %v", err)
 	}
-	remaining, err := lib.ListSkills(context.Background())
+	remaining, err := lib.ListSkills(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T
 	commitGit(t, repository, "initial")
 
 	lib := openTestLibrary(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	fetch, err := lib.Fetch(ctx, library.SourceSpec{
 		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
 	})
@@ -257,14 +257,14 @@ func TestInstallFetchStoreUsesPackageVersionAndSelection(t *testing.T) {
 	t.Setenv("SKILLS_STORE_URL", server.URL)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(context.Background(), library.SourceSpec{
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
 		Type:    library.SourceStore,
 		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.2.3 beta"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(context.Background(), fetch.ID, []string{"second"})
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"second"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer lib.Close()
-			_, err = lib.Fetch(context.Background(), library.SourceSpec{
+			_, err = lib.Fetch(t.Context(), library.SourceSpec{
 				Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
 			})
 			if !library.IsCode(err, test.code) {
@@ -357,7 +357,7 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 		})
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
@@ -383,7 +383,7 @@ func TestFetchRejectsUnsafeArchivePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lib.Close()
-	_, err = lib.Fetch(context.Background(), library.SourceSpec{
+	_, err = lib.Fetch(t.Context(), library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
 	})
 	if !library.IsCode(err, library.SourceUnreachable) {
@@ -400,11 +400,11 @@ func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 
 	lib := openTestLibrary(t)
 
-	installed, err := lib.Install(context.Background(), library.LocalSource{Path: source})
+	installed, err := lib.Install(t.Context(), library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := lib.GetSkill(context.Background(), installed.ID)
+	got, err := lib.GetSkill(t.Context(), installed.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 }
 
 func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("first\n"), 0o644)
 	writeFile(t, filepath.Join(source, "unchanged.md"), []byte("same\n"), 0o644)
@@ -504,19 +504,19 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# One\n"), 0o644)
 	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Two\n"), 0o644)
 	lib := openTestLibrary(t)
-	first, err := lib.Install(context.Background(), library.LocalSource{Path: firstSource})
+	first, err := lib.Install(t.Context(), library.LocalSource{Path: firstSource})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(context.Background(), library.LocalSource{Path: secondSource})
+	second, err := lib.Install(t.Context(), library.LocalSource{Path: secondSource})
 	if err != nil {
 		t.Fatal(err)
 	}
-	debugging, err := lib.CreateGroup(context.Background(), "frontend debugging")
+	debugging, err := lib.CreateGroup(t.Context(), "frontend debugging")
 	if err != nil {
 		t.Fatal(err)
 	}
-	shipping, err := lib.CreateGroup(context.Background(), "shipping")
+	shipping, err := lib.CreateGroup(t.Context(), "shipping")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,16 +529,16 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 		{debugging, second},
 		{shipping, first},
 	} {
-		if err := lib.AddSkillToGroup(context.Background(), membership.group.ID, membership.skill.ID); err != nil {
+		if err := lib.AddSkillToGroup(t.Context(), membership.group.ID, membership.skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	debuggingSkills, err := lib.ListGroupSkills(context.Background(), debugging.ID)
+	debuggingSkills, err := lib.ListGroupSkills(t.Context(), debugging.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	shippingSkills, err := lib.ListGroupSkills(context.Background(), shipping.ID)
+	shippingSkills, err := lib.ListGroupSkills(t.Context(), shipping.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,35 +590,35 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 		call       func(library.Library) error
 	}{
 		{name: "create group", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
-			_, err := lib.CreateGroup(context.Background(), "group")
+			_, err := lib.CreateGroup(t.Context(), "group")
 			return err
 		}},
 		{name: "install fetch unknown handle", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.InstallFetch(context.Background(), "no-such-handle", nil)
+			_, err := lib.InstallFetch(t.Context(), "no-such-handle", nil)
 			return err
 		}},
 		{name: "list versions", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
-			_, err := lib.ListVersions(context.Background(), 1)
+			_, err := lib.ListVersions(t.Context(), 1)
 			return err
 		}},
 		{name: "get version", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.GetVersion(context.Background(), 9999)
+			_, err := lib.GetVersion(t.Context(), 9999)
 			return err
 		}},
 		{name: "diff versions", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.DiffVersions(context.Background(), 9998, 9999)
+			_, err := lib.DiffVersions(t.Context(), 9998, 9999)
 			return err
 		}},
 		{name: "source update", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.CheckUpdate(context.Background(), 9999)
+			_, err := lib.CheckUpdate(t.Context(), 9999)
 			return err
 		}},
 		{name: "list scopes", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
-			_, err := lib.ListScopes(context.Background())
+			_, err := lib.ListScopes(t.Context())
 			return err
 		}},
 		{name: "list collections", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
-			_, err := lib.ListCollections(context.Background())
+			_, err := lib.ListCollections(t.Context())
 			return err
 		}},
 	}
@@ -655,7 +655,7 @@ func TestInstallFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	lib := openTestLibrary(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL}})
 	if err != nil {
@@ -703,7 +703,7 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
 	lib := openTestLibrary(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
@@ -777,15 +777,15 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
 	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
 	lib := openTestLibrary(t)
-	first, err := lib.Install(context.Background(), library.LocalSource{Path: firstSource})
+	first, err := lib.Install(t.Context(), library.LocalSource{Path: firstSource})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(context.Background(), library.LocalSource{Path: secondSource})
+	second, err := lib.Install(t.Context(), library.LocalSource{Path: secondSource})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := lib.ListCollections(context.Background())
+	got, err := lib.ListCollections(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -803,7 +803,7 @@ func summaryOf(skill library.Skill) library.SkillSummary {
 }
 
 func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lib := openTestLibrary(t)
 
 	install := func(name string) library.Skill {
@@ -879,7 +879,7 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 }
 
 func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lib := openTestLibrary(t)
 	if _, err := lib.RegisterProject(ctx, ""); err == nil {
 		t.Fatal("RegisterProject() accepted an empty path")
@@ -983,7 +983,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 }
 
 func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")
@@ -1052,7 +1052,7 @@ func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) 
 }
 
 func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")
@@ -1095,7 +1095,7 @@ func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
 }
 
 func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
 	lib := openTestLibrary(t)
@@ -1129,7 +1129,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 }
 
 func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("group\n"), 0o644)
@@ -1262,7 +1262,7 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 }
 
 func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "one", "dup", "SKILL.md"), []byte("# One\n"), 0o644)
 	writeFile(t, filepath.Join(root, "two", "dup", "SKILL.md"), []byte("# Two\n"), 0o644)
@@ -1301,7 +1301,7 @@ func TestActivateGroupFailurePreservesIndependentActivation(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root bypasses the injected permission fault")
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")

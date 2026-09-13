@@ -42,8 +42,8 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // IsCode 判断 err 是否属于给定的 Library 错误类别。
 func IsCode(err error, code ErrorCode) bool {
-	var libraryErr *Error
-	return errors.As(err, &libraryErr) && libraryErr.Code == code
+	libraryErr, ok := errors.AsType[*Error](err)
+	return ok && libraryErr.Code == code
 }
 
 // SourceType 是 skill 来源的类型(见 ADR 0006)。

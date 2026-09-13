@@ -51,8 +51,6 @@ type fetchSession struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	timer       *time.Timer
-	githubOwner string
-	githubRepo  string
 }
 
 type contextReader struct {
@@ -464,7 +462,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 			return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
 		}
 	}
-	discovered, err := fetchRemotePreview(ctx, source, spec.Subpath)
+	discovered, err := fetchRemote(ctx, source, spec.Subpath)
 	if err != nil {
 		return Fetch{}, err
 	}
@@ -486,7 +484,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := ctx.Err(); err != nil {
 		return Fetch{}, err
 	}
-	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics, githubOwner: discovered.githubOwner, githubRepo: discovered.githubRepo}
+	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
@@ -534,8 +532,8 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 	if err != nil {
 		return nil, err
 	}
-	if session.githubOwner != "" {
-		if err := materializeGitHubSkills(ctx, session.githubOwner, session.githubRepo, skills); err != nil {
+	if owner, repo, ok := githubOwnerRepo(session.source.Locator.Repository); ok {
+		if err := materializeGitHubSkills(ctx, owner, repo, skills); err != nil {
 			return nil, err
 		}
 	}
@@ -656,18 +654,14 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	}
 	persistedSHA := skill.GitTreeSHA
 	changed := false
-	backfillSHA := ""
 	if skill.Source.Type == SourceGitHub {
-		skill, changed, backfillSHA, err = readGitHubUpdate(ctx, skill)
+		skill, changed, err = readGitHubUpdate(ctx, skill)
 	} else {
 		var latest Skill
 		latest, err = readUpdate(ctx, skill)
 		if err == nil {
 			changed = !filesEqual(skill.Files, latest.Files)
 			skill = latest
-			if !changed {
-				skill.GitTreeSHA = persistedSHA
-			}
 		}
 	}
 	if err != nil {
@@ -686,14 +680,13 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
 			return UpdateResult{}, fmt.Errorf("select current version: %w", err)
 		}
-	} else if backfillSHA != "" {
+	} else if persistedSHA == "" && skill.GitTreeSHA != "" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE skill_versions SET git_tree_sha = ?
 			WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
-		`, backfillSHA, id); err != nil {
+		`, skill.GitTreeSHA, id); err != nil {
 			return UpdateResult{}, fmt.Errorf("backfill git tree sha: %w", err)
 		}
-		skill.GitTreeSHA = backfillSHA
 	}
 	if skill.Source.Type != SourceLocal {
 		if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`,
@@ -708,15 +701,14 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 }
 
 // readGitHubUpdate 按目录 tree SHA 决定是否取文件;SHA 相同不取 blob、不克隆(API 可用时)。
-// 第三个返回值是文件未变时要补写到当前版本的 SHA,空串表示不必补写。
-func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, string, error) {
+func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, error) {
 	snap, err := readGitHubSnapshot(ctx, skill.Source)
 	if err != nil {
-		return Skill{}, false, "", err
+		return Skill{}, false, err
 	}
 	remote, err := snap.locate(ctx, skill)
 	if err != nil {
-		return Skill{}, false, "", err
+		return Skill{}, false, err
 	}
 	persistedSHA := skill.GitTreeSHA
 	shaKnown := persistedSHA != "" && remote.gitTreeSHA != ""
@@ -724,7 +716,7 @@ func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, string, er
 	if !shaKnown || changed {
 		files, err := snap.files(ctx, skill, remote)
 		if err != nil {
-			return Skill{}, false, "", err
+			return Skill{}, false, err
 		}
 		if !shaKnown {
 			changed = !filesEqual(skill.Files, files)
@@ -734,15 +726,7 @@ func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, string, er
 	skill.GitTreeSHA = remote.gitTreeSHA
 	skill.Source.LastSeenRef = snap.ref
 	skill.Source.LastFetched = time.Now().UTC()
-	backfillSHA := ""
-	if !changed {
-		if persistedSHA == "" && remote.gitTreeSHA != "" {
-			backfillSHA = remote.gitTreeSHA
-		} else {
-			skill.GitTreeSHA = persistedSHA
-		}
-	}
-	return skill, changed, backfillSHA, nil
+	return skill, changed, nil
 }
 
 // readUpdate 读取目标 skill 的最新来源内容,不持久化来源状态。GitHub 走 readGitHubUpdate。
@@ -1727,8 +1711,7 @@ func typedError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var libraryErr *Error
-	if errors.As(err, &libraryErr) {
+	if _, ok := errors.AsType[*Error](err); ok {
 		return err
 	}
 	code := Internal
@@ -1802,8 +1785,8 @@ func fetchError(code ErrorCode, operation string, err error) error {
 	return &Error{Code: code, Message: operation + ": " + err.Error(), Err: err}
 }
 
-func fetchErrorCode(err error, detail string) ErrorCode {
-	if errors.Is(err, fs.ErrPermission) || gitAuthFailure(strings.ToLower(detail)) {
+func fetchErrorCode(err error) ErrorCode {
+	if errors.Is(err, fs.ErrPermission) {
 		return Permission
 	}
 	return SourceUnreachable

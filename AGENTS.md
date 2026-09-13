@@ -3,7 +3,7 @@
 Go module。后端核心是 `library` 包 —— 未来 TUI 之下的完整进程内门面(见 ADR 0004)。SQLite 数据库是唯一权威数据源,磁盘上的 skills 目录只是它的投影。
 
 - `library/api.go` — 全部领域类型 + `Library` 接口,带中文注释。**阅读入口,先读这个。**
-- `library/schema.sql` — SQLite v1 表结构(字段有中文注释),由 `library.Open` 嵌入执行。
+- `library/schema.sql` — 当前 SQLite 表结构(字段有中文注释),由 `library.Open` 嵌入执行。
 - `library/library.go` — 全部业务逻辑:安装、版本历史、远程抓取、激活投影、分组、项目注册。
 - `library/sync.go` — 整库与 S3 的推拉同步(SigV4 签名、schema 校验、项目路径重映射)。
 - `library/*_test.go` — 行为规格;测试名即行为描述,理解语义时对照着读。

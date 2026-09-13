@@ -85,7 +85,7 @@ func newS3Stub(t *testing.T) *s3Stub {
 
 func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	stub := newS3Stub(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeFile(t, filepath.Join(originalSource, "SKILL.md"), []byte("original\n"), 0o644)
@@ -228,7 +228,7 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 
 func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 	stub := newS3Stub(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +303,7 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 
 func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 	stub := newS3Stub(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -380,20 +380,20 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 	lib := openTestLibrary(t)
-	if _, err := lib.SyncPush(context.Background(), ""); !library.IsCode(err, library.Permission) {
+	if _, err := lib.SyncPush(t.Context(), ""); !library.IsCode(err, library.Permission) {
 		t.Fatalf("permission error = %v", err)
 	}
 	server.Close()
-	if _, err := lib.SyncPush(context.Background(), ""); !library.IsCode(err, library.SourceUnreachable) {
+	if _, err := lib.SyncPush(t.Context(), ""); !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("unreachable error = %v", err)
 	}
 
 	// 缺少必要配置时报 NotConfigured,而非裸的 Internal。
 	t.Setenv("SKILLS_S3_BUCKET", "")
-	if _, err := lib.PreviewSyncPush(context.Background()); !library.IsCode(err, library.NotConfigured) {
+	if _, err := lib.PreviewSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
 		t.Fatalf("missing config error = %v, want NotConfigured", err)
 	}
-	if _, err := lib.SyncPull(context.Background(), ""); !library.IsCode(err, library.NotConfigured) {
+	if _, err := lib.SyncPull(t.Context(), ""); !library.IsCode(err, library.NotConfigured) {
 		t.Fatalf("missing config pull error = %v, want NotConfigured", err)
 	}
 }

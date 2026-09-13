@@ -4,11 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -564,15 +566,9 @@ func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
 
 func cloneGitHubFixture(fx gitHubFixture) gitHubFixture {
 	cloned := fx
-	cloned.blobs = make(map[string][]byte, len(fx.blobs))
-	for sha, content := range fx.blobs {
-		cloned.blobs[sha] = content
-	}
-	cloned.paths = make(map[string]gitHubTreeEntry, len(fx.paths))
-	for p, entry := range fx.paths {
-		cloned.paths[p] = entry
-	}
-	cloned.entries = append([]gitHubTreeEntry(nil), fx.entries...)
+	cloned.blobs = maps.Clone(fx.blobs)
+	cloned.paths = maps.Clone(fx.paths)
+	cloned.entries = slices.Clone(fx.entries)
 	return cloned
 }
 
@@ -582,18 +578,14 @@ func (m *gitHubAPIMock) Swap(fx gitHubFixture) {
 	if m.fx.blobs == nil {
 		m.fx.blobs = map[string][]byte{}
 	}
-	for sha, content := range fx.blobs {
-		m.fx.blobs[sha] = content
-	}
+	maps.Copy(m.fx.blobs, fx.blobs)
 	if m.fx.paths == nil {
 		m.fx.paths = map[string]gitHubTreeEntry{}
 	}
-	for p, entry := range fx.paths {
-		m.fx.paths[p] = entry
-	}
+	maps.Copy(m.fx.paths, fx.paths)
 	m.fx.commit = fx.commit
 	m.fx.rootTree = fx.rootTree
-	m.fx.entries = append([]gitHubTreeEntry(nil), fx.entries...)
+	m.fx.entries = slices.Clone(fx.entries)
 	m.fx.truncated = fx.truncated
 	m.fx.incompleteBlob = fx.incompleteBlob
 }
@@ -619,13 +611,13 @@ func (m *gitHubAPIMock) Reset() {
 func (m *gitHubAPIMock) snapshot() []gitHubAPIRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]gitHubAPIRequest(nil), m.requests...)
+	return slices.Clone(m.requests)
 }
 
 func (m *gitHubAPIMock) blobPaths() []string {
 	m.mu.Lock()
 	fx := m.fx
-	requests := append([]gitHubAPIRequest(nil), m.requests...)
+	requests := slices.Clone(m.requests)
 	m.mu.Unlock()
 	var paths []string
 	shaPath := map[string]string{}
@@ -667,9 +659,7 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	if m.anonymousStatus != 0 && !authed {
 		return jsonResponse(m.anonymousStatus, map[string]string{"message": "not found"}), nil
 	}
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/repos/owner/repo/commits/"):
-		ref := strings.TrimPrefix(r.URL.Path, "/repos/owner/repo/commits/")
+	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
 		if ref != "main" && !strings.EqualFold(ref, m.fx.commit) {
 			return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 		}
@@ -679,8 +669,8 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 				"tree": map[string]string{"sha": m.fx.rootTree},
 			},
 		}), nil
-	case strings.HasPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"):
-		sha := strings.TrimPrefix(r.URL.Path, "/repos/owner/repo/git/trees/")
+	}
+	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"); ok {
 		if sha != m.fx.rootTree && sha != m.fx.commit {
 			return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 		}
@@ -689,8 +679,8 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 			"tree":      m.fx.entries,
 			"truncated": m.fx.truncated,
 		}), nil
-	case strings.HasPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/"):
-		sha := strings.TrimPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/")
+	}
+	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/"); ok {
 		if m.blobStatus != 0 {
 			return jsonResponse(m.blobStatus, map[string]string{"message": "forbidden"}), nil
 		}
@@ -707,9 +697,8 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 			"content":  base64.StdEncoding.EncodeToString(content),
 			"size":     len(content),
 		}), nil
-	default:
-		return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 	}
+	return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 }
 
 func jsonResponse(status int, body any) *http.Response {
@@ -736,7 +725,7 @@ func assertGitHubPreviewRequests(t *testing.T, api *gitHubAPIMock, fx gitHubFixt
 			}
 			sawTree = true
 		case strings.HasPrefix(req.path, "/repos/owner/repo/git/blobs/"):
-			sha := strings.TrimPrefix(req.path, "/repos/owner/repo/git/blobs/")
+			sha, _ := strings.CutPrefix(req.path, "/repos/owner/repo/git/blobs/")
 			blobs = append(blobs, sha)
 		default:
 			t.Fatalf("unexpected API request %s", req.path)
@@ -774,10 +763,10 @@ func assertGitHubInstallBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture
 		if strings.HasPrefix(req.path, "/repos/owner/repo/commits/") {
 			t.Fatal("InstallFetch re-resolved ref")
 		}
-		if !strings.HasPrefix(req.path, "/repos/owner/repo/git/blobs/") {
+		sha, ok := strings.CutPrefix(req.path, "/repos/owner/repo/git/blobs/")
+		if !ok {
 			continue
 		}
-		sha := strings.TrimPrefix(req.path, "/repos/owner/repo/git/blobs/")
 		if !allowed[sha] {
 			t.Fatalf("InstallFetch fetched blob outside %s: %s (%v)", skillPath, sha, api.blobPaths())
 		}
