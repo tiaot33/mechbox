@@ -64,11 +64,15 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		indices := groups[sourceID]
 		source := skills[indices[0]].Source
 		var discovered discoveredSource
+		var githubSnap githubSourceSnapshot
 		var localFiles []File
 		var readErr error
-		if source.Type == SourceLocal {
+		switch source.Type {
+		case SourceLocal:
 			localFiles, readErr = readFiles(ctx, source.Locator.Path)
-		} else {
+		case SourceGitHub:
+			githubSnap, readErr = readGitHubSnapshot(ctx, source)
+		default:
 			discovered, readErr = fetchRemote(ctx, source, "")
 		}
 		if ctx.Err() != nil {
@@ -78,19 +82,29 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			if ctx.Err() != nil {
 				return finish(), ctx.Err()
 			}
-			latest := localFiles
 			itemErr := readErr
-			if itemErr == nil && source.Type != SourceLocal {
-				selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
-				itemErr = selectErr
-				if itemErr == nil {
-					latest = selected[0].files
+			available := false
+			if itemErr == nil {
+				switch source.Type {
+				case SourceLocal:
+					available = !filesEqual(skills[index].Files, localFiles)
+				case SourceGitHub:
+					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index])
+				default:
+					selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
+					itemErr = selectErr
+					if itemErr == nil {
+						available = !filesEqual(skills[index].Files, selected[0].files)
+					}
 				}
+			}
+			if ctx.Err() != nil {
+				return finish(), ctx.Err()
 			}
 			if itemErr != nil {
 				results[index].Error, _ = errors.AsType[*Error](typedError(itemErr))
 			} else {
-				results[index].Available = !filesEqual(skills[index].Files, latest)
+				results[index].Available = available
 			}
 			completed[index] = true
 		}
