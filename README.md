@@ -2,6 +2,8 @@
 
 用于管理 Claude Code 和 Codex Agent Skills 的后端库。当前仓库已经实现 SQLite `Library` 及其行为，还没有可运行的 TUI，也没有 HTTP、RPC 或 OpenAPI 接口。
 
+Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。本项目的 Install 表示安装入 Library，Activation 表示投影到 Agent 的 Scope；Agent 的发现、加载与调用规则见 [生态背景](docs/agents/agent-skills-background.md)。Codex 文档中的 `.agents/skills` 与本项目现有 `.codex/skills` 投影路径存在差异，兼容性尚未确认，详见 [ADR 0001 的实现差异](docs/adr/0001-sqlite-as-the-library.md#当前实现差异)。
+
 ## 当前能力
 
 - 从本地目录、GitHub 仓库、ZIP URL 或技能商店安装和更新技能。
@@ -15,6 +17,7 @@
 
 | 位置 | 作用 |
 | --- | --- |
+| [`docs/agents/agent-skills-background.md`](docs/agents/agent-skills-background.md) | Agent Skills 格式、Claude Code/Codex 发现与调用规则、资料覆盖边界 |
 | [`CONTEXT.md`](CONTEXT.md) | 产品术语及统一语言 |
 | [`docs/adr/`](docs/adr/) | 已做出的架构和数据模型决策 |
 | [`library/api.go`](library/api.go) | 进程内 Go 公共接口、DTO、选项和错误契约 |

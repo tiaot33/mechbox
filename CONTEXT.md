@@ -2,18 +2,18 @@
 
 A TUI for managing coding-agent skills: installing them from source repos, organising them, and activating them into the directories that coding agents read from.
 
-Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `SKILL.md` that agents discover from disk and load on demand. For ecosystem-only background (format, how agents load them, common on-disk paths), see `docs/agents/agent-skills-background.md`. Product terms stay in this file; product design stays in `docs/adr/`.
+Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `SKILL.md` that agents discover from disk and load on demand. For format, discovery scopes, invocation, and same-name behavior, see [ecosystem background](docs/agents/agent-skills-background.md). Product terms stay in this file; integration boundaries and implementation gaps are recorded in [ADR 0001](docs/adr/0001-sqlite-as-the-library.md).
 
 > Term headings are bilingual: the **English** name is the canonical identifier used in code; the **中文** name is the term used in the v1 (Chinese-only) UI. See `docs/adr/0003`.
 
 ## Language · 术语
 
 **Skill · 技能**:
-A folder of instructions and assets that a coding agent reads from a directory on disk.
+A package of instructions and optional resources with a root `SKILL.md`, which a coding agent discovers from disk and loads on demand.
 _Avoid_: Plugin, extension, prompt / 插件、扩展、提示词
 
 **Agent · 智能体**:
-A coding agent that loads skills by reading them from a directory. v1 targets Claude Code and Codex only.
+A coding agent that loads skills from directories it defines — global, and under a Registered project. The Library holds each Agent and its current layout. The user does not choose those directory names. v1 targets Claude Code and Codex only.
 _Avoid_: Assistant, tool, client / 助手、工具、客户端
 
 **Library · 库**:
@@ -37,15 +37,15 @@ A user-defined gathering of skills by scenario (e.g. "frontend debugging"). Orth
 _Avoid_: Tag, category, set / 标签、分类、集
 
 **Scope · 作用域**:
-A place a skill can be activated into: a specific Agent at a specific level — global, or a Registered project.
-_Avoid_: Target, context, location / 目标、上下文、位置
+One of two kinds: an Agent's global level, or an Agent together with one Registered project. Chosen by kind, never by directory.
+_Avoid_: Target, context, location, path / 目标、上下文、位置、路径
 
 **Registered project · 已登记项目**:
 A project directory the tool has been told to manage, kept in a list in the Library so project-level Scopes are first-class and activation state across projects is visible in one place.
 _Avoid_: Workspace, folder, repo / 工作区、文件夹、仓库
 
 **Activation · 激活**:
-Making a skill available in a Scope by placing its folder into that Scope's directory. Deactivation removes it. The Library remains the source of truth throughout.
+Making a skill available in a Scope by placing its folder into the directory the Agent currently defines for that Scope. Deactivation removes it. Former directories after a layout change are stale. The Library remains the source of truth throughout.
 _Avoid_: Install, enable, deploy / 安装、启用、部署
 
 **Self-developed skill · 自研技能**:

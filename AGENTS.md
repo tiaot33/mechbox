@@ -20,9 +20,9 @@ Go module。后端核心是 `library` 包 —— 未来 TUI 之下的完整进�
 
 ## Agent skills
 
-### Ecosystem background (read first if unfamiliar)
+### Ecosystem background
 
-If you do not already know the **Agent Skills** ecosystem (`SKILL.md` folders, how agents load them, common on-disk paths), read **`docs/agents/agent-skills-background.md`**. That file is ecosystem facts only — not this product’s design.
+涉及 Skill 格式、Agent 发现/调用、Scope 路径或同名行为时，先读 [Agent Skills 背景](docs/agents/agent-skills-background.md)；不熟悉生态时也从这里开始。产品集成边界与实现差异见 [ADR 0001](docs/adr/0001-sqlite-as-the-library.md)。
 
 ### Issue tracker
 
