@@ -25,6 +25,11 @@ func githubRemote(t *testing.T) (string, string) {
 	commitGit(t, repository, "initial")
 	runGit(t, repository, "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), "url.file://"+repository+".insteadOf", "https://github.com/owner/repo.git")
 	runGit(t, repository, "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), "--add", "url.file://"+repository+".insteadOf", "git@github.com:owner/repo.git")
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("github api unavailable")
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
 	output, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD").Output()
 	if err != nil {
 		t.Fatal(err)

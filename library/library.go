@@ -39,7 +39,8 @@ type fetchedSkill struct {
 	name       string
 	preview    FetchSkill
 	files      []File
-	gitTreeSHA string // GitHub 来源该 Skill 目录的 tree SHA;其他来源为空
+	gitTreeSHA string       // GitHub 来源该 Skill 目录的 tree SHA;其他来源为空
+	blobs      []githubBlob // GitHub 快路径:安装时按 blob SHA 取所选文件
 }
 
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
@@ -50,6 +51,8 @@ type fetchSession struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	timer       *time.Timer
+	githubOwner string
+	githubRepo  string
 }
 
 type contextReader struct {
@@ -461,7 +464,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 			return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
 		}
 	}
-	discovered, err := fetchRemote(ctx, source, spec.Subpath)
+	discovered, err := fetchRemotePreview(ctx, source, spec.Subpath)
 	if err != nil {
 		return Fetch{}, err
 	}
@@ -483,7 +486,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := ctx.Err(); err != nil {
 		return Fetch{}, err
 	}
-	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
+	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics, githubOwner: discovered.githubOwner, githubRepo: discovered.githubRepo}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
@@ -530,6 +533,11 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 	skills, err := selectSkills(session.skills, names)
 	if err != nil {
 		return nil, err
+	}
+	if session.githubOwner != "" {
+		if err := materializeGitHubSkills(ctx, session.githubOwner, session.githubRepo, skills); err != nil {
+			return nil, err
+		}
 	}
 	installed, err = l.installAll(ctx, session.source, skills)
 	if err != nil {
