@@ -10,8 +10,11 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
+// 登记项目后,该项目与各 Agent 组成项目 Scope:激活落在 Resolve 给出的目录;UnregisterProject
+// 清掉项目 Scope 记录,磁盘副本按 ProjectedCopies 决定去留,外来文件夹不动。
 func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	if _, err := lib.RegisterProject(ctx, ""); err == nil {
 		t.Fatal("RegisterProject() accepted an empty path")
@@ -36,16 +39,13 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
 		t.Fatalf("ListRegisteredProjects() = %#v, %v", projects, err)
 	}
-	projectScopes := []library.Scope{
-		{Agent: library.AgentClaudeCode, Path: filepath.Join(project.Path, ".claude", "skills")},
-		{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".codex", "skills")},
-	}
-	scopes, err := lib.ListScopes(ctx)
+	keepScope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	keepDirectory, err := lib.Resolve(ctx, keepScope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scopes) != 4 || !reflect.DeepEqual(scopes[2:], projectScopes) {
-		t.Fatalf("ListScopes() project scopes = %#v, want %#v", scopes, projectScopes)
+	if keepDirectory != filepath.Join(project.Path, ".agents", "skills") {
+		t.Fatalf("Resolve(%#v) = %q; want under registered project root", keepScope, keepDirectory)
 	}
 
 	source := filepath.Join(t.TempDir(), "example-skill")
@@ -54,10 +54,10 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, skill.ID, projectScopes[1], library.ActivateOptions{}); err != nil {
+	if err := lib.Activate(ctx, skill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	keptProjection := filepath.Join(projectScopes[1].Path, skill.Name, "SKILL.md")
+	keptProjection := filepath.Join(keepDirectory, skill.Name, "SKILL.md")
 	if _, err := os.Stat(keptProjection); err != nil {
 		t.Fatal(err)
 	}
@@ -67,12 +67,22 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if _, err := os.Stat(keptProjection); err != nil {
 		t.Fatalf("default Keep removed project projection: %v", err)
 	}
+	if _, err := lib.Resolve(ctx, keepScope); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("Resolve() unregistered project scope error = %v, want NotFound", err)
+	}
 
 	removeProject, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	removeScope := library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(removeProject.Path, ".claude", "skills")}
+	removeScope := library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: removeProject.ID}
+	removeDirectory, err := lib.Resolve(ctx, removeScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removeDirectory != filepath.Join(removeProject.Path, ".claude", "skills") {
+		t.Fatalf("Resolve(%#v) = %q; want under registered project root", removeScope, removeDirectory)
+	}
 	group, err := lib.CreateGroup(ctx, "project group")
 	if err != nil {
 		t.Fatal(err)
@@ -83,12 +93,12 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	manualFile := filepath.Join(removeScope.Path, "manual-skill", "mine.txt")
+	manualFile := filepath.Join(removeDirectory, "manual-skill", "mine.txt")
 	writeFile(t, manualFile, []byte("mine"), 0o644)
 	if err := lib.UnregisterProject(ctx, removeProject.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(removeScope.Path, skill.Name)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(removeDirectory, skill.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Remove left project projection behind: %v", err)
 	}
 	if _, err := os.Stat(manualFile); err != nil {
@@ -97,10 +107,6 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	projects, err = lib.ListRegisteredProjects(ctx)
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
-	}
-	scopes, err = lib.ListScopes(ctx)
-	if err != nil || len(scopes) != 2 {
-		t.Fatalf("ListScopes() after unregister = %#v, %v", scopes, err)
 	}
 	activations, err := lib.ListActivations(ctx)
 	if err != nil || len(activations) != 0 {

@@ -81,6 +81,7 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 
 func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 
 	install := func(name string) library.Skill {
@@ -102,8 +103,16 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if err := lib.AddSkillToGroup(ctx, group.ID, removeSkill.ID); err != nil {
 		t.Fatal(err)
 	}
-	keepScope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "keep")}
-	removeScope := library.Scope{Agent: library.AgentClaudeCode, Path: filepath.Join(t.TempDir(), "remove")}
+	keepScope := library.GlobalScope{Agent: library.AgentCodex}
+	removeScope := library.GlobalScope{Agent: library.AgentClaudeCode}
+	keepDirectory, err := lib.Resolve(ctx, keepScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removeDirectory, err := lib.Resolve(ctx, removeScope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := lib.Activate(ctx, keepSkill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -120,13 +129,13 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if err := lib.RemoveSkill(ctx, keepSkill.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(keepScope.Path, keepSkill.Name, "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(keepDirectory, keepSkill.Name, "SKILL.md")); err != nil {
 		t.Fatalf("default Keep removed projected copy: %v", err)
 	}
 	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(removeScope.Path, removeSkill.Name)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(removeDirectory, removeSkill.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Remove left projected copy behind: %v", err)
 	}
 	if _, err := os.Stat(untracked); err != nil {
