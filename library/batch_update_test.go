@@ -15,6 +15,7 @@ import (
 )
 
 func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
 	requests := map[string]int{}
@@ -40,7 +41,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 		}
 		skills = append(skills, installed...)
 	}
-	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	scope := library.GlobalScope{Agent: library.AgentCodex}
 	if err := lib.Activate(t.Context(), skills[0].ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}

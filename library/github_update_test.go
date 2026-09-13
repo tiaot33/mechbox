@@ -31,6 +31,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	fetch, err := lib.Fetch(ctx, gitHubSpec())
@@ -45,7 +46,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if first.Name != "first" {
 		first, second = second, first
 	}
-	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +174,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 2 {
 		t.Fatalf("versions after change = %#v, %v", versions, err)
 	}
-	content, err := os.ReadFile(filepath.Join(scope.Path, first.Name, "SKILL.md"))
+	content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
 	if err != nil || string(content) != skillDocument("first", "first body") {
 		t.Fatalf("projection rewritten: %q, %v", content, err)
 	}

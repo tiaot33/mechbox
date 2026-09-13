@@ -35,16 +35,17 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
-			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = lib.Close() })
+			t.Setenv("HOME", t.TempDir())
+			lib := openTestLibrary(t)
 			group, err := lib.CreateGroup(ctx, "batch")
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+			scope := library.GlobalScope{Agent: library.AgentCodex}
+			directory, err := lib.Resolve(ctx, scope)
+			if err != nil {
+				t.Fatal(err)
+			}
 			var skills []library.Skill
 			for _, name := range []string{"first", "second", "independent", "shared"} {
 				source := filepath.Join(t.TempDir(), name)
@@ -75,7 +76,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			if err := lib.ActivateGroup(ctx, other.ID, scope, library.ActivateOptions{}); err != nil {
 				t.Fatal(err)
 			}
-			firstPath := filepath.Join(scope.Path, "first", "SKILL.md")
+			firstPath := filepath.Join(directory, "first", "SKILL.md")
 			if deactivate {
 				if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
 					t.Fatal(err)
@@ -103,7 +104,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 					return errors.Is(err, os.ErrNotExist)
 				}
 				// 已覆盖第一个成员并新增第二个成员,让回滚同时验证恢复与移除。
-				content, err = os.ReadFile(filepath.Join(scope.Path, "second", "SKILL.md"))
+				content, err = os.ReadFile(filepath.Join(directory, "second", "SKILL.md"))
 				return err == nil && string(content) == "second"
 			}}
 			if deactivate {
@@ -123,7 +124,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				t.Fatalf("first projection not restored: %q, %v", content, err)
 			}
 			for _, skill := range skills[1:] {
-				content, err := os.ReadFile(filepath.Join(scope.Path, skill.Name, "SKILL.md"))
+				content, err := os.ReadFile(filepath.Join(directory, skill.Name, "SKILL.md"))
 				if !deactivate && skill.Name == "second" {
 					if !errors.Is(err, os.ErrNotExist) {
 						t.Fatalf("partial projection remains: %v", err)
@@ -132,7 +133,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 					t.Fatalf("projection %s changed: %q, %v", skill.Name, content, err)
 				}
 			}
-			entries, err := os.ReadDir(scope.Path)
+			entries, err := os.ReadDir(directory)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -147,11 +148,8 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 
 func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	ctx := t.Context()
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "example")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("example"), 0o644)
 	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
@@ -165,8 +163,15 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
-	scope := library.Scope{Agent: library.AgentCodex, Path: t.TempDir()}
-	target := filepath.Join(scope.Path, skill.Name)
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(directory, skill.Name)
 	missing := filepath.Join(t.TempDir(), "missing")
 	if err := os.Symlink(missing, target); err != nil {
 		t.Fatal(err)
@@ -203,12 +208,17 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 
 func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	group, err := lib.CreateGroup(ctx, "batch")
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.Scope{Agent: library.AgentCodex, Path: t.TempDir()}
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var first library.Skill
 	for _, name := range []string{"first", "second"} {
 		source := filepath.Join(t.TempDir(), name)
@@ -224,7 +234,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	target := filepath.Join(scope.Path, first.Name, "SKILL.md")
+	target := filepath.Join(directory, first.Name, "SKILL.md")
 	writeFile(t, target, []byte("original"), 0o644)
 	projected, release := make(chan struct{}), make(chan struct{})
 	resume := sync.OnceFunc(func() { close(release) })
@@ -275,11 +285,11 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 		t.Fatalf("successful independent projection lost: %q, %v", content, err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: first.ID, Scope: scope, Individual: true}}
+	want := []library.Activation{{SkillID: first.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: directory}, Identity: scope, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("activations = %#v, %v; want %#v", activations, err, want)
 	}
-	if _, err := os.Stat(filepath.Join(scope.Path, "second")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("partial group projection remains: %v", err)
 	}
 }
