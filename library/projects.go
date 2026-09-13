@@ -169,6 +169,52 @@ func (l *sqliteLibrary) ListScopes(ctx context.Context) (scopes []Scope, err err
 	return scopes, nil
 }
 
+func (l *sqliteLibrary) Resolve(ctx context.Context, scope ScopeIdentity) (directory string, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
+	switch scope := scope.(type) {
+	case GlobalScope:
+		layout, err := l.agentLayout(ctx, scope.Agent)
+		if err != nil {
+			return "", err
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("find home directory: %w", err)
+		}
+		return filepath.Join(home, filepath.FromSlash(layout.global)), nil
+	case ProjectScope:
+		layout, err := l.agentLayout(ctx, scope.Agent)
+		if err != nil {
+			return "", err
+		}
+		var root string
+		if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, scope.ProjectID).Scan(&root); err != nil {
+			return "", fmt.Errorf("get registered project: %w", err)
+		}
+		return filepath.Join(root, filepath.FromSlash(layout.project)), nil
+	default:
+		return "", &Error{Code: InvalidArgument, Message: "resolve scope: scope is required"}
+	}
+}
+
+// agentLayout 是 agents 表里一个 Agent 的两段布局规则,均为斜杠分隔的相对路径。
+type agentLayout struct {
+	global  string // 相对用户主目录
+	project string // 相对 Registered project 根
+}
+
+// agentLayout 读取该 Agent 行的布局规则;代码不存在时错误经 typedError 变为 NotFound。
+func (l *sqliteLibrary) agentLayout(ctx context.Context, code AgentCode) (agentLayout, error) {
+	var layout agentLayout
+	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&layout.global, &layout.project); err != nil {
+		return agentLayout{}, fmt.Errorf("get agent: %w", err)
+	}
+	return layout, nil
+}
+
 func validateScope(scope Scope) error {
 	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
 		return fmt.Errorf("invalid scope")

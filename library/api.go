@@ -230,10 +230,32 @@ type Agent struct {
 }
 
 // Scope 是一个投影目标:哪个 agent 的哪个 skills 目录。
+// 这是 expand 阶段仍由 Activate 等接收的路径型 Scope;身份型 Scope 见 ScopeIdentity。
 type Scope struct {
 	Agent AgentCode `json:"agent"`
 	Path  string    `json:"path"`
 }
+
+// ScopeIdentity 是按身份指认的投影目标:GlobalScope 或 ProjectScope 之一,不含路径。
+// 目录由 Library 按该 Agent 的现行布局算出(见 Resolve),调用方不自行拼路径。
+// 密封接口:只有本包的两种 Scope 类型能实现它。
+type ScopeIdentity interface {
+	scopeIdentity()
+}
+
+// GlobalScope 是某个 Agent 的全局 Scope:目录相对用户主目录。
+type GlobalScope struct {
+	Agent AgentCode `json:"agent"`
+}
+
+// ProjectScope 是某个 Agent 在某个 Registered project 下的 Scope:目录相对项目根。
+type ProjectScope struct {
+	Agent     AgentCode `json:"agent"`
+	ProjectID ProjectID `json:"project_id"`
+}
+
+func (GlobalScope) scopeIdentity()  {}
+func (ProjectScope) scopeIdentity() {}
 
 // ConflictPolicy 决定激活时目标目录已存在的处理方式。
 type ConflictPolicy string
@@ -387,6 +409,10 @@ type Library interface {
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
 	// ListScopes 列出全部可投影 Scope:两个 agent 的全局目录 + 各注册项目的目录。
 	ListScopes(ctx context.Context) ([]Scope, error)
+	// Resolve 按 agents 表中该 Agent 的现行布局算出身份 Scope 对应的目录:全局相对当前用户
+	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生 Activation。
+	// 未知 Agent 代码或未登记项目返回 NotFound。
+	Resolve(ctx context.Context, scope ScopeIdentity) (string, error)
 
 	// 激活(投影)
 

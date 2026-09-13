@@ -2,7 +2,6 @@ package library_test
 
 import (
 	"bytes"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -240,17 +239,5 @@ func TestOpenFailedMigrationCanRetryWithoutLosingLegacyData(t *testing.T) {
 	got, err := lib.ListActivations(t.Context())
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("activations after retry = %#v, %v; want %#v", got, err, want)
-	}
-}
-
-func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
-	t.Helper()
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.ExecContext(t.Context(), statement, args...); err != nil {
-		t.Fatal(err)
 	}
 }
