@@ -10,11 +10,15 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
+// 单项激活的主路径只选定 Agent(全局 Scope):目录由 Library 按现行布局在隔离的 $HOME 下算出,
+// 冲突 / Overwrite / Deactivate 的断言全部对着 Resolve 给出的目录,而不是测试自拟的路径。
 func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
@@ -22,16 +26,15 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scopes, err := lib.ListScopes(ctx)
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scopes) != 2 || scopes[0].Agent != library.AgentClaudeCode || scopes[1].Agent != library.AgentCodex {
-		t.Fatalf("ListScopes() = %#v", scopes)
+	if directory != filepath.Join(home, ".agents", "skills") {
+		t.Fatalf("Resolve(%#v) = %q; want under isolated HOME", scope, directory)
 	}
-
-	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
-	target := filepath.Join(scope.Path, skill.Name)
+	target := filepath.Join(directory, skill.Name)
 	writeFile(t, filepath.Join(target, "old.txt"), []byte("old"), 0o644)
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
 		t.Fatalf("Activate() conflict error = %v", err)
@@ -53,8 +56,14 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(activations) != 1 || activations[0].SkillID != skill.ID || activations[0].Scope != scope {
-		t.Fatalf("ListActivations() = %#v", activations)
+	want := []library.Activation{{
+		SkillID:    skill.ID,
+		Scope:      library.Scope{Agent: library.AgentCodex, Path: directory},
+		Identity:   scope,
+		Individual: true,
+	}}
+	if !reflect.DeepEqual(activations, want) {
+		t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
 	}
 
 	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
@@ -195,28 +204,35 @@ func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
 	}
 }
 
+// 对自己在身份 Scope 上的投影再次激活,默认冲突策略下幂等成功并刷新文件;记录仍是同一条身份。
 func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
 	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("edited\n"), 0o644)
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatalf("re-Activate under Fail policy = %v, want success", err)
 	}
+	content, err := os.ReadFile(filepath.Join(directory, skill.Name, "SKILL.md"))
+	if err != nil || string(content) != "# Example\n" {
+		t.Fatalf("re-Activate did not refresh SKILL.md: %q, %v", content, err)
+	}
 	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Individual: true}}
+	want := []library.Activation{{SkillID: skill.ID, Scope: library.Scope{Agent: library.AgentCodex, Path: directory}, Identity: scope, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after re-Activate = %#v, %v; want %#v", activations, err, want)
 	}
