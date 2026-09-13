@@ -245,8 +245,9 @@ func TestGitHubInstallFetchFailureKeepsHandleForRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	api.setFailBlobs(true)
-	if installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"}); err == nil || len(installed) != 0 {
-		t.Fatalf("failed install = %#v, %v; want error", installed, err)
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
+	if err == nil || len(installed) != 0 || !library.IsCode(err, library.SourceUnreachable) || library.IsCode(err, library.Internal) {
+		t.Fatalf("failed install = %#v, %v; want SourceUnreachable", installed, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("failed install wrote Library: %v, %v", skills, err)
@@ -255,9 +256,33 @@ func TestGitHubInstallFetchFailureKeepsHandleForRetry(t *testing.T) {
 		t.Fatalf("failed install discarded handle: %v", err)
 	}
 	api.setFailBlobs(false)
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
+	installed, err = lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
 	if err != nil || len(installed) != 1 || installed[0].Name != "demo" {
 		t.Fatalf("retry install = %#v, %v", installed, err)
+	}
+}
+
+func TestGitHubInstallFetchMapsForbiddenBlobsToPermission(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/extra.md": {content: []byte("asset"), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+
+	lib := openTestLibrary(t)
+	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.setBlobStatus(http.StatusForbidden)
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
+	if err == nil || len(installed) != 0 || !library.IsCode(err, library.Permission) {
+		t.Fatalf("forbidden blob = %#v, %v; want Permission", installed, err)
+	}
+	if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); err != nil {
+		t.Fatalf("forbidden blob discarded handle: %v", err)
 	}
 }
 
@@ -515,6 +540,7 @@ type gitHubAPIMock struct {
 	fx              gitHubFixture
 	anonymousStatus int
 	failBlobs       bool
+	blobStatus      int
 	requests        []gitHubAPIRequest
 }
 
@@ -576,6 +602,12 @@ func (m *gitHubAPIMock) setFailBlobs(fail bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failBlobs = fail
+}
+
+func (m *gitHubAPIMock) setBlobStatus(status int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blobStatus = status
 }
 
 func (m *gitHubAPIMock) Reset() {
@@ -659,6 +691,9 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 		}), nil
 	case strings.HasPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/"):
 		sha := strings.TrimPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/")
+		if m.blobStatus != 0 {
+			return jsonResponse(m.blobStatus, map[string]string{"message": "forbidden"}), nil
+		}
 		if m.failBlobs || sha == m.fx.incompleteBlob {
 			return jsonResponse(http.StatusOK, map[string]any{"sha": sha, "encoding": "base64", "content": "", "size": 99}), nil
 		}

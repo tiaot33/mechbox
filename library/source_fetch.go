@@ -70,7 +70,7 @@ func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string, pre
 		if ctx.Err() != nil {
 			return discoveredSource{}, err
 		}
-		if !errors.Is(err, errGitHubContentsFallback) {
+		if !githubContentsUnavailable(err) {
 			return discoveredSource{}, err
 		}
 	}

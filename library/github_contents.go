@@ -185,16 +185,30 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		if c.token != "" && isGitHubAuthRetry(err) {
 			c.useToken = true
 		} else {
-			return errGitHubContentsFallback
+			return err
 		}
 	}
 	if err := githubAPIGetOnce(ctx, location, c.token, dest); err != nil {
-		if ctx.Err() != nil {
-			return err
-		}
-		return errGitHubContentsFallback
+		return err
 	}
 	return nil
+}
+
+// githubContentsUnavailable 表示快路径无法给出完整结果,Fetch 应回退浅克隆。
+func githubContentsUnavailable(err error) bool {
+	if errors.Is(err, errGitHubContentsFallback) {
+		return true
+	}
+	_, ok := errors.AsType[*githubHTTPError](err)
+	return ok
+}
+
+// githubInstallError 把安装阶段的 blob 失败映射为稳定的门面错误码,不把 HTTP 正文或凭证写入 Message。
+func githubInstallError(err error) error {
+	if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden) {
+		return fetchError(Permission, "fetch source", errors.New("authentication failed"))
+	}
+	return fetchError(SourceUnreachable, "fetch source", errors.New("source could not be reached"))
 }
 
 func isGitHubAuthRetry(err error) bool {
@@ -474,7 +488,10 @@ func materializeGitHubSkills(ctx context.Context, owner, repo string, skills []f
 		}
 		files, err := fetchGitHubSkillFiles(ctx, client, owner, repo, skill.blobs)
 		if err != nil {
-			return err
+			if ctx.Err() != nil {
+				return err
+			}
+			return githubInstallError(err)
 		}
 		skills[i].files = files
 		skills[i].blobs = nil
