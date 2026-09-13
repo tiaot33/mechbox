@@ -30,12 +30,22 @@ type discoveredSource struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	ref         string
+	githubOwner string
+	githubRepo  string
 }
 
 func fetchRemote(ctx context.Context, source Source, subpath string) (discoveredSource, error) {
+	return fetchRemoteMode(ctx, source, subpath, false)
+}
+
+func fetchRemotePreview(ctx context.Context, source Source, subpath string) (discoveredSource, error) {
+	return fetchRemoteMode(ctx, source, subpath, true)
+}
+
+func fetchRemoteMode(ctx context.Context, source Source, subpath string, preview bool) (discoveredSource, error) {
 	switch source.Type {
 	case SourceGitHub:
-		return fetchGitHub(ctx, source.Locator, subpath)
+		return fetchGitHub(ctx, source.Locator, subpath, preview)
 	case SourceURL:
 		return fetchArchive(ctx, source.Locator.URL)
 	case SourceStore:
@@ -49,7 +59,26 @@ func fetchRemote(ctx context.Context, source Source, subpath string) (discovered
 	}
 }
 
-func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (result discoveredSource, err error) {
+// fetchGitHub 对 github.com 先走 tree/blob 快路径;API 不可用时回退已加固的浅克隆。
+// preview 为真时只取各候选 SKILL.md,安装再按 blob SHA 取所选目录。
+func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string, preview bool) (discoveredSource, error) {
+	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
+		result, err := fetchGitHubContents(ctx, owner, repo, locator, subpath, preview)
+		if err == nil {
+			return result, nil
+		}
+		if ctx.Err() != nil {
+			return discoveredSource{}, err
+		}
+		if !errors.Is(err, errGitHubContentsFallback) {
+			return discoveredSource{}, err
+		}
+	}
+	return fetchGitHubClone(ctx, locator, subpath)
+}
+
+// fetchGitHubClone 浅克隆整仓并发现候选;LFS、超时与协议限制由 runSourceGit 提供。
+func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string) (result discoveredSource, err error) {
 	if fullCommit.MatchString(locator.Branch) {
 		locator.Branch = strings.ToLower(locator.Branch)
 	}
@@ -273,7 +302,7 @@ func discoverSkills(ctx context.Context, source fs.FS, root string) (result disc
 		if !entry.IsDir() {
 			return nil
 		}
-		if current != root && slices.Contains([]string{".git", "node_modules", "dist", "build", "__pycache__"}, entry.Name()) {
+		if current != root && slices.Contains(discoveryExcludedDirs, entry.Name()) {
 			return fs.SkipDir
 		}
 		entries, err := fs.ReadDir(source, current)

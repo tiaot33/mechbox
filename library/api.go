@@ -311,15 +311,17 @@ type Library interface {
 
 	// Install 把一个本地目录作为 skill 安装入库(一次性,不经 Fetch 会话)。
 	Install(ctx context.Context, source LocalSource) (Skill, error)
-	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区(联网一次),返回句柄与
-	// 候选 skill 名清单;此时尚无内容进入 Library。本地目录不走 Fetch。
+	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区,返回句柄与候选 skill
+	// 名清单;此时尚无内容进入 Library。GitHub 预览只取各候选 SKILL.md 并钉住当时的
+	// commit;URL / Store 仍一次下载完整归档。本地目录不走 Fetch。
 	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
 	// ListFetchSkills 只列出暂存中的候选元数据与诊断,不联网、不入库;句柄在 30 分钟后或
 	// Close 时失效。过期、未知或其他 Library 实例的句柄返回 NotFound。
 	ListFetchSkills(ctx context.Context, id FetchID) (FetchCandidates, error)
 	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
-	// 只读取暂存内容,不联网;要么所选 skill 全部入库,要么库保持不变。
-	// 成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
+	// GitHub 来源可在 Fetch 已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
+	// 不跟随当前 HEAD。URL / Store 只读取暂存内容,不联网。要么所选 skill 全部入库,
+	// 要么库保持不变。成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
 	// 失败时保留句柄供重试,直至 Close 或过期。
 	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
 	// Update 重新读取来源;内容有变化则生成新版本,只更新 Library,不重写激活副本。
