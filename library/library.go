@@ -714,7 +714,7 @@ func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, string, er
 	if err != nil {
 		return Skill{}, false, "", err
 	}
-	remote, err := snap.locate(ctx, skill.Name)
+	remote, err := snap.locate(ctx, skill)
 	if err != nil {
 		return Skill{}, false, "", err
 	}
@@ -722,7 +722,7 @@ func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, string, er
 	shaKnown := persistedSHA != "" && remote.gitTreeSHA != ""
 	changed := shaKnown && persistedSHA != remote.gitTreeSHA
 	if !shaKnown || changed {
-		files, err := snap.files(ctx, remote)
+		files, err := snap.files(ctx, skill, remote)
 		if err != nil {
 			return Skill{}, false, "", err
 		}
@@ -944,7 +944,7 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 		if err != nil {
 			return false, err
 		}
-		return githubSkillHasUpdate(ctx, snap, skill)
+		return githubSkillHasUpdate(ctx, &snap, skill)
 	}
 	latest, err := readUpdate(ctx, skill)
 	if err != nil {

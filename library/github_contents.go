@@ -487,6 +487,7 @@ type githubSourceSnapshot struct {
 	byPath   map[string]githubTreeEntry
 	owner    string
 	repo     string
+	locator  SourceLocator
 	client   *githubClient
 	cloned   []fetchedSkill
 }
@@ -503,6 +504,7 @@ func readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapsho
 	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
 		snap, err := fetchGitHubTreeSnapshot(ctx, owner, repo, source.Locator)
 		if err == nil {
+			snap.locator = source.Locator
 			return snap, nil
 		}
 		if ctx.Err() != nil {
@@ -516,7 +518,7 @@ func readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapsho
 	if err != nil {
 		return githubSourceSnapshot{}, err
 	}
-	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills}, nil
+	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills, locator: source.Locator}, nil
 }
 
 func fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
@@ -547,31 +549,32 @@ func fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator So
 	}, nil
 }
 
-func (s githubSourceSnapshot) locate(ctx context.Context, name string) (githubRemoteSkill, error) {
+func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubRemoteSkill, error) {
 	if s.cloned != nil {
-		selected, err := selectSkills(s.cloned, []string{name})
+		selected, err := selectSkills(s.cloned, []string{skill.Name})
 		if err != nil {
 			return githubRemoteSkill{}, err
 		}
-		skill := selected[0]
-		return githubRemoteSkill{path: skill.preview.Path, gitTreeSHA: skill.gitTreeSHA, files: skill.files, hasFiles: true}, nil
+		found := selected[0]
+		return githubRemoteSkill{path: found.preview.Path, gitTreeSHA: found.gitTreeSHA, files: found.files, hasFiles: true}, nil
 	}
 	dirs := githubCandidateDirs(s.entries, ".", s.byPath)
-	dir, err := matchGitHubSkillDir(dirs, name)
-	if errors.Is(err, errGitHubNeedPreview) {
-		return s.locateByPreview(ctx, name, dirs)
+	if skill.GitTreeSHA != "" {
+		for _, dir := range dirs {
+			sha, err := githubDirTreeSHA(dir, s.rootTree, s.byPath)
+			if err != nil {
+				continue
+			}
+			if sha == skill.GitTreeSHA {
+				return githubRemoteSkill{path: dir, gitTreeSHA: sha}, nil
+			}
+		}
 	}
-	if err != nil {
-		return githubRemoteSkill{}, err
-	}
-	sha, err := githubDirTreeSHA(dir, s.rootTree, s.byPath)
-	if err != nil {
-		return githubRemoteSkill{}, githubInstallError(err)
-	}
-	return githubRemoteSkill{path: dir, gitTreeSHA: sha}, nil
+	return s.locateByName(ctx, skill, dirs)
 }
 
-func (s githubSourceSnapshot) locateByPreview(ctx context.Context, name string, dirs []string) (githubRemoteSkill, error) {
+func (s *githubSourceSnapshot) locateByName(ctx context.Context, skill Skill, dirs []string) (githubRemoteSkill, error) {
+	var found *githubRemoteSkill
 	for _, dir := range dirs {
 		if err := ctx.Err(); err != nil {
 			return githubRemoteSkill{}, err
@@ -589,43 +592,73 @@ func (s githubSourceSnapshot) locateByPreview(ctx context.Context, name string, 
 			if ctx.Err() != nil {
 				return githubRemoteSkill{}, err
 			}
-			return githubRemoteSkill{}, githubInstallError(err)
+			if !githubContentsUnavailable(err) {
+				return githubRemoteSkill{}, githubInstallError(err)
+			}
+			if cloneErr := s.fallbackClone(ctx); cloneErr != nil {
+				return githubRemoteSkill{}, cloneErr
+			}
+			return s.locate(ctx, skill)
 		}
 		preview, err := candidateMetadata(content, dir)
-		if err != nil || preview.Name != name {
+		if err != nil || preview.Name != skill.Name {
 			continue
 		}
 		sha, err := githubDirTreeSHA(dir, s.rootTree, s.byPath)
 		if err != nil {
 			return githubRemoteSkill{}, githubInstallError(err)
 		}
-		return githubRemoteSkill{path: dir, gitTreeSHA: sha}, nil
+		if found != nil {
+			return githubRemoteSkill{}, &Error{Code: InvalidArgument, Message: fmt.Sprintf("ambiguous skill name %q", skill.Name)}
+		}
+		found = &githubRemoteSkill{path: dir, gitTreeSHA: sha}
 	}
-	return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name)}
+	if found == nil {
+		return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", skill.Name)}
+	}
+	return *found, nil
 }
 
-func (s githubSourceSnapshot) files(ctx context.Context, skill githubRemoteSkill) ([]File, error) {
-	if skill.hasFiles {
-		return skill.files, nil
+func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote githubRemoteSkill) ([]File, error) {
+	if remote.hasFiles {
+		return remote.files, nil
 	}
-	blobs, _, err := githubSkillBlobs(s.entries, skill.path, s.rootTree, s.byPath)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, err
+	blobs, _, err := githubSkillBlobs(s.entries, remote.path, s.rootTree, s.byPath)
+	if err == nil {
+		var files []File
+		files, err = fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, blobs)
+		if err == nil {
+			return files, nil
 		}
+	}
+	if ctx.Err() != nil {
+		return nil, err
+	}
+	if !githubContentsUnavailable(err) {
 		return nil, githubInstallError(err)
 	}
-	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, blobs)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, err
-		}
-		return nil, githubInstallError(err)
+	if cloneErr := s.fallbackClone(ctx); cloneErr != nil {
+		return nil, cloneErr
 	}
-	return files, nil
+	relocated, locErr := s.locate(ctx, skill)
+	if locErr != nil {
+		return nil, locErr
+	}
+	return relocated.files, nil
 }
 
-var errGitHubNeedPreview = errors.New("github skill name requires SKILL.md")
+func (s *githubSourceSnapshot) fallbackClone(ctx context.Context) error {
+	if s.cloned != nil {
+		return nil
+	}
+	discovered, err := fetchGitHubClone(ctx, s.locator, "")
+	if err != nil {
+		return err
+	}
+	s.cloned = discovered.skills
+	s.ref = discovered.ref
+	return nil
+}
 
 func githubCandidateDirs(entries []githubTreeEntry, root string, byPath map[string]githubTreeEntry) []string {
 	var dirs []string
@@ -663,28 +696,6 @@ func githubCandidateDirs(entries []githubTreeEntry, root string, byPath map[stri
 	return dirs
 }
 
-func matchGitHubSkillDir(dirs []string, name string) (string, error) {
-	var named []string
-	for _, dir := range dirs {
-		if path.Base(dir) == name {
-			named = append(named, dir)
-		}
-	}
-	if len(named) == 1 {
-		return named[0], nil
-	}
-	if len(named) > 1 {
-		return "", errGitHubNeedPreview
-	}
-	if len(dirs) == 1 && dirs[0] == "." {
-		return ".", nil
-	}
-	if len(dirs) == 0 {
-		return "", &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name)}
-	}
-	return "", errGitHubNeedPreview
-}
-
 func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (string, error) {
 	if dir == "" || dir == "." {
 		if !fullCommit.MatchString(rootTree) {
@@ -703,15 +714,15 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 	return sha, nil
 }
 
-func githubSkillHasUpdate(ctx context.Context, snap githubSourceSnapshot, skill Skill) (bool, error) {
-	remote, err := snap.locate(ctx, skill.Name)
+func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill) (bool, error) {
+	remote, err := snap.locate(ctx, skill)
 	if err != nil {
 		return false, err
 	}
 	if skill.GitTreeSHA != "" && remote.gitTreeSHA != "" {
 		return skill.GitTreeSHA != remote.gitTreeSHA, nil
 	}
-	files, err := snap.files(ctx, remote)
+	files, err := snap.files(ctx, skill, remote)
 	if err != nil {
 		return false, err
 	}

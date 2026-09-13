@@ -89,7 +89,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 				case SourceLocal:
 					available = !filesEqual(skills[index].Files, localFiles)
 				case SourceGitHub:
-					available, itemErr = githubSkillHasUpdate(ctx, githubSnap, skills[index])
+					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index])
 				default:
 					selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
 					itemErr = selectErr
@@ -97,6 +97,9 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 						available = !filesEqual(skills[index].Files, selected[0].files)
 					}
 				}
+			}
+			if ctx.Err() != nil {
+				return finish(), ctx.Err()
 			}
 			if itemErr != nil {
 				results[index].Error, _ = errors.AsType[*Error](typedError(itemErr))
