@@ -13,7 +13,7 @@ import (
 )
 
 func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
-	for _, version := range []int{1, 2} {
+	for _, version := range []int{1, 2, 3} {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
 			ctx := t.Context()
 			path := filepath.Join(t.TempDir(), "library.db")
@@ -32,8 +32,12 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 				INSERT INTO groups(id, name) VALUES (1, 'first'), (2, 'second');
 				INSERT INTO skill_groups(skill_id, group_id) VALUES (1, 1), (1, 2);
 			`)
-			if version == 2 {
+			if version >= 2 {
 				editLibraryFixture(t, path, `UPDATE skill_versions SET git_tree_sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' WHERE id = 1`)
+			}
+			if version == 3 {
+				// 一行已有自定义规则,另一行缺失但被 Activation 引用,迁移须同时处理。
+				editLibraryFixture(t, path, `INSERT INTO agents(code, global_path, project_path) VALUES ('claude-code', '.custom/global', '.custom/project')`)
 			}
 			projectPath := t.TempDir()
 			editLibraryFixture(t, path, `INSERT INTO projects(id, path) VALUES (1, ?)`, projectPath)
@@ -45,7 +49,14 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 			for _, activation := range want {
 				editLibraryFixture(t, path, `INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (1, 'codex', ?, ?)`, activation.Scope.Path, activation.Individual)
 				for _, groupID := range activation.ViaGroups {
-					editLibraryFixture(t, path, `INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, 'codex', ?, ?)`, activation.Scope.Path, groupID)
+					if version == 3 {
+						editLibraryFixture(t, path, `
+							INSERT INTO activation_groups(activation_id, skill_id, agent, scope_path, group_id)
+							SELECT id, skill_id, agent, scope_path, ? FROM activations WHERE scope_path = ?
+						`, groupID, activation.Scope.Path)
+					} else {
+						editLibraryFixture(t, path, `INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, 'codex', ?, ?)`, activation.Scope.Path, groupID)
+					}
 				}
 				writeFile(t, filepath.Join(activation.Scope.Path, "example", "SKILL.md"), []byte("example\n"), 0o644)
 			}
@@ -67,7 +78,7 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 				t.Fatalf("migrated version = %#v, %v", history, err)
 			}
 			wantSHA := ""
-			if version == 2 {
+			if version >= 2 {
 				wantSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			}
 			if history.GitTreeSHA != wantSHA {
@@ -88,6 +99,8 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 			if err := lib.Close(); err != nil {
 				t.Fatal(err)
 			}
+			// 所有旧版升级后都应能接纳已有名称,重复 Open 不要求名称与种子相同。
+			editLibraryFixture(t, path, `UPDATE agents SET name = 'Custom Claude' WHERE code = 'claude-code'`)
 			reopened, err := library.Open(path)
 			if err != nil {
 				t.Fatal(err)
@@ -140,7 +153,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	// 只用 SQL 构造含全局/项目身份且缺 Agent 行的输入文件;结果仍由公开门面观察。
 	editLibraryFixture(t, path, `
 		DELETE FROM agents WHERE code = 'codex';
-		UPDATE agents SET global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
+		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
 	`)
 	editLibraryFixture(t, path, `UPDATE activations SET scope_kind = 'global' WHERE scope_path <> ?`, want[2].Scope.Path)
 	editLibraryFixture(t, path, `UPDATE activations SET scope_kind = 'project', project_id = ? WHERE scope_path = ?`, project.ID, want[2].Scope.Path)

@@ -1,6 +1,6 @@
 -- Library 的 SQLite 表结构,由 library.Open 嵌入执行。
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
--- user_version=3 增加 Agent 布局与 Scope 身份;Open 将已有 v1/v2 库迁移到当前版本。
+-- user_version=4 增加 Agent 名称;Open 将已有 v1/v2/v3 库迁移到当前版本。
 
 -- skill 的安装来源。
 CREATE TABLE IF NOT EXISTS sources (
@@ -62,9 +62,10 @@ CREATE TABLE IF NOT EXISTS projects (
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
--- Agent 的稳定代码与布局;规则分别相对用户主目录和已注册项目根,不提供修改门面。
+-- Agent 的稳定代码、展示名称与布局;规则分别相对用户主目录和已注册项目根,不提供修改门面。
 CREATE TABLE IF NOT EXISTS agents (
     code TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
     global_path TEXT NOT NULL,
     project_path TEXT NOT NULL
 );

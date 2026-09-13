@@ -28,7 +28,7 @@ func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, fun
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1/v2 库会迁移到当前 schema。
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1/v2/v3 库会迁移到当前 schema。
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {

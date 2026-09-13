@@ -13,11 +13,11 @@ import (
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 3
+	librarySchemaVersion = 4
 	agentSeedSQL         = `
-		INSERT INTO agents(code, global_path, project_path) VALUES
-			('claude-code', '.claude/skills', '.claude/skills'),
-			('codex', '.agents/skills', '.agents/skills')
+		INSERT INTO agents(code, name, global_path, project_path) VALUES
+			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
+			('codex', 'Codex', '.agents/skills', '.agents/skills')
 		ON CONFLICT(code) DO NOTHING
 	`
 )
@@ -25,7 +25,7 @@ const (
 //go:embed schema.sql
 var schemaSQL string
 
-// seedAgents 只补缺失代码,已有布局即使不同也不覆盖;库校验失败则撤销补种子。
+// seedAgents 只补缺失代码,已有名称与布局即使不同也不覆盖;库校验失败则撤销补种子。
 func seedAgents(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -132,6 +132,8 @@ func migrateLibrary(ctx context.Context, db *sql.DB) error {
 		return nil
 	case 1, 2:
 		return migrateLegacyLibrary(ctx, db, userVersion)
+	case 3:
+		return migrateLibraryV3ToV4(ctx, db)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
@@ -172,6 +174,30 @@ func migrateLegacyLibrary(ctx context.Context, db *sql.DB, version int) error {
 		`DROP TABLE activations_migrate`,
 		fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion),
 	)
+	return applySchemaMigration(ctx, db, statements)
+}
+
+// migrateLibraryV3ToV4 只为 Agent 补名称,保留已有布局及 Activation 的全部身份与分组依据。
+func migrateLibraryV3ToV4(ctx context.Context, db *sql.DB) error {
+	createSQL, err := canonicalTableSQL(ctx, "agents")
+	if err != nil {
+		return fmt.Errorf("migrate library schema: %w", err)
+	}
+	return applySchemaMigration(ctx, db, []string{
+		`CREATE TABLE agents_migrate AS SELECT code, global_path, project_path FROM agents`,
+		`DROP TABLE agents`,
+		createSQL,
+		agentSeedSQL,
+		// 先用种子提供已知 Agent 的名称,再还原旧规则;其他已存代码暂以代码作为名称。
+		`INSERT INTO agents(code, name, global_path, project_path)
+		 SELECT code, code, global_path, project_path FROM agents_migrate WHERE true
+		 ON CONFLICT(code) DO UPDATE SET global_path = excluded.global_path, project_path = excluded.project_path`,
+		`DROP TABLE agents_migrate`,
+		fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion),
+	})
+}
+
+func applySchemaMigration(ctx context.Context, db *sql.DB, statements []string) error {
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		return fmt.Errorf("migrate library schema: %w", err)
 	}

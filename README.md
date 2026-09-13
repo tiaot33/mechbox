@@ -64,14 +64,15 @@ skill, err := lib.Install(ctx, library.LocalSource{Path: "/path/to/skill"})
 
 ## 数据库
 
-[`library/schema.sql`](library/schema.sql) 通过 Go `embed` 直接用于新库初始化，因此代码与可查看的 DDL 不会形成两份事实来源。当前包含 10 张表：
+[`library/schema.sql`](library/schema.sql) 通过 Go `embed` 直接用于新库初始化，因此代码与可查看的 DDL 不会形成两份事实来源。当前包含 11 张表：
 
 - 来源和技能：`sources`、`skills`
 - 版本和内容：`skill_versions`、`blobs`、`version_files`
 - 分组：`groups`、`skill_groups`
+- Agent 配置：`agents`（稳定 `code`、展示 `name`、两段布局规则）
 - 项目和激活：`projects`、`activations`、`activation_groups`
 
-新数据库由 `library.Open` 自动初始化并写入应用标识和 schema version 3。已有 v1/v2 Library 在事务内迁移：v1 补上历史版本的 `git_tree_sha`，再增加 Agent 配置与 Activation 的全局／项目身份结构；提交前校验身份、表与索引指纹和外键。Open 只补缺失的 Agent 种子，不覆盖已有布局。当前为 expand 阶段：旧路径列与按路径激活行为保留，旧 Activation 标记为 `legacy`，路径到身份的映射及新门面由后续票完成。迁移及共用 schema 校验集中在 `library/schema.go`。
+新数据库由 `library.Open` 自动初始化并写入应用标识和 schema version 4。已有 v1/v2/v3 Library 在事务内迁移：v1 补上历史版本的 `git_tree_sha`，v1/v2 再增加 Agent 配置与 Activation 的全局／项目身份结构，v3 补上 Agent 名称并保留已有布局与激活身份；提交前校验身份、表与索引指纹和外键。Open 只补缺失的 Agent 种子，不覆盖已有名称或布局。当前为 expand 阶段：旧路径列与按路径激活行为保留，旧 Activation 标记为 `legacy`，路径到身份的映射及新门面由后续票完成。后续 ListAgents 返回可扩展的 `{Code, Name}` 结构体；Scope 继续以 code 指认 Agent。迁移及共用 schema 校验集中在 `library/schema.go`。
 
 ## 配置
 

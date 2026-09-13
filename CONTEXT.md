@@ -13,7 +13,7 @@ A package of instructions and optional resources with a root `SKILL.md`, which a
 _Avoid_: Plugin, extension, prompt / 插件、扩展、提示词
 
 **Agent · 智能体**:
-A coding agent that loads skills from directories it defines — global, and under a Registered project. The Library holds each Agent and its current layout. The user does not choose those directory names. v1 targets Claude Code and Codex only.
+A coding agent with a stable code and a display name, loading skills from its defined global and Registered project directories; changing its name does not change its identity. The Library holds each Agent and its current layout, whose directory names users do not choose; v1 targets Claude Code and Codex only.
 _Avoid_: Assistant, tool, client / 助手、工具、客户端
 
 **Library · 库**:
