@@ -479,6 +479,245 @@ func fetchGitHubSkillFiles(ctx context.Context, client *githubClient, owner, rep
 	return files, nil
 }
 
+// githubSourceSnapshot 是一次 GitHub 来源读取:API 只拿到 tree,或克隆回退后已有各 Skill 文件。
+type githubSourceSnapshot struct {
+	ref      string
+	rootTree string
+	entries  []githubTreeEntry
+	byPath   map[string]githubTreeEntry
+	owner    string
+	repo     string
+	client   *githubClient
+	cloned   []fetchedSkill
+}
+
+type githubRemoteSkill struct {
+	path       string
+	gitTreeSHA string
+	files      []File
+	hasFiles   bool
+}
+
+// readGitHubSnapshot 对同一 Source 只远程读一次 tree(或一次克隆),供检查与更新共用。
+func readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapshot, error) {
+	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
+		snap, err := fetchGitHubTreeSnapshot(ctx, owner, repo, source.Locator)
+		if err == nil {
+			return snap, nil
+		}
+		if ctx.Err() != nil {
+			return githubSourceSnapshot{}, err
+		}
+		if !githubContentsUnavailable(err) {
+			return githubSourceSnapshot{}, err
+		}
+	}
+	discovered, err := fetchGitHubClone(ctx, source.Locator, "")
+	if err != nil {
+		return githubSourceSnapshot{}, err
+	}
+	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills}, nil
+}
+
+func fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
+	client := &githubClient{token: githubToken()}
+	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
+	if err != nil {
+		return githubSourceSnapshot{}, err
+	}
+	tree, err := client.recursiveTree(ctx, owner, repo, rootTree)
+	if err != nil {
+		return githubSourceSnapshot{}, err
+	}
+	if tree.Truncated {
+		return githubSourceSnapshot{}, errGitHubContentsFallback
+	}
+	byPath := make(map[string]githubTreeEntry, len(tree.Tree))
+	for _, entry := range tree.Tree {
+		byPath[entry.Path] = entry
+	}
+	return githubSourceSnapshot{
+		ref:      commit,
+		rootTree: rootTree,
+		entries:  tree.Tree,
+		byPath:   byPath,
+		owner:    owner,
+		repo:     repo,
+		client:   client,
+	}, nil
+}
+
+func (s githubSourceSnapshot) locate(ctx context.Context, name string) (githubRemoteSkill, error) {
+	if s.cloned != nil {
+		selected, err := selectSkills(s.cloned, []string{name})
+		if err != nil {
+			return githubRemoteSkill{}, err
+		}
+		skill := selected[0]
+		return githubRemoteSkill{path: skill.preview.Path, gitTreeSHA: skill.gitTreeSHA, files: skill.files, hasFiles: true}, nil
+	}
+	dirs := githubCandidateDirs(s.entries, ".", s.byPath)
+	dir, err := matchGitHubSkillDir(dirs, name)
+	if errors.Is(err, errGitHubNeedPreview) {
+		return s.locateByPreview(ctx, name, dirs)
+	}
+	if err != nil {
+		return githubRemoteSkill{}, err
+	}
+	sha, err := githubDirTreeSHA(dir, s.rootTree, s.byPath)
+	if err != nil {
+		return githubRemoteSkill{}, githubInstallError(err)
+	}
+	return githubRemoteSkill{path: dir, gitTreeSHA: sha}, nil
+}
+
+func (s githubSourceSnapshot) locateByPreview(ctx context.Context, name string, dirs []string) (githubRemoteSkill, error) {
+	for _, dir := range dirs {
+		if err := ctx.Err(); err != nil {
+			return githubRemoteSkill{}, err
+		}
+		skillMD := "SKILL.md"
+		if dir != "." {
+			skillMD = path.Join(dir, "SKILL.md")
+		}
+		entry, ok := s.byPath[skillMD]
+		if !ok || !githubRegularBlob(entry) {
+			continue
+		}
+		content, err := s.client.blob(ctx, s.owner, s.repo, entry.SHA)
+		if err != nil {
+			if ctx.Err() != nil {
+				return githubRemoteSkill{}, err
+			}
+			return githubRemoteSkill{}, githubInstallError(err)
+		}
+		preview, err := candidateMetadata(content, dir)
+		if err != nil || preview.Name != name {
+			continue
+		}
+		sha, err := githubDirTreeSHA(dir, s.rootTree, s.byPath)
+		if err != nil {
+			return githubRemoteSkill{}, githubInstallError(err)
+		}
+		return githubRemoteSkill{path: dir, gitTreeSHA: sha}, nil
+	}
+	return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name)}
+}
+
+func (s githubSourceSnapshot) files(ctx context.Context, skill githubRemoteSkill) ([]File, error) {
+	if skill.hasFiles {
+		return skill.files, nil
+	}
+	blobs, _, err := githubSkillBlobs(s.entries, skill.path, s.rootTree, s.byPath)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		return nil, githubInstallError(err)
+	}
+	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, blobs)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		return nil, githubInstallError(err)
+	}
+	return files, nil
+}
+
+var errGitHubNeedPreview = errors.New("github skill name requires SKILL.md")
+
+func githubCandidateDirs(entries []githubTreeEntry, root string, byPath map[string]githubTreeEntry) []string {
+	var dirs []string
+	skipped := []string{}
+	isSkipped := func(dir string) bool {
+		for _, prefix := range skipped {
+			if prefix == "." || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, dir := range githubDiscoveryDirs(entries, root) {
+		if isSkipped(dir) {
+			continue
+		}
+		if dir != root && slices.Contains(discoveryExcludedDirs, path.Base(dir)) {
+			skipped = append(skipped, dir)
+			continue
+		}
+		skillMD := "SKILL.md"
+		if dir != "." {
+			skillMD = path.Join(dir, "SKILL.md")
+		}
+		entry, ok := byPath[skillMD]
+		if !ok {
+			continue
+		}
+		skipped = append(skipped, dir)
+		if !githubRegularBlob(entry) {
+			continue
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+func matchGitHubSkillDir(dirs []string, name string) (string, error) {
+	var named []string
+	for _, dir := range dirs {
+		if path.Base(dir) == name {
+			named = append(named, dir)
+		}
+	}
+	if len(named) == 1 {
+		return named[0], nil
+	}
+	if len(named) > 1 {
+		return "", errGitHubNeedPreview
+	}
+	if len(dirs) == 1 && dirs[0] == "." {
+		return ".", nil
+	}
+	if len(dirs) == 0 {
+		return "", &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name)}
+	}
+	return "", errGitHubNeedPreview
+}
+
+func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (string, error) {
+	if dir == "" || dir == "." {
+		if !fullCommit.MatchString(rootTree) {
+			return "", errGitHubContentsFallback
+		}
+		return strings.ToLower(rootTree), nil
+	}
+	entry, ok := byPath[dir]
+	if !ok || entry.Type != "tree" {
+		return "", errGitHubContentsFallback
+	}
+	sha := strings.ToLower(entry.SHA)
+	if !fullCommit.MatchString(sha) {
+		return "", errGitHubContentsFallback
+	}
+	return sha, nil
+}
+
+func githubSkillHasUpdate(ctx context.Context, snap githubSourceSnapshot, skill Skill) (bool, error) {
+	remote, err := snap.locate(ctx, skill.Name)
+	if err != nil {
+		return false, err
+	}
+	if skill.GitTreeSHA != "" && remote.gitTreeSHA != "" {
+		return skill.GitTreeSHA != remote.gitTreeSHA, nil
+	}
+	files, err := snap.files(ctx, remote)
+	if err != nil {
+		return false, err
+	}
+	return !filesEqual(skill.Files, files), nil
+}
+
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;失败不入库,由调用方保留句柄。
 func materializeGitHubSkills(ctx context.Context, owner, repo string, skills []fetchedSkill) error {
 	client := &githubClient{token: githubToken()}

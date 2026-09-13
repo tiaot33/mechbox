@@ -655,15 +655,23 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		return UpdateResult{}, err
 	}
 	persistedSHA := skill.GitTreeSHA
-	latest, err := readUpdate(ctx, skill)
+	changed := false
+	backfillSHA := ""
+	if skill.Source.Type == SourceGitHub {
+		skill, changed, backfillSHA, err = readGitHubUpdate(ctx, skill)
+	} else {
+		var latest Skill
+		latest, err = readUpdate(ctx, skill)
+		if err == nil {
+			changed = !filesEqual(skill.Files, latest.Files)
+			skill = latest
+			if !changed {
+				skill.GitTreeSHA = persistedSHA
+			}
+		}
+	}
 	if err != nil {
 		return UpdateResult{}, err
-	}
-	changed := !filesEqual(skill.Files, latest.Files)
-	skill = latest
-	if !changed {
-		// 内容未变则不改已有版本的 git_tree_sha;是否有更新仍只比较文件与可执行位。
-		skill.GitTreeSHA = persistedSHA
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -678,6 +686,14 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
 			return UpdateResult{}, fmt.Errorf("select current version: %w", err)
 		}
+	} else if backfillSHA != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE skill_versions SET git_tree_sha = ?
+			WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
+		`, backfillSHA, id); err != nil {
+			return UpdateResult{}, fmt.Errorf("backfill git tree sha: %w", err)
+		}
+		skill.GitTreeSHA = backfillSHA
 	}
 	if skill.Source.Type != SourceLocal {
 		if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`,
@@ -691,7 +707,45 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	return UpdateResult{Skill: skill, Changed: changed, Note: "已激活的副本未重写,可能落后于 Library;需要时请重新激活。"}, nil
 }
 
-// readUpdate 读取目标 skill 的最新来源内容,不持久化来源状态。
+// readGitHubUpdate 按目录 tree SHA 决定是否取文件;SHA 相同不取 blob、不克隆(API 可用时)。
+// 第三个返回值是文件未变时要补写到当前版本的 SHA,空串表示不必补写。
+func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, string, error) {
+	snap, err := readGitHubSnapshot(ctx, skill.Source)
+	if err != nil {
+		return Skill{}, false, "", err
+	}
+	remote, err := snap.locate(ctx, skill.Name)
+	if err != nil {
+		return Skill{}, false, "", err
+	}
+	persistedSHA := skill.GitTreeSHA
+	shaKnown := persistedSHA != "" && remote.gitTreeSHA != ""
+	changed := shaKnown && persistedSHA != remote.gitTreeSHA
+	if !shaKnown || changed {
+		files, err := snap.files(ctx, remote)
+		if err != nil {
+			return Skill{}, false, "", err
+		}
+		if !shaKnown {
+			changed = !filesEqual(skill.Files, files)
+		}
+		skill.Files = files
+	}
+	skill.GitTreeSHA = remote.gitTreeSHA
+	skill.Source.LastSeenRef = snap.ref
+	skill.Source.LastFetched = time.Now().UTC()
+	backfillSHA := ""
+	if !changed {
+		if persistedSHA == "" && remote.gitTreeSHA != "" {
+			backfillSHA = remote.gitTreeSHA
+		} else {
+			skill.GitTreeSHA = persistedSHA
+		}
+	}
+	return skill, changed, backfillSHA, nil
+}
+
+// readUpdate 读取目标 skill 的最新来源内容,不持久化来源状态。GitHub 走 readGitHubUpdate。
 func readUpdate(ctx context.Context, skill Skill) (Skill, error) {
 	var err error
 	var files []File
@@ -884,6 +938,13 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return false, err
+	}
+	if skill.Source.Type == SourceGitHub {
+		snap, err := readGitHubSnapshot(ctx, skill.Source)
+		if err != nil {
+			return false, err
+		}
+		return githubSkillHasUpdate(ctx, snap, skill)
 	}
 	latest, err := readUpdate(ctx, skill)
 	if err != nil {
