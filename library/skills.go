@@ -227,7 +227,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 		}
 		for _, activation := range activations {
 			if activation.SkillID == id {
-				if err := l.removeProjectedCopy(ctx, id, activation.Scope); err != nil {
+				if err := l.removeProjectedCopy(ctx, id, activation.Directory); err != nil {
 					return err
 				}
 			}

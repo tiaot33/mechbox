@@ -3,6 +3,7 @@ package library_test
 import (
 	"archive/zip"
 	"bytes"
+	"database/sql"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,13 @@ import (
 
 	"github.com/tiaot33/skills-tui/library"
 )
+
+func seededAgents() []library.Agent {
+	return []library.Agent{
+		{Code: library.AgentClaudeCode, Name: "Claude Code"},
+		{Code: library.AgentCodex, Name: "Codex"},
+	}
+}
 
 func skillIDs(skills []library.Skill) []library.SkillID {
 	ids := make([]library.SkillID, len(skills))
@@ -88,6 +96,19 @@ func commitGit(t *testing.T, repository, message string) {
 	t.Helper()
 	runGit(t, repository, "add", ".")
 	runGit(t, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message)
+}
+
+// editLibraryFixture 用 SQL 直接改写一个已关闭的库文件,只用于构造测试输入;断言仍须经公开门面。
+func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(t.Context(), statement, args...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func openTestLibrary(t *testing.T) library.Library {

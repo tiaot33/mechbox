@@ -38,8 +38,8 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			_, err := lib.CheckUpdate(t.Context(), 9999)
 			return err
 		}},
-		{name: "list scopes", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
-			_, err := lib.ListScopes(t.Context())
+		{name: "list registered projects", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+			_, err := lib.ListRegisteredProjects(t.Context())
 			return err
 		}},
 		{name: "list collections", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {

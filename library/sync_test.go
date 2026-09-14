@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -86,6 +87,8 @@ func newS3Stub(t *testing.T) *s3Stub {
 func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
+	oldHome := filepath.Join(t.TempDir(), "old-home")
+	t.Setenv("HOME", oldHome)
 	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeFile(t, filepath.Join(originalSource, "SKILL.md"), []byte("original\n"), 0o644)
@@ -112,13 +115,11 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectScope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(project.Path, ".codex", "skills")}
+	projectScope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
 	if err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	oldHome := filepath.Join(t.TempDir(), "old-home")
-	t.Setenv("HOME", oldHome)
-	globalScope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(oldHome, ".codex", "skills")}
+	globalScope := library.GlobalScope{Agent: library.AgentCodex}
 	if err := lib.Activate(ctx, original.ID, globalScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -213,16 +214,137 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if len(projects) != 1 || projects[0].Path != newProjectPath {
 		t.Fatalf("projects after pull = %#v", projects)
 	}
+	// Activation 只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
+	// 不携带上一台机器的绝对路径。
 	activations, err := lib.ListActivations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	activationPaths := map[string]bool{}
-	for _, activation := range activations {
-		activationPaths[activation.Scope.Path] = true
+	wantActivations := []library.Activation{
+		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Individual: true},
+		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), ViaGroups: []library.GroupID{group.ID}},
 	}
-	if len(activations) != 2 || !activationPaths[filepath.Join(newProjectPath, ".codex", "skills")] || !activationPaths[filepath.Join(newHome, ".codex", "skills")] {
-		t.Fatalf("activations after pull = %#v", activations)
+	if !reflect.DeepEqual(activations, wantActivations) {
+		t.Fatalf("activations after pull = %#v, want %#v", activations, wantActivations)
+	}
+	for _, want := range wantActivations {
+		if dir, err := lib.Resolve(ctx, want.Scope); err != nil || dir != want.Directory {
+			t.Fatalf("Resolve(%#v) after pull = %q, %v; want %q", want.Scope, dir, err, want.Directory)
+		}
+	}
+}
+
+// 映射只按拉回库里记录的原路径查一次,不会把已改写的结果再拿去匹配:
+// {A→B, B→C} 下 A 的项目落在 B、B 的项目落在 C,与 map 迭代顺序无关(重复 pull 给随机性多次机会)。
+// 目标 C 有意不在磁盘上创建:项目路径是 advisory 值,重映射不校验目标目录存在。
+func TestSyncPullRemapsEachProjectOnceByItsOriginalPath(t *testing.T) {
+	newS3Stub(t)
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	roots := make([]string, 3)
+	for i := range roots {
+		roots[i] = filepath.Join(t.TempDir(), "project")
+	}
+	pathA, pathB, pathC := roots[0], roots[1], roots[2]
+	for _, root := range []string{pathA, pathB} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectA, err := lib.RegisterProject(ctx, pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectB, err := lib.RegisterProject(ctx, pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	mapping, _ := json.Marshal(map[string]string{projectA.Path: projectB.Path, projectB.Path: pathC})
+	t.Setenv("SKILLS_PROJECT_PATH_MAP", string(mapping))
+
+	for range 5 {
+		preview, err := lib.PreviewSyncPull(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := lib.SyncPull(ctx, preview.Remote); err != nil {
+			t.Fatal(err)
+		}
+		projects, err := lib.ListRegisteredProjects(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantProjects := []library.RegisteredProject{{ID: projectA.ID, Path: projectB.Path}, {ID: projectB.ID, Path: pathC}}
+		if !reflect.DeepEqual(projects, wantProjects) {
+			t.Fatalf("projects after chained remap = %#v, want %#v", projects, wantProjects)
+		}
+		for _, want := range []struct {
+			scope library.ProjectScope
+			dir   string
+		}{
+			{library.ProjectScope{Agent: library.AgentCodex, ProjectID: projectA.ID}, filepath.Join(projectB.Path, ".agents", "skills")},
+			{library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: projectB.ID}, filepath.Join(pathC, ".claude", "skills")},
+		} {
+			if dir, err := lib.Resolve(ctx, want.scope); err != nil || dir != want.dir {
+				t.Fatalf("Resolve(%#v) after pull = %q, %v; want %q", want.scope, dir, err, want.dir)
+			}
+		}
+	}
+}
+
+// 映射成环(A↔B 互换)或把目标指向仍被其他项目占着的路径是配置错误:
+// pull 返回 InvalidArgument,本地库保持拉取前状态。
+func TestSyncPullRejectsCyclicProjectPathMappingWithoutTouchingLocalLibrary(t *testing.T) {
+	newS3Stub(t)
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	pathA := filepath.Join(t.TempDir(), "project")
+	pathB := filepath.Join(t.TempDir(), "project")
+	for _, root := range []string{pathA, pathB} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectA, err := lib.RegisterProject(ctx, pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectB, err := lib.RegisterProject(ctx, pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	// 拉取前本地库继续演进:成功的 pull 会把它替换掉,失败的 pull 必须原样保留。
+	localSource := filepath.Join(t.TempDir(), "local-only")
+	writeFile(t, filepath.Join(localSource, "SKILL.md"), []byte("local\n"), 0o644)
+	if _, err := lib.Install(ctx, library.LocalSource{Path: localSource}); err != nil {
+		t.Fatal(err)
+	}
+	mapping, _ := json.Marshal(map[string]string{projectA.Path: projectB.Path, projectB.Path: projectA.Path})
+	t.Setenv("SKILLS_PROJECT_PATH_MAP", string(mapping))
+
+	preview, err := lib.PreviewSyncPull(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.SyncPull(ctx, preview.Remote); !library.IsCode(err, library.InvalidArgument) {
+		t.Fatalf("SyncPull() with cyclic mapping = %v, want InvalidArgument", err)
+	}
+	skills, err := lib.ListSkills(ctx)
+	if err != nil || len(skills) != 1 || skills[0].Name != "local-only" {
+		t.Fatalf("rejected pull replaced local library: %#v, %v", skills, err)
+	}
+	projects, err := lib.ListRegisteredProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []library.RegisteredProject{projectA, projectB}; !reflect.DeepEqual(projects, want) {
+		t.Fatalf("rejected pull changed projects: %#v, want %#v", projects, want)
 	}
 }
 

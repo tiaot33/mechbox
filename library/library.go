@@ -4,14 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type sqliteLibrary struct {
-	db *sql.DB
-	mu sync.RWMutex
+	db   *sql.DB
+	home string // Open 时的用户主目录;全局 Scope 全程按它解析,不跟随后续 $HOME 变化
+	mu   sync.RWMutex
 
 	fetchMu sync.Mutex
 	fetches map[FetchID]*fetchSession
@@ -28,7 +30,15 @@ func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, fun
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1 库会迁移到当前 schema。
+func (l *sqliteLibrary) writeOperation(ctx context.Context) (context.Context, func()) {
+	if ctx.Value(libraryOperationKey{}) == l {
+		return ctx, func() {}
+	}
+	l.mu.Lock()
+	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
+}
+
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v4 库会迁移到当前 schema。
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -44,26 +54,31 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("inspect library: %w", err)
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open library: find home directory: %w", err)
+	}
 	if tableCount > 0 {
-		if err := migrateLibrary(context.Background(), db); err != nil {
+		if err := migrateLibrary(context.Background(), db, home); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("open library: %w", err)
 		}
-		if err := validateLibrarySchema(context.Background(), db); err != nil {
+	} else {
+		if _, err := db.Exec(schemaSQL); err != nil {
 			_ = db.Close()
-			return nil, fmt.Errorf("open library: %w", err)
+			return nil, fmt.Errorf("initialize library: %w", err)
 		}
-		return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
+		if _, err := db.Exec(fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, libraryApplicationID, librarySchemaVersion)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("identify library: %w", err)
+		}
 	}
-	if _, err := db.Exec(schemaSQL); err != nil {
+	if err := seedAgents(context.Background(), db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("initialize library: %w", err)
+		return nil, fmt.Errorf("open library: %w", err)
 	}
-	if _, err := db.Exec(fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, libraryApplicationID, librarySchemaVersion)); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("identify library: %w", err)
-	}
-	return &sqliteLibrary{db: db, fetches: map[FetchID]*fetchSession{}}, nil
+	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}}, nil
 }
 
 func (l *sqliteLibrary) Close() error {

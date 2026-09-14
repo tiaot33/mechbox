@@ -22,7 +22,7 @@ Go module。后端核心是 `library` 包 —— 未来 TUI 之下的完整进�
 
 ### Ecosystem background
 
-涉及 Skill 格式、Agent 发现/调用、Scope 路径或同名行为时，先读 [Agent Skills 背景](docs/agents/agent-skills-background.md)；不熟悉生态时也从这里开始。产品集成边界与实现差异见 [ADR 0001](docs/adr/0001-sqlite-as-the-library.md)。
+涉及 Skill 格式、Agent 发现/调用、Agent 发现目录或同名行为时，先读 [Agent Skills 背景](docs/agents/agent-skills-background.md)；不熟悉生态时也从这里开始。产品集成边界与实现差异见 [ADR 0001](docs/adr/0001-sqlite-as-the-library.md)。
 
 ### Issue tracker
 

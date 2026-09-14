@@ -173,6 +173,7 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 
 	ctx := t.Context()
@@ -209,7 +210,11 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	if err := lib.AddSkillToGroup(t.Context(), group.ID, installed[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	scope := library.Scope{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")}
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +225,7 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	if err != nil || len(activations) != 0 {
 		t.Fatalf("activations after remote removal = %#v, %v; want none", activations, err)
 	}
-	if _, err := os.Stat(filepath.Join(scope.Path, installed[0].Name, "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(directory, installed[0].Name, "SKILL.md")); err != nil {
 		t.Fatalf("default Keep removed remote projection: %v", err)
 	}
 	remaining, err := lib.ListSkills(t.Context())

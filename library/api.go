@@ -215,19 +215,43 @@ type Group struct {
 	Name string  `json:"name"`
 }
 
-// Agent 是投影的目标 agent。
-type Agent string
+// AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
+type AgentCode string
 
 const (
-	AgentClaudeCode Agent = "claude-code"
-	AgentCodex      Agent = "codex"
+	AgentClaudeCode AgentCode = "claude-code"
+	AgentCodex      AgentCode = "codex"
 )
 
-// Scope 是一个投影目标:哪个 agent 的哪个 skills 目录。
-type Scope struct {
-	Agent Agent  `json:"agent"`
-	Path  string `json:"path"`
+// Agent 是 Library 持有的一个投影目标 agent。暴露稳定代码与展示名称;布局规则与
+// 绝对目录不出现在这里,目录由 Library 按现行布局算出,调用方不自行拼路径。
+type Agent struct {
+	Code AgentCode `json:"code"`
+	Name string    `json:"name"`
 }
+
+// Scope 是投影所在的层级身份:GlobalScope 或 ProjectScope 之一,不含路径(见 ADR 0011)。
+// 目录由 Library 按该 Agent 的现行布局算出(见 Resolve),调用方不自行拼路径,也无法
+// 传入一条目录来 Activate。密封接口:只有本包的两种 Scope 类型能实现它。
+// 作为接口字段它可以 marshal,但 JSON 没有种类判别符、无法直接 unmarshal;
+// RPC 边界(ADR 0008)需要时自行加判别符。
+type Scope interface {
+	sealedScope()
+}
+
+// GlobalScope 是某个 Agent 的全局 Scope:目录相对用户主目录。
+type GlobalScope struct {
+	Agent AgentCode `json:"agent"`
+}
+
+// ProjectScope 是某个 Agent 在某个 Registered project 下的 Scope:目录相对项目根。
+type ProjectScope struct {
+	Agent     AgentCode `json:"agent"`
+	ProjectID ProjectID `json:"project_id"`
+}
+
+func (GlobalScope) sealedScope()  {}
+func (ProjectScope) sealedScope() {}
 
 // ConflictPolicy 决定激活时目标目录已存在的处理方式。
 type ConflictPolicy string
@@ -242,9 +266,12 @@ type ActivateOptions struct {
 }
 
 // Activation 是一条投影记录:某 skill 出现在某个 Scope 里,以及它的保留依据。
+// 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,只供对照磁盘,
+// 不是 Activate 的输入(Activate 也不接受目录)。
 type Activation struct {
 	SkillID    SkillID   `json:"skill_id"`
 	Scope      Scope     `json:"scope"`
+	Directory  string    `json:"directory"`
 	Individual bool      `json:"individual"`           // 存在独立(非分组)激活
 	ViaGroups  []GroupID `json:"via_groups,omitempty"` // 经由哪些分组激活
 }
@@ -256,8 +283,8 @@ type Collection struct {
 	Skills []SkillSummary `json:"skills"`
 }
 
-// RegisteredProject 是已注册的项目目录;注册后其 .claude/skills 与
-// .codex/skills 成为可投影的 Scope。
+// RegisteredProject 是已注册的项目目录;注册后它与每个 Agent 组成一个 ProjectScope,
+// 目录由该 Agent 的项目级布局算出。
 type RegisteredProject struct {
 	ID   ProjectID `json:"id"`
 	Path string    `json:"path"`
@@ -370,16 +397,25 @@ type Library interface {
 
 	// 项目与 Scope
 
-	// RegisterProject 注册一个项目目录,使其 skills 目录成为可投影 Scope。
+	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
+	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,门面上没有增删改 Agent 的方法。
+	ListAgents(ctx context.Context) ([]Agent, error)
+	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可投影的 ProjectScope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
 	ListRegisteredProjects(ctx context.Context) ([]RegisteredProject, error)
-	// UnregisterProject 注销项目并清掉其 Scope 下的全部投影记录;
+	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部投影记录;
 	// opts 决定磁盘投影副本的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
-	// ListScopes 列出全部可投影 Scope:两个 agent 的全局目录 + 各注册项目的目录。
-	ListScopes(ctx context.Context) ([]Scope, error)
+	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
+	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生 Activation。
+	// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
+	// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
+	Resolve(ctx context.Context, scope Scope) (string, error)
 
 	// 激活(投影)
+	//
+	// 四个方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
+	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
 	// Activate 把 skill 投影到 Scope,记为独立激活。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
@@ -389,7 +425,7 @@ type Library interface {
 	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
 	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
-	// ListActivations 列出全部投影记录及各自的保留依据。
+	// ListActivations 列出全部投影记录:Scope 身份、按现行布局派生的目录及各自的保留依据。
 	ListActivations(ctx context.Context) ([]Activation, error)
 
 	// 浏览

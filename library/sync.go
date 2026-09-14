@@ -2,7 +2,6 @@ package library
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -13,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -118,6 +118,12 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// 拉库后按本机 $HOME 解释全局 Scope,与「换机器再 Open」一致。
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return SyncResult{}, fmt.Errorf("sync pull: find home directory: %w", err)
+	}
+	l.home = home
 	if err := backupDatabase(ctx, l.db, check); err != nil {
 		return SyncResult{}, err
 	}
@@ -271,137 +277,89 @@ func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
 	})
 }
 
+// remapProjectPaths 按 SKILLS_PROJECT_PATH_MAP 把拉回库里 Registered project 的路径改成本机路径。
+// 只改 projects 表:Activation 只记 Scope 身份,拉库后目录一律按本机 $HOME / 映射后的项目根 Resolve,
+// 不再改写任何绝对路径(见 ADR 0011)。
+//
+// 每个项目只按它在拉回库里记录的原路径查一次映射、按 id 改写,已改写的结果不再参与匹配,
+// 因此 {A→B, B→C} 确定地得到 A 的项目落在 B、B 的项目落在 C。改写顺序先在内存里按
+// 「目标路径尚未被占用」推演好再落盘;目标被不会迁走的项目占着、两个项目指向同一路径或
+// 映射成环(A↔B 互换)都是配置错误,返回 InvalidArgument 并回滚,不留下一半改写。
 func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 	paths := map[string]string{}
 	if raw != "" {
 		if err := json.Unmarshal([]byte(raw), &paths); err != nil {
-			return fmt.Errorf("decode SKILLS_PROJECT_PATH_MAP: %w", err)
+			return &Error{Code: InvalidArgument, Message: "decode SKILLS_PROJECT_PATH_MAP: " + err.Error(), Err: err}
 		}
 	}
-	projectRows, err := db.QueryContext(ctx, `SELECT path FROM projects`)
-	if err != nil {
-		return err
-	}
-	var remoteProjects []string
-	for projectRows.Next() {
-		var path string
-		if err := projectRows.Scan(&path); err != nil {
-			_ = projectRows.Close()
-			return err
-		}
-		remoteProjects = append(remoteProjects, path)
-	}
-	if err := projectRows.Err(); err != nil {
-		_ = projectRows.Close()
-		return err
-	}
-	if err := projectRows.Close(); err != nil {
-		return err
-	}
-	oldPaths := make([]string, 0, len(paths))
 	for old, newPath := range paths {
 		if old == "" || newPath == "" {
-			return fmt.Errorf("project path mapping cannot be empty")
+			return &Error{Code: InvalidArgument, Message: "SKILLS_PROJECT_PATH_MAP: project path mapping cannot be empty"}
 		}
 		absolute, err := filepath.Abs(newPath)
 		if err != nil {
 			return err
 		}
 		paths[old] = filepath.Clean(absolute)
-		oldPaths = append(oldPaths, old)
 	}
-	slices.SortFunc(oldPaths, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
-		return err
-	}
-	for _, old := range oldPaths {
-		if _, err := tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE path = ?`, paths[old], old); err != nil {
-			return err
-		}
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT skill_id, agent, scope_path FROM activations`)
+	// current 是拉回库里每个项目的当前路径;pending 是尚待改写的项目及其目标路径。
+	current := map[ProjectID]string{}
+	pending := map[ProjectID]string{}
+	rows, err := tx.QueryContext(ctx, `SELECT id, path FROM projects`)
 	if err != nil {
 		return err
 	}
-	type activationPath struct {
-		skillID SkillID
-		agent   Agent
-		path    string
-	}
-	var activations []activationPath
 	for rows.Next() {
-		var activation activationPath
-		if err := rows.Scan(&activation.skillID, &activation.agent, &activation.path); err != nil {
+		var id ProjectID
+		var path string
+		if err := rows.Scan(&id, &path); err != nil {
 			_ = rows.Close()
 			return err
 		}
-		activations = append(activations, activation)
+		current[id] = path
+		if newPath, ok := paths[path]; ok && newPath != path {
+			pending[id] = newPath
+		}
 	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return err
 	}
-	if err := rows.Close(); err != nil {
-		return err
+	occupied := map[string]bool{}
+	for _, path := range current {
+		occupied[path] = true
 	}
-	for _, activation := range activations {
-		mapped := activation.path
-		for _, old := range oldPaths {
-			if candidate, ok := remapPath(activation.path, old, paths[old]); ok {
-				mapped = candidate
-				break
+	var order []ProjectID
+	for len(pending) > 0 {
+		progressed := false
+		for _, id := range slices.Sorted(maps.Keys(pending)) {
+			if occupied[pending[id]] {
+				continue
 			}
+			delete(occupied, current[id])
+			occupied[pending[id]] = true
+			order = append(order, id)
+			delete(pending, id)
+			progressed = true
 		}
-		if mapped == activation.path && !isProjectScope(activation.path, remoteProjects) {
-			switch activation.agent {
-			case AgentClaudeCode:
-				mapped = filepath.Join(home, ".claude", "skills")
-			case AgentCodex:
-				mapped = filepath.Join(home, ".codex", "skills")
+		if !progressed {
+			var stuck []string
+			for _, id := range slices.Sorted(maps.Keys(pending)) {
+				stuck = append(stuck, current[id]+" -> "+pending[id])
 			}
+			return &Error{Code: InvalidArgument, Message: "SKILLS_PROJECT_PATH_MAP: target path still held by another registered project (occupied target or cyclic mapping): " + strings.Join(stuck, ", ")}
 		}
-		if mapped != activation.path {
-			if _, err := tx.ExecContext(ctx, `UPDATE activation_groups SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE activations SET scope_path = ? WHERE skill_id = ? AND agent = ? AND scope_path = ?`, mapped, activation.skillID, activation.agent, activation.path); err != nil {
-				return err
-			}
+	}
+	for _, id := range order {
+		if _, err := tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE id = ?`, paths[current[id]], id); err != nil {
+			return err
 		}
 	}
 	return tx.Commit()
-}
-
-func isProjectScope(path string, projects []string) bool {
-	for _, project := range projects {
-		if _, ok := remapPath(path, project, project); ok {
-			return true
-		}
-	}
-	return false
-}
-
-func remapPath(path, old, newPath string) (string, bool) {
-	if path == old {
-		return newPath, true
-	}
-	for _, separator := range []string{"/", `\`} {
-		if strings.HasPrefix(path, old+separator) {
-			relative := strings.ReplaceAll(path[len(old)+1:], `\`, "/")
-			return filepath.Join(newPath, filepath.FromSlash(relative)), true
-		}
-	}
-	return path, false
 }
 
 // s3Request 发起一次已签名的 S3 请求,返回响应体与对象的 ETag(远端身份)。

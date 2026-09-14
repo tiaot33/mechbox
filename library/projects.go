@@ -7,6 +7,29 @@ import (
 	"path/filepath"
 )
 
+func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
+	ctx, unlock := l.readOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// 只读取稳定代码与展示名称;布局规则留在表里,由解析与投影内部使用。
+	rows, err := l.db.QueryContext(ctx, `SELECT code, name FROM agents ORDER BY code`)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var agent Agent
+		if err := rows.Scan(&agent.Code, &agent.Name); err != nil {
+			return nil, fmt.Errorf("read agent: %w", err)
+		}
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read agents: %w", err)
+	}
+	return agents, nil
+}
+
 func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
@@ -71,13 +94,6 @@ func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []
 	return projects, nil
 }
 
-func projectScopes(path string) []Scope {
-	return []Scope{
-		{Agent: AgentClaudeCode, Path: filepath.Join(path, ".claude", "skills")},
-		{Agent: AgentCodex, Path: filepath.Join(path, ".codex", "skills")},
-	}
-}
-
 func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
@@ -89,18 +105,15 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
-	scopes := projectScopes(path)
 	if opts.ProjectedCopies == Remove {
 		activations, err := l.ListActivations(ctx)
 		if err != nil {
 			return err
 		}
 		for _, activation := range activations {
-			for _, scope := range scopes {
-				if activation.Scope == scope {
-					if err := l.removeProjectedCopy(ctx, activation.SkillID, scope); err != nil {
-						return err
-					}
+			if project, ok := activation.Scope.(ProjectScope); ok && project.ProjectID == id {
+				if err := l.removeProjectedCopy(ctx, activation.SkillID, activation.Directory); err != nil {
+					return err
 				}
 			}
 		}
@@ -110,10 +123,8 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		return fmt.Errorf("begin unregister project: %w", err)
 	}
 	defer tx.Rollback()
-	for _, scope := range scopes {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE agent = ? AND scope_path = ?`, scope.Agent, scope.Path); err != nil {
-			return fmt.Errorf("remove project activations: %w", err)
-		}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("unregister project: %w", err)
@@ -124,31 +135,50 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	return nil
 }
 
-func (l *sqliteLibrary) ListScopes(ctx context.Context) (scopes []Scope, err error) {
+func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory string, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	home, err := os.UserHomeDir()
+	row, ok := scopeOf(scope)
+	if !ok {
+		return "", &Error{Code: InvalidArgument, Message: "resolve scope: scope is required"}
+	}
+	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
+	layout, err := l.agentLayout(ctx, row.agent)
 	if err != nil {
-		return nil, typedError(fmt.Errorf("find home directory: %w", err))
+		return "", err
 	}
-	scopes = []Scope{
-		{Agent: AgentClaudeCode, Path: filepath.Join(home, ".claude", "skills")},
-		{Agent: AgentCodex, Path: filepath.Join(home, ".codex", "skills")},
+	if row.projectID == nil {
+		return layout.globalDir(l.home), nil
 	}
-	projects, err := l.ListRegisteredProjects(ctx)
-	if err != nil {
-		return nil, err
+	var root string
+	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, *row.projectID).Scan(&root); err != nil {
+		return "", fmt.Errorf("get registered project: %w", err)
 	}
-	for _, project := range projects {
-		scopes = append(scopes, projectScopes(project.Path)...)
-	}
-	return scopes, nil
+	return layout.projectDir(root), nil
 }
 
-func validateScope(scope Scope) error {
-	if scope.Path == "" || (scope.Agent != AgentClaudeCode && scope.Agent != AgentCodex) {
-		return fmt.Errorf("invalid scope")
+// agentLayout 是 agents 表里一个 Agent 的两段布局规则,均为斜杠分隔的相对路径。
+type agentLayout struct {
+	global  string // 相对用户主目录
+	project string // 相对 Registered project 根
+}
+
+// globalDir 是该布局下全局 Scope 在 home 里的目录。
+func (layout agentLayout) globalDir(home string) string {
+	return filepath.Join(home, filepath.FromSlash(layout.global))
+}
+
+// projectDir 是该布局下项目 Scope 在项目根 root 里的目录。
+func (layout agentLayout) projectDir(root string) string {
+	return filepath.Join(root, filepath.FromSlash(layout.project))
+}
+
+// agentLayout 读取该 Agent 行的布局规则;代码不存在时错误经 typedError 变为 NotFound。
+func (l *sqliteLibrary) agentLayout(ctx context.Context, code AgentCode) (agentLayout, error) {
+	var layout agentLayout
+	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&layout.global, &layout.project); err != nil {
+		return agentLayout{}, fmt.Errorf("get agent: %w", err)
 	}
-	return nil
+	return layout, nil
 }

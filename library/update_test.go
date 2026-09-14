@@ -20,6 +20,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 		commitGit(t, repository, "source state")
 	}
 	writeSource("old", "old")
+	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
 	if err != nil {
@@ -31,10 +32,14 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	first, second := skills[0], skills[1]
 	scopes := []library.Scope{
-		{Agent: library.AgentCodex, Path: filepath.Join(t.TempDir(), "skills")},
-		{Agent: library.AgentClaudeCode, Path: filepath.Join(t.TempDir(), "skills")},
+		library.GlobalScope{Agent: library.AgentCodex},
+		library.GlobalScope{Agent: library.AgentClaudeCode},
 	}
-	for _, scope := range scopes {
+	directories := make([]string, len(scopes))
+	for i, scope := range scopes {
+		if directories[i], err = lib.Resolve(ctx, scope); err != nil {
+			t.Fatal(err)
+		}
 		if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -79,8 +84,8 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %v, %v", versions, err)
 	}
-	for _, scope := range scopes {
-		content, err := os.ReadFile(filepath.Join(scope.Path, first.Name, "SKILL.md"))
+	for _, directory := range directories {
+		content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
 		if err != nil || string(content) != skillDocument("first", "old") {
 			t.Fatalf("projection changed: %q, %v", content, err)
 		}
