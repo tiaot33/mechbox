@@ -28,7 +28,4 @@ go mod download
 go mod verify
 go build ./...
 
-# 部署测试用种子固件(本地 skills + 项目文件夹)到可写沙盒，方便后续手动测试。
-"$(dirname "${BASH_SOURCE[0]}")/seed-sandbox.sh"
-
 echo "Cloud Agent environment ready."
