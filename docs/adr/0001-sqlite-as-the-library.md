@@ -29,6 +29,6 @@ Agent 消费的是含 `SKILL.md` 的目录，并按“元数据发现 → 正文
 以下是文档与现有实现的对照，不代表已完成兼容性修复：
 
 - **Codex 发现路径已改为现行 `.agents/skills`，旧目录不迁移。** Agent 布局由 Library 的 `agents` 表持有并以身份 Scope 解析（见 [ADR 0011](0011-scope-is-identity-not-path.md)）；Codex 种子为 `$HOME/.agents/skills` 与项目 `.agents/skills`。打开旧库时以 `.codex/skills` 记录的 Activation 会被认成对应身份，但此前投到 `.codex/skills` 里的文件夹不会被搬迁或删除，需用户重新 Activate 才落到现行目录。旧路径是否仍被目标 Codex 版本发现尚未确认。
-- **格式说明不等于完整规范校验。** [source_fetch.go](../../library/source_fetch.go) 的候选解析检查 YAML 与安全名称，允许缺少 `description`，未要求名称等于父目录名；本地 Install 的行为也不等同于严格 frontmatter 验证。背景文档记录的必填项、长度与命名约束是开放规范要求，不能据此宣称 Library 已完整执行这些校验。
+- **格式说明不等于完整规范校验。** [source_fetch.go](../../library/source_fetch.go) 的候选解析检查 YAML 与安全名称，按 #59 要求 `description` 为必填字符串，未要求名称等于父目录名；本地 Install 的行为也不等同于严格 frontmatter 验证。背景文档记录的必填项、长度与命名约束是开放规范要求，不能据此宣称 Library 已完整执行这些校验。
 
 本次补充记录生态背景与已有设计边界；路径迁移和校验策略的实现需另行处理。

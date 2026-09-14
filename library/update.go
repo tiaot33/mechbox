@@ -65,7 +65,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	return UpdateResult{Skill: skill, Changed: changed, Note: "已激活的副本未重写,可能落后于 Library;需要时请重新激活。"}, nil
 }
 
-// readGitHubUpdate 按目录 tree SHA 决定是否取文件;SHA 相同不取 blob、不克隆(API 可用时)。
+// readGitHubUpdate 发现候选后按目录 tree SHA 决定是否取完整文件;SHA 相同只读发现元数据。
 func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, error) {
 	snap, err := l.readGitHubSnapshot(ctx, skill.Source)
 	if err != nil {

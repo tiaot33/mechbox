@@ -67,7 +67,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
 		t.Fatalf("unchanged CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubTreeOnly(t, api)
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	current, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || !reflect.DeepEqual(current, before) {
 		t.Fatalf("check wrote Library: %#v, %v", current, err)
@@ -87,7 +87,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
 		t.Fatalf("unrelated path second CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubTreeOnly(t, api)
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	stale, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || stale.Source.LastSeenRef != fx.commit {
 		t.Fatalf("check refreshed last_seen_ref: %#v, %v", stale, err)
@@ -106,7 +106,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("unchanged Update created version: %#v, %v", versions, err)
 	}
-	assertGitHubTreeOnly(t, api)
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 
 	writeFile(t, filepath.Join(repo, "first", "SKILL.md"), []byte(skillDocument("first", "updated body")), 0o644)
 	writeFile(t, filepath.Join(repo, "first", "scripts", "run"), []byte{9, 8, 7}, 0o755)
@@ -225,7 +225,7 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, bar.ID); err != nil || available {
 		t.Fatalf("bar CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubTreeOnly(t, api)
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 
 	writeFile(t, filepath.Join(repo, "foo", "SKILL.md"), []byte(skillDocument("bar", "changed bar")), 0o644)
 	commitGit(t, repo, "change directory foo")
@@ -235,7 +235,7 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, foo.ID); err != nil || available {
 		t.Fatalf("unchanged skill foo CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubTreeOnly(t, api)
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	api.Reset()
 	if available, err := lib.CheckUpdate(ctx, bar.ID); err != nil || !available {
 		t.Fatalf("changed skill bar CheckUpdate = %v, %v", available, err)
@@ -310,7 +310,7 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, legacy.ID); err != nil || available {
 		t.Fatalf("after backfill CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubTreeOnly(t, api)
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 
 	writeFile(t, filepath.Join(repo, "sibling", "notes.md"), []byte("changed notes"), 0o644)
 	commitGit(t, repo, "change sibling")
@@ -496,17 +496,6 @@ func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture,
 	}
 	if len(fetched) == 0 {
 		t.Fatal("Update fetched no blobs")
-	}
-}
-
-func assertGitHubTreeOnly(t *testing.T, api *gitHubAPIMock) {
-	t.Helper()
-	commits, trees, blobs := gitHubAPIKindCounts(t, api)
-	if commits == 0 || trees == 0 {
-		t.Fatalf("missing commit or tree: %#v", api.snapshot())
-	}
-	if blobs != 0 {
-		t.Fatalf("fetched blobs %v", api.blobPaths())
 	}
 }
 

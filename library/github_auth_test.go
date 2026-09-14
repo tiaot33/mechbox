@@ -307,14 +307,15 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 			}
 			api.anonymousStatus = http.StatusTooManyRequests
 			api.rateLimitReset = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
-			api.setFailBlobs(true)
+			fx.incompleteBlob = fx.blobSHA("first/data")
+			api.Swap(fx)
 			switch auth {
 			case "token":
 				t.Setenv("GH_TOKEN", "test-token")
 			case "cli":
-				treeOnly := fx
-				treeOnly.blobs = nil
-				serveGitHubCLI(t, treeOnly)
+				metadataOnly := cloneGitHubFixture(fx)
+				delete(metadataOnly.blobs, fx.blobSHA("first/data"))
+				serveGitHubCLI(t, metadataOnly)
 			case "clone":
 				redirectGitHubClone(t, repo)
 			}
@@ -328,7 +329,7 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 			}
 			if auth == "token" {
 				_, trees, blobs := gitHubAPIKindCounts(t, api)
-				if trees != 1 || blobs != 0 {
+				if trees != 1 || blobs != 2 {
 					t.Fatalf("batch fetched %d trees and %d blobs", trees, blobs)
 				}
 			}
