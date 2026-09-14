@@ -62,6 +62,10 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err != nil {
 		return Fetch{}, err
 	}
+	// 审计只查筛选后的候选;URL / Store 与非 github.com 仓库不在 skills.sh 收录范围,不查。
+	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
+		attachAudits(ctx, owner, repo, discovered.skills)
+	}
 	source.LastFetched = time.Now().UTC()
 	source.LastSeenRef = discovered.ref
 	id, err := newFetchID()
@@ -90,6 +94,7 @@ func (s *fetchSession) candidates() FetchCandidates {
 	result := FetchCandidates{Skills: make([]FetchSkill, len(s.skills)), Diagnostics: slices.Clone(s.diagnostics)}
 	for i, skill := range s.skills {
 		result.Skills[i] = skill.preview
+		result.Skills[i].Audit = cloneAudit(skill.preview.Audit)
 	}
 	return result
 }

@@ -38,9 +38,11 @@ func TestGitHubFetchPreviewTransfersOnlySkillMarkdown(t *testing.T) {
 	if fetch.Ref != fx.commit {
 		t.Fatalf("Fetch.Ref = %q, want pinned commit %q", fetch.Ref, fx.commit)
 	}
+	// GitHub API mock 对 skills.sh 回 502,审计降级为 unavailable,不影响预览。
+	unavailable := &library.SkillAudit{Availability: library.AuditUnavailable}
 	want := []library.FetchSkill{
-		{Name: "first", Path: "first"},
-		{Name: "second", Path: "second"},
+		{Name: "first", Path: "first", Audit: unavailable},
+		{Name: "second", Path: "second", Audit: unavailable},
 	}
 	if !reflect.DeepEqual(fetch.Skills, want) {
 		t.Fatalf("Fetch candidates = %#v, want %#v", fetch.Skills, want)

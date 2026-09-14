@@ -1,0 +1,125 @@
+package library
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	auditBudget         = 10 * time.Second // 一次 Fetch 内全部审计查询的总预算
+	auditRequestTimeout = 5 * time.Second  // 单个候选的请求超时
+	auditConcurrency    = 4                // 同时在途的审计请求上限
+	maxAuditSize        = 1 << 20          // 单个审计响应的字节上限
+)
+
+// attachAudits 为每个 GitHub 候选向 skills.sh 查一次审计并写进 preview.Audit。
+// 审计只是展示用的覆盖层:任何失败都只降级为 Availability 状态,不返回错误、不影响 Fetch 成败。
+func attachAudits(ctx context.Context, owner, repo string, skills []fetchedSkill) {
+	ctx, cancel := context.WithTimeout(ctx, auditBudget)
+	defer cancel()
+	slots := make(chan struct{}, auditConcurrency)
+	var wg sync.WaitGroup
+	for i := range skills {
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			skills[i].preview.Audit = new(lookupAudit(ctx, owner, repo, skills[i].name))
+		})
+	}
+	wg.Wait()
+}
+
+// lookupAudit 请求 https://skills.sh/api/v1/skills/audit/{owner}/{repo}/{name}。路径逐段转义、
+// 不编码斜杠;不带 Authorization(匿名可读,带无效凭据反而 401)。404 表示尚无审计,其余失败为不可用。
+func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
+	unavailable := SkillAudit{Availability: AuditUnavailable}
+	ctx, cancel := context.WithTimeout(ctx, auditRequestTimeout)
+	defer cancel()
+	id := auditPath(owner, repo, name)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://skills.sh/api/v1/skills/audit/"+id, nil)
+	if err != nil {
+		return unavailable
+	}
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return unavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return SkillAudit{Availability: AuditNone}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return unavailable
+	}
+	body, err := io.ReadAll(io.LimitReader(contextReader{ctx, response.Body}, maxAuditSize+1))
+	if err != nil || len(body) > maxAuditSize {
+		return unavailable
+	}
+	var payload struct {
+		Audits []struct {
+			Provider   string   `json:"provider"`
+			Slug       string   `json:"slug"`
+			Status     string   `json:"status"`
+			Summary    string   `json:"summary"`
+			AuditedAt  string   `json:"auditedAt"`
+			RiskLevel  string   `json:"riskLevel"`
+			Categories []string `json:"categories"`
+		} `json:"audits"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Audits == nil {
+		return unavailable
+	}
+	if len(payload.Audits) == 0 {
+		return SkillAudit{Availability: AuditNone}
+	}
+	// 解析宽松:必填字段缺失只丢该条;auditedAt 解析失败保留条目、时间为零值。
+	entries := make([]AuditEntry, 0, len(payload.Audits))
+	for _, audit := range payload.Audits {
+		if strings.TrimSpace(audit.Provider) == "" || strings.TrimSpace(audit.Slug) == "" || strings.TrimSpace(audit.Status) == "" || strings.TrimSpace(audit.Summary) == "" {
+			continue
+		}
+		auditedAt, err := time.Parse(time.RFC3339Nano, audit.AuditedAt)
+		if err != nil {
+			auditedAt = time.Time{}
+		}
+		entries = append(entries, AuditEntry{
+			Provider:   audit.Provider,
+			Slug:       audit.Slug,
+			Status:     AuditStatus(audit.Status),
+			Summary:    audit.Summary,
+			AuditedAt:  auditedAt.UTC(),
+			RiskLevel:  audit.RiskLevel,
+			Categories: audit.Categories,
+			DetailURL:  "https://skills.sh/" + id + "/security/" + url.PathEscape(audit.Slug),
+		})
+	}
+	if len(entries) == 0 {
+		return unavailable
+	}
+	return SkillAudit{Availability: AuditAvailable, Entries: entries}
+}
+
+// auditPath 把 skills.sh 的 skill id(owner/repo/name)按路径段转义后拼接;整体 QueryEscape 会被 400 拒绝。
+func auditPath(owner, repo, name string) string {
+	return url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(name)
+}
+
+// cloneAudit 深拷贝审计快照,使返回给调用方的候选不与会话共享可变数据。
+func cloneAudit(audit *SkillAudit) *SkillAudit {
+	if audit == nil {
+		return nil
+	}
+	cloned := *audit
+	cloned.Entries = slices.Clone(audit.Entries)
+	for i := range cloned.Entries {
+		cloned.Entries[i].Categories = slices.Clone(cloned.Entries[i].Categories)
+	}
+	return &cloned
+}
