@@ -24,6 +24,7 @@ type fetchedSkill struct {
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
 type fetchSession struct {
 	source      Source
+	subpath     string
 	ref         string
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
@@ -53,7 +54,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 			return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
 		}
 	}
-	discovered, err := fetchRemote(ctx, source, spec.Subpath)
+	discovered, err := l.fetchRemote(ctx, source, spec.Subpath)
 	if err != nil {
 		return Fetch{}, err
 	}
@@ -75,7 +76,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := ctx.Err(); err != nil {
 		return Fetch{}, err
 	}
-	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
+	session := &fetchSession{source: source, subpath: spec.Subpath, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
@@ -123,8 +124,10 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 	if err != nil {
 		return nil, err
 	}
-	if owner, repo, ok := githubOwnerRepo(session.source.Locator.Repository); ok {
-		if err := materializeGitHubSkills(ctx, owner, repo, skills); err != nil {
+	if session.source.Type == SourceGitHub {
+		// 失败时会话仍保留完整候选,不写回部分物化的文件。
+		skills = slices.Clone(skills)
+		if err := l.materializeGitHubSkills(ctx, session, skills); err != nil {
 			return nil, err
 		}
 	}

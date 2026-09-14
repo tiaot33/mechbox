@@ -33,10 +33,10 @@ type discoveredSource struct {
 	ref         string
 }
 
-func fetchRemote(ctx context.Context, source Source, subpath string) (discoveredSource, error) {
+func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath string) (discoveredSource, error) {
 	switch source.Type {
 	case SourceGitHub:
-		return fetchGitHub(ctx, source.Locator, subpath)
+		return l.fetchGitHub(ctx, source.Locator, subpath)
 	case SourceURL:
 		return fetchArchive(ctx, source.Locator.URL)
 	case SourceStore:
@@ -52,9 +52,10 @@ func fetchRemote(ctx context.Context, source Source, subpath string) (discovered
 
 // fetchGitHub 对 github.com 先走 tree/blob 快路径;API 不可用时回退已加固的浅克隆。
 // 预览只取各候选 SKILL.md,安装再按 blob SHA 取所选目录。
-func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {
+func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {
+	var apiErr error
 	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
-		result, err := fetchGitHubContents(ctx, owner, repo, locator, subpath)
+		result, err := l.fetchGitHubContents(ctx, owner, repo, locator, subpath)
 		if err == nil {
 			return result, nil
 		}
@@ -64,8 +65,10 @@ func fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (di
 		if !githubContentsUnavailable(err) {
 			return discoveredSource{}, err
 		}
+		apiErr = err
 	}
-	return fetchGitHubClone(ctx, locator, subpath)
+	result, err := fetchGitHubClone(ctx, locator, subpath)
+	return result, githubCloneError(ctx, apiErr, err)
 }
 
 // fetchGitHubClone 浅克隆整仓并发现候选;LFS、超时与协议限制由 runSourceGit 提供。

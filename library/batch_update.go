@@ -71,9 +71,9 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		case SourceLocal:
 			localFiles, readErr = readFiles(ctx, source.Locator.Path)
 		case SourceGitHub:
-			githubSnap, readErr = readGitHubSnapshot(ctx, source)
+			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
 		default:
-			discovered, readErr = fetchRemote(ctx, source, "")
+			discovered, readErr = l.fetchRemote(ctx, source, "")
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()

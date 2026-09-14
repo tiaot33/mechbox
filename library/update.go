@@ -20,10 +20,10 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	persistedSHA := skill.GitTreeSHA
 	changed := false
 	if skill.Source.Type == SourceGitHub {
-		skill, changed, err = readGitHubUpdate(ctx, skill)
+		skill, changed, err = l.readGitHubUpdate(ctx, skill)
 	} else {
 		var latest Skill
-		latest, err = readUpdate(ctx, skill)
+		latest, err = l.readUpdate(ctx, skill)
 		if err == nil {
 			changed = !filesEqual(skill.Files, latest.Files)
 			skill = latest
@@ -66,8 +66,8 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 }
 
 // readGitHubUpdate 按目录 tree SHA 决定是否取文件;SHA 相同不取 blob、不克隆(API 可用时)。
-func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, error) {
-	snap, err := readGitHubSnapshot(ctx, skill.Source)
+func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, error) {
+	snap, err := l.readGitHubSnapshot(ctx, skill.Source)
 	if err != nil {
 		return Skill{}, false, err
 	}
@@ -95,14 +95,14 @@ func readGitHubUpdate(ctx context.Context, skill Skill) (Skill, bool, error) {
 }
 
 // readUpdate 读取目标 skill 的最新来源内容,不持久化来源状态。GitHub 走 readGitHubUpdate。
-func readUpdate(ctx context.Context, skill Skill) (Skill, error) {
+func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill) (Skill, error) {
 	var err error
 	var files []File
 	if skill.Source.Type == SourceLocal {
 		files, err = readFiles(ctx, skill.Source.Locator.Path)
 	} else {
 		var discovered discoveredSource
-		discovered, err = fetchRemote(ctx, skill.Source, "")
+		discovered, err = l.fetchRemote(ctx, skill.Source, "")
 		fetched := discovered.skills
 		skill.Source.LastSeenRef = discovered.ref
 		if err == nil {
@@ -133,13 +133,13 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 		return false, err
 	}
 	if skill.Source.Type == SourceGitHub {
-		snap, err := readGitHubSnapshot(ctx, skill.Source)
+		snap, err := l.readGitHubSnapshot(ctx, skill.Source)
 		if err != nil {
 			return false, err
 		}
 		return githubSkillHasUpdate(ctx, &snap, skill)
 	}
-	latest, err := readUpdate(ctx, skill)
+	latest, err := l.readUpdate(ctx, skill)
 	if err != nil {
 		return false, err
 	}
