@@ -154,11 +154,50 @@ type SkillSummary struct {
 // Sync、也不跨 Library 实例共享;进程退出、Close 或超时后被后端回收。
 type FetchID string
 
-// FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。
+// AuditAvailability 说明一个候选在 skills.sh 上的审计查询结果处于哪种状态。
+type AuditAvailability string
+
+const (
+	AuditAvailable   AuditAvailability = "available"   // 至少拿到一条合作方结论
+	AuditNone        AuditAvailability = "none"        // skills.sh 没有该 skill 的任何审计(404 或空列表)
+	AuditUnavailable AuditAvailability = "unavailable" // 网络故障、超时、非 404 错误或响应无法解析
+)
+
+// AuditStatus 是 skills.sh 归一化后的合作方结论;文档三值以常量暴露,未知值原样透传。
+type AuditStatus string
+
+const (
+	AuditPass AuditStatus = "pass"
+	AuditWarn AuditStatus = "warn"
+	AuditFail AuditStatus = "fail"
+)
+
+// AuditEntry 是 skills.sh 某个合作方对一个 skill 的审计结论;只供展示,不作决策依据。
+type AuditEntry struct {
+	Provider   string      `json:"provider"`             // 合作方展示名
+	Slug       string      `json:"slug"`                 // 合作方 slug
+	Status     AuditStatus `json:"status"`               // pass / warn / fail;未知值原样保留
+	Summary    string      `json:"summary"`              // 一行摘要
+	AuditedAt  time.Time   `json:"audited_at,omitzero"`  // 该次分析时间;解析失败为零值。它不代表对应当前文件树
+	RiskLevel  string      `json:"risk_level,omitempty"` // 合作方风险等级,原样字符串(live 出现过文档外的 SAFE)
+	Categories []string    `json:"categories,omitempty"` // 风险类别(目前仅 Agent Trust Hub)
+	DetailURL  string      `json:"detail_url"`           // skills.sh 上该合作方的安全详情页
+}
+
+// SkillAudit 是一个 Fetch 候选在 skills.sh 上的审计概览:Fetch 时查一次,随会话暂存,
+// 只供展示。不入库、不参与 Sync、不影响安装。Entries 仅在 Availability 为 AuditAvailable 时非空。
+type SkillAudit struct {
+	Availability AuditAvailability `json:"availability"`
+	Entries      []AuditEntry      `json:"entries,omitempty"`
+}
+
+// FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。Audit 是 skills.sh 的审计覆盖层:
+// GitHub 来源一定非 nil,由 Availability 说明内容;URL / Store 来源为 nil(skills.sh 未收录)。
 type FetchSkill struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Path        string `json:"path"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Path        string      `json:"path"`
+	Audit       *SkillAudit `json:"audit,omitempty"`
 }
 
 // CandidateDiagnostic 说明一个路径为何未成为可安装候选。
