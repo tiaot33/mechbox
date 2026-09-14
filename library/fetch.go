@@ -53,7 +53,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 			return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
 		}
 	}
-	discovered, err := fetchRemote(ctx, source, spec.Subpath)
+	discovered, err := l.fetchRemote(ctx, source, spec.Subpath)
 	if err != nil {
 		return Fetch{}, err
 	}
@@ -123,8 +123,10 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 	if err != nil {
 		return nil, err
 	}
-	if owner, repo, ok := githubOwnerRepo(session.source.Locator.Repository); ok {
-		if err := materializeGitHubSkills(ctx, owner, repo, skills); err != nil {
+	if session.source.Type == SourceGitHub {
+		// 失败时会话仍保留完整候选,不写回部分物化的文件。
+		skills = slices.Clone(skills)
+		if err := l.materializeGitHubSkills(ctx, session, skills); err != nil {
 			return nil, err
 		}
 	}

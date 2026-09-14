@@ -358,6 +358,9 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 	changed := inspectGitHubRepo(t, repo)
 	api.Swap(changed)
 	api.setFailBlobs(true)
+	// API 已给出该 commit 的 tree,克隆时 HEAD 再前进也不能混用内容与 SHA。
+	writeFile(t, filepath.Join(repo, "demo", "data.bin"), []byte("later HEAD"), 0o644)
+	commitGit(t, repo, "advance after API snapshot")
 
 	result, err := lib.Update(ctx, installed[0].ID)
 	if err != nil || !result.Changed {
@@ -372,6 +375,9 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 	}
 	if result.Skill.GitTreeSHA != changed.treeSHA("demo") {
 		t.Fatalf("cloned update SHA = %q, want %q", result.Skill.GitTreeSHA, changed.treeSHA("demo"))
+	}
+	if result.Skill.Source.LastSeenRef != changed.commit {
+		t.Fatalf("cloned update ref = %q, want %q", result.Skill.Source.LastSeenRef, changed.commit)
 	}
 }
 

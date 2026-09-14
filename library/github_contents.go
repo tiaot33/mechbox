@@ -12,9 +12,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 const githubAPIHost = "api.github.com"
@@ -33,6 +38,7 @@ type githubBlob struct {
 type githubHTTPError struct {
 	status      int
 	rateLimited bool
+	reset       int64
 }
 
 func (e *githubHTTPError) Error() string {
@@ -40,8 +46,10 @@ func (e *githubHTTPError) Error() string {
 }
 
 type githubClient struct {
-	token    string
-	useToken bool
+	token          string
+	useToken       bool
+	useCLI         bool
+	anonymousReset *atomic.Int64
 }
 
 type githubCommitResponse struct {
@@ -89,8 +97,8 @@ func githubToken() string {
 
 // fetchGitHubContents 用 GitHub Git Database API 按已解析的 owner/repo 与 ref 取 recursive tree。
 // 只取各候选 SKILL.md;安装再按 blob SHA 取所选目录。
-func fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
-	snap, err := fetchGitHubTreeSnapshot(ctx, owner, repo, locator)
+func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
+	snap, err := l.fetchGitHubTreeSnapshot(ctx, owner, repo, locator)
 	if err != nil {
 		return discoveredSource{}, err
 	}
@@ -148,14 +156,71 @@ func githubAPIURL(pattern string, owner, repo, object string) string {
 }
 
 func (c *githubClient) get(ctx context.Context, location string, dest any) error {
-	if !c.useToken {
-		err := githubAPIGetOnce(ctx, location, "", dest)
-		if err == nil || ctx.Err() != nil || c.token == "" || !isGitHubAuthRetry(err) {
+	if c.useCLI {
+		return githubCLIGet(ctx, location, dest)
+	}
+	var err error = errGitHubContentsFallback
+	if !c.useToken && time.Now().Unix() >= c.anonymousReset.Load() {
+		err = githubAPIGetOnce(ctx, location, "", dest)
+		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
+			c.anonymousReset.Store(httpErr.reset)
+		}
+		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
-		c.useToken = true
 	}
-	return githubAPIGetOnce(ctx, location, c.token, dest)
+	if c.token != "" {
+		c.useToken = true
+		err = githubAPIGetOnce(ctx, location, c.token, dest)
+		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
+			return err
+		}
+	}
+	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	c.useCLI = true
+	return nil
+}
+
+// githubCLIGet 使用 gh 自己的登录态,不导出凭证,也不向门面透传任何命令输出。
+func githubCLIGet(ctx context.Context, location string, dest any) error {
+	commandCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
+	defer cancel()
+	endpoint := strings.TrimPrefix(location, "https://"+githubAPIHost)
+	command := exec.CommandContext(commandCtx, "gh", "api", endpoint, "--method", "GET", "--hostname", "github.com")
+	// 环境 token 已在 HTTP 路径试过,不能让失效值遮住 gh 保存的登录态。
+	command.Env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
+	command.WaitDelay = time.Second
+	cancelGitProcess(command)
+	output, err := command.StdoutPipe()
+	if err != nil {
+		return errGitHubContentsFallback
+	}
+	if err := command.Start(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return errGitHubContentsFallback
+	}
+	body, readErr := io.ReadAll(io.LimitReader(output, maxFetchSize+1))
+	if readErr != nil || len(body) > maxFetchSize {
+		cancel()
+	}
+	waitErr := command.Wait()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if readErr != nil || waitErr != nil || commandCtx.Err() != nil || len(body) > maxFetchSize {
+		return errGitHubContentsFallback
+	}
+	if err := json.Unmarshal(body, dest); err != nil {
+		return errGitHubContentsFallback
+	}
+	return nil
 }
 
 // githubContentsUnavailable 表示快路径无法给出完整结果,Fetch 应回退浅克隆。
@@ -214,7 +279,12 @@ func githubAPIGetOnce(ctx context.Context, location, token string, dest any) err
 		return errGitHubContentsFallback
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response)}
+		reset, err := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
+		if err != nil || reset <= 0 {
+			// 未给出有效 Reset 时只短暂避让,不能永久关闭匿名路径。
+			reset = time.Now().Add(time.Minute).Unix()
+		}
+		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response), reset: reset}
 	}
 	if err := json.Unmarshal(body, dest); err != nil {
 		return errGitHubContentsFallback
@@ -406,9 +476,10 @@ type githubRemoteSkill struct {
 }
 
 // readGitHubSnapshot 对同一 Source 只远程读一次 tree(或一次克隆),供检查与更新共用。
-func readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapshot, error) {
+func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapshot, error) {
+	var apiErr error
 	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
-		snap, err := fetchGitHubTreeSnapshot(ctx, owner, repo, source.Locator)
+		snap, err := l.fetchGitHubTreeSnapshot(ctx, owner, repo, source.Locator)
 		if err == nil {
 			snap.locator = source.Locator
 			return snap, nil
@@ -419,16 +490,17 @@ func readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapsho
 		if !githubContentsUnavailable(err) {
 			return githubSourceSnapshot{}, err
 		}
+		apiErr = err
 	}
 	discovered, err := fetchGitHubClone(ctx, source.Locator, "")
 	if err != nil {
-		return githubSourceSnapshot{}, err
+		return githubSourceSnapshot{}, githubCloneError(ctx, apiErr, err)
 	}
 	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills, locator: source.Locator}, nil
 }
 
-func fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
-	client := &githubClient{token: githubToken()}
+func (l *sqliteLibrary) fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
+	client := &githubClient{token: githubToken(), anonymousReset: &l.githubAnonymousReset}
 	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
 	if err != nil {
 		return githubSourceSnapshot{}, err
@@ -502,7 +574,7 @@ func (s *githubSourceSnapshot) locateByName(ctx context.Context, skill Skill, di
 				return githubRemoteSkill{}, githubInstallError(err)
 			}
 			if cloneErr := s.fallbackClone(ctx); cloneErr != nil {
-				return githubRemoteSkill{}, cloneErr
+				return githubRemoteSkill{}, githubCloneError(ctx, err, cloneErr)
 			}
 			return s.locate(ctx, skill)
 		}
@@ -544,7 +616,7 @@ func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote gi
 		return nil, githubInstallError(err)
 	}
 	if cloneErr := s.fallbackClone(ctx); cloneErr != nil {
-		return nil, cloneErr
+		return nil, githubCloneError(ctx, err, cloneErr)
 	}
 	relocated, locErr := s.locate(ctx, skill)
 	if locErr != nil {
@@ -557,7 +629,9 @@ func (s *githubSourceSnapshot) fallbackClone(ctx context.Context) error {
 	if s.cloned != nil {
 		return nil
 	}
-	discovered, err := fetchGitHubClone(ctx, s.locator, "")
+	locator := s.locator
+	locator.Branch = s.ref
+	discovered, err := fetchGitHubClone(ctx, locator, "")
 	if err != nil {
 		return err
 	}
@@ -632,8 +706,9 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 }
 
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;失败不入库,由调用方保留句柄。
-func materializeGitHubSkills(ctx context.Context, owner, repo string, skills []fetchedSkill) error {
-	client := &githubClient{token: githubToken()}
+func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
+	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
+	client := &githubClient{token: githubToken(), anonymousReset: &l.githubAnonymousReset}
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
 			continue
@@ -643,10 +718,55 @@ func materializeGitHubSkills(ctx context.Context, owner, repo string, skills []f
 			if ctx.Err() != nil {
 				return err
 			}
-			return githubInstallError(err)
+			if !githubContentsUnavailable(err) {
+				return githubInstallError(err)
+			}
+			locator := session.source.Locator
+			locator.Branch = session.ref
+			return githubCloneError(ctx, err, materializeGitHubClone(ctx, locator, skills))
 		}
 		skills[i].files = files
 		skills[i].blobs = nil
 	}
 	return nil
+}
+
+// materializeGitHubClone 只按预览中的路径读取所选 Skill,不重新发现同名候选。
+func materializeGitHubClone(ctx context.Context, locator SourceLocator, skills []fetchedSkill) error {
+	root, err := os.MkdirTemp("", "skills-git-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+	repository := filepath.Join(root, "repository")
+	if err := cloneGitHub(ctx, locator, repository); err != nil {
+		return err
+	}
+	for i, skill := range skills {
+		sha, err := readGitTreeSHA(ctx, repository, skill.preview.Path)
+		if err != nil {
+			return err
+		}
+		if sha != skill.gitTreeSHA {
+			return githubInstallError(errGitHubContentsFallback)
+		}
+		files, err := readCandidateFiles(ctx, os.DirFS(repository), skill.preview.Path)
+		if err != nil {
+			return err
+		}
+		skills[i].files = files
+		skills[i].blobs = nil
+	}
+	return nil
+}
+
+// githubCloneError 保留快路径明确的认证失败,不让克隆不可达把它变成网络错误。
+func githubCloneError(ctx context.Context, apiErr, cloneErr error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if IsCode(cloneErr, SourceUnreachable) && IsCode(githubInstallError(apiErr), Permission) {
+		return githubInstallError(apiErr)
+	}
+	return cloneErr
 }

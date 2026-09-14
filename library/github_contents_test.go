@@ -530,6 +530,7 @@ func blockGitHubClone(t *testing.T) {
 
 func redirectGitHubClone(t *testing.T, repo string) {
 	t.Helper()
+	stubGitHubCLI(t, "exit 1\n")
 	config := filepath.Join(t.TempDir(), "gitconfig")
 	t.Setenv("GIT_CONFIG_GLOBAL", config)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -538,12 +539,14 @@ func redirectGitHubClone(t *testing.T, repo string) {
 }
 
 type gitHubAPIMock struct {
-	mu              sync.Mutex
-	fx              gitHubFixture
-	anonymousStatus int
-	failBlobs       bool
-	blobStatus      int
-	requests        []gitHubAPIRequest
+	mu                 sync.Mutex
+	fx                 gitHubFixture
+	anonymousStatus    int
+	failBlobs          bool
+	blobStatus         int
+	rateLimitRemaining string
+	rateLimitReset     string
+	requests           []gitHubAPIRequest
 }
 
 type gitHubAPIRequest struct {
@@ -555,6 +558,7 @@ type gitHubAPIRequest struct {
 
 func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
 	t.Helper()
+	stubGitHubCLI(t, "exit 1\n")
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	mock := &gitHubAPIMock{fx: cloneGitHubFixture(fx), anonymousStatus: fx.anonymousStatus, failBlobs: fx.failBlobs}
@@ -657,7 +661,7 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	authed := r.Header.Get("Authorization") != ""
 	m.requests = append(m.requests, gitHubAPIRequest{path: r.URL.Path, query: r.URL.RawQuery, authed: authed, accept: r.Header.Get("Accept")})
 	if m.anonymousStatus != 0 && !authed {
-		return jsonResponse(m.anonymousStatus, map[string]string{"message": "not found"}), nil
+		return m.errorResponse(m.anonymousStatus), nil
 	}
 	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
 		if ref != "main" && !strings.EqualFold(ref, m.fx.commit) {
@@ -682,7 +686,7 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	}
 	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/"); ok {
 		if m.blobStatus != 0 {
-			return jsonResponse(m.blobStatus, map[string]string{"message": "forbidden"}), nil
+			return m.errorResponse(m.blobStatus), nil
 		}
 		if m.failBlobs || sha == m.fx.incompleteBlob {
 			return jsonResponse(http.StatusOK, map[string]any{"sha": sha, "encoding": "base64", "content": "", "size": 99}), nil
@@ -699,6 +703,13 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 		}), nil
 	}
 	return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
+}
+
+func (m *gitHubAPIMock) errorResponse(status int) *http.Response {
+	response := jsonResponse(status, map[string]string{"message": "unavailable"})
+	response.Header.Set("X-RateLimit-Remaining", m.rateLimitRemaining)
+	response.Header.Set("X-RateLimit-Reset", m.rateLimitReset)
+	return response
 }
 
 func jsonResponse(status int, body any) *http.Response {
