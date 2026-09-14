@@ -29,6 +29,38 @@ func TestResolveGlobalScopeUsesHomeAndAgentRule(t *testing.T) {
 	}
 }
 
+// 全局目录以 Open 时的 $HOME 为准;之后改环境变量不能让 Deactivate 删到别处。
+func TestResolveAndDeactivateUseHomeBoundAtOpen(t *testing.T) {
+	ctx := t.Context()
+	homeA, homeB := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", homeA)
+	lib := openTestLibrary(t)
+	skill := installExampleSkill(t, lib, "example")
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(homeA, ".agents", "skills", skill.Name, "SKILL.md")
+	foreign := filepath.Join(homeB, ".agents", "skills", skill.Name, "SKILL.md")
+	writeFile(t, foreign, []byte("other home content"), 0o644)
+	t.Setenv("HOME", homeB)
+	want := filepath.Join(homeA, ".agents", "skills")
+	got, err := lib.Resolve(ctx, scope)
+	if err != nil || got != want {
+		t.Fatalf("Resolve after HOME change = %q, %v; want Open-time %q", got, err, want)
+	}
+	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(original); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("original projection remains: %v", err)
+	}
+	content, err := os.ReadFile(foreign)
+	if err != nil || string(content) != "other home content" {
+		t.Fatalf("unrelated projection in second HOME was removed: %q, %v", content, err)
+	}
+}
+
 // Resolve(项目 Scope) 按该 Agent 的规则算出 Registered project 根下的目录。
 func TestResolveProjectScopeUsesRegisteredRootAndAgentRule(t *testing.T) {
 	ctx := t.Context()

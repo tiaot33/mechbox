@@ -87,6 +87,8 @@ func newS3Stub(t *testing.T) *s3Stub {
 func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
+	oldHome := filepath.Join(t.TempDir(), "old-home")
+	t.Setenv("HOME", oldHome)
 	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeFile(t, filepath.Join(originalSource, "SKILL.md"), []byte("original\n"), 0o644)
@@ -117,8 +119,6 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	oldHome := filepath.Join(t.TempDir(), "old-home")
-	t.Setenv("HOME", oldHome)
 	globalScope := library.GlobalScope{Agent: library.AgentCodex}
 	if err := lib.Activate(ctx, original.ID, globalScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)

@@ -118,6 +118,12 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// 拉库后按本机 $HOME 解释全局 Scope,与「换机器再 Open」一致。
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return SyncResult{}, fmt.Errorf("sync pull: find home directory: %w", err)
+	}
+	l.home = home
 	if err := backupDatabase(ctx, l.db, check); err != nil {
 		return SyncResult{}, err
 	}

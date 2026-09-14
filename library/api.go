@@ -223,10 +223,11 @@ const (
 	AgentCodex      AgentCode = "codex"
 )
 
-// Agent 是 Library 持有的一个投影目标 agent。只暴露稳定代码;布局规则与
+// Agent 是 Library 持有的一个投影目标 agent。暴露稳定代码与展示名称;布局规则与
 // 绝对目录不出现在这里,目录由 Library 按现行布局算出,调用方不自行拼路径。
 type Agent struct {
 	Code AgentCode `json:"code"`
+	Name string    `json:"name"`
 }
 
 // Scope 是投影所在的层级身份:GlobalScope 或 ProjectScope 之一,不含路径(见 ADR 0011)。
@@ -396,7 +397,7 @@ type Library interface {
 
 	// 项目与 Scope
 
-	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果只含稳定代码,
+	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
 	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,门面上没有增删改 Agent 的方法。
 	ListAgents(ctx context.Context) ([]Agent, error)
 	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可投影的 ProjectScope。
@@ -405,7 +406,7 @@ type Library interface {
 	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部投影记录;
 	// opts 决定磁盘投影副本的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
-	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对当前用户
+	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
 	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生 Activation。
 	// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
 	// ListAgents ×(全局 | ListRegisteredProjects)自行组合。

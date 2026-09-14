@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -117,7 +117,7 @@ func schemaFingerprint(ctx context.Context, db schemaReader) (string, error) {
 }
 
 // migrateLibrary 把已有库升到当前 schema;身份不符则不改文件。
-func migrateLibrary(ctx context.Context, db *sql.DB) error {
+func migrateLibrary(ctx context.Context, db *sql.DB, home string) error {
 	var applicationID, userVersion int
 	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
 		return err
@@ -132,7 +132,7 @@ func migrateLibrary(ctx context.Context, db *sql.DB) error {
 	case librarySchemaVersion:
 		return nil
 	case 1, 2, 3, 4:
-		return migrateToScopeIdentity(ctx, db, userVersion)
+		return migrateToScopeIdentity(ctx, db, userVersion, home)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
@@ -157,11 +157,7 @@ var legacyLayouts = map[AgentCode]agentLayout{
 // migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:v1 补 skill_versions 列,v3 补 Agent 名称,
 // 然后把 Activation 改为只存 Scope 身份。路径型行能识别为某 Agent 的全局或某已登记项目的写成身份,
 // 映射到同一身份的多行合并依据;无法识别的行丢弃。磁盘上任何目录都不动(见 ADR 0011)。
-func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("migrate library schema: %w", err)
-	}
+func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home string) error {
 	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
 		legacy, err := readLegacyActivations(ctx, tx, version)
 		if err != nil {
@@ -210,47 +206,17 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int) error 
 		if err != nil {
 			return err
 		}
-		// 合并键是 Skill + Scope 身份;按首次出现的顺序写回,保持记录 ID 稳定可预期。
-		type identified struct {
-			legacyActivation
-			scope scopeRow
-		}
-		type identityKey struct {
-			skillID   SkillID
-			agent     AgentCode
-			projectID ProjectID // 全局为 0(ProjectID 从 1 起)
-		}
-		var merged []*identified
-		index := map[identityKey]*identified{}
+		// 能识别的路径行按身份写入;同一身份的多行由 recordActivationTx 合并独立标记与分组依据。
 		for _, row := range legacy {
 			scope, ok := identifyLegacyScope(row, layouts, projects, home)
 			if !ok {
 				continue
 			}
-			key := identityKey{skillID: row.skillID, agent: scope.agent}
-			if scope.projectID != nil {
-				key.projectID = *scope.projectID
-			}
-			if existing, ok := index[key]; ok {
-				existing.individual = existing.individual || row.individual
-				existing.groups = append(existing.groups, row.groups...)
-				continue
-			}
-			record := &identified{legacyActivation: row, scope: scope}
-			index[key] = record
-			merged = append(merged, record)
-		}
-		for _, record := range merged {
-			result, err := tx.ExecContext(ctx, `INSERT INTO activations(skill_id, agent, project_id, individual) VALUES (?, ?, ?, ?)`, record.skillID, record.scope.agent, record.scope.projectID, record.individual)
-			if err != nil {
+			if err := recordActivationTx(ctx, tx, row.skillID, scope, row.individual, 0); err != nil {
 				return err
 			}
-			activationID, err := result.LastInsertId()
-			if err != nil {
-				return err
-			}
-			for _, groupID := range record.groups {
-				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(activation_id, group_id) VALUES (?, ?)`, activationID, groupID); err != nil {
+			for _, groupID := range row.groups {
+				if err := recordActivationTx(ctx, tx, row.skillID, scope, false, groupID); err != nil {
 					return err
 				}
 			}
@@ -344,16 +310,21 @@ func identifyLegacyScope(row legacyActivation, layouts map[AgentCode]agentLayout
 		candidates = append(candidates, old)
 	}
 	for _, candidate := range candidates {
-		if row.path == candidate.globalDir(home) {
+		if sameLibraryPath(row.path, candidate.globalDir(home)) {
 			return scopeRow{agent: row.agent}, true
 		}
 		for _, project := range projects {
-			if row.path == candidate.projectDir(project.Path) {
+			if sameLibraryPath(row.path, candidate.projectDir(project.Path)) {
 				return scopeRow{agent: row.agent, projectID: new(project.ID)}, true
 			}
 		}
 	}
 	return scopeRow{}, false
+}
+
+// sameLibraryPath 判断旧库记下的路径与布局算出的目录是否词法等价(忽略末尾 / 与 /.)。
+func sameLibraryPath(stored, computed string) bool {
+	return filepath.Clean(stored) == filepath.Clean(computed)
 }
 
 func readAgentLayouts(ctx context.Context, tx *sql.Tx) (map[AgentCode]agentLayout, error) {

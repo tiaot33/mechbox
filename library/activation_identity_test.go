@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/library"
@@ -484,6 +485,65 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
 		t.Fatalf("global projection lost: %v", err)
+	}
+}
+
+// 两个身份争同一实际目录时,并发 Activate 也不能绕过占用保护:最多一条记录,磁盘副本仍在。
+func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
+	ctx := t.Context()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	project, err := lib.RegisterProject(ctx, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := installExampleSkill(t, lib, "example-skill")
+	scopes := []library.Scope{
+		library.GlobalScope{Agent: library.AgentCodex},
+		library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID},
+	}
+	start := make(chan struct{})
+	results := make([]error, len(scopes))
+	var calls sync.WaitGroup
+	for i, scope := range scopes {
+		calls.Go(func() {
+			<-start
+			results[i] = lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{})
+		})
+	}
+	close(start)
+	calls.Wait()
+	activations, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activations) != 1 {
+		t.Fatalf("ListActivations() = %#v, activate errors=%v; want exactly one claim", activations, results)
+	}
+	directory, err := lib.Resolve(ctx, activations[0].Scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
+		t.Fatalf("surviving projection missing: %v", err)
+	}
+	var accepted, rejected int
+	for _, err := range results {
+		switch {
+		case err == nil:
+			accepted++
+		case library.IsCode(err, library.AlreadyExists):
+			rejected++
+		default:
+			t.Fatalf("Activate = %v, want nil or AlreadyExists", err)
+		}
+	}
+	if accepted != 1 || rejected != 1 {
+		t.Fatalf("Activate results = %v, want one success and one AlreadyExists", results)
 	}
 }
 

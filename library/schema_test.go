@@ -126,7 +126,7 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 			// 迁移后 Agent 表完整,身份记录可直接再次激活(幂等)并继续参与操作:
 			// 撤组依据、撤独立依据、删组转独立保留。
 			agents, err := lib.ListAgents(ctx)
-			if err != nil || !reflect.DeepEqual(agents, []library.Agent{{Code: library.AgentClaudeCode}, {Code: library.AgentCodex}}) {
+			if err != nil || !reflect.DeepEqual(agents, seededAgents()) {
 				t.Fatalf("ListAgents() after migration = %#v, %v", agents, err)
 			}
 			if err := lib.Activate(ctx, 1, codexGlobal, library.ActivateOptions{}); err != nil {
@@ -301,5 +301,51 @@ func TestOpenFailedMigrationCanRetryWithoutLosingLegacyData(t *testing.T) {
 	got, err := lib.ListActivations(t.Context())
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("activations after retry = %#v, %v; want %#v", got, err, want)
+	}
+}
+
+// 旧库路径带末尾 / 或 /. 时仍应识别为对应身份,不能丢掉独立与分组依据。
+func TestOpenMigratesLexicallyEquivalentLegacyPaths(t *testing.T) {
+	for _, suffix := range []string{"/", "/."} {
+		t.Run(suffix, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			ctx := t.Context()
+			path := filepath.Join(t.TempDir(), "library.db")
+			schema, err := os.ReadFile("testdata/v2.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			editLibraryFixture(t, path, string(schema))
+			editLibraryFixture(t, path, `
+				PRAGMA application_id = 1397443650;
+				PRAGMA user_version = 2;
+				INSERT INTO sources(id, type, locator) VALUES (1, 'local', '{"path":"/source"}');
+				INSERT INTO skills(id, source_id, name) VALUES (1, 1, 'example');
+				INSERT INTO groups(id, name) VALUES (1, 'legacy');
+			`)
+			home, err := os.UserHomeDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			directory := filepath.Join(home, ".claude", "skills") + suffix
+			editLibraryFixture(t, path, `INSERT INTO activations(skill_id, agent, scope_path, individual) VALUES (1, 'claude-code', ?, 1)`, directory)
+			editLibraryFixture(t, path, `INSERT INTO activation_groups(skill_id, agent, scope_path, group_id) VALUES (1, 'claude-code', ?, 1)`, directory)
+			lib, err := library.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = lib.Close() })
+			want := []library.Activation{{
+				SkillID:    1,
+				Scope:      library.GlobalScope{Agent: library.AgentClaudeCode},
+				Directory:  filepath.Join(home, ".claude", "skills"),
+				Individual: true,
+				ViaGroups:  []library.GroupID{1},
+			}}
+			got, err := lib.ListActivations(ctx)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("recognizable legacy path %q = %#v, %v; want %#v", directory, got, err, want)
+			}
+		})
 	}
 }

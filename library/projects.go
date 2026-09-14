@@ -11,15 +11,15 @@ func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err err
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 只读取稳定代码;布局规则留在表里,由解析与投影内部使用。
-	rows, err := l.db.QueryContext(ctx, `SELECT code FROM agents ORDER BY code`)
+	// 只读取稳定代码与展示名称;布局规则留在表里,由解析与投影内部使用。
+	rows, err := l.db.QueryContext(ctx, `SELECT code, name FROM agents ORDER BY code`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.Code); err != nil {
+		if err := rows.Scan(&agent.Code, &agent.Name); err != nil {
 			return nil, fmt.Errorf("read agent: %w", err)
 		}
 		agents = append(agents, agent)
@@ -139,31 +139,23 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
-	switch scope := scope.(type) {
-	case GlobalScope:
-		layout, err := l.agentLayout(ctx, scope.Agent)
-		if err != nil {
-			return "", err
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("find home directory: %w", err)
-		}
-		return layout.globalDir(home), nil
-	case ProjectScope:
-		layout, err := l.agentLayout(ctx, scope.Agent)
-		if err != nil {
-			return "", err
-		}
-		var root string
-		if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, scope.ProjectID).Scan(&root); err != nil {
-			return "", fmt.Errorf("get registered project: %w", err)
-		}
-		return layout.projectDir(root), nil
-	default:
+	row, ok := scopeOf(scope)
+	if !ok {
 		return "", &Error{Code: InvalidArgument, Message: "resolve scope: scope is required"}
 	}
+	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
+	layout, err := l.agentLayout(ctx, row.agent)
+	if err != nil {
+		return "", err
+	}
+	if row.projectID == nil {
+		return layout.globalDir(l.home), nil
+	}
+	var root string
+	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, *row.projectID).Scan(&root); err != nil {
+		return "", fmt.Errorf("get registered project: %w", err)
+	}
+	return layout.projectDir(root), nil
 }
 
 // agentLayout 是 agents 表里一个 Agent 的两段布局规则,均为斜杠分隔的相对路径。

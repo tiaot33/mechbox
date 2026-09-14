@@ -12,6 +12,13 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
+func seededAgents() []library.Agent {
+	return []library.Agent{
+		{Code: library.AgentClaudeCode, Name: "Claude Code"},
+		{Code: library.AgentCodex, Name: "Codex"},
+	}
+}
+
 func skillIDs(skills []library.Skill) []library.SkillID {
 	ids := make([]library.SkillID, len(skills))
 	for i, skill := range skills {

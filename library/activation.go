@@ -37,11 +37,6 @@ func (r scopeRow) scope() Scope {
 	return ProjectScope{Agent: r.agent, ProjectID: *r.projectID}
 }
 
-// predicate 给出匹配该 Scope 身份的 activations 行的 SQL 条件与参数;alias 是列名前缀(如 "a.")。
-func (r scopeRow) predicate(alias string) (string, []any) {
-	return alias + "agent = ? AND " + alias + "project_id IS ?", []any{r.agent, r.projectID}
-}
-
 // resolvedScope 是一次激活操作的内部目标:Scope 的落库身份 + 按现行布局算出的目录。
 type resolvedScope struct {
 	scopeRow
@@ -71,9 +66,8 @@ type activationRow struct {
 
 // findActivation 找到某 skill 在某 Scope 的投影记录;不存在时返回 nil 而非错误。
 func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*activationRow, error) {
-	where, args := scope.predicate("")
 	var row activationRow
-	err := q.QueryRowContext(ctx, `SELECT id, individual FROM activations WHERE skill_id = ? AND `+where, append([]any{id}, args...)...).Scan(&row.id, &row.individual)
+	err := q.QueryRowContext(ctx, `SELECT id, individual FROM activations WHERE skill_id = ? AND agent = ? AND project_id IS ?`, id, scope.agent, scope.projectID).Scan(&row.id, &row.individual)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -129,7 +123,7 @@ func (l *sqliteLibrary) directoryClaimedByAnotherScope(ctx context.Context, id S
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.writeOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	target, err := l.resolveScope(ctx, scope)
@@ -255,24 +249,13 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 // recordActivationTx 在事务内写入投影记录:活动行 + 可选的分组依据行。
 // 已有记录只补独立标记;新记录只带 Scope 身份,不存目录。
 func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, individual bool, groupID GroupID) error {
-	existing, err := findActivation(ctx, tx, id, scope)
-	if err != nil {
-		return err
-	}
 	var activationID int64
-	if existing != nil {
-		activationID = existing.id
-		if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = MAX(individual, ?) WHERE id = ?`, individual, activationID); err != nil {
-			return fmt.Errorf("record activation: %w", err)
-		}
-	} else {
-		result, err := tx.ExecContext(ctx, `INSERT INTO activations(skill_id, agent, project_id, individual) VALUES (?, ?, ?, ?)`, id, scope.agent, scope.projectID, individual)
-		if err != nil {
-			return fmt.Errorf("record activation: %w", err)
-		}
-		if activationID, err = result.LastInsertId(); err != nil {
-			return fmt.Errorf("record activation: %w", err)
-		}
+	err := tx.QueryRowContext(ctx, `
+		INSERT INTO activations(skill_id, agent, project_id, individual) VALUES (?, ?, ?, ?)
+		ON CONFLICT DO UPDATE SET individual = MAX(individual, excluded.individual)
+		RETURNING id`, id, scope.agent, scope.projectID, individual).Scan(&activationID)
+	if err != nil {
+		return fmt.Errorf("record activation: %w", err)
 	}
 	if groupID != 0 {
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(activation_id, group_id) VALUES (?, ?)`, activationID, groupID); err != nil {
@@ -283,7 +266,7 @@ func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scope
 }
 
 func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.writeOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	target, err := l.resolveScope(ctx, scope)
@@ -348,10 +331,9 @@ func keepActivation(ctx context.Context, tx *sql.Tx, activationID int64) (bool, 
 }
 
 func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (err error) {
-	// ponytail: 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	ctx = context.WithValue(ctx, libraryOperationKey{}, l)
+	// 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
+	ctx, unlock := l.writeOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	target, err := l.resolveScope(ctx, scope)
 	if err != nil {
@@ -477,10 +459,9 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 }
 
 func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
-	// ponytail: 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	ctx = context.WithValue(ctx, libraryOperationKey{}, l)
+	// 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
+	ctx, unlock := l.writeOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
 	target, err := l.resolveScope(ctx, scope)
 	if err != nil {
@@ -489,10 +470,9 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return err
 	}
-	where, args := target.predicate("a.")
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT a.id, a.skill_id FROM activation_groups g JOIN activations a ON a.id = g.activation_id
-		WHERE g.group_id = ? AND `+where+` ORDER BY a.skill_id`, append([]any{groupID}, args...)...)
+		WHERE g.group_id = ? AND a.agent = ? AND a.project_id IS ? ORDER BY a.skill_id`, groupID, target.agent, target.projectID)
 	if err != nil {
 		return fmt.Errorf("list group activations: %w", err)
 	}
