@@ -1,9 +1,11 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -11,105 +13,72 @@ import (
 func pluginSearchPaths(ctx context.Context, view sourceDirectoryView, root string) ([]string, map[string]string, error) {
 	var dirs []string
 	groups := map[string]string{}
-	readManifest := func(name string, dest any) error {
-		entries, err := view.readDir(root)
+	readManifest := func(name string, dest any) (bool, error) {
+		entries, err := readLinkedDir(view, root, path.Join(root, ".claude-plugin"))
 		if err != nil {
-			return nil
+			return false, nil
 		}
-		realDir := false
-		for _, e := range entries {
-			if e.name == ".claude-plugin" && e.mode.IsDir() {
-				realDir = true
-				break
-			}
+		if slices.IndexFunc(entries, func(e sourceEntry) bool { return e.name == name && e.mode.IsRegular() }) < 0 {
+			return false, nil
 		}
-		if !realDir {
-			return nil
-		}
-		entries, err = view.readDir(path.Join(root, ".claude-plugin"))
+		content, err := view.readFile(ctx, path.Join(root, ".claude-plugin", name))
 		if err != nil {
-			return nil
+			return false, err
 		}
-		for _, e := range entries {
-			if e.name != name || !e.mode.IsRegular() {
-				continue
-			}
-			content, err := view.readFile(ctx, path.Join(root, ".claude-plugin", name))
-			if err != nil {
-				return err
-			}
-			// JSON 无效时静默忽略整个清单,不使用部分解码的数据。
-			if !json.Valid(content) {
-				return nil
-			}
-			_ = json.Unmarshal(content, dest)
-			return nil
+		if json.Unmarshal(content, dest) != nil {
+			return false, nil
 		}
-		return nil
+		return true, nil
 	}
-	add := func(base string, raw json.RawMessage) {
-		var plugin struct {
-			Name   string `json:"name"`
-			Skills []any  `json:"skills"`
-		}
-		if json.Unmarshal(raw, &plugin) != nil {
-			return
-		}
-		for _, value := range plugin.Skills {
-			value, ok := value.(string)
-			if !ok {
-				continue
-			}
+	add := func(base, name string, skills []string) {
+		for _, value := range skills {
 			dir, ok := pluginLocalPath(root, base, value)
 			if !ok {
 				continue
 			}
 			dirs = append(dirs, path.Dir(dir))
-			if plugin.Name != "" {
+			if name != "" {
 				if _, exists := groups[dir]; !exists {
-					groups[dir] = plugin.Name
+					groups[dir] = name
 				}
 			}
 		}
 		dirs = append(dirs, path.Join(base, "skills"))
 	}
-	var marketplace json.RawMessage
-	if err := readManifest("marketplace.json", &marketplace); err != nil {
-		return nil, nil, err
-	}
 	var market struct {
 		Metadata struct {
-			PluginRoot *string `json:"pluginRoot"`
+			PluginRoot string `json:"pluginRoot"`
 		} `json:"metadata"`
 		Plugins []json.RawMessage `json:"plugins"`
 	}
-	if len(marketplace) != 0 && json.Unmarshal(marketplace, &market) == nil {
-		pluginRoot := "./"
-		if market.Metadata.PluginRoot != nil {
-			pluginRoot = *market.Metadata.PluginRoot
-		}
-		base, ok := pluginLocalPath(root, root, pluginRoot)
-		if ok {
-			for _, raw := range market.Plugins {
-				var plugin struct {
-					Source string `json:"source"`
-				}
-				if json.Unmarshal(raw, &plugin) != nil {
-					continue
-				}
-				dir, ok := pluginLocalPath(root, base, plugin.Source)
-				if ok {
-					add(dir, raw)
-				}
+	if _, err := readManifest("marketplace.json", &market); err != nil {
+		return nil, nil, err
+	}
+	if base, ok := pluginLocalPath(root, root, cmp.Or(market.Metadata.PluginRoot, "./")); ok {
+		for _, raw := range market.Plugins {
+			var plugin struct {
+				Name   string   `json:"name"`
+				Source string   `json:"source"`
+				Skills []string `json:"skills"`
+			}
+			if json.Unmarshal(raw, &plugin) != nil {
+				continue
+			}
+			if dir, ok := pluginLocalPath(root, base, plugin.Source); ok {
+				add(dir, plugin.Name, plugin.Skills)
 			}
 		}
 	}
-	var single json.RawMessage
-	if err := readManifest("plugin.json", &single); err != nil {
+	var single struct {
+		Name   string   `json:"name"`
+		Skills []string `json:"skills"`
+	}
+	found, err := readManifest("plugin.json", &single)
+	if err != nil {
 		return nil, nil, err
 	}
-	if len(single) != 0 {
-		add(root, single)
+	if found {
+		add(root, single.Name, single.Skills)
 	}
 	return dirs, groups, nil
 }
@@ -124,7 +93,7 @@ func pluginLocalPath(root, base, value string) (string, bool) {
 		}
 	}
 	dir := path.Join(base, value)
-	if !githubUnderRoot(dir, root) || dir == ".." || strings.HasPrefix(dir, "../") {
+	if !githubUnderRoot(dir, root) {
 		return "", false
 	}
 	return dir, true

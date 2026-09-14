@@ -35,6 +35,29 @@ func (v fsSourceView) readFile(ctx context.Context, name string) ([]byte, error)
 	return readSourceFile(ctx, v.source, name)
 }
 
+// readLinkedDir 仅沿真实目录访问,避免优先目录或清单路径经 symlink 逃出扫描根。
+func readLinkedDir(view sourceDirectoryView, root, dir string) ([]sourceEntry, error) {
+	current := root
+	if dir != root {
+		rel := strings.TrimPrefix(dir, root+"/")
+		if root == "." {
+			rel = dir
+		}
+		for component := range strings.SplitSeq(rel, "/") {
+			entries, err := view.readDir(current)
+			if err != nil {
+				return nil, err
+			}
+			i := slices.IndexFunc(entries, func(e sourceEntry) bool { return e.name == component && e.mode.IsDir() })
+			if i < 0 {
+				return nil, fs.ErrNotExist
+			}
+			current = path.Join(current, component)
+		}
+	}
+	return view.readDir(current)
+}
+
 var discoveryExcludedDirs = []string{".git", "node_modules", "dist", "build", "__pycache__"}
 var discoveryPriorityDirs = []string{
 	"skills", "skills/.curated", "skills/.experimental", "skills/.system",
@@ -58,33 +81,11 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 	diagnose := func(dir string, err error) {
 		result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: dir, Reason: err.Error()})
 	}
-	// 仅沿真实目录访问,避免优先目录或清单路径经 symlink 逃出扫描根。
-	readDir := func(dir string) ([]sourceEntry, error) {
-		current := root
-		if dir != root {
-			rel := strings.TrimPrefix(dir, root+"/")
-			if root == "." {
-				rel = dir
-			}
-			for component := range strings.SplitSeq(rel, "/") {
-				entries, err := view.readDir(current)
-				if err != nil {
-					return nil, err
-				}
-				i := slices.IndexFunc(entries, func(e sourceEntry) bool { return e.name == component && e.mode.IsDir() })
-				if i < 0 {
-					return nil, fs.ErrNotExist
-				}
-				current = path.Join(current, component)
-			}
-		}
-		return view.readDir(current)
-	}
 	inspect := func(dir string) (bool, error) {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		entries, err := readDir(dir)
+		entries, err := readLinkedDir(view, root, dir)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) && !processed[dir] {
 				diagnose(dir, err)
@@ -157,7 +158,7 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 				}
 			}
 		}
-		entries, err := readDir(dir)
+		entries, err := readLinkedDir(view, root, dir)
 		if err != nil {
 			return nil
 		}
