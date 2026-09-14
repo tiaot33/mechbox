@@ -64,13 +64,13 @@ func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
 	}
 	var payload struct {
 		Audits []struct {
-			Provider   string   `json:"provider"`
-			Slug       string   `json:"slug"`
-			Status     string   `json:"status"`
-			Summary    string   `json:"summary"`
-			AuditedAt  string   `json:"auditedAt"`
-			RiskLevel  string   `json:"riskLevel"`
-			Categories []string `json:"categories"`
+			Provider   string      `json:"provider"`
+			Slug       string      `json:"slug"`
+			Status     AuditStatus `json:"status"`
+			Summary    string      `json:"summary"`
+			AuditedAt  string      `json:"auditedAt"`
+			RiskLevel  string      `json:"riskLevel"`
+			Categories []string    `json:"categories"`
 		} `json:"audits"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil || payload.Audits == nil {
@@ -82,17 +82,14 @@ func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
 	// 解析宽松:必填字段缺失只丢该条;auditedAt 解析失败保留条目、时间为零值。
 	entries := make([]AuditEntry, 0, len(payload.Audits))
 	for _, audit := range payload.Audits {
-		if strings.TrimSpace(audit.Provider) == "" || strings.TrimSpace(audit.Slug) == "" || strings.TrimSpace(audit.Status) == "" || strings.TrimSpace(audit.Summary) == "" {
+		if strings.TrimSpace(audit.Provider) == "" || strings.TrimSpace(audit.Slug) == "" || strings.TrimSpace(string(audit.Status)) == "" || strings.TrimSpace(audit.Summary) == "" {
 			continue
 		}
-		auditedAt, err := time.Parse(time.RFC3339Nano, audit.AuditedAt)
-		if err != nil {
-			auditedAt = time.Time{}
-		}
+		auditedAt, _ := time.Parse(time.RFC3339Nano, audit.AuditedAt) // 失败即零值
 		entries = append(entries, AuditEntry{
 			Provider:   audit.Provider,
 			Slug:       audit.Slug,
-			Status:     AuditStatus(audit.Status),
+			Status:     audit.Status,
 			Summary:    audit.Summary,
 			AuditedAt:  auditedAt.UTC(),
 			RiskLevel:  audit.RiskLevel,

@@ -139,7 +139,7 @@ func TestSkillsAuditOnlyCoversSelectedGitHubCandidates(t *testing.T) {
 	fx := inspectGitHubRepo(t, repo)
 	serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
-	failing := serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
+	failVerdict := serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
 		return textResponse(http.StatusOK, `{"audits":[{"provider":"Runlayer","slug":"runlayer","status":"fail","summary":"3/8 files flagged","auditedAt":"2026-09-01T00:00:00Z","riskLevel":"HIGH"}]}`), nil
 	})
 	lib := openTestLibrary(t)
@@ -149,31 +149,47 @@ func TestSkillsAuditOnlyCoversSelectedGitHubCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if urls := failing.urls(); !reflect.DeepEqual(urls, []string{"https://skills.sh/api/v1/skills/audit/owner/repo/second"}) {
+	if urls := failVerdict.urls(); !reflect.DeepEqual(urls, []string{"https://skills.sh/api/v1/skills/audit/owner/repo/second"}) {
 		t.Fatalf("audit URLs = %v, want only the selected candidate", urls)
 	}
 	if len(fetch.Skills) != 1 || fetch.Skills[0].Audit == nil || fetch.Skills[0].Audit.Entries[0].Status != library.AuditFail {
 		t.Fatalf("candidates = %#v", fetch.Skills)
 	}
-	// 审计结论只供展示:fail 也不挡安装,入库的 Skill 不带审计。
+	// 审计结论只供展示:fail 也不挡安装;入库后的 Skill、列表与版本历史都没有审计的落脚点。
 	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
 	if err != nil || len(installed) != 1 || installed[0].Name != "second" {
 		t.Fatalf("install = %#v, %v", installed, err)
 	}
+	skill, err := lib.GetSkill(t.Context(), installed[0].ID)
+	if err != nil || !reflect.DeepEqual(skill, installed[0]) {
+		t.Fatalf("GetSkill = %#v, %v", skill, err)
+	}
+	if skills, err := lib.ListSkills(t.Context()); err != nil || !reflect.DeepEqual(skills, []library.SkillSummary{summaryOf(installed[0])}) {
+		t.Fatalf("ListSkills = %#v, %v", skills, err)
+	}
+	if versions, err := lib.ListVersions(t.Context(), installed[0].ID); err != nil || len(versions) != 1 {
+		t.Fatalf("ListVersions = %#v, %v", versions, err)
+	}
 
-	// URL 来源不在 skills.sh 收录范围:候选上没有审计字段,也不发请求。
+	// URL / Store 来源不在 skills.sh 收录范围:候选上没有审计字段,也不发请求。
+	t.Setenv("SKILLS_STORE_URL", "https://store.example/skills")
 	archiveSpec := mockFetchArchive(t)
 	untouched := serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
 		t.Error("archive fetch contacted skills.sh")
 		return textResponse(http.StatusInternalServerError, ""), nil
 	})
-	fetch, err = lib.Fetch(t.Context(), archiveSpec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, skill := range fetch.Skills {
-		if skill.Audit != nil {
-			t.Fatalf("archive candidate carries audit: %#v", skill)
+	for _, spec := range []library.SourceSpec{
+		archiveSpec,
+		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"}},
+	} {
+		fetch, err = lib.Fetch(t.Context(), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, skill := range fetch.Skills {
+			if skill.Audit != nil {
+				t.Fatalf("%s candidate carries audit: %#v", spec.Type, skill)
+			}
 		}
 	}
 	if len(untouched.urls()) != 0 {
