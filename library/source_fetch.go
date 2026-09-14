@@ -73,13 +73,48 @@ func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, 
 
 // fetchGitHubClone 浅克隆整仓并发现候选;LFS、超时与协议限制由 runSourceGit 提供。
 func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string) (result discoveredSource, err error) {
+	if fullCommit.MatchString(locator.Branch) {
+		locator.Branch = strings.ToLower(locator.Branch)
+	}
 	root, err := os.MkdirTemp("", "skills-git-")
 	if err != nil {
 		return result, err
 	}
 	defer os.RemoveAll(root)
 	repository := filepath.Join(root, "repository")
-	if err := cloneGitHub(ctx, locator, repository); err != nil {
+	if err := validateGitRef(ctx, locator.Branch); err != nil {
+		return result, err
+	}
+	clone := func(remote string) error {
+		_, err := runSourceGit(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", "--branch", locator.Branch, "--", remote, repository)
+		if err != nil && ctx.Err() == nil && fullCommit.MatchString(locator.Branch) {
+			if removeErr := os.RemoveAll(repository); removeErr != nil {
+				return removeErr
+			}
+			if _, initErr := runSourceGit(ctx, "init", "--quiet", repository); initErr != nil {
+				return initErr
+			}
+			if _, fetchErr := runSourceGit(ctx, "-C", repository, "fetch", "--quiet", "--depth", "1", "--", remote, locator.Branch); fetchErr != nil {
+				return fetchErr
+			}
+			_, err = runSourceGit(ctx, "-C", repository, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+		}
+		return err
+	}
+	err = clone(locator.Repository)
+	if err != nil && ctx.Err() == nil {
+		if remote, ok := strings.CutPrefix(locator.Repository, "https://github.com/"); ok {
+			if removeErr := os.RemoveAll(repository); removeErr != nil {
+				return result, removeErr
+			}
+			firstErr := err
+			err = clone("git@github.com:" + remote)
+			if err != nil && ctx.Err() == nil {
+				err = preferGitHubHTTPSError(firstErr, err)
+			}
+		}
+	}
+	if err != nil {
 		return result, err
 	}
 	output, err := runSourceGit(ctx, "-C", repository, "rev-parse", "HEAD")
@@ -117,46 +152,6 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 		result.skills[i].gitTreeSHA = sha
 	}
 	return result, nil
-}
-
-// cloneGitHub 在调用方的暂存目录克隆指定 ref,共用超时、LFS 与 HTTPS/SSH 回退。
-func cloneGitHub(ctx context.Context, locator SourceLocator, repository string) error {
-	if fullCommit.MatchString(locator.Branch) {
-		locator.Branch = strings.ToLower(locator.Branch)
-	}
-	if err := validateGitRef(ctx, locator.Branch); err != nil {
-		return err
-	}
-	clone := func(remote string) error {
-		_, err := runSourceGit(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", "--branch", locator.Branch, "--", remote, repository)
-		if err != nil && ctx.Err() == nil && fullCommit.MatchString(locator.Branch) {
-			if removeErr := os.RemoveAll(repository); removeErr != nil {
-				return removeErr
-			}
-			if _, initErr := runSourceGit(ctx, "init", "--quiet", repository); initErr != nil {
-				return initErr
-			}
-			if _, fetchErr := runSourceGit(ctx, "-C", repository, "fetch", "--quiet", "--depth", "1", "--", remote, locator.Branch); fetchErr != nil {
-				return fetchErr
-			}
-			_, err = runSourceGit(ctx, "-C", repository, "checkout", "--quiet", "--detach", "FETCH_HEAD")
-		}
-		return err
-	}
-	err := clone(locator.Repository)
-	if err != nil && ctx.Err() == nil {
-		if remote, ok := strings.CutPrefix(locator.Repository, "https://github.com/"); ok {
-			if removeErr := os.RemoveAll(repository); removeErr != nil {
-				return removeErr
-			}
-			firstErr := err
-			err = clone("git@github.com:" + remote)
-			if err != nil && ctx.Err() == nil {
-				err = preferGitHubHTTPSError(firstErr, err)
-			}
-		}
-	}
-	return err
 }
 
 // readGitTreeSHA 读取该 Skill 目录的 git tree 对象 SHA;根目录 Skill 用 commit 的 root tree。

@@ -24,6 +24,7 @@ type fetchedSkill struct {
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
 type fetchSession struct {
 	source      Source
+	subpath     string
 	ref         string
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
@@ -75,7 +76,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := ctx.Err(); err != nil {
 		return Fetch{}, err
 	}
-	session := &fetchSession{source: source, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
+	session := &fetchSession{source: source, subpath: spec.Subpath, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()

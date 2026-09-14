@@ -478,14 +478,6 @@ wait
 	}
 }
 
-// stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。
-func stubGitHubCLI(t *testing.T, script string) {
-	t.Helper()
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "gh"), []byte("#!/bin/sh\n"+script), 0o755)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
 func serveGitHubCLI(t *testing.T, fx gitHubFixture) {
 	t.Helper()
 	var script strings.Builder

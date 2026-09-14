@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -159,7 +158,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 	if c.useCLI {
 		return githubCLIGet(ctx, location, dest)
 	}
-	var err error = errGitHubContentsFallback
+	err := errGitHubContentsFallback
 	if !c.useToken && time.Now().Unix() >= c.anonymousReset.Load() {
 		err = githubAPIGetOnce(ctx, location, "", dest)
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
@@ -196,28 +195,11 @@ func githubCLIGet(ctx context.Context, location string, dest any) error {
 	command.Env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
 	command.WaitDelay = time.Second
 	cancelGitProcess(command)
-	output, err := command.StdoutPipe()
-	if err != nil {
-		return errGitHubContentsFallback
-	}
-	if err := command.Start(); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return errGitHubContentsFallback
-	}
-	body, readErr := io.ReadAll(io.LimitReader(output, maxFetchSize+1))
-	if readErr != nil || len(body) > maxFetchSize {
-		cancel()
-	}
-	waitErr := command.Wait()
+	body, err := command.Output()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if readErr != nil || waitErr != nil || commandCtx.Err() != nil || len(body) > maxFetchSize {
-		return errGitHubContentsFallback
-	}
-	if err := json.Unmarshal(body, dest); err != nil {
+	if err != nil || len(body) > maxFetchSize || json.Unmarshal(body, dest) != nil {
 		return errGitHubContentsFallback
 	}
 	return nil
@@ -279,11 +261,8 @@ func githubAPIGetOnce(ctx context.Context, location, token string, dest any) err
 		return errGitHubContentsFallback
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		reset, err := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
-		if err != nil || reset <= 0 {
-			// 未给出有效 Reset 时只短暂避让,不能永久关闭匿名路径。
-			reset = time.Now().Add(time.Minute).Unix()
-		}
+		// 限流响应恒带 Reset;解析失败存 0 即不避让。
+		reset, _ := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
 		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response), reset: reset}
 	}
 	if err := json.Unmarshal(body, dest); err != nil {
@@ -721,9 +700,7 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fe
 			if !githubContentsUnavailable(err) {
 				return githubInstallError(err)
 			}
-			locator := session.source.Locator
-			locator.Branch = session.ref
-			return githubCloneError(ctx, err, materializeGitHubClone(ctx, locator, skills))
+			return githubCloneError(ctx, err, materializeGitHubClone(ctx, session, skills))
 		}
 		skills[i].files = files
 		skills[i].blobs = nil
@@ -731,30 +708,22 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fe
 	return nil
 }
 
-// materializeGitHubClone 只按预览中的路径读取所选 Skill,不重新发现同名候选。
-func materializeGitHubClone(ctx context.Context, locator SourceLocator, skills []fetchedSkill) error {
-	root, err := os.MkdirTemp("", "skills-git-")
+// materializeGitHubClone 在钉住的 commit 上按预览时的 subpath 重新克隆发现,再按路径与 tree SHA 匹配所选 Skill。
+func materializeGitHubClone(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
+	locator := session.source.Locator
+	locator.Branch = session.ref
+	discovered, err := fetchGitHubClone(ctx, locator, session.subpath)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(root)
-	repository := filepath.Join(root, "repository")
-	if err := cloneGitHub(ctx, locator, repository); err != nil {
-		return err
-	}
 	for i, skill := range skills {
-		sha, err := readGitTreeSHA(ctx, repository, skill.preview.Path)
-		if err != nil {
-			return err
-		}
-		if sha != skill.gitTreeSHA {
+		index := slices.IndexFunc(discovered.skills, func(cloned fetchedSkill) bool {
+			return cloned.preview.Path == skill.preview.Path && cloned.gitTreeSHA == skill.gitTreeSHA
+		})
+		if index < 0 {
 			return githubInstallError(errGitHubContentsFallback)
 		}
-		files, err := readCandidateFiles(ctx, os.DirFS(repository), skill.preview.Path)
-		if err != nil {
-			return err
-		}
-		skills[i].files = files
+		skills[i].files = discovered.skills[index].files
 		skills[i].blobs = nil
 	}
 	return nil
