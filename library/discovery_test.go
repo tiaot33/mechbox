@@ -228,8 +228,8 @@ func TestFetchDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.FetchSkill{{Name: "useful", Description: "Helps with useful work.", Path: "one"}, {Name: "minimal", Path: "two"}}
-	if !reflect.DeepEqual(fetch.Skills, want) || len(fetch.Diagnostics) != 1 || fetch.Diagnostics[0].Path != "bad" {
+	want := []library.FetchSkill{{Name: "useful", Description: "Helps with useful work.", Path: "one"}}
+	if !reflect.DeepEqual(fetch.Skills, want) || len(fetch.Diagnostics) != 2 || fetch.Diagnostics[0].Path != "bad" {
 		t.Fatalf("Fetch = %#v", fetch)
 	}
 	fetch.Skills[0].Name = "mutated"
@@ -244,7 +244,9 @@ func TestFetchDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.
 	}
 }
 
-func skillDocument(name, body string) string { return "---\nname: " + name + "\n---\n" + body }
+func skillDocument(name, body string) string {
+	return "---\nname: " + name + "\ndescription: \"\"\n---\n" + body
+}
 
 func TestFetchDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 	repository := t.TempDir()
@@ -266,7 +268,7 @@ func TestFetchDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fetch.Skills) != 2 || fetch.Skills[0].Name != "other" || fetch.Skills[1].Name != "good" || len(fetch.Diagnostics) != 1 || fetch.Diagnostics[0].Path != "bad" {
+	if len(fetch.Skills) != 2 || fetch.Skills[0].Name != "good" || fetch.Skills[1].Name != "other" || len(fetch.Diagnostics) != 1 || fetch.Diagnostics[0].Path != "bad" {
 		t.Fatalf("Fetch = %#v", fetch)
 	}
 	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"good"})
@@ -293,7 +295,6 @@ func TestFetchRejectsInvalidCandidateSetsWithoutCreatingSession(t *testing.T) {
 		{"invalid YAML", map[string]string{"bad/SKILL.md": "---\nname: [broken\n---\n"}, "bad"},
 		{"missing name", map[string]string{"bad/SKILL.md": "---\ndescription: okay\n---\n"}, "name"},
 		{"numeric name", map[string]string{"bad/SKILL.md": "---\nname: 123\n---\n"}, "name"},
-		{"ambiguous", map[string]string{"a/SKILL.md": skillDocument("same", "a"), "b/SKILL.md": skillDocument("same", "b")}, "ambiguous"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lib := openTestLibrary(t)

@@ -194,6 +194,7 @@ type SkillAudit struct {
 // FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。Audit 是 skills.sh 的审计覆盖层:
 // GitHub 来源一定非 nil,由 Availability 说明内容;URL / Store 来源为 nil(skills.sh 未收录)。
 type FetchSkill struct {
+	PluginName  string      `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅供预览
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	Path        string      `json:"path"`
@@ -390,18 +391,18 @@ type Library interface {
 	// 要么库保持不变。成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
 	// 失败时保留句柄供重试,直至 Close 或过期。
 	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
-	// Update 重新读取来源。GitHub 比较该 Skill 目录的 tree SHA:相同则不取文件、不新增版本
+	// Update 重新读取来源。GitHub 先发现候选,再比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本
 	// (可刷新 last_fetched / last_seen_ref);不同才取文件并写入新版本和新 SHA。无 SHA 的旧
 	// GitHub 记录回退为比较文件与可执行位,成功后补写 SHA。URL / Store / 本地仍比较文件。
 	// 只更新 Library,不重写激活副本。
 	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
-	// CheckUpdate 自行读取来源。GitHub 比较当前版本的目录 tree SHA,相同则不取文件;
+	// CheckUpdate 自行读取来源。GitHub 先发现候选,再比较当前版本的目录 tree SHA,相同则不取辅助文件;
 	// 无 SHA 时回退为比较文件与可执行位。其他来源比较文件内容及权限。不修改 Library 或激活副本。
 	CheckUpdate(ctx context.Context, id SkillID) (bool, error)
 	// CheckUpdates 去重保序,每个 Source(含 ref)只远程读取一次;GitHub 共用一次 tree,
-	// 各 Skill 用各自目录 SHA 比较。逐项错误不阻断其他来源。整体取消返回已完成项与
+	// 发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。逐项错误不阻断其他来源。整体取消返回已完成项与
 	// context 错误,未完成项不伪装为无更新。检查不写 Library。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 

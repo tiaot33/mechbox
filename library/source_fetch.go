@@ -68,7 +68,10 @@ func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, 
 		apiErr = err
 	}
 	result, err := fetchGitHubClone(ctx, locator, subpath)
-	return result, githubCloneError(ctx, apiErr, err)
+	if err != nil {
+		return result, githubCloneError(ctx, apiErr, err)
+	}
+	return finishDiscovery(result)
 }
 
 // fetchGitHubClone 浅克隆整仓并发现候选;LFS、超时与协议限制由 runSourceGit 提供。
@@ -240,7 +243,11 @@ func readArchive(ctx context.Context, content []byte) (discoveredSource, error) 
 		}
 		remaining -= archived.UncompressedSize64
 	}
-	return discoverSkills(ctx, reader, ".")
+	result, err := discoverSkills(ctx, reader, ".")
+	if err != nil {
+		return result, err
+	}
+	return finishDiscovery(result)
 }
 
 func candidateMetadata(content []byte, root string) (FetchSkill, error) {
@@ -271,73 +278,20 @@ func candidateMetadata(content []byte, root string) (FetchSkill, error) {
 		return result, errors.New("name must be a non-empty safe string")
 	}
 	result.Name = name
-	if description, exists := metadata["description"]; exists {
-		result.Description, ok = description.(string)
-		if !ok {
-			return result, errors.New("description must be a string")
-		}
+	result.Description, ok = metadata["description"].(string)
+	if !ok {
+		return result, errors.New("description must be a string")
 	}
 	return result, nil
 }
 
 // discoverSkills 只在发现候选后读取完整文件;发现排除目录不会裁剪候选内资源。
-func discoverSkills(ctx context.Context, source fs.FS, root string) (result discoveredSource, err error) {
-	err = fs.WalkDir(source, root, func(current string, entry fs.DirEntry, walkErr error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if walkErr != nil {
-			result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: current, Reason: walkErr.Error()})
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		if current != root && slices.Contains(discoveryExcludedDirs, entry.Name()) {
-			return fs.SkipDir
-		}
-		entries, err := fs.ReadDir(source, current)
-		if err != nil {
-			result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: current, Reason: err.Error()})
-			return fs.SkipDir
-		}
-		for _, file := range entries {
-			if file.Name() != "SKILL.md" {
-				continue
-			}
-			var skill fetchedSkill
-			if !file.Type().IsRegular() {
-				err = errors.New("SKILL.md must be a regular file")
-			} else {
-				var content []byte
-				content, err = readSourceFile(ctx, source, path.Join(current, "SKILL.md"))
-				if err == nil {
-					skill.preview, err = candidateMetadata(content, current)
-				}
-				if err == nil {
-					skill.name = skill.preview.Name
-					skill.files, err = readCandidateFiles(ctx, source, current)
-				}
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if err != nil {
-				result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: current, Reason: err.Error()})
-			} else {
-				result.skills = append(result.skills, skill)
-			}
-			return fs.SkipDir
-		}
-		return nil
+func discoverSkills(ctx context.Context, source fs.FS, root string) (discoveredSource, error) {
+	return discoverCandidates(ctx, fsSourceView{source}, root, func(skill *fetchedSkill, _ string, _ []byte) error {
+		var err error
+		skill.files, err = readCandidateFiles(ctx, source, skill.preview.Path)
+		return err
 	})
-	if err != nil {
-		return discoveredSource{}, err
-	}
-	return finishDiscovery(result)
 }
 
 func readSourceFile(ctx context.Context, source fs.FS, name string) ([]byte, error) {
@@ -390,13 +344,6 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string) ([]File,
 }
 
 func finishDiscovery(result discoveredSource) (discoveredSource, error) {
-	names := make(map[string]bool)
-	for _, skill := range result.skills {
-		if names[skill.name] {
-			return discoveredSource{}, &Error{Code: InvalidArgument, Message: fmt.Sprintf("ambiguous skill name %q", skill.name)}
-		}
-		names[skill.name] = true
-	}
 	if len(result.skills) == 0 {
 		reasons := make([]string, len(result.diagnostics))
 		for i, d := range result.diagnostics {
