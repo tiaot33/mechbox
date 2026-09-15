@@ -4,13 +4,109 @@ import (
 	"archive/zip"
 	"bytes"
 	"database/sql"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/library"
 )
+
+// archiveServer 打桩 URL / Store 来源的压缩包服务端(接管 http.DefaultClient):记录每个请求的 URL 与头,
+// 可配置 ETag 或 Last-Modified;请求带 If-None-Match / If-Modified-Since 且与当前 validator 相同时回 304,
+// 304 的正文若被读取会被计数——按契约应恒为零字节。
+type archiveServer struct {
+	mu                   sync.Mutex
+	archive              []byte
+	etag                 string
+	lastModified         string
+	requests             []archiveRequest
+	notModifiedBodyReads atomic.Int64
+}
+
+type archiveRequest struct {
+	url    string
+	header http.Header
+}
+
+// newArchiveServer 接管 http.DefaultClient 提供 archive;etag 为空表示服务端不给 validator。
+func newArchiveServer(t *testing.T, archive []byte, etag string) *archiveServer {
+	t.Helper()
+	server := &archiveServer{archive: archive, etag: etag}
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(server.roundTrip)}
+	t.Cleanup(func() { http.DefaultClient = client })
+	return server
+}
+
+// serveArchive 是最简形态:固定 200 + 压缩包,不给 validator。
+func serveArchive(t *testing.T, archive []byte) library.SourceSpec {
+	t.Helper()
+	return newArchiveServer(t, archive, "").spec()
+}
+
+func (s *archiveServer) spec() library.SourceSpec {
+	return library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
+}
+
+// serve 替换远端内容与 validator;etag 为空表示服务端不再给出 ETag。
+func (s *archiveServer) serve(archive []byte, etag string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.archive, s.etag = archive, etag
+}
+
+// serveLastModified 让服务端只给出 Last-Modified(不给 ETag)。
+func (s *archiveServer) serveLastModified(archive []byte, lastModified string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.archive, s.etag, s.lastModified = archive, "", lastModified
+}
+
+// snapshot 返回到目前为止收到的全部请求;调用后清空,便于逐操作断言。
+func (s *archiveServer) snapshot() []archiveRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	requests := s.requests
+	s.requests = nil
+	return requests
+}
+
+func (s *archiveServer) roundTrip(r *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = append(s.requests, archiveRequest{url: r.URL.String(), header: r.Header.Clone()})
+	header := make(http.Header)
+	if s.etag != "" {
+		header.Set("ETag", s.etag)
+	}
+	if s.lastModified != "" {
+		header.Set("Last-Modified", s.lastModified)
+	}
+	matched := (s.etag != "" && r.Header.Get("If-None-Match") == s.etag) ||
+		(s.lastModified != "" && r.Header.Get("If-Modified-Since") == s.lastModified)
+	if matched {
+		body := &countingReader{reader: bytes.NewReader(s.archive), read: &s.notModifiedBodyReads}
+		return &http.Response{StatusCode: http.StatusNotModified, Header: header, Body: io.NopCloser(body)}, nil
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(bytes.NewReader(s.archive))}, nil
+}
+
+// countingReader 记录经它读出的字节数。
+type countingReader struct {
+	reader io.Reader
+	read   *atomic.Int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.reader.Read(p)
+	c.read.Add(int64(n))
+	return n, err
+}
 
 func seededAgents() []library.Agent {
 	return []library.Agent{

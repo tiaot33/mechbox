@@ -13,7 +13,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		return nil, err
 	}
 	var skills []Skill
-	var confirmed []string // 与 skills 对齐:各当前版本的确认 commit
+	var states []fetchState // 与 skills 对齐:各自的抓取记录
 	var completed []bool
 	groups := make(map[SourceID][]int)
 	var sources []SourceID
@@ -37,12 +37,12 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		seen[id] = true
 		result := UpdateCheck{SkillID: id}
 		var skill Skill
-		var confirmedCommit string
+		var state fetchState
 		var readErr error
 		if id <= 0 {
 			readErr = &Error{Code: InvalidArgument, Message: "skill ID must be positive"}
 		} else {
-			skill, confirmedCommit, readErr = l.getSkill(ctx, id)
+			skill, state, readErr = l.getSkill(ctx, id)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -57,7 +57,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		}
 		results = append(results, result)
 		skills = append(skills, skill)
-		confirmed = append(confirmed, confirmedCommit)
+		states = append(states, state)
 		completed = append(completed, readErr != nil)
 	}
 	for _, sourceID := range sources {
@@ -76,7 +76,8 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		case SourceGitHub:
 			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
 		default:
-			discovered, readErr = l.fetchRemote(ctx, source, "")
+			// validator 是 Source 级的,同组各 Skill 读到的相同;一次带条件头的请求覆盖整组,304 即全组无更新。
+			discovered, readErr = l.fetchRemote(ctx, source, "", states[indices[0]].httpValidator)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -93,8 +94,11 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 					available = !filesEqual(skills[index].Files, localFiles)
 				case SourceGitHub:
 					// commit 命中的 Skill 不参与 tree 比较;同一 Source 下首个未命中的 Skill 才让快照取一次 tree。
-					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], confirmed[index])
+					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], states[index].confirmedCommit)
 				default:
+					if discovered.unchanged {
+						break // 304:整组沿用库中内容
+					}
 					selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
 					itemErr = selectErr
 					if itemErr == nil {

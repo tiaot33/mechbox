@@ -31,20 +31,27 @@ type discoveredSource struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	ref         string
+	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator,已是条件请求头形式(见 httpValidator);
+	// 未给出为空。304 时沿用请求所带的那个。
+	httpValidator string
+	// unchanged 表示带条件头的请求收到 304:远端未变,skills 为空,调用方沿用库中内容。
+	unchanged bool
 }
 
-func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath string) (discoveredSource, error) {
+// fetchRemote 读取远端来源。validator 是 Source 上记录的 HTTP validator(条件请求头形式),非空时 URL / Store
+// 的请求带条件头,304 以 unchanged 返回;GitHub 不使用它。Fetch 必须拿到内容,传空。
+func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
 	switch source.Type {
 	case SourceGitHub:
 		return l.fetchGitHub(ctx, source.Locator, subpath)
 	case SourceURL:
-		return fetchArchive(ctx, source.Locator.URL)
+		return fetchArchive(ctx, source.Locator.URL, validator)
 	case SourceStore:
 		base := os.Getenv("SKILLS_STORE_URL")
 		if base == "" {
 			return discoveredSource{}, fetchError(SourceUnreachable, "fetch store source", errors.New("SKILLS_STORE_URL is not configured"))
 		}
-		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version))
+		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version), validator)
 	default:
 		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "unsupported remote source type"}
 	}
@@ -174,8 +181,28 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
-// fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。
-func fetchArchive(ctx context.Context, location string) (result discoveredSource, err error) {
+// httpValidator 把服务端响应里的 validator 折成可直接回填的条件请求头 "name: value":优先 ETag → If-None-Match,
+// 其次 Last-Modified → If-Modified-Since;都没有为空。库里存的就是这个形式,发请求时再由 conditionalHeader 拆开。
+func httpValidator(header http.Header) string {
+	if etag := header.Get("ETag"); etag != "" {
+		return "If-None-Match: " + etag
+	}
+	if modified := header.Get("Last-Modified"); modified != "" {
+		return "If-Modified-Since: " + modified
+	}
+	return ""
+}
+
+// conditionalHeader 拆开 httpValidator 的存储形式;形式不对(理论上不会)视为没有 validator。
+func conditionalHeader(validator string) (name, value string, ok bool) {
+	name, value, ok = strings.Cut(validator, ": ")
+	return name, value, ok && name != "" && value != ""
+}
+
+// fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。validator 非空时带条件头,
+// 服务端回 304 即远端未变:不读正文,以 unchanged 返回并沿用该 validator。304 与其他非 2xx 的区分只发生在
+// 带了条件头的请求上;不带条件头收到 304 按普通错误处理。
+func fetchArchive(ctx context.Context, location, validator string) (result discoveredSource, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -185,6 +212,10 @@ func fetchArchive(ctx context.Context, location string) (result discoveredSource
 	if err != nil {
 		return result, fetchError(SourceUnreachable, "fetch source", errors.New("invalid source URL"))
 	}
+	name, value, conditional := conditionalHeader(validator)
+	if conditional {
+		req.Header.Set(name, value)
+	}
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -193,6 +224,9 @@ func fetchArchive(ctx context.Context, location string) (result discoveredSource
 		return result, fetchError(fetchErrorCode(err), "fetch source", errors.New("source could not be reached"))
 	}
 	defer response.Body.Close()
+	if conditional && response.StatusCode == http.StatusNotModified {
+		return discoveredSource{httpValidator: validator, unchanged: true}, nil
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		code := SourceUnreachable
 		if response.StatusCode == 401 || response.StatusCode == 403 {
@@ -216,6 +250,7 @@ func fetchArchive(ctx context.Context, location string) (result discoveredSource
 	}
 	sum := sha256.Sum256(content)
 	result.ref = hex.EncodeToString(sum[:])
+	result.httpValidator = httpValidator(response.Header)
 	return result, nil
 }
 

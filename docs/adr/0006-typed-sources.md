@@ -28,4 +28,11 @@ Skills arrive from several kinds of origin and v1 supports all four. Making the 
 - 读取顺序:GitHub 检查与更新先发一次 `commits/{ref}`;所涉 Skill 的当前版本确认 commit 与之相同即无更新,不取 recursive tree。不同或为空(非 git 来源、迁移前的旧版本)才按原有逻辑取 tree 比较目录 SHA,无 SHA 时回退比较文件。`CheckUpdates` 内同一 Source 混合命中时至多取一次 tree,命中的 Skill 不参与比较。ref 为完整 SHA 的 Skill 因此永远只发一次请求且无更新;分支 force-push 或 tag 移动后 commit 变了,自然回到完整比较。
 - 迁移 v5 → v6 只加列不回填:Source 级的 `last_seen_ref` 对多 Skill 仓库不健全,空值即"未知,走完整比较",历史版本经一次 `Update` 补齐。`sources.last_seen_ref` 保留现有语义与写入时机,继续作为 Source 级展示信息。
 
+## URL / Store 的 HTTP validator 与条件请求(#64)
+
+- URL / Store 来源以前只为了"有没有更新"也要把整个压缩包(上限 64 MB)下完再比对。自 schema v7 起 `sources` 记录 `http_validator`——上次成功抓取时服务端给出的 validator,优先 ETag,其次 Last-Modified,直接存成条件请求头的形式(`If-None-Match: <etag>` / `If-Modified-Since: <date>`),发请求时原样回填。它和 `last_seen_ref` 一样是 Source 级的"关于库内容的事实",随 Sync 走;GitHub / local 来源恒为空。
+- 写入时机:`InstallFetch` 写入 Fetch 那次响应给出的 validator;`Update` 收到 200 时把新 validator 随 `last_seen_ref` 一起写回,收到 304 时不新增版本、只刷新 `last_fetched`,validator 与 `last_seen_ref` 保持。`CheckUpdate` / `CheckUpdates` 严格只读。
+- 读取:`CheckUpdate` / `CheckUpdates` / `Update` 在 Source 记录了 validator 时带条件头;304 即无更新,正文零字节;200 则按原有流程整包下载比较。`CheckUpdates` 对同一 URL / Store Source 下多个 Skill 仍只发一次(带条件头的)请求,304 时整组无更新。`Fetch` 必须拿到内容,永远不带条件头。服务端不返回 validator 时列保持空、请求不带条件头,行为与之前完全一致;304 只在带了条件头的请求上有特殊含义,否则按普通非 2xx 错误处理。
+- 迁移 v6 → v7 只加列不回填;v5 一次迁到 v7,v1–v4 路径同步重建 `sources`。
+
 - Fetch 与 GitHub 更新定位的候选发现对齐 vercel-labs/skills（#59）：三条来源路径共用约定目录优先、根短路、有界兜底、同名先到先得、必填 description 与文件名大小写不敏感规则；读取 Claude 清单扩展搜索，`PluginName` 仅供 Fetch 预览分组，不持久化。更新定位先匹配已发现候选的 tree SHA，再匹配名称；发现元数据在单次 Source 快照内复用。
