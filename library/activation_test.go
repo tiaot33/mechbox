@@ -38,6 +38,8 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	writeFile(t, filepath.Join(target, "old.txt"), []byte("old"), 0o644)
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
 		t.Fatalf("Activate() conflict error = %v", err)
+	} else {
+		requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: target})
 	}
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
 		t.Fatal(err)
@@ -90,6 +92,24 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	if err := lib.Activate(ctx, library.SkillID(9999), scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Activate() unknown skill error = %v", err)
 	}
+}
+
+func TestDeactivateGroupBackedSkillNamesTheGroup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill := installNamedSkill(t, lib, "grouped")
+	group, err := lib.CreateGroup(t.Context(), "only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireErrorDetails(t, lib.Deactivate(t.Context(), skill.ID, scope), library.FailedPrecondition, library.ErrorDetails{Name: "only"})
 }
 
 func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) {
@@ -300,8 +320,13 @@ func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); !library.IsCode(err, library.AlreadyExists) {
-		t.Fatalf("ActivateGroup with duplicate names = %v, want AlreadyExists", err)
+	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("ActivateGroup with duplicate names = %v, want FailedPrecondition", err)
+	} else {
+		typed, _ := errors.AsType[*library.Error](err)
+		if typed.Details.Name != "dup" {
+			t.Fatalf("duplicate name details = %#v, want Name dup", typed.Details)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(directory, "dup")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("colliding group left a projection: %v", err)

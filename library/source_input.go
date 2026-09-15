@@ -252,13 +252,22 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	return output, nil
 }
 
+// annotateMissingGitRef 给 git 识别出的缺失 ref 补上 Details.Name。
+func annotateMissingGitRef(err error, ref string) error {
+	typed, ok := errors.AsType[*Error](err)
+	if !ok || typed.Code != NotFound || typed.Details.Name != "" || !strings.Contains(typed.Message, "ref not found") {
+		return err
+	}
+	return &Error{Code: NotFound, Message: typed.Message, Details: ErrorDetails{Name: ref}, Err: typed.Err}
+}
+
 func gitCommandError(output []byte) error {
 	detail := strings.ToLower(string(output))
 	switch {
 	case gitAuthFailure(detail):
 		return fetchError(Permission, "git", errors.New("authentication failed"))
 	case gitMissingRef(detail):
-		return fetchError(SourceUnreachable, "git", errors.New("ref not found"))
+		return &Error{Code: NotFound, Message: "git: ref not found"}
 	case gitUnreachable(detail):
 		return fetchError(SourceUnreachable, "git", errors.New("remote could not be reached"))
 	default:

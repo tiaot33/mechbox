@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -12,7 +13,7 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Gro
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if strings.TrimSpace(name) == "" {
-		return Group{}, fmt.Errorf("create group: name is required")
+		return Group{}, argumentError("create group", "name", "name is required")
 	}
 	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name) VALUES (?)`, name)
 	if err != nil {
@@ -52,7 +53,7 @@ func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("rename group: name is required")
+		return argumentError("rename group", "name", "name is required")
 	}
 	result, err := l.db.ExecContext(ctx, `UPDATE groups SET name = ? WHERE id = ?`, name, id)
 	if err != nil {
@@ -115,6 +116,14 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 	}
 	if err := l.requireSkill(ctx, skillID); err != nil {
 		return err
+	}
+	var exists int
+	err = l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE skill_id = ? AND group_id = ?`, skillID, groupID).Scan(&exists)
+	if err == nil {
+		return existsError("add skill to group", "skill is already a member", ErrorDetails{SkillID: skillID})
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("add skill to group: %w", err)
 	}
 	if _, err := l.db.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
 		return fmt.Errorf("add skill to group: %w", err)

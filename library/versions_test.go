@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -71,5 +72,24 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(diff, wantDiff) {
 		t.Fatalf("DiffVersions() = %#v, want %#v", diff, wantDiff)
+	}
+}
+
+func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
+	lib := openTestLibrary(t)
+	first := installNamedSkill(t, lib, "one")
+	second := installNamedSkill(t, lib, "two")
+	oldVersions, err := lib.ListVersions(t.Context(), first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newVersions, err := lib.ListVersions(t.Context(), second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.DiffVersions(t.Context(), oldVersions[0].ID, newVersions[0].ID)
+	requireLibraryError(t, err, library.InvalidArgument)
+	if typed, _ := errors.AsType[*library.Error](err); typed.Details != (library.ErrorDetails{}) {
+		t.Fatalf("cross-skill details = %#v, want zero", typed.Details)
 	}
 }

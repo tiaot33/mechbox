@@ -218,8 +218,8 @@ func TestActivateGroupOnIdentityScopePreservesIndependentActivation(t *testing.T
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 
-	if err := lib.Deactivate(ctx, second.ID, scope); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("Deactivate() via-group-only member = %v, want NotFound", err)
+	if err := lib.Deactivate(ctx, second.ID, scope); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("Deactivate() via-group-only member = %v, want FailedPrecondition", err)
 	}
 	if err := lib.DeactivateGroup(ctx, group.ID, scope); err != nil {
 		t.Fatal(err)
@@ -474,8 +474,13 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, opts := range []library.ActivateOptions{{}, {OnConflict: library.Overwrite}} {
-		if err := lib.Activate(ctx, skill.ID, projectScope, opts); !library.IsCode(err, library.AlreadyExists) {
-			t.Fatalf("Activate(%#v, %#v) = %v, want AlreadyExists", projectScope, opts, err)
+		if err := lib.Activate(ctx, skill.ID, projectScope, opts); !library.IsCode(err, library.FailedPrecondition) {
+			t.Fatalf("Activate(%#v, %#v) = %v, want FailedPrecondition", projectScope, opts, err)
+		} else {
+			typed, _ := errors.AsType[*library.Error](err)
+			if typed.Details.Path != directory {
+				t.Fatalf("shared directory details = %#v, want Path %q", typed.Details, directory)
+			}
 		}
 	}
 	activations, err := lib.ListActivations(ctx)
@@ -536,14 +541,14 @@ func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 		switch {
 		case err == nil:
 			accepted++
-		case library.IsCode(err, library.AlreadyExists):
+		case library.IsCode(err, library.FailedPrecondition):
 			rejected++
 		default:
-			t.Fatalf("Activate = %v, want nil or AlreadyExists", err)
+			t.Fatalf("Activate = %v, want nil or FailedPrecondition", err)
 		}
 	}
 	if accepted != 1 || rejected != 1 {
-		t.Fatalf("Activate results = %v, want one success and one AlreadyExists", results)
+		t.Fatalf("Activate results = %v, want one success and one FailedPrecondition", results)
 	}
 }
 

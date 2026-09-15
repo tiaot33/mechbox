@@ -3,6 +3,7 @@ package library
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -40,7 +41,7 @@ func readFiles(ctx context.Context, root string) ([]File, error) {
 		return nil, fmt.Errorf("read local source: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("read local source: %s is not a directory", root)
+		return nil, argumentError("read local source", "path", "path is not a directory")
 	}
 
 	var files []File
@@ -59,7 +60,7 @@ func readFiles(ctx context.Context, root string) ([]File, error) {
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("unsupported file type: %s", path)
+			return &Error{Code: SourceInvalid, Message: fmt.Sprintf("read local source: unsupported file type: %s", path)}
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -77,6 +78,9 @@ func readFiles(ctx context.Context, root string) ([]File, error) {
 		return nil
 	})
 	if err != nil {
+		if _, ok := errors.AsType[*Error](err); ok {
+			return nil, err
+		}
 		return nil, fmt.Errorf("read local source: %w", err)
 	}
 	return files, nil

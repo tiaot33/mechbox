@@ -1,9 +1,12 @@
 package library
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"io/fs"
+
+	"github.com/mattn/go-sqlite3"
 )
 
 func typedError(err error) error {
@@ -14,12 +17,23 @@ func typedError(err error) error {
 		return err
 	}
 	code := Internal
-	if errors.Is(err, sql.ErrNoRows) {
+	var sqliteErr sqlite3.Error
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		code = Canceled
+	case errors.Is(err, sql.ErrNoRows):
 		code = NotFound
-	} else if errors.Is(err, fs.ErrPermission) {
+	case errors.Is(err, fs.ErrPermission):
 		code = Permission
-	} else if errors.Is(err, fs.ErrNotExist) {
+	case errors.Is(err, fs.ErrNotExist):
 		code = SourceUnreachable
+	case errors.As(err, &sqliteErr):
+		switch sqliteErr.ExtendedCode {
+		case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey:
+			code = AlreadyExists
+		case sqlite3.ErrConstraintForeignKey:
+			code = NotFound
+		}
 	}
 	return &Error{Code: code, Message: err.Error(), Err: err}
 }
@@ -33,4 +47,34 @@ func fetchErrorCode(err error) ErrorCode {
 		return Permission
 	}
 	return SourceUnreachable
+}
+
+func argumentError(operation, field, reason string) *Error {
+	return &Error{Code: InvalidArgument, Message: operation + ": " + reason, Details: ErrorDetails{Field: field}}
+}
+
+func existsError(operation, reason string, details ErrorDetails) *Error {
+	return &Error{Code: AlreadyExists, Message: operation + ": " + reason, Details: details}
+}
+
+func preconditionError(operation, reason string, details ErrorDetails) *Error {
+	return &Error{Code: FailedPrecondition, Message: operation + ": " + reason, Details: details}
+}
+
+func validateProjectedCopies(operation string, policy ProjectedCopiesPolicy) error {
+	switch policy {
+	case "", Keep, Remove:
+		return nil
+	default:
+		return argumentError(operation, "projected_copies", "invalid projected copies option")
+	}
+}
+
+func validateConflictPolicy(operation string, policy ConflictPolicy) error {
+	switch policy {
+	case "", Fail, Overwrite:
+		return nil
+	default:
+		return argumentError(operation, "on_conflict", "invalid on_conflict option")
+	}
 }

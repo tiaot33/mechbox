@@ -96,7 +96,7 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 		return VersionDiff{}, err
 	}
 	if oldVersion.SkillID != newVersion.SkillID {
-		return VersionDiff{}, fmt.Errorf("diff skill versions: versions belong to different skills")
+		return VersionDiff{}, &Error{Code: InvalidArgument, Message: "diff skill versions: versions belong to different skills"}
 	}
 	oldFiles := make(map[string][sha256.Size]byte, len(oldVersion.Files))
 	for _, file := range oldVersion.Files {

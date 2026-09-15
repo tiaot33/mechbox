@@ -188,3 +188,23 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		t.Fatalf("RenameGroup unknown error = %v", err)
 	}
 }
+
+func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
+	lib := openTestLibrary(t)
+	_, err := lib.CreateGroup(t.Context(), " ")
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})
+	group, err := lib.CreateGroup(t.Context(), "named")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.RenameGroup(t.Context(), group.ID, ""); err == nil {
+		t.Fatal("RenameGroup accepted a blank name")
+	} else {
+		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})
+	}
+	skill := installNamedSkill(t, lib, "member")
+	if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	requireErrorDetails(t, lib.AddSkillToGroup(t.Context(), group.ID, skill.ID), library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID})
+}

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"database/sql"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,27 @@ import (
 
 	"github.com/tiaot33/skills-tui/library"
 )
+
+func requireLibraryError(t *testing.T, err error, code library.ErrorCode) *library.Error {
+	t.Helper()
+	typed, ok := errors.AsType[*library.Error](err)
+	if !ok || typed.Code != code {
+		t.Fatalf("error = %T %v, want *library.Error %s", err, err, code)
+	}
+	if typed.Message == "" {
+		t.Fatal("empty error message")
+	}
+	return typed
+}
+
+func requireErrorDetails(t *testing.T, err error, code library.ErrorCode, want library.ErrorDetails) *library.Error {
+	t.Helper()
+	typed := requireLibraryError(t, err, code)
+	if typed.Details != want {
+		t.Fatalf("details = %#v, want %#v", typed.Details, want)
+	}
+	return typed
+}
 
 func seededAgents() []library.Agent {
 	return []library.Agent{
@@ -109,6 +131,17 @@ func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 	if _, err := db.ExecContext(t.Context(), statement, args...); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func installNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), name)
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return skill
 }
 
 func openTestLibrary(t *testing.T) library.Library {
