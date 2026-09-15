@@ -166,7 +166,8 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	if err != nil || result.Changed || result.Skill.Source.LastSeenRef != advanced.commit || result.Skill.GitTreeSHA != fx.treeSHA("demo") {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	// 紧挨着的 CheckUpdate 已取过新 root tree,Update 只再解析 branch commit。
+	assertGitHubCommitOnly(t, api, 1)
 	if versions, err := lib.ListVersions(ctx, id); err != nil || len(versions) != 1 {
 		t.Fatalf("unchanged Update wrote history: %#v, %v", versions, err)
 	}
@@ -178,7 +179,7 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	assertGitHubCommitOnly(t, api, 1)
 }
 
-// 钉住完整 40 位 SHA 的 Skill:分支再怎么前进,检查都只解析一次该 commit 并报告无更新。
+// 钉住完整 40 位 SHA 的 Skill:Fetch 已按该 commit 写入 memo,之后检查零请求并报告无更新。
 func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
@@ -205,7 +206,8 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
 		t.Fatalf("pinned CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCommitOnly(t, api, 1)
+	// Fetch 已按完整 SHA 写入 memo,钉住的 commit 不再出网。
+	assertGitHubCommitOnly(t, api, 0)
 
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "moved on")), 0o644)
 	commitGit(t, repo, "branch moves on")
@@ -214,12 +216,12 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
 		t.Fatalf("pinned CheckUpdate after branch advance = %v, %v", available, err)
 	}
-	assertGitHubCommitOnly(t, api, 1)
+	assertGitHubCommitOnly(t, api, 0)
 	api.Reset()
 	if checks, err := lib.CheckUpdates(ctx, []library.SkillID{id}); err != nil || len(checks) != 1 || checks[0].Error != nil || checks[0].Available {
 		t.Fatalf("pinned CheckUpdates = %#v, %v", checks, err)
 	}
-	assertGitHubCommitOnly(t, api, 1)
+	assertGitHubCommitOnly(t, api, 0)
 }
 
 // CheckUpdates 里同一 Source 下"命中"与"未命中"混合:一次 commits,至多一次 trees,命中的 Skill 不参与 tree 比较。
@@ -269,11 +271,11 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T)
 			t.Fatalf("mixed CheckUpdates[%d] = %#v, want available=%v", i, checks[i], want)
 		}
 	}
-	commits, trees, _ := gitHubAPIKindCounts(t, api)
-	if commits != 1 || trees != 1 {
-		t.Fatalf("mixed CheckUpdates commits=%d trees=%d, want 1 and 1: %#v", commits, trees, api.snapshot())
+	// Update(a) 已取过新 root tree,CheckUpdates 命中 memo,只再解析 branch commit。
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 1 || trees != 0 || blobs != 0 {
+		t.Fatalf("mixed CheckUpdates commits=%d trees=%d blobs=%d, want one commit: %#v", commits, trees, blobs, api.snapshot())
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	after := []skillSnapshot{snapshotSkill(t, lib, a.ID), snapshotSkill(t, lib, b.ID), snapshotSkill(t, lib, c.ID)}
 	if !reflect.DeepEqual(after, before) {
 		t.Fatalf("CheckUpdates wrote Library: %#v, want %#v", after, before)

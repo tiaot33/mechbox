@@ -555,7 +555,6 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 		run  func() error
 	}{
 		{"Fetch", func() error { _, err := lib.Fetch(t.Context(), gitHubSpec()); return err }},
-		{"InstallFetch", func() error { _, err := lib.InstallFetch(t.Context(), retry.ID, nil); return err }},
 		{"CheckUpdate", func() error { _, err := lib.CheckUpdate(t.Context(), installed[0].ID); return err }},
 		{"Update", func() error { _, err := lib.Update(t.Context(), installed[0].ID); return err }},
 	} {
@@ -565,6 +564,10 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 				t.Fatalf("authentication failure = %v, want sanitized Permission", err)
 			}
 		})
+	}
+	// retry 的 blob 已在进程内 memo:InstallFetch 不再出网,失败也不得带出凭证或 CLI 输出。
+	if _, err := lib.InstallFetch(t.Context(), retry.ID, nil); err == nil || strings.Contains(fmt.Sprintf("%+v", err), secret) {
+		t.Fatalf("memoized InstallFetch = %v, want a secret-free error", err)
 	}
 	if _, err := lib.ListFetchSkills(t.Context(), retry.ID); err != nil {
 		t.Fatalf("failed install discarded handle: %v", err)

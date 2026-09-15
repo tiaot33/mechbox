@@ -19,7 +19,8 @@ type sqliteLibrary struct {
 	fetches map[FetchID]*fetchSession
 	closed  bool
 
-	githubAuth githubAuth // GitHub 鉴权阶梯状态(限流窗口、token / CLI 已确认可用),仅本实例持有
+	githubAuth githubAuth       // GitHub 鉴权阶梯状态(限流窗口、token / CLI 已确认可用),仅本实例持有
+	githubMemo githubObjectMemo // 进程内 GitHub 不可变对象 memo(tree / blob / 完整 SHA 的 commit),不是数据来源
 }
 
 type libraryOperationKey struct{}
@@ -96,5 +97,6 @@ func (l *sqliteLibrary) Close() error {
 	l.githubAuth.anonymousReset.Store(0)
 	l.githubAuth.useToken.Store(false)
 	l.githubAuth.useCLI.Store(false)
+	l.githubMemo.release()
 	return l.db.Close()
 }

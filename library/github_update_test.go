@@ -145,11 +145,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if checks[0].Error != nil || !checks[0].Available || checks[1].Error != nil || checks[1].Available {
 		t.Fatalf("CheckUpdates availability = %#v", checks)
 	}
-	_, trees, _ := gitHubAPIKindCounts(t, api)
-	if trees != 1 {
-		t.Fatalf("CheckUpdates trees=%d (%v), want one tree", trees, api.snapshot())
+	// 上面的 CheckUpdate 已取过新 root tree,批量检查命中 memo,只再解析 branch commit。
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 1 || trees != 0 || blobs != 0 {
+		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want one commit: %#v", commits, trees, blobs, api.snapshot())
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("CheckUpdates wrote history: %#v, %v", versions, err)
 	}
