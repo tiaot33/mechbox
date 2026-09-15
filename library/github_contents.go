@@ -49,14 +49,8 @@ func (e *githubHTTPError) Error() string {
 // 只有被明确拒绝(见 githubAuthDenied)才会让下一级在实例上生效;限流只写避让窗口,窗口到期后回到匿名。
 type githubAuth struct {
 	anonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,到期前跳过匿名请求
-	useToken       atomic.Bool  // 匿名被拒且更高一级已成功:后续不再试匿名
+	useToken       atomic.Bool  // 匿名被明确拒绝:后续不再试匿名
 	useCLI         atomic.Bool  // HTTP 路径被拒且 gh CLI 已成功:后续直接走 CLI
-}
-
-func (a *githubAuth) reset() {
-	a.anonymousReset.Store(0)
-	a.useToken.Store(false)
-	a.useCLI.Store(false)
 }
 
 // githubClient 是一次操作内的 GitHub API 读取器:阶梯位置从实例级 githubAuth 起步,
@@ -194,23 +188,16 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
+		if githubAuthDenied(err) {
+			c.auth.useToken.Store(true)
+		}
 	}
-	// anonymousDenied 决定实例是否跳过匿名;httpDenied 是 HTTP 路径最后一级(有 token 则为 token)的结论,决定是否直接走 CLI。
-	anonymousDenied := githubAuthDenied(err)
-	httpDenied := anonymousDenied
 	if c.token != "" {
 		c.useToken = true
 		err = githubAPIGetOnce(ctx, location, c.token, dest)
-		if err == nil {
-			if anonymousDenied {
-				c.auth.useToken.Store(true)
-			}
-			return nil
-		}
-		if ctx.Err() != nil || !isGitHubAuthRetry(err) {
+		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
-		httpDenied = githubAuthDenied(err)
 	}
 	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
 		if ctx.Err() != nil {
@@ -219,10 +206,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return err
 	}
 	c.useCLI = true
-	if anonymousDenied {
-		c.auth.useToken.Store(true)
-	}
-	if httpDenied {
+	if githubAuthDenied(err) {
 		c.auth.useCLI.Store(true)
 	}
 	return nil

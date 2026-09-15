@@ -380,12 +380,10 @@ func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 	blockGitHubClone(t)
 	serveGitHubCLI(t, fx)
 	t.Setenv("GITHUB_TOKEN", "throttled-token")
-	var tokenRequests atomic.Int64
 	throttled := true
 	transport := http.DefaultClient.Transport
 	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
 		if r.Header.Get("Authorization") != "" && throttled {
-			tokenRequests.Add(1)
 			response := jsonResponse(http.StatusTooManyRequests, map[string]string{"message": "rate limited"})
 			response.Header.Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
 			return response, nil
@@ -410,7 +408,6 @@ func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 	}
 	throttled = false
 	api.Reset()
-	tokenRequests.Store(0)
 	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
 		t.Fatalf("unchanged check = %v, %v", available, err)
 	}

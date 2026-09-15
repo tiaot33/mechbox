@@ -93,6 +93,8 @@ func (l *sqliteLibrary) Close() error {
 	}
 	clear(l.fetches)
 	l.fetchMu.Unlock()
-	l.githubAuth.reset()
+	l.githubAuth.anonymousReset.Store(0)
+	l.githubAuth.useToken.Store(false)
+	l.githubAuth.useCLI.Store(false)
 	return l.db.Close()
 }
