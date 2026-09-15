@@ -16,7 +16,7 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
-// archiveServer 打桩 URL / Store 来源的压缩包服务端(接管 http.DefaultClient):记录每个请求的 URL 与头,
+// archiveServer 打桩 URL / Store 来源的压缩包服务端(接管 http.DefaultClient):记录每个请求的头,
 // 可配置 ETag 或 Last-Modified;请求带 If-None-Match / If-Modified-Since 且与当前 validator 相同时回 304,
 // 304 的正文若被读取会被计数——按契约应恒为零字节。
 type archiveServer struct {
@@ -24,13 +24,8 @@ type archiveServer struct {
 	archive              []byte
 	etag                 string
 	lastModified         string
-	requests             []archiveRequest
+	requests             []http.Header
 	notModifiedBodyReads atomic.Int64
-}
-
-type archiveRequest struct {
-	url    string
-	header http.Header
 }
 
 // newArchiveServer 接管 http.DefaultClient 提供 archive;etag 为空表示服务端不给 validator。
@@ -67,8 +62,8 @@ func (s *archiveServer) serveLastModified(archive []byte, lastModified string) {
 	s.archive, s.etag, s.lastModified = archive, "", lastModified
 }
 
-// snapshot 返回到目前为止收到的全部请求;调用后清空,便于逐操作断言。
-func (s *archiveServer) snapshot() []archiveRequest {
+// snapshot 返回到目前为止收到的全部请求头;调用后清空,便于逐操作断言。
+func (s *archiveServer) snapshot() []http.Header {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	requests := s.requests
@@ -76,10 +71,18 @@ func (s *archiveServer) snapshot() []archiveRequest {
 	return requests
 }
 
+// assertNoBodyRead 断言至今所有 304 响应的正文一个字节都没被读过。
+func (s *archiveServer) assertNoBodyRead(t *testing.T) {
+	t.Helper()
+	if n := s.notModifiedBodyReads.Load(); n != 0 {
+		t.Fatalf("304 body read %d bytes, want 0", n)
+	}
+}
+
 func (s *archiveServer) roundTrip(r *http.Request) (*http.Response, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requests = append(s.requests, archiveRequest{url: r.URL.String(), header: r.Header.Clone()})
+	s.requests = append(s.requests, r.Header.Clone())
 	header := make(http.Header)
 	if s.etag != "" {
 		header.Set("ETag", s.etag)

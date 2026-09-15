@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"net/http"
 	"path/filepath"
 	"testing"
 
@@ -10,18 +11,40 @@ import (
 // URL / Store 来源的抓取记录里多了服务端给出的 HTTP validator:InstallFetch / Update 成功抓取后写到 Source 上,
 // 之后 CheckUpdate / CheckUpdates / Update 带条件头发请求,304 即无更新、零字节下载;Fetch 永远不带条件头。
 
-// assertConditional 断言这一批请求恰好一个,且条件头等于 want(空表示不得带任何条件头)。
-func assertConditional(t *testing.T, requests []archiveRequest, header, want string) {
+var conditionalHeaders = []string{"If-None-Match", "If-Modified-Since"}
+
+// assertConditional 断言这一批请求恰好一个,带且只带 header=want 这一个条件头。
+func assertConditional(t *testing.T, requests []http.Header, header, want string) {
+	t.Helper()
+	request := singleRequest(t, requests)
+	for _, name := range conditionalHeaders {
+		expected := ""
+		if name == header {
+			expected = want
+		}
+		if got := request.Get(name); got != expected {
+			t.Fatalf("%s = %q, want %s=%q only: %#v", name, got, header, want, request)
+		}
+	}
+}
+
+// assertUnconditional 断言这一批请求恰好一个,且不带任何条件头。
+func assertUnconditional(t *testing.T, requests []http.Header) {
+	t.Helper()
+	request := singleRequest(t, requests)
+	for _, name := range conditionalHeaders {
+		if got := request.Get(name); got != "" {
+			t.Fatalf("%s = %q, want no conditional headers: %#v", name, got, request)
+		}
+	}
+}
+
+func singleRequest(t *testing.T, requests []http.Header) http.Header {
 	t.Helper()
 	if len(requests) != 1 {
 		t.Fatalf("requests = %d, want exactly one: %#v", len(requests), requests)
 	}
-	for _, name := range []string{"If-None-Match", "If-Modified-Since"} {
-		got := requests[0].header.Get(name)
-		if name == header && got != want || name != header && got != "" {
-			t.Fatalf("%s = %q, want %s=%q only: %#v", name, got, header, want, requests[0].header)
-		}
-	}
+	return requests[0]
 }
 
 func installArchive(t *testing.T, lib library.Library, spec library.SourceSpec) []library.Skill {
@@ -47,7 +70,7 @@ func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
 	installed := installArchive(t, lib, server.spec())
-	assertConditional(t, server.snapshot(), "", "")
+	assertUnconditional(t, server.snapshot())
 	id := installed[0].ID
 
 	// 安装后:检查带 If-None-Match,收到 304 → 无更新,正文一个字节都没读。
@@ -55,15 +78,13 @@ func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
 		t.Fatalf("CheckUpdate after install = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
-	if n := server.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 body read %d bytes, want 0", n)
-	}
+	server.assertNoBodyRead(t)
 
 	// Fetch 必须拿到内容,永远不带条件头。
 	if _, err := lib.Fetch(ctx, server.spec()); err != nil {
 		t.Fatal(err)
 	}
-	assertConditional(t, server.snapshot(), "", "")
+	assertUnconditional(t, server.snapshot())
 
 	// 进程重启后 validator 仍在库里。
 	if err := lib.Close(); err != nil {
@@ -106,9 +127,7 @@ func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
 		t.Fatalf("CheckUpdate after 304 Update = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
-	if n := server.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 bodies read %d bytes in total, want 0", n)
-	}
+	server.assertNoBodyRead(t)
 }
 
 func TestURLUpdateWritesNewValidatorWhenArchiveChanges(t *testing.T) {
@@ -137,9 +156,7 @@ func TestURLUpdateWritesNewValidatorWhenArchiveChanges(t *testing.T) {
 		t.Fatalf("CheckUpdate with new validator = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v2"`)
-	if n := server.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 body read %d bytes, want 0", n)
-	}
+	server.assertNoBodyRead(t)
 }
 
 func TestURLWithoutValidatorNeverSendsConditionalHeaders(t *testing.T) {
@@ -152,17 +169,17 @@ func TestURLWithoutValidatorNeverSendsConditionalHeaders(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
 		t.Fatalf("CheckUpdate = %v, %v", available, err)
 	}
-	assertConditional(t, server.snapshot(), "", "")
+	assertUnconditional(t, server.snapshot())
 	if result, err := lib.Update(ctx, id); err != nil || result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	assertConditional(t, server.snapshot(), "", "")
+	assertUnconditional(t, server.snapshot())
 	// 服务端后来开始给 ETag:Update 抓到后记录下来,之后才带条件头。
 	server.serve(archive, `"late"`)
 	if result, err := lib.Update(ctx, id); err != nil || result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	assertConditional(t, server.snapshot(), "", "")
+	assertUnconditional(t, server.snapshot())
 	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
 		t.Fatalf("CheckUpdate = %v, %v", available, err)
 	}
@@ -182,9 +199,7 @@ func TestURLFallsBackToIfModifiedSinceWhenServerOnlySendsLastModified(t *testing
 		t.Fatalf("CheckUpdate = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-Modified-Since", modified)
-	if n := server.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 body read %d bytes, want 0", n)
-	}
+	server.assertNoBodyRead(t)
 }
 
 func TestCheckUpdatesSendsOneConditionalRequestPerURLSource(t *testing.T) {
@@ -202,9 +217,7 @@ func TestCheckUpdatesSendsOneConditionalRequestPerURLSource(t *testing.T) {
 		t.Fatalf("CheckUpdates on 304 = %#v, %v", results, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
-	if n := server.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 body read %d bytes, want 0", n)
-	}
+	server.assertNoBodyRead(t)
 	// 200 时仍按各 Skill 的内容分别比较。
 	server.serve(zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "old"),
@@ -224,7 +237,7 @@ func TestStoreSourceUsesConditionalRequestsLikeURL(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	id := installArchive(t, lib, spec)[0].ID
-	assertConditional(t, server.snapshot(), "", "")
+	assertUnconditional(t, server.snapshot())
 	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
 		t.Fatalf("Store CheckUpdate = %v, %v", available, err)
 	}
@@ -242,7 +255,5 @@ func TestStoreSourceUsesConditionalRequestsLikeURL(t *testing.T) {
 		t.Fatalf("Store CheckUpdate with new validator = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v2"`)
-	if n := server.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 body read %d bytes, want 0", n)
-	}
+	server.assertNoBodyRead(t)
 }

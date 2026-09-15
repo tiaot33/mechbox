@@ -31,7 +31,7 @@ type discoveredSource struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	ref         string
-	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator,已是条件请求头形式(见 httpValidator);
+	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator,已是条件请求头形式(由 responseValidator 折成);
 	// 未给出为空。304 时沿用请求所带的那个。
 	httpValidator string
 	// unchanged 表示带条件头的请求收到 304:远端未变,skills 为空,调用方沿用库中内容。
@@ -181,9 +181,9 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
-// httpValidator 把服务端响应里的 validator 折成可直接回填的条件请求头 "name: value":优先 ETag → If-None-Match,
+// responseValidator 把服务端响应里的 validator 折成可直接回填的条件请求头 "name: value":优先 ETag → If-None-Match,
 // 其次 Last-Modified → If-Modified-Since;都没有为空。库里存的就是这个形式,发请求时再由 conditionalHeader 拆开。
-func httpValidator(header http.Header) string {
+func responseValidator(header http.Header) string {
 	if etag := header.Get("ETag"); etag != "" {
 		return "If-None-Match: " + etag
 	}
@@ -193,7 +193,7 @@ func httpValidator(header http.Header) string {
 	return ""
 }
 
-// conditionalHeader 拆开 httpValidator 的存储形式;形式不对(理论上不会)视为没有 validator。
+// conditionalHeader 拆开 responseValidator 产出的存储形式;形式不对(理论上不会)视为没有 validator。
 func conditionalHeader(validator string) (name, value string, ok bool) {
 	name, value, ok = strings.Cut(validator, ": ")
 	return name, value, ok && name != "" && value != ""
@@ -250,7 +250,7 @@ func fetchArchive(ctx context.Context, location, validator string) (result disco
 	}
 	sum := sha256.Sum256(content)
 	result.ref = hex.EncodeToString(sum[:])
-	result.httpValidator = httpValidator(response.Header)
+	result.httpValidator = responseValidator(response.Header)
 	return result, nil
 }
 
