@@ -44,11 +44,12 @@ func (e *githubHTTPError) Error() string {
 }
 
 // githubAuth 是 Library 实例级的 GitHub 鉴权阶梯状态:匿名 → 环境 token → gh CLI。
-// 一个进程只爬一次阶梯,后续操作直接从已确认可用的那一级发请求;Close 清空,重新 Open 从匿名重新开始。
+// 一个 Library 实例只爬一次阶梯,后续操作直接从已确认可用的那一级发请求,实例内不会降级;
+// Close 清空,重新 Open 从匿名重新开始。
 // 只有被明确拒绝(见 githubAuthDenied)才会让下一级在实例上生效;限流只写避让窗口,窗口到期后回到匿名。
 type githubAuth struct {
 	anonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,到期前跳过匿名请求
-	useToken       atomic.Bool  // 匿名被拒且环境 token 已成功:后续直接带 token
+	useToken       atomic.Bool  // 匿名被拒且更高一级已成功:后续不再试匿名
 	useCLI         atomic.Bool  // HTTP 路径被拒且 gh CLI 已成功:后续直接走 CLI
 }
 
@@ -67,9 +68,8 @@ type githubClient struct {
 	auth     *githubAuth
 }
 
-// githubClient 是构造 GitHub 客户端的唯一入口;Fetch / InstallFetch 与检查 / 更新路径共用,
-// 也是后续进程内 memo 的挂载点。
-func (l *sqliteLibrary) githubClient() *githubClient {
+// newGitHubClient 是构造 GitHub 客户端的唯一入口;Fetch / InstallFetch 与检查 / 更新路径共用。
+func (l *sqliteLibrary) newGitHubClient() *githubClient {
 	return &githubClient{
 		token:    githubToken(),
 		useToken: l.githubAuth.useToken.Load(),
@@ -195,12 +195,14 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 			return err
 		}
 	}
-	denied := githubAuthDenied(err)
+	// anonymousDenied 决定实例是否跳过匿名;httpDenied 是 HTTP 路径最后一级(有 token 则为 token)的结论,决定是否直接走 CLI。
+	anonymousDenied := githubAuthDenied(err)
+	httpDenied := anonymousDenied
 	if c.token != "" {
 		c.useToken = true
 		err = githubAPIGetOnce(ctx, location, c.token, dest)
 		if err == nil {
-			if denied {
+			if anonymousDenied {
 				c.auth.useToken.Store(true)
 			}
 			return nil
@@ -208,7 +210,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		if ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
-		denied = githubAuthDenied(err)
+		httpDenied = githubAuthDenied(err)
 	}
 	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
 		if ctx.Err() != nil {
@@ -217,7 +219,10 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return err
 	}
 	c.useCLI = true
-	if denied {
+	if anonymousDenied {
+		c.auth.useToken.Store(true)
+	}
+	if httpDenied {
 		c.auth.useCLI.Store(true)
 	}
 	return nil
@@ -519,7 +524,7 @@ func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (
 }
 
 func (l *sqliteLibrary) fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
-	client := l.githubClient()
+	client := l.newGitHubClient()
 	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
 	if err != nil {
 		return githubSourceSnapshot{}, err
@@ -651,7 +656,7 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;失败不入库,由调用方保留句柄。
 func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
 	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
-	client := l.githubClient()
+	client := l.newGitHubClient()
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
 			continue

@@ -225,6 +225,9 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
 		t.Fatalf("unchanged check = %v, %v", available, err)
 	}
+	if checks, err := lib.CheckUpdates(t.Context(), []library.SkillID{installed[0].ID}); err != nil || len(checks) != 1 || checks[0].Error != nil || checks[0].Available {
+		t.Fatalf("unchanged batch = %#v, %v", checks, err)
+	}
 	if result, err := lib.Update(t.Context(), installed[0].ID); err != nil || result.Changed {
 		t.Fatalf("unchanged update = %#v, %v", result, err)
 	}
@@ -316,6 +319,7 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
 	fetch, err := lib.Fetch(ctx, gitHubSpec())
 	if err != nil {
@@ -364,6 +368,60 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	}
 	if !api.sawAnonymousThenToken() {
 		t.Fatalf("reopened Library inherited the token ladder: %#v", api.snapshot())
+	}
+}
+
+func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	blockGitHubClone(t)
+	serveGitHubCLI(t, fx)
+	t.Setenv("GITHUB_TOKEN", "throttled-token")
+	var tokenRequests atomic.Int64
+	throttled := true
+	transport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Authorization") != "" && throttled {
+			tokenRequests.Add(1)
+			response := jsonResponse(http.StatusTooManyRequests, map[string]string{"message": "rate limited"})
+			response.Header.Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
+			return response, nil
+		}
+		return transport.RoundTrip(r)
+	})
+	lib := openTestLibrary(t)
+	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("install = %#v, %v", installed, err)
+	}
+	api.Reset()
+	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
+		t.Fatalf("unchanged check = %v, %v", available, err)
+	}
+	if requests := api.snapshot(); len(requests) != 0 {
+		t.Fatalf("check repeated anonymous requests after private repository denied them: %#v", requests)
+	}
+	throttled = false
+	api.Reset()
+	tokenRequests.Store(0)
+	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
+		t.Fatalf("unchanged check = %v, %v", available, err)
+	}
+	requests := api.snapshot()
+	if len(requests) == 0 {
+		t.Fatal("token rate limit made the Library stick to gh CLI")
+	}
+	for _, req := range requests {
+		if !req.authed {
+			t.Fatalf("check repeated anonymous request %s: %#v", req.path, requests)
+		}
 	}
 }
 
