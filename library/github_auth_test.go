@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -201,9 +202,11 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 	serveGitHubCLI(t, fx)
 	t.Setenv("GITHUB_TOKEN", "expired-github-token")
 	t.Setenv("GH_TOKEN", "expired-gh-token")
+	var expiredTokenRequests atomic.Int64
 	transport := http.DefaultClient.Transport
 	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
 		if r.Header.Get("Authorization") != "" {
+			expiredTokenRequests.Add(1)
 			return jsonResponse(http.StatusUnauthorized, map[string]string{"message": "expired token"}), nil
 		}
 		return transport.RoundTrip(r)
@@ -216,6 +219,20 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
 	if err != nil || len(installed) != 1 || installed[0].GitTreeSHA != fx.treeSHA("demo") || !reflect.DeepEqual(installed[0].Files[1].Content, []byte{0, 255}) {
 		t.Fatalf("expired token blocked CLI authentication: %#v, %v", installed, err)
+	}
+	api.Reset()
+	expiredTokenRequests.Store(0)
+	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
+		t.Fatalf("unchanged check = %v, %v", available, err)
+	}
+	if result, err := lib.Update(t.Context(), installed[0].ID); err != nil || result.Changed {
+		t.Fatalf("unchanged update = %#v, %v", result, err)
+	}
+	if _, err := lib.Fetch(t.Context(), gitHubSpec()); err != nil {
+		t.Fatal(err)
+	}
+	if requests := api.snapshot(); len(requests) != 0 || expiredTokenRequests.Load() != 0 {
+		t.Fatalf("follow-up operations re-climbed the HTTP ladder after CLI succeeded: anonymous %#v, expired token %d", requests, expiredTokenRequests.Load())
 	}
 }
 
@@ -281,6 +298,72 @@ func TestGitHubDoesNotRememberBareForbiddenOrExpiredRateLimit(t *testing.T) {
 				t.Fatalf("Fetch incorrectly skipped anonymous API: %v, %#v", err, api.snapshot())
 			}
 		})
+	}
+}
+
+func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/data":     {content: []byte{0, 255}, mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	blockGitHubClone(t)
+	t.Setenv("GITHUB_TOKEN", "private-token")
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !api.sawAnonymousThenToken() {
+		t.Fatalf("first Fetch did not start from anonymous API: %#v", api.snapshot())
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("install = %#v, %v", installed, err)
+	}
+	api.Reset()
+	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
+		t.Fatalf("unchanged check = %v, %v", available, err)
+	}
+	if checks, err := lib.CheckUpdates(ctx, []library.SkillID{installed[0].ID}); err != nil || len(checks) != 1 || checks[0].Error != nil || checks[0].Available {
+		t.Fatalf("unchanged batch = %#v, %v", checks, err)
+	}
+	if result, err := lib.Update(ctx, installed[0].ID); err != nil || result.Changed {
+		t.Fatalf("unchanged update = %#v, %v", result, err)
+	}
+	if _, err := lib.Fetch(ctx, gitHubSpec()); err != nil {
+		t.Fatal(err)
+	}
+	requests := api.snapshot()
+	if len(requests) == 0 {
+		t.Fatal("follow-up operations made no API requests")
+	}
+	for _, req := range requests {
+		if !req.authed {
+			t.Fatalf("follow-up operation repeated anonymous request %s: %#v", req.path, requests)
+		}
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	api.Reset()
+	if _, err := reopened.Fetch(ctx, gitHubSpec()); err != nil {
+		t.Fatal(err)
+	}
+	if !api.sawAnonymousThenToken() {
+		t.Fatalf("reopened Library inherited the token ladder: %#v", api.snapshot())
 	}
 }
 

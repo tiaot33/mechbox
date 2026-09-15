@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -20,7 +19,7 @@ type sqliteLibrary struct {
 	fetches map[FetchID]*fetchSession
 	closed  bool
 
-	githubAnonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,仅本实例持有
+	githubAuth githubAuth // GitHub 鉴权阶梯状态(限流窗口、token / CLI 已确认可用),仅本实例持有
 }
 
 type libraryOperationKey struct{}
@@ -94,5 +93,6 @@ func (l *sqliteLibrary) Close() error {
 	}
 	clear(l.fetches)
 	l.fetchMu.Unlock()
+	l.githubAuth.reset()
 	return l.db.Close()
 }

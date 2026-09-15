@@ -43,11 +43,39 @@ func (e *githubHTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.status)
 }
 
+// githubAuth 是 Library 实例级的 GitHub 鉴权阶梯状态:匿名 → 环境 token → gh CLI。
+// 一个进程只爬一次阶梯,后续操作直接从已确认可用的那一级发请求;Close 清空,重新 Open 从匿名重新开始。
+// 只有被明确拒绝(见 githubAuthDenied)才会让下一级在实例上生效;限流只写避让窗口,窗口到期后回到匿名。
+type githubAuth struct {
+	anonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,到期前跳过匿名请求
+	useToken       atomic.Bool  // 匿名被拒且环境 token 已成功:后续直接带 token
+	useCLI         atomic.Bool  // HTTP 路径被拒且 gh CLI 已成功:后续直接走 CLI
+}
+
+func (a *githubAuth) reset() {
+	a.anonymousReset.Store(0)
+	a.useToken.Store(false)
+	a.useCLI.Store(false)
+}
+
+// githubClient 是一次操作内的 GitHub API 读取器:阶梯位置从实例级 githubAuth 起步,
+// 操作内因限流或含义模糊的 403 爬到的更高一级只在本客户端内记住。
 type githubClient struct {
-	token          string
-	useToken       bool
-	useCLI         bool
-	anonymousReset *atomic.Int64
+	token    string
+	useToken bool
+	useCLI   bool
+	auth     *githubAuth
+}
+
+// githubClient 是构造 GitHub 客户端的唯一入口;Fetch / InstallFetch 与检查 / 更新路径共用,
+// 也是后续进程内 memo 的挂载点。
+func (l *sqliteLibrary) githubClient() *githubClient {
+	return &githubClient{
+		token:    githubToken(),
+		useToken: l.githubAuth.useToken.Load(),
+		useCLI:   l.githubAuth.useCLI.Load(),
+		auth:     &l.githubAuth,
+	}
 }
 
 type githubCommitResponse struct {
@@ -158,21 +186,29 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return githubCLIGet(ctx, location, dest)
 	}
 	err := errGitHubContentsFallback
-	if !c.useToken && time.Now().Unix() >= c.anonymousReset.Load() {
+	if !c.useToken && time.Now().Unix() >= c.auth.anonymousReset.Load() {
 		err = githubAPIGetOnce(ctx, location, "", dest)
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
-			c.anonymousReset.Store(httpErr.reset)
+			c.auth.anonymousReset.Store(httpErr.reset)
 		}
 		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
 	}
+	denied := githubAuthDenied(err)
 	if c.token != "" {
 		c.useToken = true
 		err = githubAPIGetOnce(ctx, location, c.token, dest)
-		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
+		if err == nil {
+			if denied {
+				c.auth.useToken.Store(true)
+			}
+			return nil
+		}
+		if ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
+		denied = githubAuthDenied(err)
 	}
 	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
 		if ctx.Err() != nil {
@@ -181,7 +217,17 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return err
 	}
 	c.useCLI = true
+	if denied {
+		c.auth.useCLI.Store(true)
+	}
 	return nil
+}
+
+// githubAuthDenied 表示这一级被明确拒绝:私有仓库对匿名返回 404,失效 token 返回 401。
+// 限流与含义模糊的 403(次级限流、SSO 等)不算,它们不值得让整个实例记住下一级。
+func githubAuthDenied(err error) bool {
+	httpErr, ok := errors.AsType[*githubHTTPError](err)
+	return ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusNotFound)
 }
 
 // githubCLIGet 使用 gh 自己的登录态,不导出凭证,也不向门面透传任何命令输出。
@@ -473,7 +519,7 @@ func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (
 }
 
 func (l *sqliteLibrary) fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
-	client := &githubClient{token: githubToken(), anonymousReset: &l.githubAnonymousReset}
+	client := l.githubClient()
 	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
 	if err != nil {
 		return githubSourceSnapshot{}, err
@@ -605,7 +651,7 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;失败不入库,由调用方保留句柄。
 func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
 	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
-	client := &githubClient{token: githubToken(), anonymousReset: &l.githubAnonymousReset}
+	client := l.githubClient()
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
 			continue
