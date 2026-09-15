@@ -335,6 +335,244 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	}
 }
 
+func TestGitHubUpdateDownloadsOnlyChangedBlob(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md":    {content: []byte("old notes"), mode: 0o644},
+		"demo/scripts/run": {content: []byte("echo old"), mode: 0o755},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	writeFile(t, filepath.Join(repo, "demo", "notes.md"), []byte("new notes"), 0o644)
+	commitGit(t, repo, "change notes")
+	changed := inspectGitHubRepo(t, repo)
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "notes.md", Content: []byte("new notes"), Mode: library.ModeRegular},
+		{Path: "scripts/run", Content: []byte("echo old"), Mode: library.ModeExecutable},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api, "demo/notes.md")
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	oldVer, err := lib.GetVersion(ctx, versions[0].ID)
+	if err != nil || !reflect.DeepEqual(oldVer.Files, installed[0].Files) {
+		t.Fatalf("GetVersion old = %#v, %v", oldVer, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDiff := library.VersionDiff{Changed: []string{"notes.md"}}
+	if !reflect.DeepEqual(diff, wantDiff) {
+		t.Fatalf("DiffVersions = %#v, want %#v", diff, wantDiff)
+	}
+}
+
+func TestGitHubUpdateReusesBlobWhenOnlyExecutableBitFlips(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md":    {content: []byte("notes"), mode: 0o644},
+		"demo/scripts/run": {content: []byte("echo run"), mode: 0o755},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	if err := os.Chmod(filepath.Join(repo, "demo", "scripts", "run"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitGit(t, repo, "drop executable")
+	changed := inspectGitHubRepo(t, repo)
+	if changed.blobSHA("demo/scripts/run") != fx.blobSHA("demo/scripts/run") {
+		t.Fatal("fixture changed blob SHA when only mode flipped")
+	}
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "notes.md", Content: []byte("notes"), Mode: library.ModeRegular},
+		{Path: "scripts/run", Content: []byte("echo run"), Mode: library.ModeRegular},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api)
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil || len(diff.Changed)+len(diff.Added)+len(diff.Deleted) != 0 {
+		t.Fatalf("DiffVersions = %#v, %v, want empty (mode-only)", diff, err)
+	}
+}
+
+func TestGitHubUpdateDownloadsOnlyAddedBlob(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md": {content: []byte("notes"), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	writeFile(t, filepath.Join(repo, "demo", "extra.md"), []byte("new file"), 0o644)
+	commitGit(t, repo, "add extra")
+	changed := inspectGitHubRepo(t, repo)
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "extra.md", Content: []byte("new file"), Mode: library.ModeRegular},
+		{Path: "notes.md", Content: []byte("notes"), Mode: library.ModeRegular},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api, "demo/extra.md")
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDiff := library.VersionDiff{Added: []string{"extra.md"}}
+	if !reflect.DeepEqual(diff, wantDiff) {
+		t.Fatalf("DiffVersions = %#v, want %#v", diff, wantDiff)
+	}
+}
+
+func TestGitHubUpdateReusesBlobWhenFileMoves(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md": {content: []byte("same notes"), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(repo, "demo", "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(repo, "demo", "notes.md"), filepath.Join(repo, "demo", "docs", "notes.md")); err != nil {
+		t.Fatal(err)
+	}
+	commitGit(t, repo, "move notes")
+	changed := inspectGitHubRepo(t, repo)
+	if changed.blobSHA("demo/docs/notes.md") != fx.blobSHA("demo/notes.md") {
+		t.Fatal("moved file blob SHA changed")
+	}
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "docs/notes.md", Content: []byte("same notes"), Mode: library.ModeRegular},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api)
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDiff := library.VersionDiff{Added: []string{"docs/notes.md"}, Deleted: []string{"notes.md"}}
+	if !reflect.DeepEqual(diff, wantDiff) {
+		t.Fatalf("DiffVersions = %#v, want %#v", diff, wantDiff)
+	}
+}
+
 func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "old")), mode: 0o644},
@@ -465,6 +703,14 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 	}
 	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != "" {
 		t.Fatalf("URL persisted GitTreeSHA = %q, want empty", got)
+	}
+}
+
+func assertGitHubBlobPaths(t *testing.T, api *gitHubAPIMock, want ...string) {
+	t.Helper()
+	got := api.blobPaths()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("blob paths = %v, want %v (%#v)", got, want, api.snapshot())
 	}
 }
 

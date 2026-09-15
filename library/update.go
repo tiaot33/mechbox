@@ -68,12 +68,13 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 }
 
 // readGitHubUpdate 先解析 commit:与当前版本的确认 commit 相同即无变化、不取 tree;否则发现候选后按目录 tree SHA
-// 决定是否取完整文件,SHA 相同只读发现元数据。
+// 决定是否取完整文件,SHA 相同只读发现元数据。取文件时用库中内容按 git blob SHA 复用未变正文,只请求未匹配的 blob。
 func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confirmedCommit string) (Skill, bool, error) {
 	snap, err := l.readGitHubSnapshot(ctx, skill.Source)
 	if err != nil {
 		return Skill{}, false, err
 	}
+	snap.rememberGitBlobs(skill.Files)
 	changed := false
 	if !snap.confirms(confirmedCommit) {
 		remote, err := snap.locate(ctx, skill)

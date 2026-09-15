@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -374,6 +376,9 @@ func (v githubSourceView) readFile(ctx context.Context, name string) ([]byte, er
 	if !ok || !githubRegularBlob(entry) {
 		return nil, fs.ErrNotExist
 	}
+	if content, ok := v.snap.knownBlobs[strings.ToLower(entry.SHA)]; ok {
+		return bytes.Clone(content), nil
+	}
 	return v.snap.client.blob(ctx, v.snap.owner, v.snap.repo, entry.SHA)
 }
 
@@ -480,6 +485,7 @@ type githubSourceSnapshot struct {
 	cloned       []fetchedSkill
 	discovered   *discoveredSource
 	discoveryErr error
+	knownBlobs   map[string][]byte // 当前版本按 git blob SHA 登记的内容,发现与取文件时复用
 }
 
 type githubRemoteSkill struct {
@@ -542,6 +548,42 @@ func (s *githubSourceSnapshot) loadTree(ctx context.Context) error {
 	return nil
 }
 
+// gitBlobSHA 按 git 对象规则从内容算出 blob SHA-1,供 Update 与远端 tree 比对后复用库中未变文件。
+func gitBlobSHA(content []byte) string {
+	sum := sha1.New()
+	fmt.Fprintf(sum, "blob %d\x00", len(content))
+	sum.Write(content)
+	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// rememberGitBlobs 用当前版本文件按 git blob 规则登记内容;发现 SKILL.md 与取文件都按 SHA 复用,不落库。
+func (s *githubSourceSnapshot) rememberGitBlobs(files []File) {
+	if s.client == nil {
+		return
+	}
+	s.knownBlobs = make(map[string][]byte, len(files))
+	for _, file := range files {
+		s.knownBlobs[gitBlobSHA(file.Content)] = file.Content
+	}
+}
+
+// reuseKnownGitHubBlobs 把远端 tree 里 SHA 已在库中的 blob 填上正文,只留下未匹配的交给网络。
+func reuseKnownGitHubBlobs(blobs []githubBlob, known map[string][]byte) []githubBlob {
+	if len(known) == 0 {
+		return blobs
+	}
+	reused := slices.Clone(blobs)
+	for i, blob := range reused {
+		if blob.content != nil {
+			continue
+		}
+		if content, ok := known[strings.ToLower(blob.sha)]; ok {
+			reused[i].content = content
+		}
+	}
+	return reused
+}
+
 // confirms 判断远端当前 commit 就是该版本记录的确认 commit:同一 commit 下目录 tree 必然未变,不必取 tree。
 func (s *githubSourceSnapshot) confirms(confirmedCommit string) bool {
 	return confirmedCommit != "" && s.ref == confirmedCommit
@@ -585,7 +627,8 @@ func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote gi
 	if remote.files != nil {
 		return remote.files, nil
 	}
-	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, remote.blobs)
+	blobs := reuseKnownGitHubBlobs(remote.blobs, s.knownBlobs)
+	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, blobs)
 	if err == nil {
 		return files, nil
 	}
