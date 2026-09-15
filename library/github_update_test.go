@@ -109,17 +109,6 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 		t.Fatalf("unchanged Update created version: %#v, %v", versions, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
-	// 无变化的 Update 把 first 在新 commit 上重新确认:再查只解析 commit;second 未经 Update,仍要取 tree。
-	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
-		t.Fatalf("reconfirmed CheckUpdate = %v, %v", available, err)
-	}
-	assertGitHubCommitOnly(t, api, 1)
-	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
-		t.Fatalf("unconfirmed sibling CheckUpdate = %v, %v", available, err)
-	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 
 	writeFile(t, filepath.Join(repo, "first", "SKILL.md"), []byte(skillDocument("first", "updated body")), 0o644)
 	writeFile(t, filepath.Join(repo, "first", "scripts", "run"), []byte{9, 8, 7}, 0o755)

@@ -552,30 +552,14 @@ type gitHubAPIMock struct {
 	history            []gitHubFixture // Swap 之前服务过的各个 head
 }
 
-// headByCommit 找到当前或历史上 commit 为 sha 的 head。
-func (m *gitHubAPIMock) headByCommit(sha string) (gitHubFixture, bool) {
-	if strings.EqualFold(sha, m.fx.commit) {
-		return m.fx, true
+// head 在当前与历史 head 里找第一个满足 match 的。
+func (m *gitHubAPIMock) head(match func(gitHubFixture) bool) (gitHubFixture, bool) {
+	heads := append([]gitHubFixture{m.fx}, m.history...)
+	i := slices.IndexFunc(heads, match)
+	if i < 0 {
+		return gitHubFixture{}, false
 	}
-	for _, head := range m.history {
-		if strings.EqualFold(sha, head.commit) {
-			return head, true
-		}
-	}
-	return gitHubFixture{}, false
-}
-
-// headByTree 找到当前或历史上 root tree(或 commit)为 sha 的 head。
-func (m *gitHubAPIMock) headByTree(sha string) (gitHubFixture, bool) {
-	if sha == m.fx.rootTree || sha == m.fx.commit {
-		return m.fx, true
-	}
-	for _, head := range m.history {
-		if sha == head.rootTree || sha == head.commit {
-			return head, true
-		}
-	}
-	return gitHubFixture{}, false
+	return heads[i], true
 }
 
 type gitHubAPIRequest struct {
@@ -697,7 +681,7 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
 		head, found := m.fx, ref == "main"
 		if !found {
-			head, found = m.headByCommit(ref)
+			head, found = m.head(func(h gitHubFixture) bool { return strings.EqualFold(ref, h.commit) })
 		}
 		if !found {
 			return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
@@ -710,7 +694,7 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 		}), nil
 	}
 	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"); ok {
-		head, found := m.headByTree(sha)
+		head, found := m.head(func(h gitHubFixture) bool { return sha == h.rootTree || sha == h.commit })
 		if !found {
 			return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 		}

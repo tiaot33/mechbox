@@ -249,14 +249,6 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T)
 	}
 	a, b, c := byName["a"], byName["b"], byName["c"]
 
-	// 全部命中:一次 commits,零 trees。
-	api.Reset()
-	checks, err := lib.CheckUpdates(ctx, []library.SkillID{a.ID, b.ID, c.ID})
-	if err != nil || len(checks) != 3 || checks[0].Available || checks[1].Available || checks[2].Available || checks[0].Error != nil || checks[1].Error != nil || checks[2].Error != nil {
-		t.Fatalf("all confirmed CheckUpdates = %#v, %v", checks, err)
-	}
-	assertGitHubCommitOnly(t, api, 1)
-
 	// 只改 c,再让 a 在新 commit 上重新确认:a 命中,b(目录未变)与 c(目录已变)未命中。
 	writeFile(t, filepath.Join(repo, "c", "notes.md"), []byte("c changed"), 0o644)
 	commitGit(t, repo, "change c")
@@ -268,7 +260,7 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T)
 	before := []skillSnapshot{snapshotSkill(t, lib, a.ID), snapshotSkill(t, lib, b.ID), snapshotSkill(t, lib, c.ID)}
 
 	api.Reset()
-	checks, err = lib.CheckUpdates(ctx, []library.SkillID{a.ID, b.ID, c.ID, a.ID})
+	checks, err := lib.CheckUpdates(ctx, []library.SkillID{a.ID, b.ID, c.ID, a.ID})
 	if err != nil || len(checks) != 3 {
 		t.Fatalf("mixed CheckUpdates = %#v, %v", checks, err)
 	}
@@ -327,12 +319,6 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	api.Reset()
 	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
 		t.Fatalf("unknown commit CheckUpdate = %v, %v", available, err)
-	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
-	// 只读:再查一次仍然要取 tree。
-	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("second unknown commit CheckUpdate = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 

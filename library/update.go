@@ -13,13 +13,13 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if id <= 0 {
 		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}
 	}
-	skill, current, err := l.getSkill(ctx, id)
+	skill, confirmedCommit, err := l.getSkill(ctx, id)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	changed := false
 	if skill.Source.Type == SourceGitHub {
-		skill, changed, err = l.readGitHubUpdate(ctx, skill, current)
+		skill, changed, err = l.readGitHubUpdate(ctx, skill, confirmedCommit)
 	} else {
 		var latest Skill
 		latest, err = l.readUpdate(ctx, skill)
@@ -68,13 +68,13 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 
 // readGitHubUpdate 先解析 commit:与当前版本的确认 commit 相同即无变化、不取 tree;否则发现候选后按目录 tree SHA
 // 决定是否取完整文件,SHA 相同只读发现元数据。
-func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, current gitRecord) (Skill, bool, error) {
+func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confirmedCommit string) (Skill, bool, error) {
 	snap, err := l.readGitHubSnapshot(ctx, skill.Source)
 	if err != nil {
 		return Skill{}, false, err
 	}
 	changed := false
-	if !snap.confirms(current.confirmedCommit) {
+	if !snap.confirms(confirmedCommit) {
 		remote, err := snap.locate(ctx, skill)
 		if err != nil {
 			return Skill{}, false, err
@@ -133,7 +133,7 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 	if id <= 0 {
 		return false, &Error{Code: InvalidArgument, Message: "check update: skill ID must be positive"}
 	}
-	skill, current, err := l.getSkill(ctx, id)
+	skill, confirmedCommit, err := l.getSkill(ctx, id)
 	if err != nil {
 		return false, err
 	}
@@ -142,7 +142,7 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 		if err != nil {
 			return false, err
 		}
-		return githubSkillHasUpdate(ctx, &snap, skill, current)
+		return githubSkillHasUpdate(ctx, &snap, skill, confirmedCommit)
 	}
 	latest, err := l.readUpdate(ctx, skill)
 	if err != nil {

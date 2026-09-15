@@ -160,33 +160,28 @@ var legacyLayouts = map[AgentCode]agentLayout{
 // sources.last_seen_ref 是 Source 级的,对多 Skill 仓库不能当作某个版本的确认 commit;空值即"未知,走完整比较"。
 func migrateToConfirmedCommit(ctx context.Context, db *sql.DB) error {
 	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
-		statements, err := rebuildSkillVersionsSQL(ctx, "id, skill_id, git_tree_sha")
+		rebuild, err := rebuildSkillVersionsSQL(ctx, "id, skill_id, git_tree_sha")
 		if err != nil {
 			return err
 		}
-		for _, statement := range statements {
-			if _, err := tx.ExecContext(ctx, statement); err != nil {
-				return err
-			}
-		}
-		_, err = tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
+		_, err = tx.ExecContext(ctx, rebuild+fmt.Sprintf(`; PRAGMA user_version = %d`, librarySchemaVersion))
 		return err
 	})
 }
 
 // rebuildSkillVersionsSQL 按当前 schema 重建 skill_versions,只搬旧库已有的 columns;新列取默认值。
 // 不用 ALTER TABLE ADD COLUMN:它会改写 sqlite_master 里的建表文本,与 schema.sql 的指纹对不上。
-func rebuildSkillVersionsSQL(ctx context.Context, columns string) ([]string, error) {
+func rebuildSkillVersionsSQL(ctx context.Context, columns string) (string, error) {
 	createSQL, err := canonicalTableSQL(ctx, "skill_versions")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return []string{
+	return strings.Join([]string{
 		`CREATE TABLE skill_versions_migrate AS SELECT ` + columns + ` FROM skill_versions`,
 		`DROP TABLE skill_versions`, createSQL,
 		`INSERT INTO skill_versions(` + columns + `) SELECT ` + columns + ` FROM skill_versions_migrate`,
 		`DROP TABLE skill_versions_migrate`,
-	}, nil
+	}, ";\n"), nil
 }
 
 // migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:重建 skill_versions 补齐 v1 缺的 tree SHA 列与
@@ -207,7 +202,7 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 		if err != nil {
 			return err
 		}
-		statements = append(statements, rebuild...)
+		statements = append(statements, rebuild)
 		if version == 3 {
 			createSQL, err := canonicalTableSQL(ctx, "agents")
 			if err != nil {

@@ -118,8 +118,12 @@ func githubToken() string {
 // fetchGitHubContents 用 GitHub Git Database API 按已解析的 owner/repo 与 ref 取 recursive tree。
 // 只取各候选 SKILL.md;安装再按 blob SHA 取所选目录。
 func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
-	snap, err := l.fetchGitHubTreeSnapshot(ctx, owner, repo, locator)
+	snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, locator)
 	if err != nil {
+		return discoveredSource{}, err
+	}
+	// 预览一定需要目录信息,立即取 tree。
+	if err := snap.loadTree(ctx); err != nil {
 		return discoveredSource{}, err
 	}
 	root, err := resolveGitHubSubpath(snap.entries, subpath)
@@ -508,18 +512,6 @@ func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (
 	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills, locator: source.Locator}, nil
 }
 
-// fetchGitHubTreeSnapshot 解析 commit 并立即取 recursive tree;Fetch 预览一定需要目录信息。
-func (l *sqliteLibrary) fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
-	snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, locator)
-	if err != nil {
-		return githubSourceSnapshot{}, err
-	}
-	if err := snap.loadTree(ctx); err != nil {
-		return githubSourceSnapshot{}, err
-	}
-	return snap, nil
-}
-
 // fetchGitHubCommitSnapshot 只发一次 commits/{ref} 把 ref 解析成 commit 与 root tree,不取 recursive tree。
 func (l *sqliteLibrary) fetchGitHubCommitSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
 	client := l.newGitHubClient()
@@ -555,17 +547,13 @@ func (s *githubSourceSnapshot) confirms(confirmedCommit string) bool {
 	return confirmedCommit != "" && s.ref == confirmedCommit
 }
 
-// discover 首次需要目录信息时才取 recursive tree 并发现候选;commit 命中的检查不会走到这里。
-func (s *githubSourceSnapshot) discover(ctx context.Context) (discoveredSource, error) {
-	if err := s.loadTree(ctx); err != nil {
-		return discoveredSource{}, err
-	}
-	return discoverFromGitHubTree(ctx, s, ".")
-}
-
 func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubRemoteSkill, error) {
 	if s.cloned == nil && s.discovered == nil {
-		result, err := s.discover(ctx)
+		// 首次需要目录信息时才取 recursive tree 并发现候选;commit 命中的检查不会走到这里。
+		result, err := discoveredSource{}, s.loadTree(ctx)
+		if err == nil {
+			result, err = discoverFromGitHubTree(ctx, s, ".")
+		}
 		s.discovered = &result
 		if err != nil && ctx.Err() == nil && githubContentsUnavailable(err) {
 			err = githubCloneError(ctx, err, s.fallbackClone(ctx))
@@ -652,8 +640,8 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 
 // githubSkillHasUpdate 先看 commit:与当前版本的确认 commit 相同即无更新;否则取 tree 比较目录 SHA,
 // 无 SHA 的旧记录回退为比较文件与可执行位。
-func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill, current gitRecord) (bool, error) {
-	if snap.confirms(current.confirmedCommit) {
+func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill, confirmedCommit string) (bool, error) {
+	if snap.confirms(confirmedCommit) {
 		return false, nil
 	}
 	remote, err := snap.locate(ctx, skill)
