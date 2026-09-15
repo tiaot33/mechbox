@@ -14,7 +14,7 @@ import (
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 5
+	librarySchemaVersion = 6
 	agentSeedSQL         = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
@@ -133,6 +133,8 @@ func migrateLibrary(ctx context.Context, db *sql.DB, home string) error {
 		return nil
 	case 1, 2, 3, 4:
 		return migrateToScopeIdentity(ctx, db, userVersion, home)
+	case 5:
+		return migrateToConfirmedCommit(ctx, db)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
@@ -154,9 +156,42 @@ var legacyLayouts = map[AgentCode]agentLayout{
 	AgentCodex: {global: ".codex/skills", project: ".codex/skills"},
 }
 
-// migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:v1 补 skill_versions 列,v3 补 Agent 名称,
-// 然后把 Activation 改为只存 Scope 身份。路径型行能识别为某 Agent 的全局或某已登记项目的写成身份,
-// 映射到同一身份的多行合并依据;无法识别的行丢弃。磁盘上任何目录都不动(见 ADR 0011)。
+// migrateToConfirmedCommit 把 v5 库升到当前版本:skill_versions 补确认 commit 列。只加列不回填——
+// sources.last_seen_ref 是 Source 级的,对多 Skill 仓库不能当作某个版本的确认 commit;空值即"未知,走完整比较"。
+func migrateToConfirmedCommit(ctx context.Context, db *sql.DB) error {
+	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
+		statements, err := rebuildSkillVersionsSQL(ctx, "id, skill_id, git_tree_sha")
+		if err != nil {
+			return err
+		}
+		for _, statement := range statements {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return err
+			}
+		}
+		_, err = tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
+		return err
+	})
+}
+
+// rebuildSkillVersionsSQL 按当前 schema 重建 skill_versions,只搬旧库已有的 columns;新列取默认值。
+// 不用 ALTER TABLE ADD COLUMN:它会改写 sqlite_master 里的建表文本,与 schema.sql 的指纹对不上。
+func rebuildSkillVersionsSQL(ctx context.Context, columns string) ([]string, error) {
+	createSQL, err := canonicalTableSQL(ctx, "skill_versions")
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		`CREATE TABLE skill_versions_migrate AS SELECT ` + columns + ` FROM skill_versions`,
+		`DROP TABLE skill_versions`, createSQL,
+		`INSERT INTO skill_versions(` + columns + `) SELECT ` + columns + ` FROM skill_versions_migrate`,
+		`DROP TABLE skill_versions_migrate`,
+	}, nil
+}
+
+// migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:重建 skill_versions 补齐 v1 缺的 tree SHA 列与
+// v6 新增的确认 commit 列,v3 补 Agent 名称,然后把 Activation 改为只存 Scope 身份。路径型行能识别为某 Agent 的
+// 全局或某已登记项目的写成身份,映射到同一身份的多行合并依据;无法识别的行丢弃。磁盘上任何目录都不动(见 ADR 0011)。
 func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home string) error {
 	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
 		legacy, err := readLegacyActivations(ctx, tx, version)
@@ -164,18 +199,15 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 			return err
 		}
 		statements := []string{`DROP TABLE activation_groups`, `DROP TABLE activations`}
+		versionColumns := "id, skill_id, git_tree_sha"
 		if version == 1 {
-			createSQL, err := canonicalTableSQL(ctx, "skill_versions")
-			if err != nil {
-				return err
-			}
-			statements = append(statements,
-				`CREATE TABLE skill_versions_migrate AS SELECT id, skill_id FROM skill_versions`,
-				`DROP TABLE skill_versions`, createSQL,
-				`INSERT INTO skill_versions(id, skill_id) SELECT id, skill_id FROM skill_versions_migrate`,
-				`DROP TABLE skill_versions_migrate`,
-			)
+			versionColumns = "id, skill_id"
 		}
+		rebuild, err := rebuildSkillVersionsSQL(ctx, versionColumns)
+		if err != nil {
+			return err
+		}
+		statements = append(statements, rebuild...)
 		if version == 3 {
 			createSQL, err := canonicalTableSQL(ctx, "agents")
 			if err != nil {

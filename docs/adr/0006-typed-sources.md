@@ -21,4 +21,11 @@ Skills arrive from several kinds of origin and v1 supports all four. Making the 
 - skills.sh 仅为只读发现入口。搜索结果必须再经来源解析与 Fetch 验证，安装记录实际 GitHub Source，不作为 Store，也不新增持久表。skills.sh 的安全审计同为只读覆盖层：Fetch 对 GitHub 候选查一次并随会话暂存，只供展示；不入库、不参与 Sync、不作为安装门闩，查询失败只降级为状态，不影响 Fetch 成败（#56）。
 - `CheckUpdates` 在单次调用内按已记录 Source（含 ref）复用读取结果；不同 ref 不合并。GitHub 来源只远程读取一次 tree，各 Skill 用各自目录的 tree SHA 与当前版本比较；URL / Store / local 仍比较完整内容与执行位。它不写抓取记录、不新增版本、不重写 Activation；部分来源失败保留其他结果，取消时仅返回已完成项与 context 错误。之后的 Update 仍重新读取来源，但 GitHub 在 SHA 未变时只读取发现所需元数据,不得取辅助文件。
 
+## 版本级确认 commit（#62）
+
+- `last_seen_ref` 是 Source 级的,同一仓库下多个 Skill 共享,所以上文说它"不能单独用于判断某个 Skill 是否需要更新"。解决办法是把这个事实下沉到版本级:`skill_versions` 自 schema v6 起与 `git_tree_sha` 并列记录 `confirmed_commit`——该版本的目录 tree 最后一次被确认为远端最新时所在的 commit。两列一起构成一个版本的抓取记录:目录内容是什么、在哪个 commit 上确认过它是最新。它是"关于库内容的事实",随 Sync 走,不是缓存。
+- 写入时机:`InstallFetch` 写入 Fetch 钉住的 commit;`Update` 无变化时刷新当前版本的确认 commit(补写 tree SHA 的旧记录同时补写),有变化时新版本直接带本次 commit。`CheckUpdate` / `CheckUpdates` 严格只读,不写它。
+- 读取顺序:GitHub 检查与更新先发一次 `commits/{ref}`;所涉 Skill 的当前版本确认 commit 与之相同即无更新,不取 recursive tree。不同或为空(非 git 来源、迁移前的旧版本)才按原有逻辑取 tree 比较目录 SHA,无 SHA 时回退比较文件。`CheckUpdates` 内同一 Source 混合命中时至多取一次 tree,命中的 Skill 不参与比较。ref 为完整 SHA 的 Skill 因此永远只发一次请求且无更新;分支 force-push 或 tag 移动后 commit 变了,自然回到完整比较。
+- 迁移 v5 → v6 只加列不回填:Source 级的 `last_seen_ref` 对多 Skill 仓库不健全,空值即"未知,走完整比较",历史版本经一次 `Update` 补齐。`sources.last_seen_ref` 保留现有语义与写入时机,继续作为 Source 级展示信息。
+
 - Fetch 与 GitHub 更新定位的候选发现对齐 vercel-labs/skills（#59）：三条来源路径共用约定目录优先、根短路、有界兜底、同名先到先得、必填 description 与文件名大小写不敏感规则；读取 Claude 清单扩展搜索，`PluginName` 仅供 Fetch 预览分组，不持久化。更新定位先匹配已发现候选的 tree SHA，再匹配名称；发现元数据在单次 Source 快照内复用。

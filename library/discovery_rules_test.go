@@ -238,6 +238,10 @@ func TestGitHubBatchCheckReusesDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 推进一个与两个 Skill 都无关的 commit,让检查必须取 tree 重新发现候选。
+	writeFile(t, filepath.Join(repo, "README.md"), []byte("unrelated"), 0o644)
+	commitGit(t, repo, "unrelated")
+	api.Swap(inspectGitHubRepo(t, repo))
 	api.Reset()
 	got, err := lib.CheckUpdates(t.Context(), []library.SkillID{installed[0].ID, installed[1].ID})
 	if err != nil || len(got) != 2 || got[0].Error != nil || got[1].Error != nil || got[0].Available || got[1].Available {

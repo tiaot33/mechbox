@@ -67,7 +67,8 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 	}
 	installed := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
-		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, skill.gitTreeSHA)
+		// GitHub 文件取自 Fetch 钉住的 commit(source.LastSeenRef),它就是该目录 tree 首次被确认为远端最新的地方。
+		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceGitRecord(source, skill.gitTreeSHA))
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +112,7 @@ func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error)
 }
 
 // insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, gitTreeSHA string) (Skill, error) {
+func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord) (Skill, error) {
 	if name == "" {
 		return Skill{}, fmt.Errorf("install skill: name is required")
 	}
@@ -123,7 +124,7 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill id: %w", err)
 	}
-	versionID, err := createVersion(ctx, tx, skillID, files, gitTreeSHA)
+	versionID, err := createVersion(ctx, tx, skillID, files, record)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -132,24 +133,31 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	}
 	source.ID = SourceID(sourceID)
 	source.LastFetched = source.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Source: source, GitTreeSHA: gitTreeSHA, Files: files}, nil
+	return Skill{ID: SkillID(skillID), Name: name, Source: source, GitTreeSHA: record.treeSHA, Files: files}, nil
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	skill, _, err = l.getSkill(ctx, id)
+	return skill, err
+}
+
+// getSkill 读取 skill 及其当前版本的完整文件,连同门面不暴露的当前版本确认 commit;检查与更新据它走快路径。
+func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, string, error) {
 	summary, err := l.getSummary(ctx, id)
 	if err != nil {
-		return Skill{}, err
+		return Skill{}, "", err
 	}
-	skill = Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
+	skill := Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
+	var confirmedCommit string
 	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.git_tree_sha
+		SELECT skill_versions.git_tree_sha, skill_versions.confirmed_commit
 		FROM skills JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, id).Scan(&skill.GitTreeSHA); err != nil {
-		return Skill{}, fmt.Errorf("get skill version: %w", err)
+	`, id).Scan(&skill.GitTreeSHA, &confirmedCommit); err != nil {
+		return Skill{}, "", fmt.Errorf("get skill version: %w", err)
 	}
 
 	rows, err := l.db.QueryContext(ctx, `
@@ -161,20 +169,20 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 		ORDER BY version_files.path
 	`, id)
 	if err != nil {
-		return Skill{}, fmt.Errorf("get skill files: %w", err)
+		return Skill{}, "", fmt.Errorf("get skill files: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var file File
 		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return Skill{}, fmt.Errorf("read skill file: %w", err)
+			return Skill{}, "", fmt.Errorf("read skill file: %w", err)
 		}
 		skill.Files = append(skill.Files, file)
 	}
 	if err := rows.Err(); err != nil {
-		return Skill{}, fmt.Errorf("read skill files: %w", err)
+		return Skill{}, "", fmt.Errorf("read skill files: %w", err)
 	}
-	return skill, nil
+	return skill, confirmedCommit, nil
 }
 
 func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {

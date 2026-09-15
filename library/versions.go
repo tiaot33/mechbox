@@ -8,8 +8,17 @@ import (
 	"fmt"
 )
 
-func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, gitTreeSHA string) (int64, error) {
-	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha) VALUES (?, ?)`, skillID, gitTreeSHA)
+// gitRecord 是一个版本的 GitHub 抓取记录:目录 tree SHA,以及这个 tree 最后一次被确认为远端最新时所在的 commit。
+// confirmedCommit 是版本级的——同一 Source 下各 Skill 各自记录,所以能单独用来判断某个 Skill 是否需要更新
+// (Source 级的 last_seen_ref 做不到,见 ADR 0006);为空表示未知,检查须取 tree 做完整比较。
+type gitRecord struct {
+	treeSHA         string
+	confirmedCommit string
+}
+
+// createVersion 写入一个新版本及其文件;record 是该版本的 GitHub 抓取记录,非 git 来源为零值。
+func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record gitRecord) (int64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit) VALUES (?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit)
 	if err != nil {
 		return 0, fmt.Errorf("store skill version: %w", err)
 	}

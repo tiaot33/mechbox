@@ -466,10 +466,8 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 				t.Fatalf("unchanged batch = %#v, %v", checks, err)
 			}
 			if auth == "token" {
-				_, trees, blobs := gitHubAPIKindCounts(t, api)
-				if trees != 1 || blobs != 2 {
-					t.Fatalf("batch fetched %d trees and %d blobs", trees, blobs)
-				}
+				// 安装时钉住的 commit 未变:整批只解析一次 commit,tree 与 blob 都不取。
+				assertGitHubCommitOnly(t, api, 1)
 			}
 			for _, before := range installed {
 				if after, err := lib.GetSkill(ctx, before.ID); err != nil || !reflect.DeepEqual(after, before) {

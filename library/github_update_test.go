@@ -67,7 +67,8 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
 		t.Fatalf("unchanged CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	// 安装时钉住的 commit 未变:只解析 commit,不取 tree。
+	assertGitHubCommitOnly(t, api, 1)
 	current, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || !reflect.DeepEqual(current, before) {
 		t.Fatalf("check wrote Library: %#v, %v", current, err)
@@ -87,6 +88,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
 		t.Fatalf("unrelated path second CheckUpdate = %v, %v", available, err)
 	}
+	// commit 前进、目录未变:要取 tree 比较目录 SHA,但不取 Skill 文件。
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	stale, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || stale.Source.LastSeenRef != fx.commit {
@@ -105,6 +107,17 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("unchanged Update created version: %#v, %v", versions, err)
+	}
+	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	// 无变化的 Update 把 first 在新 commit 上重新确认:再查只解析 commit;second 未经 Update,仍要取 tree。
+	api.Reset()
+	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
+		t.Fatalf("reconfirmed CheckUpdate = %v, %v", available, err)
+	}
+	assertGitHubCommitOnly(t, api, 1)
+	api.Reset()
+	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
+		t.Fatalf("unconfirmed sibling CheckUpdate = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 
@@ -225,7 +238,7 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, bar.ID); err != nil || available {
 		t.Fatalf("bar CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCommitOnly(t, api, 2)
 
 	writeFile(t, filepath.Join(repo, "foo", "SKILL.md"), []byte(skillDocument("bar", "changed bar")), 0o644)
 	commitGit(t, repo, "change directory foo")
@@ -306,11 +319,12 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 		t.Fatalf("backfill created version: %#v, %v", versions, err)
 	}
 
+	// 补写 SHA 的同时补写了确认 commit:旧记录经一次 Update 就进入只解析 commit 的快路径。
 	api.Reset()
 	if available, err := lib.CheckUpdate(ctx, legacy.ID); err != nil || available {
 		t.Fatalf("after backfill CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCommitOnly(t, api, 1)
 
 	writeFile(t, filepath.Join(repo, "sibling", "notes.md"), []byte("changed notes"), 0o644)
 	commitGit(t, repo, "change sibling")
@@ -499,6 +513,8 @@ func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture,
 	}
 }
 
+// assertGitHubCheckDoesNotFetchSkillFiles 适用于 commit 未命中、必须取 tree 比较目录 SHA 的检查:
+// 取了 commit 与 tree,发现阶段至多读候选的 SKILL.md,不取任何其他 Skill 文件。commit 命中的场景用 assertGitHubCommitOnly。
 func assertGitHubCheckDoesNotFetchSkillFiles(t *testing.T, api *gitHubAPIMock) {
 	t.Helper()
 	commits, trees, _ := gitHubAPIKindCounts(t, api)
