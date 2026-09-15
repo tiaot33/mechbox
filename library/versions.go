@@ -16,6 +16,15 @@ type gitRecord struct {
 	confirmedCommit string
 }
 
+// sourceGitRecord 组装写入版本的抓取记录:只有 GitHub 来源的 last_seen_ref 是 commit,其他来源的是内容哈希,不能当确认 commit。
+func sourceGitRecord(source Source, treeSHA string) gitRecord {
+	record := gitRecord{treeSHA: treeSHA}
+	if source.Type == SourceGitHub {
+		record.confirmedCommit = source.LastSeenRef
+	}
+	return record
+}
+
 // createVersion 写入一个新版本及其文件;record 是该版本的 GitHub 抓取记录,非 git 来源为零值。
 func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record gitRecord) (int64, error) {
 	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit) VALUES (?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit)

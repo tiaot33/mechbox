@@ -13,13 +13,13 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if id <= 0 {
 		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}
 	}
-	skill, confirmedCommit, err := l.getSkill(ctx, id)
+	skill, current, err := l.getSkill(ctx, id)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	changed := false
 	if skill.Source.Type == SourceGitHub {
-		skill, changed, err = l.readGitHubUpdate(ctx, skill, confirmedCommit)
+		skill, changed, err = l.readGitHubUpdate(ctx, skill, current)
 	} else {
 		var latest Skill
 		latest, err = l.readUpdate(ctx, skill)
@@ -66,24 +66,15 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	return UpdateResult{Skill: skill, Changed: changed, Note: "已激活的副本未重写,可能落后于 Library;需要时请重新激活。"}, nil
 }
 
-// sourceGitRecord 组装写入版本的抓取记录:只有 GitHub 来源的 last_seen_ref 是 commit,其他来源的是内容哈希,不能当确认 commit。
-func sourceGitRecord(source Source, treeSHA string) gitRecord {
-	record := gitRecord{treeSHA: treeSHA}
-	if source.Type == SourceGitHub {
-		record.confirmedCommit = source.LastSeenRef
-	}
-	return record
-}
-
 // readGitHubUpdate 先解析 commit:与当前版本的确认 commit 相同即无变化、不取 tree;否则发现候选后按目录 tree SHA
 // 决定是否取完整文件,SHA 相同只读发现元数据。
-func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confirmedCommit string) (Skill, bool, error) {
+func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, current gitRecord) (Skill, bool, error) {
 	snap, err := l.readGitHubSnapshot(ctx, skill.Source)
 	if err != nil {
 		return Skill{}, false, err
 	}
 	changed := false
-	if !snap.confirms(confirmedCommit) {
+	if !snap.confirms(current.confirmedCommit) {
 		remote, err := snap.locate(ctx, skill)
 		if err != nil {
 			return Skill{}, false, err
@@ -142,7 +133,7 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 	if id <= 0 {
 		return false, &Error{Code: InvalidArgument, Message: "check update: skill ID must be positive"}
 	}
-	skill, confirmedCommit, err := l.getSkill(ctx, id)
+	skill, current, err := l.getSkill(ctx, id)
 	if err != nil {
 		return false, err
 	}
@@ -151,7 +142,7 @@ func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available 
 		if err != nil {
 			return false, err
 		}
-		return githubSkillHasUpdate(ctx, &snap, skill, confirmedCommit)
+		return githubSkillHasUpdate(ctx, &snap, skill, current)
 	}
 	latest, err := l.readUpdate(ctx, skill)
 	if err != nil {

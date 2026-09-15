@@ -13,7 +13,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		return nil, err
 	}
 	var skills []Skill
-	var confirmed []string // 与 skills 对齐:各当前版本的确认 commit
+	var records []gitRecord // 与 skills 对齐:各当前版本的抓取记录
 	var completed []bool
 	groups := make(map[SourceID][]int)
 	var sources []SourceID
@@ -37,12 +37,12 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		seen[id] = true
 		result := UpdateCheck{SkillID: id}
 		var skill Skill
-		var confirmedCommit string
+		var record gitRecord
 		var readErr error
 		if id <= 0 {
 			readErr = &Error{Code: InvalidArgument, Message: "skill ID must be positive"}
 		} else {
-			skill, confirmedCommit, readErr = l.getSkill(ctx, id)
+			skill, record, readErr = l.getSkill(ctx, id)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -57,7 +57,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		}
 		results = append(results, result)
 		skills = append(skills, skill)
-		confirmed = append(confirmed, confirmedCommit)
+		records = append(records, record)
 		completed = append(completed, readErr != nil)
 	}
 	for _, sourceID := range sources {
@@ -93,7 +93,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 					available = !filesEqual(skills[index].Files, localFiles)
 				case SourceGitHub:
 					// commit 命中的 Skill 不参与 tree 比较;同一 Source 下首个未命中的 Skill 才让快照取一次 tree。
-					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], confirmed[index])
+					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], records[index])
 				default:
 					selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
 					itemErr = selectErr

@@ -144,21 +144,22 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 	return skill, err
 }
 
-// getSkill 读取 skill 及其当前版本的完整文件,连同门面不暴露的当前版本确认 commit;检查与更新据它走快路径。
-func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, string, error) {
+// getSkill 读取 skill 及其当前版本的完整文件,连同当前版本的抓取记录(确认 commit 不经门面暴露);检查与更新据它走快路径。
+func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, gitRecord, error) {
 	summary, err := l.getSummary(ctx, id)
 	if err != nil {
-		return Skill{}, "", err
+		return Skill{}, gitRecord{}, err
 	}
 	skill := Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
-	var confirmedCommit string
+	var current gitRecord
 	if err := l.db.QueryRowContext(ctx, `
 		SELECT skill_versions.git_tree_sha, skill_versions.confirmed_commit
 		FROM skills JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, id).Scan(&skill.GitTreeSHA, &confirmedCommit); err != nil {
-		return Skill{}, "", fmt.Errorf("get skill version: %w", err)
+	`, id).Scan(&current.treeSHA, &current.confirmedCommit); err != nil {
+		return Skill{}, gitRecord{}, fmt.Errorf("get skill version: %w", err)
 	}
+	skill.GitTreeSHA = current.treeSHA
 
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode
@@ -169,20 +170,20 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, string
 		ORDER BY version_files.path
 	`, id)
 	if err != nil {
-		return Skill{}, "", fmt.Errorf("get skill files: %w", err)
+		return Skill{}, gitRecord{}, fmt.Errorf("get skill files: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var file File
 		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return Skill{}, "", fmt.Errorf("read skill file: %w", err)
+			return Skill{}, gitRecord{}, fmt.Errorf("read skill file: %w", err)
 		}
 		skill.Files = append(skill.Files, file)
 	}
 	if err := rows.Err(); err != nil {
-		return Skill{}, "", fmt.Errorf("read skill files: %w", err)
+		return Skill{}, gitRecord{}, fmt.Errorf("read skill files: %w", err)
 	}
-	return skill, confirmedCommit, nil
+	return skill, current, nil
 }
 
 func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {

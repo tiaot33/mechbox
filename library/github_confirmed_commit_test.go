@@ -350,31 +350,3 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	}
 	assertGitHubCommitOnly(t, api, 1)
 }
-
-// skillSnapshot 是经门面读回的一个 Skill 及其版本列表,用于断言检查前后 Library 完全一致(只读契约)。
-type skillSnapshot struct {
-	skill    library.Skill
-	versions []library.SkillVersion
-}
-
-func snapshotSkill(t *testing.T, lib library.Library, id library.SkillID) skillSnapshot {
-	t.Helper()
-	skill, err := lib.GetSkill(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	versions, err := lib.ListVersions(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return skillSnapshot{skill: skill, versions: versions}
-}
-
-// assertGitHubCommitOnly 断言检查只解析了 commits 次 commit,没有取 tree、没有取任何 blob。
-func assertGitHubCommitOnly(t *testing.T, api *gitHubAPIMock, commits int) {
-	t.Helper()
-	gotCommits, trees, blobs := gitHubAPIKindCounts(t, api)
-	if gotCommits != commits || trees != 0 || blobs != 0 {
-		t.Fatalf("requests commits=%d trees=%d blobs=%d, want commits=%d only: %#v", gotCommits, trees, blobs, commits, api.snapshot())
-	}
-}

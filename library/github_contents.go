@@ -652,8 +652,8 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 
 // githubSkillHasUpdate 先看 commit:与当前版本的确认 commit 相同即无更新;否则取 tree 比较目录 SHA,
 // 无 SHA 的旧记录回退为比较文件与可执行位。
-func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill, confirmedCommit string) (bool, error) {
-	if snap.confirms(confirmedCommit) {
+func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill, current gitRecord) (bool, error) {
+	if snap.confirms(current.confirmedCommit) {
 		return false, nil
 	}
 	remote, err := snap.locate(ctx, skill)
