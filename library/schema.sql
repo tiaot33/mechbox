@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS sources (
     locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 包ID+版本 / 本地路径)
     last_fetched TEXT NOT NULL DEFAULT '',  -- 上次抓取时间,RFC3339Nano;空串 = 从未抓取(本地来源恒为空)
     last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希),用于判断有无更新
-    http_validator TEXT NOT NULL DEFAULT '',-- URL / Store 上次成功抓取时服务端给出的 HTTP validator,已是条件请求头形式
-                                            -- ("If-None-Match: <etag>" 或 "If-Modified-Since: <date>");检查与更新据它发条件请求,
-                                            -- 304 即无更新。服务端未给出、GitHub / local 来源恒为空 = 不带条件头
+    http_validator TEXT NOT NULL DEFAULT '',-- URL / Store 上次成功抓取时服务端给出的 HTTP validator 原文
+                                            -- (ETag 或 Last-Modified);检查与更新据它发条件请求,304 即无更新。
+                                            -- 服务端未给出、GitHub / local 来源恒为空 = 不带条件头
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
 );
 

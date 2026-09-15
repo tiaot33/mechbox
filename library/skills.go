@@ -149,7 +149,7 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 // fetchState 是门面不暴露、检查与更新据以走快路径的抓取记录。
 type fetchState struct {
 	confirmedCommit string // 当前版本的确认 commit;仅 GitHub 来源非空
-	httpValidator   string // Source 上次成功抓取时服务端给出的 HTTP validator(条件请求头形式);仅 URL / Store 来源非空
+	httpValidator   string // Source 上次成功抓取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
 }
 
 // getSkill 读取 skill 及其当前版本的完整文件,连同其抓取记录。

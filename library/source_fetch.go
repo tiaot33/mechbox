@@ -31,15 +31,15 @@ type discoveredSource struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	ref         string
-	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator,已是条件请求头形式(由 responseValidator 折成);
+	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator 原文(ETag 或 Last-Modified);
 	// 未给出为空。304 时沿用请求所带的那个。
 	httpValidator string
 	// unchanged 表示带条件头的请求收到 304:远端未变,skills 为空,调用方沿用库中内容。
 	unchanged bool
 }
 
-// fetchRemote 读取远端来源。validator 是 Source 上记录的 HTTP validator(条件请求头形式),非空时 URL / Store
-// 的请求带条件头,304 以 unchanged 返回;GitHub 不使用它。Fetch 必须拿到内容,传空。
+// fetchRemote 读取远端来源。validator 是 Source 上记录的 HTTP validator 原文(ETag 或 Last-Modified),
+// 非空时 URL / Store 的请求带条件头,304 以 unchanged 返回;GitHub 不使用它。Fetch 必须拿到内容,传空。
 func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
 	switch source.Type {
 	case SourceGitHub:
@@ -181,22 +181,21 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
-// responseValidator 把服务端响应里的 validator 折成可直接回填的条件请求头 "name: value":优先 ETag → If-None-Match,
-// 其次 Last-Modified → If-Modified-Since;都没有为空。库里存的就是这个形式,发请求时再由 conditionalHeader 拆开。
+// responseValidator 取服务端给出的 validator 原文:优先 ETag,其次 Last-Modified;都没有为空。
 func responseValidator(header http.Header) string {
-	if etag := header.Get("ETag"); etag != "" {
-		return "If-None-Match: " + etag
-	}
-	if modified := header.Get("Last-Modified"); modified != "" {
-		return "If-Modified-Since: " + modified
-	}
-	return ""
+	return cmp.Or(header.Get("ETag"), header.Get("Last-Modified"))
 }
 
-// conditionalHeader 拆开 responseValidator 产出的存储形式;形式不对(理论上不会)视为没有 validator。
-func conditionalHeader(validator string) (name, value string, ok bool) {
-	name, value, ok = strings.Cut(validator, ": ")
-	return name, value, ok && name != "" && value != ""
+// applyValidator 按 validator 原文带条件头:ETag(quoted 或 W/) → If-None-Match,否则 → If-Modified-Since。
+func applyValidator(req *http.Request, validator string) {
+	if validator == "" {
+		return
+	}
+	if strings.HasPrefix(validator, `"`) || strings.HasPrefix(validator, "W/") || strings.HasPrefix(validator, "w/") {
+		req.Header.Set("If-None-Match", validator)
+		return
+	}
+	req.Header.Set("If-Modified-Since", validator)
 }
 
 // fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。validator 非空时带条件头,
@@ -212,10 +211,7 @@ func fetchArchive(ctx context.Context, location, validator string) (result disco
 	if err != nil {
 		return result, fetchError(SourceUnreachable, "fetch source", errors.New("invalid source URL"))
 	}
-	name, value, conditional := conditionalHeader(validator)
-	if conditional {
-		req.Header.Set(name, value)
-	}
+	applyValidator(req, validator)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -224,7 +220,7 @@ func fetchArchive(ctx context.Context, location, validator string) (result disco
 		return result, fetchError(fetchErrorCode(err), "fetch source", errors.New("source could not be reached"))
 	}
 	defer response.Body.Close()
-	if conditional && response.StatusCode == http.StatusNotModified {
+	if validator != "" && response.StatusCode == http.StatusNotModified {
 		return discoveredSource{httpValidator: validator, unchanged: true}, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

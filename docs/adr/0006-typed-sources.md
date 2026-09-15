@@ -30,7 +30,7 @@ Skills arrive from several kinds of origin and v1 supports all four. Making the 
 
 ## URL / Store 的 HTTP validator 与条件请求(#64)
 
-- URL / Store 来源以前只为了"有没有更新"也要把整个压缩包(上限 64 MB)下完再比对。自 schema v7 起 `sources` 记录 `http_validator`——上次成功抓取时服务端给出的 validator,优先 ETag,其次 Last-Modified,直接存成条件请求头的形式(`If-None-Match: <etag>` / `If-Modified-Since: <date>`),发请求时原样回填。它和 `last_seen_ref` 一样是 Source 级的"关于库内容的事实",随 Sync 走;GitHub / local 来源恒为空。
+- URL / Store 来源以前只为了"有没有更新"也要把整个压缩包(上限 64 MB)下完再比对。自 schema v7 起 `sources` 记录 `http_validator`——上次成功抓取时服务端给出的 validator 原文,优先 ETag,其次 Last-Modified;发请求时 ETag 填 `If-None-Match`,否则填 `If-Modified-Since`。它和 `last_seen_ref` 一样是 Source 级的"关于库内容的事实",随 Sync 走;GitHub / local 来源恒为空。
 - 写入时机:`InstallFetch` 写入 Fetch 那次响应给出的 validator;`Update` 收到 200 时把新 validator 随 `last_seen_ref` 一起写回,收到 304 时不新增版本、只刷新 `last_fetched`,validator 与 `last_seen_ref` 保持。`CheckUpdate` / `CheckUpdates` 严格只读。
 - 读取:`CheckUpdate` / `CheckUpdates` / `Update` 在 Source 记录了 validator 时带条件头;304 即无更新,正文零字节;200 则按原有流程整包下载比较。`CheckUpdates` 对同一 URL / Store Source 下多个 Skill 仍只发一次(带条件头的)请求,304 时整组无更新。`Fetch` 必须拿到内容,永远不带条件头。服务端不返回 validator 时列保持空、请求不带条件头,行为与之前完全一致;304 只在带了条件头的请求上有特殊含义,否则按普通非 2xx 错误处理。
 - 迁移 v6 → v7 只加列不回填;v5 一次迁到 v7,v1–v4 路径同步重建 `sources`。

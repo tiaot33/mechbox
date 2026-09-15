@@ -144,30 +144,13 @@ func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo str
 }
 
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
-	key := memoKey("commit", owner, repo, ref)
+	key := memoKey(owner, repo, ref)
 	immutable := fullCommit.MatchString(ref)
 	if immutable {
-		key.id = githubObjectID(ref)
 		if got, ok := c.memo.getCommit(key); ok {
 			return got.commit, got.tree, nil
 		}
 	}
-	flight, joined := c.memo.begin(key)
-	if joined {
-		<-flight.done
-		return flight.commit.commit, flight.commit.tree, flight.err
-	}
-	defer func() {
-		if flight == nil {
-			return
-		}
-		flight.commit = githubCommitMemo{commit: commit, tree: tree}
-		flight.err = err
-		if err == nil && immutable {
-			c.memo.storeCommit(key, flight.commit)
-		}
-		c.memo.finish(key, flight)
-	}()
 	var payload githubCommitResponse
 	if err = c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
 		return "", "", err
@@ -177,80 +160,44 @@ func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (com
 	if !fullCommit.MatchString(commit) || !fullCommit.MatchString(tree) {
 		return "", "", errGitHubContentsFallback
 	}
+	if immutable {
+		c.memo.storeCommit(key, githubCommitMemo{commit: commit, tree: tree})
+	}
 	return commit, tree, nil
 }
 
 func (c *githubClient) recursiveTree(ctx context.Context, owner, repo, sha string) (githubTreeResponse, error) {
-	key := memoKey("tree", owner, repo, githubObjectID(sha))
+	key := memoKey(owner, repo, sha)
 	if tree, ok := c.memo.getTree(key); ok {
 		return tree, nil
 	}
-	flight, joined := c.memo.begin(key)
-	if joined {
-		<-flight.done
-		if flight.err != nil {
-			return githubTreeResponse{}, flight.err
-		}
-		tree := flight.tree
-		tree.Tree = slices.Clone(tree.Tree)
-		return tree, nil
-	}
 	var payload githubTreeResponse
-	location := githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha) + "?recursive=1"
-	err := c.get(ctx, location, &payload)
-	if flight != nil {
-		flight.tree = payload
-		flight.err = err
-		if err == nil && !payload.Truncated {
-			c.memo.storeTree(key, payload)
-		}
-		c.memo.finish(key, flight)
+	err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha)+"?recursive=1", &payload)
+	if err == nil && !payload.Truncated {
+		c.memo.storeTree(key, payload)
 	}
 	return payload, err
 }
 
 func (c *githubClient) blob(ctx context.Context, owner, repo, sha string) ([]byte, error) {
-	key := memoKey("blob", owner, repo, githubObjectID(sha))
+	key := memoKey(owner, repo, sha)
 	if content, ok := c.memo.getBlob(key); ok {
 		return content, nil
-	}
-	flight, joined := c.memo.begin(key)
-	if joined {
-		<-flight.done
-		if flight.err != nil {
-			return nil, flight.err
-		}
-		return bytes.Clone(flight.blob), nil
 	}
 	var payload githubBlobResponse
 	err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/blobs/%s", owner, repo, sha), &payload)
 	if err != nil {
-		c.finishBlobFlight(key, flight, nil, err)
 		return nil, err
 	}
 	if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
-		c.finishBlobFlight(key, flight, nil, errGitHubContentsFallback)
 		return nil, errGitHubContentsFallback
 	}
 	content, err := base64.StdEncoding.DecodeString(payload.Content)
 	if err != nil || len(content) != payload.Size {
-		c.finishBlobFlight(key, flight, nil, errGitHubContentsFallback)
 		return nil, errGitHubContentsFallback
 	}
-	c.finishBlobFlight(key, flight, content, nil)
+	c.memo.storeBlob(key, content)
 	return content, nil
-}
-
-func (c *githubClient) finishBlobFlight(key githubMemoKey, flight *githubFlight, content []byte, err error) {
-	if flight == nil {
-		return
-	}
-	flight.blob = content
-	flight.err = err
-	if err == nil {
-		c.memo.storeBlob(key, content)
-	}
-	c.memo.finish(key, flight)
 }
 
 func githubAPIURL(pattern string, owner, repo, object string) string {
@@ -452,9 +399,6 @@ func (v githubSourceView) readFile(ctx context.Context, name string) ([]byte, er
 	if !ok || !githubRegularBlob(entry) {
 		return nil, fs.ErrNotExist
 	}
-	if content, ok := v.snap.knownBlobs[strings.ToLower(entry.SHA)]; ok {
-		return bytes.Clone(content), nil
-	}
 	return v.snap.client.blob(ctx, v.snap.owner, v.snap.repo, entry.SHA)
 }
 
@@ -561,7 +505,6 @@ type githubSourceSnapshot struct {
 	cloned       []fetchedSkill
 	discovered   *discoveredSource
 	discoveryErr error
-	knownBlobs   map[string][]byte // 当前版本按 git blob SHA 登记的内容,发现与取文件时复用
 }
 
 type githubRemoteSkill struct {
@@ -632,32 +575,14 @@ func gitBlobSHA(content []byte) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-// rememberGitBlobs 用当前版本文件按 git blob 规则登记内容;发现 SKILL.md 与取文件都按 SHA 复用,不落库。
+// rememberGitBlobs 把当前版本文件按 git blob SHA 写入进程内 memo,发现与取文件都走 client.blob。
 func (s *githubSourceSnapshot) rememberGitBlobs(files []File) {
 	if s.client == nil {
 		return
 	}
-	s.knownBlobs = make(map[string][]byte, len(files))
 	for _, file := range files {
-		s.knownBlobs[gitBlobSHA(file.Content)] = file.Content
+		s.client.memo.storeBlob(memoKey(s.owner, s.repo, gitBlobSHA(file.Content)), file.Content)
 	}
-}
-
-// reuseKnownGitHubBlobs 把远端 tree 里 SHA 已在库中的 blob 填上正文,只留下未匹配的交给网络。
-func reuseKnownGitHubBlobs(blobs []githubBlob, known map[string][]byte) []githubBlob {
-	if len(known) == 0 {
-		return blobs
-	}
-	reused := slices.Clone(blobs)
-	for i, blob := range reused {
-		if blob.content != nil {
-			continue
-		}
-		if content, ok := known[strings.ToLower(blob.sha)]; ok {
-			reused[i].content = content
-		}
-	}
-	return reused
 }
 
 // confirms 判断远端当前 commit 就是该版本记录的确认 commit:同一 commit 下目录 tree 必然未变,不必取 tree。
@@ -703,8 +628,7 @@ func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote gi
 	if remote.files != nil {
 		return remote.files, nil
 	}
-	blobs := reuseKnownGitHubBlobs(remote.blobs, s.knownBlobs)
-	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, blobs)
+	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, remote.blobs)
 	if err == nil {
 		return files, nil
 	}

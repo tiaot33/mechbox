@@ -81,7 +81,7 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
-	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}}, nil
+	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}, githubMemo: newGitHubMemo()}, nil
 }
 
 func (l *sqliteLibrary) Close() error {
