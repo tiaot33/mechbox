@@ -62,7 +62,7 @@ func TestActivateGlobalScopeProjectsIntoResolvedDirectory(t *testing.T) {
 		Directory:  directory,
 		Individual: true,
 	}}
-	if !reflect.DeepEqual(activations, want) {
+	if !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
 	}
 }
@@ -104,7 +104,7 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 		Directory:  directory,
 		Individual: true,
 	}}
-	if !reflect.DeepEqual(activations, want) {
+	if !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
 	}
 
@@ -164,7 +164,7 @@ func TestActivateIdentityScopeConflictPolicy(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() after re-Activate = %#v, %v; want %#v", activations, err, want)
 	}
 }
@@ -214,7 +214,7 @@ func TestActivateGroupOnIdentityScopePreservesIndependentActivation(t *testing.T
 		{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
 		{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
 	}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 
@@ -232,7 +232,7 @@ func TestActivateGroupOnIdentityScopePreservesIndependentActivation(t *testing.T
 	}
 	activations, err = lib.ListActivations(ctx)
 	want = []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() after DeactivateGroup = %#v, %v; want %#v", activations, err, want)
 	}
 }
@@ -394,7 +394,7 @@ func TestUnregisterProjectClearsIdentityProjectActivations(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: skill.ID, Scope: global, Directory: globalDirectory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() after unregister = %#v, %v; want %#v", activations, err, want)
 	}
 }
@@ -426,7 +426,7 @@ func TestDeleteGroupAndRemoveSkillOnIdentityScope(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() after DeleteGroup = %#v, %v; want %#v", activations, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
@@ -479,7 +479,7 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: skill.ID, Scope: global, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
@@ -570,7 +570,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 	requireProjection(t, directory, "commit", "# A\n")
@@ -585,7 +585,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	requireProjection(t, directory, "commit", "# B\n")
 	activations, err = lib.ListActivations(ctx)
 	want = []library.Activation{{SkillID: second.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() after switch = %#v, %v; want %#v", activations, err, want)
 	}
 }
@@ -636,7 +636,7 @@ func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	requireProjection(t, directory, "commit", "# A\n")
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{firstGroup.ID}}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 }
@@ -685,7 +685,7 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 		{SkillID: first.ID, Scope: global, Directory: directory, Individual: true},
 		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Individual: true},
 	}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 

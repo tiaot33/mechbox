@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -64,7 +65,7 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 		Directory:  directory,
 		Individual: true,
 	}}
-	if !reflect.DeepEqual(activations, want) {
+	if !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
 	}
 
@@ -91,6 +92,40 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 
 	if err := lib.Activate(ctx, library.SkillID(9999), scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Activate() unknown skill error = %v", err)
+	}
+}
+
+func TestActivateRecordsFirstActivationTimeAndIgnoresRefresh(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	source := filepath.Join(t.TempDir(), "timed")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("timed\n"), 0o644)
+	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	start := time.Now().UTC()
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	end := time.Now().UTC()
+	listed, err := lib.ListActivations(ctx)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("ListActivations = %#v, %v", listed, err)
+	}
+	first := listed[0].ActivatedAt
+	if first.IsZero() || first.Before(start) || first.After(end) {
+		t.Fatalf("ActivatedAt = %v, want in [%v, %v]", first, start, end)
+	}
+	time.Sleep(time.Millisecond)
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := lib.ListActivations(ctx)
+	if err != nil || len(refreshed) != 1 || !refreshed[0].ActivatedAt.Equal(first) {
+		t.Fatalf("refresh ActivatedAt = %#v, %v; want %v", refreshed, err, first)
 	}
 }
 
@@ -221,7 +256,7 @@ func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) 
 		{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
 		{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
 	}
-	if !reflect.DeepEqual(activations, wantActivations) {
+	if !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
 		t.Fatalf("ListActivations() = %#v, want %#v", activations, wantActivations)
 	}
 
@@ -239,7 +274,7 @@ func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) 
 		t.Fatal(err)
 	}
 	wantActivations = []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if !reflect.DeepEqual(activations, wantActivations) {
+	if !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
 		t.Fatalf("ListActivations() after DeactivateGroup = %#v, want %#v", activations, wantActivations)
 	}
 }
@@ -320,7 +355,7 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() after re-Activate = %#v, %v; want %#v", activations, err, want)
 	}
 
@@ -339,7 +374,7 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	}
 	activations, err = lib.ListActivations(ctx)
 	want[0].ViaGroups = []library.GroupID{group.ID}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("origins after reactivation = %#v, %v; want %#v", activations, err, want)
 	}
 }
@@ -437,7 +472,7 @@ func TestActivateGroupFailurePreservesIndependentActivation(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 }

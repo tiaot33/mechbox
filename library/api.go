@@ -177,20 +177,26 @@ type File struct {
 
 // Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
 type Skill struct {
-	ID         SkillID `json:"id"`
-	Name       string  `json:"name"`
-	Source     Source  `json:"source"`
-	GitTreeSHA string  `json:"git_tree_sha"` // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
-	Files      []File  `json:"files"`
+	ID          SkillID   `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到或迁移前回填失败则为空
+	Source      Source    `json:"source"`
+	GitTreeSHA  string    `json:"git_tree_sha"`          // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
+	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间;零值 = 未知(迁移前数据)
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间;零值 = 未知(迁移前数据)
+	Files       []File    `json:"files"`
 }
 
-// SkillSummary 是浏览列表用的精简条目:身份、名字与来源元数据,不含文件正文。
+// SkillSummary 是浏览列表用的精简条目:身份、名字、描述与来源元数据,不含文件正文。
 // 列表接口(ListSkills / ListGroupSkills / ListCollections)返回它以保持轻量;
 // 完整文件通过 GetSkill / GetVersion 获取。
 type SkillSummary struct {
-	ID     SkillID `json:"id"`
-	Name   string  `json:"name"`
-	Source Source  `json:"source"`
+	ID          SkillID   `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到或迁移前回填失败则为空
+	Source      Source    `json:"source"`
+	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间;零值 = 未知(迁移前数据)
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间;零值 = 未知(迁移前数据)
 }
 
 // FetchID 是一次 Fetch 会话的不透明句柄,由 Library 签发。它不持久化、不参与
@@ -265,10 +271,12 @@ type Fetch struct {
 
 // SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
 type SkillVersion struct {
-	ID         VersionID `json:"id"`
-	SkillID    SkillID   `json:"skill_id"`
-	GitTreeSHA string    `json:"git_tree_sha"` // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
-	Files      []File    `json:"files,omitempty"`
+	ID          VersionID `json:"id"`
+	SkillID     SkillID   `json:"skill_id"`
+	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到或迁移前无法回填则为空
+	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
+	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间;零值 = 未知(迁移前数据)
+	Files       []File    `json:"files,omitempty"`
 }
 
 // VersionDiff 是两个版本之间按文件路径归类的差异。
@@ -294,8 +302,9 @@ type UpdateCheck struct {
 
 // Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0007)。
 type Group struct {
-	ID   GroupID `json:"id"`
-	Name string  `json:"name"`
+	ID        GroupID   `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间;零值 = 未知(迁移前数据)
 }
 
 // AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
@@ -354,11 +363,12 @@ type ActivateOptions struct {
 // 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
 // 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectActivations 给出。
 type Activation struct {
-	SkillID    SkillID   `json:"skill_id"`
-	Scope      Scope     `json:"scope"`
-	Directory  string    `json:"directory"`
-	Individual bool      `json:"individual"`           // 存在独立(非分组)激活
-	ViaGroups  []GroupID `json:"via_groups,omitempty"` // 经由哪些分组激活
+	SkillID     SkillID   `json:"skill_id"`
+	Scope       Scope     `json:"scope"`
+	Directory   string    `json:"directory"`
+	Individual  bool      `json:"individual"`            // 存在独立(非分组)激活
+	ViaGroups   []GroupID `json:"via_groups,omitempty"`  // 经由哪些分组激活
+	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间;零值 = 未知(迁移前数据)。刷新不更新
 }
 
 // ActivationStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
@@ -490,9 +500,13 @@ type Library interface {
 
 	// 分组
 
+	// CreateGroup 创建分组。名字先 TrimSpace;若已被其他 Group 占用,则改为 name#N
+	// (N 从 2 起取最小空闲数字),大小写敏感、不加空格。空名仍是 InvalidArgument。
 	CreateGroup(ctx context.Context, name string) (Group, error)
 	ListGroups(ctx context.Context) ([]Group, error)
-	RenameGroup(ctx context.Context, id GroupID, name string) error
+	// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
+	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
+	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
 	// DeleteGroup 删除分组。非破坏性:仅由该组支撑的投影会先转为独立保留,
 	// 磁盘上已投影的副本不会因删除分组而被移除(见 ADR 0007)。
 	DeleteGroup(ctx context.Context, id GroupID) error

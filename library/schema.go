@@ -10,11 +10,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 7
+	librarySchemaVersion = 8
 	agentSeedSQL         = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
@@ -135,6 +136,8 @@ func migrateLibrary(ctx context.Context, db *sql.DB, home string) error {
 		return migrateToScopeIdentity(ctx, db, userVersion, home)
 	case 5, 6:
 		return migrateFetchRecords(ctx, db, userVersion)
+	case 7:
+		return migrateReadModel(ctx, db)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
@@ -176,8 +179,27 @@ func migrateFetchRecords(ctx context.Context, db *sql.DB, version int) error {
 		if err != nil {
 			return err
 		}
-		statements = append(statements, rebuild, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
-		_, err = tx.ExecContext(ctx, strings.Join(statements, ";\n"))
+		statements = append(statements, rebuild)
+		for _, statement := range statements {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return err
+			}
+		}
+		if err := upgradeToReadModel(ctx, tx, true); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
+		return err
+	})
+}
+
+// migrateReadModel 把 v7 库升到当前版本:补描述、时间列与 Group 名 UNIQUE,时间不回填。
+func migrateReadModel(ctx context.Context, db *sql.DB) error {
+	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
+		if err := upgradeToReadModel(ctx, tx, true); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
 		return err
 	})
 }
@@ -189,12 +211,16 @@ func rebuildTableSQL(ctx context.Context, name, columns string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return strings.Join([]string{
+	indexes, err := canonicalIndexSQL(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(append([]string{
 		`CREATE TABLE ` + name + `_migrate AS SELECT ` + columns + ` FROM ` + name,
 		`DROP TABLE ` + name, createSQL,
 		`INSERT INTO ` + name + `(` + columns + `) SELECT ` + columns + ` FROM ` + name + `_migrate`,
 		`DROP TABLE ` + name + `_migrate`,
-	}, ";\n"), nil
+	}, indexes...), ";\n"), nil
 }
 
 // migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:重建 skill_versions 补齐 v1 缺的 tree SHA 列与
@@ -255,18 +281,117 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 			if !ok {
 				continue
 			}
-			if err := recordActivationTx(ctx, tx, row.skillID, scope, row.individual, 0); err != nil {
+			if err := recordActivationTx(ctx, tx, row.skillID, scope, row.individual, 0, time.Time{}); err != nil {
 				return err
 			}
 			for _, groupID := range row.groups {
-				if err := recordActivationTx(ctx, tx, row.skillID, scope, false, groupID); err != nil {
+				if err := recordActivationTx(ctx, tx, row.skillID, scope, false, groupID, time.Time{}); err != nil {
 					return err
 				}
 			}
 		}
+		if err := upgradeToReadModel(ctx, tx, false); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
 		return err
 	})
+}
+
+// upgradeToReadModel 把描述、时间列与 Group 名 UNIQUE 补到当前 schema;rebuildActivations 为 false 时
+// activations 已是新表(v1–v4 路径从 schemaSQL 新建),只处理 groups 与 skill_versions。
+func upgradeToReadModel(ctx context.Context, tx *sql.Tx, rebuildActivations bool) error {
+	if err := uniquifyGroupNames(ctx, tx); err != nil {
+		return err
+	}
+	rebuild, err := rebuildTableSQL(ctx, "groups", "id, name")
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, rebuild); err != nil {
+		return err
+	}
+	rebuild, err = rebuildTableSQL(ctx, "skill_versions", "id, skill_id, git_tree_sha, confirmed_commit")
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, rebuild); err != nil {
+		return err
+	}
+	if rebuildActivations {
+		rebuild, err = rebuildTableSQL(ctx, "activations", "id, skill_id, agent, project_id, individual")
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, rebuild); err != nil {
+			return err
+		}
+	}
+	return backfillVersionDescriptions(ctx, tx)
+}
+
+// uniquifyGroupNames 按 id 顺序保留每个名字的第一个 Group,其余改为 name#N(N 从 2 起最小空闲)。
+func uniquifyGroupNames(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id, name FROM groups ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	var groups []Group
+	for rows.Next() {
+		var group Group
+		if err := rows.Scan(&group.ID, &group.Name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		groups = append(groups, group)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	taken := map[string]GroupID{}
+	for _, group := range groups {
+		name := uniqueGroupName(group.Name, taken)
+		taken[name] = group.ID
+		if name == group.Name {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE groups SET name = ? WHERE id = ?`, name, group.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backfillVersionDescriptions 从已有 SKILL.md blob 解析 description 写回版本行;失败留空。
+func backfillVersionDescriptions(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT skill_versions.id, blobs.content
+		FROM version_files
+		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		JOIN skill_versions ON skill_versions.id = version_files.version_id
+		WHERE version_files.path = 'SKILL.md'
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			id      VersionID
+			content []byte
+		)
+		if err := rows.Scan(&id, &content); err != nil {
+			return err
+		}
+		meta, err := candidateMetadata(content, ".")
+		if err != nil {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE skill_versions SET description = ? WHERE id = ?`, meta.Description, id); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 // readLegacyActivations 读出旧表里的全部 Activation 及其分组依据;v1/v2 没有身份列,一律按路径型处理。
@@ -432,17 +557,50 @@ func applySchemaMigration(ctx context.Context, db *sql.DB, migrate func(*sql.Tx)
 }
 
 func canonicalTableSQL(ctx context.Context, name string) (string, error) {
-	expectedDB, err := sql.Open("sqlite3", ":memory:")
+	expectedDB, err := openCanonicalSchema(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer expectedDB.Close()
-	if _, err := expectedDB.ExecContext(ctx, schemaSQL); err != nil {
-		return "", err
-	}
 	var createSQL string
 	if err := expectedDB.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&createSQL); err != nil {
 		return "", err
 	}
 	return createSQL, nil
+}
+
+// canonicalIndexSQL 取出当前 schema 里建在 name 表上的显式索引(不含 sqlite_autoindex)。
+// DROP TABLE 会丢掉这些索引,重建表后必须一并建回,否则指纹对不上。
+func canonicalIndexSQL(ctx context.Context, name string) ([]string, error) {
+	expectedDB, err := openCanonicalSchema(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer expectedDB.Close()
+	rows, err := expectedDB.QueryContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var statements []string
+	for rows.Next() {
+		var sqlText string
+		if err := rows.Scan(&sqlText); err != nil {
+			return nil, err
+		}
+		statements = append(statements, sqlText)
+	}
+	return statements, rows.Err()
+}
+
+func openCanonicalSchema(ctx context.Context) (*sql.DB, error) {
+	expectedDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := expectedDB.ExecContext(ctx, schemaSQL); err != nil {
+		_ = expectedDB.Close()
+		return nil, err
+	}
+	return expectedDB, nil
 }

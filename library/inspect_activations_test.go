@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -205,6 +206,9 @@ func TestInspectActivationsInspectsGroupProjections(t *testing.T) {
 		},
 		Status: library.ActivationCurrent,
 	}}
+	if len(got) == 1 {
+		got[0].Activation.ActivatedAt = time.Time{}
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("InspectActivations() = %#v, want %#v", got, want)
 	}

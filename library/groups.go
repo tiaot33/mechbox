@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -12,10 +13,17 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Gro
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if strings.TrimSpace(name) == "" {
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return Group{}, argumentError("create group", "name", "name is required")
 	}
-	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name) VALUES (?)`, name)
+	taken, err := occupiedGroupNames(ctx, l.db, 0)
+	if err != nil {
+		return Group{}, err
+	}
+	name = uniqueGroupName(name, taken)
+	createdAt := clockNow()
+	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name, created_at) VALUES (?, ?)`, name, formatStoredTime(createdAt))
 	if err != nil {
 		return Group{}, fmt.Errorf("create group: %w", err)
 	}
@@ -23,21 +31,27 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Gro
 	if err != nil {
 		return Group{}, fmt.Errorf("read group id: %w", err)
 	}
-	return Group{ID: GroupID(id), Name: name}, nil
+	return Group{ID: GroupID(id), Name: name, CreatedAt: createdAt}, nil
 }
 
 func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, name FROM groups ORDER BY id`)
+	rows, err := l.db.QueryContext(ctx, `SELECT id, name, created_at FROM groups ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list groups: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var group Group
-		if err := rows.Scan(&group.ID, &group.Name); err != nil {
+		var (
+			group     Group
+			createdAt string
+		)
+		if err := rows.Scan(&group.ID, &group.Name, &createdAt); err != nil {
+			return nil, fmt.Errorf("read group: %w", err)
+		}
+		if group.CreatedAt, err = parseStoredTime(createdAt); err != nil {
 			return nil, fmt.Errorf("read group: %w", err)
 		}
 		groups = append(groups, group)
@@ -48,25 +62,95 @@ func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err err
 	return groups, nil
 }
 
-func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string) (err error) {
+func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string) (group Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if strings.TrimSpace(name) == "" {
-		return argumentError("rename group", "name", "name is required")
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Group{}, argumentError("rename group", "name", "name is required")
 	}
+	current, err := getGroup(ctx, l.db, id)
+	if err != nil {
+		return Group{}, fmt.Errorf("rename group: %w", err)
+	}
+	if current.Name == name {
+		return current, nil
+	}
+	taken, err := occupiedGroupNames(ctx, l.db, id)
+	if err != nil {
+		return Group{}, err
+	}
+	name = uniqueGroupName(name, taken)
 	result, err := l.db.ExecContext(ctx, `UPDATE groups SET name = ? WHERE id = ?`, name, id)
 	if err != nil {
-		return fmt.Errorf("rename group: %w", err)
+		return Group{}, fmt.Errorf("rename group: %w", err)
 	}
 	changed, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("rename group: %w", err)
+		return Group{}, fmt.Errorf("rename group: %w", err)
 	}
 	if changed == 0 {
-		return fmt.Errorf("rename group: %w", sql.ErrNoRows)
+		return Group{}, fmt.Errorf("rename group: %w", sql.ErrNoRows)
 	}
-	return nil
+	current.Name = name
+	return current, nil
+}
+
+// uniqueGroupName 在 taken 里找一个空闲名字:原名可用则原样返回,否则从 name#2 起取最小空闲。
+func uniqueGroupName(name string, taken map[string]GroupID) string {
+	if _, exists := taken[name]; !exists {
+		return name
+	}
+	for n := 2; ; n++ {
+		candidate := name + "#" + strconv.Itoa(n)
+		if _, exists := taken[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
+func occupiedGroupNames(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, except GroupID) (map[string]GroupID, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id, name FROM groups`)
+	if err != nil {
+		return nil, fmt.Errorf("list group names: %w", err)
+	}
+	defer rows.Close()
+	taken := map[string]GroupID{}
+	for rows.Next() {
+		var (
+			id   GroupID
+			name string
+		)
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("read group name: %w", err)
+		}
+		if id != except {
+			taken[name] = id
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read group names: %w", err)
+	}
+	return taken, nil
+}
+
+func getGroup(ctx context.Context, q rowQuerier, id GroupID) (Group, error) {
+	var (
+		group     Group
+		createdAt string
+	)
+	if err := q.QueryRowContext(ctx, `SELECT id, name, created_at FROM groups WHERE id = ?`, id).Scan(&group.ID, &group.Name, &createdAt); err != nil {
+		return Group{}, err
+	}
+	parsed, err := parseStoredTime(createdAt)
+	if err != nil {
+		return Group{}, err
+	}
+	group.CreatedAt = parsed
+	return group, nil
 }
 
 func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error) {

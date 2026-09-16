@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -129,14 +130,15 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if err := lib.AddSkillToGroup(ctx, first.ID, groupOnly.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.RenameGroup(ctx, first.ID, "renamed"); err != nil {
+	renamed, err := lib.RenameGroup(ctx, first.ID, "renamed")
+	if err != nil {
 		t.Fatal(err)
 	}
 	groups, err := lib.ListGroups(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := groups, []library.Group{{ID: first.ID, Name: "renamed"}, second}; !reflect.DeepEqual(got, want) {
+	if got, want := groups, []library.Group{renamed, second}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListGroups() = %#v, want %#v", got, want)
 	}
 	scope := library.GlobalScope{Agent: library.AgentCodex}
@@ -164,7 +166,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		{SkillID: skill.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{second.ID}},
 		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Individual: true},
 	}
-	if err != nil || !reflect.DeepEqual(activations, wantActivations) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
 		t.Fatalf("activations after DeleteGroup = %#v, %v; want %#v", activations, err, wantActivations)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
@@ -184,8 +186,79 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if err != nil || len(members) != 0 {
 		t.Fatalf("members after remove = %#v, %v", members, err)
 	}
-	if err := lib.RenameGroup(ctx, library.GroupID(9999), "missing"); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.RenameGroup(ctx, library.GroupID(9999), "missing"); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("RenameGroup unknown error = %v", err)
+	}
+}
+
+func TestCreateGroupMakesOccupiedNamesUniqueAndRecordsCreatedAt(t *testing.T) {
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	start := time.Now().UTC()
+	first, err := lib.CreateGroup(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.CreateGroup(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := lib.CreateGroup(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := time.Now().UTC()
+	if first.Name != "a" || second.Name != "a#2" || third.Name != "a#3" {
+		t.Fatalf("CreateGroup names = %q, %q, %q; want a, a#2, a#3", first.Name, second.Name, third.Name)
+	}
+	for _, group := range []library.Group{first, second, third} {
+		if group.CreatedAt.Before(start) || group.CreatedAt.After(end) {
+			t.Fatalf("CreateGroup CreatedAt = %v, want in [%v, %v]", group.CreatedAt, start, end)
+		}
+	}
+	if err := lib.DeleteGroup(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	reused, err := lib.CreateGroup(ctx, "a")
+	if err != nil || reused.Name != "a#2" {
+		t.Fatalf("CreateGroup after deleting a#2 = %#v, %v; want name a#2", reused, err)
+	}
+	spaced, err := lib.CreateGroup(ctx, "  a  ")
+	if err != nil || spaced.Name != "a#4" {
+		t.Fatalf("CreateGroup trimmed occupied name = %#v, %v; want a#4", spaced, err)
+	}
+	listed, err := lib.ListGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []library.Group{first, third, reused, spaced}
+	if !reflect.DeepEqual(listed, want) {
+		t.Fatalf("ListGroups() = %#v, want %#v", listed, want)
+	}
+}
+
+func TestRenameGroupMakesOccupiedNamesUniqueAndKeepsOwnName(t *testing.T) {
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	a, err := lib.CreateGroup(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := lib.CreateGroup(ctx, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := lib.RenameGroup(ctx, b.ID, "a")
+	if err != nil || renamed.ID != b.ID || renamed.Name != "a#2" || !renamed.CreatedAt.Equal(b.CreatedAt) {
+		t.Fatalf("RenameGroup(b → a) = %#v, %v; want id %d name a#2 created_at %v", renamed, err, b.ID, b.CreatedAt)
+	}
+	same, err := lib.RenameGroup(ctx, a.ID, "a")
+	if err != nil || same != a {
+		t.Fatalf("RenameGroup(a → a) = %#v, %v; want %#v", same, err, a)
+	}
+	trimmed, err := lib.RenameGroup(ctx, a.ID, "  a  ")
+	if err != nil || trimmed != a {
+		t.Fatalf("RenameGroup(a → \"  a  \") = %#v, %v; want %#v", trimmed, err, a)
 	}
 }
 
@@ -197,7 +270,7 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.RenameGroup(t.Context(), group.ID, ""); err == nil {
+	if _, err := lib.RenameGroup(t.Context(), group.ID, ""); err == nil {
 		t.Fatal("RenameGroup accepted a blank name")
 	} else {
 		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})

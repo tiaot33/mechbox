@@ -210,8 +210,8 @@ func TestOpenSwitchesLibraryToWALAndKeepsIt(t *testing.T) {
 		}
 		defer lib.Close()
 		mode, userVersion := journalMode(t, path), readLibraryScalar(t, path, `PRAGMA user_version`)
-		if mode != "wal" || userVersion != "7" {
-			t.Fatalf("migrated legacy library journal_mode=%q user_version=%s, want wal and 7", mode, userVersion)
+		if mode != "wal" || userVersion != "8" {
+			t.Fatalf("migrated legacy library journal_mode=%q user_version=%s, want wal and 8", mode, userVersion)
 		}
 	})
 }

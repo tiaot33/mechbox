@@ -6,7 +6,8 @@ A Group is orthogonal to a **Collection**: a Collection groups skills automatica
 
 ## Consequences
 
-- `groups` (id, name) + `skill_groups` (skill_id, group_id); many-to-many — a skill can be in several Groups.
+- `groups` (id, name UNIQUE, created_at) + `skill_groups` (skill_id, group_id); many-to-many — a skill can be in several Groups.
+- Group names are unique. Create / rename / migrate on a collision append `#N` (smallest free N starting at 2), case-sensitive, no extra space. The operation does not fail.
 - Groups are flat; no group-within-a-group.
 - A Group references a skill's identity, not a specific version (pin/follow is a later Activation-behaviour decision).
 - Activating a Group expands to one `activations` record per member skill. `activation_groups` records each Group that contributed to that projection, while `activations.individual` records a non-Group reason to retain it, normally an independent activation.

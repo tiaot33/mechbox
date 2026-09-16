@@ -13,9 +13,17 @@ import (
 )
 
 // summaryQuery 选出 SkillSummary 的全部列;调用方追加 WHERE / ORDER BY。
+// InstalledAt 是最早版本的 created_at,UpdatedAt 与 Description 来自当前版本。
 const summaryQuery = `
-	SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
-	FROM skills JOIN sources ON sources.id = skills.source_id
+	SELECT skills.id, skills.name, current_version.description,
+		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
+		first_version.created_at, current_version.created_at
+	FROM skills
+	JOIN sources ON sources.id = skills.source_id
+	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
+	JOIN skill_versions AS first_version ON first_version.id = (
+		SELECT id FROM skill_versions WHERE skill_id = skills.id ORDER BY id LIMIT 1
+	)
 `
 
 // getSummary 读取一个 skill 的身份、名字与来源元数据,不含文件正文。
@@ -52,21 +60,59 @@ func (l *sqliteLibrary) listSummaries(ctx context.Context, operation, clause str
 func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
 	var summary SkillSummary
 	var locator []byte
-	var fetched string
-	err := row.Scan(&summary.ID, &summary.Name, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef)
+	var fetched, installedAt, updatedAt string
+	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef, &installedAt, &updatedAt)
 	if err != nil {
 		return SkillSummary{}, err
 	}
 	if err := json.Unmarshal(locator, &summary.Source.Locator); err != nil {
 		return SkillSummary{}, fmt.Errorf("decode source: %w", err)
 	}
-	if fetched != "" {
-		summary.Source.LastFetched, err = time.Parse(time.RFC3339Nano, fetched)
-		if err != nil {
-			return SkillSummary{}, fmt.Errorf("decode last fetched: %w", err)
-		}
+	if summary.Source.LastFetched, err = parseStoredTime(fetched); err != nil {
+		return SkillSummary{}, fmt.Errorf("decode last fetched: %w", err)
+	}
+	if summary.InstalledAt, err = parseStoredTime(installedAt); err != nil {
+		return SkillSummary{}, fmt.Errorf("decode installed at: %w", err)
+	}
+	if summary.UpdatedAt, err = parseStoredTime(updatedAt); err != nil {
+		return SkillSummary{}, fmt.Errorf("decode updated at: %w", err)
 	}
 	return summary, nil
+}
+
+func parseStoredTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, value)
+}
+
+func formatStoredTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+// clockNow 返回写入 TEXT 列再读回后的 UTC 时间,去掉单调时钟,便于与 Get/List 的解析结果 DeepEqual。
+func clockNow() time.Time {
+	now, _ := parseStoredTime(formatStoredTime(time.Now().UTC()))
+	return now
+}
+
+// skillDescription 从文件集里的 SKILL.md 取 frontmatter description;没有或解析失败则为空。
+func skillDescription(files []File) string {
+	for _, file := range files {
+		if file.Path != "SKILL.md" {
+			continue
+		}
+		meta, err := candidateMetadata(file.Content, ".")
+		if err != nil {
+			return ""
+		}
+		return meta.Description
+	}
+	return ""
 }
 
 func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill Skill, err error) {
@@ -111,7 +157,11 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 	installed := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
 		// GitHub 文件取自 Fetch 钉住的 commit(source.LastSeenRef),它就是该目录 tree 首次被确认为远端最新的地方。
-		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceGitRecord(source, skill.gitTreeSHA))
+		description := skill.preview.Description
+		if description == "" {
+			description = skillDescription(skill.files)
+		}
+		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceGitRecord(source, skill.gitTreeSHA), description)
 		if err != nil {
 			return nil, err
 		}
@@ -137,10 +187,7 @@ func upsertSource(ctx context.Context, tx *sql.Tx, source Source, validator stri
 	if err != nil {
 		return 0, fmt.Errorf("encode source: %w", err)
 	}
-	fetched := ""
-	if !source.LastFetched.IsZero() {
-		fetched = source.LastFetched.UTC().Format(time.RFC3339Nano)
-	}
+	fetched := formatStoredTime(source.LastFetched)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO sources(type, locator, last_fetched, last_seen_ref, http_validator) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(type, locator) DO UPDATE SET
@@ -169,7 +216,7 @@ func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name
 }
 
 // insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord) (Skill, error) {
+func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord, description string) (Skill, error) {
 	// 名字由来源发现阶段给出,调用方没有对应参数;为空是内部不变量被破坏,归 Internal。
 	if name == "" {
 		return Skill{}, fmt.Errorf("install skill: name is required")
@@ -182,7 +229,8 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill id: %w", err)
 	}
-	versionID, err := createVersion(ctx, tx, skillID, files, record)
+	createdAt := clockNow()
+	versionID, err := createVersion(ctx, tx, skillID, files, record, description, createdAt)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -191,7 +239,7 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	}
 	source.ID = SourceID(sourceID)
 	source.LastFetched = source.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Source: source, GitTreeSHA: record.treeSHA, Files: files}, nil
+	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: source, GitTreeSHA: record.treeSHA, InstalledAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
@@ -217,7 +265,14 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 	if err != nil {
 		return Skill{}, fetchState{}, err
 	}
-	skill := Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
+	skill := Skill{
+		ID:          summary.ID,
+		Name:        summary.Name,
+		Description: summary.Description,
+		Source:      summary.Source,
+		InstalledAt: summary.InstalledAt,
+		UpdatedAt:   summary.UpdatedAt,
+	}
 	var state fetchState
 	if err := l.db.QueryRowContext(ctx, `
 		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator

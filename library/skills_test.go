@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -29,8 +30,10 @@ func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 	}
 
 	want := library.Skill{
-		ID:   installed.ID,
-		Name: "example-skill",
+		ID:          installed.ID,
+		Name:        "example-skill",
+		InstalledAt: installed.InstalledAt,
+		UpdatedAt:   installed.UpdatedAt,
 		Source: library.Source{
 			ID:      installed.Source.ID,
 			Type:    library.SourceLocal,
@@ -48,6 +51,43 @@ func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 	}
 	if !reflect.DeepEqual(installed, got) {
 		t.Fatalf("Install() = %#v, GetSkill() = %#v", installed, got)
+	}
+}
+
+func TestInstallRecordsDescriptionAndVersionTimes(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	withDesc := filepath.Join(t.TempDir(), "described")
+	writeFile(t, filepath.Join(withDesc, "SKILL.md"), []byte("---\nname: described\ndescription: a useful helper\n---\n# Described\n"), 0o644)
+	start := time.Now().UTC()
+	installed, err := lib.Install(ctx, library.LocalSource{Path: withDesc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := time.Now().UTC()
+	summaries, err := lib.ListSkills(ctx)
+	if err != nil || len(summaries) != 1 || summaries[0].Description != "a useful helper" {
+		t.Fatalf("ListSkills description = %#v, %v", summaries, err)
+	}
+	if installed.Description != "a useful helper" {
+		t.Fatalf("Install Description = %q, want a useful helper", installed.Description)
+	}
+	versions, err := lib.ListVersions(ctx, installed.ID)
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("ListVersions = %#v, %v", versions, err)
+	}
+	if !installed.InstalledAt.Equal(installed.UpdatedAt) || !installed.InstalledAt.Equal(versions[0].CreatedAt) {
+		t.Fatalf("times = installed %v updated %v version %v, want equal", installed.InstalledAt, installed.UpdatedAt, versions[0].CreatedAt)
+	}
+	if installed.InstalledAt.Before(start) || installed.InstalledAt.After(end) {
+		t.Fatalf("InstalledAt = %v, want in [%v, %v]", installed.InstalledAt, start, end)
+	}
+
+	plain := filepath.Join(t.TempDir(), "plain")
+	writeFile(t, filepath.Join(plain, "SKILL.md"), []byte("# Plain\n"), 0o644)
+	undocumented, err := lib.Install(ctx, library.LocalSource{Path: plain})
+	if err != nil || undocumented.Description != "" {
+		t.Fatalf("Install without frontmatter Description = %#v, %v; want empty", undocumented, err)
 	}
 }
 
