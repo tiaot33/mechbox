@@ -2,6 +2,8 @@ package library_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -181,6 +183,126 @@ func TestGitHubConcurrentFetchSingleFlightsTreeAndBlobs(t *testing.T) {
 	}
 }
 
+// 先到者自己的 ctx 被取消不该拖垮等待者:等待者重新出网,自己的 Fetch 照常成功。
+func TestGitHubWaiterSurvivesLeaderCancellation(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	transport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/commits/") {
+			once.Do(func() { close(started); <-release })
+		}
+		return transport.RoundTrip(r)
+	})
+
+	leaderCtx, cancelLeader := context.WithCancel(t.Context())
+	var leaderErr, waiterErr error
+	var waiter library.Fetch
+	var wg sync.WaitGroup
+	wg.Go(func() { _, leaderErr = lib.Fetch(leaderCtx, gitHubSpec()) })
+	<-started
+	wg.Go(func() { waiter, waiterErr = lib.Fetch(t.Context(), gitHubSpec()) })
+	time.Sleep(20 * time.Millisecond)
+	cancelLeader()
+	close(release)
+	wg.Wait()
+	if !errors.Is(leaderErr, context.Canceled) {
+		t.Fatalf("leader Fetch error = %v, want context.Canceled", leaderErr)
+	}
+	if waiterErr != nil || waiter.Ref != fx.commit || len(waiter.Skills) != 1 {
+		t.Fatalf("waiter Fetch = %#v, %v, want a normal result", waiter, waiterErr)
+	}
+	// 等待者不沿用先到者的取消,自己再解析一次 commit;tree 与 blob 仍各只出一份。
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 2 || trees != 1 || blobs != 1 {
+		t.Fatalf("commits=%d trees=%d blobs=%d, want 2/1/1: %#v", commits, trees, blobs, api.snapshot())
+	}
+}
+
+// 等待者自己的 ctx 被取消时立即返回,不陪先到者等到底。
+func TestGitHubWaiterStopsOnItsOwnCancellation(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	transport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/commits/") {
+			once.Do(func() { close(started); <-release })
+		}
+		return transport.RoundTrip(r)
+	})
+
+	var leaderErr error
+	var wg sync.WaitGroup
+	wg.Go(func() { _, leaderErr = lib.Fetch(t.Context(), gitHubSpec()) })
+	<-started
+	waiterCtx, cancelWaiter := context.WithCancel(t.Context())
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := lib.Fetch(waiterCtx, gitHubSpec())
+		waiterDone <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancelWaiter()
+	select {
+	case err := <-waiterDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("waiter Fetch error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled waiter kept waiting for the leader")
+	}
+	close(release)
+	wg.Wait()
+	if leaderErr != nil {
+		t.Fatalf("leader Fetch = %v", leaderErr)
+	}
+	// 等待者退出后没有自己再解析 commit;剩下的 tree / blob 都是先到者的。
+	if commits, trees, blobs := gitHubAPIKindCounts(t, api); commits != 1 || trees != 1 || blobs != 1 {
+		t.Fatalf("commits=%d trees=%d blobs=%d, want 1/1/1: %#v", commits, trees, blobs, api.snapshot())
+	}
+}
+
+// 单条 blob 超过总字节上限时不写入 memo,再次访问回源。
+func TestGitHubOversizedBlobIsNotMemoized(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", string(bytes.Repeat([]byte("a"), 300*1024)))), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	spec := gitHubSpecAt(fx.commit)
+	if _, err := lib.Fetch(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	api.Reset()
+	if _, err := lib.Fetch(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 0 || trees != 0 || blobs != 1 {
+		t.Fatalf("second Fetch commits=%d trees=%d blobs=%d, want the oversized blob refetched only: %#v", commits, trees, blobs, api.snapshot())
+	}
+}
+
 func TestGitHubTruncatedTreeIsNotMemoized(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
@@ -267,17 +389,18 @@ func TestGitHubTreeMemoEvictsLeastRecentlyUsed(t *testing.T) {
 	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
-	_, trees, _ := gitHubAPIKindCounts(t, api)
-	if trees != 0 {
-		t.Fatalf("recently used tree was evicted: %#v", api.snapshot())
+	// 钉住 SHA 的 commit 与 tree 同为 16 条上限、同一访问顺序:first 最近用过,两者都还在。
+	commits, trees, _ := gitHubAPIKindCounts(t, api)
+	if commits != 0 || trees != 0 {
+		t.Fatalf("recently used commit / tree was evicted: commits=%d trees=%d: %#v", commits, trees, api.snapshot())
 	}
 	api.Reset()
 	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(second.commit)); err != nil {
 		t.Fatal(err)
 	}
-	_, trees, blobs := gitHubAPIKindCounts(t, api)
-	if trees != 1 || blobs != 0 {
-		t.Fatalf("LRU tree refetch trees=%d blobs=%d, want one tree: %#v", trees, blobs, api.snapshot())
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 1 || trees != 1 || blobs != 0 {
+		t.Fatalf("LRU refetch commits=%d trees=%d blobs=%d, want one commit and one tree: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 

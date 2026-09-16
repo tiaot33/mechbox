@@ -407,7 +407,7 @@ type Library interface {
 	CheckUpdate(ctx context.Context, id SkillID) (bool, error)
 	// CheckUpdates 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
 	// 直接判定无更新;有未命中的才共用一次 tree,发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。
-	// URL / Store 整组只发一次(带条件头的)请求,304 即整组无更新。
+	// URL / Store 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
 	// 逐项错误不阻断其他来源。整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 

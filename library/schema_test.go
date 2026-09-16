@@ -173,13 +173,16 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 }
 
 // v5 / v6 库 Open 时只补抓取记录列:v5 给 skill_versions 加确认 commit(空 = 未知,走完整比较),
-// v5 与 v6 都给 sources 加 HTTP validator(空 = 不带条件头);已有 Skill、版本、tree SHA 与身份型
-// Activation 全部原样保留;迁移后的库与新建库指纹一致,可反复 Open。
+// v5 与 v6 都给 sources 加 HTTP validator(空 = 不带条件头);已有 Skill、版本、tree SHA、已登记项目与身份型
+// Activation(全局与项目)全部原样保留;v6 已记录的确认 commit 迁移后仍让检查走只发 commits 的快路径;
+// 迁移后的库与新建库指纹一致,可反复 Open。
 func TestOpenMigratesV5AndV6LibrariesAndPreservesSkillsVersionsAndActivations(t *testing.T) {
+	const confirmedCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	for _, version := range []int{5, 6} {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
+			projectPath := t.TempDir()
 			ctx := t.Context()
 			path := filepath.Join(t.TempDir(), "library.db")
 			schema, err := os.ReadFile(fmt.Sprintf("testdata/v%d.sql", version))
@@ -205,12 +208,18 @@ func TestOpenMigratesV5AndV6LibrariesAndPreservesSkillsVersionsAndActivations(t 
 					(2, 'run', 'new', 'executable');
 				INSERT INTO groups(id, name) VALUES (1, 'legacy');
 				INSERT INTO skill_groups(skill_id, group_id) VALUES (1, 1);
-				INSERT INTO activations(id, skill_id, agent, project_id, individual) VALUES (1, 1, 'codex', NULL, 1);
+				INSERT INTO projects(id, path) VALUES (1, ?);
+				INSERT INTO activations(id, skill_id, agent, project_id, individual) VALUES
+					(1, 1, 'codex', NULL, 1),
+					(2, 1, 'claude-code', 1, 1);
 				INSERT INTO activation_groups(activation_id, group_id) VALUES (1, 1);
-			`)
+			`, projectPath)
 			if version >= 6 {
-				editLibraryFixture(t, path, `UPDATE skill_versions SET confirmed_commit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' WHERE id = 2`)
+				editLibraryFixture(t, path, `UPDATE skill_versions SET confirmed_commit = ? WHERE id = 2`, confirmedCommit)
 			}
+			// 远端仍停在确认 commit 上:v6 迁过来的版本应只解析 commit 就判定无更新,证明 confirmed_commit 没有在迁移中丢失。
+			api := serveGitHubAPI(t, gitHubFixture{commit: confirmedCommit, rootTree: "cccccccccccccccccccccccccccccccccccccccc"})
+			blockGitHubClone(t)
 			lib, err := library.Open(path)
 			if err != nil {
 				t.Fatal(err)
@@ -238,15 +247,33 @@ func TestOpenMigratesV5AndV6LibrariesAndPreservesSkillsVersionsAndActivations(t 
 			if err != nil || len(first.Files) != 1 || string(first.Files[0].Content) != "old\n" {
 				t.Fatalf("migrated first version = %#v, %v", first, err)
 			}
-			wantActivations := []library.Activation{{
-				SkillID:    1,
-				Scope:      library.GlobalScope{Agent: library.AgentCodex},
-				Directory:  filepath.Join(home, ".agents", "skills"),
-				Individual: true,
-				ViaGroups:  []library.GroupID{1},
-			}}
+			wantActivations := []library.Activation{
+				{
+					SkillID:    1,
+					Scope:      library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: 1},
+					Directory:  filepath.Join(projectPath, ".claude", "skills"),
+					Individual: true,
+				},
+				{
+					SkillID:    1,
+					Scope:      library.GlobalScope{Agent: library.AgentCodex},
+					Directory:  filepath.Join(home, ".agents", "skills"),
+					Individual: true,
+					ViaGroups:  []library.GroupID{1},
+				},
+			}
 			if got, err := lib.ListActivations(ctx); err != nil || !reflect.DeepEqual(got, wantActivations) {
 				t.Fatalf("migrated activations = %#v, %v; want %#v", got, err, wantActivations)
+			}
+			if projects, err := lib.ListRegisteredProjects(ctx); err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{{ID: 1, Path: projectPath}}) {
+				t.Fatalf("migrated projects = %#v, %v", projects, err)
+			}
+			if version >= 6 {
+				api.Reset()
+				if available, err := lib.CheckUpdate(ctx, 1); err != nil || available {
+					t.Fatalf("CheckUpdate on migrated confirmed commit = %v, %v", available, err)
+				}
+				assertGitHubCommitOnly(t, api, 1)
 			}
 			if err := lib.Close(); err != nil {
 				t.Fatal(err)

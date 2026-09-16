@@ -24,6 +24,7 @@ type archiveServer struct {
 	archive              []byte
 	etag                 string
 	lastModified         string
+	alwaysNotModified    bool // 不看条件头一律回 304:模拟行为不端的服务端
 	requests             []http.Header
 	notModifiedBodyReads atomic.Int64
 }
@@ -48,11 +49,11 @@ func (s *archiveServer) spec() library.SourceSpec {
 	return library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
 }
 
-// serve 替换远端内容与 validator;etag 为空表示服务端不再给出 ETag。
+// serve 替换远端内容与 validator;etag 为空表示服务端不再给出任何 validator(也清掉 Last-Modified)。
 func (s *archiveServer) serve(archive []byte, etag string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.archive, s.etag = archive, etag
+	s.archive, s.etag, s.lastModified = archive, etag, ""
 }
 
 // serveLastModified 让服务端只给出 Last-Modified(不给 ETag)。
@@ -60,6 +61,13 @@ func (s *archiveServer) serveLastModified(archive []byte, lastModified string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.archive, s.etag, s.lastModified = archive, "", lastModified
+}
+
+// serveNotModified 让服务端对任何请求(哪怕不带条件头)都回 304。
+func (s *archiveServer) serveNotModified() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.alwaysNotModified = true
 }
 
 // snapshot 返回到目前为止收到的全部请求头;调用后清空,便于逐操作断言。
@@ -90,7 +98,8 @@ func (s *archiveServer) roundTrip(r *http.Request) (*http.Response, error) {
 	if s.lastModified != "" {
 		header.Set("Last-Modified", s.lastModified)
 	}
-	matched := (s.etag != "" && r.Header.Get("If-None-Match") == s.etag) ||
+	matched := s.alwaysNotModified ||
+		(s.etag != "" && r.Header.Get("If-None-Match") == s.etag) ||
 		(s.lastModified != "" && r.Header.Get("If-Modified-Since") == s.lastModified)
 	if matched {
 		body := &countingReader{reader: bytes.NewReader(s.archive), read: &s.notModifiedBodyReads}

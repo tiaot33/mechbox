@@ -371,6 +371,39 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	}
 }
 
+// 公开仓库上一个不存在的 ref 对匿名和 token 同样是 404:这不是"匿名被拒",
+// 之后对同一仓库的正常操作仍从匿名开始,不能让实例带着 token 到处发请求。
+func TestGitHubMissingRefDoesNotMakeLibrarySkipAnonymous(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	t.Setenv("GITHUB_TOKEN", "public-token")
+	lib := openTestLibrary(t)
+	missing := gitHubSpec()
+	missing.Locator.Branch = "no-such-branch"
+	if _, err := lib.Fetch(t.Context(), missing); err == nil {
+		t.Fatal("Fetch of a missing ref succeeded")
+	}
+	if !api.sawAnonymousThenToken() {
+		t.Fatalf("missing ref did not climb anonymous → token: %#v", api.snapshot())
+	}
+	api.Reset()
+	if _, err := lib.Fetch(t.Context(), gitHubSpec()); err != nil {
+		t.Fatal(err)
+	}
+	requests := api.snapshot()
+	if len(requests) == 0 || requests[0].authed {
+		t.Fatalf("Fetch after a missing ref skipped anonymous API: %#v", requests)
+	}
+	for _, req := range requests {
+		if req.authed {
+			t.Fatalf("public repository request %s carried the token: %#v", req.path, requests)
+		}
+	}
+}
+
 func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},

@@ -46,13 +46,14 @@ func (e *githubHTTPError) Error() string {
 }
 
 // githubAuth 是 Library 实例级的 GitHub 鉴权阶梯状态:匿名 → 环境 token → gh CLI。
-// 一个 Library 实例只爬一次阶梯,后续操作直接从已确认可用的那一级发请求,实例内不会降级;
-// Close 清空,重新 Open 从匿名重新开始。
-// 只有被明确拒绝(见 githubAuthDenied)才会让下一级在实例上生效;限流只写避让窗口,窗口到期后回到匿名。
+// 一个 Library 实例只爬一次阶梯:某一级被明确拒绝(见 githubAuthDenied)且更高一级成功后,
+// 实例记住"从那一级起步",后续操作不再重试被拒的那级;Close 清空,重新 Open 从匿名重新开始。
+// 限流只写避让窗口,窗口到期后回到匿名;token 限流时经 CLI 成功不粘住 CLI(限流是暂时的),
+// 所以 useToken 为 true 时 useCLI 仍可能为 false,这一级的位置由两个标志共同决定。
 type githubAuth struct {
 	anonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,到期前跳过匿名请求
-	useToken       atomic.Bool  // 匿名被明确拒绝:后续不再试匿名
-	useCLI         atomic.Bool  // HTTP 路径被拒且 gh CLI 已成功:后续直接走 CLI
+	useToken       atomic.Bool  // 匿名被明确拒绝且更高一级已成功:后续不再试匿名
+	useCLI         atomic.Bool  // HTTP 路径被明确拒绝且 gh CLI 已成功:后续直接走 CLI
 }
 
 // githubClient 是一次操作内的 GitHub API 读取器:阶梯位置从实例级 githubAuth 起步,
@@ -143,112 +144,52 @@ func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo str
 	return finishDiscovery(result)
 }
 
+// commit 把 ref 解析成 commit 与 root tree。ref 为完整 SHA 时响应不可变,可进 memo;分支 / tag 只合并在途请求。
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
-	key := memoKey(owner, repo, ref)
 	immutable := fullCommit.MatchString(ref)
-	if immutable {
-		if got, ok := c.memo.getCommit(key); ok {
-			return got.commit, got.tree, nil
+	got, err := memoized(ctx, c.memo, &c.memo.commits, memoKey(memoCommit, owner, repo, ref), func() (githubCommitMemo, bool, error) {
+		var payload githubCommitResponse
+		if err := c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
+			return githubCommitMemo{}, false, err
 		}
-	}
-	flight, joined := c.memo.begin(key)
-	if joined {
-		<-flight.done
-		return flight.commit.commit, flight.commit.tree, flight.err
-	}
-	defer func() {
-		if flight == nil {
-			return
+		resolved := githubCommitMemo{
+			commit: strings.ToLower(strings.TrimSpace(payload.SHA)),
+			tree:   strings.ToLower(strings.TrimSpace(payload.Commit.Tree.SHA)),
 		}
-		flight.commit = githubCommitMemo{commit: commit, tree: tree}
-		flight.err = err
-		if err == nil && immutable {
-			c.memo.storeCommit(key, flight.commit)
+		if !fullCommit.MatchString(resolved.commit) || !fullCommit.MatchString(resolved.tree) {
+			return githubCommitMemo{}, false, errGitHubContentsFallback
 		}
-		c.memo.finish(key, flight)
-	}()
-	var payload githubCommitResponse
-	if err = c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
-		return "", "", err
-	}
-	commit = strings.ToLower(strings.TrimSpace(payload.SHA))
-	tree = strings.ToLower(strings.TrimSpace(payload.Commit.Tree.SHA))
-	if !fullCommit.MatchString(commit) || !fullCommit.MatchString(tree) {
-		return "", "", errGitHubContentsFallback
-	}
-	return commit, tree, nil
+		return resolved, immutable, nil
+	})
+	return got.commit, got.tree, err
 }
 
+// recursiveTree 取 recursive tree;只有完整(非 truncated)的响应进 memo。
 func (c *githubClient) recursiveTree(ctx context.Context, owner, repo, sha string) (githubTreeResponse, error) {
-	key := memoKey(owner, repo, sha)
-	if tree, ok := c.memo.getTree(key); ok {
-		return tree, nil
-	}
-	flight, joined := c.memo.begin(key)
-	if joined {
-		<-flight.done
-		if flight.err != nil {
-			return githubTreeResponse{}, flight.err
-		}
-		tree := flight.tree
-		tree.Tree = slices.Clone(tree.Tree)
-		return tree, nil
-	}
-	var payload githubTreeResponse
-	err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha)+"?recursive=1", &payload)
-	if flight != nil {
-		flight.tree = payload
-		flight.err = err
-		if err == nil && !payload.Truncated {
-			c.memo.storeTree(key, payload)
-		}
-		c.memo.finish(key, flight)
-	}
-	return payload, err
+	return memoized(ctx, c.memo, &c.memo.trees, memoKey(memoTree, owner, repo, sha), func() (githubTreeResponse, bool, error) {
+		var payload githubTreeResponse
+		err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha)+"?recursive=1", &payload)
+		return payload, err == nil && !payload.Truncated, err
+	})
 }
 
+// blob 取 blob 正文;解码后按 git blob 规则重算 SHA 与请求的 SHA 对上才算完整,否则视为 API 不可用且不进 memo。
 func (c *githubClient) blob(ctx context.Context, owner, repo, sha string) ([]byte, error) {
-	key := memoKey(owner, repo, sha)
-	if content, ok := c.memo.getBlob(key); ok {
-		return content, nil
-	}
-	flight, joined := c.memo.begin(key)
-	if joined {
-		<-flight.done
-		if flight.err != nil {
-			return nil, flight.err
+	key := memoKey(memoBlob, owner, repo, sha)
+	return memoized(ctx, c.memo, &c.memo.blobs, key, func() ([]byte, bool, error) {
+		var payload githubBlobResponse
+		if err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/blobs/%s", owner, repo, sha), &payload); err != nil {
+			return nil, false, err
 		}
-		return bytes.Clone(flight.blob), nil
-	}
-	var payload githubBlobResponse
-	err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/blobs/%s", owner, repo, sha), &payload)
-	if err != nil {
-		c.finishBlobFlight(key, flight, nil, err)
-		return nil, err
-	}
-	if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
-		c.finishBlobFlight(key, flight, nil, errGitHubContentsFallback)
-		return nil, errGitHubContentsFallback
-	}
-	content, err := base64.StdEncoding.DecodeString(payload.Content)
-	if err != nil || len(content) != payload.Size {
-		c.finishBlobFlight(key, flight, nil, errGitHubContentsFallback)
-		return nil, errGitHubContentsFallback
-	}
-	c.finishBlobFlight(key, flight, content, nil)
-	return content, nil
-}
-
-func (c *githubClient) finishBlobFlight(key githubMemoKey, flight *githubFlight, content []byte, err error) {
-	if flight == nil {
-		return
-	}
-	flight.blob = content
-	flight.err = err
-	if err == nil {
-		c.memo.storeBlob(key, content)
-	}
-	c.memo.finish(key, flight)
+		if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
+			return nil, false, errGitHubContentsFallback
+		}
+		content, err := base64.StdEncoding.DecodeString(payload.Content)
+		if err != nil || len(content) != payload.Size || gitBlobSHA(content) != key.id {
+			return nil, false, errGitHubContentsFallback
+		}
+		return content, true, nil
+	})
 }
 
 func githubAPIURL(pattern string, owner, repo, object string) string {
@@ -260,6 +201,10 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return githubCLIGet(ctx, location, dest)
 	}
 	err := errGitHubContentsFallback
+	// anonymousDenied 决定实例是否跳过匿名;httpDenied 是 HTTP 路径最后一级(有 token 则为 token)的结论,决定是否直接走 CLI。
+	// 两者都只在更高一级成功后才写回实例:GitHub 对"私有仓库对匿名隐藏"和"资源不存在"同样回 404,
+	// 单靠一次被拒分不清,只有下一级真的拿到了同一个对象才证明是前者。
+	anonymousDenied := false
 	if !c.useToken && time.Now().Unix() >= c.auth.anonymousReset.Load() {
 		err = githubAPIGetOnce(ctx, location, "", dest)
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
@@ -268,16 +213,22 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
-		if githubAuthDenied(err) {
-			c.auth.useToken.Store(true)
-		}
+		anonymousDenied = githubAuthDenied(err)
 	}
+	httpDenied := anonymousDenied
 	if c.token != "" {
 		c.useToken = true
 		err = githubAPIGetOnce(ctx, location, c.token, dest)
-		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
+		if err == nil {
+			if anonymousDenied {
+				c.auth.useToken.Store(true)
+			}
+			return nil
+		}
+		if ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
+		httpDenied = githubAuthDenied(err)
 	}
 	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
 		if ctx.Err() != nil {
@@ -286,7 +237,10 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return err
 	}
 	c.useCLI = true
-	if githubAuthDenied(err) {
+	if anonymousDenied {
+		c.auth.useToken.Store(true)
+	}
+	if httpDenied {
 		c.auth.useCLI.Store(true)
 	}
 	return nil
@@ -632,7 +586,7 @@ func (s *githubSourceSnapshot) rememberGitBlobs(files []File) {
 		return
 	}
 	for _, file := range files {
-		s.client.memo.storeBlob(memoKey(s.owner, s.repo, gitBlobSHA(file.Content)), file.Content)
+		memoPut(s.client.memo, &s.client.memo.blobs, memoKey(memoBlob, s.owner, s.repo, gitBlobSHA(file.Content)), file.Content)
 	}
 }
 

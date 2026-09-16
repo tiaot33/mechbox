@@ -202,6 +202,56 @@ func TestURLFallsBackToIfModifiedSinceWhenServerOnlySendsLastModified(t *testing
 	server.assertNoBodyRead(t)
 }
 
+// ETag 的写法不影响回填:弱 ETag 与不合规的无引号 ETag 都原样进 If-None-Match,服务端按自己的写法比对即可 304。
+func TestURLEchoesWeakAndUnquotedETagsInIfNoneMatch(t *testing.T) {
+	for _, etag := range []string{`W/"weak-v1"`, `unquoted-v1`} {
+		t.Run(etag, func(t *testing.T) {
+			archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
+			server := newArchiveServer(t, archive, etag)
+			lib := openTestLibrary(t)
+			ctx := t.Context()
+			id := installArchive(t, lib, server.spec())[0].ID
+			server.snapshot()
+			if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
+				t.Fatalf("CheckUpdate = %v, %v", available, err)
+			}
+			assertConditional(t, server.snapshot(), "If-None-Match", etag)
+			server.assertNoBodyRead(t)
+		})
+	}
+}
+
+// Last-Modified 不是合法 HTTP-date 时不记录:之后的请求不带条件头,与服务端不给 validator 时一致。
+func TestURLIgnoresMalformedLastModified(t *testing.T) {
+	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
+	server := newArchiveServer(t, archive, "")
+	server.serveLastModified(archive, "yesterday-ish")
+	lib := openTestLibrary(t)
+	id := installArchive(t, lib, server.spec())[0].ID
+	server.snapshot()
+	if available, err := lib.CheckUpdate(t.Context(), id); err != nil || available {
+		t.Fatalf("CheckUpdate = %v, %v", available, err)
+	}
+	assertUnconditional(t, server.snapshot())
+}
+
+// 304 只在带了条件头的请求上有意义:Fetch 不带条件头却收到 304,按普通非 2xx 映射为 SourceUnreachable,不会被当成"无更新"。
+func TestUnconditionalNotModifiedIsAnError(t *testing.T) {
+	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
+	server := newArchiveServer(t, archive, "")
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	id := installArchive(t, lib, server.spec())[0].ID
+	server.serveNotModified()
+	if fetch, err := lib.Fetch(ctx, server.spec()); !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+		t.Fatalf("Fetch on unconditional 304 = %#v, %v, want SourceUnreachable", fetch, err)
+	}
+	// Source 没有 validator,检查也不带条件头,同样不能把 304 当无更新。
+	if available, err := lib.CheckUpdate(ctx, id); !library.IsCode(err, library.SourceUnreachable) || available {
+		t.Fatalf("CheckUpdate on unconditional 304 = %v, %v, want SourceUnreachable", available, err)
+	}
+}
+
 func TestCheckUpdatesSendsOneConditionalRequestPerURLSource(t *testing.T) {
 	server := newArchiveServer(t, zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "old"),

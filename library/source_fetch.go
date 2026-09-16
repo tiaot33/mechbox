@@ -181,21 +181,31 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
-// responseValidator 取服务端给出的 validator 原文:优先 ETag,其次 Last-Modified;都没有为空。
+// responseValidator 取服务端给出的 validator 原文:优先 ETag(原样,包括不合规的无引号写法——回填时服务端按自己的
+// 写法比对),其次 Last-Modified,但只接受能按 HTTP-date 解析的值;都没有或日期非法为空,即下次不带条件头。
 func responseValidator(header http.Header) string {
-	return cmp.Or(header.Get("ETag"), header.Get("Last-Modified"))
+	if etag := header.Get("ETag"); etag != "" {
+		return etag
+	}
+	if modified := header.Get("Last-Modified"); modified != "" {
+		if _, err := http.ParseTime(modified); err == nil {
+			return modified
+		}
+	}
+	return ""
 }
 
-// applyValidator 按 validator 原文带条件头:ETag(quoted 或 W/) → If-None-Match,否则 → If-Modified-Since。
+// applyValidator 按 validator 原文带条件头:能解析为 HTTP-date 的是 Last-Modified → If-Modified-Since,
+// 其余一律视为 ETag → If-None-Match。不按引号判定,免得无引号 ETag 被当成日期发出去。
 func applyValidator(req *http.Request, validator string) {
 	if validator == "" {
 		return
 	}
-	if strings.HasPrefix(validator, `"`) || strings.HasPrefix(validator, "W/") || strings.HasPrefix(validator, "w/") {
-		req.Header.Set("If-None-Match", validator)
+	if _, err := http.ParseTime(validator); err == nil {
+		req.Header.Set("If-Modified-Since", validator)
 		return
 	}
-	req.Header.Set("If-Modified-Since", validator)
+	req.Header.Set("If-None-Match", validator)
 }
 
 // fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。validator 非空时带条件头,
