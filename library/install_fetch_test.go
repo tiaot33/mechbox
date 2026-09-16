@@ -74,12 +74,13 @@ func TestInstallFetchConcurrentCallsConsumeHandleOnce(t *testing.T) {
 			}()
 		}
 		close(start)
+		// 输家要么撞上"正在安装"(FailedPrecondition),要么在赢家提交后才到、句柄已丢弃(NotFound)。
 		succeeded := 0
 		for range 2 {
 			if err := <-results; err == nil {
 				succeeded++
-			} else if !library.IsCode(err, library.NotFound) {
-				t.Errorf("concurrent install error = %v, want NotFound", err)
+			} else if !library.IsCode(err, library.FailedPrecondition) && !library.IsCode(err, library.NotFound) {
+				t.Errorf("concurrent install error = %v, want FailedPrecondition or NotFound", err)
 			}
 		}
 		if succeeded != 1 {

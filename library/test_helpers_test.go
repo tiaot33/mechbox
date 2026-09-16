@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -341,6 +342,47 @@ func stubHTTPResponse(t *testing.T, status int, body io.Reader) {
 		return &http.Response{StatusCode: status, Body: io.NopCloser(body), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
+}
+
+// networkGate 让测试里的远端在收到请求后停住,直到测试放行。
+// 用它证明某个操作处于网络阶段时,其他操作不必等它。新建时不拦截,arm 后开始拦截,open 放行且不再拦截。
+type networkGate struct {
+	hold    atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func newNetworkGate() *networkGate {
+	return &networkGate{entered: make(chan struct{}, 64), release: make(chan struct{})}
+}
+
+// arm 开始拦截之后到达的请求;disarm 停止拦截新请求,但已挡住的仍等 open。
+func (g *networkGate) arm()    { g.hold.Store(true) }
+func (g *networkGate) disarm() { g.hold.Store(false) }
+
+// pass 在远端 handler 里调用:拦截开启时上报"已到达"并等待放行。
+func (g *networkGate) pass() {
+	if !g.hold.Load() {
+		return
+	}
+	g.entered <- struct{}{}
+	<-g.release
+}
+
+// awaitEntered 等到至少一个请求已被挡住;远端一直没收到请求则测试失败。
+func (g *networkGate) awaitEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-g.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("remote never received the request")
+	}
+}
+
+// open 放行全部被挡住的请求;之后的请求也不再拦截。
+func (g *networkGate) open() {
+	g.hold.Store(false)
+	close(g.release)
 }
 
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。

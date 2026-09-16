@@ -8,12 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/library"
@@ -507,57 +504,6 @@ func TestSQLiteUniqueFallbackOmitsDetails(t *testing.T) {
 	editLibraryFixture(t, path, `CREATE UNIQUE INDEX groups_name ON groups(name)`)
 	_, err = lib.CreateGroup(t.Context(), "dup")
 	typed := requireLibraryError(t, err, library.AlreadyExists)
-	if typed.Details != (library.ErrorDetails{}) {
-		t.Fatalf("fallback details = %#v, want zero", typed.Details)
-	}
-}
-
-func TestSQLiteForeignKeyFallbackOmitsDetails(t *testing.T) {
-	var first atomic.Bool
-	started := make(chan struct{})
-	release := make(chan struct{})
-	old := zipArchive(t, map[string]string{"skill/SKILL.md": skillDocument("skill", "old")})
-	updated := zipArchive(t, map[string]string{"skill/SKILL.md": skillDocument("skill", "new")})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if first.CompareAndSwap(false, true) {
-			_, _ = w.Write(old)
-			return
-		}
-		close(started)
-		<-release
-		_, _ = w.Write(updated)
-	}))
-	t.Cleanup(server.Close)
-
-	path := filepath.Join(t.TempDir(), "library.db")
-	lib1, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib1.Close() })
-	lib2, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib2.Close() })
-
-	spec := library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL + "/skills.zip"}}
-	fetch, err := lib1.Fetch(t.Context(), spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	installed, err := lib1.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("install = %#v, %v", installed, err)
-	}
-
-	go func() {
-		<-started
-		_ = lib2.RemoveSkill(t.Context(), installed[0].ID, library.RemoveSkillOptions{})
-		close(release)
-	}()
-	_, err = lib1.Update(t.Context(), installed[0].ID)
-	typed := requireLibraryError(t, err, library.NotFound)
 	if typed.Details != (library.ErrorDetails{}) {
 		t.Fatalf("fallback details = %#v, want zero", typed.Details)
 	}

@@ -28,6 +28,9 @@ type s3Stub struct {
 	// afterHead 若非 nil,在一次 HEAD 响应发出后触发一次(随即清空),
 	// 用来在"预检 HEAD"与"随后 PUT"之间注入一次远端改动,复现 TOCTOU 窗口。
 	afterHead func()
+	// gate 若非 nil,gateMethod 方法的请求在处理前先过闸;用来把 push / preview 停在网络上。
+	gate       *networkGate
+	gateMethod string
 }
 
 func (s *s3Stub) set(data []byte) {
@@ -43,6 +46,9 @@ func newS3Stub(t *testing.T) *s3Stub {
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 ") {
 			http.Error(w, "unsigned", http.StatusForbidden)
 			return
+		}
+		if stub.gate != nil && r.Method == stub.gateMethod {
+			stub.gate.pass()
 		}
 		switch r.Method {
 		case http.MethodPut:

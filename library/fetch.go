@@ -22,6 +22,7 @@ type fetchedSkill struct {
 
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
+// source / subpath / ref / skills 建立后只读;installing 与 timer 受 fetchMu 保护。
 type fetchSession struct {
 	source        Source
 	subpath       string
@@ -30,6 +31,7 @@ type fetchSession struct {
 	skills        []fetchedSkill
 	diagnostics   []CandidateDiagnostic
 	timer         *time.Timer
+	installing    bool // 一次 InstallFetch 正在物化 / 入库;期间句柄不可再被安装,也不会过期
 }
 
 func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch, err error) {
@@ -90,7 +92,10 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
 		defer l.fetchMu.Unlock()
-		delete(l.fetches, id)
+		// 计时器可能在 claimFetch 停掉它之前就已触发并等在锁上:占用中的会话不回收,由 releaseFetch 收尾。
+		if current := l.fetches[id]; current == session && !current.installing {
+			delete(l.fetches, id)
+		}
 	})
 	return Fetch{ID: id, Ref: discovered.ref, FetchCandidates: session.candidates()}, nil
 }
@@ -119,21 +124,13 @@ func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (result
 }
 
 func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []string) (installed []Skill, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
 	defer func() { err = typedError(err) }()
-
-	l.fetchMu.Lock()
-	// 持锁直到提交并丢弃句柄,避免并发调用消费同一次 Fetch。
-	defer l.fetchMu.Unlock()
-	session := l.fetches[id]
-	if session == nil {
-		return nil, &Error{Code: NotFound, Message: "install fetch: unknown or discarded fetch"}
-	}
-	skills, err := selectSkills(session.skills, names)
+	// 会话锁只用来取会话并把它标记为占用;物化(网络)与入库都在锁外,别的 Fetch 与列表不必等。
+	session, skills, err := l.claimFetch(id, names)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { l.releaseFetch(id, session, err == nil) }()
 	if session.source.Type == SourceGitHub {
 		// 失败时会话仍保留完整候选,不写回部分物化的文件。
 		skills = slices.Clone(skills)
@@ -141,16 +138,50 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 			return nil, err
 		}
 	}
-	installed, err = l.installAll(ctx, session.source, skills, session.httpValidator)
-	if err != nil {
-		return nil, err
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	return l.installAll(ctx, session.source, skills, session.httpValidator)
+}
+
+// claimFetch 在会话锁内找到会话、选定候选并标记占用;占用中的会话对第二次安装返回 FailedPrecondition。
+// 占用期间停掉 TTL 计时器,物化途中不会被回收。
+func (l *sqliteLibrary) claimFetch(id FetchID, names []string) (*fetchSession, []fetchedSkill, error) {
+	l.fetchMu.Lock()
+	defer l.fetchMu.Unlock()
+	session := l.fetches[id]
+	if session == nil {
+		return nil, nil, &Error{Code: NotFound, Message: "install fetch: unknown or discarded fetch"}
 	}
-	// 成功提交入库后丢弃该 Fetch:同一句柄不能再次使用。
+	if session.installing {
+		return nil, nil, preconditionError("install fetch", "another install of this fetch is in progress", ErrorDetails{})
+	}
+	skills, err := selectSkills(session.skills, names)
+	if err != nil {
+		return nil, nil, err
+	}
+	session.installing = true
 	if session.timer != nil {
 		session.timer.Stop()
 	}
-	delete(l.fetches, id)
-	return installed, nil
+	return session, skills, nil
+}
+
+// releaseFetch 结束一次占用:成功提交后丢弃句柄(同一句柄不能再次使用);失败则解除占用并重新计时,可重试。
+// 会话已被 Close 清掉时无事可做。
+func (l *sqliteLibrary) releaseFetch(id FetchID, session *fetchSession, installed bool) {
+	l.fetchMu.Lock()
+	defer l.fetchMu.Unlock()
+	if l.fetches[id] != session {
+		return
+	}
+	if installed {
+		delete(l.fetches, id)
+		return
+	}
+	session.installing = false
+	if session.timer != nil {
+		session.timer.Reset(fetchTTL)
+	}
 }
 
 func newFetchID() (FetchID, error) {

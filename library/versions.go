@@ -49,7 +49,7 @@ func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File,
 }
 
 func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id, git_tree_sha FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
@@ -71,7 +71,7 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions 
 }
 
 func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	version = SkillVersion{ID: id}
@@ -102,7 +102,7 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version S
 }
 
 func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	oldVersion, err := l.GetVersion(ctx, oldID)

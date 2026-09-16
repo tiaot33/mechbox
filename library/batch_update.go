@@ -6,8 +6,7 @@ import (
 )
 
 func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
+	// 只读比较,没有提交阶段:逐项读 skill 各自短锁,网络阶段不持库锁。
 	defer func() { err = typedError(err) }()
 	if err := ctx.Err(); err != nil {
 		return nil, err

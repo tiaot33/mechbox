@@ -2,21 +2,23 @@ package library
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
 	defer func() { err = typedError(err) }()
 	if id <= 0 {
 		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}
 	}
+	// 网络前读出 skill 与抓取记录;state.versionID 是提交阶段复核的依据。
 	skill, state, err := l.getSkill(ctx, id)
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	// 网络往返不持库锁:期间库可以被别的请求读写,提交前再复核。
 	changed := false
 	validator := "" // 本次抓取后应记在 Source 上的 HTTP validator;GitHub / local 恒为空
 	if skill.Source.Type == SourceGitHub {
@@ -32,11 +34,17 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("begin update: %w", err)
 	}
 	defer tx.Rollback()
+	// 任何写入之前先复核:skill 仍在、当前版本仍是网络前看到的那个;否则不留部分写入。
+	if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
+		return UpdateResult{}, err
+	}
 	record := sourceGitRecord(skill.Source, skill.GitTreeSHA)
 	if changed {
 		versionID, err := createVersion(ctx, tx, int64(id), skill.Files, record)
@@ -65,6 +73,22 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		return UpdateResult{}, fmt.Errorf("commit update: %w", err)
 	}
 	return UpdateResult{Skill: skill, Changed: changed, Note: "已激活的副本未重写,可能落后于 Library;需要时请重新激活。"}, nil
+}
+
+// requireCurrentVersion 是提交阶段的复核:skill 已被移除 → NotFound;当前版本已被别处改写 → Conflict。
+func requireCurrentVersion(ctx context.Context, tx *sql.Tx, id SkillID, expected int64) error {
+	var actual sql.NullInt64
+	err := tx.QueryRowContext(ctx, `SELECT current_version_id FROM skills WHERE id = ?`, id).Scan(&actual)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &Error{Code: NotFound, Message: "update: skill was removed while fetching", Details: ErrorDetails{SkillID: id}, Err: err}
+	}
+	if err != nil {
+		return fmt.Errorf("verify skill version: %w", err)
+	}
+	if actual.Int64 != expected {
+		return &Error{Code: Conflict, Message: "update: skill changed while fetching", Details: ErrorDetails{SkillID: id}}
+	}
+	return nil
 }
 
 // readGitHubUpdate 先解析 commit:与当前版本的确认 commit 相同即无变化、不取 tree;否则发现候选后按目录 tree SHA
@@ -132,8 +156,7 @@ func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator s
 }
 
 func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available bool, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
+	// 只读比较,没有提交阶段:读 skill 走 getSkill 自己的短锁,网络阶段不持库锁。
 	defer func() { err = typedError(err) }()
 	if id <= 0 {
 		return false, &Error{Code: InvalidArgument, Message: "check update: skill ID must be positive"}

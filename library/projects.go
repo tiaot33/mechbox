@@ -8,7 +8,7 @@ import (
 )
 
 func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	// 只读取稳定代码与展示名称;布局规则留在表里,由解析与投影内部使用。
@@ -31,7 +31,7 @@ func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err err
 }
 
 func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if path == "" {
@@ -77,7 +77,7 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 }
 
 func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []RegisteredProject, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id, path FROM projects ORDER BY path, id`)
@@ -99,7 +99,7 @@ func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []
 }
 
 func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateProjectedCopies("unregister project", opts.ProjectedCopies); err != nil {
@@ -142,7 +142,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 }
 
 func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory string, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	row, ok := scopeOf(scope)

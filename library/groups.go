@@ -9,7 +9,7 @@ import (
 )
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if strings.TrimSpace(name) == "" {
@@ -27,7 +27,7 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Gro
 }
 
 func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id, name FROM groups ORDER BY id`)
@@ -49,7 +49,7 @@ func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err err
 }
 
 func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if strings.TrimSpace(name) == "" {
@@ -70,7 +70,7 @@ func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string
 }
 
 func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -108,7 +108,7 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 }
 
 func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
@@ -132,7 +132,7 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 }
 
 func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	result, err := l.db.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID)
@@ -150,7 +150,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 }
 
 func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {

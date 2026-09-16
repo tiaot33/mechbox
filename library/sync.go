@@ -33,8 +33,7 @@ type s3Config struct {
 const pullProjectionWarning = "agent 目录投影未随本次 pull 重建,可能与新库不一致"
 
 func (l *sqliteLibrary) PreviewSyncPush(ctx context.Context) (preview SyncPreview, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
+	// 纯网络探测,不碰库,不加锁。
 	defer func() { err = typedError(err) }()
 	identity, exists, err := remoteIdentity(ctx)
 	if err != nil {
@@ -65,8 +64,7 @@ func (l *sqliteLibrary) PreviewSyncPull(ctx context.Context) (preview SyncPrevie
 }
 
 func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
+	// 三段式:HEAD(无锁)→ 快照(共享锁,只为与 SyncPull 的整库替换互斥)→ PUT(无锁,快照已在内存)。
 	defer func() { err = typedError(err) }()
 	identity, _, err := remoteIdentity(ctx)
 	if err != nil {
@@ -144,8 +142,10 @@ func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
 	return RemoteIdentity(etag), true, nil
 }
 
-// snapshotBytes 生成当前库的事务性快照并读入内存。
+// snapshotBytes 在共享锁内生成当前库的事务性快照并读入内存;锁只覆盖快照本身,不覆盖上传。
 func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
 	snapshot, err := os.CreateTemp("", ".library-sync-*.db")
 	if err != nil {
 		return nil, fmt.Errorf("create sync snapshot: %w", err)
