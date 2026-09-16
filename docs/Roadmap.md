@@ -3,7 +3,7 @@
 **Date:** 2026-09-15
 **目的:** 记录 `library/api.go` 成为桌面端(Electron,经 ADR 0008 的 stdio sidecar)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对门面的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
-**用法:** 按 P0 → P2 推进。动手前为条目建 GitHub issue(见 `docs/agents/issue-tracker.md`)并把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`,需与 #62 / #64(v6 / v7)协调编号。与 #60–#65(网络读取去重)正交,互不阻塞。
+**用法:** 按 P0 → P2 推进。动手前为条目建 GitHub issue(见 `docs/agents/issue-tracker.md`)并把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`;#69(#62 / #64)已把 schema 推到 v7,C 节的提升是 v8(#77),须在 #69 合并后开工。与 #60–#65(网络读取去重)正交,互不阻塞。
 
 ## 优先级定义
 
@@ -38,16 +38,16 @@
 - [ ] **B5 `UpdateResult.Note` 改为结构化。** 现为一句中文散文;改为 `StaleActivations []Activation`(依赖 C5)。
 - [x] **B6 `RegisterProject` 重复注册携带已有 ID。** 实测返回 `AlreadyExists` 但不带既有 `ProjectID`,UI 无法跳转;放入 `Details`(A6)或提供 `FindRegisteredProject(path)`。→ 已随 A6 放入 `Details.ProjectID`,#67
 
-### C. 读模型补齐
+### C. 读模型补齐 — 2026-09-16 评审:只做 C1 / C2 / C6,其余推后(GUI 可绕过)
 
-- [ ] **C1 `Skill` / `SkillSummary` 增加 `Description`。**(schema)列表页第一需求;`candidateMetadata` 已解析出该字段但未入库。现状前端要对每行调 `GetSkill`(拉全部文件正文)再自行解析 frontmatter。
-- [ ] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Skill.InstalledAt` / `UpdatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt`。ADR 0009 已记录版本无时间戳。
-- [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。
-- [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。
-- [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)使"更新后哪些投影已过时"可查,B5 依赖它。
-- [ ] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检(现注释为"只供对照磁盘")。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。
-- [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。
-- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。
+- [ ] **C1 `Skill` / `SkillSummary` 增加 `Description`。**(schema)列表页第一需求;`candidateMetadata` 已解析出该字段但未入库。现状前端要对每行调 `GetSkill`(拉全部文件正文)再自行解析 frontmatter。描述放版本级,迁移从 `SKILL.md` blob 回填。→ #77
+- [ ] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt` 落列;`Skill.InstalledAt` / `UpdatedAt` 由版本时间派生。迁移不回填(空 = 未知)。ADR 0009 已记录版本无时间戳。→ #77
+- [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
+- [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**推后**:多传字节,不阻塞功能。
+- [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 不依赖它(Update 变化后该 skill 全部投影按定义都过时),C6 判定也不依赖它。
+- [ ] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检(现注释为"只供对照磁盘")。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ #76
+- [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
+- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。
 
 ### D. 锁与并发
 
@@ -96,9 +96,9 @@
 
 ### I. 数据完整性小坑
 
-- [ ] **I1 `RemoveSkill(Remove)` 顺序。** 先删磁盘副本再开事务;事务失败则副本已丢、记录仍在。改为事务内决定、提交后删除,或先改名暂存(同 `DeactivateGroup` 的做法)。
-- [ ] **I2 `RemoveSkill(Keep)` 的遗留副本零追踪。** 后续同名激活必撞 `AlreadyExists`(实测)。C6 的健康度可覆盖,或在移除时记录"遗留副本"。
-- [ ] **I3 分组名是否唯一。** 实测可创建两个同名组;需要决定并落 UNIQUE 或明确允许。
+- [x] **I1 `RemoveSkill(Remove)` 顺序。** 先删磁盘副本再开事务;事务失败则副本已丢、记录仍在。`UnregisterProject(Remove)` 与 `Deactivate` 有同样问题。改为先改名暂存、提交后删除(同 `DeactivateGroup` 的做法),四处共用一个 helper。→ #75,#78
+- [ ] **I2 `RemoveSkill(Keep)` 的遗留副本零追踪。** 后续同名激活必撞 `AlreadyExists`(实测)。C6 覆盖不到它(无记录,不在输入里);**并入 B1 预检**("本 Library 遗留副本"占用者类型),不单独立项。
+- [ ] **I3 分组名唯一。**(schema)实测可创建两个同名组。决定:`groups.name` 加 UNIQUE;`CreateGroup` / `RenameGroup` / 迁移遇重名自动改为 `名字#2`、`#3`(最小空闲数字),不报错;`RenameGroup` 改为返回最终 `Group`。→ #77
 - [ ] **I4 孤儿 `sources` 行与 blob GC。** `RemoveSkill` 不清理来源行与 blob;ADR 0005 的 GC "to be specified"。
 - [ ] **I5 `Open` 迁移无预告。** 打开旧库即原地迁移;桌面端应能先探知"需要迁移"并备份(可与 E5 合并)。
 
@@ -108,7 +108,7 @@
 
 1. **A**(错误模型 + 校验映射):机械、便宜,其他一切的前提。
 2. **B**(预检)+ B2 同名接管 bug。
-3. **C**(读模型):C1 / C2 / C5 合并为一次 schema 提升。
+3. **C**(读模型):C1 / C2 / I3 合并为一次 schema 提升 v8(#77,等 #69 合并);C6(#76)与 I1(#75)不碰 schema,可先做。
 4. **D**(锁重构 + WAL / busy_timeout)。
 5. **E**(配置 API + Sync 重映射参数化 + Sync 状态)。
 6. **G** / **F**(进度与通知、Scope wire 形状、ADR 0008 刷新)——与 `rpc/` 落地同步进行。
