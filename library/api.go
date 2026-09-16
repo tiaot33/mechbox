@@ -16,25 +16,62 @@ type VersionID int64
 type GroupID int64
 type ProjectID int64
 
-// ErrorCode 是稳定的错误类别,调用方(TUI)据此决定界面表现。
+// ErrorCode 是稳定的错误类别,调用方(TUI / 桌面端)据此决定界面表现。
+// 码按 UI 动作划分:改输入 / 改状态 / 重试 / 收起 / 报 bug。每个码的注释写明
+// 适用场景、是否可重试、建议动作。
 type ErrorCode string
 
 const (
-	InvalidArgument   ErrorCode = "invalid_argument"   // 参数无效
-	NotFound          ErrorCode = "not_found"          // 目标不存在
-	AlreadyExists     ErrorCode = "already_exists"     // 目标已存在(激活目录冲突、路径重复注册等)
-	SourceUnreachable ErrorCode = "source_unreachable" // 来源无法访问(网络故障、路径不存在等)
-	Permission        ErrorCode = "permission"         // 权限不足(文件系统或远端鉴权)
-	NotConfigured     ErrorCode = "not_configured"     // 所需配置缺失(如 Sync 未配置 S3/凭证)
-	Conflict          ErrorCode = "conflict"           // 与预期状态冲突(如 Sync 远端在预览后发生变化)
-	Internal          ErrorCode = "internal"           // 其他内部错误
+	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法)。
+	// 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
+	InvalidArgument ErrorCode = "invalid_argument"
+	// NotFound 被引用的实体不存在(各类 ID、Fetch 句柄、候选名、远端不存在的 git ref)。
+	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
+	NotFound ErrorCode = "not_found"
+	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标)。
+	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
+	AlreadyExists ErrorCode = "already_exists"
+	// Conflict 预览到执行之间状态已变。可重新预览后再执行。
+	Conflict ErrorCode = "conflict"
+	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作。
+	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试。
+	FailedPrecondition ErrorCode = "failed_precondition"
+	// Canceled 调用方的 ctx 被取消或超过 deadline。
+	// UI:静默收起。Error.Err 保留原始 context 错误,errors.Is 仍成立。
+	Canceled ErrorCode = "canceled"
+	// SourceUnreachable 可重试的远端 / 网络 / 本地路径缺失故障(DNS、连接、超时、5xx、S3 非 2xx、缺 ETag、本地来源目录不存在)。
+	// 可重试。UI:提供"重试"。
+	SourceUnreachable ErrorCode = "source_unreachable"
+	// SourceInvalid 来源可达,但其内容不可用(zip 损坏、超限、无有效候选、响应不合规、不支持的文件类型)。
+	// 重试无效。UI:展示原因,建议换来源。
+	SourceInvalid ErrorCode = "source_invalid"
+	// Permission 鉴权失败(文件系统或远端拒认凭证)。
+	// 不可靠地靠重试恢复。UI:提示权限问题。
+	Permission ErrorCode = "permission"
+	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证、Store 来源未配置 Store URL)。
+	// UI:引导到设置页。
+	NotConfigured ErrorCode = "not_configured"
+	// Internal 真正的 bug 与 I/O 故障。UI:报 bug;不要当成用户可恢复的输入或状态问题。
+	Internal ErrorCode = "internal"
 )
 
 // Error 是 Library 所有操作返回的可序列化错误。
+// Message 是英文、开发者面向的 operation: reason,不是 UI 文案;UI 契约是码 + Details。
+// Err 不进入 JSON,供 errors.Is / Unwrap。
 type Error struct {
-	Code    ErrorCode `json:"code"`
-	Message string    `json:"message"`
-	Err     error     `json:"-"`
+	Code    ErrorCode    `json:"code"`
+	Message string       `json:"message"`
+	Details ErrorDetails `json:"details,omitzero"`
+	Err     error        `json:"-"`
+}
+
+// ErrorDetails 是类型化的错误细节,零值字段省略。读取用 errors.AsType[*Error]。
+type ErrorDetails struct {
+	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
+	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名或支撑分组名
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill
+	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目
 }
 
 func (e *Error) Error() string { return e.Message }

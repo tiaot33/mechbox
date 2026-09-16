@@ -4,6 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"database/sql"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,27 @@ import (
 
 	"github.com/tiaot33/skills-tui/library"
 )
+
+func requireLibraryError(t *testing.T, err error, code library.ErrorCode) *library.Error {
+	t.Helper()
+	typed, ok := errors.AsType[*library.Error](err)
+	if !ok || typed.Code != code {
+		t.Fatalf("error = %T %v, want *library.Error %s", err, err, code)
+	}
+	if typed.Message == "" {
+		t.Fatal("empty error message")
+	}
+	return typed
+}
+
+func requireErrorDetails(t *testing.T, err error, code library.ErrorCode, want library.ErrorDetails) *library.Error {
+	t.Helper()
+	typed := requireLibraryError(t, err, code)
+	if typed.Details != want {
+		t.Fatalf("details = %#v, want %#v", typed.Details, want)
+	}
+	return typed
+}
 
 func seededAgents() []library.Agent {
 	return []library.Agent{
@@ -111,6 +135,17 @@ func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 	}
 }
 
+func installNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), name)
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return skill
+}
+
 func openTestLibrary(t *testing.T) library.Library {
 	t.Helper()
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
@@ -119,6 +154,16 @@ func openTestLibrary(t *testing.T) library.Library {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	return lib
+}
+
+// stubHTTPResponse 让所有 HTTP 请求都得到同一个响应,用于模拟远端返回的状态与内容。
+func stubHTTPResponse(t *testing.T, status int, body io.Reader) {
+	t.Helper()
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Body: io.NopCloser(body), Header: make(http.Header)}, nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
 }
 
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。

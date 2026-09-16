@@ -92,7 +92,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := lib.CheckUpdates(ctx, ids); !errors.Is(err, context.Canceled) {
+	if _, err := lib.CheckUpdates(ctx, ids); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel = %v", err)
 	}
 	if results, err := lib.CheckUpdates(t.Context(), nil); err != nil || len(results) != 0 {

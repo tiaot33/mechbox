@@ -34,8 +34,8 @@ func TestInstallFetchFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if installed, err := lib.InstallFetch(canceled, fetch.ID, nil); !errors.Is(err, context.Canceled) || len(installed) != 0 {
-		t.Fatalf("canceled install = %v, %v; want no results and cancellation", installed, err)
+	if installed, err := lib.InstallFetch(canceled, fetch.ID, nil); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) || len(installed) != 0 {
+		t.Fatalf("canceled install = %v, %v; want no results and Canceled", installed, err)
 	}
 	collections, err := lib.ListCollections(ctx)
 	if err != nil || len(collections) != 0 {
@@ -125,6 +125,18 @@ func TestInstallFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 	before, err := lib.ListSkills(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	again, err := lib.Fetch(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.InstallFetch(ctx, again.ID, nil); !library.IsCode(err, library.AlreadyExists) {
+		t.Fatalf("reinstall existing candidate = %v, want AlreadyExists", err)
+	} else {
+		requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: before[0].ID, Name: "second"})
+	}
+	if after, err := lib.ListSkills(ctx); err != nil || len(after) != 1 || after[0].ID != before[0].ID {
+		t.Fatalf("failed batch install changed library: %#v, %v", after, err)
 	}
 	versions, err := lib.ListVersions(ctx, before[0].ID)
 	if err != nil {

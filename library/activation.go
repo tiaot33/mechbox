@@ -126,6 +126,9 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 	ctx, unlock := l.writeOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	if err := validateConflictPolicy("activate", opts.OnConflict); err != nil {
+		return err
+	}
 	target, err := l.resolveScope(ctx, scope)
 	if err != nil {
 		return err
@@ -148,13 +151,13 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 		if claimed, err := l.directoryClaimedByAnotherScope(ctx, id, scope); err != nil {
 			return err
 		} else if claimed {
-			return &Error{Code: AlreadyExists, Message: "activate skill: another scope already projects this skill into the same directory"}
+			return preconditionError("activate skill", "another scope already projects this skill into the same directory", ErrorDetails{Path: scope.directory})
 		}
 	}
 	target := filepath.Join(scope.directory, skill.Name)
 	if _, err := os.Lstat(target); err == nil {
 		if existing == nil && opts.OnConflict != Overwrite {
-			return &Error{Code: AlreadyExists, Message: "activate skill: target already exists"}
+			return existsError("activate skill", "target already exists", ErrorDetails{Path: target})
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect activation target: %w", err)
@@ -281,7 +284,11 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope)
 		return &Error{Code: NotFound, Message: "deactivate skill: skill is not active in scope"}
 	}
 	if !existing.individual {
-		return &Error{Code: NotFound, Message: "deactivate skill: no independent activation"}
+		name, err := supportingGroupName(ctx, l.db, existing.id)
+		if err != nil {
+			return err
+		}
+		return preconditionError("deactivate skill", "activation is only via group", ErrorDetails{Name: name})
 	}
 	return l.deactivateOrigin(ctx, id, existing.id, target.directory)
 }
@@ -335,6 +342,9 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	ctx, unlock := l.writeOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	if err := validateConflictPolicy("activate group", opts.OnConflict); err != nil {
+		return err
+	}
 	target, err := l.resolveScope(ctx, scope)
 	if err != nil {
 		return err
@@ -350,7 +360,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	seen := make(map[string]bool, len(members))
 	for _, member := range members {
 		if seen[member.Name] {
-			return &Error{Code: AlreadyExists, Message: fmt.Sprintf("activate group: multiple members named %q project to the same target", member.Name)}
+			return preconditionError("activate group", "multiple members project to the same target", ErrorDetails{Name: member.Name})
 		}
 		seen[member.Name] = true
 	}
@@ -366,13 +376,14 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		if claimed, err := l.directoryClaimedByAnotherScope(ctx, member.ID, target); err != nil {
 			return err
 		} else if claimed {
-			return &Error{Code: AlreadyExists, Message: "activate group: another scope already projects a member into the same directory"}
+			return preconditionError("activate group", "another scope already projects a member into the same directory", ErrorDetails{Path: target.directory})
 		}
 		if opts.OnConflict == Overwrite {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(target.directory, member.Name)); err == nil {
-			return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
+		targetPath := filepath.Join(target.directory, member.Name)
+		if _, err := os.Lstat(targetPath); err == nil {
+			return existsError("activate group", "target already exists", ErrorDetails{Path: targetPath})
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect activation target: %w", err)
 		}
@@ -567,6 +578,20 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 		_ = os.RemoveAll(entry.trash)
 	}
 	return nil
+}
+
+// supportingGroupName 读取仅由分组支撑的投影所经由的第一个分组名。
+func supportingGroupName(ctx context.Context, q rowQuerier, activationID int64) (string, error) {
+	var name string
+	err := q.QueryRowContext(ctx, `
+		SELECT groups.name FROM activation_groups
+		JOIN groups ON groups.id = activation_groups.group_id
+		WHERE activation_groups.activation_id = ?
+		ORDER BY groups.id LIMIT 1`, activationID).Scan(&name)
+	if err != nil {
+		return "", fmt.Errorf("read supporting group: %w", err)
+	}
+	return name, nil
 }
 
 func randomName(prefix string) (string, error) {

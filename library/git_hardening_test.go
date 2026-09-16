@@ -194,7 +194,7 @@ func TestFetchGitDistinguishesFailureReasonsWithoutExposingCredentials(t *testin
 		{
 			name:    "missing ref",
 			locator: library.SourceLocator{Repository: repository, Branch: "does-not-exist"},
-			code:    library.SourceUnreachable,
+			code:    library.NotFound,
 			message: "ref not found",
 		},
 		{

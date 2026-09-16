@@ -163,3 +163,19 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 		t.Fatalf("unknown removal touched disk: %v", err)
 	}
 }
+
+func TestInstallDuplicateLocalSkillCarriesIdentity(t *testing.T) {
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "dup")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Dup\n"), 0o644)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.Install(t.Context(), library.LocalSource{Path: source})
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID, Name: skill.Name})
+	skills, err := lib.ListSkills(t.Context())
+	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {
+		t.Fatalf("duplicate install changed library: %#v, %v", skills, err)
+	}
+}

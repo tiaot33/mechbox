@@ -252,13 +252,21 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	return output, nil
 }
 
+// missingRefError 给 clone / fetch 阶段报出的 ref 不存在(gitCommandError 唯一的 NotFound 来源)补上 Details.Name。
+func missingRefError(err error, ref string) error {
+	if typed, ok := errors.AsType[*Error](err); ok && typed.Code == NotFound && typed.Details.Name == "" {
+		typed.Details.Name = ref
+	}
+	return err
+}
+
 func gitCommandError(output []byte) error {
 	detail := strings.ToLower(string(output))
 	switch {
 	case gitAuthFailure(detail):
 		return fetchError(Permission, "git", errors.New("authentication failed"))
 	case gitMissingRef(detail):
-		return fetchError(SourceUnreachable, "git", errors.New("ref not found"))
+		return &Error{Code: NotFound, Message: "git: ref not found"}
 	case gitUnreachable(detail):
 		return fetchError(SourceUnreachable, "git", errors.New("remote could not be reached"))
 	default:

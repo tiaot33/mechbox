@@ -52,11 +52,8 @@ func (l *sqliteLibrary) PreviewSyncPull(ctx context.Context) (preview SyncPrevie
 	_, cleanup, err := openPulledLibrary(ctx, data)
 	if err == nil {
 		defer cleanup()
-	} else if !errors.Is(err, errUnacceptableSchema) {
-		sqliteErr, ok := errors.AsType[sqlite3.Error](err)
-		if !ok || (sqliteErr.Code != sqlite3.ErrCorrupt && sqliteErr.Code != sqlite3.ErrNotADB) {
-			return SyncPreview{}, err
-		}
+	} else if !unacceptableRemote(err) {
+		return SyncPreview{}, err
 	}
 	schemaOK := err == nil
 	preview = SyncPreview{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
@@ -110,6 +107,11 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	}
 	check, cleanup, err := openPulledLibrary(ctx, data)
 	if err != nil {
+		if unacceptableRemote(err) {
+			failure := preconditionError("sync pull", "remote library is not acceptable", ErrorDetails{})
+			failure.Err = err
+			return SyncResult{}, failure
+		}
 		return SyncResult{}, err
 	}
 	defer cleanup()
@@ -202,6 +204,15 @@ func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error
 		return nil, nil, fmt.Errorf("validate pulled library: %w", err)
 	}
 	return check, cleanup, nil
+}
+
+// unacceptableRemote 判断拉取内容是否为不可接受的远端库(schema / 损坏 / 不是数据库)。
+func unacceptableRemote(err error) bool {
+	if errors.Is(err, errUnacceptableSchema) {
+		return true
+	}
+	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
+	return ok && (sqliteErr.Code == sqlite3.ErrCorrupt || sqliteErr.Code == sqlite3.ErrNotADB)
 }
 
 // validatePulledDatabase 校验一个已打开的拉取库:完整性 + schema 身份。

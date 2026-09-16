@@ -18,6 +18,15 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	lib := openTestLibrary(t)
 	if _, err := lib.RegisterProject(ctx, ""); err == nil {
 		t.Fatal("RegisterProject() accepted an empty path")
+	} else {
+		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "path"})
+	}
+	notDir := filepath.Join(t.TempDir(), "file")
+	writeFile(t, notDir, []byte("x"), 0o644)
+	if _, err := lib.RegisterProject(ctx, notDir); err == nil {
+		t.Fatal("RegisterProject() accepted a file")
+	} else {
+		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "path"})
 	}
 
 	projectRoot := t.TempDir()
@@ -34,6 +43,8 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	}
 	if _, err := lib.RegisterProject(ctx, projectRoot); !library.IsCode(err, library.AlreadyExists) {
 		t.Fatalf("duplicate RegisterProject() error = %v", err)
+	} else {
+		requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{ProjectID: project.ID, Path: project.Path})
 	}
 	projects, err := lib.ListRegisteredProjects(ctx)
 	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {

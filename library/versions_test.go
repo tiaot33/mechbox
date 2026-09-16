@@ -73,3 +73,19 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 		t.Fatalf("DiffVersions() = %#v, want %#v", diff, wantDiff)
 	}
 }
+
+func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
+	lib := openTestLibrary(t)
+	first := installNamedSkill(t, lib, "one")
+	second := installNamedSkill(t, lib, "two")
+	oldVersions, err := lib.ListVersions(t.Context(), first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newVersions, err := lib.ListVersions(t.Context(), second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.DiffVersions(t.Context(), oldVersions[0].ID, newVersions[0].ID)
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{})
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -65,6 +66,15 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 	if err != nil {
 		return nil, err
 	}
+	for _, skill := range skills {
+		id, err := findSkillBySourceName(ctx, tx, sourceID, skill.name)
+		if err != nil {
+			return nil, err
+		}
+		if id != 0 {
+			return nil, existsError("install skill", "skill already installed", ErrorDetails{SkillID: id, Name: skill.name})
+		}
+	}
 	installed := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
 		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, skill.gitTreeSHA)
@@ -110,8 +120,22 @@ func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error)
 	return sourceID, nil
 }
 
+// findSkillBySourceName 在事务内查找同一来源下的同名 skill;不存在时返回 0。
+func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name string) (SkillID, error) {
+	var id SkillID
+	err := tx.QueryRowContext(ctx, `SELECT id FROM skills WHERE source_id = ? AND name = ?`, sourceID, name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find skill: %w", err)
+	}
+	return id, nil
+}
+
 // insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
 func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, gitTreeSHA string) (Skill, error) {
+	// 名字由来源发现阶段给出,调用方没有对应参数;为空是内部不变量被破坏,归 Internal。
 	if name == "" {
 		return Skill{}, fmt.Errorf("install skill: name is required")
 	}
@@ -214,8 +238,8 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if opts.ProjectedCopies != "" && opts.ProjectedCopies != Keep && opts.ProjectedCopies != Remove {
-		return fmt.Errorf("invalid projected copies option")
+	if err := validateProjectedCopies("remove skill", opts.ProjectedCopies); err != nil {
+		return err
 	}
 	if _, err := l.GetSkill(ctx, id); err != nil {
 		return err

@@ -524,7 +524,7 @@ func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubR
 		index = slices.IndexFunc(candidates, func(c fetchedSkill) bool { return c.name == skill.Name })
 	}
 	if index < 0 {
-		return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", skill.Name)}
+		return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", skill.Name), Details: ErrorDetails{Name: skill.Name}}
 	}
 	found := candidates[index]
 	return githubRemoteSkill{gitTreeSHA: found.gitTreeSHA, files: found.files, blobs: found.blobs}, nil
