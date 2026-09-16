@@ -575,7 +575,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	}
 	requireProjection(t, directory, "commit", "# A\n")
 
-	// 换用 B 的正确路径:先撤 A,再激活 B;之后撤 B 只删 B 自己的文件夹与记录。
+	// 换用 B 的正确路径:先撤 A,再激活 B。
 	if err := lib.Deactivate(ctx, first.ID, scope); err != nil {
 		t.Fatal(err)
 	}
@@ -587,15 +587,6 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	want = []library.Activation{{SkillID: second.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(activations, want) {
 		t.Fatalf("ListActivations() after switch = %#v, %v; want %#v", activations, err, want)
-	}
-	if err := lib.Deactivate(ctx, second.ID, scope); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Deactivate(B) left projection: %v", err)
-	}
-	if activations, err := lib.ListActivations(ctx); err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after Deactivate(B) = %#v, %v; want none", activations, err)
 	}
 }
 

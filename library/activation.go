@@ -103,12 +103,11 @@ type claimant struct {
 // 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有库锁,期间没有并发写入,
 // 且单连接模式下事务内不能再走 l.db 调 Resolve。
 func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation string, id SkillID, name string, target resolvedScope) error {
-	// 同一 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
+	// 同名即包含本 skill 自身;本 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT a.skill_id, s.name, a.agent, a.project_id FROM activations a
 		JOIN skills s ON s.id = a.skill_id
-		WHERE a.skill_id = ? OR s.name = ?
-		ORDER BY a.skill_id = ? DESC, a.skill_id, a.agent, a.project_id`, id, name, id)
+		WHERE s.name = ? ORDER BY a.skill_id <> ?`, name, id)
 	if err != nil {
 		return fmt.Errorf("list claimants: %w", err)
 	}

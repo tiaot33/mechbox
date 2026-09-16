@@ -28,14 +28,12 @@ const (
 	// NotFound 被引用的实体不存在(各类 ID、Fetch 句柄、候选名、远端不存在的 git ref)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
-	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标;
-	// 有记录的占用是 FailedPrecondition)。不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
+	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标)。
+	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 预览到执行之间状态已变。可重新预览后再执行。
 	Conflict ErrorCode = "conflict"
-	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (仅由分组支撑的投影被单项 Deactivate、分组内成员同名、激活目标已被另一条 Activation 占用——
-	// 同一 skill 的另一 Scope 解析到同一目录,或同名的另一 skill 已投影到该目录)。
+	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作(激活目标被占用见 ConflictPolicy)。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -499,12 +497,10 @@ type Library interface {
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
 	// Activate 把 skill 投影到 Scope,记为独立激活;对自己已有的投影幂等刷新。
-	// 目标文件夹已被另一条 Activation 占用时返回 FailedPrecondition(见 ConflictPolicy)。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
 	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据;失败时撤销本次整组改动。
-	// 成员同名,或任一成员的目标已被另一条 Activation 占用,整组返回 FailedPrecondition 且不落盘。
 	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
 	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
