@@ -1,9 +1,20 @@
 # Library 门面桌面化 Roadmap
 
-**Date:** 2026-09-15
+**Date:** 2026-09-15(2026-09-16 更新进度与分步计划)
 **目的:** 记录 `library/api.go` 成为桌面端(Electron,经 ADR 0008 的 stdio sidecar)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对门面的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
-**用法:** 按 P0 → P2 推进。动手前为条目建 GitHub issue(见 `docs/agents/issue-tracker.md`)并把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`;#69(#62 / #64)已把 schema 推到 v7,C 节的提升是 v8(#77),须在 #69 合并后开工。与 #60–#65(网络读取去重)正交,互不阻塞。
+**用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。schema 已是 v7(#69);C 节的下一次提升是 v8(#77)。
+
+**进度(2026-09-16):**
+
+- **A 全部完成** —— [#67](https://github.com/tiaot33/skills-tui/issues/67),PR [#70](https://github.com/tiaot33/skills-tui/pull/70) 已合入 main(`710bedb`)。B6 与 B3 的错误码部分随之落地。
+- **B2 完成** —— [#71](https://github.com/tiaot33/skills-tui/issues/71),PR [#74](https://github.com/tiaot33/skills-tui/pull/74)(`556ca1b`)。决定:拒绝,`FailedPrecondition` 带占用者;转移语义另立条目。
+- **I1 完成** —— [#75](https://github.com/tiaot33/skills-tui/issues/75),PR [#78](https://github.com/tiaot33/skills-tui/pull/78)(`8ca3e4e`)。
+- **D1 / D2 完成** —— [#72](https://github.com/tiaot33/skills-tui/issues/72),PR [#79](https://github.com/tiaot33/skills-tui/pull/79)(`f4097c3`)。
+- **D3 完成** —— [#73](https://github.com/tiaot33/skills-tui/issues/73),PR [#80](https://github.com/tiaot33/skills-tui/pull/80)(`b85c605`),ADR 0012。
+- **schema 基线**:main 为 v7,PR [#69](https://github.com/tiaot33/skills-tui/pull/69)(`dc8402a`)已合入。本 roadmap 的 schema 变更从 **v8**(#77)起。
+- 已建 issue、未动手:C6 [#76](https://github.com/tiaot33/skills-tui/issues/76),C1 / C2 / I3 [#77](https://github.com/tiaot33/skills-tui/issues/77)。
+- 其余 B1 / B3–B5、E–H、I2 / I4 / I5 尚未建 issue。
 
 ## 优先级定义
 
@@ -15,9 +26,9 @@
 
 ## P0
 
-### A. 错误模型与校验映射 — spec: [#67](https://github.com/tiaot33/skills-tui/issues/67)
+### A. 错误模型与校验映射 — ✅ 完成,spec: [#67](https://github.com/tiaot33/skills-tui/issues/67),PR [#70](https://github.com/tiaot33/skills-tui/pull/70)
 
-`typedError`(`library/errors.go`)只映射 `sql.ErrNoRows` / `fs.ErrPermission` / `fs.ErrNotExist`,其余一律 `Internal`。大量用户可恢复的情况因此无法被 UI 分支。#67 覆盖 A1–A7,但 A4 中的 `RateLimited` / `Unauthenticated` 移至 E2(需与配置 API 一起落地才对 UI 有意义)。
+原状:`typedError`(`library/errors.go`)只映射 `sql.ErrNoRows` / `fs.ErrPermission` / `fs.ErrNotExist`,其余一律 `Internal`。#67 覆盖 A1–A7;`RateLimited` / `Unauthenticated` 移至 E2(需与配置 API 一起落地才对 UI 有意义)。以下条目保留作为现状记录与回归对照。
 
 - [x] **A1 校验错误改用 `&Error{Code: InvalidArgument}`。** 现状(实测均为 `internal`):`CreateGroup` / `RenameGroup` 空名、`RegisterProject` 空路径或非目录、`RemoveSkill` / `UnregisterProject` 非法选项、`DiffVersions` 跨 skill、`insertSkill` 空名——都是 `fmt.Errorf`。→ #67
 - [x] **A2 映射 SQLite 约束错误。** `sqlite3.ErrConstraint` 的 UNIQUE 冲突 → `AlreadyExists`(同路径重复 `Install`、`InstallFetch` 选中已安装候选、`AddSkillToGroup` 重复;实测均为 `internal`),FK 失败 → `NotFound`。→ #67
@@ -33,9 +44,9 @@
 
 - [ ] **B1 `PreviewActivate(id, scope)` / `PreviewActivateGroup(groupID, scope)`。** 返回:解析出的目录、目标是否已存在、占用者类型(另一 skill 的 Activation / 本 Library 遗留副本 / 外部目录)、内容是否与库一致、组内同名成员。现状 `AlreadyExists` 把这三种情况揉成一个码,且只能在执行时得知(`library/activation.go` 的 `Lstat` 检查)。
 - [x] **B2 修同名跨 skill 的接管 bug。** 实测:A、B 同名不同源,A 已投影到某 Scope;`Activate(B, Overwrite)` 成功后**两条记录指向同一文件夹**;随后 `Deactivate(A)` 删掉 B 的内容并留下 B 的悬空记录。根因:`directoryClaimedByAnotherScope` 只查同一 skill 的其他 Scope,不查同 Scope 下的其他 skill。`Overwrite` 应转移记录或拒绝,不能留两条记录。→ spec: [#71](https://github.com/tiaot33/skills-tui/issues/71)(决定:拒绝,`FailedPrecondition` 带占用者;转移语义另立条目)
-- [ ] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed *SkillID`(或等价字段),UI 据此置灰;`InstallFetch` 选中已安装候选返回 `AlreadyExists`(现为 `internal`,见 A2)。
+- [ ] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed *SkillID`(或等价字段),UI 据此置灰。(`InstallFetch` 选中已安装候选返回 `AlreadyExists` 已随 A2 完成。)
 - [ ] **B4 更新预览与绑定。** `PreviewUpdate(id) → {Available, RemoteRef, RemoteTreeSHA, Diff VersionDiff}` 取代只返回 `bool` 的 `CheckUpdate`;`Update(id, UpdateOptions{Expected})` 绑定预览时的远端标识,远端已变返回 `Conflict`(与 Sync 同模式)。现状:用户看到"有更新"点击后,实际拉到的可能是更新的 commit,且不知道改了哪些文件。
-- [ ] **B5 `UpdateResult.Note` 改为结构化。** 现为一句中文散文;改为 `StaleActivations []Activation`(依赖 C5)。
+- [ ] **B5 `UpdateResult.Note` 改为结构化。** 现为一句中文散文;改为 `StaleActivations []Activation`。不依赖 C5:Update 变化后该 skill 的全部投影按定义都过时。
 - [x] **B6 `RegisterProject` 重复注册携带已有 ID。** 实测返回 `AlreadyExists` 但不带既有 `ProjectID`,UI 无法跳转;放入 `Details`(A6)或提供 `FindRegisteredProject(path)`。→ 已随 A6 放入 `Details.ProjectID`,#67
 
 ### C. 读模型补齐 — 2026-09-16 评审:只做 C1 / C2 / C6,其余推后(GUI 可绕过)
@@ -49,7 +60,7 @@
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
 - [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。
 
-### D. 锁与并发 — spec: [#72](https://github.com/tiaot33/skills-tui/issues/72)(D1、D2)、[#73](https://github.com/tiaot33/skills-tui/issues/73)(D3)
+### D. 锁与并发 — ✅ 完成,spec: [#72](https://github.com/tiaot33/skills-tui/issues/72)(D1、D2,PR [#79](https://github.com/tiaot33/skills-tui/pull/79))、[#73](https://github.com/tiaot33/skills-tui/issues/73)(D3,PR [#80](https://github.com/tiaot33/skills-tui/pull/80))
 
 - [x] **D1 网络 I/O 移出库锁。** `Update` / `CheckUpdate` / `CheckUpdates` / `InstallFetch` / `SyncPush` / `PreviewSyncPush` 在网络期间全程持 `l.mu`(`readOperation`,RLock);`Activate*` 需要 Lock;Go `RWMutex` 写者优先,一旦有写者排队,所有新读者阻塞。**实测**(URL 来源、服务端延迟 3 s):一个 skill 的 `Update` 跑 3 s → 无关 skill 的 `Activate` 等满 3 s → 其后发起的纯读 `ListSkills` 等 2.4 s。按 ADR 0008 的 per-request goroutine 模型,一次"检查全部更新"期间只要碰一下激活,整个应用的所有列表都会冻住。`InstallFetch` 还全程持 `fetchMu`(含 GitHub 物化的网络阶段),挡住其他 `Fetch` 收尾、`ListFetchSkills` 与 `Close`。目标:先取远端,再加锁复核、提交;`l.mu` 实为共享 / 独占锁(DB 串行化由单连接完成),`readOperation` / `writeOperation` 名字有误导,一并更名。→ #72(已更名为 `sharedOperation` / `exclusiveOperation`;`InstallFetch` 占用中的句柄再次安装返回 `FailedPrecondition`)
 - [x] **D2 修网络阶段与提交之间的 TOCTOU。** `Update` 拉取期间另一请求 `RemoveSkill`。**实测**:远端有变化 → `createVersion` 撞 FK → `not_found`(#67 兜底映射,事务内已写 blob);远端无变化 → **静默成功**,返回 `changed=false` 与已不存在的 `Skill`,还更新孤儿来源行的 `last_fetched`。加锁后在事务内复核:行不在 → `NotFound`,当前版本已变 → `Conflict`。随 D1 处理。→ #72
@@ -104,12 +115,70 @@
 
 ---
 
-## 推进顺序
+## 分步计划
 
-1. **A**(错误模型 + 校验映射):机械、便宜,其他一切的前提。
-2. **B**(预检)+ B2 同名接管 bug。
-3. **C**(读模型):C1 / C2 / I3 合并为一次 schema 提升 v8(#77,等 #69 合并);C6(#76)与 I1(#75)不碰 schema,可先做。
-4. **D**(锁重构 + WAL / busy_timeout)。
-5. **E**(配置 API + Sync 重映射参数化 + Sync 状态)。
-6. **G** / **F**(进度与通知、Scope wire 形状、ADR 0008 刷新)——与 `rpc/` 落地同步进行。
-7. **H** / **I** 视桌面端功能排期。
+原则:每一步是一个可独立合入、可独立验收的 PR 序列;每步一个 spec issue(bug 单独开);schema 只在第 3 步(v8)、第 5 步(v9)各提升一次;需要决策的步骤先落 ADR 再写代码。每步末尾标出依赖,无依赖的步骤可并行。
+
+### 第 0 步 — ✅ 收口进行中工作(前置)
+
+- 合入 PR [#69](https://github.com/tiaot33/skills-tui/pull/69),main 到 schema v7。
+- 出口:`librarySchemaVersion == 7`,之后本 roadmap 的 schema 变更从 v8 起。
+
+### 第 1 步 — ✅ 修数据损坏 bug:B2
+
+- spec: [#71](https://github.com/tiaot33/skills-tui/issues/71),PR [#74](https://github.com/tiaot33/skills-tui/pull/74)。
+- 决定:拒绝跨 skill 同名目录,`FailedPrecondition` 带占用者;转移语义另立条目。
+- 无 schema、无 ADR。
+
+### 第 2 步 — ✅ 并发底线:D1–D3
+
+- D1 / D2:[#72](https://github.com/tiaot33/skills-tui/issues/72),PR [#79](https://github.com/tiaot33/skills-tui/pull/79)。网络阶段移出 `l.mu`;`Update` 提交前复核 skill 仍在且版本未变;`readOperation` 更名为 `sharedOperation` / `exclusiveOperation`;`InstallFetch` 会话占用。
+- D3:[#73](https://github.com/tiaot33/skills-tui/issues/73)+ ADR 0012,PR [#80](https://github.com/tiaot33/skills-tui/pull/80)。`PRAGMA journal_mode=WAL` + `BEGIN IMMEDIATE`;`SQLITE_BUSY` → `Busy`。
+- 无 schema。与第 3 步无依赖。
+
+### 第 3 步 — 读模型与 schema v8:C1 / C2 / C6 / I3
+
+- schema v8:[#77](https://github.com/tiaot33/skills-tui/issues/77)。C1 `Description`、C2 时间戳、I3 Group 名 UNIQUE 并自动加 `#N`。
+- 纯代码:[#76](https://github.com/tiaot33/skills-tui/issues/76) C6 `InspectActivations`(不依赖 C5)。
+- C3 / C4 / C5 / C7 / C8 按 2026-09-16 评审推后;I1 已完成。
+- 依赖:第 0 步(已完成)。
+
+### 第 4 步 — 写操作预检:B1、B3、B4、B5(spec issue + ADR "Preview → Execute 统一模式")
+
+- ADR 把 Sync 现有的 `expected` 绑定推广为门面通用模式,定义 Preview 返回值形状与 `Conflict` 语义。
+- B1 `PreviewActivate` / `PreviewActivateGroup`(I2 的遗留副本作为占用者类型并入);B3 `FetchSkill.Installed`;B4 `PreviewUpdate` + `Update(id, UpdateOptions{Expected})` 取代 `CheckUpdate`(同时消解 F4 的一半);B5 `UpdateResult.Note` → `StaleActivations`(不依赖 C5)。
+- 步末顺手做 F5:刷新 ADR 0008 中过时的方法名,补 "TS 客户端由 Go 接口生成" 的工具链决策——这是第 6 步 `rpc/` 落地的前提。
+- 依赖:第 1 步(已完成;B1 的占用者分类建立在 B2 修正后的语义上)。
+
+### 第 5 步 — 运行时配置与 Sync 状态:E1–E6(spec issue + ADR "凭证存放位置")
+
+- ADR 决定凭证存放(库内 / 系统钥匙串 / 仅内存),然后 E1 `GetConfig` / `SetConfig`。
+- E2 `TestSyncConnection` + 新错误码 `RateLimited`(附 retry-after)/ `Unauthenticated`(依赖 E1)。
+- E3 `PreviewSyncPull` 返回远端项目列表,`SyncPullOptions{ProjectPathMap}` 取代环境变量。
+- E4 schema v9:Sync 状态落库(上次 push / pull 时间与远端身份),pull 前本地备份。
+- E5 `Info()`(合并 I5 的"需要迁移"探知)、E6 `slog.Handler` 注入。
+- 依赖:第 3 步(共用迁移框架);与第 4 步无依赖,可并行。
+
+### 第 6 步 — RPC 边界与通知:F1–F3、G1–G2(与 `rpc/` 落地同一批 issue)
+
+- F1 `Scope` DTO `{kind, agent, project_id}` 的 (un)marshal;F2 `Warnings` / `Note` 去散文改枚举;F3 wire 上枚举默认值显式化。
+- G1 进度报告(ctx `ProgressFunc` 或 `Events()`,RPC 映射为 notification);G2 `Watch(ctx) <-chan Change` 或列表 `Revision`。
+- 依赖:第 4 步(F5 已刷新 ADR 0008;B4 消解 F4)、第 5 步(E6 决定 serve 模式的日志出口)。
+
+### 第 7 步 — 自研 skill 与批量:H1–H4、I4(视桌面端功能排期)
+
+- H1 `Install` 校验对齐 Fetch(需决定 name 与目录名一致性策略,更新 ADR 0001);H3 `SetCurrentVersion` 回滚(依赖 C3);H2 `CreateSkill` / `SaveSkillFiles` / `ExportSkill`;H4 `RemoveSkills` / `UpdateMany`。
+- I4 孤儿 `sources` 与 blob GC(补 ADR 0005 的 "to be specified")。
+- 依赖:第 3 步。
+
+### 关键路径与并行度
+
+```
+第 0 步 ✅ ──┬── 第 1 步 ✅(B2)
+            ├── 第 2 步 ✅(D:#72 + #73)
+            └── 第 3 步(C:#77 v8 + #76)──┬── 第 4 步(B 预检 + F5)──┐
+                                        ├─────── 第 5 步(E, v9)──────┼── 第 6 步(F/G + rpc/)
+                                        └─────── 第 7 步(H/I)
+```
+
+第 3、4 步可同时开工;第 4、5 步可同时开工;第 6 步是桌面端接线点,在此之前门面应已稳定。
