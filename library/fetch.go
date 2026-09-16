@@ -23,12 +23,13 @@ type fetchedSkill struct {
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
 type fetchSession struct {
-	source      Source
-	subpath     string
-	ref         string
-	skills      []fetchedSkill
-	diagnostics []CandidateDiagnostic
-	timer       *time.Timer
+	source        Source
+	subpath       string
+	ref           string
+	httpValidator string // URL / Store 服务端随本次抓取给出的 validator;InstallFetch 随 Source 写入
+	skills        []fetchedSkill
+	diagnostics   []CandidateDiagnostic
+	timer         *time.Timer
 }
 
 func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch, err error) {
@@ -54,7 +55,8 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 			return Fetch{}, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
 		}
 	}
-	discovered, err := l.fetchRemote(ctx, source, spec.Subpath)
+	// Fetch 必须拿到内容,不带条件头。
+	discovered, err := l.fetchRemote(ctx, source, spec.Subpath, "")
 	if err != nil {
 		return Fetch{}, err
 	}
@@ -80,7 +82,10 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err := ctx.Err(); err != nil {
 		return Fetch{}, err
 	}
-	session := &fetchSession{source: source, subpath: spec.Subpath, ref: discovered.ref, skills: discovered.skills, diagnostics: discovered.diagnostics}
+	session := &fetchSession{
+		source: source, subpath: spec.Subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
+		skills: discovered.skills, diagnostics: discovered.diagnostics,
+	}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
@@ -136,7 +141,7 @@ func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []st
 			return nil, err
 		}
 	}
-	installed, err = l.installAll(ctx, session.source, skills)
+	installed, err = l.installAll(ctx, session.source, skills, session.httpValidator)
 	if err != nil {
 		return nil, err
 	}

@@ -549,6 +549,17 @@ type gitHubAPIMock struct {
 	rateLimitRemaining string
 	rateLimitReset     string
 	requests           []gitHubAPIRequest
+	history            []gitHubFixture // Swap 之前服务过的各个 head
+}
+
+// head 在当前与历史 head 里找第一个满足 match 的。
+func (m *gitHubAPIMock) head(match func(gitHubFixture) bool) (gitHubFixture, bool) {
+	heads := append([]gitHubFixture{m.fx}, m.history...)
+	i := slices.IndexFunc(heads, match)
+	if i < 0 {
+		return gitHubFixture{}, false
+	}
+	return heads[i], true
 }
 
 type gitHubAPIRequest struct {
@@ -578,9 +589,11 @@ func cloneGitHubFixture(fx gitHubFixture) gitHubFixture {
 	return cloned
 }
 
+// Swap 把远端推进到新的 fixture;之前服务过的 commit 及其 tree 仍可按 SHA 取到,如同真实仓库里的历史对象。
 func (m *gitHubAPIMock) Swap(fx gitHubFixture) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.history = append(m.history, cloneGitHubFixture(m.fx))
 	if m.fx.blobs == nil {
 		m.fx.blobs = map[string][]byte{}
 	}
@@ -666,24 +679,29 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 		return m.errorResponse(m.anonymousStatus), nil
 	}
 	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
-		if ref != "main" && !strings.EqualFold(ref, m.fx.commit) {
+		head, found := m.fx, ref == "main"
+		if !found {
+			head, found = m.head(func(h gitHubFixture) bool { return strings.EqualFold(ref, h.commit) })
+		}
+		if !found {
 			return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 		}
 		return jsonResponse(http.StatusOK, map[string]any{
-			"sha": m.fx.commit,
+			"sha": head.commit,
 			"commit": map[string]any{
-				"tree": map[string]string{"sha": m.fx.rootTree},
+				"tree": map[string]string{"sha": head.rootTree},
 			},
 		}), nil
 	}
 	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"); ok {
-		if sha != m.fx.rootTree && sha != m.fx.commit {
+		head, found := m.head(func(h gitHubFixture) bool { return sha == h.rootTree || sha == h.commit })
+		if !found {
 			return jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"}), nil
 		}
 		return jsonResponse(http.StatusOK, map[string]any{
-			"sha":       m.fx.rootTree,
-			"tree":      m.fx.entries,
-			"truncated": m.fx.truncated,
+			"sha":       head.rootTree,
+			"tree":      head.entries,
+			"truncated": head.truncated,
 		}), nil
 	}
 	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/"); ok {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -166,6 +167,124 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 			got, err = reopened.ListActivations(ctx)
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("reopened activations = %#v, %v; want %#v", got, err, want)
+			}
+		})
+	}
+}
+
+// v5 / v6 库 Open 时只补抓取记录列:v5 给 skill_versions 加确认 commit(空 = 未知,走完整比较),
+// v5 与 v6 都给 sources 加 HTTP validator(空 = 不带条件头);已有 Skill、版本、tree SHA、已登记项目与身份型
+// Activation(全局与项目)全部原样保留;v6 已记录的确认 commit 迁移后仍让检查走只发 commits 的快路径;
+// 迁移后的库与新建库指纹一致,可反复 Open。
+func TestOpenMigratesV5AndV6LibrariesAndPreservesSkillsVersionsAndActivations(t *testing.T) {
+	const confirmedCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for _, version := range []int{5, 6} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			projectPath := t.TempDir()
+			ctx := t.Context()
+			path := filepath.Join(t.TempDir(), "library.db")
+			schema, err := os.ReadFile(fmt.Sprintf("testdata/v%d.sql", version))
+			if err != nil {
+				t.Fatal(err)
+			}
+			editLibraryFixture(t, path, string(schema))
+			editLibraryFixture(t, path, fmt.Sprintf(`PRAGMA application_id = 1397443650; PRAGMA user_version = %d`, version))
+			editLibraryFixture(t, path, `
+				INSERT INTO agents(code, name, global_path, project_path) VALUES
+					('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
+					('codex', 'Codex', '.agents/skills', '.agents/skills');
+				INSERT INTO sources(id, type, locator, last_fetched, last_seen_ref) VALUES
+					(1, 'github', '{"repository":"https://github.com/owner/repo.git","branch":"main"}', '2026-01-01T00:00:00Z', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+				INSERT INTO skills(id, source_id, name, current_version_id) VALUES (1, 1, 'example', 2);
+				INSERT INTO skill_versions(id, skill_id, git_tree_sha) VALUES
+					(1, 1, ''),
+					(2, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+				INSERT INTO blobs(fingerprint, content) VALUES ('old', X'6F6C640A'), ('new', X'6E65770A');
+				INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES
+					(1, 'SKILL.md', 'old', 'regular'),
+					(2, 'SKILL.md', 'new', 'regular'),
+					(2, 'run', 'new', 'executable');
+				INSERT INTO groups(id, name) VALUES (1, 'legacy');
+				INSERT INTO skill_groups(skill_id, group_id) VALUES (1, 1);
+				INSERT INTO projects(id, path) VALUES (1, ?);
+				INSERT INTO activations(id, skill_id, agent, project_id, individual) VALUES
+					(1, 1, 'codex', NULL, 1),
+					(2, 1, 'claude-code', 1, 1);
+				INSERT INTO activation_groups(activation_id, group_id) VALUES (1, 1);
+			`, projectPath)
+			if version >= 6 {
+				editLibraryFixture(t, path, `UPDATE skill_versions SET confirmed_commit = ? WHERE id = 2`, confirmedCommit)
+			}
+			// 远端仍停在确认 commit 上:v6 迁过来的版本应只解析 commit 就判定无更新,证明 confirmed_commit 没有在迁移中丢失。
+			api := serveGitHubAPI(t, gitHubFixture{commit: confirmedCommit, rootTree: "cccccccccccccccccccccccccccccccccccccccc"})
+			blockGitHubClone(t)
+			lib, err := library.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = lib.Close() })
+			skill, err := lib.GetSkill(ctx, 1)
+			if err != nil || skill.Name != "example" || skill.GitTreeSHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || skill.Source.LastSeenRef != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+				t.Fatalf("migrated skill = %#v, %v", skill, err)
+			}
+			if !skill.Source.LastFetched.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
+				t.Fatalf("migrated LastFetched = %v", skill.Source.LastFetched)
+			}
+			wantFiles := []library.File{
+				{Path: "SKILL.md", Content: []byte("new\n"), Mode: library.ModeRegular},
+				{Path: "run", Content: []byte("new\n"), Mode: library.ModeExecutable},
+			}
+			if !reflect.DeepEqual(skill.Files, wantFiles) {
+				t.Fatalf("migrated files = %#v, want %#v", skill.Files, wantFiles)
+			}
+			versions, err := lib.ListVersions(ctx, 1)
+			if err != nil || len(versions) != 2 || versions[0].GitTreeSHA != "" || versions[1].GitTreeSHA != skill.GitTreeSHA {
+				t.Fatalf("migrated versions = %#v, %v", versions, err)
+			}
+			first, err := lib.GetVersion(ctx, versions[0].ID)
+			if err != nil || len(first.Files) != 1 || string(first.Files[0].Content) != "old\n" {
+				t.Fatalf("migrated first version = %#v, %v", first, err)
+			}
+			wantActivations := []library.Activation{
+				{
+					SkillID:    1,
+					Scope:      library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: 1},
+					Directory:  filepath.Join(projectPath, ".claude", "skills"),
+					Individual: true,
+				},
+				{
+					SkillID:    1,
+					Scope:      library.GlobalScope{Agent: library.AgentCodex},
+					Directory:  filepath.Join(home, ".agents", "skills"),
+					Individual: true,
+					ViaGroups:  []library.GroupID{1},
+				},
+			}
+			if got, err := lib.ListActivations(ctx); err != nil || !reflect.DeepEqual(got, wantActivations) {
+				t.Fatalf("migrated activations = %#v, %v; want %#v", got, err, wantActivations)
+			}
+			if projects, err := lib.ListRegisteredProjects(ctx); err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{{ID: 1, Path: projectPath}}) {
+				t.Fatalf("migrated projects = %#v, %v", projects, err)
+			}
+			if version >= 6 {
+				api.Reset()
+				if available, err := lib.CheckUpdate(ctx, 1); err != nil || available {
+					t.Fatalf("CheckUpdate on migrated confirmed commit = %v, %v", available, err)
+				}
+				assertGitHubCommitOnly(t, api, 1)
+			}
+			if err := lib.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := library.Open(path)
+			if err != nil {
+				t.Fatalf("reopen migrated library: %v", err)
+			}
+			t.Cleanup(func() { _ = reopened.Close() })
+			if got, err := reopened.ListActivations(ctx); err != nil || !reflect.DeepEqual(got, wantActivations) {
+				t.Fatalf("reopened activations = %#v, %v", got, err)
 			}
 		})
 	}

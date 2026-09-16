@@ -1,6 +1,6 @@
 -- Library 的 SQLite 表结构,由 library.Open 嵌入执行。
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
--- user_version=5 让 Activation 只存 Scope 身份(见 ADR 0011);Open 将已有 v1–v4 库迁移到当前版本。
+-- user_version=7 让 URL / Store 来源记录服务端给出的 HTTP validator(见 ADR 0006);Open 将已有 v1–v6 库迁移到当前版本。
 
 -- skill 的安装来源。
 CREATE TABLE IF NOT EXISTS sources (
@@ -8,7 +8,12 @@ CREATE TABLE IF NOT EXISTS sources (
     type TEXT NOT NULL,                     -- 来源类型:github / url / store / local
     locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 包ID+版本 / 本地路径)
     last_fetched TEXT NOT NULL DEFAULT '',  -- 上次抓取时间,RFC3339Nano;空串 = 从未抓取(本地来源恒为空)
-    last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希),用于判断有无更新
+    last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希);Source 级展示信息,
+                                            -- 同来源下各 Skill 共享,更新判定走 skill_versions.confirmed_commit / http_validator
+    http_validator TEXT NOT NULL DEFAULT '',-- URL / Store 上次成功抓取时服务端给出的 HTTP validator 原文
+                                            -- (优先 ETag,否则合法 HTTP-date 的 Last-Modified);检查与更新据它发条件请求,
+                                            -- 能解析为日期的填 If-Modified-Since、其余填 If-None-Match,304 即无更新。
+                                            -- 服务端未给出、GitHub / local 来源恒为空 = 不带条件头
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
 );
 
@@ -22,10 +27,13 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 -- skill 的历史版本;本身只是一个版本号,文件清单在 version_files。
+-- git_tree_sha 与 confirmed_commit 一起构成该版本的抓取记录:目录内容是什么、在哪个 commit 上确认过它是远端最新。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY,                          -- 自增;同一 skill 内按 id 升序即版本先后顺序
     skill_id INTEGER NOT NULL REFERENCES skills(id),
-    git_tree_sha TEXT NOT NULL DEFAULT ''            -- GitHub 来源该 Skill 目录的 git tree SHA;非 git 为空
+    git_tree_sha TEXT NOT NULL DEFAULT '',           -- GitHub 来源该 Skill 目录的 git tree SHA;非 git 为空
+    confirmed_commit TEXT NOT NULL DEFAULT ''        -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;
+                                                     -- 检查时远端 commit 与之相同即无更新、不取 tree。非 git 或迁移前的旧版本为空 = 未知,走完整比较
 );
 
 -- 内容寻址的文件内容存储:指纹是内容的 sha256,相同内容跨版本、跨 skill 只存一份。

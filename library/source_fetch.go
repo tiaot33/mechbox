@@ -31,14 +31,21 @@ type discoveredSource struct {
 	skills      []fetchedSkill
 	diagnostics []CandidateDiagnostic
 	ref         string
+	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator 原文(ETag 或 Last-Modified);
+	// 未给出为空。304 时沿用请求所带的那个。
+	httpValidator string
+	// unchanged 表示带条件头的请求收到 304:远端未变,skills 为空,调用方沿用库中内容。
+	unchanged bool
 }
 
-func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath string) (discoveredSource, error) {
+// fetchRemote 读取远端来源。validator 是 Source 上记录的 HTTP validator 原文(ETag 或 Last-Modified),
+// 非空时 URL / Store 的请求带条件头,304 以 unchanged 返回;GitHub 不使用它。Fetch 必须拿到内容,传空。
+func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
 	switch source.Type {
 	case SourceGitHub:
 		return l.fetchGitHub(ctx, source.Locator, subpath)
 	case SourceURL:
-		return fetchArchive(ctx, source.Locator.URL)
+		return fetchArchive(ctx, source.Locator.URL, validator)
 	case SourceStore:
 		base := os.Getenv("SKILLS_STORE_URL")
 		if base == "" {
@@ -48,7 +55,7 @@ func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath 
 		if _, err := url.Parse(base); err != nil {
 			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
 		}
-		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version))
+		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version), validator)
 	default:
 		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "unsupported remote source type"}
 	}
@@ -178,8 +185,37 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
-// fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。
-func fetchArchive(ctx context.Context, location string) (result discoveredSource, err error) {
+// responseValidator 取服务端给出的 validator 原文:优先 ETag(原样,包括不合规的无引号写法——回填时服务端按自己的
+// 写法比对),其次 Last-Modified,但只接受能按 HTTP-date 解析的值;都没有或日期非法为空,即下次不带条件头。
+func responseValidator(header http.Header) string {
+	if etag := header.Get("ETag"); etag != "" {
+		return etag
+	}
+	if modified := header.Get("Last-Modified"); modified != "" {
+		if _, err := http.ParseTime(modified); err == nil {
+			return modified
+		}
+	}
+	return ""
+}
+
+// applyValidator 按 validator 原文带条件头:能解析为 HTTP-date 的是 Last-Modified → If-Modified-Since,
+// 其余一律视为 ETag → If-None-Match。不按引号判定,免得无引号 ETag 被当成日期发出去。
+func applyValidator(req *http.Request, validator string) {
+	if validator == "" {
+		return
+	}
+	if _, err := http.ParseTime(validator); err == nil {
+		req.Header.Set("If-Modified-Since", validator)
+		return
+	}
+	req.Header.Set("If-None-Match", validator)
+}
+
+// fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。validator 非空时带条件头,
+// 服务端回 304 即远端未变:不读正文,以 unchanged 返回并沿用该 validator。304 与其他非 2xx 的区分只发生在
+// 带了条件头的请求上;不带条件头收到 304 按普通错误处理。
+func fetchArchive(ctx context.Context, location, validator string) (result discoveredSource, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -189,6 +225,7 @@ func fetchArchive(ctx context.Context, location string) (result discoveredSource
 	if err != nil {
 		return result, argumentError("fetch source", "url", "invalid source URL")
 	}
+	applyValidator(req, validator)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -197,6 +234,9 @@ func fetchArchive(ctx context.Context, location string) (result discoveredSource
 		return result, fetchError(fetchErrorCode(err), "fetch source", errors.New("source could not be reached"))
 	}
 	defer response.Body.Close()
+	if validator != "" && response.StatusCode == http.StatusNotModified {
+		return discoveredSource{httpValidator: validator, unchanged: true}, nil
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		code := SourceUnreachable
 		if response.StatusCode == 401 || response.StatusCode == 403 {
@@ -220,6 +260,7 @@ func fetchArchive(ctx context.Context, location string) (result discoveredSource
 	}
 	sum := sha256.Sum256(content)
 	result.ref = hex.EncodeToString(sum[:])
+	result.httpValidator = responseValidator(response.Header)
 	return result, nil
 }
 

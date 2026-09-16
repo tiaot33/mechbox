@@ -67,7 +67,8 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
 		t.Fatalf("unchanged CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	// 安装时钉住的 commit 未变:只解析 commit,不取 tree。
+	assertGitHubCommitOnly(t, api, 1)
 	current, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || !reflect.DeepEqual(current, before) {
 		t.Fatalf("check wrote Library: %#v, %v", current, err)
@@ -87,6 +88,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
 		t.Fatalf("unrelated path second CheckUpdate = %v, %v", available, err)
 	}
+	// commit 前进、目录未变:要取 tree 比较目录 SHA,但不取 Skill 文件。
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	stale, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || stale.Source.LastSeenRef != fx.commit {
@@ -143,11 +145,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if checks[0].Error != nil || !checks[0].Available || checks[1].Error != nil || checks[1].Available {
 		t.Fatalf("CheckUpdates availability = %#v", checks)
 	}
-	_, trees, _ := gitHubAPIKindCounts(t, api)
-	if trees != 1 {
-		t.Fatalf("CheckUpdates trees=%d (%v), want one tree", trees, api.snapshot())
+	// 上面的 CheckUpdate 已取过新 root tree,批量检查命中 memo,只再解析 branch commit。
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 1 || trees != 0 || blobs != 0 {
+		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want one commit: %#v", commits, trees, blobs, api.snapshot())
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("CheckUpdates wrote history: %#v, %v", versions, err)
 	}
@@ -225,7 +227,7 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 	if available, err := lib.CheckUpdate(ctx, bar.ID); err != nil || available {
 		t.Fatalf("bar CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCommitOnly(t, api, 2)
 
 	writeFile(t, filepath.Join(repo, "foo", "SKILL.md"), []byte(skillDocument("bar", "changed bar")), 0o644)
 	commitGit(t, repo, "change directory foo")
@@ -306,11 +308,12 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 		t.Fatalf("backfill created version: %#v, %v", versions, err)
 	}
 
+	// 补写 SHA 的同时补写了确认 commit:旧记录经一次 Update 就进入只解析 commit 的快路径。
 	api.Reset()
 	if available, err := lib.CheckUpdate(ctx, legacy.ID); err != nil || available {
 		t.Fatalf("after backfill CheckUpdate = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCommitOnly(t, api, 1)
 
 	writeFile(t, filepath.Join(repo, "sibling", "notes.md"), []byte("changed notes"), 0o644)
 	commitGit(t, repo, "change sibling")
@@ -329,6 +332,244 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	}
 	if versions, err := lib.ListVersions(ctx, sibling.ID); err != nil || len(versions) != 2 {
 		t.Fatalf("changed empty SHA versions = %#v, %v", versions, err)
+	}
+}
+
+func TestGitHubUpdateDownloadsOnlyChangedBlob(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md":    {content: []byte("old notes"), mode: 0o644},
+		"demo/scripts/run": {content: []byte("echo old"), mode: 0o755},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	writeFile(t, filepath.Join(repo, "demo", "notes.md"), []byte("new notes"), 0o644)
+	commitGit(t, repo, "change notes")
+	changed := inspectGitHubRepo(t, repo)
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "notes.md", Content: []byte("new notes"), Mode: library.ModeRegular},
+		{Path: "scripts/run", Content: []byte("echo old"), Mode: library.ModeExecutable},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api, "demo/notes.md")
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	oldVer, err := lib.GetVersion(ctx, versions[0].ID)
+	if err != nil || !reflect.DeepEqual(oldVer.Files, installed[0].Files) {
+		t.Fatalf("GetVersion old = %#v, %v", oldVer, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDiff := library.VersionDiff{Changed: []string{"notes.md"}}
+	if !reflect.DeepEqual(diff, wantDiff) {
+		t.Fatalf("DiffVersions = %#v, want %#v", diff, wantDiff)
+	}
+}
+
+func TestGitHubUpdateReusesBlobWhenOnlyExecutableBitFlips(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md":    {content: []byte("notes"), mode: 0o644},
+		"demo/scripts/run": {content: []byte("echo run"), mode: 0o755},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	if err := os.Chmod(filepath.Join(repo, "demo", "scripts", "run"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitGit(t, repo, "drop executable")
+	changed := inspectGitHubRepo(t, repo)
+	if changed.blobSHA("demo/scripts/run") != fx.blobSHA("demo/scripts/run") {
+		t.Fatal("fixture changed blob SHA when only mode flipped")
+	}
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "notes.md", Content: []byte("notes"), Mode: library.ModeRegular},
+		{Path: "scripts/run", Content: []byte("echo run"), Mode: library.ModeRegular},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api)
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil || len(diff.Changed)+len(diff.Added)+len(diff.Deleted) != 0 {
+		t.Fatalf("DiffVersions = %#v, %v, want empty (mode-only)", diff, err)
+	}
+}
+
+func TestGitHubUpdateDownloadsOnlyAddedBlob(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md": {content: []byte("notes"), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	writeFile(t, filepath.Join(repo, "demo", "extra.md"), []byte("new file"), 0o644)
+	commitGit(t, repo, "add extra")
+	changed := inspectGitHubRepo(t, repo)
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "extra.md", Content: []byte("new file"), Mode: library.ModeRegular},
+		{Path: "notes.md", Content: []byte("notes"), Mode: library.ModeRegular},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api, "demo/extra.md")
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDiff := library.VersionDiff{Added: []string{"extra.md"}}
+	if !reflect.DeepEqual(diff, wantDiff) {
+		t.Fatalf("DiffVersions = %#v, want %#v", diff, wantDiff)
+	}
+}
+
+func TestGitHubUpdateReusesBlobWhenFileMoves(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md": {content: []byte("same notes"), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(repo, "demo", "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(repo, "demo", "notes.md"), filepath.Join(repo, "demo", "docs", "notes.md")); err != nil {
+		t.Fatal(err)
+	}
+	commitGit(t, repo, "move notes")
+	changed := inspectGitHubRepo(t, repo)
+	if changed.blobSHA("demo/docs/notes.md") != fx.blobSHA("demo/notes.md") {
+		t.Fatal("moved file blob SHA changed")
+	}
+	api.Swap(changed)
+	api.Reset()
+	result, err := lib.Update(ctx, installed[0].ID)
+	if err != nil || !result.Changed {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	wantFiles := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
+		{Path: "docs/notes.md", Content: []byte("same notes"), Mode: library.ModeRegular},
+	}
+	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
+		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
+	}
+	assertGitHubBlobPaths(t, api)
+
+	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+	newVer, err := lib.GetVersion(ctx, versions[1].ID)
+	if err != nil || !reflect.DeepEqual(newVer.Files, wantFiles) {
+		t.Fatalf("GetVersion new = %#v, %v", newVer, err)
+	}
+	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDiff := library.VersionDiff{Added: []string{"docs/notes.md"}, Deleted: []string{"notes.md"}}
+	if !reflect.DeepEqual(diff, wantDiff) {
+		t.Fatalf("DiffVersions = %#v, want %#v", diff, wantDiff)
 	}
 }
 
@@ -465,6 +706,14 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 	}
 }
 
+func assertGitHubBlobPaths(t *testing.T, api *gitHubAPIMock, want ...string) {
+	t.Helper()
+	got := api.blobPaths()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("blob paths = %v, want %v (%#v)", got, want, api.snapshot())
+	}
+}
+
 func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture, skillPath string) {
 	t.Helper()
 	allowed := map[string]bool{}
@@ -499,6 +748,8 @@ func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture,
 	}
 }
 
+// assertGitHubCheckDoesNotFetchSkillFiles 适用于 commit 未命中、必须取 tree 比较目录 SHA 的检查:
+// 取了 commit 与 tree,发现阶段至多读候选的 SKILL.md,不取任何其他 Skill 文件。commit 命中的场景用 assertGitHubCommitOnly。
 func assertGitHubCheckDoesNotFetchSkillFiles(t *testing.T, api *gitHubAPIMock) {
 	t.Helper()
 	commits, trees, _ := gitHubAPIKindCounts(t, api)

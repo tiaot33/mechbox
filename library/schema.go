@@ -14,7 +14,7 @@ import (
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 5
+	librarySchemaVersion = 7
 	agentSeedSQL         = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
@@ -133,6 +133,8 @@ func migrateLibrary(ctx context.Context, db *sql.DB, home string) error {
 		return nil
 	case 1, 2, 3, 4:
 		return migrateToScopeIdentity(ctx, db, userVersion, home)
+	case 5, 6:
+		return migrateFetchRecords(ctx, db, userVersion)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
@@ -154,9 +156,51 @@ var legacyLayouts = map[AgentCode]agentLayout{
 	AgentCodex: {global: ".codex/skills", project: ".codex/skills"},
 }
 
-// migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:v1 补 skill_versions 列,v3 补 Agent 名称,
-// 然后把 Activation 改为只存 Scope 身份。路径型行能识别为某 Agent 的全局或某已登记项目的写成身份,
-// 映射到同一身份的多行合并依据;无法识别的行丢弃。磁盘上任何目录都不动(见 ADR 0011)。
+// legacySourceColumns 是 v1–v6 库 sources 表已有的列;v7 新增的 http_validator 取默认空值。
+const legacySourceColumns = "id, type, locator, last_fetched, last_seen_ref"
+
+// migrateFetchRecords 把 v5 / v6 库升到当前版本:v5 先给 skill_versions 补确认 commit 列,两者都给 sources 补
+// HTTP validator 列。只加列不回填——sources.last_seen_ref 是 Source 级的,对多 Skill 仓库不能当作某个版本的
+// 确认 commit,空值即"未知,走完整比较";validator 只能由服务端给出,空值即"不带条件头"。
+func migrateFetchRecords(ctx context.Context, db *sql.DB, version int) error {
+	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
+		var statements []string
+		if version == 5 {
+			rebuild, err := rebuildTableSQL(ctx, "skill_versions", "id, skill_id, git_tree_sha")
+			if err != nil {
+				return err
+			}
+			statements = append(statements, rebuild)
+		}
+		rebuild, err := rebuildTableSQL(ctx, "sources", legacySourceColumns)
+		if err != nil {
+			return err
+		}
+		statements = append(statements, rebuild, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
+		_, err = tx.ExecContext(ctx, strings.Join(statements, ";\n"))
+		return err
+	})
+}
+
+// rebuildTableSQL 按当前 schema 重建 name 表,只搬旧库已有的 columns;新列取默认值。
+// 不用 ALTER TABLE ADD COLUMN:它会改写 sqlite_master 里的建表文本,与 schema.sql 的指纹对不上。
+func rebuildTableSQL(ctx context.Context, name, columns string) (string, error) {
+	createSQL, err := canonicalTableSQL(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join([]string{
+		`CREATE TABLE ` + name + `_migrate AS SELECT ` + columns + ` FROM ` + name,
+		`DROP TABLE ` + name, createSQL,
+		`INSERT INTO ` + name + `(` + columns + `) SELECT ` + columns + ` FROM ` + name + `_migrate`,
+		`DROP TABLE ` + name + `_migrate`,
+	}, ";\n"), nil
+}
+
+// migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:重建 skill_versions 补齐 v1 缺的 tree SHA 列与
+// v6 新增的确认 commit 列,重建 sources 补 v7 新增的 HTTP validator 列,v3 补 Agent 名称,然后把 Activation 改为
+// 只存 Scope 身份。路径型行能识别为某 Agent 的全局或某已登记项目的写成身份,映射到同一身份的多行合并依据;
+// 无法识别的行丢弃。磁盘上任何目录都不动(见 ADR 0011)。
 func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home string) error {
 	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
 		legacy, err := readLegacyActivations(ctx, tx, version)
@@ -164,17 +208,16 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 			return err
 		}
 		statements := []string{`DROP TABLE activation_groups`, `DROP TABLE activations`}
+		versionColumns := "id, skill_id, git_tree_sha"
 		if version == 1 {
-			createSQL, err := canonicalTableSQL(ctx, "skill_versions")
+			versionColumns = "id, skill_id"
+		}
+		for _, table := range [][2]string{{"skill_versions", versionColumns}, {"sources", legacySourceColumns}} {
+			rebuild, err := rebuildTableSQL(ctx, table[0], table[1])
 			if err != nil {
 				return err
 			}
-			statements = append(statements,
-				`CREATE TABLE skill_versions_migrate AS SELECT id, skill_id FROM skill_versions`,
-				`DROP TABLE skill_versions`, createSQL,
-				`INSERT INTO skill_versions(id, skill_id) SELECT id, skill_id FROM skill_versions_migrate`,
-				`DROP TABLE skill_versions_migrate`,
-			)
+			statements = append(statements, rebuild)
 		}
 		if version == 3 {
 			createSQL, err := canonicalTableSQL(ctx, "agents")

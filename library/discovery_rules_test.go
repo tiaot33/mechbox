@@ -238,15 +238,19 @@ func TestGitHubBatchCheckReusesDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 推进一个与两个 Skill 都无关的 commit,让检查必须取 tree 重新发现候选。
+	writeFile(t, filepath.Join(repo, "README.md"), []byte("unrelated"), 0o644)
+	commitGit(t, repo, "unrelated")
+	api.Swap(inspectGitHubRepo(t, repo))
 	api.Reset()
 	got, err := lib.CheckUpdates(t.Context(), []library.SkillID{installed[0].ID, installed[1].ID})
 	if err != nil || len(got) != 2 || got[0].Error != nil || got[1].Error != nil || got[0].Available || got[1].Available {
 		t.Fatalf("checks = %#v, %v", got, err)
 	}
-	assertGitHubPreviewRequests(t, api, fx, "skills/first/SKILL.md", "skills/second/SKILL.md")
-	commits, trees, _ := gitHubAPIKindCounts(t, api)
-	if commits != 1 || trees != 1 {
-		t.Fatalf("commits = %d, trees = %d", commits, trees)
+	// Fetch 已把各候选 SKILL.md 写入进程内 memo;commit 前进只再取新 root tree。
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 1 || trees != 1 || blobs != 0 {
+		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want commit+tree only: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 

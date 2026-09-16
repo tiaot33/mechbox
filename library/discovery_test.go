@@ -16,16 +16,6 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
-func serveArchive(t *testing.T, archive []byte) library.SourceSpec {
-	t.Helper()
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
-	return library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
-}
-
 func TestFetchRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -20,7 +19,8 @@ type sqliteLibrary struct {
 	fetches map[FetchID]*fetchSession
 	closed  bool
 
-	githubAnonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,仅本实例持有
+	githubAuth githubAuth       // GitHub 鉴权阶梯状态(限流窗口、token / CLI 已确认可用),仅本实例持有
+	githubMemo githubObjectMemo // 进程内 GitHub 不可变对象 memo(tree / blob / 完整 SHA 的 commit),不是数据来源
 }
 
 type libraryOperationKey struct{}
@@ -41,7 +41,7 @@ func (l *sqliteLibrary) writeOperation(ctx context.Context) (context.Context, fu
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v4 库会迁移到当前 schema。
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v6 库会迁移到当前 schema。
 func Open(path string) (Library, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -81,7 +81,7 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
-	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}}, nil
+	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}, githubMemo: newGitHubMemo()}, nil
 }
 
 func (l *sqliteLibrary) Close() error {
@@ -94,5 +94,9 @@ func (l *sqliteLibrary) Close() error {
 	}
 	clear(l.fetches)
 	l.fetchMu.Unlock()
+	l.githubAuth.anonymousReset.Store(0)
+	l.githubAuth.useToken.Store(false)
+	l.githubAuth.useCLI.Store(false)
+	l.githubMemo.release()
 	return l.db.Close()
 }

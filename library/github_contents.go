@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,11 +45,37 @@ func (e *githubHTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.status)
 }
 
+// githubAuth 是 Library 实例级的 GitHub 鉴权阶梯状态:匿名 → 环境 token → gh CLI。
+// 一个 Library 实例只爬一次阶梯:某一级被明确拒绝(见 githubAuthDenied)且更高一级成功后,
+// 实例记住"从那一级起步",后续操作不再重试被拒的那级;Close 清空,重新 Open 从匿名重新开始。
+// 限流只写避让窗口,窗口到期后回到匿名;token 限流时经 CLI 成功不粘住 CLI(限流是暂时的),
+// 所以 useToken 为 true 时 useCLI 仍可能为 false,这一级的位置由两个标志共同决定。
+type githubAuth struct {
+	anonymousReset atomic.Int64 // 匿名 API 限流窗口的 Unix 秒,到期前跳过匿名请求
+	useToken       atomic.Bool  // 匿名被明确拒绝且更高一级已成功:后续不再试匿名
+	useCLI         atomic.Bool  // HTTP 路径被明确拒绝且 gh CLI 已成功:后续直接走 CLI
+}
+
+// githubClient 是一次操作内的 GitHub API 读取器:阶梯位置从实例级 githubAuth 起步,
+// 操作内因限流或含义模糊的 403 爬到的更高一级只在本客户端内记住。
+// 不可变 git 对象的进程内 memo 挂在 Library 实例上,经此客户端读取。
 type githubClient struct {
-	token          string
-	useToken       bool
-	useCLI         bool
-	anonymousReset *atomic.Int64
+	token    string
+	useToken bool
+	useCLI   bool
+	auth     *githubAuth
+	memo     *githubObjectMemo
+}
+
+// newGitHubClient 是构造 GitHub 客户端的唯一入口;Fetch / InstallFetch 与检查 / 更新路径共用。
+func (l *sqliteLibrary) newGitHubClient() *githubClient {
+	return &githubClient{
+		token:    githubToken(),
+		useToken: l.githubAuth.useToken.Load(),
+		useCLI:   l.githubAuth.useCLI.Load(),
+		auth:     &l.githubAuth,
+		memo:     &l.githubMemo,
+	}
 }
 
 type githubCommitResponse struct {
@@ -96,8 +124,12 @@ func githubToken() string {
 // fetchGitHubContents 用 GitHub Git Database API 按已解析的 owner/repo 与 ref 取 recursive tree。
 // 只取各候选 SKILL.md;安装再按 blob SHA 取所选目录。
 func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
-	snap, err := l.fetchGitHubTreeSnapshot(ctx, owner, repo, locator)
+	snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, locator)
 	if err != nil {
+		return discoveredSource{}, err
+	}
+	// 预览一定需要目录信息,立即取 tree。
+	if err := snap.loadTree(ctx); err != nil {
 		return discoveredSource{}, err
 	}
 	root, err := resolveGitHubSubpath(snap.entries, subpath)
@@ -112,41 +144,52 @@ func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo str
 	return finishDiscovery(result)
 }
 
+// commit 把 ref 解析成 commit 与 root tree。ref 为完整 SHA 时响应不可变,可进 memo;分支 / tag 只合并在途请求。
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
-	var payload githubCommitResponse
-	if err := c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
-		return "", "", err
-	}
-	commit = strings.ToLower(strings.TrimSpace(payload.SHA))
-	tree = strings.ToLower(strings.TrimSpace(payload.Commit.Tree.SHA))
-	if !fullCommit.MatchString(commit) || !fullCommit.MatchString(tree) {
-		return "", "", errGitHubContentsFallback
-	}
-	return commit, tree, nil
+	immutable := fullCommit.MatchString(ref)
+	got, err := memoized(ctx, c.memo, &c.memo.commits, memoKey(memoCommit, owner, repo, ref), func() (githubCommitMemo, bool, error) {
+		var payload githubCommitResponse
+		if err := c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
+			return githubCommitMemo{}, false, err
+		}
+		resolved := githubCommitMemo{
+			commit: strings.ToLower(strings.TrimSpace(payload.SHA)),
+			tree:   strings.ToLower(strings.TrimSpace(payload.Commit.Tree.SHA)),
+		}
+		if !fullCommit.MatchString(resolved.commit) || !fullCommit.MatchString(resolved.tree) {
+			return githubCommitMemo{}, false, errGitHubContentsFallback
+		}
+		return resolved, immutable, nil
+	})
+	return got.commit, got.tree, err
 }
 
+// recursiveTree 取 recursive tree;只有完整(非 truncated)的响应进 memo。
 func (c *githubClient) recursiveTree(ctx context.Context, owner, repo, sha string) (githubTreeResponse, error) {
-	var payload githubTreeResponse
-	location := githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha) + "?recursive=1"
-	if err := c.get(ctx, location, &payload); err != nil {
-		return githubTreeResponse{}, err
-	}
-	return payload, nil
+	return memoized(ctx, c.memo, &c.memo.trees, memoKey(memoTree, owner, repo, sha), func() (githubTreeResponse, bool, error) {
+		var payload githubTreeResponse
+		err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha)+"?recursive=1", &payload)
+		return payload, err == nil && !payload.Truncated, err
+	})
 }
 
+// blob 取 blob 正文;解码后按 git blob 规则重算 SHA 与请求的 SHA 对上才算完整,否则视为 API 不可用且不进 memo。
 func (c *githubClient) blob(ctx context.Context, owner, repo, sha string) ([]byte, error) {
-	var payload githubBlobResponse
-	if err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/blobs/%s", owner, repo, sha), &payload); err != nil {
-		return nil, err
-	}
-	if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
-		return nil, errGitHubContentsFallback
-	}
-	content, err := base64.StdEncoding.DecodeString(payload.Content)
-	if err != nil || len(content) != payload.Size {
-		return nil, errGitHubContentsFallback
-	}
-	return content, nil
+	key := memoKey(memoBlob, owner, repo, sha)
+	return memoized(ctx, c.memo, &c.memo.blobs, key, func() ([]byte, bool, error) {
+		var payload githubBlobResponse
+		if err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/blobs/%s", owner, repo, sha), &payload); err != nil {
+			return nil, false, err
+		}
+		if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
+			return nil, false, errGitHubContentsFallback
+		}
+		content, err := base64.StdEncoding.DecodeString(payload.Content)
+		if err != nil || len(content) != payload.Size || gitBlobSHA(content) != key.id {
+			return nil, false, errGitHubContentsFallback
+		}
+		return content, true, nil
+	})
 }
 
 func githubAPIURL(pattern string, owner, repo, object string) string {
@@ -158,21 +201,34 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return githubCLIGet(ctx, location, dest)
 	}
 	err := errGitHubContentsFallback
-	if !c.useToken && time.Now().Unix() >= c.anonymousReset.Load() {
+	// anonymousDenied 决定实例是否跳过匿名;httpDenied 是 HTTP 路径最后一级(有 token 则为 token)的结论,决定是否直接走 CLI。
+	// 两者都只在更高一级成功后才写回实例:GitHub 对"私有仓库对匿名隐藏"和"资源不存在"同样回 404,
+	// 单靠一次被拒分不清,只有下一级真的拿到了同一个对象才证明是前者。
+	anonymousDenied := false
+	if !c.useToken && time.Now().Unix() >= c.auth.anonymousReset.Load() {
 		err = githubAPIGetOnce(ctx, location, "", dest)
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
-			c.anonymousReset.Store(httpErr.reset)
+			c.auth.anonymousReset.Store(httpErr.reset)
 		}
 		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
+		anonymousDenied = githubAuthDenied(err)
 	}
+	httpDenied := anonymousDenied
 	if c.token != "" {
 		c.useToken = true
 		err = githubAPIGetOnce(ctx, location, c.token, dest)
-		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
+		if err == nil {
+			if anonymousDenied {
+				c.auth.useToken.Store(true)
+			}
+			return nil
+		}
+		if ctx.Err() != nil || !isGitHubAuthRetry(err) {
 			return err
 		}
+		httpDenied = githubAuthDenied(err)
 	}
 	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
 		if ctx.Err() != nil {
@@ -181,7 +237,20 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		return err
 	}
 	c.useCLI = true
+	if anonymousDenied {
+		c.auth.useToken.Store(true)
+	}
+	if httpDenied {
+		c.auth.useCLI.Store(true)
+	}
 	return nil
+}
+
+// githubAuthDenied 表示这一级被明确拒绝:私有仓库对匿名返回 404,失效 token 返回 401。
+// 限流与含义模糊的 403(次级限流、SSO 等)不算,它们不值得让整个实例记住下一级。
+func githubAuthDenied(err error) bool {
+	httpErr, ok := errors.AsType[*githubHTTPError](err)
+	return ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusNotFound)
 }
 
 // githubCLIGet 使用 gh 自己的登录态,不导出凭证,也不向门面透传任何命令输出。
@@ -427,12 +496,13 @@ func fetchGitHubSkillFiles(ctx context.Context, client *githubClient, owner, rep
 	return files, nil
 }
 
-// githubSourceSnapshot 是一次 GitHub 来源读取:API 只拿到 tree,或克隆回退后已有各 Skill 文件。
+// githubSourceSnapshot 是一次 GitHub 来源读取:API 路径先只解析 commit,recursive tree 在首次需要目录信息时
+// 才取(见 loadTree);克隆回退后已有各 Skill 文件。
 type githubSourceSnapshot struct {
 	ref          string
 	rootTree     string
-	entries      []githubTreeEntry
-	byPath       map[string]githubTreeEntry
+	entries      []githubTreeEntry          // loadTree 之后才有
+	byPath       map[string]githubTreeEntry // nil 表示尚未取 tree
 	owner        string
 	repo         string
 	locator      SourceLocator
@@ -448,11 +518,11 @@ type githubRemoteSkill struct {
 	blobs      []githubBlob
 }
 
-// readGitHubSnapshot 对同一 Source 只远程读一次 tree(或一次克隆),供检查与更新共用。
+// readGitHubSnapshot 对同一 Source 只远程读一次 commit(tree 按需、至多一次;或一次克隆),供检查与更新共用。
 func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapshot, error) {
 	var apiErr error
 	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
-		snap, err := l.fetchGitHubTreeSnapshot(ctx, owner, repo, source.Locator)
+		snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, source.Locator)
 		if err == nil {
 			snap.locator = source.Locator
 			return snap, nil
@@ -472,37 +542,66 @@ func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (
 	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills, locator: source.Locator}, nil
 }
 
-func (l *sqliteLibrary) fetchGitHubTreeSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
-	client := &githubClient{token: githubToken(), anonymousReset: &l.githubAnonymousReset}
+// fetchGitHubCommitSnapshot 只发一次 commits/{ref} 把 ref 解析成 commit 与 root tree,不取 recursive tree。
+func (l *sqliteLibrary) fetchGitHubCommitSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
+	client := l.newGitHubClient()
 	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
 	if err != nil {
 		return githubSourceSnapshot{}, err
 	}
-	tree, err := client.recursiveTree(ctx, owner, repo, rootTree)
+	return githubSourceSnapshot{ref: commit, rootTree: rootTree, owner: owner, repo: repo, client: client}, nil
+}
+
+// loadTree 取 recursive tree 并建路径索引;已取过则不再请求。截断的 tree 给不出完整目录,视为 API 不可用。
+func (s *githubSourceSnapshot) loadTree(ctx context.Context) error {
+	if s.byPath != nil {
+		return nil
+	}
+	tree, err := s.client.recursiveTree(ctx, s.owner, s.repo, s.rootTree)
 	if err != nil {
-		return githubSourceSnapshot{}, err
+		return err
 	}
 	if tree.Truncated {
-		return githubSourceSnapshot{}, errGitHubContentsFallback
+		return errGitHubContentsFallback
 	}
 	byPath := make(map[string]githubTreeEntry, len(tree.Tree))
 	for _, entry := range tree.Tree {
 		byPath[entry.Path] = entry
 	}
-	return githubSourceSnapshot{
-		ref:      commit,
-		rootTree: rootTree,
-		entries:  tree.Tree,
-		byPath:   byPath,
-		owner:    owner,
-		repo:     repo,
-		client:   client,
-	}, nil
+	s.entries, s.byPath = tree.Tree, byPath
+	return nil
+}
+
+// gitBlobSHA 按 git 对象规则从内容算出 blob SHA-1,供 Update 与远端 tree 比对后复用库中未变文件。
+func gitBlobSHA(content []byte) string {
+	sum := sha1.New()
+	fmt.Fprintf(sum, "blob %d\x00", len(content))
+	sum.Write(content)
+	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// rememberGitBlobs 把当前版本文件按 git blob SHA 写入进程内 memo,发现与取文件都走 client.blob。
+func (s *githubSourceSnapshot) rememberGitBlobs(files []File) {
+	if s.client == nil {
+		return
+	}
+	for _, file := range files {
+		memoPut(s.client.memo, &s.client.memo.blobs, memoKey(memoBlob, s.owner, s.repo, gitBlobSHA(file.Content)), file.Content)
+	}
+}
+
+// confirms 判断远端当前 commit 就是该版本记录的确认 commit:同一 commit 下目录 tree 必然未变,不必取 tree。
+func (s *githubSourceSnapshot) confirms(confirmedCommit string) bool {
+	return confirmedCommit != "" && s.ref == confirmedCommit
 }
 
 func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubRemoteSkill, error) {
 	if s.cloned == nil && s.discovered == nil {
-		result, err := discoverFromGitHubTree(ctx, s, ".")
+		// 首次需要目录信息时才取 recursive tree 并发现候选;commit 命中的检查不会走到这里。
+		result, err := discoveredSource{}, s.loadTree(ctx)
+		if err == nil {
+			result, err = discoverFromGitHubTree(ctx, s, ".")
+		}
 		s.discovered = &result
 		if err != nil && ctx.Err() == nil && githubContentsUnavailable(err) {
 			err = githubCloneError(ctx, err, s.fallbackClone(ctx))
@@ -587,7 +686,12 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 	return sha, nil
 }
 
-func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill) (bool, error) {
+// githubSkillHasUpdate 先看 commit:与当前版本的确认 commit 相同即无更新;否则取 tree 比较目录 SHA,
+// 无 SHA 的旧记录回退为比较文件与可执行位。
+func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill, confirmedCommit string) (bool, error) {
+	if snap.confirms(confirmedCommit) {
+		return false, nil
+	}
 	remote, err := snap.locate(ctx, skill)
 	if err != nil {
 		return false, err
@@ -605,7 +709,7 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;失败不入库,由调用方保留句柄。
 func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
 	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
-	client := &githubClient{token: githubToken(), anonymousReset: &l.githubAnonymousReset}
+	client := l.newGitHubClient()
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
 			continue
