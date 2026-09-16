@@ -44,6 +44,10 @@ func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath 
 		if base == "" {
 			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}
 		}
+		// 基址是配置而非调用方参数:语法不合法归 NotConfigured,不让 fetchArchive 报成 url 字段错误。
+		if _, err := url.Parse(base); err != nil {
+			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
+		}
 		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version))
 	default:
 		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "unsupported remote source type"}
@@ -69,7 +73,7 @@ func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, 
 	}
 	result, err := fetchGitHubClone(ctx, locator, subpath)
 	if err != nil {
-		return result, githubCloneError(ctx, apiErr, annotateMissingGitRef(err, locator.Branch))
+		return result, githubCloneError(ctx, apiErr, err)
 	}
 	return finishDiscovery(result)
 }
@@ -102,7 +106,7 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 			}
 			_, err = runSourceGit(ctx, "-C", repository, "checkout", "--quiet", "--detach", "FETCH_HEAD")
 		}
-		return err
+		return missingRefError(err, locator.Branch)
 	}
 	err = clone(locator.Repository)
 	if err != nil && ctx.Err() == nil {
@@ -118,7 +122,7 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 		}
 	}
 	if err != nil {
-		return result, annotateMissingGitRef(err, locator.Branch)
+		return result, err
 	}
 	output, err := runSourceGit(ctx, "-C", repository, "rev-parse", "HEAD")
 	if err != nil {
@@ -322,7 +326,7 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string) ([]File,
 			return nil
 		}
 		if !entry.Type().IsRegular() {
-			return &Error{Code: SourceInvalid, Message: fmt.Sprintf("read source: unsupported file type: %s", current)}
+			return fetchError(SourceInvalid, "read source", fmt.Errorf("unsupported file type: %s", current))
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -349,7 +353,7 @@ func finishDiscovery(result discoveredSource) (discoveredSource, error) {
 		for i, d := range result.diagnostics {
 			reasons[i] = d.Path + ": " + d.Reason
 		}
-		return discoveredSource{}, &Error{Code: SourceInvalid, Message: "no valid Skill candidates: " + strings.Join(reasons, "; ")}
+		return discoveredSource{}, fetchError(SourceInvalid, "no valid Skill candidates", errors.New(strings.Join(reasons, "; ")))
 	}
 	return result, nil
 }

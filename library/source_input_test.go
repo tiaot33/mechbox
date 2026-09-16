@@ -170,21 +170,14 @@ func TestResolveAndFetchRejectBadInputsAndPreserveCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.Fetch(t.Context(), spec); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("unknown ref = %v", err)
-	} else {
-		typed, _ := errors.AsType[*library.Error](err)
-		if typed.Details.Name != "does-not-exist" {
-			t.Fatalf("unknown ref details = %#v, want Name does-not-exist", typed.Details)
-		}
-	}
+	_, err = lib.Fetch(t.Context(), spec)
+	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Name: "does-not-exist"})
 	spec, err = lib.ResolveSource(t.Context(), "owner/repo@missing", library.ResolveSourceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.Fetch(t.Context(), spec); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("missing selection = %v", err)
-	}
+	_, err = lib.Fetch(t.Context(), spec)
+	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Name: "missing"})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := lib.ResolveSource(ctx, "owner/repo", library.ResolveSourceOptions{}); !errors.Is(err, context.Canceled) {

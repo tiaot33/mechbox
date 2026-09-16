@@ -1,7 +1,6 @@
 package library_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -88,8 +87,5 @@ func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = lib.DiffVersions(t.Context(), oldVersions[0].ID, newVersions[0].ID)
-	requireLibraryError(t, err, library.InvalidArgument)
-	if typed, _ := errors.AsType[*library.Error](err); typed.Details != (library.ErrorDetails{}) {
-		t.Fatalf("cross-skill details = %#v, want zero", typed.Details)
-	}
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{})
 }

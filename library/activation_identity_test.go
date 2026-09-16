@@ -474,14 +474,8 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, opts := range []library.ActivateOptions{{}, {OnConflict: library.Overwrite}} {
-		if err := lib.Activate(ctx, skill.ID, projectScope, opts); !library.IsCode(err, library.FailedPrecondition) {
-			t.Fatalf("Activate(%#v, %#v) = %v, want FailedPrecondition", projectScope, opts, err)
-		} else {
-			typed, _ := errors.AsType[*library.Error](err)
-			if typed.Details.Path != directory {
-				t.Fatalf("shared directory details = %#v, want Path %q", typed.Details, directory)
-			}
-		}
+		err := lib.Activate(ctx, skill.ID, projectScope, opts)
+		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: directory})
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: skill.ID, Scope: global, Directory: directory, Individual: true}}

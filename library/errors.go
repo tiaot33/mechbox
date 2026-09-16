@@ -17,7 +17,6 @@ func typedError(err error) error {
 		return err
 	}
 	code := Internal
-	var sqliteErr sqlite3.Error
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		code = Canceled
@@ -27,15 +26,26 @@ func typedError(err error) error {
 		code = Permission
 	case errors.Is(err, fs.ErrNotExist):
 		code = SourceUnreachable
-	case errors.As(err, &sqliteErr):
-		switch sqliteErr.ExtendedCode {
-		case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey:
-			code = AlreadyExists
-		case sqlite3.ErrConstraintForeignKey:
-			code = NotFound
-		}
+	default:
+		code = sqliteConstraintCode(err)
 	}
 	return &Error{Code: code, Message: err.Error(), Err: err}
+}
+
+// sqliteConstraintCode 是兜底映射:漏掉显式检查的 UNIQUE / PRIMARY KEY → AlreadyExists,FOREIGN KEY → NotFound,其余 Internal。
+func sqliteConstraintCode(err error) ErrorCode {
+	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
+	if !ok {
+		return Internal
+	}
+	switch sqliteErr.ExtendedCode {
+	case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey:
+		return AlreadyExists
+	case sqlite3.ErrConstraintForeignKey:
+		return NotFound
+	default:
+		return Internal
+	}
 }
 
 func fetchError(code ErrorCode, operation string, err error) error {

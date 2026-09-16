@@ -93,33 +93,33 @@ func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, dir
 // (例如把 $HOME 本身登记为项目)。这种情况下不新建第二条记录去争同一个文件夹。
 // 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有库锁,期间没有并发写入,
 // 且单连接模式下事务内不能再走 l.db 调 Resolve。
-func (l *sqliteLibrary) directoryClaimedByAnotherScope(ctx context.Context, id SkillID, target resolvedScope) (string, error) {
+func (l *sqliteLibrary) directoryClaimedByAnotherScope(ctx context.Context, id SkillID, target resolvedScope) (bool, error) {
 	rows, err := l.db.QueryContext(ctx, `SELECT agent, project_id FROM activations WHERE skill_id = ?`, id)
 	if err != nil {
-		return "", fmt.Errorf("list skill activations: %w", err)
+		return false, fmt.Errorf("list skill activations: %w", err)
 	}
 	var others []scopeRow
 	for rows.Next() {
 		var row scopeRow
 		if err := rows.Scan(&row.agent, &row.projectID); err != nil {
 			_ = rows.Close()
-			return "", fmt.Errorf("read skill activation: %w", err)
+			return false, fmt.Errorf("read skill activation: %w", err)
 		}
 		others = append(others, row)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return "", fmt.Errorf("read skill activations: %w", err)
+		return false, fmt.Errorf("read skill activations: %w", err)
 	}
 	for _, other := range others {
 		directory, err := l.Resolve(ctx, other.scope())
 		if err != nil {
-			return "", err
+			return false, err
 		}
 		if directory == target.directory {
-			return target.directory, nil
+			return true, nil
 		}
 	}
-	return "", nil
+	return false, nil
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
@@ -150,8 +150,8 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 	if existing == nil {
 		if claimed, err := l.directoryClaimedByAnotherScope(ctx, id, scope); err != nil {
 			return err
-		} else if claimed != "" {
-			return preconditionError("activate skill", "another scope already projects this skill into the same directory", ErrorDetails{Path: claimed})
+		} else if claimed {
+			return preconditionError("activate skill", "another scope already projects this skill into the same directory", ErrorDetails{Path: scope.directory})
 		}
 	}
 	target := filepath.Join(scope.directory, skill.Name)
@@ -375,8 +375,8 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		}
 		if claimed, err := l.directoryClaimedByAnotherScope(ctx, member.ID, target); err != nil {
 			return err
-		} else if claimed != "" {
-			return preconditionError("activate group", "another scope already projects a member into the same directory", ErrorDetails{Path: claimed})
+		} else if claimed {
+			return preconditionError("activate group", "another scope already projects a member into the same directory", ErrorDetails{Path: target.directory})
 		}
 		if opts.OnConflict == Overwrite {
 			continue

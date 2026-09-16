@@ -135,8 +135,9 @@ func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name
 
 // insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
 func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, gitTreeSHA string) (Skill, error) {
+	// 名字由来源发现阶段给出,调用方没有对应参数;为空是内部不变量被破坏,归 Internal。
 	if name == "" {
-		return Skill{}, argumentError("install skill", "name", "name is required")
+		return Skill{}, fmt.Errorf("install skill: name is required")
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
 	if err != nil {

@@ -60,7 +60,7 @@ func readFiles(ctx context.Context, root string) ([]File, error) {
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return &Error{Code: SourceInvalid, Message: fmt.Sprintf("read local source: unsupported file type: %s", path)}
+			return fetchError(SourceInvalid, "read local source", fmt.Errorf("unsupported file type: %s", path))
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {

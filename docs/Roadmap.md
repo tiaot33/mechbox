@@ -20,7 +20,7 @@
 `typedError`(`library/errors.go`)只映射 `sql.ErrNoRows` / `fs.ErrPermission` / `fs.ErrNotExist`,其余一律 `Internal`。大量用户可恢复的情况因此无法被 UI 分支。#67 覆盖 A1–A7,但 A4 中的 `RateLimited` / `Unauthenticated` 移至 E2(需与配置 API 一起落地才对 UI 有意义)。
 
 - [x] **A1 校验错误改用 `&Error{Code: InvalidArgument}`。** 现状(实测均为 `internal`):`CreateGroup` / `RenameGroup` 空名、`RegisterProject` 空路径或非目录、`RemoveSkill` / `UnregisterProject` 非法选项、`DiffVersions` 跨 skill、`insertSkill` 空名——都是 `fmt.Errorf`。→ #67
-- [x] **A2 映射 SQLite 约束错误。** `sqlite3.ErrConstraint` 的 UNIQUE 冲突 → `AlreadyExists`(同路径重复 `Install`、`InstallFetch` 选中已安装候选、`AddSkillToGroup` 重复;实测均为 `internal`),FK 失败 → `NotFound` / `FailedPrecondition`。→ #67
+- [x] **A2 映射 SQLite 约束错误。** `sqlite3.ErrConstraint` 的 UNIQUE 冲突 → `AlreadyExists`(同路径重复 `Install`、`InstallFetch` 选中已安装候选、`AddSkillToGroup` 重复;实测均为 `internal`),FK 失败 → `NotFound`。→ #67
 - [x] **A3 取消与超时不再是 `Internal`。** 实测:传入已取消的 ctx 调 `Update` → `internal("get skill: context canceled")`。新增 `Canceled`(必要时 `DeadlineExceeded`),`typedError` 识别 `context.Canceled` / `context.DeadlineExceeded`;ADR 0008 的 cancel 通知依赖它。→ #67
 - [x] **A4 新增错误码。** `Canceled`(见 A3)、`FailedPrecondition`(`Deactivate` 仅分组激活的 skill 现返回 `NotFound`,实测;分组同名成员与共享目录现返回 `AlreadyExists` 但 `Overwrite` 对它们无效;`SyncPull` 远端 schema 不可接受现返回 `Internal`)。`RateLimited`(附 retry-after)与 `Unauthenticated` / `Permission` 的区分已移至 E2。→ #67
 - [x] **A5 拆分过载的码。** 新增 `SourceInvalid`:`SourceUnreachable` 现同时表示网络不通、zip 损坏、超出 64 MB、S3 5xx、响应格式错;`InvalidArgument` 被用于 "no valid Skill candidates"(远端内容问题,不是调用方参数)。分界以"重试是否可能改变结果"为准。Store URL 未配置改为 `NotConfigured`;远端 ref 不存在改为 `NotFound`。→ #67
@@ -36,7 +36,7 @@
 - [ ] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed *SkillID`(或等价字段),UI 据此置灰;`InstallFetch` 选中已安装候选返回 `AlreadyExists`(现为 `internal`,见 A2)。
 - [ ] **B4 更新预览与绑定。** `PreviewUpdate(id) → {Available, RemoteRef, RemoteTreeSHA, Diff VersionDiff}` 取代只返回 `bool` 的 `CheckUpdate`;`Update(id, UpdateOptions{Expected})` 绑定预览时的远端标识,远端已变返回 `Conflict`(与 Sync 同模式)。现状:用户看到"有更新"点击后,实际拉到的可能是更新的 commit,且不知道改了哪些文件。
 - [ ] **B5 `UpdateResult.Note` 改为结构化。** 现为一句中文散文;改为 `StaleActivations []Activation`(依赖 C5)。
-- [ ] **B6 `RegisterProject` 重复注册携带已有 ID。** 实测返回 `AlreadyExists` 但不带既有 `ProjectID`,UI 无法跳转;放入 `Details`(A6)或提供 `FindRegisteredProject(path)`。
+- [x] **B6 `RegisterProject` 重复注册携带已有 ID。** 实测返回 `AlreadyExists` 但不带既有 `ProjectID`,UI 无法跳转;放入 `Details`(A6)或提供 `FindRegisteredProject(path)`。→ 已随 A6 放入 `Details.ProjectID`,#67
 
 ### C. 读模型补齐
 

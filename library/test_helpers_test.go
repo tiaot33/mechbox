@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -152,6 +154,16 @@ func openTestLibrary(t *testing.T) library.Library {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	return lib
+}
+
+// stubHTTPResponse 让所有 HTTP 请求都得到同一个响应,用于模拟远端返回的状态与内容。
+func stubHTTPResponse(t *testing.T, status int, body io.Reader) {
+	t.Helper()
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Body: io.NopCloser(body), Header: make(http.Header)}, nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
 }
 
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。

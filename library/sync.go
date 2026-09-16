@@ -108,7 +108,9 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	check, cleanup, err := openPulledLibrary(ctx, data)
 	if err != nil {
 		if unacceptableRemote(err) {
-			return SyncResult{}, &Error{Code: FailedPrecondition, Message: "sync pull: remote library is not acceptable", Err: err}
+			failure := preconditionError("sync pull", "remote library is not acceptable", ErrorDetails{})
+			failure.Err = err
+			return SyncResult{}, failure
 		}
 		return SyncResult{}, err
 	}

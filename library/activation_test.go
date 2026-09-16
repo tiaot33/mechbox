@@ -219,9 +219,8 @@ func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(directory, second.Name, "manual.txt"), []byte("manual"), 0o644)
 
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
-		t.Fatalf("ActivateGroup() conflict error = %v", err)
-	}
+	err = lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{})
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(directory, second.Name)})
 	if _, err := os.Stat(filepath.Join(directory, first.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("first member was partially activated: %v", err)
 	}
@@ -320,14 +319,8 @@ func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); !library.IsCode(err, library.FailedPrecondition) {
-		t.Fatalf("ActivateGroup with duplicate names = %v, want FailedPrecondition", err)
-	} else {
-		typed, _ := errors.AsType[*library.Error](err)
-		if typed.Details.Name != "dup" {
-			t.Fatalf("duplicate name details = %#v, want Name dup", typed.Details)
-		}
-	}
+	err = lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Name: "dup"})
 	if _, err := os.Stat(filepath.Join(directory, "dup")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("colliding group left a projection: %v", err)
 	}

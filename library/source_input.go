@@ -252,13 +252,12 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// annotateMissingGitRef 给 git 识别出的缺失 ref 补上 Details.Name。
-func annotateMissingGitRef(err error, ref string) error {
-	typed, ok := errors.AsType[*Error](err)
-	if !ok || typed.Code != NotFound || typed.Details.Name != "" || !strings.Contains(typed.Message, "ref not found") {
-		return err
+// missingRefError 给 clone / fetch 阶段报出的 ref 不存在(gitCommandError 唯一的 NotFound 来源)补上 Details.Name。
+func missingRefError(err error, ref string) error {
+	if typed, ok := errors.AsType[*Error](err); ok && typed.Code == NotFound && typed.Details.Name == "" {
+		typed.Details.Name = ref
 	}
-	return &Error{Code: NotFound, Message: typed.Message, Details: ErrorDetails{Name: ref}, Err: typed.Err}
+	return err
 }
 
 func gitCommandError(output []byte) error {
