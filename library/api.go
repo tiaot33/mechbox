@@ -360,8 +360,8 @@ type ActivateOptions struct {
 }
 
 // Activation 是一条投影记录:某 skill 出现在某个 Scope 里,以及它的保留依据。
-// 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,只供对照磁盘,
-// 不是 Activate 的输入(Activate 也不接受目录)。
+// 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
+// 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectActivations 给出。
 type Activation struct {
 	SkillID     SkillID   `json:"skill_id"`
 	Scope       Scope     `json:"scope"`
@@ -369,6 +369,26 @@ type Activation struct {
 	Individual  bool      `json:"individual"`            // 存在独立(非分组)激活
 	ViaGroups   []GroupID `json:"via_groups,omitempty"`  // 经由哪些分组激活
 	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间;零值 = 未知(迁移前数据)。刷新不更新
+}
+
+// ActivationStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
+// Scope 目录不存在 → directory_missing;目标文件夹不存在 → missing;
+// 磁盘文件集 == 当前版本 → current;磁盘文件集 == 某个非当前版本(按 id 倒序) → stale;
+// 否则 modified(含非常规文件或空目录以外的异常)。
+type ActivationStatus string
+
+const (
+	ActivationCurrent          ActivationStatus = "current"           // 磁盘文件集 == 当前版本
+	ActivationStale            ActivationStatus = "stale"             // 磁盘文件集 == 某个非当前版本
+	ActivationModified         ActivationStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
+	ActivationMissing          ActivationStatus = "missing"           // Scope 目录存在,目标文件夹不存在
+	ActivationDirectoryMissing ActivationStatus = "directory_missing" // Scope 目录本身不存在
+)
+
+// ActivationInspection 是一条投影及其对照磁盘后的状态。
+type ActivationInspection struct {
+	Activation
+	Status ActivationStatus `json:"status"`
 }
 
 // Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
@@ -534,6 +554,9 @@ type Library interface {
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
 	// ListActivations 列出全部投影记录:Scope 身份、按现行布局派生的目录及各自的保留依据。
 	ListActivations(ctx context.Context) ([]Activation, error)
+	// InspectActivations 对照磁盘给出每条投影的状态。只读:不改库、不改磁盘、不创建目录。
+	// 结果顺序与 ListActivations 相同,每条内嵌完整 Activation。判定规则见 ActivationStatus。
+	InspectActivations(ctx context.Context) ([]ActivationInspection, error)
 
 	// 浏览
 

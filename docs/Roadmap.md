@@ -12,9 +12,9 @@
 - **I1 完成** —— [#75](https://github.com/tiaot33/skills-tui/issues/75),PR [#78](https://github.com/tiaot33/skills-tui/pull/78)(`8ca3e4e`)。
 - **D1 / D2 完成** —— [#72](https://github.com/tiaot33/skills-tui/issues/72),PR [#79](https://github.com/tiaot33/skills-tui/pull/79)(`f4097c3`)。
 - **D3 完成** —— [#73](https://github.com/tiaot33/skills-tui/issues/73),PR [#80](https://github.com/tiaot33/skills-tui/pull/80)(`b85c605`),ADR 0012。
+- **C6 完成** —— [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)。
 - **C1 / C2 / I3** —— [#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。schema v8:描述入库、版本 / 激活 / 分组时间戳、Group 名 UNIQUE 并自动加 `#N`。
 - **schema 基线**:本 PR 合入后 main 为 v8。下一次 schema 变更是第 5 步 E4(v9)。
-- 已建 issue、未动手:C6 [#76](https://github.com/tiaot33/skills-tui/issues/76)。
 - 其余 B1 / B3–B5、E–H、I2 / I4 / I5 尚未建 issue。
 
 ## 优先级定义
@@ -57,7 +57,7 @@
 - [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
 - [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**推后**:多传字节,不阻塞功能。
 - [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 不依赖它(Update 变化后该 skill 全部投影按定义都过时),C6 判定也不依赖它。
-- [ ] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检(现注释为"只供对照磁盘")。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ #76
+- [x] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
 - [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。
 
@@ -137,10 +137,10 @@
 - D3:[#73](https://github.com/tiaot33/skills-tui/issues/73)+ ADR 0012,PR [#80](https://github.com/tiaot33/skills-tui/pull/80)。`PRAGMA journal_mode=WAL` + `BEGIN IMMEDIATE`;`SQLITE_BUSY` → `Busy`。
 - 无 schema。与第 3 步无依赖。
 
-### 第 3 步 — 读模型与 schema v8:C1 / C2 / C6 / I3
+### 第 3 步 — ✅ 读模型与 schema v8:C1 / C2 / C6 / I3
 
 - schema v8:[#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。C1 `Description`、C2 时间戳、I3 Group 名 UNIQUE 并自动加 `#N`。
-- 纯代码:[#76](https://github.com/tiaot33/skills-tui/issues/76) C6 `InspectActivations`(不依赖 C5)。
+- 纯代码:C6 `InspectActivations` 已完成,[#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)(不依赖 C5)。
 - C3 / C4 / C5 / C7 / C8 按 2026-09-16 评审推后;I1 已完成。
 - 依赖:第 0 步(已完成)。
 
@@ -177,7 +177,7 @@
 ```
 第 0 步 ✅ ──┬── 第 1 步 ✅(B2)
             ├── 第 2 步 ✅(D:#72 + #73)
-            └── 第 3 步(C:#77 v8 + #76)──┬── 第 4 步(B 预检 + F5)──┐
+            └── 第 3 步 ✅(C:#77+#76)──┬── 第 4 步(B 预检 + F5)──┐
                                         ├─────── 第 5 步(E, v9)──────┼── 第 6 步(F/G + rpc/)
                                         └─────── 第 7 步(H/I)
 ```

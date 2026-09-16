@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -680,4 +681,109 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 		}
 	}
 	return activations, nil
+}
+
+func (l *sqliteLibrary) InspectActivations(ctx context.Context) (inspections []ActivationInspection, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	activations, err := l.ListActivations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, activation := range activations {
+		status, err := l.inspectActivation(ctx, activation)
+		if err != nil {
+			return nil, err
+		}
+		inspections = append(inspections, ActivationInspection{Activation: activation, Status: status})
+	}
+	return inspections, nil
+}
+
+// inspectActivation 按 ActivationStatus 注释中的顺序判定一条投影。
+func (l *sqliteLibrary) inspectActivation(ctx context.Context, activation Activation) (ActivationStatus, error) {
+	var name string
+	var currentVersionID int64
+	if err := l.db.QueryRowContext(ctx, `SELECT name, current_version_id FROM skills WHERE id = ?`, activation.SkillID).Scan(&name, &currentVersionID); err != nil {
+		return "", fmt.Errorf("inspect activation: %w", err)
+	}
+
+	if _, err := os.Lstat(activation.Directory); errors.Is(err, os.ErrNotExist) {
+		return ActivationDirectoryMissing, nil
+	} else if err != nil {
+		return "", fmt.Errorf("inspect activation directory: %w", err)
+	}
+
+	target := filepath.Join(activation.Directory, name)
+	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+		return ActivationMissing, nil
+	} else if err != nil {
+		return "", fmt.Errorf("inspect activation target: %w", err)
+	}
+
+	disk, err := hashFiles(ctx, target)
+	if err != nil {
+		if errors.Is(err, errIrregularFile) {
+			return ActivationModified, nil
+		}
+		return "", err
+	}
+
+	current, err := l.versionFingerprints(ctx, currentVersionID)
+	if err != nil {
+		return "", err
+	}
+	if maps.Equal(disk, current) {
+		return ActivationCurrent, nil
+	}
+
+	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? AND id != ? ORDER BY id DESC`, activation.SkillID, currentVersionID)
+	if err != nil {
+		return "", fmt.Errorf("list skill versions: %w", err)
+	}
+	var versionIDs []int64
+	for rows.Next() {
+		var versionID int64
+		if err := rows.Scan(&versionID); err != nil {
+			_ = rows.Close()
+			return "", fmt.Errorf("read skill version: %w", err)
+		}
+		versionIDs = append(versionIDs, versionID)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return "", fmt.Errorf("read skill versions: %w", err)
+	}
+	for _, versionID := range versionIDs {
+		files, err := l.versionFingerprints(ctx, versionID)
+		if err != nil {
+			return "", err
+		}
+		if maps.Equal(disk, files) {
+			return ActivationStale, nil
+		}
+	}
+	return ActivationModified, nil
+}
+
+// versionFingerprints 只读 version_files 的 path/fingerprint/mode,不取 blob 正文。
+func (l *sqliteLibrary) versionFingerprints(ctx context.Context, versionID int64) (map[string]fileMeta, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT path, fingerprint, mode FROM version_files WHERE version_id = ?`, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("list version fingerprints: %w", err)
+	}
+	defer rows.Close()
+	files := make(map[string]fileMeta)
+	for rows.Next() {
+		var path string
+		var meta fileMeta
+		if err := rows.Scan(&path, &meta.fingerprint, &meta.mode); err != nil {
+			return nil, fmt.Errorf("read version fingerprint: %w", err)
+		}
+		files[path] = meta
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read version fingerprints: %w", err)
+	}
+	return files, nil
 }
