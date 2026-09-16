@@ -33,8 +33,10 @@ const (
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 预览到执行之间状态已变。可重新预览后再执行。
 	Conflict ErrorCode = "conflict"
-	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作。
-	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试。
+	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
+	// (仅由分组支撑的投影被单项 Deactivate、分组内成员同名、激活目标已被另一条 Activation 占用——
+	// 同一 skill 的另一 Scope 解析到同一目录,或同名的另一 skill 已投影到该目录)。
+	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
 	// UI:静默收起。Error.Err 保留原始 context 错误,errors.Is 仍成立。
@@ -69,8 +71,8 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名或支撑分组名
-	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名、支撑分组名或被占用的投影名
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目
 }
 

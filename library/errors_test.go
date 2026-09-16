@@ -296,6 +296,15 @@ func TestFacadeFailureCodes(t *testing.T) {
 			}
 			return lib.Activate(t.Context(), skill.ID, library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}, library.ActivateOptions{})
 		}},
+		{name: "activate name claimed by another skill", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
+			holder := installNamedSkill(t, lib, "shared")
+			challenger := installNamedSkill(t, lib, "shared")
+			scope := library.GlobalScope{Agent: library.AgentCodex}
+			if err := lib.Activate(t.Context(), holder.ID, scope, library.ActivateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			return lib.Activate(t.Context(), challenger.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		}},
 		{name: "deactivate inactive skill", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
 			skill := installNamedSkill(t, lib, "idle")
 			return lib.Deactivate(t.Context(), skill.ID, library.GlobalScope{Agent: library.AgentCodex})

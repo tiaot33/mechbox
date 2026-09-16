@@ -546,6 +546,178 @@ func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 	}
 }
 
+// installSkillWithBody 安装一个指定名字与 SKILL.md 正文的 skill;不同 Source 的同名 skill 靠正文区分。
+func installSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), name)
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return skill
+}
+
+// requireProjection 断言 directory 下 name 文件夹的 SKILL.md 正文。
+func requireProjection(t *testing.T, directory, name, body string) {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
+	if err != nil || string(content) != body {
+		t.Fatalf("projection %s/SKILL.md = %q, %v; want %q", name, content, err, body)
+	}
+}
+
+// 同名不同 Source 的 A 已投影到某 Scope 时,激活 B 不能接管那个文件夹:两种冲突策略都得到
+// FailedPrecondition 并指认占用者;A 的记录与内容原样保留,不会出现两条记录指向同一文件夹。
+func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	first := installSkillWithBody(t, lib, "commit", "# A\n")
+	second := installSkillWithBody(t, lib, "commit", "# B\n")
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(directory, "commit")
+	for _, opts := range []library.ActivateOptions{{}, {OnConflict: library.Overwrite}} {
+		err := lib.Activate(ctx, second.ID, scope, opts)
+		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
+	}
+	activations, err := lib.ListActivations(ctx)
+	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+	if err != nil || !reflect.DeepEqual(activations, want) {
+		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	}
+	requireProjection(t, directory, "commit", "# A\n")
+
+	// 换用 B 的正确路径:先撤 A,再激活 B;之后撤 B 只删 B 自己的文件夹与记录。
+	if err := lib.Deactivate(ctx, first.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Activate(ctx, second.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireProjection(t, directory, "commit", "# B\n")
+	activations, err = lib.ListActivations(ctx)
+	want = []library.Activation{{SkillID: second.ID, Scope: scope, Directory: directory, Individual: true}}
+	if err != nil || !reflect.DeepEqual(activations, want) {
+		t.Fatalf("ListActivations() after switch = %#v, %v; want %#v", activations, err, want)
+	}
+	if err := lib.Deactivate(ctx, second.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Deactivate(B) left projection: %v", err)
+	}
+	if activations, err := lib.ListActivations(ctx); err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after Deactivate(B) = %#v, %v; want none", activations, err)
+	}
+}
+
+// 占用者经分组投影(无独立激活)时同样受保护;含同名成员的分组向该 Scope 激活时整组被拒,
+// 其他成员不落盘、不留记录。
+func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	first := installSkillWithBody(t, lib, "commit", "# A\n")
+	second := installSkillWithBody(t, lib, "commit", "# B\n")
+	bystander := installSkillWithBody(t, lib, "bystander", "# bystander\n")
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstGroup, err := lib.CreateGroup(ctx, "holders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSkillToGroup(ctx, firstGroup.ID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ActivateGroup(ctx, firstGroup.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(directory, "commit")
+	err = lib.Activate(ctx, second.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
+
+	secondGroup, err := lib.CreateGroup(ctx, "challengers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{bystander, second} {
+		if err := lib.AddSkillToGroup(ctx, secondGroup.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = lib.ActivateGroup(ctx, secondGroup.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
+	if _, err := os.Stat(filepath.Join(directory, "bystander")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected group projected another member: %v", err)
+	}
+	requireProjection(t, directory, "commit", "# A\n")
+	activations, err := lib.ListActivations(ctx)
+	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{firstGroup.ID}}}
+	if err != nil || !reflect.DeepEqual(activations, want) {
+		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	}
+}
+
+// 占用以实际目录为准:A 在全局 Scope,把 $HOME 登记为项目后向项目 Scope 激活同名的 B 同样被拒;
+// 而 A、B 投影到不同目录的 Scope 互不干扰。即使 A 的文件夹已被手删,只要记录在,B 仍被拒。
+func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
+	ctx := t.Context()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	first := installSkillWithBody(t, lib, "commit", "# A\n")
+	second := installSkillWithBody(t, lib, "commit", "# B\n")
+	project, err := lib.RegisterProject(ctx, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := library.GlobalScope{Agent: library.AgentCodex}
+	sameDirectory := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	otherAgent := library.GlobalScope{Agent: library.AgentClaudeCode}
+	directory, err := lib.Resolve(ctx, global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Activate(ctx, first.ID, global, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = lib.Activate(ctx, second.ID, sameDirectory, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: filepath.Join(directory, "commit"), Name: "commit", SkillID: first.ID})
+
+	if err := lib.Activate(ctx, second.ID, otherAgent, library.ActivateOptions{}); err != nil {
+		t.Fatalf("Activate(B) into another agent's directory = %v, want success", err)
+	}
+	otherDirectory, err := lib.Resolve(ctx, otherAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireProjection(t, directory, "commit", "# A\n")
+	requireProjection(t, otherDirectory, "commit", "# B\n")
+
+	if err := os.RemoveAll(filepath.Join(directory, "commit")); err != nil {
+		t.Fatal(err)
+	}
+	err = lib.Activate(ctx, second.ID, global, library.ActivateOptions{})
+	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: filepath.Join(directory, "commit"), Name: "commit", SkillID: first.ID})
+}
+
 // 身份 Scope 里的错误指认在激活时同样得到 NotFound,不会写到任何目录。
 func TestActivateUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	ctx := t.Context()
