@@ -77,16 +77,56 @@ func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRo
 	return &row, nil
 }
 
-// removeProjectedCopy 删除 skill 在 directory(某条 Activation 的派生目录)下的投影文件夹。
-func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, directory string) error {
-	skill, err := l.GetSkill(ctx, id)
-	if err != nil {
+// projectionTrash 让"删记录 + 删投影文件夹"可逆:调用方在事务内删完记录、把待删路径放进 targets,
+// 再由 commit 收尾:改名到同一父目录下的暂存名 → 提交事务 → 真正删除;提交前任一步失败改回原名,
+// 配合调用方的 Rollback 使库和磁盘都回到操作前。
+// RemoveSkill / UnregisterProject / Deactivate / DeactivateGroup 共用,避免任何一处再出现"先删盘后写库"。
+type projectionTrash struct {
+	targets []string
+	trashed []struct{ trash, target string } // 已改名的条目:原路径与暂存路径
+}
+
+// commit 完成收尾;operation 用于提交失败的错误消息。暂存目录的最终删除失败只留下垃圾,不影响权威数据。
+func (t *projectionTrash) commit(ctx context.Context, tx *sql.Tx, operation string) error {
+	if err := t.trash(ctx); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
-		return fmt.Errorf("remove projected copy: %w", err)
+	if err := tx.Commit(); err != nil {
+		return errors.Join(fmt.Errorf("commit %s: %w", operation, err), t.restore())
+	}
+	for _, entry := range t.trashed {
+		_ = os.RemoveAll(entry.trash)
 	}
 	return nil
+}
+
+// trash 把每个存在的目标改名到暂存;不存在的跳过。任一步失败自动 restore 并返回错误。
+func (t *projectionTrash) trash(ctx context.Context) error {
+	for _, path := range t.targets {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, t.restore())
+		}
+		staged, err := randomName(filepath.Join(filepath.Dir(path), ".remove-"))
+		if err != nil {
+			return errors.Join(err, t.restore())
+		}
+		if err := os.Rename(path, staged); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return errors.Join(fmt.Errorf("remove projected copy: %w", err), t.restore())
+		}
+		t.trashed = append(t.trashed, struct{ trash, target string }{staged, path})
+	}
+	return nil
+}
+
+// restore 把全部已改名的暂存目录改回原名,供提交前失败时复位。
+func (t *projectionTrash) restore() error {
+	var restoreErr error
+	for _, entry := range t.trashed {
+		restoreErr = errors.Join(restoreErr, os.Rename(entry.trash, entry.target))
+	}
+	return restoreErr
 }
 
 // claimant 是一条可能与待激活目标争同一文件夹的既有 Activation:所属 skill、投影名与 Scope 身份。
@@ -330,18 +370,14 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, activa
 	if err != nil {
 		return err
 	}
+	var trash projectionTrash
 	if !keep {
-		if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
-			return fmt.Errorf("deactivate skill: %w", err)
-		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, activationID); err != nil {
 			return fmt.Errorf("remove activation: %w", err)
 		}
+		trash.targets = []string{filepath.Join(directory, skill.Name)}
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit deactivation: %w", err)
-	}
-	return nil
+	return trash.commit(ctx, tx, "deactivation")
 }
 
 // keepActivation 在撤销依据后判断投影是否仍需保留。
@@ -542,7 +578,7 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 		return fmt.Errorf("begin group deactivation: %w", err)
 	}
 	defer tx.Rollback()
-	var removeTargets []string
+	var trash projectionTrash
 	for _, member := range members {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE activation_id = ? AND group_id = ?`, member.activationID, groupID); err != nil {
 			return fmt.Errorf("remove group activation: %w", err)
@@ -555,46 +591,11 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 			if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, member.activationID); err != nil {
 				return fmt.Errorf("remove activation: %w", err)
 			}
-			removeTargets = append(removeTargets, filepath.Join(target.directory, names[member.skillID]))
+			trash.targets = append(trash.targets, filepath.Join(target.directory, names[member.skillID]))
 		}
 	}
 
-	// 磁盘删除做成可逆:先把待删目录改名到暂存,提交后再真正删除;
-	// 任一步失败则撤销改名并回滚事务,该组去激活全有或全无。
-	type trashedProjection struct{ trash, target string }
-	var trashed []trashedProjection
-	restore := func() error {
-		var restoreErr error
-		for i := len(trashed) - 1; i >= 0; i-- {
-			restoreErr = errors.Join(restoreErr, os.Rename(trashed[i].trash, trashed[i].target))
-		}
-		return restoreErr
-	}
-	for _, path := range removeTargets {
-		if err := ctx.Err(); err != nil {
-			return errors.Join(err, restore())
-		}
-		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return errors.Join(fmt.Errorf("inspect deactivation target: %w", err), restore())
-		}
-		trash, err := randomName(filepath.Join(target.directory, ".deactivate-"))
-		if err != nil {
-			return errors.Join(err, restore())
-		}
-		if err := os.Rename(path, trash); err != nil {
-			return errors.Join(fmt.Errorf("deactivate skill: %w", err), restore())
-		}
-		trashed = append(trashed, trashedProjection{trash: trash, target: path})
-	}
-	if err := tx.Commit(); err != nil {
-		return errors.Join(fmt.Errorf("commit group deactivation: %w", err), restore())
-	}
-	for _, entry := range trashed {
-		_ = os.RemoveAll(entry.trash)
-	}
-	return nil
+	return trash.commit(ctx, tx, "group deactivation")
 }
 
 // supportingGroupName 读取仅由分组支撑的投影所经由的第一个分组名。
