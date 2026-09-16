@@ -19,17 +19,19 @@ const githubMemoCommitLimit = 16
 
 // githubMemoBlobLimit 是进程内 blob 正文总字节上限。
 // Agent Skills 以 SKILL.md 与小脚本为主;256 KiB 能留住当前会话预览过的
-// SKILL.md 和刚安装的辅助文件。更大的条目会挤出更早的,再访问回源。
+// SKILL.md 和刚安装的辅助文件。更大的条目会挤出最久未用的,再访问回源;
+// 单条超过上限则不写入。
 const githubMemoBlobLimit = 256 << 10
 
 // githubObjectMemo 是 Library 实例上的网络层 memo:GitHub 内容寻址对象只从远端取一次。
 // 不是数据来源,不落库、不进入 Sync、没有 TTL;Close 时释放。
 type githubObjectMemo struct {
-	mu      sync.Mutex
-	dead    bool
-	trees   fifoMemo[githubTreeResponse]
-	commits fifoMemo[githubCommitMemo]
-	blobs   fifoMemo[[]byte]
+	mu       sync.Mutex
+	dead     bool
+	trees    lruMemo[githubTreeResponse]
+	commits  lruMemo[githubCommitMemo]
+	blobs    lruMemo[[]byte]
+	inFlight map[githubMemoKey]*githubFlight
 }
 
 type githubMemoKey struct {
@@ -40,8 +42,17 @@ type githubCommitMemo struct {
 	commit, tree string
 }
 
-// fifoMemo 是按插入顺序逐出的有界表;size 为 nil 时每条权重 1(按条数封顶)。
-type fifoMemo[V any] struct {
+// githubFlight 是同 key 的在途请求:后到者等待先到者的结果,远端每种对象只出一份。
+type githubFlight struct {
+	done   chan struct{}
+	tree   githubTreeResponse
+	blob   []byte
+	commit githubCommitMemo
+	err    error
+}
+
+// lruMemo 是按访问顺序逐出的有界表;size 为 nil 时每条权重 1(按条数封顶)。
+type lruMemo[V any] struct {
 	order []githubMemoKey
 	items map[githubMemoKey]V
 	used  int
@@ -51,25 +62,28 @@ type fifoMemo[V any] struct {
 
 func newGitHubMemo() githubObjectMemo {
 	return githubObjectMemo{
-		trees:   fifoMemo[githubTreeResponse]{limit: githubMemoTreeLimit},
-		commits: fifoMemo[githubCommitMemo]{limit: githubMemoCommitLimit},
-		blobs:   fifoMemo[[]byte]{limit: githubMemoBlobLimit, size: func(b []byte) int { return len(b) }},
+		trees:   lruMemo[githubTreeResponse]{limit: githubMemoTreeLimit},
+		commits: lruMemo[githubCommitMemo]{limit: githubMemoCommitLimit},
+		blobs:   lruMemo[[]byte]{limit: githubMemoBlobLimit, size: func(b []byte) int { return len(b) }},
 	}
 }
 
-func (m *fifoMemo[V]) weight(value V) int {
+func (m *lruMemo[V]) weight(value V) int {
 	if m.size == nil {
 		return 1
 	}
 	return m.size(value)
 }
 
-func (m *fifoMemo[V]) get(key githubMemoKey) (V, bool) {
+func (m *lruMemo[V]) get(key githubMemoKey) (V, bool) {
 	value, ok := m.items[key]
+	if ok {
+		m.touch(key)
+	}
 	return value, ok
 }
 
-func (m *fifoMemo[V]) put(key githubMemoKey, value V) {
+func (m *lruMemo[V]) put(key githubMemoKey, value V) {
 	if m.items == nil {
 		m.items = map[githubMemoKey]V{}
 	}
@@ -78,6 +92,10 @@ func (m *fifoMemo[V]) put(key githubMemoKey, value V) {
 		m.used -= m.weight(old)
 		m.items[key] = value
 		m.used += n
+		m.touch(key)
+		return
+	}
+	if m.limit > 0 && n > m.limit {
 		return
 	}
 	for len(m.items) > 0 && m.limit > 0 && m.used+n > m.limit {
@@ -89,6 +107,13 @@ func (m *fifoMemo[V]) put(key githubMemoKey, value V) {
 	m.items[key] = value
 	m.used += n
 	m.order = append(m.order, key)
+}
+
+func (m *lruMemo[V]) touch(key githubMemoKey) {
+	if i := slices.Index(m.order, key); i >= 0 {
+		m.order = append(m.order[:i], m.order[i+1:]...)
+		m.order = append(m.order, key)
+	}
 }
 
 func memoKey(owner, repo, id string) githubMemoKey {
@@ -109,9 +134,35 @@ func (m *githubObjectMemo) release() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dead = true
-	m.trees = fifoMemo[githubTreeResponse]{}
-	m.commits = fifoMemo[githubCommitMemo]{}
-	m.blobs = fifoMemo[[]byte]{}
+	m.trees = lruMemo[githubTreeResponse]{}
+	m.commits = lruMemo[githubCommitMemo]{}
+	m.blobs = lruMemo[[]byte]{}
+	m.inFlight = nil
+}
+
+func (m *githubObjectMemo) begin(key githubMemoKey) (wait *githubFlight, joined bool) {
+	if !m.withLock(func() {
+		if existing, ok := m.inFlight[key]; ok {
+			wait, joined = existing, true
+			return
+		}
+		wait = &githubFlight{done: make(chan struct{})}
+		if m.inFlight == nil {
+			m.inFlight = map[githubMemoKey]*githubFlight{}
+		}
+		m.inFlight[key] = wait
+	}) {
+		return nil, false
+	}
+	return wait, joined
+}
+
+func (m *githubObjectMemo) finish(key githubMemoKey, wait *githubFlight) {
+	if wait == nil {
+		return
+	}
+	m.withLock(func() { delete(m.inFlight, key) })
+	close(wait.done)
 }
 
 func (m *githubObjectMemo) getTree(key githubMemoKey) (githubTreeResponse, bool) {

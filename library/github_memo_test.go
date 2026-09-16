@@ -1,9 +1,15 @@
 package library_test
 
 import (
+	"bytes"
+	"fmt"
+	"net/http"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -87,6 +93,94 @@ func TestGitHubPinnedSHARepeatFetchMakesNoRequests(t *testing.T) {
 	}
 }
 
+func TestGitHubConcurrentCheckUpdateSingleFlightsCommit(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	transport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/commits/") {
+			once.Do(func() { close(started) })
+			<-release
+		}
+		return transport.RoundTrip(r)
+	})
+
+	api.Reset()
+	var first, second bool
+	var firstErr, secondErr error
+	var wg sync.WaitGroup
+	wg.Go(func() { first, firstErr = lib.CheckUpdate(ctx, installed[0].ID) })
+	<-started
+	wg.Go(func() { second, secondErr = lib.CheckUpdate(ctx, installed[0].ID) })
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if firstErr != nil || secondErr != nil || first || second {
+		t.Fatalf("CheckUpdate = %v/%v, %v/%v, want both false", first, second, firstErr, secondErr)
+	}
+	assertGitHubCommitOnly(t, api, 1)
+}
+
+func TestGitHubConcurrentFetchSingleFlightsTreeAndBlobs(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
+		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	transport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return transport.RoundTrip(r)
+	})
+
+	var first, second library.Fetch
+	var firstErr, secondErr error
+	var wg sync.WaitGroup
+	wg.Go(func() { first, firstErr = lib.Fetch(ctx, gitHubSpec()) })
+	<-started
+	wg.Go(func() { second, secondErr = lib.Fetch(ctx, gitHubSpec()) })
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if firstErr != nil || secondErr != nil {
+		t.Fatalf("Fetch = %v, %v", firstErr, secondErr)
+	}
+	if first.Ref != second.Ref || !reflect.DeepEqual(first.Skills, second.Skills) {
+		t.Fatalf("concurrent Fetch %#v vs %#v", first, second)
+	}
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if commits != 1 || trees != 1 || blobs != 2 {
+		t.Fatalf("concurrent Fetch commits=%d trees=%d blobs=%d, want 1/1/2: %#v", commits, trees, blobs, api.snapshot())
+	}
+}
+
 func TestGitHubTruncatedTreeIsNotMemoized(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
@@ -130,6 +224,117 @@ func TestGitHubIncompleteBlobIsNotMemoized(t *testing.T) {
 	_, _, blobs := gitHubAPIKindCounts(t, api)
 	if blobs == 0 {
 		t.Fatalf("incomplete blob was memoized: %#v", api.snapshot())
+	}
+}
+
+func TestGitHubTreeMemoEvictsLeastRecentlyUsed(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "v0")), mode: 0o644},
+	})
+	first := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, first)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+		t.Fatal(err)
+	}
+	var second gitHubFixture
+	// 先写入 15 棵新 tree(加上 first 共 16,顶满),再访问 first 把它变成最近使用,
+	// 然后写入第 17 棵应逐出 second 而不是 first。
+	for i := range 15 {
+		writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", fmt.Sprintf("v%d", i+1))), 0o644)
+		commitGit(t, repo, fmt.Sprintf("v%d", i+1))
+		next := inspectGitHubRepo(t, repo)
+		api.Swap(next)
+		if i == 0 {
+			second = next
+		}
+		if _, err := lib.Fetch(t.Context(), gitHubSpecAt(next.commit)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "overflow")), 0o644)
+	commitGit(t, repo, "overflow")
+	overflow := inspectGitHubRepo(t, repo)
+	api.Swap(overflow)
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(overflow.commit)); err != nil {
+		t.Fatal(err)
+	}
+	api.Reset()
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+		t.Fatal(err)
+	}
+	_, trees, _ := gitHubAPIKindCounts(t, api)
+	if trees != 0 {
+		t.Fatalf("recently used tree was evicted: %#v", api.snapshot())
+	}
+	api.Reset()
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(second.commit)); err != nil {
+		t.Fatal(err)
+	}
+	_, trees, blobs := gitHubAPIKindCounts(t, api)
+	if trees != 1 || blobs != 0 {
+		t.Fatalf("LRU tree refetch trees=%d blobs=%d, want one tree: %#v", trees, blobs, api.snapshot())
+	}
+}
+
+func TestGitHubBlobMemoEvictsLeastRecentlyUsed(t *testing.T) {
+	const blobSize = 80 * 1024
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", string(bytes.Repeat([]byte("a"), blobSize)))), mode: 0o644},
+	})
+	first := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, first)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+		t.Fatal(err)
+	}
+	var second gitHubFixture
+	// 先写入 2 个新 blob(加上 first 约 240 KiB),再访问 first 把它变成最近使用,
+	// 然后第 4 个应逐出 second 而不是 first。
+	for i := range 2 {
+		body := string(bytes.Repeat([]byte{byte('b' + i)}, blobSize))
+		writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", body)), 0o644)
+		commitGit(t, repo, fmt.Sprintf("blob-%d", i))
+		next := inspectGitHubRepo(t, repo)
+		api.Swap(next)
+		if i == 0 {
+			second = next
+		}
+		if _, err := lib.Fetch(t.Context(), gitHubSpecAt(next.commit)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+		t.Fatal(err)
+	}
+	overflowBody := string(bytes.Repeat([]byte("z"), blobSize))
+	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", overflowBody)), 0o644)
+	commitGit(t, repo, "overflow")
+	overflow := inspectGitHubRepo(t, repo)
+	api.Swap(overflow)
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(overflow.commit)); err != nil {
+		t.Fatal(err)
+	}
+	api.Reset()
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+		t.Fatal(err)
+	}
+	_, _, blobs := gitHubAPIKindCounts(t, api)
+	if blobs != 0 {
+		t.Fatalf("recently used blob was evicted: %#v", api.snapshot())
+	}
+	api.Reset()
+	if _, err := lib.Fetch(t.Context(), gitHubSpecAt(second.commit)); err != nil {
+		t.Fatal(err)
+	}
+	commits, trees, blobs := gitHubAPIKindCounts(t, api)
+	if blobs != 1 || commits != 0 || trees != 0 {
+		t.Fatalf("LRU blob refetch commits=%d trees=%d blobs=%d, want one blob: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 

@@ -151,6 +151,22 @@ func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (com
 			return got.commit, got.tree, nil
 		}
 	}
+	flight, joined := c.memo.begin(key)
+	if joined {
+		<-flight.done
+		return flight.commit.commit, flight.commit.tree, flight.err
+	}
+	defer func() {
+		if flight == nil {
+			return
+		}
+		flight.commit = githubCommitMemo{commit: commit, tree: tree}
+		flight.err = err
+		if err == nil && immutable {
+			c.memo.storeCommit(key, flight.commit)
+		}
+		c.memo.finish(key, flight)
+	}()
 	var payload githubCommitResponse
 	if err = c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
 		return "", "", err
@@ -160,9 +176,6 @@ func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (com
 	if !fullCommit.MatchString(commit) || !fullCommit.MatchString(tree) {
 		return "", "", errGitHubContentsFallback
 	}
-	if immutable {
-		c.memo.storeCommit(key, githubCommitMemo{commit: commit, tree: tree})
-	}
 	return commit, tree, nil
 }
 
@@ -171,10 +184,25 @@ func (c *githubClient) recursiveTree(ctx context.Context, owner, repo, sha strin
 	if tree, ok := c.memo.getTree(key); ok {
 		return tree, nil
 	}
+	flight, joined := c.memo.begin(key)
+	if joined {
+		<-flight.done
+		if flight.err != nil {
+			return githubTreeResponse{}, flight.err
+		}
+		tree := flight.tree
+		tree.Tree = slices.Clone(tree.Tree)
+		return tree, nil
+	}
 	var payload githubTreeResponse
 	err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/trees/%s", owner, repo, sha)+"?recursive=1", &payload)
-	if err == nil && !payload.Truncated {
-		c.memo.storeTree(key, payload)
+	if flight != nil {
+		flight.tree = payload
+		flight.err = err
+		if err == nil && !payload.Truncated {
+			c.memo.storeTree(key, payload)
+		}
+		c.memo.finish(key, flight)
 	}
 	return payload, err
 }
@@ -184,20 +212,43 @@ func (c *githubClient) blob(ctx context.Context, owner, repo, sha string) ([]byt
 	if content, ok := c.memo.getBlob(key); ok {
 		return content, nil
 	}
+	flight, joined := c.memo.begin(key)
+	if joined {
+		<-flight.done
+		if flight.err != nil {
+			return nil, flight.err
+		}
+		return bytes.Clone(flight.blob), nil
+	}
 	var payload githubBlobResponse
 	err := c.get(ctx, githubAPIURL("/repos/%s/%s/git/blobs/%s", owner, repo, sha), &payload)
 	if err != nil {
+		c.finishBlobFlight(key, flight, nil, err)
 		return nil, err
 	}
 	if payload.Truncated || !strings.EqualFold(payload.Encoding, "base64") {
+		c.finishBlobFlight(key, flight, nil, errGitHubContentsFallback)
 		return nil, errGitHubContentsFallback
 	}
 	content, err := base64.StdEncoding.DecodeString(payload.Content)
 	if err != nil || len(content) != payload.Size {
+		c.finishBlobFlight(key, flight, nil, errGitHubContentsFallback)
 		return nil, errGitHubContentsFallback
 	}
-	c.memo.storeBlob(key, content)
+	c.finishBlobFlight(key, flight, content, nil)
 	return content, nil
+}
+
+func (c *githubClient) finishBlobFlight(key githubMemoKey, flight *githubFlight, content []byte, err error) {
+	if flight == nil {
+		return
+	}
+	flight.blob = content
+	flight.err = err
+	if err == nil {
+		c.memo.storeBlob(key, content)
+	}
+	c.memo.finish(key, flight)
 }
 
 func githubAPIURL(pattern string, owner, repo, object string) string {
