@@ -31,9 +31,11 @@ const (
 	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标)。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
-	// Conflict 预览到执行之间状态已变。可重新预览后再执行。
+	// Conflict 预览到执行之间状态已变(Sync 的远端身份;Update 读取来源期间该 skill 的当前版本已被别处改写)。
+	// 可重新预览 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
-	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作(激活目标被占用见 ConflictPolicy)。
+	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
+	// (激活目标被占用见 ConflictPolicy;仅分组激活的 skill 单独停用;组内同名成员;同一 Fetch 句柄的安装正在进行)。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -428,7 +430,8 @@ type Library interface {
 	// GitHub 来源可在 Fetch 已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
 	// 不跟随当前 HEAD。URL / Store 只读取暂存内容,不联网。要么所选 skill 全部入库,
 	// 要么库保持不变。成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
-	// 失败时保留句柄供重试,直至 Close 或过期。
+	// 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次安装尚在进行时,再次安装返回
+	// FailedPrecondition;联网期间不持库锁,其他 Fetch / 列表 / 激活不必等它。
 	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
 	// Update 重新读取来源。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
 	// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
@@ -436,6 +439,8 @@ type Library interface {
 	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
 	// URL / Store 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
 	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地仍比较文件。只更新 Library,不重写激活副本。
+	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
+	// (Details.SkillID),两者都不留下任何写入。
 	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)

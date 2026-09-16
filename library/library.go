@@ -13,7 +13,10 @@ import (
 type sqliteLibrary struct {
 	db   *sql.DB
 	home string // Open 时的用户主目录;全局 Scope 全程按它解析,不跟随后续 $HOME 变化
-	mu   sync.RWMutex
+	// mu 是共享 / 独占锁,不是读 / 写锁:DB 语句的串行化由单连接完成,这把锁保护的是
+	// 磁盘投影的 check-then-act 复合操作(Activate* / Deactivate*)、home 以及 SyncPull 的整库替换。
+	// 网络往返期间不得持有它,否则一个排队的独占者会让所有新来的共享者一起等网络。
+	mu sync.RWMutex
 
 	fetchMu sync.Mutex
 	fetches map[FetchID]*fetchSession
@@ -25,7 +28,8 @@ type sqliteLibrary struct {
 
 type libraryOperationKey struct{}
 
-func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, func()) {
+// sharedOperation 以共享模式持有 mu;ctx 已带本实例标记(嵌套调用)时直接复用,不重复加锁。
+func (l *sqliteLibrary) sharedOperation(ctx context.Context) (context.Context, func()) {
 	if ctx.Value(libraryOperationKey{}) == l {
 		return ctx, func() {}
 	}
@@ -33,7 +37,8 @@ func (l *sqliteLibrary) readOperation(ctx context.Context) (context.Context, fun
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-func (l *sqliteLibrary) writeOperation(ctx context.Context) (context.Context, func()) {
+// exclusiveOperation 以独占模式持有 mu,供磁盘与库联动的复合操作使用。
+func (l *sqliteLibrary) exclusiveOperation(ctx context.Context) (context.Context, func()) {
 	if ctx.Value(libraryOperationKey{}) == l {
 		return ctx, func() {}
 	}

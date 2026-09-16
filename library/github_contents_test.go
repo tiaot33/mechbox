@@ -550,6 +550,16 @@ type gitHubAPIMock struct {
 	rateLimitReset     string
 	requests           []gitHubAPIRequest
 	history            []gitHubFixture // Swap 之前服务过的各个 head
+	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸;用来把 InstallFetch 的物化阶段停在网络上。
+	blobGate  *networkGate
+	gatedBlob string
+}
+
+// gateBlob 让指定 SHA 的 blob 请求受 gate 控制;须在发出请求前调用。
+func (m *gitHubAPIMock) gateBlob(gate *networkGate, sha string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blobGate, m.gatedBlob = gate, sha
 }
 
 // head 在当前与历史 head 里找第一个满足 match 的。
@@ -670,6 +680,12 @@ func (m *gitHubAPIMock) sawAnonymousThenToken() bool {
 func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	if r.URL.Host != "api.github.com" {
 		return &http.Response{StatusCode: http.StatusBadGateway, Body: http.NoBody, Header: make(http.Header)}, nil
+	}
+	m.mu.Lock()
+	gate, gated := m.blobGate, m.gatedBlob
+	m.mu.Unlock()
+	if gate != nil && r.URL.Path == "/repos/owner/repo/git/blobs/"+gated {
+		gate.pass()
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

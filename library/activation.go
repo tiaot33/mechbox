@@ -140,7 +140,7 @@ type claimant struct {
 // 遍历库中全部 Activation(不限 skill),凡解析到同一目录的,若属同一 skill(另一身份的 Scope,
 // 例如把 $HOME 本身登记为项目)或同名的另一 skill,即为占用,返回 FailedPrecondition;Overwrite 对占用无效,
 // 它只能替换没有任何记录的外来目录。调用方须保证本 skill 在本 Scope 尚无记录(否则是幂等刷新)。
-// 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有库锁,期间没有并发写入,
+// 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有独占锁,期间没有并发写入,
 // 且单连接模式下事务内不能再走 l.db 调 Resolve。
 func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation string, id SkillID, name string, target resolvedScope) error {
 	// 同名即包含本 skill 自身;本 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
@@ -184,7 +184,7 @@ func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation st
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
-	ctx, unlock := l.writeOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateConflictPolicy("activate", opts.OnConflict); err != nil {
@@ -328,7 +328,7 @@ func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scope
 }
 
 func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope) (err error) {
-	ctx, unlock := l.writeOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	target, err := l.resolveScope(ctx, scope)
@@ -393,8 +393,8 @@ func keepActivation(ctx context.Context, tx *sql.Tx, activationID int64) (bool, 
 }
 
 func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (err error) {
-	// 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
-	ctx, unlock := l.writeOperation(ctx)
+	// 整组操作持独占锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateConflictPolicy("activate group", opts.OnConflict); err != nil {
@@ -523,8 +523,8 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 }
 
 func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
-	// 整组操作独占库锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
-	ctx, unlock := l.writeOperation(ctx)
+	// 整组操作持独占锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	target, err := l.resolveScope(ctx, scope)
@@ -621,7 +621,7 @@ func randomName(prefix string) (string, error) {
 }
 
 func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Activation, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。

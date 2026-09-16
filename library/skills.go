@@ -38,7 +38,7 @@ func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummar
 }
 
 func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill Skill, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	root, err := filepath.Abs(source.Path)
@@ -163,21 +163,24 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
-	ctx, unlock := l.readOperation(ctx)
-	defer unlock()
 	defer func() { err = typedError(err) }()
 	skill, _, err = l.getSkill(ctx, id)
 	return skill, err
 }
 
-// fetchState 是门面不暴露、检查与更新据以走快路径的抓取记录。
+// fetchState 是门面不暴露、检查与更新据以走快路径的抓取记录,以及这份内容所属的版本 ID。
 type fetchState struct {
+	versionID       int64  // 返回文件所属的当前版本;Update 用它做提交阶段的复核依据
 	confirmedCommit string // 当前版本的确认 commit;仅 GitHub 来源非空
 	httpValidator   string // Source 上次成功抓取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
 }
 
 // getSkill 读取 skill 及其当前版本的完整文件,连同其抓取记录。
+// 先钉住版本 ID,再按该版本取文件,因此即使期间别处提交了新版本,返回的文件与版本 ID 也彼此一致。
+// 自带共享锁:Update / CheckUpdate 的网络阶段不持锁,读库这一步由它自己保护。
 func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchState, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
 	summary, err := l.getSummary(ctx, id)
 	if err != nil {
 		return Skill{}, fetchState{}, err
@@ -185,23 +188,22 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 	skill := Skill{ID: summary.ID, Name: summary.Name, Source: summary.Source}
 	var state fetchState
 	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator
+		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
-	`, id).Scan(&skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator); err != nil {
+	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator); err != nil {
 		return Skill{}, fetchState{}, fmt.Errorf("get skill version: %w", err)
 	}
 
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode
-		FROM skills
-		JOIN version_files ON version_files.version_id = skills.current_version_id
+		FROM version_files
 		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
+		WHERE version_files.version_id = ?
 		ORDER BY version_files.path
-	`, id)
+	`, state.versionID)
 	if err != nil {
 		return Skill{}, fetchState{}, fmt.Errorf("get skill files: %w", err)
 	}
@@ -220,7 +222,7 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 }
 
 func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skills ORDER BY name, id`)
@@ -253,7 +255,7 @@ func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, 
 }
 
 func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateProjectedCopies("remove skill", opts.ProjectedCopies); err != nil {
@@ -307,7 +309,7 @@ func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {
 }
 
 func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Collection, err error) {
-	ctx, unlock := l.readOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	skills, err := l.ListSkills(ctx)
