@@ -50,7 +50,7 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		return result, fetchError(SourceUnreachable, "read search response", err)
 	}
 	if len(body) > maxSearchSize {
-		return result, fetchError(SourceUnreachable, "read search response", errors.New("response exceeds size limit"))
+		return result, fetchError(SourceInvalid, "read search response", errors.New("response exceeds size limit"))
 	}
 	var payload struct {
 		Skills []struct {
@@ -61,7 +61,7 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		} `json:"skills"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil || payload.Skills == nil {
-		return result, fetchError(SourceUnreachable, "read search response", errors.New("invalid response format"))
+		return result, fetchError(SourceInvalid, "read search response", errors.New("invalid response format"))
 	}
 	result.Skills = []SearchSkill{}
 	for i, skill := range payload.Skills {
@@ -72,7 +72,7 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 			break
 		}
 		if strings.TrimSpace(skill.ID) == "" || strings.TrimSpace(skill.Name) == "" || strings.TrimSpace(skill.Source) == "" || (skill.Installs != nil && *skill.Installs < 0) {
-			return SearchResult{}, fetchError(SourceUnreachable, "read search response", errors.New("missing or invalid result fields"))
+			return SearchResult{}, fetchError(SourceInvalid, "read search response", errors.New("missing or invalid result fields"))
 		}
 		source, err := parseGitHubInput(skill.Source, ResolveSourceOptions{})
 		if err != nil || source.tree != "" || source.ref != "" || source.name != "" || !validSelectionName(skill.Name) || strings.Contains(skill.Name, "#") {

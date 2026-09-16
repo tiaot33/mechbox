@@ -35,7 +35,7 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if path == "" {
-		return RegisteredProject{}, fmt.Errorf("register project: path is required")
+		return RegisteredProject{}, argumentError("register project", "path", "path is required")
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
@@ -50,7 +50,7 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 		return RegisteredProject{}, fmt.Errorf("read project path: %w", err)
 	}
 	if !info.IsDir() {
-		return RegisteredProject{}, fmt.Errorf("register project: %s is not a directory", project.Path)
+		return RegisteredProject{}, argumentError("register project", "path", "path is not a directory")
 	}
 	project.Path = filepath.Clean(project.Path)
 	result, err := l.db.ExecContext(ctx, `INSERT OR IGNORE INTO projects(path) VALUES (?)`, project.Path)
@@ -62,7 +62,11 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 		return RegisteredProject{}, fmt.Errorf("register project: %w", err)
 	}
 	if inserted == 0 {
-		return RegisteredProject{}, &Error{Code: AlreadyExists, Message: "register project: path already registered"}
+		var id ProjectID
+		if err := l.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE path = ?`, project.Path).Scan(&id); err != nil {
+			return RegisteredProject{}, fmt.Errorf("read registered project: %w", err)
+		}
+		return RegisteredProject{}, existsError("register project", "path already registered", ErrorDetails{ProjectID: id, Path: project.Path})
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
@@ -98,24 +102,29 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	ctx, unlock := l.readOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if opts.ProjectedCopies != "" && opts.ProjectedCopies != Keep && opts.ProjectedCopies != Remove {
-		return fmt.Errorf("invalid projected copies option")
+	if err := validateProjectedCopies("unregister project", opts.ProjectedCopies); err != nil {
+		return err
 	}
 	var path string
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
+	// 待删的投影路径在事务外先算好:单连接模式下事务内不能再走 l.db。
+	var trash projectionTrash
 	if opts.ProjectedCopies == Remove {
 		activations, err := l.ListActivations(ctx)
 		if err != nil {
 			return err
 		}
 		for _, activation := range activations {
-			if project, ok := activation.Scope.(ProjectScope); ok && project.ProjectID == id {
-				if err := l.removeProjectedCopy(ctx, activation.SkillID, activation.Directory); err != nil {
-					return err
-				}
+			if project, ok := activation.Scope.(ProjectScope); !ok || project.ProjectID != id {
+				continue
 			}
+			skill, err := l.GetSkill(ctx, activation.SkillID)
+			if err != nil {
+				return err
+			}
+			trash.targets = append(trash.targets, filepath.Join(activation.Directory, skill.Name))
 		}
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -129,10 +138,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("unregister project: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit unregister project: %w", err)
-	}
-	return nil
+	return trash.commit(ctx, tx, "unregister project")
 }
 
 func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory string, err error) {

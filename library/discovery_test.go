@@ -55,7 +55,7 @@ func TestFetchRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) 
 			lib := openTestLibrary(t)
 			fetch, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
 			if !tc.valid {
-				if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+				if !library.IsCode(err, library.SourceInvalid) || fetch.ID != "" {
 					t.Fatalf("unsafe archive = %#v, %v", fetch, err)
 				}
 				return
@@ -117,7 +117,7 @@ func TestFetchArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceUnreachable) {
+	if _, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceInvalid) {
 		t.Fatalf("expanded limit = %v", err)
 	}
 }
@@ -155,7 +155,7 @@ func TestFetchArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
 			lib := openTestLibrary(t)
 			fetch, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
 			if !tc.ok {
-				if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+				if !library.IsCode(err, library.SourceInvalid) || fetch.ID != "" {
 					t.Fatalf("file count limit = %#v, %v", fetch, err)
 				}
 				if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
@@ -185,7 +185,7 @@ func TestFetchArchiveRejectsOversizedDownloadWithoutCreatingSession(t *testing.T
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
 	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
-	if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+	if !library.IsCode(err, library.SourceInvalid) || fetch.ID != "" {
 		t.Fatalf("download size = %#v, %v", fetch, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
@@ -198,11 +198,13 @@ func TestFetchArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })}
 	t.Cleanup(func() { http.DefaultClient = client })
-	for _, location := range []string{"https://user:example-secret@source.example/archive?token=example-secret", "https://user:example-secret@source.example/%zz"} {
-		_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: location}})
-		if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
-			t.Fatalf("archive error exposed credentials or wrong code: %v", err)
-		}
+	_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/archive?token=example-secret"}})
+	if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
+		t.Fatalf("archive error exposed credentials or wrong code: %v", err)
+	}
+	_, err = lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/%zz"}})
+	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {
+		t.Fatalf("invalid URL exposed credentials or wrong code: %v", err)
 	}
 }
 
@@ -289,7 +291,7 @@ func TestFetchRejectsInvalidCandidateSetsWithoutCreatingSession(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
 			fetch, err := lib.Fetch(t.Context(), serveArchive(t, zipArchive(t, tc.files)))
-			if !library.IsCode(err, library.InvalidArgument) || !strings.Contains(err.Error(), tc.detail) || fetch.ID != "" {
+			if !library.IsCode(err, library.SourceInvalid) || !strings.Contains(err.Error(), tc.detail) || fetch.ID != "" {
 				t.Fatalf("Fetch = %#v, %v", fetch, err)
 			}
 			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {

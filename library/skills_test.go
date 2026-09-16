@@ -163,3 +163,85 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 		t.Fatalf("unknown removal touched disk: %v", err)
 	}
 }
+
+// RemoveSkill(Remove) 先删记录、把投影改名暂存、提交后才真正删除:改名失败时库与磁盘都原样不动;
+// 投影已被手动删掉时仍成功;成功后 Scope 目录下不留暂存残留。
+func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	present := installNamedSkill(t, lib, "present")
+	missing := installNamedSkill(t, lib, "missing")
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{present, missing} {
+		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	makeScopeReadOnly(t, directory)
+	err = lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove})
+	requireLibraryError(t, err, library.Permission)
+	if err := os.Chmod(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skills, err := lib.ListSkills(ctx)
+	if err != nil || !reflect.DeepEqual(summaryIDs(skills), []library.SkillID{missing.ID, present.ID}) {
+		t.Fatalf("failed Remove changed skills: %#v, %v", skills, err)
+	}
+	after, err := lib.ListActivations(ctx)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
+	if err != nil || string(content) != "# present\n" {
+		t.Fatalf("failed Remove changed projection: %q, %v", content, err)
+	}
+	requireNoStagedEntries(t, directory)
+
+	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.RemoveSkill(ctx, missing.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatalf("Remove with manually deleted projection = %v", err)
+	}
+	if err := lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Remove left projected copy behind: %v", err)
+	}
+	skills, err = lib.ListSkills(ctx)
+	if err != nil || len(skills) != 0 {
+		t.Fatalf("ListSkills() after removals = %#v, %v", skills, err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after removals = %#v, %v", activations, err)
+	}
+	requireNoStagedEntries(t, directory)
+}
+
+func TestInstallDuplicateLocalSkillCarriesIdentity(t *testing.T) {
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "dup")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Dup\n"), 0o644)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.Install(t.Context(), library.LocalSource{Path: source})
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID, Name: skill.Name})
+	skills, err := lib.ListSkills(t.Context())
+	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {
+		t.Fatalf("duplicate install changed library: %#v, %v", skills, err)
+	}
+}

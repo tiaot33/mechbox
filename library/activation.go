@@ -77,55 +77,119 @@ func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRo
 	return &row, nil
 }
 
-// removeProjectedCopy 删除 skill 在 directory(某条 Activation 的派生目录)下的投影文件夹。
-func (l *sqliteLibrary) removeProjectedCopy(ctx context.Context, id SkillID, directory string) error {
-	skill, err := l.GetSkill(ctx, id)
-	if err != nil {
+// projectionTrash 让"删记录 + 删投影文件夹"可逆:调用方在事务内删完记录、把待删路径放进 targets,
+// 再由 commit 收尾:改名到同一父目录下的暂存名 → 提交事务 → 真正删除;提交前任一步失败改回原名,
+// 配合调用方的 Rollback 使库和磁盘都回到操作前。
+// RemoveSkill / UnregisterProject / Deactivate / DeactivateGroup 共用,避免任何一处再出现"先删盘后写库"。
+type projectionTrash struct {
+	targets []string
+	trashed []struct{ trash, target string } // 已改名的条目:原路径与暂存路径
+}
+
+// commit 完成收尾;operation 用于提交失败的错误消息。暂存目录的最终删除失败只留下垃圾,不影响权威数据。
+func (t *projectionTrash) commit(ctx context.Context, tx *sql.Tx, operation string) error {
+	if err := t.trash(ctx); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
-		return fmt.Errorf("remove projected copy: %w", err)
+	if err := tx.Commit(); err != nil {
+		return errors.Join(fmt.Errorf("commit %s: %w", operation, err), t.restore())
+	}
+	for _, entry := range t.trashed {
+		_ = os.RemoveAll(entry.trash)
 	}
 	return nil
 }
 
-// directoryClaimedByAnotherScope 判断该 skill 是否已有另一条不同身份的 Activation 解析到同一目录
-// (例如把 $HOME 本身登记为项目)。这种情况下不新建第二条记录去争同一个文件夹。
+// trash 把每个存在的目标改名到暂存;不存在的跳过。任一步失败自动 restore 并返回错误。
+func (t *projectionTrash) trash(ctx context.Context) error {
+	for _, path := range t.targets {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, t.restore())
+		}
+		staged, err := randomName(filepath.Join(filepath.Dir(path), ".remove-"))
+		if err != nil {
+			return errors.Join(err, t.restore())
+		}
+		if err := os.Rename(path, staged); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return errors.Join(fmt.Errorf("remove projected copy: %w", err), t.restore())
+		}
+		t.trashed = append(t.trashed, struct{ trash, target string }{staged, path})
+	}
+	return nil
+}
+
+// restore 把全部已改名的暂存目录改回原名,供提交前失败时复位。
+func (t *projectionTrash) restore() error {
+	var restoreErr error
+	for _, entry := range t.trashed {
+		restoreErr = errors.Join(restoreErr, os.Rename(entry.trash, entry.target))
+	}
+	return restoreErr
+}
+
+// claimant 是一条可能与待激活目标争同一文件夹的既有 Activation:所属 skill、投影名与 Scope 身份。
+type claimant struct {
+	skillID SkillID
+	name    string
+	scopeRow
+}
+
+// requireTargetUnclaimed 维持不变量"同一解析目录下的同一文件夹名至多归一条 Activation":
+// 遍历库中全部 Activation(不限 skill),凡解析到同一目录的,若属同一 skill(另一身份的 Scope,
+// 例如把 $HOME 本身登记为项目)或同名的另一 skill,即为占用,返回 FailedPrecondition;Overwrite 对占用无效,
+// 它只能替换没有任何记录的外来目录。调用方须保证本 skill 在本 Scope 尚无记录(否则是幂等刷新)。
 // 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有库锁,期间没有并发写入,
 // 且单连接模式下事务内不能再走 l.db 调 Resolve。
-func (l *sqliteLibrary) directoryClaimedByAnotherScope(ctx context.Context, id SkillID, target resolvedScope) (bool, error) {
-	rows, err := l.db.QueryContext(ctx, `SELECT agent, project_id FROM activations WHERE skill_id = ?`, id)
+func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation string, id SkillID, name string, target resolvedScope) error {
+	// 同名即包含本 skill 自身;本 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
+	rows, err := l.db.QueryContext(ctx, `
+		SELECT a.skill_id, s.name, a.agent, a.project_id FROM activations a
+		JOIN skills s ON s.id = a.skill_id
+		WHERE s.name = ? ORDER BY a.skill_id <> ?`, name, id)
 	if err != nil {
-		return false, fmt.Errorf("list skill activations: %w", err)
+		return fmt.Errorf("list claimants: %w", err)
 	}
-	var others []scopeRow
+	var claimants []claimant
 	for rows.Next() {
-		var row scopeRow
-		if err := rows.Scan(&row.agent, &row.projectID); err != nil {
+		var row claimant
+		if err := rows.Scan(&row.skillID, &row.name, &row.agent, &row.projectID); err != nil {
 			_ = rows.Close()
-			return false, fmt.Errorf("read skill activation: %w", err)
+			return fmt.Errorf("read claimant: %w", err)
 		}
-		others = append(others, row)
+		claimants = append(claimants, row)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return false, fmt.Errorf("read skill activations: %w", err)
+		return fmt.Errorf("read claimants: %w", err)
 	}
-	for _, other := range others {
+	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())
 		if err != nil {
-			return false, err
+			return err
 		}
-		if directory == target.directory {
-			return true, nil
+		if directory != target.directory {
+			continue
 		}
+		if other.skillID == id {
+			return preconditionError(operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: directory})
+		}
+		return preconditionError(operation, "another skill already projects this name into the same directory", ErrorDetails{
+			Path:    filepath.Join(directory, other.name),
+			Name:    other.name,
+			SkillID: other.skillID,
+		})
 	}
-	return false, nil
+	return nil
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
 	ctx, unlock := l.writeOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	if err := validateConflictPolicy("activate", opts.OnConflict); err != nil {
+		return err
+	}
 	target, err := l.resolveScope(ctx, scope)
 	if err != nil {
 		return err
@@ -145,16 +209,14 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 		return err
 	}
 	if existing == nil {
-		if claimed, err := l.directoryClaimedByAnotherScope(ctx, id, scope); err != nil {
+		if err := l.requireTargetUnclaimed(ctx, "activate skill", skill.ID, skill.Name, scope); err != nil {
 			return err
-		} else if claimed {
-			return &Error{Code: AlreadyExists, Message: "activate skill: another scope already projects this skill into the same directory"}
 		}
 	}
 	target := filepath.Join(scope.directory, skill.Name)
 	if _, err := os.Lstat(target); err == nil {
 		if existing == nil && opts.OnConflict != Overwrite {
-			return &Error{Code: AlreadyExists, Message: "activate skill: target already exists"}
+			return existsError("activate skill", "target already exists", ErrorDetails{Path: target})
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect activation target: %w", err)
@@ -281,7 +343,11 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope)
 		return &Error{Code: NotFound, Message: "deactivate skill: skill is not active in scope"}
 	}
 	if !existing.individual {
-		return &Error{Code: NotFound, Message: "deactivate skill: no independent activation"}
+		name, err := supportingGroupName(ctx, l.db, existing.id)
+		if err != nil {
+			return err
+		}
+		return preconditionError("deactivate skill", "activation is only via group", ErrorDetails{Name: name})
 	}
 	return l.deactivateOrigin(ctx, id, existing.id, target.directory)
 }
@@ -304,18 +370,14 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, activa
 	if err != nil {
 		return err
 	}
+	var trash projectionTrash
 	if !keep {
-		if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
-			return fmt.Errorf("deactivate skill: %w", err)
-		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, activationID); err != nil {
 			return fmt.Errorf("remove activation: %w", err)
 		}
+		trash.targets = []string{filepath.Join(directory, skill.Name)}
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit deactivation: %w", err)
-	}
-	return nil
+	return trash.commit(ctx, tx, "deactivation")
 }
 
 // keepActivation 在撤销依据后判断投影是否仍需保留。
@@ -335,6 +397,9 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	ctx, unlock := l.writeOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	if err := validateConflictPolicy("activate group", opts.OnConflict); err != nil {
+		return err
+	}
 	target, err := l.resolveScope(ctx, scope)
 	if err != nil {
 		return err
@@ -350,7 +415,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	seen := make(map[string]bool, len(members))
 	for _, member := range members {
 		if seen[member.Name] {
-			return &Error{Code: AlreadyExists, Message: fmt.Sprintf("activate group: multiple members named %q project to the same target", member.Name)}
+			return preconditionError("activate group", "multiple members project to the same target", ErrorDetails{Name: member.Name})
 		}
 		seen[member.Name] = true
 	}
@@ -363,16 +428,15 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		if existing != nil {
 			continue
 		}
-		if claimed, err := l.directoryClaimedByAnotherScope(ctx, member.ID, target); err != nil {
+		if err := l.requireTargetUnclaimed(ctx, "activate group", member.ID, member.Name, target); err != nil {
 			return err
-		} else if claimed {
-			return &Error{Code: AlreadyExists, Message: "activate group: another scope already projects a member into the same directory"}
 		}
 		if opts.OnConflict == Overwrite {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(target.directory, member.Name)); err == nil {
-			return &Error{Code: AlreadyExists, Message: "activate group: target already exists"}
+		targetPath := filepath.Join(target.directory, member.Name)
+		if _, err := os.Lstat(targetPath); err == nil {
+			return existsError("activate group", "target already exists", ErrorDetails{Path: targetPath})
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect activation target: %w", err)
 		}
@@ -514,7 +578,7 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 		return fmt.Errorf("begin group deactivation: %w", err)
 	}
 	defer tx.Rollback()
-	var removeTargets []string
+	var trash projectionTrash
 	for _, member := range members {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE activation_id = ? AND group_id = ?`, member.activationID, groupID); err != nil {
 			return fmt.Errorf("remove group activation: %w", err)
@@ -527,46 +591,25 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 			if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, member.activationID); err != nil {
 				return fmt.Errorf("remove activation: %w", err)
 			}
-			removeTargets = append(removeTargets, filepath.Join(target.directory, names[member.skillID]))
+			trash.targets = append(trash.targets, filepath.Join(target.directory, names[member.skillID]))
 		}
 	}
 
-	// 磁盘删除做成可逆:先把待删目录改名到暂存,提交后再真正删除;
-	// 任一步失败则撤销改名并回滚事务,该组去激活全有或全无。
-	type trashedProjection struct{ trash, target string }
-	var trashed []trashedProjection
-	restore := func() error {
-		var restoreErr error
-		for i := len(trashed) - 1; i >= 0; i-- {
-			restoreErr = errors.Join(restoreErr, os.Rename(trashed[i].trash, trashed[i].target))
-		}
-		return restoreErr
+	return trash.commit(ctx, tx, "group deactivation")
+}
+
+// supportingGroupName 读取仅由分组支撑的投影所经由的第一个分组名。
+func supportingGroupName(ctx context.Context, q rowQuerier, activationID int64) (string, error) {
+	var name string
+	err := q.QueryRowContext(ctx, `
+		SELECT groups.name FROM activation_groups
+		JOIN groups ON groups.id = activation_groups.group_id
+		WHERE activation_groups.activation_id = ?
+		ORDER BY groups.id LIMIT 1`, activationID).Scan(&name)
+	if err != nil {
+		return "", fmt.Errorf("read supporting group: %w", err)
 	}
-	for _, path := range removeTargets {
-		if err := ctx.Err(); err != nil {
-			return errors.Join(err, restore())
-		}
-		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return errors.Join(fmt.Errorf("inspect deactivation target: %w", err), restore())
-		}
-		trash, err := randomName(filepath.Join(target.directory, ".deactivate-"))
-		if err != nil {
-			return errors.Join(err, restore())
-		}
-		if err := os.Rename(path, trash); err != nil {
-			return errors.Join(fmt.Errorf("deactivate skill: %w", err), restore())
-		}
-		trashed = append(trashed, trashedProjection{trash: trash, target: path})
-	}
-	if err := tx.Commit(); err != nil {
-		return errors.Join(fmt.Errorf("commit group deactivation: %w", err), restore())
-	}
-	for _, entry := range trashed {
-		_ = os.RemoveAll(entry.trash)
-	}
-	return nil
+	return name, nil
 }
 
 func randomName(prefix string) (string, error) {

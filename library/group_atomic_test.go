@@ -133,15 +133,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 					t.Fatalf("projection %s changed: %q, %v", skill.Name, content, err)
 				}
 			}
-			entries, err := os.ReadDir(directory)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, entry := range entries {
-				if entry.Name()[0] == '.' {
-					t.Fatalf("temporary projection remains: %s", entry.Name())
-				}
-			}
+			requireNoStagedEntries(t, directory)
 		})
 	}
 }

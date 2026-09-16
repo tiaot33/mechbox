@@ -387,8 +387,8 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 	if badPreview.SchemaOK {
 		t.Fatalf("PreviewSyncPull() = %#v, want schema not acceptable", badPreview)
 	}
-	if _, err := lib.SyncPull(ctx, badPreview.Remote); err == nil {
-		t.Fatal("SyncPull accepted an invalid database")
+	if _, err := lib.SyncPull(ctx, badPreview.Remote); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("SyncPull invalid database = %v, want FailedPrecondition", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("invalid pull corrupted local library: %v", err)
@@ -415,8 +415,8 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.SyncPull(ctx, foreignPreview.Remote); err == nil {
-		t.Fatal("SyncPull accepted a foreign SQLite database")
+	if _, err := lib.SyncPull(ctx, foreignPreview.Remote); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("SyncPull foreign database = %v, want FailedPrecondition", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("foreign pull corrupted local library: %v", err)

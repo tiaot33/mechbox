@@ -49,7 +49,11 @@ func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath,
 	case SourceStore:
 		base := os.Getenv("SKILLS_STORE_URL")
 		if base == "" {
-			return discoveredSource{}, fetchError(SourceUnreachable, "fetch store source", errors.New("SKILLS_STORE_URL is not configured"))
+			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}
+		}
+		// 基址是配置而非调用方参数:语法不合法归 NotConfigured,不让 fetchArchive 报成 url 字段错误。
+		if _, err := url.Parse(base); err != nil {
+			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
 		}
 		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version), validator)
 	default:
@@ -109,7 +113,7 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 			}
 			_, err = runSourceGit(ctx, "-C", repository, "checkout", "--quiet", "--detach", "FETCH_HEAD")
 		}
-		return err
+		return missingRefError(err, locator.Branch)
 	}
 	err = clone(locator.Repository)
 	if err != nil && ctx.Err() == nil {
@@ -219,7 +223,7 @@ func fetchArchive(ctx context.Context, location, validator string) (result disco
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
-		return result, fetchError(SourceUnreachable, "fetch source", errors.New("invalid source URL"))
+		return result, argumentError("fetch source", "url", "invalid source URL")
 	}
 	applyValidator(req, validator)
 	response, err := http.DefaultClient.Do(req)
@@ -248,7 +252,7 @@ func fetchArchive(ctx context.Context, location, validator string) (result disco
 		return result, fetchError(SourceUnreachable, "read source", errors.New("source response could not be read"))
 	}
 	if len(content) > maxFetchSize {
-		return result, fetchError(SourceUnreachable, "read source", errors.New("archive exceeds size limit"))
+		return result, fetchError(SourceInvalid, "read source", errors.New("archive exceeds size limit"))
 	}
 	result, err = readArchive(ctx, content)
 	if err != nil {
@@ -263,10 +267,10 @@ func fetchArchive(ctx context.Context, location, validator string) (result disco
 func readArchive(ctx context.Context, content []byte) (discoveredSource, error) {
 	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
 	if err != nil {
-		return discoveredSource{}, fetchError(SourceUnreachable, "read source archive", err)
+		return discoveredSource{}, fetchError(SourceInvalid, "read source archive", err)
 	}
 	if len(reader.File) > maxFetchFiles {
-		return discoveredSource{}, fetchError(SourceUnreachable, "read source archive", errors.New("archive exceeds file count limit"))
+		return discoveredSource{}, fetchError(SourceInvalid, "read source archive", errors.New("archive exceeds file count limit"))
 	}
 	seen := make(map[string]bool)
 	remaining := uint64(maxFetchSize)
@@ -276,11 +280,11 @@ func readArchive(ctx context.Context, content []byte) (discoveredSource, error) 
 		}
 		name := strings.TrimSuffix(archived.Name, "/")
 		if name == "" || name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, `\:`) || seen[name] {
-			return discoveredSource{}, fetchError(SourceUnreachable, "read source archive", errors.New("unsafe or duplicate path"))
+			return discoveredSource{}, fetchError(SourceInvalid, "read source archive", errors.New("unsafe or duplicate path"))
 		}
 		seen[name] = true
 		if archived.UncompressedSize64 > remaining {
-			return discoveredSource{}, fetchError(SourceUnreachable, "read source archive", errors.New("expanded content exceeds size limit"))
+			return discoveredSource{}, fetchError(SourceInvalid, "read source archive", errors.New("expanded content exceeds size limit"))
 		}
 		remaining -= archived.UncompressedSize64
 	}
@@ -363,7 +367,7 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string) ([]File,
 			return nil
 		}
 		if !entry.Type().IsRegular() {
-			return fmt.Errorf("unsupported file type: %s", current)
+			return fetchError(SourceInvalid, "read source", fmt.Errorf("unsupported file type: %s", current))
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -390,7 +394,7 @@ func finishDiscovery(result discoveredSource) (discoveredSource, error) {
 		for i, d := range result.diagnostics {
 			reasons[i] = d.Path + ": " + d.Reason
 		}
-		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "no valid Skill candidates: " + strings.Join(reasons, "; ")}
+		return discoveredSource{}, fetchError(SourceInvalid, "no valid Skill candidates", errors.New(strings.Join(reasons, "; ")))
 	}
 	return result, nil
 }

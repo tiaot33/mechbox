@@ -48,10 +48,10 @@ func TestSearchSkillsDistinguishesEmptyInvalidAndUnavailableResults(t *testing.T
 		code       library.ErrorCode
 	}{
 		{"empty", `{"skills":[]}`, 200, ""},
-		{"missing list", `{}`, 200, library.SourceUnreachable},
-		{"invalid json", `broken`, 200, library.SourceUnreachable},
-		{"missing name", `{"skills":[{"id":"owner/repo/a","source":"owner/repo"}]}`, 200, library.SourceUnreachable},
-		{"wrong installs", `{"skills":[{"id":"owner/repo/a","name":"a","source":"owner/repo","installs":"bad"}]}`, 200, library.SourceUnreachable},
+		{"missing list", `{}`, 200, library.SourceInvalid},
+		{"invalid json", `broken`, 200, library.SourceInvalid},
+		{"missing name", `{"skills":[{"id":"owner/repo/a","source":"owner/repo"}]}`, 200, library.SourceInvalid},
+		{"wrong installs", `{"skills":[{"id":"owner/repo/a","name":"a","source":"owner/repo","installs":"bad"}]}`, 200, library.SourceInvalid},
 		{"HTTP error", ``, 500, library.SourceUnreachable},
 		{"permission", ``, 403, library.Permission},
 	} {
@@ -105,7 +105,7 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 		<-r.Context().Done()
 		return nil, r.Context().Err()
 	})
-	if _, err := lib.SearchSkills(ctx, "test"); !errors.Is(err, context.Canceled) {
+	if _, err := lib.SearchSkills(ctx, "test"); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel = %v", err)
 	}
 	http.DefaultClient.Transport = fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })

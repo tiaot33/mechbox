@@ -325,7 +325,7 @@ func TestFetchStoreRequiresConfiguredBaseURL(t *testing.T) {
 		Type:    library.SourceStore,
 		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
 	})
-	if !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
+	if !library.IsCode(err, library.NotConfigured) || fetch.ID != "" {
 		t.Fatalf("unconfigured store = %#v, %v", fetch, err)
 	}
 }
@@ -368,8 +368,8 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 	_, err = lib.Fetch(ctx, library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: "http://127.0.0.1/skills.zip"},
 	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
+	if !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want Canceled wrapping context.Canceled", err)
 	}
 }
 
@@ -387,7 +387,7 @@ func TestFetchRejectsUnsafeArchivePaths(t *testing.T) {
 	_, err = lib.Fetch(t.Context(), library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
 	})
-	if !library.IsCode(err, library.SourceUnreachable) {
-		t.Fatalf("error = %v, want unsafe archive rejected as SourceUnreachable", err)
+	if !library.IsCode(err, library.SourceInvalid) {
+		t.Fatalf("error = %v, want unsafe archive rejected as SourceInvalid", err)
 	}
 }

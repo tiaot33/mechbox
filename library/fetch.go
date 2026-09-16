@@ -178,7 +178,7 @@ func selectSkills(skills []fetchedSkill, selected []string) ([]fetchedSkill, err
 	}
 	if len(wanted) != 0 {
 		for name := range wanted {
-			return nil, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name)}
+			return nil, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", name), Details: ErrorDetails{Name: name}}
 		}
 	}
 	return result, nil
