@@ -28,8 +28,8 @@ const (
 	// NotFound 被引用的实体不存在(各类 ID、Fetch 句柄、候选名、远端不存在的 git ref)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
-	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标)。
-	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
+	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标;
+	// 有记录的占用是 FailedPrecondition)。不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 预览到执行之间状态已变。可重新预览后再执行。
 	Conflict ErrorCode = "conflict"
@@ -332,12 +332,14 @@ type ProjectScope struct {
 func (GlobalScope) sealedScope()  {}
 func (ProjectScope) sealedScope() {}
 
-// ConflictPolicy 决定激活时目标目录已存在的处理方式。
+// ConflictPolicy 决定激活时目标目录已存在、且没有任何 Activation 记录(外来目录)的处理方式。
+// 目标已被另一条 Activation 占用(同一 skill 的另一 Scope,或同名的另一 skill)时两种策略都返回
+// FailedPrecondition:同一目录下的一个文件夹名至多归一条 Activation,需先 Deactivate 占用者。
 type ConflictPolicy string
 
 const (
 	Fail      ConflictPolicy = "fail"      // 返回 AlreadyExists 错误(默认)
-	Overwrite ConflictPolicy = "overwrite" // 原子替换已有目录
+	Overwrite ConflictPolicy = "overwrite" // 原子替换无记录的外来目录
 )
 
 type ActivateOptions struct {
@@ -496,11 +498,13 @@ type Library interface {
 	// 四个方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
-	// Activate 把 skill 投影到 Scope,记为独立激活。
+	// Activate 把 skill 投影到 Scope,记为独立激活;对自己已有的投影幂等刷新。
+	// 目标文件夹已被另一条 Activation 占用时返回 FailedPrecondition(见 ConflictPolicy)。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
 	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据;失败时撤销本次整组改动。
+	// 成员同名,或任一成员的目标已被另一条 Activation 占用,整组返回 FailedPrecondition 且不落盘。
 	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
 	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error

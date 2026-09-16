@@ -110,19 +110,19 @@ func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation st
 		WHERE a.skill_id = ? OR s.name = ?
 		ORDER BY a.skill_id = ? DESC, a.skill_id, a.agent, a.project_id`, id, name, id)
 	if err != nil {
-		return fmt.Errorf("list competing activations: %w", err)
+		return fmt.Errorf("list claimants: %w", err)
 	}
 	var claimants []claimant
 	for rows.Next() {
 		var row claimant
 		if err := rows.Scan(&row.skillID, &row.name, &row.agent, &row.projectID); err != nil {
 			_ = rows.Close()
-			return fmt.Errorf("read competing activation: %w", err)
+			return fmt.Errorf("read claimant: %w", err)
 		}
 		claimants = append(claimants, row)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return fmt.Errorf("read competing activations: %w", err)
+		return fmt.Errorf("read claimants: %w", err)
 	}
 	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())

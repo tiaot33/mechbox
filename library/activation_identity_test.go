@@ -546,27 +546,6 @@ func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 	}
 }
 
-// installSkillWithBody 安装一个指定名字与 SKILL.md 正文的 skill;不同 Source 的同名 skill 靠正文区分。
-func installSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
-	t.Helper()
-	source := filepath.Join(t.TempDir(), name)
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return skill
-}
-
-// requireProjection 断言 directory 下 name 文件夹的 SKILL.md 正文。
-func requireProjection(t *testing.T, directory, name, body string) {
-	t.Helper()
-	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
-	if err != nil || string(content) != body {
-		t.Fatalf("projection %s/SKILL.md = %q, %v; want %q", name, content, err, body)
-	}
-}
-
 // 同名不同 Source 的 A 已投影到某 Scope 时,激活 B 不能接管那个文件夹:两种冲突策略都得到
 // FailedPrecondition 并指认占用者;A 的记录与内容原样保留,不会出现两条记录指向同一文件夹。
 func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
@@ -710,6 +689,14 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	}
 	requireProjection(t, directory, "commit", "# A\n")
 	requireProjection(t, otherDirectory, "commit", "# B\n")
+	activations, err := lib.ListActivations(ctx)
+	want := []library.Activation{
+		{SkillID: first.ID, Scope: global, Directory: directory, Individual: true},
+		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Individual: true},
+	}
+	if err != nil || !reflect.DeepEqual(activations, want) {
+		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	}
 
 	if err := os.RemoveAll(filepath.Join(directory, "commit")); err != nil {
 		t.Fatal(err)
