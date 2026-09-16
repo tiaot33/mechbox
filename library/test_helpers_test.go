@@ -146,6 +146,32 @@ func installNamedSkill(t *testing.T, lib library.Library, name string) library.S
 	return skill
 }
 
+// requireNoStagedEntries 断言 Scope 目录下没有以 "." 开头的暂存残留(激活暂存或删除暂存)。
+func requireNoStagedEntries(t *testing.T, directory string) {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name()[0] == '.' {
+			t.Fatalf("staged entry remains in %s: %s", directory, entry.Name())
+		}
+	}
+}
+
+// makeScopeReadOnly 让 directory 不可写,使其中的改名 / 删除失败;测试结束自动恢复。
+func makeScopeReadOnly(t *testing.T, directory string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses the injected permission fault")
+	}
+	if err := os.Chmod(directory, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
+}
+
 func openTestLibrary(t *testing.T) library.Library {
 	t.Helper()
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))

@@ -241,9 +241,12 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	if err := validateProjectedCopies("remove skill", opts.ProjectedCopies); err != nil {
 		return err
 	}
-	if _, err := l.GetSkill(ctx, id); err != nil {
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
 		return err
 	}
+	// 待删的投影路径在事务外先算好:单连接模式下事务内不能再走 l.db。
+	var trash projectionTrash
 	if opts.ProjectedCopies == Remove {
 		activations, err := l.ListActivations(ctx)
 		if err != nil {
@@ -251,9 +254,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 		}
 		for _, activation := range activations {
 			if activation.SkillID == id {
-				if err := l.removeProjectedCopy(ctx, id, activation.Directory); err != nil {
-					return err
-				}
+				trash.targets = append(trash.targets, filepath.Join(activation.Directory, skill.Name))
 			}
 		}
 	}
@@ -276,10 +277,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 			return fmt.Errorf("remove skill: %w", err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit remove skill: %w", err)
-	}
-	return nil
+	return trash.commit(ctx, tx, "remove skill")
 }
 
 func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {

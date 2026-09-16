@@ -94,6 +94,64 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	}
 }
 
+// Deactivate 先删记录、把投影改名暂存、提交后才真正删除:改名失败时记录与文件夹都原样不动;
+// 投影已被手动删掉时仍成功并删掉记录;成功后 Scope 目录下不留暂存残留。
+func TestDeactivateKeepsLibraryAndDiskTogether(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	present := installNamedSkill(t, lib, "present")
+	missing := installNamedSkill(t, lib, "missing")
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{present, missing} {
+		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	makeScopeReadOnly(t, directory)
+	err = lib.Deactivate(ctx, present.ID, scope)
+	requireLibraryError(t, err, library.Permission)
+	if err := os.Chmod(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	after, err := lib.ListActivations(ctx)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("failed Deactivate changed activations: %#v, %v; want %#v", after, err, before)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
+	if err != nil || string(content) != "# present\n" {
+		t.Fatalf("failed Deactivate changed projection: %q, %v", content, err)
+	}
+	requireNoStagedEntries(t, directory)
+
+	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Deactivate(ctx, missing.ID, scope); err != nil {
+		t.Fatalf("Deactivate with manually deleted projection = %v", err)
+	}
+	if err := lib.Deactivate(ctx, present.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Deactivate left projected copy behind: %v", err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after deactivations = %#v, %v", activations, err)
+	}
+	requireNoStagedEntries(t, directory)
+}
+
 func TestDeactivateGroupBackedSkillNamesTheGroup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -327,9 +385,6 @@ func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
 }
 
 func TestActivateGroupFailurePreservesIndependentActivation(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root bypasses the injected permission fault")
-	}
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
@@ -367,10 +422,7 @@ func TestActivateGroupFailurePreservesIndependentActivation(t *testing.T) {
 	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(directory, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
+	makeScopeReadOnly(t, directory)
 	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err == nil {
 		t.Fatal("ActivateGroup succeeded despite a read-only scope")
 	}

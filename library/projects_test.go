@@ -130,3 +130,70 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 		t.Fatalf("unknown unregister touched disk: %v", err)
 	}
 }
+
+// UnregisterProject(Remove) 先删记录、把项目下全部投影改名暂存、提交后才真正删除:改名失败时
+// 项目、记录与文件夹都原样不动;投影已被手动删掉时仍成功;成功后不留暂存残留。
+func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	present := installNamedSkill(t, lib, "present")
+	missing := installNamedSkill(t, lib, "missing")
+	scope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{present, missing} {
+		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	makeScopeReadOnly(t, directory)
+	err = lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove})
+	requireLibraryError(t, err, library.Permission)
+	if err := os.Chmod(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := lib.ListRegisteredProjects(ctx)
+	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
+		t.Fatalf("failed Remove changed projects: %#v, %v", projects, err)
+	}
+	after, err := lib.ListActivations(ctx)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
+	if err != nil || string(content) != "# present\n" {
+		t.Fatalf("failed Remove changed projection: %q, %v", content, err)
+	}
+	requireNoStagedEntries(t, directory)
+
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatalf("Remove with a manually deleted projection = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Remove left project projection behind: %v", err)
+	}
+	projects, err = lib.ListRegisteredProjects(ctx)
+	if err != nil || len(projects) != 0 {
+		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after unregister = %#v, %v", activations, err)
+	}
+	requireNoStagedEntries(t, directory)
+}
