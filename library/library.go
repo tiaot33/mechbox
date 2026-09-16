@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -46,16 +47,31 @@ func (l *sqliteLibrary) exclusiveOperation(ctx context.Context) (context.Context
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v6 库会迁移到当前 schema。
-func Open(path string) (Library, error) {
-	db, err := sql.Open("sqlite3", path)
+// libraryBusyTimeout 是等另一进程释放写锁的上限,与驱动默认相同;显式写出只为让它可见。
+const libraryBusyTimeout = 5 * time.Second
+
+// openLibraryDB 打开一个库文件(本库、Sync 快照或拉回的临时库)的单连接:
+// 所有事务以 BEGIN IMMEDIATE 开始——Library 里的事务全是写事务,IMMEDIATE 让写者之间的排队走
+// busy_timeout,也避免 WAL 下"先读后升级为写"时立即失败的 SQLITE_BUSY_SNAPSHOT。
+// 这两个参数只影响连接,不改文件,因此可以在身份校验之前生效。
+func openLibraryDB(ctx context.Context, path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_txlock=immediate&_busy_timeout=%d", path, libraryBusyTimeout.Milliseconds()))
 	if err != nil {
-		return nil, fmt.Errorf("open library: %w", err)
+		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("configure library: %w", err)
+		return nil, err
+	}
+	return db, nil
+}
+
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v6 库会迁移到当前 schema。
+func Open(path string) (Library, error) {
+	db, err := openLibraryDB(context.Background(), path)
+	if err != nil {
+		return nil, fmt.Errorf("open library: %w", err)
 	}
 	var tableCount int
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tableCount); err != nil {
@@ -86,6 +102,10 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
+	// 到这里才确认这是本工具的库。journal mode 持久化在文件头里,放在校验之前会改写外来文件。
+	// WAL 下读者与写者互不阻塞(见 ADR 0012)。切换失败(文件系统不支持共享内存、另一进程的旧版本
+	// 二进制正持有连接)就保持现状:busy_timeout 与 Busy 码仍然成立,下次 Open 再试。
+	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
 	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}, githubMemo: newGitHubMemo()}, nil
 }
 

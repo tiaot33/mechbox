@@ -12,18 +12,50 @@ import (
 	"time"
 )
 
+// summaryQuery 选出 SkillSummary 的全部列;调用方追加 WHERE / ORDER BY。
+const summaryQuery = `
+	SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
+	FROM skills JOIN sources ON sources.id = skills.source_id
+`
+
 // getSummary 读取一个 skill 的身份、名字与来源元数据,不含文件正文。
 func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
+	summary, err := scanSummary(l.db.QueryRowContext(ctx, summaryQuery+`WHERE skills.id = ?`, id))
+	if err != nil {
+		return SkillSummary{}, fmt.Errorf("get skill: %w", err)
+	}
+	return summary, nil
+}
+
+// listSummaries 用一条语句读出一组 skill 的摘要:列表在一个快照里完成,另一进程在两条语句之间
+// 删掉一个 skill 不会让整个列表失败。
+func (l *sqliteLibrary) listSummaries(ctx context.Context, operation, clause string, args ...any) ([]SkillSummary, error) {
+	rows, err := l.db.QueryContext(ctx, summaryQuery+clause, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer rows.Close()
+	var skills []SkillSummary
+	for rows.Next() {
+		summary, err := scanSummary(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", operation, err)
+		}
+		skills = append(skills, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	return skills, nil
+}
+
+func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
 	var summary SkillSummary
 	var locator []byte
 	var fetched string
-	err := l.db.QueryRowContext(ctx, `
-		SELECT skills.id, skills.name, sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref
-		FROM skills JOIN sources ON sources.id = skills.source_id
-		WHERE skills.id = ?
-	`, id).Scan(&summary.ID, &summary.Name, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef)
+	err := row.Scan(&summary.ID, &summary.Name, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef)
 	if err != nil {
-		return SkillSummary{}, fmt.Errorf("get skill: %w", err)
+		return SkillSummary{}, err
 	}
 	if err := json.Unmarshal(locator, &summary.Source.Locator); err != nil {
 		return SkillSummary{}, fmt.Errorf("decode source: %w", err)
@@ -225,33 +257,7 @@ func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, 
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skills ORDER BY name, id`)
-	if err != nil {
-		return nil, fmt.Errorf("list skills: %w", err)
-	}
-	var ids []SkillID
-	for rows.Next() {
-		var id SkillID
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return nil, fmt.Errorf("read skill id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("read skill ids: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read skill ids: %w", err)
-	}
-	for _, id := range ids {
-		summary, err := l.getSummary(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		skills = append(skills, summary)
-	}
-	return skills, nil
+	return l.listSummaries(ctx, "list skills", `ORDER BY skills.name, skills.id`)
 }
 
 func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {

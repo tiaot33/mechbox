@@ -156,36 +156,7 @@ func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (s
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	rows, err := l.db.QueryContext(ctx, `SELECT skill_id FROM skill_groups WHERE group_id = ? ORDER BY skill_id`, groupID)
-	if err != nil {
-		return nil, fmt.Errorf("list group skills: %w", err)
-	}
-	var ids []SkillID
-	for rows.Next() {
-		var id SkillID
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return nil, fmt.Errorf("read group skill: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("close group skills: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read group skills: %w", err)
-	}
-
-	// ponytail: one lookup per member; replace with a joined mapper if large groups make this measurable.
-	skills = make([]SkillSummary, 0, len(ids))
-	for _, id := range ids {
-		summary, err := l.getSummary(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		skills = append(skills, summary)
-	}
-	return skills, nil
+	return l.listSummaries(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
 }
 
 func (l *sqliteLibrary) requireGroup(ctx context.Context, id GroupID) error {

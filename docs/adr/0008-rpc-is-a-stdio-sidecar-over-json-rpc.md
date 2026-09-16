@@ -21,7 +21,7 @@ ADR 0004 shaped the `Library` facade to be serialization-ready and deferred the 
 
 ## Consequences
 
-- Coexistence gap accepted: if a user runs the TUI and a desktop app at once, two processes open one SQLite file (`SQLITE_BUSY`, stale views). Tolerated because the tool is manual and non-realtime; the real fix is topology B (WAL + daemon + change notifications).
+- Coexistence gap accepted: if a user runs the TUI and a desktop app at once, two processes open one SQLite file (`SQLITE_BUSY`, stale views). Tolerated because the tool is manual and non-realtime; the real fix is topology B (daemon + change notifications). ADR 0012 later set the floor under topology A — WAL, immediate transactions and a retryable `busy` — so the remaining gap is stale views and cross-process projection atomicity, not lock failures.
 - The frontend owns spinner/wait UX; the API offers no progress channel.
 - A `Library`-shaped RPC client stub is the unit of future reuse — it is what both the desktop clients need conceptually and what the TUI would adopt under topology B.
 - New layout: `cmd/skills` (subcommand dispatch), `rpc/` (transport-agnostic adapter), `rpc/testdata/` (conformance fixture + test), `clients/ts` (generated), `clients/swift` (hand-written).
