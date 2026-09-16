@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // scopeRow 是 Scope 身份的落库形状:Agent 代码 + 可选项目(nil 为全局)。
@@ -245,7 +246,7 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 		return fmt.Errorf("begin activation record: %w", err)
 	}
 	defer tx.Rollback()
-	if err := recordActivationTx(ctx, tx, id, scope.scopeRow, individual, groupID); err != nil {
+	if err := recordActivationTx(ctx, tx, id, scope.scopeRow, individual, groupID, clockNow()); err != nil {
 		restore()
 		return err
 	}
@@ -310,12 +311,12 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 
 // recordActivationTx 在事务内写入投影记录:活动行 + 可选的分组依据行。
 // 已有记录只补独立标记;新记录只带 Scope 身份,不存目录。
-func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, individual bool, groupID GroupID) error {
+func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, individual bool, groupID GroupID, activatedAt time.Time) error {
 	var activationID int64
 	err := tx.QueryRowContext(ctx, `
-		INSERT INTO activations(skill_id, agent, project_id, individual) VALUES (?, ?, ?, ?)
+		INSERT INTO activations(skill_id, agent, project_id, individual, activated_at) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET individual = MAX(individual, excluded.individual)
-		RETURNING id`, id, scope.agent, scope.projectID, individual).Scan(&activationID)
+		RETURNING id`, id, scope.agent, scope.projectID, individual, formatStoredTime(activatedAt)).Scan(&activationID)
 	if err != nil {
 		return fmt.Errorf("record activation: %w", err)
 	}
@@ -507,7 +508,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	}
 	defer tx.Rollback()
 	for _, member := range applied {
-		if err := recordActivationTx(ctx, tx, member.id, target.scopeRow, false, groupID); err != nil {
+		if err := recordActivationTx(ctx, tx, member.id, target.scopeRow, false, groupID, clockNow()); err != nil {
 			return errors.Join(err, rollback())
 		}
 	}
@@ -625,7 +626,7 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。
-	rows, err := l.db.QueryContext(ctx, `SELECT id, skill_id, agent, project_id, individual FROM activations ORDER BY skill_id, agent, project_id`)
+	rows, err := l.db.QueryContext(ctx, `SELECT id, skill_id, agent, project_id, individual, activated_at FROM activations ORDER BY skill_id, agent, project_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list activations: %w", err)
 	}
@@ -633,11 +634,15 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 	var ids []int64
 	for rows.Next() {
 		var (
-			activation Activation
-			id         int64
-			row        scopeRow
+			activation  Activation
+			id          int64
+			row         scopeRow
+			activatedAt string
 		)
-		if err := rows.Scan(&id, &activation.SkillID, &row.agent, &row.projectID, &activation.Individual); err != nil {
+		if err := rows.Scan(&id, &activation.SkillID, &row.agent, &row.projectID, &activation.Individual, &activatedAt); err != nil {
+			return nil, fmt.Errorf("read activation: %w", err)
+		}
+		if activation.ActivatedAt, err = parseStoredTime(activatedAt); err != nil {
 			return nil, fmt.Errorf("read activation: %w", err)
 		}
 		activation.Scope = row.scope()

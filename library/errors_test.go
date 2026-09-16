@@ -125,7 +125,8 @@ func TestFacadeFailureCodes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			return lib.RenameGroup(t.Context(), group.ID, "")
+			_, err = lib.RenameGroup(t.Context(), group.ID, "")
+			return err
 		}},
 		{name: "register project empty path", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
 			_, err := lib.RegisterProject(t.Context(), "")
@@ -501,8 +502,8 @@ func TestSQLiteUniqueFallbackOmitsDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 加一个门面不知道的 UNIQUE,绕过显式检查,只走 typedError 兜底。
-	editLibraryFixture(t, path, `CREATE UNIQUE INDEX groups_name ON groups(name)`)
-	_, err = lib.CreateGroup(t.Context(), "dup")
+	editLibraryFixture(t, path, `CREATE UNIQUE INDEX groups_singleton ON groups((1))`)
+	_, err = lib.CreateGroup(t.Context(), "other")
 	typed := requireLibraryError(t, err, library.AlreadyExists)
 	if typed.Details != (library.ErrorDetails{}) {
 		t.Fatalf("fallback details = %#v, want zero", typed.Details)

@@ -14,6 +14,45 @@ import (
 	"github.com/tiaot33/skills-tui/library"
 )
 
+func TestInstallFetchKeepsCandidateDescription(t *testing.T) {
+	for _, source := range []struct {
+		name string
+		spec func(*testing.T) library.SourceSpec
+	}{
+		{"github", func(t *testing.T) library.SourceSpec {
+			repository := t.TempDir()
+			runGit(t, repository, "init", "-b", "main")
+			writeFile(t, filepath.Join(repository, "useful", "SKILL.md"), []byte("---\nname: useful\ndescription: helps a lot\n---\nbody\n"), 0o644)
+			commitGit(t, repository, "initial")
+			return library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}}
+		}},
+		{"url", func(t *testing.T) library.SourceSpec {
+			return serveArchive(t, zipArchive(t, map[string]string{"useful/SKILL.md": "---\nname: useful\ndescription: helps a lot\n---\nbody\n"}))
+		}},
+	} {
+		t.Run(source.name, func(t *testing.T) {
+			lib := openTestLibrary(t)
+			ctx := t.Context()
+			fetch, err := lib.Fetch(ctx, source.spec(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			listed, err := lib.ListFetchSkills(ctx, fetch.ID)
+			if err != nil || len(listed.Skills) != 1 || listed.Skills[0].Description != "helps a lot" {
+				t.Fatalf("ListFetchSkills = %#v, %v", listed, err)
+			}
+			installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
+			if err != nil || len(installed) != 1 || installed[0].Description != "helps a lot" {
+				t.Fatalf("InstallFetch = %#v, %v", installed, err)
+			}
+			summaries, err := lib.ListSkills(ctx)
+			if err != nil || len(summaries) != 1 || summaries[0].Description != listed.Skills[0].Description {
+				t.Fatalf("ListSkills description = %#v, %v; want %q", summaries, err, listed.Skills[0].Description)
+			}
+		})
+	}
+}
+
 func TestInstallFetchFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 	repository := installFetchRepository(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/library"
 )
@@ -71,6 +72,44 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(diff, wantDiff) {
 		t.Fatalf("DiffVersions() = %#v, want %#v", diff, wantDiff)
+	}
+}
+
+func TestUpdateChangesDescriptionOnNewVersionAndKeepsInstalledAt(t *testing.T) {
+	ctx := t.Context()
+	source := filepath.Join(t.TempDir(), "timed")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: first edition\n---\nfirst\n"), 0o644)
+	lib := openTestLibrary(t)
+	installed, err := lib.Install(ctx, library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installedAt := installed.InstalledAt
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: second edition\n---\nsecond\n"), 0o644)
+	time.Sleep(time.Millisecond)
+	updated, err := lib.Update(ctx, installed.ID)
+	if err != nil || !updated.Changed {
+		t.Fatalf("Update = %#v, %v", updated, err)
+	}
+	current, err := lib.GetSkill(ctx, installed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Description != "second edition" || updated.Skill.Description != "second edition" {
+		t.Fatalf("updated Description = %q / %q, want second edition", current.Description, updated.Skill.Description)
+	}
+	if !current.InstalledAt.Equal(installedAt) || current.UpdatedAt.Equal(installedAt) || current.UpdatedAt.Before(installedAt) {
+		t.Fatalf("InstalledAt %v UpdatedAt %v, want InstalledAt unchanged and UpdatedAt later", current.InstalledAt, current.UpdatedAt)
+	}
+	versions, err := lib.ListVersions(ctx, installed.ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("ListVersions = %#v, %v", versions, err)
+	}
+	if versions[0].Description != "first edition" || versions[1].Description != "second edition" {
+		t.Fatalf("version descriptions = %q, %q", versions[0].Description, versions[1].Description)
+	}
+	if versions[0].CreatedAt.Equal(versions[1].CreatedAt) {
+		t.Fatal("new version CreatedAt did not advance")
 	}
 }
 

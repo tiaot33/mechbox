@@ -513,9 +513,10 @@ type githubSourceSnapshot struct {
 }
 
 type githubRemoteSkill struct {
-	gitTreeSHA string
-	files      []File
-	blobs      []githubBlob
+	gitTreeSHA  string
+	files       []File
+	blobs       []githubBlob
+	description string
 }
 
 // readGitHubSnapshot 对同一 Source 只远程读一次 commit(tree 按需、至多一次;或一次克隆),供检查与更新共用。
@@ -626,7 +627,7 @@ func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubR
 		return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", skill.Name), Details: ErrorDetails{Name: skill.Name}}
 	}
 	found := candidates[index]
-	return githubRemoteSkill{gitTreeSHA: found.gitTreeSHA, files: found.files, blobs: found.blobs}, nil
+	return githubRemoteSkill{gitTreeSHA: found.gitTreeSHA, files: found.files, blobs: found.blobs, description: found.preview.Description}, nil
 }
 
 func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote githubRemoteSkill) ([]File, error) {

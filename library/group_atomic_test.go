@@ -278,7 +278,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	}
 	activations, err := lib.ListActivations(ctx)
 	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(activations, want) {
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
 		t.Fatalf("activations = %#v, %v; want %#v", activations, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {

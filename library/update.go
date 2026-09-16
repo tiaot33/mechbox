@@ -47,13 +47,15 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	}
 	record := sourceGitRecord(skill.Source, skill.GitTreeSHA)
 	if changed {
-		versionID, err := createVersion(ctx, tx, int64(id), skill.Files, record)
+		createdAt := clockNow()
+		versionID, err := createVersion(ctx, tx, int64(id), skill.Files, record, skill.Description, createdAt)
 		if err != nil {
 			return UpdateResult{}, err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
 			return UpdateResult{}, fmt.Errorf("select current version: %w", err)
 		}
+		skill.UpdatedAt = createdAt
 	} else if skill.Source.Type == SourceGitHub {
 		// 无变化:当前版本的目录 tree 在本次 commit 上再次被确认为远端最新;无 SHA 的旧记录同时补写 SHA。
 		if _, err := tx.ExecContext(ctx, `
@@ -119,6 +121,7 @@ func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confi
 			skill.Files = files
 		}
 		skill.GitTreeSHA = remote.gitTreeSHA
+		skill.Description = remote.description
 	}
 	skill.Source.LastSeenRef = snap.ref
 	skill.Source.LastFetched = time.Now().UTC()
@@ -135,6 +138,7 @@ func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator s
 			return Skill{}, "", err
 		}
 		skill.Files = files
+		skill.Description = skillDescription(files)
 		return skill, "", nil
 	}
 	discovered, err := l.fetchRemote(ctx, skill.Source, "", validator)
@@ -151,6 +155,7 @@ func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator s
 	}
 	skill.Files = fetched[0].files
 	skill.GitTreeSHA = fetched[0].gitTreeSHA
+	skill.Description = fetched[0].preview.Description
 	skill.Source.LastSeenRef = discovered.ref
 	return skill, discovered.httpValidator, nil
 }

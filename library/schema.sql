@@ -1,6 +1,7 @@
 -- Library 的 SQLite 表结构,由 library.Open 嵌入执行。
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
--- user_version=7 让 URL / Store 来源记录服务端给出的 HTTP validator(见 ADR 0006);Open 将已有 v1–v6 库迁移到当前版本。
+-- user_version=8 让版本携带 description / created_at、激活与分组记录时间、Group 名唯一
+-- (见 ADR 0005 / 0007);Open 将已有 v1–v7 库迁移到当前版本。
 
 -- skill 的安装来源。
 CREATE TABLE IF NOT EXISTS sources (
@@ -28,12 +29,15 @@ CREATE TABLE IF NOT EXISTS skills (
 
 -- skill 的历史版本;本身只是一个版本号,文件清单在 version_files。
 -- git_tree_sha 与 confirmed_commit 一起构成该版本的抓取记录:目录内容是什么、在哪个 commit 上确认过它是远端最新。
+-- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY,                          -- 自增;同一 skill 内按 id 升序即版本先后顺序
     skill_id INTEGER NOT NULL REFERENCES skills(id),
     git_tree_sha TEXT NOT NULL DEFAULT '',           -- GitHub 来源该 Skill 目录的 git tree SHA;非 git 为空
-    confirmed_commit TEXT NOT NULL DEFAULT ''        -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;
+    confirmed_commit TEXT NOT NULL DEFAULT '',       -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;
                                                      -- 检查时远端 commit 与之相同即无更新、不取 tree。非 git 或迁移前的旧版本为空 = 未知,走完整比较
+    description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
+    created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano;空 = 未知(迁移前的旧版本)
 );
 
 -- 内容寻址的文件内容存储:指纹是内容的 sha256,相同内容跨版本、跨 skill 只存一份。
@@ -52,9 +56,11 @@ CREATE TABLE IF NOT EXISTS version_files (
 );
 
 -- 手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0007)。
+-- 名字 UNIQUE:界面按名字挑选,重名无法区分;写入时重名自动改为 name#N。
 CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT '' -- 创建时间,RFC3339Nano;空 = 未知
 );
 
 -- skill 与分组的多对多关系:一个 skill 可以同时属于多个组。
@@ -87,7 +93,8 @@ CREATE TABLE IF NOT EXISTS activations (
     skill_id INTEGER NOT NULL REFERENCES skills(id),
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
-    individual INTEGER NOT NULL DEFAULT 0   -- 1 = 存在独立(非分组)激活
+    individual INTEGER NOT NULL DEFAULT 0,  -- 1 = 存在独立(非分组)激活
+    activated_at TEXT NOT NULL DEFAULT ''   -- 首次记录时间,RFC3339Nano;空 = 未知。刷新不更新
 );
 
 -- NULL 不参与普通 UNIQUE 去重,因此全局与项目身份分别约束。

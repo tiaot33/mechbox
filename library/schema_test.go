@@ -172,6 +172,94 @@ func TestOpenMigratesLegacyLibraryAndPreservesActivationOrigins(t *testing.T) {
 	}
 }
 
+// v7 库 Open 时回填版本描述、给 Group 名加 UNIQUE(重名按 id 顺序改成 x / x#2)、时间列保持空。
+func TestOpenMigratesV7LibraryDescriptionsGroupNamesAndLeavesTimesUnknown(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "library.db")
+	schema, err := os.ReadFile("testdata/v7.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editLibraryFixture(t, path, string(schema))
+	editLibraryFixture(t, path, `PRAGMA application_id = 1397443650; PRAGMA user_version = 7`)
+	editLibraryFixture(t, path, `
+		INSERT INTO agents(code, name, global_path, project_path) VALUES
+			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
+			('codex', 'Codex', '.agents/skills', '.agents/skills');
+		INSERT INTO sources(id, type, locator) VALUES (1, 'local', '{"path":"/legacy/source"}');
+		INSERT INTO skills(id, source_id, name, current_version_id) VALUES (1, 1, 'example', 2);
+		INSERT INTO skill_versions(id, skill_id, git_tree_sha, confirmed_commit) VALUES
+			(1, 1, '', ''),
+			(2, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+		INSERT INTO blobs(fingerprint, content) VALUES
+			('first', X'2d2d2d0a6e616d653a206578616d706c650a6465736372697074696f6e3a2066697273742065646974696f6e0a2d2d2d0a6f6c640a'),
+			('second', X'2d2d2d0a6e616d653a206578616d706c650a6465736372697074696f6e3a207365636f6e642065646974696f6e0a2d2d2d0a6e65770a');
+		INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES
+			(1, 'SKILL.md', 'first', 'regular'),
+			(2, 'SKILL.md', 'second', 'regular');
+		INSERT INTO groups(id, name) VALUES (1, 'x'), (2, 'x'), (3, 'y');
+		INSERT INTO skill_groups(skill_id, group_id) VALUES (1, 1), (1, 3);
+		INSERT INTO activations(id, skill_id, agent, project_id, individual) VALUES (1, 1, 'codex', NULL, 1);
+		INSERT INTO activation_groups(activation_id, group_id) VALUES (1, 1);
+	`)
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	skill, err := lib.GetSkill(ctx, 1)
+	if err != nil || skill.Name != "example" || skill.GitTreeSHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || skill.Description != "second edition" || !skill.InstalledAt.IsZero() || !skill.UpdatedAt.IsZero() {
+		t.Fatalf("migrated skill = %#v, %v", skill, err)
+	}
+	if len(skill.Files) != 1 || string(skill.Files[0].Content) != "---\nname: example\ndescription: second edition\n---\nnew\n" {
+		t.Fatalf("migrated files = %#v", skill.Files)
+	}
+	versions, err := lib.ListVersions(ctx, 1)
+	if err != nil || len(versions) != 2 || versions[0].Description != "first edition" || versions[1].Description != "second edition" {
+		t.Fatalf("migrated versions = %#v, %v", versions, err)
+	}
+	if !versions[0].CreatedAt.IsZero() || !versions[1].CreatedAt.IsZero() {
+		t.Fatalf("migrated version times = %#v", versions)
+	}
+	summaries, err := lib.ListSkills(ctx)
+	if err != nil || len(summaries) != 1 || summaries[0].Description != "second edition" {
+		t.Fatalf("migrated summaries = %#v, %v", summaries, err)
+	}
+	groups, err := lib.ListGroups(ctx)
+	wantGroups := []library.Group{{ID: 1, Name: "x"}, {ID: 2, Name: "x#2"}, {ID: 3, Name: "y"}}
+	if err != nil || !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("migrated groups = %#v, %v; want %#v", groups, err, wantGroups)
+	}
+	members, err := lib.ListGroupSkills(ctx, 1)
+	if err != nil || len(members) != 1 || members[0].ID != 1 {
+		t.Fatalf("migrated group members = %#v, %v", members, err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	wantActivations := []library.Activation{{
+		SkillID:    1,
+		Scope:      library.GlobalScope{Agent: library.AgentCodex},
+		Directory:  filepath.Join(home, ".agents", "skills"),
+		Individual: true,
+		ViaGroups:  []library.GroupID{1},
+	}}
+	if err != nil || !reflect.DeepEqual(activations, wantActivations) {
+		t.Fatalf("migrated activations = %#v, %v; want %#v", activations, err, wantActivations)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := library.Open(path)
+	if err != nil {
+		t.Fatalf("reopen migrated v7 library: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if groups, err := reopened.ListGroups(ctx); err != nil || !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("reopened groups = %#v, %v", groups, err)
+	}
+}
+
 // v5 / v6 库 Open 时只补抓取记录列:v5 给 skill_versions 加确认 commit(空 = 未知,走完整比较),
 // v5 与 v6 都给 sources 加 HTTP validator(空 = 不带条件头);已有 Skill、版本、tree SHA、已登记项目与身份型
 // Activation(全局与项目)全部原样保留;v6 已记录的确认 commit 迁移后仍让检查走只发 commits 的快路径;
@@ -343,7 +431,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
 		got, err := reopened.ListActivations(ctx)
-		if err != nil || !reflect.DeepEqual(got, want) {
+		if err != nil || !reflect.DeepEqual(withoutActivatedAt(got), want) {
 			t.Fatalf("ListActivations after Open = %#v, %v; want %#v", got, err, want)
 		}
 		for _, activation := range want {
