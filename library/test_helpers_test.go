@@ -137,8 +137,15 @@ func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 
 func installNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
 	t.Helper()
+	return installSkillWithBody(t, lib, name, "# "+name+"\n")
+}
+
+// installSkillWithBody 从一个独立的临时 Source 安装指定名字与 SKILL.md 正文的 skill;
+// 多次以同名调用会得到不同 Source 的同名 skill,靠正文区分。
+func installSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
+	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
 	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +177,15 @@ func makeScopeReadOnly(t *testing.T, directory string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
+}
+
+// requireProjection 断言 directory 下 name 文件夹的 SKILL.md 正文。
+func requireProjection(t *testing.T, directory, name, body string) {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
+	if err != nil || string(content) != body {
+		t.Fatalf("projection %s/SKILL.md = %q, %v; want %q", name, content, err, body)
+	}
 }
 
 func openTestLibrary(t *testing.T) library.Library {

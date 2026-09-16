@@ -129,37 +129,58 @@ func (t *projectionTrash) restore() error {
 	return restoreErr
 }
 
-// directoryClaimedByAnotherScope 判断该 skill 是否已有另一条不同身份的 Activation 解析到同一目录
-// (例如把 $HOME 本身登记为项目)。这种情况下不新建第二条记录去争同一个文件夹。
+// claimant 是一条可能与待激活目标争同一文件夹的既有 Activation:所属 skill、投影名与 Scope 身份。
+type claimant struct {
+	skillID SkillID
+	name    string
+	scopeRow
+}
+
+// requireTargetUnclaimed 维持不变量"同一解析目录下的同一文件夹名至多归一条 Activation":
+// 遍历库中全部 Activation(不限 skill),凡解析到同一目录的,若属同一 skill(另一身份的 Scope,
+// 例如把 $HOME 本身登记为项目)或同名的另一 skill,即为占用,返回 FailedPrecondition;Overwrite 对占用无效,
+// 它只能替换没有任何记录的外来目录。调用方须保证本 skill 在本 Scope 尚无记录(否则是幂等刷新)。
 // 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有库锁,期间没有并发写入,
 // 且单连接模式下事务内不能再走 l.db 调 Resolve。
-func (l *sqliteLibrary) directoryClaimedByAnotherScope(ctx context.Context, id SkillID, target resolvedScope) (bool, error) {
-	rows, err := l.db.QueryContext(ctx, `SELECT agent, project_id FROM activations WHERE skill_id = ?`, id)
+func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation string, id SkillID, name string, target resolvedScope) error {
+	// 同名即包含本 skill 自身;本 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
+	rows, err := l.db.QueryContext(ctx, `
+		SELECT a.skill_id, s.name, a.agent, a.project_id FROM activations a
+		JOIN skills s ON s.id = a.skill_id
+		WHERE s.name = ? ORDER BY a.skill_id <> ?`, name, id)
 	if err != nil {
-		return false, fmt.Errorf("list skill activations: %w", err)
+		return fmt.Errorf("list claimants: %w", err)
 	}
-	var others []scopeRow
+	var claimants []claimant
 	for rows.Next() {
-		var row scopeRow
-		if err := rows.Scan(&row.agent, &row.projectID); err != nil {
+		var row claimant
+		if err := rows.Scan(&row.skillID, &row.name, &row.agent, &row.projectID); err != nil {
 			_ = rows.Close()
-			return false, fmt.Errorf("read skill activation: %w", err)
+			return fmt.Errorf("read claimant: %w", err)
 		}
-		others = append(others, row)
+		claimants = append(claimants, row)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return false, fmt.Errorf("read skill activations: %w", err)
+		return fmt.Errorf("read claimants: %w", err)
 	}
-	for _, other := range others {
+	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())
 		if err != nil {
-			return false, err
+			return err
 		}
-		if directory == target.directory {
-			return true, nil
+		if directory != target.directory {
+			continue
 		}
+		if other.skillID == id {
+			return preconditionError(operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: directory})
+		}
+		return preconditionError(operation, "another skill already projects this name into the same directory", ErrorDetails{
+			Path:    filepath.Join(directory, other.name),
+			Name:    other.name,
+			SkillID: other.skillID,
+		})
 	}
-	return false, nil
+	return nil
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {
@@ -188,10 +209,8 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 		return err
 	}
 	if existing == nil {
-		if claimed, err := l.directoryClaimedByAnotherScope(ctx, id, scope); err != nil {
+		if err := l.requireTargetUnclaimed(ctx, "activate skill", skill.ID, skill.Name, scope); err != nil {
 			return err
-		} else if claimed {
-			return preconditionError("activate skill", "another scope already projects this skill into the same directory", ErrorDetails{Path: scope.directory})
 		}
 	}
 	target := filepath.Join(scope.directory, skill.Name)
@@ -409,10 +428,8 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		if existing != nil {
 			continue
 		}
-		if claimed, err := l.directoryClaimedByAnotherScope(ctx, member.ID, target); err != nil {
+		if err := l.requireTargetUnclaimed(ctx, "activate group", member.ID, member.Name, target); err != nil {
 			return err
-		} else if claimed {
-			return preconditionError("activate group", "another scope already projects a member into the same directory", ErrorDetails{Path: target.directory})
 		}
 		if opts.OnConflict == Overwrite {
 			continue

@@ -33,8 +33,8 @@ const (
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 预览到执行之间状态已变。可重新预览后再执行。
 	Conflict ErrorCode = "conflict"
-	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作。
-	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试。
+	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作(激活目标被占用见 ConflictPolicy)。
+	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
 	// UI:静默收起。Error.Err 保留原始 context 错误,errors.Is 仍成立。
@@ -69,8 +69,8 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名或支撑分组名
-	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名、支撑分组名或被占用的投影名
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目
 }
 
@@ -330,12 +330,14 @@ type ProjectScope struct {
 func (GlobalScope) sealedScope()  {}
 func (ProjectScope) sealedScope() {}
 
-// ConflictPolicy 决定激活时目标目录已存在的处理方式。
+// ConflictPolicy 决定激活时目标目录已存在、且没有任何 Activation 记录(外来目录)的处理方式。
+// 目标已被另一条 Activation 占用(同一 skill 的另一 Scope,或同名的另一 skill)时两种策略都返回
+// FailedPrecondition:同一目录下的一个文件夹名至多归一条 Activation,需先 Deactivate 占用者。
 type ConflictPolicy string
 
 const (
 	Fail      ConflictPolicy = "fail"      // 返回 AlreadyExists 错误(默认)
-	Overwrite ConflictPolicy = "overwrite" // 原子替换已有目录
+	Overwrite ConflictPolicy = "overwrite" // 原子替换无记录的外来目录
 )
 
 type ActivateOptions struct {
@@ -494,7 +496,7 @@ type Library interface {
 	// 四个方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
-	// Activate 把 skill 投影到 Scope,记为独立激活。
+	// Activate 把 skill 投影到 Scope,记为独立激活;对自己已有的投影幂等刷新。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
