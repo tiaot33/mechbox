@@ -27,16 +27,21 @@ func typedError(err error) error {
 	case errors.Is(err, fs.ErrNotExist):
 		code = SourceUnreachable
 	default:
-		code = sqliteConstraintCode(err)
+		code = sqliteErrorCode(err)
 	}
 	return &Error{Code: code, Message: err.Error(), Err: err}
 }
 
-// sqliteConstraintCode 是兜底映射:漏掉显式检查的 UNIQUE / PRIMARY KEY → AlreadyExists,FOREIGN KEY → NotFound,其余 Internal。
-func sqliteConstraintCode(err error) ErrorCode {
+// sqliteErrorCode 是兜底映射:另一进程占着写锁(主码 SQLITE_BUSY / SQLITE_LOCKED,按主码匹配以覆盖
+// BUSY_SNAPSHOT、BUSY_RECOVERY 等扩展码)→ Busy;漏掉显式检查的 UNIQUE / PRIMARY KEY → AlreadyExists,
+// FOREIGN KEY → NotFound;其余 Internal。
+func sqliteErrorCode(err error) ErrorCode {
 	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
 	if !ok {
 		return Internal
+	}
+	if sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked {
+		return Busy
 	}
 	switch sqliteErr.ExtendedCode {
 	case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey:

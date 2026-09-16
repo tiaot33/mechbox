@@ -74,6 +74,8 @@ skill, err := lib.Install(ctx, library.LocalSource{Path: "/path/to/skill"})
 
 新数据库由 `library.Open` 自动初始化并写入应用标识和 schema version 7。已有 v1–v6 Library 在一个事务内迁移到当前版本：v1 补上历史版本的 `git_tree_sha`，v3 补上 Agent 名称，v5 及更早补上历史版本的 `confirmed_commit`，v6 及更早补上来源的 `http_validator`（均只加列不回填），v1–v4 的 Activation 都改为只存 Scope 身份（Skill＋Agent 代码＋可选已登记项目）；提交前校验身份、表与索引指纹和外键。旧库里以绝对路径记录的 Activation，若路径等于该 Agent 现行布局（或本产品此前写过的 `.codex/skills`）在当前用户主目录或某已登记项目下算出的目录，就映射成对应身份，映射到同一身份的多行合并保留全部依据；无法识别的行（未知 Agent、任意目录、另一台机器的路径）被丢弃，磁盘上的文件夹一律不动。Open 只补缺失的 Agent 种子，不覆盖已有名称或布局。`ListAgents` 按库内 `agents` 表列出 Agent，返回可扩展的 `library.Agent{Code, Name}` 结构体（不含布局规则与绝对目录）。`Scope` 是密封接口，实现只有 `GlobalScope{Agent}` 与 `ProjectScope{Agent, ProjectID}`，不含路径；只读的 `Resolve` 按 `agents` 表中该 Agent 的两段规则算出目录——全局相对 Open 时的用户主目录，项目相对 Registered project 根——不写库、不写磁盘，未知 Agent 或未登记项目返回 `NotFound`。`Activate` / `Deactivate` / `ActivateGroup` / `DeactivateGroup` 只接受 `Scope` 身份，目录由 `Resolve` 算出、记录按身份落库；`ListActivations` 每条给出 Scope 身份与按现行布局派生的 `Directory`，只供对照磁盘，不能再当作 Activate 的输入。没有列举「全部带路径的 Scope」的方法，可选目标是 `ListAgents` ×（全局 | `ListRegisteredProjects`）。厂商改布局后只认现行目录，旧目录里上次投下的文件夹不搬迁、不删除。Sync 拉库只重映射 Registered project 的本机路径，Activation 目录按本机 `$HOME` 与映射后的项目根重新派生。门面上没有增删改 Agent 的方法。迁移及共用 schema 校验集中在 `library/schema.go`。
 
+库文件以 WAL 模式运行([ADR-0012](docs/adr/0012-wal-immediate-transactions-and-busy.md)):`Open` 在确认这是本工具的库之后切换,同一目录下会出现 `library.db-wal` 与 `library.db-shm`;最后一个进程正常关闭时 SQLite 合并并删除 `-wal`,`-shm` 可能残留,无害。TUI 与桌面端同时打开同一库时读写互不阻塞;两边同时写库、等待超过 5 s 的一方得到可重试的 `Busy` 错误码。**手动备份时不要在有进程打开库的情况下只复制 `library.db`**——尚未合并的写入在 `-wal` 里;请用 Sync 推送(镜像是一致快照,且保持 rollback journal 以便老版本读取),或确认没有进程打开后再复制。
+
 ## 配置
 
 | 环境变量 | 用途 | 默认值 |

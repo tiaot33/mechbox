@@ -2,7 +2,6 @@ package library_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -395,19 +394,4 @@ func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	if previewErr != nil {
 		t.Fatalf("PreviewSyncPush after release: %v", previewErr)
 	}
-}
-
-// readLibraryScalar 直读库文件里的一个标量:skill 被移除后门面已看不到它,只能这样核对"没有部分写入"。
-func readLibraryScalar(t *testing.T, path, query string, args ...any) string {
-	t.Helper()
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var value string
-	if err := db.QueryRowContext(t.Context(), query, args...).Scan(&value); err != nil {
-		t.Fatal(err)
-	}
-	return value
 }

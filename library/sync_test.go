@@ -496,6 +496,49 @@ func TestOpenRejectsForeignDatabaseWithoutMutatingIt(t *testing.T) {
 	if applicationID != 0 || notes != 1 || libraryTables != 0 {
 		t.Fatalf("foreign database mutated: application_id=%d notes=%d library_tables=%d", applicationID, notes, libraryTables)
 	}
+	// journal mode 持久化在文件头里;外来库连它也不能被改动。
+	if mode := journalMode(t, path); mode != "delete" {
+		t.Fatalf("foreign database journal_mode = %q, want delete", mode)
+	}
+}
+
+// 推送的库镜像不带 WAL(与老版本互通);拉库整库替换后本机库仍是 WAL,内容等于拉回的库。
+func TestSyncImagesStayRollbackJournalWhileLocalLibraryStaysWAL(t *testing.T) {
+	stub := newS3Stub(t)
+	ctx := t.Context()
+	source := openTestLibrary(t)
+	installed := installNamedSkill(t, source, "shared")
+	if _, err := source.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	image := filepath.Join(t.TempDir(), "image.db")
+	if err := os.WriteFile(image, stub.stored, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if mode := journalMode(t, image); mode == "wal" {
+		t.Fatalf("pushed image journal_mode = %q, want a rollback journal for older versions", mode)
+	}
+
+	targetPath := filepath.Join(t.TempDir(), "library.db")
+	target, err := library.Open(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	installNamedSkill(t, target, "local-only")
+	if _, err := target.SyncPull(ctx, library.RemoteIdentity(stub.etag)); err != nil {
+		t.Fatal(err)
+	}
+	if mode := journalMode(t, targetPath); mode != "wal" {
+		t.Fatalf("local library journal_mode after pull = %q, want wal", mode)
+	}
+	skills, err := target.ListSkills(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(skills, []library.SkillSummary{summaryOf(installed)}) {
+		t.Fatalf("skills after pull = %#v, want exactly the pulled skill", skills)
+	}
 }
 
 func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {

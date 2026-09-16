@@ -242,6 +242,27 @@ func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 	}
 }
 
+// readLibraryScalar 直读库文件里的一个标量(表里的值或 PRAGMA):skill 被移除后门面已看不到它,只能这样核对
+// "没有部分写入";journal_mode / user_version 则是磁盘上的可观察事实,不是实现细节。
+func readLibraryScalar(t *testing.T, path, query string, args ...any) string {
+	t.Helper()
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var value string
+	if err := db.QueryRowContext(t.Context(), query, args...).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func journalMode(t *testing.T, path string) string {
+	t.Helper()
+	return readLibraryScalar(t, path, `PRAGMA journal_mode`)
+}
+
 func installNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
 	t.Helper()
 	return installSkillWithBody(t, lib, name, "# "+name+"\n")

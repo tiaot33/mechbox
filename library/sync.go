@@ -153,13 +153,23 @@ func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	snapshotPath := snapshot.Name()
 	_ = snapshot.Close()
 	defer os.Remove(snapshotPath)
-	snapshotDB, err := openExistingLibrary(ctx, snapshotPath)
+	snapshotDB, err := openLibraryDB(ctx, snapshotPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sync snapshot: %w", err)
 	}
 	if err := backupDatabase(ctx, snapshotDB, l.db); err != nil {
 		_ = snapshotDB.Close()
 		return nil, fmt.Errorf("snapshot library: %w", err)
+	}
+	// backup 会把本库文件头里的 WAL 标记一并复制;推送的镜像要保持 rollback journal 才能与老版本互通。
+	var mode string
+	err = snapshotDB.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
+	if err == nil && mode != "delete" {
+		err = fmt.Errorf("journal_mode stayed %q", mode)
+	}
+	if err != nil {
+		_ = snapshotDB.Close()
+		return nil, fmt.Errorf("reset sync snapshot journal mode: %w", err)
 	}
 	if err := snapshotDB.Close(); err != nil {
 		return nil, fmt.Errorf("close sync snapshot: %w", err)
@@ -195,7 +205,7 @@ func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error
 		cleanup()
 		return nil, nil, fmt.Errorf("close pulled library: %w", err)
 	}
-	check, err = openExistingLibrary(ctx, downloadPath)
+	check, err = openLibraryDB(ctx, downloadPath)
 	if err == nil {
 		err = validatePulledDatabase(ctx, check)
 	}
@@ -228,19 +238,6 @@ func validatePulledDatabase(ctx context.Context, check *sql.DB) error {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
 	return nil
-}
-
-func openExistingLibrary(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
 }
 
 func backupDatabase(ctx context.Context, destination, source *sql.DB) error {

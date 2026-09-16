@@ -47,6 +47,10 @@ const (
 	// SourceInvalid 来源可达,但其内容不可用(zip 损坏、超限、无有效候选、响应不合规、不支持的文件类型)。
 	// 重试无效。UI:展示原因,建议换来源。
 	SourceInvalid ErrorCode = "source_invalid"
+	// Busy 另一进程(同时打开同一库的 TUI / 桌面端)正持有库的写锁,等待超过上限(5 s)。
+	// 可重试;与 SourceUnreachable 无关,是本机库冲突而非网络故障。UI:提示"另一个进程正在写库,稍后重试",不当 bug。
+	// Library 只报码,是否自动重试由调用方决定。Error.Err 保留底层 SQLite 错误。
+	Busy ErrorCode = "busy"
 	// Permission 鉴权失败(文件系统或远端拒认凭证)。
 	// 不可靠地靠重试恢复。UI:提示权限问题。
 	Permission ErrorCode = "permission"
