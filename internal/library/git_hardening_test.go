@@ -98,7 +98,7 @@ func TestFetchGitTimesOutWithoutCallerDeadline(t *testing.T) {
 	}
 }
 
-func TestCheckUpdateAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
+func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 	repository, _ := githubRemote(t)
 	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
 	lib := openTestLibrary(t)
@@ -120,14 +120,14 @@ func TestCheckUpdateAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 	runGit(t, repository, "config", "--file", config, "url."+remote+"/.insteadOf", "https://github.com/")
 	runGit(t, repository, "config", "--file", config, "--add", "url."+remote+"/.insteadOf", "git@github.com:")
 
-	for _, name := range []string{"CheckUpdate", "Update"} {
+	for _, name := range []string{"CheckUpdates", "Update"} {
 		t.Run(name, func(t *testing.T) {
 			start := time.Now()
 			var err error
-			if name == "CheckUpdate" {
-				_, err = lib.CheckUpdate(context.Background(), installed[0].ID)
+			if name == "CheckUpdates" {
+				_, err = checkSingleUpdate(t, lib, t.Context(), installed[0].ID)
 			} else {
-				_, err = lib.Update(context.Background(), installed[0].ID)
+				_, err = lib.Update(t.Context(), installed[0].ID)
 			}
 			elapsed := time.Since(start)
 			if elapsed > 10*time.Second {

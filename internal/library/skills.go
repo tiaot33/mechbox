@@ -257,7 +257,7 @@ type fetchState struct {
 
 // getSkill 读取 skill 及其当前版本的完整文件,连同其抓取记录。
 // 先钉住版本 ID,再按该版本取文件,因此即使期间别处提交了新版本,返回的文件与版本 ID 也彼此一致。
-// 自带共享锁:Update / CheckUpdate 的网络阶段不持锁,读库这一步由它自己保护。
+// 自带共享锁:Update / CheckUpdates 的网络阶段不持锁,读库这一步由它自己保护。
 func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchState, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()

@@ -232,10 +232,8 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockActivation(t *testing.T) {
 	gate.arm()
 	var wg sync.WaitGroup
 	var checks []library.UpdateCheck
-	var batchErr, singleErr error
+	var batchErr error
 	wg.Go(func() { checks, batchErr = lib.CheckUpdates(t.Context(), []library.SkillID{demo.ID}) })
-	wg.Go(func() { _, singleErr = lib.CheckUpdate(t.Context(), demo.ID) })
-	gate.awaitEntered(t)
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
@@ -244,8 +242,8 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockActivation(t *testing.T) {
 
 	gate.open()
 	wg.Wait()
-	if batchErr != nil || singleErr != nil || len(checks) != 1 || checks[0].Available || checks[0].Error != nil {
-		t.Fatalf("checks after release = %#v, %v, %v; want one unchanged result", checks, batchErr, singleErr)
+	if batchErr != nil || len(checks) != 1 || checks[0].Available || checks[0].Error != nil {
+		t.Fatalf("checks after release = %#v, %v; want one unchanged result", checks, batchErr)
 	}
 }
 
@@ -284,13 +282,6 @@ func TestInstallFetchMaterializationDoesNotBlockOtherFetchesOrActivation(t *test
 		}
 		return nil
 	})
-	mustFinishBeforeRelease(t, gate, "ListFetchSkills on the busy handle", func(ctx context.Context) error {
-		candidates, err := lib.ListFetchSkills(ctx, fetch.ID)
-		if err == nil && len(candidates.Skills) != 2 {
-			return fmt.Errorf("busy handle candidates = %#v, want both", candidates.Skills)
-		}
-		return err
-	})
 	mustFinishBeforeRelease(t, gate, "Fetch of another Source", func(ctx context.Context) error {
 		// 同一仓库钉到 commit 是另一个 Source;它的预览只取各候选的 SKILL.md,不经受拦的 blob。
 		pinned := gitHubSpec()
@@ -299,8 +290,10 @@ func TestInstallFetchMaterializationDoesNotBlockOtherFetchesOrActivation(t *test
 		if err != nil {
 			return err
 		}
-		_, err = lib.ListFetchSkills(ctx, other.ID)
-		return err
+		if other.ID == "" || len(other.Skills) != 2 {
+			return fmt.Errorf("other Fetch = %#v, want handle and both candidates", other)
+		}
+		return nil
 	})
 	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
 		return lib.Activate(ctx, local.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})

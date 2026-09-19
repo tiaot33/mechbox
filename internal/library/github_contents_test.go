@@ -47,10 +47,6 @@ func TestGitHubFetchPreviewTransfersOnlySkillMarkdown(t *testing.T) {
 	if !reflect.DeepEqual(fetch.Skills, want) {
 		t.Fatalf("Fetch candidates = %#v, want %#v", fetch.Skills, want)
 	}
-	listed, err := lib.ListFetchSkills(t.Context(), fetch.ID)
-	if err != nil || !reflect.DeepEqual(listed.Skills, want) {
-		t.Fatalf("ListFetchSkills = %#v, %v", listed, err)
-	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("preview wrote Library: %v, %v", skills, err)
 	}
@@ -260,9 +256,6 @@ func TestGitHubInstallFetchFailureKeepsHandleForRetry(t *testing.T) {
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("failed install wrote Library: %v, %v", skills, err)
 	}
-	if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); err != nil {
-		t.Fatalf("failed install discarded handle: %v", err)
-	}
 	api.setFailBlobs(false)
 	installed, err = lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
 	if err != nil || len(installed) != 1 || installed[0].Name != "demo" {
@@ -289,8 +282,10 @@ func TestGitHubInstallFetchMapsForbiddenBlobsToPermission(t *testing.T) {
 	if err == nil || len(installed) != 0 || !library.IsCode(err, library.Permission) {
 		t.Fatalf("forbidden blob = %#v, %v; want Permission", installed, err)
 	}
-	if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); err != nil {
-		t.Fatalf("forbidden blob discarded handle: %v", err)
+	redirectGitHubClone(t, repo)
+	installed, err = lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
+	if err != nil || len(installed) != 1 || installed[0].Name != "demo" {
+		t.Fatalf("retry after forbidden blob = %#v, %v", installed, err)
 	}
 }
 

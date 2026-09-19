@@ -68,7 +68,7 @@ func TestGitHubPinnedSHARepeatFetchMakesNoRequests(t *testing.T) {
 	}
 }
 
-func TestGitHubConcurrentCheckUpdateSingleFlightsCommit(t *testing.T) {
+func TestGitHubConcurrentCheckUpdatesSingleFlightsCommit(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 	})
@@ -99,17 +99,17 @@ func TestGitHubConcurrentCheckUpdateSingleFlightsCommit(t *testing.T) {
 	})
 
 	api.Reset()
-	var first, second bool
+	var first, second []library.UpdateCheck
 	var firstErr, secondErr error
 	var wg sync.WaitGroup
-	wg.Go(func() { first, firstErr = lib.CheckUpdate(ctx, installed[0].ID) })
+	wg.Go(func() { first, firstErr = lib.CheckUpdates(ctx, []library.SkillID{installed[0].ID}) })
 	<-started
-	wg.Go(func() { second, secondErr = lib.CheckUpdate(ctx, installed[0].ID) })
+	wg.Go(func() { second, secondErr = lib.CheckUpdates(ctx, []library.SkillID{installed[0].ID}) })
 	time.Sleep(20 * time.Millisecond)
 	close(release)
 	wg.Wait()
-	if firstErr != nil || secondErr != nil || first || second {
-		t.Fatalf("CheckUpdate = %v/%v, %v/%v, want both false", first, second, firstErr, secondErr)
+	if firstErr != nil || secondErr != nil || len(first) != 1 || len(second) != 1 || first[0].SkillID != installed[0].ID || second[0].SkillID != installed[0].ID || first[0].Error != nil || second[0].Error != nil || first[0].Available || second[0].Available {
+		t.Fatalf("CheckUpdates = %v/%v, %v/%v, want both false", first, second, firstErr, secondErr)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 }

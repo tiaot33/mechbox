@@ -46,7 +46,7 @@
 - [ ] **B1 `PreviewActivate(id, scope)` / `PreviewActivateGroup(groupID, scope)`。** 返回:解析出的目录、目标是否已存在、占用者类型(另一 skill 的 Activation / 本 Library 遗留副本 / 外部目录)、内容是否与库一致、组内同名成员。现状 `AlreadyExists` 把这三种情况揉成一个码,且只能在执行时得知(`internal/library/activation.go` 的 `Lstat` 检查)。
 - [x] **B2 修同名跨 skill 的接管 bug。** 实测:A、B 同名不同源,A 已投影到某 Scope;`Activate(B, Overwrite)` 成功后**两条记录指向同一文件夹**;随后 `Deactivate(A)` 删掉 B 的内容并留下 B 的悬空记录。根因:`directoryClaimedByAnotherScope` 只查同一 skill 的其他 Scope,不查同 Scope 下的其他 skill。`Overwrite` 应转移记录或拒绝,不能留两条记录。→ spec: [#71](https://github.com/tiaot33/skills-tui/issues/71)(决定:拒绝,`FailedPrecondition` 带占用者;转移语义另立条目)
 - [ ] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed *SkillID`(或等价字段),UI 据此置灰。(`InstallFetch` 选中已安装候选返回 `AlreadyExists` 已随 A2 完成。)
-- [ ] **B4 更新预览与绑定。** `PreviewUpdate(id) → {Available, RemoteRef, RemoteTreeSHA, Diff VersionDiff}` 取代只返回 `bool` 的 `CheckUpdate`;`Update(id, UpdateOptions{Expected})` 绑定预览时的远端标识,远端已变返回 `Conflict`(与 Sync 同模式)。现状:用户看到"有更新"点击后,实际拉到的可能是更新的 commit,且不知道改了哪些文件。
+- [ ] **B4 更新预览与绑定。** `PreviewUpdate(id) → {Available, RemoteRef, RemoteTreeSHA, Diff VersionDiff}` 补充 `CheckUpdates` 的可更新状态,提供差异及可绑定的远端标识;`Update(id, UpdateOptions{Expected})` 绑定预览时的远端标识,远端已变返回 `Conflict`(与 Sync 同模式)。现状:用户看到"有更新"点击后,实际拉到的可能是更新的 commit,且不知道改了哪些文件。
 - [ ] **B5 `UpdateResult.Note` 改为结构化。** 现为一句中文散文;改为 `StaleActivations []Activation`。不依赖 C5:Update 变化后该 skill 的全部投影按定义都过时。
 - [x] **B6 `RegisterProject` 重复注册携带已有 ID。** 实测返回 `AlreadyExists` 但不带既有 `ProjectID`,UI 无法跳转;放入 `Details`(A6)或提供 `FindRegisteredProject(path)`。→ 已随 A6 放入 `Details.ProjectID`,#67
 
@@ -63,7 +63,7 @@
 
 ### D. 锁与并发 — ✅ 完成,spec: [#72](https://github.com/tiaot33/skills-tui/issues/72)(D1、D2,PR [#79](https://github.com/tiaot33/skills-tui/pull/79))、[#73](https://github.com/tiaot33/skills-tui/issues/73)(D3,PR [#80](https://github.com/tiaot33/skills-tui/pull/80))
 
-- [x] **D1 网络 I/O 移出库锁。** `Update` / `CheckUpdate` / `CheckUpdates` / `InstallFetch` / `SyncPush` / `PreviewSyncPush` 在网络期间全程持 `l.mu`(`readOperation`,RLock);`Activate*` 需要 Lock;Go `RWMutex` 写者优先,一旦有写者排队,所有新读者阻塞。**实测**(URL 来源、服务端延迟 3 s):一个 skill 的 `Update` 跑 3 s → 无关 skill 的 `Activate` 等满 3 s → 其后发起的纯读 `ListSkills` 等 2.4 s。按 ADR 0008 的 per-request goroutine 模型,一次"检查全部更新"期间只要碰一下激活,整个应用的所有列表都会冻住。`InstallFetch` 还全程持 `fetchMu`(含 GitHub 物化的网络阶段),挡住其他 `Fetch` 收尾、`ListFetchSkills` 与 `Close`。目标:先取远端,再加锁复核、提交;`l.mu` 实为共享 / 独占锁(DB 串行化由单连接完成),`readOperation` / `writeOperation` 名字有误导,一并更名。→ #72(已更名为 `sharedOperation` / `exclusiveOperation`;`InstallFetch` 占用中的句柄再次安装返回 `FailedPrecondition`)
+- [x] **D1 网络 I/O 移出库锁。** `Update` / `CheckUpdates` / `InstallFetch` / `SyncPush` / `PreviewSyncPush` 在网络期间全程持 `l.mu`(`readOperation`,RLock);`Activate*` 需要 Lock;Go `RWMutex` 写者优先,一旦有写者排队,所有新读者阻塞。**实测**(URL 来源、服务端延迟 3 s):一个 skill 的 `Update` 跑 3 s → 无关 skill 的 `Activate` 等满 3 s → 其后发起的纯读 `ListSkills` 等 2.4 s。按 ADR 0008 的 per-request goroutine 模型,一次"检查全部更新"期间只要碰一下激活,整个应用的所有列表都会冻住。`InstallFetch` 还全程持 `fetchMu`(含 GitHub 物化的网络阶段),挡住其他 `Fetch` 收尾与 `Close`。目标:先取远端,再加锁复核、提交;`l.mu` 实为共享 / 独占锁(DB 串行化由单连接完成),`readOperation` / `writeOperation` 名字有误导,一并更名。→ #72(已更名为 `sharedOperation` / `exclusiveOperation`;`InstallFetch` 占用中的句柄再次安装返回 `FailedPrecondition`)
 - [x] **D2 修网络阶段与提交之间的 TOCTOU。** `Update` 拉取期间另一请求 `RemoveSkill`。**实测**:远端有变化 → `createVersion` 撞 FK → `not_found`(#67 兜底映射,事务内已写 blob);远端无变化 → **静默成功**,返回 `changed=false` 与已不存在的 `Skill`,还更新孤儿来源行的 `last_fetched`。加锁后在事务内复核:行不在 → `NotFound`,当前版本已变 → `Conflict`。随 D1 处理。→ #72
 - [x] **D3 多进程共存底线。** 现状 `SetMaxOpenConns(1)`、rollback journal、`BEGIN DEFERRED`;驱动默认 `busy_timeout` 已是 5 s。**实测**:两实例混合读写不会立刻 BUSY;但读写互阻,另一进程持写事务或长读超 5 s → 本进程写(含提交阶段)`internal("database is locked")`。`PRAGMA journal_mode=WAL`(身份校验之后执行,避免改写外来库)+ `_txlock=immediate` + 显式 `busy_timeout`,并把 `SQLITE_BUSY` / `SQLITE_LOCKED` 映射为新码 `Busy`。拓扑 B(守护进程)另议(ADR 0008)。→ #73,ADR 0012(推送快照需在 backup 后显式切回 `DELETE`;`ListSkills` / `ListGroupSkills` 改为单条语句读摘要)
 
@@ -87,7 +87,7 @@
 - [ ] **F1 `Scope` 的 wire 形状。** 密封接口能 marshal 不能 unmarshal(ADR 0011 明确推给 RPC 层)。在边界定义 DTO `{kind, agent, project_id}` 或自定义 (un)marshal;TS 类型据此生成。
 - [ ] **F2 DTO 去散文。** `UpdateResult.Note`、`SyncPreview.Warnings`、`SyncResult.Warnings` 是中文句子,`Error.Message` 却是英文。改为枚举 / 码,本地化归 UI(ADR 0003)。
 - [ ] **F3 枚举默认值显式化。** `on_conflict: ""`、`projected_copies: ""` 在 wire 上应为明确值(如 `"fail"` / `"keep"`)。
-- [ ] **F4 命名整理。** `Install`(本地)vs `InstallFetch`(远程);`CheckUpdate` 返回 `bool` 而 `CheckUpdates` 返回 `[]UpdateCheck`(随 B4 消解)。
+- [ ] **F4 命名整理。** `Install`(本地)vs `InstallFetch`(远程);更新检查已统一为 `CheckUpdates`,单项与批量都返回 `[]UpdateCheck`。
 - [ ] **F5 刷新 ADR 0008。** 文中的 `InstallRemote` / `InstallFetched` / "四个网络操作"已与现门面不符;补"TS 客户端由 Go 接口生成"的工具链决策(目前不存在)。
 
 ### G. 进度与变更通知
@@ -147,7 +147,7 @@
 ### 第 4 步 — 写操作预检:B1、B3、B4、B5(spec issue + ADR "Preview → Execute 统一模式")
 
 - ADR 把 Sync 现有的 `expected` 绑定推广为门面通用模式,定义 Preview 返回值形状与 `Conflict` 语义。
-- B1 `PreviewActivate` / `PreviewActivateGroup`(I2 的遗留副本作为占用者类型并入);B3 `FetchSkill.Installed`;B4 `PreviewUpdate` + `Update(id, UpdateOptions{Expected})` 取代 `CheckUpdate`(同时消解 F4 的一半);B5 `UpdateResult.Note` → `StaleActivations`(不依赖 C5)。
+- B1 `PreviewActivate` / `PreviewActivateGroup`(I2 的遗留副本作为占用者类型并入);B3 `FetchSkill.Installed`;B4 `PreviewUpdate` + `Update(id, UpdateOptions{Expected})` 补充 `CheckUpdates` 的预览与执行绑定;B5 `UpdateResult.Note` → `StaleActivations`(不依赖 C5)。
 - 步末顺手做 F5:刷新 ADR 0008 中过时的方法名,补 "TS 客户端由 Go 接口生成" 的工具链决策——这是第 6 步 `internal/rpc/` 落地的前提。
 - 依赖:第 1 步(已完成;B1 的占用者分类建立在 B2 修正后的语义上)。
 

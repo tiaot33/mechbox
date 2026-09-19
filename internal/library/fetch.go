@@ -109,20 +109,6 @@ func (s *fetchSession) candidates() FetchCandidates {
 	return result
 }
 
-func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (result FetchCandidates, err error) {
-	defer func() { err = typedError(err) }()
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	l.fetchMu.Lock()
-	defer l.fetchMu.Unlock()
-	session, ok := l.fetches[id]
-	if !ok {
-		return result, &Error{Code: NotFound, Message: "fetch session not found"}
-	}
-	return session.candidates(), nil
-}
-
 func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []string) (installed []Skill, err error) {
 	defer func() { err = typedError(err) }()
 	// 会话锁只用来取会话并把它标记为占用;物化(网络)与入库都在锁外,别的 Fetch 与列表不必等。

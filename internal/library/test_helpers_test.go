@@ -3,6 +3,7 @@ package library_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"io"
@@ -477,4 +478,20 @@ func stubGitHubCLI(t *testing.T, script string) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "gh"), []byte("#!/bin/sh\n"+script), 0o755)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// checkSingleUpdate 通过公开批量接口检查一个技能,校验结果数量和身份,再交给场景断言状态或逐项错误。
+func checkSingleUpdate(t *testing.T, lib library.Library, ctx context.Context, id library.SkillID) (bool, error) {
+	t.Helper()
+	checks, err := lib.CheckUpdates(ctx, []library.SkillID{id})
+	if err != nil {
+		t.Fatalf("CheckUpdates(%d) failed: %v; want a completed item", id, err)
+	}
+	if len(checks) != 1 || checks[0].SkillID != id {
+		t.Fatalf("CheckUpdates(%d) = %#v; want one matching result", id, checks)
+	}
+	if checks[0].Error != nil {
+		return false, checks[0].Error
+	}
+	return checks[0].Available, nil
 }

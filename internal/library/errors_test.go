@@ -41,7 +41,7 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			return err
 		}},
 		{name: "source update", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.CheckUpdate(t.Context(), 9999)
+			_, err := checkSingleUpdate(t, lib, t.Context(), 9999)
 			return err
 		}},
 		{name: "list registered projects", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {

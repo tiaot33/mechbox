@@ -37,17 +37,18 @@ func TestInstallFetchKeepsCandidateDescription(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			listed, err := lib.ListFetchSkills(ctx, fetch.ID)
-			if err != nil || len(listed.Skills) != 1 || listed.Skills[0].Description != "helps a lot" {
-				t.Fatalf("ListFetchSkills = %#v, %v", listed, err)
+			if len(fetch.Skills) != 1 || fetch.Skills[0].Description != "helps a lot" {
+				t.Fatalf("Fetch = %#v", fetch)
 			}
+			description := fetch.Skills[0].Description
+			fetch.Skills[0].Description = "changed by caller"
 			installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
 			if err != nil || len(installed) != 1 || installed[0].Description != "helps a lot" {
 				t.Fatalf("InstallFetch = %#v, %v", installed, err)
 			}
 			summaries, err := lib.ListSkills(ctx)
-			if err != nil || len(summaries) != 1 || summaries[0].Description != listed.Skills[0].Description {
-				t.Fatalf("ListSkills description = %#v, %v; want %q", summaries, err, listed.Skills[0].Description)
+			if err != nil || len(summaries) != 1 || summaries[0].Description != description {
+				t.Fatalf("ListSkills description = %#v, %v; want %q", summaries, err, description)
 			}
 		})
 	}
@@ -314,13 +315,13 @@ func TestInstallFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T
 
 	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "unrelated\n")), 0o644)
 	commitGit(t, repository, "unrelated skill")
-	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
-		t.Fatalf("unrelated commit CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || available {
+		t.Fatalf("unrelated commit CheckUpdates = %v, %v", available, err)
 	}
 	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "updated\n")), 0o644)
 	commitGit(t, repository, "update")
-	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || !available {
-		t.Fatalf("changed skill CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || !available {
+		t.Fatalf("changed skill CheckUpdates = %v, %v", available, err)
 	}
 	updated, err := lib.Update(ctx, installed[0].ID)
 	if err != nil {

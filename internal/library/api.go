@@ -456,10 +456,9 @@ type Library interface {
 	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区,返回句柄与候选 skill
 	// 名清单;此时尚无内容进入 Library。GitHub 预览只取各候选 SKILL.md 并钉住当时的
 	// commit;URL / Store 仍一次下载完整归档。本地目录不走 Fetch。
+	// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响会话。
+	// 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在安装时返回 NotFound。
 	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
-	// ListFetchSkills 只列出暂存中的候选元数据与诊断,不联网、不入库;句柄在 30 分钟后或
-	// Close 时失效。过期、未知或其他 Library 实例的句柄返回 NotFound。
-	ListFetchSkills(ctx context.Context, id FetchID) (FetchCandidates, error)
 	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
 	// GitHub 来源可在 Fetch 已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
 	// 不跟随当前 HEAD。URL / Store 只读取暂存内容,不联网。要么所选 skill 全部入库,
@@ -478,15 +477,13 @@ type Library interface {
 	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
-	// CheckUpdate 自行读取来源。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无更新,不取 tree;
-	// 否则发现候选,比较当前版本的目录 tree SHA,相同则不取辅助文件;无 SHA 时回退为比较文件与可执行位。
-	// URL / Store 在 Source 记录了 HTTP validator 时带条件头,304 即无更新、不下载正文;否则整包比较文件内容及权限。
-	// 本地比较文件内容及权限。不修改 Library 或激活副本(也不写确认 commit 与 validator)。
-	CheckUpdate(ctx context.Context, id SkillID) (bool, error)
-	// CheckUpdates 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
+	// CheckUpdates 检查指定技能是否有更新;单项检查传入仅含一个 SkillID 的列表。
+	// 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
 	// 直接判定无更新;有未命中的才共用一次 tree,发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。
 	// URL / Store 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
-	// 逐项错误不阻断其他来源。整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library。
+	// GitHub 无 SHA 的旧记录、本地来源以及 URL / Store 的完整响应,比较文件内容与可执行位。
+	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
+	// 整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library 或激活副本。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 
 	// 版本历史

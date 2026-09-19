@@ -97,7 +97,7 @@ func TestGitHubCLIAuthenticationPreviewsAndInstallsWithoutEnvironmentToken(t *te
 			if !reflect.DeepEqual(installed[0].Files, want) || installed[0].GitTreeSHA != fx.treeSHA("demo") {
 				t.Fatalf("authenticated content = %#v", installed[0])
 			}
-			if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); !library.IsCode(err, library.NotFound) {
+			if _, err := lib.InstallFetch(t.Context(), fetch.ID, nil); !library.IsCode(err, library.NotFound) {
 				t.Fatalf("successful install kept handle: %v", err)
 			}
 		})
@@ -139,7 +139,7 @@ func TestGitHubInstallRateLimitFallsBackToPinnedSelectedSkills(t *testing.T) {
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 1 || skills[0].Name != "first" {
 		t.Fatalf("installed unselected skills: %#v, %v", skills, err)
 	}
-	if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.InstallFetch(t.Context(), fetch.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("successful fallback kept handle: %v", err)
 	}
 }
@@ -174,9 +174,6 @@ func TestGitHubInstallRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("failed install wrote partial Library: %#v, %v", skills, err)
 	}
-	if candidates, err := lib.ListFetchSkills(t.Context(), fetch.ID); err != nil || !reflect.DeepEqual(candidates, fetch.FetchCandidates) {
-		t.Fatalf("failed install changed candidates: %#v, %v", candidates, err)
-	}
 	redirectGitHubClone(t, repo)
 	api.Reset()
 	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
@@ -186,7 +183,7 @@ func TestGitHubInstallRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 	if len(api.snapshot()) != 0 {
 		t.Fatalf("retry used anonymous API during rate limit window: %#v", api.snapshot())
 	}
-	if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.InstallFetch(t.Context(), fetch.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("successful retry kept handle: %v", err)
 	}
 }
@@ -222,7 +219,7 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 	}
 	api.Reset()
 	expiredTokenRequests.Store(0)
-	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
+	if available, err := checkSingleUpdate(t, lib, t.Context(), installed[0].ID); err != nil || available {
 		t.Fatalf("unchanged check = %v, %v", available, err)
 	}
 	if checks, err := lib.CheckUpdates(t.Context(), []library.SkillID{installed[0].ID}); err != nil || len(checks) != 1 || checks[0].Error != nil || checks[0].Available {
@@ -333,7 +330,7 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 		t.Fatalf("install = %#v, %v", installed, err)
 	}
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
+	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || available {
 		t.Fatalf("unchanged check = %v, %v", available, err)
 	}
 	if checks, err := lib.CheckUpdates(ctx, []library.SkillID{installed[0].ID}); err != nil || len(checks) != 1 || checks[0].Error != nil || checks[0].Available {
@@ -433,7 +430,7 @@ func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 		t.Fatalf("install = %#v, %v", installed, err)
 	}
 	api.Reset()
-	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
+	if available, err := checkSingleUpdate(t, lib, t.Context(), installed[0].ID); err != nil || available {
 		t.Fatalf("unchanged check = %v, %v", available, err)
 	}
 	if requests := api.snapshot(); len(requests) != 0 {
@@ -441,7 +438,7 @@ func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 	}
 	throttled = false
 	api.Reset()
-	if available, err := lib.CheckUpdate(t.Context(), installed[0].ID); err != nil || available {
+	if available, err := checkSingleUpdate(t, lib, t.Context(), installed[0].ID); err != nil || available {
 		t.Fatalf("unchanged check = %v, %v", available, err)
 	}
 	requests := api.snapshot()
@@ -490,7 +487,7 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 			case "clone":
 				redirectGitHubClone(t, repo)
 			}
-			if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
+			if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || available {
 				t.Fatalf("unchanged check = %v, %v", available, err)
 			}
 			api.Reset()
@@ -588,7 +585,7 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 		run  func() error
 	}{
 		{"Fetch", func() error { _, err := lib.Fetch(t.Context(), gitHubSpec()); return err }},
-		{"CheckUpdate", func() error { _, err := lib.CheckUpdate(t.Context(), installed[0].ID); return err }},
+		{"CheckUpdates", func() error { _, err := checkSingleUpdate(t, lib, t.Context(), installed[0].ID); return err }},
 		{"Update", func() error { _, err := lib.Update(t.Context(), installed[0].ID); return err }},
 	} {
 		t.Run(operation.name, func(t *testing.T) {
@@ -602,8 +599,11 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 	if _, err := lib.InstallFetch(t.Context(), retry.ID, nil); err == nil || strings.Contains(fmt.Sprintf("%+v", err), secret) {
 		t.Fatalf("memoized InstallFetch = %v, want a secret-free error", err)
 	}
-	if _, err := lib.ListFetchSkills(t.Context(), retry.ID); err != nil {
-		t.Fatalf("failed install discarded handle: %v", err)
+	if err := lib.RemoveSkill(t.Context(), installed[0].ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if skills, err := lib.InstallFetch(t.Context(), retry.ID, nil); err != nil || len(skills) != 1 {
+		t.Fatalf("retry after removing duplicate = %#v, %v", skills, err)
 	}
 }
 

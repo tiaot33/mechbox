@@ -45,12 +45,6 @@ func serveSkillsAudit(t *testing.T, respond func(*http.Request) (*http.Response,
 	return mock
 }
 
-func (m *skillsAuditMock) setRespond(respond func(*http.Request) (*http.Response, error)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.respond = respond
-}
-
 func (m *skillsAuditMock) urls() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -116,16 +110,6 @@ func TestGitHubPreviewCarriesSkillsAuditsForDisplay(t *testing.T) {
 	}
 	assertGitHubPreviewRequests(t, api, fx, "first/SKILL.md", "second/SKILL.md")
 
-	// 列表只回放会话快照,不再访问 skills.sh。
-	audits.setRespond(func(*http.Request) (*http.Response, error) {
-		t.Error("listing contacted skills.sh")
-		return textResponse(http.StatusInternalServerError, ""), nil
-	})
-	fetch.Skills[0].Audit.Entries[0].Summary = "changed by caller"
-	listed, err := lib.ListFetchSkills(t.Context(), fetch.ID)
-	if err != nil || !reflect.DeepEqual(listed.Skills, want) {
-		t.Fatalf("ListFetchSkills = %#v, %v", listed, err)
-	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("preview wrote Library: %v, %v", skills, err)
 	}

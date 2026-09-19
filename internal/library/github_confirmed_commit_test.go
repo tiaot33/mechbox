@@ -8,9 +8,9 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// 安装即记录钉住的 commit:远端没变时 CheckUpdate 只发一次 commits/{ref} 就能判定无更新,
+// 安装即记录钉住的 commit:远端没变时 CheckUpdates 只发一次 commits/{ref} 就能判定无更新,
 // 不取 recursive tree、不取任何 blob;这个判定随库文件持久化,Close 后重新 Open 仍然成立。
-func TestGitHubCheckUpdateOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *testing.T) {
+func TestGitHubCheckUpdatesOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 		"demo/data.bin": {content: []byte{1, 2, 3}, mode: 0o644},
@@ -37,8 +37,8 @@ func TestGitHubCheckUpdateOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *t
 	before := snapshotSkill(t, lib, id)
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("unchanged CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("unchanged CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 	if after := snapshotSkill(t, lib, id); !reflect.DeepEqual(after, before) {
@@ -54,8 +54,8 @@ func TestGitHubCheckUpdateOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *t
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 	api.Reset()
-	if available, err := reopened.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("reopened CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, reopened, ctx, id); err != nil || available {
+		t.Fatalf("reopened CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 	if after := snapshotSkill(t, reopened, id); !reflect.DeepEqual(after, before) {
@@ -109,16 +109,16 @@ func TestGitHubConfirmedCommitIsPerVersionNotPerSource(t *testing.T) {
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, b.ID); err != nil || !available {
-		t.Fatalf("CheckUpdate(b) after Update(a) = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, b.ID); err != nil || !available {
+		t.Fatalf("CheckUpdates(b) after Update(a) = %v, %v", available, err)
 	}
 	if b2, err := lib.GetSkill(ctx, b.ID); err != nil || b2.Source.LastSeenRef != changed.commit {
 		t.Fatalf("b shares the advanced Source ref: %#v, %v", b2, err)
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, a.ID); err != nil || available {
-		t.Fatalf("CheckUpdate(a) after Update(a) = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, a.ID); err != nil || available {
+		t.Fatalf("CheckUpdates(a) after Update(a) = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 }
@@ -153,8 +153,8 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	before := snapshotSkill(t, lib, id)
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("advanced commit CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("advanced commit CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	if after := snapshotSkill(t, lib, id); !reflect.DeepEqual(after, before) {
@@ -166,15 +166,15 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	if err != nil || result.Changed || result.Skill.Source.LastSeenRef != advanced.commit || result.Skill.GitTreeSHA != fx.treeSHA("demo") {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
-	// 紧挨着的 CheckUpdate 已取过新 root tree,Update 只再解析 branch commit。
+	// 紧挨着的 CheckUpdates 已取过新 root tree,Update 只再解析 branch commit。
 	assertGitHubCommitOnly(t, api, 1)
 	if versions, err := lib.ListVersions(ctx, id); err != nil || len(versions) != 1 {
 		t.Fatalf("unchanged Update wrote history: %#v, %v", versions, err)
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("reconfirmed CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("reconfirmed CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 }
@@ -209,8 +209,8 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	id := installed[0].ID
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("pinned CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("pinned CheckUpdates = %v, %v", available, err)
 	}
 	// Fetch 已按完整 SHA 写入 memo,钉住的 commit 不再出网。
 	assertGitHubCommitOnly(t, api, 0)
@@ -219,8 +219,8 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	commitGit(t, repo, "branch moves on")
 	api.Swap(inspectGitHubRepo(t, repo))
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("pinned CheckUpdate after branch advance = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("pinned CheckUpdates after branch advance = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 0)
 	api.Reset()
@@ -239,8 +239,8 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 	api.Reset()
-	if available, err := reopened.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("pinned CheckUpdate after reopen = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, reopened, ctx, id); err != nil || available {
+		t.Fatalf("pinned CheckUpdates after reopen = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 }
@@ -370,13 +370,13 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 
 	api.Reset()
 	before := snapshotSkill(t, lib, id)
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("unknown commit CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("unknown commit CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	// 走完整比较的检查同样只读:不能顺手把确认 commit 补上——重开后(memo 清空)检查仍须取 tree。
 	if after := snapshotSkill(t, lib, id); !reflect.DeepEqual(after, before) {
-		t.Fatalf("CheckUpdate wrote Library: %#v, want %#v", after, before)
+		t.Fatalf("CheckUpdates wrote Library: %#v, want %#v", after, before)
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
@@ -387,8 +387,8 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("unknown commit CheckUpdate after reopen = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("unknown commit CheckUpdates after reopen = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 
@@ -401,8 +401,8 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 		t.Fatalf("unchanged Update wrote history: %#v, %v", versions, err)
 	}
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, id); err != nil || available {
-		t.Fatalf("confirmed CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
+		t.Fatalf("confirmed CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 }

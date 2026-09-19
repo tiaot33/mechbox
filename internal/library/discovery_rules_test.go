@@ -148,10 +148,6 @@ func TestFetchDiscoveryPluginManifests(t *testing.T) {
 		if !reflect.DeepEqual(got.Skills, want) {
 			t.Fatalf("candidates = %#v", got.Skills)
 		}
-		listed, err := lib.ListFetchSkills(t.Context(), got.ID)
-		if err != nil || listed.Skills[0].PluginName != "alpha" {
-			t.Fatalf("listed = %#v, %v", listed, err)
-		}
 		if api != nil {
 			assertGitHubPreviewRequests(t, api, fx, ".claude-plugin/marketplace.json", ".claude-plugin/plugin.json", "plugins/a/skills/x/skill.md", "plugins/a/skills/y/SKILL.md", "plugins/a/special/q/SKILL.md", "extras/solo/SKILL.md")
 		}
@@ -191,7 +187,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 			if api != nil {
 				api.Swap(fx)
 			}
-			available, err := lib.CheckUpdate(t.Context(), id)
+			available, err := checkSingleUpdate(t, lib, t.Context(), id)
 			if err != nil || !available {
 				t.Fatalf("check = %v, %v", available, err)
 			}
@@ -214,7 +210,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 			if api != nil {
 				api.Swap(inspectGitHubRepo(t, repo))
 			}
-			if _, err := lib.CheckUpdate(t.Context(), id); !library.IsCode(err, library.NotFound) {
+			if _, err := checkSingleUpdate(t, lib, t.Context(), id); !library.IsCode(err, library.NotFound) {
 				t.Fatalf("empty source = %v", err)
 			}
 		})

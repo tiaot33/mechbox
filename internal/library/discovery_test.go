@@ -226,10 +226,6 @@ func TestFetchDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.
 	}
 	fetch.Skills[0].Name = "mutated"
 	fetch.Diagnostics[0].Reason = "mutated"
-	listed, err := lib.ListFetchSkills(t.Context(), fetch.ID)
-	if err != nil || !reflect.DeepEqual(listed.Skills, want) || listed.Diagnostics[0].Reason == "mutated" {
-		t.Fatalf("listing = %#v, %v", listed, err)
-	}
 	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"useful"})
 	if err != nil || len(installed) != 1 || string(installed[0].Files[0].Content) != content {
 		t.Fatalf("install = %#v, %v", installed, err)

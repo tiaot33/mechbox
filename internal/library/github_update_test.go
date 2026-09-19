@@ -60,8 +60,8 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
-		t.Fatalf("unchanged CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, first.ID); err != nil || available {
+		t.Fatalf("unchanged CheckUpdates = %v, %v", available, err)
 	}
 	// 安装时钉住的 commit 未变:只解析 commit,不取 tree。
 	assertGitHubCommitOnly(t, api, 1)
@@ -78,11 +78,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 	api.Swap(other)
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
-		t.Fatalf("unrelated path CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, first.ID); err != nil || available {
+		t.Fatalf("unrelated path CheckUpdates = %v, %v", available, err)
 	}
-	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
-		t.Fatalf("unrelated path second CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, second.ID); err != nil || available {
+		t.Fatalf("unrelated path second CheckUpdates = %v, %v", available, err)
 	}
 	// commit 前进、目录未变:要取 tree 比较目录 SHA,但不取 Skill 文件。
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
@@ -118,11 +118,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 	api.Swap(changed)
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || !available {
-		t.Fatalf("changed CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, first.ID); err != nil || !available {
+		t.Fatalf("changed CheckUpdates = %v, %v", available, err)
 	}
-	if available, err := lib.CheckUpdate(ctx, second.ID); err != nil || available {
-		t.Fatalf("unchanged sibling CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, second.ID); err != nil || available {
+		t.Fatalf("unchanged sibling CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	afterCheck, err := lib.GetSkill(ctx, first.ID)
@@ -141,7 +141,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if checks[0].Error != nil || !checks[0].Available || checks[1].Error != nil || checks[1].Available {
 		t.Fatalf("CheckUpdates availability = %#v", checks)
 	}
-	// 上面的 CheckUpdate 已取过新 root tree,批量检查命中 memo,只再解析 branch commit。
+	// 上面的 CheckUpdates 已取过新 root tree,批量检查命中 memo,只再解析 branch commit。
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 1 || trees != 0 || blobs != 0 {
 		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want one commit: %#v", commits, trees, blobs, api.snapshot())
@@ -182,7 +182,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 }
 
-func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
+func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"foo/SKILL.md":   {content: []byte(skillDocument("bar", "bar body")), mode: 0o644},
 		"foo/data.bin":   {content: []byte{1, 2, 3}, mode: 0o644},
@@ -217,11 +217,11 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, foo.ID); err != nil || available {
-		t.Fatalf("foo CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, foo.ID); err != nil || available {
+		t.Fatalf("foo CheckUpdates = %v, %v", available, err)
 	}
-	if available, err := lib.CheckUpdate(ctx, bar.ID); err != nil || available {
-		t.Fatalf("bar CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, bar.ID); err != nil || available {
+		t.Fatalf("bar CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 2)
 
@@ -230,13 +230,13 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 	changed := inspectGitHubRepo(t, repo)
 	api.Swap(changed)
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, foo.ID); err != nil || available {
-		t.Fatalf("unchanged skill foo CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, foo.ID); err != nil || available {
+		t.Fatalf("unchanged skill foo CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, bar.ID); err != nil || !available {
-		t.Fatalf("changed skill bar CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, bar.ID); err != nil || !available {
+		t.Fatalf("changed skill bar CheckUpdates = %v, %v", available, err)
 	}
 	result, err := lib.Update(ctx, bar.ID)
 	if err != nil || !result.Changed {
@@ -272,8 +272,8 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
-		t.Fatalf("empty SHA same files CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, first.ID); err != nil || available {
+		t.Fatalf("empty SHA same files CheckUpdates = %v, %v", available, err)
 	}
 	if _, _, blobs := gitHubAPIKindCounts(t, api); blobs == 0 {
 		t.Fatal("empty SHA check did not read skill files")
@@ -299,8 +299,8 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 
 	// 补写 SHA 的同时补写了确认 commit:旧记录经一次 Update 就进入只解析 commit 的快路径。
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
-		t.Fatalf("after backfill CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, first.ID); err != nil || available {
+		t.Fatalf("after backfill CheckUpdates = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
 
@@ -309,8 +309,8 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	changed := inspectGitHubRepo(t, repo)
 	api.Swap(changed)
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, sibling.ID); err != nil || !available {
-		t.Fatalf("empty SHA changed files CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, sibling.ID); err != nil || !available {
+		t.Fatalf("empty SHA changed files CheckUpdates = %v, %v", available, err)
 	}
 	result, err = lib.Update(ctx, sibling.ID)
 	if err != nil || !result.Changed {
@@ -668,16 +668,16 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 	if installed[0].GitTreeSHA != "" {
 		t.Fatalf("URL GitTreeSHA = %q, want empty", installed[0].GitTreeSHA)
 	}
-	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || available {
-		t.Fatalf("unchanged URL CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || available {
+		t.Fatalf("unchanged URL CheckUpdates = %v, %v", available, err)
 	}
 
 	archive = zipArchive(t, map[string]string{
 		"demo/SKILL.md": skillDocument("demo", "new"),
 		"demo/run":      "echo new",
 	})
-	if available, err := lib.CheckUpdate(ctx, installed[0].ID); err != nil || !available {
-		t.Fatalf("changed URL CheckUpdate = %v, %v", available, err)
+	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || !available {
+		t.Fatalf("changed URL CheckUpdates = %v, %v", available, err)
 	}
 	result, err := lib.Update(ctx, installed[0].ID)
 	if err != nil || !result.Changed || result.Skill.GitTreeSHA != "" {

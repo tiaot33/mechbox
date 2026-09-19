@@ -9,7 +9,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
+func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	ctx := t.Context()
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -50,9 +50,9 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	check := func(id library.SkillID, want bool) {
 		t.Helper()
-		got, err := lib.CheckUpdate(ctx, id)
+		got, err := checkSingleUpdate(t, lib, ctx, id)
 		if err != nil || got != want {
-			t.Fatalf("CheckUpdate(%d) = %v, %v; want %v", id, got, err, want)
+			t.Fatalf("CheckUpdates(%d) = %v, %v; want %v", id, got, err, want)
 		}
 	}
 	check(first.ID, false)
@@ -98,7 +98,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitGit(t, repository, "remove first")
-	if _, err := lib.CheckUpdate(ctx, first.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := checkSingleUpdate(t, lib, ctx, first.ID); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("missing source skill check: %v", err)
 	}
 	if _, err := lib.Update(ctx, first.ID); !library.IsCode(err, library.NotFound) {
@@ -107,7 +107,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	if err := os.RemoveAll(repository); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.CheckUpdate(ctx, first.ID); !library.IsCode(err, library.SourceUnreachable) {
+	if _, err := checkSingleUpdate(t, lib, ctx, first.ID); !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("unreachable check: %#v", err)
 	}
 	if _, err := lib.Update(ctx, first.ID); !library.IsCode(err, library.SourceUnreachable) {
@@ -119,7 +119,7 @@ func TestCheckUpdateAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 }
 
-func TestLocalCheckUpdateDetectsContentAndModeWithoutWriting(t *testing.T) {
+func TestLocalCheckUpdatesDetectsContentAndModeWithoutWriting(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := t.TempDir()
@@ -140,17 +140,17 @@ func TestLocalCheckUpdateDetectsContentAndModeWithoutWriting(t *testing.T) {
 				}
 			}
 			want := change != "unchanged"
-			available, err := lib.CheckUpdate(ctx, skill.ID)
+			available, err := checkSingleUpdate(t, lib, ctx, skill.ID)
 			if err != nil || available != want {
-				t.Fatalf("CheckUpdate = %v, %v", available, err)
+				t.Fatalf("CheckUpdates = %v, %v", available, err)
 			}
 			result, err := lib.Update(ctx, skill.ID)
 			if err != nil || result.Changed != want {
 				t.Fatalf("Update = %#v, %v", result, err)
 			}
-			available, err = lib.CheckUpdate(ctx, skill.ID)
+			available, err = checkSingleUpdate(t, lib, ctx, skill.ID)
 			if err != nil || available {
-				t.Fatalf("CheckUpdate after update = %v, %v", available, err)
+				t.Fatalf("CheckUpdates after update = %v, %v", available, err)
 			}
 		})
 	}
@@ -161,7 +161,7 @@ func TestLocalCheckUpdateDetectsContentAndModeWithoutWriting(t *testing.T) {
 	if err := os.RemoveAll(source); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.CheckUpdate(ctx, skill.ID); !library.IsCode(err, library.SourceUnreachable) {
+	if _, err := checkSingleUpdate(t, lib, ctx, skill.ID); !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("missing local source: %v", err)
 	}
 }
@@ -173,8 +173,8 @@ func TestUpdateOperationsRejectInvalidAndMissingSkillIDs(t *testing.T) {
 		if id > 0 {
 			want = library.NotFound
 		}
-		if _, err := lib.CheckUpdate(t.Context(), id); !library.IsCode(err, want) {
-			t.Fatalf("CheckUpdate(%d): %v, want %s", id, err, want)
+		if _, err := checkSingleUpdate(t, lib, t.Context(), id); !library.IsCode(err, want) {
+			t.Fatalf("CheckUpdates(%d): %v, want %s", id, err, want)
 		}
 		if _, err := lib.Update(t.Context(), id); !library.IsCode(err, want) {
 			t.Fatalf("Update(%d): %v, want %s", id, err, want)

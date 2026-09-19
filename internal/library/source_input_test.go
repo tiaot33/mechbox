@@ -141,7 +141,7 @@ func TestResolveSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range skills {
-		if available, err := lib.CheckUpdate(t.Context(), skill.ID); err != nil || !available {
+		if available, err := checkSingleUpdate(t, lib, t.Context(), skill.ID); err != nil || !available {
 			t.Fatalf("check = %v, %v", available, err)
 		}
 	}

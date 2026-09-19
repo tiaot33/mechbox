@@ -41,7 +41,7 @@ func openFetchLibrary(t *testing.T, path string) library.Library {
 	return lib
 }
 
-func TestFetchListingIsReadOnlyAndSessionScoped(t *testing.T) {
+func TestFetchPreviewIsReadOnlyAndSessionScoped(t *testing.T) {
 	spec := mockFetchArchive(t)
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib := openFetchLibrary(t, path)
@@ -54,19 +54,16 @@ func TestFetchListingIsReadOnlyAndSessionScoped(t *testing.T) {
 	if fetch.ID == "" || fetch.Ref == "" || !reflect.DeepEqual(fetch.Skills, want) {
 		t.Fatalf("Fetch = %#v; want handle, remote ref and candidates %#v", fetch, want)
 	}
-	// 列表必须仅依赖暂存,不能再次访问远端。
+	abandoned, err := lib.Fetch(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// URL 安装必须仅依赖暂存,不能再次访问远端。
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
-		t.Error("listing contacted remote source")
+		t.Error("install contacted remote source")
 		return nil, errors.New("offline")
 	})}
 	fetch.Skills[0].Name = "changed by caller"
-	for range 2 {
-		names, err := lib.ListFetchSkills(ctx, fetch.ID)
-		if err != nil || !reflect.DeepEqual(names.Skills, want) {
-			t.Fatalf("ListFetchSkills = %v, %v", names, err)
-		}
-		names.Skills[0].Name = "changed by caller"
-	}
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills = %v, %v", skills, err)
 	}
@@ -74,52 +71,68 @@ func TestFetchListingIsReadOnlyAndSessionScoped(t *testing.T) {
 		t.Fatalf("ListCollections = %v, %v", collections, err)
 	}
 	other := openFetchLibrary(t, path)
-	if _, err := other.ListFetchSkills(ctx, fetch.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := other.InstallFetch(ctx, fetch.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("other instance accepted handle: %v", err)
 	}
 	for _, id := range []library.FetchID{"", "unknown"} {
-		if _, err := lib.ListFetchSkills(ctx, id); !library.IsCode(err, library.NotFound) {
+		if _, err := lib.InstallFetch(ctx, id, nil); !library.IsCode(err, library.NotFound) {
 			t.Fatalf("unknown handle: %v", err)
 		}
 	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := lib.ListFetchSkills(cancelled, fetch.ID); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled listing: %v", err)
+	if _, err := lib.InstallFetch(cancelled, fetch.ID, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled install: %v", err)
+	}
+	installed, err := lib.InstallFetch(ctx, fetch.ID, []string{"first"})
+	if err != nil || len(installed) != 1 || installed[0].Name != "first" || string(installed[0].Files[0].Content) != skillDocument("first", "first") {
+		t.Fatalf("install after preview mutation and cancellation = %#v, %v", installed, err)
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.ListFetchSkills(ctx, fetch.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.InstallFetch(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("closed instance accepted handle: %v", err)
 	}
 	if _, err := lib.Fetch(ctx, spec); err == nil {
 		t.Fatal("closed instance accepted Fetch")
 	}
 	reopened := openFetchLibrary(t, path)
-	if _, err := reopened.ListFetchSkills(ctx, fetch.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := reopened.InstallFetch(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reopened instance accepted handle: %v", err)
 	}
 }
 
-func TestAbandonedFetchExpiresWithoutAnotherFetch(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		spec := mockFetchArchive(t)
-		lib := openFetchLibrary(t, ":memory:")
-		fetch, err := lib.Fetch(t.Context(), spec)
-		if err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(29 * time.Minute)
-		if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(2 * time.Minute)
-		synctest.Wait()
-		if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); !library.IsCode(err, library.NotFound) {
-			t.Fatalf("expired handle: %v", err)
-		}
-	})
+func TestFetchHandleLifetime(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		wait    time.Duration
+		expired bool
+	}{
+		{name: "before expiry", wait: 29 * time.Minute},
+		{name: "abandoned handle expires", wait: 31 * time.Minute, expired: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				spec := mockFetchArchive(t)
+				lib := openFetchLibrary(t, ":memory:")
+				fetch, err := lib.Fetch(t.Context(), spec)
+				if err != nil {
+					t.Fatal(err)
+				}
+				time.Sleep(test.wait)
+				synctest.Wait()
+				installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+				if test.expired {
+					if !library.IsCode(err, library.NotFound) || len(installed) != 0 {
+						t.Fatalf("expired handle install = %#v, %v", installed, err)
+					}
+				} else if err != nil || len(installed) != 2 {
+					t.Fatalf("valid handle install = %#v, %v", installed, err)
+				}
+			})
+		})
+	}
 }
 
 func TestCloseDuringFetchDoesNotRetainSession(t *testing.T) {
@@ -199,13 +212,13 @@ func TestFetchSessionsAreNotSynced(t *testing.T) {
 	if _, err := other.SyncPull(t.Context(), preview.Remote); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.ListFetchSkills(t.Context(), fetch.ID); !library.IsCode(err, library.NotFound) {
+	if _, err := other.InstallFetch(t.Context(), fetch.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("synced instance accepted handle: %v", err)
 	}
 	if skills, err := other.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("synced skills = %v, %v", skills, err)
 	}
-	if _, err := lib.ListFetchSkills(t.Context(), fetch.ID); err != nil {
+	if _, err := lib.InstallFetch(t.Context(), fetch.ID, nil); err != nil {
 		t.Fatalf("SyncPush invalidated local handle: %v", err)
 	}
 }

@@ -159,28 +159,3 @@ func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator s
 	skill.Source.LastSeenRef = discovered.ref
 	return skill, discovered.httpValidator, nil
 }
-
-func (l *sqliteLibrary) CheckUpdate(ctx context.Context, id SkillID) (available bool, err error) {
-	// 只读比较,没有提交阶段:读 skill 走 getSkill 自己的短锁,网络阶段不持库锁。
-	defer func() { err = typedError(err) }()
-	if id <= 0 {
-		return false, &Error{Code: InvalidArgument, Message: "check update: skill ID must be positive"}
-	}
-	skill, state, err := l.getSkill(ctx, id)
-	if err != nil {
-		return false, err
-	}
-	if skill.Source.Type == SourceGitHub {
-		snap, err := l.readGitHubSnapshot(ctx, skill.Source)
-		if err != nil {
-			return false, err
-		}
-		return githubSkillHasUpdate(ctx, &snap, skill, state.confirmedCommit)
-	}
-	// URL / Store 带条件头:304 时 readUpdate 原样返回库中文件,自然判定无更新。
-	latest, _, err := l.readUpdate(ctx, skill, state.httpValidator)
-	if err != nil {
-		return false, err
-	}
-	return !filesEqual(skill.Files, latest.Files), nil
-}
