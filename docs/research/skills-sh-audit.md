@@ -25,7 +25,7 @@ GET https://skills.sh/api/v1/skills/audit/{id}
 
 官方写法是 `/api/v1/skills/audit/{source}/{skill}`，但 `{source}` 本身可含斜杠（`owner/repo`），路由是 catch-all：`x-matched-path: /api/v1/skills/audit/[...id]`。构造 URL 应把 `id` 按路径段拼接，**不要**把斜杠编码成 `%2F`。
 
-对本仓库：现有 `SearchSkills` 已拿到同样的 `id`（`library/search.go`），可直接拼 audit URL。ADR 0006 仍适用——skills.sh 只做只读发现，审计也是覆盖层，不应当成 Store，也不该新增持久权威表。
+对本仓库：现有 `SearchSkills` 已拿到同样的 `id`（`internal/library/search.go`），可直接拼 audit URL。ADR 0006 仍适用——skills.sh 只做只读发现，审计也是覆盖层，不应当成 Store，也不该新增持久权威表。
 
 ---
 

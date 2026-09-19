@@ -1,7 +1,7 @@
 # Library 门面桌面化 Roadmap
 
 **Date:** 2026-09-15(2026-09-16 更新进度与分步计划)
-**目的:** 记录 `library/api.go` 成为桌面端(Electron,经 ADR 0008 的 stdio sidecar)底层接口之前需要补的能力,按优先级排列。
+**目的:** 记录 `internal/library/api.go` 成为桌面端(Electron,经 ADR 0008 的 stdio sidecar)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对门面的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
 **用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。schema 已是 v8(#77 / #82);下一次提升是 v9(E4)。
 
@@ -29,7 +29,7 @@
 
 ### A. 错误模型与校验映射 — ✅ 完成,spec: [#67](https://github.com/tiaot33/skills-tui/issues/67),PR [#70](https://github.com/tiaot33/skills-tui/pull/70)
 
-原状:`typedError`(`library/errors.go`)只映射 `sql.ErrNoRows` / `fs.ErrPermission` / `fs.ErrNotExist`,其余一律 `Internal`。#67 覆盖 A1–A7;`RateLimited` / `Unauthenticated` 移至 E2(需与配置 API 一起落地才对 UI 有意义)。以下条目保留作为现状记录与回归对照。
+原状:`typedError`(`internal/library/errors.go`)只映射 `sql.ErrNoRows` / `fs.ErrPermission` / `fs.ErrNotExist`,其余一律 `Internal`。#67 覆盖 A1–A7;`RateLimited` / `Unauthenticated` 移至 E2(需与配置 API 一起落地才对 UI 有意义)。以下条目保留作为现状记录与回归对照。
 
 - [x] **A1 校验错误改用 `&Error{Code: InvalidArgument}`。** 现状(实测均为 `internal`):`CreateGroup` / `RenameGroup` 空名、`RegisterProject` 空路径或非目录、`RemoveSkill` / `UnregisterProject` 非法选项、`DiffVersions` 跨 skill、`insertSkill` 空名——都是 `fmt.Errorf`。→ #67
 - [x] **A2 映射 SQLite 约束错误。** `sqlite3.ErrConstraint` 的 UNIQUE 冲突 → `AlreadyExists`(同路径重复 `Install`、`InstallFetch` 选中已安装候选、`AddSkillToGroup` 重复;实测均为 `internal`),FK 失败 → `NotFound`。→ #67
@@ -43,7 +43,7 @@
 
 目前只有 Sync 具备 Preview → Execute(`expected` 绑定)模式;其余会冲突的写操作都只能"先试、看错误码"。
 
-- [ ] **B1 `PreviewActivate(id, scope)` / `PreviewActivateGroup(groupID, scope)`。** 返回:解析出的目录、目标是否已存在、占用者类型(另一 skill 的 Activation / 本 Library 遗留副本 / 外部目录)、内容是否与库一致、组内同名成员。现状 `AlreadyExists` 把这三种情况揉成一个码,且只能在执行时得知(`library/activation.go` 的 `Lstat` 检查)。
+- [ ] **B1 `PreviewActivate(id, scope)` / `PreviewActivateGroup(groupID, scope)`。** 返回:解析出的目录、目标是否已存在、占用者类型(另一 skill 的 Activation / 本 Library 遗留副本 / 外部目录)、内容是否与库一致、组内同名成员。现状 `AlreadyExists` 把这三种情况揉成一个码,且只能在执行时得知(`internal/library/activation.go` 的 `Lstat` 检查)。
 - [x] **B2 修同名跨 skill 的接管 bug。** 实测:A、B 同名不同源,A 已投影到某 Scope;`Activate(B, Overwrite)` 成功后**两条记录指向同一文件夹**;随后 `Deactivate(A)` 删掉 B 的内容并留下 B 的悬空记录。根因:`directoryClaimedByAnotherScope` 只查同一 skill 的其他 Scope,不查同 Scope 下的其他 skill。`Overwrite` 应转移记录或拒绝,不能留两条记录。→ spec: [#71](https://github.com/tiaot33/skills-tui/issues/71)(决定:拒绝,`FailedPrecondition` 带占用者;转移语义另立条目)
 - [ ] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed *SkillID`(或等价字段),UI 据此置灰。(`InstallFetch` 选中已安装候选返回 `AlreadyExists` 已随 A2 完成。)
 - [ ] **B4 更新预览与绑定。** `PreviewUpdate(id) → {Available, RemoteRef, RemoteTreeSHA, Diff VersionDiff}` 取代只返回 `bool` 的 `CheckUpdate`;`Update(id, UpdateOptions{Expected})` 绑定预览时的远端标识,远端已变返回 `Conflict`(与 Sync 同模式)。现状:用户看到"有更新"点击后,实际拉到的可能是更新的 commit,且不知道改了哪些文件。
@@ -148,7 +148,7 @@
 
 - ADR 把 Sync 现有的 `expected` 绑定推广为门面通用模式,定义 Preview 返回值形状与 `Conflict` 语义。
 - B1 `PreviewActivate` / `PreviewActivateGroup`(I2 的遗留副本作为占用者类型并入);B3 `FetchSkill.Installed`;B4 `PreviewUpdate` + `Update(id, UpdateOptions{Expected})` 取代 `CheckUpdate`(同时消解 F4 的一半);B5 `UpdateResult.Note` → `StaleActivations`(不依赖 C5)。
-- 步末顺手做 F5:刷新 ADR 0008 中过时的方法名,补 "TS 客户端由 Go 接口生成" 的工具链决策——这是第 6 步 `rpc/` 落地的前提。
+- 步末顺手做 F5:刷新 ADR 0008 中过时的方法名,补 "TS 客户端由 Go 接口生成" 的工具链决策——这是第 6 步 `internal/rpc/` 落地的前提。
 - 依赖:第 1 步(已完成;B1 的占用者分类建立在 B2 修正后的语义上)。
 
 ### 第 5 步 — 运行时配置与 Sync 状态:E1–E6(spec issue + ADR "凭证存放位置")
@@ -160,7 +160,7 @@
 - E5 `Info()`(合并 I5 的"需要迁移"探知)、E6 `slog.Handler` 注入。
 - 依赖:第 3 步(共用迁移框架);与第 4 步无依赖,可并行。
 
-### 第 6 步 — RPC 边界与通知:F1–F3、G1–G2(与 `rpc/` 落地同一批 issue)
+### 第 6 步 — RPC 边界与通知:F1–F3、G1–G2(与 `internal/rpc/` 落地同一批 issue)
 
 - F1 `Scope` DTO `{kind, agent, project_id}` 的 (un)marshal;F2 `Warnings` / `Note` 去散文改枚举;F3 wire 上枚举默认值显式化。
 - G1 进度报告(ctx `ProgressFunc` 或 `Events()`,RPC 映射为 notification);G2 `Watch(ctx) <-chan Change` 或列表 `Revision`。
@@ -178,7 +178,7 @@
 第 0 步 ✅ ──┬── 第 1 步 ✅(B2)
             ├── 第 2 步 ✅(D:#72 + #73)
             └── 第 3 步 ✅(C:#77+#76)──┬── 第 4 步(B 预检 + F5)──┐
-                                        ├─────── 第 5 步(E, v9)──────┼── 第 6 步(F/G + rpc/)
+                                        ├─────── 第 5 步(E, v9)──────┼── 第 6 步(F/G + internal/rpc/)
                                         └─────── 第 7 步(H/I)
 ```
 

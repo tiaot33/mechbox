@@ -1,0 +1,287 @@
+package library_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library"
+)
+
+func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "example-skill")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeFile(t, filepath.Join(source, "references", "guide.md"), []byte("nested\n"), 0o644)
+	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	writeFile(t, filepath.Join(source, "assets", "data.bin"), []byte{0x00, 0xff, 0x01}, 0o644)
+
+	lib := openTestLibrary(t)
+
+	installed, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.GetSkill(t.Context(), installed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := library.Skill{
+		ID:          installed.ID,
+		Name:        "example-skill",
+		InstalledAt: installed.InstalledAt,
+		UpdatedAt:   installed.UpdatedAt,
+		Source: library.Source{
+			ID:      installed.Source.ID,
+			Type:    library.SourceLocal,
+			Locator: library.SourceLocator{Path: source},
+		},
+		Files: []library.File{
+			{Path: "SKILL.md", Content: []byte("# Example\n"), Mode: library.ModeRegular},
+			{Path: "assets/data.bin", Content: []byte{0x00, 0xff, 0x01}, Mode: library.ModeRegular},
+			{Path: "references/guide.md", Content: []byte("nested\n"), Mode: library.ModeRegular},
+			{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\nexit 0\n"), Mode: library.ModeExecutable},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetSkill() = %#v, want %#v", got, want)
+	}
+	if !reflect.DeepEqual(installed, got) {
+		t.Fatalf("Install() = %#v, GetSkill() = %#v", installed, got)
+	}
+}
+
+func TestInstallRecordsDescriptionAndVersionTimes(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	withDesc := filepath.Join(t.TempDir(), "described")
+	writeFile(t, filepath.Join(withDesc, "SKILL.md"), []byte("---\nname: described\ndescription: a useful helper\n---\n# Described\n"), 0o644)
+	start := time.Now().UTC()
+	installed, err := lib.Install(ctx, library.LocalSource{Path: withDesc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := time.Now().UTC()
+	summaries, err := lib.ListSkills(ctx)
+	if err != nil || len(summaries) != 1 || summaries[0].Description != "a useful helper" {
+		t.Fatalf("ListSkills description = %#v, %v", summaries, err)
+	}
+	if installed.Description != "a useful helper" {
+		t.Fatalf("Install Description = %q, want a useful helper", installed.Description)
+	}
+	versions, err := lib.ListVersions(ctx, installed.ID)
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("ListVersions = %#v, %v", versions, err)
+	}
+	if !installed.InstalledAt.Equal(installed.UpdatedAt) || !installed.InstalledAt.Equal(versions[0].CreatedAt) {
+		t.Fatalf("times = installed %v updated %v version %v, want equal", installed.InstalledAt, installed.UpdatedAt, versions[0].CreatedAt)
+	}
+	if installed.InstalledAt.Before(start) || installed.InstalledAt.After(end) {
+		t.Fatalf("InstalledAt = %v, want in [%v, %v]", installed.InstalledAt, start, end)
+	}
+
+	plain := filepath.Join(t.TempDir(), "plain")
+	writeFile(t, filepath.Join(plain, "SKILL.md"), []byte("# Plain\n"), 0o644)
+	undocumented, err := lib.Install(ctx, library.LocalSource{Path: plain})
+	if err != nil || undocumented.Description != "" {
+		t.Fatalf("Install without frontmatter Description = %#v, %v; want empty", undocumented, err)
+	}
+}
+
+func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "z-first-skill")
+	secondSource := filepath.Join(root, "a-second-skill")
+	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
+	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+	lib := openTestLibrary(t)
+	first, err := lib.Install(t.Context(), library.LocalSource{Path: firstSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.Install(t.Context(), library.LocalSource{Path: secondSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.ListCollections(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []library.Collection{
+		{Source: first.Source, Skills: []library.SkillSummary{summaryOf(first)}},
+		{Source: second.Source, Skills: []library.SkillSummary{summaryOf(second)}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListCollections() = %#v, want %#v", got, want)
+	}
+}
+
+func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+
+	install := func(name string) library.Skill {
+		t.Helper()
+		source := filepath.Join(t.TempDir(), name)
+		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return skill
+	}
+	keepSkill := install("keep-skill")
+	removeSkill := install("remove-skill")
+	group, err := lib.CreateGroup(ctx, "temporary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSkillToGroup(ctx, group.ID, removeSkill.ID); err != nil {
+		t.Fatal(err)
+	}
+	keepScope := library.GlobalScope{Agent: library.AgentCodex}
+	removeScope := library.GlobalScope{Agent: library.AgentClaudeCode}
+	keepDirectory, err := lib.Resolve(ctx, keepScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removeDirectory, err := lib.Resolve(ctx, removeScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Activate(ctx, keepSkill.ID, keepScope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	untracked := filepath.Join(t.TempDir(), "untracked", removeSkill.Name, "mine.txt")
+	writeFile(t, untracked, []byte("mine"), 0o644)
+	skills, err := lib.ListSkills(ctx)
+	if err != nil || len(skills) != 2 {
+		t.Fatalf("ListSkills() before removals = %#v, %v", skills, err)
+	}
+
+	if err := lib.RemoveSkill(ctx, keepSkill.ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(keepDirectory, keepSkill.Name, "SKILL.md")); err != nil {
+		t.Fatalf("default Keep removed projected copy: %v", err)
+	}
+	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(removeDirectory, removeSkill.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Remove left projected copy behind: %v", err)
+	}
+	if _, err := os.Stat(untracked); err != nil {
+		t.Fatalf("Remove touched an untracked directory: %v", err)
+	}
+
+	skills, err = lib.ListSkills(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("ListSkills() after removals = %#v", skills)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activations) != 0 {
+		t.Fatalf("ListActivations() after removals = %#v", activations)
+	}
+	if err := lib.RemoveSkill(ctx, library.SkillID(9999), library.RemoveSkillOptions{}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("RemoveSkill() unknown skill error = %v", err)
+	}
+	if _, err := os.Stat(untracked); err != nil {
+		t.Fatalf("unknown removal touched disk: %v", err)
+	}
+}
+
+// RemoveSkill(Remove) 先删记录、把投影改名暂存、提交后才真正删除:改名失败时库与磁盘都原样不动;
+// 投影已被手动删掉时仍成功;成功后 Scope 目录下不留暂存残留。
+func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	present := installNamedSkill(t, lib, "present")
+	missing := installNamedSkill(t, lib, "missing")
+	scope := library.GlobalScope{Agent: library.AgentCodex}
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{present, missing} {
+		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := lib.ListActivations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	makeScopeReadOnly(t, directory)
+	err = lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove})
+	requireLibraryError(t, err, library.Permission)
+	if err := os.Chmod(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skills, err := lib.ListSkills(ctx)
+	if err != nil || !reflect.DeepEqual(summaryIDs(skills), []library.SkillID{missing.ID, present.ID}) {
+		t.Fatalf("failed Remove changed skills: %#v, %v", skills, err)
+	}
+	after, err := lib.ListActivations(ctx)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
+	if err != nil || string(content) != "# present\n" {
+		t.Fatalf("failed Remove changed projection: %q, %v", content, err)
+	}
+	requireNoStagedEntries(t, directory)
+
+	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.RemoveSkill(ctx, missing.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatalf("Remove with manually deleted projection = %v", err)
+	}
+	if err := lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Remove left projected copy behind: %v", err)
+	}
+	skills, err = lib.ListSkills(ctx)
+	if err != nil || len(skills) != 0 {
+		t.Fatalf("ListSkills() after removals = %#v, %v", skills, err)
+	}
+	activations, err := lib.ListActivations(ctx)
+	if err != nil || len(activations) != 0 {
+		t.Fatalf("ListActivations() after removals = %#v, %v", activations, err)
+	}
+	requireNoStagedEntries(t, directory)
+}
+
+func TestInstallDuplicateLocalSkillCarriesIdentity(t *testing.T) {
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "dup")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Dup\n"), 0o644)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.Install(t.Context(), library.LocalSource{Path: source})
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID, Name: skill.Name})
+	skills, err := lib.ListSkills(t.Context())
+	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {
+		t.Fatalf("duplicate install changed library: %#v, %v", skills, err)
+	}
+}

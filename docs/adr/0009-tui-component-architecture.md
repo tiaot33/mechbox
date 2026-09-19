@@ -1,13 +1,13 @@
 # TUI component architecture: one `Run`, interface as the seam, calls confined to one file
 
-Context: ADR 0002 (Bubble Tea), ADR 0003 (centralised Chinese strings), ADR 0004 (the `Library` facade is the backend seam). Hard requirement: the `tui/` folder stays decoupled from the backend code. Four radically different designs were explored in parallel (minimal surface / own port with zero `library` imports / declarative screen kit / message-mediated screens); this ADR records the chosen one and why the others were rejected.
+Context: ADR 0002 (Bubble Tea), ADR 0003 (centralised Chinese strings), ADR 0004 (the `Library` facade is the backend seam). Hard requirement: the `internal/tui/` folder stays decoupled from the backend code. Four radically different designs were explored in parallel (minimal surface / own port with zero `library` imports / declarative screen kit / message-mediated screens); this ADR records the chosen one and why the others were rejected.
 
 ## The decisions
 
 - **Exported surface: exactly one function.** `func Run(ctx context.Context, lib library.Library) error`. Screens, messages, commands, styles, strings — all unexported. `cmd/` imports only `context`, `library`, `tui`; it never imports Bubble Tea. `Run` borrows `lib` (caller opens and closes), blocks until quit, returns non-nil only for terminal-runtime failure — backend errors are rendered in the UI, never returned.
 - **The dependency rule (what "decoupled" means, precisely).**
   - R1: `library` never imports `tui`; `cmd/skills` is the only place the two meet (composition root). `library.Open` and every other concrete-implementation symbol may appear only in `cmd/`.
-  - R2: `tui` imports `library` **only for symbols declared in `library/api.go`** — the `Library` interface, DTOs, option types, `Error`/`ErrorCode`/`IsCode`.
+  - R2: `tui` imports `library` **only for symbols declared in `internal/library/api.go`** — the `Library` interface, DTOs, option types, `Error`/`ErrorCode`/`IsCode`.
   - R3: facade *method calls* are confined to `commands.go` (one unexported constructor per facade call = one `tea.Cmd`); `library.IsCode` is confined to `errors.go`. Everywhere else, library types are pure data carried in messages.
   - R4: no DTO→view-model remapping layer — ADR 0004 already shaped the DTOs as the contract; re-wrapping them is layering without leverage.
   - R5: enforcement is mechanical — an `arch_test.go` (go/parser over the package's own files) asserts the api.go whitelist and call confinement; violation fails `go test`, not a review comment.
@@ -19,7 +19,7 @@ Context: ADR 0002 (Bubble Tea), ADR 0003 (centralised Chinese strings), ADR 0004
 
 ## Alternatives rejected
 
-- **Own `Backend` port + view-models, zero `library` imports under `tui/`** — the strictest reading of "decoupled". Rejected: it duplicates ~15 DTOs and the error enum with no compiler protection against drift, taxes every facade change across four places, and contradicts ADR 0004, which deliberately designed `library.Library` (JSON-tagged DTOs, string `ErrorCode`, ctx-first) to be consumed directly by the UI. One production adapter today means a hypothetical seam; the decoupling that matters (interface-only dependency, composition root, call confinement, mechanical guard) is achieved without the duplication.
+- **Own `Backend` port + view-models, zero `library` imports under `internal/tui/`** — the strictest reading of "decoupled". Rejected: it duplicates ~15 DTOs and the error enum with no compiler protection against drift, taxes every facade change across four places, and contradicts ADR 0004, which deliberately designed `library.Library` (JSON-tagged DTOs, string `ErrorCode`, ctx-first) to be consumed directly by the UI. One production adapter today means a hypothetical seam; the decoupling that matters (interface-only dependency, composition root, call confinement, mechanical guard) is achieved without the duplication.
 - **Declarative screen kit (`Spec[R]`: columns + source + actions → complete screen)** — real leverage, but its premise fits only ~3 of the 7 v1 screens; the matrix, multi-pane detail, and wizard would fight the framework. Its picker-as-navigation pattern is adopted (above); the kit itself is deferred until repetition proves the shape.
 - **Message-mediated screens (pure state machines, intent/result protocol, central dispatcher)** — strongest confinement (screens cannot even name DTO types) and zero-runtime testability, but every interaction lives in three places and costs ~15 lines of plumbing; ~300 lines of protocol for 20 interactions. Its confinement is achieved more cheaply by R3 + the arch test. Revisit if multiple concurrently-live screens or replay ever become real requirements.
 
@@ -27,6 +27,6 @@ Context: ADR 0002 (Bubble Tea), ADR 0003 (centralised Chinese strings), ADR 0004
 
 - **New screen:** one `screen_x.go` + one case in navigation + strings; `commands.go` grows only if new facade calls are needed. Exported surface unchanged.
 - **Facade gains a method:** `tui` compiles untouched (it consumes the interface); only the test fake must grow — compiler-guided. Adoption is one command constructor + one message type + one screen case.
-- **Backend moves behind RPC (ADR 0004's future):** `cmd` swaps `library.Open` for an RPC client; zero lines change under `tui/` — every call is already `ctx`-first, behind a spinner, with errors branched by serializable code.
+- **Backend moves behind RPC (ADR 0004's future):** `cmd` swaps `library.Open` for an RPC client; zero lines change under `internal/tui/` — every call is already `ctx`-first, behind a spinner, with errors branched by serializable code.
 - **Facade gaps surfaced by the design (backend decisions, not TUI workarounds):** ① install flow has no way to list a remote source's skills before installing — v1 offers "install all" + optional name filter (`InstallOptions.Skills`), and a `ListRemoteSkills`-style method is a backend backlog item; ② `SourceHasUpdate(SourceID, latestRef)` is unusable by any frontend (only the backend can obtain `latestRef`) — a UI-consumable `CheckUpdate(ctx, SkillID)` belongs on the facade if update-checking becomes a feature; ③ ~~`SkillVersion` carries no timestamp — the UI numbers versions v1…vn by list order.~~ resolved by schema v8 (`SkillVersion.CreatedAt`; empty = unknown for pre-migration rows).
-- `go.mod` gains `bubbletea`, `bubbles`, `lipgloss` (sanctioned by ADR 0002, used directly, no seam). `AGENTS.md` gains a `tui/` entry when the package lands.
+- `go.mod` gains `bubbletea`, `bubbles`, `lipgloss` (sanctioned by ADR 0002, used directly, no seam). `AGENTS.md` gains a `internal/tui/` entry when the package lands.
