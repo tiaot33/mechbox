@@ -11,7 +11,7 @@ import (
 )
 
 // 登记项目后,该项目与各 Agent 组成项目 Scope:激活落在 Resolve 给出的目录;UnregisterProject
-// 清掉项目 Scope 记录,磁盘副本按 ProjectedCopies 决定去留,外来文件夹不动。
+// 清掉项目 Scope 记录,磁盘副本按 ProjectedCopies 决定去留,外来文件夹与全局激活不动。
 func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -64,6 +64,15 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, agent := range []library.AgentCode{library.AgentClaudeCode, library.AgentCodex} {
+		if err := lib.Activate(ctx, skill.ID, library.GlobalScope{Agent: agent}, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	globalActivations, err := lib.ListActivations(ctx)
+	if err != nil || len(globalActivations) != 2 {
+		t.Fatalf("global activations = %#v, %v; want 2", globalActivations, err)
 	}
 	if err := lib.Activate(ctx, skill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
@@ -120,8 +129,11 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
 	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after unregister = %#v, %v", activations, err)
+	if err != nil || !reflect.DeepEqual(activations, globalActivations) {
+		t.Fatalf("ListActivations() after unregister = %#v, %v; want %#v", activations, err, globalActivations)
+	}
+	for _, activation := range globalActivations {
+		requireProjection(t, activation.Directory, skill.Name, "# Example\n")
 	}
 	if err := lib.UnregisterProject(ctx, library.ProjectID(9999), library.UnregisterProjectOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("UnregisterProject() unknown project error = %v", err)

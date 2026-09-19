@@ -3,10 +3,6 @@ package library_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -256,8 +252,8 @@ func TestGitHubCheckUpdateMatchesSkillNameNotDirectoryName(t *testing.T) {
 
 func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
-		"legacy/SKILL.md":  {content: []byte(skillDocument("legacy", "old body")), mode: 0o644},
-		"legacy/data.bin":  {content: []byte{1, 2, 3}, mode: 0o644},
+		"first/SKILL.md":   {content: []byte(skillDocument("first", "old body")), mode: 0o644},
+		"first/data.bin":   {content: []byte{1, 2, 3}, mode: 0o644},
 		"sibling/SKILL.md": {content: []byte(skillDocument("sibling", "sibling body")), mode: 0o644},
 		"sibling/notes.md": {content: []byte("notes"), mode: 0o644},
 	})
@@ -265,52 +261,45 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 
-	lib := openV1GitHubLibrary(t, fx.commit, []v1GitHubSkill{
-		{name: "legacy", files: []library.File{
-			{Path: "SKILL.md", Content: []byte(skillDocument("legacy", "old body")), Mode: library.ModeRegular},
-			{Path: "data.bin", Content: []byte{1, 2, 3}, Mode: library.ModeRegular},
-		}},
-		{name: "sibling", files: []library.File{
-			{Path: "SKILL.md", Content: []byte(skillDocument("sibling", "sibling body")), Mode: library.ModeRegular},
-			{Path: "notes.md", Content: []byte("notes"), Mode: library.ModeRegular},
-		}},
-	})
+	lib, skills := openGitHubLibraryWithoutTreeSHA(t)
+	if len(skills) != 2 {
+		t.Fatalf("installed skills = %#v, want two", skills)
+	}
 	ctx := t.Context()
-	legacy := v1GitHubSkillByName(t, lib, "legacy")
-	sibling := v1GitHubSkillByName(t, lib, "sibling")
-	if legacy.GitTreeSHA != "" || sibling.GitTreeSHA != "" {
-		t.Fatalf("migrated GitTreeSHA legacy=%q sibling=%q, want empty", legacy.GitTreeSHA, sibling.GitTreeSHA)
+	first, sibling := skills[0], skills[1]
+	if first.GitTreeSHA != "" || sibling.GitTreeSHA != "" {
+		t.Fatalf("fixture GitTreeSHA first=%q sibling=%q, want empty", first.GitTreeSHA, sibling.GitTreeSHA)
 	}
 
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, legacy.ID); err != nil || available {
+	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
 		t.Fatalf("empty SHA same files CheckUpdate = %v, %v", available, err)
 	}
 	if _, _, blobs := gitHubAPIKindCounts(t, api); blobs == 0 {
 		t.Fatal("empty SHA check did not read skill files")
 	}
-	if got := readPersistedGitTreeSHA(t, lib, legacy.ID); got != "" {
+	if got := readPersistedGitTreeSHA(t, lib, first.ID); got != "" {
 		t.Fatalf("check backfilled SHA: %q", got)
 	}
 
 	api.Reset()
-	result, err := lib.Update(ctx, legacy.ID)
+	result, err := lib.Update(ctx, first.ID)
 	if err != nil || result.Changed {
 		t.Fatalf("empty SHA same files Update = %#v, %v", result, err)
 	}
-	if result.Skill.GitTreeSHA != fx.treeSHA("legacy") {
-		t.Fatalf("backfilled GitTreeSHA = %q, want %q", result.Skill.GitTreeSHA, fx.treeSHA("legacy"))
+	if result.Skill.GitTreeSHA != fx.treeSHA("first") {
+		t.Fatalf("backfilled GitTreeSHA = %q, want %q", result.Skill.GitTreeSHA, fx.treeSHA("first"))
 	}
-	if got := readPersistedGitTreeSHA(t, lib, legacy.ID); got != fx.treeSHA("legacy") {
-		t.Fatalf("persisted backfill = %q, want %q", got, fx.treeSHA("legacy"))
+	if got := readPersistedGitTreeSHA(t, lib, first.ID); got != fx.treeSHA("first") {
+		t.Fatalf("persisted backfill = %q, want %q", got, fx.treeSHA("first"))
 	}
-	if versions, err := lib.ListVersions(ctx, legacy.ID); err != nil || len(versions) != 1 {
+	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("backfill created version: %#v, %v", versions, err)
 	}
 
 	// 补写 SHA 的同时补写了确认 commit:旧记录经一次 Update 就进入只解析 commit 的快路径。
 	api.Reset()
-	if available, err := lib.CheckUpdate(ctx, legacy.ID); err != nil || available {
+	if available, err := lib.CheckUpdate(ctx, first.ID); err != nil || available {
 		t.Fatalf("after backfill CheckUpdate = %v, %v", available, err)
 	}
 	assertGitHubCommitOnly(t, api, 1)
@@ -624,26 +613,19 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 
 func TestGitHubCheckUpdatesCancelDoesNotCompleteInFlightItem(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
-		"legacy/SKILL.md":  {content: []byte(skillDocument("legacy", "old body")), mode: 0o644},
-		"legacy/data.bin":  {content: []byte{1, 2, 3}, mode: 0o644},
+		"first/SKILL.md":   {content: []byte(skillDocument("first", "old body")), mode: 0o644},
+		"first/data.bin":   {content: []byte{1, 2, 3}, mode: 0o644},
 		"sibling/SKILL.md": {content: []byte(skillDocument("sibling", "sibling body")), mode: 0o644},
 		"sibling/notes.md": {content: []byte("notes"), mode: 0o644},
 	})
 	fx := inspectGitHubRepo(t, repo)
 	serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
-	lib := openV1GitHubLibrary(t, fx.commit, []v1GitHubSkill{
-		{name: "legacy", files: []library.File{
-			{Path: "SKILL.md", Content: []byte(skillDocument("legacy", "old body")), Mode: library.ModeRegular},
-			{Path: "data.bin", Content: []byte{1, 2, 3}, Mode: library.ModeRegular},
-		}},
-		{name: "sibling", files: []library.File{
-			{Path: "SKILL.md", Content: []byte(skillDocument("sibling", "sibling body")), Mode: library.ModeRegular},
-			{Path: "notes.md", Content: []byte("notes"), Mode: library.ModeRegular},
-		}},
-	})
-	legacy := v1GitHubSkillByName(t, lib, "legacy")
-	sibling := v1GitHubSkillByName(t, lib, "sibling")
+	lib, skills := openGitHubLibraryWithoutTreeSHA(t)
+	if len(skills) != 2 {
+		t.Fatalf("installed skills = %#v, want two", skills)
+	}
+	first, sibling := skills[0], skills[1]
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -656,8 +638,8 @@ func TestGitHubCheckUpdatesCancelDoesNotCompleteInFlightItem(t *testing.T) {
 		}
 		return transport.RoundTrip(r)
 	})
-	results, err := lib.CheckUpdates(ctx, []library.SkillID{legacy.ID, sibling.ID})
-	if !errors.Is(err, context.Canceled) || len(results) != 1 || results[0].SkillID != legacy.ID {
+	results, err := lib.CheckUpdates(ctx, []library.SkillID{first.ID, sibling.ID})
+	if !errors.Is(err, context.Canceled) || len(results) != 1 || results[0].SkillID != first.ID {
 		t.Fatalf("canceled GitHub batch = %#v, %v", results, err)
 	}
 }
@@ -778,77 +760,4 @@ func gitHubAPIKindCounts(t *testing.T, api *gitHubAPIMock) (commits, trees, blob
 		}
 	}
 	return commits, trees, blobs
-}
-
-type v1GitHubSkill struct {
-	name  string
-	files []library.File
-}
-
-func openV1GitHubLibrary(t *testing.T, commit string, skills []v1GitHubSkill) library.Library {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "library.db")
-	writeV1LibraryFile(t, path)
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	locator, err := json.Marshal(library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "main"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO sources(id, type, locator, last_fetched, last_seen_ref) VALUES (1, 'github', ?, '', ?)`, locator, commit); err != nil {
-		t.Fatal(err)
-	}
-	for i, skill := range skills {
-		skillID, versionID := i+1, i+1
-		if _, err := db.Exec(`INSERT INTO skills(id, source_id, name) VALUES (?, 1, ?)`, skillID, skill.name); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO skill_versions(id, skill_id) VALUES (?, ?)`, versionID, skillID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
-			t.Fatal(err)
-		}
-		for _, file := range skill.files {
-			sum := sha256.Sum256(file.Content)
-			fingerprint := hex.EncodeToString(sum[:])
-			if _, err := db.Exec(`INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.Exec(`INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES (?, ?, ?, ?)`, versionID, file.Path, fingerprint, file.Mode); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
-	return lib
-}
-
-func v1GitHubSkillByName(t *testing.T, lib library.Library, name string) library.Skill {
-	t.Helper()
-	summaries, err := lib.ListSkills(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, summary := range summaries {
-		if summary.Name != name {
-			continue
-		}
-		skill, err := lib.GetSkill(t.Context(), summary.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return skill
-	}
-	t.Fatalf("skill %q not found", name)
-	return library.Skill{}
 }

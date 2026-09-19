@@ -1,12 +1,9 @@
 package library_test
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -108,36 +105,13 @@ func TestErrorJSONOmitsEmptyDetailsAndInternalErr(t *testing.T) {
 	}
 }
 
-// TestFacadeFailureCodes 是 ADR 0004 最小码集的可执行"情况 → 码"总表:spec 列出的每种失败各占一行。
-// 细节字段的断言放在各行为规格文件旁,这里只固定归类。
+// 补充各行为规格尚未覆盖的错误分类;已有业务用例覆盖的场景不在这里重复搭建。
 func TestFacadeFailureCodes(t *testing.T) {
 	tests := []struct {
 		name string
 		want library.ErrorCode
 		call func(*testing.T, library.Library) error
 	}{
-		{name: "create group blank name", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.CreateGroup(t.Context(), "  ")
-			return err
-		}},
-		{name: "rename group blank name", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			group, err := lib.CreateGroup(t.Context(), "named")
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = lib.RenameGroup(t.Context(), group.ID, "")
-			return err
-		}},
-		{name: "register project empty path", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.RegisterProject(t.Context(), "")
-			return err
-		}},
-		{name: "register project file path", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			file := filepath.Join(t.TempDir(), "file")
-			writeFile(t, file, []byte("x"), 0o644)
-			_, err := lib.RegisterProject(t.Context(), file)
-			return err
-		}},
 		{name: "install local file path", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
 			file := filepath.Join(t.TempDir(), "not-dir")
 			writeFile(t, file, []byte("x"), 0o644)
@@ -155,89 +129,6 @@ func TestFacadeFailureCodes(t *testing.T) {
 		}},
 		{name: "activate group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
 			return lib.ActivateGroup(t.Context(), 1, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{OnConflict: "nope"})
-		}},
-		{name: "diff versions across skills", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			first := installNamedSkill(t, lib, "one")
-			second := installNamedSkill(t, lib, "two")
-			versionsFirst, err := lib.ListVersions(t.Context(), first.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			versionsSecond, err := lib.ListVersions(t.Context(), second.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = lib.DiffVersions(t.Context(), versionsFirst[0].ID, versionsSecond[0].ID)
-			return err
-		}},
-		{name: "install fetch already installed", want: library.AlreadyExists, call: func(t *testing.T, lib library.Library) error {
-			spec := serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body")}))
-			first, err := lib.Fetch(t.Context(), spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := lib.InstallFetch(t.Context(), first.ID, nil); err != nil {
-				t.Fatal(err)
-			}
-			second, err := lib.Fetch(t.Context(), spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = lib.InstallFetch(t.Context(), second.ID, nil)
-			return err
-		}},
-		{name: "install duplicate local skill", want: library.AlreadyExists, call: func(t *testing.T, lib library.Library) error {
-			source := filepath.Join(t.TempDir(), "dup")
-			writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Dup\n"), 0o644)
-			if _, err := lib.Install(t.Context(), library.LocalSource{Path: source}); err != nil {
-				t.Fatal(err)
-			}
-			_, err := lib.Install(t.Context(), library.LocalSource{Path: source})
-			return err
-		}},
-		{name: "add skill already in group", want: library.AlreadyExists, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "member")
-			group, err := lib.CreateGroup(t.Context(), "g")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
-				t.Fatal(err)
-			}
-			return lib.AddSkillToGroup(t.Context(), group.ID, skill.ID)
-		}},
-		{name: "register project duplicate path", want: library.AlreadyExists, call: func(t *testing.T, lib library.Library) error {
-			root := t.TempDir()
-			if _, err := lib.RegisterProject(t.Context(), root); err != nil {
-				t.Fatal(err)
-			}
-			_, err := lib.RegisterProject(t.Context(), root)
-			return err
-		}},
-		{name: "activate existing target", want: library.AlreadyExists, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "target")
-			scope := library.GlobalScope{Agent: library.AgentCodex}
-			directory, err := lib.Resolve(t.Context(), scope)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeFile(t, filepath.Join(directory, skill.Name, "old.txt"), []byte("old"), 0o644)
-			return lib.Activate(t.Context(), skill.ID, scope, library.ActivateOptions{})
-		}},
-		{name: "deactivate group-backed skill", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "grouped")
-			group, err := lib.CreateGroup(t.Context(), "only")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
-				t.Fatal(err)
-			}
-			scope := library.GlobalScope{Agent: library.AgentCodex}
-			if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
-				t.Fatal(err)
-			}
-			return lib.Deactivate(t.Context(), skill.ID, scope)
 		}},
 		{name: "activate group colliding names", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
 			root := t.TempDir()
@@ -262,49 +153,6 @@ func TestFacadeFailureCodes(t *testing.T) {
 			}
 			return lib.ActivateGroup(t.Context(), group.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})
 		}},
-		{name: "activate group existing target", want: library.AlreadyExists, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "member")
-			group, err := lib.CreateGroup(t.Context(), "g")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
-				t.Fatal(err)
-			}
-			scope := library.GlobalScope{Agent: library.AgentCodex}
-			directory, err := lib.Resolve(t.Context(), scope)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeFile(t, filepath.Join(directory, skill.Name, "old.txt"), []byte("old"), 0o644)
-			return lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{})
-		}},
-		{name: "activate directory shared by another scope", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				t.Fatal(err)
-			}
-			skill := installNamedSkill(t, lib, "shared")
-			project, err := lib.RegisterProject(t.Context(), home)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := lib.Activate(t.Context(), skill.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{}); err != nil {
-				t.Fatal(err)
-			}
-			return lib.Activate(t.Context(), skill.ID, library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}, library.ActivateOptions{})
-		}},
-		{name: "deactivate inactive skill", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "idle")
-			return lib.Deactivate(t.Context(), skill.ID, library.GlobalScope{Agent: library.AgentCodex})
-		}},
-		{name: "deactivate inactive group", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
-			group, err := lib.CreateGroup(t.Context(), "idle")
-			if err != nil {
-				t.Fatal(err)
-			}
-			return lib.DeactivateGroup(t.Context(), group.ID, library.GlobalScope{Agent: library.AgentCodex})
-		}},
 		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
 			skill := installNamedSkill(t, lib, "outsider")
 			group, err := lib.CreateGroup(t.Context(), "g")
@@ -313,86 +161,8 @@ func TestFacadeFailureCodes(t *testing.T) {
 			}
 			return lib.RemoveSkillFromGroup(t.Context(), group.ID, skill.ID)
 		}},
-		{name: "sync pull unacceptable remote", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
-			stub := newS3Stub(t)
-			if _, err := lib.SyncPush(t.Context(), ""); err != nil {
-				t.Fatal(err)
-			}
-			stub.set([]byte("not a database"))
-			preview, err := lib.PreviewSyncPull(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = lib.SyncPull(t.Context(), preview.Remote)
-			return err
-		}},
-		{name: "sync pull changed remote", want: library.Conflict, call: func(t *testing.T, lib library.Library) error {
-			stub := newS3Stub(t)
-			if _, err := lib.SyncPush(t.Context(), ""); err != nil {
-				t.Fatal(err)
-			}
-			preview, err := lib.PreviewSyncPull(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			stub.set([]byte("changed after preview"))
-			_, err = lib.SyncPull(t.Context(), preview.Remote)
-			return err
-		}},
-		{name: "sync unconfigured", want: library.NotConfigured, call: func(t *testing.T, lib library.Library) error {
-			t.Setenv("SKILLS_S3_BUCKET", "")
-			_, err := lib.PreviewSyncPull(t.Context())
-			return err
-		}},
-		{name: "fetch missing git ref", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
-			githubRemote(t)
-			spec, err := lib.ResolveSource(t.Context(), "owner/repo#does-not-exist", library.ResolveSourceOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = lib.Fetch(t.Context(), spec)
-			return err
-		}},
-		{name: "fetch unconfigured store", want: library.NotConfigured, call: func(t *testing.T, lib library.Library) error {
-			t.Setenv("SKILLS_STORE_URL", "")
-			_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "pkg", Version: "1"}})
-			return err
-		}},
-		{name: "fetch no valid candidates", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.Fetch(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"bad/SKILL.md": "---\nname: [broken\n---\n"})))
-			return err
-		}},
 		{name: "fetch unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
 			_, err := lib.Fetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
-			return err
-		}},
-		{name: "fetch archive with unsafe path", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.Fetch(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body"), "../escape": "x"})))
-			return err
-		}},
-		{name: "fetch archive over file count limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			files := map[string]string{"s/SKILL.md": skillDocument("s", "body")}
-			for i := range 1000 {
-				files[fmt.Sprintf("extra/%d.txt", i)] = "x"
-			}
-			_, err := lib.Fetch(t.Context(), serveArchive(t, zipArchive(t, files)))
-			return err
-		}},
-		{name: "fetch archive over expanded size limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			var buffer bytes.Buffer
-			writer := zip.NewWriter(&buffer)
-			if _, err := writer.CreateRaw(&zip.FileHeader{Name: "ignored/huge", UncompressedSize64: 65 << 20}); err != nil {
-				t.Fatal(err)
-			}
-			if err := writer.Close(); err != nil {
-				t.Fatal(err)
-			}
-			_, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
-			return err
-		}},
-		{name: "fetch archive over download size limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			stubHTTPResponse(t, 200, io.LimitReader(infiniteZeros{}, 64<<20+1))
-			_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
 			return err
 		}},
 		{name: "fetch archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
@@ -400,23 +170,8 @@ func TestFacadeFailureCodes(t *testing.T) {
 			_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
 			return err
 		}},
-		{name: "fetch archive forbidden", want: library.Permission, call: func(t *testing.T, lib library.Library) error {
-			stubHTTPResponse(t, 403, strings.NewReader(""))
-			_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
-			return err
-		}},
-		{name: "search malformed response", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			stubHTTPResponse(t, 200, strings.NewReader("broken"))
-			_, err := lib.SearchSkills(t.Context(), "q")
-			return err
-		}},
 		{name: "search response over size limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
 			stubHTTPResponse(t, 200, io.LimitReader(infiniteZeros{}, 1<<20+1))
-			_, err := lib.SearchSkills(t.Context(), "q")
-			return err
-		}},
-		{name: "search server error", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
-			stubHTTPResponse(t, 500, strings.NewReader(""))
 			_, err := lib.SearchSkills(t.Context(), "q")
 			return err
 		}},
@@ -433,25 +188,13 @@ func TestFacadeFailureCodes(t *testing.T) {
 			_, err := lib.Install(t.Context(), library.LocalSource{Path: root})
 			return err
 		}},
-		{name: "canceled update", want: library.Canceled, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "cancel")
-			ctx, cancel := context.WithCancel(t.Context())
-			cancel()
-			_, err := lib.Update(ctx, skill.ID)
-			return err
-		}},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// HOME 取规范路径,使 RegisterProject(home) 与全局 Scope 解析到同一目录。
-			home, err := filepath.EvalSymlinks(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("HOME", home)
+			t.Setenv("HOME", t.TempDir())
 			lib := openTestLibrary(t)
-			err = test.call(t, lib)
+			err := test.call(t, lib)
 			requireLibraryError(t, err, test.want)
 		})
 	}

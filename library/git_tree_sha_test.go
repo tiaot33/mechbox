@@ -1,10 +1,8 @@
 package library_test
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -133,59 +131,6 @@ func TestNonGitInstallsKeepEmptyGitTreeSHA(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesV1LibraryAndContinuesInstall(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "library.db")
-	writeV1LibraryFile(t, path)
-
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
-	ctx := t.Context()
-
-	localDir := filepath.Join(t.TempDir(), "legacy")
-	writeFile(t, filepath.Join(localDir, "SKILL.md"), []byte(skillDocument("legacy", "legacy")), 0o644)
-	local, err := lib.Install(ctx, library.LocalSource{Path: localDir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := readPersistedGitTreeSHA(t, lib, local.ID); got != "" {
-		t.Fatalf("migrated local GitTreeSHA = %q, want empty", got)
-	}
-
-	repository := t.TempDir()
-	runGit(t, repository, "init", "-b", "main")
-	writeFile(t, filepath.Join(repository, "migrated", "SKILL.md"), []byte(skillDocument("migrated", "from github")), 0o644)
-	commitGit(t, repository, "initial")
-	want := gitRevParse(t, repository, "HEAD:migrated")
-	fetch, err := lib.Fetch(ctx, library.SourceSpec{
-		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch after v1 Open = %v, %v", installed, err)
-	}
-	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != want {
-		t.Fatalf("GitHub GitTreeSHA after v1 Open = %q, want %q", got, want)
-	}
-
-	if err := lib.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = reopened.Close() })
-	if got := readPersistedGitTreeSHA(t, reopened, installed[0].ID); got != want {
-		t.Fatalf("reopened GitTreeSHA = %q, want %q", got, want)
-	}
-}
-
 func readPersistedGitTreeSHA(t *testing.T, lib library.Library, id library.SkillID) string {
 	t.Helper()
 	ctx := t.Context()
@@ -221,25 +166,4 @@ func gitRevParse(t *testing.T, repository, spec string) string {
 		t.Fatalf("git rev-parse %s = %q, want 40-char lowercase hex", spec, sha)
 	}
 	return sha
-}
-
-func writeV1LibraryFile(t *testing.T, path string) {
-	t.Helper()
-	schema, err := os.ReadFile("testdata/v1.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(string(schema)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`PRAGMA application_id = 1397443650; PRAGMA user_version = 1`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
 }

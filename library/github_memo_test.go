@@ -46,33 +46,6 @@ func TestGitHubRepeatFetchOmitsTreeAndBlobRequests(t *testing.T) {
 	}
 }
 
-func TestGitHubInstallFetchDoesNotRefetchPreviewBlobs(t *testing.T) {
-	repo := writeGitHubRepo(t, map[string]repoFile{
-		"first/SKILL.md":    {content: []byte(skillDocument("first", "first body")), mode: 0o644},
-		"first/scripts/run": {content: []byte{0, 255, 1}, mode: 0o755},
-		"first/data.bin":    {content: []byte{0, 1, 2, 255}, mode: 0o644},
-		"second/SKILL.md":   {content: []byte(skillDocument("second", "second body")), mode: 0o644},
-	})
-	fx := inspectGitHubRepo(t, repo)
-	api := serveGitHubAPI(t, fx)
-	blockGitHubClone(t)
-	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
-	if err != nil {
-		t.Fatal(err)
-	}
-	api.Reset()
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"first"})
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
-	}
-	commits, trees, _ := gitHubAPIKindCounts(t, api)
-	if commits != 0 || trees != 0 {
-		t.Fatalf("InstallFetch commits=%d trees=%d, want blobs only: %#v", commits, trees, api.snapshot())
-	}
-	assertGitHubBlobPaths(t, api, "first/data.bin", "first/scripts/run")
-}
-
 func TestGitHubPinnedSHARepeatFetchMakesNoRequests(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},

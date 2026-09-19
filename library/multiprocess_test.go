@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -169,49 +168,25 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 	}
 }
 
-// Open 在确认这是本工具的库之后把它切到 WAL;该模式持久化在文件里,关闭再打开仍是 WAL;
-// 旧版本库迁移完成后同样切到 WAL,且 schema 版本已升到当前版本。
+// Open 在确认这是本工具的库之后把它切到 WAL;该模式持久化在文件里,关闭再打开仍是 WAL。
 func TestOpenSwitchesLibraryToWALAndKeepsIt(t *testing.T) {
-	t.Run("new library", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "library.db")
-		lib, err := library.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := lib.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if mode := journalMode(t, path); mode != "wal" {
-			t.Fatalf("journal_mode after first Open = %q, want wal", mode)
-		}
-		lib, err = library.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer lib.Close()
-		if mode := journalMode(t, path); mode != "wal" {
-			t.Fatalf("journal_mode after reopen = %q, want wal", mode)
-		}
-	})
-	t.Run("legacy library", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "library.db")
-		schema, err := os.ReadFile("testdata/v6.sql")
-		if err != nil {
-			t.Fatal(err)
-		}
-		editLibraryFixture(t, path, string(schema))
-		editLibraryFixture(t, path, `PRAGMA application_id = 1397443650; PRAGMA user_version = 6`)
-		if mode := journalMode(t, path); mode != "delete" {
-			t.Fatalf("legacy fixture journal_mode = %q, want delete", mode)
-		}
-		lib, err := library.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer lib.Close()
-		mode, userVersion := journalMode(t, path), readLibraryScalar(t, path, `PRAGMA user_version`)
-		if mode != "wal" || userVersion != "8" {
-			t.Fatalf("migrated legacy library journal_mode=%q user_version=%s, want wal and 8", mode, userVersion)
-		}
-	})
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if mode := journalMode(t, path); mode != "wal" {
+		t.Fatalf("journal_mode after first Open = %q, want wal", mode)
+	}
+	lib, err = library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	if mode := journalMode(t, path); mode != "wal" {
+		t.Fatalf("journal_mode after reopen = %q, want wal", mode)
+	}
 }

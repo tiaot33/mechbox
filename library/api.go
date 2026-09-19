@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// 各实体的数据库主键,定义为不同类型以免互相传错。
+// SkillID 各实体的数据库主键,定义为不同类型以免互相传错。
 type SkillID int64
 type SourceID int64
 type VersionID int64

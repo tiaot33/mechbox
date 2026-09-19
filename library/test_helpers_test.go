@@ -279,6 +279,19 @@ func journalMode(t *testing.T, path string) string {
 	return readLibraryScalar(t, path, `PRAGMA journal_mode`)
 }
 
+// installExampleSkill 在隔离目录里安装一个带可执行脚本的 skill,供激活用例复用。
+func installExampleSkill(t *testing.T, lib library.Library, name string) library.Skill {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), name)
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
+	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return skill
+}
+
 func installNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
 	t.Helper()
 	return installSkillWithBody(t, lib, name, "# "+name+"\n")
@@ -340,6 +353,42 @@ func openTestLibrary(t *testing.T) library.Library {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	return lib
+}
+
+// openGitHubLibraryWithoutTreeSHA 用当前 schema 构造缺少 GitHub 版本标识的数据,
+// 供 SHA 回填与批量检查取消用例复用;先经门面安装,关库后仅清空待测字段。
+func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.Skill) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	editLibraryFixture(t, path, `UPDATE skill_versions SET git_tree_sha = '', confirmed_commit = ''`)
+	reopened, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	for i := range skills {
+		skills[i], err = reopened.GetSkill(t.Context(), skills[i].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return reopened, skills
 }
 
 // skillSnapshot 是经门面读回的一个 Skill 及其版本列表,用于断言检查前后 Library 完全一致(只读契约)。

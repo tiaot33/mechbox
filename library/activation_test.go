@@ -14,84 +14,95 @@ import (
 // 单项激活的主路径只选定 Agent(全局 Scope):目录由 Library 按现行布局在隔离的 $HOME 下算出,
 // 冲突 / Overwrite / Deactivate 的断言全部对着 Resolve 给出的目录,而不是测试自拟的路径。
 func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
-	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
+	for agent, agentDirectory := range map[library.AgentCode]string{
+		library.AgentCodex:      ".agents",
+		library.AgentClaudeCode: ".claude",
+	} {
+		t.Run(string(agent), func(t *testing.T) {
+			source := filepath.Join(t.TempDir(), "example-skill")
+			writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+			writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	lib := openTestLibrary(t)
-	ctx := t.Context()
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
-	if err != nil {
-		t.Fatal(err)
-	}
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			lib := openTestLibrary(t)
+			ctx := t.Context()
+			skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	scope := library.GlobalScope{Agent: library.AgentCodex}
-	directory, err := lib.Resolve(ctx, scope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if directory != filepath.Join(home, ".agents", "skills") {
-		t.Fatalf("Resolve(%#v) = %q; want under isolated HOME", scope, directory)
-	}
-	target := filepath.Join(directory, skill.Name)
-	writeFile(t, filepath.Join(target, "old.txt"), []byte("old"), 0o644)
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
-		t.Fatalf("Activate() conflict error = %v", err)
-	} else {
-		requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: target})
-	}
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(target, "old.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("overwritten file still exists: %v", err)
-	}
-	info, err := os.Stat(filepath.Join(target, "scripts", "run.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o111 == 0 {
-		t.Fatal("activated script is not executable")
-	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []library.Activation{{
-		SkillID:    skill.ID,
-		Scope:      scope,
-		Directory:  directory,
-		Individual: true,
-	}}
-	if !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
-	}
+			scope := library.GlobalScope{Agent: agent}
+			directory, err := lib.Resolve(ctx, scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if directory != filepath.Join(home, agentDirectory, "skills") {
+				t.Fatalf("Resolve(%#v) = %q; want under isolated HOME", scope, directory)
+			}
+			target := filepath.Join(directory, skill.Name)
+			writeFile(t, filepath.Join(target, "old.txt"), []byte("old"), 0o644)
+			if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
+				t.Fatalf("Activate() conflict error = %v", err)
+			} else {
+				requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: target})
+			}
+			if _, err := os.Stat(filepath.Join(target, "old.txt")); err != nil {
+				t.Fatalf("failed Activate touched the foreign directory: %v", err)
+			}
+			if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+				t.Fatal(err)
+			}
+			requireProjection(t, directory, skill.Name, "# Example\n")
+			if _, err := os.Stat(filepath.Join(target, "old.txt")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("overwritten file still exists: %v", err)
+			}
+			info, err := os.Stat(filepath.Join(target, "scripts", "run.sh"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm()&0o111 == 0 {
+				t.Fatal("activated script is not executable")
+			}
+			activations, err := lib.ListActivations(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []library.Activation{{
+				SkillID:    skill.ID,
+				Scope:      scope,
+				Directory:  directory,
+				Individual: true,
+			}}
+			if !reflect.DeepEqual(withoutActivatedAt(activations), want) {
+				t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
+			}
 
-	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("deactivated directory still exists: %v", err)
-	}
-	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
-		t.Fatalf("Deactivate removed library skill: %v", err)
-	}
-	activations, err = lib.ListActivations(ctx)
-	if err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after deactivate = %#v, %v", activations, err)
-	}
-	writeFile(t, filepath.Join(target, "manual.txt"), []byte("manual"), 0o644)
-	if err := lib.Deactivate(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("Deactivate() inactive skill error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(target, "manual.txt")); err != nil {
-		t.Fatalf("Deactivate() removed an untracked directory: %v", err)
-	}
+			if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("deactivated directory still exists: %v", err)
+			}
+			if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
+				t.Fatalf("Deactivate removed library skill: %v", err)
+			}
+			activations, err = lib.ListActivations(ctx)
+			if err != nil || len(activations) != 0 {
+				t.Fatalf("ListActivations() after deactivate = %#v, %v", activations, err)
+			}
+			writeFile(t, filepath.Join(target, "manual.txt"), []byte("manual"), 0o644)
+			if err := lib.Deactivate(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
+				t.Fatalf("Deactivate() inactive skill error = %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(target, "manual.txt")); err != nil {
+				t.Fatalf("Deactivate() removed an untracked directory: %v", err)
+			}
 
-	if err := lib.Activate(ctx, library.SkillID(9999), scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("Activate() unknown skill error = %v", err)
+			if err := lib.Activate(ctx, library.SkillID(9999), scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {
+				t.Fatalf("Activate() unknown skill error = %v", err)
+			}
+		})
 	}
 }
 
@@ -205,77 +216,69 @@ func TestDeactivateGroupBackedSkillNamesTheGroup(t *testing.T) {
 	requireErrorDetails(t, lib.Deactivate(t.Context(), skill.ID, scope), library.FailedPrecondition, library.ErrorDetails{Name: "only"})
 }
 
+// 独立与组激活叠加;重复激活不增加依据,撤销组只移除仅由该组支撑的投影。
 func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) {
-	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
-	root := t.TempDir()
-	firstSource := filepath.Join(root, "first")
-	secondSource := filepath.Join(root, "second")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+	for _, policy := range []library.ConflictPolicy{library.Fail, library.Overwrite} {
+		t.Run(string(policy), func(t *testing.T) {
+			ctx := t.Context()
+			t.Setenv("HOME", t.TempDir())
+			lib := openTestLibrary(t)
+			first := installExampleSkill(t, lib, "first")
+			second := installExampleSkill(t, lib, "second")
+			group, err := lib.CreateGroup(ctx, "shipping")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, skill := range []library.Skill{first, second} {
+				if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			scope := library.GlobalScope{Agent: library.AgentCodex}
+			directory, err := lib.Resolve(ctx, scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			requireLibraryError(t, lib.DeactivateGroup(ctx, group.ID, scope), library.NotFound)
 
-	lib := openTestLibrary(t)
-	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
-	if err != nil {
-		t.Fatal(err)
-	}
-	group, err := lib.CreateGroup(ctx, "shipping")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, skill := range []library.Skill{first, second} {
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
-	directory, err := lib.Resolve(ctx, scope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
-		t.Fatal(err)
-	}
-	for _, skill := range []library.Skill{first, second} {
-		if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-			t.Fatalf("member %q was not projected: %v", skill.Name, err)
-		}
-	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantActivations := []library.Activation{
-		{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
-		{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
-	}
-	if !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
-		t.Fatalf("ListActivations() = %#v, want %#v", activations, wantActivations)
-	}
+			if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			want := []library.Activation{
+				{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
+				{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
+			}
+			for range 2 {
+				if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: policy}); err != nil {
+					t.Fatalf("ActivateGroup under %s policy = %v, want success", policy, err)
+				}
+				for _, skill := range []library.Skill{first, second} {
+					if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
+						t.Fatalf("member %q was not projected: %v", skill.Name, err)
+					}
+				}
+				activations, err := lib.ListActivations(ctx)
+				if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
+					t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+				}
+			}
 
-	if err := lib.DeactivateGroup(ctx, group.ID, scope); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
-		t.Fatalf("independent activation was removed: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, second.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("via-group-only activation remains: %v", err)
-	}
-	activations, err = lib.ListActivations(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantActivations = []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
-		t.Fatalf("ListActivations() after DeactivateGroup = %#v, want %#v", activations, wantActivations)
+			requireErrorDetails(t, lib.Deactivate(ctx, second.ID, scope), library.FailedPrecondition, library.ErrorDetails{Name: group.Name})
+			if err := lib.DeactivateGroup(ctx, group.ID, scope); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
+				t.Fatalf("independent activation was removed: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(directory, second.Name)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("via-group-only activation remains: %v", err)
+			}
+			activations, err := lib.ListActivations(ctx)
+			want = []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+			if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
+				t.Fatalf("ListActivations() after DeactivateGroup = %#v, %v; want %#v", activations, err, want)
+			}
+		})
 	}
 }
 

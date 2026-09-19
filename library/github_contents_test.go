@@ -94,7 +94,11 @@ func TestGitHubInstallFetchTransfersSelectedSkillAndRecordsTreeSHA(t *testing.T)
 	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != wantSHA {
 		t.Fatalf("persisted GitTreeSHA = %q, want %q", got, wantSHA)
 	}
-	assertGitHubInstallBlobs(t, api, fx, "first")
+	commits, trees, _ := gitHubAPIKindCounts(t, api)
+	if commits != 0 || trees != 0 {
+		t.Fatalf("InstallFetch commits=%d trees=%d, want blobs only: %#v", commits, trees, api.snapshot())
+	}
+	assertGitHubBlobPaths(t, api, "first/data.bin", "first/scripts/run")
 	if _, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"first"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("successful handle reused: %v", err)
 	}

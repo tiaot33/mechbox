@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -171,6 +172,17 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
 		t.Fatalf("DeleteGroup removed group-only projected copy: %v", err)
+	}
+	// 删组转为独立保留后,仍可按 Remove 策略连同投影一起移除。
+	if err := lib.RemoveSkill(ctx, groupOnly.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("RemoveSkill(Remove) left projection: %v", err)
+	}
+	activations, err = lib.ListActivations(ctx)
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations[:1]) {
+		t.Fatalf("activations after RemoveSkill = %#v, %v; want %#v", activations, err, wantActivations[:1])
 	}
 	groups, err = lib.ListGroups(ctx)
 	if err != nil || !reflect.DeepEqual(groups, []library.Group{second}) {

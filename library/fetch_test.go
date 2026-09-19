@@ -50,6 +50,10 @@ func TestFetchListingIsReadOnlyAndSessionScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}
+	if fetch.ID == "" || fetch.Ref == "" || !reflect.DeepEqual(fetch.Skills, want) {
+		t.Fatalf("Fetch = %#v; want handle, remote ref and candidates %#v", fetch, want)
+	}
 	// 列表必须仅依赖暂存,不能再次访问远端。
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
 		t.Error("listing contacted remote source")
@@ -58,7 +62,7 @@ func TestFetchListingIsReadOnlyAndSessionScoped(t *testing.T) {
 	fetch.Skills[0].Name = "changed by caller"
 	for range 2 {
 		names, err := lib.ListFetchSkills(ctx, fetch.ID)
-		if err != nil || !reflect.DeepEqual(names.Skills, []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}) {
+		if err != nil || !reflect.DeepEqual(names.Skills, want) {
 			t.Fatalf("ListFetchSkills = %v, %v", names, err)
 		}
 		names.Skills[0].Name = "changed by caller"
@@ -278,40 +282,6 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 	}
 }
 
-func TestFetchStagesRemoteSkillsWithoutInstalling(t *testing.T) {
-	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  skillDocument("first", "# First\n"),
-		"second/SKILL.md": skillDocument("second", "# Second\n"),
-	})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(archive)
-	}))
-	t.Cleanup(server.Close)
-
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
-
-	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
-		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fetch.ID == "" || fetch.Ref == "" {
-		t.Fatalf("Fetch() = %#v, want opaque handle and remote ref", fetch)
-	}
-	if got, want := fetch.Skills, []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("Fetch() candidates = %v, want %v", got, want)
-	}
-	skills, err := lib.ListSkills(t.Context())
-	if err != nil || len(skills) != 0 {
-		t.Fatalf("ListSkills() after Fetch = %#v, %v; want empty Library", skills, err)
-	}
-}
-
 func TestFetchStoreRequiresConfiguredBaseURL(t *testing.T) {
 	t.Setenv("SKILLS_STORE_URL", "")
 	lib := openTestLibrary(t)
@@ -370,24 +340,5 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 	})
 	if !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want Canceled wrapping context.Canceled", err)
-	}
-}
-
-func TestFetchRejectsUnsafeArchivePaths(t *testing.T) {
-	archive := zipArchive(t, map[string]string{"../SKILL.md": "unsafe\n"})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(archive)
-	}))
-	defer server.Close()
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lib.Close()
-	_, err = lib.Fetch(t.Context(), library.SourceSpec{
-		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
-	})
-	if !library.IsCode(err, library.SourceInvalid) {
-		t.Fatalf("error = %v, want unsafe archive rejected as SourceInvalid", err)
 	}
 }

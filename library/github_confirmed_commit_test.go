@@ -332,7 +332,7 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T)
 	}
 }
 
-// 迁移后的旧版本没有确认 commit(用 editLibraryFixture 清空来模拟):首次检查按 tree SHA 做完整比较;
+// 版本未记录确认 commit(用当前 schema 清空字段来构造):首次检查按 tree SHA 做完整比较;
 // 一次 Update 补写确认 commit 后进入只发 commits 的快路径。
 func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
