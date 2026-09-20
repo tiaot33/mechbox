@@ -1,11 +1,11 @@
 # Library 门面桌面化 Roadmap
 
-**Date:** 2026-09-15(2026-09-20 更新第 4 步 spec)
+**Date:** 2026-09-15(2026-09-21 同步第 4 步完成状态)
 **目的:** 记录 `internal/library/api.go` 成为桌面端(Electron,经 ADR 0008 的 stdio sidecar)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对门面的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
 **用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。schema 已是 v8(#77 / #82);下一次提升是 v9(E4)。
 
-**进度(2026-09-20):**
+**进度(2026-09-21):**
 
 - **A 全部完成** —— [#67](https://github.com/tiaot33/skills-tui/issues/67),PR [#70](https://github.com/tiaot33/skills-tui/pull/70) 已合入 main(`710bedb`)。B6 与 B3 的错误码部分随之落地。
 - **B2 完成** —— [#71](https://github.com/tiaot33/skills-tui/issues/71),PR [#74](https://github.com/tiaot33/skills-tui/pull/74)(`556ca1b`)。决定:拒绝,`FailedPrecondition` 带占用者;转移语义另立条目。
@@ -13,10 +13,10 @@
 - **D1 / D2 完成** —— [#72](https://github.com/tiaot33/skills-tui/issues/72),PR [#79](https://github.com/tiaot33/skills-tui/pull/79)(`f4097c3`)。
 - **D3 完成** —— [#73](https://github.com/tiaot33/skills-tui/issues/73),PR [#80](https://github.com/tiaot33/skills-tui/pull/80)(`b85c605`),ADR 0012。
 - **C6 完成** —— [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)。
-- **C1 / C2 / I3** —— [#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。schema v8:描述入库、版本 / 激活 / 分组时间戳、Group 名 UNIQUE 并自动加 `#N`。
+- **C1 / C2 / I3 完成** —— [#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。schema v8:描述入库、版本 / 激活 / 分组时间戳、Group 名 UNIQUE 并自动加 `#N`。
 - **schema 基线**:main 为 v8。下一次 schema 变更是第 5 步 E4(v9)。
-- **第 4 步 spec** —— [#83](https://github.com/tiaot33/skills-tui/issues/83):激活预检、Fetch 候选标明已在库中、删除/注销默认清掉投影、去掉 `UpdateResult.Note`。明确不做更新预览/绑版、不做过时投影列表、不写「Preview → Execute 统一模式」ADR。
-- 其余 E–H、I2 / I4 / I5 尚未建 issue。B4 更新预览与绑定本步不做。
+- **第 4 步完成** —— [#83](https://github.com/tiaot33/skills-tui/issues/83) 已关闭,实现提交 [`52a7145`](https://github.com/tiaot33/skills-tui/commit/52a7145)、简化提交 [`8d518f5`](https://github.com/tiaot33/skills-tui/commit/8d518f5) 已推送至 main:激活预检、Fetch 候选标明已在库中、删除/注销默认清掉投影、去掉 `UpdateResult.Note`。明确不做更新预览/绑版、不做过时投影列表、不写「Preview → Execute 统一模式」ADR。
+- 下一步为第 5 步 E1–E6,先建 spec issue 并确定凭证存放 ADR。E、F1–F4、G–H、I4 / I5 尚未建 issue;F5 已随 #83 完成。I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
 
 ## 优先级定义
 
@@ -42,13 +42,13 @@
 
 ### B. 写操作预检(Preflight)
 
-目前只有 Sync 具备 Preview → Execute(`expected` 绑定)模式;其余会冲突的写操作都只能"先试、看错误码"。
+Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读预检,Fetch 候选已标注库内技能 ID;激活预检不绑定执行令牌,更新始终拉取此刻最新内容。
 
-- [ ] **B1 `PreviewActivate(id, scope)` / `PreviewActivateGroup(groupID, scope)`。** 返回说明(不报错):`ready` / `refresh` / `occupied` / `untracked`;分组另给 `duplicate_names`。无记录文件夹不比对内容、不单列「遗留副本」。执行期规则不变。→ spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)
+- [x] **B1 `PreviewActivate(id, scope)` / `PreviewActivateGroup(groupID, scope)`。** 冲突作为说明返回:`ready` / `refresh` / `occupied` / `untracked`;分组另给 `duplicate_names`。无记录文件夹不比对内容、不单列「遗留副本」。未知技能、作用域或分组及 I/O、取消仍报错;执行期规则不变。→ spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)
 - [x] **B2 修同名跨 skill 的接管 bug。** 实测:A、B 同名不同源,A 已投影到某 Scope;`Activate(B, Overwrite)` 成功后**两条记录指向同一文件夹**;随后 `Deactivate(A)` 删掉 B 的内容并留下 B 的悬空记录。根因:`directoryClaimedByAnotherScope` 只查同一 skill 的其他 Scope,不查同 Scope 下的其他 skill。`Overwrite` 应转移记录或拒绝,不能留两条记录。→ spec: [#71](https://github.com/tiaot33/skills-tui/issues/71)(决定:拒绝,`FailedPrecondition` 带占用者;转移语义另立条目)
-- [ ] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed SkillID`(`omitzero`);同一来源同一名字、库里已有则带上。`Fetch` / `ListFetchSkills` 现查库。→ spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)
-- [ ] **B4 更新预览与绑定。** `PreviewUpdate` + `Update(Expected)` 绑预览时的远端身份。第 4 步决定不做:更新永远拉此刻最新,不预览差异、不绑版。
-- [ ] **B5 `UpdateResult.Note`。** 第 4 步改为删除该中文字段,不改成 `StaleActivations`;刷新投影由客户端再 `Activate`。→ spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)
+- [x] **B3 候选标注已安装。** `FetchSkill` 增加 `Installed SkillID`(`omitzero`);同一来源同一名字、库里已有则带上。`Fetch` / `ListFetchSkills` 现查库。→ spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)
+- **B4 更新预览与绑定 — 决定不做。** `PreviewUpdate` + `Update(Expected)` 绑预览时的远端身份。第 4 步决定不做:更新永远拉此刻最新,不预览差异、不绑版。
+- [x] **B5 `UpdateResult.Note`。** 第 4 步已删除该中文字段,不改成 `StaleActivations`;刷新投影由客户端再 `Activate`。→ spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)
 - [x] **B6 `RegisterProject` 重复注册携带已有 ID。** 实测返回 `AlreadyExists` 但不带既有 `ProjectID`,UI 无法跳转;放入 `Details`(A6)或提供 `FindRegisteredProject(path)`。→ 已随 A6 放入 `Details.ProjectID`,#67
 
 ### C. 读模型补齐 — 2026-09-16 评审:只做 C1 / C2 / C6,其余推后(GUI 可绕过)
@@ -57,7 +57,7 @@
 - [x] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt` 落列;`Skill.InstalledAt` / `UpdatedAt` 由版本时间派生。迁移不回填(空 = 未知)。ADR 0009 已记录版本无时间戳。→ #77,#82
 - [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
 - [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**推后**:多传字节,不阻塞功能。
-- [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 不依赖它(Update 变化后该 skill 全部投影按定义都过时),C6 判定也不依赖它。
+- [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 已删除提醒字段,不返回过时投影列表;C6 判定也不依赖它。
 - [x] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
 - [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。
@@ -89,7 +89,7 @@
 - [ ] **F2 DTO 去散文。** `SyncPreview.Warnings`、`SyncResult.Warnings` 是中文句子,`Error.Message` 却是英文。改为枚举 / 码,本地化归 UI(ADR 0003)。`UpdateResult.Note` 由 [#83](https://github.com/tiaot33/skills-tui/issues/83) 删除,不改成枚举。
 - [ ] **F3 枚举默认值显式化。** `on_conflict: ""`、`projected_copies: ""` 在 wire 上应为明确值(如 `"fail"` / `"remove"`)。空 `projected_copies` 的含义随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 改为删除。
 - [ ] **F4 命名整理。** `Install`(本地)vs `InstallFetch`(远程);更新检查已统一为 `CheckUpdates`,单项与批量都返回 `[]UpdateCheck`。
-- [ ] **F5 刷新 ADR 0008。** 过时方法名与 cancel 覆盖的网络操作清单随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 改;TS 生成器仍留到第 6 步实现 `internal/rpc/` 时再定。
+- [x] **F5 刷新 ADR 0008。** 过时方法名与 cancel 覆盖的网络操作清单已随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 更新;TS 生成器仍留到第 6 步实现 `internal/rpc/` 时再定。
 
 ### G. 进度与变更通知
 
@@ -110,7 +110,7 @@
 ### I. 数据完整性小坑
 
 - [x] **I1 `RemoveSkill(Remove)` 顺序。** 先删磁盘副本再开事务;事务失败则副本已丢、记录仍在。`UnregisterProject(Remove)` 与 `Deactivate` 有同样问题。改为先改名暂存、提交后删除(同 `DeactivateGroup` 的做法),四处共用一个 helper。→ #75,#78
-- [ ] **I2 `RemoveSkill(Keep)` 的遗留副本零追踪。** 第 4 步不单列占用者类型:无记录文件夹在预检里是 `untracked`;空选项改为默认删除,保留须显式 `Keep`。C6 仍覆盖不到无记录目录。→ 见 [#83](https://github.com/tiaot33/skills-tui/issues/83)
+- **I2 `RemoveSkill(Keep)` 的遗留副本零追踪 — 已接受边界。** 第 4 步已落实默认删除投影,不新增目录追踪:无记录文件夹在预检里是 `untracked`;空选项改为默认删除,保留须显式 `Keep`。C6 仍覆盖不到无记录目录,这是已接受的边界,不列为待实现项。→ 见 [#83](https://github.com/tiaot33/skills-tui/issues/83)
 - [x] **I3 分组名唯一。**(schema)实测可创建两个同名组。决定:`groups.name` 加 UNIQUE;`CreateGroup` / `RenameGroup` / 迁移遇重名自动改为 `名字#2`、`#3`(最小空闲数字),不报错;`RenameGroup` 改为返回最终 `Group`。→ #77,#82
 - [ ] **I4 孤儿 `sources` 行与 blob GC。** `RemoveSkill` 不清理来源行与 blob;ADR 0005 的 GC "to be specified"。
 - [ ] **I5 `Open` 迁移无预告。** 打开旧库即原地迁移;桌面端应能先探知"需要迁移"并备份(可与 E5 合并)。
@@ -145,27 +145,27 @@
 - C3 / C4 / C5 / C7 / C8 按 2026-09-16 评审推后;I1 已完成。
 - 依赖:第 0 步(已完成)。
 
-### 第 4 步 — 写操作预检:B1、B3、B5(默认删除投影)+ F5 过时方法名
+### 第 4 步 — ✅ 写操作预检:B1、B3、B5 + 默认删除投影 + F5 过时方法名
 
-- spec: [#83](https://github.com/tiaot33/skills-tui/issues/83)。不升 schema,不写「Preview → Execute 统一模式」ADR。
+- spec: [#83](https://github.com/tiaot33/skills-tui/issues/83) 已完成并关闭,`52a7145` / `8d518f5` 已推送至 main;`go test -race ./internal/library` 通过。schema 保持 v8,不写「Preview → Execute 统一模式」ADR。
 - B1 `PreviewActivate` / `PreviewActivateGroup`:返回 `ready` / `refresh` / `occupied` / `untracked`(分组加 `duplicate_names`);无记录文件夹不比对内容。B3 `FetchSkill.Installed`。B5 删除 `UpdateResult.Note`,刷新投影由客户端再激活。`RemoveSkill` / `UnregisterProject` 空选项改为删除投影,显式 `Keep` 才保留。
-- B4 本步不做(更新永远拉最新)。F5:本 issue 只改 ADR 0008 过时方法名与联网操作清单;TS 生成器留给第 6 步。
+- B4 决定不做(更新永远拉最新)。F5:已更新 ADR 0008 过时方法名与联网操作清单;TS 生成器留给第 6 步。
 - 依赖:第 1 步(已完成;占用判定建立在 B2 修正后的语义上)。
 
-### 第 5 步 — 运行时配置与 Sync 状态:E1–E6(spec issue + ADR "凭证存放位置")
+### 第 5 步 — 下一步:运行时配置与 Sync 状态:E1–E6(spec issue + ADR "凭证存放位置")
 
 - ADR 决定凭证存放(库内 / 系统钥匙串 / 仅内存),然后 E1 `GetConfig` / `SetConfig`。
 - E2 `TestSyncConnection` + 新错误码 `RateLimited`(附 retry-after)/ `Unauthenticated`(依赖 E1)。
 - E3 `PreviewSyncPull` 返回远端项目列表,`SyncPullOptions{ProjectPathMap}` 取代环境变量。
 - E4 schema v9:Sync 状态落库(上次 push / pull 时间与远端身份),pull 前本地备份。
 - E5 `Info()`(合并 I5 的"需要迁移"探知)、E6 `slog.Handler` 注入。
-- 依赖:第 3 步(共用迁移框架);与第 4 步无依赖,可并行。
+- 依赖:第 3 步(已完成,共用迁移框架)。尚未建 spec issue,先确定配置与凭证边界。
 
 ### 第 6 步 — RPC 边界与通知:F1–F3、G1–G2(与 `internal/rpc/` 落地同一批 issue)
 
-- F1 `Scope` DTO `{kind, agent, project_id}` 的 (un)marshal;F2 `Warnings` / `Note` 去散文改枚举;F3 wire 上枚举默认值显式化。
+- F1 `Scope` DTO `{kind, agent, project_id}` 的 (un)marshal;F2 Sync `Warnings` 去散文改枚举(`UpdateResult.Note` 已由 #83 删除);F3 wire 上枚举默认值显式化。
 - G1 进度报告(ctx `ProgressFunc` 或 `Events()`,RPC 映射为 notification);G2 `Watch(ctx) <-chan Change` 或列表 `Revision`。
-- 依赖:第 4 步(F5 过时方法名已随 #83 刷新;TS 生成器在本步选定)、第 5 步(E6 决定 serve 模式的日志出口)。B4 未做,F4 的 CheckUpdate 半边已在此前合入。
+- 依赖:第 4 步(已完成,F5 过时方法名已随 #83 刷新;TS 生成器在本步选定)、第 5 步(E6 决定 serve 模式的日志出口)。B4 决定不做,F4 的 CheckUpdate 半边已在此前合入。
 
 ### 第 7 步 — 自研 skill 与批量:H1–H4、I4(视桌面端功能排期)
 
@@ -178,9 +178,9 @@
 ```
 第 0 步 ✅ ──┬── 第 1 步 ✅(B2)
             ├── 第 2 步 ✅(D:#72 + #73)
-            └── 第 3 步 ✅(C:#77+#76)──┬── 第 4 步(B 预检 + F5)──┐
+            └── 第 3 步 ✅(C:#77+#76)──┬── 第 4 步 ✅(B 预检 + F5)──┐
                                         ├─────── 第 5 步(E, v9)──────┼── 第 6 步(F/G + internal/rpc/)
                                         └─────── 第 7 步(H/I)
 ```
 
-第 3、4 步可同时开工;第 4、5 步可同时开工;第 6 步是桌面端接线点,在此之前门面应已稳定。
+第 0–4 步已完成。接下来推进第 5 步;第 7 步可按桌面端功能排期与其并行。第 6 步等待第 5 步完成,是桌面端接线点,在此之前门面应已稳定。
