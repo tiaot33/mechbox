@@ -138,51 +138,130 @@ type claimant struct {
 	scopeRow
 }
 
-// requireTargetUnclaimed 维持不变量"同一解析目录下的同一文件夹名至多归一条 Activation":
-// 遍历库中全部 Activation(不限 skill),凡解析到同一目录的,若属同一 skill(另一身份的 Scope,
-// 例如把 $HOME 本身登记为项目)或同名的另一 skill,即为占用,返回 FailedPrecondition;Overwrite 对占用无效,
-// 它只能替换没有任何记录的外来目录。调用方须保证本 skill 在本 Scope 尚无记录(否则是幂等刷新)。
-// 它在写事务之外用 l.db 查询:调用方(Activate / ActivateGroup)已持有独占锁,期间没有并发写入,
-// 且单连接模式下事务内不能再走 l.db 调 Resolve。
-func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation string, id SkillID, name string, target resolvedScope) error {
+// targetClaimant 在写事务外查找目标占用者,供预检与执行共用。调用方持共享或独占锁,
+// 并已确认本技能在本作用域没有记录;所有目录均按现行布局解析。
+func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name string, target resolvedScope) (*claimant, error) {
 	// 同名即包含本 skill 自身;本 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT a.skill_id, s.name, a.agent, a.project_id FROM activations a
 		JOIN skills s ON s.id = a.skill_id
 		WHERE s.name = ? ORDER BY a.skill_id <> ?`, name, id)
 	if err != nil {
-		return fmt.Errorf("list claimants: %w", err)
+		return nil, fmt.Errorf("list claimants: %w", err)
 	}
 	var claimants []claimant
 	for rows.Next() {
 		var row claimant
 		if err := rows.Scan(&row.skillID, &row.name, &row.agent, &row.projectID); err != nil {
 			_ = rows.Close()
-			return fmt.Errorf("read claimant: %w", err)
+			return nil, fmt.Errorf("read claimant: %w", err)
 		}
 		claimants = append(claimants, row)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return fmt.Errorf("read claimants: %w", err)
+		return nil, fmt.Errorf("read claimants: %w", err)
 	}
 	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if directory != target.directory {
 			continue
 		}
-		if other.skillID == id {
-			return preconditionError(operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: directory})
-		}
-		return preconditionError(operation, "another skill already projects this name into the same directory", ErrorDetails{
-			Path:    filepath.Join(directory, other.name),
-			Name:    other.name,
-			SkillID: other.skillID,
-		})
+		return &other, nil
 	}
-	return nil
+	return nil, nil
+}
+
+// requireTargetUnclaimed 把占用事实映射为执行错误,保留同技能跨作用域的既有细节形状。
+func (l *sqliteLibrary) requireTargetUnclaimed(ctx context.Context, operation string, id SkillID, name string, target resolvedScope) error {
+	other, err := l.targetClaimant(ctx, id, name, target)
+	if err != nil {
+		return err
+	}
+	if other == nil {
+		return nil
+	}
+	if other.skillID == id {
+		return preconditionError(operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: target.directory})
+	}
+	return preconditionError(operation, "another skill already projects this name into the same directory", ErrorDetails{
+		Path: filepath.Join(target.directory, other.name), Name: other.name, SkillID: other.skillID,
+	})
+}
+
+func (l *sqliteLibrary) PreviewActivate(ctx context.Context, id SkillID, scope Scope) (preview ActivatePreview, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	target, err := l.resolveScope(ctx, scope)
+	if err != nil {
+		return preview, err
+	}
+	skill, err := l.GetSkill(ctx, id)
+	if err != nil {
+		return preview, err
+	}
+	return l.previewActivate(ctx, skill.ID, skill.Name, target)
+}
+
+func (l *sqliteLibrary) PreviewActivateGroup(ctx context.Context, groupID GroupID, scope Scope) (preview GroupActivatePreview, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	target, err := l.resolveScope(ctx, scope)
+	if err != nil {
+		return preview, err
+	}
+	members, err := l.ListGroupSkills(ctx, groupID)
+	if err != nil {
+		return preview, err
+	}
+	counts := make(map[string]int)
+	for _, member := range members {
+		counts[member.Name]++
+		if counts[member.Name] == 2 {
+			preview.DuplicateNames = append(preview.DuplicateNames, member.Name)
+		}
+	}
+	preview.Members = make([]ActivatePreview, 0, len(members))
+	for _, member := range members {
+		item, err := l.previewActivate(ctx, member.ID, member.Name, target)
+		if err != nil {
+			return GroupActivatePreview{}, err
+		}
+		preview.Members = append(preview.Members, item)
+	}
+	return preview, nil
+}
+
+func (l *sqliteLibrary) previewActivate(ctx context.Context, id SkillID, name string, scope resolvedScope) (ActivatePreview, error) {
+	preview := ActivatePreview{SkillID: id, Name: name, Directory: scope.directory, Target: filepath.Join(scope.directory, name), Status: ActivateReady}
+	existing, err := findActivation(ctx, l.db, id, scope.scopeRow)
+	if err != nil {
+		return preview, err
+	}
+	if existing != nil {
+		preview.Status = ActivateRefresh
+		return preview, nil
+	}
+	other, err := l.targetClaimant(ctx, id, name, scope)
+	if err != nil {
+		return preview, err
+	}
+	if other != nil {
+		preview.Status = ActivateOccupied
+		preview.OccupierSkillID = other.skillID
+		preview.OccupierName = other.name
+		return preview, nil
+	}
+	if _, err := os.Lstat(preview.Target); err == nil {
+		preview.Status = ActivateUntracked
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return preview, fmt.Errorf("inspect activation target: %w", err)
+	}
+	return preview, nil
 }
 
 func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) (err error) {

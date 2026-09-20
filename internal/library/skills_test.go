@@ -166,13 +166,14 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 		t.Fatalf("ListSkills() before removals = %#v, %v", skills, err)
 	}
 
-	if err := lib.RemoveSkill(ctx, keepSkill.ID, library.RemoveSkillOptions{}); err != nil {
+	if err := lib.RemoveSkill(ctx, keepSkill.ID, library.RemoveSkillOptions{ProjectedCopies: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(keepDirectory, keepSkill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("default Keep removed projected copy: %v", err)
+		t.Fatalf("explicit Keep removed projected copy: %v", err)
 	}
-	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+	writeFile(t, filepath.Join(removeDirectory, removeSkill.Name, "SKILL.md"), []byte("edited"), 0o644)
+	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(removeDirectory, removeSkill.Name)); !errors.Is(err, os.ErrNotExist) {

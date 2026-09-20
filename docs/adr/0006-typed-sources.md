@@ -10,7 +10,7 @@ Skills arrive from several kinds of origin and v1 supports all four. Making the 
 - **Self-developed skill** is `source.type = local`.
 - 各 Source 类型复用自身的抓取逻辑。`CheckUpdates(ctx, []SkillID)` 自行读取来源,不写入 Library;单项检查传一个 ID,统一返回逐项结果。GitHub 来源比较该 Skill 目录的 git tree SHA:相同则无更新、不取辅助文件;不同才视为有更新。无 SHA 的旧 GitHub 记录回退为比较文件内容及权限。URL / Store / local 仍比较文件内容及权限。`last_fetched` 与 `last_seen_ref` 记录抓取状态;GitHub 的 `last_seen_ref` 仍是仓库 commit,它们由同一来源下的 Skills 共享,不能单独用于判断某个 Skill 是否需要更新(版本级的判定见下文「版本级确认 commit」)。
 - Updating a skill means re-fetching from its Source, producing a new version (see `0005`). GitHub 在目录 tree SHA 变化时才取文件并新增版本;SHA 未变可以刷新 `last_fetched` / `last_seen_ref`,但不新增版本。无 SHA 的旧记录在 Update 成功后补写 SHA(文件未变则只补写当前版本,不新增版本)。
-- #25 的 `Update` 返回 Skill、Changed 和激活副本可能滞后的提示;GitHub 以 tree SHA 变化为准新增版本,其他来源仍以内容或权限变化为准。已激活副本与激活记录保持不变。
+- `Update` 只返回 Skill、Changed(#83 删除原有中文提示);GitHub 以 tree SHA 变化为准新增版本,其他来源仍以内容或权限变化为准。已激活副本与激活记录保持不变。
 
 ## GitHub 输入与 Git ref（#27）
 

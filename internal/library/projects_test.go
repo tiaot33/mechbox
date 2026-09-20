@@ -81,11 +81,11 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if _, err := os.Stat(keptProjection); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{}); err != nil {
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(keptProjection); err != nil {
-		t.Fatalf("default Keep removed project projection: %v", err)
+		t.Fatalf("explicit Keep removed project projection: %v", err)
 	}
 	if _, err := lib.Resolve(ctx, keepScope); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Resolve() unregistered project scope error = %v, want NotFound", err)
@@ -115,7 +115,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	}
 	manualFile := filepath.Join(removeDirectory, "manual-skill", "mine.txt")
 	writeFile(t, manualFile, []byte("mine"), 0o644)
-	if err := lib.UnregisterProject(ctx, removeProject.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove}); err != nil {
+	if err := lib.UnregisterProject(ctx, removeProject.ID, library.UnregisterProjectOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(removeDirectory, skill.Name)); !errors.Is(err, os.ErrNotExist) {

@@ -92,7 +92,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 
 	result, err := lib.Update(ctx, first.ID)
-	if err != nil || result.Changed || result.Note == "" {
+	if err != nil || result.Changed {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
 	if result.Skill.GitTreeSHA != fx.treeSHA("first") {
@@ -152,7 +152,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 
 	api.Reset()
 	result, err = lib.Update(ctx, first.ID)
-	if err != nil || !result.Changed || result.Note == "" {
+	if err != nil || !result.Changed {
 		t.Fatalf("changed Update = %#v, %v", result, err)
 	}
 	wantFiles := []library.File{

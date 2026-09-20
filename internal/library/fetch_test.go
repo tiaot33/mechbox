@@ -3,6 +3,7 @@ package library_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -353,5 +354,70 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 	})
 	if !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want Canceled wrapping context.Canceled", err)
+	}
+}
+
+func TestFetchInstalledIsQueriedOnEveryListing(t *testing.T) {
+	spec := mockFetchArchive(t)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	preview, err := lib.Fetch(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "first")
+	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Local"), 0o644)
+	if _, err := lib.Install(ctx, library.LocalSource{Path: source}); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := lib.ListFetchSkills(ctx, preview.ID)
+	if err != nil || candidates.Skills[0].Installed != 0 {
+		t.Fatalf("different source = %#v, %v", candidates, err)
+	}
+	other, err := lib.Fetch(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(ctx, other.ID, []string{"first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fresh := range []bool{false, true} {
+		if fresh {
+			again, err := lib.Fetch(ctx, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidates = again.FetchCandidates
+		} else {
+			candidates, err = lib.ListFetchSkills(ctx, preview.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if candidates.Skills[0].Installed != installed[0].ID || candidates.Skills[1].Installed != 0 {
+			t.Fatalf("installed = %#v", candidates)
+		}
+	}
+	_, err = lib.InstallFetch(ctx, preview.ID, []string{"first"})
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: installed[0].ID, Name: "first"})
+	if err := lib.RemoveSkill(ctx, installed[0].ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err = lib.ListFetchSkills(ctx, preview.ID)
+	if err != nil || candidates.Skills[0].Installed != 0 {
+		t.Fatalf("removed = %#v, %v", candidates, err)
+	}
+	data, err := json.Marshal(candidates.Skills[0])
+	if err != nil || bytes.Contains(data, []byte(`"installed"`)) {
+		t.Fatalf("zero installed JSON = %s, %v", data, err)
+	}
+	if _, err := lib.ListFetchSkills(ctx, "unknown"); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("unknown fetch = %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := lib.ListFetchSkills(canceled, preview.ID); !library.IsCode(err, library.Canceled) {
+		t.Fatalf("canceled list = %v", err)
 	}
 }

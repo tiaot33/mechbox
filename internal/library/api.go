@@ -243,6 +243,7 @@ type SkillAudit struct {
 // FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。Audit 是 skills.sh 的审计覆盖层:
 // GitHub 来源一定非 nil,由 Availability 说明内容;URL / Store 来源为 nil(skills.sh 未收录)。
 type FetchSkill struct {
+	Installed   SkillID     `json:"installed,omitzero"`    // 同一来源同名的库内技能 ID;每次列出时现查,零值表示未安装
 	PluginName  string      `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅供预览
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
@@ -288,9 +289,8 @@ type VersionDiff struct {
 
 // UpdateResult 描述 Library 的更新结果;已激活的副本不会自动重写。
 type UpdateResult struct {
-	Skill   Skill  `json:"skill"`
-	Changed bool   `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
-	Note    string `json:"note"`    // 提醒前端已激活的副本可能落后于 Library
+	Skill   Skill `json:"skill"`
+	Changed bool  `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
 }
 
 // UpdateCheck 是一次批量检查中某个 Skill 的结果;Error 非空时 Available 无意义。
@@ -359,6 +359,33 @@ type ActivateOptions struct {
 	OnConflict ConflictPolicy `json:"on_conflict"`
 }
 
+// ActivatePreviewStatus 是激活前的目标状态,不受执行时冲突策略影响。
+type ActivatePreviewStatus string
+
+const (
+	ActivateReady     ActivatePreviewStatus = "ready"     // 目标不存在
+	ActivateRefresh   ActivatePreviewStatus = "refresh"   // 本技能在本作用域已有投影记录
+	ActivateOccupied  ActivatePreviewStatus = "occupied"  // 另一条投影占用目标
+	ActivateUntracked ActivatePreviewStatus = "untracked" // 目标存在但没有投影记录
+)
+
+// ActivatePreview 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
+type ActivatePreview struct {
+	SkillID         SkillID               `json:"skill_id"`
+	Name            string                `json:"name"`
+	Directory       string                `json:"directory"`
+	Target          string                `json:"target"`
+	Status          ActivatePreviewStatus `json:"status"`
+	OccupierSkillID SkillID               `json:"occupier_skill_id,omitzero"`
+	OccupierName    string                `json:"occupier_name,omitempty"`
+}
+
+// GroupActivatePreview 按组成员顺序报告各自状态;同名列表非空时整组不能激活。
+type GroupActivatePreview struct {
+	Members        []ActivatePreview `json:"members"`
+	DuplicateNames []string          `json:"duplicate_names,omitempty"`
+}
+
 // Activation 是一条投影记录:某 skill 出现在某个 Scope 里,以及它的保留依据。
 // 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
 // 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectActivations 给出。
@@ -409,16 +436,16 @@ type RegisteredProject struct {
 type ProjectedCopiesPolicy string
 
 const (
-	Keep   ProjectedCopiesPolicy = "keep"   // 保留磁盘副本,只删除数据库记录(默认)
-	Remove ProjectedCopiesPolicy = "remove" // 连同磁盘副本一起删除
+	Keep   ProjectedCopiesPolicy = "keep"   // 保留磁盘副本,只删除数据库记录;必须显式选择
+	Remove ProjectedCopiesPolicy = "remove" // 连同磁盘副本一起删除(默认,空字符串同义)
 )
 
 type RemoveSkillOptions struct {
-	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
+	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"` // 默认删除投影,只有显式 Keep 保留
 }
 
 type UnregisterProjectOptions struct {
-	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"`
+	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"` // 默认删除投影,只有显式 Keep 保留
 }
 
 // RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
@@ -459,6 +486,8 @@ type Library interface {
 	// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响会话。
 	// 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在安装时返回 NotFound。
 	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
+	// ListFetchSkills 列出暂存候选与诊断,并现查库内安装状态;未知或已失效句柄返回 NotFound。
+	ListFetchSkills(ctx context.Context, id FetchID) (FetchCandidates, error)
 	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
 	// GitHub 来源可在 Fetch 已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
 	// 不跟随当前 HEAD。URL / Store 只读取暂存内容,不联网。要么所选 skill 全部入库,
@@ -538,13 +567,17 @@ type Library interface {
 
 	// 激活(投影)
 	//
-	// 四个方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
+	// 激活与预检方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
+	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound。
+	PreviewActivate(ctx context.Context, id SkillID, scope Scope) (ActivatePreview, error)
 	// Activate 把 skill 投影到 Scope,记为独立激活;对自己已有的投影幂等刷新。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
+	// PreviewActivateGroup 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
+	PreviewActivateGroup(ctx context.Context, groupID GroupID, scope Scope) (GroupActivatePreview, error)
 	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据;失败时撤销本次整组改动。
 	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
 	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。

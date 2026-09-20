@@ -74,7 +74,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if err := tx.Commit(); err != nil {
 		return UpdateResult{}, fmt.Errorf("commit update: %w", err)
 	}
-	return UpdateResult{Skill: skill, Changed: changed, Note: "已激活的副本未重写,可能落后于 Library;需要时请重新激活。"}, nil
+	return UpdateResult{Skill: skill, Changed: changed}, nil
 }
 
 // requireCurrentVersion 是提交阶段的复核:skill 已被移除 → NotFound;当前版本已被别处改写 → Conflict。

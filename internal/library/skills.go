@@ -328,7 +328,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	// 待删的投影路径在事务外先算好:单连接模式下事务内不能再走 l.db。
 	var trash projectionTrash
-	if opts.ProjectedCopies == Remove {
+	if opts.ProjectedCopies != Keep {
 		activations, err := l.ListActivations(ctx)
 		if err != nil {
 			return err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
@@ -76,6 +77,8 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if err != nil {
 		return Fetch{}, err
 	}
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
 	l.fetchMu.Lock()
 	defer l.fetchMu.Unlock()
 	if l.closed {
@@ -88,6 +91,10 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 		source: source, subpath: spec.Subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
 		skills: discovered.skills, diagnostics: discovered.diagnostics,
 	}
+	candidates, err := l.fetchCandidates(ctx, session)
+	if err != nil {
+		return Fetch{}, err
+	}
 	l.fetches[id] = session
 	session.timer = time.AfterFunc(fetchTTL, func() {
 		l.fetchMu.Lock()
@@ -97,7 +104,53 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 			delete(l.fetches, id)
 		}
 	})
-	return Fetch{ID: id, Ref: discovered.ref, FetchCandidates: session.candidates()}, nil
+	return Fetch{ID: id, Ref: discovered.ref, FetchCandidates: candidates}, nil
+}
+
+func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (candidates FetchCandidates, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	if err := ctx.Err(); err != nil {
+		return candidates, err
+	}
+	l.fetchMu.Lock()
+	session := l.fetches[id]
+	l.fetchMu.Unlock()
+	if session == nil {
+		return candidates, &Error{Code: NotFound, Message: "list fetch skills: unknown or discarded fetch"}
+	}
+	return l.fetchCandidates(ctx, session)
+}
+
+// fetchCandidates 在本次调用查询来源类型、定位与名字,不把安装标记写回会话。
+func (l *sqliteLibrary) fetchCandidates(ctx context.Context, session *fetchSession) (FetchCandidates, error) {
+	result := session.candidates()
+	locator, err := json.Marshal(session.source.Locator)
+	if err != nil {
+		return FetchCandidates{}, fmt.Errorf("encode source locator: %w", err)
+	}
+	rows, err := l.db.QueryContext(ctx, `SELECT s.name, s.id FROM skills s JOIN sources src ON src.id = s.source_id WHERE src.type = ? AND src.locator = ?`, session.source.Type, locator)
+	if err != nil {
+		return FetchCandidates{}, fmt.Errorf("list installed candidates: %w", err)
+	}
+	defer rows.Close()
+	installed := make(map[string]SkillID)
+	for rows.Next() {
+		var name string
+		var id SkillID
+		if err := rows.Scan(&name, &id); err != nil {
+			return FetchCandidates{}, fmt.Errorf("read installed candidate: %w", err)
+		}
+		installed[name] = id
+	}
+	if err := rows.Err(); err != nil {
+		return FetchCandidates{}, fmt.Errorf("read installed candidates: %w", err)
+	}
+	for i := range result.Skills {
+		result.Skills[i].Installed = installed[result.Skills[i].Name]
+	}
+	return result, nil
 }
 
 func (s *fetchSession) candidates() FetchCandidates {

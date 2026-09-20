@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -71,15 +72,17 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	// 更新一个 skill 后,共享 Source 的抓取状态不能掩盖另一个 skill 的变化。
 	writeSource("new", "new")
 	result, err := lib.Update(ctx, first.ID)
-	if err != nil || !result.Changed || result.Note == "" || string(result.Skill.Files[0].Content) != skillDocument("first", "new") {
+	if err != nil || !result.Changed || string(result.Skill.Files[0].Content) != skillDocument("first", "new") {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
+	assertUpdateResultFields(t, result)
 	check(first.ID, false)
 	check(second.ID, true)
 	result, err = lib.Update(ctx, first.ID)
-	if err != nil || result.Changed || result.Note == "" {
+	if err != nil || result.Changed {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
+	assertUpdateResultFields(t, result)
 	versions, err = lib.ListVersions(ctx, first.ID)
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %v, %v", versions, err)
@@ -179,5 +182,20 @@ func TestUpdateOperationsRejectInvalidAndMissingSkillIDs(t *testing.T) {
 		if _, err := lib.Update(t.Context(), id); !library.IsCode(err, want) {
 			t.Fatalf("Update(%d): %v, want %s", id, err, want)
 		}
+	}
+}
+
+func assertUpdateResultFields(t *testing.T, result library.UpdateResult) {
+	t.Helper()
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 2 || fields["skill"] == nil || fields["changed"] == nil {
+		t.Fatalf("UpdateResult fields = %s", data)
 	}
 }

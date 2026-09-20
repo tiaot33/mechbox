@@ -271,7 +271,7 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.RemoveSkill(t.Context(), installed[0].ID, library.RemoveSkillOptions{}); err != nil {
+	if err := lib.RemoveSkill(t.Context(), installed[0].ID, library.RemoveSkillOptions{ProjectedCopies: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
 	activations, err := lib.ListActivations(t.Context())
@@ -279,7 +279,7 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 		t.Fatalf("activations after remote removal = %#v, %v; want none", activations, err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, installed[0].Name, "SKILL.md")); err != nil {
-		t.Fatalf("default Keep removed remote projection: %v", err)
+		t.Fatalf("explicit Keep removed remote projection: %v", err)
 	}
 	remaining, err := lib.ListSkills(t.Context())
 	if err != nil {
