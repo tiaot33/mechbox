@@ -125,7 +125,6 @@ func (l *sqliteLibrary) ListFetchSkills(ctx context.Context, id FetchID) (candid
 
 // fetchCandidates 在本次调用查询来源类型、定位与名字,不把安装标记写回会话。
 func (l *sqliteLibrary) fetchCandidates(ctx context.Context, session *fetchSession) (FetchCandidates, error) {
-	result := session.candidates()
 	locator, err := json.Marshal(session.source.Locator)
 	if err != nil {
 		return FetchCandidates{}, fmt.Errorf("encode source locator: %w", err)
@@ -147,19 +146,13 @@ func (l *sqliteLibrary) fetchCandidates(ctx context.Context, session *fetchSessi
 	if err := rows.Err(); err != nil {
 		return FetchCandidates{}, fmt.Errorf("read installed candidates: %w", err)
 	}
-	for i := range result.Skills {
-		result.Skills[i].Installed = installed[result.Skills[i].Name]
-	}
-	return result, nil
-}
-
-func (s *fetchSession) candidates() FetchCandidates {
-	result := FetchCandidates{Skills: make([]FetchSkill, len(s.skills)), Diagnostics: slices.Clone(s.diagnostics)}
-	for i, skill := range s.skills {
+	result := FetchCandidates{Skills: make([]FetchSkill, len(session.skills)), Diagnostics: slices.Clone(session.diagnostics)}
+	for i, skill := range session.skills {
 		result.Skills[i] = skill.preview
 		result.Skills[i].Audit = cloneAudit(skill.preview.Audit)
+		result.Skills[i].Installed = installed[skill.preview.Name]
 	}
-	return result
+	return result, nil
 }
 
 func (l *sqliteLibrary) InstallFetch(ctx context.Context, id FetchID, names []string) (installed []Skill, err error) {
