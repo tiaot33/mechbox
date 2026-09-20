@@ -1,6 +1,6 @@
 ## Codebase
 
-Go module。后端核心是 `internal/library` 中的 `library` 包 —— 未来 TUI 之下的完整进程内门面(见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上的 skills 目录只是它的投影。
+Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内 Go 门面(见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上的 skills 目录只是它的投影。
 
 - `internal/library/api.go` — 全部领域类型 + `Library` 接口,带中文注释。**阅读入口,先读这个。**
 - `internal/library/library.go` — 实例生命周期:Open、Close、共享状态与操作锁。
@@ -17,7 +17,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 未�
 
 实现保持同一 `package library`;公开方法与其私有辅助函数按职责放在一起。
 
-新增 TUI、RPC、GUI 或 SDK 时,按 [ADR 0010](docs/adr/0010-repo-layout-flat-module-apps-are-guests.md) 确定目录位置、创建时机与 module 划分。
+新增任何应用或客户端时,按 [ADR 0010](docs/adr/0010-repo-layout-flat-module-apps-are-guests.md) 确定目录位置与 module 划分:应用依赖 Library,Library 不依赖应用。
 
 **注释语言:代码注释一律使用中文**;标识符、技术术语保留英文。
 

@@ -1,7 +1,7 @@
-# Chinese-first UI, i18n deferred
+# Chinese-first, i18n deferred
 
-The v1 TUI ships Chinese-only. Full internationalisation (i18n) is a later expansion, not part of the first version.
+All user-facing text is Chinese. Full internationalisation (i18n) is a later expansion, not part of the first version: only Chinese exists, so there is nothing to switch between and no locale-selection machinery is built now.
 
-To keep that expansion cheap, user-facing strings are centralised in one place (a strings table) rather than scattered inline, so adding locales later is additive. We stop short of building the full locale-selection machinery now, since only Chinese exists in v1 and there is nothing to switch between.
+Domain terms keep an English canonical name — used in code and in the glossary — alongside the Chinese term shown to users; see `CONTEXT.md`. That split is what keeps the deferral cheap: identifiers never need translating, only the presentation layer does.
 
-Domain terms keep an English canonical name (used in code and the glossary) alongside the Chinese term shown in the UI — see `CONTEXT.md`.
+How the presentation layer organises its strings is a decision for the code that owns them, once such code exists.

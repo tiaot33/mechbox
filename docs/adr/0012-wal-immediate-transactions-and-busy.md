@@ -1,8 +1,8 @@
 # Multi-process coexistence floor: WAL, immediate transactions, and a retryable `busy`
 
-ADR 0008 accepted that a TUI and a desktop sidecar may open the same SQLite file at once and deferred the real fix — one owning daemon — to topology B. This ADR sets the floor under topology A: two processes on one file must never block each other's reads, must never lose a finished write at commit time, and must report a genuine write collision as something the UI can retry rather than as a bug.
+ADR 0008 accepted that two processes may open the same SQLite file at once and deferred the real fix — one owning daemon — to topology B. This ADR sets the floor under topology A: two processes on one file must never block each other's reads, must never lose a finished write at commit time, and must report a genuine write collision as something the caller can retry rather than as a bug.
 
-Under a rollback journal, readers and writers exclude each other: a long read in one process (a TUI walking a large skill's files) made the other process's write fail *at commit* after the driver's 5 s busy timeout, with all the transaction's work already done; a long write did the same to every write in the other process. Both surfaced as `internal("database is locked")`.
+Under a rollback journal, readers and writers exclude each other: a long read in one process (walking a large skill's files) made the other process's write fail *at commit* after the driver's 5 s busy timeout, with all the transaction's work already done; a long write did the same to every write in the other process. Both surfaced as `internal("database is locked")`.
 
 ## The decisions
 
@@ -14,9 +14,9 @@ Under a rollback journal, readers and writers exclude each other: a long read in
 
 ## Considered and rejected
 
-- **Daemon now (topology B).** Solves this and more — change notifications, atomic compound disk projections across processes — but adds daemon lifecycle and moves the TUI off the in-process facade. Rejected as before (ADR 0008); this ADR is the floor that makes A tolerable until B arrives.
+- **Daemon now (topology B).** Solves this and more — change notifications, atomic compound disk projections across processes — but adds daemon lifecycle and moves in-process callers off the facade. Rejected as before (ADR 0008); this ADR is the floor that makes A tolerable until B arrives.
 - **Set WAL through the DSN.** Simplest, but it takes effect before identity is checked and would rewrite the header of any `.db` the user points at by mistake, breaking `Open`'s "reject a foreign database without touching it" guarantee.
-- **Automatic retry inside the Library on `Busy`.** Hides latency the UI should show and makes cancellation semantics murkier; a stable code plus caller-side retry is smaller and honest.
+- **Automatic retry inside the Library on `Busy`.** Hides latency the caller should show and makes cancellation semantics murkier; a stable code plus caller-side retry is smaller and honest.
 - **A configurable `busy_timeout`.** No evidence anyone needs a different number; the value is written out so it is visible, not so it is tunable.
 
 ## Consequences
@@ -26,4 +26,4 @@ Under a rollback journal, readers and writers exclude each other: a long read in
 - Legacy libraries are switched on their first `Open` by this version; schema version and contents are unchanged, so a synced image still opens on an older version.
 - Listing queries read in a single statement (one snapshot), so a skill removed by the other process mid-list no longer fails the whole list.
 - **Not solved here** (topology B): atomicity of compound disk-projection operations across processes, and change notification between processes — a view in one process still goes stale until it reloads.
-- Roadmap D3 is closed by this ADR; `Info()` (Roadmap E5) is where the effective journal mode should become visible.
+- This ADR closes the Roadmap's multi-process coexistence floor; the effective journal mode should become visible through a status call when one exists.

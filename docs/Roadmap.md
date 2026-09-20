@@ -54,7 +54,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 ### C. 读模型补齐 — 2026-09-16 评审:只做 C1 / C2 / C6,其余推后(GUI 可绕过)
 
 - [x] **C1 `Skill` / `SkillSummary` 增加 `Description`。**(schema)列表页第一需求;`candidateMetadata` 已解析出该字段但未入库。现状前端要对每行调 `GetSkill`(拉全部文件正文)再自行解析 frontmatter。描述放版本级,迁移从 `SKILL.md` blob 回填。→ #77,#82
-- [x] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt` 落列;`Skill.InstalledAt` / `UpdatedAt` 由版本时间派生。迁移不回填(空 = 未知)。ADR 0009 已记录版本无时间戳。→ #77,#82
+- [x] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt` 落列;`Skill.InstalledAt` / `UpdatedAt` 由版本时间派生。迁移不回填(空 = 未知)。→ #77,#82
 - [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
 - [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**推后**:多传字节,不阻塞功能。
 - [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 已删除提醒字段,不返回过时投影列表;C6 判定也不依赖它。
