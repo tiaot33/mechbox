@@ -15,5 +15,5 @@ History is a core value of the tool, not an add-on. Because file contents live i
 - The `skills` row carries a **current version** pointer.
 - A blob is shared across versions, so it is only reclaimable when no `version_files` row points at it (future GC, to be specified).
 - Empty directories cannot be represented (no file to hang them on) and are not supported.
-- The data model supports diffing two versions (compare their `version_files` lists); the rollback / diff **UI** is deferred, v1 only guarantees history is captured in full.
+- The data model supports diffing two versions (compare their `version_files` lists); exposing rollback / diff to users is deferred — this ADR only guarantees history is captured in full.
 - Each version carries `description` (the `SKILL.md` frontmatter value) and `created_at`. Description belongs on the version, not the skill: it is part of the snapshot, same as `git_tree_sha`. Putting it on `skills` would make Update a second write and break rollback (H3). `Skill.Description` is the current version's description. Times are not backfilled on migrate; empty means unknown.
