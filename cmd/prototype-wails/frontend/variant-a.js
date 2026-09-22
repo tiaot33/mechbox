@@ -1,6 +1,7 @@
-// 变体 A · 设计稿三栏:沿用参考设计的骨架,只把假分类换成真实概念。
+// 变体 A · 设计稿三栏:从技能出发。沿用参考设计的骨架,只把假分类换成真实概念。
 // 左栏筛选 = 集合(按来源自动) + 组(用户自建场景);右栏绑定 = 全局 / 已登记项目 × Agent;
-// 在右栏选中一个作用域后,卡片上直接出现该作用域的激活开关。点卡片打开右侧详情抽屉。
+// 选中一个作用域后,卡片上出现该作用域的激活开关,列表顶部出现作用域摘要(健康状态 + 整组开关)。
+// 拖放:技能 → 作用域 = 激活;技能 → 组 = 加入;组 → 作用域 = 整组激活。点卡片打开右侧详情抽屉。
 const A = {
   filter: { kind: 'all' },
   scope: null,
@@ -62,7 +63,10 @@ function renderA() {
       </ul>
       <div class="nav-sec"><span>组</span><button class="icon-btn sm" title="新建分组" onclick="newGroup()">${I.plus}</button></div>
       <ul class="nav">
-        ${S.groups.map(g => row(f.kind === 'group' && f.id === g.id, `aFilter('group',${g.id})`, I.layers, esc(g.name), g.members.length)).join('')}
+        ${S.groups.map(g => `<li class="nav-item ${f.kind === 'group' && f.id === g.id ? 'active' : ''}" onclick="aFilter('group',${g.id})"
+            draggable="true" ondragstart="aDragStart(event,'group',${g.id})" ondragend="aDragEnd()" data-drop-group="${g.id}"
+            title="点击筛选;拖到右侧作用域 = 整组激活;把技能卡片拖到这里 = 加入本组">
+            ${I.layers}<span class="grow ellipsis">${esc(g.name)}</span><span class="count">${g.members.length}</span></li>`).join('')}
       </ul>
       <div class="grow"></div>
       <ul class="nav">
@@ -73,13 +77,30 @@ function renderA() {
 
   const sc = A.scope && parseScope(A.scope);
   const list = aSkills();
-  const groupBanner = f.kind === 'group' ? (() => {
-    const g = groupById(f.id);
-    if (!sc) return `<div class="banner">分组是激活单元:在右侧选一个作用域,即可把「${esc(g.name)}」整组激活进去。</div>`;
-    const st = groupStateIn(g, sc);
-    return `<div class="banner ${st}">
-      <span>「${esc(g.name)}」在 <b>${esc(scopeLabel(sc))}</b>:${st === 'on' ? '已整组激活' : st === 'partial' ? '部分成员经由本组激活' : '未激活'}</span>
-      <button class="pill-btn ${st === 'on' ? '' : 'accent'}" onclick="toggleGroup(${g.id},'${A.scope}')">${st === 'on' ? '停用整组' : '整组激活'}</button>
+  // 未选作用域时,组筛选下给一句提示;选了作用域后,整组开关统一放在下面的作用域摘要里。
+  const groupBanner = f.kind === 'group' && !sc
+    ? `<div class="banner">分组是激活单元:把左栏的「${esc(groupById(f.id).name)}」拖到右侧作用域即可整组激活,或先选作用域再用摘要里的开关。</div>` : '';
+
+  // 作用域摘要(原变体 B 的长处并入这里):投影目录、健康状态、全部重写,以及每个组的整组开关。
+  const scopeSummary = sc ? (() => {
+    const acts = activationsInScope(sc);
+    const issues = acts.filter(a => a.status !== 'current').length;
+    return `<div class="a-scope-sum">
+      <div class="a-sum-row">
+        <span class="tiny muted">投影目录</span><span class="mono tiny ellipsis">${esc(scopeDir(sc))}</span><span class="grow"></span>
+        <span class="stat"><b>${acts.length}</b> 已激活</span>
+        <span class="stat ${issues ? 'warn' : ''}"><b>${issues}</b> 需重写</span>
+        ${issues ? `<button class="pill-btn sm" onclick="aRefreshAll()">${I.refresh}全部重写</button>` : ''}
+      </div>
+      <div class="a-sum-groups"><span class="tiny muted">组</span>
+        ${S.groups.map(g => {
+          const st = groupStateIn(g, sc);
+          const via = g.members.filter(id => activationIn(id, sc)?.via_groups.includes(g.id)).length;
+          return `<button class="gchip ${st}" onclick="toggleGroup(${g.id},'${A.scope}')"
+            title="「${esc(g.name)}」${st === 'on' ? '已整组激活,点击停用(只撤回本组来源)' : st === 'partial' ? '部分激活,点击补齐' : '未激活,点击整组激活'}">
+            <i></i>${esc(g.name)}<span class="tiny">${via}/${g.members.length}</span></button>`;
+        }).join('')}
+      </div>
     </div>`;
   })() : '';
 
@@ -90,7 +111,8 @@ function renderA() {
     const bad = acts.some(a => a.status !== 'current');
     const act = sc && activationIn(s.id, sc);
     const groups = S.groups.filter(g => g.members.includes(s.id));
-    return `<article class="a-card ${A.drawer === s.id ? 'selected' : ''}" onclick="aOpen(${s.id})">
+    return `<article class="a-card ${A.drawer === s.id ? 'selected' : ''}" onclick="aOpen(${s.id})"
+      draggable="true" ondragstart="aDragStart(event,'skill',${s.id})" ondragend="aDragEnd()">
       <div class="a-card-top">
         <span class="a-card-name">${esc(s.name)}</span>
         ${s.update_available ? `<span class="badge warn" title="来源有新版本">可更新</span>` : ''}
@@ -116,6 +138,7 @@ function renderA() {
 
   const center = `
     <main class="a-center tile">
+      ${scopeSummary}
       ${groupBanner}
       <div class="a-list ${A.view}" id="a-list" data-keep-scroll="a-list">${list.map(card).join('') || '<div class="empty">没有匹配的技能</div>'}</div>
     </main>`;
@@ -124,7 +147,7 @@ function renderA() {
     const key = scopeKey(s);
     const acts = activationsInScope(s);
     const issues = acts.filter(a => a.status !== 'current').length;
-    return `<li class="nav-item sub ${dim ? 'dim' : ''} ${A.scope === key ? 'active' : ''}" onclick="aScope('${key}')">
+    return `<li class="nav-item sub ${dim ? 'dim' : ''} ${A.scope === key ? 'active' : ''}" onclick="aScope('${key}')" data-drop-scope="${key}">
       ${agentMark(s.agent)}<span class="grow">${esc(agentName(s.agent))}</span>
       ${issues ? `<span class="status warn" title="${issues} 条投影与当前版本不一致">${issues}</span>` : ''}
       ${acts.length ? `<span class="count">${acts.length}</span>` : ''}</li>`;
@@ -137,11 +160,11 @@ function renderA() {
     const scope = a => place ? { agent: a.code, project_id: place } : { agent: a.code };
     const more = A.moreAgents.has(place);
     return shown.map(a => scopeRow(scope(a))).join('')
-      + (rest.length ? `<li class="nav-item sub more" onclick="aToggleMore(${place})">${I.plus}<span class="grow">${more ? '收起' : `其他 ${rest.length} 个 Agent`}</span></li>` : '')
+      + (rest.length ? `<li class="nav-item sub more" onclick="aToggleMore(${place})" ${more ? '' : `data-spring="more:${place}"`}>${I.plus}<span class="grow">${more ? '收起' : `其他 ${rest.length} 个 Agent`}</span></li>` : '')
       + (more ? rest.map(a => scopeRow(scope(a), true)).join('') : '');
   };
   const right = `
-    <aside class="a-right ${A.right ? '' : 'collapsed'}">
+    <aside class="a-right ${A.right ? '' : 'collapsed'}" id="a-right">
       <div class="nav-sec"><span>${I.globe} 全局</span></div>
       <ul class="nav">${agentRows(0)}</ul>
       <div class="nav-sec"><span>${I.folder} 已登记项目</span><button class="icon-btn sm" title="登记项目" onclick="stub('登记项目')">${I.plus}</button></div>
@@ -150,14 +173,14 @@ function renderA() {
           const open = A.expanded.has(p.id);
           const n = S.activations.filter(a => a.scope.project_id === p.id).length;
           const used = agentsUsedIn(p.id);
-          return `<li class="nav-item proj ${open ? 'open' : ''}" onclick="aToggleProject(${p.id})" title="${esc(p.path)}">
+          return `<li class="nav-item proj ${open ? 'open' : ''}" onclick="aToggleProject(${p.id})" title="${esc(p.path)}" ${open ? '' : `data-spring="proj:${p.id}"`}>
               ${I.folder}<span class="grow ellipsis">${esc(projectName(p.id))}</span>
               ${open ? '' : `<span class="marks">${used.map(a => agentMark(a.code)).join('')}</span>`}
               <span class="count">${n}</span><span class="chev">${I.chev}</span></li>
             ${open ? agentRows(p.id) : ''}`;
         }).join('')}
       </ul>
-      <p class="hint pad">选中一个作用域,卡片上会出现它的激活开关。每处只列出已在用的 Agent。</p>
+      <p class="hint pad">把技能卡片或左栏的组拖到这里即可激活;拖到折叠的项目或"其他 Agent"上停一下会自动展开。点选一个作用域,卡片上会出现它的激活开关。</p>
     </aside>`;
 
   const drawer = A.drawer ? `
@@ -182,7 +205,7 @@ function renderA() {
      </div>
      <button class="icon-btn ${A.right ? 'on' : ''}" onclick="aSet({right:!A.right})" title="显示/隐藏作用域栏">${I.sidebarR}</button>`);
 
-  return `${toolbar}<div class="a-body">${left}${center}${right}${drawer}</div>${A.scopeMenu ? aScopeMenu(sc) : ''}`;
+  return `${toolbar}<div class="a-body">${left}${center}${right}${drawer}</div>${A.scopeMenu ? aScopeMenu(sc) : ''}<div id="drag-ghost" class="drag-ghost"></div>`;
 }
 
 // 顶栏中间的作用域胶囊:未选时是虚线占位,选中后显示 Agent · 地方,点开是选择弹层,× 清除。
@@ -216,7 +239,15 @@ function aScopeMenu(sc) {
   </div>`;
 }
 
-function aPickScope(key) { A.scope = key; A.scopeMenu = false; render(); }
+function aPickScope(key) {
+  A.scope = key;
+  A.scopeMenu = false;
+  // 右栏同步展开到被选中的那一行,否则折叠的项目里看不到选中态。
+  const sc = parseScope(key);
+  if (sc.project_id) A.expanded.add(sc.project_id);
+  if (!agentsUsedIn(sc.project_id || 0).some(a => a.code === sc.agent)) A.moreAgents.add(sc.project_id || 0);
+  render();
+}
 
 function aOpen(id) { A.drawer = A.drawer === id ? null : id; render(); }
 
@@ -228,6 +259,116 @@ function aRerenderList() {
   el.replaceWith(tmp.querySelector('#a-list'));
   document.getElementById('a-count').replaceWith(tmp.querySelector('#a-count'));
 }
+
+async function aRefreshAll() {
+  const sc = parseScope(A.scope);
+  for (const a of activationsInScope(sc).filter(a => a.status !== 'current')) await api('Refresh', a.skill_id, sc);
+  await reload();
+  toast('已把该作用域的投影全部重写为当前版本');
+}
+
+// ---------- 拖放 ----------
+// 技能卡片 → 右栏作用域 = 独立激活;技能卡片 → 左栏组 = 加入分组;左栏组 → 右栏作用域 = 整组激活。
+// 拖动期间不能整页重绘(被拖的卡片节点一旦被替换,拖放就断了),悬停展开时只重绘右栏。
+let aDrag = null; // { kind: 'skill' | 'group', id }
+let aHoverEl = null;
+let aSpringTimer = null;
+
+function aDragStart(e, kind, id) {
+  aDrag = { kind, id };
+  e.dataTransfer.effectAllowed = 'copy';
+  e.dataTransfer.setData('text/plain', `${kind}:${id}`);
+  const ghost = document.getElementById('drag-ghost');
+  ghost.textContent = kind === 'skill' ? skillById(id).name : `组「${groupById(id).name}」· ${groupById(id).members.length} 个技能`;
+  e.dataTransfer.setDragImage(ghost, 12, 12);
+  // 在 dragstart 里同步改 DOM 会让部分引擎取消拖动,推迟一帧再高亮目标。
+  setTimeout(() => {
+    document.querySelector('.a-body')?.classList.add('dragging', 'drag-' + kind);
+    if (!A.right) { A.right = true; aRerenderRight(); }
+    aMarkTargets();
+  });
+}
+
+function aDragEnd() {
+  aDrag = null;
+  clearTimeout(aSpringTimer);
+  aHoverEl?.classList.remove('drop-hover');
+  aHoverEl = null;
+  document.querySelector('.a-body')?.classList.remove('dragging', 'drag-skill', 'drag-group');
+}
+
+// 标出"已经在那里"的目标:技能已在该作用域 / 组已整组激活 / 技能已在该组。
+function aMarkTargets() {
+  if (!aDrag) return;
+  for (const el of document.querySelectorAll('[data-drop-scope]')) {
+    const sc = parseScope(el.dataset.dropScope);
+    const already = aDrag.kind === 'skill' ? !!activationIn(aDrag.id, sc)?.individual : groupStateIn(groupById(aDrag.id), sc) === 'on';
+    el.classList.toggle('already', already);
+  }
+  for (const el of document.querySelectorAll('[data-drop-group]')) {
+    el.classList.toggle('already', aDrag.kind === 'skill' && groupById(+el.dataset.dropGroup).members.includes(aDrag.id));
+  }
+}
+
+function aRerenderRight() {
+  const el = document.getElementById('a-right');
+  if (!el) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderA();
+  el.replaceWith(tmp.querySelector('#a-right'));
+  aMarkTargets();
+}
+
+const aTarget = e => e.target.closest?.('[data-drop-scope],[data-drop-group],[data-spring]');
+
+document.addEventListener('dragover', e => {
+  if (!aDrag) return;
+  const t = aTarget(e);
+  if (t !== aHoverEl) {
+    aHoverEl?.classList.remove('drop-hover');
+    clearTimeout(aSpringTimer);
+    aHoverEl = t;
+    if (t && !(t.dataset.dropGroup && aDrag.kind === 'group')) t.classList.add('drop-hover');
+    // 悬停展开:折叠的项目行 / "其他 Agent"行停 500ms 后展开,只重绘右栏。
+    if (t?.dataset.spring) {
+      aSpringTimer = setTimeout(() => {
+        const [kind, id] = t.dataset.spring.split(':');
+        if (kind === 'proj') A.expanded.add(+id); else A.moreAgents.add(+id);
+        aHoverEl = null;
+        aRerenderRight();
+      }, 500);
+    }
+  }
+  if (!t || t.dataset.spring || (t.dataset.dropGroup && aDrag.kind === 'group')) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+
+document.addEventListener('drop', async e => {
+  if (!aDrag) return;
+  e.preventDefault();
+  const t = aTarget(e);
+  const d = aDrag;
+  aDragEnd();
+  if (t?.dataset.dropScope) {
+    const sc = parseScope(t.dataset.dropScope);
+    if (d.kind === 'skill') {
+      const name = skillById(d.id).name;
+      const act = activationIn(d.id, sc);
+      if (act?.individual) return toast(`${name} 已在 ${scopeLabel(sc)} 独立激活`);
+      if (await mutate('Activate', d.id, sc)) toast(act ? `${name} 已在 ${scopeLabel(sc)} 经由分组激活,现追加独立激活` : `已把 ${name} 激活到 ${scopeLabel(sc)}`);
+    } else {
+      const g = groupById(d.id);
+      if (groupStateIn(g, sc) === 'on') return toast(`「${g.name}」已整组激活在 ${scopeLabel(sc)}`);
+      if (await mutate('ActivateGroup', d.id, sc)) toast(`已把「${g.name}」整组激活到 ${scopeLabel(sc)}(${g.members.length} 个技能)`);
+    }
+  } else if (t?.dataset.dropGroup && d.kind === 'skill') {
+    const g = groupById(+t.dataset.dropGroup);
+    const name = skillById(d.id).name;
+    if (g.members.includes(d.id)) return toast(`${name} 已在「${g.name}」中`);
+    if (await mutate('AddSkillToGroup', g.id, d.id)) toast(`已把 ${name} 加入「${g.name}」(不会自动激活到该组已激活的作用域)`);
+  }
+});
 
 document.addEventListener('keydown', e => {
   if (current !== 'A') return;

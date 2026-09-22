@@ -316,10 +316,11 @@ function render() {
   root.className = 'window variant-' + current;
   root.innerHTML = VARIANTS[current].render();
   for (const [k, top] of scroll) { const el = root.querySelector(`[data-keep-scroll="${k}"]`); if (el) el.scrollTop = top; }
+  const many = variantKeys().length > 1;
   document.getElementById('switcher').innerHTML = `
-    <button onclick="cycle(-1)" title="上一个变体 (←)">‹</button>
+    ${many ? '<button onclick="cycle(-1)" title="上一个变体 (←)">‹</button>' : ''}
     <span><b>${current}</b> ${esc(VARIANTS[current].name)}</span>
-    <button onclick="cycle(1)" title="下一个变体 (→)">›</button>
+    ${many ? '<button onclick="cycle(1)" title="下一个变体 (→)">›</button>' : ''}
     <i class="sep"></i>
     <button class="agents-toggle" onclick="toggleManyAgents()" title="在 v1 的 2 个 Agent 与假设的 15 个 Agent 之间切换">Agent ×${S.agents.length}</button>`;
 }
