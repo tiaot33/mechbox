@@ -1,7 +1,7 @@
 // 变体 A · 设计稿三栏:从技能出发。沿用参考设计的骨架,只把假分类换成真实概念。
 // 左栏筛选 = 集合(按来源自动) + 组(用户自建场景);右栏绑定 = 全局 / 已登记项目 × Agent;
 // 选中一个作用域后,卡片上出现该作用域的激活开关,列表顶部出现作用域摘要(健康状态 + 整组开关)。
-// 拖放一律从中间拖出:技能卡片 → 右栏作用域 = 激活,→ 左栏组 = 加入;组标题条(筛选组时出现)→ 右栏作用域 = 整组激活。
+// 拖放:技能卡片 → 右栏作用域 = 激活,→ 左栏组 = 加入;组(左栏的组行,或筛选组时列表顶部的组标题条)→ 右栏作用域 = 整组激活。
 const A = {
   filter: { kind: 'all' },
   scope: null,
@@ -64,7 +64,8 @@ function renderA() {
       <div class="nav-sec"><span>组</span><button class="icon-btn sm" title="新建分组" onclick="newGroup()">${I.plus}</button></div>
       <ul class="nav">
         ${S.groups.map(g => `<li class="nav-item ${f.kind === 'group' && f.id === g.id ? 'active' : ''}" onclick="aFilter('group',${g.id})"
-            data-drop-group="${g.id}" title="点击筛选;把技能卡片拖到这里 = 加入本组">
+            draggable="true" ondragstart="aDragStart(event,'group',${g.id})" ondragend="aDragEnd()" data-drop-group="${g.id}"
+            title="点击筛选;拖到右侧作用域 = 整组激活;把技能卡片拖到这里 = 加入本组">
             ${I.layers}<span class="grow ellipsis">${esc(g.name)}</span><span class="count">${g.members.length}</span></li>`).join('')}
       </ul>
       <div class="grow"></div>
@@ -77,7 +78,7 @@ function renderA() {
   const sc = A.scope && parseScope(A.scope);
   const list = aSkills();
   // 组标题条:筛选某个组时出现在列表顶部,是"整组"这个对象在中间的把手。
-  // 拖动方向因此统一为"从中间拖出":卡片 = 单个技能,组标题条 = 整组;左栏 / 右栏只做放置目标。
+  // 左栏的组行同样可拖;两处都能拖,哪个顺手用哪个。
   const groupHead = f.kind === 'group' ? (() => {
     const g = groupById(f.id);
     const onScopes = [...new Set(S.activations.filter(a => a.via_groups.includes(g.id)).map(a => scopeKey(a.scope)))]
@@ -193,7 +194,7 @@ function renderA() {
             ${open ? agentRows(p.id) : ''}`;
         }).join('')}
       </ul>
-      <p class="hint pad">把技能卡片或组标题条拖到这里即可激活;拖到折叠的项目或"其他 Agent"上停一下会自动展开。点选一个作用域,卡片上会出现它的激活开关。</p>
+      <p class="hint pad">把技能卡片或组拖到这里即可激活;拖到折叠的项目或"其他 Agent"上停一下会自动展开。点选一个作用域,卡片上会出现它的激活开关。</p>
     </aside>`;
 
   const drawer = A.drawer ? `
@@ -281,7 +282,7 @@ async function aRefreshAll() {
 }
 
 // ---------- 拖放 ----------
-// 技能卡片 → 右栏作用域 = 独立激活;技能卡片 → 左栏组 = 加入分组;组标题条 → 右栏作用域 = 整组激活。
+// 技能卡片 → 右栏作用域 = 独立激活;技能卡片 → 左栏组 = 加入分组;左栏组行 / 组标题条 → 右栏作用域 = 整组激活。
 // 拖动期间不能整页重绘(被拖的卡片节点一旦被替换,拖放就断了),悬停展开时只重绘右栏。
 let aDrag = null; // { kind: 'skill' | 'group', id }
 let aHoverEl = null;
