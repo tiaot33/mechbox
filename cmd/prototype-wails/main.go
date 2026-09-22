@@ -1,4 +1,4 @@
-// PROTOTYPE —— 用完即弃。Wails 桌面端 UI 原型:三个结构不同的变体,
+// PROTOTYPE —— 用完即弃。Wails 桌面端 UI 原型:两个结构不同的变体(矩阵变体已排除,见 README),
 // 回答"设计稿(skill-manager-electron-2.html)的外观下,集合 / 组 / Scope / 激活该怎么组织"。
 // 数据来自 stub.go 的内存桩服务(复用 library 包的真实类型),不连真实 Library、不写磁盘。
 //
