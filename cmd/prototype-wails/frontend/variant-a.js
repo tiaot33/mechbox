@@ -12,6 +12,7 @@ const A = {
   right: true,
   expanded: new Set([1]),
   moreAgents: new Set(), // 展开了"其他 Agent"的地方:0 = 全局,否则项目 ID
+  scopeMenu: false, // 顶栏作用域弹层是否打开
 };
 
 VARIANTS.A = { name: '设计稿三栏', render: renderA };
@@ -115,17 +116,6 @@ function renderA() {
 
   const center = `
     <main class="a-center tile">
-      <div class="a-head">
-        <span class="a-title">${esc(aTitle())}</span>
-        <label class="search">${I.search}<input placeholder="搜索技能…" value="${esc(A.q)}" oninput="A.q=this.value;aRerenderList()"></label>
-        <label class="toggle-label ${sc ? '' : 'disabled'}" title="${sc ? '' : '先在右侧选择一个作用域'}">
-          ${switchHtml(A.activeOnly, sc ? 'aSet({activeOnly:!A.activeOnly})' : '')}<span>仅已激活</span></label>
-        <div class="seg">
-          <button class="${A.view === 'list' ? 'on' : ''}" onclick="aSet({view:'list'})">列表</button>
-          <button class="${A.view === 'card' ? 'on' : ''}" onclick="aSet({view:'card'})">卡片</button>
-        </div>
-      </div>
-      ${sc ? `<div class="scope-strip"><span>当前作用域</span>${agentMark(sc.agent)}<b>${esc(scopeLabel(sc))}</b><span class="mono tiny muted">${esc(scopeDir(sc))}</span><button class="link" onclick="aScope('${A.scope}')">取消选择</button></div>` : ''}
       ${groupBanner}
       <div class="a-list ${A.view}" id="a-list" data-keep-scroll="a-list">${list.map(card).join('') || '<div class="empty">没有匹配的技能</div>'}</div>
     </main>`;
@@ -178,13 +168,55 @@ function renderA() {
       ${renderDetail(A.drawer, { scopes: true })}
     </aside>` : '';
 
-  return `
-    ${titlebar(
-      `<button class="icon-btn" onclick="aSet({left:!A.left})" title="显示/隐藏侧栏">${I.sidebarL}</button>`,
-      `<span class="tb-title">${esc(aTitle())}</span>`,
-      `<button class="icon-btn" onclick="aSet({right:!A.right})" title="显示/隐藏作用域栏">${I.sidebarR}</button>`)}
-    <div class="a-body">${left}${center}${right}${drawer}</div>`;
+  // 统一工具栏:左 = 侧栏开关 + 当前筛选;中 = 作用域胶囊(A 最关键的状态);右 = 搜索与视图控制 + 右栏开关。
+  // 原来列表面板里的标题行和"当前作用域"横条都并进这里,列表直接从卡片开始。
+  const toolbar = titlebar(
+    `<button class="icon-btn ${A.left ? 'on' : ''}" onclick="aSet({left:!A.left})" title="显示/隐藏侧栏">${I.sidebarL}</button>
+     <span class="tb-crumb"><b>${esc(aTitle())}</b><span class="count" id="a-count">${list.length}</span></span>`,
+    aScopePill(sc),
+    `<label class="search tb-search">${I.search}<input id="a-search" placeholder="搜索技能" value="${esc(A.q)}" oninput="A.q=this.value;aRerenderList()"><kbd>⌘K</kbd></label>
+     ${sc ? `<label class="toggle-label" title="只看在 ${esc(scopeLabel(sc))} 已激活的技能">${switchHtml(A.activeOnly, 'aSet({activeOnly:!A.activeOnly})')}<span>仅已激活</span></label>` : ''}
+     <div class="seg icon-seg">
+       <button class="${A.view === 'list' ? 'on' : ''}" onclick="aSet({view:'list'})" title="列表">${I.list}</button>
+       <button class="${A.view === 'card' ? 'on' : ''}" onclick="aSet({view:'card'})" title="卡片">${I.grid}</button>
+     </div>
+     <button class="icon-btn ${A.right ? 'on' : ''}" onclick="aSet({right:!A.right})" title="显示/隐藏作用域栏">${I.sidebarR}</button>`);
+
+  return `${toolbar}<div class="a-body">${left}${center}${right}${drawer}</div>${A.scopeMenu ? aScopeMenu(sc) : ''}`;
 }
+
+// 顶栏中间的作用域胶囊:未选时是虚线占位,选中后显示 Agent · 地方,点开是选择弹层,× 清除。
+function aScopePill(sc) {
+  if (!sc) return `<button class="scope-pill empty ${A.scopeMenu ? 'open' : ''}" onclick="aSet({scopeMenu:!A.scopeMenu})">${I.globe}<span>选择作用域</span>${I.down}</button>`;
+  const issues = activationsInScope(sc).filter(a => a.status !== 'current').length;
+  return `<div class="scope-pill ${A.scopeMenu ? 'open' : ''}" title="${esc(scopeDir(sc))}">
+    <button class="scope-pill-main" onclick="aSet({scopeMenu:!A.scopeMenu})">
+      ${agentMark(sc.agent)}<b>${esc(agentName(sc.agent))}</b><span class="muted">· ${sc.project_id ? esc(projectName(sc.project_id)) : '全局'}</span>
+      ${issues ? `<span class="status warn">${issues}</span>` : ''}${I.down}
+    </button>
+    <button class="scope-pill-clear" onclick="aScope('${A.scope}')" title="取消选择作用域">${I.close}</button>
+  </div>`;
+}
+
+// 作用域弹层:按地方分组,只列在用的 Agent,其余 Agent 用每处一个下拉补上。
+function aScopeMenu(sc) {
+  const places = [{ id: 0, name: '全局', path: '~' }, ...S.projects.map(p => ({ id: p.id, name: projectName(p.id), path: shortPath(p.path) }))];
+  return `<div class="menu-scrim" onclick="aSet({scopeMenu:false})"></div>
+  <div class="scope-menu">
+    ${places.map(p => {
+      const used = agentsUsedIn(p.id);
+      const rest = S.agents.filter(a => !used.includes(a));
+      const key = a => scopeKey(p.id ? { agent: a.code, project_id: p.id } : { agent: a.code });
+      return `<div class="sm-place"><span>${p.id ? I.folder : I.globe}${esc(p.name)}</span><span class="mono tiny muted">${esc(p.path)}</span></div>
+        ${used.map(a => { const n = S.activations.filter(x => scopeKey(x.scope) === key(a)).length;
+          return `<button class="sm-item ${A.scope === key(a) ? 'on' : ''}" onclick="aPickScope('${key(a)}')">${agentMark(a.code)}<span class="grow">${esc(a.name)}</span><span class="count">${n}</span></button>`; }).join('')}
+        ${rest.length ? `<select class="sm-more" onchange="this.value && aPickScope(this.value)"><option value="">+ 其他 ${rest.length} 个 Agent</option>${rest.map(a => `<option value="${key(a)}">${esc(a.name)}</option>`).join('')}</select>` : ''}`;
+    }).join('')}
+    ${sc ? `<div class="sm-foot"><span class="mono tiny muted">${esc(scopeDir(sc))}</span><button class="link" onclick="aScope('${A.scope}');aSet({scopeMenu:false})">清除</button></div>` : ''}
+  </div>`;
+}
+
+function aPickScope(key) { A.scope = key; A.scopeMenu = false; render(); }
 
 function aOpen(id) { A.drawer = A.drawer === id ? null : id; render(); }
 
@@ -194,6 +226,12 @@ function aRerenderList() {
   const tmp = document.createElement('div');
   tmp.innerHTML = renderA();
   el.replaceWith(tmp.querySelector('#a-list'));
+  document.getElementById('a-count').replaceWith(tmp.querySelector('#a-count'));
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && current === 'A' && A.drawer) aSet({ drawer: null }); });
+document.addEventListener('keydown', e => {
+  if (current !== 'A') return;
+  if (e.key === 'Escape' && A.scopeMenu) return aSet({ scopeMenu: false });
+  if (e.key === 'Escape' && A.drawer) return aSet({ drawer: null });
+  if (e.key === 'k' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); document.getElementById('a-search')?.focus(); }
+});
