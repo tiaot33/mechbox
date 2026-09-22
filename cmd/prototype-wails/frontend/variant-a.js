@@ -1,0 +1,182 @@
+// 变体 A · 设计稿三栏:沿用参考设计的骨架,只把假分类换成真实概念。
+// 左栏筛选 = 集合(按来源自动) + 组(用户自建场景);右栏绑定 = 全局 / 已登记项目 × Agent;
+// 在右栏选中一个作用域后,卡片上直接出现该作用域的激活开关。点卡片打开右侧详情抽屉。
+const A = {
+  filter: { kind: 'all' },
+  scope: null,
+  q: '',
+  activeOnly: false,
+  view: 'card',
+  drawer: null,
+  left: true,
+  right: true,
+  expanded: new Set([1]),
+};
+
+VARIANTS.A = { name: '设计稿三栏', render: renderA };
+
+function aSkills() {
+  let list = S.skills;
+  const f = A.filter;
+  if (f.kind === 'collection') list = list.filter(s => s.source.id === f.id);
+  if (f.kind === 'group') list = list.filter(s => groupById(f.id).members.includes(s.id));
+  if (f.kind === 'updates') list = list.filter(s => s.update_available);
+  if (A.q) list = list.filter(s => (s.name + s.description).toLowerCase().includes(A.q.toLowerCase()));
+  if (A.activeOnly && A.scope) list = list.filter(s => activationIn(s.id, parseScope(A.scope)));
+  return list;
+}
+
+function aTitle() {
+  const f = A.filter;
+  if (f.kind === 'collection') return sourceLabel(S.collections.find(c => c.source.id === f.id).source);
+  if (f.kind === 'group') return groupById(f.id).name;
+  if (f.kind === 'updates') return '有可用更新';
+  return '所有技能';
+}
+
+function aSet(patch) { Object.assign(A, patch); render(); }
+function aFilter(kind, id) { A.filter = A.filter.kind === kind && A.filter.id === id && kind !== 'all' ? { kind: 'all' } : { kind, id }; render(); }
+function aScope(key) { A.scope = A.scope === key ? null : key; if (!A.scope) A.activeOnly = false; render(); }
+function aToggleProject(id) { A.expanded.has(id) ? A.expanded.delete(id) : A.expanded.add(id); render(); }
+
+function renderA() {
+  const f = A.filter;
+  const row = (active, onclick, icon, label, count, extra = '') =>
+    `<li class="nav-item ${active ? 'active' : ''}" onclick="${onclick}">${icon}<span class="grow ellipsis">${label}</span>${extra}<span class="count">${count}</span></li>`;
+  const updates = S.skills.filter(s => s.update_available).length;
+
+  const left = `
+    <aside class="a-left ${A.left ? '' : 'collapsed'}">
+      <button class="side-btn" onclick="stub('安装技能')">${I.plus}<span>安装技能</span></button>
+      <button class="side-btn" onclick="stub('技能市场搜索')">${I.tag}<span>技能市场</span></button>
+      <ul class="nav">
+        ${row(f.kind === 'all', "aFilter('all')", I.bolt, '所有技能', S.skills.length)}
+        ${updates ? row(f.kind === 'updates', "aFilter('updates')", I.up, '有可用更新', updates, '') : ''}
+      </ul>
+      <div class="nav-sec"><span>集合</span><span class="muted tiny">按来源</span></div>
+      <ul class="nav">
+        ${S.collections.map(c => row(f.kind === 'collection' && f.id === c.source.id, `aFilter('collection',${c.source.id})`, SOURCE_ICON[c.source.type], esc(sourceLabel(c.source)), c.skills.length)).join('')}
+      </ul>
+      <div class="nav-sec"><span>组</span><button class="icon-btn sm" title="新建分组" onclick="newGroup()">${I.plus}</button></div>
+      <ul class="nav">
+        ${S.groups.map(g => row(f.kind === 'group' && f.id === g.id, `aFilter('group',${g.id})`, I.layers, esc(g.name), g.members.length)).join('')}
+      </ul>
+      <div class="grow"></div>
+      <ul class="nav">
+        <li class="nav-item" onclick="stub('S3 同步')">${I.cloud}<span class="grow">同步</span><span class="muted tiny">手动</span></li>
+        <li class="nav-item" onclick="stub('设置')">${I.gear}<span class="grow">设置</span></li>
+      </ul>
+    </aside>`;
+
+  const sc = A.scope && parseScope(A.scope);
+  const list = aSkills();
+  const groupBanner = f.kind === 'group' ? (() => {
+    const g = groupById(f.id);
+    if (!sc) return `<div class="banner">分组是激活单元:在右侧选一个作用域,即可把「${esc(g.name)}」整组激活进去。</div>`;
+    const st = groupStateIn(g, sc);
+    return `<div class="banner ${st}">
+      <span>「${esc(g.name)}」在 <b>${esc(scopeLabel(sc))}</b>:${st === 'on' ? '已整组激活' : st === 'partial' ? '部分成员经由本组激活' : '未激活'}</span>
+      <button class="pill-btn ${st === 'on' ? '' : 'accent'}" onclick="toggleGroup(${g.id},'${A.scope}')">${st === 'on' ? '停用整组' : '整组激活'}</button>
+    </div>`;
+  })() : '';
+
+  const card = s => {
+    const acts = activationsOf(s.id);
+    const globals = acts.filter(a => !a.scope.project_id).map(a => agentName(a.scope.agent));
+    const projects = new Set(acts.filter(a => a.scope.project_id).map(a => a.scope.project_id)).size;
+    const bad = acts.some(a => a.status !== 'current');
+    const act = sc && activationIn(s.id, sc);
+    const groups = S.groups.filter(g => g.members.includes(s.id));
+    return `<article class="a-card ${A.drawer === s.id ? 'selected' : ''}" onclick="aOpen(${s.id})">
+      <div class="a-card-top">
+        <span class="a-card-name">${esc(s.name)}</span>
+        ${s.update_available ? `<span class="badge warn" title="来源有新版本">可更新</span>` : ''}
+        <span class="badge" title="${SOURCE_KIND[s.source.type]}">${esc(sourceShort(s.source))}</span>
+      </div>
+      <p class="a-card-desc">${esc(s.description)}</p>
+      ${A.view === 'card' && groups.length ? `<div class="a-card-groups">${groups.map(g => `<span>${esc(g.name)}</span>`).join('')}</div>` : ''}
+      <div class="a-card-foot">
+        ${sc ? `
+          ${switchHtml(!!act?.individual, `toggleIndividual(${s.id},'${A.scope}')`)}
+          <span class="tiny">${act ? (act.individual ? '独立激活' : '') + (act.via_groups.length ? `${act.individual ? ' + ' : ''}经由「${act.via_groups.map(g => esc(groupById(g).name)).join('」「')}」` : '') : '未激活'}</span>
+          ${act && act.status !== 'current' ? `<span class="status ${STATUS[act.status].tone}">${STATUS[act.status].label}</span>` : ''}
+        ` : `
+          <span class="dot ${acts.length ? (bad ? 'warn' : 'on') : ''}"></span>
+          <span class="tiny">${globals.length ? '全局 ' + globals.join(' / ') : '未全局激活'}</span>
+          <span class="grow"></span>
+          <span class="tiny muted">${projects} 个项目</span>
+        `}
+      </div>
+    </article>`;
+  };
+
+  const center = `
+    <main class="a-center tile">
+      <div class="a-head">
+        <span class="a-title">${esc(aTitle())}</span>
+        <label class="search">${I.search}<input placeholder="搜索技能…" value="${esc(A.q)}" oninput="A.q=this.value;aRerenderList()"></label>
+        <label class="toggle-label ${sc ? '' : 'disabled'}" title="${sc ? '' : '先在右侧选择一个作用域'}">
+          ${switchHtml(A.activeOnly, sc ? 'aSet({activeOnly:!A.activeOnly})' : '')}<span>仅已激活</span></label>
+        <div class="seg">
+          <button class="${A.view === 'list' ? 'on' : ''}" onclick="aSet({view:'list'})">列表</button>
+          <button class="${A.view === 'card' ? 'on' : ''}" onclick="aSet({view:'card'})">卡片</button>
+        </div>
+      </div>
+      ${sc ? `<div class="scope-strip"><span>当前作用域</span><b>${esc(scopeLabel(sc))}</b><span class="mono tiny muted">${esc(shortPath(sc.project_id ? projectById(sc.project_id).path : '~'))}/${sc.agent === 'codex' ? '.agents' : '.claude'}/skills</span><button class="link" onclick="aScope('${A.scope}')">取消选择</button></div>` : ''}
+      ${groupBanner}
+      <div class="a-list ${A.view}" id="a-list" data-keep-scroll="a-list">${list.map(card).join('') || '<div class="empty">没有匹配的技能</div>'}</div>
+    </main>`;
+
+  const scopeRow = (s, indent) => {
+    const key = scopeKey(s);
+    const acts = activationsInScope(s);
+    const issues = acts.filter(a => a.status !== 'current').length;
+    return `<li class="nav-item ${indent ? 'sub' : ''} ${A.scope === key ? 'active' : ''}" onclick="aScope('${key}')">
+      <span class="agent-mark ${s.agent}"></span><span class="grow">${esc(agentName(s.agent))}</span>
+      ${issues ? `<span class="status warn" title="${issues} 条投影与当前版本不一致">${issues}</span>` : ''}
+      <span class="count">${acts.length}</span></li>`;
+  };
+  const right = `
+    <aside class="a-right ${A.right ? '' : 'collapsed'}">
+      <div class="nav-sec"><span>${I.globe} 全局</span></div>
+      <ul class="nav">${S.agents.map(a => scopeRow({ agent: a.code }, true)).join('')}</ul>
+      <div class="nav-sec"><span>${I.folder} 已登记项目</span><button class="icon-btn sm" title="登记项目" onclick="stub('登记项目')">${I.plus}</button></div>
+      <ul class="nav">
+        ${S.projects.map(p => {
+          const open = A.expanded.has(p.id);
+          const n = S.activations.filter(a => a.scope.project_id === p.id).length;
+          return `<li class="nav-item proj ${open ? 'open' : ''}" onclick="aToggleProject(${p.id})" title="${esc(p.path)}">
+              ${I.folder}<span class="grow ellipsis">${esc(projectName(p.id))}</span><span class="count">${n}</span><span class="chev">${I.chev}</span></li>
+            ${open ? S.agents.map(a => scopeRow({ agent: a.code, project_id: p.id }, true)).join('') : ''}`;
+        }).join('')}
+      </ul>
+      <p class="hint pad">选中一个作用域,卡片上会出现它的激活开关。</p>
+    </aside>`;
+
+  const drawer = A.drawer ? `
+    <div class="scrim" onclick="aSet({drawer:null})"></div>
+    <aside class="drawer" data-keep-scroll="a-drawer">
+      <div class="drawer-head"><span class="muted">技能详情</span><span class="grow"></span>
+        <button class="icon-btn" onclick="aSet({drawer:null})">${I.close}</button></div>
+      ${renderDetail(A.drawer, { scopes: true })}
+    </aside>` : '';
+
+  return `
+    ${titlebar(
+      `<button class="icon-btn" onclick="aSet({left:!A.left})" title="显示/隐藏侧栏">${I.sidebarL}</button>`,
+      `<span class="tb-title">${esc(aTitle())}</span>`,
+      `<button class="icon-btn" onclick="aSet({right:!A.right})" title="显示/隐藏作用域栏">${I.sidebarR}</button>`)}
+    <div class="a-body">${left}${center}${right}${drawer}</div>`;
+}
+
+function aOpen(id) { A.drawer = A.drawer === id ? null : id; render(); }
+
+// 搜索时只重绘列表,保持输入框焦点。
+function aRerenderList() {
+  const el = document.getElementById('a-list');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderA();
+  el.replaceWith(tmp.querySelector('#a-list'));
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && current === 'A' && A.drawer) aSet({ drawer: null }); });
