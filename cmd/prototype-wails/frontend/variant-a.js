@@ -11,6 +11,7 @@ const A = {
   left: true,
   right: true,
   expanded: new Set([1]),
+  moreAgents: new Set(), // 展开了"其他 Agent"的地方:0 = 全局,否则项目 ID
 };
 
 VARIANTS.A = { name: '设计稿三栏', render: renderA };
@@ -38,6 +39,7 @@ function aSet(patch) { Object.assign(A, patch); render(); }
 function aFilter(kind, id) { A.filter = A.filter.kind === kind && A.filter.id === id && kind !== 'all' ? { kind: 'all' } : { kind, id }; render(); }
 function aScope(key) { A.scope = A.scope === key ? null : key; if (!A.scope) A.activeOnly = false; render(); }
 function aToggleProject(id) { A.expanded.has(id) ? A.expanded.delete(id) : A.expanded.add(id); render(); }
+function aToggleMore(place) { A.moreAgents.has(place) ? A.moreAgents.delete(place) : A.moreAgents.add(place); render(); }
 
 function renderA() {
   const f = A.filter;
@@ -82,7 +84,7 @@ function renderA() {
 
   const card = s => {
     const acts = activationsOf(s.id);
-    const globals = acts.filter(a => !a.scope.project_id).map(a => agentName(a.scope.agent));
+    const globals = acts.filter(a => !a.scope.project_id).map(a => a.scope.agent);
     const projects = new Set(acts.filter(a => a.scope.project_id).map(a => a.scope.project_id)).size;
     const bad = acts.some(a => a.status !== 'current');
     const act = sc && activationIn(s.id, sc);
@@ -102,7 +104,8 @@ function renderA() {
           ${act && act.status !== 'current' ? `<span class="status ${STATUS[act.status].tone}">${STATUS[act.status].label}</span>` : ''}
         ` : `
           <span class="dot ${acts.length ? (bad ? 'warn' : 'on') : ''}"></span>
-          <span class="tiny">${globals.length ? '全局 ' + globals.join(' / ') : '未全局激活'}</span>
+          <span class="tiny">${globals.length ? '全局' : '未全局激活'}</span>
+          ${globals.length ? `<span class="marks" title="${esc(globals.map(agentName).join('、'))}">${globals.slice(0, 4).map(agentMark).join('')}${globals.length > 4 ? `<span class="tiny muted">+${globals.length - 4}</span>` : ''}</span>` : ''}
           <span class="grow"></span>
           <span class="tiny muted">${projects} 个项目</span>
         `}
@@ -122,35 +125,49 @@ function renderA() {
           <button class="${A.view === 'card' ? 'on' : ''}" onclick="aSet({view:'card'})">卡片</button>
         </div>
       </div>
-      ${sc ? `<div class="scope-strip"><span>当前作用域</span><b>${esc(scopeLabel(sc))}</b><span class="mono tiny muted">${esc(shortPath(sc.project_id ? projectById(sc.project_id).path : '~'))}/${sc.agent === 'codex' ? '.agents' : '.claude'}/skills</span><button class="link" onclick="aScope('${A.scope}')">取消选择</button></div>` : ''}
+      ${sc ? `<div class="scope-strip"><span>当前作用域</span>${agentMark(sc.agent)}<b>${esc(scopeLabel(sc))}</b><span class="mono tiny muted">${esc(scopeDir(sc))}</span><button class="link" onclick="aScope('${A.scope}')">取消选择</button></div>` : ''}
       ${groupBanner}
       <div class="a-list ${A.view}" id="a-list" data-keep-scroll="a-list">${list.map(card).join('') || '<div class="empty">没有匹配的技能</div>'}</div>
     </main>`;
 
-  const scopeRow = (s, indent) => {
+  const scopeRow = (s, dim = false) => {
     const key = scopeKey(s);
     const acts = activationsInScope(s);
     const issues = acts.filter(a => a.status !== 'current').length;
-    return `<li class="nav-item ${indent ? 'sub' : ''} ${A.scope === key ? 'active' : ''}" onclick="aScope('${key}')">
-      <span class="agent-mark ${s.agent}"></span><span class="grow">${esc(agentName(s.agent))}</span>
+    return `<li class="nav-item sub ${dim ? 'dim' : ''} ${A.scope === key ? 'active' : ''}" onclick="aScope('${key}')">
+      ${agentMark(s.agent)}<span class="grow">${esc(agentName(s.agent))}</span>
       ${issues ? `<span class="status warn" title="${issues} 条投影与当前版本不一致">${issues}</span>` : ''}
-      <span class="count">${acts.length}</span></li>`;
+      ${acts.length ? `<span class="count">${acts.length}</span>` : ''}</li>`;
+  };
+  // 每个地方只展开"用到的 Agent"(有激活,或正被选中);其余折进"+ 其他 N 个 Agent",展开后淡色显示。
+  const agentRows = place => {
+    const selected = A.scope && parseScope(A.scope);
+    const shown = S.agents.filter(a => agentsUsedIn(place).includes(a) || (selected && selected.agent === a.code && (selected.project_id || 0) === place));
+    const rest = S.agents.filter(a => !shown.includes(a));
+    const scope = a => place ? { agent: a.code, project_id: place } : { agent: a.code };
+    const more = A.moreAgents.has(place);
+    return shown.map(a => scopeRow(scope(a))).join('')
+      + (rest.length ? `<li class="nav-item sub more" onclick="aToggleMore(${place})">${I.plus}<span class="grow">${more ? '收起' : `其他 ${rest.length} 个 Agent`}</span></li>` : '')
+      + (more ? rest.map(a => scopeRow(scope(a), true)).join('') : '');
   };
   const right = `
     <aside class="a-right ${A.right ? '' : 'collapsed'}">
       <div class="nav-sec"><span>${I.globe} 全局</span></div>
-      <ul class="nav">${S.agents.map(a => scopeRow({ agent: a.code }, true)).join('')}</ul>
+      <ul class="nav">${agentRows(0)}</ul>
       <div class="nav-sec"><span>${I.folder} 已登记项目</span><button class="icon-btn sm" title="登记项目" onclick="stub('登记项目')">${I.plus}</button></div>
       <ul class="nav">
         ${S.projects.map(p => {
           const open = A.expanded.has(p.id);
           const n = S.activations.filter(a => a.scope.project_id === p.id).length;
+          const used = agentsUsedIn(p.id);
           return `<li class="nav-item proj ${open ? 'open' : ''}" onclick="aToggleProject(${p.id})" title="${esc(p.path)}">
-              ${I.folder}<span class="grow ellipsis">${esc(projectName(p.id))}</span><span class="count">${n}</span><span class="chev">${I.chev}</span></li>
-            ${open ? S.agents.map(a => scopeRow({ agent: a.code, project_id: p.id }, true)).join('') : ''}`;
+              ${I.folder}<span class="grow ellipsis">${esc(projectName(p.id))}</span>
+              ${open ? '' : `<span class="marks">${used.map(a => agentMark(a.code)).join('')}</span>`}
+              <span class="count">${n}</span><span class="chev">${I.chev}</span></li>
+            ${open ? agentRows(p.id) : ''}`;
         }).join('')}
       </ul>
-      <p class="hint pad">选中一个作用域,卡片上会出现它的激活开关。</p>
+      <p class="hint pad">选中一个作用域,卡片上会出现它的激活开关。每处只列出已在用的 Agent。</p>
     </aside>`;
 
   const drawer = A.drawer ? `

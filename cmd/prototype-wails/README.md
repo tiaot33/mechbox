@@ -14,7 +14,13 @@ go run -tags desktop,production ./cmd/prototype-wails
 go run ./cmd/prototype-wails -browser    # 打开 http://localhost:34115/?variant=A
 ```
 
-底部深色胶囊或 ← / → 键切换变体。
+底部深色胶囊或 ← / → 键切换变体;胶囊右侧的 `Agent ×2 / ×15` 在 v1 的 2 个 Agent 与 15 个 Agent(除 Claude Code / Codex 外均为假设)之间切换，用来检验布局能否随 Agent 数增长。
+
+## Agent 数量增长时的两种处理
+
+- **A · 只展开用到的 Agent**:右栏每个地方(全局 / 项目)只列有激活的 Agent,其余折进"+ 其他 N 个 Agent";项目行折叠时用小图标显示在用的 Agent。
+- **B · 分两步选**:左栏只选地方(行数只随项目数增长),Agent 在主区顶部标签里选，只给在用的 Agent 开标签，其余在"+ 其他 N 个 Agent"下拉里。
+- 两者共用：详情里的激活表只列已激活的作用域，新增用"激活到 [地方] [Agent]"选择器(Agent 下拉把此处已在用的排前面);技能库 / 卡片按地方汇总，不再按全部作用域平铺。
 
 ## 变体
 

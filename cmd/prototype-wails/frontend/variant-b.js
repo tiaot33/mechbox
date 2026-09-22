@@ -7,22 +7,52 @@ VARIANTS.B = { name: '作用域优先', render: renderB };
 
 function bSet(patch) { Object.assign(B, patch); render(); }
 
+// 切换地方时,沿用当前 Agent(若它在新地方也在用),否则取新地方第一个在用的 Agent。
+function bPlace(place) {
+  const agent = parseScope(B.scope).agent;
+  const used = agentsUsedIn(place).map(a => a.code);
+  const next = used.includes(agent) ? agent : used[0] || agent;
+  bSet({ scope: scopeKey(place ? { agent: next, project_id: place } : { agent: next }), library: false });
+}
+function bAgent(code) {
+  const sc = parseScope(B.scope);
+  bSet({ scope: scopeKey({ ...sc, agent: code }) });
+}
+
+// 第二步:主区顶部选 Agent。只给在用的 Agent 开标签,其余收进下拉。
+function bAgentTabs(sc) {
+  const place = sc.project_id || 0;
+  const used = agentsUsedIn(place);
+  const tabs = used.some(a => a.code === sc.agent) ? used : [...used, S.agents.find(a => a.code === sc.agent)];
+  const rest = S.agents.filter(a => !tabs.includes(a));
+  return `<div class="b-tabs">
+    ${tabs.map(a => {
+      const acts = activationsInScope({ ...sc, agent: a.code });
+      const issues = acts.filter(x => x.status !== 'current').length;
+      return `<button class="b-tab ${a.code === sc.agent ? 'on' : ''}" onclick="bAgent('${a.code}')">${agentMark(a.code)}${esc(a.name)}
+        ${issues ? `<span class="status warn">${issues}</span>` : ''}<span class="count">${acts.length}</span></button>`;
+    }).join('')}
+    ${rest.length ? `<select class="b-more" onchange="this.value && bAgent(this.value)">
+      <option value="">+ 其他 ${rest.length} 个 Agent</option>${rest.map(a => `<option value="${a.code}">${esc(a.name)}</option>`).join('')}</select>` : ''}
+  </div>`;
+}
+
 function renderB() {
-  const scopeItem = s => {
-    const key = scopeKey(s);
-    const acts = activationsInScope(s);
+  // 第一步:左栏只选"地方"(全局或某个项目),行数只随项目数增长,与 Agent 数量无关。
+  const place = +(parseScope(B.scope).project_id || 0);
+  const placeItem = (p, icon, label, title = '') => {
+    const acts = S.activations.filter(a => (a.scope.project_id || 0) === p);
     const issues = acts.filter(a => a.status !== 'current').length;
-    return `<li class="nav-item sub ${!B.library && B.scope === key ? 'active' : ''}" onclick="bSet({scope:'${key}',library:false})">
-      <span class="agent-mark ${s.agent}"></span><span class="grow">${esc(agentName(s.agent))}</span>
+    return `<li class="nav-item b-place ${!B.library && place === p ? 'active' : ''}" onclick="bPlace(${p})" title="${esc(title)}">
+      ${icon}<span class="grow ellipsis">${esc(label)}</span>
+      <span class="marks">${agentsUsedIn(p).map(a => agentMark(a.code)).join('')}</span>
       ${issues ? `<span class="status warn">${issues}</span>` : ''}<span class="count">${acts.length}</span></li>`;
   };
   const left = `
     <aside class="b-left">
-      <div class="nav-sec"><span>${I.globe} 全局</span></div>
-      <ul class="nav">${S.agents.map(a => scopeItem({ agent: a.code })).join('')}</ul>
-      ${S.projects.map(p => `
-        <div class="nav-sec" title="${esc(p.path)}"><span>${I.folder} ${esc(projectName(p.id))}</span></div>
-        <ul class="nav">${S.agents.map(a => scopeItem({ agent: a.code, project_id: p.id })).join('')}</ul>`).join('')}
+      <ul class="nav">${placeItem(0, I.globe, '全局', '~')}</ul>
+      <div class="nav-sec"><span>已登记项目</span></div>
+      <ul class="nav">${S.projects.map(p => placeItem(p.id, I.folder, projectName(p.id), p.path)).join('')}</ul>
       <button class="side-btn ghost" onclick="stub('登记项目')">${I.plus}<span>登记项目</span></button>
       <div class="grow"></div>
       <ul class="nav">
@@ -51,7 +81,7 @@ function bScope() {
   const sc = parseScope(B.scope);
   const acts = activationsInScope(sc).sort((x, y) => skillById(x.skill_id).name.localeCompare(skillById(y.skill_id).name));
   const issues = acts.filter(a => a.status !== 'current');
-  const dir = `${shortPath(sc.project_id ? projectById(sc.project_id).path : '~')}/${sc.agent === 'codex' ? '.agents' : '.claude'}/skills`;
+  const dir = scopeDir(sc);
 
   const groups = S.groups.map(g => {
     const st = groupStateIn(g, sc);
@@ -83,9 +113,14 @@ function bScope() {
 
   return `
     <main class="b-main tile" data-keep-scroll="b-main">
+      <div class="b-place-head">
+        <h1>${sc.project_id ? esc(projectName(sc.project_id)) : '全局'}</h1>
+        <span class="mono tiny muted">${esc(shortPath(sc.project_id ? projectById(sc.project_id).path : '~'))}</span>
+      </div>
+      ${bAgentTabs(sc)}
       <div class="b-hero">
         <div>
-          <h1>${esc(scopeLabel(sc))}</h1>
+          <h2>${agentMark(sc.agent)} ${esc(agentName(sc.agent))}</h2>
           <div class="mono tiny muted">${esc(dir)}</div>
         </div>
         <div class="b-health">
@@ -129,7 +164,12 @@ function bLibrary() {
         const acts = activationsOf(s.id);
         return `<div class="b-pool-item ${B.selected === s.id ? 'selected' : ''}" onclick="bSet({selected:${s.id}})">
           <div class="grow"><b>${esc(s.name)}</b>${s.update_available ? ' <span class="badge warn">可更新</span>' : ''}<div class="tiny muted ellipsis">${esc(s.description)}</div></div>
-          <div class="scope-dots">${allScopes().map(sc => { const a = activationIn(s.id, sc); return `<i class="${a ? (a.status === 'current' ? 'on' : 'warn') : ''}" title="${esc(scopeLabel(sc))}"></i>`; }).join('')}</div>
+          <div class="place-sum">${[0, ...S.projects.map(p => p.id)].map(p => {
+            const here = acts.filter(a => (a.scope.project_id || 0) === p);
+            if (!here.length) return '';
+            const warn = here.some(a => a.status !== 'current');
+            return `<span class="${warn ? 'warn' : ''}" title="${esc(here.map(a => agentName(a.scope.agent)).join('、'))}">${p ? esc(projectName(p)) : '全局'}<span class="marks">${here.map(a => agentMark(a.scope.agent)).join('')}</span></span>`;
+          }).join('')}</div>
           <span class="tiny muted">${acts.length} 处</span>
         </div>`;
       }).join('')}</div>`).join('')}

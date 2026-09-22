@@ -109,6 +109,9 @@ func callMethod(app *App, name string, r *http.Request) (any, error) {
 	}
 	out := method.Call(args)
 	// 约定与 Wails 相同:最后一个返回值若是 error 则视为失败。
+	if len(out) == 0 {
+		return nil, nil
+	}
 	if last := out[len(out)-1]; last.Type() == reflect.TypeFor[error]() {
 		if !last.IsNil() {
 			return nil, last.Interface().(error)

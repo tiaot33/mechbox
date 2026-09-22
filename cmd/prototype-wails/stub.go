@@ -45,12 +45,14 @@ type SkillView struct {
 }
 
 type Snapshot struct {
-	Agents      []library.Agent             `json:"agents"`
-	Projects    []library.RegisteredProject `json:"projects"`
-	Skills      []SkillView                 `json:"skills"`
-	Collections []library.Collection        `json:"collections"`
-	Groups      []GroupView                 `json:"groups"`
-	Activations []ActivationView            `json:"activations"`
+	Agents      []library.Agent              `json:"agents"`
+	AgentDirs   map[library.AgentCode]string `json:"agent_dirs"` // 各 Agent 的 skills 目录(相对 $HOME 或项目根)
+	ManyAgents  bool                         `json:"many_agents"`
+	Projects    []library.RegisteredProject  `json:"projects"`
+	Skills      []SkillView                  `json:"skills"`
+	Collections []library.Collection         `json:"collections"`
+	Groups      []GroupView                  `json:"groups"`
+	Activations []ActivationView             `json:"activations"`
 }
 
 type SkillDetail struct {
@@ -60,7 +62,8 @@ type SkillDetail struct {
 
 type App struct {
 	mu          sync.Mutex
-	agents      []library.Agent
+	agents      []library.Agent // 前两个是 v1 真实支持的;其余是假设的未来 Agent,只在 many 为 true 时暴露
+	many        bool
 	projects    []library.RegisteredProject
 	skills      []*SkillView
 	files       map[library.SkillID][]library.File
@@ -73,11 +76,27 @@ var now = time.Date(2026, 9, 23, 10, 0, 0, 0, time.Local)
 
 func daysAgo(n int) time.Time { return now.Add(-time.Duration(n) * 24 * time.Hour) }
 
+// agentDirs 是各 Agent 的 skills 目录;前两个与 schema.go 的种子一致,其余取自 discovery.go 的常见布局。
+var agentDirs = map[library.AgentCode]string{
+	"claude-code": ".claude/skills", "codex": ".agents/skills", "cursor": ".cursor/skills",
+	"gemini-cli": ".gemini/skills", "opencode": ".opencode/skills", "cline": ".cline/skills",
+	"windsurf": ".windsurf/skills", "kiro": ".kiro/skills", "goose": ".goose/skills",
+	"roo": ".roo/skills", "qoder": ".qoder/skills", "trae": ".trae/skills",
+	"copilot": ".github/skills", "junie": ".junie/skills", "continue": ".continue/skills",
+}
+
 func NewApp() *App {
 	a := &App{
 		agents: []library.Agent{
 			{Code: library.AgentClaudeCode, Name: "Claude Code"},
 			{Code: library.AgentCodex, Name: "Codex"},
+			{Code: "cursor", Name: "Cursor"}, {Code: "gemini-cli", Name: "Gemini CLI"},
+			{Code: "opencode", Name: "OpenCode"}, {Code: "cline", Name: "Cline"},
+			{Code: "windsurf", Name: "Windsurf"}, {Code: "kiro", Name: "Kiro"},
+			{Code: "goose", Name: "Goose"}, {Code: "roo", Name: "Roo Code"},
+			{Code: "qoder", Name: "Qoder"}, {Code: "trae", Name: "Trae"},
+			{Code: "copilot", Name: "GitHub Copilot"}, {Code: "junie", Name: "Junie"},
+			{Code: "continue", Name: "Continue"},
 		},
 		projects: []library.RegisteredProject{
 			{ID: 1, Path: "/Users/dur/code/skills-app"},
@@ -206,6 +225,17 @@ func (a *App) seed() {
 	a.activate(a.skillByName("tdd").ID, codex(3), 0)
 	a.activate(a.skillByName("firecrawl-search").ID, claude(3), 0)
 
+	// 假设的未来 Agent:每个地方只用到其中少数几个,用来检验"只展开用到的 Agent"。
+	other := func(code library.AgentCode, p library.ProjectID) ScopeRef { return ScopeRef{code, p} }
+	a.activate(a.skillByName("grill-me").ID, other("cursor", 0), 0)
+	a.activate(a.skillByName("tdd").ID, other("cursor", 0), 0)
+	a.activateGroup(3, other("gemini-cli", 0))
+	a.activate(a.skillByName("domain-modeling").ID, other("cursor", 1), 0)
+	a.activateGroup(4, other("opencode", 1))
+	a.activateGroup(2, other("cursor", 2))
+	a.activate(a.skillByName("frontend-design").ID, other("windsurf", 2), 0)
+	a.activate(a.skillByName("db-migrate-check").ID, other("kiro", 3), 0)
+
 	// 让几条投影偏离当前版本,展示 InspectActivations 的各种健康状态。
 	a.find(a.skillByName("tdd").ID, codex(3)).Status = library.ActivationStale
 	a.find(a.skillByName("frontend-design").ID, codex(2)).Status = library.ActivationModified
@@ -273,10 +303,7 @@ func (a *App) find(id library.SkillID, scope ScopeRef) *ActivationView {
 }
 
 func (a *App) directory(scope ScopeRef, name string) string {
-	dir := ".claude/skills"
-	if scope.Agent == library.AgentCodex {
-		dir = ".agents/skills"
-	}
+	dir := agentDirs[scope.Agent]
 	root := "~"
 	for _, p := range a.projects {
 		if p.ID == scope.ProjectID {
@@ -316,8 +343,20 @@ func (a *App) prune() {
 	})
 }
 
+// visibleAgents 是当前暴露给前端的 Agent:默认只有 v1 的两个。
+func (a *App) visibleAgents() []library.Agent {
+	if a.many {
+		return a.agents
+	}
+	return a.agents[:2]
+}
+
+func (a *App) agentVisible(code library.AgentCode) bool {
+	return slices.ContainsFunc(a.visibleAgents(), func(ag library.Agent) bool { return ag.Code == code })
+}
+
 func (a *App) checkScope(scope ScopeRef) error {
-	if !slices.ContainsFunc(a.agents, func(ag library.Agent) bool { return ag.Code == scope.Agent }) {
+	if !a.agentVisible(scope.Agent) {
 		return &library.Error{Code: library.NotFound, Message: "未知 Agent " + string(scope.Agent)}
 	}
 	if scope.ProjectID != 0 && !slices.ContainsFunc(a.projects, func(p library.RegisteredProject) bool { return p.ID == scope.ProjectID }) {
@@ -334,7 +373,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	firstSnapshot.Do(func() { log.Println("PROTOTYPE: 前端已通过绑定取到首个快照") })
-	snap := Snapshot{Agents: a.agents, Projects: a.projects}
+	snap := Snapshot{Agents: a.visibleAgents(), AgentDirs: agentDirs, ManyAgents: a.many, Projects: a.projects}
 	collections := map[library.SourceID]*library.Collection{}
 	for _, s := range a.skills {
 		snap.Skills = append(snap.Skills, *s)
@@ -353,11 +392,21 @@ func (a *App) Snapshot() Snapshot {
 		snap.Groups = append(snap.Groups, GroupView{g.Group, slices.Clone(g.Members)})
 	}
 	for _, act := range a.activations {
+		if !a.agentVisible(act.Scope.Agent) {
+			continue
+		}
 		copied := *act
 		copied.ViaGroups = slices.Clone(act.ViaGroups)
 		snap.Activations = append(snap.Activations, copied)
 	}
 	return snap
+}
+
+// SetManyAgents 是原型专用开关:在 v1 的 2 个 Agent 与假设的 15 个 Agent 之间切换,检验布局能否随 Agent 数增长。
+func (a *App) SetManyAgents(many bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.many = many
 }
 
 func (a *App) GetSkill(id library.SkillID) (SkillDetail, error) {

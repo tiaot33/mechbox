@@ -46,13 +46,19 @@ const shortPath = p => p.replace(/^\/Users\/[^/]+/, '~');
 // Scope 身份:Agent 全局,或 Agent + 已登记项目。key 形如 "claude-code@0"。
 const scopeKey = sc => `${sc.agent}@${sc.project_id || 0}`;
 const parseScope = key => { const [agent, p] = key.split('@'); return +p ? { agent, project_id: +p } : { agent }; };
-function allScopes() {
-  const out = [];
-  for (const a of S.agents) out.push({ agent: a.code });
-  for (const p of S.projects) for (const a of S.agents) out.push({ agent: a.code, project_id: p.id });
-  return out;
-}
 const scopeLabel = sc => sc.project_id ? `${agentName(sc.agent)} · ${projectName(sc.project_id)}` : `${agentName(sc.agent)} · 全局`;
+// 某个作用域的投影目录(真实门面里由 Resolve 给出)。
+const scopeDir = sc => `${shortPath(sc.project_id ? projectById(sc.project_id).path : '~')}/${S.agent_dirs[sc.agent]}`;
+// 某个"地方"(0 = 全局,否则项目 ID)实际用到的 Agent,按 Agent 列表顺序。
+const agentsUsedIn = place => S.agents.filter(a => S.activations.some(x => x.scope.agent === a.code && (x.scope.project_id || 0) === place));
+// Agent 图标:首字母 + 按代码稳定取色,Agent 再多也不用逐个画。
+function agentMark(code) {
+  const fixed = { 'claude-code': '#d97757', codex: '#111827' }[code];
+  let h = 0;
+  for (const c of code) h = (h * 31 + c.charCodeAt(0)) % 360;
+  const name = agentName(code);
+  return `<span class="agent-mark" style="background:${fixed || `hsl(${h} 55% 48%)`}">${esc(code === 'codex' ? 'X' : name[0])}</span>`;
+}
 const activationsOf = skillId => S.activations.filter(a => a.skill_id === skillId);
 const activationIn = (skillId, sc) => S.activations.find(a => a.skill_id === skillId && scopeKey(a.scope) === scopeKey(sc));
 const activationsInScope = sc => S.activations.filter(a => scopeKey(a.scope) === scopeKey(sc));
@@ -191,18 +197,19 @@ function renderDetail(id, opts = {}) {
       <div class="card-h"><span>激活</span><span class="muted">${activationsOf(id).length} 个作用域</span></div>
       <table class="scope-table">
         <thead><tr><th></th><th>作用域</th><th>来源</th><th>状态</th></tr></thead>
-        <tbody>${allScopes().map(sc => {
-          const act = activationIn(id, sc);
-          const st = act && STATUS[act.status];
-          return `<tr class="${act ? '' : 'dim'}">
-            <td>${switchHtml(!!act?.individual, `toggleIndividual(${id},'${scopeKey(sc)}')`, act && !act.individual ? 'group-held' : '')}</td>
-            <td><div>${esc(scopeLabel(sc))}</div>${act ? `<div class="mono tiny muted">${esc(shortPath(act.directory))}</div>` : ''}</td>
-            <td>${act ? provenance(act) : '<span class="muted">—</span>'}</td>
-            <td>${st ? `<span class="status ${st.tone}">${st.label}</span>${act.status !== 'current' ? ` <button class="link" onclick="mutate('Refresh',${id},${JSON.stringify(sc).replace(/"/g, '&quot;')})">重写</button>` : ''}` : ''}</td>
+        <tbody>${activationsOf(id).map(act => {
+          const sc = act.scope;
+          const st = STATUS[act.status];
+          return `<tr>
+            <td>${switchHtml(act.individual, `toggleIndividual(${id},'${scopeKey(sc)}')`, act.individual ? '' : 'group-held')}</td>
+            <td><div class="scope-cell">${agentMark(sc.agent)}${esc(scopeLabel(sc))}</div><div class="mono tiny muted">${esc(shortPath(act.directory))}</div></td>
+            <td>${provenance(act)}</td>
+            <td><span class="status ${st.tone}">${st.label}</span>${act.status !== 'current' ? ` <button class="link" onclick="mutate('Refresh',${id},parseScope('${scopeKey(sc)}'))">重写</button>` : ''}</td>
           </tr>`;
-        }).join('')}</tbody>
+        }).join('') || '<tr><td colspan="4" class="muted">还没有激活到任何作用域</td></tr>'}</tbody>
       </table>
-      <p class="hint">开关只控制<b>独立激活</b>;经由分组的激活需在分组上停用。</p>
+      ${activateToPicker(id)}
+      <p class="hint">开关只控制<b>独立激活</b>;经由分组的激活需在分组上停用。只列出已激活的作用域,其余用上面的选择器添加。</p>
     </section>` : '';
   return `
     <div class="detail">
@@ -233,6 +240,25 @@ function renderDetail(id, opts = {}) {
         <ol class="versions">${d.versions.map((v, i) => `<li><span class="mono">${esc(v.git_tree_sha || '—')}</span><span>${fmtDate(v.created_at)}</span>${i === 0 ? '<span class="status ok">当前</span>' : ''}</li>`).join('')}</ol>
       </section>
     </div>`;
+}
+
+// "激活到…":先选地方(全局 / 项目),再选 Agent;Agent 下拉把该地方已在用的排在前面。
+function activateToPicker(id) {
+  const place = +(activateToPicker.place ?? 0);
+  const used = agentsUsedIn(place).map(a => a.code);
+  const opt = a => `<option value="${a.code}" ${activationIn(id, { agent: a.code, project_id: place }) ? 'disabled' : ''}>${esc(a.name)}</option>`;
+  return `<div class="activate-to">
+    <span class="tiny muted">激活到</span>
+    <select onchange="activateToPicker.place=+this.value;render()">
+      <option value="0" ${place ? '' : 'selected'}>全局</option>
+      ${S.projects.map(p => `<option value="${p.id}" ${place === p.id ? 'selected' : ''}>${esc(projectName(p.id))}</option>`).join('')}
+    </select>
+    <select id="activate-to-agent">
+      ${used.length ? `<optgroup label="此处已在用">${S.agents.filter(a => used.includes(a.code)).map(opt).join('')}</optgroup>` : ''}
+      <optgroup label="${used.length ? '其他 Agent' : '全部 Agent'}">${S.agents.filter(a => !used.includes(a.code)).map(opt).join('')}</optgroup>
+    </select>
+    <button class="pill-btn accent sm" onclick="mutate('Activate',${id},{agent:document.getElementById('activate-to-agent').value${place ? `,project_id:${place}` : ''}})">${I.plus}激活</button>
+  </div>`;
 }
 
 function switchHtml(on, onclick, cls = '') {
@@ -290,7 +316,15 @@ function render() {
   document.getElementById('switcher').innerHTML = `
     <button onclick="cycle(-1)" title="上一个变体 (←)">‹</button>
     <span><b>${current}</b> ${esc(VARIANTS[current].name)}</span>
-    <button onclick="cycle(1)" title="下一个变体 (→)">›</button>`;
+    <button onclick="cycle(1)" title="下一个变体 (→)">›</button>
+    <i class="sep"></i>
+    <button class="agents-toggle" onclick="toggleManyAgents()" title="在 v1 的 2 个 Agent 与假设的 15 个 Agent 之间切换">Agent ×${S.agents.length}</button>`;
+}
+
+async function toggleManyAgents() {
+  await api('SetManyAgents', !S.many_agents);
+  await reload();
+  toast(S.many_agents ? '已切到 15 个 Agent(除 Claude Code / Codex 外均为假设)' : '已切回 v1 的 2 个 Agent');
 }
 
 window.addEventListener('DOMContentLoaded', reload);
