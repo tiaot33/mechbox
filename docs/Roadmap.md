@@ -111,8 +111,9 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 来自 Wails 桌面端 UI 原型(远端分支 `worktree-prototype-wails-ui`,说明见其中 `cmd/prototype-wails/README.md`;结论为从技能出发的三栏布局)。
 
-- [ ] **J1 组成员增删同步激活来源。** 移出已激活组的技能卡在「经由该组」,加入已激活组的技能不投影;两处语义待定。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85)
-- [ ] **J2 不改变来源的投影重写。** 用 `Activate` 刷新会给仅经由分组激活的投影加上独立来源;新增单条与批量重写。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86)
+- [ ] **J0 术语改名。** 门面中表示投影记录的 `Activation` 系列改为 `Projection`,预检状态 `refresh` 改为 `projected`;只改名、不改行为,表改名随 J1。→ [#91](https://github.com/tiaot33/skills-tui/issues/91)
+- [ ] **J1 组激活成为正式记录,成员增删跟随组激活。** 加入成员自动投影到组已激活的作用域(冲突的作用域跳过);移出成员默认把组激活换成直接激活,可选撤回;`ActivateGroup` 改为能激活的都激活;再次激活只增加激活、不写盘。2026-09-25 语义已定,见 issue。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85)
+- [ ] **J2 重写。** 把投影改回当前版本、不改变其激活:按技能 / 作用域筛选,逐条返回结果,被手动改过的默认拒绝、可显式覆盖。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86)
 - [ ] **J3 桌面端读模型。** 组成员批量读取、按范围巡检投影、保存更新检查结果(schema)、文件按需读取(即 C4);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
 - [x] **J4 Wails 接入边界。** `Scope` 改为可序列化的具体结构体,`library.ErrorOf` 统一错误编码(即 F1)。→ [#88](https://github.com/tiaot33/skills-tui/issues/88)
 
@@ -174,9 +175,9 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - 从这里起桌面端与下列 Library 工作并行,桌面端碰到缺口时按缺口调整优先级。
 - 依赖:第 5 步。
 
-### 第 7 步 — 组与激活语义:J1 → J2
+### 第 7 步 — 组与激活语义:J0 → J1 → J2
 
-- 先 [#85](https://github.com/tiaot33/skills-tui/issues/85)(组成员增删同步激活来源),再 [#86](https://github.com/tiaot33/skills-tui/issues/86)(不改变来源的投影重写)。两者都改 `activation.go`,顺序做、不并行。
+- 先 [#91](https://github.com/tiaot33/skills-tui/issues/91)(术语改名,只改名),再 [#85](https://github.com/tiaot33/skills-tui/issues/85)(组激活成为正式记录、成员增删跟随组激活,含表改名的 schema 迁移),再 [#86](https://github.com/tiaot33/skills-tui/issues/86)(重写)。三者都改 `activation.go`,顺序做、不并行。术语见 `CONTEXT.md` 的激活 / 投影 / 重写。
 - 依赖:无(可与第 5、6 步并行)。
 
 ### 第 8 步 — 运行时配置:E1、E2(spec issue + ADR "凭证存放位置")
@@ -203,7 +204,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ```
 第 0–4 步 ✅ ──┬── 第 5 步(#88 接入边界)── 第 6 步(桌面端骨架)──┐
-              ├── 第 7 步(#85 → #86)─────────────────────────┤
+              ├── 第 7 步(#91 → #85 → #86)──────────────────┤
               ├── 第 8 步(运行时配置)────────────────────────┼── 桌面端可用
               └── 第 9 步(#87 读模型)────────────────────────┘
                                    第 10、11 步按桌面端功能排期

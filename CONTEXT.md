@@ -45,8 +45,16 @@ A project directory the tool has been told to manage, kept in a list in the Libr
 _Avoid_: Workspace, folder, repo / 工作区、文件夹、仓库
 
 **Activation · 激活**:
-Making a skill available in a Scope by placing its folder into the directory the Agent currently defines for that Scope. Deactivation removes it. Former directories after a layout change are stale. The Library remains the source of truth throughout.
-_Avoid_: Install, enable, deploy / 安装、启用、部署
+A choice to have skills available in a Scope: either a **direct activation** of one skill, or a **Group activation**, which covers every current member of that Group. Each Activation is why a Projection is there; deactivating withdraws it. Activating a skill that is already projected only adds an Activation — it never rewrites the folder.
+_Avoid_: Install, enable, deploy, source, provenance / 安装、启用、部署、来源、出处
+
+**Projection · 投影**:
+A skill's folder placed into the directory the Agent currently defines for a Scope, together with the Library's record of it. A Projection exists while at least one Activation backs it and is removed with the last one. Folders left in a former directory after a layout change are stale. The Library remains the source of truth; a Projection is a copy of it.
+_Avoid_: Copy, deployment / 副本、部署
+
+**Rewrite · 重写**:
+Bringing an existing Projection back in line with the skill's current version in the Library, without changing its Activations. The only operation that rewrites an existing Projection on disk.
+_Avoid_: Refresh, reapply, restore, resync / 刷新、重新应用、还原、重新同步
 
 **Self-developed skill · 自研技能**:
 A skill whose Source is local and owned by the user — authored in place rather than installed from a remote repo.
