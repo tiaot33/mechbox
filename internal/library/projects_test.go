@@ -70,9 +70,9 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	globalActivations, err := lib.ListActivations(ctx)
-	if err != nil || len(globalActivations) != 2 {
-		t.Fatalf("global activations = %#v, %v; want 2", globalActivations, err)
+	globalProjections, err := lib.ListProjections(ctx)
+	if err != nil || len(globalProjections) != 2 {
+		t.Fatalf("global activations = %#v, %v; want 2", globalProjections, err)
 	}
 	if err := lib.Activate(ctx, skill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
@@ -128,12 +128,12 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || !reflect.DeepEqual(activations, globalActivations) {
-		t.Fatalf("ListActivations() after unregister = %#v, %v; want %#v", activations, err, globalActivations)
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || !reflect.DeepEqual(projections, globalProjections) {
+		t.Fatalf("ListProjections() after unregister = %#v, %v; want %#v", projections, err, globalProjections)
 	}
-	for _, activation := range globalActivations {
-		requireProjection(t, activation.Directory, skill.Name, "# Example\n")
+	for _, projection := range globalProjections {
+		requireProjection(t, projection.Directory, skill.Name, "# Example\n")
 	}
 	if err := lib.UnregisterProject(ctx, library.ProjectID(9999), library.UnregisterProjectOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("UnregisterProject() unknown project error = %v", err)
@@ -168,7 +168,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
 		t.Fatal(err)
 	}
-	before, err := lib.ListActivations(ctx)
+	before, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
 		t.Fatalf("failed Remove changed projects: %#v, %v", projects, err)
 	}
-	after, err := lib.ListActivations(ctx)
+	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
 		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
 	}
@@ -203,9 +203,9 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after unregister = %#v, %v", activations, err)
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || len(projections) != 0 {
+		t.Fatalf("ListProjections() after unregister = %#v, %v", projections, err)
 	}
 	requireNoStagedEntries(t, directory)
 }

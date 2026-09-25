@@ -36,8 +36,8 @@ func TestScopeJSONRoundTrip(t *testing.T) {
 	}
 }
 
-// ListActivations 读出的 Scope 经 JSON 往返后仍能原样传回 Deactivate。
-func TestActivationScopeRoundTripsThroughJSONIntoDeactivate(t *testing.T) {
+// ListProjections 读出的 Scope 经 JSON 往返后仍能原样传回 Deactivate。
+func TestProjectionScopeRoundTripsThroughJSONIntoDeactivate(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -49,23 +49,23 @@ func TestActivationScopeRoundTripsThroughJSONIntoDeactivate(t *testing.T) {
 	if err := lib.Activate(ctx, skill.ID, library.ProjectScope(library.AgentCodex, project.ID), library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != 1 {
-		t.Fatalf("ListActivations() = %#v, %v; want one activation", activations, err)
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || len(projections) != 1 {
+		t.Fatalf("ListProjections() = %#v, %v; want one activation", projections, err)
 	}
-	encoded, err := json.Marshal(activations[0])
+	encoded, err := json.Marshal(projections[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded library.Activation
+	var decoded library.Projection
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Deactivate(ctx, decoded.SkillID, decoded.Scope); err != nil {
 		t.Fatalf("Deactivate(decoded scope %#v) = %v", decoded.Scope, err)
 	}
-	if activations, err := lib.ListActivations(ctx); err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after Deactivate = %#v, %v; want none", activations, err)
+	if projections, err := lib.ListProjections(ctx); err != nil || len(projections) != 0 {
+		t.Fatalf("ListProjections() after Deactivate = %#v, %v; want none", projections, err)
 	}
 }
 

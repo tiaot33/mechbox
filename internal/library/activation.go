@@ -70,15 +70,15 @@ type rowQuerier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// activationRow 是一条已存在的投影记录:稳定 ID 与独立标记。
-type activationRow struct {
+// projectionRow 是一条已存在的投影记录:稳定 ID 与直接激活标记。
+type projectionRow struct {
 	id         int64
 	individual bool
 }
 
-// findActivation 找到某 skill 在某 Scope 的投影记录;不存在时返回 nil 而非错误。
-func findActivation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*activationRow, error) {
-	var row activationRow
+// findProjection 找到某 skill 在某 Scope 的投影记录;不存在时返回 nil 而非错误。
+func findProjection(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*projectionRow, error) {
+	var row projectionRow
 	err := q.QueryRowContext(ctx, `SELECT id, individual FROM activations WHERE skill_id = ? AND agent = ? AND project_id IS ?`, id, scope.agent, scope.projectID).Scan(&row.id, &row.individual)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -141,7 +141,7 @@ func (t *projectionTrash) restore() error {
 	return restoreErr
 }
 
-// claimant 是一条可能与待激活目标争同一文件夹的既有 Activation:所属 skill、投影名与 Scope 身份。
+// claimant 是一条可能与待激活目标争同一文件夹的既有投影:所属 skill、投影名与 Scope 身份。
 type claimant struct {
 	skillID SkillID
 	name    string
@@ -248,12 +248,12 @@ func (l *sqliteLibrary) PreviewActivateGroup(ctx context.Context, groupID GroupI
 
 func (l *sqliteLibrary) previewActivate(ctx context.Context, id SkillID, name string, scope resolvedScope) (ActivatePreview, error) {
 	preview := ActivatePreview{SkillID: id, Name: name, Directory: scope.directory, Target: filepath.Join(scope.directory, name), Status: ActivateReady}
-	existing, err := findActivation(ctx, l.db, id, scope.scopeRow)
+	existing, err := findProjection(ctx, l.db, id, scope.scopeRow)
 	if err != nil {
 		return preview, err
 	}
 	if existing != nil {
-		preview.Status = ActivateRefresh
+		preview.Status = ActivateProjected
 		return preview, nil
 	}
 	other, err := l.targetClaimant(ctx, id, name, scope)
@@ -294,8 +294,8 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 		return err
 	}
 	// 已有本 skill 在该 Scope 的投影记录时,目标目录是我们自己的投影,再次激活应当
-	// 幂等成功(刷新内容 / 补记依据),而非因目录存在而报冲突。
-	existing, err := findActivation(ctx, l.db, id, scope.scopeRow)
+	// 幂等成功(覆盖为当前版本 / 补记激活),而非因目录存在而报冲突。
+	existing, err := findProjection(ctx, l.db, id, scope.scopeRow)
 	if err != nil {
 		return err
 	}
@@ -351,7 +351,7 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 }
 
 // stageSkill 把 skill 的全部文件写入 directory 下的一个临时暂存目录,返回暂存路径。
-// 暂存好但尚未移入目标位置,便于分组激活先把所有成员备齐再统一落盘。
+// 暂存好但尚未移入目标位置,便于组激活先把所有成员备齐再统一落盘。
 func stageSkill(directory string, skill Skill) (string, error) {
 	stage, err := os.MkdirTemp(directory, "."+skill.Name+"-")
 	if err != nil {
@@ -399,19 +399,19 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 	return backup, nil
 }
 
-// recordActivationTx 在事务内写入投影记录:活动行 + 可选的分组依据行。
-// 已有记录只补独立标记;新记录只带 Scope 身份,不存目录。
+// recordActivationTx 在事务内记一个激活:没有投影记录时先建一条,再补直接激活标记或组激活行。
+// 已有记录只补直接激活标记;新记录只带 Scope 身份,不存目录。
 func recordActivationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, individual bool, groupID GroupID, activatedAt time.Time) error {
-	var activationID int64
+	var projectionID int64
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO activations(skill_id, agent, project_id, individual, activated_at) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET individual = MAX(individual, excluded.individual)
-		RETURNING id`, id, scope.agent, scope.projectID, individual, formatStoredTime(activatedAt)).Scan(&activationID)
+		RETURNING id`, id, scope.agent, scope.projectID, individual, formatStoredTime(activatedAt)).Scan(&projectionID)
 	if err != nil {
 		return fmt.Errorf("record activation: %w", err)
 	}
 	if groupID != 0 {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(activation_id, group_id) VALUES (?, ?)`, activationID, groupID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activation_groups(activation_id, group_id) VALUES (?, ?)`, projectionID, groupID); err != nil {
 			return fmt.Errorf("record group activation: %w", err)
 		}
 	}
@@ -426,7 +426,7 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope)
 	if err != nil {
 		return err
 	}
-	existing, err := findActivation(ctx, l.db, id, target.scopeRow)
+	existing, err := findProjection(ctx, l.db, id, target.scopeRow)
 	if err != nil {
 		return err
 	}
@@ -440,11 +440,11 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope)
 		}
 		return preconditionError("deactivate skill", "activation is only via group", ErrorDetails{Name: name})
 	}
-	return l.deactivateOrigin(ctx, id, existing.id, target.directory)
+	return l.deactivateDirect(ctx, id, existing.id, target.directory)
 }
 
-// deactivateOrigin 撤销独立依据;没有其他依据时连同磁盘副本一起删除该记录。
-func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, activationID int64, directory string) error {
+// deactivateDirect 撤销直接激活;没有其他激活撑着时连同磁盘上的投影一起删除该记录。
+func (l *sqliteLibrary) deactivateDirect(ctx context.Context, id SkillID, projectionID int64, directory string) error {
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
@@ -454,16 +454,16 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, activa
 		return fmt.Errorf("begin deactivation: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 0 WHERE id = ?`, activationID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 0 WHERE id = ?`, projectionID); err != nil {
 		return fmt.Errorf("remove independent activation: %w", err)
 	}
-	keep, err := keepActivation(ctx, tx, activationID)
+	keep, err := keepProjection(ctx, tx, projectionID)
 	if err != nil {
 		return err
 	}
 	var trash projectionTrash
 	if !keep {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, activationID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, projectionID); err != nil {
 			return fmt.Errorf("remove activation: %w", err)
 		}
 		trash.targets = []string{filepath.Join(directory, skill.Name)}
@@ -471,13 +471,13 @@ func (l *sqliteLibrary) deactivateOrigin(ctx context.Context, id SkillID, activa
 	return trash.commit(ctx, tx, "deactivation")
 }
 
-// keepActivation 在撤销依据后判断投影是否仍需保留。
-func keepActivation(ctx context.Context, tx *sql.Tx, activationID int64) (bool, error) {
+// keepProjection 在撤销一个激活后判断是否仍有激活撑着该投影。
+func keepProjection(ctx context.Context, tx *sql.Tx, projectionID int64) (bool, error) {
 	var keep bool
 	if err := tx.QueryRowContext(ctx, `
 		SELECT individual OR EXISTS(SELECT 1 FROM activation_groups WHERE activation_id = ?)
 		FROM activations WHERE id = ?
-	`, activationID, activationID).Scan(&keep); err != nil {
+	`, projectionID, projectionID).Scan(&keep); err != nil {
 		return false, fmt.Errorf("check activation origins: %w", err)
 	}
 	return keep, nil
@@ -511,8 +511,8 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		seen[member.Name] = true
 	}
 	for _, member := range members {
-		// 已属本组/本 skill 自己的既有投影不算冲突,分组再次激活应幂等成功。
-		existing, err := findActivation(ctx, l.db, member.ID, target.scopeRow)
+		// 已属本组/本 skill 自己的既有投影不算冲突,组再次激活应幂等成功。
+		existing, err := findProjection(ctx, l.db, member.ID, target.scopeRow)
 		if err != nil {
 			return err
 		}
@@ -540,7 +540,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	}
 
 	// 全组作为一个操作单元:先把每个成员备齐并统一落盘,再在单事务里记录;
-	// 任何一步失败都回滚本次操作的磁盘改动与记录,既有的独立激活不受影响。
+	// 任何一步失败都回滚本次操作的磁盘改动与记录,既有的直接激活不受影响。
 	type staged struct {
 		id     SkillID
 		target string
@@ -631,14 +631,14 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	if err != nil {
 		return fmt.Errorf("list group activations: %w", err)
 	}
-	type groupActivation struct {
-		activationID int64
+	type groupProjection struct {
+		projectionID int64
 		skillID      SkillID
 	}
-	var members []groupActivation
+	var members []groupProjection
 	for rows.Next() {
-		var member groupActivation
-		if err := rows.Scan(&member.activationID, &member.skillID); err != nil {
+		var member groupProjection
+		if err := rows.Scan(&member.projectionID, &member.skillID); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("read group activation: %w", err)
 		}
@@ -671,15 +671,15 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	defer tx.Rollback()
 	var trash projectionTrash
 	for _, member := range members {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE activation_id = ? AND group_id = ?`, member.activationID, groupID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE activation_id = ? AND group_id = ?`, member.projectionID, groupID); err != nil {
 			return fmt.Errorf("remove group activation: %w", err)
 		}
-		keep, err := keepActivation(ctx, tx, member.activationID)
+		keep, err := keepProjection(ctx, tx, member.projectionID)
 		if err != nil {
 			return err
 		}
 		if !keep {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, member.activationID); err != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE id = ?`, member.projectionID); err != nil {
 				return fmt.Errorf("remove activation: %w", err)
 			}
 			trash.targets = append(trash.targets, filepath.Join(target.directory, names[member.skillID]))
@@ -689,14 +689,14 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	return trash.commit(ctx, tx, "group deactivation")
 }
 
-// supportingGroupName 读取仅由分组支撑的投影所经由的第一个分组名。
-func supportingGroupName(ctx context.Context, q rowQuerier, activationID int64) (string, error) {
+// supportingGroupName 读取仅由组激活撑着的投影所属的第一个 Group 名。
+func supportingGroupName(ctx context.Context, q rowQuerier, projectionID int64) (string, error) {
 	var name string
 	err := q.QueryRowContext(ctx, `
 		SELECT groups.name FROM activation_groups
 		JOIN groups ON groups.id = activation_groups.group_id
 		WHERE activation_groups.activation_id = ?
-		ORDER BY groups.id LIMIT 1`, activationID).Scan(&name)
+		ORDER BY groups.id LIMIT 1`, projectionID).Scan(&name)
 	if err != nil {
 		return "", fmt.Errorf("read supporting group: %w", err)
 	}
@@ -711,7 +711,7 @@ func randomName(prefix string) (string, error) {
 	return prefix + hex.EncodeToString(buffer), nil
 }
 
-func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Activation, err error) {
+func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Projection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -724,20 +724,20 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 	var ids []int64
 	for rows.Next() {
 		var (
-			activation  Activation
+			projection  Projection
 			id          int64
 			row         scopeRow
 			activatedAt string
 		)
-		if err := rows.Scan(&id, &activation.SkillID, &row.agent, &row.projectID, &activation.Individual, &activatedAt); err != nil {
+		if err := rows.Scan(&id, &projection.SkillID, &row.agent, &row.projectID, &projection.Individual, &activatedAt); err != nil {
 			return nil, fmt.Errorf("read activation: %w", err)
 		}
-		if activation.ActivatedAt, err = parseStoredTime(activatedAt); err != nil {
+		if projection.ActivatedAt, err = parseStoredTime(activatedAt); err != nil {
 			return nil, fmt.Errorf("read activation: %w", err)
 		}
-		activation.Scope = row.scope()
+		projection.Scope = row.scope()
 		ids = append(ids, id)
-		activations = append(activations, activation)
+		projections = append(projections, projection)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read activations: %w", err)
@@ -745,9 +745,9 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("close activations: %w", err)
 	}
-	for i := range activations {
+	for i := range projections {
 		// 目录是派生值:按现行布局 Resolve,库里不存路径。
-		if activations[i].Directory, err = l.Resolve(ctx, activations[i].Scope); err != nil {
+		if projections[i].Directory, err = l.Resolve(ctx, projections[i].Scope); err != nil {
 			return nil, err
 		}
 		rows, err := l.db.QueryContext(ctx, `SELECT group_id FROM activation_groups WHERE activation_id = ? ORDER BY group_id`, ids[i])
@@ -760,7 +760,7 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 				_ = rows.Close()
 				return nil, fmt.Errorf("read activation group: %w", err)
 			}
-			activations[i].ViaGroups = append(activations[i].ViaGroups, id)
+			projections[i].ViaGroups = append(projections[i].ViaGroups, id)
 		}
 		if err := rows.Close(); err != nil {
 			return nil, fmt.Errorf("close activation groups: %w", err)
@@ -769,44 +769,44 @@ func (l *sqliteLibrary) ListActivations(ctx context.Context) (activations []Acti
 			return nil, fmt.Errorf("read activation groups: %w", err)
 		}
 	}
-	return activations, nil
+	return projections, nil
 }
 
-func (l *sqliteLibrary) InspectActivations(ctx context.Context) (inspections []ActivationInspection, err error) {
+func (l *sqliteLibrary) InspectProjections(ctx context.Context) (inspections []ProjectionInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	activations, err := l.ListActivations(ctx)
+	projections, err := l.ListProjections(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, activation := range activations {
-		status, err := l.inspectActivation(ctx, activation)
+	for _, projection := range projections {
+		status, err := l.inspectProjection(ctx, projection)
 		if err != nil {
 			return nil, err
 		}
-		inspections = append(inspections, ActivationInspection{Activation: activation, Status: status})
+		inspections = append(inspections, ProjectionInspection{Projection: projection, Status: status})
 	}
 	return inspections, nil
 }
 
-// inspectActivation 按 ActivationStatus 注释中的顺序判定一条投影。
-func (l *sqliteLibrary) inspectActivation(ctx context.Context, activation Activation) (ActivationStatus, error) {
+// inspectProjection 按 ProjectionStatus 注释中的顺序判定一条投影。
+func (l *sqliteLibrary) inspectProjection(ctx context.Context, projection Projection) (ProjectionStatus, error) {
 	var name string
 	var currentVersionID int64
-	if err := l.db.QueryRowContext(ctx, `SELECT name, current_version_id FROM skills WHERE id = ?`, activation.SkillID).Scan(&name, &currentVersionID); err != nil {
+	if err := l.db.QueryRowContext(ctx, `SELECT name, current_version_id FROM skills WHERE id = ?`, projection.SkillID).Scan(&name, &currentVersionID); err != nil {
 		return "", fmt.Errorf("inspect activation: %w", err)
 	}
 
-	if _, err := os.Lstat(activation.Directory); errors.Is(err, os.ErrNotExist) {
-		return ActivationDirectoryMissing, nil
+	if _, err := os.Lstat(projection.Directory); errors.Is(err, os.ErrNotExist) {
+		return ProjectionDirectoryMissing, nil
 	} else if err != nil {
 		return "", fmt.Errorf("inspect activation directory: %w", err)
 	}
 
-	target := filepath.Join(activation.Directory, name)
+	target := filepath.Join(projection.Directory, name)
 	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
-		return ActivationMissing, nil
+		return ProjectionMissing, nil
 	} else if err != nil {
 		return "", fmt.Errorf("inspect activation target: %w", err)
 	}
@@ -814,7 +814,7 @@ func (l *sqliteLibrary) inspectActivation(ctx context.Context, activation Activa
 	disk, err := hashFiles(ctx, target)
 	if err != nil {
 		if errors.Is(err, errIrregularFile) {
-			return ActivationModified, nil
+			return ProjectionModified, nil
 		}
 		return "", err
 	}
@@ -824,10 +824,10 @@ func (l *sqliteLibrary) inspectActivation(ctx context.Context, activation Activa
 		return "", err
 	}
 	if maps.Equal(disk, current) {
-		return ActivationCurrent, nil
+		return ProjectionCurrent, nil
 	}
 
-	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? AND id != ? ORDER BY id DESC`, activation.SkillID, currentVersionID)
+	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? AND id != ? ORDER BY id DESC`, projection.SkillID, currentVersionID)
 	if err != nil {
 		return "", fmt.Errorf("list skill versions: %w", err)
 	}
@@ -849,10 +849,10 @@ func (l *sqliteLibrary) inspectActivation(ctx context.Context, activation Activa
 			return "", err
 		}
 		if maps.Equal(disk, files) {
-			return ActivationStale, nil
+			return ProjectionStale, nil
 		}
 	}
-	return ActivationModified, nil
+	return ProjectionModified, nil
 }
 
 // versionFingerprints 只读 version_files 的 path/fingerprint/mode,不取 blob 正文。

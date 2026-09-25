@@ -35,7 +35,7 @@ const (
 	// 可重新预览 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (激活目标被占用见 ConflictPolicy;仅分组激活的 skill 单独停用;组内同名成员;同一 Fetch 句柄的安装正在进行)。
+	// (激活目标被占用见 ConflictPolicy;仅由组激活撑着的投影单独停用;组内同名成员;同一 Fetch 句柄的安装正在进行)。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -75,7 +75,7 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名、支撑分组名或被占用的投影名
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名、撑着投影的 Group 名或被占用的投影名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目
 }
@@ -300,7 +300,7 @@ type VersionDiff struct {
 	Deleted []string `json:"deleted"` // 仅旧版本有
 }
 
-// UpdateResult 描述 Library 的更新结果;已激活的副本不会自动重写。
+// UpdateResult 描述 Library 的更新结果;已有投影不会自动重写。
 type UpdateResult struct {
 	Skill   Skill `json:"skill"`
 	Changed bool  `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
@@ -346,7 +346,7 @@ const (
 // Scope 是投影所在的层级身份,不含路径(见 ADR 0011)。目录由 Library 按该 Agent 的现行布局
 // 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Activate。
 // 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
-// ListActivations 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
+// ListProjections 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
 // 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
 type Scope struct {
 	Kind      ScopeKind `json:"kind"`
@@ -364,9 +364,9 @@ func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
 	return Scope{Kind: ScopeProject, Agent: agent, ProjectID: projectID}
 }
 
-// ConflictPolicy 决定激活时目标目录已存在、且没有任何 Activation 记录(外来目录)的处理方式。
-// 目标已被另一条 Activation 占用(同一 skill 的另一 Scope,或同名的另一 skill)时两种策略都返回
-// FailedPrecondition:同一目录下的一个文件夹名至多归一条 Activation,需先 Deactivate 占用者。
+// ConflictPolicy 决定激活时目标目录已存在、且没有任何投影记录(外来目录)的处理方式。
+// 目标已被另一条投影占用(同一 skill 的另一 Scope,或同名的另一 skill)时两种策略都返回
+// FailedPrecondition:同一目录下的一个文件夹名至多归一条投影,需先 Deactivate 占用者。
 type ConflictPolicy string
 
 const (
@@ -383,7 +383,7 @@ type ActivatePreviewStatus string
 
 const (
 	ActivateReady     ActivatePreviewStatus = "ready"     // 目标不存在
-	ActivateRefresh   ActivatePreviewStatus = "refresh"   // 本技能在本作用域已有投影记录
+	ActivateProjected ActivatePreviewStatus = "projected" // 本技能在本作用域已有投影
 	ActivateOccupied  ActivatePreviewStatus = "occupied"  // 另一条投影占用目标
 	ActivateUntracked ActivatePreviewStatus = "untracked" // 目标存在但没有投影记录
 )
@@ -405,36 +405,37 @@ type GroupActivatePreview struct {
 	DuplicateNames []string          `json:"duplicate_names,omitempty"`
 }
 
-// Activation 是一条投影记录:某 skill 出现在某个 Scope 里,以及它的保留依据。
+// Projection 是一条投影:skill 放进某个 Scope 目录里的文件夹,以及 Library 对它的记录。
+// 至少有一个激活(直接激活或组激活)撑着就存在,最后一个撤掉时移除。
 // 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
-// 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectActivations 给出。
-type Activation struct {
+// 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectProjections 给出。
+type Projection struct {
 	SkillID     SkillID   `json:"skill_id"`
 	Scope       Scope     `json:"scope"`
 	Directory   string    `json:"directory"`
-	Individual  bool      `json:"individual"`            // 存在独立(非分组)激活
-	ViaGroups   []GroupID `json:"via_groups,omitempty"`  // 经由哪些分组激活
-	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间;零值 = 未知(迁移前数据)。刷新不更新
+	Individual  bool      `json:"individual"`            // 有直接激活撑着
+	ViaGroups   []GroupID `json:"via_groups,omitempty"`  // 撑着它的组激活所属的 Group
+	ActivatedAt time.Time `json:"activated_at,omitzero"` // 投影建立(首次激活)的时间;零值 = 未知(迁移前数据)。再次激活不更新
 }
 
-// ActivationStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
+// ProjectionStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
 // Scope 目录不存在 → directory_missing;目标文件夹不存在 → missing;
 // 磁盘文件集 == 当前版本 → current;磁盘文件集 == 某个非当前版本(按 id 倒序) → stale;
 // 否则 modified(含非常规文件或空目录以外的异常)。
-type ActivationStatus string
+type ProjectionStatus string
 
 const (
-	ActivationCurrent          ActivationStatus = "current"           // 磁盘文件集 == 当前版本
-	ActivationStale            ActivationStatus = "stale"             // 磁盘文件集 == 某个非当前版本
-	ActivationModified         ActivationStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
-	ActivationMissing          ActivationStatus = "missing"           // Scope 目录存在,目标文件夹不存在
-	ActivationDirectoryMissing ActivationStatus = "directory_missing" // Scope 目录本身不存在
+	ProjectionCurrent          ProjectionStatus = "current"           // 磁盘文件集 == 当前版本
+	ProjectionStale            ProjectionStatus = "stale"             // 磁盘文件集 == 某个非当前版本
+	ProjectionModified         ProjectionStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
+	ProjectionMissing          ProjectionStatus = "missing"           // Scope 目录存在,目标文件夹不存在
+	ProjectionDirectoryMissing ProjectionStatus = "directory_missing" // Scope 目录本身不存在
 )
 
-// ActivationInspection 是一条投影及其对照磁盘后的状态。
-type ActivationInspection struct {
-	Activation
-	Status ActivationStatus `json:"status"`
+// ProjectionInspection 是一条投影及其对照磁盘后的状态。
+type ProjectionInspection struct {
+	Projection
+	Status ProjectionStatus `json:"status"`
 }
 
 // Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
@@ -519,7 +520,7 @@ type Library interface {
 	// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
 	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
 	// URL / Store 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
-	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地仍比较文件。只更新 Library,不重写激活副本。
+	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地仍比较文件。只更新 Library,不重写投影。
 	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
 	// (Details.SkillID),两者都不留下任何写入。
 	Update(ctx context.Context, id SkillID) (UpdateResult, error)
@@ -531,7 +532,7 @@ type Library interface {
 	// URL / Store 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
 	// GitHub 无 SHA 的旧记录、本地来源以及 URL / Store 的完整响应,比较文件内容与可执行位。
 	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
-	// 整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library 或激活副本。
+	// 整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library 或投影。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 
 	// 版本历史
@@ -552,7 +553,7 @@ type Library interface {
 	// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
 	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
 	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
-	// DeleteGroup 删除分组。非破坏性:仅由该组支撑的投影会先转为独立保留,
+	// DeleteGroup 删除分组。非破坏性:仅由该组激活撑着的投影会先转为直接激活,
 	// 磁盘上已投影的副本不会因删除分组而被移除(见 ADR 0007)。
 	DeleteGroup(ctx context.Context, id GroupID) error
 	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
@@ -579,33 +580,33 @@ type Library interface {
 	// opts 决定磁盘投影副本的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
 	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
-	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生 Activation。
+	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生投影。
 	// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
 	// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
 	Resolve(ctx context.Context, scope Scope) (string, error)
 
-	// 激活(投影)
+	// 激活与投影
 	//
 	// 激活与预检方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
 	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound。
 	PreviewActivate(ctx context.Context, id SkillID, scope Scope) (ActivatePreview, error)
-	// Activate 把 skill 投影到 Scope,记为独立激活;对自己已有的投影幂等刷新。
+	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时幂等成功,并把投影覆盖为当前版本。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
-	// Deactivate 撤销独立激活;若仍有分组支撑该投影,磁盘副本保留。
+	// Deactivate 撤销直接激活;若仍有组激活撑着该投影,投影保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
 	// PreviewActivateGroup 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
 	PreviewActivateGroup(ctx context.Context, groupID GroupID, scope Scope) (GroupActivatePreview, error)
-	// ActivateGroup 把分组内全部 skill 投影到 Scope,并记录分组依据;失败时撤销本次整组改动。
+	// ActivateGroup 在 Scope 记一个组激活,并投影组内全部 skill;失败时撤销本次整组改动。
 	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
-	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它支撑的投影会被移除,失败时恢复整组状态。
+	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它撑着的投影会被移除,失败时恢复整组状态。
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
-	// ListActivations 列出全部投影记录:Scope 身份、按现行布局派生的目录及各自的保留依据。
-	ListActivations(ctx context.Context) ([]Activation, error)
-	// InspectActivations 对照磁盘给出每条投影的状态。只读:不改库、不改磁盘、不创建目录。
-	// 结果顺序与 ListActivations 相同,每条内嵌完整 Activation。判定规则见 ActivationStatus。
-	InspectActivations(ctx context.Context) ([]ActivationInspection, error)
+	// ListProjections 列出全部投影:Scope 身份、按现行布局派生的目录及撑着各投影的激活。
+	ListProjections(ctx context.Context) ([]Projection, error)
+	// InspectProjections 对照磁盘给出每条投影的状态。只读:不改库、不改磁盘、不创建目录。
+	// 结果顺序与 ListProjections 相同,每条内嵌完整 Projection。判定规则见 ProjectionStatus。
+	InspectProjections(ctx context.Context) ([]ProjectionInspection, error)
 
 	// 浏览
 

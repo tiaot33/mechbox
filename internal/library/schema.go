@@ -143,8 +143,8 @@ func migrateLibrary(ctx context.Context, db *sql.DB, home string) error {
 	}
 }
 
-// legacyActivation 是 v1–v4 库里的一行 Activation:Scope 以绝对路径记录;v3/v4 的部分行已带身份。
-type legacyActivation struct {
+// legacyProjection 是 v1–v4 库里的一条投影记录:Scope 以绝对路径记录;v3/v4 的部分行已带身份。
+type legacyProjection struct {
 	skillID    SkillID
 	agent      AgentCode
 	path       string
@@ -224,12 +224,12 @@ func rebuildTableSQL(ctx context.Context, name, columns string) (string, error) 
 }
 
 // migrateToScopeIdentity 在一个事务内把 v1–v4 库升到当前版本:重建 skill_versions 补齐 v1 缺的 tree SHA 列与
-// v6 新增的确认 commit 列,重建 sources 补 v7 新增的 HTTP validator 列,v3 补 Agent 名称,然后把 Activation 改为
-// 只存 Scope 身份。路径型行能识别为某 Agent 的全局或某已登记项目的写成身份,映射到同一身份的多行合并依据;
+// v6 新增的确认 commit 列,重建 sources 补 v7 新增的 HTTP validator 列,v3 补 Agent 名称,然后把投影记录改为
+// 只存 Scope 身份。路径型行能识别为某 Agent 的全局或某已登记项目的写成身份,映射到同一身份的多行合并各自的激活;
 // 无法识别的行丢弃。磁盘上任何目录都不动(见 ADR 0011)。
 func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home string) error {
 	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
-		legacy, err := readLegacyActivations(ctx, tx, version)
+		legacy, err := readLegacyProjections(ctx, tx, version)
 		if err != nil {
 			return err
 		}
@@ -275,7 +275,7 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 		if err != nil {
 			return err
 		}
-		// 能识别的路径行按身份写入;同一身份的多行由 recordActivationTx 合并独立标记与分组依据。
+		// 能识别的路径行按身份写入;同一身份的多行由 recordActivationTx 合并直接激活标记与组激活。
 		for _, row := range legacy {
 			scope, ok := identifyLegacyScope(row, layouts, projects, home)
 			if !ok {
@@ -394,8 +394,8 @@ func backfillVersionDescriptions(ctx context.Context, tx *sql.Tx) error {
 	return rows.Err()
 }
 
-// readLegacyActivations 读出旧表里的全部 Activation 及其分组依据;v1/v2 没有身份列,一律按路径型处理。
-func readLegacyActivations(ctx context.Context, tx *sql.Tx, version int) ([]legacyActivation, error) {
+// readLegacyProjections 读出旧表里的全部投影记录及其组激活;v1/v2 没有身份列,一律按路径型处理。
+func readLegacyProjections(ctx context.Context, tx *sql.Tx, version int) ([]legacyProjection, error) {
 	query := `SELECT skill_id, agent, scope_path, individual, 'legacy', NULL FROM activations`
 	if version >= 3 {
 		query = `SELECT skill_id, agent, scope_path, individual, scope_kind, project_id FROM activations`
@@ -404,11 +404,11 @@ func readLegacyActivations(ctx context.Context, tx *sql.Tx, version int) ([]lega
 	if err != nil {
 		return nil, err
 	}
-	var activations []legacyActivation
-	byPath := map[legacyKey]*legacyActivation{}
+	var projections []legacyProjection
+	byPath := map[legacyKey]*legacyProjection{}
 	for rows.Next() {
 		var (
-			row       legacyActivation
+			row       legacyProjection
 			kind      string
 			projectID *ProjectID
 		)
@@ -419,13 +419,13 @@ func readLegacyActivations(ctx context.Context, tx *sql.Tx, version int) ([]lega
 		if kind != "legacy" {
 			row.identity = &scopeRow{agent: row.agent, projectID: projectID}
 		}
-		activations = append(activations, row)
+		projections = append(projections, row)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, err
 	}
-	for i := range activations {
-		byPath[activations[i].key()] = &activations[i]
+	for i := range projections {
+		byPath[projections[i].key()] = &projections[i]
 	}
 	// 各版本的 activation_groups 都带 (skill_id, agent, scope_path),而该三元组在旧表里唯一。
 	groups, err := tx.QueryContext(ctx, `SELECT skill_id, agent, scope_path, group_id FROM activation_groups`)
@@ -441,31 +441,31 @@ func readLegacyActivations(ctx context.Context, tx *sql.Tx, version int) ([]lega
 			_ = groups.Close()
 			return nil, err
 		}
-		if activation, ok := byPath[key]; ok {
-			activation.groups = append(activation.groups, groupID)
+		if projection, ok := byPath[key]; ok {
+			projection.groups = append(projection.groups, groupID)
 		}
 	}
 	if err := errors.Join(groups.Err(), groups.Close()); err != nil {
 		return nil, err
 	}
-	return activations, nil
+	return projections, nil
 }
 
-// legacyKey 是旧表里唯一的 (skill_id, agent, scope_path) 三元组,用来把分组依据挂回对应行。
+// legacyKey 是旧表里唯一的 (skill_id, agent, scope_path) 三元组,用来把组激活挂回对应行。
 type legacyKey struct {
 	skillID SkillID
 	agent   AgentCode
 	path    string
 }
 
-func (row legacyActivation) key() legacyKey {
+func (row legacyProjection) key() legacyKey {
 	return legacyKey{skillID: row.skillID, agent: row.agent, path: row.path}
 }
 
-// identifyLegacyScope 把一行旧 Activation 认成 Scope 身份:已带身份的直接沿用;路径型的路径须等于该 Agent
+// identifyLegacyScope 把一条旧投影记录认成 Scope 身份:已带身份的直接沿用;路径型的路径须等于该 Agent
 // 现行布局(或本产品写过的旧目录名)在当前用户主目录或某已登记项目根下算出的目录,全局优先。
 // 未知 Agent 或对不上任何目录的行无法识别。
-func identifyLegacyScope(row legacyActivation, layouts map[AgentCode]agentLayout, projects []RegisteredProject, home string) (scopeRow, bool) {
+func identifyLegacyScope(row legacyProjection, layouts map[AgentCode]agentLayout, projects []RegisteredProject, home string) (scopeRow, bool) {
 	if row.identity != nil {
 		return *row.identity, true
 	}

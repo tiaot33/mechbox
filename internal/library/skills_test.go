@@ -190,12 +190,12 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if len(skills) != 0 {
 		t.Fatalf("ListSkills() after removals = %#v", skills)
 	}
-	activations, err := lib.ListActivations(ctx)
+	projections, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(activations) != 0 {
-		t.Fatalf("ListActivations() after removals = %#v", activations)
+	if len(projections) != 0 {
+		t.Fatalf("ListProjections() after removals = %#v", projections)
 	}
 	if err := lib.RemoveSkill(ctx, library.SkillID(9999), library.RemoveSkillOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("RemoveSkill() unknown skill error = %v", err)
@@ -223,7 +223,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	before, err := lib.ListActivations(ctx)
+	before, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(summaryIDs(skills), []library.SkillID{missing.ID, present.ID}) {
 		t.Fatalf("failed Remove changed skills: %#v, %v", skills, err)
 	}
-	after, err := lib.ListActivations(ctx)
+	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
 		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
 	}
@@ -264,9 +264,9 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills() after removals = %#v, %v", skills, err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after removals = %#v, %v", activations, err)
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || len(projections) != 0 {
+		t.Fatalf("ListProjections() after removals = %#v, %v", projections, err)
 	}
 	requireNoStagedEntries(t, directory)
 }

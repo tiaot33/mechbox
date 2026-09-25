@@ -49,7 +49,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	activation, err := lib.ListActivations(t.Context())
+	projection, err := lib.ListProjections(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,9 +76,9 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("mutated Library = %#v, %v", after, err)
 	}
-	afterActivation, err := lib.ListActivations(t.Context())
-	if err != nil || !reflect.DeepEqual(activation, afterActivation) {
-		t.Fatalf("mutated activations = %#v, %v", afterActivation, err)
+	afterProjections, err := lib.ListProjections(t.Context())
+	if err != nil || !reflect.DeepEqual(projection, afterProjections) {
+		t.Fatalf("mutated activations = %#v, %v", afterProjections, err)
 	}
 	for _, original := range skills {
 		got, err := lib.GetSkill(t.Context(), original.ID)

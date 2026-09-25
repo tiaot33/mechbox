@@ -11,7 +11,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestPreviewActivateReadyAndRefresh(t *testing.T) {
+func TestPreviewActivateReadyAndProjected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
@@ -43,8 +43,8 @@ func TestPreviewActivateReadyAndRefresh(t *testing.T) {
 			}
 		}
 		got, err := lib.PreviewActivate(ctx, skill.ID, scope)
-		if err != nil || got.Status != library.ActivateRefresh {
-			t.Fatalf("refresh = %#v, %v", got, err)
+		if err != nil || got.Status != library.ActivateProjected {
+			t.Fatalf("projected = %#v, %v", got, err)
 		}
 	}
 }
@@ -139,7 +139,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err := lib.Activate(ctx, members[0].ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := lib.ListActivations(ctx)
+	before, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,12 +147,12 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err != nil || len(got.Members) != 3 || !reflect.DeepEqual(got.DuplicateNames, []string{"same"}) {
 		t.Fatalf("group = %#v, %v", got, err)
 	}
-	for i, status := range []library.ActivatePreviewStatus{library.ActivateRefresh, library.ActivateOccupied, library.ActivateReady} {
+	for i, status := range []library.ActivatePreviewStatus{library.ActivateProjected, library.ActivateOccupied, library.ActivateReady} {
 		if got.Members[i].SkillID != members[i].ID || got.Members[i].Status != status {
 			t.Fatalf("member %d = %#v", i, got.Members[i])
 		}
 	}
-	after, err := lib.ListActivations(ctx)
+	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("preview changed activations: %#v, %v", after, err)
 	}
