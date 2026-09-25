@@ -50,7 +50,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	activations, err := lib.ListActivations(ctx)
+	projections, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,9 +176,9 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if err != nil || string(content) != skillDocument("first", "first body") {
 		t.Fatalf("projection rewritten: %q, %v", content, err)
 	}
-	after, err := lib.ListActivations(ctx)
-	if err != nil || !reflect.DeepEqual(after, activations) {
-		t.Fatalf("activation records changed: %#v, %v", after, err)
+	after, err := lib.ListProjections(ctx)
+	if err != nil || !reflect.DeepEqual(after, projections) {
+		t.Fatalf("projection records changed: %#v, %v", after, err)
 	}
 }
 

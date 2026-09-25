@@ -10,7 +10,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// Open 只补缺失的 Agent 行、不覆盖已有布局;已按身份记录的 Activation 在重开后按现行规则派生目录,
+// Open 只补缺失的 Agent 行、不覆盖已有布局;已按身份记录的投影记录在重开后按现行规则派生目录,
 // 并可继续按身份激活。
 func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	home := t.TempDir()
@@ -51,7 +51,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
 	`)
 	// 目录按现行布局派生:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
-	want := []library.Activation{
+	want := []library.Projection{
 		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Individual: true},
 		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Individual: true},
 		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".agents", "skills"), Individual: true},
@@ -62,12 +62,12 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
-		got, err := reopened.ListActivations(ctx)
+		got, err := reopened.ListProjections(ctx)
 		if err != nil || !reflect.DeepEqual(withoutActivatedAt(got), want) {
-			t.Fatalf("ListActivations after Open = %#v, %v; want %#v", got, err, want)
+			t.Fatalf("ListProjections after Open = %#v, %v; want %#v", got, err, want)
 		}
-		for _, activation := range want {
-			if err := reopened.Activate(ctx, skill.ID, activation.Scope, library.ActivateOptions{}); err != nil {
+		for _, projection := range want {
+			if err := reopened.Activate(ctx, skill.ID, projection.Scope, library.ActivateOptions{}); err != nil {
 				t.Fatal(err)
 			}
 		}

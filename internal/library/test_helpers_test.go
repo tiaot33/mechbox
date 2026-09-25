@@ -184,8 +184,8 @@ func summaryIDs(skills []library.SkillSummary) []library.SkillID {
 }
 
 // withoutActivatedAt 去掉首次激活时间,供不关心时间戳的既有 DeepEqual 断言使用。
-func withoutActivatedAt(activations []library.Activation) []library.Activation {
-	out := append([]library.Activation(nil), activations...)
+func withoutActivatedAt(projections []library.Projection) []library.Projection {
+	out := append([]library.Projection(nil), projections...)
 	for i := range out {
 		out[i].ActivatedAt = time.Time{}
 	}

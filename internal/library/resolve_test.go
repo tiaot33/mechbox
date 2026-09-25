@@ -109,7 +109,7 @@ func TestResolveUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	}
 }
 
-// Resolve 只是预览:不留下 Activation,也不在磁盘上创建目标目录。
+// Resolve 只是预览:不留下投影,也不在磁盘上创建目标目录。
 func TestResolveIsReadOnly(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
@@ -133,9 +133,9 @@ func TestResolveIsReadOnly(t *testing.T) {
 			t.Fatalf("Resolve(%#v) left %q on disk: %v", scope, directory, err)
 		}
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after Resolve = %#v, %v; want none", activations, err)
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || len(projections) != 0 {
+		t.Fatalf("ListProjections() after Resolve = %#v, %v; want none", projections, err)
 	}
 }
 

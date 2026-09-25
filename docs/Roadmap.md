@@ -60,9 +60,9 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
 - [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**2026-09-25 提前**:经 Wails 绑定传输时同样是 base64,并入 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
 - [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 已删除提醒字段,不返回过时投影列表;C6 判定也不依赖它。
-- [x] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
+- [x] **C6 投影健康度。** `InspectProjections() → [{Projection, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Projection.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
-- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。组成员批量读取与按范围巡检投影另见 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
+- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListProjections` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。组成员批量读取与按范围巡检投影另见 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
 
 ### D. 锁与并发 — ✅ 完成,spec: [#72](https://github.com/tiaot33/skills-tui/issues/72)(D1、D2,PR [#79](https://github.com/tiaot33/skills-tui/pull/79))、[#73](https://github.com/tiaot33/skills-tui/issues/73)(D3,PR [#80](https://github.com/tiaot33/skills-tui/pull/80))
 
@@ -111,7 +111,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 来自 Wails 桌面端 UI 原型(远端分支 `worktree-prototype-wails-ui`,说明见其中 `cmd/prototype-wails/README.md`;结论为从技能出发的三栏布局)。
 
-- [ ] **J0 术语改名。** 门面中表示投影记录的 `Activation` 系列改为 `Projection`,预检状态 `refresh` 改为 `projected`;只改名、不改行为,表改名随 J1。→ [#91](https://github.com/tiaot33/skills-tui/issues/91)
+- [x] **J0 术语改名。** 门面中表示投影记录的 `Activation` 系列改为 `Projection`,预检状态 `refresh` 改为 `projected`;只改名、不改行为,表改名随 J1。→ [#91](https://github.com/tiaot33/skills-tui/issues/91)
 - [ ] **J1 组激活成为正式记录,成员增删跟随组激活。** 加入成员自动投影到组已激活的作用域(冲突的作用域跳过);移出成员默认把组激活换成直接激活,可选撤回;`ActivateGroup` 改为能激活的都激活;再次激活只增加激活、不写盘。2026-09-25 语义已定,见 issue。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85)
 - [ ] **J2 重写。** 把投影改回当前版本、不改变其激活:按技能 / 作用域筛选,逐条返回结果,被手动改过的默认拒绝、可显式覆盖。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86)
 - [ ] **J3 桌面端读模型。** 组成员批量读取、按范围巡检投影、保存更新检查结果(schema)、文件按需读取(即 C4);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
@@ -153,7 +153,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 ### 第 3 步 — ✅ 读模型与 schema v8:C1 / C2 / C6 / I3
 
 - schema v8:[#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。C1 `Description`、C2 时间戳、I3 Group 名 UNIQUE 并自动加 `#N`。
-- 纯代码:C6 `InspectActivations` 已完成,[#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)(不依赖 C5)。
+- 纯代码:C6 `InspectProjections` 已完成,[#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)(不依赖 C5)。
 - C3 / C4 / C5 / C7 / C8 按 2026-09-16 评审推后;I1 已完成。
 - 依赖:第 0 步(已完成)。
 

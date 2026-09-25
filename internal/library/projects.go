@@ -112,19 +112,19 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	// 待删的投影路径在事务外先算好:单连接模式下事务内不能再走 l.db。
 	var trash projectionTrash
 	if opts.ProjectedCopies != Keep {
-		activations, err := l.ListActivations(ctx)
+		projections, err := l.ListProjections(ctx)
 		if err != nil {
 			return err
 		}
-		for _, activation := range activations {
-			if activation.Scope.Kind != ScopeProject || activation.Scope.ProjectID != id {
+		for _, projection := range projections {
+			if projection.Scope.Kind != ScopeProject || projection.Scope.ProjectID != id {
 				continue
 			}
-			skill, err := l.GetSkill(ctx, activation.SkillID)
+			skill, err := l.GetSkill(ctx, projection.SkillID)
 			if err != nil {
 				return err
 			}
-			trash.targets = append(trash.targets, filepath.Join(activation.Directory, skill.Name))
+			trash.targets = append(trash.targets, filepath.Join(projection.Directory, skill.Name))
 		}
 	}
 	tx, err := l.db.BeginTx(ctx, nil)

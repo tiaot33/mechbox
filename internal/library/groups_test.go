@@ -162,27 +162,27 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("DeleteGroup removed skill: %v", err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	wantActivations := []library.Activation{
+	projections, err := lib.ListProjections(ctx)
+	wantProjections := []library.Projection{
 		{SkillID: skill.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{second.ID}},
 		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Individual: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
-		t.Fatalf("activations after DeleteGroup = %#v, %v; want %#v", activations, err, wantActivations)
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections) {
+		t.Fatalf("projections after DeleteGroup = %#v, %v; want %#v", projections, err, wantProjections)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
 		t.Fatalf("DeleteGroup removed group-only projected copy: %v", err)
 	}
-	// 删组转为独立保留后,仍可按 Remove 策略连同投影一起移除。
+	// 删组转为直接激活后,仍可按 Remove 策略连同投影一起移除。
 	if err := lib.RemoveSkill(ctx, groupOnly.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("RemoveSkill(Remove) left projection: %v", err)
 	}
-	activations, err = lib.ListActivations(ctx)
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations[:1]) {
-		t.Fatalf("activations after RemoveSkill = %#v, %v; want %#v", activations, err, wantActivations[:1])
+	projections, err = lib.ListProjections(ctx)
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections[:1]) {
+		t.Fatalf("projections after RemoveSkill = %#v, %v; want %#v", projections, err, wantProjections[:1])
 	}
 	groups, err = lib.ListGroups(ctx)
 	if err != nil || !reflect.DeepEqual(groups, []library.Group{second}) {

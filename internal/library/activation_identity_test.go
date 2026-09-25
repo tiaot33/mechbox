@@ -38,18 +38,18 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "SKILL.md")); err != nil {
 		t.Fatalf("project projection missing: %v", err)
 	}
-	activations, err := lib.ListActivations(ctx)
+	projections, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.Activation{{
+	want := []library.Projection{{
 		SkillID:    skill.ID,
 		Scope:      scope,
 		Directory:  directory,
 		Individual: true,
 	}}
-	if !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() = %#v, want %#v", activations, want)
+	if !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() = %#v, want %#v", projections, want)
 	}
 
 	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
@@ -61,8 +61,8 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("Deactivate removed library skill: %v", err)
 	}
-	if activations, err := lib.ListActivations(ctx); err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() after deactivate = %#v, %v", activations, err)
+	if projections, err := lib.ListProjections(ctx); err != nil || len(projections) != 0 {
+		t.Fatalf("ListProjections() after deactivate = %#v, %v", projections, err)
 	}
 	if err := lib.Deactivate(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Deactivate() inactive skill error = %v, want NotFound", err)
@@ -105,13 +105,13 @@ func TestActivateGroupOnIdentityScopeIsAtomic(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(directory, second.Name, "manual.txt")); err != nil {
 		t.Fatalf("conflicting directory changed: %v", err)
 	}
-	if activations, err := lib.ListActivations(ctx); err != nil || len(activations) != 0 {
-		t.Fatalf("ListActivations() = %#v, %v; want none", activations, err)
+	if projections, err := lib.ListProjections(ctx); err != nil || len(projections) != 0 {
+		t.Fatalf("ListProjections() = %#v, %v; want none", projections, err)
 	}
 }
 
-// 同一 skill 可同时占用两个 Agent 的全局 Scope,以及同一 Agent 的全局与项目 Scope:各是一条 Activation。
-func TestIdentityScopesOfOneSkillAreIndependentActivations(t *testing.T) {
+// 同一 skill 可同时占用两个 Agent 的全局 Scope,以及同一 Agent 的全局与项目 Scope:各是一条投影。
+func TestIdentityScopesOfOneSkillAreIndependentProjections(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -130,9 +130,9 @@ func TestIdentityScopesOfOneSkillAreIndependentActivations(t *testing.T) {
 			t.Fatalf("Activate(%#v) = %v", scope, err)
 		}
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != len(scopes) {
-		t.Fatalf("ListActivations() = %#v, %v; want %d activations", activations, err, len(scopes))
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || len(projections) != len(scopes) {
+		t.Fatalf("ListProjections() = %#v, %v; want %d projections", projections, err, len(scopes))
 	}
 	for _, scope := range scopes {
 		directory, err := lib.Resolve(ctx, scope)
@@ -147,19 +147,19 @@ func TestIdentityScopesOfOneSkillAreIndependentActivations(t *testing.T) {
 	if err := lib.Deactivate(ctx, skill.ID, scopes[0]); err != nil {
 		t.Fatal(err)
 	}
-	activations, err = lib.ListActivations(ctx)
-	if err != nil || len(activations) != 2 {
-		t.Fatalf("ListActivations() after one Deactivate = %#v, %v; want 2", activations, err)
+	projections, err = lib.ListProjections(ctx)
+	if err != nil || len(projections) != 2 {
+		t.Fatalf("ListProjections() after one Deactivate = %#v, %v; want 2", projections, err)
 	}
-	for _, activation := range activations {
-		if activation.Scope == scopes[0] {
-			t.Fatalf("deactivated scope still listed: %#v", activation)
+	for _, projection := range projections {
+		if projection.Scope == scopes[0] {
+			t.Fatalf("deactivated scope still listed: %#v", projection)
 		}
 	}
 }
 
 // 两个不同身份的 Scope 解析到同一目录(把 $HOME 本身登记为项目)时,第二次激活不能悄悄改写
-// 第一条 Activation 的身份:得到 AlreadyExists,原记录与磁盘保持原样。
+// 第一条投影的身份:得到 AlreadyExists,原记录与磁盘保持原样。
 func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	ctx := t.Context()
 	// RegisterProject 会解析符号链接(macOS 的 /var → /private/var),HOME 先取规范路径以便两边一致。
@@ -191,17 +191,17 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 		err := lib.Activate(ctx, skill.ID, projectScope, opts)
 		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: directory})
 	}
-	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: skill.ID, Scope: global, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	projections, err := lib.ListProjections(ctx)
+	want := []library.Projection{{SkillID: skill.ID, Scope: global, Directory: directory, Individual: true}}
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
 		t.Fatalf("global projection lost: %v", err)
 	}
 }
 
-// 两个身份争同一实际目录时,并发 Activate 也不能绕过占用保护:最多一条记录,磁盘副本仍在。
+// 两个身份争同一实际目录时,并发 Activate 也不能绕过占用保护:最多一条记录,磁盘上的投影仍在。
 func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())
@@ -230,14 +230,14 @@ func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 	}
 	close(start)
 	calls.Wait()
-	activations, err := lib.ListActivations(ctx)
+	projections, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(activations) != 1 {
-		t.Fatalf("ListActivations() = %#v, activate errors=%v; want exactly one claim", activations, results)
+	if len(projections) != 1 {
+		t.Fatalf("ListProjections() = %#v, activate errors=%v; want exactly one claim", projections, results)
 	}
-	directory, err := lib.Resolve(ctx, activations[0].Scope)
+	directory, err := lib.Resolve(ctx, projections[0].Scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,10 +282,10 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 		err := lib.Activate(ctx, second.ID, scope, opts)
 		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
 	}
-	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	projections, err := lib.ListProjections(ctx)
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 	requireProjection(t, directory, "commit", "# A\n")
 
@@ -297,14 +297,14 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireProjection(t, directory, "commit", "# B\n")
-	activations, err = lib.ListActivations(ctx)
-	want = []library.Activation{{SkillID: second.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() after switch = %#v, %v; want %#v", activations, err, want)
+	projections, err = lib.ListProjections(ctx)
+	want = []library.Projection{{SkillID: second.ID, Scope: scope, Directory: directory, Individual: true}}
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() after switch = %#v, %v; want %#v", projections, err, want)
 	}
 }
 
-// 占用者经分组投影(无独立激活)时同样受保护;含同名成员的分组向该 Scope 激活时整组被拒,
+// 占用者只由组激活撑着(无直接激活)时同样受保护;含同名成员的分组向该 Scope 激活时整组被拒,
 // 其他成员不落盘、不留记录。
 func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	ctx := t.Context()
@@ -348,10 +348,10 @@ func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
 		t.Fatalf("rejected group projected another member: %v", err)
 	}
 	requireProjection(t, directory, "commit", "# A\n")
-	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{firstGroup.ID}}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	projections, err := lib.ListProjections(ctx)
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{firstGroup.ID}}}
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 }
 
@@ -394,13 +394,13 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	}
 	requireProjection(t, directory, "commit", "# A\n")
 	requireProjection(t, otherDirectory, "commit", "# B\n")
-	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{
+	projections, err := lib.ListProjections(ctx)
+	want := []library.Projection{
 		{SkillID: first.ID, Scope: global, Directory: directory, Individual: true},
 		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Individual: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("ListActivations() = %#v, %v; want %#v", activations, err, want)
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 
 	if err := os.RemoveAll(filepath.Join(directory, "commit")); err != nil {

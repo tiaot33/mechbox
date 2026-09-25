@@ -88,7 +88,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				}
 				writeFile(t, firstPath, []byte("original local content"), 0o644)
 			}
-			before, err := lib.ListActivations(ctx)
+			before, err := lib.ListProjections(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,9 +115,9 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("mid-batch error = %v, want cancellation", err)
 			}
-			after, err := lib.ListActivations(ctx)
+			after, err := lib.ListProjections(ctx)
 			if err != nil || !reflect.DeepEqual(before, after) {
-				t.Fatalf("origins changed: before=%#v after=%#v err=%v", before, after, err)
+				t.Fatalf("projections changed: before=%#v after=%#v err=%v", before, after, err)
 			}
 			content, err := os.ReadFile(firstPath)
 			if err != nil || string(content) != string(original) {
@@ -192,9 +192,9 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("deactivation left dangling projection: %v", err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	if err != nil || len(activations) != 0 {
-		t.Fatalf("activations = %#v, %v", activations, err)
+	projections, err := lib.ListProjections(ctx)
+	if err != nil || len(projections) != 0 {
+		t.Fatalf("projections = %#v, %v", projections, err)
 	}
 }
 
@@ -255,7 +255,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	go func() {
 		individualDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
 	}()
-	// 旧实现允许独立激活在回滚前提交;串行实现则等分组回滚后再完成。
+	// 旧实现允许直接激活在回滚前提交;串行实现则等分组回滚后再完成。
 	var individualErr error
 	finished := false
 	select {
@@ -276,10 +276,10 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	if content, err := os.ReadFile(target); err != nil || string(content) != "first" {
 		t.Fatalf("successful independent projection lost: %q, %v", content, err)
 	}
-	activations, err := lib.ListActivations(ctx)
-	want := []library.Activation{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(activations), want) {
-		t.Fatalf("activations = %#v, %v; want %#v", activations, err, want)
+	projections, err := lib.ListProjections(ctx)
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("projections = %#v, %v; want %#v", projections, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("partial group projection remains: %v", err)

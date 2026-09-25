@@ -12,7 +12,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestInspectActivationsCurrentStaleModifiedAndRefresh(t *testing.T) {
+func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# v1\n"), 0o644)
@@ -30,27 +30,27 @@ func TestInspectActivationsCurrentStaleModifiedAndRefresh(t *testing.T) {
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ActivationCurrent)
+	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
 
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# v2\n"), 0o644)
 	if result, err := lib.Update(ctx, skill.ID); err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	requireInspectionStatuses(t, lib, library.ActivationStale)
+	requireInspectionStatuses(t, lib, library.ProjectionStale)
 
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ActivationCurrent)
+	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
 
 	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# v1\n"), 0o644)
-	requireInspectionStatuses(t, lib, library.ActivationStale)
+	requireInspectionStatuses(t, lib, library.ProjectionStale)
 
 	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# neither\n"), 0o644)
-	requireInspectionStatuses(t, lib, library.ActivationModified)
+	requireInspectionStatuses(t, lib, library.ProjectionModified)
 }
 
-func TestInspectActivationsReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
+func TestInspectProjectionsReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
@@ -72,20 +72,20 @@ func TestInspectActivationsReportsModifiedForExtraFileAndExecutableBit(t *testin
 	target := filepath.Join(directory, skill.Name)
 
 	writeFile(t, filepath.Join(target, "extra.txt"), []byte("extra"), 0o644)
-	requireInspectionStatuses(t, lib, library.ActivationModified)
+	requireInspectionStatuses(t, lib, library.ProjectionModified)
 	if err := os.Remove(filepath.Join(target, "extra.txt")); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ActivationCurrent)
+	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
 
 	script := filepath.Join(target, "scripts", "run.sh")
 	if err := os.Chmod(script, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ActivationModified)
+	requireInspectionStatuses(t, lib, library.ProjectionModified)
 }
 
-func TestInspectActivationsReportsMissingWhenFolderRemoved(t *testing.T) {
+func TestInspectProjectionsReportsMissingWhenFolderRemoved(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
@@ -106,10 +106,10 @@ func TestInspectActivationsReportsMissingWhenFolderRemoved(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ActivationMissing)
+	requireInspectionStatuses(t, lib, library.ProjectionMissing)
 }
 
-func TestInspectActivationsReportsDirectoryMissing(t *testing.T) {
+func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
 	t.Run("deleted project root", func(t *testing.T) {
 		ctx := t.Context()
 		t.Setenv("HOME", t.TempDir())
@@ -132,7 +132,7 @@ func TestInspectActivationsReportsDirectoryMissing(t *testing.T) {
 		if err := os.RemoveAll(projectRoot); err != nil {
 			t.Fatal(err)
 		}
-		requireInspectionStatuses(t, lib, library.ActivationDirectoryMissing)
+		requireInspectionStatuses(t, lib, library.ProjectionDirectoryMissing)
 	})
 
 	t.Run("foreign project path", func(t *testing.T) {
@@ -167,11 +167,11 @@ func TestInspectActivationsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = lib.Close() })
-		requireInspectionStatuses(t, lib, library.ActivationDirectoryMissing)
+		requireInspectionStatuses(t, lib, library.ProjectionDirectoryMissing)
 	})
 }
 
-func TestInspectActivationsInspectsGroupProjections(t *testing.T) {
+func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -196,25 +196,25 @@ func TestInspectActivationsInspectsGroupProjections(t *testing.T) {
 	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	got := inspectActivations(t, lib)
-	want := []library.ActivationInspection{{
-		Activation: library.Activation{
+	got := inspectProjections(t, lib)
+	want := []library.ProjectionInspection{{
+		Projection: library.Projection{
 			SkillID:   skill.ID,
 			Scope:     scope,
 			Directory: directory,
 			ViaGroups: []library.GroupID{group.ID},
 		},
-		Status: library.ActivationCurrent,
+		Status: library.ProjectionCurrent,
 	}}
 	if len(got) == 1 {
-		got[0].Activation.ActivatedAt = time.Time{}
+		got[0].Projection.ActivatedAt = time.Time{}
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("InspectActivations() = %#v, want %#v", got, want)
+		t.Fatalf("InspectProjections() = %#v, want %#v", got, want)
 	}
 }
 
-func TestInspectActivationsIsReadOnlyAndMatchesListActivations(t *testing.T) {
+func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -247,7 +247,7 @@ func TestInspectActivationsIsReadOnlyAndMatchesListActivations(t *testing.T) {
 			}
 		}
 	}
-	before, err := lib.ListActivations(ctx)
+	before, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,9 +257,9 @@ func TestInspectActivationsIsReadOnlyAndMatchesListActivations(t *testing.T) {
 	}
 	diskBefore := snapshotTree(t, directories...)
 
-	got := inspectActivations(t, lib)
+	got := inspectProjections(t, lib)
 
-	after, err := lib.ListActivations(ctx)
+	after, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestInspectActivationsIsReadOnlyAndMatchesListActivations(t *testing.T) {
 	}
 	diskAfter := snapshotTree(t, directories...)
 	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("ListActivations changed: %#v, want %#v", after, before)
+		t.Fatalf("ListProjections changed: %#v, want %#v", after, before)
 	}
 	if !reflect.DeepEqual(skillsAfter, skillsBefore) {
 		t.Fatalf("ListSkills changed: %#v, want %#v", skillsAfter, skillsBefore)
@@ -278,36 +278,36 @@ func TestInspectActivationsIsReadOnlyAndMatchesListActivations(t *testing.T) {
 		t.Fatalf("disk changed: %#v, want %#v", diskAfter, diskBefore)
 	}
 	if len(got) != len(before) {
-		t.Fatalf("InspectActivations len=%d, ListActivations len=%d: %#v", len(got), len(before), got)
+		t.Fatalf("InspectProjections len=%d, ListProjections len=%d: %#v", len(got), len(before), got)
 	}
 	for i := range before {
-		if !reflect.DeepEqual(got[i].Activation, before[i]) {
-			t.Fatalf("InspectActivations()[%d].Activation = %#v, want %#v", i, got[i].Activation, before[i])
+		if !reflect.DeepEqual(got[i].Projection, before[i]) {
+			t.Fatalf("InspectProjections()[%d].Projection = %#v, want %#v", i, got[i].Projection, before[i])
 		}
-		if got[i].Status != library.ActivationCurrent {
-			t.Fatalf("InspectActivations()[%d].Status = %q, want current", i, got[i].Status)
+		if got[i].Status != library.ProjectionCurrent {
+			t.Fatalf("InspectProjections()[%d].Status = %q, want current", i, got[i].Status)
 		}
 	}
 }
 
-func inspectActivations(t *testing.T, lib library.Library) []library.ActivationInspection {
+func inspectProjections(t *testing.T, lib library.Library) []library.ProjectionInspection {
 	t.Helper()
-	got, err := lib.InspectActivations(t.Context())
+	got, err := lib.InspectProjections(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return got
 }
 
-func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.ActivationStatus) {
+func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.ProjectionStatus) {
 	t.Helper()
-	got := inspectActivations(t, lib)
+	got := inspectProjections(t, lib)
 	if len(got) != len(want) {
-		t.Fatalf("InspectActivations() = %#v, want %d statuses %v", got, len(want), want)
+		t.Fatalf("InspectProjections() = %#v, want %d statuses %v", got, len(want), want)
 	}
 	for i := range want {
 		if got[i].Status != want[i] {
-			t.Fatalf("InspectActivations()[%d].Status = %q, want %q (full %#v)", i, got[i].Status, want[i], got)
+			t.Fatalf("InspectProjections()[%d].Status = %q, want %q (full %#v)", i, got[i].Status, want[i], got)
 		}
 	}
 }

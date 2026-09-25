@@ -220,20 +220,20 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if len(projects) != 1 || projects[0].Path != newProjectPath {
 		t.Fatalf("projects after pull = %#v", projects)
 	}
-	// Activation 只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
+	// 投影记录只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
 	// 不携带上一台机器的绝对路径。
-	activations, err := lib.ListActivations(ctx)
+	projections, err := lib.ListProjections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantActivations := []library.Activation{
+	wantProjections := []library.Projection{
 		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Individual: true},
 		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), ViaGroups: []library.GroupID{group.ID}},
 	}
-	if !reflect.DeepEqual(withoutActivatedAt(activations), wantActivations) {
-		t.Fatalf("activations after pull = %#v, want %#v", activations, wantActivations)
+	if !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections) {
+		t.Fatalf("projections after pull = %#v, want %#v", projections, wantProjections)
 	}
-	for _, want := range wantActivations {
+	for _, want := range wantProjections {
 		if dir, err := lib.Resolve(ctx, want.Scope); err != nil || dir != want.Directory {
 			t.Fatalf("Resolve(%#v) after pull = %q, %v; want %q", want.Scope, dir, err, want.Directory)
 		}
