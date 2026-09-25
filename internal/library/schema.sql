@@ -1,7 +1,6 @@
 -- Library 的 SQLite 表结构,由 library.Open 嵌入执行。
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
--- user_version=9 让组激活成为正式记录、投影表改名为 projections(见 ADR 0005 / 0007);
--- Open 将已有 v1–v8 库迁移到当前版本。
+-- 产品尚未发布,不迁移旧版本库:Open 只接受当前 user_version 的库。
 
 -- skill 的安装来源。
 CREATE TABLE IF NOT EXISTS sources (
@@ -34,9 +33,9 @@ CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY,                          -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序
     skill_id INTEGER NOT NULL REFERENCES skills(id), -- 此版本所属的 skill,关联 skills.id
     git_tree_sha TEXT NOT NULL DEFAULT '',           -- GitHub 来源该 Skill 目录的 git tree SHA;非 GitHub 来源或尚未记录时为空
-    confirmed_commit TEXT NOT NULL DEFAULT '',       -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;查时远端 commit 与之相同即无更新、不取 tree。非 git 或迁移前的旧版本为空 = 未知,走完整比较
+    confirmed_commit TEXT NOT NULL DEFAULT '',       -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;查时远端 commit 与之相同即无更新、不取 tree。非 git 或尚未记录时为空 = 未知,走完整比较
     description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
-    created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano;空 = 未知(迁移前的旧版本)
+    created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano
 );
 
 -- 内容寻址的文件内容存储:指纹是内容的 sha256,相同内容跨版本、跨 skill 只存一份。
@@ -59,7 +58,7 @@ CREATE TABLE IF NOT EXISTS version_files (
 CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY,            -- 分组主键,由 SQLite 分配;成员关系和组激活均引用它
     name TEXT NOT NULL UNIQUE,          -- 分组展示名,去除首尾空白且全库唯一;重名时追加 #N(N 从 2 起取最小空闲值)
-    created_at TEXT NOT NULL DEFAULT '' -- 创建时间,RFC3339Nano;空 = 未知
+    created_at TEXT NOT NULL DEFAULT '' -- 创建时间,RFC3339Nano
 );
 
 -- skill 与分组的多对多关系:一个 skill 可以同时属于多个组。
@@ -93,7 +92,7 @@ CREATE TABLE IF NOT EXISTS projections (
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
     direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接激活;0 = 无直接激活,由覆盖它的组激活保留投影
-    activated_at TEXT NOT NULL DEFAULT ''   -- 投影建立时间,RFC3339Nano;空 = 未知。再次激活不更新
+    activated_at TEXT NOT NULL DEFAULT ''   -- 投影建立时间,RFC3339Nano。再次激活不更新
 );
 
 -- NULL 不参与普通 UNIQUE 去重,因此全局与项目身份分别约束。
@@ -106,7 +105,7 @@ CREATE TABLE IF NOT EXISTS group_activations (
     group_id INTEGER NOT NULL REFERENCES groups(id), -- 被激活的分组主键
     agent TEXT NOT NULL REFERENCES agents(code),     -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id),      -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
-    activated_at TEXT NOT NULL DEFAULT ''            -- 组激活时间,RFC3339Nano;空 = 未知(迁移前数据)。再次激活不更新
+    activated_at TEXT NOT NULL DEFAULT ''            -- 组激活时间,RFC3339Nano。再次激活不更新
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS group_activations_global_scope ON group_activations(group_id, agent) WHERE project_id IS NULL;

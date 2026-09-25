@@ -67,7 +67,7 @@ func openLibraryDB(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v8 库会迁移到当前 schema。
+// Open 打开已有 Library 或在 path 初始化新库。已有库须是当前 schema 版本,其他版本返回错误且不改文件。
 func Open(path string) (Library, error) {
 	db, err := openLibraryDB(context.Background(), path)
 	if err != nil {
@@ -84,7 +84,7 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("open library: find home directory: %w", err)
 	}
 	if tableCount > 0 {
-		if err := migrateLibrary(context.Background(), db, home); err != nil {
+		if err := requireLibraryIdentity(context.Background(), db); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("open library: %w", err)
 		}

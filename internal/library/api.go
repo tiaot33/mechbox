@@ -193,11 +193,11 @@ type File struct {
 type Skill struct {
 	ID          SkillID   `json:"id"`
 	Name        string    `json:"name"`
-	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到或迁移前回填失败则为空
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source      Source    `json:"source"`
 	GitTreeSHA  string    `json:"git_tree_sha"`          // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
-	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间;零值 = 未知(迁移前数据)
-	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间;零值 = 未知(迁移前数据)
+	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间
 	Files       []File    `json:"files"`
 }
 
@@ -207,10 +207,10 @@ type Skill struct {
 type SkillSummary struct {
 	ID          SkillID   `json:"id"`
 	Name        string    `json:"name"`
-	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到或迁移前回填失败则为空
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source      Source    `json:"source"`
-	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间;零值 = 未知(迁移前数据)
-	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间;零值 = 未知(迁移前数据)
+	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间
 }
 
 // FetchID 是一次 Fetch 会话的不透明句柄,由 Library 签发。它不持久化、不参与
@@ -288,9 +288,9 @@ type Fetch struct {
 type SkillVersion struct {
 	ID          VersionID `json:"id"`
 	SkillID     SkillID   `json:"skill_id"`
-	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到或迁移前无法回填则为空
+	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
 	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
-	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间;零值 = 未知(迁移前数据)
+	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
 	Files       []File    `json:"files,omitempty"`
 }
 
@@ -318,7 +318,7 @@ type UpdateCheck struct {
 type Group struct {
 	ID        GroupID   `json:"id"`
 	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间;零值 = 未知(迁移前数据)
+	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间
 }
 
 // AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
@@ -416,7 +416,7 @@ type Projection struct {
 	Directory   string    `json:"directory"`
 	Direct      bool      `json:"direct"`                // 有直接激活撑着
 	Groups      []GroupID `json:"groups,omitempty"`      // 覆盖它的组激活所属的 Group:该 skill 是成员且组已激活到此 Scope,按 ID 升序
-	ActivatedAt time.Time `json:"activated_at,omitzero"` // 投影建立(首次激活)的时间;零值 = 未知(迁移前数据)。再次激活不更新
+	ActivatedAt time.Time `json:"activated_at,omitzero"` // 投影建立(首次激活)的时间。再次激活不更新
 }
 
 // GroupActivation 是一个组激活:某 Group 激活到某 Scope,覆盖该组的当前成员(见 ADR 0007)。
@@ -424,7 +424,7 @@ type Projection struct {
 type GroupActivation struct {
 	GroupID     GroupID   `json:"group_id"`
 	Scope       Scope     `json:"scope"`
-	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间;零值 = 未知(迁移前数据)。再次激活不更新
+	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间。再次激活不更新
 }
 
 // GroupMemberOutcome 是组激活或加入成员时,一个成员在一个 Scope 上的结果。
