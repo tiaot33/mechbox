@@ -1,9 +1,9 @@
 # Library 门面桌面化 Roadmap
 
-**Date:** 2026-09-15(2026-09-21 同步第 4 步完成状态)
-**目的:** 记录 `internal/library/api.go` 成为桌面端(Electron,经 ADR 0008 的 stdio sidecar)底层接口之前需要补的能力,按优先级排列。
+**Date:** 2026-09-15(2026-09-21 同步第 4 步完成状态;2026-09-25 按 ADR 0013 重排第 5 步以后)
+**目的:** 记录 `internal/library/api.go` 成为桌面端(Wails v3,与 Library 同进程,见 ADR 0013)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对门面的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
-**用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。schema 已是 v8(#77 / #82);下一次提升是 v9(E4)。
+**用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。main 为 v8(#77 / #82);版本号不预留,谁先合入谁用下一个。
 
 **进度(2026-09-21):**
 
@@ -14,9 +14,10 @@
 - **D3 完成** —— [#73](https://github.com/tiaot33/skills-tui/issues/73),PR [#80](https://github.com/tiaot33/skills-tui/pull/80)(`b85c605`),ADR 0012。
 - **C6 完成** —— [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)。
 - **C1 / C2 / I3 完成** —— [#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。schema v8:描述入库、版本 / 激活 / 分组时间戳、Group 名 UNIQUE 并自动加 `#N`。
-- **schema 基线**:main 为 v8。下一次 schema 变更是第 5 步 E4(v9)。
+- **schema 基线**:main 为 v8。版本号不再预分配给任何条目,谁先合入谁用下一个。
 - **第 4 步完成** —— [#83](https://github.com/tiaot33/skills-tui/issues/83) 已关闭,实现提交 [`52a7145`](https://github.com/tiaot33/skills-tui/commit/52a7145)、简化提交 [`8d518f5`](https://github.com/tiaot33/skills-tui/commit/8d518f5) 已推送至 main:激活预检、Fetch 候选标明已在库中、删除/注销默认清掉投影、去掉 `UpdateResult.Note`。明确不做更新预览/绑版、不做过时投影列表、不写「Preview → Execute 统一模式」ADR。
-- 下一步为第 5 步 E1–E6,先建 spec issue 并确定凭证存放 ADR。E、F1–F4、G–H、I4 / I5 尚未建 issue;F5 已随 #83 完成。I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
+- **2026-09-25 重排** —— ADR 0013:桌面端改为 Wails v3 与 Library 同进程,取代 ADR 0008 的 Electron + stdio sidecar;TUI 搁置;开启单实例锁。随之:RPC 一步取消,F1 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),G2 与库修订号不做;E1 因 macOS 从 Finder 启动读不到环境变量而提前;Wails 原型发现的 [#85](https://github.com/tiaot33/skills-tui/issues/85)–[#88](https://github.com/tiaot33/skills-tui/issues/88) 排入分步计划。F5 已随 #83 完成;I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
+- 下一步为第 5 步 [#88](https://github.com/tiaot33/skills-tui/issues/88) 接入边界。
 
 ## 优先级定义
 
@@ -56,11 +57,11 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [x] **C1 `Skill` / `SkillSummary` 增加 `Description`。**(schema)列表页第一需求;`candidateMetadata` 已解析出该字段但未入库。现状前端要对每行调 `GetSkill`(拉全部文件正文)再自行解析 frontmatter。描述放版本级,迁移从 `SKILL.md` blob 回填。→ #77,#82
 - [x] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt` 落列;`Skill.InstalledAt` / `UpdatedAt` 由版本时间派生。迁移不回填(空 = 未知)。→ #77,#82
 - [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
-- [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**推后**:多传字节,不阻塞功能。
+- [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**2026-09-25 提前**:经 Wails 绑定传输时同样是 base64,并入 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
 - [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 已删除提醒字段,不返回过时投影列表;C6 判定也不依赖它。
 - [x] **C6 投影健康度。** `InspectActivations() → [{Activation, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Activation.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
-- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。
+- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListActivations` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。组成员批量读取与按范围巡检投影另见 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
 
 ### D. 锁与并发 — ✅ 完成,spec: [#72](https://github.com/tiaot33/skills-tui/issues/72)(D1、D2,PR [#79](https://github.com/tiaot33/skills-tui/pull/79))、[#73](https://github.com/tiaot33/skills-tui/issues/73)(D3,PR [#80](https://github.com/tiaot33/skills-tui/pull/80))
 
@@ -76,25 +77,25 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 现状全靠环境变量:`SKILLS_S3_*`、`AWS_*`、`SKILLS_STORE_URL`、`SKILLS_PROJECT_PATH_MAP`、`SKILLS_GIT_TIMEOUT`、`GITHUB_TOKEN` / `GH_TOKEN`。GUI 拉起的 sidecar 无法在运行时修改环境变量。
 
-- [ ] **E1 配置 API 取代环境变量。** `GetConfig` / `SetConfig`(S3 endpoint / bucket / key / region / 凭证、Store URL、git 超时、GitHub token)。凭证的存放位置(库内 / 系统钥匙串 / 仅内存)需要 ADR。
+- [ ] **E1 配置 API 取代环境变量。** `GetConfig` / `SetConfig`(S3 endpoint / bucket / key / region / 凭证、Store URL、git 超时、GitHub token)。凭证的存放位置(库内 / 系统钥匙串 / 仅内存)需要 ADR。**2026-09-25 提前为桌面端可用的前提**:macOS 从 Finder / Dock 启动的应用读不到 shell 环境变量,`PATH` 里也没有 Homebrew,`gh` 回退找不到;需一并让 `gh` 可选或可配置路径(ADR 0013)。
 - [ ] **E2 连接与鉴权探测。** `TestSyncConnection`;新增错误码 `RateLimited`(附 retry-after,现在限流最终表现为 `SourceUnreachable`)与 `Unauthenticated`(Library 无凭证可提供)以区分 `Permission`(凭证被拒),使 UI 能引导到配置页(从 A4 移入;依赖 E1 有地方可配)。
 - [ ] **E3 拉库重映射参数化。** `PreviewSyncPull` 返回远端 Registered projects 列表;`SyncPull(expected, SyncPullOptions{ProjectPathMap})` 取代 `SKILLS_PROJECT_PATH_MAP`。桌面端这是一个对话框("远端登记了 `/Users/a/x`,映射到本机哪里?"),不该在 pull 时读环境变量。
 - [ ] **E4 Sync 状态落库。**(schema)上次 push / pull 时间与当时的远端身份,使"远端自上次同步后被另一台机器改过"可判定(现只守住 preview → execute 那几秒的窗口);pull 前做本地备份。
 - [ ] **E5 `Info()`。** 库路径、schema 版本、各实体计数、文件大小,供状态 / 关于面板。
-- [ ] **E6 Logger 注入。** 接受 `slog.Handler`,配合 ADR 0008 "serve 模式下 stdout 只走协议 JSON"的要求。
+- [ ] **E6 Logger 注入。** 接受 `slog.Handler`。原动机(ADR 0008 serve 模式下 stdout 只走协议 JSON)随 ADR 0013 消失,降为整理项。
 
-### F. RPC 边界形状
+### F. 跨 JSON 边界的形状(2026-09-25:边界从 RPC 改为 Wails 绑定,ADR 0013)
 
-- [ ] **F1 `Scope` 的 wire 形状。** 密封接口能 marshal 不能 unmarshal(ADR 0011 明确推给 RPC 层)。在边界定义 DTO `{kind, agent, project_id}` 或自定义 (un)marshal;TS 类型据此生成。
+- [ ] **F1 `Scope` 的 wire 形状。** 密封接口能 marshal 不能 unmarshal(ADR 0011 明确推给 RPC 层)。Wails 绑定同样无法生成接口类型参数。→ 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),连同 `library.ErrorOf` 统一错误编码。
 - [ ] **F2 DTO 去散文。** `SyncPreview.Warnings`、`SyncResult.Warnings` 是中文句子,`Error.Message` 却是英文。改为枚举 / 码,本地化归 UI(ADR 0003)。`UpdateResult.Note` 由 [#83](https://github.com/tiaot33/skills-tui/issues/83) 删除,不改成枚举。
 - [ ] **F3 枚举默认值显式化。** `on_conflict: ""`、`projected_copies: ""` 在 wire 上应为明确值(如 `"fail"` / `"remove"`)。空 `projected_copies` 的含义随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 改为删除。
 - [ ] **F4 命名整理。** `Install`(本地)vs `InstallFetch`(远程);更新检查已统一为 `CheckUpdates`,单项与批量都返回 `[]UpdateCheck`。
-- [x] **F5 刷新 ADR 0008。** 过时方法名与 cancel 覆盖的网络操作清单已随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 更新;TS 生成器仍留到第 6 步实现 `internal/rpc/` 时再定。
+- [x] **F5 刷新 ADR 0008。** 过时方法名与 cancel 覆盖的网络操作清单已随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 更新;TS 类型改由 Wails v3 绑定生成器生成(ADR 0013)。
 
 ### G. 进度与变更通知
 
-- [ ] **G1 进度报告。** 长操作(`Fetch`、`InstallFetch`、`Update`、`CheckUpdates`、`SyncPush` / `SyncPull`)可报告进度:ctx 携带 `ProgressFunc`,或 Library 级 `Events()`;RPC 层映射为 JSON-RPC notification。ADR 0004 为 TUI 接受了"无进度",桌面端不成立。
-- [ ] **G2 变更通知。** `Watch(ctx) <-chan Change` 或列表返回 `Revision` 计数,覆盖本进程写操作与 `SyncPull` 整库替换;多进程场景留给拓扑 B。现状任何写操作后前端只能全量重拉。
+- [ ] **G1 进度报告。** 长操作(`Fetch`、`InstallFetch`、`Update`、`CheckUpdates`、`SyncPush` / `SyncPull`)可报告进度:ctx 携带 `ProgressFunc`,或 Library 级 `Events()`;桌面端转成 Wails 事件(ADR 0013)。ADR 0004 为 TUI 接受了"无进度",桌面端不成立。
+- **G2 变更通知 — 决定不做(2026-09-25,ADR 0013)。** 桌面端开启单实例锁,库的写入者只有它自己(含 `SyncPull` 整库替换),前端在自己的写操作之后重读即可;[#87](https://github.com/tiaot33/skills-tui/issues/87) 提出的库修订号一并不做。TUI / CLI 恢复时再作为它们的前置条件补上。
 
 ### H. 自研 skill 与版本操作
 
@@ -104,6 +105,15 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [ ] **H4 批量操作。** `RemoveSkills`、`UpdateMany`(逐项结果,形状同 `UpdateCheck`),对应多选交互。
 
 ---
+
+### J. Wails 原型发现(2026-09-22)
+
+来自 Wails 桌面端 UI 原型(远端分支 `worktree-prototype-wails-ui`,说明见其中 `cmd/prototype-wails/README.md`;结论为从技能出发的三栏布局)。
+
+- [ ] **J1 组成员增删同步激活来源。** 移出已激活组的技能卡在「经由该组」,加入已激活组的技能不投影;两处语义待定。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85)
+- [ ] **J2 不改变来源的投影重写。** 用 `Activate` 刷新会给仅经由分组激活的投影加上独立来源;新增单条与批量重写。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86)
+- [ ] **J3 桌面端读模型。** 组成员批量读取、按范围巡检投影、保存更新检查结果(schema)、文件按需读取(即 C4);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
+- [ ] **J4 Wails 接入边界。** `Scope` 改为可序列化的具体结构体,`library.ErrorOf` 统一错误编码(即 F1)。→ [#88](https://github.com/tiaot33/skills-tui/issues/88)
 
 ## P2
 
@@ -119,7 +129,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ## 分步计划
 
-原则:每一步是一个可独立合入、可独立验收的 PR 序列;每步一个 spec issue(bug 单独开);schema 只在第 3 步(v8)、第 5 步(v9)各提升一次;需要决策的步骤先落 ADR 再写代码。每步末尾标出依赖,无依赖的步骤可并行。
+原则:每一步是一个可独立合入、可独立验收的 PR 序列;每步一个 spec issue(bug 单独开);schema 版本号不预留,谁先合入谁用下一个;需要决策的步骤先落 ADR 再写代码。每步末尾标出依赖,无依赖的步骤可并行。
 
 ### 第 0 步 — ✅ 收口进行中工作(前置)
 
@@ -149,38 +159,53 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 - spec: [#83](https://github.com/tiaot33/skills-tui/issues/83) 已完成并关闭,`52a7145` / `8d518f5` 已推送至 main;`go test -race ./internal/library` 通过。schema 保持 v8,不写「Preview → Execute 统一模式」ADR。
 - B1 `PreviewActivate` / `PreviewActivateGroup`:返回 `ready` / `refresh` / `occupied` / `untracked`(分组加 `duplicate_names`);无记录文件夹不比对内容。B3 `FetchSkill.Installed`。B5 删除 `UpdateResult.Note`,刷新投影由客户端再激活。`RemoveSkill` / `UnregisterProject` 空选项改为删除投影,显式 `Keep` 才保留。
-- B4 决定不做(更新永远拉最新)。F5:已更新 ADR 0008 过时方法名与联网操作清单;TS 生成器留给第 6 步。
+- B4 决定不做(更新永远拉最新)。F5:已更新 ADR 0008 过时方法名与联网操作清单;TS 类型后改由 Wails v3 绑定生成(ADR 0013)。
 - 依赖:第 1 步(已完成;占用判定建立在 B2 修正后的语义上)。
 
-### 第 5 步 — 下一步:运行时配置与 Sync 状态:E1–E6(spec issue + ADR "凭证存放位置")
+### 第 5 步 — 下一步:Wails 接入边界:J4(F1)
 
-- ADR 决定凭证存放(库内 / 系统钥匙串 / 仅内存),然后 E1 `GetConfig` / `SetConfig`。
-- E2 `TestSyncConnection` + 新错误码 `RateLimited`(附 retry-after)/ `Unauthenticated`(依赖 E1)。
-- E3 `PreviewSyncPull` 返回远端项目列表,`SyncPullOptions{ProjectPathMap}` 取代环境变量。
-- E4 schema v9:Sync 状态落库(上次 push / pull 时间与远端身份),pull 前本地备份。
-- E5 `Info()`(合并 I5 的"需要迁移"探知)、E6 `slog.Handler` 注入。
-- 依赖:第 3 步(已完成,共用迁移框架)。尚未建 spec issue,先确定配置与凭证边界。
+- [#88](https://github.com/tiaot33/skills-tui/issues/88):`Scope` 改为可序列化的具体结构体,修订 ADR 0011;新增 `library.ErrorOf`。改动小,接真实 Library 要靠它。
+- 依赖:第 4 步(已完成)。
 
-### 第 6 步 — RPC 边界与通知:F1–F3、G1–G2(与 `internal/rpc/` 落地同一批 issue)
+### 第 6 步 — 桌面端骨架
 
-- F1 `Scope` DTO `{kind, agent, project_id}` 的 (un)marshal;F2 Sync `Warnings` 去散文改枚举(`UpdateResult.Note` 已由 #83 删除);F3 wire 上枚举默认值显式化。
-- G1 进度报告(ctx `ProgressFunc` 或 `Events()`,RPC 映射为 notification);G2 `Watch(ctx) <-chan Change` 或列表 `Revision`。
-- 依赖:第 4 步(已完成,F5 过时方法名已随 #83 刷新;TS 生成器在本步选定)、第 5 步(E6 决定 serve 模式的日志出口)。B4 决定不做,F4 的 CheckUpdate 半边已在此前合入。
+- `cmd/desktop/`:Wails v3 + React / TypeScript / Vite / shadcn / Tailwind,接真实 Library,开启单实例锁(ADR 0013)。落地时在 ADR 0010 登记目录。
+- 从这里起桌面端与下列 Library 工作并行,桌面端碰到缺口时按缺口调整优先级。
+- 依赖:第 5 步。
 
-### 第 7 步 — 自研 skill 与批量:H1–H4、I4(视桌面端功能排期)
+### 第 7 步 — 组与激活语义:J1 → J2
 
-- H1 `Install` 校验对齐 Fetch(需决定 name 与目录名一致性策略,更新 ADR 0001);H3 `SetCurrentVersion` 回滚(依赖 C3);H2 `CreateSkill` / `SaveSkillFiles` / `ExportSkill`;H4 `RemoveSkills` / `UpdateMany`。
-- I4 孤儿 `sources` 与 blob GC(补 ADR 0005 的 "to be specified")。
-- 依赖:第 3 步。
+- 先 [#85](https://github.com/tiaot33/skills-tui/issues/85)(组成员增删同步激活来源),再 [#86](https://github.com/tiaot33/skills-tui/issues/86)(不改变来源的投影重写)。两者都改 `activation.go`,顺序做、不并行。
+- 依赖:无(可与第 5、6 步并行)。
+
+### 第 8 步 — 运行时配置:E1、E2(spec issue + ADR "凭证存放位置")
+
+- ADR 决定凭证存放(库内 / 系统钥匙串 / 仅内存),然后 E1 `GetConfig` / `SetConfig` 取代环境变量;`gh` 回退改为可选或可配置路径。
+- E2 `TestSyncConnection` + 新错误码 `RateLimited`(附 retry-after)/ `Unauthenticated`。
+- 提前的原因:macOS 从 Finder / Dock 启动的应用读不到环境变量,不做则打包后的桌面端没有 GitHub 凭证、不能同步。
+
+### 第 9 步 — 桌面端读模型:J3(含 C4)
+
+- [#87](https://github.com/tiaot33/skills-tui/issues/87) 拆成独立 issue:组成员批量读取(无 schema,先做)、保存更新检查结果(schema)、文件按需读取、按范围巡检投影。库修订号不做(G2)。
+
+### 第 10 步 — 进度与 wire 整理:G1、F2、F3
+
+- G1 进度报告:ctx 带进度回调,桌面端转成 Wails 事件。
+- F2 Sync `Warnings` 去散文改枚举;F3 wire 上枚举默认值显式化(Wails v3 会把具名字符串类型生成为 TS `enum`)。
+
+### 第 11 步 — 按桌面端功能排期:E3–E6、H1–H4、I4 / I5
+
+- 同步的其余部分:E3 拉库路径映射对话框、E4 Sync 状态落库(schema)与 pull 前备份、E5 `Info()`(合并 I5)、E6 Logger 注入。
+- 自研 skill 与批量:H1 `Install` 校验对齐 Fetch、H3 回滚(依赖 C3)、H2 编辑路径、H4 批量操作;I4 孤儿 `sources` 与 blob GC。
 
 ### 关键路径与并行度
 
 ```
-第 0 步 ✅ ──┬── 第 1 步 ✅(B2)
-            ├── 第 2 步 ✅(D:#72 + #73)
-            └── 第 3 步 ✅(C:#77+#76)──┬── 第 4 步 ✅(B 预检 + F5)──┐
-                                        ├─────── 第 5 步(E, v9)──────┼── 第 6 步(F/G + internal/rpc/)
-                                        └─────── 第 7 步(H/I)
+第 0–4 步 ✅ ──┬── 第 5 步(#88 接入边界)── 第 6 步(桌面端骨架)──┐
+              ├── 第 7 步(#85 → #86)─────────────────────────┤
+              ├── 第 8 步(运行时配置)────────────────────────┼── 桌面端可用
+              └── 第 9 步(#87 读模型)────────────────────────┘
+                                   第 10、11 步按桌面端功能排期
 ```
 
-第 0–4 步已完成。接下来推进第 5 步;第 7 步可按桌面端功能排期与其并行。第 6 步等待第 5 步完成,是桌面端接线点,在此之前门面应已稳定。
+第 5 步是桌面端接线点,第 6 步起桌面端与 Library 工作并行。RPC 一步(原第 6 步)随 ADR 0013 取消;G2 不做。

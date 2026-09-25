@@ -10,3 +10,4 @@
 - **内部实现放 `internal/`，入口放 `cmd/`。** 应用内部包遵循 [Go 的 internal 导入规则](https://pkg.go.dev/cmd/go#hdr-Internal_packages)：调用方包路径须为 `github.com/tiaot33/skills-tui` 或其子路径。
 - **默认共用根 module。** 只有当某个应用有独立的依赖或发布需求时，才为它另建 Go module；只有需要多个 Go module 联调时才引入 `go.work`，它不改变 `internal` 的可见性规则。
 - **非 Go 的客户端沿用各自语言的工具链**，放在仓库顶层各自的目录下，不塞进 `internal/`。
+- **例外：被 Go 进程嵌入的前端跟着嵌入它的入口走。** `go:embed` 不能引用包目录之外的文件，所以 Wails 这类应用的前端放在 `cmd/<app>/frontend/`，与 Go 入口同处一个目录，仍沿用自己的工具链（ADR 0013）。
