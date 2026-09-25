@@ -411,12 +411,12 @@ type GroupActivatePreview struct {
 // 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
 // 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectProjections 给出。
 type Projection struct {
-	SkillID     SkillID   `json:"skill_id"`
-	Scope       Scope     `json:"scope"`
-	Directory   string    `json:"directory"`
-	Direct      bool      `json:"direct"`                // 有直接激活撑着
-	Groups      []GroupID `json:"groups,omitempty"`      // 覆盖它的组激活所属的 Group:该 skill 是成员且组已激活到此 Scope,按 ID 升序
-	ActivatedAt time.Time `json:"activated_at,omitzero"` // 投影建立(首次激活)的时间。再次激活不更新
+	SkillID   SkillID   `json:"skill_id"`
+	Scope     Scope     `json:"scope"`
+	Directory string    `json:"directory"`
+	Direct    bool      `json:"direct"`              // 有直接激活撑着
+	Groups    []GroupID `json:"groups,omitempty"`    // 覆盖它的组激活所属的 Group:该 skill 是成员且组已激活到此 Scope,按 ID 升序
+	CreatedAt time.Time `json:"created_at,omitzero"` // 投影建立(首次激活)的时间。再次激活不更新
 }
 
 // GroupActivation 是一个组激活:某 Group 激活到某 Scope,覆盖该组的当前成员(见 ADR 0007)。

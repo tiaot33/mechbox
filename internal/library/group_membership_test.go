@@ -15,7 +15,7 @@ import (
 func requireProjections(t *testing.T, lib library.Library, want []library.Projection) {
 	t.Helper()
 	projections, err := lib.ListProjections(t.Context())
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 }
@@ -378,4 +378,60 @@ func TestUnregisterProjectAndDeleteGroupClearGroupActivations(t *testing.T) {
 	}
 	requireProjections(t, lib, []library.Projection{{SkillID: skill.ID, Scope: global, Directory: globalDir, Direct: true}})
 	requireProjection(t, globalDir, "member", "# member\n")
+}
+
+// withdraw 先记录后删盘(#75):某个 Scope 的文件夹移不走时整体复原——已移走的其他 Scope 文件夹放回原处,
+// 成员关系与投影记录不变。
+func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill := installNamedSkill(t, lib, "member")
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := library.GlobalScope(library.AgentCodex)
+	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
+	globalDir, err := lib.Resolve(ctx, global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectDir, err := lib.Resolve(ctx, projectScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := lib.CreateGroup(ctx, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// 全局先于项目 Scope 处理:全局的文件夹先被移走,再在只读的项目 Scope 上失败。
+	for _, scope := range []library.Scope{global, projectScope} {
+		if _, err := lib.ActivateGroup(ctx, g.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	makeScopeReadOnly(t, projectDir)
+	err = lib.RemoveSkillFromGroup(ctx, g.ID, skill.ID, library.RemoveFromGroupOptions{Projections: library.WithdrawProjection})
+	if err == nil {
+		t.Fatal("RemoveSkillFromGroup(withdraw) succeeded despite a read-only scope")
+	}
+	if err := os.Chmod(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	requireProjection(t, globalDir, "member", "# member\n")
+	requireProjection(t, projectDir, "member", "# member\n")
+	requireNoStagedEntries(t, globalDir)
+	members, err := lib.ListGroupSkills(ctx, g.ID)
+	if err != nil || !reflect.DeepEqual(summaryIDs(members), []library.SkillID{skill.ID}) {
+		t.Fatalf("ListGroupSkills() after failed withdraw = %v, %v; want [%d]", summaryIDs(members), err, skill.ID)
+	}
+	via := []library.GroupID{g.ID}
+	requireProjections(t, lib, []library.Projection{
+		{SkillID: skill.ID, Scope: global, Directory: globalDir, Groups: via},
+		{SkillID: skill.ID, Scope: projectScope, Directory: projectDir, Groups: via},
+	})
 }

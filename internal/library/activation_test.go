@@ -74,7 +74,7 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 				Directory: directory,
 				Direct:    true,
 			}}
-			if !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+			if !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 				t.Fatalf("ListProjections() = %#v, want %#v", projections, want)
 			}
 
@@ -126,17 +126,17 @@ func TestActivateRecordsFirstActivationTimeAndIgnoresReactivation(t *testing.T) 
 	if err != nil || len(listed) != 1 {
 		t.Fatalf("ListProjections = %#v, %v", listed, err)
 	}
-	first := listed[0].ActivatedAt
+	first := listed[0].CreatedAt
 	if first.IsZero() || first.Before(start) || first.After(end) {
-		t.Fatalf("ActivatedAt = %v, want in [%v, %v]", first, start, end)
+		t.Fatalf("CreatedAt = %v, want in [%v, %v]", first, start, end)
 	}
 	time.Sleep(time.Millisecond)
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	reactivated, err := lib.ListProjections(ctx)
-	if err != nil || len(reactivated) != 1 || !reactivated[0].ActivatedAt.Equal(first) {
-		t.Fatalf("reactivated ActivatedAt = %#v, %v; want %v", reactivated, err, first)
+	if err != nil || len(reactivated) != 1 || !reactivated[0].CreatedAt.Equal(first) {
+		t.Fatalf("reactivated CreatedAt = %#v, %v; want %v", reactivated, err, first)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 					}
 				}
 				projections, err := lib.ListProjections(ctx)
-				if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+				if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 					t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 				}
 			}
@@ -275,7 +275,7 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 			}
 			projections, err := lib.ListProjections(ctx)
 			want = []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-			if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+			if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 				t.Fatalf("ListProjections() after DeactivateGroup = %#v, %v; want %#v", projections, err, want)
 			}
 		})
@@ -373,7 +373,7 @@ func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	requireProjection(t, directory, skill.Name, "edited\n")
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: skill.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() after re-Activate = %#v, %v; want %#v", projections, err, want)
 	}
 
@@ -391,7 +391,7 @@ func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	}
 	projections, err = lib.ListProjections(ctx)
 	want[0].Groups = []library.GroupID{group.ID}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("projections after reactivation = %#v, %v; want %#v", projections, err, want)
 	}
 }
@@ -496,7 +496,7 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 	if activations, err := lib.ListGroupActivations(ctx); err != nil || len(activations) != 0 {

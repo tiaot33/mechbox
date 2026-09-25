@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS projections (
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
     direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接激活;0 = 无直接激活,由覆盖它的组激活保留投影
-    activated_at TEXT NOT NULL DEFAULT ''   -- 投影建立时间,RFC3339Nano。再次激活不更新
+    created_at TEXT NOT NULL DEFAULT ''     -- 投影建立(首次激活)的时间,RFC3339Nano。再次激活不更新
 );
 
 -- NULL 不参与普通 UNIQUE 去重,因此全局与项目身份分别约束。

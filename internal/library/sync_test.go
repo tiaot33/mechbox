@@ -230,7 +230,7 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Direct: true},
 		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), Groups: []library.GroupID{group.ID}},
 	}
-	if !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections) {
+	if !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections) {
 		t.Fatalf("projections after pull = %#v, want %#v", projections, wantProjections)
 	}
 	for _, want := range wantProjections {

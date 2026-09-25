@@ -176,7 +176,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{second.ID}},
 		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Direct: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections) {
 		t.Fatalf("projections after DeleteGroup = %#v, %v; want %#v", projections, err, wantProjections)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
@@ -190,7 +190,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		t.Fatalf("RemoveSkill(Remove) left projection: %v", err)
 	}
 	projections, err = lib.ListProjections(ctx)
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections[:1]) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections[:1]) {
 		t.Fatalf("projections after RemoveSkill = %#v, %v; want %#v", projections, err, wantProjections[:1])
 	}
 	groups, err = lib.ListGroups(ctx)

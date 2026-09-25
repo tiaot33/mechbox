@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
@@ -158,24 +159,28 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	// 本组组激活覆盖的投影在开事务前取齐(事务期间不能再走 l.db);删组不写盘,其余改动成员与组激活的
+	// 操作都持独占锁,取齐后不会变。
+	covered, err := l.memberProjections(ctx, id, 0, scopeRow{})
+	if err != nil {
+		return err
+	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("delete group: %w", err)
 	}
 	defer tx.Rollback()
-	// 本组组激活覆盖、且没有其他激活撑着的投影先转为直接激活,再删组激活。
-	if _, err := tx.ExecContext(ctx, `UPDATE projections SET direct = 1
-		WHERE direct = 0
-			AND skill_id IN (SELECT skill_id FROM skill_groups WHERE group_id = ?)
-			AND EXISTS (SELECT 1 FROM group_activations WHERE group_id = ? AND agent = projections.agent AND project_id IS projections.project_id)
-			AND NOT `+groupCoverageSQL, id, id, id); err != nil {
-		return fmt.Errorf("preserve group projections: %w", err)
-	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_activations WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group members: %w", err)
+	}
+	// 本组不再覆盖它们后,没有其他激活撑着的转为直接激活,磁盘不动。
+	for _, projection := range covered {
+		if err := keepUnbackedProjection(ctx, tx, projection.id); err != nil {
+			return err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, id)
 	if err != nil {
@@ -194,7 +199,7 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	return nil
 }
 
-func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts ActivateOptions) (results []GroupMemberResult, err error) {
+func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts ActivateOptions) (_ []GroupMemberResult, err error) {
 	// 加入成员会投影到组已激活的各 Scope,与激活一样持独占锁。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -228,39 +233,22 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 	if err != nil {
 		return nil, err
 	}
-	results = make([]GroupMemberResult, 0, len(activations))
-	var placements []*placement
-	planned := map[string]bool{}
+	plan := newMemberPlan("add skill to group", opts)
 	for _, activation := range activations {
 		target, err := l.resolveScope(ctx, "add skill to group", activation.scope())
 		if err != nil {
 			return nil, err
 		}
-		result, item, err := l.planMember(ctx, "add skill to group", skillID, name, target, opts, duplicate, planned)
-		if err != nil {
+		if err := l.planMember(ctx, plan, skillID, name, target, duplicate); err != nil {
 			return nil, err
 		}
-		results = append(results, result)
-		if item != nil {
-			placements = append(placements, item)
-		}
 	}
-	now := clockNow()
-	err = l.place(ctx, placements, func(tx *sql.Tx) error {
+	return l.applyMemberPlan(ctx, plan, func(tx *sql.Tx, _ time.Time) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
 			return fmt.Errorf("add skill to group: %w", err)
 		}
-		for _, item := range placements {
-			if err := recordProjectionTx(ctx, tx, item.skill.ID, item.scope.scopeRow, false, now); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
 }
 
 func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
@@ -309,8 +297,8 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 			}
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE projections SET direct = 1 WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, projection.id, 0); err != nil {
-			return fmt.Errorf("preserve member projection: %w", err)
+		if err := keepUnbackedProjection(ctx, tx, projection.id); err != nil {
+			return err
 		}
 	}
 	return trash.commit(ctx, tx, "remove skill from group")

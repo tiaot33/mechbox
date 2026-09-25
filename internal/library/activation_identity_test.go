@@ -48,7 +48,7 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 		Directory: directory,
 		Direct:    true,
 	}}
-	if !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, want %#v", projections, want)
 	}
 
@@ -111,7 +111,7 @@ func TestActivateGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{group.ID}}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 	activations, err := lib.ListGroupActivations(ctx)
@@ -203,7 +203,7 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: skill.ID, Scope: global, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
@@ -294,7 +294,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 	requireProjection(t, directory, "commit", "# A\n")
@@ -309,7 +309,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	requireProjection(t, directory, "commit", "# B\n")
 	projections, err = lib.ListProjections(ctx)
 	want = []library.Projection{{SkillID: second.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() after switch = %#v, %v; want %#v", projections, err, want)
 	}
 }
@@ -364,7 +364,7 @@ func TestActivateGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) 
 		{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{firstGroup.ID}},
 		{SkillID: bystander.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{secondGroup.ID}},
 	}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 
@@ -423,7 +423,7 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 		{SkillID: first.ID, Scope: global, Directory: directory, Direct: true},
 		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Direct: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
 

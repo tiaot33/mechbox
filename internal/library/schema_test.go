@@ -63,7 +63,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
 		got, err := reopened.ListProjections(ctx)
-		if err != nil || !reflect.DeepEqual(withoutActivatedAt(got), want) {
+		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
 			t.Fatalf("ListProjections after Open = %#v, %v; want %#v", got, err, want)
 		}
 		for _, projection := range want {

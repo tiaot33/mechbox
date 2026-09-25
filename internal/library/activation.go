@@ -71,11 +71,11 @@ type rowQuerier interface {
 }
 
 // groupCoverageSQL 判断 projections 当前行是否被组激活覆盖:该 skill 是某组成员且该组已激活到同一 Scope。
-// 带一个参数:要排除的 GroupID(0 表示不排除)。组激活撑着投影的事实只由它推出,不另存。
+// 组激活撑着投影的事实只由它推出,不另存。
 const groupCoverageSQL = `EXISTS (
 	SELECT 1 FROM group_activations ga JOIN skill_groups sg ON sg.group_id = ga.group_id
 	WHERE sg.skill_id = projections.skill_id AND ga.agent = projections.agent
-		AND ga.project_id IS projections.project_id AND ga.group_id <> ?)`
+		AND ga.project_id IS projections.project_id)`
 
 // projectionRow 是一条已存在的投影记录:稳定 ID 与直接激活标记。
 type projectionRow struct {
@@ -97,8 +97,9 @@ func findProjection(ctx context.Context, q rowQuerier, id SkillID, scope scopeRo
 }
 
 // dropUnbackedProjection 在撤销某个激活后,删掉不再有任何激活撑着的投影记录;返回是否删除。
+// 与 keepUnbackedProjection 相对:撤回时用它,保留时用后者。
 func dropUnbackedProjection(ctx context.Context, tx *sql.Tx, projectionID int64) (bool, error) {
-	result, err := tx.ExecContext(ctx, `DELETE FROM projections WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, projectionID, 0)
+	result, err := tx.ExecContext(ctx, `DELETE FROM projections WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, projectionID)
 	if err != nil {
 		return false, fmt.Errorf("remove projection: %w", err)
 	}
@@ -107,6 +108,15 @@ func dropUnbackedProjection(ctx context.Context, tx *sql.Tx, projectionID int64)
 		return false, fmt.Errorf("remove projection: %w", err)
 	}
 	return removed > 0, nil
+}
+
+// keepUnbackedProjection 在撤掉某个组激活后,让不再有任何激活撑着的投影改为直接激活,磁盘不动
+// (移出成员的 keep 与删除分组的非破坏规则)。
+func keepUnbackedProjection(ctx context.Context, tx *sql.Tx, projectionID int64) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE projections SET direct = 1 WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, projectionID); err != nil {
+		return fmt.Errorf("keep projection as direct activation: %w", err)
+	}
+	return nil
 }
 
 // projectionTrash 让"删记录 + 删投影文件夹"可逆:调用方在事务内删完记录、把待删路径放进 targets,
@@ -471,9 +481,9 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 }
 
 // recordProjectionTx 在事务内为刚落盘的投影建记录;direct 表示是否由直接激活撑着。只带 Scope 身份,不存目录。
-func recordProjectionTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, direct bool, activatedAt time.Time) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO projections(skill_id, agent, project_id, direct, activated_at) VALUES (?, ?, ?, ?, ?)`,
-		id, scope.agent, scope.projectID, direct, formatStoredTime(activatedAt)); err != nil {
+func recordProjectionTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, direct bool, createdAt time.Time) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO projections(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
+		id, scope.agent, scope.projectID, direct, formatStoredTime(createdAt)); err != nil {
 		return fmt.Errorf("record projection: %w", err)
 	}
 	return nil
@@ -548,42 +558,75 @@ func coveringGroupName(ctx context.Context, q rowQuerier, id SkillID, scope scop
 	return name, nil
 }
 
-// planMember 判定 skill 作为组成员在 target 上的结果:已有投影只补上组激活;同名成员(duplicate)、
-// 目标被占用、有未记录文件夹(且未选 Overwrite)的跳过;其余返回待落盘的 placement。planned 记下本批已计划的
-// 目标文件夹,两个 Scope 解析到同一目录时后者按占用跳过。
-func (l *sqliteLibrary) planMember(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, opts ActivateOptions, duplicate bool, planned map[string]bool) (GroupMemberResult, *placement, error) {
-	result := GroupMemberResult{SkillID: id, Scope: target.scope()}
-	existing, err := findProjection(ctx, l.db, id, target.scopeRow)
-	if err != nil {
-		return result, nil, err
-	}
-	if existing != nil {
-		result.Outcome = MemberAlreadyProjected
-		return result, nil, nil
-	}
-	result.Outcome = MemberSkipped
-	if duplicate {
-		result.Error = preconditionError(operation, "multiple members project to the same target", ErrorDetails{Name: name, Path: filepath.Join(target.directory, name)})
-		return result, nil, nil
-	}
-	path := filepath.Join(target.directory, name)
-	if planned[path] {
-		result.Error = preconditionError(operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: target.directory})
-		return result, nil, nil
-	}
-	if result.Error, err = l.placementConflict(ctx, operation, id, name, target, opts.OnConflict); err != nil || result.Error != nil {
-		return result, nil, err
-	}
-	skill, err := l.GetSkill(ctx, id)
-	if err != nil {
-		return result, nil, err
-	}
-	planned[path] = true
-	result.Outcome = MemberProjected
-	return result, &placement{skill: skill, scope: target}, nil
+// memberPlan 累积一批组成员的判定:逐条结果与待落盘的新投影。operation 与 opts 在整批内不变。
+type memberPlan struct {
+	operation  string
+	opts       ActivateOptions
+	results    []GroupMemberResult
+	placements []*placement
+	planned    map[string]bool // 本批已计划的目标文件夹,两个 Scope 解析到同一目录时后者按占用跳过
 }
 
-func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (results []GroupMemberResult, err error) {
+func newMemberPlan(operation string, opts ActivateOptions) *memberPlan {
+	return &memberPlan{operation: operation, opts: opts, results: []GroupMemberResult{}, planned: map[string]bool{}}
+}
+
+// planMember 判定 skill 作为组成员在 target 上的结果并记入 plan:已有投影只补上组激活;同名成员(duplicate)、
+// 目标被占用、有未记录文件夹(且未选 Overwrite)的跳过;其余加入待落盘的新投影。
+func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
+	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
+	path := filepath.Join(target.directory, name)
+	existing, err := findProjection(ctx, l.db, id, target.scopeRow)
+	switch {
+	case err != nil:
+		return err
+	case existing != nil:
+		result.Outcome = MemberAlreadyProjected
+	case duplicate:
+		result.Error = preconditionError(plan.operation, "multiple members project to the same target", ErrorDetails{Name: name, Path: path})
+	case plan.planned[path]:
+		result.Error = preconditionError(plan.operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: target.directory})
+	default:
+		if result.Error, err = l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict); err != nil {
+			return err
+		}
+		if result.Error != nil {
+			break
+		}
+		skill, err := l.GetSkill(ctx, id)
+		if err != nil {
+			return err
+		}
+		plan.planned[path] = true
+		plan.placements = append(plan.placements, &placement{skill: skill, scope: target})
+		result.Outcome = MemberProjected
+	}
+	plan.results = append(plan.results, result)
+	return nil
+}
+
+// applyMemberPlan 落盘 plan 里的新投影,并在同一事务里先执行 record(组激活或成员关系),再为新投影建记录
+// (都由组激活撑着,无直接激活)。成功返回逐条结果;失败时整批复原。
+func (l *sqliteLibrary) applyMemberPlan(ctx context.Context, plan *memberPlan, record func(tx *sql.Tx, now time.Time) error) ([]GroupMemberResult, error) {
+	now := clockNow()
+	err := l.place(ctx, plan.placements, func(tx *sql.Tx) error {
+		if err := record(tx, now); err != nil {
+			return err
+		}
+		for _, item := range plan.placements {
+			if err := recordProjectionTx(ctx, tx, item.skill.ID, item.scope.scopeRow, false, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return plan.results, nil
+}
+
+func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) (_ []GroupMemberResult, err error) {
 	// 整组操作持独占锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -607,35 +650,15 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	for _, member := range members {
 		counts[member.Name]++
 	}
-	results = make([]GroupMemberResult, 0, len(members))
-	var placements []*placement
-	planned := map[string]bool{}
+	plan := newMemberPlan("activate group", opts)
 	for _, member := range members {
-		result, item, err := l.planMember(ctx, "activate group", member.ID, member.Name, target, opts, counts[member.Name] > 1, planned)
-		if err != nil {
+		if err := l.planMember(ctx, plan, member.ID, member.Name, target, counts[member.Name] > 1); err != nil {
 			return nil, err
 		}
-		results = append(results, result)
-		if item != nil {
-			placements = append(placements, item)
-		}
 	}
-	now := clockNow()
-	err = l.place(ctx, placements, func(tx *sql.Tx) error {
-		if err := recordGroupActivationTx(ctx, tx, groupID, target.scopeRow, now); err != nil {
-			return err
-		}
-		for _, item := range placements {
-			if err := recordProjectionTx(ctx, tx, item.skill.ID, item.scope.scopeRow, false, now); err != nil {
-				return err
-			}
-		}
-		return nil
+	return l.applyMemberPlan(ctx, plan, func(tx *sql.Tx, now time.Time) error {
+		return recordGroupActivationTx(ctx, tx, groupID, target.scopeRow, now)
 	})
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
 }
 
 func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
@@ -784,7 +807,7 @@ func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Proj
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。
-	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, activated_at FROM projections ORDER BY skill_id, agent, project_id`)
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM projections ORDER BY skill_id, agent, project_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list projections: %w", err)
 	}
@@ -792,14 +815,14 @@ func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Proj
 	var scopes []scopeRow
 	for rows.Next() {
 		var (
-			projection  Projection
-			row         scopeRow
-			activatedAt string
+			projection Projection
+			row        scopeRow
+			createdAt  string
 		)
-		if err := rows.Scan(&projection.SkillID, &row.agent, &row.projectID, &projection.Direct, &activatedAt); err != nil {
+		if err := rows.Scan(&projection.SkillID, &row.agent, &row.projectID, &projection.Direct, &createdAt); err != nil {
 			return nil, fmt.Errorf("read projection: %w", err)
 		}
-		if projection.ActivatedAt, err = parseStoredTime(activatedAt); err != nil {
+		if projection.CreatedAt, err = parseStoredTime(createdAt); err != nil {
 			return nil, fmt.Errorf("read projection: %w", err)
 		}
 		projection.Scope = row.scope()

@@ -283,7 +283,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("projections = %#v, %v; want %#v", projections, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {

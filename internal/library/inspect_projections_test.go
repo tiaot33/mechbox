@@ -215,7 +215,7 @@ func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 		Status: library.ProjectionCurrent,
 	}}
 	if len(got) == 1 {
-		got[0].Projection.ActivatedAt = time.Time{}
+		got[0].Projection.CreatedAt = time.Time{}
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("InspectProjections() = %#v, want %#v", got, want)
