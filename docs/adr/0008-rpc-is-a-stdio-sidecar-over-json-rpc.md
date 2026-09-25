@@ -1,5 +1,7 @@
 # RPC transport choice: a stdio sidecar speaking JSON-RPC 2.0
 
+> **状态：已被 [ADR 0013](0013-desktop-is-wails-v3-in-process.md) 取代(2026-09-25)。** 桌面端与 Library 同进程，经 Wails 绑定调用;目前没有计划中的进程外调用方。下文保留为当时的推理，将来出现进程外调用方时可作参考。
+
 ADR 0004 shaped the `Library` facade to be serialization-ready and deferred the transport. This ADR records the transport that was picked for the day a non-Go caller needs one — nothing here is built yet. It is a technology choice with rejected alternatives, not a design for the adapter; the adapter's shape is decided when it is written.
 
 The criterion: pick the option that costs the least while the tool is single-user and local, without foreclosing a daemon-based, multi-client topology later — **"A now, B-ready"**.

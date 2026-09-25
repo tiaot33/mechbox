@@ -1,6 +1,6 @@
 # Skills Manager · 技能管理器
 
-A TUI for managing coding-agent skills: installing them from source repos, organising them, and activating them into the directories that coding agents read from.
+A tool for managing coding-agent skills: installing them from source repos, organising them, and activating them into the directories that coding agents read from.
 
 Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `SKILL.md` that agents discover from disk and load on demand. For format, discovery scopes, invocation, and same-name behavior, see [ecosystem background](docs/agents/agent-skills-background.md). Product terms stay in this file; integration boundaries and implementation gaps are recorded in [ADR 0001](docs/adr/0001-sqlite-as-the-library.md).
 
