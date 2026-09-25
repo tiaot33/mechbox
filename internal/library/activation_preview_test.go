@@ -128,7 +128,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -160,8 +160,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(members, afterSkills) {
 		t.Fatalf("preview changed skills: %#v, %v", afterSkills, err)
 	}
-	requireErrorDetails(t, lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}), library.FailedPrecondition, library.ErrorDetails{Name: "same"})
-	if err := lib.RemoveSkillFromGroup(ctx, group.ID, members[0].ID); err != nil {
+	if err := lib.RemoveSkillFromGroup(ctx, group.ID, members[0].ID, library.RemoveFromGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = lib.PreviewActivateGroup(ctx, group.ID, scope)

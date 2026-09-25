@@ -105,7 +105,8 @@ func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
 			return err
 		},
 		"ActivateGroup": func(scope library.Scope) error {
-			return lib.ActivateGroup(ctx, 1, scope, library.ActivateOptions{})
+			_, err := lib.ActivateGroup(ctx, 1, scope, library.ActivateOptions{})
+			return err
 		},
 		"DeactivateGroup": func(scope library.Scope) error {
 			return lib.DeactivateGroup(ctx, 1, scope)

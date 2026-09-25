@@ -107,10 +107,10 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	manualFile := filepath.Join(removeDirectory, "manual-skill", "mine.txt")

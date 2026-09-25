@@ -15,7 +15,7 @@ import (
 
 const (
 	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 8
+	librarySchemaVersion = 9
 	agentSeedSQL         = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
@@ -138,6 +138,8 @@ func migrateLibrary(ctx context.Context, db *sql.DB, home string) error {
 		return migrateFetchRecords(ctx, db, userVersion)
 	case 7:
 		return migrateReadModel(ctx, db)
+	case 8:
+		return migrateGroupActivations(ctx, db)
 	default:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
 	}
@@ -185,7 +187,10 @@ func migrateFetchRecords(ctx context.Context, db *sql.DB, version int) error {
 				return err
 			}
 		}
-		if err := upgradeToReadModel(ctx, tx, true); err != nil {
+		if err := upgradeToReadModel(ctx, tx); err != nil {
+			return err
+		}
+		if err := migrateProjectionRecords(ctx, tx, false); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
@@ -196,12 +201,62 @@ func migrateFetchRecords(ctx context.Context, db *sql.DB, version int) error {
 // migrateReadModel 把 v7 库升到当前版本:补描述、时间列与 Group 名 UNIQUE,时间不回填。
 func migrateReadModel(ctx context.Context, db *sql.DB) error {
 	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
-		if err := upgradeToReadModel(ctx, tx, true); err != nil {
+		if err := upgradeToReadModel(ctx, tx); err != nil {
+			return err
+		}
+		if err := migrateProjectionRecords(ctx, tx, false); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
 		return err
 	})
+}
+
+// migrateGroupActivations 把 v8 库升到当前版本:投影记录改到 projections 表,组激活成为正式记录。
+func migrateGroupActivations(ctx context.Context, db *sql.DB) error {
+	return applySchemaMigration(ctx, db, func(tx *sql.Tx) error {
+		if err := migrateProjectionRecords(ctx, tx, true); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
+		return err
+	})
+}
+
+// migrateProjectionRecords 把 v5–v8 的 activations / activation_groups 搬到 projections / group_activations:
+// 投影保留原 ID;组激活按去重的 Group × Scope 回填,时间未知留空;withActivatedAt 为 false 时旧表还没有
+// 时间列,投影时间也留空。之后按 backfillDirectActivations 补直接激活。磁盘不动。
+func migrateProjectionRecords(ctx context.Context, tx *sql.Tx, withActivatedAt bool) error {
+	activatedAt := "''"
+	if withActivatedAt {
+		activatedAt = "activated_at"
+	}
+	statements := []string{
+		schemaSQL,
+		`INSERT INTO projections(id, skill_id, agent, project_id, direct, activated_at)
+		 SELECT id, skill_id, agent, project_id, individual, ` + activatedAt + ` FROM activations`,
+		`INSERT INTO group_activations(group_id, agent, project_id)
+		 SELECT DISTINCT g.group_id, a.agent, a.project_id FROM activation_groups g JOIN activations a ON a.id = g.activation_id
+		 ORDER BY g.group_id, a.agent, a.project_id`,
+		`DROP TABLE activation_groups`,
+		`DROP TABLE activations`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return backfillDirectActivations(ctx, tx)
+}
+
+// backfillDirectActivations 让迁移后不再被任何激活撑着的投影改为直接激活。旧库只把组挂在投影上,
+// 成员移出组后投影仍挂着它;改为由成员关系推出后这类投影会失去全部激活,按移出成员的默认 keep
+// 规则转为直接激活,不丢投影。
+func backfillDirectActivations(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE projections SET direct = 1 WHERE direct = 0 AND NOT `+groupCoverageSQL, 0); err != nil {
+		return fmt.Errorf("backfill direct activations: %w", err)
+	}
+	return nil
 }
 
 // rebuildTableSQL 按当前 schema 重建 name 表,只搬旧库已有的 columns;新列取默认值。
@@ -275,22 +330,20 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 		if err != nil {
 			return err
 		}
-		// 能识别的路径行按身份写入;同一身份的多行由 recordActivationTx 合并直接激活标记与组激活。
+		// 能识别的路径行按身份写入;同一身份的多行合并直接激活标记,组激活按 Group × Scope 去重。
 		for _, row := range legacy {
 			scope, ok := identifyLegacyScope(row, layouts, projects, home)
 			if !ok {
 				continue
 			}
-			if err := recordActivationTx(ctx, tx, row.skillID, scope, row.individual, 0, time.Time{}); err != nil {
+			if err := recordLegacyProjectionTx(ctx, tx, row, scope); err != nil {
 				return err
 			}
-			for _, groupID := range row.groups {
-				if err := recordActivationTx(ctx, tx, row.skillID, scope, false, groupID, time.Time{}); err != nil {
-					return err
-				}
-			}
 		}
-		if err := upgradeToReadModel(ctx, tx, false); err != nil {
+		if err := upgradeToReadModel(ctx, tx); err != nil {
+			return err
+		}
+		if err := backfillDirectActivations(ctx, tx); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, librarySchemaVersion))
@@ -298,9 +351,9 @@ func migrateToScopeIdentity(ctx context.Context, db *sql.DB, version int, home s
 	})
 }
 
-// upgradeToReadModel 把描述、时间列与 Group 名 UNIQUE 补到当前 schema;rebuildActivations 为 false 时
-// activations 已是新表(v1–v4 路径从 schemaSQL 新建),只处理 groups 与 skill_versions。
-func upgradeToReadModel(ctx context.Context, tx *sql.Tx, rebuildActivations bool) error {
+// upgradeToReadModel 把描述、时间列与 Group 名 UNIQUE 补到当前 schema 的 groups 与 skill_versions;
+// 投影时间列随 migrateProjectionRecords 搬表时补上。
+func upgradeToReadModel(ctx context.Context, tx *sql.Tx) error {
 	if err := uniquifyGroupNames(ctx, tx); err != nil {
 		return err
 	}
@@ -318,16 +371,23 @@ func upgradeToReadModel(ctx context.Context, tx *sql.Tx, rebuildActivations bool
 	if _, err := tx.ExecContext(ctx, rebuild); err != nil {
 		return err
 	}
-	if rebuildActivations {
-		rebuild, err = rebuildTableSQL(ctx, "activations", "id, skill_id, agent, project_id, individual")
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, rebuild); err != nil {
+	return backfillVersionDescriptions(ctx, tx)
+}
+
+// recordLegacyProjectionTx 把一条已认出 Scope 的旧投影写成当前记录:同一身份已有投影时合并直接激活标记;
+// 旧行挂着的每个组都记为该组在此 Scope 的组激活(时间未知)。
+func recordLegacyProjectionTx(ctx context.Context, tx *sql.Tx, row legacyProjection, scope scopeRow) error {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO projections(skill_id, agent, project_id, direct) VALUES (?, ?, ?, ?)
+		ON CONFLICT DO UPDATE SET direct = MAX(direct, excluded.direct)`, row.skillID, scope.agent, scope.projectID, row.individual); err != nil {
+		return fmt.Errorf("record legacy projection: %w", err)
+	}
+	for _, groupID := range row.groups {
+		if err := recordGroupActivationTx(ctx, tx, groupID, scope, time.Time{}); err != nil {
 			return err
 		}
 	}
-	return backfillVersionDescriptions(ctx, tx)
+	return nil
 }
 
 // uniquifyGroupNames 按 id 顺序保留每个名字的第一个 Group,其余改为 name#N(N 从 2 起最小空闲)。

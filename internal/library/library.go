@@ -67,7 +67,7 @@ func openLibraryDB(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v7 库会迁移到当前 schema。
+// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v8 库会迁移到当前 schema。
 func Open(path string) (Library, error) {
 	db, err := openLibraryDB(context.Background(), path)
 	if err != nil {

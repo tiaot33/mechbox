@@ -187,30 +187,8 @@ func TestFacadeFailureCodes(t *testing.T) {
 			return lib.Activate(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
 		}},
 		{name: "activate group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.ActivateGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
-		}},
-		{name: "activate group colliding names", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
-			root := t.TempDir()
-			writeFile(t, filepath.Join(root, "one", "dup", "SKILL.md"), []byte("# One\n"), 0o644)
-			writeFile(t, filepath.Join(root, "two", "dup", "SKILL.md"), []byte("# Two\n"), 0o644)
-			first, err := lib.Install(t.Context(), library.LocalSource{Path: filepath.Join(root, "one", "dup")})
-			if err != nil {
-				t.Fatal(err)
-			}
-			second, err := lib.Install(t.Context(), library.LocalSource{Path: filepath.Join(root, "two", "dup")})
-			if err != nil {
-				t.Fatal(err)
-			}
-			group, err := lib.CreateGroup(t.Context(), "dups")
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, skill := range []library.Skill{first, second} {
-				if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
-					t.Fatal(err)
-				}
-			}
-			return lib.ActivateGroup(t.Context(), group.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
+			_, err := lib.ActivateGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
+			return err
 		}},
 		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
 			skill := installNamedSkill(t, lib, "outsider")
@@ -218,7 +196,14 @@ func TestFacadeFailureCodes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			return lib.RemoveSkillFromGroup(t.Context(), group.ID, skill.ID)
+			return lib.RemoveSkillFromGroup(t.Context(), group.ID, skill.ID, library.RemoveFromGroupOptions{})
+		}},
+		{name: "remove skill from group invalid projections", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{Projections: "nope"})
+		}},
+		{name: "add skill to group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			_, err := lib.AddSkillToGroup(t.Context(), 1, 1, library.ActivateOptions{OnConflict: "nope"})
+			return err
 		}},
 		{name: "fetch unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
 			_, err := lib.Fetch(t.Context(), serveArchive(t, []byte("not-a-zip")))

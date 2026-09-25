@@ -140,7 +140,7 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, group.ID, removeSkill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, removeSkill.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	keepScope := library.GlobalScope(library.AgentCodex)
@@ -156,7 +156,7 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if err := lib.Activate(ctx, keepSkill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	untracked := filepath.Join(t.TempDir(), "untracked", removeSkill.Name, "mine.txt")

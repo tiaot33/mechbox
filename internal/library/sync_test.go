@@ -110,7 +110,7 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, group.ID, original.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, original.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	oldProjectPath := filepath.Join(t.TempDir(), "old-project")
@@ -122,7 +122,7 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
-	if err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	globalScope := library.GlobalScope(library.AgentCodex)
@@ -227,8 +227,8 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantProjections := []library.Projection{
-		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Individual: true},
-		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), ViaGroups: []library.GroupID{group.ID}},
+		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Direct: true},
+		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), Groups: []library.GroupID{group.ID}},
 	}
 	if !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections) {
 		t.Fatalf("projections after pull = %#v, want %#v", projections, wantProjections)

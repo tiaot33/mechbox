@@ -69,10 +69,10 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := []library.Projection{{
-				SkillID:    skill.ID,
-				Scope:      scope,
-				Directory:  directory,
-				Individual: true,
+				SkillID:   skill.ID,
+				Scope:     scope,
+				Directory: directory,
+				Direct:    true,
 			}}
 			if !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 				t.Fatalf("ListProjections() = %#v, want %#v", projections, want)
@@ -206,11 +206,11 @@ func TestDeactivateGroupBackedSkillNamesTheGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireErrorDetails(t, lib.Deactivate(t.Context(), skill.ID, scope), library.FailedPrecondition, library.ErrorDetails{Name: "only"})
@@ -230,7 +230,7 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, skill := range []library.Skill{first, second} {
-				if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+				if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -245,11 +245,11 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := []library.Projection{
-				{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true, ViaGroups: []library.GroupID{group.ID}},
-				{SkillID: second.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{group.ID}},
+				{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true, Groups: []library.GroupID{group.ID}},
+				{SkillID: second.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{group.ID}},
 			}
 			for range 2 {
-				if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: policy}); err != nil {
+				if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: policy}); err != nil {
 					t.Fatalf("ActivateGroup under %s policy = %v, want success", policy, err)
 				}
 				for _, skill := range []library.Skill{first, second} {
@@ -274,7 +274,7 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 				t.Fatalf("via-group-only projection remains: %v", err)
 			}
 			projections, err := lib.ListProjections(ctx)
-			want = []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+			want = []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
 			if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 				t.Fatalf("ListProjections() after DeactivateGroup = %#v, %v; want %#v", projections, err, want)
 			}
@@ -282,7 +282,8 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 	}
 }
 
-func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
+// 有未记录文件夹的成员在默认策略下被跳过;选 Overwrite 再次激活只补齐它,已投影的成员不重写,组激活不重复记录。
+func TestActivateGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
@@ -304,7 +305,7 @@ func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{first, second} {
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -315,22 +316,39 @@ func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(directory, second.Name, "manual.txt"), []byte("manual"), 0o644)
 
-	err = lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{})
-	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(directory, second.Name)})
-	if _, err := os.Stat(filepath.Join(directory, first.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("first member was partially activated: %v", err)
-	}
+	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		{SkillID: first.ID, Scope: scope, Outcome: library.MemberProjected},
+		skippedMember(second.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(directory, second.Name)}),
+	})
 	if _, err := os.Stat(filepath.Join(directory, second.Name, "manual.txt")); err != nil {
 		t.Fatalf("conflicting directory changed: %v", err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	if err != nil || len(projections) != 0 {
-		t.Fatalf("ListProjections() = %#v, %v; want none", projections, err)
+	activations, err := lib.ListGroupActivations(ctx)
+	if err != nil || len(activations) != 1 {
+		t.Fatalf("ListGroupActivations() = %#v, %v; want one", activations, err)
+	}
+	writeFile(t, filepath.Join(directory, first.Name, "SKILL.md"), []byte("edited\n"), 0o644)
+
+	results, err = lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		{SkillID: first.ID, Scope: scope, Outcome: library.MemberAlreadyProjected},
+		{SkillID: second.ID, Scope: scope, Outcome: library.MemberProjected},
+	})
+	requireProjection(t, directory, first.Name, "edited\n")
+	requireProjection(t, directory, second.Name, "# Second\n")
+	if _, err := os.Stat(filepath.Join(directory, second.Name, "manual.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Overwrite kept the untracked folder: %v", err)
+	}
+	again, err := lib.ListGroupActivations(ctx)
+	if err != nil || !reflect.DeepEqual(again, activations) {
+		t.Fatalf("ListGroupActivations() after re-activation = %#v, %v; want %#v", again, err, activations)
 	}
 }
 
-// 对自己在身份 Scope 上的投影再次激活,默认冲突策略下幂等成功并覆盖为当前版本;记录仍是同一条身份。
-func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
+// 对自己在身份 Scope 上的投影再次激活,默认冲突策略下幂等成功,只补激活、不重写已被手动修改的文件夹;
+// 记录仍是同一条身份。组激活与再次组激活同样不写盘。
+func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
@@ -352,12 +370,9 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatalf("re-Activate under Fail policy = %v, want success", err)
 	}
-	content, err := os.ReadFile(filepath.Join(directory, skill.Name, "SKILL.md"))
-	if err != nil || string(content) != "# Example\n" {
-		t.Fatalf("re-Activate did not rewrite SKILL.md: %q, %v", content, err)
-	}
+	requireProjection(t, directory, skill.Name, "edited\n")
 	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: skill.ID, Scope: scope, Directory: directory, Individual: true}}
+	want := []library.Projection{{SkillID: skill.ID, Scope: scope, Directory: directory, Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() after re-Activate = %#v, %v; want %#v", projections, err, want)
 	}
@@ -366,23 +381,23 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
-		t.Fatalf("ActivateGroup onto active skill = %v, want success", err)
-	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
-		t.Fatalf("re-ActivateGroup under Fail policy = %v, want success", err)
+	for range 2 {
+		results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{})
+		requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: skill.ID, Scope: scope, Outcome: library.MemberAlreadyProjected}})
+		requireProjection(t, directory, skill.Name, "edited\n")
 	}
 	projections, err = lib.ListProjections(ctx)
-	want[0].ViaGroups = []library.GroupID{group.ID}
+	want[0].Groups = []library.GroupID{group.ID}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("projections after reactivation = %#v, %v; want %#v", projections, err, want)
 	}
 }
 
-func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
+// 组内同名的成员都被跳过(不按顺序先到先得),其他成员照常投影。
+func TestActivateGroupSkipsAllMembersSharingAName(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
@@ -405,8 +420,9 @@ func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, skill := range []library.Skill{first, second} {
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+	other := installNamedSkill(t, lib, "other")
+	for _, skill := range []library.Skill{first, second, other} {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -415,11 +431,16 @@ func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
-	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Name: "dup"})
+	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		skippedMember(first.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup"}),
+		skippedMember(second.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup"}),
+		{SkillID: other.ID, Scope: scope, Outcome: library.MemberProjected},
+	})
 	if _, err := os.Stat(filepath.Join(directory, "dup")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("colliding group left a projection: %v", err)
+		t.Fatalf("colliding members left a projection: %v", err)
 	}
+	requireProjection(t, directory, "other", "# other\n")
 }
 
 func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
@@ -448,7 +469,7 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{first, second} {
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -461,7 +482,7 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	makeScopeReadOnly(t, directory)
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err == nil {
+	if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err == nil {
 		t.Fatal("ActivateGroup succeeded despite a read-only scope")
 	}
 	if err := os.Chmod(directory, 0o755); err != nil {
@@ -474,8 +495,11 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 		t.Fatalf("failed group activation left a partial member: %v", err)
 	}
 	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
+	}
+	if activations, err := lib.ListGroupActivations(ctx); err != nil || len(activations) != 0 {
+		t.Fatalf("failed ActivateGroup left group activations: %#v, %v", activations, err)
 	}
 }

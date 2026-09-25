@@ -43,10 +43,10 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []library.Projection{{
-		SkillID:    skill.ID,
-		Scope:      scope,
-		Directory:  directory,
-		Individual: true,
+		SkillID:   skill.ID,
+		Scope:     scope,
+		Directory: directory,
+		Direct:    true,
 	}}
 	if !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, want %#v", projections, want)
@@ -70,7 +70,8 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 }
 
 // 整组激活在身份路径上仍是原子的:某成员目标被外来文件夹占用时整组拒绝,不留半组投影。
-func TestActivateGroupOnIdentityScopeIsAtomic(t *testing.T) {
+// 项目 Scope 上有未记录文件夹的成员被跳过,其余成员照常投影,组激活照常成立。
+func TestActivateGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -81,7 +82,7 @@ func TestActivateGroupOnIdentityScopeIsAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{first, second} {
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,17 +97,26 @@ func TestActivateGroupOnIdentityScopeIsAtomic(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(directory, second.Name, "manual.txt"), []byte("manual"), 0o644)
 
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.AlreadyExists) {
-		t.Fatalf("ActivateGroup() conflict error = %v, want AlreadyExists", err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, first.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("first member was partially activated: %v", err)
-	}
+	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		{SkillID: first.ID, Scope: scope, Outcome: library.MemberProjected},
+		skippedMember(second.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(directory, second.Name)}),
+	})
+	requireProjection(t, directory, first.Name, "# first\n")
 	if _, err := os.Stat(filepath.Join(directory, second.Name, "manual.txt")); err != nil {
 		t.Fatalf("conflicting directory changed: %v", err)
 	}
-	if projections, err := lib.ListProjections(ctx); err != nil || len(projections) != 0 {
-		t.Fatalf("ListProjections() = %#v, %v; want none", projections, err)
+	if _, err := os.Stat(filepath.Join(directory, second.Name, "SKILL.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("skipped member was projected: %v", err)
+	}
+	projections, err := lib.ListProjections(ctx)
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{group.ID}}}
+	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
+	}
+	activations, err := lib.ListGroupActivations(ctx)
+	if want := []library.GroupActivation{{GroupID: group.ID, Scope: scope}}; err != nil || !reflect.DeepEqual(withoutGroupActivatedAt(activations), want) {
+		t.Fatalf("ListGroupActivations() = %#v, %v; want %#v", activations, err, want)
 	}
 }
 
@@ -192,7 +202,7 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: directory})
 	}
 	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: skill.ID, Scope: global, Directory: directory, Individual: true}}
+	want := []library.Projection{{SkillID: skill.ID, Scope: global, Directory: directory, Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
@@ -283,7 +293,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
 	}
 	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
@@ -298,15 +308,15 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	}
 	requireProjection(t, directory, "commit", "# B\n")
 	projections, err = lib.ListProjections(ctx)
-	want = []library.Projection{{SkillID: second.ID, Scope: scope, Directory: directory, Individual: true}}
+	want = []library.Projection{{SkillID: second.ID, Scope: scope, Directory: directory, Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() after switch = %#v, %v; want %#v", projections, err, want)
 	}
 }
 
-// 占用者只由组激活撑着(无直接激活)时同样受保护;含同名成员的分组向该 Scope 激活时整组被拒,
-// 其他成员不落盘、不留记录。
-func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
+// 占用者只由组激活撑着(无直接激活)时同样受保护;另一组向该 Scope 激活时只跳过被占名字的成员,
+// 其他成员照常投影。占用者撤走后再次激活该组即可补齐。
+func TestActivateGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -322,10 +332,10 @@ func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, firstGroup.ID, first.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, firstGroup.ID, first.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, firstGroup.ID, scope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, firstGroup.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -338,21 +348,35 @@ func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{bystander, second} {
-		if err := lib.AddSkillToGroup(ctx, secondGroup.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, secondGroup.ID, skill.ID, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	err = lib.ActivateGroup(ctx, secondGroup.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
-	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
-	if _, err := os.Stat(filepath.Join(directory, "bystander")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rejected group projected another member: %v", err)
-	}
+	results, err := lib.ActivateGroup(ctx, secondGroup.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		skippedMember(second.ID, scope, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID}),
+		{SkillID: bystander.ID, Scope: scope, Outcome: library.MemberProjected},
+	})
+	requireProjection(t, directory, "bystander", "# bystander\n")
 	requireProjection(t, directory, "commit", "# A\n")
 	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{firstGroup.ID}}}
+	want := []library.Projection{
+		{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{firstGroup.ID}},
+		{SkillID: bystander.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{secondGroup.ID}},
+	}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)
 	}
+
+	if err := lib.DeactivateGroup(ctx, firstGroup.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	results, err = lib.ActivateGroup(ctx, secondGroup.ID, scope, library.ActivateOptions{})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		{SkillID: second.ID, Scope: scope, Outcome: library.MemberProjected},
+		{SkillID: bystander.ID, Scope: scope, Outcome: library.MemberAlreadyProjected},
+	})
+	requireProjection(t, directory, "commit", "# B\n")
 }
 
 // 占用以实际目录为准:A 在全局 Scope,把 $HOME 登记为项目后向项目 Scope 激活同名的 B 同样被拒;
@@ -396,8 +420,8 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	requireProjection(t, otherDirectory, "commit", "# B\n")
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{
-		{SkillID: first.ID, Scope: global, Directory: directory, Individual: true},
-		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Individual: true},
+		{SkillID: first.ID, Scope: global, Directory: directory, Direct: true},
+		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Direct: true},
 	}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
 		t.Fatalf("ListProjections() = %#v, %v; want %#v", projections, err, want)

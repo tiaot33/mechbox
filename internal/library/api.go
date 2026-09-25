@@ -35,7 +35,8 @@ const (
 	// 可重新预览 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (激活目标被占用见 ConflictPolicy;仅由组激活撑着的投影单独停用;组内同名成员;同一 Fetch 句柄的安装正在进行)。
+	// (激活目标被占用见 ConflictPolicy;仅由组激活撑着的投影单独停用;同一 Fetch 句柄的安装正在进行)。
+	// 组激活与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -75,7 +76,7 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的冲突名、撑着投影的 Group 名或被占用的投影名
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、撑着投影的 Group 名或被占用的投影名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目
 }
@@ -399,7 +400,7 @@ type ActivatePreview struct {
 	OccupierName    string                `json:"occupier_name,omitempty"`
 }
 
-// GroupActivatePreview 按组成员顺序报告各自状态;同名列表非空时整组不能激活。
+// GroupActivatePreview 按组成员顺序报告各自状态;同名列表里的成员在激活时被跳过(ready / untracked 的也一样)。
 type GroupActivatePreview struct {
 	Members        []ActivatePreview `json:"members"`
 	DuplicateNames []string          `json:"duplicate_names,omitempty"`
@@ -413,9 +414,36 @@ type Projection struct {
 	SkillID     SkillID   `json:"skill_id"`
 	Scope       Scope     `json:"scope"`
 	Directory   string    `json:"directory"`
-	Individual  bool      `json:"individual"`            // 有直接激活撑着
-	ViaGroups   []GroupID `json:"via_groups,omitempty"`  // 撑着它的组激活所属的 Group
+	Direct      bool      `json:"direct"`                // 有直接激活撑着
+	Groups      []GroupID `json:"groups,omitempty"`      // 覆盖它的组激活所属的 Group:该 skill 是成员且组已激活到此 Scope,按 ID 升序
 	ActivatedAt time.Time `json:"activated_at,omitzero"` // 投影建立(首次激活)的时间;零值 = 未知(迁移前数据)。再次激活不更新
+}
+
+// GroupActivation 是一个组激活:某 Group 激活到某 Scope,覆盖该组的当前成员(见 ADR 0007)。
+// 它是独立的记录,空组或成员全被跳过时也存在;App 据此显示整组开关。
+type GroupActivation struct {
+	GroupID     GroupID   `json:"group_id"`
+	Scope       Scope     `json:"scope"`
+	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间;零值 = 未知(迁移前数据)。再次激活不更新
+}
+
+// GroupMemberOutcome 是组激活或加入成员时,一个成员在一个 Scope 上的结果。
+type GroupMemberOutcome string
+
+const (
+	MemberProjected        GroupMemberOutcome = "projected"         // 新建了投影
+	MemberAlreadyProjected GroupMemberOutcome = "already_projected" // 已有投影,只补上组激活,不写盘
+	MemberSkipped          GroupMemberOutcome = "skipped"           // 冲突跳过,原因见 Error;成员关系与组激活照常成立
+)
+
+// GroupMemberResult 是一个成员在一个 Scope 上的逐条结果,形状参考 UpdateCheck。
+// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一条投影占用(Details.SkillID / Name / Path)
+// 或组内同名(Details.Name),AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
+type GroupMemberResult struct {
+	SkillID SkillID            `json:"skill_id"`
+	Scope   Scope              `json:"scope"`
+	Outcome GroupMemberOutcome `json:"outcome"`
+	Error   *Error             `json:"error,omitempty"`
 }
 
 // ProjectionStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
@@ -466,6 +494,19 @@ type RemoveSkillOptions struct {
 
 type UnregisterProjectOptions struct {
 	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"` // 默认删除投影,只有显式 Keep 保留
+}
+
+// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组激活的投影如何处理。与 ProjectedCopiesPolicy
+// 含义与默认值都不同:只影响因移出而没有任何激活撑着的投影,默认保留。
+type MemberRemovalPolicy string
+
+const (
+	KeepProjection     MemberRemovalPolicy = "keep"     // 改为直接激活,磁盘不动(默认,空字符串同义)
+	WithdrawProjection MemberRemovalPolicy = "withdraw" // 不补直接激活,连同磁盘上的文件夹一起移除
+)
+
+type RemoveFromGroupOptions struct {
+	Projections MemberRemovalPolicy `json:"projections"` // 默认 KeepProjection
 }
 
 // RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
@@ -553,11 +594,18 @@ type Library interface {
 	// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
 	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
 	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
-	// DeleteGroup 删除分组。非破坏性:仅由该组激活撑着的投影会先转为直接激活,
+	// DeleteGroup 删除分组及其全部组激活。非破坏性:仅由该组激活撑着的投影会先转为直接激活,
 	// 磁盘上的投影不会因删除分组而被移除(见 ADR 0007)。
 	DeleteGroup(ctx context.Context, id GroupID) error
-	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
-	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
+	// AddSkillToGroup 加入成员,并投影到该组已激活的每个 Scope,按 ListGroupActivations 的顺序逐条返回结果。
+	// 某 Scope 已有该 skill 的投影时只补上组激活,不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)
+	// 或与组内其他成员同名时跳过该 Scope,成员关系照常成立。已是成员返回 AlreadyExists。
+	// 各 Scope 的写盘与记录作为一个操作单元,失败时连同成员关系一起复原。
+	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts ActivateOptions) ([]GroupMemberResult, error)
+	// RemoveSkillFromGroup 移出成员;该 skill 在本组激活到的 Scope 上的投影失去本组的组激活。
+	// 因此没有任何激活撑着的投影按 opts 处理:keep 改为直接激活、磁盘不动;withdraw 连文件夹一起移除。
+	// 不是成员返回 NotFound。
+	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) error
 	// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
 	ListGroupSkills(ctx context.Context, groupID GroupID) ([]SkillSummary, error)
 
@@ -576,7 +624,7 @@ type Library interface {
 	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可投影的 ProjectScope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
 	ListRegisteredProjects(ctx context.Context) ([]RegisteredProject, error)
-	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部投影记录;
+	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部投影记录与组激活;
 	// opts 决定磁盘上投影的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
 	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
@@ -592,16 +640,22 @@ type Library interface {
 
 	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound。
 	PreviewActivate(ctx context.Context, id SkillID, scope Scope) (ActivatePreview, error)
-	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时幂等成功,并把投影覆盖为当前版本(#85 前的现行行为;CONTEXT.md 的目标是再次激活不写盘)。
+	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时只补上直接激活,
+	// 不写盘(把文件夹带到当前版本是单独的重写)。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销直接激活;若仍有组激活撑着该投影,投影保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
 	// PreviewActivateGroup 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
 	PreviewActivateGroup(ctx context.Context, groupID GroupID, scope Scope) (GroupActivatePreview, error)
-	// ActivateGroup 在 Scope 记一个组激活,并投影组内全部 skill;失败时撤销本次整组改动。
-	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) error
-	// DeactivateGroup 撤销该组在此 Scope 的激活;仅由它撑着的投影会被移除,失败时恢复整组状态。
+	// ActivateGroup 在 Scope 记一个组激活(空组也记;已有则不变),并按成员顺序逐条返回结果:能投影的都投影,
+	// 已有投影的只补上组激活、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名(同名的都跳过)
+	// 的成员跳过,再次 ActivateGroup 可补齐。其余失败(I/O、取消)时撤销本次全部改动,含组激活记录。
+	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) ([]GroupMemberResult, error)
+	// DeactivateGroup 删除该组在此 Scope 的组激活;不再有任何激活撑着的成员投影会被移除,失败时恢复整组状态。
+	// 该组未激活到此 Scope 返回 NotFound。
 	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
+	// ListGroupActivations 列出全部组激活,按 Group、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
+	ListGroupActivations(ctx context.Context) ([]GroupActivation, error)
 	// ListProjections 列出全部投影:Scope 身份、按现行布局派生的目录及撑着各投影的激活。
 	ListProjections(ctx context.Context) ([]Projection, error)
 	// InspectProjections 对照磁盘给出每条投影的状态。只读:不改库、不改磁盘、不创建目录。

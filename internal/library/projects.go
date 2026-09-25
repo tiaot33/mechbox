@@ -132,8 +132,11 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		return fmt.Errorf("begin unregister project: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM activations WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project activations: %w", err)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM projections WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project projections: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM group_activations WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project group activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("unregister project: %w", err)

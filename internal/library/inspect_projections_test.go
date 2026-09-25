@@ -38,6 +38,14 @@ func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 	}
 	requireInspectionStatuses(t, lib, library.ProjectionStale)
 
+	// 再次激活不写盘,投影仍是 stale;停用后重新激活才按当前版本投影。
+	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireInspectionStatuses(t, lib, library.ProjectionStale)
+	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
+		t.Fatal(err)
+	}
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +193,7 @@ func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
@@ -193,7 +201,7 @@ func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	got := inspectProjections(t, lib)
@@ -202,7 +210,7 @@ func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 			SkillID:   skill.ID,
 			Scope:     scope,
 			Directory: directory,
-			ViaGroups: []library.GroupID{group.ID},
+			Groups:    []library.GroupID{group.ID},
 		},
 		Status: library.ProjectionCurrent,
 	}}
