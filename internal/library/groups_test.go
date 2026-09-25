@@ -80,7 +80,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 	}
 	unknownGroup := library.GroupID(9999)
 	unknownSkill := library.SkillID(9999)
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 
 	checks := []struct {
 		name string
@@ -142,7 +142,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if got, want := groups, []library.Group{renamed, second}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListGroups() = %#v, want %#v", got, want)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)

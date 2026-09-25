@@ -19,24 +19,30 @@ type scopeRow struct {
 	projectID *ProjectID
 }
 
-// scopeOf 把 Scope 身份拆成落库列;nil 或未知实现返回 false。
-func scopeOf(scope Scope) (scopeRow, bool) {
-	switch scope := scope.(type) {
-	case GlobalScope:
-		return scopeRow{agent: scope.Agent}, true
-	case ProjectScope:
-		return scopeRow{agent: scope.Agent, projectID: new(scope.ProjectID)}, true
+// scopeOf 校验 Scope 的组合并拆成落库列;非法组合按出错字段报 InvalidArgument。
+func scopeOf(operation string, scope Scope) (scopeRow, error) {
+	switch scope.Kind {
+	case ScopeGlobal:
+		if scope.ProjectID != 0 {
+			return scopeRow{}, argumentError(operation, "project_id", "global scope must not have a project")
+		}
+		return scopeRow{agent: scope.Agent}, nil
+	case ScopeProject:
+		if scope.ProjectID <= 0 {
+			return scopeRow{}, argumentError(operation, "project_id", "project scope requires a project")
+		}
+		return scopeRow{agent: scope.Agent, projectID: new(scope.ProjectID)}, nil
 	default:
-		return scopeRow{}, false
+		return scopeRow{}, argumentError(operation, "kind", "unknown scope kind")
 	}
 }
 
 // scope 把落库列还原为门面上的 Scope 身份。
 func (r scopeRow) scope() Scope {
 	if r.projectID == nil {
-		return GlobalScope{Agent: r.agent}
+		return GlobalScope(r.agent)
 	}
-	return ProjectScope{Agent: r.agent, ProjectID: *r.projectID}
+	return ProjectScope(r.agent, *r.projectID)
 }
 
 // resolvedScope 是一次激活操作的内部目标:Scope 的落库身份 + 按现行布局算出的目录。
@@ -45,13 +51,17 @@ type resolvedScope struct {
 	directory string
 }
 
-// resolveScope 把门面收到的 Scope 变成内部目标;未知 Agent / 未登记项目的 NotFound 来自 Resolve。
-func (l *sqliteLibrary) resolveScope(ctx context.Context, scope Scope) (resolvedScope, error) {
+// resolveScope 把门面收到的 Scope 变成内部目标:先按调用方的操作名校验组合,
+// 未知 Agent / 未登记项目的 NotFound 来自 Resolve。
+func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
+	row, err := scopeOf(operation, scope)
+	if err != nil {
+		return resolvedScope{}, err
+	}
 	directory, err := l.Resolve(ctx, scope)
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	row, _ := scopeOf(scope) // Resolve 已拒绝 nil 与未知实现
 	return resolvedScope{scopeRow: row, directory: directory}, nil
 }
 
@@ -195,7 +205,7 @@ func (l *sqliteLibrary) PreviewActivate(ctx context.Context, id SkillID, scope S
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	target, err := l.resolveScope(ctx, scope)
+	target, err := l.resolveScope(ctx, "preview activate", scope)
 	if err != nil {
 		return preview, err
 	}
@@ -210,7 +220,7 @@ func (l *sqliteLibrary) PreviewActivateGroup(ctx context.Context, groupID GroupI
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	target, err := l.resolveScope(ctx, scope)
+	target, err := l.resolveScope(ctx, "preview activate group", scope)
 	if err != nil {
 		return preview, err
 	}
@@ -271,7 +281,7 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 	if err := validateConflictPolicy("activate", opts.OnConflict); err != nil {
 		return err
 	}
-	target, err := l.resolveScope(ctx, scope)
+	target, err := l.resolveScope(ctx, "activate", scope)
 	if err != nil {
 		return err
 	}
@@ -412,7 +422,7 @@ func (l *sqliteLibrary) Deactivate(ctx context.Context, id SkillID, scope Scope)
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	target, err := l.resolveScope(ctx, scope)
+	target, err := l.resolveScope(ctx, "deactivate", scope)
 	if err != nil {
 		return err
 	}
@@ -481,7 +491,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 	if err := validateConflictPolicy("activate group", opts.OnConflict); err != nil {
 		return err
 	}
-	target, err := l.resolveScope(ctx, scope)
+	target, err := l.resolveScope(ctx, "activate group", scope)
 	if err != nil {
 		return err
 	}
@@ -608,7 +618,7 @@ func (l *sqliteLibrary) DeactivateGroup(ctx context.Context, groupID GroupID, sc
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	target, err := l.resolveScope(ctx, scope)
+	target, err := l.resolveScope(ctx, "deactivate group", scope)
 	if err != nil {
 		return err
 	}

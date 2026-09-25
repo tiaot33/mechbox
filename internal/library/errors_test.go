@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -105,6 +106,64 @@ func TestErrorJSONOmitsEmptyDetailsAndInternalErr(t *testing.T) {
 	}
 }
 
+// ErrorOf 是桌面端错误编码的唯一入口:每个码的 code / details 原样进入 JSON,Err 不外泄但仍可 errors.Is。
+func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
+	codes := []library.ErrorCode{
+		library.InvalidArgument, library.NotFound, library.AlreadyExists, library.Conflict,
+		library.FailedPrecondition, library.Canceled, library.SourceUnreachable, library.SourceInvalid,
+		library.Busy, library.Permission, library.NotConfigured, library.Internal,
+	}
+	cause := errors.New("hidden cause")
+	for _, code := range codes {
+		t.Run(string(code), func(t *testing.T) {
+			original := &library.Error{
+				Code:    code,
+				Message: "operation: reason",
+				Details: library.ErrorDetails{Field: "name", Path: "/p", Name: "demo", SkillID: 3, ProjectID: 4},
+				Err:     cause,
+			}
+			got := library.ErrorOf(fmt.Errorf("wrapped: %w", original))
+			if got != original {
+				t.Fatalf("ErrorOf(wrapped) = %#v, want the wrapped *Error %#v", got, original)
+			}
+			if !errors.Is(got, cause) {
+				t.Fatal("ErrorOf dropped Err: errors.Is no longer matches the cause")
+			}
+			encoded, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := `{"code":"` + string(code) + `","message":"operation: reason","details":{"field":"name","path":"/p","name":"demo","skill_id":3,"project_id":4}}`
+			if string(encoded) != want {
+				t.Fatalf("JSON = %s, want %s", encoded, want)
+			}
+		})
+	}
+}
+
+// 非 *Error 的 error 按门面规则归类,无可识别原因的记为 internal;消息保留、原错误仍可 errors.Is;nil 仍是 nil。
+func TestErrorOfPlainErrorIsInternal(t *testing.T) {
+	plain := errors.New("boom")
+	got := library.ErrorOf(fmt.Errorf("op: %w", plain))
+	if got == nil || got.Code != library.Internal || got.Message != "op: boom" || !errors.Is(got, plain) {
+		t.Fatalf("ErrorOf(plain) = %#v, want internal wrapping the original", got)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"code":"internal","message":"op: boom"}` {
+		t.Fatalf("JSON = %s", encoded)
+	}
+	if got := library.ErrorOf(nil); got != nil {
+		t.Fatalf("ErrorOf(nil) = %#v, want nil", got)
+	}
+	// 与门面同一套归类:接入层自己产生的 ctx 取消仍是 canceled,不当 bug 报。
+	if got := library.ErrorOf(fmt.Errorf("call: %w", context.Canceled)); got.Code != library.Canceled || !errors.Is(got, context.Canceled) {
+		t.Fatalf("ErrorOf(canceled) = %#v, want canceled", got)
+	}
+}
+
 // 补充各行为规格尚未覆盖的错误分类;已有业务用例覆盖的场景不在这里重复搭建。
 func TestFacadeFailureCodes(t *testing.T) {
 	tests := []struct {
@@ -125,10 +184,10 @@ func TestFacadeFailureCodes(t *testing.T) {
 			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{ProjectedCopies: "nope"})
 		}},
 		{name: "activate invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.Activate(t.Context(), 1, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{OnConflict: "nope"})
+			return lib.Activate(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
 		}},
 		{name: "activate group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.ActivateGroup(t.Context(), 1, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{OnConflict: "nope"})
+			return lib.ActivateGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
 		}},
 		{name: "activate group colliding names", want: library.FailedPrecondition, call: func(t *testing.T, lib library.Library) error {
 			root := t.TempDir()
@@ -151,7 +210,7 @@ func TestFacadeFailureCodes(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			return lib.ActivateGroup(t.Context(), group.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})
+			return lib.ActivateGroup(t.Context(), group.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
 		}},
 		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
 			skill := installNamedSkill(t, lib, "outsider")

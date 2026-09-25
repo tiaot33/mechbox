@@ -42,7 +42,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if first.Name != "first" {
 		first, second = second, first
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)

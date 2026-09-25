@@ -77,7 +77,7 @@ func TestUpdateNetworkPhaseDoesNotBlockActivationOrListing(t *testing.T) {
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
-		return lib.Activate(ctx, other.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})
+		return lib.Activate(ctx, other.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
 	})
 	mustFinishBeforeRelease(t, gate, "ListSkills", func(ctx context.Context) error {
 		_, err := lib.ListSkills(ctx)
@@ -237,7 +237,7 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockActivation(t *testing.T) {
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
-		return lib.Activate(ctx, other.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})
+		return lib.Activate(ctx, other.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
 	})
 
 	gate.open()
@@ -296,7 +296,7 @@ func TestInstallFetchMaterializationDoesNotBlockOtherFetchesOrActivation(t *test
 		return nil
 	})
 	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
-		return lib.Activate(ctx, local.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})
+		return lib.Activate(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
 	})
 
 	gate.open()
@@ -365,7 +365,7 @@ func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 		return err
 	})
 	mustFinishBeforeRelease(t, pushGate, "Activate during push upload", func(ctx context.Context) error {
-		return lib.Activate(ctx, local.ID, library.GlobalScope{Agent: library.AgentCodex}, library.ActivateOptions{})
+		return lib.Activate(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
 	})
 	pushGate.open()
 	wg.Wait()
@@ -380,7 +380,7 @@ func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	wg.Go(func() { _, previewErr = lib.PreviewSyncPush(t.Context()) })
 	headGate.awaitEntered(t)
 	mustFinishBeforeRelease(t, headGate, "Deactivate during push preview", func(ctx context.Context) error {
-		return lib.Deactivate(ctx, local.ID, library.GlobalScope{Agent: library.AgentCodex})
+		return lib.Deactivate(ctx, local.ID, library.GlobalScope(library.AgentCodex))
 	})
 	headGate.open()
 	wg.Wait()

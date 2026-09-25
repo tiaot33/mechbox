@@ -83,6 +83,19 @@ type ErrorDetails struct {
 func (e *Error) Error() string { return e.Message }
 func (e *Error) Unwrap() error { return e.Err }
 
+// ErrorOf 把任意 error 规范成 *Error:链上已有 *Error 时原样取出(含 Err),否则按门面同一套规则
+// 归类(无可识别原因的记为 Internal)并保留原错误;nil 返回 nil。跨 JSON 边界的接入层只调它编码错误,
+// 映射规则只在 Library 里写一份。
+func ErrorOf(err error) *Error {
+	if err == nil {
+		return nil
+	}
+	if libraryErr, ok := errors.AsType[*Error](err); ok {
+		return libraryErr
+	}
+	return typedError(err).(*Error)
+}
+
 // IsCode 判断 err 是否属于给定的 Library 错误类别。
 func IsCode(err error, code ErrorCode) bool {
 	libraryErr, ok := errors.AsType[*Error](err)
@@ -322,28 +335,34 @@ type Agent struct {
 	Name string    `json:"name"`
 }
 
-// Scope 是投影所在的层级身份:GlobalScope 或 ProjectScope 之一,不含路径(见 ADR 0011)。
-// 目录由 Library 按该 Agent 的现行布局算出(见 Resolve),调用方不自行拼路径,也无法
-// 传入一条目录来 Activate。密封接口:只有本包的两种 Scope 类型能实现它。
-// 作为接口字段它可以 marshal,但 JSON 没有种类判别符、无法直接 unmarshal;
-// RPC 边界(ADR 0008)需要时自行加判别符。
-type Scope interface {
-	sealedScope()
-}
+// ScopeKind 是 Scope 的层级:某 Agent 的全局,或某 Agent 在某 Registered project 下。
+type ScopeKind string
 
-// GlobalScope 是某个 Agent 的全局 Scope:目录相对用户主目录。
-type GlobalScope struct {
-	Agent AgentCode `json:"agent"`
-}
+const (
+	ScopeGlobal  ScopeKind = "global"  // 目录相对用户主目录
+	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
+)
 
-// ProjectScope 是某个 Agent 在某个 Registered project 下的 Scope:目录相对项目根。
-type ProjectScope struct {
+// Scope 是投影所在的层级身份,不含路径(见 ADR 0011)。目录由 Library 按该 Agent 的现行布局
+// 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Activate。
+// 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
+// ListActivations 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
+// 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
+type Scope struct {
+	Kind      ScopeKind `json:"kind"`
 	Agent     AgentCode `json:"agent"`
-	ProjectID ProjectID `json:"project_id"`
+	ProjectID ProjectID `json:"project_id,omitzero"` // 仅 ScopeProject;全局为零值
 }
 
-func (GlobalScope) sealedScope()  {}
-func (ProjectScope) sealedScope() {}
+// GlobalScope 是某个 Agent 的全局 Scope。
+func GlobalScope(agent AgentCode) Scope {
+	return Scope{Kind: ScopeGlobal, Agent: agent}
+}
+
+// ProjectScope 是某个 Agent 在某个 Registered project 下的 Scope。
+func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
+	return Scope{Kind: ScopeProject, Agent: agent, ProjectID: projectID}
+}
 
 // ConflictPolicy 决定激活时目标目录已存在、且没有任何 Activation 记录(外来目录)的处理方式。
 // 目标已被另一条 Activation 占用(同一 skill 的另一 Scope,或同名的另一 skill)时两种策略都返回

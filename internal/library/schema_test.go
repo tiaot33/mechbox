@@ -33,9 +33,9 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	scopes := []library.Scope{
-		library.GlobalScope{Agent: library.AgentClaudeCode},
-		library.GlobalScope{Agent: library.AgentCodex},
-		library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID},
+		library.GlobalScope(library.AgentClaudeCode),
+		library.GlobalScope(library.AgentCodex),
+		library.ProjectScope(library.AgentCodex, project.ID),
 	}
 	for _, scope := range scopes {
 		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
