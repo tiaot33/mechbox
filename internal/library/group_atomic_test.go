@@ -117,7 +117,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			}
 			after, err := lib.ListProjections(ctx)
 			if err != nil || !reflect.DeepEqual(before, after) {
-				t.Fatalf("origins changed: before=%#v after=%#v err=%v", before, after, err)
+				t.Fatalf("projections changed: before=%#v after=%#v err=%v", before, after, err)
 			}
 			content, err := os.ReadFile(firstPath)
 			if err != nil || string(content) != string(original) {
@@ -194,7 +194,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	if err != nil || len(projections) != 0 {
-		t.Fatalf("activations = %#v, %v", projections, err)
+		t.Fatalf("projections = %#v, %v", projections, err)
 	}
 }
 
@@ -279,7 +279,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
-		t.Fatalf("activations = %#v, %v; want %#v", projections, err, want)
+		t.Fatalf("projections = %#v, %v; want %#v", projections, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("partial group projection remains: %v", err)

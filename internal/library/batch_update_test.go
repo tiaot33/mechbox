@@ -78,7 +78,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	}
 	afterProjections, err := lib.ListProjections(t.Context())
 	if err != nil || !reflect.DeepEqual(projection, afterProjections) {
-		t.Fatalf("mutated activations = %#v, %v", afterProjections, err)
+		t.Fatalf("mutated projections = %#v, %v", afterProjections, err)
 	}
 	for _, original := range skills {
 		got, err := lib.GetSkill(t.Context(), original.ID)

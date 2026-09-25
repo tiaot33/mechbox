@@ -154,7 +154,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	}
 	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("preview changed activations: %#v, %v", after, err)
+		t.Fatalf("preview changed projections: %#v, %v", after, err)
 	}
 	afterSkills, err := lib.ListGroupSkills(ctx, group.ID)
 	if err != nil || !reflect.DeepEqual(members, afterSkills) {

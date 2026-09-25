@@ -295,6 +295,7 @@ func (l *sqliteLibrary) activate(ctx context.Context, id SkillID, scope resolved
 	}
 	// 已有本 skill 在该 Scope 的投影记录时,目标目录是我们自己的投影,再次激活应当
 	// 幂等成功(覆盖为当前版本 / 补记激活),而非因目录存在而报冲突。
+	// 覆盖是 #85 前的现行行为,#85 改为只补记激活、不写盘。
 	existing, err := findProjection(ctx, l.db, id, scope.scopeRow)
 	if err != nil {
 		return err

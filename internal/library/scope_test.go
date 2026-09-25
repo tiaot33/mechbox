@@ -51,7 +51,7 @@ func TestProjectionScopeRoundTripsThroughJSONIntoDeactivate(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	if err != nil || len(projections) != 1 {
-		t.Fatalf("ListProjections() = %#v, %v; want one activation", projections, err)
+		t.Fatalf("ListProjections() = %#v, %v; want one projection", projections, err)
 	}
 	encoded, err := json.Marshal(projections[0])
 	if err != nil {

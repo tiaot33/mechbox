@@ -178,7 +178,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, projections) {
-		t.Fatalf("activation records changed: %#v, %v", after, err)
+		t.Fatalf("projection records changed: %#v, %v", after, err)
 	}
 }
 

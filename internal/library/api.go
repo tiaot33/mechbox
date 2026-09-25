@@ -452,12 +452,12 @@ type RegisteredProject struct {
 	Path string    `json:"path"`
 }
 
-// ProjectedCopiesPolicy 决定移除 skill 或注销项目时,磁盘上已投影的副本如何处理。
+// ProjectedCopiesPolicy 决定移除 skill 或注销项目时,磁盘上的投影如何处理。
 type ProjectedCopiesPolicy string
 
 const (
-	Keep   ProjectedCopiesPolicy = "keep"   // 保留磁盘副本,只删除数据库记录;必须显式选择
-	Remove ProjectedCopiesPolicy = "remove" // 连同磁盘副本一起删除(默认,空字符串同义)
+	Keep   ProjectedCopiesPolicy = "keep"   // 保留磁盘上的投影,只删除数据库记录;必须显式选择
+	Remove ProjectedCopiesPolicy = "remove" // 连同磁盘上的投影一起删除(默认,空字符串同义)
 )
 
 type RemoveSkillOptions struct {
@@ -554,7 +554,7 @@ type Library interface {
 	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
 	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
 	// DeleteGroup 删除分组。非破坏性:仅由该组激活撑着的投影会先转为直接激活,
-	// 磁盘上已投影的副本不会因删除分组而被移除(见 ADR 0007)。
+	// 磁盘上的投影不会因删除分组而被移除(见 ADR 0007)。
 	DeleteGroup(ctx context.Context, id GroupID) error
 	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
 	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID) error
@@ -565,7 +565,7 @@ type Library interface {
 
 	// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
 	ListSkills(ctx context.Context) ([]SkillSummary, error)
-	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘投影副本的去留。
+	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上投影的去留。
 	RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) error
 
 	// 项目与 Scope
@@ -577,7 +577,7 @@ type Library interface {
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
 	ListRegisteredProjects(ctx context.Context) ([]RegisteredProject, error)
 	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部投影记录;
-	// opts 决定磁盘投影副本的去留。
+	// opts 决定磁盘上投影的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
 	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
 	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生投影。
@@ -592,7 +592,7 @@ type Library interface {
 
 	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound。
 	PreviewActivate(ctx context.Context, id SkillID, scope Scope) (ActivatePreview, error)
-	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时幂等成功,并把投影覆盖为当前版本。
+	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时幂等成功,并把投影覆盖为当前版本(#85 前的现行行为;CONTEXT.md 的目标是再次激活不写盘)。
 	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
 	// Deactivate 撤销直接激活;若仍有组激活撑着该投影,投影保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error

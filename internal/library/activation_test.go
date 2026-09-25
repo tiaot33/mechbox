@@ -171,7 +171,7 @@ func TestDeactivateKeepsLibraryAndDiskTogether(t *testing.T) {
 	}
 	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
-		t.Fatalf("failed Deactivate changed activations: %#v, %v; want %#v", after, err, before)
+		t.Fatalf("failed Deactivate changed projections: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
 	if err != nil || string(content) != "# present\n" {
@@ -268,10 +268,10 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
-				t.Fatalf("independent activation was removed: %v", err)
+				t.Fatalf("directly activated projection was removed: %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(directory, second.Name)); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("via-group-only activation remains: %v", err)
+				t.Fatalf("via-group-only projection remains: %v", err)
 			}
 			projections, err := lib.ListProjections(ctx)
 			want = []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
@@ -378,7 +378,7 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	projections, err = lib.ListProjections(ctx)
 	want[0].ViaGroups = []library.GroupID{group.ID}
 	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
-		t.Fatalf("origins after reactivation = %#v, %v; want %#v", projections, err, want)
+		t.Fatalf("projections after reactivation = %#v, %v; want %#v", projections, err, want)
 	}
 }
 
@@ -468,7 +468,7 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
-		t.Fatalf("failed group activation removed independent projection: %v", err)
+		t.Fatalf("failed group activation removed directly activated projection: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, second.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed group activation left a partial member: %v", err)

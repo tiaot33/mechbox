@@ -95,7 +95,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, projections) {
-		t.Fatalf("activation records changed: %v, %v", after, err)
+		t.Fatalf("projection records changed: %v, %v", after, err)
 	}
 	if err := os.RemoveAll(filepath.Join(repository, "first")); err != nil {
 		t.Fatal(err)

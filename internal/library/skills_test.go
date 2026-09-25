@@ -240,7 +240,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	}
 	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
-		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
+		t.Fatalf("failed Remove changed projections: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
 	if err != nil || string(content) != "# present\n" {

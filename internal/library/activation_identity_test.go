@@ -132,7 +132,7 @@ func TestIdentityScopesOfOneSkillAreIndependentProjections(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	if err != nil || len(projections) != len(scopes) {
-		t.Fatalf("ListProjections() = %#v, %v; want %d activations", projections, err, len(scopes))
+		t.Fatalf("ListProjections() = %#v, %v; want %d projections", projections, err, len(scopes))
 	}
 	for _, scope := range scopes {
 		directory, err := lib.Resolve(ctx, scope)
@@ -201,7 +201,7 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	}
 }
 
-// 两个身份争同一实际目录时,并发 Activate 也不能绕过占用保护:最多一条记录,磁盘副本仍在。
+// 两个身份争同一实际目录时,并发 Activate 也不能绕过占用保护:最多一条记录,磁盘上的投影仍在。
 func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())

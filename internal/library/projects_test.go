@@ -11,7 +11,7 @@ import (
 )
 
 // 登记项目后,该项目与各 Agent 组成项目 Scope:激活落在 Resolve 给出的目录;UnregisterProject
-// 清掉项目 Scope 记录,磁盘副本按 ProjectedCopies 决定去留,外来文件夹与全局激活不动。
+// 清掉项目 Scope 记录,磁盘上的投影按 ProjectedCopies 决定去留,外来文件夹与全局激活不动。
 func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -72,7 +72,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	}
 	globalProjections, err := lib.ListProjections(ctx)
 	if err != nil || len(globalProjections) != 2 {
-		t.Fatalf("global activations = %#v, %v; want 2", globalProjections, err)
+		t.Fatalf("global projections = %#v, %v; want 2", globalProjections, err)
 	}
 	if err := lib.Activate(ctx, skill.ID, keepScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	}
 	after, err := lib.ListProjections(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
-		t.Fatalf("failed Remove changed activations: %#v, %v; want %#v", after, err, before)
+		t.Fatalf("failed Remove changed projections: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
 	if err != nil || string(content) != "# present\n" {
