@@ -22,7 +22,7 @@ func TestInspectActivationsCurrentStaleModifiedAndRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestInspectActivationsReportsModifiedForExtraFileAndExecutableBit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestInspectActivationsReportsMissingWhenFolderRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestInspectActivationsReportsDirectoryMissing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		scope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+		scope := library.ProjectScope(library.AgentCodex, project.ID)
 		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -153,7 +153,7 @@ func TestInspectActivationsReportsDirectoryMissing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		scope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+		scope := library.ProjectScope(library.AgentCodex, project.ID)
 		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +188,7 @@ func TestInspectActivationsInspectsGroupProjections(t *testing.T) {
 	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -231,8 +231,8 @@ func TestInspectActivationsIsReadOnlyAndMatchesListActivations(t *testing.T) {
 		t.Fatal(err)
 	}
 	scopes := []library.Scope{
-		library.GlobalScope{Agent: library.AgentClaudeCode},
-		library.GlobalScope{Agent: library.AgentCodex},
+		library.GlobalScope(library.AgentClaudeCode),
+		library.GlobalScope(library.AgentCodex),
 	}
 	var directories []string
 	for _, skill := range []library.Skill{first, second} {

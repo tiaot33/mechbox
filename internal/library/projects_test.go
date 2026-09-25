@@ -50,7 +50,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
 		t.Fatalf("ListRegisteredProjects() = %#v, %v", projects, err)
 	}
-	keepScope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	keepScope := library.ProjectScope(library.AgentCodex, project.ID)
 	keepDirectory, err := lib.Resolve(ctx, keepScope)
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, agent := range []library.AgentCode{library.AgentClaudeCode, library.AgentCodex} {
-		if err := lib.Activate(ctx, skill.ID, library.GlobalScope{Agent: agent}, library.ActivateOptions{}); err != nil {
+		if err := lib.Activate(ctx, skill.ID, library.GlobalScope(agent), library.ActivateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -95,7 +95,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removeScope := library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: removeProject.ID}
+	removeScope := library.ProjectScope(library.AgentClaudeCode, removeProject.ID)
 	removeDirectory, err := lib.Resolve(ctx, removeScope)
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	}
 	present := installNamedSkill(t, lib, "present")
 	missing := installNamedSkill(t, lib, "missing")
-	scope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	scope := library.ProjectScope(library.AgentCodex, project.ID)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)

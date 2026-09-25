@@ -17,7 +17,8 @@
 - **schema 基线**:main 为 v8。版本号不再预分配给任何条目,谁先合入谁用下一个。
 - **第 4 步完成** —— [#83](https://github.com/tiaot33/skills-tui/issues/83) 已关闭,实现提交 [`52a7145`](https://github.com/tiaot33/skills-tui/commit/52a7145)、简化提交 [`8d518f5`](https://github.com/tiaot33/skills-tui/commit/8d518f5) 已推送至 main:激活预检、Fetch 候选标明已在库中、删除/注销默认清掉投影、去掉 `UpdateResult.Note`。明确不做更新预览/绑版、不做过时投影列表、不写「Preview → Execute 统一模式」ADR。
 - **2026-09-25 重排** —— ADR 0013:桌面端改为 Wails v3 与 Library 同进程,取代 ADR 0008 的 Electron + stdio sidecar;TUI 搁置;开启单实例锁。随之:RPC 一步取消,F1 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),G2 与库修订号不做;E1 因 macOS 从 Finder 启动读不到环境变量而提前;Wails 原型发现的 [#85](https://github.com/tiaot33/skills-tui/issues/85)–[#88](https://github.com/tiaot33/skills-tui/issues/88) 排入分步计划。F5 已随 #83 完成;I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
-- 下一步为第 5 步 [#88](https://github.com/tiaot33/skills-tui/issues/88) 接入边界。
+- **第 5 步完成** —— [#88](https://github.com/tiaot33/skills-tui/issues/88):`Scope` 改为带显式 `Kind` 的结构体,新增 `library.ErrorOf`。
+- 下一步为第 6 步桌面端骨架。
 
 ## 优先级定义
 
@@ -86,7 +87,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ### F. 跨 JSON 边界的形状(2026-09-25:边界从 RPC 改为 Wails 绑定,ADR 0013)
 
-- [ ] **F1 `Scope` 的 wire 形状。** 密封接口能 marshal 不能 unmarshal(ADR 0011 明确推给 RPC 层)。Wails 绑定同样无法生成接口类型参数。→ 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),连同 `library.ErrorOf` 统一错误编码。
+- [x] **F1 `Scope` 的 wire 形状。** 密封接口能 marshal 不能 unmarshal(ADR 0011 明确推给 RPC 层)。Wails 绑定同样无法生成接口类型参数。→ 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),连同 `library.ErrorOf` 统一错误编码。
 - [ ] **F2 DTO 去散文。** `SyncPreview.Warnings`、`SyncResult.Warnings` 是中文句子,`Error.Message` 却是英文。改为枚举 / 码,本地化归 UI(ADR 0003)。`UpdateResult.Note` 由 [#83](https://github.com/tiaot33/skills-tui/issues/83) 删除,不改成枚举。
 - [ ] **F3 枚举默认值显式化。** `on_conflict: ""`、`projected_copies: ""` 在 wire 上应为明确值(如 `"fail"` / `"remove"`)。空 `projected_copies` 的含义随 [#83](https://github.com/tiaot33/skills-tui/issues/83) 改为删除。
 - [ ] **F4 命名整理。** `Install`(本地)vs `InstallFetch`(远程);更新检查已统一为 `CheckUpdates`,单项与批量都返回 `[]UpdateCheck`。
@@ -113,7 +114,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [ ] **J1 组成员增删同步激活来源。** 移出已激活组的技能卡在「经由该组」,加入已激活组的技能不投影;两处语义待定。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85)
 - [ ] **J2 不改变来源的投影重写。** 用 `Activate` 刷新会给仅经由分组激活的投影加上独立来源;新增单条与批量重写。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86)
 - [ ] **J3 桌面端读模型。** 组成员批量读取、按范围巡检投影、保存更新检查结果(schema)、文件按需读取(即 C4);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
-- [ ] **J4 Wails 接入边界。** `Scope` 改为可序列化的具体结构体,`library.ErrorOf` 统一错误编码(即 F1)。→ [#88](https://github.com/tiaot33/skills-tui/issues/88)
+- [x] **J4 Wails 接入边界。** `Scope` 改为可序列化的具体结构体,`library.ErrorOf` 统一错误编码(即 F1)。→ [#88](https://github.com/tiaot33/skills-tui/issues/88)
 
 ## P2
 
@@ -162,12 +163,12 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - B4 决定不做(更新永远拉最新)。F5:已更新 ADR 0008 过时方法名与联网操作清单;TS 类型后改由 Wails v3 绑定生成(ADR 0013)。
 - 依赖:第 1 步(已完成;占用判定建立在 B2 修正后的语义上)。
 
-### 第 5 步 — 下一步:Wails 接入边界:J4(F1)
+### 第 5 步 — ✅ Wails 接入边界:J4(F1)
 
-- [#88](https://github.com/tiaot33/skills-tui/issues/88):`Scope` 改为可序列化的具体结构体,修订 ADR 0011;新增 `library.ErrorOf`。改动小,接真实 Library 要靠它。
+- [#88](https://github.com/tiaot33/skills-tui/issues/88) 已完成:`Scope` 改为带显式 `Kind` 的结构体 `{Kind, Agent, ProjectID}`,构造函数 `GlobalScope` / `ProjectScope`,各入口校验非法组合;新增 `library.ErrorOf`。
 - 依赖:第 4 步(已完成)。
 
-### 第 6 步 — 桌面端骨架
+### 第 6 步 — 下一步:桌面端骨架
 
 - `cmd/desktop/`:Wails v3 + React / TypeScript / Vite / shadcn / Tailwind,接真实 Library,开启单实例锁(ADR 0013)。落地时在 ADR 0010 登记目录。
 - 从这里起桌面端与下列 Library 工作并行,桌面端碰到缺口时按缺口调整优先级。

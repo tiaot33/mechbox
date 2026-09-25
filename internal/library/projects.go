@@ -117,7 +117,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 			return err
 		}
 		for _, activation := range activations {
-			if project, ok := activation.Scope.(ProjectScope); !ok || project.ProjectID != id {
+			if activation.Scope.Kind != ScopeProject || activation.Scope.ProjectID != id {
 				continue
 			}
 			skill, err := l.GetSkill(ctx, activation.SkillID)
@@ -145,9 +145,9 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	row, ok := scopeOf(scope)
-	if !ok {
-		return "", &Error{Code: InvalidArgument, Message: "resolve scope: scope is required"}
+	row, err := scopeOf("resolve scope", scope)
+	if err != nil {
+		return "", err
 	}
 	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
 	layout, err := l.agentLayout(ctx, row.agent)

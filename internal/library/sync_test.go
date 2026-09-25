@@ -121,11 +121,11 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectScope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
 	if err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	globalScope := library.GlobalScope{Agent: library.AgentCodex}
+	globalScope := library.GlobalScope(library.AgentCodex)
 	if err := lib.Activate(ctx, original.ID, globalScope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -288,11 +288,11 @@ func TestSyncPullRemapsEachProjectOnceByItsOriginalPath(t *testing.T) {
 			t.Fatalf("projects after chained remap = %#v, want %#v", projects, wantProjects)
 		}
 		for _, want := range []struct {
-			scope library.ProjectScope
+			scope library.Scope
 			dir   string
 		}{
-			{library.ProjectScope{Agent: library.AgentCodex, ProjectID: projectA.ID}, filepath.Join(projectB.Path, ".agents", "skills")},
-			{library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: projectB.ID}, filepath.Join(pathC, ".claude", "skills")},
+			{library.ProjectScope(library.AgentCodex, projectA.ID), filepath.Join(projectB.Path, ".agents", "skills")},
+			{library.ProjectScope(library.AgentClaudeCode, projectB.ID), filepath.Join(pathC, ".claude", "skills")},
 		} {
 			if dir, err := lib.Resolve(ctx, want.scope); err != nil || dir != want.dir {
 				t.Fatalf("Resolve(%#v) after pull = %q, %v; want %q", want.scope, dir, err, want.dir)

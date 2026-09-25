@@ -21,7 +21,7 @@ func TestPreviewActivateReadyAndRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestPreviewActivateOccupancyAndUntracked(t *testing.T) {
 		return skill
 	}
 	a, b := install(), install()
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	if err := lib.Activate(ctx, a.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestPreviewActivateOccupancyAndUntracked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	other := library.ProjectScope(library.AgentCodex, project.ID)
 	preview, err = lib.PreviewActivate(ctx, a.ID, other)
 	if err != nil || preview.Status != library.ActivateOccupied || preview.OccupierSkillID != a.ID || preview.OccupierName != a.Name {
 		t.Fatalf("cross scope = %#v, %v", preview, err)
@@ -112,7 +112,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	group, err := lib.CreateGroup(ctx, "group")
 	if err != nil {
 		t.Fatal(err)
@@ -177,14 +177,14 @@ func TestActivationPreviewsReportMissingAndCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	if _, err := lib.PreviewActivate(ctx, -1, scope); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("unknown skill: %v", err)
 	}
 	if _, err := lib.PreviewActivateGroup(ctx, -1, scope); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("unknown group: %v", err)
 	}
-	if _, err := lib.PreviewActivateGroup(ctx, group.ID, library.GlobalScope{Agent: "missing"}); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.PreviewActivateGroup(ctx, group.ID, library.GlobalScope("missing")); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("unknown scope: %v", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)

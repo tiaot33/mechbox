@@ -41,7 +41,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 		}
 		skills = append(skills, installed...)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	if err := lib.Activate(t.Context(), skills[0].ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}

@@ -33,8 +33,8 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	first, second := skills[0], skills[1]
 	scopes := []library.Scope{
-		library.GlobalScope{Agent: library.AgentCodex},
-		library.GlobalScope{Agent: library.AgentClaudeCode},
+		library.GlobalScope(library.AgentCodex),
+		library.GlobalScope(library.AgentClaudeCode),
 	}
 	directories := make([]string, len(scopes))
 	for i, scope := range scopes {

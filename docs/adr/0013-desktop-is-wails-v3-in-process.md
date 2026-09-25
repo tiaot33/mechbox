@@ -10,7 +10,7 @@ v1 唯一的客户端是桌面端。它是一个 Wails v3 应用:Go 进程直接
 - **单实例**:开启 Wails 单实例锁。TUI 已搁置(ADR 0002),也没有 CLI,库的写入者只有这一个进程，所以不做跨进程的库修订号或变更通知，前端在自己的写操作之后重读。ADR 0012 的多进程共存底线保留不动。
 - **前端**:React + TypeScript + Vite + shadcn/ui + Tailwind CSS。TS 类型由 Wails 绑定生成器从门面类型生成，不手写。
 - **位置**:`cmd/desktop/`,内含 Go 入口、`frontend/` 与构建配置，使用根 module(ADR 0010)。
-- **接入边界归属**:让门面类型跨 JSON 往返是 Library 的责任——`Scope` 改为带显式 `Kind` 的单一结构体(ADR 0011),`library.ErrorOf(err)` 把任意 error 规范成 `*Error`(非 `*Error` 记为 `internal`),桌面端的错误编码只调它，映射规则只在 Library 里写一份。Wails 专属的东西(绑定服务、事件、窗口)留在 `cmd/desktop/`,Library 不依赖 Wails。
+- **接入边界归属**:让门面类型跨 JSON 往返是 Library 的责任——`Scope` 改为带显式 `Kind` 的单一结构体(ADR 0011),`library.ErrorOf(err)` 把任意 error 规范成 `*Error`(非 `*Error` 按门面同一套规则归类，无可识别原因的记为 `internal`),桌面端的错误编码只调它，映射规则只在 Library 里写一份。Wails 专属的东西(绑定服务、事件、窗口)留在 `cmd/desktop/`,Library 不依赖 Wails。
 
 ## 考虑过的选项
 

@@ -32,7 +32,7 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			scope := library.GlobalScope{Agent: agent}
+			scope := library.GlobalScope(agent)
 			directory, err := lib.Resolve(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
@@ -116,7 +116,7 @@ func TestActivateRecordsFirstActivationTimeAndIgnoresRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	start := time.Now().UTC()
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestDeactivateKeepsLibraryAndDiskTogether(t *testing.T) {
 	lib := openTestLibrary(t)
 	present := installNamedSkill(t, lib, "present")
 	missing := installNamedSkill(t, lib, "missing")
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestDeactivateGroupBackedSkillNamesTheGroup(t *testing.T) {
 	if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	if err := lib.ActivateGroup(t.Context(), group.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestActivateAndDeactivateGroupPreservesIndependentActivation(t *testing.T) 
 					t.Fatal(err)
 				}
 			}
-			scope := library.GlobalScope{Agent: library.AgentCodex}
+			scope := library.GlobalScope(library.AgentCodex)
 			directory, err := lib.Resolve(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
@@ -308,7 +308,7 @@ func TestActivateGroupChecksAllConflictsBeforeProjectingMembers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -340,7 +340,7 @@ func TestReactivatingAnActiveSkillSucceedsUnderFailPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +410,7 @@ func TestActivateGroupRejectsCollidingMemberNames(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -452,7 +452,7 @@ func TestActivateGroupFailurePreservesIndependentActivation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)

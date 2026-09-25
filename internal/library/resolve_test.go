@@ -22,9 +22,9 @@ func TestResolveGlobalScopeUsesHomeAndAgentRule(t *testing.T) {
 		library.AgentCodex:      filepath.Join(home, ".agents", "skills"),
 	}
 	for agent, want := range cases {
-		got, err := lib.Resolve(ctx, library.GlobalScope{Agent: agent})
+		got, err := lib.Resolve(ctx, library.GlobalScope(agent))
 		if err != nil || got != want {
-			t.Fatalf("Resolve(GlobalScope{%s}) = %q, %v; want %q", agent, got, err, want)
+			t.Fatalf("Resolve(GlobalScope(%s)) = %q, %v; want %q", agent, got, err, want)
 		}
 	}
 }
@@ -36,7 +36,7 @@ func TestResolveAndDeactivateUseHomeBoundAtOpen(t *testing.T) {
 	t.Setenv("HOME", homeA)
 	lib := openTestLibrary(t)
 	skill := installExampleSkill(t, lib, "example")
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -76,9 +76,9 @@ func TestResolveProjectScopeUsesRegisteredRootAndAgentRule(t *testing.T) {
 		library.AgentCodex:      filepath.Join(project.Path, ".agents", "skills"),
 	}
 	for agent, want := range cases {
-		got, err := lib.Resolve(ctx, library.ProjectScope{Agent: agent, ProjectID: project.ID})
+		got, err := lib.Resolve(ctx, library.ProjectScope(agent, project.ID))
 		if err != nil || got != want {
-			t.Fatalf("Resolve(ProjectScope{%s, %d}) = %q, %v; want %q", agent, project.ID, got, err, want)
+			t.Fatalf("Resolve(ProjectScope(%s, %d)) = %q, %v; want %q", agent, project.ID, got, err, want)
 		}
 	}
 }
@@ -94,10 +94,10 @@ func TestResolveUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	}
 
 	cases := map[string]library.Scope{
-		"unknown agent in global scope":    library.GlobalScope{Agent: "cursor"},
-		"unknown agent in project scope":   library.ProjectScope{Agent: "cursor", ProjectID: project.ID},
-		"unregistered project":             library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID + 1},
-		"empty agent code in global scope": library.GlobalScope{},
+		"unknown agent in global scope":    library.GlobalScope("cursor"),
+		"unknown agent in project scope":   library.ProjectScope("cursor", project.ID),
+		"unregistered project":             library.ProjectScope(library.AgentClaudeCode, project.ID+1),
+		"empty agent code in global scope": library.GlobalScope(""),
 	}
 	for name, scope := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -106,10 +106,6 @@ func TestResolveUnknownAgentOrProjectIsNotFound(t *testing.T) {
 				t.Fatalf("Resolve(%#v) = %q, %v; want NotFound", scope, got, err)
 			}
 		})
-	}
-	// 没有 Scope 就无从解析:这是参数错误,不是「找不到」。
-	if got, err := lib.Resolve(ctx, nil); !library.IsCode(err, library.InvalidArgument) {
-		t.Fatalf("Resolve(nil) = %q, %v; want InvalidArgument", got, err)
 	}
 }
 
@@ -125,8 +121,8 @@ func TestResolveIsReadOnly(t *testing.T) {
 	}
 
 	scopes := []library.Scope{
-		library.GlobalScope{Agent: library.AgentCodex},
-		library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID},
+		library.GlobalScope(library.AgentCodex),
+		library.ProjectScope(library.AgentClaudeCode, project.ID),
 	}
 	for _, scope := range scopes {
 		directory, err := lib.Resolve(ctx, scope)
@@ -172,10 +168,10 @@ func TestResolveReadsLayoutRulesFromAgentsTable(t *testing.T) {
 	t.Cleanup(func() { _ = reopened.Close() })
 
 	cases := map[library.Scope]string{
-		library.GlobalScope{Agent: library.AgentCodex}:                         filepath.Join(home, ".custom", "global"),
-		library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}: filepath.Join(project.Path, ".custom", "project"),
-		library.GlobalScope{Agent: "another"}:                                  filepath.Join(home, ".another", "skills"),
-		library.ProjectScope{Agent: "another", ProjectID: project.ID}:          filepath.Join(project.Path, "tools", "another"),
+		library.GlobalScope(library.AgentCodex):              filepath.Join(home, ".custom", "global"),
+		library.ProjectScope(library.AgentCodex, project.ID): filepath.Join(project.Path, ".custom", "project"),
+		library.GlobalScope("another"):                       filepath.Join(home, ".another", "skills"),
+		library.ProjectScope("another", project.ID):          filepath.Join(project.Path, "tools", "another"),
 	}
 	for scope, want := range cases {
 		got, err := reopened.Resolve(ctx, scope)

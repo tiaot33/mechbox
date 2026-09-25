@@ -23,7 +23,7 @@ func TestActivateAndDeactivateProjectScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scope := library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID}
+	scope := library.ProjectScope(library.AgentClaudeCode, project.ID)
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestActivateGroupOnIdentityScopeIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	scope := library.ProjectScope(library.AgentCodex, project.ID)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -121,9 +121,9 @@ func TestIdentityScopesOfOneSkillAreIndependentActivations(t *testing.T) {
 		t.Fatal(err)
 	}
 	scopes := []library.Scope{
-		library.GlobalScope{Agent: library.AgentClaudeCode},
-		library.GlobalScope{Agent: library.AgentCodex},
-		library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: project.ID},
+		library.GlobalScope(library.AgentClaudeCode),
+		library.GlobalScope(library.AgentCodex),
+		library.ProjectScope(library.AgentClaudeCode, project.ID),
 	}
 	for _, scope := range scopes {
 		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
@@ -174,8 +174,8 @@ func TestActivateDoesNotRewriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	global := library.GlobalScope{Agent: library.AgentCodex}
-	projectScope := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
+	global := library.GlobalScope(library.AgentCodex)
+	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
 	directory, err := lib.Resolve(ctx, global)
 	if err != nil {
 		t.Fatal(err)
@@ -216,8 +216,8 @@ func TestActivateSerializesSharedDirectoryClaims(t *testing.T) {
 	}
 	skill := installExampleSkill(t, lib, "example-skill")
 	scopes := []library.Scope{
-		library.GlobalScope{Agent: library.AgentCodex},
-		library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID},
+		library.GlobalScope(library.AgentCodex),
+		library.ProjectScope(library.AgentCodex, project.ID),
 	}
 	start := make(chan struct{})
 	results := make([]error, len(scopes))
@@ -268,7 +268,7 @@ func TestActivateRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	lib := openTestLibrary(t)
 	first := installSkillWithBody(t, lib, "commit", "# A\n")
 	second := installSkillWithBody(t, lib, "commit", "# B\n")
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func TestActivateGroupRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	first := installSkillWithBody(t, lib, "commit", "# A\n")
 	second := installSkillWithBody(t, lib, "commit", "# B\n")
 	bystander := installSkillWithBody(t, lib, "bystander", "# bystander\n")
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
@@ -371,9 +371,9 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	global := library.GlobalScope{Agent: library.AgentCodex}
-	sameDirectory := library.ProjectScope{Agent: library.AgentCodex, ProjectID: project.ID}
-	otherAgent := library.GlobalScope{Agent: library.AgentClaudeCode}
+	global := library.GlobalScope(library.AgentCodex)
+	sameDirectory := library.ProjectScope(library.AgentCodex, project.ID)
+	otherAgent := library.GlobalScope(library.AgentClaudeCode)
 	directory, err := lib.Resolve(ctx, global)
 	if err != nil {
 		t.Fatal(err)
@@ -419,8 +419,8 @@ func TestActivateUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	skill := installExampleSkill(t, lib, "example-skill")
 
 	for name, scope := range map[string]library.Scope{
-		"unknown agent":        library.GlobalScope{Agent: "cursor"},
-		"unregistered project": library.ProjectScope{Agent: library.AgentClaudeCode, ProjectID: 42},
+		"unknown agent":        library.GlobalScope("cursor"),
+		"unregistered project": library.ProjectScope(library.AgentClaudeCode, 42),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); !library.IsCode(err, library.NotFound) {

@@ -143,8 +143,8 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	if err := lib.AddSkillToGroup(ctx, group.ID, removeSkill.ID); err != nil {
 		t.Fatal(err)
 	}
-	keepScope := library.GlobalScope{Agent: library.AgentCodex}
-	removeScope := library.GlobalScope{Agent: library.AgentClaudeCode}
+	keepScope := library.GlobalScope(library.AgentCodex)
+	removeScope := library.GlobalScope(library.AgentClaudeCode)
 	keepDirectory, err := lib.Resolve(ctx, keepScope)
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	lib := openTestLibrary(t)
 	present := installNamedSkill(t, lib, "present")
 	missing := installNamedSkill(t, lib, "missing")
-	scope := library.GlobalScope{Agent: library.AgentCodex}
+	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
