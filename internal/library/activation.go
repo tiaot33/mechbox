@@ -45,24 +45,54 @@ func (r scopeRow) scope() Scope {
 	return ProjectScope(r.agent, *r.projectID)
 }
 
-// resolvedScope 是一次激活操作的内部目标:Scope 的落库身份 + 按现行布局算出的目录。
+// resolvedScope 是一次激活操作的内部目标:Scope 的落库身份 + 根目录 + 按现行布局算出的目录。
 type resolvedScope struct {
 	scopeRow
+	root      string // 作用域根目录;Library 从不创建它,只创建其下的 Agent 布局目录
 	directory string
 }
 
+// rootMissing 确认作用域根目录存在且是目录;不满足时返回 FailedPrecondition(Details.Path 为根目录,
+// 项目 Scope 另带 ProjectID),说明这个项目或主目录不在本机。读取失败放在第二个返回值。
+func (s resolvedScope) rootMissing(operation string) (*Error, error) {
+	info, err := os.Stat(s.root)
+	if err == nil && info.IsDir() {
+		return nil, nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect scope root: %w", err)
+	}
+	details := ErrorDetails{Path: s.root}
+	if s.projectID != nil {
+		details.ProjectID = *s.projectID
+	}
+	return preconditionError(operation, "scope root does not exist", details), nil
+}
+
+// requireRoot 是 rootMissing 的错误形式,供整次操作以根目录为前提的调用方使用。
+func (s resolvedScope) requireRoot(operation string) error {
+	missing, err := s.rootMissing(operation)
+	if err != nil {
+		return err
+	}
+	if missing != nil {
+		return missing
+	}
+	return nil
+}
+
 // resolveScope 把门面收到的 Scope 变成内部目标:先按调用方的操作名校验组合,
-// 未知 Agent / 未登记项目的 NotFound 来自 Resolve。
+// 未知 Agent / 未登记项目的 NotFound 来自 scopeLocation。
 func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
 	row, err := scopeOf(operation, scope)
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	directory, err := l.Resolve(ctx, scope)
+	root, directory, err := l.scopeLocation(ctx, row)
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	return resolvedScope{scopeRow: row, directory: directory}, nil
+	return resolvedScope{scopeRow: row, root: root, directory: directory}, nil
 }
 
 // rowQuerier 让 *sql.DB 与 *sql.Tx 共用同一个单行查询。
@@ -325,6 +355,9 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 	if err != nil {
 		return err
 	}
+	if err := target.requireRoot("activate skill"); err != nil {
+		return err
+	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
@@ -384,6 +417,12 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 			}
 		}
 		return restoreErr
+	}
+	// 共用写盘路径:根目录不存在时一律不落盘(MkdirAll 会凭空建出整条路径)。
+	for _, item := range placements {
+		if err := item.scope.requireRoot("place projection"); err != nil {
+			return err
+		}
 	}
 	for _, item := range placements {
 		if err := os.MkdirAll(item.scope.directory, 0o755); err != nil {
@@ -571,38 +610,45 @@ func newMemberPlan(operation string, opts ActivateOptions) *memberPlan {
 	return &memberPlan{operation: operation, opts: opts, results: []GroupMemberResult{}, planned: map[string]bool{}}
 }
 
-// planMember 判定 skill 作为组成员在 target 上的结果并记入 plan:已有投影只补上组激活;同名成员(duplicate)、
-// 目标被占用、有未记录文件夹(且未选 Overwrite)的跳过;其余加入待落盘的新投影。
+// planMember 判定 skill 作为组成员在 target 上的结果并记入 plan:已有投影只补上组激活;有 memberBlocker
+// 的跳过;其余加入待落盘的新投影。
 func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
-	path := filepath.Join(target.directory, name)
 	existing, err := findProjection(ctx, l.db, id, target.scopeRow)
-	switch {
-	case err != nil:
+	if err != nil {
 		return err
-	case existing != nil:
+	}
+	if existing != nil {
 		result.Outcome = MemberAlreadyProjected
-	case duplicate:
-		result.Error = preconditionError(plan.operation, "multiple members project to the same target", ErrorDetails{Name: name, Path: path})
-	case plan.planned[path]:
-		result.Error = preconditionError(plan.operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: target.directory})
-	default:
-		if result.Error, err = l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict); err != nil {
-			return err
-		}
-		if result.Error != nil {
-			break
-		}
+	} else if result.Error, err = l.memberBlocker(ctx, plan, id, name, target, duplicate); err != nil {
+		return err
+	} else if result.Error == nil {
 		skill, err := l.GetSkill(ctx, id)
 		if err != nil {
 			return err
 		}
-		plan.planned[path] = true
+		plan.planned[filepath.Join(target.directory, name)] = true
 		plan.placements = append(plan.placements, &placement{skill: skill, scope: target})
 		result.Outcome = MemberProjected
 	}
 	plan.results = append(plan.results, result)
 	return nil
+}
+
+// memberBlocker 返回尚无投影的成员不能在 target 新建投影的原因,依次检查:作用域根目录不存在、组内同名
+// (duplicate)、本批另一个 Scope 已计划同一目标、目标被占用或有未记录文件夹(且未选 Overwrite);能落盘返回 nil。
+func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) (*Error, error) {
+	if missing, err := target.rootMissing(plan.operation); err != nil || missing != nil {
+		return missing, err
+	}
+	path := filepath.Join(target.directory, name)
+	if duplicate {
+		return preconditionError(plan.operation, "multiple members project to the same target", ErrorDetails{Name: name, Path: path}), nil
+	}
+	if plan.planned[path] {
+		return preconditionError(plan.operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: target.directory}), nil
+	}
+	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict)
 }
 
 // applyMemberPlan 落盘 plan 里的新投影,并在同一事务里先执行 record(组激活或成员关系),再为新投影建记录
@@ -639,6 +685,10 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		return nil, err
 	}
 	if err := l.requireGroup(ctx, groupID); err != nil {
+		return nil, err
+	}
+	// 根目录不存在是作用域的问题,不是某个成员的冲突:整次失败,不记组激活。
+	if err := target.requireRoot("activate group"); err != nil {
 		return nil, err
 	}
 	members, err := l.ListGroupSkills(ctx, groupID)

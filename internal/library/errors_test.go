@@ -201,10 +201,6 @@ func TestFacadeFailureCodes(t *testing.T) {
 		{name: "remove skill from group invalid projections", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
 			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{Projections: "nope"})
 		}},
-		{name: "add skill to group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.AddSkillToGroup(t.Context(), 1, 1, library.ActivateOptions{OnConflict: "nope"})
-			return err
-		}},
 		{name: "fetch unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
 			_, err := lib.Fetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
 			return err

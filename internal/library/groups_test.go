@@ -43,7 +43,7 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 		{debugging, second},
 		{shipping, first},
 	} {
-		if _, err := lib.AddSkillToGroup(t.Context(), membership.group.ID, membership.skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(t.Context(), membership.group.ID, membership.skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,11 +93,11 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 		{"deactivate group", lib.DeactivateGroup(ctx, unknownGroup, scope)},
 		{"list group", func() error { _, err := lib.ListGroupSkills(ctx, unknownGroup); return err }()},
 		{"add to unknown group", func() error {
-			_, err := lib.AddSkillToGroup(ctx, unknownGroup, skill.ID, library.ActivateOptions{})
+			_, err := lib.AddSkillToGroup(ctx, unknownGroup, skill.ID)
 			return err
 		}()},
 		{"add unknown skill", func() error {
-			_, err := lib.AddSkillToGroup(ctx, group.ID, unknownSkill, library.ActivateOptions{})
+			_, err := lib.AddSkillToGroup(ctx, group.ID, unknownSkill)
 			return err
 		}()},
 	}
@@ -133,11 +133,11 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, group := range []library.Group{first, second} {
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := lib.AddSkillToGroup(ctx, first.ID, groupOnly.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, first.ID, groupOnly.ID); err != nil {
 		t.Fatal(err)
 	}
 	renamed, err := lib.RenameGroup(ctx, first.ID, "renamed")
@@ -297,9 +297,9 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})
 	}
 	skill := installNamedSkill(t, lib, "member")
-	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
-	_, err = lib.AddSkillToGroup(t.Context(), group.ID, skill.ID, library.ActivateOptions{})
+	_, err = lib.AddSkillToGroup(t.Context(), group.ID, skill.ID)
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID})
 }

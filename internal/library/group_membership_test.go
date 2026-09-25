@@ -56,7 +56,7 @@ func TestGroupMembershipFollowsGroupActivationInEveryScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{a, b} {
-		if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -66,7 +66,7 @@ func TestGroupMembershipFollowsGroupActivationInEveryScope(t *testing.T) {
 		}
 	}
 
-	results, err := lib.AddSkillToGroup(ctx, g.ID, c.ID, library.ActivateOptions{})
+	results, err := lib.AddSkillToGroup(ctx, g.ID, c.ID)
 	// 按 ListGroupActivations 的顺序:claude-code 在 codex 之前。
 	requireMemberResults(t, results, err, []library.GroupMemberResult{
 		{SkillID: c.ID, Scope: projectScope, Outcome: library.MemberProjected},
@@ -137,7 +137,7 @@ func TestEmptyGroupActivationIsRecordedAndCoversLaterMembers(t *testing.T) {
 
 	skill := installNamedSkill(t, lib, "late")
 	for range 2 {
-		results, err = lib.AddSkillToGroup(ctx, g.ID, skill.ID, library.ActivateOptions{})
+		results, err = lib.AddSkillToGroup(ctx, g.ID, skill.ID)
 		requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: skill.ID, Scope: scope, Outcome: library.MemberProjected}})
 		requireProjection(t, directory, "late", "# late\n")
 		requireProjections(t, lib, []library.Projection{{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{g.ID}}})
@@ -183,14 +183,14 @@ func TestRemovingMemberFromOneOfTwoActiveGroups(t *testing.T) {
 					t.Fatal(err)
 				}
 				groups = append(groups, group)
-				if _, err := lib.AddSkillToGroup(ctx, group.ID, shared.ID, library.ActivateOptions{}); err != nil {
+				if _, err := lib.AddSkillToGroup(ctx, group.ID, shared.ID); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
 					t.Fatal(err)
 				}
 			}
-			results, err := lib.AddSkillToGroup(ctx, groups[0].ID, direct.ID, library.ActivateOptions{})
+			results, err := lib.AddSkillToGroup(ctx, groups[0].ID, direct.ID)
 			requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: direct.ID, Scope: scope, Outcome: library.MemberAlreadyProjected}})
 
 			opts := library.RemoveFromGroupOptions{Projections: policy}
@@ -241,7 +241,7 @@ func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	holder := installSkillWithBody(t, lib, "dup", "# holder\n")
-	if _, err := lib.AddSkillToGroup(ctx, g.ID, holder.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, g.ID, holder.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := lib.ActivateGroup(ctx, g.ID, scope, library.ActivateOptions{}); err != nil {
@@ -253,19 +253,19 @@ func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(directory, "edited", "SKILL.md"), []byte("by hand\n"), 0o644)
-	results, err := lib.AddSkillToGroup(ctx, g.ID, edited.ID, library.ActivateOptions{})
+	results, err := lib.AddSkillToGroup(ctx, g.ID, edited.ID)
 	requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: edited.ID, Scope: scope, Outcome: library.MemberAlreadyProjected}})
 	requireProjection(t, directory, "edited", "by hand\n")
 
 	untracked := installNamedSkill(t, lib, "untracked")
 	writeFile(t, filepath.Join(directory, "untracked", "manual.txt"), []byte("manual"), 0o644)
-	results, err = lib.AddSkillToGroup(ctx, g.ID, untracked.ID, library.ActivateOptions{})
+	results, err = lib.AddSkillToGroup(ctx, g.ID, untracked.ID)
 	requireMemberResults(t, results, err, []library.GroupMemberResult{
 		skippedMember(untracked.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(directory, "untracked")}),
 	})
 
 	namesake := installSkillWithBody(t, lib, "dup", "# namesake\n")
-	results, err = lib.AddSkillToGroup(ctx, g.ID, namesake.ID, library.ActivateOptions{OnConflict: library.Overwrite})
+	results, err = lib.AddSkillToGroup(ctx, g.ID, namesake.ID)
 	requireMemberResults(t, results, err, []library.GroupMemberResult{
 		skippedMember(namesake.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup", Path: filepath.Join(directory, "dup")}),
 	})
@@ -315,7 +315,7 @@ func TestAddingMemberRollsBackMembershipWhenProjectionFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	makeScopeReadOnly(t, directory)
-	if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID, library.ActivateOptions{}); err == nil {
+	if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID); err == nil {
 		t.Fatal("AddSkillToGroup succeeded despite a read-only scope")
 	}
 	if err := os.Chmod(directory, 0o755); err != nil {
@@ -354,7 +354,7 @@ func TestUnregisterProjectAndDeleteGroupClearGroupActivations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(ctx, first.ID, skill.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, first.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, activation := range []library.GroupActivation{{GroupID: first.ID, Scope: global}, {GroupID: first.ID, Scope: projectScope}, {GroupID: second.ID, Scope: projectScope}} {
@@ -405,7 +405,7 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
 	// 全局先于项目 Scope 处理:全局的文件夹先被移走,再在只读的项目 Scope 上失败。
@@ -434,4 +434,122 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 		{SkillID: skill.ID, Scope: global, Directory: globalDir, Groups: via},
 		{SkillID: skill.ID, Scope: projectScope, Directory: projectDir, Groups: via},
 	})
+}
+
+// 作用域根目录(项目为已登记路径)不在本机时 Library 不创建它:Activate / ActivateGroup 报 FailedPrecondition,
+// 不写盘、不留记录、不记组激活;加入成员跳过该 Scope,成员关系照加。根目录存在而 Agent 布局目录不存在时照常创建。
+func TestMissingScopeRootIsNeverCreated(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := library.ProjectScope(library.AgentClaudeCode, project.ID)
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := library.GlobalScope(library.AgentCodex)
+	g, err := lib.CreateGroup(ctx, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 根目录存在、.claude/skills 还不存在:组激活照常创建布局目录。
+	for _, target := range []library.Scope{global, scope} {
+		if _, err := lib.ActivateGroup(ctx, g.ID, target, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	present := installNamedSkill(t, lib, "present")
+	if _, err := lib.AddSkillToGroup(ctx, g.ID, present.ID); err != nil {
+		t.Fatal(err)
+	}
+	requireProjection(t, directory, "present", "# present\n")
+
+	// 项目被移走:根目录不存在。
+	if err := os.RemoveAll(project.Path); err != nil {
+		t.Fatal(err)
+	}
+	missing := library.ErrorDetails{Path: project.Path, ProjectID: project.ID}
+	skill := installNamedSkill(t, lib, "late")
+	requireErrorDetails(t, lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}), library.FailedPrecondition, missing)
+	other, err := lib.CreateGroup(ctx, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.ActivateGroup(ctx, other.ID, scope, library.ActivateOptions{})
+	requireErrorDetails(t, err, library.FailedPrecondition, missing)
+
+	results, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID)
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		skippedMember(skill.ID, scope, library.FailedPrecondition, missing),
+		{SkillID: skill.ID, Scope: global, Outcome: library.MemberProjected},
+	})
+	members, err := lib.ListGroupSkills(ctx, g.ID)
+	if err != nil || !reflect.DeepEqual(summaryIDs(members), []library.SkillID{present.ID, skill.ID}) {
+		t.Fatalf("ListGroupSkills() = %v, %v; want [%d %d]", summaryIDs(members), err, present.ID, skill.ID)
+	}
+	if _, err := os.Lstat(project.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing project root was created: %v", err)
+	}
+	activations, err := lib.ListGroupActivations(ctx)
+	want := []library.GroupActivation{{GroupID: g.ID, Scope: scope}, {GroupID: g.ID, Scope: global}}
+	if err != nil || !reflect.DeepEqual(withoutGroupActivatedAt(activations), want) {
+		t.Fatalf("ListGroupActivations() = %#v, %v; want %#v", activations, err, want)
+	}
+	globalDir, err := lib.Resolve(ctx, global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	via := []library.GroupID{g.ID}
+	requireProjections(t, lib, []library.Projection{
+		{SkillID: present.ID, Scope: scope, Directory: directory, Groups: via},
+		{SkillID: present.ID, Scope: global, Directory: globalDir, Groups: via},
+		{SkillID: skill.ID, Scope: global, Directory: globalDir, Groups: via},
+	})
+}
+
+// 同一次加入成员里两个 Scope 解析到同一目录(已登记项目就是主目录)时,先处理的那个投影,后一个按占用跳过;
+// 再次对后一个 Scope 激活组也不会让两个 Scope 共用一个文件夹。
+func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
+	ctx := t.Context()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	project, err := lib.RegisterProject(ctx, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := library.GlobalScope(library.AgentCodex)
+	sameDirectory := library.ProjectScope(library.AgentCodex, project.ID)
+	directory, err := lib.Resolve(ctx, global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := lib.CreateGroup(ctx, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []library.Scope{global, sameDirectory} {
+		if _, err := lib.ActivateGroup(ctx, g.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skill := installNamedSkill(t, lib, "shared")
+	results, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID)
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		{SkillID: skill.ID, Scope: global, Outcome: library.MemberProjected},
+		skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: directory}),
+	})
+	requireProjection(t, directory, "shared", "# shared\n")
+	results, err = lib.ActivateGroup(ctx, g.ID, sameDirectory, library.ActivateOptions{OnConflict: library.Overwrite})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: directory}),
+	})
+	requireProjections(t, lib, []library.Projection{{SkillID: skill.ID, Scope: global, Directory: directory, Groups: []library.GroupID{g.ID}}})
 }

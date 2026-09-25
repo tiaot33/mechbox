@@ -206,7 +206,7 @@ func TestDeactivateGroupBackedSkillNamesTheGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
@@ -230,7 +230,7 @@ func TestActivateAndDeactivateGroupPreservesDirectActivation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, skill := range []library.Skill{first, second} {
-				if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+				if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -305,7 +305,7 @@ func TestActivateGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{first, second} {
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -381,7 +381,7 @@ func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -422,7 +422,7 @@ func TestActivateGroupSkipsAllMembersSharingAName(t *testing.T) {
 	}
 	other := installNamedSkill(t, lib, "other")
 	for _, skill := range []library.Skill{first, second, other} {
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -469,7 +469,7 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{first, second} {
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}

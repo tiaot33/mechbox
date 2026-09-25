@@ -56,7 +56,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				}
 				skills = append(skills, skill)
 				if name != "independent" {
-					if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+					if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -70,7 +70,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := lib.AddSkillToGroup(ctx, other.ID, skills[3].ID, library.ActivateOptions{}); err != nil {
+			if _, err := lib.AddSkillToGroup(ctx, other.ID, skills[3].ID); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := lib.ActivateGroup(ctx, other.ID, scope, library.ActivateOptions{}); err != nil {
@@ -157,7 +157,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
@@ -226,7 +226,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 		if first.ID == 0 {
 			first = skill
 		}
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}

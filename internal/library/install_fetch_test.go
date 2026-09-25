@@ -260,7 +260,7 @@ func TestInstallFetchDefaultsToAllSkillsWithoutRefetching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, installed[0].ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, installed[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)

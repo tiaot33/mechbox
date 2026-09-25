@@ -128,7 +128,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}

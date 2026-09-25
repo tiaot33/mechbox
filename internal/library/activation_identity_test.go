@@ -82,7 +82,7 @@ func TestActivateGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{first, second} {
-		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -332,7 +332,7 @@ func TestActivateGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(ctx, firstGroup.ID, first.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, firstGroup.ID, first.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := lib.ActivateGroup(ctx, firstGroup.ID, scope, library.ActivateOptions{}); err != nil {
@@ -348,7 +348,7 @@ func TestActivateGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{bystander, second} {
-		if _, err := lib.AddSkillToGroup(ctx, secondGroup.ID, skill.ID, library.ActivateOptions{}); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, secondGroup.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}

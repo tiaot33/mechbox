@@ -94,6 +94,9 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
 	oldHome := filepath.Join(t.TempDir(), "old-home")
+	if err := os.MkdirAll(oldHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", oldHome)
 	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
@@ -110,7 +113,7 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.AddSkillToGroup(ctx, group.ID, original.ID, library.ActivateOptions{}); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, original.ID); err != nil {
 		t.Fatal(err)
 	}
 	oldProjectPath := filepath.Join(t.TempDir(), "old-project")

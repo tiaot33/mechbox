@@ -199,14 +199,11 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	return nil
 }
 
-func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts ActivateOptions) (_ []GroupMemberResult, err error) {
+func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
 	// 加入成员会投影到组已激活的各 Scope,与激活一样持独占锁。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateConflictPolicy("add skill to group", opts.OnConflict); err != nil {
-		return nil, err
-	}
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
@@ -233,7 +230,8 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 	if err != nil {
 		return nil, err
 	}
-	plan := newMemberPlan("add skill to group", opts)
+	// 不带覆盖开关:未记录文件夹一律跳过;要覆盖某个作用域,调用方对该作用域用 ActivateGroup(Overwrite)。
+	plan := newMemberPlan("add skill to group", ActivateOptions{})
 	for _, activation := range activations {
 		target, err := l.resolveScope(ctx, "add skill to group", activation.scope())
 		if err != nil {

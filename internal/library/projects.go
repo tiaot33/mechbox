@@ -152,19 +152,25 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 	if err != nil {
 		return "", err
 	}
+	_, directory, err = l.scopeLocation(ctx, row)
+	return directory, err
+}
+
+// scopeLocation 算出 Scope 的根目录与目录:根目录全局为 Open 时的用户主目录,项目为已登记路径;
+// 目录是根目录加该 Agent 的现行布局。只查库,不查磁盘。
+func (l *sqliteLibrary) scopeLocation(ctx context.Context, row scopeRow) (root, directory string, err error) {
 	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
 	layout, err := l.agentLayout(ctx, row.agent)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if row.projectID == nil {
-		return layout.globalDir(l.home), nil
+		return l.home, layout.globalDir(l.home), nil
 	}
-	var root string
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, *row.projectID).Scan(&root); err != nil {
-		return "", fmt.Errorf("get registered project: %w", err)
+		return "", "", fmt.Errorf("get registered project: %w", err)
 	}
-	return layout.projectDir(root), nil
+	return root, layout.projectDir(root), nil
 }
 
 // agentLayout 是 agents 表里一个 Agent 的两段布局规则,均为斜杠分隔的相对路径。
