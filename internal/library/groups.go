@@ -224,7 +224,7 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 		FROM skills WHERE id = ?`, groupID, skillID).Scan(&name, &duplicate); err != nil {
 		return nil, fmt.Errorf("add skill to group: %w", err)
 	}
-	activations, err := groupActivationScopes(ctx, l.db, groupID)
+	activations, err := l.readGroupActivations(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -268,10 +268,8 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	switch opts.Projections {
-	case "", KeepProjection, WithdrawProjection:
-	default:
-		return argumentError("remove skill from group", "projections", "invalid projections option")
+	if err := validateMemberRemoval("remove skill from group", opts.Projections); err != nil {
+		return err
 	}
 	var exists int
 	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID).Scan(&exists); err != nil {

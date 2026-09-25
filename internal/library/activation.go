@@ -563,7 +563,7 @@ func (l *sqliteLibrary) planMember(ctx context.Context, operation string, id Ski
 	}
 	result.Outcome = MemberSkipped
 	if duplicate {
-		result.Error = preconditionError(operation, "multiple members project to the same target", ErrorDetails{Name: name})
+		result.Error = preconditionError(operation, "multiple members project to the same target", ErrorDetails{Name: name, Path: filepath.Join(target.directory, name)})
 		return result, nil, nil
 	}
 	path := filepath.Join(target.directory, name)
@@ -725,12 +725,12 @@ func (l *sqliteLibrary) ListGroupActivations(ctx context.Context) (activations [
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	scopes, err := groupActivationScopes(ctx, l.db, 0)
+	rows, err := l.readGroupActivations(ctx, 0)
 	if err != nil {
 		return nil, err
 	}
-	for _, scope := range scopes {
-		activations = append(activations, GroupActivation{GroupID: scope.groupID, Scope: scope.scope(), ActivatedAt: scope.activatedAt})
+	for _, row := range rows {
+		activations = append(activations, GroupActivation{GroupID: row.groupID, Scope: row.scope(), ActivatedAt: row.activatedAt})
 	}
 	return activations, nil
 }
@@ -742,11 +742,9 @@ type groupActivationRow struct {
 	scopeRow
 }
 
-// groupActivationScopes 读出组激活,按 Group、Agent、项目排序(全局在前);groupID 非 0 时只读该组。
-func groupActivationScopes(ctx context.Context, q interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}, groupID GroupID) ([]groupActivationRow, error) {
-	rows, err := q.QueryContext(ctx, `SELECT group_id, agent, project_id, activated_at FROM group_activations
+// readGroupActivations 读出组激活,按 Group、Agent、项目排序(全局在前);groupID 非 0 时只读该组。
+func (l *sqliteLibrary) readGroupActivations(ctx context.Context, groupID GroupID) ([]groupActivationRow, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT group_id, agent, project_id, activated_at FROM group_activations
 		WHERE ? = 0 OR group_id = ? ORDER BY group_id, agent, project_id`, groupID, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("list group activations: %w", err)

@@ -433,8 +433,8 @@ func TestActivateGroupSkipsAllMembersSharingAName(t *testing.T) {
 	}
 	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{
-		skippedMember(first.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup"}),
-		skippedMember(second.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup"}),
+		skippedMember(first.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup", Path: filepath.Join(directory, "dup")}),
+		skippedMember(second.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup", Path: filepath.Join(directory, "dup")}),
 		{SkillID: other.ID, Scope: scope, Outcome: library.MemberProjected},
 	})
 	if _, err := os.Stat(filepath.Join(directory, "dup")); !errors.Is(err, os.ErrNotExist) {

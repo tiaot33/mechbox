@@ -29,7 +29,7 @@ func requireNoProjectionFolder(t *testing.T, directory, name string) {
 }
 
 // issue #85 的复现:组已激活到全局与项目两个 Scope 后,加入的成员投影到两处;移出的成员(默认 keep)
-// 改为直接激活,可以单独停用,不再卡在"只经由分组激活"。
+// 改为直接激活,可以单独停用,不再卡在"只经由组激活"。
 func TestGroupMembershipFollowsGroupActivationInEveryScope(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -267,7 +267,7 @@ func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
 	namesake := installSkillWithBody(t, lib, "dup", "# namesake\n")
 	results, err = lib.AddSkillToGroup(ctx, g.ID, namesake.ID, library.ActivateOptions{OnConflict: library.Overwrite})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{
-		skippedMember(namesake.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup"}),
+		skippedMember(namesake.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup", Path: filepath.Join(directory, "dup")}),
 	})
 	requireProjection(t, directory, "dup", "# holder\n")
 
@@ -287,7 +287,7 @@ func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
 		{SkillID: holder.ID, Scope: scope, Outcome: library.MemberAlreadyProjected},
 		{SkillID: edited.ID, Scope: scope, Outcome: library.MemberAlreadyProjected},
 		{SkillID: untracked.ID, Scope: scope, Outcome: library.MemberProjected},
-		skippedMember(namesake.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup"}),
+		skippedMember(namesake.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup", Path: filepath.Join(directory, "dup")}),
 	})
 	requireProjection(t, directory, "untracked", "# untracked\n")
 	requireProjection(t, directory, "edited", "by hand\n")

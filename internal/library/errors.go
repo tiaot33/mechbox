@@ -85,6 +85,15 @@ func validateProjectedCopies(operation string, policy ProjectedCopiesPolicy) err
 	}
 }
 
+func validateMemberRemoval(operation string, policy MemberRemovalPolicy) error {
+	switch policy {
+	case "", KeepProjection, WithdrawProjection:
+		return nil
+	default:
+		return argumentError(operation, "projections", "invalid projections option")
+	}
+}
+
 func validateConflictPolicy(operation string, policy ConflictPolicy) error {
 	switch policy {
 	case "", Fail, Overwrite:

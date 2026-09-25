@@ -438,7 +438,7 @@ const (
 
 // GroupMemberResult 是一个成员在一个 Scope 上的逐条结果,形状参考 UpdateCheck。
 // Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一条投影占用(Details.SkillID / Name / Path)
-// 或组内同名(Details.Name),AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
+// 或组内同名(Details.Name 与共同的目标 Path),AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
 type GroupMemberResult struct {
 	SkillID SkillID            `json:"skill_id"`
 	Scope   Scope              `json:"scope"`

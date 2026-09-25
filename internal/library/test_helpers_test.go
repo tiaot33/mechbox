@@ -520,6 +520,7 @@ func requireMemberResults(t *testing.T, got []library.GroupMemberResult, err err
 	}
 }
 
+// memberResultsString 把逐条结果格式化为一行,供失败信息对照。
 func memberResultsString(results []library.GroupMemberResult) string {
 	var parts []string
 	for _, result := range results {
