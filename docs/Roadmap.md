@@ -125,7 +125,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - **I2 `RemoveSkill(Keep)` 的遗留副本零追踪 — 已接受边界。** 第 4 步已落实默认删除投影,不新增目录追踪:无记录文件夹在预检里是 `untracked`;空选项改为默认删除,保留须显式 `Keep`。C6 仍覆盖不到无记录目录,这是已接受的边界,不列为待实现项。→ 见 [#83](https://github.com/tiaot33/skills-tui/issues/83)
 - [x] **I3 分组名唯一。**(schema)实测可创建两个同名组。决定:`groups.name` 加 UNIQUE;`CreateGroup` / `RenameGroup` / 迁移遇重名自动改为 `名字#2`、`#3`(最小空闲数字),不报错;`RenameGroup` 改为返回最终 `Group`。→ #77,#82
 - [ ] **I4 孤儿 `sources` 行与 blob GC。** `RemoveSkill` 不清理来源行与 blob;ADR 0005 的 GC "to be specified"。
-- [ ] **I5 `Open` 迁移无预告。** 打开旧库即原地迁移;桌面端应能先探知"需要迁移"并备份(可与 E5 合并)。
+- [ ] **I5 `Open` 迁移无预告。** 打开旧库即原地迁移;桌面端应能先探知"需要迁移"并备份(可与 E5 合并)。未发布阶段不适用:2026-09-26 起不写迁移,`Open` 直接拒绝旧版本库(#85)。
 
 ---
 
@@ -177,7 +177,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ### 第 7 步 — 组与激活语义:J0 → J1 → J2
 
-- 先 [#91](https://github.com/tiaot33/skills-tui/issues/91)(术语改名,只改名),再 [#85](https://github.com/tiaot33/skills-tui/issues/85)(组激活成为正式记录、成员增删跟随组激活,含表改名的 schema 迁移),再 [#86](https://github.com/tiaot33/skills-tui/issues/86)(重写)。三者都改 `activation.go`,顺序做、不并行。术语见 `CONTEXT.md` 的激活 / 投影 / 重写。
+- 先 [#91](https://github.com/tiaot33/skills-tui/issues/91)(术语改名,只改名),再 [#85](https://github.com/tiaot33/skills-tui/issues/85)(组激活成为正式记录、成员增删跟随组激活),再 [#86](https://github.com/tiaot33/skills-tui/issues/86)(重写)。三者都改 `activation.go`,顺序做、不并行。术语见 `CONTEXT.md` 的激活 / 投影 / 重写。
 - 依赖:无(可与第 5、6 步并行)。
 
 ### 第 8 步 — 运行时配置:E1、E2(spec issue + ADR "凭证存放位置")

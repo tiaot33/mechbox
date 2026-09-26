@@ -47,7 +47,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				t.Fatal(err)
 			}
 			var skills []library.Skill
-			for _, name := range []string{"first", "second", "independent", "shared"} {
+			for _, name := range []string{"first", "second", "direct", "shared"} {
 				source := filepath.Join(t.TempDir(), name)
 				writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
 				skill, err := lib.Install(ctx, library.LocalSource{Path: source})
@@ -55,8 +55,8 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 					t.Fatal(err)
 				}
 				skills = append(skills, skill)
-				if name != "independent" {
-					if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+				if name != "direct" {
+					if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -70,25 +70,26 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := lib.AddSkillToGroup(ctx, other.ID, skills[3].ID); err != nil {
+			if _, err := lib.AddSkillToGroup(ctx, other.ID, skills[3].ID); err != nil {
 				t.Fatal(err)
 			}
-			if err := lib.ActivateGroup(ctx, other.ID, scope, library.ActivateOptions{}); err != nil {
+			if _, err := lib.ActivateGroup(ctx, other.ID, scope, library.ActivateOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			firstPath := filepath.Join(directory, "first", "SKILL.md")
 			if deactivate {
-				if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
+				if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				// 首个成员覆盖现有内容,第二个成员原本没有投影。
-				if err := lib.Activate(ctx, skills[0].ID, scope, library.ActivateOptions{}); err != nil {
-					t.Fatal(err)
-				}
+				// 首个成员覆盖未记录的文件夹,第二个成员原本没有投影;shared 已有投影,不写盘。
 				writeFile(t, firstPath, []byte("original local content"), 0o644)
 			}
 			before, err := lib.ListProjections(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			activationsBefore, err := lib.ListGroupActivations(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +111,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			if deactivate {
 				err = lib.DeactivateGroup(fault, group.ID, scope)
 			} else {
-				err = lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+				_, err = lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
 			}
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("mid-batch error = %v, want cancellation", err)
@@ -118,6 +119,10 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			after, err := lib.ListProjections(ctx)
 			if err != nil || !reflect.DeepEqual(before, after) {
 				t.Fatalf("projections changed: before=%#v after=%#v err=%v", before, after, err)
+			}
+			activationsAfter, err := lib.ListGroupActivations(ctx)
+			if err != nil || !reflect.DeepEqual(activationsBefore, activationsAfter) {
+				t.Fatalf("group activations changed: before=%#v after=%#v err=%v", activationsBefore, activationsAfter, err)
 			}
 			content, err := os.ReadFile(firstPath)
 			if err != nil || string(content) != string(original) {
@@ -152,7 +157,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
@@ -168,13 +173,12 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err := os.Symlink(missing, target); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Fail}); !library.IsCode(err, library.AlreadyExists) {
-		t.Fatalf("Fail = %v, want AlreadyExists", err)
-	}
+	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Fail})
+	requireMemberResults(t, results, err, []library.GroupMemberResult{skippedMember(skill.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: target})})
 	if got, err := os.Readlink(target); err != nil || got != missing {
 		t.Fatalf("conflict changed: %q, %v", got, err)
 	}
-	if err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
 		t.Fatal(err)
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(content) != "example" {
@@ -222,7 +226,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 		if first.ID == 0 {
 			first = skill
 		}
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -244,22 +248,23 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	}}
 	groupDone := make(chan error, 1)
 	go func() {
-		groupDone <- lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		_, err := lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		groupDone <- err
 	}()
 	select {
 	case <-projected:
 	case <-time.After(5 * time.Second):
 		t.Fatal("group never projected first member")
 	}
-	individualDone := make(chan error, 1)
+	directDone := make(chan error, 1)
 	go func() {
-		individualDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		directDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
 	}()
 	// 旧实现允许直接激活在回滚前提交;串行实现则等分组回滚后再完成。
-	var individualErr error
+	var directErr error
 	finished := false
 	select {
-	case individualErr = <-individualDone:
+	case directErr = <-directDone:
 		finished = true
 	case <-time.After(200 * time.Millisecond):
 	}
@@ -268,17 +273,17 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 		t.Fatalf("group error = %v", err)
 	}
 	if !finished {
-		individualErr = <-individualDone
+		directErr = <-directDone
 	}
-	if individualErr != nil {
-		t.Fatal(individualErr)
+	if directErr != nil {
+		t.Fatal(directErr)
 	}
 	if content, err := os.ReadFile(target); err != nil || string(content) != "first" {
-		t.Fatalf("successful independent projection lost: %q, %v", content, err)
+		t.Fatalf("successful direct activation projection lost: %q, %v", content, err)
 	}
 	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Individual: true}}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), want) {
+	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
 		t.Fatalf("projections = %#v, %v; want %#v", projections, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {

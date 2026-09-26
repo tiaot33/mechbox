@@ -52,9 +52,9 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	`)
 	// 目录按现行布局派生:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
 	want := []library.Projection{
-		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Individual: true},
-		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Individual: true},
-		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".agents", "skills"), Individual: true},
+		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Direct: true},
+		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Direct: true},
+		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".agents", "skills"), Direct: true},
 	}
 	for range 2 {
 		reopened, err := library.Open(path)
@@ -63,7 +63,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
 		got, err := reopened.ListProjections(ctx)
-		if err != nil || !reflect.DeepEqual(withoutActivatedAt(got), want) {
+		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
 			t.Fatalf("ListProjections after Open = %#v, %v; want %#v", got, err, want)
 		}
 		for _, projection := range want {
@@ -78,7 +78,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 }
 
 func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
-	for _, index := range []string{"activations_global_scope", "activations_project_scope"} {
+	for _, index := range []string{"projections_global_scope", "projections_project_scope", "group_activations_global_scope", "group_activations_project_scope"} {
 		t.Run(index, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "library.db")
 			lib, err := library.Open(path)
@@ -102,5 +102,30 @@ func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
 				t.Fatalf("rejected Open changed the library file: %v", err)
 			}
 		})
+	}
+}
+
+// 产品尚未发布,不迁移旧版本库:user_version 不是当前版本的库被拒绝,文件保持不变。
+func TestOpenRejectsOtherSchemaVersionsWithoutChangingTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	editLibraryFixture(t, path, `PRAGMA user_version = 8`)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old, err := library.Open(path); err == nil {
+		_ = old.Close()
+		t.Fatal("Open accepted a library with an older schema version")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("rejected Open changed the library file: %v", err)
 	}
 }

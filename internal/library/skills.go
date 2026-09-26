@@ -346,7 +346,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	defer tx.Rollback()
 	statements := []string{
-		`DELETE FROM activations WHERE skill_id = ?`,
+		`DELETE FROM projections WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,

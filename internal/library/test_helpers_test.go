@@ -6,11 +6,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -183,11 +186,11 @@ func summaryIDs(skills []library.SkillSummary) []library.SkillID {
 	return ids
 }
 
-// withoutActivatedAt 去掉首次激活时间,供不关心时间戳的既有 DeepEqual 断言使用。
-func withoutActivatedAt(projections []library.Projection) []library.Projection {
+// withoutCreatedAt 去掉投影建立时间,供不关心时间戳的既有 DeepEqual 断言使用。
+func withoutCreatedAt(projections []library.Projection) []library.Projection {
 	out := append([]library.Projection(nil), projections...)
 	for i := range out {
-		out[i].ActivatedAt = time.Time{}
+		out[i].CreatedAt = time.Time{}
 	}
 	return out
 }
@@ -494,4 +497,52 @@ func checkSingleUpdate(t *testing.T, lib library.Library, ctx context.Context, i
 		return false, checks[0].Error
 	}
 	return checks[0].Available, nil
+}
+
+// requireMemberResults 断言组激活 / 加入成员的逐条结果;跳过项只比较错误码与 Details,不比较 Message。
+func requireMemberResults(t *testing.T, got []library.GroupMemberResult, err error, want []library.GroupMemberResult) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("member results error = %v, want nil", err)
+	}
+	normalized := make([]library.GroupMemberResult, len(got))
+	for i, result := range got {
+		normalized[i] = result
+		if result.Error != nil {
+			normalized[i].Error = &library.Error{Code: result.Error.Code, Details: result.Error.Details}
+		}
+	}
+	if want == nil {
+		want = []library.GroupMemberResult{}
+	}
+	if !reflect.DeepEqual(normalized, want) {
+		t.Fatalf("member results = %s; want %s", memberResultsString(got), memberResultsString(want))
+	}
+}
+
+// memberResultsString 把逐条结果格式化为一行,供失败信息对照。
+func memberResultsString(results []library.GroupMemberResult) string {
+	var parts []string
+	for _, result := range results {
+		part := fmt.Sprintf("{skill %d %+v %s", result.SkillID, result.Scope, result.Outcome)
+		if result.Error != nil {
+			part += fmt.Sprintf(" %s %+v", result.Error.Code, result.Error.Details)
+		}
+		parts = append(parts, part+"}")
+	}
+	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// skippedMember 构造一条被跳过的期望结果。
+func skippedMember(id library.SkillID, scope library.Scope, code library.ErrorCode, details library.ErrorDetails) library.GroupMemberResult {
+	return library.GroupMemberResult{SkillID: id, Scope: scope, Outcome: library.MemberSkipped, Error: &library.Error{Code: code, Details: details}}
+}
+
+// withoutGroupActivatedAt 去掉组激活时间,供不关心时间戳的 DeepEqual 断言使用。
+func withoutGroupActivatedAt(activations []library.GroupActivation) []library.GroupActivation {
+	out := append([]library.GroupActivation(nil), activations...)
+	for i := range out {
+		out[i].ActivatedAt = time.Time{}
+	}
+	return out
 }

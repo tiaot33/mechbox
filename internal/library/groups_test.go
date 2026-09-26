@@ -43,7 +43,7 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 		{debugging, second},
 		{shipping, first},
 	} {
-		if err := lib.AddSkillToGroup(t.Context(), membership.group.ID, membership.skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(t.Context(), membership.group.ID, membership.skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -86,11 +86,20 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"activate group", lib.ActivateGroup(ctx, unknownGroup, scope, library.ActivateOptions{})},
+		{"activate group", func() error {
+			_, err := lib.ActivateGroup(ctx, unknownGroup, scope, library.ActivateOptions{})
+			return err
+		}()},
 		{"deactivate group", lib.DeactivateGroup(ctx, unknownGroup, scope)},
 		{"list group", func() error { _, err := lib.ListGroupSkills(ctx, unknownGroup); return err }()},
-		{"add to unknown group", lib.AddSkillToGroup(ctx, unknownGroup, skill.ID)},
-		{"add unknown skill", lib.AddSkillToGroup(ctx, group.ID, unknownSkill)},
+		{"add to unknown group", func() error {
+			_, err := lib.AddSkillToGroup(ctx, unknownGroup, skill.ID)
+			return err
+		}()},
+		{"add unknown skill", func() error {
+			_, err := lib.AddSkillToGroup(ctx, group.ID, unknownSkill)
+			return err
+		}()},
 	}
 	for _, check := range checks {
 		if !library.IsCode(check.err, library.NotFound) {
@@ -124,11 +133,11 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, group := range []library.Group{first, second} {
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := lib.AddSkillToGroup(ctx, first.ID, groupOnly.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(ctx, first.ID, groupOnly.ID); err != nil {
 		t.Fatal(err)
 	}
 	renamed, err := lib.RenameGroup(ctx, first.ID, "renamed")
@@ -147,10 +156,10 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.ActivateGroup(ctx, second.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+	if _, err := lib.ActivateGroup(ctx, second.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.DeleteGroup(ctx, first.ID); err != nil {
@@ -164,10 +173,10 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	}
 	projections, err := lib.ListProjections(ctx)
 	wantProjections := []library.Projection{
-		{SkillID: skill.ID, Scope: scope, Directory: directory, ViaGroups: []library.GroupID{second.ID}},
-		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Individual: true},
+		{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{second.ID}},
+		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Direct: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections) {
 		t.Fatalf("projections after DeleteGroup = %#v, %v; want %#v", projections, err, wantProjections)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
@@ -181,7 +190,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 		t.Fatalf("RemoveSkill(Remove) left projection: %v", err)
 	}
 	projections, err = lib.ListProjections(ctx)
-	if err != nil || !reflect.DeepEqual(withoutActivatedAt(projections), wantProjections[:1]) {
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections[:1]) {
 		t.Fatalf("projections after RemoveSkill = %#v, %v; want %#v", projections, err, wantProjections[:1])
 	}
 	groups, err = lib.ListGroups(ctx)
@@ -191,7 +200,7 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if err := lib.DeleteGroup(ctx, first.ID); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("second DeleteGroup error = %v, want NotFound", err)
 	}
-	if err := lib.RemoveSkillFromGroup(ctx, second.ID, skill.ID); err != nil {
+	if err := lib.RemoveSkillFromGroup(ctx, second.ID, skill.ID, library.RemoveFromGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	members, err := lib.ListGroupSkills(ctx, second.ID)
@@ -288,8 +297,9 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})
 	}
 	skill := installNamedSkill(t, lib, "member")
-	if err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
+	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
-	requireErrorDetails(t, lib.AddSkillToGroup(t.Context(), group.ID, skill.ID), library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID})
+	_, err = lib.AddSkillToGroup(t.Context(), group.ID, skill.ID)
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID})
 }

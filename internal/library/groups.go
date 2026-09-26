@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
@@ -157,22 +159,29 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	// 本组组激活覆盖的投影在开事务前取齐(事务期间不能再走 l.db)。删组不写盘,持共享锁即可:会新建投影、
+	// 改成员或组激活的操作都持独占锁,不会与它交错;能交错的 UnregisterProject / RemoveSkill 只删记录,
+	// 被它们删掉的投影在下面的保留判定里只是一次空更新,而保留判定本身在事务内按当时状态重新检查。
+	covered, err := l.memberProjections(ctx, id, 0, scopeRow{})
+	if err != nil {
+		return err
+	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("delete group: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE activations SET individual = 1
-		WHERE individual = 0
-			AND EXISTS (SELECT 1 FROM activation_groups WHERE activation_id = activations.id AND group_id = ?)
-			AND NOT EXISTS (SELECT 1 FROM activation_groups WHERE activation_id = activations.id AND group_id <> ?)`, id, id); err != nil {
-		return fmt.Errorf("preserve group activations: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM activation_groups WHERE group_id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM group_activations WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group members: %w", err)
+	}
+	// 本组不再覆盖它们后,没有其他激活撑着的转为直接激活,磁盘不动。
+	for _, projection := range covered {
+		if err := keepUnbackedProjection(ctx, tx, projection.id); err != nil {
+			return err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, id)
 	if err != nil {
@@ -191,46 +200,107 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	return nil
 }
 
-func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
+	// 加入成员会投影到组已激活的各 Scope,与激活一样持独占锁。
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
-		return err
+		return nil, err
 	}
 	if err := l.requireSkill(ctx, skillID); err != nil {
-		return err
+		return nil, err
 	}
 	var exists int
 	err = l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE skill_id = ? AND group_id = ?`, skillID, groupID).Scan(&exists)
 	if err == nil {
-		return existsError("add skill to group", "skill is already a member", ErrorDetails{SkillID: skillID})
+		return nil, existsError("add skill to group", "skill is already a member", ErrorDetails{SkillID: skillID})
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("add skill to group: %w", err)
+		return nil, fmt.Errorf("add skill to group: %w", err)
 	}
-	if _, err := l.db.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
-		return fmt.Errorf("add skill to group: %w", err)
+	var name string
+	var duplicate bool
+	if err := l.db.QueryRowContext(ctx, `SELECT name, EXISTS (
+			SELECT 1 FROM skill_groups sg JOIN skills other ON other.id = sg.skill_id
+			WHERE sg.group_id = ? AND other.name = skills.name)
+		FROM skills WHERE id = ?`, groupID, skillID).Scan(&name, &duplicate); err != nil {
+		return nil, fmt.Errorf("add skill to group: %w", err)
 	}
-	return nil
+	activations, err := l.readGroupActivations(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	// 不带覆盖开关:未记录文件夹一律跳过;要覆盖某个作用域,调用方对该作用域用 ActivateGroup(Overwrite)。
+	plan := newMemberPlan("add skill to group", ActivateOptions{})
+	for _, activation := range activations {
+		target, err := l.resolveScope(ctx, "add skill to group", activation.scope())
+		if err != nil {
+			return nil, err
+		}
+		if err := l.planMember(ctx, plan, skillID, name, target, duplicate); err != nil {
+			return nil, err
+		}
+	}
+	return l.applyMemberPlan(ctx, plan, func(tx *sql.Tx, _ time.Time) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
+			return fmt.Errorf("add skill to group: %w", err)
+		}
+		return nil
+	})
 }
 
-func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID) (err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
+	// withdraw 会移除磁盘上的投影,与停用一样持独占锁。
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	result, err := l.db.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID)
-	if err != nil {
+	if err := validateMemberRemoval("remove skill from group", opts.Projections); err != nil {
+		return err
+	}
+	var exists int
+	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID).Scan(&exists); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	changed, err := result.RowsAffected()
+	// 本组激活到的各 Scope 上该成员的投影;目录在开事务前算好(事务期间不能再走 l.db)。
+	projections, err := l.memberProjections(ctx, groupID, skillID, scopeRow{})
 	if err != nil {
+		return err
+	}
+	targets := make([]string, len(projections))
+	for i, projection := range projections {
+		directory, err := l.Resolve(ctx, projection.scope())
+		if err != nil {
+			return err
+		}
+		targets[i] = filepath.Join(directory, projection.name)
+	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remove skill from group: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	if changed == 0 {
-		return fmt.Errorf("remove skill from group: %w", sql.ErrNoRows)
+	// 成员关系删掉后,本组的组激活不再覆盖这些投影;没有其他激活撑着的按 opts 处理。
+	var trash projectionTrash
+	for i, projection := range projections {
+		if opts.Projections == WithdrawProjection {
+			removed, err := dropUnbackedProjection(ctx, tx, projection.id)
+			if err != nil {
+				return err
+			}
+			if removed {
+				trash.targets = append(trash.targets, targets[i])
+			}
+			continue
+		}
+		if err := keepUnbackedProjection(ctx, tx, projection.id); err != nil {
+			return err
+		}
 	}
-	return nil
+	return trash.commit(ctx, tx, "remove skill from group")
 }
 
 func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {

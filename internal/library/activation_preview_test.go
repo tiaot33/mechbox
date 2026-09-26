@@ -128,7 +128,7 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -147,7 +147,8 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err != nil || len(got.Members) != 3 || !reflect.DeepEqual(got.DuplicateNames, []string{"same"}) {
 		t.Fatalf("group = %#v, %v", got, err)
 	}
-	for i, status := range []library.ActivatePreviewStatus{library.ActivateProjected, library.ActivateOccupied, library.ActivateReady} {
+	// 同名且尚未投影的成员标为 duplicate(优先于它本来的 occupied),已投影的那个仍是 projected。
+	for i, status := range []library.ActivatePreviewStatus{library.ActivateProjected, library.ActivateDuplicate, library.ActivateReady} {
 		if got.Members[i].SkillID != members[i].ID || got.Members[i].Status != status {
 			t.Fatalf("member %d = %#v", i, got.Members[i])
 		}
@@ -160,13 +161,51 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(members, afterSkills) {
 		t.Fatalf("preview changed skills: %#v, %v", afterSkills, err)
 	}
-	requireErrorDetails(t, lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}), library.FailedPrecondition, library.ErrorDetails{Name: "same"})
-	if err := lib.RemoveSkillFromGroup(ctx, group.ID, members[0].ID); err != nil {
+	if err := lib.RemoveSkillFromGroup(ctx, group.ID, members[0].ID, library.RemoveFromGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = lib.PreviewActivateGroup(ctx, group.ID, scope)
 	if err != nil || len(got.DuplicateNames) != 0 || len(got.Members) != 2 || got.Members[0].Status != library.ActivateOccupied || got.Members[1].Status != library.ActivateReady {
 		t.Fatalf("mixed = %#v, %v", got, err)
+	}
+}
+
+// 预检标出的 duplicate 与激活时的跳过一致:两个同名成员都没投影时,即使有未记录文件夹也显示 duplicate,
+// ActivateGroup(Overwrite)也照样跳过它们、不覆盖该文件夹。
+func TestPreviewActivateGroupDuplicateMatchesActivation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	scope := library.GlobalScope(library.AgentCodex)
+	directory, err := lib.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := lib.CreateGroup(ctx, "group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var skills []library.Skill
+	for _, body := range []string{"# one\n", "# two\n"} {
+		skill := installSkillWithBody(t, lib, "same", body)
+		skills = append(skills, skill)
+		if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(directory, "same", "manual.txt"), []byte("manual"), 0o644)
+	got, err := lib.PreviewActivateGroup(ctx, group.ID, scope)
+	if err != nil || len(got.Members) != 2 || got.Members[0].Status != library.ActivateDuplicate || got.Members[1].Status != library.ActivateDuplicate {
+		t.Fatalf("PreviewActivateGroup() = %#v, %v; want both duplicate", got, err)
+	}
+	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+	details := library.ErrorDetails{Name: "same", Path: filepath.Join(directory, "same")}
+	requireMemberResults(t, results, err, []library.GroupMemberResult{
+		skippedMember(skills[0].ID, scope, library.FailedPrecondition, details),
+		skippedMember(skills[1].ID, scope, library.FailedPrecondition, details),
+	})
+	if _, err := os.Stat(filepath.Join(directory, "same", "manual.txt")); err != nil {
+		t.Fatalf("untracked folder was overwritten: %v", err)
 	}
 }
 

@@ -15,7 +15,7 @@ type sqliteLibrary struct {
 	db   *sql.DB
 	home string // Open 时的用户主目录;全局 Scope 全程按它解析,不跟随后续 $HOME 变化
 	// mu 是共享 / 独占锁,不是读 / 写锁:DB 语句的串行化由单连接完成,这把锁保护的是
-	// 磁盘投影的 check-then-act 复合操作(Activate* / Deactivate*)、home 以及 SyncPull 的整库替换。
+	// 磁盘投影的 check-then-act 复合操作(Activate* / Deactivate*、加入 / 移出组成员)、home 以及 SyncPull 的整库替换。
 	// 网络往返期间不得持有它,否则一个排队的独占者会让所有新来的共享者一起等网络。
 	mu sync.RWMutex
 
@@ -67,7 +67,7 @@ func openLibraryDB(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Open 打开已有 Library 或在 path 初始化新库。已有 v1–v7 库会迁移到当前 schema。
+// Open 打开已有 Library 或在 path 初始化新库。已有库须是当前 schema 版本,其他版本返回错误且不改文件。
 func Open(path string) (Library, error) {
 	db, err := openLibraryDB(context.Background(), path)
 	if err != nil {
@@ -84,7 +84,7 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("open library: find home directory: %w", err)
 	}
 	if tableCount > 0 {
-		if err := migrateLibrary(context.Background(), db, home); err != nil {
+		if err := requireLibraryIdentity(context.Background(), db); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("open library: %w", err)
 		}
