@@ -35,9 +35,10 @@ const (
 	// 可重新预览 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (激活目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组激活撑着的投影单独停用;同一 Fetch 句柄的安装正在进行)。
+	// (激活目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组激活撑着的投影单独停用;同一 Fetch 句柄的安装正在进行;
+	// 重写被手动改过的投影而未选 Overwrite)。
 	// 组激活与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
-	// 加入成员时根目录不存在也是如此。
+	// 加入成员时根目录不存在也是如此。重写时逐条的这类失败放进 RewriteResult.Error。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -366,14 +367,15 @@ func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
 	return Scope{Kind: ScopeProject, Agent: agent, ProjectID: projectID}
 }
 
-// ConflictPolicy 决定激活时目标目录已存在、且没有任何投影记录(外来目录)的处理方式。
-// 目标已被另一条投影占用(同一 skill 的另一 Scope,或同名的另一 skill)时两种策略都返回
-// FailedPrecondition:同一目录下的一个文件夹名至多归一条投影,需先 Deactivate 占用者。
+// ConflictPolicy 决定目标里有不是 Library 写入的内容时的处理方式:激活时是无记录的外来文件夹,
+// 重写时是被手动改过(modified)的投影。激活目标已被另一条投影占用(同一 skill 的另一 Scope,
+// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一条投影,
+// 需先 Deactivate 占用者。
 type ConflictPolicy string
 
 const (
-	Fail      ConflictPolicy = "fail"      // 返回 AlreadyExists 错误(默认)
-	Overwrite ConflictPolicy = "overwrite" // 原子替换无记录的外来目录
+	Fail      ConflictPolicy = "fail"      // 激活返回 AlreadyExists;重写该条 FailedPrecondition(默认)
+	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的投影
 )
 
 type ActivateOptions struct {
@@ -448,6 +450,39 @@ type GroupMemberResult struct {
 	Scope   Scope              `json:"scope"`
 	Outcome GroupMemberOutcome `json:"outcome"`
 	Error   *Error             `json:"error,omitempty"`
+}
+
+// ProjectionFilter 按技能、作用域缩小投影范围,两个条件都可选、可组合;供 RewriteProjections 与
+// InspectProjections 共用。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选。
+// 未知技能、未知 Agent 或未登记项目返回 NotFound,Scope 组合不合法返回 InvalidArgument;
+// 已知但没有投影时是空结果。结果顺序与 ListProjections 一致。
+type ProjectionFilter struct {
+	SkillID SkillID `json:"skill_id,omitzero"`
+	Scope   *Scope  `json:"scope,omitempty"`
+}
+
+// RewriteOptions 控制重写。OnConflict 决定被手动改过(modified)的投影:默认 Fail 该条失败,Overwrite 覆盖。
+type RewriteOptions struct {
+	OnConflict ConflictPolicy `json:"on_conflict"`
+}
+
+// RewriteOutcome 是重写时一条投影的结果。
+type RewriteOutcome string
+
+const (
+	Rewritten      RewriteOutcome = "rewritten" // 已按当前版本重写(含重新创建丢失的文件夹)
+	RewriteCurrent RewriteOutcome = "current"   // 已是当前版本,不写盘
+	RewriteFailed  RewriteOutcome = "failed"    // 未重写,原因见 Error;磁盘保持原样
+)
+
+// RewriteResult 是一条投影的重写结果,形状与 GroupMemberResult 对齐。Error 仅在 RewriteFailed 时非空:
+// FailedPrecondition 为被手动改过且未选 Overwrite(Details.Path 为投影路径),或作用域根目录不存在
+// (Details.Path 为根目录,项目带 ProjectID);NotFound 为执行到该条时投影已不存在;其余为 I/O 等故障。
+type RewriteResult struct {
+	SkillID SkillID        `json:"skill_id"`
+	Scope   Scope          `json:"scope"`
+	Outcome RewriteOutcome `json:"outcome"`
+	Error   *Error         `json:"error,omitempty"`
 }
 
 // ProjectionStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
@@ -667,9 +702,18 @@ type Library interface {
 	ListGroupActivations(ctx context.Context) ([]GroupActivation, error)
 	// ListProjections 列出全部投影:Scope 身份、按现行布局派生的目录及撑着各投影的激活。
 	ListProjections(ctx context.Context) ([]Projection, error)
-	// InspectProjections 对照磁盘给出每条投影的状态。只读:不改库、不改磁盘、不创建目录。
-	// 结果顺序与 ListProjections 相同,每条内嵌完整 Projection。判定规则见 ProjectionStatus。
-	InspectProjections(ctx context.Context) ([]ProjectionInspection, error)
+	// InspectProjections 对照磁盘给出 filter 范围内每条投影的状态;不给条件时巡检整库。只读:不改库、
+	// 不改磁盘、不创建目录。结果顺序与 ListProjections 相同,每条内嵌完整 Projection,是整库巡检结果的
+	// 子集且逐条一致。判定规则见 ProjectionStatus,筛选规则见 ProjectionFilter。
+	InspectProjections(ctx context.Context, filter ProjectionFilter) ([]ProjectionInspection, error)
+	// RewriteProjections 把 filter 范围内已有投影记录的投影改回技能的当前版本,不改变任何激活,
+	// Projection.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重写整库。
+	// 逐条执行、逐条返回结果(顺序同 ListProjections):已是当前版本的不写盘;stale 原子替换;missing /
+	// directory_missing 重新创建(可建 Agent 布局目录,作用域根目录不存在时该条失败且不创建任何目录);
+	// 被手动改过的默认该条失败,opts.OnConflict 为 Overwrite 时覆盖。每条各自原子、单独持独占锁,
+	// 一条失败不影响其他条。组激活时被跳过的成员没有投影记录,不在结果里(补齐用 ActivateGroup)。
+	// 整体取消时返回已完成的各条与 Canceled 错误,未执行的不出现在结果里。
+	RewriteProjections(ctx context.Context, filter ProjectionFilter, opts RewriteOptions) ([]RewriteResult, error)
 
 	// 浏览
 

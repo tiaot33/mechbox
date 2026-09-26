@@ -408,18 +408,18 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 	})
 }
 
-// placement 是一次落盘里要新建的一个投影:把 skill 的当前版本写进 scope 的目录。
+// placement 是一次落盘里的一个投影:把 skill 的当前版本写进 scope 的目录(新建,或重写时替换已有投影)。
 type placement struct {
 	skill  Skill
 	scope  resolvedScope
 	folder string // 目标文件夹
 	stage  string // 暂存目录;移入目标后置空
-	backup string // 被替换的未记录目标(Overwrite)的备份;"" 表示原本无目标
+	backup string // 被替换的原有目标(外来文件夹或重写前的投影)的备份;"" 表示原本无目标
 	moved  bool   // 暂存是否已移入目标位置
 }
 
-// place 把一批新投影作为一个操作单元落盘并记录:先全部暂存,再逐个移入目标,最后在单事务里调用 record。
-// 任何一步失败都复原本次的磁盘改动(含被替换的未记录文件夹)且不留记录,既有投影不受影响。
+// place 把一批投影作为一个操作单元落盘:先全部暂存,再逐个移入目标,最后在单事务里调用 record;
+// record 为 nil 时(重写)只落盘、不开事务。任何一步失败都复原本次的磁盘改动(含被替换的原有目标)且不留记录。
 // placements 为空时只执行 record。调用方持独占锁并已排除冲突。
 func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, record func(*sql.Tx) error) error {
 	rollback := func() error {
@@ -473,16 +473,18 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, rollback())
 	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return errors.Join(fmt.Errorf("begin projection record: %w", err), rollback())
-	}
-	defer tx.Rollback()
-	if err := record(tx); err != nil {
-		return errors.Join(err, rollback())
-	}
-	if err := tx.Commit(); err != nil {
-		return errors.Join(fmt.Errorf("commit projection record: %w", err), rollback())
+	if record != nil {
+		tx, err := l.db.BeginTx(ctx, nil)
+		if err != nil {
+			return errors.Join(fmt.Errorf("begin projection record: %w", err), rollback())
+		}
+		defer tx.Rollback()
+		if err := record(tx); err != nil {
+			return errors.Join(err, rollback())
+		}
+		if err := tx.Commit(); err != nil {
+			return errors.Join(fmt.Errorf("commit projection record: %w", err), rollback())
+		}
 	}
 	for _, item := range placements {
 		if item.backup != "" {
@@ -875,8 +877,21 @@ func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Proj
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	return l.listProjections(ctx, 0, nil)
+}
+
+// listProjections 按 ListProjections 的顺序读出投影;skillID 非 0 时只看该技能,scope 非 nil 时只看该 Scope。
+// 调用方持共享或独占锁。
+func (l *sqliteLibrary) listProjections(ctx context.Context, skillID SkillID, scope *scopeRow) (projections []Projection, err error) {
+	var filter scopeRow
+	if scope != nil {
+		filter = *scope
+	}
 	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。
-	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM projections ORDER BY skill_id, agent, project_id`)
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM projections
+		WHERE (? = 0 OR skill_id = ?) AND (? = '' OR (agent = ? AND project_id IS ?))
+		ORDER BY skill_id, agent, project_id`,
+		skillID, skillID, filter.agent, filter.agent, filter.projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list projections: %w", err)
 	}
@@ -932,14 +947,37 @@ func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Proj
 	return projections, nil
 }
 
-func (l *sqliteLibrary) InspectProjections(ctx context.Context) (inspections []ProjectionInspection, err error) {
+// filteredProjections 校验筛选条件后按 ListProjections 的顺序读出范围内的投影:Scope 须合法且可解析,
+// 技能须存在;已知但没有投影时返回空。持共享锁,嵌套在调用方的锁内时复用。
+func (l *sqliteLibrary) filteredProjections(ctx context.Context, operation string, filter ProjectionFilter) ([]Projection, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	var scope *scopeRow
+	if filter.Scope != nil {
+		target, err := l.resolveScope(ctx, operation, *filter.Scope)
+		if err != nil {
+			return nil, err
+		}
+		scope = &target.scopeRow
+	}
+	if filter.SkillID != 0 {
+		if _, err := l.getSummary(ctx, filter.SkillID); err != nil {
+			return nil, err
+		}
+	}
+	return l.listProjections(ctx, filter.SkillID, scope)
+}
+
+func (l *sqliteLibrary) InspectProjections(ctx context.Context, filter ProjectionFilter) (inspections []ProjectionInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	projections, err := l.ListProjections(ctx)
+	projections, err := l.filteredProjections(ctx, "inspect projections", filter)
 	if err != nil {
 		return nil, err
 	}
+	// 与 RewriteProjections 一致:没有投影时返回空切片而非 nil。
+	inspections = []ProjectionInspection{}
 	for _, projection := range projections {
 		status, err := l.inspectProjection(ctx, projection)
 		if err != nil {
