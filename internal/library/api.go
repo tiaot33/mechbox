@@ -207,12 +207,13 @@ type Skill struct {
 // 列表接口(ListSkills / ListGroupSkills / ListCollections)返回它以保持轻量;
 // 完整文件通过 GetSkill / GetVersion 获取。
 type SkillSummary struct {
-	ID          SkillID   `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
-	Source      Source    `json:"source"`
-	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间
-	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间
+	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近检查结果;nil 表示从未检查
+	ID              SkillID           `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source          Source            `json:"source"`
+	InstalledAt     time.Time         `json:"installed_at,omitzero"` // 最早版本的写入时间
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"`   // 当前版本的写入时间
 }
 
 // FetchID 是一次 Fetch 会话的不透明句柄,由 Library 签发。它不持久化、不参与
@@ -307,6 +308,22 @@ type VersionDiff struct {
 type UpdateResult struct {
 	Skill   Skill `json:"skill"`
 	Changed bool  `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
+}
+
+// UpdateCheckStatus 是最近一次更新检查的结论;未检查由 LastUpdateCheck == nil 表达。
+type UpdateCheckStatus string
+
+const (
+	UpdateAvailable UpdateCheckStatus = "available" // 有更新
+	UpdateCurrent   UpdateCheckStatus = "current"   // 无更新
+	UpdateFailed    UpdateCheckStatus = "failed"    // 检查失败
+)
+
+// UpdateCheckState 随技能保存最近检查的时间与结论,可离线读取。
+// 已检查的技能 Update 成功后改为 current,CheckedAt 刷新为此次确认时间。
+type UpdateCheckState struct {
+	CheckedAt time.Time         `json:"checked_at"`
+	Status    UpdateCheckStatus `json:"status"`
 }
 
 // UpdateCheck 是一次批量检查中某个 Skill 的结果;Error 非空时 Available 无意义。
@@ -603,6 +620,7 @@ type Library interface {
 	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地仍比较文件。只更新 Library,不重写投影。
 	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
 	// (Details.SkillID),两者都不留下任何写入。
+	// 成功后已有 LastUpdateCheck 改为 current 并刷新确认时间;失败保留原记录,从未检查的仍为 nil。
 	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
@@ -612,7 +630,10 @@ type Library interface {
 	// URL / Store 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
 	// GitHub 无 SHA 的旧记录、本地来源以及 URL / Store 的完整响应,比较文件内容与可执行位。
 	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
-	// 整体取消返回已完成项与 context 错误,未完成项不伪装为无更新。检查不写 Library 或投影。
+	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或投影。
+	// 保存前复核当前版本和确认时间;版本变化或期间确认了不同结论返回 Conflict,被移除返回 NotFound。
+	// 同版本的并发检查结论相同时仍成功并刷新时间,冲突项不覆盖已有记录。
+	// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 
 	// 版本历史

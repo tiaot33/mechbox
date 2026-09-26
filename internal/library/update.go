@@ -71,6 +71,11 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 			return UpdateResult{}, fmt.Errorf("update source: %w", err)
 		}
 	}
+	// 成功更新也确认了当前版本;时间用于阻止旧检查回写,从未检查的技能仍保持空结论。
+	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = CASE WHEN update_check_status = '' THEN '' ELSE ? END WHERE id = ?`,
+		formatStoredTime(clockNow()), UpdateCurrent, id); err != nil {
+		return UpdateResult{}, fmt.Errorf("clear available update: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return UpdateResult{}, fmt.Errorf("commit update: %w", err)
 	}

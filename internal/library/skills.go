@@ -17,7 +17,7 @@ import (
 const summaryQuery = `
 	SELECT skills.id, skills.name, current_version.description,
 		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
-		first_version.created_at, current_version.created_at
+		first_version.created_at, current_version.created_at, skills.update_checked_at, skills.update_check_status
 	FROM skills
 	JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -61,7 +61,9 @@ func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
 	var summary SkillSummary
 	var locator []byte
 	var fetched, installedAt, updatedAt string
-	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef, &installedAt, &updatedAt)
+	var checkedAt string
+	var check UpdateCheckState
+	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef, &installedAt, &updatedAt, &checkedAt, &check.Status)
 	if err != nil {
 		return SkillSummary{}, err
 	}
@@ -76,6 +78,12 @@ func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
 	}
 	if summary.UpdatedAt, err = parseStoredTime(updatedAt); err != nil {
 		return SkillSummary{}, fmt.Errorf("decode updated at: %w", err)
+	}
+	if check.Status != "" {
+		if check.CheckedAt, err = parseStoredTime(checkedAt); err != nil {
+			return SkillSummary{}, fmt.Errorf("decode update checked at: %w", err)
+		}
+		summary.LastUpdateCheck = &check
 	}
 	return summary, nil
 }
@@ -250,6 +258,7 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 
 // fetchState 是技能库不对外暴露、检查与更新据以走快路径的抓取记录,以及这份内容所属的版本 ID。
 type fetchState struct {
+	updateCheckedAt string // 最近检查或成功更新的确认时间;检查提交前复核,防止覆盖期间的新结论
 	versionID       int64  // 返回文件所属的当前版本;Update 用它做提交阶段的复核依据
 	confirmedCommit string // 当前版本的确认 commit;仅 GitHub 来源非空
 	httpValidator   string // Source 上次成功抓取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
@@ -275,12 +284,12 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 	}
 	var state fetchState
 	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator
+		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator, skills.update_checked_at
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
-	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator); err != nil {
+	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator, &state.updateCheckedAt); err != nil {
 		return Skill{}, fetchState{}, fmt.Errorf("get skill version: %w", err)
 	}
 

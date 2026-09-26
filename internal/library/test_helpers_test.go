@@ -516,6 +516,22 @@ func checkSingleUpdate(t *testing.T, lib library.Library, ctx context.Context, i
 	return checks[0].Available, nil
 }
 
+// updateCheckState 经列表接口读取指定技能的最近检查记录。
+func updateCheckState(t *testing.T, lib library.Library, id library.SkillID) *library.UpdateCheckState {
+	t.Helper()
+	skills, err := lib.ListSkills(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range skills {
+		if skill.ID == id {
+			return skill.LastUpdateCheck
+		}
+	}
+	t.Fatalf("skill %d missing", id)
+	return nil
+}
+
 // requireMemberResults 断言组激活 / 加入成员的逐条结果;跳过项只比较错误码与 Details,不比较 Message。
 func requireMemberResults(t *testing.T, got []library.GroupMemberResult, err error, want []library.GroupMemberResult) {
 	t.Helper()

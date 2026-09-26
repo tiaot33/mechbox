@@ -73,6 +73,9 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 		t.Fatalf("requests = %v", requests)
 	}
 	after, err := lib.ListSkills(t.Context())
+	for i := range after {
+		after[i].LastUpdateCheck = nil // 检查仅允许改变检查记录,原有技能与来源元数据保持不变。
+	}
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("mutated Library = %#v, %v", after, err)
 	}
@@ -189,5 +192,15 @@ func TestCheckUpdatesCancellationReturnsOnlyCompletedItems(t *testing.T) {
 	results, err := lib.CheckUpdates(ctx, []library.SkillID{a[0].ID, b[0].ID, a[1].ID, b[1].ID})
 	if !errors.Is(err, context.Canceled) || len(results) != 2 || results[0].SkillID != a[0].ID || results[1].SkillID != a[1].ID {
 		t.Fatalf("canceled batch = %#v, %v", results, err)
+	}
+	for _, skill := range a {
+		if state := updateCheckState(t, lib, skill.ID); state == nil || state.Status != library.UpdateCurrent {
+			t.Fatalf("completed check = %+v", state)
+		}
+	}
+	for _, skill := range b {
+		if state := updateCheckState(t, lib, skill.ID); state != nil {
+			t.Fatalf("canceled check = %+v", state)
+		}
 	}
 }
