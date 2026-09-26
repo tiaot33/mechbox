@@ -203,7 +203,7 @@ type Skill struct {
 	Files       []File    `json:"files"`
 }
 
-// SkillSummary 是浏览列表用的精简条目:身份、名字、描述与来源元数据,不含文件正文。
+// SkillSummary 是浏览列表用的精简条目:身份、名字、描述、来源元数据与最近更新检查,不含文件正文。
 // 列表接口(ListSkills / ListGroupSkills / ListCollections)返回它以保持轻量;
 // 完整文件通过 GetSkill / GetVersion 获取。
 type SkillSummary struct {
@@ -632,7 +632,7 @@ type Library interface {
 	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
 	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或投影。
 	// 保存前复核当前版本和确认时间;版本变化或期间确认了不同结论返回 Conflict,被移除返回 NotFound。
-	// 同版本的并发检查结论相同时仍成功并刷新时间,冲突项不覆盖已有记录。
+	// 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
 	// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
 

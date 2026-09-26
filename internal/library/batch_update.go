@@ -145,13 +145,13 @@ func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state f
 		return err
 	}
 	// 无内容变化的 Update 不生成新版本,仍须防止旧请求覆盖它的确认结果。
-	var stored string
+	var storedAt string
 	var storedStatus UpdateCheckStatus
-	if err := tx.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, id).Scan(&stored, &storedStatus); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, id).Scan(&storedAt, &storedStatus); err != nil {
 		return fmt.Errorf("read update check time: %w", err)
 	}
-	// 并发检查得出相同结论时仍可刷新时间;只有覆盖不同的新结论才算冲突。
-	if stored != state.updateCheckedAt && storedStatus != status {
+	// 结论相同只刷新时间;期间写入的 failed 不算确认,可被成功结论覆盖。其余不同的新结论才算冲突。
+	if storedAt != state.updateCheckedAt && storedStatus != status && storedStatus != UpdateFailed {
 		return &Error{Code: Conflict, Message: "check updates: skill was confirmed while checking", Details: ErrorDetails{SkillID: id}}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = ? WHERE id = ?`, formatStoredTime(clockNow()), status, id); err != nil {

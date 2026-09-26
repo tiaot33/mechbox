@@ -15,8 +15,9 @@ import (
 )
 
 func TestUpdateClearsAvailableCheck(t *testing.T) {
-	for _, changed := range []bool{true, false} {
-		t.Run(map[bool]string{true: "changed", false: "unchanged"}[changed], func(t *testing.T) {
+	for _, name := range []string{"changed", "unchanged"} {
+		changed := name == "changed"
+		t.Run(name, func(t *testing.T) {
 			lib := openTestLibrary(t)
 			skill, source := installLocalSkill(t, lib, "example", "old")
 			file := filepath.Join(source, "SKILL.md")
@@ -155,8 +156,9 @@ func TestUpdateCheckStateSurvivesReopen(t *testing.T) {
 }
 
 func TestInFlightUpdateCheckDoesNotOverwriteUpdatedSkill(t *testing.T) {
-	for _, changed := range []bool{true, false} {
-		t.Run(map[bool]string{true: "changed", false: "unchanged"}[changed], func(t *testing.T) {
+	for _, name := range []string{"changed", "unchanged"} {
+		changed := name == "changed"
+		t.Run(name, func(t *testing.T) {
 			lib := openTestLibrary(t)
 			gate := newNetworkGate()
 			old := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
@@ -197,5 +199,43 @@ func TestInFlightUpdateCheckDoesNotOverwriteUpdatedSkill(t *testing.T) {
 				t.Fatalf("updated state = %+v", got)
 			}
 		})
+	}
+}
+
+func TestOverlappingCheckSuccessReplacesConcurrentFailure(t *testing.T) {
+	lib := openTestLibrary(t)
+	gate := newNetworkGate()
+	var failing atomic.Bool
+	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if failing.Load() {
+			http.Error(w, "offline", http.StatusServiceUnavailable)
+			return
+		}
+		snapshot := archive
+		gate.pass()
+		_, _ = w.Write(snapshot)
+	}))
+	t.Cleanup(server.Close)
+	skill := installURLSkill(t, lib, server.URL, "demo")
+	archive = zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
+	gate.arm()
+	var wg sync.WaitGroup
+	var checks []library.UpdateCheck
+	var checkErr error
+	wg.Go(func() { checks, checkErr = lib.CheckUpdates(t.Context(), []library.SkillID{skill.ID}) })
+	gate.awaitEntered(t)
+	gate.disarm()
+	failing.Store(true)
+	if _, err := checkSingleUpdate(t, lib, t.Context(), skill.ID); err == nil {
+		t.Fatal("concurrent check should fail")
+	}
+	gate.open()
+	wg.Wait()
+	if checkErr != nil || len(checks) != 1 || checks[0].Error != nil || !checks[0].Available {
+		t.Fatalf("overlapping check = %+v, %v", checks, checkErr)
+	}
+	if got := updateCheckState(t, lib, skill.ID); got == nil || got.Status != library.UpdateAvailable {
+		t.Fatalf("state = %+v", got)
 	}
 }

@@ -74,7 +74,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	// 成功更新也确认了当前版本;时间用于阻止旧检查回写,从未检查的技能仍保持空结论。
 	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = CASE WHEN update_check_status = '' THEN '' ELSE ? END WHERE id = ?`,
 		formatStoredTime(clockNow()), UpdateCurrent, id); err != nil {
-		return UpdateResult{}, fmt.Errorf("clear available update: %w", err)
+		return UpdateResult{}, fmt.Errorf("confirm update check: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return UpdateResult{}, fmt.Errorf("commit update: %w", err)
@@ -87,13 +87,13 @@ func requireCurrentVersion(ctx context.Context, tx *sql.Tx, id SkillID, expected
 	var actual sql.NullInt64
 	err := tx.QueryRowContext(ctx, `SELECT current_version_id FROM skills WHERE id = ?`, id).Scan(&actual)
 	if errors.Is(err, sql.ErrNoRows) {
-		return &Error{Code: NotFound, Message: "update: skill was removed while fetching", Details: ErrorDetails{SkillID: id}, Err: err}
+		return &Error{Code: NotFound, Message: "skill was removed while fetching", Details: ErrorDetails{SkillID: id}, Err: err}
 	}
 	if err != nil {
 		return fmt.Errorf("verify skill version: %w", err)
 	}
 	if actual.Int64 != expected {
-		return &Error{Code: Conflict, Message: "update: skill changed while fetching", Details: ErrorDetails{SkillID: id}}
+		return &Error{Code: Conflict, Message: "skill changed while fetching", Details: ErrorDetails{SkillID: id}}
 	}
 	return nil
 }

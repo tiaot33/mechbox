@@ -492,6 +492,20 @@ func (g *networkGate) open() {
 	close(g.release)
 }
 
+// installURLSkill 经 Fetch + InstallFetch 从 URL 远端装入名为 name 的 skill。
+func installURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
+	t.Helper()
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return installed[0]
+}
+
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。
 func stubGitHubCLI(t *testing.T, script string) {
 	t.Helper()

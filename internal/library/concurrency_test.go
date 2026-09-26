@@ -25,20 +25,6 @@ func serveGatedArchive(t *testing.T, gate *networkGate, archive func() []byte) *
 	return server
 }
 
-// installURLSkill 经 Fetch + InstallFetch 从 URL 远端装入名为 name 的 skill。
-func installURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
-	t.Helper()
-	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{name})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return installed[0]
-}
-
 // mustFinishBeforeRelease 断言 run 在网络放行之前就返回了(没有等在库锁上)。
 // 库锁不理会 ctx,所以在独立 goroutine 里跑,超时即判定被网络阶段挡住。
 func mustFinishBeforeRelease(t *testing.T, gate *networkGate, what string, run func(ctx context.Context) error) {

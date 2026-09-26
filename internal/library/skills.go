@@ -256,10 +256,10 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 	return skill, err
 }
 
-// fetchState 是技能库不对外暴露、检查与更新据以走快路径的抓取记录,以及这份内容所属的版本 ID。
+// fetchState 是技能库不对外暴露、检查与更新据以走快路径的抓取记录,以及这份内容所属的版本 ID 与读取时的检查确认时间。
 type fetchState struct {
 	updateCheckedAt string // 最近检查或成功更新的确认时间;检查提交前复核,防止覆盖期间的新结论
-	versionID       int64  // 返回文件所属的当前版本;Update 用它做提交阶段的复核依据
+	versionID       int64  // 返回文件所属的当前版本;Update 与检查保存都用它做提交阶段的复核依据
 	confirmedCommit string // 当前版本的确认 commit;仅 GitHub 来源非空
 	httpValidator   string // Source 上次成功抓取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
 }
