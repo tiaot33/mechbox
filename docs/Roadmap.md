@@ -19,7 +19,7 @@
 - **2026-09-25 重排** —— ADR 0013:桌面端改为 Wails v3 与 Library 同进程,取代 ADR 0008 的 Electron + stdio sidecar;TUI 搁置;开启单实例锁。随之:RPC 一步取消,F1 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),G2 与库修订号不做;E1 因 macOS 从 Finder 启动读不到环境变量而提前;Wails 原型发现的 [#85](https://github.com/tiaot33/skills-tui/issues/85)–[#88](https://github.com/tiaot33/skills-tui/issues/88) 排入分步计划。F5 已随 #83 完成;I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
 - **第 5 步完成** —— [#88](https://github.com/tiaot33/skills-tui/issues/88):`Scope` 改为带显式 `Kind` 的结构体,新增 `library.ErrorOf`。
 - **第 7 步完成(J0 / J1 / J2)** —— 术语改名 [#91](https://github.com/tiaot33/skills-tui/issues/91)(PR [#93](https://github.com/tiaot33/skills-tui/pull/93));组激活成为正式记录 [#85](https://github.com/tiaot33/skills-tui/issues/85),PR [#94](https://github.com/tiaot33/skills-tui/pull/94)(`08f7efc`):schema v9、组激活记录、成员增删跟随组激活、冲突只跳过成员、作用域根目录不存在时不创建,并删除全部旧库迁移。重写 [#86](https://github.com/tiaot33/skills-tui/issues/86),PR [#95](https://github.com/tiaot33/skills-tui/pull/95)(`868fc77`):`RewriteProjections` 按技能 / 作用域逐条重写、不改激活,`InspectProjections` 接受同一 `ProjectionFilter` 按范围巡检;无 schema 变化。
-- **第 9 步部分完成** —— 保存更新检查结果 [#97](https://github.com/tiaot33/skills-tui/issues/97):schema v10,`SkillSummary.LastUpdateCheck` 保存最近检查的时间与结论(available / current / failed,nil 为未检查),`Update` 成功后改为 current,随技能删除。
+- **第 9 步部分完成** —— 保存更新检查结果 [#97](https://github.com/tiaot33/skills-tui/issues/97),PR [#99](https://github.com/tiaot33/skills-tui/pull/99)(`12ca4e2`):schema v10,`SkillSummary.LastUpdateCheck` 保存最近检查的时间与结论(available / current / failed,nil 为未检查),`Update` 成功后改为 current,随技能删除。
 - 下一步为第 6 步桌面端骨架。
 
 ## 优先级定义
