@@ -1,0 +1,2 @@
+# 占位：让未构建前端时 frontend/dist 仍非空，go:embed 可以编译。
+# 源文件在 frontend/public/.gitkeep,每次 vite build 复制到 dist。

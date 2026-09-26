@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=技能管理器
+Comment=管理 coding agent 的 Agent Skills
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/skills-manager %u
+Terminal=false
+Type=Application
+Icon=skills-manager
+Categories=Utility;
+StartupWMClass=skills-manager
+
+ 

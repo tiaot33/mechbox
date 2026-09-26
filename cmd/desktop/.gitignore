@@ -1,0 +1,14 @@
+.task
+bin
+frontend/node_modules
+# 前端产物不入库，只保留占位文件(根 .gitignore 忽略了所有 dist,这里先取消再细分)。
+!frontend/dist/
+frontend/dist/*
+!frontend/dist/.gitkeep
+# build/ 是 Wails 的构建配置(图标、Info.plist、各平台 Taskfile),需要入库;覆盖全局 gitignore 里常见的 build/ 规则。
+!build/
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# 全局 gitignore 常见的 lib/、*.manifest 规则会误伤这两处源码，显式取消。
+!frontend/src/lib/
+!build/windows/wails.exe.manifest

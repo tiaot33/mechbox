@@ -21,6 +21,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`CONTEXT.md`](CONTEXT.md) | 产品术语及统一语言 |
 | [`docs/adr/`](docs/adr/) | 现行的设计决策，按主题索引见其中的 README |
 | [`cmd/demo/main.go`](cmd/demo/main.go) | 可直接运行的入口示例：导入、打开、调用并关闭 Library |
+| [`cmd/desktop/`](cmd/desktop/) | 桌面端：Wails v3 应用，与 Library 同进程；前端在 `frontend/` |
 | [`internal/library/doc.go`](internal/library/doc.go) | 包说明：按用户流程列出每一步用到的方法和所在文件，阅读入口 |
 | [`internal/library/library.go`](internal/library/library.go) | `Library` 结构体、`Open` / `Close`、操作锁，以及把数据库事务和磁盘改动合成一次提交 |
 | [`internal/library/errors.go`](internal/library/errors.go) | 公开错误类型与错误码，以及把各子包错误翻译成错误码的唯一入口 |
@@ -116,6 +117,17 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
 
 GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
+
+## 桌面端
+
+桌面端在 `cmd/desktop/`（Wails v3 + React，与 Library 同进程）。需要 wails3 CLI、pnpm 和 Xcode Command Line Tools，在该目录执行：
+
+```sh
+wails3 dev       # 开发模式：前端热更新，改 cmd/desktop 下的 Go 自动重启
+wails3 package   # 打包成 bin/skills-manager.app
+```
+
+环境准备、如何用隔离的库调试、构建标签、代码结构和怎样新增绑定，见 [`cmd/desktop/README.md`](cmd/desktop/README.md)。
 
 ## 尚未实现
 
