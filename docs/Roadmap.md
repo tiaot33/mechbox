@@ -1,6 +1,6 @@
 # 技能库（Library）桌面化 Roadmap
 
-**Date:** 2026-09-15(2026-09-21 同步第 4 步完成状态;2026-09-25 按 ADR 0013 重排第 5 步以后)
+**Date:** 2026-09-15(2026-09-21 同步第 4 步完成状态;2026-09-25 按 ADR 0013 重排第 5 步以后;2026-09-26 第 9 步完成)
 **目的:** 记录 `internal/library/api.go` 成为桌面端(Wails v3,与 Library 同进程,见 ADR 0013)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对技能库的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
 **用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。main 为 v10(#97);版本号不预留,谁先合入谁用下一个。
@@ -19,8 +19,8 @@
 - **2026-09-25 重排** —— ADR 0013:桌面端改为 Wails v3 与 Library 同进程,取代 ADR 0008 的 Electron + stdio sidecar;TUI 搁置;开启单实例锁。随之:RPC 一步取消,F1 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),G2 与库修订号不做;E1 因 macOS 从 Finder 启动读不到环境变量而提前;Wails 原型发现的 [#85](https://github.com/tiaot33/skills-tui/issues/85)–[#88](https://github.com/tiaot33/skills-tui/issues/88) 排入分步计划。F5 已随 #83 完成;I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
 - **第 5 步完成** —— [#88](https://github.com/tiaot33/skills-tui/issues/88):`Scope` 改为带显式 `Kind` 的结构体,新增 `library.ErrorOf`。
 - **第 7 步完成(J0 / J1 / J2)** —— 术语改名 [#91](https://github.com/tiaot33/skills-tui/issues/91)(PR [#93](https://github.com/tiaot33/skills-tui/pull/93));组激活成为正式记录 [#85](https://github.com/tiaot33/skills-tui/issues/85),PR [#94](https://github.com/tiaot33/skills-tui/pull/94)(`08f7efc`):schema v9、组激活记录、成员增删跟随组激活、冲突只跳过成员、作用域根目录不存在时不创建,并删除全部旧库迁移。重写 [#86](https://github.com/tiaot33/skills-tui/issues/86),PR [#95](https://github.com/tiaot33/skills-tui/pull/95)(`868fc77`):`RewriteProjections` 按技能 / 作用域逐条重写、不改激活,`InspectProjections` 接受同一 `ProjectionFilter` 按范围巡检;无 schema 变化。
-- **第 9 步部分完成** —— 组成员批量读取 [#96](https://github.com/tiaot33/skills-tui/issues/96),PR [#100](https://github.com/tiaot33/skills-tui/pull/100)(`fd19ac6`):`ListGroupsWithMembers` 一次列出全部组及成员 ID(均按 ID 升序,空组为空列表),无 schema 变化。保存更新检查结果 [#97](https://github.com/tiaot33/skills-tui/issues/97),PR [#99](https://github.com/tiaot33/skills-tui/pull/99)(`12ca4e2`):schema v10,`SkillSummary.LastUpdateCheck` 保存最近检查的时间与结论(available / current / failed,nil 为未检查),`Update` 成功后改为 current,随技能删除。
-- 下一步为第 6 步桌面端骨架。
+- **第 9 步完成** —— [#87](https://github.com/tiaot33/skills-tui/issues/87) 已关闭。组成员批量读取 [#96](https://github.com/tiaot33/skills-tui/issues/96),PR [#100](https://github.com/tiaot33/skills-tui/pull/100)(`fd19ac6`):`ListGroupsWithMembers` 一次列出全部组及成员 ID(均按 ID 升序,空组为空列表),无 schema 变化。保存更新检查结果 [#97](https://github.com/tiaot33/skills-tui/issues/97),PR [#99](https://github.com/tiaot33/skills-tui/pull/99)(`12ca4e2`):schema v10,`SkillSummary.LastUpdateCheck` 保存最近检查的时间与结论(available / current / failed,nil 为未检查),`Update` 成功后改为 current,随技能删除。文件按需读取 [#98](https://github.com/tiaot33/skills-tui/issues/98),PR [#101](https://github.com/tiaot33/skills-tui/pull/101)(`d5d2678`):`ListSkillFiles` 列出当前版本文件元数据,`GetSkillFile` 按路径精确读取单个文件,只读当前版本;无 schema 变化。
+- 下一步为第 6 步桌面端骨架([#102](https://github.com/tiaot33/skills-tui/issues/102));第 8 步运行时配置已开 [#103](https://github.com/tiaot33/skills-tui/issues/103)。
 
 ## 优先级定义
 
@@ -60,7 +60,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [x] **C1 `Skill` / `SkillSummary` 增加 `Description`。**(schema)列表页第一需求;`candidateMetadata` 已解析出该字段但未入库。现状前端要对每行调 `GetSkill`(拉全部文件正文)再自行解析 frontmatter。描述放版本级,迁移从 `SKILL.md` blob 回填。→ #77,#82
 - [x] **C2 时间戳。**(schema)`SkillVersion.CreatedAt`、`Activation.ActivatedAt`、`Group.CreatedAt` 落列;`Skill.InstalledAt` / `UpdatedAt` 由版本时间派生。迁移不回填(空 = 未知)。→ #77,#82
 - [ ] **C3 暴露当前版本。** `Skill.CurrentVersionID` / `SkillVersion.IsCurrent`(表里已有 `current_version_id`,无 schema 变更)。现状 UI 只能靠"`ListVersions` 最后一个",一做回滚(H3)即失效。**推后**:随 H3 一起做。
-- [ ] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**2026-09-25 提前**:经 Wails 绑定传输时同样是 base64,并入 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
+- [x] **C4 轻量文件访问。** `ListVersionFiles(versionID) → [{Path, Size, Mode}]` + `ReadFile(versionID, path)`。现状 `GetSkill` / `Update` / `InstallFetch` 总是返回全部文件字节(RPC 上是 base64),带 `assets/` 的 skill 每次详情页都很重。**2026-09-25 提前**:经 Wails 绑定传输时同样是 base64,并入 [#87](https://github.com/tiaot33/skills-tui/issues/87)。→ [#98](https://github.com/tiaot33/skills-tui/issues/98),PR [#101](https://github.com/tiaot33/skills-tui/pull/101)(`d5d2678`):`ListSkillFiles` / `GetSkillFile`,只读当前版本;历史版本仍用 `GetVersion`。
 - [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 已删除提醒字段,不返回过时投影列表;C6 判定也不依赖它。
 - [x] **C6 投影健康度。** `InspectProjections() → [{Projection, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Projection.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
@@ -116,7 +116,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [x] **J0 术语改名。** 技能库中表示投影记录的 `Activation` 系列改为 `Projection`,预检状态 `refresh` 改为 `projected`;只改名、不改行为,表改名随 J1。→ [#91](https://github.com/tiaot33/skills-tui/issues/91)
 - [x] **J1 组激活成为正式记录,成员增删跟随组激活。** 加入成员自动投影到组已激活的作用域(冲突的作用域跳过);移出成员默认把组激活换成直接激活,可选撤回;`ActivateGroup` 改为能激活的都激活;再次激活只增加激活、不写盘。2026-09-25 语义已定,见 issue。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85),PR [#94](https://github.com/tiaot33/skills-tui/pull/94)
 - [x] **J2 重写。** 把投影改回当前版本、不改变其激活:按技能 / 作用域筛选,逐条返回结果,被手动改过的默认拒绝、可显式覆盖;按范围巡检投影一并完成。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86),PR [#95](https://github.com/tiaot33/skills-tui/pull/95)
-- [ ] **J3 桌面端读模型。** 组成员批量读取(✅ [#96](https://github.com/tiaot33/skills-tui/issues/96))、保存更新检查结果(schema,✅ [#97](https://github.com/tiaot33/skills-tui/issues/97))、文件按需读取(即 C4)(按范围巡检投影已随 J2 完成);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
+- [x] **J3 桌面端读模型。** 组成员批量读取(✅ [#96](https://github.com/tiaot33/skills-tui/issues/96))、保存更新检查结果(schema,✅ [#97](https://github.com/tiaot33/skills-tui/issues/97))、文件按需读取(即 C4,✅ [#98](https://github.com/tiaot33/skills-tui/issues/98))(按范围巡检投影已随 J2 完成);库修订号按 G2 不做。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
 - [x] **J4 Wails 接入边界。** `Scope` 改为可序列化的具体结构体,`library.ErrorOf` 统一错误编码(即 F1)。→ [#88](https://github.com/tiaot33/skills-tui/issues/88)
 
 ## P2
@@ -173,6 +173,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ### 第 6 步 — 下一步:桌面端骨架
 
+- issue: [#102](https://github.com/tiaot33/skills-tui/issues/102)。
 - `cmd/desktop/`:Wails v3 + React / TypeScript / Vite / shadcn / Tailwind,接真实 Library,开启单实例锁(ADR 0013)。落地时在 ADR 0010 登记目录。
 - 从这里起桌面端与下列 Library 工作并行,桌面端碰到缺口时按缺口调整优先级。
 - 依赖:第 5 步。
@@ -184,13 +185,14 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ### 第 8 步 — 运行时配置:E1、E2(spec issue + ADR "凭证存放位置")
 
+- issue: [#103](https://github.com/tiaot33/skills-tui/issues/103)。
 - ADR 决定凭证存放(库内 / 系统钥匙串 / 仅内存),然后 E1 `GetConfig` / `SetConfig` 取代环境变量;`gh` 回退改为可选或可配置路径。
 - E2 `TestSyncConnection` + 新错误码 `RateLimited`(附 retry-after)/ `Unauthenticated`。
 - 提前的原因:macOS 从 Finder / Dock 启动的应用读不到环境变量,不做则打包后的桌面端没有 GitHub 凭证、不能同步。
 
-### 第 9 步 — 桌面端读模型:J3(含 C4)
+### 第 9 步 — ✅ 桌面端读模型:J3(含 C4)
 
-- [#87](https://github.com/tiaot33/skills-tui/issues/87) 拆成独立 issue:组成员批量读取(无 schema,✅ [#96](https://github.com/tiaot33/skills-tui/issues/96))、保存更新检查结果(schema,✅ [#97](https://github.com/tiaot33/skills-tui/issues/97))、文件按需读取;按范围巡检投影已随 [#86](https://github.com/tiaot33/skills-tui/issues/86) 完成。库修订号不做(G2)。
+- [#87](https://github.com/tiaot33/skills-tui/issues/87) 拆成独立 issue:组成员批量读取(无 schema,✅ [#96](https://github.com/tiaot33/skills-tui/issues/96))、保存更新检查结果(schema,✅ [#97](https://github.com/tiaot33/skills-tui/issues/97))、文件按需读取(✅ [#98](https://github.com/tiaot33/skills-tui/issues/98),PR [#101](https://github.com/tiaot33/skills-tui/pull/101));按范围巡检投影已随 [#86](https://github.com/tiaot33/skills-tui/issues/86) 完成。库修订号不做(G2)。
 
 ### 第 10 步 — 进度与 wire 整理:G1、F2、F3
 
@@ -205,10 +207,10 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 ### 关键路径与并行度
 
 ```
-第 0–4 步 ✅ ──┬── 第 5 步(#88 接入边界)── 第 6 步(桌面端骨架)──┐
-              ├── 第 7 步(#91 → #85 → #86)──────────────────┤
-              ├── 第 8 步(运行时配置)────────────────────────┼── 桌面端可用
-              └── 第 9 步(#87 读模型)────────────────────────┘
+第 0–4 步 ✅ ──┬── 第 5 步 ✅(#88 接入边界)── 第 6 步(#102 桌面端骨架)──┐
+              ├── 第 7 步 ✅(#91 → #85 → #86)───────────────────────┤
+              ├── 第 8 步(#103 运行时配置)────────────────────────────┼── 桌面端可用
+              └── 第 9 步 ✅(#87 读模型)──────────────────────────────┘
                                    第 10、11 步按桌面端功能排期
 ```
 
