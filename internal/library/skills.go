@@ -317,6 +317,71 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 	return skill, state, nil
 }
 
+func (l *sqliteLibrary) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// LEFT JOIN 保留无文件的技能,在同一快照里区分空列表与技能不存在。
+	rows, err := l.db.QueryContext(ctx, `
+		SELECT version_files.path, length(blobs.content), version_files.mode
+		FROM skills
+		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id
+		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE skills.id = ?
+		ORDER BY version_files.path
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list skill files: %w", err)
+	}
+	defer rows.Close()
+	skillExists := false
+	for rows.Next() {
+		skillExists = true
+		var path, mode sql.NullString
+		var size sql.NullInt64
+		if err := rows.Scan(&path, &size, &mode); err != nil {
+			return nil, fmt.Errorf("read skill file metadata: %w", err)
+		}
+		if path.Valid {
+			files = append(files, FileMetadata{Path: path.String, Size: size.Int64, Mode: FileMode(mode.String)})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list skill files: %w", err)
+	}
+	if !skillExists {
+		return nil, &Error{Code: NotFound, Message: "list skill files: skill not found", Details: ErrorDetails{SkillID: id}}
+	}
+	return files, nil
+}
+
+func (l *sqliteLibrary) GetSkillFile(ctx context.Context, id SkillID, path string) (file File, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// 同 ListSkillFiles:LEFT JOIN 保留技能行,在同一快照里区分路径不存在与技能不存在。
+	var fileExists bool
+	var mode sql.NullString
+	err = l.db.QueryRowContext(ctx, `
+		SELECT version_files.path IS NOT NULL, blobs.content, version_files.mode
+		FROM skills
+		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id AND version_files.path = ?
+		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE skills.id = ?
+	`, path, id).Scan(&fileExists, &file.Content, &mode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return File{}, &Error{Code: NotFound, Message: "get skill file: skill not found", Details: ErrorDetails{SkillID: id}}
+	}
+	if err != nil {
+		return File{}, fmt.Errorf("get skill file: %w", err)
+	}
+	if !fileExists {
+		return File{}, &Error{Code: NotFound, Message: "get skill file: file not found", Details: ErrorDetails{Path: path}}
+	}
+	file.Path, file.Mode = path, FileMode(mode.String)
+	return file, nil
+}
+
 func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
