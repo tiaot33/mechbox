@@ -77,9 +77,9 @@ type Error struct {
 // ErrorDetails 是类型化的错误细节,零值字段省略。读取用 errors.AsType[*Error]。
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
-	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径
+	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径;NotFound:skill 当前版本里不存在的文件路径
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、撑着投影的 Group 名或被占用的投影名
-	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill;NotFound:不存在的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目;FailedPrecondition:根目录不存在的项目
 }
 
@@ -189,6 +189,13 @@ type File struct {
 	Path    string   `json:"path"`
 	Content []byte   `json:"content"`
 	Mode    FileMode `json:"mode"`
+}
+
+// FileMetadata 是文件列表用的元数据,不含文件内容。
+type FileMetadata struct {
+	Path string   `json:"path"` // skill 内斜杠分隔的相对路径
+	Size int64    `json:"size"` // 内容的字节数
+	Mode FileMode `json:"mode"` // regular 或 executable
 }
 
 // Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
@@ -630,6 +637,12 @@ type Library interface {
 	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
+	// ListSkillFiles 按路径排序列出当前版本的文件元数据,不读取文件正文;技能不存在返回 NotFound(Details.SkillID)。
+	ListSkillFiles(ctx context.Context, id SkillID) ([]FileMetadata, error)
+	// GetSkillFile 按 skill 内的相对路径精确读取当前版本的单个文件,不做路径归一化。
+	// 技能不存在返回 NotFound(Details.SkillID),路径不存在返回 NotFound(Details.Path);
+	// 与 ListSkillFiles 分别读取各自调用时的当前版本。
+	GetSkillFile(ctx context.Context, id SkillID, path string) (File, error)
 	// CheckUpdates 检查指定技能是否有更新;单项检查传入仅含一个 SkillID 的列表。
 	// 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
 	// 直接判定无更新;有未命中的才共用一次 tree,发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。
