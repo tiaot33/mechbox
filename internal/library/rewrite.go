@@ -2,7 +2,6 @@ package library
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 )
@@ -83,7 +82,7 @@ func (l *sqliteLibrary) rewriteProjection(ctx context.Context, operation string,
 		}
 	}
 	// 与激活共用写盘路径(暂存 + 原子替换 + 失败复原),只是不写任何记录。
-	if err := l.place(ctx, []*placement{{skill: skill, scope: target}}, func(*sql.Tx) error { return nil }); err != nil {
+	if err := l.place(ctx, []*placement{{skill: skill, scope: target}}, nil); err != nil {
 		return "", err
 	}
 	return Rewritten, nil

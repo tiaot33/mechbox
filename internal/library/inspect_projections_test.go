@@ -351,3 +351,82 @@ func snapshotTree(t *testing.T, roots ...string) map[string]string {
 	}
 	return out
 }
+
+func TestInspectProjectionsByFilterIsSubsetOfFullInspection(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, firstSource := installLocalSkill(t, lib, "first", "# first v1\n")
+	second := installNamedSkill(t, lib, "second")
+	idle := installNamedSkill(t, lib, "idle")
+	codex := library.GlobalScope(library.AgentCodex)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
+	for _, scope := range []library.Scope{codex, claude, projectScope} {
+		if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, scope := range []library.Scope{codex, projectScope} {
+		if err := lib.Activate(ctx, second.ID, scope, library.ActivateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updateLocalSkill(t, lib, first.ID, firstSource, "# first v2\n")
+	full := inspectProjections(t, lib)
+	if len(full) != 5 {
+		t.Fatalf("InspectProjections() = %#v, want 5", full)
+	}
+
+	subset := func(match func(library.ProjectionInspection) bool) []library.ProjectionInspection {
+		var want []library.ProjectionInspection
+		for _, inspection := range full {
+			if match(inspection) {
+				want = append(want, inspection)
+			}
+		}
+		return want
+	}
+	tests := []struct {
+		name   string
+		filter library.ProjectionFilter
+		want   []library.ProjectionInspection
+	}{
+		{name: "skill", filter: library.ProjectionFilter{SkillID: first.ID},
+			want: subset(func(i library.ProjectionInspection) bool { return i.SkillID == first.ID })},
+		{name: "scope", filter: scopeFilter(projectScope),
+			want: subset(func(i library.ProjectionInspection) bool { return i.Scope == projectScope })},
+		{name: "both", filter: library.ProjectionFilter{SkillID: second.ID, Scope: &codex},
+			want: subset(func(i library.ProjectionInspection) bool { return i.SkillID == second.ID && i.Scope == codex })},
+		{name: "no projections", filter: library.ProjectionFilter{SkillID: idle.ID}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := lib.InspectProjections(ctx, test.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(test.want) || (len(got) > 0 && !reflect.DeepEqual(got, test.want)) {
+				t.Fatalf("InspectProjections(%s) = %#v, want %#v", test.name, got, test.want)
+			}
+		})
+	}
+
+	unknownAgent := library.GlobalScope("unknown-agent")
+	for name, filter := range map[string]library.ProjectionFilter{
+		"unknown skill": {SkillID: 999},
+		"unknown agent": {Scope: &unknownAgent},
+	} {
+		_, err := lib.InspectProjections(ctx, filter)
+		if !library.IsCode(err, library.NotFound) {
+			t.Fatalf("InspectProjections(%s) error = %v, want not_found", name, err)
+		}
+	}
+	invalid := library.Scope{Kind: "nowhere", Agent: library.AgentCodex}
+	_, err = lib.InspectProjections(ctx, library.ProjectionFilter{Scope: &invalid})
+	requireLibraryError(t, err, library.InvalidArgument)
+}
