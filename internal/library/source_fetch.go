@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -25,7 +26,36 @@ import (
 const (
 	maxFetchSize  = 64 << 20 // 下载与展开的字节上限
 	maxFetchFiles = 1000     // 展开文件个数上限;超限拒绝整个归档
+	// fetchConcurrency 是一次操作内并发远程读取的上限:足以摊薄逐个 blob 的往返与 gh 进程启动,
+	// 又不至于触发 GitHub 的次级限流。
+	fetchConcurrency = 8
 )
+
+// runConcurrent 以 fetchConcurrency 为上限对 0..n-1 并发执行 fn。首个错误取消其余任务并作为返回值;
+// 调用方 ctx 被取消时返回其取消原因。fn 只应写入自己下标对应的结果。
+func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) error) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	slots := make(chan struct{}, fetchConcurrency)
+	var wg sync.WaitGroup
+	for i := range n {
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Go(func() {
+			defer func() { <-slots }()
+			if err := fn(ctx, i); err != nil {
+				cancel(err)
+			}
+		})
+	}
+	wg.Wait()
+	return context.Cause(ctx)
+}
 
 type discoveredSource struct {
 	skills      []fetchedSkill

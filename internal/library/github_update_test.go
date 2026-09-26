@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -688,10 +689,12 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 	}
 }
 
+// assertGitHubBlobPaths 比较取过的 blob 路径集合(含重复次数);blob 并发取回,请求顺序不固定。
 func assertGitHubBlobPaths(t *testing.T, api *gitHubAPIMock, want ...string) {
 	t.Helper()
-	got := api.blobPaths()
-	if !reflect.DeepEqual(got, want) {
+	got := slices.Sorted(slices.Values(api.blobPaths()))
+	want = slices.Sorted(slices.Values(want))
+	if !slices.Equal(got, want) {
 		t.Fatalf("blob paths = %v, want %v (%#v)", got, want, api.snapshot())
 	}
 }

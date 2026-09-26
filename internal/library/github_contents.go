@@ -58,24 +58,22 @@ type githubAuth struct {
 
 // githubClient 是一次操作内的 GitHub API 读取器:阶梯位置从实例级 githubAuth 起步,
 // 操作内因限流或含义模糊的 403 爬到的更高一级只在本客户端内记住。
+// 同一操作内的并发读取共用一个客户端,阶梯位置因此用原子值。
 // 不可变 git 对象的进程内 memo 挂在 Library 实例上,经此客户端读取。
 type githubClient struct {
 	token    string
-	useToken bool
-	useCLI   bool
+	useToken atomic.Bool
+	useCLI   atomic.Bool
 	auth     *githubAuth
 	memo     *githubObjectMemo
 }
 
 // newGitHubClient 是构造 GitHub 客户端的唯一入口;Fetch / InstallFetch 与检查 / 更新路径共用。
 func (l *sqliteLibrary) newGitHubClient() *githubClient {
-	return &githubClient{
-		token:    githubToken(),
-		useToken: l.githubAuth.useToken.Load(),
-		useCLI:   l.githubAuth.useCLI.Load(),
-		auth:     &l.githubAuth,
-		memo:     &l.githubMemo,
-	}
+	client := &githubClient{token: githubToken(), auth: &l.githubAuth, memo: &l.githubMemo}
+	client.useToken.Store(l.githubAuth.useToken.Load())
+	client.useCLI.Store(l.githubAuth.useCLI.Load())
+	return client
 }
 
 type githubCommitResponse struct {
@@ -197,7 +195,7 @@ func githubAPIURL(pattern string, owner, repo, object string) string {
 }
 
 func (c *githubClient) get(ctx context.Context, location string, dest any) error {
-	if c.useCLI {
+	if c.useCLI.Load() {
 		return githubCLIGet(ctx, location, dest)
 	}
 	err := errGitHubContentsFallback
@@ -205,7 +203,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 	// 两者都只在更高一级成功后才写回实例:GitHub 对"私有仓库对匿名隐藏"和"资源不存在"同样回 404,
 	// 单靠一次被拒分不清,只有下一级真的拿到了同一个对象才证明是前者。
 	anonymousDenied := false
-	if !c.useToken && time.Now().Unix() >= c.auth.anonymousReset.Load() {
+	if !c.useToken.Load() && time.Now().Unix() >= c.auth.anonymousReset.Load() {
 		err = githubAPIGetOnce(ctx, location, "", dest)
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
 			c.auth.anonymousReset.Store(httpErr.reset)
@@ -217,7 +215,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 	}
 	httpDenied := anonymousDenied
 	if c.token != "" {
-		c.useToken = true
+		c.useToken.Store(true)
 		err = githubAPIGetOnce(ctx, location, c.token, dest)
 		if err == nil {
 			if anonymousDenied {
@@ -236,7 +234,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		}
 		return err
 	}
-	c.useCLI = true
+	c.useCLI.Store(true)
 	if anonymousDenied {
 		c.auth.useToken.Store(true)
 	}
@@ -478,22 +476,37 @@ func githubDotGitPath(rel string) bool {
 }
 
 func fetchGitHubSkillFiles(ctx context.Context, client *githubClient, owner, repo string, blobs []githubBlob) ([]File, error) {
-	files := make([]File, 0, len(blobs))
-	for _, blob := range blobs {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		content := blob.content
-		if content == nil {
-			var err error
-			content, err = client.blob(ctx, owner, repo, blob.sha)
-			if err != nil {
-				return nil, err
-			}
-		}
-		files = append(files, File{Path: blob.path, Content: bytes.Clone(content), Mode: blob.mode})
+	contents, err := fetchGitHubBlobs(ctx, client, owner, repo, blobs)
+	if err != nil {
+		return nil, err
 	}
-	return files, nil
+	return githubFiles(blobs, contents), nil
+}
+
+func githubFiles(blobs []githubBlob, contents [][]byte) []File {
+	files := make([]File, len(blobs))
+	for i, blob := range blobs {
+		files[i] = File{Path: blob.path, Content: bytes.Clone(contents[i]), Mode: blob.mode}
+	}
+	return files
+}
+
+// fetchGitHubBlobs 按 blobs 顺序返回正文:已带正文的直接用,其余有界并发取回;任一失败即取消其余并返回该错误。
+func fetchGitHubBlobs(ctx context.Context, client *githubClient, owner, repo string, blobs []githubBlob) ([][]byte, error) {
+	contents := make([][]byte, len(blobs))
+	err := runConcurrent(ctx, len(blobs), func(ctx context.Context, i int) error {
+		if blobs[i].content != nil {
+			contents[i] = blobs[i].content
+			return nil
+		}
+		var err error
+		contents[i], err = client.blob(ctx, owner, repo, blobs[i].sha)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return contents, nil
 }
 
 // githubSourceSnapshot 是一次 GitHub 来源读取:API 路径先只解析 commit,recursive tree 在首次需要目录信息时
@@ -707,25 +720,33 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 	return !filesEqual(skill.Files, files), nil
 }
 
-// materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;失败不入库,由调用方保留句柄。
+// materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;各 Skill 的 blob 汇成一批并发取回。
+// 失败不入库,由调用方保留句柄。
 func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
 	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
-	client := l.newGitHubClient()
+	var all []githubBlob
+	for _, skill := range skills {
+		all = append(all, skill.blobs...)
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	contents, err := fetchGitHubBlobs(ctx, l.newGitHubClient(), owner, repo, all)
+	if err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		if !githubContentsUnavailable(err) {
+			return githubInstallError(err)
+		}
+		return githubCloneError(ctx, err, materializeGitHubClone(ctx, session, skills))
+	}
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
 			continue
 		}
-		files, err := fetchGitHubSkillFiles(ctx, client, owner, repo, skill.blobs)
-		if err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
-			if !githubContentsUnavailable(err) {
-				return githubInstallError(err)
-			}
-			return githubCloneError(ctx, err, materializeGitHubClone(ctx, session, skills))
-		}
-		skills[i].files = files
+		skills[i].files = githubFiles(skill.blobs, contents)
+		contents = contents[len(skill.blobs):]
 		skills[i].blobs = nil
 	}
 	return nil
