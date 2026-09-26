@@ -46,14 +46,8 @@ func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var (
-			group     Group
-			createdAt string
-		)
-		if err := rows.Scan(&group.ID, &group.Name, &createdAt); err != nil {
-			return nil, fmt.Errorf("read group: %w", err)
-		}
-		if group.CreatedAt, err = parseStoredTime(createdAt); err != nil {
+		group, err := scanGroup(rows)
+		if err != nil {
 			return nil, fmt.Errorf("read group: %w", err)
 		}
 		groups = append(groups, group)
@@ -140,18 +134,22 @@ func occupiedGroupNames(ctx context.Context, q interface {
 }
 
 func getGroup(ctx context.Context, q rowQuerier, id GroupID) (Group, error) {
+	return scanGroup(q.QueryRowContext(ctx, `SELECT id, name, created_at FROM groups WHERE id = ?`, id))
+}
+
+// scanGroup 读出一行开头的 groups.id、name、created_at 并解析创建时间;extra 接收同一行其后的列。
+func scanGroup(row interface{ Scan(...any) error }, extra ...any) (Group, error) {
 	var (
 		group     Group
 		createdAt string
 	)
-	if err := q.QueryRowContext(ctx, `SELECT id, name, created_at FROM groups WHERE id = ?`, id).Scan(&group.ID, &group.Name, &createdAt); err != nil {
+	if err := row.Scan(append([]any{&group.ID, &group.Name, &createdAt}, extra...)...); err != nil {
 		return Group{}, err
 	}
-	parsed, err := parseStoredTime(createdAt)
-	if err != nil {
+	var err error
+	if group.CreatedAt, err = parseStoredTime(createdAt); err != nil {
 		return Group{}, err
 	}
-	group.CreatedAt = parsed
 	return group, nil
 }
 
@@ -311,6 +309,39 @@ func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (s
 		return nil, err
 	}
 	return l.listSummaries(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
+}
+
+func (l *sqliteLibrary) ListGroupsWithMembers(ctx context.Context) (groups []GroupWithMembers, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// 组与成员由同一条 LEFT JOIN 读出,单条语句即一份读快照,不会读到删组或移除技能的中间状态;空组带一行 NULL 成员。
+	rows, err := l.db.QueryContext(ctx, `SELECT groups.id, groups.name, groups.created_at, skill_groups.skill_id
+		FROM groups LEFT JOIN skill_groups ON skill_groups.group_id = groups.id
+		ORDER BY groups.id, skill_groups.skill_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list groups with members: %w", err)
+	}
+	defer rows.Close()
+	groups = []GroupWithMembers{}
+	for rows.Next() {
+		var member sql.NullInt64
+		group, err := scanGroup(rows, &member)
+		if err != nil {
+			return nil, fmt.Errorf("read group with members: %w", err)
+		}
+		if n := len(groups); n == 0 || groups[n-1].Group.ID != group.ID {
+			groups = append(groups, GroupWithMembers{Group: group, Members: []SkillID{}})
+		}
+		if member.Valid {
+			last := &groups[len(groups)-1]
+			last.Members = append(last.Members, SkillID(member.Int64))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read groups with members: %w", err)
+	}
+	return groups, nil
 }
 
 func (l *sqliteLibrary) requireGroup(ctx context.Context, id GroupID) error {

@@ -64,7 +64,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [ ] **C5 `Activation` 记录投影的 `VersionID`。**(schema)**推后**:B5 已删除提醒字段,不返回过时投影列表;C6 判定也不依赖它。
 - [x] **C6 投影健康度。** `InspectProjections() → [{Projection, Status}]`,`Status ∈ {Current, Stale, Modified, Missing, DirectoryMissing}`。由 Library 对照磁盘,不再让前端拿 `Projection.Directory` 自行巡检。`SyncPull` 后、厂商改布局后(ADR 0011:旧目录不管)都靠它给出可见状态。Stale 的判定是"与某个非当前版本一致",扫全部版本,不需要 C5。→ spec: [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)
 - [ ] **C7 `RegisteredProject.Exists`**(或 `InspectProjects`)。Sync / 重映射后路径可能不在本机。**推后**:GUI 可自行 `stat`;C6 的 `DirectoryMissing` 已覆盖投影侧。
-- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListProjections` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。组成员批量读取另见 [#87](https://github.com/tiaot33/skills-tui/issues/87)。
+- [ ] **C8 单项 getter 与过滤。** `GetGroup`、`GetRegisteredProject`、`GetSource`;`ListProjections` 支持按 skill / scope 过滤。**推后**:GUI 拉全量自行过滤。组成员批量读取已由 `ListGroupsWithMembers` 提供([#96](https://github.com/tiaot33/skills-tui/issues/96))。
 
 ### D. 锁与并发 — ✅ 完成,spec: [#72](https://github.com/tiaot33/skills-tui/issues/72)(D1、D2,PR [#79](https://github.com/tiaot33/skills-tui/pull/79))、[#73](https://github.com/tiaot33/skills-tui/issues/73)(D3,PR [#80](https://github.com/tiaot33/skills-tui/pull/80))
 
