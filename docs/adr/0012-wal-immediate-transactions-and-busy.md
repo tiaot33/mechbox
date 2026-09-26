@@ -26,4 +26,4 @@ Under a rollback journal, readers and writers exclude each other: a long read in
 - Legacy libraries are switched on their first `Open` by this version; schema version and contents are unchanged, so a synced image still opens on an older version.
 - Listing queries read in a single statement (one snapshot), so a skill removed by the other process mid-list no longer fails the whole list.
 - **Not solved here** (topology B): atomicity of compound disk-projection operations across processes, and change notification between processes — a view in one process still goes stale until it reloads.
-- This ADR closes the Roadmap's multi-process coexistence floor; the effective journal mode should become visible through a status call when one exists.
+- This ADR settles the multi-process coexistence floor; the effective journal mode should become visible through a status call when one exists.
