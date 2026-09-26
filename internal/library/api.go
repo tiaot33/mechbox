@@ -323,6 +323,12 @@ type Group struct {
 	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间
 }
 
+// GroupMembership 是一个 Group 连同它的全部成员,由 ListGroupMemberships 一次给出整库的"技能 ↔ 组"关系。
+type GroupMembership struct {
+	Group   Group     `json:"group"`
+	Members []SkillID `json:"members"` // 成员 skill 的 ID,按 ID 升序,与 ListGroupSkills 一致;空组为空列表而非 nil
+}
+
 // AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
 type AgentCode string
 
@@ -648,6 +654,9 @@ type Library interface {
 	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) error
 	// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
 	ListGroupSkills(ctx context.Context, groupID GroupID) ([]SkillSummary, error)
+	// ListGroupMemberships 一次列出全部分组及其成员 ID,按 Group ID 升序;空组也在列。
+	// 不属于任何组的 skill 不出现在任何 Members 里。
+	ListGroupMemberships(ctx context.Context) ([]GroupMembership, error)
 
 	// skill 管理
 

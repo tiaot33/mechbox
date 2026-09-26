@@ -64,6 +64,45 @@ func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err err
 	return groups, nil
 }
 
+func (l *sqliteLibrary) ListGroupMemberships(ctx context.Context) (memberships []GroupMembership, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	// 单条 LEFT JOIN 读出组与成员,同一快照内不会被只持共享锁的 DeleteGroup / RemoveSkill 交错;空组带一行 NULL 成员。
+	rows, err := l.db.QueryContext(ctx, `SELECT groups.id, groups.name, groups.created_at, skill_groups.skill_id
+		FROM groups LEFT JOIN skill_groups ON skill_groups.group_id = groups.id
+		ORDER BY groups.id, skill_groups.skill_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list group memberships: %w", err)
+	}
+	defer rows.Close()
+	memberships = []GroupMembership{}
+	for rows.Next() {
+		var (
+			group     Group
+			createdAt string
+			member    sql.NullInt64
+		)
+		if err := rows.Scan(&group.ID, &group.Name, &createdAt, &member); err != nil {
+			return nil, fmt.Errorf("read group membership: %w", err)
+		}
+		if n := len(memberships); n == 0 || memberships[n-1].Group.ID != group.ID {
+			if group.CreatedAt, err = parseStoredTime(createdAt); err != nil {
+				return nil, fmt.Errorf("read group membership: %w", err)
+			}
+			memberships = append(memberships, GroupMembership{Group: group, Members: []SkillID{}})
+		}
+		if member.Valid {
+			last := &memberships[len(memberships)-1]
+			last.Members = append(last.Members, SkillID(member.Int64))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read group memberships: %w", err)
+	}
+	return memberships, nil
+}
+
 func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string) (group Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
