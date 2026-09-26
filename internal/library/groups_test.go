@@ -304,12 +304,13 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID})
 }
 
-func TestListGroupMembershipsReturnsEveryGroupWithMembersInOneCall(t *testing.T) {
+func TestListGroupMembershipsListsEveryGroupWithAscendingMembers(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	first := installNamedSkill(t, lib, "first")
 	second := installNamedSkill(t, lib, "second")
-	loner := installNamedSkill(t, lib, "loner")
+	// 不属于任何组的 skill 不出现在任何 Members 里,由下面的精确比对保证。
+	installNamedSkill(t, lib, "loner")
 	empty, err := lib.CreateGroup(ctx, "empty")
 	if err != nil {
 		t.Fatal(err)
@@ -354,15 +355,39 @@ func TestListGroupMembershipsReturnsEveryGroupWithMembersInOneCall(t *testing.T)
 			t.Fatalf("group %d members = %v, ListGroupSkills = %v", membership.Group.ID, membership.Members, got)
 		}
 	}
-	for _, membership := range memberships {
-		for _, id := range membership.Members {
-			if id == loner.ID {
-				t.Fatalf("skill %d outside every group listed in group %d", loner.ID, membership.Group.ID)
-			}
+}
+
+func TestListGroupMembershipsReflectsMembershipChanges(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	first := installNamedSkill(t, lib, "first")
+	second := installNamedSkill(t, lib, "second")
+	loner := installNamedSkill(t, lib, "loner")
+	empty, err := lib.CreateGroup(ctx, "empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, err := lib.CreateGroup(ctx, "both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	single, err := lib.CreateGroup(ctx, "single")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, membership := range []struct {
+		group library.GroupID
+		skill library.SkillID
+	}{
+		{both.ID, first.ID},
+		{both.ID, second.ID},
+		{single.ID, second.ID},
+	} {
+		if _, err := lib.AddSkillToGroup(ctx, membership.group, membership.skill); err != nil {
+			t.Fatal(err)
 		}
 	}
 
-	// 加入、移出、移除技能、删除组后再次读取立即反映变化。
 	if _, err := lib.AddSkillToGroup(ctx, empty.ID, loner.ID); err != nil {
 		t.Fatal(err)
 	}
