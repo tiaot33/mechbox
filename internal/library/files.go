@@ -142,3 +142,20 @@ func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 	}
 	return files, nil
 }
+
+// canonicalDirectory 给出判定"是否同一目录"用的路径:已存在的最长前缀解析符号链接,再接上尚不存在的剩余部分。
+// 只用于比较;返回给调用方的目录仍是按布局拼出的原样路径。
+func canonicalDirectory(path string) string {
+	current, rest := filepath.Clean(path), ""
+	for {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return filepath.Join(current, rest)
+		}
+		rest = filepath.Join(filepath.Base(current), rest)
+		current = parent
+	}
+}

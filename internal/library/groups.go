@@ -159,8 +159,9 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 本组组激活覆盖的投影在开事务前取齐(事务期间不能再走 l.db);删组不写盘,其余改动成员与组激活的
-	// 操作都持独占锁,取齐后不会变。
+	// 本组组激活覆盖的投影在开事务前取齐(事务期间不能再走 l.db)。删组不写盘,持共享锁即可:会新建投影、
+	// 改成员或组激活的操作都持独占锁,不会与它交错;能交错的 UnregisterProject / RemoveSkill 只删记录,
+	// 被它们删掉的投影在下面的保留判定里只是一次空更新,而保留判定本身在事务内按当时状态重新检查。
 	covered, err := l.memberProjections(ctx, id, 0, scopeRow{})
 	if err != nil {
 		return err

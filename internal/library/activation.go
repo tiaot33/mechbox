@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -232,12 +233,14 @@ func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name str
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, fmt.Errorf("read claimants: %w", err)
 	}
+	// 按规范化路径比较:主目录或 Agent 布局目录可能经符号链接指到另一个 Scope 的目录。
+	want := canonicalDirectory(target.directory)
 	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())
 		if err != nil {
 			return nil, err
 		}
-		if directory != target.directory {
+		if canonicalDirectory(directory) != want {
 			continue
 		}
 		return &other, nil
@@ -283,6 +286,9 @@ func (l *sqliteLibrary) PreviewActivate(ctx context.Context, id SkillID, scope S
 	if err != nil {
 		return preview, err
 	}
+	if err := target.requireRoot("preview activate"); err != nil {
+		return preview, err
+	}
 	return l.previewActivate(ctx, skill.ID, skill.Name, target)
 }
 
@@ -298,10 +304,12 @@ func (l *sqliteLibrary) PreviewActivateGroup(ctx context.Context, groupID GroupI
 	if err != nil {
 		return preview, err
 	}
-	counts := make(map[string]int)
+	if err := target.requireRoot("preview activate group"); err != nil {
+		return preview, err
+	}
+	counts := memberNameCounts(members)
 	for _, member := range members {
-		counts[member.Name]++
-		if counts[member.Name] == 2 {
+		if counts[member.Name] > 1 && !slices.Contains(preview.DuplicateNames, member.Name) {
 			preview.DuplicateNames = append(preview.DuplicateNames, member.Name)
 		}
 	}
@@ -311,9 +319,23 @@ func (l *sqliteLibrary) PreviewActivateGroup(ctx context.Context, groupID GroupI
 		if err != nil {
 			return GroupActivatePreview{}, err
 		}
+		// 与执行时同序:已投影的照常补组激活,其余同名成员先于占用 / 未记录文件夹判定为跳过。
+		if counts[member.Name] > 1 && item.Status != ActivateProjected {
+			item.Status = ActivateDuplicate
+			item.OccupierSkillID, item.OccupierName = 0, ""
+		}
 		preview.Members = append(preview.Members, item)
 	}
 	return preview, nil
+}
+
+// memberNameCounts 统计组成员里每个名字出现的次数;大于 1 的是组内同名,投影会落到同一路径。
+func memberNameCounts(members []SkillSummary) map[string]int {
+	counts := make(map[string]int, len(members))
+	for _, member := range members {
+		counts[member.Name]++
+	}
+	return counts
 }
 
 func (l *sqliteLibrary) previewActivate(ctx context.Context, id SkillID, name string, scope resolvedScope) (ActivatePreview, error) {
@@ -355,11 +377,11 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 	if err != nil {
 		return err
 	}
-	if err := target.requireRoot("activate skill"); err != nil {
-		return err
-	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := target.requireRoot("activate skill"); err != nil {
 		return err
 	}
 	existing, err := findProjection(ctx, l.db, id, target.scopeRow)
@@ -390,7 +412,7 @@ func (l *sqliteLibrary) Activate(ctx context.Context, id SkillID, scope Scope, o
 type placement struct {
 	skill  Skill
 	scope  resolvedScope
-	target string // 目标文件夹
+	folder string // 目标文件夹
 	stage  string // 暂存目录;移入目标后置空
 	backup string // 被替换的未记录目标(Overwrite)的备份;"" 表示原本无目标
 	moved  bool   // 暂存是否已移入目标位置
@@ -405,11 +427,11 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 		for i := len(placements) - 1; i >= 0; i-- {
 			item := placements[i]
 			if item.moved {
-				if err := os.RemoveAll(item.target); err != nil {
+				if err := os.RemoveAll(item.folder); err != nil {
 					restoreErr = errors.Join(restoreErr, err)
 				} else if item.backup != "" {
 					// 复位失败时保留备份,避免丢失用户原始内容。
-					restoreErr = errors.Join(restoreErr, os.Rename(item.backup, item.target))
+					restoreErr = errors.Join(restoreErr, os.Rename(item.backup, item.folder))
 				}
 			}
 			if item.stage != "" {
@@ -433,13 +455,13 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 			return errors.Join(err, rollback())
 		}
 		item.stage = stage
-		item.target = filepath.Join(item.scope.directory, item.skill.Name)
+		item.folder = filepath.Join(item.scope.directory, item.skill.Name)
 	}
 	for _, item := range placements {
 		if err := ctx.Err(); err != nil {
 			return errors.Join(err, rollback())
 		}
-		backup, err := moveStageIntoPlace(item.stage, item.target)
+		backup, err := moveStageIntoPlace(item.stage, item.folder)
 		if err != nil {
 			return errors.Join(err, rollback())
 		}
@@ -603,7 +625,7 @@ type memberPlan struct {
 	opts       ActivateOptions
 	results    []GroupMemberResult
 	placements []*placement
-	planned    map[string]bool // 本批已计划的目标文件夹,两个 Scope 解析到同一目录时后者按占用跳过
+	planned    map[string]bool // 本批已计划的目标文件夹(规范化路径),两个 Scope 实际落在同一目录时后者按占用跳过
 }
 
 func newMemberPlan(operation string, opts ActivateOptions) *memberPlan {
@@ -627,7 +649,7 @@ func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id Ski
 		if err != nil {
 			return err
 		}
-		plan.planned[filepath.Join(target.directory, name)] = true
+		plan.planned[filepath.Join(canonicalDirectory(target.directory), name)] = true
 		plan.placements = append(plan.placements, &placement{skill: skill, scope: target})
 		result.Outcome = MemberProjected
 	}
@@ -645,7 +667,7 @@ func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id 
 	if duplicate {
 		return preconditionError(plan.operation, "multiple members project to the same target", ErrorDetails{Name: name, Path: path}), nil
 	}
-	if plan.planned[path] {
+	if plan.planned[filepath.Join(canonicalDirectory(target.directory), name)] {
 		return preconditionError(plan.operation, "another scope already projects this skill into the same directory", ErrorDetails{Path: target.directory}), nil
 	}
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict)
@@ -696,10 +718,7 @@ func (l *sqliteLibrary) ActivateGroup(ctx context.Context, groupID GroupID, scop
 		return nil, err
 	}
 	// 组成员可跨来源并重名,但同名成员会投影到同一路径;同名的都跳过,不按顺序先到先得。
-	counts := make(map[string]int, len(members))
-	for _, member := range members {
-		counts[member.Name]++
-	}
+	counts := memberNameCounts(members)
 	plan := newMemberPlan("activate group", opts)
 	for _, member := range members {
 		if err := l.planMember(ctx, plan, member.ID, member.Name, target, counts[member.Name] > 1); err != nil {

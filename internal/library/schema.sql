@@ -85,10 +85,10 @@ CREATE TABLE IF NOT EXISTS agents (
 -- 投影记录:某 skill 出现在某个 Scope 里。Scope 只以身份记录——Agent 代码 + 可选的已注册项目,
 -- 不存目录;目录在列表和操作时按 agents 表的现行布局算出。
 -- 一条投影由若干激活撑着:直接激活(direct)和/或覆盖它的组激活(该 skill 是成员且组已激活到此 Scope,
--- 由 skill_groups × group_activations 推出,不另存);全部激活都撤销后,磁盘副本和这行记录一起删除。
+-- 由 skill_groups × group_activations 推出,不另存);全部激活都撤销后,投影文件夹和这行记录一起删除。
 CREATE TABLE IF NOT EXISTS projections (
     id INTEGER PRIMARY KEY,                 -- 稳定记录 ID
-    skill_id INTEGER NOT NULL REFERENCES skills(id), -- 被投影的 skill 主键;此记录不绑定版本,更新入库不会自动重写磁盘副本
+    skill_id INTEGER NOT NULL REFERENCES skills(id), -- 被投影的 skill 主键;此记录不绑定版本,更新入库不会自动重写投影文件夹
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
     direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接激活;0 = 无直接激活,由覆盖它的组激活保留投影

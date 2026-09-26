@@ -47,7 +47,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				t.Fatal(err)
 			}
 			var skills []library.Skill
-			for _, name := range []string{"first", "second", "independent", "shared"} {
+			for _, name := range []string{"first", "second", "direct", "shared"} {
 				source := filepath.Join(t.TempDir(), name)
 				writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
 				skill, err := lib.Install(ctx, library.LocalSource{Path: source})
@@ -55,7 +55,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 					t.Fatal(err)
 				}
 				skills = append(skills, skill)
-				if name != "independent" {
+				if name != "direct" {
 					if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 						t.Fatal(err)
 					}
@@ -256,15 +256,15 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("group never projected first member")
 	}
-	individualDone := make(chan error, 1)
+	directDone := make(chan error, 1)
 	go func() {
-		individualDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		directDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
 	}()
 	// 旧实现允许直接激活在回滚前提交;串行实现则等分组回滚后再完成。
-	var individualErr error
+	var directErr error
 	finished := false
 	select {
-	case individualErr = <-individualDone:
+	case directErr = <-directDone:
 		finished = true
 	case <-time.After(200 * time.Millisecond):
 	}
@@ -273,13 +273,13 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 		t.Fatalf("group error = %v", err)
 	}
 	if !finished {
-		individualErr = <-individualDone
+		directErr = <-directDone
 	}
-	if individualErr != nil {
-		t.Fatal(individualErr)
+	if directErr != nil {
+		t.Fatal(directErr)
 	}
 	if content, err := os.ReadFile(target); err != nil || string(content) != "first" {
-		t.Fatalf("successful independent projection lost: %q, %v", content, err)
+		t.Fatalf("successful direct activation projection lost: %q, %v", content, err)
 	}
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}

@@ -7,7 +7,7 @@ A Group is orthogonal to a **Collection**: a Collection groups skills automatica
 ## Consequences
 
 - `groups` (id, name UNIQUE, created_at) + `skill_groups` (skill_id, group_id); many-to-many — a skill can be in several Groups.
-- Group names are unique. Create / rename / migrate on a collision append `#N` (smallest free N starting at 2), case-sensitive, no extra space. The operation does not fail.
+- Group names are unique. Create / rename on a collision append `#N` (smallest free N starting at 2), case-sensitive, no extra space. The operation does not fail.
 - Groups are flat; no group-within-a-group.
 - A Group references a skill's identity, not a specific version (pin/follow is a later Activation-behaviour decision).
 - Activating a Group expands to one Projection per member skill. Each Projection is backed by Activations: a direct activation of the skill (recorded on the Projection), and/or the Activations of Groups that cover it — derived from membership and the Groups' Activations, not stored per Projection (see 2026-09-25; terms in `CONTEXT.md`).

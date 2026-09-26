@@ -380,7 +380,7 @@ type ActivateOptions struct {
 	OnConflict ConflictPolicy `json:"on_conflict"`
 }
 
-// ActivatePreviewStatus 是激活前的目标状态,不受执行时冲突策略影响。
+// ActivatePreviewStatus 是激活前的目标状态,不受执行时冲突策略影响;判定顺序与执行时一致。
 type ActivatePreviewStatus string
 
 const (
@@ -388,6 +388,7 @@ const (
 	ActivateProjected ActivatePreviewStatus = "projected" // 本技能在本作用域已有投影
 	ActivateOccupied  ActivatePreviewStatus = "occupied"  // 另一条投影占用目标
 	ActivateUntracked ActivatePreviewStatus = "untracked" // 目标存在但没有投影记录
+	ActivateDuplicate ActivatePreviewStatus = "duplicate" // 仅组预检:与组内其他成员同名且尚未投影,激活时会被跳过;优先于 occupied / untracked / ready
 )
 
 // ActivatePreview 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
@@ -401,8 +402,8 @@ type ActivatePreview struct {
 	OccupierName    string                `json:"occupier_name,omitempty"`
 }
 
-// GroupActivatePreview 按组成员顺序报告各自状态;同名列表里尚未投影的成员在激活时会被跳过
-// (ready / untracked 的也一样),已有投影的那个照常只补组激活。
+// GroupActivatePreview 按组成员顺序报告各自状态。同名成员里尚未投影的标为 duplicate,激活时会被跳过;
+// 已有投影的那个仍是 projected,照常只补组激活。DuplicateNames 列出组内重复的名字。
 type GroupActivatePreview struct {
 	Members        []ActivatePreview `json:"members"`
 	DuplicateNames []string          `json:"duplicate_names,omitempty"`
@@ -642,7 +643,8 @@ type Library interface {
 	// 激活与预检方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
-	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound。
+	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
+	// 作用域根目录不存在时与 Activate 一样返回 FailedPrecondition。
 	PreviewActivate(ctx context.Context, id SkillID, scope Scope) (ActivatePreview, error)
 	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时只补上直接激活,
 	// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重写)。作用域根目录(全局为用户主目录,
@@ -651,6 +653,7 @@ type Library interface {
 	// Deactivate 撤销直接激活;若仍有组激活撑着该投影,投影保留。
 	Deactivate(ctx context.Context, id SkillID, scope Scope) error
 	// PreviewActivateGroup 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
+	// 作用域根目录不存在时与 ActivateGroup 一样返回 FailedPrecondition。
 	PreviewActivateGroup(ctx context.Context, groupID GroupID, scope Scope) (GroupActivatePreview, error)
 	// ActivateGroup 在 Scope 记一个组激活(空组也记;已有则不变),并按成员顺序逐条返回结果:能投影的都投影,
 	// 已有投影的只补上组激活、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未投影(同名的都跳过)
