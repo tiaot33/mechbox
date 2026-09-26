@@ -300,7 +300,7 @@ func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 
 func inspectProjections(t *testing.T, lib library.Library) []library.ProjectionInspection {
 	t.Helper()
-	got, err := lib.InspectProjections(t.Context())
+	got, err := lib.InspectProjections(t.Context(), library.ProjectionFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -875,8 +875,21 @@ func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Proj
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	return l.listProjections(ctx, 0, nil)
+}
+
+// listProjections 按 ListProjections 的顺序读出投影;skillID 非 0 时只看该技能,scope 非 nil 时只看该 Scope。
+// 调用方持共享或独占锁。
+func (l *sqliteLibrary) listProjections(ctx context.Context, skillID SkillID, scope *scopeRow) (projections []Projection, err error) {
+	var filter scopeRow
+	if scope != nil {
+		filter = *scope
+	}
 	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。
-	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM projections ORDER BY skill_id, agent, project_id`)
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM projections
+		WHERE (? = 0 OR skill_id = ?) AND (? = '' OR (agent = ? AND project_id IS ?))
+		ORDER BY skill_id, agent, project_id`,
+		skillID, skillID, filter.agent, filter.agent, filter.projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list projections: %w", err)
 	}
@@ -932,11 +945,11 @@ func (l *sqliteLibrary) ListProjections(ctx context.Context) (projections []Proj
 	return projections, nil
 }
 
-func (l *sqliteLibrary) InspectProjections(ctx context.Context) (inspections []ProjectionInspection, err error) {
+func (l *sqliteLibrary) InspectProjections(ctx context.Context, filter ProjectionFilter) (inspections []ProjectionInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	projections, err := l.ListProjections(ctx)
+	projections, err := l.filteredProjections(ctx, "inspect projections", filter)
 	if err != nil {
 		return nil, err
 	}
