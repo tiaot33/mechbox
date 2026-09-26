@@ -69,7 +69,16 @@ var discoveryPriorityDirs = []string{
 	".roo/skills", ".trae/skills", ".windsurf/skills", ".zcode/skills", ".zencoder/skills",
 }
 
+// discoveryStep 是遍历按顺序留下的一步:file 非空表示待读取校验的 SKILL.md,否则是目录诊断 reason。
+type discoveryStep struct {
+	dir    string
+	file   string
+	reason error
+}
+
 // discoverCandidates 负责唯一的发现顺序与有效性规则;load 只补齐有效候选的文件或 blob 定位。
+// 遍历只取决于目录结构与 SKILL.md 是否存在,不取决于正文:所以每一轮先按顺序记下步骤,
+// 再并发读取本轮的 SKILL.md,最后按原顺序处理,诊断顺序与同名先到先得都与逐个读取一致。
 func discoverCandidates(ctx context.Context, view sourceDirectoryView, root string, load func(*fetchedSkill, string, []byte) error) (discoveredSource, error) {
 	result := discoveredSource{skills: []fetchedSkill{}}
 	pluginDirs, groups, err := pluginSearchPaths(ctx, view, root)
@@ -78,68 +87,90 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 	}
 	processed := map[string]bool{}
 	names := map[string]bool{}
+	var steps []discoveryStep
 	diagnose := func(dir string, err error) {
 		result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: dir, Reason: err.Error()})
 	}
-	inspect := func(dir string) (bool, error) {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
+	inspect := func(dir string) bool {
 		entries, err := readLinkedDir(view, root, dir)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) && !processed[dir] {
-				diagnose(dir, err)
+				steps = append(steps, discoveryStep{dir: dir, reason: err})
 				processed[dir] = true
 			}
-			return false, nil
+			return false
 		}
 		index := slices.IndexFunc(entries, func(e sourceEntry) bool { return e.name == "SKILL.md" })
 		if index < 0 {
 			index = slices.IndexFunc(entries, func(e sourceEntry) bool { return strings.EqualFold(e.name, "SKILL.md") })
 		}
 		if index < 0 {
-			return false, nil
+			return false
 		}
 		if processed[dir] {
-			return true, nil
+			return true
 		}
 		processed[dir] = true
 		entry := entries[index]
 		if !entry.mode.IsRegular() {
-			diagnose(dir, errors.New("SKILL.md must be a regular file"))
-			return true, nil
+			steps = append(steps, discoveryStep{dir: dir, reason: errors.New("SKILL.md must be a regular file")})
+			return true
 		}
-		content, err := view.readFile(ctx, path.Join(dir, entry.name))
-		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || githubContentsUnavailable(err) {
-				return true, err
-			}
-			diagnose(dir, err)
-			return true, nil
-		}
-		preview, err := candidateMetadata(content, dir)
-		if err != nil {
-			diagnose(dir, err)
-			return true, nil
-		}
-		if names[preview.Name] {
-			diagnose(dir, errors.New("duplicate skill name, first occurrence kept"))
-			return true, nil
-		}
-		preview.PluginName = groups[dir]
-		skill := fetchedSkill{name: preview.Name, preview: preview}
-		if err := load(&skill, entry.name, content); err != nil {
-			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || githubContentsUnavailable(err) {
-				return true, err
-			}
-			diagnose(dir, err)
-			return true, nil
-		}
-		names[preview.Name] = true
-		result.skills = append(result.skills, skill)
-		return true, nil
+		steps = append(steps, discoveryStep{dir: dir, file: entry.name})
+		return true
 	}
-	if _, err := inspect(root); err != nil {
+	// flush 并发读取本轮记下的 SKILL.md,再按顺序处理;中止发现的错误取消其余读取并原样返回。
+	flush := func() error {
+		defer func() { steps = steps[:0] }()
+		contents := make([][]byte, len(steps))
+		readErrs := make([]error, len(steps))
+		err := runConcurrent(ctx, len(steps), func(ctx context.Context, i int) error {
+			if steps[i].file == "" {
+				return nil
+			}
+			contents[i], readErrs[i] = view.readFile(ctx, path.Join(steps[i].dir, steps[i].file))
+			if readErrs[i] != nil && abortsDiscovery(ctx, readErrs[i]) {
+				return readErrs[i]
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		for i, step := range steps {
+			if step.file == "" {
+				diagnose(step.dir, step.reason)
+				continue
+			}
+			if readErrs[i] != nil {
+				diagnose(step.dir, readErrs[i])
+				continue
+			}
+			preview, err := candidateMetadata(contents[i], step.dir)
+			if err != nil {
+				diagnose(step.dir, err)
+				continue
+			}
+			if names[preview.Name] {
+				diagnose(step.dir, errors.New("duplicate skill name, first occurrence kept"))
+				continue
+			}
+			preview.PluginName = groups[step.dir]
+			skill := fetchedSkill{name: preview.Name, preview: preview}
+			if err := load(&skill, step.file, contents[i]); err != nil {
+				if abortsDiscovery(ctx, err) {
+					return err
+				}
+				diagnose(step.dir, err)
+				continue
+			}
+			names[preview.Name] = true
+			result.skills = append(result.skills, skill)
+		}
+		return nil
+	}
+	inspect(root)
+	if err := flush(); err != nil {
 		return result, err
 	}
 	if len(result.skills) != 0 {
@@ -171,10 +202,7 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 				continue
 			}
 			child := path.Join(dir, entry.name)
-			found, err := inspect(child)
-			if err != nil {
-				return err
-			}
+			found := inspect(child)
 			if depth > 1 && !excluded && (fallback || !found) {
 				if err := walk(child, depth-1, fallback); err != nil {
 					return err
@@ -196,10 +224,21 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 			return result, err
 		}
 	}
+	if err := flush(); err != nil {
+		return result, err
+	}
 	if len(result.skills) == 0 {
 		if err := walk(root, 5, true); err != nil {
 			return result, err
 		}
+		if err := flush(); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
+}
+
+// abortsDiscovery 表示错误不能记成候选诊断:取消、超时,或 GitHub 快路径给不出完整结果(应改走克隆)。
+func abortsDiscovery(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || githubContentsUnavailable(err)
 }

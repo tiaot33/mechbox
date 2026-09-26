@@ -3,6 +3,7 @@ package library_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library"
 )
@@ -422,6 +424,82 @@ func TestGitHubContentsFallsBackToCloneWhenSkillHasUnsupportedObject(t *testing.
 	}
 }
 
+// 并发上限与实现里的 fetchConcurrency 一致。
+const gitHubFetchConcurrency = 8
+
+func TestGitHubFetchReadsSkillMarkdownConcurrentlyWithinLimitAndKeepsOrder(t *testing.T) {
+	files := map[string]repoFile{}
+	var names []string
+	for i := range 20 {
+		name := fmt.Sprintf("skill-%02d", i)
+		names = append(names, name)
+		files[name+"/SKILL.md"] = repoFile{content: []byte(skillDocument(name, "body")), mode: 0o644}
+	}
+	// 同名候选仍是遍历顺序里先到的留下,即使后到的先读完。
+	files["skill-99/SKILL.md"] = repoFile{content: []byte(skillDocument("skill-00", "duplicate")), mode: 0o644}
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, files))
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	api.holdBlobs(50 * time.Millisecond)
+
+	fetch, err := openTestLibrary(t).Fetch(t.Context(), gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, skill := range fetch.Skills {
+		got = append(got, skill.Name)
+	}
+	if !slices.Equal(got, names) {
+		t.Fatalf("candidates = %v, want %v", got, names)
+	}
+	wantDiagnostics := []library.CandidateDiagnostic{{Path: "skill-99", Reason: "duplicate skill name, first occurrence kept"}}
+	if !reflect.DeepEqual(fetch.Diagnostics, wantDiagnostics) {
+		t.Fatalf("diagnostics = %#v, want %#v", fetch.Diagnostics, wantDiagnostics)
+	}
+	if peak := api.peakBlobs(); peak != gitHubFetchConcurrency {
+		t.Fatalf("concurrent SKILL.md reads peaked at %d, want %d", peak, gitHubFetchConcurrency)
+	}
+}
+
+func TestGitHubInstallFetchFetchesSelectedFilesConcurrentlyWithinLimit(t *testing.T) {
+	files := map[string]repoFile{}
+	for _, name := range []string{"first", "second", "third"} {
+		files[name+"/SKILL.md"] = repoFile{content: []byte(skillDocument(name, "body")), mode: 0o644}
+		for i := range 5 {
+			files[fmt.Sprintf("%s/ref/%d.md", name, i)] = repoFile{content: fmt.Appendf(nil, "%s %d", name, i), mode: 0o644}
+		}
+	}
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, files))
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+
+	lib := openTestLibrary(t)
+	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.holdBlobs(50 * time.Millisecond)
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+	if err != nil || len(installed) != 3 {
+		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	}
+	for _, skill := range installed {
+		if len(skill.Files) != 6 {
+			t.Fatalf("%s has %d files, want 6", skill.Name, len(skill.Files))
+		}
+		for _, file := range skill.Files {
+			want := files[skill.Name+"/"+file.Path].content
+			if !slices.Equal(file.Content, want) {
+				t.Fatalf("%s/%s = %q, want %q", skill.Name, file.Path, file.Content, want)
+			}
+		}
+	}
+	if peak := api.peakBlobs(); peak != gitHubFetchConcurrency {
+		t.Fatalf("concurrent blob fetches peaked at %d, want %d", peak, gitHubFetchConcurrency)
+	}
+}
+
 type repoFile struct {
 	content []byte
 	mode    os.FileMode
@@ -552,6 +630,23 @@ type gitHubAPIMock struct {
 	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸;用来把 InstallFetch 的物化阶段停在网络上。
 	blobGate  *networkGate
 	gatedBlob string
+	// blobHold 非零时每个 blob 请求在途停留这么久,blobPeak 记下同时在途的最大数,用来观察并发度。
+	blobHold     time.Duration
+	blobInFlight int
+	blobPeak     int
+}
+
+// holdBlobs 让之后的每个 blob 请求在途停留 hold,并清零并发峰值。
+func (m *gitHubAPIMock) holdBlobs(hold time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blobHold, m.blobInFlight, m.blobPeak = hold, 0, 0
+}
+
+func (m *gitHubAPIMock) peakBlobs() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.blobPeak
 }
 
 // gateBlob 让指定 SHA 的 blob 请求受 gate 控制;须在发出请求前调用。
@@ -685,6 +780,19 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	m.mu.Unlock()
 	if gate != nil && r.URL.Path == "/repos/owner/repo/git/blobs/"+gated {
 		gate.pass()
+	}
+	if strings.HasPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/") {
+		m.mu.Lock()
+		hold := m.blobHold
+		m.blobInFlight++
+		m.blobPeak = max(m.blobPeak, m.blobInFlight)
+		m.mu.Unlock()
+		time.Sleep(hold)
+		defer func() {
+			m.mu.Lock()
+			m.blobInFlight--
+			m.mu.Unlock()
+		}()
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
