@@ -305,13 +305,30 @@ func installNamedSkill(t *testing.T, lib library.Library, name string) library.S
 // 多次以同名调用会得到不同 Source 的同名 skill,靠正文区分。
 func installSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
 	t.Helper()
+	skill, _ := installLocalSkill(t, lib, name, body)
+	return skill
+}
+
+// installLocalSkill 从独立的本地 Source 安装 skill,并返回 Source 目录,供之后改内容再 Update。
+func installLocalSkill(t *testing.T, lib library.Library, name, body string) (library.Skill, string) {
+	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
 	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return skill
+	return skill, source
+}
+
+// listProjections 读出全部投影,失败即终止测试。
+func listProjections(t *testing.T, lib library.Library) []library.Projection {
+	t.Helper()
+	projections, err := lib.ListProjections(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return projections
 }
 
 // requireNoStagedEntries 断言 Scope 目录下没有以 "." 开头的暂存残留(激活暂存或删除暂存)。

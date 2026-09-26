@@ -12,18 +12,6 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// installLocalSkill 从独立的本地 Source 安装 skill,并返回 Source 目录,供之后改内容再 Update。
-func installLocalSkill(t *testing.T, lib library.Library, name, body string) (library.Skill, string) {
-	t.Helper()
-	source := filepath.Join(t.TempDir(), name)
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return skill, source
-}
-
 // updateLocalSkill 改写本地 Source 的 SKILL.md 并 Update,使已有投影变为 stale。
 func updateLocalSkill(t *testing.T, lib library.Library, id library.SkillID, source, body string) {
 	t.Helper()
@@ -49,21 +37,12 @@ func requireRewriteResults(t *testing.T, got, want []library.RewriteResult) {
 	}
 }
 
-func rewritten(id library.SkillID, scope library.Scope) library.RewriteResult {
+func rewrittenResult(id library.SkillID, scope library.Scope) library.RewriteResult {
 	return library.RewriteResult{SkillID: id, Scope: scope, Outcome: library.Rewritten}
 }
 
 func scopeFilter(scope library.Scope) library.ProjectionFilter {
 	return library.ProjectionFilter{Scope: &scope}
-}
-
-func listProjections(t *testing.T, lib library.Library) []library.Projection {
-	t.Helper()
-	projections, err := lib.ListProjections(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return projections
 }
 
 func TestRewriteProjectionsKeepsActivations(t *testing.T) {
@@ -104,7 +83,7 @@ func TestRewriteProjectionsKeepsActivations(t *testing.T) {
 	got := rewriteProjections(t, lib, scopeFilter(scope), library.RewriteOptions{})
 
 	requireRewriteResults(t, got, []library.RewriteResult{
-		rewritten(groupOnly.ID, scope), rewritten(directOnly.ID, scope), rewritten(both.ID, scope),
+		rewrittenResult(groupOnly.ID, scope), rewrittenResult(directOnly.ID, scope), rewrittenResult(both.ID, scope),
 	})
 	if after := listProjections(t, lib); !reflect.DeepEqual(after, before) {
 		t.Fatalf("ListProjections after rewrite = %#v, want %#v", after, before)
@@ -158,7 +137,7 @@ func TestRewriteProjectionsBySkillAndByScope(t *testing.T) {
 	// 只给技能:它在所有作用域的投影都跟上,顺序同 ListProjections;另一个技能不受影响。
 	got := rewriteProjections(t, lib, library.ProjectionFilter{SkillID: updated.ID}, library.RewriteOptions{})
 	requireRewriteResults(t, got, []library.RewriteResult{
-		rewritten(updated.ID, claude), rewritten(updated.ID, codex), rewritten(updated.ID, projectScope),
+		rewrittenResult(updated.ID, claude), rewrittenResult(updated.ID, codex), rewrittenResult(updated.ID, projectScope),
 	})
 	requireInspectionStatuses(t, lib,
 		library.ProjectionCurrent, library.ProjectionCurrent, library.ProjectionCurrent,
@@ -168,7 +147,7 @@ func TestRewriteProjectionsBySkillAndByScope(t *testing.T) {
 	got = rewriteProjections(t, lib, scopeFilter(codex), library.RewriteOptions{})
 	requireRewriteResults(t, got, []library.RewriteResult{
 		{SkillID: updated.ID, Scope: codex, Outcome: library.RewriteCurrent},
-		rewritten(other.ID, codex),
+		rewrittenResult(other.ID, codex),
 	})
 	requireInspectionStatuses(t, lib,
 		library.ProjectionCurrent, library.ProjectionCurrent, library.ProjectionCurrent,
@@ -176,7 +155,7 @@ func TestRewriteProjectionsBySkillAndByScope(t *testing.T) {
 
 	// 两者都给:单条重写。
 	got = rewriteProjections(t, lib, library.ProjectionFilter{SkillID: other.ID, Scope: &claude}, library.RewriteOptions{})
-	requireRewriteResults(t, got, []library.RewriteResult{rewritten(other.ID, claude)})
+	requireRewriteResults(t, got, []library.RewriteResult{rewrittenResult(other.ID, claude)})
 	requireInspectionStatuses(t, lib,
 		library.ProjectionCurrent, library.ProjectionCurrent, library.ProjectionCurrent,
 		library.ProjectionCurrent, library.ProjectionCurrent)
@@ -212,14 +191,14 @@ func TestRewriteProjectionsRefusesModifiedUnlessOverwrite(t *testing.T) {
 		t.Fatalf("RewriteProjections()[0] = %#v, want failed for edited", got)
 	}
 	requireErrorDetails(t, got[0].Error, library.FailedPrecondition, library.ErrorDetails{Path: folder})
-	requireRewriteResults(t, got[1:], []library.RewriteResult{rewritten(stale.ID, scope)})
+	requireRewriteResults(t, got[1:], []library.RewriteResult{rewrittenResult(stale.ID, scope)})
 	if diskAfter := snapshotTree(t, folder); !reflect.DeepEqual(diskAfter, diskBefore) {
 		t.Fatalf("modified projection changed: %#v, want %#v", diskAfter, diskBefore)
 	}
 	requireInspectionStatuses(t, lib, library.ProjectionModified, library.ProjectionCurrent)
 
 	got = rewriteProjections(t, lib, library.ProjectionFilter{SkillID: edited.ID}, library.RewriteOptions{OnConflict: library.Overwrite})
-	requireRewriteResults(t, got, []library.RewriteResult{rewritten(edited.ID, scope)})
+	requireRewriteResults(t, got, []library.RewriteResult{rewrittenResult(edited.ID, scope)})
 	requireInspectionStatuses(t, lib, library.ProjectionCurrent, library.ProjectionCurrent)
 	if _, err := os.Lstat(filepath.Join(folder, "notes.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("overwrite kept stray file: %v", err)
@@ -257,7 +236,7 @@ func TestRewriteProjectionsRecreatesMissingFolderAndDirectory(t *testing.T) {
 
 	got := rewriteProjections(t, lib, library.ProjectionFilter{SkillID: skill.ID}, library.RewriteOptions{})
 
-	requireRewriteResults(t, got, []library.RewriteResult{rewritten(skill.ID, claude), rewritten(skill.ID, codex)})
+	requireRewriteResults(t, got, []library.RewriteResult{rewrittenResult(skill.ID, claude), rewrittenResult(skill.ID, codex)})
 	requireInspectionStatuses(t, lib, library.ProjectionCurrent, library.ProjectionCurrent)
 	requireProjection(t, claudeDirectory, skill.Name, "# example\n")
 	requireProjection(t, codexDirectory, skill.Name, "# example\n")
@@ -299,7 +278,7 @@ func TestRewriteProjectionsFailsWithoutCreatingMissingProjectRoot(t *testing.T) 
 	if len(got) != 2 {
 		t.Fatalf("RewriteProjections() = %#v, want 2 results", got)
 	}
-	requireRewriteResults(t, got[:1], []library.RewriteResult{rewritten(skill.ID, global)})
+	requireRewriteResults(t, got[:1], []library.RewriteResult{rewrittenResult(skill.ID, global)})
 	if got[1].SkillID != skill.ID || got[1].Scope != projectScope || got[1].Outcome != library.RewriteFailed {
 		t.Fatalf("RewriteProjections()[1] = %#v, want failed for project scope", got[1])
 	}
@@ -338,7 +317,7 @@ func TestRewriteProjectionsIgnoresMembersSkippedByGroupActivation(t *testing.T) 
 	updateLocalSkill(t, lib, projected.ID, projectedSource, "# projected v2\n")
 
 	got := rewriteProjections(t, lib, scopeFilter(scope), library.RewriteOptions{OnConflict: library.Overwrite})
-	requireRewriteResults(t, got, []library.RewriteResult{rewritten(projected.ID, scope)})
+	requireRewriteResults(t, got, []library.RewriteResult{rewrittenResult(projected.ID, scope)})
 	requireProjection(t, directory, skipped.Name, "# foreign\n")
 
 	// 按技能筛选一个没有投影的已知技能:空结果,不报错。
@@ -441,7 +420,7 @@ func TestRewriteProjectionsCancelReturnsCompletedItems(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RewriteProjections() error = %v, want context.Canceled in chain", err)
 	}
-	requireRewriteResults(t, got, []library.RewriteResult{rewritten(first.ID, scope)})
+	requireRewriteResults(t, got, []library.RewriteResult{rewrittenResult(first.ID, scope)})
 	requireInspectionStatuses(t, lib, library.ProjectionCurrent, library.ProjectionStale)
 
 	canceled, cancel := context.WithCancel(ctx)

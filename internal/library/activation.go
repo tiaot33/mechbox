@@ -945,6 +945,27 @@ func (l *sqliteLibrary) listProjections(ctx context.Context, skillID SkillID, sc
 	return projections, nil
 }
 
+// filteredProjections 校验筛选条件后按 ListProjections 的顺序读出范围内的投影:Scope 须合法且可解析,
+// 技能须存在;已知但没有投影时返回空。持共享锁,嵌套在调用方的锁内时复用。
+func (l *sqliteLibrary) filteredProjections(ctx context.Context, operation string, filter ProjectionFilter) ([]Projection, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	var scope *scopeRow
+	if filter.Scope != nil {
+		target, err := l.resolveScope(ctx, operation, *filter.Scope)
+		if err != nil {
+			return nil, err
+		}
+		scope = &target.scopeRow
+	}
+	if filter.SkillID != 0 {
+		if _, err := l.getSummary(ctx, filter.SkillID); err != nil {
+			return nil, err
+		}
+	}
+	return l.listProjections(ctx, filter.SkillID, scope)
+}
+
 func (l *sqliteLibrary) InspectProjections(ctx context.Context, filter ProjectionFilter) (inspections []ProjectionInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()

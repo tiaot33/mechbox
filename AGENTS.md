@@ -10,7 +10,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/update.go` + `batch_update.go` — 单项与批量更新检查;`search.go` 负责市场搜索。
 - `internal/library/groups.go` + `projects.go` — Group 成员管理、项目注册与 Scope。
 - `internal/library/activation.go` — 直接激活与组激活、投影记录、磁盘暂存与回滚。
-- `internal/library/rewrite.go` — 投影筛选(`ProjectionFilter`,重写与巡检共用)与重写:把投影带回当前版本,不改激活。
+- `internal/library/rewrite.go` — 重写:把投影带回当前版本,不改激活;筛选 `ProjectionFilter` 与巡检共用(实现在 `activation.go`)。
 - `internal/library/sync.go` — 整库与 S3 的推拉同步(SigV4 签名、快照、远端身份与项目路径重映射)。
 - `internal/library/files.go` + `errors.go` — 共享文件操作与内部错误转换。
 - `internal/library/*_test.go` — 按行为组织的公开门面规格(`package library_test`);共享辅助函数在 `test_helpers_test.go`。
