@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"slices"
 	"strconv"
@@ -29,10 +28,11 @@ const githubAPIHost = "api.github.com"
 var errGitHubContentsFallback = errors.New("github contents api unavailable")
 
 type githubBlob struct {
-	path    string // Skill 内相对路径
-	sha     string
-	mode    FileMode
-	content []byte // 已取到的正文;预览阶段通常只有 SKILL.md
+	path     string // Skill 内相对路径
+	repoPath string // 仓库内相对路径,用于按 commit 读取 raw
+	sha      string
+	mode     FileMode
+	content  []byte // 已取到的正文;预览阶段通常只有 SKILL.md
 }
 
 type githubHTTPError struct {
@@ -95,6 +95,7 @@ type githubTreeEntry struct {
 	Mode string `json:"mode"`
 	Type string `json:"type"`
 	SHA  string `json:"sha"`
+	Size *int64 `json:"size"`
 }
 
 type githubBlobResponse struct {
@@ -139,6 +140,7 @@ func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo str
 		return discoveredSource{}, err
 	}
 	result.ref = snap.ref
+	result.githubArchiveOK = githubArchiveAllowed(snap.entries)
 	return finishDiscovery(result)
 }
 
@@ -195,8 +197,13 @@ func githubAPIURL(pattern string, owner, repo, object string) string {
 }
 
 func (c *githubClient) get(ctx context.Context, location string, dest any) error {
+	return c.request(ctx, func(token string) error { return githubAPIGetOnce(ctx, location, token, dest) }, func() error { return githubCLIGet(ctx, location, dest) })
+}
+
+// request 复用匿名、环境 token、CLI 的阶梯,仅更高一级成功才记忆明确拒绝。
+func (c *githubClient) request(ctx context.Context, httpGet func(string) error, cliGet func() error) error {
 	if c.useCLI.Load() {
-		return githubCLIGet(ctx, location, dest)
+		return cliGet()
 	}
 	err := errGitHubContentsFallback
 	// anonymousDenied 决定实例是否跳过匿名;httpDenied 是 HTTP 路径最后一级(有 token 则为 token)的结论,决定是否直接走 CLI。
@@ -204,7 +211,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 	// 单靠一次被拒分不清,只有下一级真的拿到了同一个对象才证明是前者。
 	anonymousDenied := false
 	if !c.useToken.Load() && time.Now().Unix() >= c.auth.anonymousReset.Load() {
-		err = githubAPIGetOnce(ctx, location, "", dest)
+		err = httpGet("")
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
 			c.auth.anonymousReset.Store(httpErr.reset)
 		}
@@ -216,7 +223,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 	httpDenied := anonymousDenied
 	if c.token != "" {
 		c.useToken.Store(true)
-		err = githubAPIGetOnce(ctx, location, c.token, dest)
+		err = httpGet(c.token)
 		if err == nil {
 			if anonymousDenied {
 				c.auth.useToken.Store(true)
@@ -228,7 +235,7 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 		}
 		httpDenied = githubAuthDenied(err)
 	}
-	if cliErr := githubCLIGet(ctx, location, dest); cliErr != nil {
+	if cliErr := cliGet(); cliErr != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -253,19 +260,12 @@ func githubAuthDenied(err error) bool {
 
 // githubCLIGet 使用 gh 自己的登录态,不导出凭证,也不经技能库向调用方透传任何命令输出。
 func githubCLIGet(ctx context.Context, location string, dest any) error {
-	commandCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
-	defer cancel()
 	endpoint := strings.TrimPrefix(location, "https://"+githubAPIHost)
-	command := exec.CommandContext(commandCtx, "gh", "api", endpoint, "--method", "GET", "--hostname", "github.com")
-	// 环境 token 已在 HTTP 路径试过,不能让失效值遮住 gh 保存的登录态。
-	command.Env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
-	command.WaitDelay = time.Second
-	cancelGitProcess(command)
-	body, err := command.Output()
-	if ctx.Err() != nil {
-		return ctx.Err()
+	var body bytes.Buffer
+	if err := githubCLIOutput(ctx, &body, "api", endpoint, "--method", "GET", "--hostname", "github.com"); err != nil {
+		return err
 	}
-	if err != nil || len(body) > maxFetchSize || json.Unmarshal(body, dest) != nil {
+	if json.Unmarshal(body.Bytes(), dest) != nil {
 		return errGitHubContentsFallback
 	}
 	return nil
@@ -402,7 +402,29 @@ func (v githubSourceView) readFile(ctx context.Context, name string) ([]byte, er
 	if !ok || !githubRegularBlob(entry) {
 		return nil, fs.ErrNotExist
 	}
-	return v.snap.client.blob(ctx, v.snap.owner, v.snap.repo, entry.SHA)
+	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, false, []githubBlob{{repoPath: entry.Path, sha: entry.SHA, content: v.snap.storedBlobs[entry.SHA]}})
+	if err != nil {
+		return nil, err
+	}
+	return contents[0], nil
+}
+
+// readFiles 在同一发现轮次批量传输正文,不改变发现顺序与过滤规则。
+func (v githubSourceView) readFiles(ctx context.Context, names []string) ([][]byte, []error) {
+	blobs := make([]githubBlob, len(names))
+	for i, name := range names {
+		entry := v.snap.byPath[name]
+		blobs[i] = githubBlob{repoPath: name, sha: entry.SHA, content: v.snap.storedBlobs[entry.SHA]}
+	}
+	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, false, blobs)
+	errs := make([]error, len(names))
+	if err != nil {
+		contents = make([][]byte, len(names))
+		for i := range errs {
+			errs[i] = err
+		}
+	}
+	return contents, errs
 }
 
 func discoverFromGitHubTree(ctx context.Context, snap *githubSourceSnapshot, root string) (discoveredSource, error) {
@@ -454,7 +476,7 @@ func githubSkillBlobs(entries []githubTreeEntry, skillPath, rootTree string, byP
 		if entry.Mode == "100755" {
 			mode = ModeExecutable
 		}
-		blobs = append(blobs, githubBlob{path: rel, sha: entry.SHA, mode: mode})
+		blobs = append(blobs, githubBlob{path: rel, repoPath: entry.Path, sha: entry.SHA, mode: mode})
 	}
 	slices.SortFunc(blobs, func(a, b githubBlob) int { return cmp.Compare(a.path, b.path) })
 	return blobs, treeSHA, nil
@@ -475,38 +497,12 @@ func githubDotGitPath(rel string) bool {
 	return rel == ".git" || strings.HasPrefix(rel, ".git/") || strings.Contains(rel, "/.git/")
 }
 
-func fetchGitHubSkillFiles(ctx context.Context, client *githubClient, owner, repo string, blobs []githubBlob) ([]File, error) {
-	contents, err := fetchGitHubBlobs(ctx, client, owner, repo, blobs)
-	if err != nil {
-		return nil, err
-	}
-	return githubFiles(blobs, contents), nil
-}
-
 func githubFiles(blobs []githubBlob, contents [][]byte) []File {
 	files := make([]File, len(blobs))
 	for i, blob := range blobs {
 		files[i] = File{Path: blob.path, Content: bytes.Clone(contents[i]), Mode: blob.mode}
 	}
 	return files
-}
-
-// fetchGitHubBlobs 按 blobs 顺序返回正文:已带正文的直接用,其余有界并发取回;任一失败即取消其余并返回该错误。
-func fetchGitHubBlobs(ctx context.Context, client *githubClient, owner, repo string, blobs []githubBlob) ([][]byte, error) {
-	contents := make([][]byte, len(blobs))
-	err := runConcurrent(ctx, len(blobs), func(ctx context.Context, i int) error {
-		if blobs[i].content != nil {
-			contents[i] = blobs[i].content
-			return nil
-		}
-		var err error
-		contents[i], err = client.blob(ctx, owner, repo, blobs[i].sha)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return contents, nil
 }
 
 // githubSourceSnapshot 是一次 GitHub 来源读取:API 路径先只解析 commit,recursive tree 在首次需要目录信息时
@@ -523,6 +519,7 @@ type githubSourceSnapshot struct {
 	cloned       []fetchedSkill
 	discovered   *discoveredSource
 	discoveryErr error
+	storedBlobs  map[string][]byte // 本次更新已从库读取的正文,不受进程 memo 的容量限制
 }
 
 type githubRemoteSkill struct {
@@ -599,8 +596,11 @@ func (s *githubSourceSnapshot) rememberGitBlobs(files []File) {
 	if s.client == nil {
 		return
 	}
+	s.storedBlobs = make(map[string][]byte, len(files))
 	for _, file := range files {
-		memoPut(s.client.memo, &s.client.memo.blobs, memoKey(memoBlob, s.owner, s.repo, gitBlobSHA(file.Content)), file.Content)
+		sha := gitBlobSHA(file.Content)
+		s.storedBlobs[sha] = file.Content
+		memoPut(s.client.memo, &s.client.memo.blobs, memoKey(memoBlob, s.owner, s.repo, sha), file.Content)
 	}
 }
 
@@ -647,9 +647,15 @@ func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote gi
 	if remote.files != nil {
 		return remote.files, nil
 	}
-	files, err := fetchGitHubSkillFiles(ctx, s.client, s.owner, s.repo, remote.blobs)
+	blobs := slices.Clone(remote.blobs)
+	for i, blob := range blobs {
+		if content, ok := s.storedBlobs[blob.sha]; ok {
+			blobs[i].content = content
+		}
+	}
+	contents, err := s.client.transferBlobs(ctx, s.owner, s.repo, s.ref, githubArchiveAllowed(s.entries), blobs)
 	if err == nil {
-		return files, nil
+		return githubFiles(remote.blobs, contents), nil
 	}
 	if ctx.Err() != nil {
 		return nil, err
@@ -731,7 +737,7 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fe
 	if len(all) == 0 {
 		return nil
 	}
-	contents, err := fetchGitHubBlobs(ctx, l.newGitHubClient(), owner, repo, all)
+	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, session.ref, session.githubArchiveOK, all)
 	if err != nil {
 		if ctx.Err() != nil {
 			return err

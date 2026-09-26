@@ -46,6 +46,7 @@ type githubObjectMemo struct {
 }
 
 type githubMemoKey struct {
+	raw         bool // 仅隔离 raw 与 blob API 的在途请求;已验证正文仍共用同一缓存 key
 	kind        githubMemoKind
 	owner, repo string
 	id          string
@@ -209,6 +210,7 @@ func (m *githubObjectMemo) finish(key githubMemoKey, flight *githubFlight) {
 
 // memoGet 在锁内查表并返回副本;memo 已释放时恒 miss。
 func memoGet[V any](m *githubObjectMemo, table *lruMemo[V], key githubMemoKey) (V, bool) {
+	key.raw = false
 	var value V
 	var ok bool
 	if !m.withLock(func() { value, ok = table.get(key) }) {
@@ -220,6 +222,7 @@ func memoGet[V any](m *githubObjectMemo, table *lruMemo[V], key githubMemoKey) (
 
 // memoPut 在锁内写入副本;memo 已释放时丢弃。
 func memoPut[V any](m *githubObjectMemo, table *lruMemo[V], key githubMemoKey, value V) {
+	key.raw = false
 	m.withLock(func() { table.put(key, value) })
 }
 
