@@ -304,123 +304,110 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID})
 }
 
-func TestListGroupMembershipsListsEveryGroupWithAscendingMembers(t *testing.T) {
+func TestListGroupsWithMembersListsEveryGroupWithAscendingMembers(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
-	first := installNamedSkill(t, lib, "first")
-	second := installNamedSkill(t, lib, "second")
-	// 不属于任何组的 skill 不出现在任何 Members 里,由下面的精确比对保证。
-	installNamedSkill(t, lib, "loner")
-	empty, err := lib.CreateGroup(ctx, "empty")
+	f := seedGroupsWithMembers(t, lib)
+
+	// 不属于任何组的 loner 不出现在任何 Members 里,由精确比对保证。
+	requireGroupsWithMembers(t, lib, []library.GroupWithMembers{
+		{Group: f.empty, Members: []library.SkillID{}},
+		{Group: f.both, Members: []library.SkillID{f.first.ID, f.second.ID}},
+		{Group: f.single, Members: []library.SkillID{f.second.ID}},
+	})
+	groups, err := lib.ListGroupsWithMembers(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	both, err := lib.CreateGroup(ctx, "both")
-	if err != nil {
+	for _, group := range groups {
+		members, err := lib.ListGroupSkills(ctx, group.Group.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := summaryIDs(members); !reflect.DeepEqual(got, group.Members) {
+			t.Fatalf("group %d members = %v, ListGroupSkills = %v", group.Group.ID, group.Members, got)
+		}
+	}
+}
+
+func TestListGroupsWithMembersReflectsMembershipChanges(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	f := seedGroupsWithMembers(t, lib)
+
+	if _, err := lib.AddSkillToGroup(ctx, f.empty.ID, f.loner.ID); err != nil {
 		t.Fatal(err)
 	}
-	single, err := lib.CreateGroup(ctx, "single")
-	if err != nil {
+	if err := lib.RemoveSkillFromGroup(ctx, f.both.ID, f.second.ID, library.RemoveFromGroupOptions{}); err != nil {
 		t.Fatal(err)
+	}
+	requireGroupsWithMembers(t, lib, []library.GroupWithMembers{
+		{Group: f.empty, Members: []library.SkillID{f.loner.ID}},
+		{Group: f.both, Members: []library.SkillID{f.first.ID}},
+		{Group: f.single, Members: []library.SkillID{f.second.ID}},
+	})
+	if err := lib.RemoveSkill(ctx, f.first.ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.DeleteGroup(ctx, f.single.ID); err != nil {
+		t.Fatal(err)
+	}
+	requireGroupsWithMembers(t, lib, []library.GroupWithMembers{
+		{Group: f.empty, Members: []library.SkillID{f.loner.ID}},
+		{Group: f.both, Members: []library.SkillID{}},
+	})
+}
+
+func TestListGroupsWithMembersWithoutGroupsIsEmpty(t *testing.T) {
+	lib := openTestLibrary(t)
+	installNamedSkill(t, lib, "ungrouped")
+	requireGroupsWithMembers(t, lib, []library.GroupWithMembers{})
+}
+
+// groupsWithMembersFixture 是成员关系读取测试的共同起点:empty 无成员,both 含 first 与 second,single 只含 second,loner 不属于任何组。
+type groupsWithMembersFixture struct {
+	first, second, loner library.Skill
+	empty, both, single  library.Group
+}
+
+func seedGroupsWithMembers(t *testing.T, lib library.Library) groupsWithMembersFixture {
+	t.Helper()
+	ctx := t.Context()
+	f := groupsWithMembersFixture{
+		first:  installNamedSkill(t, lib, "first"),
+		second: installNamedSkill(t, lib, "second"),
+		loner:  installNamedSkill(t, lib, "loner"),
+	}
+	for _, group := range []struct {
+		dst  *library.Group
+		name string
+	}{{&f.empty, "empty"}, {&f.both, "both"}, {&f.single, "single"}} {
+		created, err := lib.CreateGroup(ctx, group.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		*group.dst = created
 	}
 	// 故意倒序加入,验证成员按 ID 升序而非加入顺序。
 	for _, membership := range []struct {
 		group library.GroupID
 		skill library.SkillID
 	}{
-		{both.ID, second.ID},
-		{both.ID, first.ID},
-		{single.ID, second.ID},
+		{f.both.ID, f.second.ID},
+		{f.both.ID, f.first.ID},
+		{f.single.ID, f.second.ID},
 	} {
 		if _, err := lib.AddSkillToGroup(ctx, membership.group, membership.skill); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	requireMemberships(t, lib, []library.GroupMembership{
-		{Group: empty, Members: []library.SkillID{}},
-		{Group: both, Members: []library.SkillID{first.ID, second.ID}},
-		{Group: single, Members: []library.SkillID{second.ID}},
-	})
-	memberships, err := lib.ListGroupMemberships(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, membership := range memberships {
-		members, err := lib.ListGroupSkills(ctx, membership.Group.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := summaryIDs(members); !reflect.DeepEqual(got, membership.Members) {
-			t.Fatalf("group %d members = %v, ListGroupSkills = %v", membership.Group.ID, membership.Members, got)
-		}
-	}
+	return f
 }
 
-func TestListGroupMembershipsReflectsMembershipChanges(t *testing.T) {
-	ctx := t.Context()
-	lib := openTestLibrary(t)
-	first := installNamedSkill(t, lib, "first")
-	second := installNamedSkill(t, lib, "second")
-	loner := installNamedSkill(t, lib, "loner")
-	empty, err := lib.CreateGroup(ctx, "empty")
-	if err != nil {
-		t.Fatal(err)
-	}
-	both, err := lib.CreateGroup(ctx, "both")
-	if err != nil {
-		t.Fatal(err)
-	}
-	single, err := lib.CreateGroup(ctx, "single")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, membership := range []struct {
-		group library.GroupID
-		skill library.SkillID
-	}{
-		{both.ID, first.ID},
-		{both.ID, second.ID},
-		{single.ID, second.ID},
-	} {
-		if _, err := lib.AddSkillToGroup(ctx, membership.group, membership.skill); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if _, err := lib.AddSkillToGroup(ctx, empty.ID, loner.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.RemoveSkillFromGroup(ctx, both.ID, second.ID, library.RemoveFromGroupOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	requireMemberships(t, lib, []library.GroupMembership{
-		{Group: empty, Members: []library.SkillID{loner.ID}},
-		{Group: both, Members: []library.SkillID{first.ID}},
-		{Group: single, Members: []library.SkillID{second.ID}},
-	})
-	if err := lib.RemoveSkill(ctx, first.ID, library.RemoveSkillOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.DeleteGroup(ctx, single.ID); err != nil {
-		t.Fatal(err)
-	}
-	requireMemberships(t, lib, []library.GroupMembership{
-		{Group: empty, Members: []library.SkillID{loner.ID}},
-		{Group: both, Members: []library.SkillID{}},
-	})
-}
-
-func TestListGroupMembershipsWithoutGroupsIsEmpty(t *testing.T) {
-	lib := openTestLibrary(t)
-	installNamedSkill(t, lib, "ungrouped")
-	requireMemberships(t, lib, []library.GroupMembership{})
-}
-
-func requireMemberships(t *testing.T, lib library.Library, want []library.GroupMembership) {
+func requireGroupsWithMembers(t *testing.T, lib library.Library, want []library.GroupWithMembers) {
 	t.Helper()
-	got, err := lib.ListGroupMemberships(t.Context())
+	got, err := lib.ListGroupsWithMembers(t.Context())
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("ListGroupMemberships() = %#v, %v; want %#v", got, err, want)
+		t.Fatalf("ListGroupsWithMembers() = %#v, %v; want %#v", got, err, want)
 	}
 }
