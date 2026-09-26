@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS skills (
     source_id INTEGER NOT NULL REFERENCES sources(id), -- 安装时的来源
     name TEXT NOT NULL,                                -- skill 名(远程取 frontmatter name,本地安装取目录名)
     current_version_id INTEGER REFERENCES skill_versions(id), -- 当前版本;读取和投影都用它。安装事务内先插入 skill,再创建版本并回填,期间可为 NULL
+    update_checked_at TEXT NOT NULL DEFAULT '',        -- 最近检查或成功 Update 的确认时间,RFC3339Nano;用于防止较早发出的检查回写
+    update_check_status TEXT NOT NULL DEFAULT '' CHECK(update_check_status IN ('', 'available', 'current', 'failed')), -- 最近结论;随 skill 一并删除
     UNIQUE(source_id, name)
 );
 

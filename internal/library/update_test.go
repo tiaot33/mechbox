@@ -122,7 +122,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 }
 
-func TestLocalCheckUpdatesDetectsContentAndModeWithoutWriting(t *testing.T) {
+func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := t.TempDir()

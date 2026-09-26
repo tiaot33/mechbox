@@ -492,6 +492,20 @@ func (g *networkGate) open() {
 	close(g.release)
 }
 
+// installURLSkill 经 Fetch + InstallFetch 从 URL 远端装入名为 name 的 skill。
+func installURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
+	t.Helper()
+	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return installed[0]
+}
+
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。
 func stubGitHubCLI(t *testing.T, script string) {
 	t.Helper()
@@ -514,6 +528,22 @@ func checkSingleUpdate(t *testing.T, lib library.Library, ctx context.Context, i
 		return false, checks[0].Error
 	}
 	return checks[0].Available, nil
+}
+
+// updateCheckState 经列表接口读取指定技能的最近检查记录。
+func updateCheckState(t *testing.T, lib library.Library, id library.SkillID) *library.UpdateCheckState {
+	t.Helper()
+	skills, err := lib.ListSkills(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range skills {
+		if skill.ID == id {
+			return skill.LastUpdateCheck
+		}
+	}
+	t.Fatalf("skill %d missing", id)
+	return nil
 }
 
 // requireMemberResults 断言组激活 / 加入成员的逐条结果;跳过项只比较错误码与 Details,不比较 Message。

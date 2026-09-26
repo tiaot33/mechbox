@@ -3,10 +3,11 @@ package library
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
-	// 只读比较,没有提交阶段:逐项读 skill 各自短锁,网络阶段不持库锁。
+	// 读取和保存各自短锁,网络阶段不持库锁。
 	defer func() { err = typedError(err) }()
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -108,6 +109,18 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			if ctx.Err() != nil {
 				return finish(), ctx.Err()
 			}
+			status := UpdateCurrent
+			if itemErr != nil {
+				status = UpdateFailed
+			} else if available {
+				status = UpdateAvailable
+			}
+			if saveErr := l.saveUpdateCheck(ctx, skills[index].ID, states[index], status); saveErr != nil {
+				if !IsCode(saveErr, Conflict) && !IsCode(saveErr, NotFound) {
+					return finish(), saveErr
+				}
+				itemErr = saveErr
+			}
 			if itemErr != nil {
 				results[index].Error, _ = errors.AsType[*Error](typedError(itemErr))
 			} else {
@@ -117,4 +130,32 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		}
 	}
 	return results, ctx.Err()
+}
+
+// saveUpdateCheck 只给仍处于被比较版本的技能保存结果,不让旧检查覆盖更新后的状态。
+func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state fetchState, status UpdateCheckStatus) error {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin update check: %w", err)
+	}
+	defer tx.Rollback()
+	if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
+		return err
+	}
+	// 无内容变化的 Update 不生成新版本,仍须防止旧请求覆盖它的确认结果。
+	var storedAt string
+	var storedStatus UpdateCheckStatus
+	if err := tx.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, id).Scan(&storedAt, &storedStatus); err != nil {
+		return fmt.Errorf("read update check time: %w", err)
+	}
+	// 结论相同只刷新时间;期间写入的 failed 不算确认,可被成功结论覆盖。其余不同的新结论才算冲突。
+	if storedAt != state.updateCheckedAt && storedStatus != status && storedStatus != UpdateFailed {
+		return &Error{Code: Conflict, Message: "check updates: skill was confirmed while checking", Details: ErrorDetails{SkillID: id}}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = ? WHERE id = ?`, formatStoredTime(clockNow()), status, id); err != nil {
+		return fmt.Errorf("save update check: %w", err)
+	}
+	return tx.Commit()
 }

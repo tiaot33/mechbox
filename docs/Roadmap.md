@@ -3,7 +3,7 @@
 **Date:** 2026-09-15(2026-09-21 同步第 4 步完成状态;2026-09-25 按 ADR 0013 重排第 5 步以后)
 **目的:** 记录 `internal/library/api.go` 成为桌面端(Wails v3,与 Library 同进程,见 ADR 0013)底层接口之前需要补的能力,按优先级排列。
 **来源:** 2026-09-15 对技能库的完整分析;标注"实测"的条目由一个临时探针程序(`replace` 引用本仓库,未入库)验证。
-**用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。main 为 v8(#77 / #82);版本号不预留,谁先合入谁用下一个。
+**用法:** 按文末"分步计划"推进,每一步对应一个 spec issue(或一个 bug issue),见 `docs/agents/issue-tracker.md`;开工时把编号写回条目;涉及决策的条目补 ADR。标注"schema"的条目会提升 `librarySchemaVersion`。main 为 v10(#97);版本号不预留,谁先合入谁用下一个。
 
 **进度(2026-09-21):**
 
@@ -14,11 +14,12 @@
 - **D3 完成** —— [#73](https://github.com/tiaot33/skills-tui/issues/73),PR [#80](https://github.com/tiaot33/skills-tui/pull/80)(`b85c605`),ADR 0012。
 - **C6 完成** —— [#76](https://github.com/tiaot33/skills-tui/issues/76),PR [#81](https://github.com/tiaot33/skills-tui/pull/81)。
 - **C1 / C2 / I3 完成** —— [#77](https://github.com/tiaot33/skills-tui/issues/77),PR [#82](https://github.com/tiaot33/skills-tui/pull/82)。schema v8:描述入库、版本 / 激活 / 分组时间戳、Group 名 UNIQUE 并自动加 `#N`。
-- **schema 基线**:main 为 v9。版本号不再预分配给任何条目,谁先合入谁用下一个;未发布阶段不写迁移,`Open` 拒绝其他版本(ADR 0001)。
+- **schema 基线**:main 为 v10(#97)。版本号不再预分配给任何条目,谁先合入谁用下一个;未发布阶段不写迁移,`Open` 拒绝其他版本(ADR 0001)。
 - **第 4 步完成** —— [#83](https://github.com/tiaot33/skills-tui/issues/83) 已关闭,实现提交 [`52a7145`](https://github.com/tiaot33/skills-tui/commit/52a7145)、简化提交 [`8d518f5`](https://github.com/tiaot33/skills-tui/commit/8d518f5) 已推送至 main:激活预检、Fetch 候选标明已在库中、删除/注销默认清掉投影、去掉 `UpdateResult.Note`。明确不做更新预览/绑版、不做过时投影列表、不写「Preview → Execute 统一模式」ADR。
 - **2026-09-25 重排** —— ADR 0013:桌面端改为 Wails v3 与 Library 同进程,取代 ADR 0008 的 Electron + stdio sidecar;TUI 搁置;开启单实例锁。随之:RPC 一步取消,F1 并入 [#88](https://github.com/tiaot33/skills-tui/issues/88),G2 与库修订号不做;E1 因 macOS 从 Finder 启动读不到环境变量而提前;Wails 原型发现的 [#85](https://github.com/tiaot33/skills-tui/issues/85)–[#88](https://github.com/tiaot33/skills-tui/issues/88) 排入分步计划。F5 已随 #83 完成;I2 的无记录目录不追踪是已接受边界;B4 更新预览与绑定决定不做。
 - **第 5 步完成** —— [#88](https://github.com/tiaot33/skills-tui/issues/88):`Scope` 改为带显式 `Kind` 的结构体,新增 `library.ErrorOf`。
 - **第 7 步完成(J0 / J1 / J2)** —— 术语改名 [#91](https://github.com/tiaot33/skills-tui/issues/91)(PR [#93](https://github.com/tiaot33/skills-tui/pull/93));组激活成为正式记录 [#85](https://github.com/tiaot33/skills-tui/issues/85),PR [#94](https://github.com/tiaot33/skills-tui/pull/94)(`08f7efc`):schema v9、组激活记录、成员增删跟随组激活、冲突只跳过成员、作用域根目录不存在时不创建,并删除全部旧库迁移。重写 [#86](https://github.com/tiaot33/skills-tui/issues/86),PR [#95](https://github.com/tiaot33/skills-tui/pull/95)(`868fc77`):`RewriteProjections` 按技能 / 作用域逐条重写、不改激活,`InspectProjections` 接受同一 `ProjectionFilter` 按范围巡检;无 schema 变化。
+- **第 9 步部分完成** —— 保存更新检查结果 [#97](https://github.com/tiaot33/skills-tui/issues/97):schema v10,`SkillSummary.LastUpdateCheck` 保存最近检查的时间与结论(available / current / failed,nil 为未检查),`Update` 成功后改为 current,随技能删除。
 - 下一步为第 6 步桌面端骨架。
 
 ## 优先级定义
@@ -115,7 +116,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 - [x] **J0 术语改名。** 技能库中表示投影记录的 `Activation` 系列改为 `Projection`,预检状态 `refresh` 改为 `projected`;只改名、不改行为,表改名随 J1。→ [#91](https://github.com/tiaot33/skills-tui/issues/91)
 - [x] **J1 组激活成为正式记录,成员增删跟随组激活。** 加入成员自动投影到组已激活的作用域(冲突的作用域跳过);移出成员默认把组激活换成直接激活,可选撤回;`ActivateGroup` 改为能激活的都激活;再次激活只增加激活、不写盘。2026-09-25 语义已定,见 issue。→ bug: [#85](https://github.com/tiaot33/skills-tui/issues/85),PR [#94](https://github.com/tiaot33/skills-tui/pull/94)
 - [x] **J2 重写。** 把投影改回当前版本、不改变其激活:按技能 / 作用域筛选,逐条返回结果,被手动改过的默认拒绝、可显式覆盖;按范围巡检投影一并完成。→ bug: [#86](https://github.com/tiaot33/skills-tui/issues/86),PR [#95](https://github.com/tiaot33/skills-tui/pull/95)
-- [ ] **J3 桌面端读模型。** 组成员批量读取、保存更新检查结果(schema)、文件按需读取(即 C4)(按范围巡检投影已随 J2 完成);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
+- [ ] **J3 桌面端读模型。** 组成员批量读取、保存更新检查结果(schema,✅ [#97](https://github.com/tiaot33/skills-tui/issues/97))、文件按需读取(即 C4)(按范围巡检投影已随 J2 完成);库修订号按 G2 不做。开工前拆成独立 issue。→ [#87](https://github.com/tiaot33/skills-tui/issues/87)
 - [x] **J4 Wails 接入边界。** `Scope` 改为可序列化的具体结构体,`library.ErrorOf` 统一错误编码(即 F1)。→ [#88](https://github.com/tiaot33/skills-tui/issues/88)
 
 ## P2
@@ -189,7 +190,7 @@ Sync 保留 Preview → Execute(`expected` 绑定)模式。激活已支持只读
 
 ### 第 9 步 — 桌面端读模型:J3(含 C4)
 
-- [#87](https://github.com/tiaot33/skills-tui/issues/87) 拆成独立 issue:组成员批量读取(无 schema,先做)、保存更新检查结果(schema)、文件按需读取;按范围巡检投影已随 [#86](https://github.com/tiaot33/skills-tui/issues/86) 完成。库修订号不做(G2)。
+- [#87](https://github.com/tiaot33/skills-tui/issues/87) 拆成独立 issue:组成员批量读取(无 schema,先做)、保存更新检查结果(schema,✅ [#97](https://github.com/tiaot33/skills-tui/issues/97))、文件按需读取;按范围巡检投影已随 [#86](https://github.com/tiaot33/skills-tui/issues/86) 完成。库修订号不做(G2)。
 
 ### 第 10 步 — 进度与 wire 整理:G1、F2、F3
 

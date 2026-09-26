@@ -115,7 +115,7 @@ func TestOpenRejectsOtherSchemaVersionsWithoutChangingTheFile(t *testing.T) {
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	editLibraryFixture(t, path, `PRAGMA user_version = 8`)
+	editLibraryFixture(t, path, `PRAGMA user_version = 9`)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
