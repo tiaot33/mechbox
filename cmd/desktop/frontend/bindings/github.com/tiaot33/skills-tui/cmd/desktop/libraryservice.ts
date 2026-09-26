@@ -19,6 +19,65 @@ import * as library$0 from "../../internal/library/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function Activate(id: library$0.SkillID, scope: library$0.Scope, opts: library$0.ActivateOptions): $CancellablePromise<void> {
+    return $Call.ByID(2801563615, id, scope, opts);
+}
+
+export function ActivateGroup(groupID: library$0.GroupID, scope: library$0.Scope, opts: library$0.ActivateOptions): $CancellablePromise<library$0.GroupMemberResult[] | null> {
+    return $Call.ByID(3147463334, groupID, scope, opts);
+}
+
+export function AddSkillToGroup(groupID: library$0.GroupID, skillID: library$0.SkillID): $CancellablePromise<library$0.GroupMemberResult[] | null> {
+    return $Call.ByID(3410498058, groupID, skillID);
+}
+
+export function CheckUpdates(ids: library$0.SkillID[] | null): $CancellablePromise<library$0.UpdateCheck[] | null> {
+    return $Call.ByID(1899244476, ids);
+}
+
+/**
+ * Config 返回外部配置的就绪状态，只看是否设置，不校验取值。
+ */
+export function Config(): $CancellablePromise<$models.ConfigStatus> {
+    return $Call.ByID(3000412408);
+}
+
+export function CreateGroup(name: string): $CancellablePromise<library$0.Group> {
+    return $Call.ByID(3572708797, name);
+}
+
+export function Deactivate(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {
+    return $Call.ByID(1313946140, id, scope);
+}
+
+export function DeactivateGroup(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<void> {
+    return $Call.ByID(1946856591, groupID, scope);
+}
+
+export function DeleteGroup(id: library$0.GroupID): $CancellablePromise<void> {
+    return $Call.ByID(486162608, id);
+}
+
+export function DiffVersions(oldID: library$0.VersionID, newID: library$0.VersionID): $CancellablePromise<library$0.VersionDiff> {
+    return $Call.ByID(4170673460, oldID, newID);
+}
+
+export function Fetch(spec: library$0.SourceSpec): $CancellablePromise<library$0.Fetch> {
+    return $Call.ByID(972130338, spec);
+}
+
+export function GetSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
+    return $Call.ByID(3591563083, id);
+}
+
+export function GetSkillFile(id: library$0.SkillID, path: string): $CancellablePromise<library$0.File> {
+    return $Call.ByID(2473200133, id, path);
+}
+
+export function GetVersion(id: library$0.VersionID): $CancellablePromise<library$0.SkillVersion> {
+    return $Call.ByID(3362310406, id);
+}
+
 /**
  * Info 返回技能库路径与用户主目录。
  */
@@ -26,58 +85,126 @@ export function Info(): $CancellablePromise<$models.AppInfo> {
     return $Call.ByID(170646414);
 }
 
-/**
- * InspectProjections 对照磁盘给出投影及其状态;只读。
- */
 export function InspectProjections(filter: library$0.ProjectionFilter): $CancellablePromise<library$0.ProjectionInspection[] | null> {
     return $Call.ByID(1176001212, filter);
 }
 
-/**
- * ListAgents 列出技能库支持的 Agent。
- */
+export function Install(source: library$0.LocalSource): $CancellablePromise<library$0.Skill> {
+    return $Call.ByID(220967381, source);
+}
+
+export function InstallFetch(id: library$0.FetchID, names: string[] | null): $CancellablePromise<library$0.Skill[] | null> {
+    return $Call.ByID(3053333587, id, names);
+}
+
 export function ListAgents(): $CancellablePromise<library$0.Agent[] | null> {
     return $Call.ByID(4161186932);
 }
 
-/**
- * ListCollections 列出按来源自动归集的集合。
- */
 export function ListCollections(): $CancellablePromise<library$0.Collection[] | null> {
     return $Call.ByID(135981115);
 }
 
-/**
- * ListGroupActivations 列出全部组激活。
- */
+export function ListFetchSkills(id: library$0.FetchID): $CancellablePromise<library$0.FetchCandidates> {
+    return $Call.ByID(361377500, id);
+}
+
 export function ListGroupActivations(): $CancellablePromise<library$0.GroupActivation[] | null> {
     return $Call.ByID(815205314);
 }
 
-/**
- * ListGroupsWithMembers 列出全部组及其成员。
- */
+export function ListGroupSkills(groupID: library$0.GroupID): $CancellablePromise<library$0.SkillSummary[] | null> {
+    return $Call.ByID(3223180167, groupID);
+}
+
+export function ListGroups(): $CancellablePromise<library$0.Group[] | null> {
+    return $Call.ByID(3063702138);
+}
+
 export function ListGroupsWithMembers(): $CancellablePromise<library$0.GroupWithMembers[] | null> {
     return $Call.ByID(1398571129);
 }
 
-/**
- * ListRegisteredProjects 列出已登记项目。
- */
+export function ListProjections(): $CancellablePromise<library$0.Projection[] | null> {
+    return $Call.ByID(1272217220);
+}
+
 export function ListRegisteredProjects(): $CancellablePromise<library$0.RegisteredProject[] | null> {
     return $Call.ByID(2677723792);
 }
 
-/**
- * ListSkills 列出库中全部技能。
- */
+export function ListSkillFiles(id: library$0.SkillID): $CancellablePromise<library$0.FileMetadata[] | null> {
+    return $Call.ByID(1866552674, id);
+}
+
 export function ListSkills(): $CancellablePromise<library$0.SkillSummary[] | null> {
     return $Call.ByID(1925462024);
 }
 
-/**
- * Resolve 返回作用域按 Agent 现行布局算出的投影目录。
- */
+export function ListVersions(id: library$0.SkillID): $CancellablePromise<library$0.SkillVersion[] | null> {
+    return $Call.ByID(2258615823, id);
+}
+
+export function PreviewActivate(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<library$0.ActivatePreview> {
+    return $Call.ByID(3007940979, id, scope);
+}
+
+export function PreviewActivateGroup(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<library$0.GroupActivatePreview> {
+    return $Call.ByID(3884057386, groupID, scope);
+}
+
+export function PreviewSyncPull(): $CancellablePromise<library$0.SyncPreview> {
+    return $Call.ByID(2281584010);
+}
+
+export function PreviewSyncPush(): $CancellablePromise<library$0.SyncPreview> {
+    return $Call.ByID(2245910201);
+}
+
+export function RegisterProject(path: string): $CancellablePromise<library$0.RegisteredProject> {
+    return $Call.ByID(1972591636, path);
+}
+
+export function RemoveSkill(id: library$0.SkillID, opts: library$0.RemoveSkillOptions): $CancellablePromise<void> {
+    return $Call.ByID(3080108859, id, opts);
+}
+
+export function RemoveSkillFromGroup(groupID: library$0.GroupID, skillID: library$0.SkillID, opts: library$0.RemoveFromGroupOptions): $CancellablePromise<void> {
+    return $Call.ByID(3667916670, groupID, skillID, opts);
+}
+
+export function RenameGroup(id: library$0.GroupID, name: string): $CancellablePromise<library$0.Group> {
+    return $Call.ByID(1994858443, id, name);
+}
+
 export function Resolve(scope: library$0.Scope): $CancellablePromise<string> {
     return $Call.ByID(95479150, scope);
+}
+
+export function ResolveSource(input: string, opts: library$0.ResolveSourceOptions): $CancellablePromise<library$0.SourceSpec> {
+    return $Call.ByID(352691331, input, opts);
+}
+
+export function RewriteProjections(filter: library$0.ProjectionFilter, opts: library$0.RewriteOptions): $CancellablePromise<library$0.RewriteResult[] | null> {
+    return $Call.ByID(2281286480, filter, opts);
+}
+
+export function SearchSkills(query: string): $CancellablePromise<library$0.SearchResult> {
+    return $Call.ByID(2526005404, query);
+}
+
+export function SyncPull(expected: library$0.RemoteIdentity): $CancellablePromise<library$0.SyncResult> {
+    return $Call.ByID(4037992934, expected);
+}
+
+export function SyncPush(expected: library$0.RemoteIdentity): $CancellablePromise<library$0.SyncResult> {
+    return $Call.ByID(377176661, expected);
+}
+
+export function UnregisterProject(id: library$0.ProjectID, opts: library$0.UnregisterProjectOptions): $CancellablePromise<void> {
+    return $Call.ByID(291900253, id, opts);
+}
+
+export function Update(id: library$0.SkillID): $CancellablePromise<library$0.UpdateResult> {
+    return $Call.ByID(1023567415, id);
 }

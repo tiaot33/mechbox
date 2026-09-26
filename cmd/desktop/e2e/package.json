@@ -1,0 +1,11 @@
+{
+  "name": "skills-manager-desktop-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "sh run.sh"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

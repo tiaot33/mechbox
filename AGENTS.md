@@ -28,7 +28,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/internal/s3` — 同步用的 S3 对象读写:从环境变量读配置、SigV4 签名、`Head` / `Get` / 条件 `Put`;返回自己的哨兵错误,由 `typedError` 翻译。
 - `test/library/` — 技能库的集成测试(`package library_test`),按行为组织,只经公开 API 断言,用真实的 SQLite 文件、git 仓库与 `httptest` 服务;共享辅助函数在 `test_helpers_test.go`。运行 `go test ./test/library`;统计 Library 的覆盖率加 `-coverpkg=./internal/library/...`。文件名不按流程一一对应,找某个方法的测试按方法名 grep(如 `lib.Install(`)或用 `go test -run`;整理某个流程的 API 时,顺手把该流程的测试按流程合并、改名。
 - `cmd/demo/main.go` — 可运行的入口示例,用内存数据库演示 Library 的导入、调用和关闭;运行 `go run ./cmd/demo`。
-- `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0013):`library_service.go` 是前端调用技能库的绑定服务，`frontend/` 是 React + TS + shadcn/ui 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建与约定见 `cmd/desktop/README.md`。
+- `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0013):`library_service.go` + `library_methods.go` 是前端调用技能库的绑定服务(开放 Library 的全部方法),`frontend/` 是 React + TS + shadcn/ui 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建、端到端验证(`e2e/`)与约定见 `cmd/desktop/README.md`。
 
 用户流程的编排留在 `package library`,公开方法与其私有辅助函数按用户流程放在同一文件;每个外部系统(SQLite、Agent 目录、各来源、skills.sh、S3)一个子包,放在 `internal/library/internal/` 下,只有 `library` 能导入。子包不知道公开错误码,只返回自己的哨兵错误或错误类型。新增一种来源时,在 `source` 下加子包(导出 `Type`、`Locate` 和实现 `source.Kind` 的类型),在 `library.go` 的 `Open` 里登记,并在 `PreviewFetchRequest` 加一个输入字段、在 `fetch.go` 的 `previewTarget` 里接上;更新、检查更新、展示与错误翻译都不用改。
 

@@ -2,30 +2,28 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService, type AppInfo } from "@bindings/cmd/desktop";
-import type {
-  Agent,
-  Collection,
-  GroupActivation,
-  GroupWithMembers,
-  ProjectionInspection,
-  RegisteredProject,
-  SkillSummary,
+import {
+  ErrorCode,
+  type Error as LibraryErrorModel,
+  type Agent,
+  type Collection,
+  type GroupActivation,
+  type GroupWithMembers,
+  type ProjectionInspection,
+  type RegisteredProject,
+  type SkillSummary,
 } from "@bindings/internal/library";
 
-// LibraryError 与 Go 侧 library.Error 的 JSON 形状一致;Go 端的 MarshalError
-// 把任意错误规范成它，Wails 运行时放在被拒绝的 Error 的 cause 上。
-export interface LibraryError {
-  code: string;
-  message: string;
-  details?: Record<string, unknown>;
-}
+// LibraryError 就是技能库的 library.Error(类型由绑定生成);Go 端的 MarshalError 把任意错误规范成它，
+// Wails 运行时放在被拒绝的 Error 的 cause 上。
+export type LibraryError = LibraryErrorModel;
 
 export function toLibraryError(err: unknown): LibraryError {
   const cause = err instanceof Error ? err.cause : undefined;
   if (cause && typeof cause === "object" && "code" in cause && "message" in cause) {
     return cause as LibraryError;
   }
-  return { code: "internal", message: err instanceof Error ? err.message : String(err) };
+  return { code: ErrorCode.Internal, message: err instanceof Error ? err.message : String(err) };
 }
 
 // Snapshot 是主界面一次读出的全部只读数据。
@@ -50,8 +48,8 @@ function list<T>(call: CancellablePromise<T[] | null>): Promise<T[]> {
   return call.then((value) => value ?? []);
 }
 
-// useLibrarySnapshot 读取主界面需要的全部只读数据;reload 用于重试，
-// 以后前端在自己的写操作之后也用它重读。组件卸载或重读时取消进行中的调用。
+// useLibrarySnapshot 读取主界面需要的全部只读数据;前端在自己的写操作之后用 reload 重读。
+// 组件卸载或重读时取消进行中的调用。
 export function useLibrarySnapshot(): [SnapshotState, () => void] {
   const [state, setState] = useState<SnapshotState>({ status: "loading" });
   const [generation, setGeneration] = useState(0);
@@ -91,10 +89,8 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
     };
   }, [generation]);
 
-  const reload = useCallback(() => {
-    setState({ status: "loading" });
-    setGeneration((n) => n + 1);
-  }, []);
+  // reload 保留当前数据直到新快照到达，写操作后界面不闪"加载中";出错时才换成错误状态。
+  const reload = useCallback(() => setGeneration((n) => n + 1), []);
 
   return [state, reload];
 }

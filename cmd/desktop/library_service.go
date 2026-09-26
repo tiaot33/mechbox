@@ -73,57 +73,27 @@ func (s *LibraryService) Info() (AppInfo, error) {
 	return AppInfo{LibraryPath: s.path, HomeDir: home}, nil
 }
 
-// settle 处理前端已取消的调用：前端 promise.cancel() 后 ctx 被取消，此时方法若返回错误,
-// Wails 运行时会把这个"取消之后的拒绝"报成未处理的 rejection;返回正常结果则会被运行时丢弃。
-// 所以调用已取消时吞掉错误、返回零值——前端早已不要这次结果。用法：return settle(s.lib.X(ctx))(ctx)。
-func settle[T any](v T, err error) func(context.Context) (T, error) {
-	return func(ctx context.Context) (T, error) {
-		if err != nil && ctx.Err() != nil {
-			var zero T
-			return zero, nil
+// ConfigStatus 报告技能库依赖的外部配置是否就绪。这些配置目前只能来自环境变量;
+// 从 Finder / Dock 启动的应用读不到 shell 里设置的环境变量(运行时配置另有 issue)。
+type ConfigStatus struct {
+	Sync        bool `json:"sync"`         // S3 同步:bucket 与 AWS 凭证齐全
+	StoreURL    bool `json:"store_url"`    // 商店来源:SKILLS_STORE_URL
+	GitHubToken bool `json:"github_token"` // GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
+}
+
+// Config 返回外部配置的就绪状态，只看是否设置，不校验取值。
+func (s *LibraryService) Config() ConfigStatus {
+	set := func(names ...string) bool {
+		for _, name := range names {
+			if os.Getenv(name) == "" {
+				return false
+			}
 		}
-		return v, err
+		return true
 	}
-}
-
-// 以下方法转发技能库的只读查询;每个都经 settle 处理取消。
-
-// ListSkills 列出库中全部技能。
-func (s *LibraryService) ListSkills(ctx context.Context) ([]library.SkillSummary, error) {
-	return settle(s.lib.ListSkills(ctx))(ctx)
-}
-
-// ListCollections 列出按来源自动归集的集合。
-func (s *LibraryService) ListCollections(ctx context.Context) ([]library.Collection, error) {
-	return settle(s.lib.ListCollections(ctx))(ctx)
-}
-
-// ListGroupsWithMembers 列出全部组及其成员。
-func (s *LibraryService) ListGroupsWithMembers(ctx context.Context) ([]library.GroupWithMembers, error) {
-	return settle(s.lib.ListGroupsWithMembers(ctx))(ctx)
-}
-
-// ListAgents 列出技能库支持的 Agent。
-func (s *LibraryService) ListAgents(ctx context.Context) ([]library.Agent, error) {
-	return settle(s.lib.ListAgents(ctx))(ctx)
-}
-
-// ListRegisteredProjects 列出已登记项目。
-func (s *LibraryService) ListRegisteredProjects(ctx context.Context) ([]library.RegisteredProject, error) {
-	return settle(s.lib.ListRegisteredProjects(ctx))(ctx)
-}
-
-// ListGroupActivations 列出全部组激活。
-func (s *LibraryService) ListGroupActivations(ctx context.Context) ([]library.GroupActivation, error) {
-	return settle(s.lib.ListGroupActivations(ctx))(ctx)
-}
-
-// InspectProjections 对照磁盘给出投影及其状态;只读。
-func (s *LibraryService) InspectProjections(ctx context.Context, filter library.ProjectionFilter) ([]library.ProjectionInspection, error) {
-	return settle(s.lib.InspectProjections(ctx, filter))(ctx)
-}
-
-// Resolve 返回作用域按 Agent 现行布局算出的投影目录。
-func (s *LibraryService) Resolve(ctx context.Context, scope library.Scope) (string, error) {
-	return settle(s.lib.Resolve(ctx, scope))(ctx)
+	return ConfigStatus{
+		Sync:        set("SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
+		StoreURL:    set("SKILLS_STORE_URL"),
+		GitHubToken: set("GITHUB_TOKEN") || set("GH_TOKEN"),
+	}
 }

@@ -15,3 +15,24 @@ export interface AppInfo {
      */
     "home_dir": string;
 }
+
+/**
+ * ConfigStatus 报告技能库依赖的外部配置是否就绪。这些配置目前只能来自环境变量;
+ * 从 Finder / Dock 启动的应用读不到 shell 里设置的环境变量(运行时配置另有 issue)。
+ */
+export interface ConfigStatus {
+    /**
+     * S3 同步:bucket 与 AWS 凭证齐全
+     */
+    "sync": boolean;
+
+    /**
+     * 商店来源:SKILLS_STORE_URL
+     */
+    "store_url": boolean;
+
+    /**
+     * GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
+     */
+    "github_token": boolean;
+}

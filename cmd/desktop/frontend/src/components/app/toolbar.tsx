@@ -25,6 +25,7 @@ interface ToolbarProps {
   snapshot: Snapshot | undefined;
   title: string;
   count: number | undefined;
+  busy: boolean;
   scope: ScopeKey | null;
   scopeDirectory: string | undefined;
   scopeMenu: boolean;
@@ -40,6 +41,7 @@ interface ToolbarProps {
   onView: (view: ListView) => void;
   onLeft: () => void;
   onRight: () => void;
+  onRefresh: () => void;
 }
 
 export function Toolbar(props: ToolbarProps) {
@@ -70,6 +72,7 @@ export function Toolbar(props: ToolbarProps) {
           <span className="tb-crumb">
             <b>{props.title}</b>
             {props.count !== undefined && <Count value={props.count} />}
+            {props.busy && <span className="spin muted" title="正在处理…" />}
           </span>
         </div>
         <div className="tb-center">
@@ -112,6 +115,9 @@ export function Toolbar(props: ToolbarProps) {
               <Icon name="grid" />
             </button>
           </div>
+          <button type="button" className="icon-btn" onClick={props.onRefresh} title="刷新(重新读取技能库并对照磁盘检查投影)">
+            <Icon name="refresh" />
+          </button>
           <button type="button" className={`icon-btn ${props.right ? "on" : ""}`} onClick={props.onRight} title="显示/隐藏作用域栏">
             <Icon name="sidebarR" />
           </button>

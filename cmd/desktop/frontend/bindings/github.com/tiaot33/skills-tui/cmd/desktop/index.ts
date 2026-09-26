@@ -7,5 +7,6 @@ export {
 };
 
 export type {
-    AppInfo
+    AppInfo,
+    ConfigStatus
 } from "./models.js";
