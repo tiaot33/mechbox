@@ -253,7 +253,7 @@ func githubAuthDenied(err error) bool {
 	return ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusNotFound)
 }
 
-// githubCLIGet 使用 gh 自己的登录态,不导出凭证,也不向门面透传任何命令输出。
+// githubCLIGet 使用 gh 自己的登录态,不导出凭证,也不经技能库向调用方透传任何命令输出。
 func githubCLIGet(ctx context.Context, location string, dest any) error {
 	commandCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
@@ -282,7 +282,7 @@ func githubContentsUnavailable(err error) bool {
 	return ok
 }
 
-// githubInstallError 把安装阶段的 blob 失败映射为稳定的门面错误码,不把 HTTP 正文或凭证写入 Message。
+// githubInstallError 把安装阶段的 blob 失败映射为技能库的稳定错误码,不把 HTTP 正文或凭证写入 Message。
 func githubInstallError(err error) error {
 	if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden) {
 		return fetchError(Permission, "fetch source", errors.New("authentication failed"))

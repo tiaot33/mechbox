@@ -86,7 +86,7 @@ type ErrorDetails struct {
 func (e *Error) Error() string { return e.Message }
 func (e *Error) Unwrap() error { return e.Err }
 
-// ErrorOf 把任意 error 规范成 *Error:链上已有 *Error 时原样取出(含 Err),否则按门面同一套规则
+// ErrorOf 把任意 error 规范成 *Error:链上已有 *Error 时原样取出(含 Err),否则按技能库同一套规则
 // 归类(无可识别原因的记为 Internal)并保留原错误;nil 返回 nil。跨 JSON 边界的接入层只调它编码错误,
 // 映射规则只在 Library 里写一份。
 func ErrorOf(err error) *Error {
@@ -568,7 +568,7 @@ type SyncResult struct {
 	Warnings []string       `json:"warnings,omitempty"`
 }
 
-// Library 是未来 TUI 使用的完整进程内 API 门面。它不是 HTTP 或 RPC 契约;
+// Library 是未来 TUI 使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
 // 见 docs/adr/0004-backend-library-facade-seam.md。
 type Library interface {
 	// 安装与更新
@@ -659,7 +659,7 @@ type Library interface {
 	// 项目与 Scope
 
 	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
-	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,门面上没有增删改 Agent 的方法。
+	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
 	ListAgents(ctx context.Context) ([]Agent, error)
 	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可投影的 ProjectScope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)

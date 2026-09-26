@@ -45,7 +45,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// 只用 SQL 构造缺 Agent 行且另一行布局被改过的输入文件;结果仍由公开门面观察。
+	// 只用 SQL 构造缺 Agent 行且另一行布局被改过的输入文件;结果仍经技能库公开方法观察。
 	editLibraryFixture(t, path, `
 		DELETE FROM agents WHERE code = 'codex';
 		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';

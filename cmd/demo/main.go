@@ -28,7 +28,7 @@ func run(ctx context.Context) (err error) {
 	// 保留业务调用与关闭资源两处可能产生的错误。
 	defer func() { err = errors.Join(err, lib.Close()) }()
 
-	// 通过公开门面调用后端，context 随调用传入。
+	// 通过技能库(Library)的公开方法调用后端，context 随调用传入。
 	agents, err := lib.ListAgents(ctx)
 	if err != nil {
 		return fmt.Errorf("list agents: %w", err)

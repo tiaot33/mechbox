@@ -249,7 +249,7 @@ func commitGit(t *testing.T, repository, message string) {
 	runGit(t, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message)
 }
 
-// editLibraryFixture 用 SQL 直接改写一个已关闭的库文件,只用于构造测试输入;断言仍须经公开门面。
+// editLibraryFixture 用 SQL 直接改写一个已关闭的库文件,只用于构造测试输入;断言仍须经技能库公开方法。
 func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 	t.Helper()
 	db, err := sql.Open("sqlite3", path)
@@ -262,7 +262,7 @@ func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 	}
 }
 
-// readLibraryScalar 直读库文件里的一个标量(表里的值或 PRAGMA):skill 被移除后门面已看不到它,只能这样核对
+// readLibraryScalar 直读库文件里的一个标量(表里的值或 PRAGMA):skill 被移除后技能库已看不到它,只能这样核对
 // "没有部分写入";journal_mode / user_version 则是磁盘上的可观察事实,不是实现细节。
 func readLibraryScalar(t *testing.T, path, query string, args ...any) string {
 	t.Helper()
@@ -377,7 +377,7 @@ func openTestLibrary(t *testing.T) library.Library {
 }
 
 // openGitHubLibraryWithoutTreeSHA 用当前 schema 构造缺少 GitHub 版本标识的数据,
-// 供 SHA 回填与批量检查取消用例复用;先经门面安装,关库后仅清空待测字段。
+// 供 SHA 回填与批量检查取消用例复用;先经技能库安装,关库后仅清空待测字段。
 func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.Skill) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "library.db")
@@ -412,7 +412,7 @@ func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.S
 	return reopened, skills
 }
 
-// skillSnapshot 是经门面读回的一个 Skill 及其版本列表,用于断言检查前后 Library 完全一致(只读契约)。
+// skillSnapshot 是经技能库读回的一个 Skill 及其版本列表,用于断言检查前后 Library 完全一致(只读契约)。
 type skillSnapshot struct {
 	skill    library.Skill
 	versions []library.SkillVersion

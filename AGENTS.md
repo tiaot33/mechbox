@@ -1,6 +1,6 @@
 ## Codebase
 
-Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内 Go 门面(见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上的 skills 目录只是它的投影。
+Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上的 skills 目录只是它的投影。
 
 - `internal/library/api.go` — 全部领域类型 + `Library` 接口,带中文注释。**阅读入口,先读这个。**
 - `internal/library/library.go` — 实例生命周期:Open、Close、共享状态与操作锁。
@@ -13,7 +13,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/rewrite.go` — 重写:把投影带回当前版本,不改激活。
 - `internal/library/sync.go` — 整库与 S3 的推拉同步(SigV4 签名、快照、远端身份与项目路径重映射)。
 - `internal/library/files.go` + `errors.go` — 共享文件操作与内部错误转换。
-- `internal/library/*_test.go` — 按行为组织的公开门面规格(`package library_test`);共享辅助函数在 `test_helpers_test.go`。
+- `internal/library/*_test.go` — 按行为组织的技能库公开规格(`package library_test`);共享辅助函数在 `test_helpers_test.go`。
 - `cmd/demo/main.go` — 可运行的入口示例,用内存数据库演示 Library 的导入、调用和关闭;运行 `go run ./cmd/demo`。
 
 实现保持同一 `package library`;公开方法与其私有辅助函数按职责放在一起。

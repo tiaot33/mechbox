@@ -10,7 +10,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// 三条真实来源路径共用同一份内容与门面断言。
+// 三条真实来源路径共用同一份内容与技能库断言。
 func discoverySources(t *testing.T, files map[string]string, check func(*testing.T, library.Library, library.SourceSpec, *gitHubAPIMock, gitHubFixture)) {
 	t.Helper()
 	for _, source := range []string{"github", "clone", "archive"} {

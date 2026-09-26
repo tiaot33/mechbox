@@ -19,7 +19,7 @@ func TestListAgentsReadsAgentsTableNotConstants(t *testing.T) {
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// 只用 SQL 构造多一行 Agent 的输入文件;门面须按库内容列出,而不是按内置常量。
+	// 只用 SQL 构造多一行 Agent 的输入文件;技能库须按库内容列出,而不是按内置常量。
 	editLibraryFixture(t, path, `INSERT INTO agents(code, name, global_path, project_path) VALUES ('another', 'Another', '.another/skills', '.another/skills')`)
 	reopened, err := library.Open(path)
 	if err != nil {

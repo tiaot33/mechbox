@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS projects (
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
--- Agent 的稳定代码、展示名称与布局;规则分别相对用户主目录和已注册项目根,不提供修改门面。
+-- Agent 的稳定代码、展示名称与布局;规则分别相对用户主目录和已注册项目根,技能库不提供修改方法。
 CREATE TABLE IF NOT EXISTS agents (
     code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,如 claude-code / codex;Scope 和投影记录以此标识 Agent
     name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Codex;不参与 Scope 身份判定

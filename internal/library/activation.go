@@ -38,7 +38,7 @@ func scopeOf(operation string, scope Scope) (scopeRow, error) {
 	}
 }
 
-// scope 把落库列还原为门面上的 Scope 身份。
+// scope 把落库列还原为技能库对外的 Scope 身份。
 func (r scopeRow) scope() Scope {
 	if r.projectID == nil {
 		return GlobalScope(r.agent)
@@ -82,7 +82,7 @@ func (s resolvedScope) requireRoot(operation string) error {
 	return nil
 }
 
-// resolveScope 把门面收到的 Scope 变成内部目标:先按调用方的操作名校验组合,
+// resolveScope 把技能库收到的 Scope 变成内部目标:先按调用方的操作名校验组合,
 // 未知 Agent / 未登记项目的 NotFound 来自 scopeLocation。
 func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
 	row, err := scopeOf(operation, scope)

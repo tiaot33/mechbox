@@ -141,7 +141,7 @@ func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
 	}
 }
 
-// 非 *Error 的 error 按门面规则归类,无可识别原因的记为 internal;消息保留、原错误仍可 errors.Is;nil 仍是 nil。
+// 非 *Error 的 error 按技能库规则归类,无可识别原因的记为 internal;消息保留、原错误仍可 errors.Is;nil 仍是 nil。
 func TestErrorOfPlainErrorIsInternal(t *testing.T) {
 	plain := errors.New("boom")
 	got := library.ErrorOf(fmt.Errorf("op: %w", plain))
@@ -158,7 +158,7 @@ func TestErrorOfPlainErrorIsInternal(t *testing.T) {
 	if got := library.ErrorOf(nil); got != nil {
 		t.Fatalf("ErrorOf(nil) = %#v, want nil", got)
 	}
-	// 与门面同一套归类:接入层自己产生的 ctx 取消仍是 canceled,不当 bug 报。
+	// 与技能库同一套归类:接入层自己产生的 ctx 取消仍是 canceled,不当 bug 报。
 	if got := library.ErrorOf(fmt.Errorf("call: %w", context.Canceled)); got.Code != library.Canceled || !errors.Is(got, context.Canceled) {
 		t.Fatalf("ErrorOf(canceled) = %#v, want canceled", got)
 	}
@@ -284,7 +284,7 @@ func TestSQLiteUniqueFallbackOmitsDetails(t *testing.T) {
 	if _, err := lib.CreateGroup(t.Context(), "dup"); err != nil {
 		t.Fatal(err)
 	}
-	// 加一个门面不知道的 UNIQUE,绕过显式检查,只走 typedError 兜底。
+	// 加一个技能库不知道的 UNIQUE,绕过显式检查,只走 typedError 兜底。
 	editLibraryFixture(t, path, `CREATE UNIQUE INDEX groups_singleton ON groups((1))`)
 	_, err = lib.CreateGroup(t.Context(), "other")
 	typed := requireLibraryError(t, err, library.AlreadyExists)
