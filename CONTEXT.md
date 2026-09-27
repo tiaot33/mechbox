@@ -17,7 +17,7 @@ A coding agent with a stable code and a display name, loading skills from its de
 _Avoid_: Assistant, tool, client / 助手、工具、客户端
 
 **Library · 库**:
-The tool's own authoritative store of skills plus their metadata (collections, groups, installations). The single source of truth; Installations in agent directories are copies of it.
+The tool's own authoritative store of skills plus their metadata (collections, groups, installations). The single source of truth; the folders of Installations in agent directories are copies of it.
 _Avoid_: Store, database, cache, registry / 存储、数据库、缓存、注册表
 
 **Source · 来源**:
@@ -25,7 +25,7 @@ The origin a skill was fetched from — typically a git repo, or a local directo
 _Avoid_: Origin, remote, provider / 源头、远端、提供方
 
 **Preview · 预览**:
-A temporary look at the skills a Source offers, remote or local, pinned to what the Source contained at that moment; nothing enters the Library. Skills are fetched only from a Preview, exactly as previewed; a successful Fetch consumes it, and an unused one expires.
+A temporary look at the skills a Source offers, remote or local, pinned to what the Source contained at that moment; nothing enters the Library. New skills are fetched only from a Preview, exactly as previewed; a successful Fetch consumes it, and an unused one expires.
 _Avoid_: Staging, session / 暂存、会话
 
 **Candidate · 候选**:
@@ -35,6 +35,10 @@ _Avoid_: Result, match / 结果、匹配项
 **Fetch · 入库**:
 Bringing chosen Candidates from a Preview into the Library. Distinct from Install: Fetch brings a skill *into* the tool; Install places it *out* into an Agent's directory.
 _Avoid_: Install, download, add, import, pull / 安装、下载、添加、导入、拉取
+
+**Update · 更新**:
+Bringing a newer version of an already-fetched skill from its Source into the Library, without a Preview. Installations are left as they are; the user chooses when to Reinstall each one.
+_Avoid_: Upgrade, re-fetch / 升级、重新入库
 
 **Collection · 集合**:
 Skills grouped by their Source (i.e. by source repo). Automatic — a skill's collection follows from where it came.
@@ -75,3 +79,7 @@ _Avoid_: Rewrite, refresh, restore, resync / 重写、刷新、还原、重新�
 **Sync · 同步**:
 Manual, non-realtime push/pull of the whole Library to and from S3, so a full setup can be reproduced on another machine. Never automatic. Machine-specific paths (Registered projects) are carried as advisory values and may be remapped per machine.
 _Avoid_: Backup, replication, upload / 备份、复制、上传
+
+**Sync plan · 同步计划**:
+A read-only report, before a push or pull, of which remote copy of the Library it would overwrite or restore from; the push or pull then goes ahead only if the remote is still the one the user confirmed.
+_Avoid_: Preview, dry run / 预览、试运行
