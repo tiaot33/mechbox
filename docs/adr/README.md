@@ -2,6 +2,10 @@
 
 每篇只记录一个现在仍然成立的决定，以及做这个决定的原因。术语以 [CONTEXT.md](../../CONTEXT.md) 为准；具体行为以 `internal/library/api.go` 的注释和测试为准。决定改了就直接改对应的那一篇，历史交给 git。
 
+## 总览
+
+- [0009 用户操作流程：先入库，再安装](0009-user-flow-fetch-then-install.md)
+
 ## 库与数据
 
 - [0001 库的数据集中存在一个数据库里](0001-library-data-in-one-database.md)
