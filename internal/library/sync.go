@@ -29,11 +29,9 @@ type s3Config struct {
 	pathStyle                                                         bool
 }
 
-// pullInstallationWarning 提示 pull 后 agent 目录安装项未随之重建,可能与新库不一致。
 const pullInstallationWarning = "agent 目录里的安装项未随本次 pull 重建,可能与新库不一致"
 
 func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
-	// 纯网络探测,不碰库,不加锁。
 	defer func() { err = typedError(err) }()
 	identity, exists, err := remoteIdentity(ctx)
 	if err != nil {
@@ -64,7 +62,6 @@ func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err er
 }
 
 func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
-	// 三段式:HEAD(无锁)→ 快照(共享锁,只为与 SyncPull 的整库替换互斥)→ PUT(无锁,快照已在内存)。
 	defer func() { err = typedError(err) }()
 	identity, _, err := remoteIdentity(ctx)
 	if err != nil {
@@ -77,9 +74,6 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 	if err != nil {
 		return SyncResult{}, err
 	}
-	// 条件写让 check-then-act 变原子:HEAD 查询只是快速失败,真正的守卫是这里的前置条件——
-	// 同步计划时无对象则要求写入时仍无对象(If-None-Match: *),否则要求远端仍是同步计划里的身份
-	// (If-Match: expected)。窗口内远端若被改动,服务端拒绝(412),不会覆盖。
 	conditions := map[string]string{"If-Match": string(expected)}
 	if expected == "" {
 		conditions = map[string]string{"If-None-Match": "*"}
@@ -118,7 +112,6 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	// 拉库后按本机 $HOME 解释全局 Scope,与「换机器再 Open」一致。
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return SyncResult{}, fmt.Errorf("sync pull: find home directory: %w", err)
@@ -130,7 +123,6 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullInstallationWarning}}, nil
 }
 
-// remoteIdentity 通过 HEAD 读取远端对象的身份;对象不存在时返回 ("", false, nil)。
 func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
 	_, etag, err := s3Request(ctx, http.MethodHead, nil, nil)
 	if err != nil {
@@ -142,7 +134,6 @@ func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
 	return RemoteIdentity(etag), true, nil
 }
 
-// snapshotBytes 在共享锁内生成当前库的事务性快照并读入内存;锁只覆盖快照本身,不覆盖上传。
 func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -161,7 +152,6 @@ func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 		_ = snapshotDB.Close()
 		return nil, fmt.Errorf("snapshot library: %w", err)
 	}
-	// backup 会把本库文件头里的 WAL 标记一并复制;推送的镜像要保持 rollback journal 才能与老版本互通。
 	var mode string
 	err = snapshotDB.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
 	if err == nil && mode != "delete" {
@@ -174,7 +164,6 @@ func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	if err := snapshotDB.Close(); err != nil {
 		return nil, fmt.Errorf("close sync snapshot: %w", err)
 	}
-	// ponytail: full-replace sync holds one database image in memory; stream when libraries become large enough to measure.
 	data, err := os.ReadFile(snapshotPath)
 	if err != nil {
 		return nil, fmt.Errorf("read sync snapshot: %w", err)
@@ -182,7 +171,6 @@ func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-// openPulledLibrary 写入并校验临时库;失败时自行清理,成功后由调用方 defer cleanup()。
 func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error) {
 	download, err := os.CreateTemp("", ".library-pull-*.db")
 	if err != nil {
@@ -216,7 +204,6 @@ func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error
 	return check, cleanup, nil
 }
 
-// unacceptableRemote 判断拉取内容是否为不可接受的远端库(schema / 损坏 / 不是数据库)。
 func unacceptableRemote(err error) bool {
 	if errors.Is(err, errUnacceptableSchema) {
 		return true
@@ -225,7 +212,6 @@ func unacceptableRemote(err error) bool {
 	return ok && (sqliteErr.Code == sqlite3.ErrCorrupt || sqliteErr.Code == sqlite3.ErrNotADB)
 }
 
-// validatePulledDatabase 校验一个已打开的拉取库:完整性 + schema 身份。
 func validatePulledDatabase(ctx context.Context, check *sql.DB) error {
 	var integrity string
 	if err := check.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
@@ -285,14 +271,6 @@ func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
 	})
 }
 
-// remapProjectPaths 按 SKILLS_PROJECT_PATH_MAP 把拉回库里 Registered project 的路径改成本机路径。
-// 只改 projects 表:安装项记录只记 Scope 身份,拉库后目录一律按本机 $HOME / 映射后的项目根 Resolve,
-// 不再改写任何绝对路径(见 ADR 0005)。
-//
-// 每个项目只按它在拉回库里记录的原路径查一次映射、按 id 改写,已改写的结果不再参与匹配,
-// 因此 {A→B, B→C} 确定地得到 A 的项目落在 B、B 的项目落在 C。改写顺序先在内存里按
-// 「目标路径尚未被占用」推演好再落盘;目标被不会迁走的项目占着、两个项目指向同一路径或
-// 映射成环(A↔B 互换)都是配置错误,返回 InvalidArgument 并回滚,不留下一半改写。
 func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 	paths := map[string]string{}
 	if raw != "" {
@@ -315,7 +293,6 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 		return err
 	}
 	defer tx.Rollback()
-	// current 是拉回库里每个项目的当前路径;pending 是尚待改写的项目及其目标路径。
 	current := map[ProjectID]string{}
 	pending := map[ProjectID]string{}
 	rows, err := tx.QueryContext(ctx, `SELECT id, path FROM projects`)
@@ -370,10 +347,6 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 	return tx.Commit()
 }
 
-// s3Request 发起一次已签名的 S3 请求,返回响应体与对象的 ETag(远端身份)。
-// 对象不存在(404)映射为 NotFound,便于同步计划区分"远端尚无对象"与真正的故障。
-// conditions 里的条件头(If-Match / If-None-Match)不参与签名(SigV4 只签指定头);
-// 服务端据其判定前置条件,不满足时返回 412,映射为 Conflict。
 func s3Request(ctx context.Context, method string, body []byte, conditions map[string]string) ([]byte, string, error) {
 	cfg, err := loadS3Config()
 	if err != nil {
@@ -419,7 +392,6 @@ func s3Request(ctx context.Context, method string, body []byte, conditions map[s
 		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}
 	}
 	etag := resp.Header.Get("ETag")
-	// 已存在的对象必须提供身份,不能把缺失 ETag 当作远端无对象。
 	if etag == "" && method != http.MethodPut {
 		return nil, "", &Error{Code: SourceUnreachable, Message: "S3 response missing ETag"}
 	}

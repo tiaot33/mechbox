@@ -20,7 +20,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 新增任何应用时:应用依赖 Library,Library 不依赖应用;默认共用根 module,入口放 `cmd/<app>/`。桌面端的位置见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
 
-**注释语言:代码注释一律使用中文**;标识符、技术术语保留英文。
+**注释:只有 `internal/library/api.go` 写注释,其他非测试代码不写注释**(`//go:build`、`//go:embed` 等编译指令除外)。注释一律使用中文;标识符、技术术语保留英文。
 
 ## Agent skills
 

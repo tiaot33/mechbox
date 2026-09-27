@@ -93,7 +93,7 @@ func TestLocalPreviewPinsContentUntilFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 预览之后改动或删除目录,入库的仍是预览时的内容。
+	// 入库预览之后改动或删除目录,入库的仍是入库预览时的内容。
 	writeFile(t, skillFile, []byte(skillDocument("pinned", "edited later")), 0o644)
 	writeFile(t, filepath.Join(root, "extra.md"), []byte("added later"), 0o644)
 	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
@@ -167,7 +167,7 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 	}
 	tooLarge := t.TempDir()
 	writeFile(t, filepath.Join(tooLarge, "SKILL.md"), []byte(skillDocument("large", "")), 0o644)
-	// 稀疏文件:只声明大小不占磁盘,预览按文件大小在读取前拒绝。
+	// 稀疏文件:只声明大小不占磁盘,入库预览按文件大小在读取前拒绝。
 	large, err := os.Create(filepath.Join(tooLarge, "large.bin"))
 	if err != nil {
 		t.Fatal(err)

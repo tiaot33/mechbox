@@ -542,7 +542,7 @@ func (fx gitHubFixture) blobSHA(filePath string) string {
 	return entry.SHA
 }
 
-// gitHubRequest 是预览 owner/repo 的 main 分支的入库预览请求;显式给出 ref,不发现默认分支。
+// gitHubRequest 是对 owner/repo 的 main 分支做入库预览的请求;显式给出 ref,不发现默认分支。
 func gitHubRequest() library.PreviewFetchRequest {
 	return library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "main"}}
 }
@@ -620,7 +620,7 @@ func redirectGitHubRemote(t *testing.T, remote string) {
 }
 
 // serveGitHubCloneOnly 让 GitHub API 一律 500,并把 owner/repo 的克隆重定向到本地仓库 repo:
-// 预览与入库走浅克隆回退。
+// 入库预览与入库走浅克隆回退。
 func serveGitHubCloneOnly(t *testing.T, repo string) {
 	t.Helper()
 	serveGitHubRemoteOnly(t, "file://"+repo)
@@ -637,7 +637,7 @@ func serveGitHubRemoteOnly(t *testing.T, remote string) {
 	t.Cleanup(func() { http.DefaultClient = client })
 }
 
-// gitHubCloneRequest 让 owner/repo 走浅克隆回退并指向本地仓库 repository,返回预览其 main 分支的请求。
+// gitHubCloneRequest 让 owner/repo 走浅克隆回退并指向本地仓库 repository,返回对其 main 分支做入库预览的请求。
 func gitHubCloneRequest(t *testing.T, repository string) library.PreviewFetchRequest {
 	t.Helper()
 	serveGitHubCloneOnly(t, repository)

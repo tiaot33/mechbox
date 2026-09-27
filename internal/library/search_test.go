@@ -27,7 +27,7 @@ func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
 	result, err := lib.SearchSkills(t.Context(), "  testing tools  ")
-	// 无法转换为可预览 GitHub 地址的条目直接过滤掉。
+	// 无法转换为可做入库预览的 GitHub 地址的条目直接过滤掉。
 	if err != nil || len(result) != 2 {
 		t.Fatalf("search = %#v, %v", result, err)
 	}

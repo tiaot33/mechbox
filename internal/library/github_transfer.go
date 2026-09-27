@@ -27,7 +27,6 @@ func escapeGitHubPath(name string) string {
 	return strings.Join(parts, "/")
 }
 
-// githubDownload 只把凭证发往初始受信地址;所有重定向都移除 Authorization。
 func githubDownload(ctx context.Context, location, token string, dest io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
@@ -59,7 +58,6 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		// 限流响应恒带 Reset;解析失败存 0 即不避让。
 		reset, _ := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
 		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response), reset: reset}
 	}
@@ -74,11 +72,10 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 }
 
 const (
-	githubArchiveSmallRepo = 4 << 20 // 整仓不超过此值时,一次下载总比多轮往返划算
-	githubArchiveMaxWaste  = 4       // 否则整仓至多是待取字节的这么多倍才下载归档
+	githubArchiveSmallRepo = 4 << 20
+	githubArchiveMaxWaste  = 4
 )
 
-// githubRepoSize 返回 tree 中全部文件的总字节数;任一条目缺少大小或总量超过下载上限时返回 0,不走整仓下载。
 func githubRepoSize(entries []githubTreeEntry) int64 {
 	size := int64(0)
 	for _, entry := range entries {
@@ -100,8 +97,6 @@ func githubEntrySize(entry githubTreeEntry) int64 {
 	return *entry.Size
 }
 
-// githubArchiveWorth 判断整仓归档是否比逐个取划算:待取文件超过一个并发批次,
-// 且整仓足够小,或下载的无关字节不超过待取字节的若干倍。
 func githubArchiveWorth(repoSize int64, pending map[string]githubBlob) bool {
 	if repoSize <= 0 || len(pending) <= fetchConcurrency {
 		return false
@@ -116,8 +111,6 @@ func githubArchiveWorth(repoSize int64, pending map[string]githubBlob) bool {
 	return wanted*githubArchiveMaxWaste >= repoSize
 }
 
-// transferBlobs 按 blobs 顺序返回正文:先用已有正文与 memo,划算时取一次整仓归档(repoSize 为 0 表示不取),
-// 剩下的走 raw(只有 gh 时走 GraphQL),最后逐个 blob 补齐。每一级取回的正文都已按 blob SHA 校验。
 func (c *githubClient) transferBlobs(ctx context.Context, owner, repo, commit string, repoSize int64, blobs []githubBlob) ([][]byte, error) {
 	found := map[string][]byte{}
 	pending := map[string]githubBlob{}
@@ -138,7 +131,6 @@ func (c *githubClient) transferBlobs(ctx context.Context, owner, repo, commit st
 			delete(pending, sha)
 		}
 	}
-	// 同一 SHA 可能出现在多个路径,其中一处已有正文即可。
 	for sha := range found {
 		delete(pending, sha)
 	}
@@ -170,7 +162,6 @@ func (c *githubClient) transferBlobs(ctx context.Context, owner, repo, commit st
 	return contents, nil
 }
 
-// rawBlobs 按 commit 从 raw 有界并发取正文,只有 gh 时改用 GraphQL 批量取;取不到的留给调用方逐个回退。
 func (c *githubClient) rawBlobs(ctx context.Context, owner, repo, commit string, pending map[string]githubBlob) map[string][]byte {
 	todo := slices.Collect(maps.Values(pending))
 	slices.SortFunc(todo, func(a, b githubBlob) int { return strings.Compare(a.repoPath, b.repoPath) })
@@ -185,7 +176,6 @@ func (c *githubClient) rawBlobs(ctx context.Context, owner, repo, commit string,
 		}); err != nil {
 			return err
 		}
-		// 先返回需要爬阶梯的失败,其他缺失随后逐个回退。
 		for _, err := range errs {
 			if isGitHubAuthRetry(err) {
 				return err
@@ -224,9 +214,6 @@ func (c *githubClient) rawBlob(ctx context.Context, owner, repo, commit string, 
 	return content, nil
 }
 
-// tarball 下载 commit 的整仓归档,只取出 pending 里 SHA 相符的文件。归档不落盘,路径只用于查找,
-// 正文以 tree 的 blob SHA 为准,所以无关条目、symlink、异常路径一律跳过;
-// 归档损坏或超限时保留已校验的部分,缺失的由调用方回退。
 func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, pending map[string]githubBlob) map[string][]byte {
 	var archive bytes.Buffer
 	err := c.request(ctx, func(token string) error {
@@ -249,7 +236,6 @@ func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, 
 		return nil
 	}
 	defer gz.Close()
-	// 展开字节上限连 tar 头与填充一起算,防压缩炸弹。
 	reader := tar.NewReader(io.LimitReader(contextReader{ctx, gz}, maxFetchSize))
 	wanted := make(map[string]string, len(pending))
 	for sha, blob := range pending {
@@ -261,7 +247,6 @@ func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, 
 		if err != nil {
 			break
 		}
-		// 顶层目录是 {repo}-{sha}/,去掉后即 tree 路径。
 		_, rel, _ := strings.Cut(header.Name, "/")
 		sha, ok := wanted[rel]
 		if !ok || header.Typeflag != tar.TypeReg {
@@ -281,7 +266,6 @@ func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, 
 
 const githubGraphQLBatchSize = 100
 
-// graphqlBlobs 每批最多 100 个对象。二进制 blob 的 text 为 null,截断或编码转换过的文本 SHA 对不上,都留给 blob 回退。
 func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blobs []githubBlob, contents [][]byte) error {
 	var missing []int
 	for i := range blobs {
@@ -301,7 +285,6 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// GraphQL 可以同时返回 data 与 errors,只接受可独立校验的对象。
 		var payload struct {
 			Data struct {
 				Repository map[string]*struct {
@@ -328,7 +311,6 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 			memoPut(c.memo, &c.memo.blobs, memoKey(memoBlob, owner, repo, blobs[i].sha), content)
 		}
 	}
-	// 有效的部分结果仍可复用;缺失或不可信对象不能算作鉴权成功。
 	for _, i := range missing {
 		if contents[i] == nil {
 			return errGitHubContentsFallback
@@ -337,7 +319,6 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 	return nil
 }
 
-// githubCLIOutput 输出直接写到有界 writer;超限立即取消整个进程组,stderr 从不进入错误。
 func githubCLIOutput(ctx context.Context, dest io.Writer, args ...string) error {
 	commandCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()

@@ -1,4 +1,4 @@
-// Package library 用 SQLite 数据库统一管理 Agent Skills:从来源预览、入库,再把 skill 安装到
+// Package library 用 SQLite 数据库统一管理 Agent Skills:先对来源做入库预览再入库,然后把 skill 安装到
 // Claude Code 与 Codex 在各作用域读取的 skills 目录。数据库是唯一权威数据源:
 // Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改不会进库,巡检只拿它们与库里的版本比对。
 package library
@@ -25,7 +25,7 @@ const (
 	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法)。
 	// 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
 	InvalidArgument ErrorCode = "invalid_argument"
-	// NotFound 被引用的实体不存在(各类 ID、预览句柄、候选名、远端不存在的 git ref)。
+	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
 	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的安装目标)。
@@ -35,7 +35,7 @@ const (
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组安装撑着的安装项单独卸载;同一预览句柄的入库正在进行;
+	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组安装撑着的安装项单独卸载;同一入库预览句柄的入库正在进行;
 	// 重新安装被手动改过的安装项而未选 Overwrite)。
 	// 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
 	// 加入成员时根目录不存在也是如此。重新安装时逐条的这类失败放进 ReinstallResult.Error。
@@ -141,13 +141,13 @@ type Source struct {
 	LastSeenRef string        `json:"last_seen_ref"` // 上次看到的远端标识(git commit 或内容哈希)
 }
 
-// SearchSkill 是 skills.sh 搜索到的一个技能,只供展示;Preview 原样传给 PreviewFetch,只预览这一个技能。
+// SearchSkill 是 skills.sh 搜索到的一个技能,只供展示;Preview 原样传给 PreviewFetch,入库预览只列这一个技能。
 type SearchSkill struct {
 	ID        string              `json:"id"`
 	Name      string              `json:"name"`
 	DetailURL string              `json:"detail_url"`
 	Installs  *int64              `json:"installs,omitempty"` // skills.sh 统计的安装量
-	Preview   PreviewFetchRequest `json:"preview"`            // 原样传给 PreviewFetch,只预览这一个技能
+	Preview   PreviewFetchRequest `json:"preview"`            // 原样传给 PreviewFetch,入库预览只列这一个技能
 }
 
 // PreviewFetchRequest 是入库预览的输入:GitHub / URL / Local 恰好给一个。
@@ -159,7 +159,7 @@ type PreviewFetchRequest struct {
 
 // GitHubInput 是用户输入的 GitHub 地址,由 PreviewFetch 解析。
 type GitHubInput struct {
-	Input   string `json:"input"`             // owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 只预览该技能
+	Input   string `json:"input"`             // owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能
 	Ref     string `json:"ref,omitempty"`     // 显式分支或 tag;带斜杠的必须从这里传;省略时发现默认分支
 	Subpath string `json:"subpath,omitempty"` // 仓库内目录
 }
@@ -198,7 +198,7 @@ type AuditEntry struct {
 	DetailURL  string      `json:"detail_url"`           // skills.sh 上该合作方的安全详情页
 }
 
-// SkillAudit 是一个预览候选在 skills.sh 上的审计概览:查看候选时经 GetSkillAudit 按需查询,随预览缓存,
+// SkillAudit 是一个入库预览候选在 skills.sh 上的审计概览:查看候选时经 GetSkillAudit 按需查询,随入库预览缓存,
 // 只供展示。不入库、不参与 Sync、不影响入库。Entries 仅在 Availability 为 AuditAvailable 时非空。
 type SkillAudit struct {
 	Availability AuditAvailability `json:"availability"`
@@ -216,8 +216,8 @@ type FetchPreview struct {
 
 // Candidate 是入库预览中可挑选入库的候选;skills.sh 审计不随候选返回,见 GetSkillAudit。
 type Candidate struct {
-	Fetched     SkillID `json:"fetched,omitzero"`      // 同一来源同名的库内技能 ID;预览时查询,零值表示未入库
-	PluginName  string  `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅供预览
+	Fetched     SkillID `json:"fetched,omitzero"`      // 同一来源同名的库内技能 ID;入库预览时查询,零值表示未入库
+	PluginName  string  `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅在入库预览中展示
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	Path        string  `json:"path"` // 相对来源根目录
@@ -578,33 +578,33 @@ type Library interface {
 	// 进库
 
 	// SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
-	// 无法转换为可预览 GitHub 地址的条目直接过滤掉。
+	// 无法转换为可做入库预览的 GitHub 地址的条目直接过滤掉。
 	SearchSkills(ctx context.Context, query string) ([]SearchSkill, error)
 	// PreviewFetch 发起一次入库预览:发现来源中的候选 skill,返回句柄与候选清单,此时尚无内容进入 Library。
 	// req 的 GitHub / URL / Local 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空。
 	// GitHub 输入在这里解析:输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
 	// 路径不一致返回 InvalidArgument;省略 ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main;
-	// @name 只预览该技能,不存在返回 NotFound。URL 与本地目录总是列出全部候选。
-	// 预览钉住来源当时的内容:GitHub 只取各候选 SKILL.md 并钉住当时的 commit;URL 一次下载完整归档;
+	// @name 时入库预览只列该技能,不存在返回 NotFound。URL 与本地目录总是列出全部候选。
+	// 入库预览钉住来源当时的内容:GitHub 只取各候选 SKILL.md 并钉住当时的 commit;URL 一次下载完整归档;
 	// 本地目录把候选文件读进内存作为快照(候选文件累计超过 1000 个或 64 MiB 返回 SourceInvalid),
 	// 之后目录再被改动也不影响入库。本地来源的身份是该目录的绝对路径,同一目录下的技能归入同一 Collection。
 	// 一个有效候选都没有时返回 SourceInvalid,诊断写在错误信息里。
-	// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响预览。
+	// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响入库预览。
 	// 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在入库时返回 NotFound。
 	PreviewFetch(ctx context.Context, req PreviewFetchRequest) (FetchPreview, error)
 	// GetSkillAudit 按需向 skills.sh 查询一次入库预览中某个技能的审计,供查看单个技能时懒加载。
 	// 只供展示:不入库、不参与 Sync、不挡入库;查询失败降级为 AuditUnavailable,不返回错误。
-	// 结果随预览缓存,AuditUnavailable 不缓存、再次调用会重查。URL / 本地目录与非 github.com 来源
+	// 结果随入库预览缓存,AuditUnavailable 不缓存、再次调用会重查。URL / 本地目录与非 github.com 来源
 	// 不在 skills.sh 收录范围,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
 	GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (*SkillAudit, error)
 	// Fetch 从一次入库预览中选取候选原子提交入库,返回入库技能的摘要(不含文件,需要时用 GetSkill)。
 	// names 为空返回 InvalidArgument;"全部入库"由调用方把 Fetched 为零的候选名收集起来传入。
 	// 所选技能中有已入库的,整批返回 AlreadyExists。
-	// GitHub 来源可在预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
-	// 不跟随当前 HEAD。URL / 本地目录只读取预览时的内容,不再读取来源。要么所选 skill 全部入库,
-	// 要么库保持不变。成功后该预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
+	// GitHub 来源可在入库预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
+	// 不跟随当前 HEAD。URL / 本地目录只读取入库预览时的内容,不再读取来源。要么所选 skill 全部入库,
+	// 要么库保持不变。成功后该入库预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
 	// 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次入库尚在进行时,再次入库返回
-	// FailedPrecondition;联网期间不持库锁,其他预览 / 列表 / 安装不必等它。
+	// FailedPrecondition;联网期间不持库锁,其他入库预览 / 列表 / 安装不必等它。
 	Fetch(ctx context.Context, id FetchPreviewID, names []string) ([]SkillSummary, error)
 
 	// 库里的技能
@@ -638,7 +638,7 @@ type Library interface {
 	// 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
 	// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
-	// Update 重新读取来源,在其中按名字重新定位该 skill,不经预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
+	// Update 重新读取来源,在其中按名字重新定位该 skill,不经入库预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
 	// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
 	// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
 	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。

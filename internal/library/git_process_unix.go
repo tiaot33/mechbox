@@ -9,7 +9,6 @@ import (
 	"syscall"
 )
 
-// cancelGitProcess 同时终止 Git 与其 HTTP/SSH 子进程,避免取消后仍占用暂存目录或连接。
 func cancelGitProcess(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Cancel = func() error {

@@ -95,7 +95,7 @@ func TestGetSkillAuditLoadsOnDemandAndCaches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 预览不查审计,候选列表也不带审计。
+	// 入库预览不查审计,候选列表也不带审计。
 	if urls := audits.urls(); len(urls) != 0 {
 		t.Fatalf("PreviewFetch contacted skills.sh: %v", urls)
 	}
@@ -105,7 +105,7 @@ func TestGetSkillAuditLoadsOnDemandAndCaches(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("GetSkillAudit = %#v, %v; want %#v", got, err, want)
 		}
-		// 返回值是副本,改动不影响预览里的缓存。
+		// 返回值是副本,改动不影响入库预览里的缓存。
 		got.Entries[0].Categories[0] = "mutated"
 	}
 	if urls := audits.urls(); !reflect.DeepEqual(urls, []string{"https://skills.sh/api/v1/skills/audit/owner/repo/first"}) {
@@ -139,7 +139,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 		code library.ErrorCode
 	}{
 		{"unknown", "second", library.NotFound},
-		{preview.ID, "first", library.NotFound}, // 被 Names 筛掉的候选不在预览里
+		{preview.ID, "first", library.NotFound}, // 被 Names 筛掉的候选不在入库预览里
 		{preview.ID, "../x", library.InvalidArgument},
 	} {
 		if _, err := lib.GetSkillAudit(t.Context(), tc.id, tc.name); !library.IsCode(err, tc.code) {

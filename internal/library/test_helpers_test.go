@@ -495,12 +495,12 @@ func (g *networkGate) open() {
 	close(g.release)
 }
 
-// localRequest 是预览本地目录 path 的入库预览请求。
+// localRequest 是对本地目录 path 做入库预览的请求。
 func localRequest(path string) library.PreviewFetchRequest {
 	return library.PreviewFetchRequest{Local: path}
 }
 
-// candidateNames 收集预览中全部候选的名字,供"全部入库"的用例传给 Fetch。
+// candidateNames 收集入库预览中全部候选的名字,供"全部入库"的用例传给 Fetch。
 func candidateNames(preview library.FetchPreview) []string {
 	names := make([]string, len(preview.Candidates))
 	for i, candidate := range preview.Candidates {
@@ -509,7 +509,7 @@ func candidateNames(preview library.FetchPreview) []string {
 	return names
 }
 
-// fetchSkills 把 names 从预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
+// fetchSkills 把 names 从入库预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
 func fetchSkills(t *testing.T, lib library.Library, preview library.FetchPreview, names []string) []library.Skill {
 	t.Helper()
 	skills, err := getFetchedSkills(t.Context(), lib, preview, names)
@@ -534,7 +534,7 @@ func getFetchedSkills(ctx context.Context, lib library.Library, preview library.
 	return skills, nil
 }
 
-// fetchLocalDir 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
+// fetchLocalDir 对本地目录做入库预览,并把其中唯一的候选入库,供只需一个本地技能的用例复用。
 func fetchLocalDir(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
 	preview, err := lib.PreviewFetch(ctx, localRequest(dir))
 	if err != nil {

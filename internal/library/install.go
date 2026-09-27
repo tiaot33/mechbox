@@ -14,13 +14,11 @@ import (
 	"time"
 )
 
-// scopeRow 是 Scope 身份的落库形状:Agent 代码 + 可选项目(nil 为全局)。
 type scopeRow struct {
 	agent     AgentCode
 	projectID *ProjectID
 }
 
-// scopeOf 校验 Scope 的组合并拆成落库列;非法组合按出错字段报 InvalidArgument。
 func scopeOf(operation string, scope Scope) (scopeRow, error) {
 	switch scope.Kind {
 	case ScopeGlobal:
@@ -38,7 +36,6 @@ func scopeOf(operation string, scope Scope) (scopeRow, error) {
 	}
 }
 
-// scope 把落库列还原为技能库对外的 Scope 身份。
 func (r scopeRow) scope() Scope {
 	if r.projectID == nil {
 		return GlobalScope(r.agent)
@@ -46,15 +43,12 @@ func (r scopeRow) scope() Scope {
 	return ProjectScope(r.agent, *r.projectID)
 }
 
-// resolvedScope 是一次安装操作的内部目标:Scope 的落库身份 + 根目录 + 按现行布局算出的目录。
 type resolvedScope struct {
 	scopeRow
-	root      string // 作用域根目录;Library 从不创建它,只创建其下的 Agent 布局目录
+	root      string
 	directory string
 }
 
-// rootMissing 确认作用域根目录存在且是目录;不满足时返回 FailedPrecondition(Details.Path 为根目录,
-// 项目 Scope 另带 ProjectID),说明这个项目或主目录不在本机。读取失败放在第二个返回值。
 func (s resolvedScope) rootMissing(operation string) (*Error, error) {
 	info, err := os.Stat(s.root)
 	if err == nil && info.IsDir() {
@@ -70,7 +64,6 @@ func (s resolvedScope) rootMissing(operation string) (*Error, error) {
 	return preconditionError(operation, "scope root does not exist", details), nil
 }
 
-// requireRoot 是 rootMissing 的错误形式,供整次操作以根目录为前提的调用方使用。
 func (s resolvedScope) requireRoot(operation string) error {
 	missing, err := s.rootMissing(operation)
 	if err != nil {
@@ -82,8 +75,6 @@ func (s resolvedScope) requireRoot(operation string) error {
 	return nil
 }
 
-// resolveScope 把技能库收到的 Scope 变成内部目标:先按调用方的操作名校验组合,
-// 未知 Agent / 未登记项目的 NotFound 来自 scopeLocation。
 func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
 	row, err := scopeOf(operation, scope)
 	if err != nil {
@@ -96,25 +87,20 @@ func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scop
 	return resolvedScope{scopeRow: row, root: root, directory: directory}, nil
 }
 
-// rowQuerier 让 *sql.DB 与 *sql.Tx 共用同一个单行查询。
 type rowQuerier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// groupCoverageSQL 判断 installations 当前行是否被组安装覆盖:该 skill 是某组成员且该组已安装到同一 Scope。
-// 组安装撑着安装项的事实只由它推出,不另存。
 const groupCoverageSQL = `EXISTS (
 	SELECT 1 FROM group_installs ga JOIN skill_groups sg ON sg.group_id = ga.group_id
 	WHERE sg.skill_id = installations.skill_id AND ga.agent = installations.agent
 		AND ga.project_id IS installations.project_id)`
 
-// installationRow 是一个已存在的安装项记录:稳定 ID 与直接安装标记。
 type installationRow struct {
 	id     int64
 	direct bool
 }
 
-// findInstallation 找到某 skill 在某 Scope 的安装项记录;不存在时返回 nil 而非错误。
 func findInstallation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*installationRow, error) {
 	var row installationRow
 	err := q.QueryRowContext(ctx, `SELECT id, direct FROM installations WHERE skill_id = ? AND agent = ? AND project_id IS ?`, id, scope.agent, scope.projectID).Scan(&row.id, &row.direct)
@@ -127,8 +113,6 @@ func findInstallation(ctx context.Context, q rowQuerier, id SkillID, scope scope
 	return &row, nil
 }
 
-// dropUnbackedInstallation 在撤销某个安装后,删掉不再有任何安装撑着的安装项记录;返回是否删除。
-// 与 keepUnbackedInstallation 相对:撤回时用它,保留时用后者。
 func dropUnbackedInstallation(ctx context.Context, tx *sql.Tx, installationID int64) (bool, error) {
 	result, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, installationID)
 	if err != nil {
@@ -141,8 +125,6 @@ func dropUnbackedInstallation(ctx context.Context, tx *sql.Tx, installationID in
 	return removed > 0, nil
 }
 
-// keepUnbackedInstallation 在撤掉某个组安装后,让不再有任何安装撑着的安装项改为直接安装,磁盘不动
-// (移出成员的 keep 与删除分组的非破坏规则)。
 func keepUnbackedInstallation(ctx context.Context, tx *sql.Tx, installationID int64) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE installations SET direct = 1 WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, installationID); err != nil {
 		return fmt.Errorf("keep installation as direct install: %w", err)
@@ -150,17 +132,11 @@ func keepUnbackedInstallation(ctx context.Context, tx *sql.Tx, installationID in
 	return nil
 }
 
-// installationTrash 让"删记录 + 删安装项文件夹"可逆:调用方在事务内删完记录、把待删路径放进 targets,
-// 再由 commit 收尾:改名到同一父目录下的暂存名 → 提交事务 → 真正删除;提交前任一步失败改回原名,
-// 配合调用方的 Rollback 使库和磁盘都回到操作前。
-// RemoveSkill / UnregisterProject / Uninstall / UninstallGroup / RemoveSkillFromGroup 共用,
-// 避免任何一处再出现"先删盘后写库"。
 type installationTrash struct {
 	targets []string
-	trashed []struct{ trash, target string } // 已改名的条目:原路径与暂存路径
+	trashed []struct{ trash, target string }
 }
 
-// commit 完成收尾;operation 用于提交失败的错误消息。暂存目录的最终删除失败只留下垃圾,不影响权威数据。
 func (t *installationTrash) commit(ctx context.Context, tx *sql.Tx, operation string) error {
 	if err := t.trash(ctx); err != nil {
 		return err
@@ -174,7 +150,6 @@ func (t *installationTrash) commit(ctx context.Context, tx *sql.Tx, operation st
 	return nil
 }
 
-// trash 把每个存在的目标改名到暂存;不存在的跳过。任一步失败自动 restore 并返回错误。
 func (t *installationTrash) trash(ctx context.Context) error {
 	for _, path := range t.targets {
 		if err := ctx.Err(); err != nil {
@@ -194,7 +169,6 @@ func (t *installationTrash) trash(ctx context.Context) error {
 	return nil
 }
 
-// restore 把全部已改名的暂存目录改回原名,供提交前失败时复位。
 func (t *installationTrash) restore() error {
 	var restoreErr error
 	for _, entry := range t.trashed {
@@ -203,17 +177,13 @@ func (t *installationTrash) restore() error {
 	return restoreErr
 }
 
-// claimant 是一个可能与待安装目标争同一文件夹的既有安装项:所属 skill、技能名与 Scope 身份。
 type claimant struct {
 	skillID SkillID
 	name    string
 	scopeRow
 }
 
-// targetClaimant 在写事务外查找目标占用者,供安装计划与执行共用。调用方持共享或独占锁,
-// 并已确认本技能在本作用域没有记录;所有目录均按现行布局解析。
 func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name string, target resolvedScope) (*claimant, error) {
-	// 同名即包含本 skill 自身;本 skill 的其他 Scope 排在前面,使既有的"共享目录"错误形状不因同名 skill 的存在而改变。
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT p.skill_id, s.name, p.agent, p.project_id FROM installations p
 		JOIN skills s ON s.id = p.skill_id
@@ -233,7 +203,6 @@ func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name str
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, fmt.Errorf("read claimants: %w", err)
 	}
-	// 按规范化路径比较:主目录或 Agent 布局目录可能经符号链接指到另一个 Scope 的目录。
 	want := canonicalDirectory(target.directory)
 	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())
@@ -248,8 +217,6 @@ func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name str
 	return nil, nil
 }
 
-// placementConflict 检查尚无安装项的 skill 能否在 target 新建安装项:目标被另一个安装项占用返回 FailedPrecondition,
-// 有未记录的文件夹且未选 Overwrite 返回 AlreadyExists;能安装返回 nil。查询或磁盘读取失败放在第二个返回值。
 func (l *sqliteLibrary) placementConflict(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, policy ConflictPolicy) (*Error, error) {
 	other, err := l.targetClaimant(ctx, id, name, target)
 	if err != nil {
@@ -319,7 +286,6 @@ func (l *sqliteLibrary) PlanGroupInstall(ctx context.Context, groupID GroupID, s
 		if err != nil {
 			return GroupInstallPlan{}, err
 		}
-		// 与执行时同序:已有安装项的照常补组安装,其余同名成员先于占用 / 未记录文件夹判定为跳过。
 		if counts[member.Name] > 1 && item.Status != InstallAlreadyInstalled {
 			item.Status = InstallDuplicate
 			item.OccupierSkillID, item.OccupierName = 0, ""
@@ -329,7 +295,6 @@ func (l *sqliteLibrary) PlanGroupInstall(ctx context.Context, groupID GroupID, s
 	return plan, nil
 }
 
-// memberNameCounts 统计组成员里每个名字出现的次数;大于 1 的是组内同名,安装项会落到同一路径。
 func memberNameCounts(members []SkillSummary) map[string]int {
 	counts := make(map[string]int, len(members))
 	for _, member := range members {
@@ -389,7 +354,6 @@ func (l *sqliteLibrary) Install(ctx context.Context, id SkillID, scope Scope, op
 		return err
 	}
 	if existing != nil {
-		// 已有安装项:只补上直接安装,不写盘;把文件夹带到当前版本是单独的重新安装。
 		if _, err := l.db.ExecContext(ctx, `UPDATE installations SET direct = 1 WHERE id = ?`, existing.id); err != nil {
 			return fmt.Errorf("record direct install: %w", err)
 		}
@@ -408,19 +372,15 @@ func (l *sqliteLibrary) Install(ctx context.Context, id SkillID, scope Scope, op
 	})
 }
 
-// placement 是一次落盘里的一个安装项:把 skill 的当前版本写进 scope 的目录(新建,或重新安装时替换已有安装项)。
 type placement struct {
 	skill  Skill
 	scope  resolvedScope
-	folder string // 目标文件夹
-	stage  string // 暂存目录;移入目标后置空
-	backup string // 被替换的原有目标(外来文件夹或重新安装前的安装项)的备份;"" 表示原本无目标
-	moved  bool   // 暂存是否已移入目标位置
+	folder string
+	stage  string
+	backup string
+	moved  bool
 }
 
-// place 把一批安装项作为一个操作单元落盘:先全部暂存,再逐个移入目标,最后在单事务里调用 record;
-// record 为 nil 时(重新安装)只落盘、不开事务。任何一步失败都复原本次的磁盘改动(含被替换的原有目标)且不留记录。
-// placements 为空时只执行 record。调用方持独占锁并已排除冲突。
 func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, record func(*sql.Tx) error) error {
 	rollback := func() error {
 		var restoreErr error
@@ -430,7 +390,6 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 				if err := os.RemoveAll(item.folder); err != nil {
 					restoreErr = errors.Join(restoreErr, err)
 				} else if item.backup != "" {
-					// 复位失败时保留备份,避免丢失用户原始内容。
 					restoreErr = errors.Join(restoreErr, os.Rename(item.backup, item.folder))
 				}
 			}
@@ -440,7 +399,6 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 		}
 		return restoreErr
 	}
-	// 共用写盘路径:根目录不存在时一律不落盘(MkdirAll 会凭空建出整条路径)。
 	for _, item := range placements {
 		if err := item.scope.requireRoot("place installation"); err != nil {
 			return err
@@ -469,7 +427,6 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 		item.moved = true
 		item.stage = ""
 	}
-	// 最后一个移入后、写记录前再看一次取消,已落盘的这批仍可整体复原。
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, rollback())
 	}
@@ -494,8 +451,6 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 	return nil
 }
 
-// stageSkill 把 skill 的全部文件写入 directory 下的一个临时暂存目录,返回暂存路径。
-// 暂存好但尚未移入目标位置,便于一批安装项先全部备齐再统一落盘。
 func stageSkill(directory string, skill Skill) (string, error) {
 	stage, err := os.MkdirTemp(directory, "."+skill.Name+"-")
 	if err != nil {
@@ -523,8 +478,6 @@ func stageSkill(directory string, skill Skill) (string, error) {
 	return stage, nil
 }
 
-// moveStageIntoPlace 把暂存目录移到目标位置;目标已存在则先备份到返回的 backup 路径
-// (backup 为空表示目标原本不存在)。失败时尽力把备份复位。
 func moveStageIntoPlace(stage, target string) (backup string, err error) {
 	if _, err := os.Lstat(target); err == nil {
 		backup = stage + ".old"
@@ -543,7 +496,6 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 	return backup, nil
 }
 
-// recordInstallationTx 在事务内为刚落盘的安装项建记录;direct 表示是否由直接安装撑着。只带 Scope 身份,不存目录。
 func recordInstallationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, direct bool, createdAt time.Time) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO installations(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, scope.agent, scope.projectID, direct, formatStoredTime(createdAt)); err != nil {
@@ -552,7 +504,6 @@ func recordInstallationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope sco
 	return nil
 }
 
-// recordGroupInstallTx 在事务内记下组在 Scope 的组安装;已有则保持原记录(含时间)。
 func recordGroupInstallTx(ctx context.Context, tx *sql.Tx, groupID GroupID, scope scopeRow, createdAt time.Time) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO group_installs(group_id, agent, project_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 		groupID, scope.agent, scope.projectID, formatStoredTime(createdAt)); err != nil {
@@ -606,7 +557,6 @@ func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) 
 	return trash.commit(ctx, tx, "uninstall")
 }
 
-// coveringGroupName 读取覆盖该安装项的组安装中 ID 最小的 Group 名。
 func coveringGroupName(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (string, error) {
 	var name string
 	err := q.QueryRowContext(ctx, `
@@ -621,21 +571,18 @@ func coveringGroupName(ctx context.Context, q rowQuerier, id SkillID, scope scop
 	return name, nil
 }
 
-// memberPlan 累积一批组成员的判定:逐条结果与待落盘的新安装项。operation 与 opts 在整批内不变。
 type memberPlan struct {
 	operation  string
 	opts       InstallOptions
 	results    []GroupMemberResult
 	placements []*placement
-	planned    map[string]bool // 本批已计划的目标文件夹(规范化路径),两个 Scope 实际落在同一目录时后者按占用跳过
+	planned    map[string]bool
 }
 
 func newMemberPlan(operation string, opts InstallOptions) *memberPlan {
 	return &memberPlan{operation: operation, opts: opts, results: []GroupMemberResult{}, planned: map[string]bool{}}
 }
 
-// planMember 判定 skill 作为组成员在 target 上的结果并记入 plan:已有安装项只补上组安装;有 memberBlocker
-// 的跳过;其余加入待落盘的新安装项。
 func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
 	existing, err := findInstallation(ctx, l.db, id, target.scopeRow)
@@ -659,8 +606,6 @@ func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id Ski
 	return nil
 }
 
-// memberBlocker 返回尚无安装项的成员不能在 target 新建安装项的原因,依次检查:作用域根目录不存在、组内同名
-// (duplicate)、本批另一个 Scope 已计划同一目标、目标被占用或有未记录文件夹(且未选 Overwrite);能落盘返回 nil。
 func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) (*Error, error) {
 	if missing, err := target.rootMissing(plan.operation); err != nil || missing != nil {
 		return missing, err
@@ -675,8 +620,6 @@ func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id 
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict)
 }
 
-// applyMemberPlan 落盘 plan 里的新安装项,并在同一事务里先执行 record(组安装或成员关系),再为新安装项建记录
-// (都由组安装撑着,无直接安装)。成功返回逐条结果;失败时整批复原。
 func (l *sqliteLibrary) applyMemberPlan(ctx context.Context, plan *memberPlan, record func(tx *sql.Tx, now time.Time) error) ([]GroupMemberResult, error) {
 	now := clockNow()
 	err := l.place(ctx, plan.placements, func(tx *sql.Tx) error {
@@ -697,7 +640,6 @@ func (l *sqliteLibrary) applyMemberPlan(ctx context.Context, plan *memberPlan, r
 }
 
 func (l *sqliteLibrary) InstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts InstallOptions) (_ []GroupMemberResult, err error) {
-	// 整组操作持独占锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -711,7 +653,6 @@ func (l *sqliteLibrary) InstallGroup(ctx context.Context, groupID GroupID, scope
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	// 根目录不存在是作用域的问题,不是某个成员的冲突:整次失败,不记组安装。
 	if err := target.requireRoot("install group"); err != nil {
 		return nil, err
 	}
@@ -719,7 +660,6 @@ func (l *sqliteLibrary) InstallGroup(ctx context.Context, groupID GroupID, scope
 	if err != nil {
 		return nil, err
 	}
-	// 组成员可跨来源并重名,但同名成员会安装到同一路径;同名的都跳过,不按顺序先到先得。
 	counts := memberNameCounts(members)
 	plan := newMemberPlan("install group", opts)
 	for _, member := range members {
@@ -733,7 +673,6 @@ func (l *sqliteLibrary) InstallGroup(ctx context.Context, groupID GroupID, scope
 }
 
 func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
-	// 整组操作持独占锁直到提交或回滚完成;若并发吞吐成为瓶颈再细化到 Scope。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -753,7 +692,6 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	if err != nil {
 		return fmt.Errorf("find group install: %w", err)
 	}
-	// 单连接约束下,先在开事务前把成员安装项与名字取齐(事务期间不能再走 l.db)。
 	members, err := l.memberInstallations(ctx, groupID, 0, target.scopeRow)
 	if err != nil {
 		return err
@@ -779,15 +717,12 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	return trash.commit(ctx, tx, "group uninstall")
 }
 
-// memberInstallation 是组成员在某 Scope 上的一个安装项:记录 ID、skill 名与 Scope 身份。
 type memberInstallation struct {
 	id   int64
 	name string
 	scopeRow
 }
 
-// memberInstallations 列出组成员在该组已安装的 Scope 上的安装项,按 skill 与 Scope 排序;skillID 非 0 时只看该成员,
-// scope 的 agent 非空时只看该 Scope。
 func (l *sqliteLibrary) memberInstallations(ctx context.Context, groupID GroupID, skillID SkillID, scope scopeRow) ([]memberInstallation, error) {
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT p.id, s.name, p.agent, p.project_id FROM installations p
@@ -829,14 +764,12 @@ func (l *sqliteLibrary) ListGroupInstalls(ctx context.Context) (installs []Group
 	return installs, nil
 }
 
-// groupInstallRow 是一条组安装记录的落库形状。
 type groupInstallRow struct {
 	groupID   GroupID
 	createdAt time.Time
 	scopeRow
 }
 
-// readGroupInstalls 读出组安装,按 Group、Agent、项目排序(全局在前);groupID 非 0 时只读该组。
 func (l *sqliteLibrary) readGroupInstalls(ctx context.Context, groupID GroupID) ([]groupInstallRow, error) {
 	rows, err := l.db.QueryContext(ctx, `SELECT group_id, agent, project_id, created_at FROM group_installs
 		WHERE ? = 0 OR group_id = ? ORDER BY group_id, agent, project_id`, groupID, groupID)
@@ -880,14 +813,11 @@ func (l *sqliteLibrary) ListInstallations(ctx context.Context) (installations []
 	return l.listInstallations(ctx, 0, nil)
 }
 
-// listInstallations 按 ListInstallations 的顺序读出安装项;skillID 非 0 时只看该技能,scope 非 nil 时只看该 Scope。
-// 调用方持共享或独占锁。
 func (l *sqliteLibrary) listInstallations(ctx context.Context, skillID SkillID, scope *scopeRow) (installations []Installation, err error) {
 	var filter scopeRow
 	if scope != nil {
 		filter = *scope
 	}
-	// 全局(project_id 为 NULL)排在同一 Agent 的各项目 Scope 之前。
 	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM installations
 		WHERE (? = 0 OR skill_id = ?) AND (? = '' OR (agent = ? AND project_id IS ?))
 		ORDER BY skill_id, agent, project_id`,
@@ -920,11 +850,9 @@ func (l *sqliteLibrary) listInstallations(ctx context.Context, skillID SkillID, 
 		return nil, fmt.Errorf("close installations: %w", err)
 	}
 	for i := range installations {
-		// 目录是派生值:按现行布局 Resolve,库里不存路径。
 		if installations[i].Directory, err = l.Resolve(ctx, installations[i].Scope); err != nil {
 			return nil, err
 		}
-		// 覆盖它的组安装由成员关系推出:该 skill 是成员且组已安装到同一 Scope。
 		rows, err := l.db.QueryContext(ctx, `
 			SELECT ga.group_id FROM group_installs ga JOIN skill_groups sg ON sg.group_id = ga.group_id
 			WHERE sg.skill_id = ? AND ga.agent = ? AND ga.project_id IS ? ORDER BY ga.group_id`,
@@ -947,8 +875,6 @@ func (l *sqliteLibrary) listInstallations(ctx context.Context, skillID SkillID, 
 	return installations, nil
 }
 
-// filteredInstallations 校验筛选条件后按 ListInstallations 的顺序读出范围内的安装项:Scope 须合法且可解析,
-// 技能须存在;已知但没有安装项时返回空。持共享锁,嵌套在调用方的锁内时复用。
 func (l *sqliteLibrary) filteredInstallations(ctx context.Context, operation string, filter InstallationFilter) ([]Installation, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -976,7 +902,6 @@ func (l *sqliteLibrary) InspectInstallations(ctx context.Context, filter Install
 	if err != nil {
 		return nil, err
 	}
-	// 与 Reinstall 一致:没有安装项时返回空切片而非 nil。
 	inspections = []InstallationInspection{}
 	for _, installation := range installations {
 		status, err := l.inspectInstallation(ctx, installation)
@@ -988,7 +913,6 @@ func (l *sqliteLibrary) InspectInstallations(ctx context.Context, filter Install
 	return inspections, nil
 }
 
-// inspectInstallation 按 InstallationStatus 注释中的顺序判定一个安装项。
 func (l *sqliteLibrary) inspectInstallation(ctx context.Context, installation Installation) (InstallationStatus, error) {
 	var name string
 	var currentVersionID int64
@@ -1053,7 +977,6 @@ func (l *sqliteLibrary) inspectInstallation(ctx context.Context, installation In
 	return InstallationModified, nil
 }
 
-// versionFingerprints 只读 version_files 的 path/fingerprint/mode,不取 blob 正文。
 func (l *sqliteLibrary) versionFingerprints(ctx context.Context, versionID int64) (map[string]fileMeta, error) {
 	rows, err := l.db.QueryContext(ctx, `SELECT path, fingerprint, mode FROM version_files WHERE version_id = ?`, versionID)
 	if err != nil {

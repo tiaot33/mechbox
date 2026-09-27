@@ -12,31 +12,27 @@ import (
 	"time"
 )
 
-// previewTTL 是一次预览被后端回收前的存活时间;超过后视为被放弃。
 const previewTTL = 30 * time.Minute
 
 type discoveredSkill struct {
 	name       string
 	candidate  Candidate
 	files      []File
-	gitTreeSHA string       // GitHub 来源该 Skill 目录的 tree SHA;其他来源为空
-	blobs      []githubBlob // GitHub 快路径:入库时按 blob SHA 取所选文件
+	gitTreeSHA string
+	blobs      []githubBlob
 }
 
-// previewState 是一次预览在内存里的状态:来源规格 + 看到的远端标识 + 全部候选 skill。
-// 存活于进程内存,不落库、不参与 Sync;由后续入库、Close 或 TTL 过期回收。
-// source / subpath / ref / skills 建立后只读;fetching、timer 与 audits 受 previewMu 保护。
 type previewState struct {
-	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
+	githubRepoSize int64
 	source         Source
 	subpath        string
 	ref            string
-	httpValidator  string // URL / Store 服务端随本次读取给出的 validator;Fetch 随 Source 写入
+	httpValidator  string
 	skills         []discoveredSkill
 	diagnostics    []PreviewDiagnostic
 	timer          *time.Timer
-	fetching       bool                  // 一次 Fetch 正在物化 / 入库;期间句柄不可再被入库,也不会过期
-	audits         map[string]SkillAudit // 按候选名缓存已确定的 skills.sh 审计;受 previewMu 保护
+	fetching       bool
+	audits         map[string]SkillAudit
 }
 
 func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (preview FetchPreview, err error) {
@@ -51,7 +47,6 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	if err != nil {
 		return FetchPreview{}, err
 	}
-	// 预览必须拿到内容,不带条件头。
 	discovered, err := l.fetchSource(ctx, source, subpath, "")
 	if err != nil {
 		if typed, ok := errors.AsType[*Error](err); ok && source.Type == SourceLocal && typed.Details.Field == "path" {
@@ -91,7 +86,6 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	state.timer = time.AfterFunc(previewTTL, func() {
 		l.previewMu.Lock()
 		defer l.previewMu.Unlock()
-		// 计时器可能在 claimPreview 停掉它之前就已触发并等在锁上:占用中的预览不回收,由 releasePreview 收尾。
 		if current := l.previews[id]; current == state && !current.fetching {
 			delete(l.previews, id)
 		}
@@ -103,8 +97,6 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	return preview, nil
 }
 
-// previewSource 把入库预览的输入转成来源、来源内目录与名字条件:GitHub / URL / Local 恰好给一个。
-// GitHub 输入在这里解析(见 resolveGitHubInput);本地目录的身份是其绝对路径。
 func (l *sqliteLibrary) previewSource(ctx context.Context, req PreviewFetchRequest) (source Source, subpath string, names []string, err error) {
 	var given []string
 	if req.GitHub != nil {
@@ -144,7 +136,6 @@ func (l *sqliteLibrary) previewSource(ctx context.Context, req PreviewFetchReque
 	}
 }
 
-// listCandidates 按来源类型、定位与名字查询哪些候选已入库,不把结果写回预览。
 func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState) ([]Candidate, error) {
 	locator, err := json.Marshal(state.source.Locator)
 	if err != nil {
@@ -180,14 +171,12 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	if len(names) == 0 {
 		return nil, argumentError("fetch", "names", "at least one skill name is required")
 	}
-	// 预览锁只用来取预览并把它标记为占用;物化(网络)与入库都在锁外,别的预览与列表不必等。
 	state, skills, err := l.claimPreview(id, names)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { l.releasePreview(id, state, err == nil) }()
 	if state.source.Type == SourceGitHub {
-		// 失败时预览仍保留完整候选,不写回部分物化的文件。
 		skills = slices.Clone(skills)
 		if err := l.materializeGitHubSkills(ctx, state, skills); err != nil {
 			return nil, err
@@ -199,7 +188,6 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	if err != nil {
 		return nil, err
 	}
-	// 刚入库的技能还没有更新检查记录,LastUpdateCheck 为 nil。
 	fetched = make([]SkillSummary, len(created))
 	for i, skill := range created {
 		fetched[i] = SkillSummary{ID: skill.ID, Name: skill.Name, Description: skill.Description, Source: skill.Source, FetchedAt: skill.FetchedAt, UpdatedAt: skill.UpdatedAt}
@@ -207,8 +195,6 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	return fetched, nil
 }
 
-// claimPreview 在预览锁内找到预览、选定候选并标记占用;占用中的预览对第二次入库返回 FailedPrecondition。
-// 占用期间停掉 TTL 计时器,物化途中不会被回收。
 func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previewState, []discoveredSkill, error) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
@@ -230,8 +216,6 @@ func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previe
 	return state, skills, nil
 }
 
-// releasePreview 结束一次占用:成功提交后丢弃句柄(同一句柄不能再次使用);失败则解除占用并重新计时,可重试。
-// 预览已被 Close 清掉时无事可做。
 func (l *sqliteLibrary) releasePreview(id FetchPreviewID, state *previewState, fetched bool) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()

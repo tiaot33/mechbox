@@ -179,7 +179,7 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	assertGitHubCommitOnly(t, api, 1)
 }
 
-// 钉住完整 40 位 SHA 的 Skill:预览 已按该 commit 写入 memo,之后检查零请求并报告无更新;
+// 钉住完整 40 位 SHA 的 Skill:入库预览已按该 commit 写入 memo,之后检查零请求并报告无更新;
 // 重开(memo 清空)后也只发一次 commits。
 func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
@@ -212,7 +212,7 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("pinned CheckUpdates = %v, %v", available, err)
 	}
-	// 预览 已按完整 SHA 写入 memo,钉住的 commit 不再出网。
+	// 入库预览已按完整 SHA 写入 memo,钉住的 commit 不再出网。
 	assertGitHubCommitOnly(t, api, 0)
 
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "moved on")), 0o644)

@@ -9,15 +9,11 @@ import (
 	"time"
 )
 
-// gitRecord 是一个版本的 GitHub 读取记录:目录 tree SHA,以及这个 tree 最后一次被确认为远端最新时所在的 commit。
-// confirmedCommit 是版本级的——同一 Source 下各 Skill 各自记录,所以能单独用来判断某个 Skill 是否需要更新
-// (Source 级的 last_seen_ref 做不到);为空表示未知,检查须取 tree 做完整比较。
 type gitRecord struct {
 	treeSHA         string
 	confirmedCommit string
 }
 
-// sourceGitRecord 组装写入版本的读取记录:只有 GitHub 来源的 last_seen_ref 是 commit,其他来源的是内容哈希,不能当确认 commit。
 func sourceGitRecord(source Source, treeSHA string) gitRecord {
 	record := gitRecord{treeSHA: treeSHA}
 	if source.Type == SourceGitHub {
@@ -26,7 +22,6 @@ func sourceGitRecord(source Source, treeSHA string) gitRecord {
 	return record
 }
 
-// createVersion 写入一个新版本及其文件;record 是该版本的 GitHub 读取记录,非 git 来源为零值。
 func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record gitRecord, description string, createdAt time.Time) (int64, error) {
 	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit, description, created_at) VALUES (?, ?, ?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit, description, formatStoredTime(createdAt))
 	if err != nil {
@@ -123,7 +118,6 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 		return VersionDiff{}, err
 	}
 	if oldVersion.SkillID != newVersion.SkillID {
-		// 两个 ID 都合法且存在,只是组合不成立,不指向单个字段。
 		return VersionDiff{}, argumentError("diff skill versions", "", "versions belong to different skills")
 	}
 	oldFiles := make(map[string][sha256.Size]byte, len(oldVersion.Files))

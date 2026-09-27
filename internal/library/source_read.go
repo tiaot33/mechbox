@@ -23,19 +23,14 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// sourceStore 是 skill 商店来源(包 ID + 版本);公开 API 暂不支持,内部实现保留。
 const sourceStore SourceType = "store"
 
 const (
-	maxFetchSize  = 64 << 20 // 下载与展开的字节上限;本地目录预览时候选文件的累计字节上限
-	maxFetchFiles = 1000     // 展开文件个数上限;本地目录预览时候选文件的累计个数上限。超限拒绝整个来源
-	// fetchConcurrency 是一次操作内并发远程读取的上限:足以摊薄逐个 blob 的往返与 gh 进程启动,
-	// 又不至于触发 GitHub 的次级限流。
+	maxFetchSize     = 64 << 20
+	maxFetchFiles    = 1000
 	fetchConcurrency = 8
 )
 
-// runConcurrent 以 fetchConcurrency 为上限对 0..n-1 并发执行 fn。首个错误取消其余任务并作为返回值;
-// 调用方 ctx 被取消时返回其取消原因。fn 只应写入自己下标对应的结果。
 func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) error) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -61,19 +56,14 @@ func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) err
 }
 
 type discoveredSource struct {
-	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
+	githubRepoSize int64
 	skills         []discoveredSkill
 	diagnostics    []PreviewDiagnostic
 	ref            string
-	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator 原文(ETag 或 Last-Modified);
-	// 未给出为空。304 时沿用请求所带的那个。
-	httpValidator string
-	// unchanged 表示带条件头的请求收到 304:远端未变,skills 为空,调用方沿用库中内容。
-	unchanged bool
+	httpValidator  string
+	unchanged      bool
 }
 
-// fetchSource 读取来源并发现候选。validator 是 Source 上记录的 HTTP validator 原文(ETag 或 Last-Modified),
-// 非空时 URL / Store 的请求带条件头,304 以 unchanged 返回;GitHub 与本地目录不使用它。预览必须拿到内容,传空。
 func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
 	switch source.Type {
 	case SourceLocal:
@@ -87,7 +77,6 @@ func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath,
 		if base == "" {
 			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}
 		}
-		// 基址是配置而非调用方参数:语法不合法归 NotConfigured,不让 fetchArchive 报成 url 字段错误。
 		if _, err := url.Parse(base); err != nil {
 			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
 		}
@@ -97,8 +86,6 @@ func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath,
 	}
 }
 
-// fetchLocal 按与远程来源相同的规则在本地目录里发现候选,并把候选文件读进内存:预览钉住的就是这份快照,
-// 之后目录再被改动也不影响入库。候选文件累计超过 maxFetchFiles 个或 maxFetchSize 字节即拒绝整个来源。
 func fetchLocal(ctx context.Context, root string) (discoveredSource, error) {
 	info, err := os.Stat(root)
 	if err != nil {
@@ -114,16 +101,13 @@ func fetchLocal(ctx context.Context, root string) (discoveredSource, error) {
 	return finishDiscovery(result)
 }
 
-// errReadLimit 表示读取候选文件超出了 readBudget;它中止整个发现,不记成单个候选的诊断。
 var errReadLimit = errors.New("source exceeds read limit")
 
-// readBudget 是一次发现读取候选文件的剩余额度,由同一次发现的各候选共用。
 type readBudget struct {
 	files int
 	bytes int64
 }
 
-// take 扣除 files 个文件与 size 字节的额度,超限返回 SourceInvalid。
 func (b *readBudget) take(files int, size int64) error {
 	b.files -= files
 	b.bytes -= size
@@ -136,8 +120,6 @@ func (b *readBudget) take(files int, size int64) error {
 	return nil
 }
 
-// fetchGitHub 对 github.com 先走 tree/blob 快路径;API 不可用时回退已加固的浅克隆。
-// 预览只取各候选 SKILL.md,入库时再按 blob SHA 取所选目录。
 func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {
 	var apiErr error
 	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
@@ -160,7 +142,6 @@ func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, 
 	return finishDiscovery(result)
 }
 
-// fetchGitHubClone 浅克隆整仓并发现候选;LFS、超时与协议限制由 runSourceGit 提供。
 func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string) (result discoveredSource, err error) {
 	if fullCommit.MatchString(locator.Branch) {
 		locator.Branch = strings.ToLower(locator.Branch)
@@ -243,7 +224,6 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 	return result, nil
 }
 
-// readGitTreeSHA 读取该 Skill 目录的 git tree 对象 SHA;根目录 Skill 用 commit 的 root tree。
 func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, error) {
 	spec := "HEAD^{tree}"
 	if skillPath != "" && skillPath != "." {
@@ -260,8 +240,6 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 	return sha, nil
 }
 
-// responseValidator 取服务端给出的 validator 原文:优先 ETag(原样,包括不合规的无引号写法——回填时服务端按自己的
-// 写法比对),其次 Last-Modified,但只接受能按 HTTP-date 解析的值;都没有或日期非法为空,即下次不带条件头。
 func responseValidator(header http.Header) string {
 	if etag := header.Get("ETag"); etag != "" {
 		return etag
@@ -274,8 +252,6 @@ func responseValidator(header http.Header) string {
 	return ""
 }
 
-// applyValidator 按 validator 原文带条件头:能解析为 HTTP-date 的是 Last-Modified → If-Modified-Since,
-// 其余一律视为 ETag → If-None-Match。不按引号判定,免得无引号 ETag 被当成日期发出去。
 func applyValidator(req *http.Request, validator string) {
 	if validator == "" {
 		return
@@ -287,9 +263,6 @@ func applyValidator(req *http.Request, validator string) {
 	req.Header.Set("If-None-Match", validator)
 }
 
-// fetchArchive 下载 zip;HTTP 超时与搜索/解析相同,不套到 GitHub 克隆上。validator 非空时带条件头,
-// 服务端回 304 即远端未变:不读正文,以 unchanged 返回并沿用该 validator。304 与其他非 2xx 的区分只发生在
-// 带了条件头的请求上;不带条件头收到 304 按普通错误处理。
 func fetchArchive(ctx context.Context, location, validator string) (result discoveredSource, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
@@ -405,8 +378,6 @@ func candidateMetadata(content []byte, root string) (Candidate, error) {
 	return result, nil
 }
 
-// discoverSkills 只在发现候选后读取完整文件;发现排除目录不会裁剪候选内资源。
-// budget 非 nil 时限制各候选累计读取的文件数与字节数;内容已另有上限的来源传 nil。
 func discoverSkills(ctx context.Context, source fs.FS, root string, budget *readBudget) (discoveredSource, error) {
 	return discoverCandidates(ctx, fsSourceView{source}, root, func(skill *discoveredSkill, _ string, _ []byte) error {
 		var err error
@@ -450,7 +421,6 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string, budget *
 			return err
 		}
 		if budget != nil {
-			// 读取前按文件大小扣除,超大文件不必读进内存就能拒绝。
 			if err := budget.take(1, info.Size()); err != nil {
 				return err
 			}
@@ -460,7 +430,6 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string, budget *
 			return err
 		}
 		if budget != nil && int64(len(content)) > info.Size() {
-			// 文件在读取期间变大:按实际读到的字节补扣,不让它绕过上限。
 			if err := budget.take(0, int64(len(content))-info.Size()); err != nil {
 				return err
 			}

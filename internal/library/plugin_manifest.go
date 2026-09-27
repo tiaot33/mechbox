@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// pluginSearchPaths 只读取 Claude 清单的 Skill 路径与展示分组,不引入持久化实体。
 func pluginSearchPaths(ctx context.Context, view sourceDirectoryView, root string) ([]string, map[string]string, error) {
 	var dirs []string
 	groups := map[string]string{}

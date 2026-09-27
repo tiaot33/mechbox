@@ -240,7 +240,7 @@ func TestGitHubBatchCheckReusesDiscovery(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].Error != nil || got[1].Error != nil || got[0].Available || got[1].Available {
 		t.Fatalf("checks = %#v, %v", got, err)
 	}
-	// 预览 已把各候选 SKILL.md 写入进程内 memo;commit 前进只再取新 root tree。
+	// 入库预览已把各候选 SKILL.md 写入进程内 memo;commit 前进只再取新 root tree。
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 1 || trees != 1 || blobs != 0 {
 		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want commit+tree only: %#v", commits, trees, blobs, api.snapshot())
