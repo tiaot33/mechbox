@@ -24,7 +24,7 @@ _Avoid_: Store, database, cache, registry / 存储、数据库、缓存、注册
 The origin a skill was fetched from — typically a git repo, or a local directory.
 _Avoid_: Origin, remote, provider / 源头、远端、提供方
 
-**Preview · 预览**:
+**Preview · 入库预览**:
 A temporary look at the skills a Source offers, remote or local, pinned to what the Source contained at that moment; nothing enters the Library. New skills are fetched only from a Preview, exactly as previewed; a successful Fetch consumes it, and an unused one expires.
 _Avoid_: Staging, session / 暂存、会话
 
