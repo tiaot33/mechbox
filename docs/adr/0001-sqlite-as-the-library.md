@@ -8,7 +8,7 @@ We chose one opaque store over skill folders on disk because it keeps the source
 
 - **Install** writes a fetched skill's files into SQLite as blobs.
 - **Activation** expands a skill out of SQLite into the target agent directory; **deactivation** removes that directory.
-- **Self-developed skills** are edited through the tool rather than by editing files in place — content lives in the database, so authoring needs an explicit export/edit/re-import path or an in-tool editor (to be specified).
+- Skills with a local Source are edited through the tool rather than by editing files in place — content lives in the database, so authoring needs an explicit export/edit/re-import path or an in-tool editor (to be specified).
 - **Sync** exports the database and pushes it to S3 (and pulls to restore), reproducing a full setup on another machine.
 
 ## Agent Skills 生态背景与集成边界
