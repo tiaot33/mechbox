@@ -13,6 +13,7 @@ import (
 type sourceDirectoryView interface {
 	readDir(string) ([]sourceEntry, error)
 	readFile(context.Context, string) ([]byte, error)
+	readFiles(context.Context, []string) ([][]byte, []error)
 }
 
 type sourceEntry struct {
@@ -33,6 +34,18 @@ func (v fsSourceView) readDir(dir string) ([]sourceEntry, error) {
 
 func (v fsSourceView) readFile(ctx context.Context, name string) ([]byte, error) {
 	return readSourceFile(ctx, v.source, name)
+}
+
+func (v fsSourceView) readFiles(ctx context.Context, names []string) ([][]byte, []error) {
+	contents, errs := make([][]byte, len(names)), make([]error, len(names))
+	_ = runConcurrent(ctx, len(names), func(ctx context.Context, i int) error {
+		contents[i], errs[i] = v.readFile(ctx, names[i])
+		if errs[i] != nil && abortsDiscovery(ctx, errs[i]) {
+			return errs[i]
+		}
+		return nil
+	})
+	return contents, errs
 }
 
 // readLinkedDir 仅沿真实目录访问,避免优先目录或清单路径经 symlink 逃出扫描根。
@@ -122,26 +135,29 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 	// flush 并发读取本轮记下的 SKILL.md,再按顺序处理;中止发现的错误取消其余读取并原样返回。
 	flush := func() error {
 		defer func() { steps = steps[:0] }()
-		contents := make([][]byte, len(steps))
-		readErrs := make([]error, len(steps))
-		err := runConcurrent(ctx, len(steps), func(ctx context.Context, i int) error {
-			if steps[i].file == "" {
-				return nil
+		var paths []string
+		for _, step := range steps {
+			if step.file != "" {
+				paths = append(paths, path.Join(step.dir, step.file))
 			}
-			contents[i], readErrs[i] = view.readFile(ctx, path.Join(steps[i].dir, steps[i].file))
-			if readErrs[i] != nil && abortsDiscovery(ctx, readErrs[i]) {
-				return readErrs[i]
-			}
-			return nil
-		})
-		if err != nil {
+		}
+		contents, readErrs := view.readFiles(ctx, paths)
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		for i, step := range steps {
+		for _, err := range readErrs {
+			if err != nil && abortsDiscovery(ctx, err) {
+				return err
+			}
+		}
+		index := 0
+		for _, step := range steps {
 			if step.file == "" {
 				diagnose(step.dir, step.reason)
 				continue
 			}
+			i := index
+			index++
 			if readErrs[i] != nil {
 				diagnose(step.dir, readErrs[i])
 				continue
