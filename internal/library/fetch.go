@@ -23,7 +23,7 @@ type fetchedSkill struct {
 
 // fetchSession 是一次 Fetch 抓取的内存暂存:来源规格 + 看到的远端标识 + 全部候选 skill。
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
-// source / subpath / ref / skills 建立后只读;installing 与 timer 受 fetchMu 保护。
+// source / subpath / ref / skills 建立后只读;installing、timer 与 audits 受 fetchMu 保护。
 type fetchSession struct {
 	source        Source
 	subpath       string
@@ -32,7 +32,8 @@ type fetchSession struct {
 	skills        []fetchedSkill
 	diagnostics   []CandidateDiagnostic
 	timer         *time.Timer
-	installing    bool // 一次 InstallFetch 正在物化 / 入库;期间句柄不可再被安装,也不会过期
+	installing    bool                  // 一次 InstallFetch 正在物化 / 入库;期间句柄不可再被安装,也不会过期
+	audits        map[string]SkillAudit // 按候选名缓存已确定的 skills.sh 审计;受 fetchMu 保护
 }
 
 func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch, err error) {
@@ -66,10 +67,6 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	discovered.skills, err = selectSkills(discovered.skills, spec.Names)
 	if err != nil {
 		return Fetch{}, err
-	}
-	// 审计只查筛选后的候选;URL / Store 与非 github.com 仓库不在 skills.sh 收录范围,不查。
-	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
-		attachAudits(ctx, owner, repo, discovered.skills)
 	}
 	source.LastFetched = time.Now().UTC()
 	source.LastSeenRef = discovered.ref
@@ -149,7 +146,6 @@ func (l *sqliteLibrary) fetchCandidates(ctx context.Context, session *fetchSessi
 	result := FetchCandidates{Skills: make([]FetchSkill, len(session.skills)), Diagnostics: slices.Clone(session.diagnostics)}
 	for i, skill := range session.skills {
 		result.Skills[i] = skill.preview
-		result.Skills[i].Audit = cloneAudit(skill.preview.Audit)
 		result.Skills[i].Installed = installed[skill.preview.Name]
 	}
 	return result, nil
