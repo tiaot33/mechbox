@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS group_installs (
     group_id INTEGER NOT NULL REFERENCES groups(id), -- 被安装的分组主键
     agent TEXT NOT NULL REFERENCES agents(code),     -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id),      -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
-    installed_at TEXT NOT NULL DEFAULT ''            -- 首次组安装时间,RFC3339Nano。再次组安装不更新
+    created_at TEXT NOT NULL DEFAULT ''              -- 组安装记录建立(首次组安装)的时间,RFC3339Nano。再次组安装不更新
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS group_installs_global_scope ON group_installs(group_id, agent) WHERE project_id IS NULL;

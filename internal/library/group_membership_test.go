@@ -131,7 +131,7 @@ func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
 	end := time.Now().UTC()
 	installs, err := lib.ListGroupInstalls(ctx)
 	if err != nil || len(installs) != 1 || installs[0].GroupID != g.ID || installs[0].Scope != scope ||
-		installs[0].InstalledAt.Before(start) || installs[0].InstalledAt.After(end) {
+		installs[0].CreatedAt.Before(start) || installs[0].CreatedAt.After(end) {
 		t.Fatalf("ListGroupInstalls() = %#v, %v; want %d at %v within [%v, %v]", installs, err, g.ID, scope, start, end)
 	}
 
@@ -142,7 +142,7 @@ func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
 		requireInstallation(t, directory, "late", "# late\n")
 		requireInstallations(t, lib, []library.Installation{{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{g.ID}}})
 
-		if err := lib.RemoveSkillFromGroup(ctx, g.ID, skill.ID, library.RemoveFromGroupOptions{Installations: library.WithdrawInstallation}); err != nil {
+		if err := lib.RemoveSkillFromGroup(ctx, g.ID, skill.ID, library.RemoveFromGroupOptions{UnbackedInstallations: library.WithdrawInstallation}); err != nil {
 			t.Fatal(err)
 		}
 		requireNoInstallationFolder(t, directory, "late")
@@ -160,8 +160,8 @@ func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
 
 // 技能同属两个已安装的组时,移出其中一个(无论 keep 还是 withdraw)安装项仍由另一组撑着,不补直接安装;
 // withdraw 只移除因此没有任何安装的安装项,有直接安装的保留。
-func TestRemovingMemberFromOneOfTwoActiveGroups(t *testing.T) {
-	for _, policy := range []library.MemberRemovalPolicy{library.KeepInstallation, library.WithdrawInstallation} {
+func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
+	for _, policy := range []library.MemberRemovalPolicy{library.KeepAsDirectInstall, library.WithdrawInstallation} {
 		t.Run(string(policy), func(t *testing.T) {
 			ctx := t.Context()
 			t.Setenv("HOME", t.TempDir())
@@ -193,7 +193,7 @@ func TestRemovingMemberFromOneOfTwoActiveGroups(t *testing.T) {
 			results, err := lib.AddSkillToGroup(ctx, groups[0].ID, direct.ID)
 			requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: direct.ID, Scope: scope, Outcome: library.MemberAlreadyInstalled}})
 
-			opts := library.RemoveFromGroupOptions{Installations: policy}
+			opts := library.RemoveFromGroupOptions{UnbackedInstallations: policy}
 			for _, skill := range []library.Skill{shared, direct} {
 				if err := lib.RemoveSkillFromGroup(ctx, groups[0].ID, skill.ID, opts); err != nil {
 					t.Fatal(err)
@@ -210,7 +210,7 @@ func TestRemovingMemberFromOneOfTwoActiveGroups(t *testing.T) {
 			if err := lib.RemoveSkillFromGroup(ctx, groups[1].ID, shared.ID, opts); err != nil {
 				t.Fatal(err)
 			}
-			if policy == library.KeepInstallation {
+			if policy == library.KeepAsDirectInstall {
 				requireInstallation(t, directory, "shared", "# shared\n")
 				requireInstallations(t, lib, []library.Installation{
 					{SkillID: shared.ID, Scope: scope, Directory: directory, Direct: true},
@@ -227,7 +227,7 @@ func TestRemovingMemberFromOneOfTwoActiveGroups(t *testing.T) {
 
 // 加入已安装的组时:已有安装项(即使被手动改过)只补组安装、不写盘;有未记录文件夹或与组内成员同名的跳过,
 // 成员关系照常成立,之后再次 InstallGroup(Overwrite)补齐未记录文件夹那一项。
-func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
+func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -366,7 +366,7 @@ func TestUnregisterProjectAndDeleteGroupClearGroupInstalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	installs, err := lib.ListGroupInstalls(ctx)
-	if want := []library.GroupInstall{{GroupID: first.ID, Scope: global}}; err != nil || !reflect.DeepEqual(withoutGroupInstalledAt(installs), want) {
+	if want := []library.GroupInstall{{GroupID: first.ID, Scope: global}}; err != nil || !reflect.DeepEqual(withoutGroupCreatedAt(installs), want) {
 		t.Fatalf("ListGroupInstalls() after UnregisterProject = %#v, %v; want %#v", installs, err, want)
 	}
 
@@ -415,7 +415,7 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 		}
 	}
 	makeScopeReadOnly(t, projectDir)
-	err = lib.RemoveSkillFromGroup(ctx, g.ID, skill.ID, library.RemoveFromGroupOptions{Installations: library.WithdrawInstallation})
+	err = lib.RemoveSkillFromGroup(ctx, g.ID, skill.ID, library.RemoveFromGroupOptions{UnbackedInstallations: library.WithdrawInstallation})
 	if err == nil {
 		t.Fatal("RemoveSkillFromGroup(withdraw) succeeded despite a read-only scope")
 	}
@@ -505,7 +505,7 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 	}
 	installs, err := lib.ListGroupInstalls(ctx)
 	want := []library.GroupInstall{{GroupID: g.ID, Scope: scope}, {GroupID: g.ID, Scope: global}}
-	if err != nil || !reflect.DeepEqual(withoutGroupInstalledAt(installs), want) {
+	if err != nil || !reflect.DeepEqual(withoutGroupCreatedAt(installs), want) {
 		t.Fatalf("ListGroupInstalls() = %#v, %v; want %#v", installs, err, want)
 	}
 	globalDir, err := lib.Resolve(ctx, global)

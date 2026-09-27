@@ -180,7 +180,7 @@ func TestGitHubContentsFallsBackToCloneWhenAPIUnavailable(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"good"})
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("fallback install = %#v, %v", fetched, err)
+		t.Fatalf("fallback fetch = %#v, %v", fetched, err)
 	}
 	want := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("good", "body")), Mode: library.ModeRegular},
@@ -210,7 +210,7 @@ func TestGitHubContentsFallsBackToCloneWhenTreeTruncated(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
-		t.Fatalf("truncated install = %#v, %v", fetched, err)
+		t.Fatalf("truncated fetch = %#v, %v", fetched, err)
 	}
 }
 
@@ -230,7 +230,7 @@ func TestGitHubContentsFallsBackToCloneWhenBlobIncomplete(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || string(fetched[0].Files[0].Content) != skillDocument("demo", "body") {
-		t.Fatalf("incomplete blob install = %#v, %v", fetched, err)
+		t.Fatalf("incomplete blob fetch = %#v, %v", fetched, err)
 	}
 }
 
@@ -251,7 +251,7 @@ func TestGitHubFetchFromPreviewFailureKeepsHandleForRetry(t *testing.T) {
 	api.setFailBlobs(true)
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
 	if err == nil || len(fetched) != 0 || !library.IsCode(err, library.SourceUnreachable) || library.IsCode(err, library.Internal) {
-		t.Fatalf("failed install = %#v, %v; want SourceUnreachable", fetched, err)
+		t.Fatalf("failed fetch = %#v, %v; want SourceUnreachable", fetched, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("failed fetch wrote Library: %v, %v", skills, err)
@@ -259,7 +259,7 @@ func TestGitHubFetchFromPreviewFailureKeepsHandleForRetry(t *testing.T) {
 	api.setFailBlobs(false)
 	fetched, err = lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "demo" {
-		t.Fatalf("retry install = %#v, %v", fetched, err)
+		t.Fatalf("retry fetch = %#v, %v", fetched, err)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestGitHubAnonymousAPIRetriesWithTokenThenSucceedsWithoutClone(t *testing.T
 			}
 			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 			if err != nil || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
-				t.Fatalf("token retry install = %#v, %v", fetched, err)
+				t.Fatalf("token retry fetch = %#v, %v", fetched, err)
 			}
 		})
 	}
@@ -361,7 +361,7 @@ func TestGitHubPreviewHonorsSubpathAndNamesWithoutChangingSource(t *testing.T) {
 	assertNoBlobPath(t, api, "other/SKILL.md")
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" {
-		t.Fatalf("filtered install = %#v, %v", fetched, err)
+		t.Fatalf("filtered fetch = %#v, %v", fetched, err)
 	}
 	if fetched[0].GitTreeSHA != fx.treeSHA("skills/first") {
 		t.Fatalf("GitTreeSHA = %q, want %q", fetched[0].GitTreeSHA, fx.treeSHA("skills/first"))
@@ -385,7 +385,7 @@ func TestGitHubRootSkillPreviewAndFetchUseRootTreeSHA(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || fetched[0].GitTreeSHA != fx.rootTree {
-		t.Fatalf("root install = %#v, %v", fetched, err)
+		t.Fatalf("root fetch = %#v, %v", fetched, err)
 	}
 	want := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("root-skill", "root")), Mode: library.ModeRegular},
@@ -418,7 +418,7 @@ func TestGitHubContentsFallsBackToCloneWhenSkillHasUnsupportedObject(t *testing.
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"good"})
 	if err != nil || string(fetched[0].Files[0].Content) != skillDocument("good", "body") {
-		t.Fatalf("unsupported object install = %#v, %v", fetched, err)
+		t.Fatalf("unsupported object fetch = %#v, %v", fetched, err)
 	}
 }
 

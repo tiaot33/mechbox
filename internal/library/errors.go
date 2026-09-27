@@ -87,10 +87,10 @@ func validateInstallationsPolicy(operation string, policy InstallationsPolicy) e
 
 func validateMemberRemoval(operation string, policy MemberRemovalPolicy) error {
 	switch policy {
-	case "", KeepInstallation, WithdrawInstallation:
+	case "", KeepAsDirectInstall, WithdrawInstallation:
 		return nil
 	default:
-		return argumentError(operation, "installations", "invalid installations option")
+		return argumentError(operation, "unbacked_installations", "invalid unbacked installations option")
 	}
 }
 

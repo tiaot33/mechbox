@@ -65,7 +65,7 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 		t.Fatalf("ListInstallations() after uninstall = %#v, %v", installations, err)
 	}
 	if err := lib.Uninstall(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("Uninstall() inactive skill error = %v, want NotFound", err)
+		t.Fatalf("Uninstall() not-installed skill error = %v, want NotFound", err)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 		t.Fatalf("ListInstallations() = %#v, %v; want %#v", installations, err, want)
 	}
 	installs, err := lib.ListGroupInstalls(ctx)
-	if want := []library.GroupInstall{{GroupID: group.ID, Scope: scope}}; err != nil || !reflect.DeepEqual(withoutGroupInstalledAt(installs), want) {
+	if want := []library.GroupInstall{{GroupID: group.ID, Scope: scope}}; err != nil || !reflect.DeepEqual(withoutGroupCreatedAt(installs), want) {
 		t.Fatalf("ListGroupInstalls() = %#v, %v; want %#v", installs, err, want)
 	}
 }

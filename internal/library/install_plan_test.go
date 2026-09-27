@@ -43,7 +43,7 @@ func TestPlanInstallReadyAndInstalled(t *testing.T) {
 			}
 		}
 		got, err := lib.PlanInstall(ctx, skill.ID, scope)
-		if err != nil || got.Status != library.AlreadyInstalled {
+		if err != nil || got.Status != library.InstallAlreadyInstalled {
 			t.Fatalf("installed = %#v, %v", got, err)
 		}
 	}
@@ -148,7 +148,7 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 		t.Fatalf("group = %#v, %v", got, err)
 	}
 	// 同名且尚未安装的成员标为 duplicate(优先于它本来的 occupied),已有安装项的那个仍是 installed。
-	for i, status := range []library.InstallPlanStatus{library.AlreadyInstalled, library.InstallDuplicate, library.InstallReady} {
+	for i, status := range []library.InstallPlanStatus{library.InstallAlreadyInstalled, library.InstallDuplicate, library.InstallReady} {
 		if got.Members[i].SkillID != members[i].ID || got.Members[i].Status != status {
 			t.Fatalf("member %d = %#v", i, got.Members[i])
 		}

@@ -618,11 +618,11 @@ func skippedMember(id library.SkillID, scope library.Scope, code library.ErrorCo
 	return library.GroupMemberResult{SkillID: id, Scope: scope, Outcome: library.MemberSkipped, Error: &library.Error{Code: code, Details: details}}
 }
 
-// withoutGroupInstalledAt 去掉组安装时间,供不关心时间戳的 DeepEqual 断言使用。
-func withoutGroupInstalledAt(installs []library.GroupInstall) []library.GroupInstall {
+// withoutGroupCreatedAt 去掉组安装建立时间,供不关心时间戳的 DeepEqual 断言使用。
+func withoutGroupCreatedAt(installs []library.GroupInstall) []library.GroupInstall {
 	out := append([]library.GroupInstall(nil), installs...)
 	for i := range out {
-		out[i].InstalledAt = time.Time{}
+		out[i].CreatedAt = time.Time{}
 	}
 	return out
 }

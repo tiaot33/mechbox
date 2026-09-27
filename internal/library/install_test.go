@@ -93,7 +93,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 			}
 			writeFile(t, filepath.Join(target, "manual.txt"), []byte("manual"), 0o644)
 			if err := lib.Uninstall(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
-				t.Fatalf("Uninstall() inactive skill error = %v", err)
+				t.Fatalf("Uninstall() not-installed skill error = %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(target, "manual.txt")); err != nil {
 				t.Fatalf("Uninstall() removed an untracked directory: %v", err)

@@ -26,7 +26,7 @@ Until now the product used **Install** for bringing a skill *into* the Library a
 - **Fetch and Install are reused with their meanings reversed.** Any leftover old use would silently read as the new meaning and cannot be told apart by searching, so code, API, JSON, schema, comments, tests and docs switch together, and the product is unreleased, so no old names are kept. Identifiers for *reading content from a Source* (`fetchSource`, `maxFetchSize`, `Source.LastFetched`, JSON `last_fetched`) keep "fetch": that sense does not conflict with the new one.
 - **Installation is a separate word from Install** because one folder can be backed by several choices at once — a direct Install and one or more Group installs. Uninstalling one choice removes the folder only when nothing else backs it.
 - **"Plan" is the one word for read-only reports before execution** (Install plan, Sync plan); "Preview" is reserved for looking at a Source.
-- **Schema tables and columns follow the terms** (`installations`, `group_installs.installed_at`), and the schema version is bumped. Existing local libraries and Sync snapshots on S3 cannot be opened any more; they must be rebuilt (see ADR 0001, 2026-09-26: no migrations before release).
+- **Schema tables and columns follow the terms** (`installations`, `group_installs`), and the schema version is bumped. Existing local libraries and Sync snapshots on S3 cannot be opened any more; they must be rebuilt (see ADR 0001, 2026-09-26: no migrations before release).
 
 ## Local directories go through Preview
 
@@ -44,5 +44,5 @@ The old `Install(LocalSource)` fetched one local folder directly, bypassing any 
 
 ## Consequences
 
-- JSON changes for integrators: fields `installed` → `fetched` (Candidate), `installed_at` → `fetched_at` (Skill, SkillSummary), `activated_at` → `installed_at` (GroupInstall), `projected_copies` → `installations` (RemoveSkillOptions, UnregisterProjectOptions), `projections` → `installations` (RemoveFromGroupOptions); values `projected` → `installed` (install plan status and group member outcome), `already_projected` → `already_installed`, `rewritten` → `reinstalled`.
+- JSON changes for integrators: fields `installed` → `fetched` (Candidate), `installed_at` → `fetched_at` (Skill, SkillSummary), `activated_at` → `created_at` (GroupInstall, matching `Installation.created_at`), `projected_copies` → `installations` (RemoveSkillOptions, UnregisterProjectOptions), `projections` → `unbacked_installations` (RemoveFromGroupOptions, which only affects Installations left without any backing and defaults to keep, unlike the other two); values `projected` → `already_installed` (install plan status, matching the group member outcome it predicts) and `installed` (group member outcome), `already_projected` → `already_installed`, `rewritten` → `reinstalled`.
 - ADR 0001's statements that "Install writes into SQLite" and "Activation expands into the agent directory" are superseded by this ADR; other ADRs keep their decisions and now use the new words.

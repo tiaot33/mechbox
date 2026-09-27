@@ -253,7 +253,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateMemberRemoval("remove skill from group", opts.Installations); err != nil {
+	if err := validateMemberRemoval("remove skill from group", opts.UnbackedInstallations); err != nil {
 		return err
 	}
 	var exists int
@@ -284,7 +284,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	// 成员关系删掉后,本组的组安装不再覆盖这些安装项;没有其他安装撑着的按 opts 处理。
 	var trash installationTrash
 	for i, installation := range installations {
-		if opts.Installations == WithdrawInstallation {
+		if opts.UnbackedInstallations == WithdrawInstallation {
 			removed, err := dropUnbackedInstallation(ctx, tx, installation.id)
 			if err != nil {
 				return err

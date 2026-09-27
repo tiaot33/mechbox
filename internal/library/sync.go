@@ -32,7 +32,7 @@ type s3Config struct {
 // pullInstallationWarning 提示 pull 后 agent 目录安装项未随之重建,可能与新库不一致。
 const pullInstallationWarning = "agent 目录里的安装项未随本次 pull 重建,可能与新库不一致"
 
-func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (preview SyncPlan, err error) {
+func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
 	// 纯网络探测,不碰库,不加锁。
 	defer func() { err = typedError(err) }()
 	identity, exists, err := remoteIdentity(ctx)
@@ -42,7 +42,7 @@ func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (preview SyncPlan, err
 	return SyncPlan{Remote: identity, RemoteExists: exists}, nil
 }
 
-func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (preview SyncPlan, err error) {
+func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
 	if err != nil {
@@ -55,12 +55,12 @@ func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (preview SyncPlan, err
 		return SyncPlan{}, err
 	}
 	schemaOK := err == nil
-	preview = SyncPlan{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
+	plan = SyncPlan{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
 	if !schemaOK {
-		preview.Warnings = append(preview.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
+		plan.Warnings = append(plan.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
 	}
-	preview.Warnings = append(preview.Warnings, pullInstallationWarning)
-	return preview, nil
+	plan.Warnings = append(plan.Warnings, pullInstallationWarning)
+	return plan, nil
 }
 
 func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
@@ -71,7 +71,7 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 		return SyncResult{}, err
 	}
 	if identity != expected {
-		return SyncResult{}, &Error{Code: Conflict, Message: "sync push: remote identity changed since preview"}
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync push: remote identity changed since sync plan"}
 	}
 	data, err := l.snapshotBytes(ctx)
 	if err != nil {
@@ -95,13 +95,13 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
 	if IsCode(err, NotFound) && expected != "" {
-		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since preview"}
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since sync plan"}
 	}
 	if err != nil {
 		return SyncResult{}, err
 	}
 	if RemoteIdentity(etag) != expected {
-		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since preview"}
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since sync plan"}
 	}
 	check, cleanup, err := openPulledLibrary(ctx, data)
 	if err != nil {
@@ -413,7 +413,7 @@ func s3Request(ctx context.Context, method string, body []byte, conditions map[s
 		return nil, "", &Error{Code: NotFound, Message: "S3 object not found"}
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed || s3Error.Code == "PreconditionFailed" {
-		return nil, "", &Error{Code: Conflict, Message: "remote object changed since preview"}
+		return nil, "", &Error{Code: Conflict, Message: "remote object changed since sync plan"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}

@@ -420,11 +420,11 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub.set(foreign)
-	foreignPreview, err := lib.PlanSyncPull(ctx)
+	foreignPlan, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.SyncPull(ctx, foreignPreview.Remote); !library.IsCode(err, library.FailedPrecondition) {
+	if _, err := lib.SyncPull(ctx, foreignPlan.Remote); !library.IsCode(err, library.FailedPrecondition) {
 		t.Fatalf("SyncPull foreign database = %v, want FailedPrecondition", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {

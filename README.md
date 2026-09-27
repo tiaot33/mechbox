@@ -26,7 +26,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`internal/library/schema.go`](internal/library/schema.go)、[`schema.sql`](internal/library/schema.sql) | 库身份、校验及唯一 DDL 来源 |
 | [`internal/library/skills.go`](internal/library/skills.go)、[`versions.go`](internal/library/versions.go) | 入库、查询/移除、Collection、版本历史与差异 |
 | [`internal/library/preview.go`](internal/library/preview.go) | 预览、候选选择与 FetchFromPreview |
-| [`internal/library/source_input.go`](internal/library/source_input.go)、[`source_fetch.go`](internal/library/source_fetch.go)、[`github_contents.go`](internal/library/github_contents.go) | 来源解析、校验与内容获取 |
+| [`internal/library/source_input.go`](internal/library/source_input.go)、[`source_read.go`](internal/library/source_read.go)、[`github_contents.go`](internal/library/github_contents.go) | 来源解析、校验与内容获取 |
 | [`internal/library/update.go`](internal/library/update.go)、[`batch_update.go`](internal/library/batch_update.go)、[`search.go`](internal/library/search.go) | 更新、批量检查与市场搜索 |
 | [`internal/library/groups.go`](internal/library/groups.go)、[`projects.go`](internal/library/projects.go) | Group 成员、项目注册与 Scope |
 | [`internal/library/install.go`](internal/library/install.go)、[`reinstall.go`](internal/library/reinstall.go) | 直接安装与组安装、安装项记录与巡检、磁盘暂存与回滚、重新安装 |

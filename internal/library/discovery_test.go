@@ -228,7 +228,7 @@ func TestPreviewDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testin
 	preview.Diagnostics[0].Reason = "mutated"
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"useful"})
 	if err != nil || len(fetched) != 1 || string(fetched[0].Files[0].Content) != content {
-		t.Fatalf("install = %#v, %v", fetched, err)
+		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
 }
 

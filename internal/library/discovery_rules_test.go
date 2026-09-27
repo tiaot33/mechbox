@@ -103,7 +103,7 @@ func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 				}
 				fetched, err := lib.FetchFromPreview(t.Context(), got.ID, nil)
 				if err != nil || len(fetched) != len(tc.paths) {
-					t.Fatalf("install = %#v, %v", fetched, err)
+					t.Fatalf("fetch = %#v, %v", fetched, err)
 				}
 				for i, skill := range fetched {
 					prefix := tc.paths[i] + "/"

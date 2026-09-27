@@ -84,7 +84,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installedAt := fetched.FetchedAt
+	fetchedAt := fetched.FetchedAt
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: second edition\n---\nsecond\n"), 0o644)
 	time.Sleep(time.Millisecond)
 	updated, err := lib.Update(ctx, fetched.ID)
@@ -98,7 +98,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 	if current.Description != "second edition" || updated.Skill.Description != "second edition" {
 		t.Fatalf("updated Description = %q / %q, want second edition", current.Description, updated.Skill.Description)
 	}
-	if !current.FetchedAt.Equal(installedAt) || current.UpdatedAt.Equal(installedAt) || current.UpdatedAt.Before(installedAt) {
+	if !current.FetchedAt.Equal(fetchedAt) || current.UpdatedAt.Equal(fetchedAt) || current.UpdatedAt.Before(fetchedAt) {
 		t.Fatalf("FetchedAt %v UpdatedAt %v, want FetchedAt unchanged and UpdatedAt later", current.FetchedAt, current.UpdatedAt)
 	}
 	versions, err := lib.ListVersions(ctx, fetched.ID)

@@ -320,7 +320,7 @@ func (l *sqliteLibrary) PlanGroupInstall(ctx context.Context, groupID GroupID, s
 			return GroupInstallPlan{}, err
 		}
 		// 与执行时同序:已有安装项的照常补组安装,其余同名成员先于占用 / 未记录文件夹判定为跳过。
-		if counts[member.Name] > 1 && item.Status != AlreadyInstalled {
+		if counts[member.Name] > 1 && item.Status != InstallAlreadyInstalled {
 			item.Status = InstallDuplicate
 			item.OccupierSkillID, item.OccupierName = 0, ""
 		}
@@ -345,7 +345,7 @@ func (l *sqliteLibrary) planInstall(ctx context.Context, id SkillID, name string
 		return plan, err
 	}
 	if existing != nil {
-		plan.Status = AlreadyInstalled
+		plan.Status = InstallAlreadyInstalled
 		return plan, nil
 	}
 	other, err := l.targetClaimant(ctx, id, name, scope)
@@ -553,9 +553,9 @@ func recordInstallationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope sco
 }
 
 // recordGroupInstallTx 在事务内记下组在 Scope 的组安装;已有则保持原记录(含时间)。
-func recordGroupInstallTx(ctx context.Context, tx *sql.Tx, groupID GroupID, scope scopeRow, installedAt time.Time) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO group_installs(group_id, agent, project_id, installed_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
-		groupID, scope.agent, scope.projectID, formatStoredTime(installedAt)); err != nil {
+func recordGroupInstallTx(ctx context.Context, tx *sql.Tx, groupID GroupID, scope scopeRow, createdAt time.Time) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO group_installs(group_id, agent, project_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+		groupID, scope.agent, scope.projectID, formatStoredTime(createdAt)); err != nil {
 		return fmt.Errorf("record group install: %w", err)
 	}
 	return nil
@@ -824,21 +824,21 @@ func (l *sqliteLibrary) ListGroupInstalls(ctx context.Context) (installs []Group
 		return nil, err
 	}
 	for _, row := range rows {
-		installs = append(installs, GroupInstall{GroupID: row.groupID, Scope: row.scope(), InstalledAt: row.installedAt})
+		installs = append(installs, GroupInstall{GroupID: row.groupID, Scope: row.scope(), CreatedAt: row.createdAt})
 	}
 	return installs, nil
 }
 
 // groupInstallRow 是一条组安装记录的落库形状。
 type groupInstallRow struct {
-	groupID     GroupID
-	installedAt time.Time
+	groupID   GroupID
+	createdAt time.Time
 	scopeRow
 }
 
 // readGroupInstalls 读出组安装,按 Group、Agent、项目排序(全局在前);groupID 非 0 时只读该组。
 func (l *sqliteLibrary) readGroupInstalls(ctx context.Context, groupID GroupID) ([]groupInstallRow, error) {
-	rows, err := l.db.QueryContext(ctx, `SELECT group_id, agent, project_id, installed_at FROM group_installs
+	rows, err := l.db.QueryContext(ctx, `SELECT group_id, agent, project_id, created_at FROM group_installs
 		WHERE ? = 0 OR group_id = ? ORDER BY group_id, agent, project_id`, groupID, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("list group installs: %w", err)
@@ -846,14 +846,14 @@ func (l *sqliteLibrary) readGroupInstalls(ctx context.Context, groupID GroupID) 
 	var installs []groupInstallRow
 	for rows.Next() {
 		var (
-			row         groupInstallRow
-			installedAt string
+			row       groupInstallRow
+			createdAt string
 		)
-		if err := rows.Scan(&row.groupID, &row.agent, &row.projectID, &installedAt); err != nil {
+		if err := rows.Scan(&row.groupID, &row.agent, &row.projectID, &createdAt); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("read group install: %w", err)
 		}
-		if row.installedAt, err = parseStoredTime(installedAt); err != nil {
+		if row.createdAt, err = parseStoredTime(createdAt); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("read group install: %w", err)
 		}

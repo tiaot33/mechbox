@@ -68,7 +68,7 @@ func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(skills) != 1 || skills[0].ID != skill.ID {
-		t.Fatalf("ListSkills after install = %v, want the fetched skill", summaryIDs(skills))
+		t.Fatalf("ListSkills after fetch = %v, want the fetched skill", summaryIDs(skills))
 	}
 }
 

@@ -88,7 +88,7 @@ func TestGitHubCLIAuthenticationPreviewsAndFetchesWithoutEnvironmentToken(t *tes
 			}
 			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 			if err != nil || len(fetched) != 1 {
-				t.Fatalf("authenticated install = %#v, %v", fetched, err)
+				t.Fatalf("authenticated fetch = %#v, %v", fetched, err)
 			}
 			want := []library.File{
 				{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
@@ -127,7 +127,7 @@ func TestGitHubFetchRateLimitFallsBackToPinnedSelectedSkills(t *testing.T) {
 	api.rateLimitReset = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"})
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("rate limited install = %#v, %v", fetched, err)
+		t.Fatalf("rate limited fetch = %#v, %v", fetched, err)
 	}
 	want := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("first", "pinned")), Mode: library.ModeRegular},
@@ -169,7 +169,7 @@ func TestGitHubFetchRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 		return transport.RoundTrip(r)
 	})
 	if fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); err == nil || len(fetched) != 0 || (!library.IsCode(err, library.SourceUnreachable) && !library.IsCode(err, library.Permission)) {
-		t.Fatalf("unavailable install = %#v, %v", fetched, err)
+		t.Fatalf("unavailable fetch = %#v, %v", fetched, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("failed fetch wrote partial Library: %#v, %v", skills, err)
@@ -264,7 +264,7 @@ func TestGitHubRateLimitedPreviewSkipsAnonymousWithoutEnvironmentToken(t *testin
 			}
 			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 			if err != nil || len(fetched) != 1 || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
-				t.Fatalf("rate limited install = %#v, %v", fetched, err)
+				t.Fatalf("rate limited fetch = %#v, %v", fetched, err)
 			}
 			if len(api.snapshot()) != 0 {
 				t.Fatalf("retried anonymous API during rate limit window: %#v", api.snapshot())
@@ -327,7 +327,7 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("install = %#v, %v", fetched, err)
+		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
 	api.Reset()
 	if available, err := checkSingleUpdate(t, lib, ctx, fetched[0].ID); err != nil || available {
@@ -427,7 +427,7 @@ func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("install = %#v, %v", fetched, err)
+		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
 	api.Reset()
 	if available, err := checkSingleUpdate(t, lib, t.Context(), fetched[0].ID); err != nil || available {
@@ -471,7 +471,7 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 			}
 			fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 			if err != nil || len(fetched) != 2 {
-				t.Fatalf("install = %#v, %v", fetched, err)
+				t.Fatalf("fetch = %#v, %v", fetched, err)
 			}
 			api.anonymousStatus = http.StatusTooManyRequests
 			api.rateLimitReset = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)

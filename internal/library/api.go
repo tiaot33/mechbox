@@ -410,11 +410,11 @@ type InstallOptions struct {
 type InstallPlanStatus string
 
 const (
-	InstallReady     InstallPlanStatus = "ready"     // 目标不存在
-	AlreadyInstalled InstallPlanStatus = "installed" // 本技能在本作用域已有安装项
-	InstallOccupied  InstallPlanStatus = "occupied"  // 另一个安装项占用目标
-	InstallUntracked InstallPlanStatus = "untracked" // 目标存在但没有安装项记录
-	InstallDuplicate InstallPlanStatus = "duplicate" // 仅组安装计划:与组内其他成员同名且尚未安装,组安装时会被跳过;优先于 occupied / untracked / ready
+	InstallReady            InstallPlanStatus = "ready"             // 目标不存在
+	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 本技能在本作用域已有安装项
+	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个安装项占用目标
+	InstallUntracked        InstallPlanStatus = "untracked"         // 目标存在但没有安装项记录
+	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:与组内其他成员同名且尚未安装,组安装时会被跳过;优先于 occupied / untracked / ready
 )
 
 // InstallPlan 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
@@ -451,9 +451,9 @@ type Installation struct {
 // GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0007)。
 // 它是独立的记录,空组或成员全被跳过时也存在;App 据此显示整组开关。
 type GroupInstall struct {
-	GroupID     GroupID   `json:"group_id"`
-	Scope       Scope     `json:"scope"`
-	InstalledAt time.Time `json:"installed_at,omitzero"` // 首次组安装时间。再次组安装不更新
+	GroupID   GroupID   `json:"group_id"`
+	Scope     Scope     `json:"scope"`
+	CreatedAt time.Time `json:"created_at,omitzero"` // 组安装记录建立(首次组安装)的时间。再次组安装不更新
 }
 
 // GroupMemberOutcome 是组安装或加入成员时,一个成员在一个 Scope 上的结果。
@@ -564,12 +564,12 @@ type UnregisterProjectOptions struct {
 type MemberRemovalPolicy string
 
 const (
-	KeepInstallation     MemberRemovalPolicy = "keep"     // 改为直接安装,磁盘不动(默认,空字符串同义)
+	KeepAsDirectInstall  MemberRemovalPolicy = "keep"     // 改为直接安装,磁盘不动(默认,空字符串同义)
 	WithdrawInstallation MemberRemovalPolicy = "withdraw" // 不补直接安装,连同磁盘上的文件夹一起移除
 )
 
 type RemoveFromGroupOptions struct {
-	Installations MemberRemovalPolicy `json:"installations"` // 默认 KeepInstallation
+	UnbackedInstallations MemberRemovalPolicy `json:"unbacked_installations"` // 只管移出后没有任何安装撑着的安装项;默认 KeepAsDirectInstall
 }
 
 // RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。

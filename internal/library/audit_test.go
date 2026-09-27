@@ -156,7 +156,7 @@ func TestCandidateAuditValidatesHandleAndCandidate(t *testing.T) {
 	// 审计结论只供展示:fail 也不挡入库;入库后的 Skill、列表与版本历史都没有审计的落脚点。
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "second" {
-		t.Fatalf("install = %#v, %v", fetched, err)
+		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
 	skill, err := lib.GetSkill(t.Context(), fetched[0].ID)
 	if err != nil || !reflect.DeepEqual(skill, fetched[0]) {
