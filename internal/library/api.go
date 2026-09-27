@@ -257,22 +257,20 @@ type AuditEntry struct {
 	DetailURL  string      `json:"detail_url"`           // skills.sh 上该合作方的安全详情页
 }
 
-// SkillAudit 是一个 Fetch 候选在 skills.sh 上的审计概览:Fetch 时查一次,随会话暂存,
+// SkillAudit 是一个 Fetch 候选在 skills.sh 上的审计概览:查看候选时经 FetchSkillAudit 按需查询,随会话缓存,
 // 只供展示。不入库、不参与 Sync、不影响安装。Entries 仅在 Availability 为 AuditAvailable 时非空。
 type SkillAudit struct {
 	Availability AuditAvailability `json:"availability"`
 	Entries      []AuditEntry      `json:"entries,omitempty"`
 }
 
-// FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。Audit 是 skills.sh 的审计覆盖层:
-// GitHub 来源一定非 nil,由 Availability 说明内容;URL / Store 来源为 nil(skills.sh 未收录)。
+// FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。skills.sh 审计不随候选返回,见 FetchSkillAudit。
 type FetchSkill struct {
-	Installed   SkillID     `json:"installed,omitzero"`    // 同一来源同名的库内技能 ID;每次列出时现查,零值表示未安装
-	PluginName  string      `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅供预览
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Path        string      `json:"path"`
-	Audit       *SkillAudit `json:"audit,omitempty"`
+	Installed   SkillID `json:"installed,omitzero"`    // 同一来源同名的库内技能 ID;每次列出时现查,零值表示未安装
+	PluginName  string  `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅供预览
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Path        string  `json:"path"`
 }
 
 // CandidateDiagnostic 说明一个路径为何未成为可安装候选。
@@ -618,6 +616,11 @@ type Library interface {
 	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
 	// ListFetchSkills 列出暂存候选与诊断,并现查库内安装状态;未知或已失效句柄返回 NotFound。
 	ListFetchSkills(ctx context.Context, id FetchID) (FetchCandidates, error)
+	// FetchSkillAudit 按需向 skills.sh 查询一次 Fetch 中某个候选的审计,供查看单个候选时懒加载。
+	// 只供展示:不入库、不参与 Sync、不挡安装;查询失败降级为 AuditUnavailable,不返回错误。
+	// 结果随会话缓存,AuditUnavailable 不缓存、再次调用会重查。URL / Store 与非 github.com 来源
+	// 不在 skills.sh 收录范围,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
+	FetchSkillAudit(ctx context.Context, id FetchID, name string) (*SkillAudit, error)
 	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
 	// GitHub 来源可在 Fetch 已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
 	// 不跟随当前 HEAD。URL / Store 只读取暂存内容,不联网。要么所选 skill 全部入库,

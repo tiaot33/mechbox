@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -73,13 +72,13 @@ func sampleAuditEntries(name string) []library.AuditEntry {
 	}
 }
 
-func TestGitHubPreviewCarriesSkillsAuditsForDisplay(t *testing.T) {
+func TestFetchSkillAuditLoadsOnDemandAndCaches(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
 	})
 	fx := inspectGitHubRepo(t, repo)
-	api := serveGitHubAPI(t, fx)
+	serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	audits := serveSkillsAudit(t, func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "" {
@@ -96,34 +95,35 @@ func TestGitHubPreviewCarriesSkillsAuditsForDisplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.FetchSkill{
-		{Name: "first", Path: "first", Audit: &library.SkillAudit{Availability: library.AuditAvailable, Entries: sampleAuditEntries("first")}},
-		{Name: "second", Path: "second", Audit: &library.SkillAudit{Availability: library.AuditAvailable, Entries: sampleAuditEntries("second")}},
+	// 预览不查审计,候选列表也不带审计。
+	if urls := audits.urls(); len(urls) != 0 {
+		t.Fatalf("Fetch contacted skills.sh: %v", urls)
 	}
-	if !reflect.DeepEqual(fetch.Skills, want) {
-		t.Fatalf("Fetch candidates = %#v, want %#v", fetch.Skills, want)
+	want := &library.SkillAudit{Availability: library.AuditAvailable, Entries: sampleAuditEntries("first")}
+	for range 2 {
+		got, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "first")
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("FetchSkillAudit = %#v, %v; want %#v", got, err, want)
+		}
+		// 返回值是副本,改动不影响会话缓存。
+		got.Entries[0].Categories[0] = "mutated"
 	}
-	urls := audits.urls()
-	slices.Sort(urls)
-	if !reflect.DeepEqual(urls, []string{"https://skills.sh/api/v1/skills/audit/owner/repo/first", "https://skills.sh/api/v1/skills/audit/owner/repo/second"}) {
-		t.Fatalf("audit URLs = %v", urls)
+	if urls := audits.urls(); !reflect.DeepEqual(urls, []string{"https://skills.sh/api/v1/skills/audit/owner/repo/first"}) {
+		t.Fatalf("audit URLs = %v, want one lookup for the viewed candidate", urls)
 	}
-	assertGitHubPreviewRequests(t, api, fx, "first/SKILL.md", "second/SKILL.md")
-
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
-		t.Fatalf("preview wrote Library: %v, %v", skills, err)
+		t.Fatalf("audit wrote Library: %v, %v", skills, err)
 	}
 }
 
-func TestSkillsAuditOnlyCoversSelectedGitHubCandidates(t *testing.T) {
+func TestFetchSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
 	})
-	fx := inspectGitHubRepo(t, repo)
-	serveGitHubAPI(t, fx)
+	serveGitHubAPI(t, inspectGitHubRepo(t, repo))
 	blockGitHubClone(t)
-	failVerdict := serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
+	audits := serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
 		return textResponse(http.StatusOK, `{"audits":[{"provider":"Runlayer","slug":"runlayer","status":"fail","summary":"3/8 files flagged","auditedAt":"2026-09-01T00:00:00Z","riskLevel":"HIGH"}]}`), nil
 	})
 	lib := openTestLibrary(t)
@@ -133,11 +133,25 @@ func TestSkillsAuditOnlyCoversSelectedGitHubCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if urls := failVerdict.urls(); !reflect.DeepEqual(urls, []string{"https://skills.sh/api/v1/skills/audit/owner/repo/second"}) {
-		t.Fatalf("audit URLs = %v, want only the selected candidate", urls)
+	for _, tc := range []struct {
+		id   library.FetchID
+		name string
+		code library.ErrorCode
+	}{
+		{"unknown", "second", library.NotFound},
+		{fetch.ID, "first", library.NotFound}, // 被 Names 筛掉的候选不在会话里
+		{fetch.ID, "../x", library.InvalidArgument},
+	} {
+		if _, err := lib.FetchSkillAudit(t.Context(), tc.id, tc.name); !library.IsCode(err, tc.code) {
+			t.Fatalf("FetchSkillAudit(%q, %q) = %v, want %s", tc.id, tc.name, err, tc.code)
+		}
 	}
-	if len(fetch.Skills) != 1 || fetch.Skills[0].Audit == nil || fetch.Skills[0].Audit.Entries[0].Status != library.AuditFail {
-		t.Fatalf("candidates = %#v", fetch.Skills)
+	if urls := audits.urls(); len(urls) != 0 {
+		t.Fatalf("invalid lookups contacted skills.sh: %v", urls)
+	}
+	audit, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "second")
+	if err != nil || audit == nil || audit.Entries[0].Status != library.AuditFail {
+		t.Fatalf("FetchSkillAudit = %#v, %v", audit, err)
 	}
 	// 审计结论只供展示:fail 也不挡安装;入库后的 Skill、列表与版本历史都没有审计的落脚点。
 	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
@@ -154,12 +168,16 @@ func TestSkillsAuditOnlyCoversSelectedGitHubCandidates(t *testing.T) {
 	if versions, err := lib.ListVersions(t.Context(), installed[0].ID); err != nil || len(versions) != 1 {
 		t.Fatalf("ListVersions = %#v, %v", versions, err)
 	}
+	// 安装成功后句柄失效。
+	if _, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "second"); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("audit after install = %v, want NotFound", err)
+	}
 
-	// URL / Store 来源不在 skills.sh 收录范围:候选上没有审计字段,也不发请求。
+	// URL / Store 来源不在 skills.sh 收录范围:返回 nil,也不发请求。
 	t.Setenv("SKILLS_STORE_URL", "https://store.example/skills")
 	archiveSpec := mockFetchArchive(t)
 	untouched := serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
-		t.Error("archive fetch contacted skills.sh")
+		t.Error("archive audit contacted skills.sh")
 		return textResponse(http.StatusInternalServerError, ""), nil
 	})
 	for _, spec := range []library.SourceSpec{
@@ -171,17 +189,17 @@ func TestSkillsAuditOnlyCoversSelectedGitHubCandidates(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, skill := range fetch.Skills {
-			if skill.Audit != nil {
-				t.Fatalf("%s candidate carries audit: %#v", spec.Type, skill)
+			if audit, err := lib.FetchSkillAudit(t.Context(), fetch.ID, skill.Name); err != nil || audit != nil {
+				t.Fatalf("%s audit = %#v, %v; want nil", spec.Type, audit, err)
 			}
 		}
 	}
 	if len(untouched.urls()) != 0 {
-		t.Fatalf("archive fetch contacted skills.sh: %v", untouched.urls())
+		t.Fatalf("archive audit contacted skills.sh: %v", untouched.urls())
 	}
 }
 
-func TestSkillsAuditAppearsOnCloneFallback(t *testing.T) {
+func TestFetchSkillAuditWorksOnCloneFallback(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	redirectGitHubClone(t, repo)
 	client := http.DefaultClient
@@ -198,39 +216,44 @@ func TestSkillsAuditAppearsOnCloneFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := &library.SkillAudit{Availability: library.AuditAvailable, Entries: sampleAuditEntries("demo")}
-	if len(fetch.Skills) != 1 || !reflect.DeepEqual(fetch.Skills[0].Audit, want) {
-		t.Fatalf("fallback candidates = %#v", fetch.Skills)
+	if got, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "demo"); err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("fallback audit = %#v, %v", got, err)
 	}
 }
 
-func TestSkillsAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
+func TestFetchSkillAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	synctest.Test(t, func(t *testing.T) {
 		serveGitHubAPI(t, fx)
 		blockGitHubClone(t)
-		serveSkillsAudit(t, func(r *http.Request) (*http.Response, error) {
+		audits := serveSkillsAudit(t, func(r *http.Request) (*http.Response, error) {
 			<-r.Context().Done()
 			return nil, r.Context().Err()
 		})
 		lib := openFetchLibrary(t, ":memory:")
-		started := time.Now()
 		fetch, err := lib.Fetch(t.Context(), gitHubSpec())
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 审计确实等到了自身超时(而非被跳过),但不会拖过整体预算。
-		if elapsed := time.Since(started); elapsed < time.Second || elapsed > 10*time.Second {
-			t.Fatalf("slow skills.sh delayed Fetch by %v", elapsed)
+		started := time.Now()
+		got, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "demo")
+		if err != nil || !reflect.DeepEqual(got, &library.SkillAudit{Availability: library.AuditUnavailable}) {
+			t.Fatalf("timed-out audit = %#v, %v", got, err)
 		}
-		if len(fetch.Skills) != 1 || !reflect.DeepEqual(fetch.Skills[0].Audit, &library.SkillAudit{Availability: library.AuditUnavailable}) {
-			t.Fatalf("timed-out audit = %#v", fetch.Skills)
+		// 审计确实等到了自身超时,且不会无限拖住调用方。
+		if elapsed := time.Since(started); elapsed < time.Second || elapsed > 10*time.Second {
+			t.Fatalf("slow skills.sh took %v", elapsed)
+		}
+		// 不可用不缓存:再次查看会重查。
+		if _, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "demo"); err != nil || len(audits.urls()) != 2 {
+			t.Fatalf("unavailable audit was cached: %v, %v", audits.urls(), err)
 		}
 
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)
 		go func() {
-			_, err := lib.Fetch(ctx, gitHubSpec())
+			_, err := lib.FetchSkillAudit(ctx, fetch.ID, "demo")
 			done <- err
 		}()
 		synctest.Wait()
@@ -241,7 +264,7 @@ func TestSkillsAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 	})
 }
 
-func TestSkillsAuditFailuresDegradeWithoutFailingFetch(t *testing.T) {
+func TestFetchSkillAuditFailuresDegradeToAvailability(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	for _, tc := range []struct {
@@ -293,11 +316,9 @@ func TestSkillsAuditFailuresDegradeWithoutFailingFetch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(fetch.Skills) != 1 || fetch.Skills[0].Name != "demo" || !reflect.DeepEqual(fetch.Skills[0].Audit, &tc.want) {
-				t.Fatalf("candidates = %#v, want audit %#v", fetch.Skills, tc.want)
-			}
-			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
-				t.Fatalf("preview wrote Library: %v, %v", skills, err)
+			got, err := lib.FetchSkillAudit(t.Context(), fetch.ID, "demo")
+			if err != nil || !reflect.DeepEqual(got, &tc.want) {
+				t.Fatalf("audit = %#v, %v; want %#v", got, err, tc.want)
 			}
 		})
 	}

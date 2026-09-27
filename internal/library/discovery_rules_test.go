@@ -142,9 +142,6 @@ func TestFetchDiscoveryPluginManifests(t *testing.T) {
 			{Name: "q", Path: "plugins/a/special/q", PluginName: "alpha"},
 			{Name: "solo", Path: "extras/solo", PluginName: "single"},
 		}
-		for i := range got.Skills {
-			got.Skills[i].Audit = nil
-		}
 		if !reflect.DeepEqual(got.Skills, want) {
 			t.Fatalf("candidates = %#v", got.Skills)
 		}

@@ -8,32 +8,56 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
-	auditBudget         = 10 * time.Second // 一次 Fetch 内全部审计查询的总预算
-	auditRequestTimeout = 5 * time.Second  // 单个候选的请求超时
-	auditConcurrency    = 4                // 同时在途的审计请求上限
-	maxAuditSize        = 1 << 20          // 单个审计响应的字节上限
+	auditRequestTimeout = 5 * time.Second // 单个候选的请求超时
+	maxAuditSize        = 1 << 20         // 单个审计响应的字节上限
 )
 
-// attachAudits 为每个 GitHub 候选向 skills.sh 查一次审计并写进 preview.Audit。
-// 审计只是展示用的覆盖层:任何失败都只降级为 Availability 状态,不返回错误、不影响 Fetch 成败。
-func attachAudits(ctx context.Context, owner, repo string, skills []fetchedSkill) {
-	ctx, cancel := context.WithTimeout(ctx, auditBudget)
-	defer cancel()
-	slots := make(chan struct{}, auditConcurrency)
-	var wg sync.WaitGroup
-	for i := range skills {
-		wg.Go(func() {
-			slots <- struct{}{}
-			defer func() { <-slots }()
-			skills[i].preview.Audit = new(lookupAudit(ctx, owner, repo, skills[i].name))
-		})
+// FetchSkillAudit 在用户查看单个候选时才查 skills.sh。审计只是展示用的覆盖层:任何失败都只降级为
+// Availability 状态;联网期间不持任何锁,已确定的结果写回会话,不可用的结果留待下次重查。
+func (l *sqliteLibrary) FetchSkillAudit(ctx context.Context, id FetchID, name string) (audit *SkillAudit, err error) {
+	defer func() { err = typedError(err) }()
+	if !validSelectionName(name) {
+		return nil, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
 	}
-	wg.Wait()
+	l.fetchMu.Lock()
+	session := l.fetches[id]
+	var cached SkillAudit
+	var hit bool
+	if session != nil {
+		cached, hit = session.audits[name]
+	}
+	l.fetchMu.Unlock()
+	if session == nil {
+		return nil, &Error{Code: NotFound, Message: "fetch skill audit: unknown or discarded fetch"}
+	}
+	// 候选与来源在会话建立后只读,可在锁外读取。
+	if _, err := selectSkills(session.skills, []string{name}); err != nil {
+		return nil, err
+	}
+	owner, repo, ok := githubOwnerRepo(session.source.Locator.Repository)
+	if !ok {
+		return nil, nil
+	}
+	if hit {
+		return cloneAudit(&cached), nil
+	}
+	got := lookupAudit(ctx, owner, repo, name)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if got.Availability != AuditUnavailable {
+		l.fetchMu.Lock()
+		if session.audits == nil {
+			session.audits = map[string]SkillAudit{}
+		}
+		session.audits[name] = got
+		l.fetchMu.Unlock()
+	}
+	return cloneAudit(&got), nil
 }
 
 // lookupAudit 请求 https://skills.sh/api/v1/skills/audit/{owner}/{repo}/{name}。路径逐段转义、
@@ -108,7 +132,7 @@ func auditPath(owner, repo, name string) string {
 	return url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(name)
 }
 
-// cloneAudit 深拷贝审计快照,使返回给调用方的候选不与会话共享可变数据。
+// cloneAudit 深拷贝审计快照,使返回给调用方的结果不与会话缓存共享可变数据。
 func cloneAudit(audit *SkillAudit) *SkillAudit {
 	if audit == nil {
 		return nil
