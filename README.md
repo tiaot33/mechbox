@@ -2,11 +2,11 @@
 
 管理 Claude Code 和 Codex 的 Agent Skills。当前仓库已实现后端库 `Library`；桌面端（Wails v3，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)）尚在开发，现在只有一个演示入口。
 
-Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。用户先预览一个来源，挑选候选入库；再把库里的技能安装到某个作用域，也就是某个 Agent 的全局，或某个 Agent 加一个已登记项目，库会把技能文件夹写进该 Agent 在这里读取的目录。术语见 [CONTEXT.md](CONTEXT.md)，Agent 如何发现、加载技能见 [生态背景](docs/agents/agent-skills-background.md)。
+Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。用户先对一个来源做入库预览，挑选候选入库；再把库里的技能安装到某个作用域，也就是某个 Agent 的全局，或某个 Agent 加一个已登记项目，库会把技能文件夹写进该 Agent 在这里读取的目录。术语见 [CONTEXT.md](CONTEXT.md)，Agent 如何发现、加载技能见 [生态背景](docs/agents/agent-skills-background.md)。
 
 ## 当前能力
 
-- 预览本地目录、GitHub 仓库、ZIP URL 或技能商店中的候选技能，挑选入库，之后更新。
+- 对本地目录、GitHub 仓库、ZIP URL 或技能商店做入库预览，挑选候选入库，之后更新。
 - 保存技能的完整文件（含相对路径和可执行权限）与全部版本历史，可比较版本差异；相同内容的文件只存一份。
 - 按来源自动形成集合，用户可跨来源手动建组。
 - 登记项目，把单个技能或整个组安装到 Claude Code、Codex 的全局或项目作用域；可巡检已安装的技能是否被手动改过、落后于库里的版本或已缺失，并重新安装。
@@ -57,7 +57,7 @@ go run ./cmd/demo
 
 示例使用内存数据库，列出默认 Agent 后关闭；需要持久化时，把 `library.Open(":memory:")` 的参数改成数据库文件路径。入口使用 `package main`，与后端共用根 `go.mod`；导入路径为 `github.com/tiaot33/skills-tui/internal/library`，代码中仍通过 `library.Open` 等名字调用。资源在 `run` 中打开并通过 `defer` 关闭，`main` 负责报告错误和设置退出码。
 
-预览本地目录、把其中的 skill 入库并安装到 Codex 全局的最小调用方式：
+对本地目录做入库预览、把其中的 skill 入库并安装到 Codex 全局的最小调用方式：
 
 ```go
 ctx := context.Background()
@@ -117,7 +117,7 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
 | `SKILLS_PROJECT_PATH_MAP` | Pull 时旧项目路径到本机路径的 JSON 对象；每个项目只按拉回库里的原路径匹配一次，不链式改写；目标路径仍被其他项目占用或映射成环时 pull 以 `InvalidArgument` 失败、本地库不变 | `{}` |
 
-GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL 和 store Source 返回 ZIP 文件；本地目录在预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
+GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL 和 store Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
 
 ## 尚未实现
 
