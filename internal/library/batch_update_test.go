@@ -31,11 +31,11 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	t.Cleanup(func() { http.DefaultClient = client })
 	var skills []library.Skill
 	for _, suffix := range []string{"/good", "/broken"} {
-		preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example" + suffix}})
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example" + suffix})
 		if err != nil {
 			t.Fatal(err)
 		}
-		fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+		fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,15 +115,11 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 	lib := openTestLibrary(t)
 	var skills []library.Skill
 	for _, ref := range []string{"trunk", "fixed"} {
-		spec, err := lib.ResolveSource(t.Context(), "owner/repo", library.ResolveSourceOptions{Ref: ref})
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: ref}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		preview, err := lib.PreviewSource(t.Context(), spec)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+		fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -162,20 +158,20 @@ func TestCheckUpdatesCancellationReturnsOnlyCompletedItems(t *testing.T) {
 	lib := openTestLibrary(t)
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
 	spec := serveArchive(t, archive)
-	first, err := lib.PreviewSource(t.Context(), spec)
+	first, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := lib.FetchFromPreview(t.Context(), first.ID, nil)
+	a, err := lib.Fetch(t.Context(), first.ID, candidateNames(first))
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec.Locator.URL += "?second"
-	second, err := lib.PreviewSource(t.Context(), spec)
+	spec.URL += "?second"
+	second, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := lib.FetchFromPreview(t.Context(), second.ID, nil)
+	b, err := lib.Fetch(t.Context(), second.ID, candidateNames(second))
 	if err != nil {
 		t.Fatal(err)
 	}

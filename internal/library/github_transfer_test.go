@@ -44,9 +44,9 @@ func TestGitHubRawPreviewUsesOnlyTwoRESTRequests(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(fx.blobs[fx.blobSHA(p)])))}, nil
 	})
 	lib := openTestLibrary(t)
-	got, err := lib.PreviewSource(t.Context(), gitHubSpec())
-	if err != nil || len(got.Skills) != 2 {
-		t.Fatalf("PreviewSource = %#v, %v", got, err)
+	got, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(got.Candidates) != 2 {
+		t.Fatalf("PreviewFetch = %#v, %v", got, err)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 1 || trees != 1 || blobs != 0 || raw.Load() != 2 {
@@ -82,14 +82,14 @@ func TestGitHubTarballFetchAndMissingFileFallback(t *testing.T) {
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(archive))}, nil
 			})
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 			if err != nil {
 				t.Fatal(err)
 			}
 			api.Reset()
-			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 			if err != nil || len(fetched) != 2 {
-				t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+				t.Fatalf("Fetch = %#v, %v", fetched, err)
 			}
 			if downloads.Load() != 1 {
 				t.Fatalf("tarballs = %d, want 1", downloads.Load())
@@ -191,9 +191,9 @@ JSON
 esac
 `)
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
-	if err != nil || len(preview.Skills) != 2 {
-		t.Fatalf("PreviewSource = %#v, %v", preview, err)
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 2 {
+		t.Fatalf("PreviewFetch = %#v, %v", preview, err)
 	}
 	calls, _ := os.ReadFile(log)
 	if strings.Count(string(calls), "graphql") != 1 || strings.Contains(string(calls), "/git/blobs/") {
@@ -202,7 +202,7 @@ esac
 	if err := os.WriteFile(log, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 2 {
 		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
@@ -230,9 +230,9 @@ func TestGitHubRawMismatchFallsBackAndMemoIsReused(t *testing.T) {
 	})
 	lib := openTestLibrary(t)
 	for range 2 {
-		preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
-		if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "demo" {
-			t.Fatalf("PreviewSource = %#v, %v", preview, err)
+		preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+		if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "demo" {
+			t.Fatalf("PreviewFetch = %#v, %v", preview, err)
 		}
 	}
 	if raw.Load() != 1 {
@@ -284,13 +284,13 @@ func TestGitHubSmallOrOversizedRepositoryUsesRawFetch(t *testing.T) {
 				return base.RoundTrip(r)
 			})
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 			if err != nil {
 				t.Fatal(err)
 			}
 			raw.Store(0)
 			api.Reset()
-			got, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+			got, err := getFetchedSkills(t.Context(), lib, preview, []string{"demo"})
 			if err != nil || len(got) != 1 || len(got[0].Files) != count+1 {
 				t.Fatalf("fetch = %#v, %v", got, err)
 			}
@@ -334,9 +334,9 @@ func TestGitHubRawPrivateTokenAndRedirectDropsAuthorization(t *testing.T) {
 		return base.RoundTrip(r)
 	})
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
-	if err != nil || len(preview.Skills) != 1 {
-		t.Fatalf("PreviewSource = %#v, %v", preview, err)
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("PreviewFetch = %#v, %v", preview, err)
 	}
 	if anonymous.Load() != 1 || token.Load() != 1 || redirected.Load() != 1 {
 		t.Fatalf("anon=%d token=%d redirects=%d", anonymous.Load(), token.Load(), redirected.Load())
@@ -399,9 +399,9 @@ exec "$TRANSFER_OLD_GH" "$@"
 fi
 `)
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
-			if err != nil || len(preview.Skills) != count {
-				t.Fatalf("PreviewSource candidates=%d, err=%v", len(preview.Skills), err)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil || len(preview.Candidates) != count {
+				t.Fatalf("PreviewFetch candidates=%d, err=%v", len(preview.Candidates), err)
 			}
 			calls, _ := os.ReadFile(log)
 			wantBatches, wantBlobs := 1, 1
@@ -478,14 +478,14 @@ func TestGitHubTarballSkipsUnrelatedEntriesAndEnforcesLimits(t *testing.T) {
 				return transferResponse(archive), nil
 			})
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 			if err != nil {
 				t.Fatal(err)
 			}
 			api.Reset()
-			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 			if err != nil || len(fetched) != 1 || len(fetched[0].Files) != 13 {
-				t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+				t.Fatalf("Fetch = %#v, %v", fetched, err)
 			}
 			for _, f := range fetched[0].Files {
 				if !bytes.Equal(f.Content, files["demo/"+f.Path].content) {
@@ -527,14 +527,14 @@ func TestGitHubLargeRepositoryUsesTarballWhenMostBytesAreWanted(t *testing.T) {
 		return transferResponse(archive), nil
 	})
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 1 || len(fetched[0].Files) != 13 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	if archives.Load() != 1 {
 		t.Fatalf("archives = %d, want 1", archives.Load())
@@ -574,7 +574,7 @@ func TestGitHubRawCancellationStopsAllRequests(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := lib.PreviewSource(ctx, gitHubSpec()); done <- err }()
+	go func() { _, err := lib.PreviewFetch(ctx, gitHubRequest()); done <- err }()
 	for range 8 {
 		select {
 		case <-started:
@@ -586,7 +586,7 @@ func TestGitHubRawCancellationStopsAllRequests(t *testing.T) {
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("PreviewSource = %v", err)
+			t.Fatalf("PreviewFetch = %v", err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("cancel did not stop raw requests")
@@ -609,10 +609,10 @@ func TestGitHubTransferCancellationStopsCLIAndDownloads(t *testing.T) {
 			api := serveGitHubAPI(t, fx)
 			blockGitHubClone(t)
 			lib := openTestLibrary(t)
-			var preview library.Preview
+			var preview library.FetchPreview
 			if phase != "graphql" {
 				var err error
-				preview, err = lib.PreviewSource(t.Context(), gitHubSpec())
+				preview, err = lib.PreviewFetch(t.Context(), gitHubRequest())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -657,10 +657,10 @@ esac
 			done := make(chan error, 1)
 			go func() {
 				if phase == "graphql" {
-					_, err := lib.PreviewSource(ctx, gitHubSpec())
+					_, err := lib.PreviewFetch(ctx, gitHubRequest())
 					done <- err
 				} else {
-					_, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+					_, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 					done <- err
 				}
 			}()
@@ -707,11 +707,11 @@ func TestGitHubRawUpdateReusesUnchangedLargeStoredFile(t *testing.T) {
 	api := serveGitHubAPI(t, first)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,11 +768,11 @@ exec "$TRANSFER_OLD_GH" "$@"
 		return base.RoundTrip(r)
 	})
 	lib := openTestLibrary(t)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	commits, _, _ := gitHubAPIKindCounts(t, api)

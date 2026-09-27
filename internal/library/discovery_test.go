@@ -53,17 +53,17 @@ func TestPreviewRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T
 				t.Fatal(err)
 			}
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes()))
+			preview, err := lib.PreviewFetch(t.Context(), serveArchive(t, buffer.Bytes()))
 			if !tc.valid {
 				if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
 					t.Fatalf("unsafe archive = %#v, %v", preview, err)
 				}
 				return
 			}
-			if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Path != "." {
+			if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Path != "." {
 				t.Fatalf("root = %#v, %v", preview, err)
 			}
-			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,8 +105,8 @@ func TestPreviewArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testin
 		t.Fatal(err)
 	}
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes()))
-	if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "good" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
+	preview, err := lib.PreviewFetch(t.Context(), serveArchive(t, buffer.Bytes()))
+	if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "good" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
 		t.Fatalf("archive candidates = %#v, %v", preview, err)
 	}
 	buffer.Reset()
@@ -117,7 +117,7 @@ func TestPreviewArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testin
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceInvalid) {
+	if _, err := lib.PreviewFetch(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceInvalid) {
 		t.Fatalf("expanded limit = %v", err)
 	}
 }
@@ -153,7 +153,7 @@ func TestPreviewArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
 				t.Fatal(err)
 			}
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes()))
+			preview, err := lib.PreviewFetch(t.Context(), serveArchive(t, buffer.Bytes()))
 			if !tc.ok {
 				if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
 					t.Fatalf("file count limit = %#v, %v", preview, err)
@@ -163,7 +163,7 @@ func TestPreviewArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "good" {
+			if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "good" {
 				t.Fatalf("at limit = %#v, %v", preview, err)
 			}
 		})
@@ -184,7 +184,7 @@ func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(io.LimitReader(infiniteZeros{}, 64<<20+1)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
 	if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
 		t.Fatalf("download size = %#v, %v", preview, err)
 	}
@@ -198,11 +198,11 @@ func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })}
 	t.Cleanup(func() { http.DefaultClient = client })
-	_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/archive?token=example-secret"}})
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://user:example-secret@source.example/archive?token=example-secret"})
 	if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("archive error exposed credentials or wrong code: %v", err)
 	}
-	_, err = lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/%zz"}})
+	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://user:example-secret@source.example/%zz"})
 	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("invalid URL exposed credentials or wrong code: %v", err)
 	}
@@ -216,17 +216,17 @@ func TestPreviewDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testin
 		"bad/SKILL.md": "---\nname: broken\ndescription: [invalid]\n---\n",
 	}))
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), spec)
+	preview, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []library.Candidate{{Name: "useful", Description: "Helps with useful work.", Path: "one"}}
-	if !reflect.DeepEqual(preview.Skills, want) || len(preview.Diagnostics) != 2 || preview.Diagnostics[0].Path != "bad" {
-		t.Fatalf("PreviewSource = %#v", preview)
+	if !reflect.DeepEqual(preview.Candidates, want) || len(preview.Diagnostics) != 2 || preview.Diagnostics[0].Path != "bad" {
+		t.Fatalf("PreviewFetch = %#v", preview)
 	}
-	preview.Skills[0].Name = "mutated"
+	preview.Candidates[0].Name = "mutated"
 	preview.Diagnostics[0].Reason = "mutated"
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"useful"})
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"useful"})
 	if err != nil || len(fetched) != 1 || string(fetched[0].Files[0].Content) != content {
 		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
@@ -251,15 +251,16 @@ func TestPreviewDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 		}
 	}
 	commitGit(t, repository, "candidates")
+	serveGitHubCloneOnly(t, repository)
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(preview.Skills) != 2 || preview.Skills[0].Name != "good" || preview.Skills[1].Name != "other" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
-		t.Fatalf("PreviewSource = %#v", preview)
+	if len(preview.Candidates) != 2 || preview.Candidates[0].Name != "good" || preview.Candidates[1].Name != "other" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
+		t.Fatalf("PreviewFetch = %#v", preview)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"good"})
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"good"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,9 +287,9 @@ func TestPreviewRejectsInvalidCandidateSetsWithoutCreatingPreview(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, zipArchive(t, tc.files)))
+			preview, err := lib.PreviewFetch(t.Context(), serveArchive(t, zipArchive(t, tc.files)))
 			if !library.IsCode(err, library.SourceInvalid) || !strings.Contains(err.Error(), tc.detail) || preview.ID != "" {
-				t.Fatalf("PreviewSource = %#v, %v", preview, err)
+				t.Fatalf("PreviewFetch = %#v, %v", preview, err)
 			}
 			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 				t.Fatalf("Library = %v, %v", skills, err)

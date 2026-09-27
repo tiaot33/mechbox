@@ -21,7 +21,7 @@ type fetchTransport func(*http.Request) (*http.Response, error)
 
 func (f fetchTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func mockPreviewArchive(t *testing.T) library.SourceSpec {
+func mockPreviewArchive(t *testing.T) library.PreviewFetchRequest {
 	t.Helper()
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "first"), "second/SKILL.md": skillDocument("second", "second")})
 	client := http.DefaultClient
@@ -29,7 +29,7 @@ func mockPreviewArchive(t *testing.T) library.SourceSpec {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	return library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
+	return library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
 }
 
 func openLibraryAt(t *testing.T, path string) library.Library {
@@ -47,15 +47,16 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib := openLibraryAt(t, path)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, spec)
+	preview, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []library.Candidate{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}
-	if preview.ID == "" || preview.Ref == "" || !reflect.DeepEqual(preview.Skills, want) {
-		t.Fatalf("PreviewSource = %#v; want handle, remote ref and candidates %#v", preview, want)
+	// Ref 只对 GitHub 有意义;URL 来源只有钉住内容的哈希。
+	if preview.ID == "" || preview.Ref != "" || preview.Revision == "" || !reflect.DeepEqual(preview.Candidates, want) {
+		t.Fatalf("PreviewFetch = %#v; want handle, content revision and candidates %#v", preview, want)
 	}
-	abandoned, err := lib.PreviewSource(ctx, spec)
+	abandoned, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 		t.Error("fetch contacted remote source")
 		return nil, errors.New("offline")
 	})}
-	preview.Skills[0].Name = "changed by caller"
+	preview.Candidates[0].Name = "changed by caller"
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills = %v, %v", skills, err)
 	}
@@ -72,34 +73,34 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 		t.Fatalf("ListCollections = %v, %v", collections, err)
 	}
 	other := openLibraryAt(t, path)
-	if _, err := other.FetchFromPreview(ctx, preview.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := other.Fetch(ctx, preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("other instance accepted handle: %v", err)
 	}
-	for _, id := range []library.PreviewID{"", "unknown"} {
-		if _, err := lib.FetchFromPreview(ctx, id, nil); !library.IsCode(err, library.NotFound) {
+	for _, id := range []library.FetchPreviewID{"", "unknown"} {
+		if _, err := lib.Fetch(ctx, id, []string{"first"}); !library.IsCode(err, library.NotFound) {
 			t.Fatalf("unknown handle: %v", err)
 		}
 	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := lib.FetchFromPreview(cancelled, preview.ID, nil); !errors.Is(err, context.Canceled) {
+	if _, err := lib.Fetch(cancelled, preview.ID, []string{"first"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled fetch: %v", err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
+	fetched, err := getFetchedSkills(ctx, lib, preview, []string{"first"})
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" || string(fetched[0].Files[0].Content) != skillDocument("first", "first") {
 		t.Fatalf("fetch after preview mutation and cancellation = %#v, %v", fetched, err)
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.FetchFromPreview(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.Fetch(ctx, abandoned.ID, candidateNames(abandoned)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("closed instance accepted handle: %v", err)
 	}
-	if _, err := lib.PreviewSource(ctx, spec); err == nil {
-		t.Fatal("closed instance accepted PreviewSource")
+	if _, err := lib.PreviewFetch(ctx, spec); err == nil {
+		t.Fatal("closed instance accepted PreviewFetch")
 	}
 	reopened := openLibraryAt(t, path)
-	if _, err := reopened.FetchFromPreview(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := reopened.Fetch(ctx, abandoned.ID, candidateNames(abandoned)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reopened instance accepted handle: %v", err)
 	}
 }
@@ -117,13 +118,13 @@ func TestPreviewHandleLifetime(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				spec := mockPreviewArchive(t)
 				lib := openLibraryAt(t, ":memory:")
-				preview, err := lib.PreviewSource(t.Context(), spec)
+				preview, err := lib.PreviewFetch(t.Context(), spec)
 				if err != nil {
 					t.Fatal(err)
 				}
 				time.Sleep(test.wait)
 				synctest.Wait()
-				fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+				fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 				if test.expired {
 					if !library.IsCode(err, library.NotFound) || len(fetched) != 0 {
 						t.Fatalf("expired handle fetch = %#v, %v", fetched, err)
@@ -148,14 +149,14 @@ func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
 	lib := openLibraryAt(t, ":memory:")
 	finished := make(chan error, 1)
 	go func() {
-		_, err := lib.PreviewSource(t.Context(), spec)
+		_, err := lib.PreviewFetch(t.Context(), spec)
 		finished <- err
 	}()
 	<-started
 	closeErr := lib.Close()
 	close(resume)
 	if err := <-finished; err == nil {
-		t.Error("PreviewSource succeeded after Close")
+		t.Error("PreviewFetch succeeded after Close")
 	}
 	if closeErr != nil {
 		t.Fatal(closeErr)
@@ -194,7 +195,7 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
-	preview, err := lib.PreviewSource(t.Context(), spec)
+	preview, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,42 +214,48 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 	if _, err := other.SyncPull(t.Context(), plan.Remote); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.FetchFromPreview(t.Context(), preview.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := other.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("synced instance accepted handle: %v", err)
 	}
 	if skills, err := other.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("synced skills = %v, %v", skills, err)
 	}
-	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); err != nil {
+	if _, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); err != nil {
 		t.Fatalf("SyncPush invalidated local handle: %v", err)
 	}
 }
 
 func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
 	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
-	for _, spec := range []library.SourceSpec{
-		{Type: library.SourceLocal},
-		{Type: "unsupported"},
-		{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: "repo"}},
-		{Type: library.SourceGitHub, Locator: library.SourceLocator{Branch: "main"}},
-		{Type: library.SourceURL},
-		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "package"}},
-		{Type: library.SourceStore, Locator: library.SourceLocator{Version: "v1"}},
+	gitHub := &library.GitHubInput{Input: "owner/repo", Ref: "main"}
+	for _, tc := range []struct {
+		name  string
+		req   library.PreviewFetchRequest
+		field string
+	}{
+		{name: "empty", req: library.PreviewFetchRequest{}},
+		{name: "github and url", req: library.PreviewFetchRequest{GitHub: gitHub, URL: "https://source.example/skills.zip"}, field: "url"},
+		{name: "url and local", req: library.PreviewFetchRequest{URL: "https://source.example/skills.zip", Local: t.TempDir()}, field: "local"},
+		{name: "github and local", req: library.PreviewFetchRequest{GitHub: gitHub, Local: t.TempDir()}, field: "local"},
+		{name: "empty github input", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{}}},
+		{name: "github without owner", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "repo", Ref: "main"}}},
+		{name: "invalid url", req: library.PreviewFetchRequest{URL: "://bad"}, field: "url"},
 	} {
-		if _, err := lib.PreviewSource(t.Context(), spec); !library.IsCode(err, library.InvalidArgument) {
-			t.Errorf("PreviewSource(%#v) = %v; want InvalidArgument", spec, err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := lib.PreviewFetch(t.Context(), tc.req)
+			if typed := requireLibraryError(t, err, library.InvalidArgument); typed.Details.Field != tc.field {
+				t.Fatalf("PreviewFetch(%#v) field = %q; want %q", tc.req, typed.Details.Field, tc.field)
+			}
+		})
 	}
 }
 
 func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
-	t.Setenv("SKILLS_STORE_URL", "https://store.example/skills")
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "body")})
-	for _, spec := range []library.SourceSpec{
-		{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}},
-		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"}},
+	for _, spec := range []library.PreviewFetchRequest{
+		{URL: "https://source.example/skills.zip"},
 	} {
-		t.Run(string(spec.Type), func(t *testing.T) {
+		t.Run("url", func(t *testing.T) {
 			lib := openLibraryAt(t, ":memory:")
 			client := http.DefaultClient
 			t.Cleanup(func() { http.DefaultClient = client })
@@ -262,7 +269,7 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				}
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 			})}
-			if _, err := lib.PreviewSource(t.Context(), spec); err != nil {
+			if _, err := lib.PreviewFetch(t.Context(), spec); err != nil {
 				t.Fatal(err)
 			}
 
@@ -272,7 +279,7 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				<-r.Context().Done()
 				return nil, r.Context().Err()
 			})
-			if _, err := lib.PreviewSource(ctx, spec); !errors.Is(err, context.Canceled) {
+			if _, err := lib.PreviewFetch(ctx, spec); !errors.Is(err, context.Canceled) {
 				t.Fatalf("cancel = %v", err)
 			}
 
@@ -283,7 +290,7 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				})
 				done := make(chan error, 1)
 				go func() {
-					_, err := lib.PreviewSource(t.Context(), spec)
+					_, err := lib.PreviewFetch(t.Context(), spec)
 					done <- err
 				}()
 				synctest.Wait()
@@ -293,24 +300,6 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				}
 			})
 		})
-	}
-}
-
-func TestPreviewStoreRequiresConfiguredBaseURL(t *testing.T) {
-	t.Setenv("SKILLS_STORE_URL", "")
-	lib := openTestLibrary(t)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
-		t.Fatal("unconfigured store contacted network")
-		return nil, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
-	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{
-		Type:    library.SourceStore,
-		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
-	})
-	if !library.IsCode(err, library.NotConfigured) || preview.ID != "" {
-		t.Fatalf("unconfigured store = %#v, %v", preview, err)
 	}
 }
 
@@ -333,9 +322,7 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer lib.Close()
-			_, err = lib.PreviewSource(t.Context(), library.SourceSpec{
-				Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
-			})
+			_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: server.URL})
 			if !library.IsCode(err, test.code) {
 				t.Fatalf("error = %v, want code %s", err, test.code)
 			}
@@ -349,19 +336,17 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lib.Close()
-	_, err = lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceURL, Locator: library.SourceLocator{URL: "http://127.0.0.1/skills.zip"},
-	})
+	_, err = lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: "http://127.0.0.1/skills.zip"})
 	if !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want Canceled wrapping context.Canceled", err)
 	}
 }
 
-func TestCandidateFetchedIsQueriedOnEveryListing(t *testing.T) {
+func TestCandidateFetchedIsQueriedWhenPreviewing(t *testing.T) {
 	spec := mockPreviewArchive(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, spec)
+	preview, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,54 +355,34 @@ func TestCandidateFetchedIsQueriedOnEveryListing(t *testing.T) {
 	if _, err := fetchLocalDir(ctx, lib, source); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := lib.ListCandidates(ctx, preview.ID)
-	if err != nil || candidates.Skills[0].Fetched != 0 {
-		t.Fatalf("different source = %#v, %v", candidates, err)
+	// 同名但来自另一来源的技能不算已入库。
+	different, err := lib.PreviewFetch(ctx, spec)
+	if err != nil || different.Candidates[0].Fetched != 0 {
+		t.Fatalf("different source = %#v, %v", different, err)
 	}
-	other, err := lib.PreviewSource(ctx, spec)
+	fetched, err := lib.Fetch(ctx, different.ID, []string{"first"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, other.ID, []string{"first"})
-	if err != nil {
-		t.Fatal(err)
+	again, err := lib.PreviewFetch(ctx, spec)
+	if err != nil || again.Candidates[0].Fetched != fetched[0].ID || again.Candidates[1].Fetched != 0 {
+		t.Fatalf("fetched = %#v, %v", again, err)
 	}
-	for _, fresh := range []bool{false, true} {
-		if fresh {
-			again, err := lib.PreviewSource(ctx, spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			candidates = again.PreviewCandidates
-		} else {
-			candidates, err = lib.ListCandidates(ctx, preview.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		if candidates.Skills[0].Fetched != fetched[0].ID || candidates.Skills[1].Fetched != 0 {
-			t.Fatalf("fetched = %#v", candidates)
-		}
+	// 预览建立时查询:之前打开的预览里仍是未入库,入库时按重复整批失败。
+	if preview.Candidates[0].Fetched != 0 {
+		t.Fatalf("earlier preview changed = %#v", preview.Candidates)
 	}
-	_, err = lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
+	_, err = lib.Fetch(ctx, preview.ID, []string{"first", "second"})
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: fetched[0].ID, Name: "first"})
 	if err := lib.RemoveSkill(ctx, fetched[0].ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err = lib.ListCandidates(ctx, preview.ID)
-	if err != nil || candidates.Skills[0].Fetched != 0 {
-		t.Fatalf("removed = %#v, %v", candidates, err)
+	removed, err := lib.PreviewFetch(ctx, spec)
+	if err != nil || removed.Candidates[0].Fetched != 0 {
+		t.Fatalf("removed = %#v, %v", removed, err)
 	}
-	data, err := json.Marshal(candidates.Skills[0])
+	data, err := json.Marshal(removed.Candidates[0])
 	if err != nil || bytes.Contains(data, []byte(`"fetched"`)) {
 		t.Fatalf("zero fetched JSON = %s, %v", data, err)
-	}
-	if _, err := lib.ListCandidates(ctx, "unknown"); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("unknown preview = %v", err)
-	}
-	canceled, cancel := context.WithCancel(ctx)
-	cancel()
-	if _, err := lib.ListCandidates(canceled, preview.ID); !library.IsCode(err, library.Canceled) {
-		t.Fatalf("canceled list = %v", err)
 	}
 }

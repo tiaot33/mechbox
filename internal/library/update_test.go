@@ -22,12 +22,13 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	writeSource("old", "old")
 	t.Setenv("HOME", t.TempDir())
+	serveGitHubCloneOnly(t, repository)
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	skills, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	skills, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}

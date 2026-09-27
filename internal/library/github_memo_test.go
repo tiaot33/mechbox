@@ -28,21 +28,21 @@ func TestGitHubRepeatPreviewOmitsTreeAndBlobRequests(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 
-	first, err := lib.PreviewSource(ctx, gitHubSpec())
+	first, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	second, err := lib.PreviewSource(ctx, gitHubSpec())
+	second, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Ref != first.Ref || !reflect.DeepEqual(second.Skills, first.Skills) {
-		t.Fatalf("second PreviewSource = %#v, want candidates of %#v", second, first)
+	if second.Revision != first.Revision || !reflect.DeepEqual(second.Candidates, first.Candidates) {
+		t.Fatalf("second PreviewFetch = %#v, want candidates of %#v", second, first)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if trees != 0 || blobs != 0 || commits != 1 {
-		t.Fatalf("second PreviewSource commits=%d trees=%d blobs=%d, want one commit only: %#v", commits, trees, blobs, api.snapshot())
+		t.Fatalf("second PreviewFetch commits=%d trees=%d blobs=%d, want one commit only: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 
@@ -55,16 +55,16 @@ func TestGitHubPinnedSHARepeatPreviewMakesNoRequests(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	spec := gitHubSpecAt(fx.commit)
-	if _, err := lib.PreviewSource(t.Context(), spec); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), spec); err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), spec); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), spec); err != nil {
 		t.Fatal(err)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 0 || trees != 0 || blobs != 0 {
-		t.Fatalf("pinned SHA second PreviewSource commits=%d trees=%d blobs=%d, want zero: %#v", commits, trees, blobs, api.snapshot())
+		t.Fatalf("pinned SHA second PreviewFetch commits=%d trees=%d blobs=%d, want zero: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 
@@ -77,13 +77,13 @@ func TestGitHubConcurrentCheckUpdatesSingleFlightsCommit(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 
 	started := make(chan struct{})
@@ -135,24 +135,25 @@ func TestGitHubConcurrentPreviewSingleFlightsTreeAndBlobs(t *testing.T) {
 		return transport.RoundTrip(r)
 	})
 
-	var first, second library.Preview
+	var first, second library.FetchPreview
 	var firstErr, secondErr error
 	var wg sync.WaitGroup
-	wg.Go(func() { first, firstErr = lib.PreviewSource(ctx, gitHubSpec()) })
+	wg.Go(func() { first, firstErr = lib.PreviewFetch(ctx, gitHubRequest()) })
 	<-started
-	wg.Go(func() { second, secondErr = lib.PreviewSource(ctx, gitHubSpec()) })
-	time.Sleep(20 * time.Millisecond)
+	wg.Go(func() { second, secondErr = lib.PreviewFetch(ctx, gitHubRequest()) })
+	// 第二个预览先要解析 GitHub 输入(起 git 进程校验 ref),留足时间让它排到先到者的同一次请求上。
+	time.Sleep(200 * time.Millisecond)
 	close(release)
 	wg.Wait()
 	if firstErr != nil || secondErr != nil {
-		t.Fatalf("PreviewSource = %v, %v", firstErr, secondErr)
+		t.Fatalf("PreviewFetch = %v, %v", firstErr, secondErr)
 	}
-	if first.Ref != second.Ref || !reflect.DeepEqual(first.Skills, second.Skills) {
-		t.Fatalf("concurrent PreviewSource %#v vs %#v", first, second)
+	if first.Revision != second.Revision || !reflect.DeepEqual(first.Candidates, second.Candidates) {
+		t.Fatalf("concurrent PreviewFetch %#v vs %#v", first, second)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 1 || trees != 1 || blobs != 2 {
-		t.Fatalf("concurrent PreviewSource commits=%d trees=%d blobs=%d, want 1/1/2: %#v", commits, trees, blobs, api.snapshot())
+		t.Fatalf("concurrent PreviewFetch commits=%d trees=%d blobs=%d, want 1/1/2: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 
@@ -179,20 +180,20 @@ func TestGitHubWaiterSurvivesLeaderCancellation(t *testing.T) {
 
 	leaderCtx, cancelLeader := context.WithCancel(t.Context())
 	var leaderErr, waiterErr error
-	var waiter library.Preview
+	var waiter library.FetchPreview
 	var wg sync.WaitGroup
-	wg.Go(func() { _, leaderErr = lib.PreviewSource(leaderCtx, gitHubSpec()) })
+	wg.Go(func() { _, leaderErr = lib.PreviewFetch(leaderCtx, gitHubRequest()) })
 	<-started
-	wg.Go(func() { waiter, waiterErr = lib.PreviewSource(t.Context(), gitHubSpec()) })
+	wg.Go(func() { waiter, waiterErr = lib.PreviewFetch(t.Context(), gitHubRequest()) })
 	time.Sleep(20 * time.Millisecond)
 	cancelLeader()
 	close(release)
 	wg.Wait()
 	if !errors.Is(leaderErr, context.Canceled) {
-		t.Fatalf("leader PreviewSource error = %v, want context.Canceled", leaderErr)
+		t.Fatalf("leader PreviewFetch error = %v, want context.Canceled", leaderErr)
 	}
-	if waiterErr != nil || waiter.Ref != fx.commit || len(waiter.Skills) != 1 {
-		t.Fatalf("waiter PreviewSource = %#v, %v, want a normal result", waiter, waiterErr)
+	if waiterErr != nil || waiter.Revision != fx.commit || len(waiter.Candidates) != 1 {
+		t.Fatalf("waiter PreviewFetch = %#v, %v, want a normal result", waiter, waiterErr)
 	}
 	// 等待者不沿用先到者的取消,自己再解析一次 commit;tree 与 blob 仍各只出一份。
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
@@ -224,12 +225,12 @@ func TestGitHubWaiterStopsOnItsOwnCancellation(t *testing.T) {
 
 	var leaderErr error
 	var wg sync.WaitGroup
-	wg.Go(func() { _, leaderErr = lib.PreviewSource(t.Context(), gitHubSpec()) })
+	wg.Go(func() { _, leaderErr = lib.PreviewFetch(t.Context(), gitHubRequest()) })
 	<-started
 	waiterCtx, cancelWaiter := context.WithCancel(t.Context())
 	waiterDone := make(chan error, 1)
 	go func() {
-		_, err := lib.PreviewSource(waiterCtx, gitHubSpec())
+		_, err := lib.PreviewFetch(waiterCtx, gitHubRequest())
 		waiterDone <- err
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -237,7 +238,7 @@ func TestGitHubWaiterStopsOnItsOwnCancellation(t *testing.T) {
 	select {
 	case err := <-waiterDone:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("waiter PreviewSource error = %v, want context.Canceled", err)
+			t.Fatalf("waiter PreviewFetch error = %v, want context.Canceled", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancelled waiter kept waiting for the leader")
@@ -245,7 +246,7 @@ func TestGitHubWaiterStopsOnItsOwnCancellation(t *testing.T) {
 	close(release)
 	wg.Wait()
 	if leaderErr != nil {
-		t.Fatalf("leader PreviewSource = %v", leaderErr)
+		t.Fatalf("leader PreviewFetch = %v", leaderErr)
 	}
 	// 等待者退出后没有自己再解析 commit;剩下的 tree / blob 都是先到者的。
 	if commits, trees, blobs := gitHubAPIKindCounts(t, api); commits != 1 || trees != 1 || blobs != 1 {
@@ -263,16 +264,16 @@ func TestGitHubOversizedBlobIsNotMemoized(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	spec := gitHubSpecAt(fx.commit)
-	if _, err := lib.PreviewSource(t.Context(), spec); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), spec); err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), spec); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), spec); err != nil {
 		t.Fatal(err)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 0 || trees != 0 || blobs != 1 {
-		t.Fatalf("second PreviewSource commits=%d trees=%d blobs=%d, want the oversized blob re-read only: %#v", commits, trees, blobs, api.snapshot())
+		t.Fatalf("second PreviewFetch commits=%d trees=%d blobs=%d, want the oversized blob re-read only: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 
@@ -285,12 +286,12 @@ func TestGitHubTruncatedTreeIsNotMemoized(t *testing.T) {
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err == nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err == nil {
 		t.Fatal("truncated tree with clone blocked succeeded")
 	}
 	api.Swap(inspectGitHubRepo(t, repo))
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	_, trees, _ := gitHubAPIKindCounts(t, api)
@@ -308,12 +309,12 @@ func TestGitHubIncompleteBlobIsNotMemoized(t *testing.T) {
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err == nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err == nil {
 		t.Fatal("incomplete blob with clone blocked succeeded")
 	}
 	api.Swap(inspectGitHubRepo(t, repo))
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	_, _, blobs := gitHubAPIKindCounts(t, api)
@@ -330,7 +331,7 @@ func TestGitHubTreeMemoEvictsLeastRecentlyUsed(t *testing.T) {
 	api := serveGitHubAPI(t, first)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
 	var second gitHubFixture
@@ -344,22 +345,22 @@ func TestGitHubTreeMemoEvictsLeastRecentlyUsed(t *testing.T) {
 		if i == 0 {
 			second = next
 		}
-		if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(next.commit)); err != nil {
+		if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(next.commit)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "overflow")), 0o644)
 	commitGit(t, repo, "overflow")
 	overflow := inspectGitHubRepo(t, repo)
 	api.Swap(overflow)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(overflow.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(overflow.commit)); err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
 	// 钉住 SHA 的 commit 与 tree 同为 16 条上限、同一访问顺序:first 最近用过,两者都还在。
@@ -368,7 +369,7 @@ func TestGitHubTreeMemoEvictsLeastRecentlyUsed(t *testing.T) {
 		t.Fatalf("recently used commit / tree was evicted: commits=%d trees=%d: %#v", commits, trees, api.snapshot())
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(second.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(second.commit)); err != nil {
 		t.Fatal(err)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
@@ -386,7 +387,7 @@ func TestGitHubBlobMemoEvictsLeastRecentlyUsed(t *testing.T) {
 	api := serveGitHubAPI(t, first)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
 	var second gitHubFixture
@@ -401,11 +402,11 @@ func TestGitHubBlobMemoEvictsLeastRecentlyUsed(t *testing.T) {
 		if i == 0 {
 			second = next
 		}
-		if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(next.commit)); err != nil {
+		if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(next.commit)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
 	overflowBody := string(bytes.Repeat([]byte("z"), blobSize))
@@ -413,11 +414,11 @@ func TestGitHubBlobMemoEvictsLeastRecentlyUsed(t *testing.T) {
 	commitGit(t, repo, "overflow")
 	overflow := inspectGitHubRepo(t, repo)
 	api.Swap(overflow)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(overflow.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(overflow.commit)); err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(first.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(first.commit)); err != nil {
 		t.Fatal(err)
 	}
 	_, _, blobs := gitHubAPIKindCounts(t, api)
@@ -425,7 +426,7 @@ func TestGitHubBlobMemoEvictsLeastRecentlyUsed(t *testing.T) {
 		t.Fatalf("recently used blob was evicted: %#v", api.snapshot())
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpecAt(second.commit)); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubSpecAt(second.commit)); err != nil {
 		t.Fatal(err)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
@@ -446,7 +447,7 @@ func TestGitHubMemoDoesNotSurviveCloseAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Close(); err != nil {
@@ -458,17 +459,17 @@ func TestGitHubMemoDoesNotSurviveCloseAndReopen(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 	api.Reset()
-	if _, err := reopened.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := reopened.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits == 0 || trees == 0 || blobs == 0 {
-		t.Fatalf("reopened PreviewSource commits=%d trees=%d blobs=%d, want a full re-read: %#v", commits, trees, blobs, api.snapshot())
+		t.Fatalf("reopened PreviewFetch commits=%d trees=%d blobs=%d, want a full re-read: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 
-func gitHubSpecAt(ref string) library.SourceSpec {
-	spec := gitHubSpec()
-	spec.Locator.Branch = ref
+func gitHubSpecAt(ref string) library.PreviewFetchRequest {
+	spec := gitHubRequest()
+	spec.GitHub.Ref = ref
 	return spec
 }

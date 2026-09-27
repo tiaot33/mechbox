@@ -11,27 +11,27 @@ import (
 	"strings"
 )
 
-func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result SearchResult, err error) {
+func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result []SearchSkill, err error) {
 	defer func() { err = typedError(err) }()
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	if ctx.Err() != nil {
-		return result, ctx.Err()
+		return nil, ctx.Err()
 	}
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return result, &Error{Code: InvalidArgument, Message: "search query must not be empty"}
+		return nil, &Error{Code: InvalidArgument, Message: "search query must not be empty"}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://skills.sh/api/search?"+url.Values{"q": {query}, "limit": {"20"}}.Encode(), nil)
 	if err != nil {
-		return result, err
+		return nil, err
 	}
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return result, ctx.Err()
+			return nil, ctx.Err()
 		}
-		return result, fetchError(SourceUnreachable, "search skills", errors.New("search service is unavailable"))
+		return nil, fetchError(SourceUnreachable, "search skills", errors.New("search service is unavailable"))
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -39,18 +39,18 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		if response.StatusCode == 401 || response.StatusCode == 403 {
 			code = Permission
 		}
-		return result, fetchError(code, "search skills", fmt.Errorf("HTTP %d", response.StatusCode))
+		return nil, fetchError(code, "search skills", fmt.Errorf("HTTP %d", response.StatusCode))
 	}
 	const maxSearchSize = 1 << 20
 	body, err := io.ReadAll(io.LimitReader(contextReader{ctx, response.Body}, maxSearchSize+1))
 	if ctx.Err() != nil {
-		return result, ctx.Err()
+		return nil, ctx.Err()
 	}
 	if err != nil {
-		return result, fetchError(SourceUnreachable, "read search response", err)
+		return nil, fetchError(SourceUnreachable, "read search response", err)
 	}
 	if len(body) > maxSearchSize {
-		return result, fetchError(SourceInvalid, "read search response", errors.New("response exceeds size limit"))
+		return nil, fetchError(SourceInvalid, "read search response", errors.New("response exceeds size limit"))
 	}
 	var payload struct {
 		Skills []struct {
@@ -61,22 +61,22 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		} `json:"skills"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil || payload.Skills == nil {
-		return result, fetchError(SourceInvalid, "read search response", errors.New("invalid response format"))
+		return nil, fetchError(SourceInvalid, "read search response", errors.New("invalid response format"))
 	}
-	result.Skills = []SearchSkill{}
+	result = []SearchSkill{}
 	for i, skill := range payload.Skills {
 		if ctx.Err() != nil {
-			return SearchResult{}, ctx.Err()
+			return nil, ctx.Err()
 		}
 		if i == 20 {
 			break
 		}
 		if strings.TrimSpace(skill.ID) == "" || strings.TrimSpace(skill.Name) == "" || strings.TrimSpace(skill.Source) == "" || (skill.Installs != nil && *skill.Installs < 0) {
-			return SearchResult{}, fetchError(SourceInvalid, "read search response", errors.New("missing or invalid result fields"))
+			return nil, fetchError(SourceInvalid, "read search response", errors.New("missing or invalid result fields"))
 		}
-		source, err := parseGitHubInput(skill.Source, ResolveSourceOptions{})
+		// 无法转换为可预览 GitHub 地址的条目直接过滤掉。
+		source, err := parseGitHubInput(GitHubInput{Input: skill.Source})
 		if err != nil || source.tree != "" || source.ref != "" || source.name != "" || !validSelectionName(skill.Name) || strings.Contains(skill.Name, "#") {
-			result.Diagnostics = append(result.Diagnostics, SearchDiagnostic{ID: skill.ID, Reason: "search result does not identify a supported GitHub repository and Skill name"})
 			continue
 		}
 		repository := strings.TrimSuffix(strings.TrimPrefix(source.repository, "https://github.com/"), ".git")
@@ -85,7 +85,11 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		for i, segment := range segments {
 			segments[i] = url.PathEscape(segment)
 		}
-		result.Skills = append(result.Skills, SearchSkill{ID: skill.ID, Name: skill.Name, SourceInput: repository + "@" + skill.Name, DetailURL: "https://skills.sh/" + strings.Join(segments, "/"), Installs: skill.Installs})
+		preview := PreviewFetchRequest{GitHub: &GitHubInput{Input: repository + "@" + skill.Name}}
+		result = append(result, SearchSkill{ID: skill.ID, Name: skill.Name, DetailURL: "https://skills.sh/" + strings.Join(segments, "/"), Installs: skill.Installs, Preview: preview})
 	}
-	return result, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

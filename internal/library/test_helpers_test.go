@@ -22,7 +22,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// archiveServer 打桩 URL / Store 来源的压缩包服务端(接管 http.DefaultClient):记录每个请求的头,
+// archiveServer 打桩 URL 来源的压缩包服务端(接管 http.DefaultClient):记录每个请求的头,
 // 可配置 ETag 或 Last-Modified;请求带 If-None-Match / If-Modified-Since 且与当前 validator 相同时回 304,
 // 304 的正文若被读取会被计数——按契约应恒为零字节。
 type archiveServer struct {
@@ -46,13 +46,13 @@ func newArchiveServer(t *testing.T, archive []byte, etag string) *archiveServer 
 }
 
 // serveArchive 是最简形态:固定 200 + 压缩包,不给 validator。
-func serveArchive(t *testing.T, archive []byte) library.SourceSpec {
+func serveArchive(t *testing.T, archive []byte) library.PreviewFetchRequest {
 	t.Helper()
-	return newArchiveServer(t, archive, "").spec()
+	return newArchiveServer(t, archive, "").request()
 }
 
-func (s *archiveServer) spec() library.SourceSpec {
-	return library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
+func (s *archiveServer) request() library.PreviewFetchRequest {
+	return library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
 }
 
 // serve 替换远端内容与 validator;etag 为空表示服务端不再给出任何 validator(也清掉 Last-Modified)。
@@ -392,14 +392,11 @@ func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.S
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	skills, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	skills := fetchSkills(t, lib, preview, candidateNames(preview))
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -498,21 +495,55 @@ func (g *networkGate) open() {
 	close(g.release)
 }
 
-// localSpec 是预览本地目录 path 的来源规格。
-func localSpec(path string) library.SourceSpec {
-	return library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: path}}
+// localRequest 是预览本地目录 path 的入库预览请求。
+func localRequest(path string) library.PreviewFetchRequest {
+	return library.PreviewFetchRequest{Local: path}
+}
+
+// candidateNames 收集预览中全部候选的名字,供"全部入库"的用例传给 Fetch。
+func candidateNames(preview library.FetchPreview) []string {
+	names := make([]string, len(preview.Candidates))
+	for i, candidate := range preview.Candidates {
+		names[i] = candidate.Name
+	}
+	return names
+}
+
+// fetchSkills 把 names 从预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
+func fetchSkills(t *testing.T, lib library.Library, preview library.FetchPreview, names []string) []library.Skill {
+	t.Helper()
+	skills, err := getFetchedSkills(t.Context(), lib, preview, names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return skills
+}
+
+// getFetchedSkills 是 fetchSkills 的不失败版本:入库后按入库顺序用 GetSkill 读回完整技能。
+func getFetchedSkills(ctx context.Context, lib library.Library, preview library.FetchPreview, names []string) ([]library.Skill, error) {
+	summaries, err := lib.Fetch(ctx, preview.ID, names)
+	if err != nil {
+		return nil, err
+	}
+	skills := make([]library.Skill, len(summaries))
+	for i, summary := range summaries {
+		if skills[i], err = lib.GetSkill(ctx, summary.ID); err != nil {
+			return nil, err
+		}
+	}
+	return skills, nil
 }
 
 // fetchLocalDir 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
 func fetchLocalDir(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
-	preview, err := lib.PreviewSource(ctx, localSpec(dir))
+	preview, err := lib.PreviewFetch(ctx, localRequest(dir))
 	if err != nil {
 		return library.Skill{}, err
 	}
-	if len(preview.Skills) != 1 {
-		return library.Skill{}, fmt.Errorf("local preview of %s found %d candidates, want 1", dir, len(preview.Skills))
+	if len(preview.Candidates) != 1 {
+		return library.Skill{}, fmt.Errorf("local preview of %s found %d candidates, want 1", dir, len(preview.Candidates))
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil {
 		return library.Skill{}, err
 	}
@@ -525,18 +556,14 @@ func writeLocalSkill(t *testing.T, dir, body string) {
 	writeFile(t, filepath.Join(dir, "SKILL.md"), []byte(skillDocument(filepath.Base(dir), body)), 0o644)
 }
 
-// fetchURLSkill 经 PreviewSource + FetchFromPreview 从 URL 远端把名为 name 的 skill 入库。
+// fetchURLSkill 经 PreviewFetch + Fetch 从 URL 远端把名为 name 的 skill 入库。
 func fetchURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
 	t.Helper()
-	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: url})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{name})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return fetched[0]
+	return fetchSkills(t, lib, preview, []string{name})[0]
 }
 
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。

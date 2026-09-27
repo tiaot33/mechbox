@@ -23,15 +23,14 @@ func TestGitHubFetchRecordsEachSkillDirectoryTreeSHA(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
-	})
+	serveGitHubCloneOnly(t, repository)
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 2 {
-		t.Fatalf("FetchFromPreview = %v, %v", fetched, err)
+		t.Fatalf("Fetch = %v, %v", fetched, err)
 	}
 
 	want := map[string]string{
@@ -48,7 +47,7 @@ func TestGitHubFetchRecordsEachSkillDirectoryTreeSHA(t *testing.T) {
 			t.Fatalf("%s GitTreeSHA = %q, want %q", skill.Name, got, want[skill.Name])
 		}
 		if skill.GitTreeSHA != got {
-			t.Fatalf("FetchFromPreview %s GitTreeSHA = %q, want %q", skill.Name, skill.GitTreeSHA, got)
+			t.Fatalf("Fetch %s GitTreeSHA = %q, want %q", skill.Name, skill.GitTreeSHA, got)
 		}
 		seen[skill.Name] = got
 	}
@@ -67,15 +66,14 @@ func TestGitHubRootSkillUsesCommitRootTreeSHA(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
-	})
+	serveGitHubCloneOnly(t, repository)
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %v, %v", fetched, err)
+		t.Fatalf("Fetch = %v, %v", fetched, err)
 	}
 	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != want {
 		t.Fatalf("root GitTreeSHA = %q, want commit root tree %q", got, want)
@@ -88,7 +86,6 @@ func TestNonGitFetchesKeepEmptyGitTreeSHA(t *testing.T) {
 		_, _ = w.Write(archive)
 	}))
 	t.Cleanup(server.Close)
-	t.Setenv("SKILLS_STORE_URL", server.URL)
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
@@ -99,29 +96,16 @@ func TestNonGitFetchesKeepEmptyGitTreeSHA(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	urlPreview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL + "/skills.zip"},
-	})
+	urlPreview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL + "/skills.zip"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	urlSkills, err := lib.FetchFromPreview(ctx, urlPreview.ID, []string{"demo"})
+	urlSkills, err := getFetchedSkills(ctx, lib, urlPreview, []string{"demo"})
 	if err != nil || len(urlSkills) != 1 {
-		t.Fatalf("URL FetchFromPreview = %v, %v", urlSkills, err)
+		t.Fatalf("URL Fetch = %v, %v", urlSkills, err)
 	}
 
-	storePreview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	storeSkills, err := lib.FetchFromPreview(ctx, storePreview.ID, []string{"demo"})
-	if err != nil || len(storeSkills) != 1 {
-		t.Fatalf("Store FetchFromPreview = %v, %v", storeSkills, err)
-	}
-
-	for _, skill := range []library.Skill{local, urlSkills[0], storeSkills[0]} {
+	for _, skill := range []library.Skill{local, urlSkills[0]} {
 		if got := readPersistedGitTreeSHA(t, lib, skill.ID); got != "" {
 			t.Fatalf("%s GitTreeSHA = %q, want empty", skill.Name, got)
 		}
