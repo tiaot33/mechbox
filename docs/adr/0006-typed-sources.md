@@ -2,12 +2,12 @@
 
 Every skill records the **Source** it came from. A Source is its own table row, one per origin, shared by every skill that came from it. A Source has one of four **types**: `github`, `url`, `store`, `local`. Type-specific locator data (git repo + ref, a URL, a store package id + version, a local path) lives in one flexible field (JSON) rather than a column or a table per type. A Source also records `last_fetched` and a `last_seen_ref` (git commit / store version / downloaded-file fingerprint) as Source-level fetch state; per-skill update decisions use the version-level `confirmed_commit` and the Source-level `http_validator` described below.
 
-Skills arrive from several kinds of origin and v1 supports all four. Making the Source a first-class row lets **Collection** (skills grouped by Source) be pure-derived — no table of its own — and lets a **Self-developed skill** be expressed simply as a `local` Source. The four types carry differently-shaped locators, so a type tag plus a JSON locator avoids a column-per-type or a table-per-type; a new source kind is just a new enum value.
+Skills arrive from several kinds of origin and v1 supports all four. Making the Source a first-class row lets **Collection** (skills grouped by Source) be pure-derived — no table of its own — and lets a skill installed from a local directory be expressed simply as a `local` Source. The four types carry differently-shaped locators, so a type tag plus a JSON locator avoids a column-per-type or a table-per-type; a new source kind is just a new enum value.
 
 ## Consequences
 
 - **Collection** is not stored; it is a `GROUP BY source`.
-- **Self-developed skill** is `source.type = local`.
+- A skill installed from a local directory is `source.type = local`.
 - 各 Source 类型复用自身的抓取逻辑。`CheckUpdates(ctx, []SkillID)` 自行读取来源,只保存最近检查结论与时间(#97);单项检查传一个 ID,统一返回逐项结果。GitHub 来源比较该 Skill 目录的 git tree SHA:相同则无更新、不取辅助文件;不同才视为有更新。无 SHA 的旧 GitHub 记录回退为比较文件内容及权限。URL / Store / local 仍比较文件内容及权限。`last_fetched` 与 `last_seen_ref` 记录抓取状态;GitHub 的 `last_seen_ref` 仍是仓库 commit,它们由同一来源下的 Skills 共享,不能单独用于判断某个 Skill 是否需要更新(版本级的判定见下文「版本级确认 commit」)。
 - Updating a skill means re-fetching from its Source, producing a new version (see `0005`). GitHub 在目录 tree SHA 变化时才取文件并新增版本;SHA 未变可以刷新 `last_fetched` / `last_seen_ref`,但不新增版本。无 SHA 的旧记录在 Update 成功后补写 SHA(文件未变则只补写当前版本,不新增版本)。
 - `Update` 只返回 Skill、Changed(#83 删除原有中文提示);GitHub 以 tree SHA 变化为准新增版本,其他来源仍以内容或权限变化为准。已激活副本与激活记录保持不变。

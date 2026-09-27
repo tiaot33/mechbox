@@ -6,7 +6,7 @@ Blobs are stored **per file, not per directory**. Each file's content goes into 
 
 Per-file blobs are what make both **dedup and diff** work. A whole-directory blob would change its fingerprint on any edit (killing dedup) and would only tell you *that* a version changed, not *which* file (killing cheap diff). Diffing two versions is just comparing their two `version_files` lists: same path + different fingerprint = changed; path only in the old = deleted; path only in the new = added.
 
-History is a core value of the tool, not an add-on. Because file contents live in the Library (see `0001`) and the whole Library is synced, history must be the Library's own data — it cannot lean on a remote git, and **self-developed skills have no remote at all**. Naively copying every file on every version would bloat the Library on each tiny edit and slow Sync; content-addressing means keeping full history costs only the *new* content.
+History is a core value of the tool, not an add-on. Because file contents live in the Library (see `0001`) and the whole Library is synced, history must be the Library's own data — it cannot lean on a remote git, and **skills with a local Source have no remote at all**. Naively copying every file on every version would bloat the Library on each tiny edit and slow Sync; content-addressing means keeping full history costs only the *new* content.
 
 ## Consequences
 
