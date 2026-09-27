@@ -76,30 +76,30 @@ CREATE TABLE IF NOT EXISTS projects (
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
--- Agent 的稳定代码、展示名称与布局;规则分别相对用户主目录和已注册项目根,技能库不提供修改方法。
+-- Agent 的稳定代码、展示名称与 Agent 目录;目录分别相对用户主目录和已注册项目根,技能库不提供修改方法。
 CREATE TABLE IF NOT EXISTS agents (
-    code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,如 claude-code / codex;Scope 和安装项记录以此标识 Agent
+    code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,如 claude-code / codex;Scope 和 SkillScope 以此标识 Agent
     name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Codex;不参与 Scope 身份判定
     global_path TEXT NOT NULL,      -- 全局 skills 目录相对用户主目录的路径,斜杠分隔,如 .claude/skills
     project_path TEXT NOT NULL      -- 项目 skills 目录相对已注册项目根的路径,斜杠分隔,如 .agents/skills
 );
 
--- 安装项记录:某 skill 出现在某个 Scope 里。Scope 只以身份记录——Agent 代码 + 可选的已注册项目,
--- 不存目录;目录在列表和操作时按 agents 表的现行布局算出。
--- 一个安装项由若干安装撑着:直接安装(direct)和/或覆盖它的组安装(该 skill 是成员且组已安装到此 Scope,
--- 由 skill_groups × group_installs 推出,不另存);全部安装都撤销后,安装项文件夹和这行记录一起删除。
-CREATE TABLE IF NOT EXISTS installations (
+-- SkillScope:某 skill 安装在某个 Scope。Scope 只以身份记录——Agent 代码 + 可选的已注册项目,
+-- 不存目录;目录在列表和操作时按 agents 表算出。
+-- 由直接安装和组安装留着:直接安装(direct)和/或覆盖它的组安装(该 skill 是成员且组已安装到此 Scope,
+-- 由 skill_groups × group_installs 推出,不另存);全部撤销后,技能文件夹和这行记录一起删除。
+CREATE TABLE IF NOT EXISTS skill_scopes (
     id INTEGER PRIMARY KEY,                 -- 稳定记录 ID
     skill_id INTEGER NOT NULL REFERENCES skills(id), -- 被安装的 skill 主键;此记录不绑定版本,更新不会自动重新安装
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
-    direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接安装;0 = 无直接安装,由覆盖它的组安装保留安装项
-    created_at TEXT NOT NULL DEFAULT ''     -- 安装项建立(首次安装)的时间,RFC3339Nano。再次安装不更新
+    direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接安装;0 = 无直接安装,由覆盖它的组安装留着
+    created_at TEXT NOT NULL DEFAULT ''     -- 首次安装到此 Scope 的时间,RFC3339Nano。再次安装不更新
 );
 
 -- NULL 不参与普通 UNIQUE 去重,因此全局与项目身份分别约束。
-CREATE UNIQUE INDEX IF NOT EXISTS installations_global_scope ON installations(skill_id, agent) WHERE project_id IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS installations_project_scope ON installations(skill_id, agent, project_id) WHERE project_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS skill_scopes_global_scope ON skill_scopes(skill_id, agent) WHERE project_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS skill_scopes_project_scope ON skill_scopes(skill_id, agent, project_id) WHERE project_id IS NOT NULL;
 
 -- 组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0006)。空组也可以有组安装。
 CREATE TABLE IF NOT EXISTS group_installs (

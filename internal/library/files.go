@@ -37,17 +37,13 @@ func filesEqual(first, second []File) bool {
 	return true
 }
 
-// fileMeta 是对照磁盘用的文件指纹:内容 sha256 与可执行位,不含正文。
 type fileMeta struct {
 	fingerprint string
 	mode        FileMode
 }
 
-// errIrregularFile 表示遍历遇到符号链接、设备等非常规文件,调用方当作与任何版本都不一致。
 var errIrregularFile = errors.New("irregular file")
 
-// hashFiles 遍历 root 下全部常规文件,返回 path → (sha256, mode)。
-// 遍历规则与读取来源候选文件时相同(WalkDir、Perm()&0o111);不保留文件内容。
 func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 	files := make(map[string]fileMeta)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -87,13 +83,11 @@ func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 		if errors.Is(err, errIrregularFile) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("hash installation files: %w", err)
+		return nil, fmt.Errorf("hash installed files: %w", err)
 	}
 	return files, nil
 }
 
-// canonicalDirectory 给出判定"是否同一目录"用的路径:已存在的最长前缀解析符号链接,再接上尚不存在的剩余部分。
-// 只用于比较;返回给调用方的目录仍是按布局拼出的原样路径。
 func canonicalDirectory(path string) string {
 	current, rest := filepath.Clean(path), ""
 	for {

@@ -141,7 +141,7 @@ func TestGitHubConcurrentPreviewSingleFlightsTreeAndBlobs(t *testing.T) {
 	wg.Go(func() { first, firstErr = lib.PreviewFetch(ctx, gitHubRequest()) })
 	<-started
 	wg.Go(func() { second, secondErr = lib.PreviewFetch(ctx, gitHubRequest()) })
-	// 第二个预览先要解析 GitHub 输入(起 git 进程校验 ref),留足时间让它排到先到者的同一次请求上。
+	// 第二个入库预览先要解析 GitHub 输入(起 git 进程校验 ref),留足时间让它排到先到者的同一次请求上。
 	time.Sleep(200 * time.Millisecond)
 	close(release)
 	wg.Wait()
@@ -157,7 +157,7 @@ func TestGitHubConcurrentPreviewSingleFlightsTreeAndBlobs(t *testing.T) {
 	}
 }
 
-// 先到者自己的 ctx 被取消不该拖垮等待者:等待者重新出网,自己的 预览 照常成功。
+// 先到者自己的 ctx 被取消不该拖垮等待者:等待者重新出网,自己的入库预览照常成功。
 func TestGitHubWaiterSurvivesLeaderCancellation(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},

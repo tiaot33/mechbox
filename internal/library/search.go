@@ -74,13 +74,11 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		if strings.TrimSpace(skill.ID) == "" || strings.TrimSpace(skill.Name) == "" || strings.TrimSpace(skill.Source) == "" || (skill.Installs != nil && *skill.Installs < 0) {
 			return nil, fetchError(SourceInvalid, "read search response", errors.New("missing or invalid result fields"))
 		}
-		// 无法转换为可预览 GitHub 地址的条目直接过滤掉。
 		source, err := parseGitHubInput(GitHubInput{Input: skill.Source})
 		if err != nil || source.tree != "" || source.ref != "" || source.name != "" || !validSelectionName(skill.Name) || strings.Contains(skill.Name, "#") {
 			continue
 		}
 		repository := strings.TrimSuffix(strings.TrimPrefix(source.repository, "https://github.com/"), ".git")
-		// id 仅用于展示链接,按路径段转义;下载始终使用解析后的 GitHub 来源。
 		segments := strings.Split(skill.ID, "/")
 		for i, segment := range segments {
 			segments[i] = url.PathEscape(segment)

@@ -53,11 +53,11 @@ func TestResolveAndUninstallUseHomeBoundAtOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(original); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("original installation remains: %v", err)
+		t.Fatalf("original skill scope remains: %v", err)
 	}
 	content, err := os.ReadFile(foreign)
 	if err != nil || string(content) != "other home content" {
-		t.Fatalf("unrelated installation in second HOME was removed: %q, %v", content, err)
+		t.Fatalf("unrelated skill scope in second HOME was removed: %q, %v", content, err)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestResolveUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	}
 }
 
-// Resolve 只读:不留下安装项,也不在磁盘上创建目标目录。
+// Resolve 只读:不留下安装,也不在磁盘上创建目标目录。
 func TestResolveIsReadOnly(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
@@ -133,14 +133,14 @@ func TestResolveIsReadOnly(t *testing.T) {
 			t.Fatalf("Resolve(%#v) left %q on disk: %v", scope, directory, err)
 		}
 	}
-	installations, err := lib.ListInstallations(ctx)
-	if err != nil || len(installations) != 0 {
-		t.Fatalf("ListInstallations() after Resolve = %#v, %v; want none", installations, err)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	if err != nil || len(skillScopes) != 0 {
+		t.Fatalf("ListSkillScopes() after Resolve = %#v, %v; want none", skillScopes, err)
 	}
 }
 
 // 目录规则来自库内 agents 表的那一行,而不是代码里的常量:改了表里的规则,Resolve 随之变化。
-func TestResolveReadsLayoutRulesFromAgentsTable(t *testing.T) {
+func TestResolveReadsAgentDirectoriesFromAgentsTable(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)

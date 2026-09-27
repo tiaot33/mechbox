@@ -139,7 +139,7 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err := lib.Install(ctx, members[0].ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := lib.ListInstallations(ctx)
+	before, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,15 +147,15 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err != nil || len(got.Members) != 3 || !reflect.DeepEqual(got.DuplicateNames, []string{"same"}) {
 		t.Fatalf("group = %#v, %v", got, err)
 	}
-	// 同名且尚未安装的成员标为 duplicate(优先于它本来的 occupied),已有安装项的那个仍是 installed。
+	// 同名且尚未安装的成员标为 duplicate(优先于它本来的 occupied),已安装的那个仍是 installed。
 	for i, status := range []library.InstallPlanStatus{library.InstallAlreadyInstalled, library.InstallDuplicate, library.InstallReady} {
 		if got.Members[i].SkillID != members[i].ID || got.Members[i].Status != status {
 			t.Fatalf("member %d = %#v", i, got.Members[i])
 		}
 	}
-	after, err := lib.ListInstallations(ctx)
+	after, err := lib.ListSkillScopes(ctx)
 	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("plan changed installations: %#v, %v", after, err)
+		t.Fatalf("plan changed skill scopes: %#v, %v", after, err)
 	}
 	afterSkills, err := lib.ListGroupSkills(ctx, group.ID)
 	if err != nil || !reflect.DeepEqual(members, afterSkills) {
@@ -170,7 +170,7 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 	}
 }
 
-// 安装计划标出的 duplicate 与安装时的跳过一致:两个同名成员都没安装项时,即使有未记录文件夹也显示 duplicate,
+// 安装计划标出的 duplicate 与安装时的跳过一致:两个同名成员都没安装时,即使有未记录文件夹也显示 duplicate,
 // InstallGroup(Overwrite)也照样跳过它们、不覆盖该文件夹。
 func TestPlanGroupInstallDuplicateMatchesGroupInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

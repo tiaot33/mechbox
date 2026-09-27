@@ -95,7 +95,7 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 - 版本和内容：`skill_versions`、`blobs`、`version_files`
 - 分组：`groups`、`skill_groups`
 - Agent：`agents`（稳定 `code`、展示 `name`，以及全局与项目下各自读取技能的目录规则）
-- 项目、安装记录与组安装：`projects`、`installations`、`group_installs`
+- 项目、安装记录与组安装：`projects`、`skill_scopes`、`group_installs`
 
 新数据库由 `library.Open` 自动初始化，写入应用标识和 schema 版本。发布前不迁移旧库：应用标识或 schema 版本不符时 `Open` 报错且不改文件，见 [ADR 0003](docs/adr/0003-no-migrations-before-release.md)。`Open` 只补缺失的 Agent 默认行，不覆盖已有的名称和目录规则；库没有增删改 Agent 的方法。
 

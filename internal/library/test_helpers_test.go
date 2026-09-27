@@ -186,9 +186,9 @@ func summaryIDs(skills []library.SkillSummary) []library.SkillID {
 	return ids
 }
 
-// withoutCreatedAt 去掉安装项建立时间,供不关心时间戳的既有 DeepEqual 断言使用。
-func withoutCreatedAt(installations []library.Installation) []library.Installation {
-	out := append([]library.Installation(nil), installations...)
+// withoutCreatedAt 去掉首次安装时间,供不关心时间戳的既有 DeepEqual 断言使用。
+func withoutCreatedAt(skillScopes []library.SkillScope) []library.SkillScope {
+	out := append([]library.SkillScope(nil), skillScopes...)
 	for i := range out {
 		out[i].CreatedAt = time.Time{}
 	}
@@ -321,14 +321,14 @@ func fetchLocalSkill(t *testing.T, lib library.Library, name, body string) (libr
 	return skill, source
 }
 
-// listInstallations 读出全部安装项,失败即终止测试。
-func listInstallations(t *testing.T, lib library.Library) []library.Installation {
+// listSkillScopes 读出全部 SkillScope,失败即终止测试。
+func listSkillScopes(t *testing.T, lib library.Library) []library.SkillScope {
 	t.Helper()
-	installations, err := lib.ListInstallations(t.Context())
+	skillScopes, err := lib.ListSkillScopes(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return installations
+	return skillScopes
 }
 
 // requireNoStagedEntries 断言 Scope 目录下没有以 "." 开头的暂存残留(安装暂存或删除暂存)。
@@ -357,8 +357,8 @@ func makeScopeReadOnly(t *testing.T, directory string) {
 	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
 }
 
-// requireInstallation 断言 directory 下 name 文件夹的 SKILL.md 正文。
-func requireInstallation(t *testing.T, directory, name, body string) {
+// requireInstalledFolder 断言 directory 下 name 文件夹的 SKILL.md 正文。
+func requireInstalledFolder(t *testing.T, directory, name, body string) {
 	t.Helper()
 	requireSkillFile(t, directory, name, skillDocument(name, body))
 }
@@ -368,7 +368,7 @@ func requireSkillFile(t *testing.T, directory, name, want string) {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
 	if err != nil || string(content) != want {
-		t.Fatalf("installation %s/SKILL.md = %q, %v; want %q", name, content, err, want)
+		t.Fatalf("skill scope %s/SKILL.md = %q, %v; want %q", name, content, err, want)
 	}
 }
 
@@ -495,12 +495,12 @@ func (g *networkGate) open() {
 	close(g.release)
 }
 
-// localRequest 是预览本地目录 path 的入库预览请求。
+// localRequest 是对本地目录 path 做入库预览的请求。
 func localRequest(path string) library.PreviewFetchRequest {
 	return library.PreviewFetchRequest{Local: path}
 }
 
-// candidateNames 收集预览中全部候选的名字,供"全部入库"的用例传给 Fetch。
+// candidateNames 收集入库预览中全部候选的名字,供"全部入库"的用例传给 Fetch。
 func candidateNames(preview library.FetchPreview) []string {
 	names := make([]string, len(preview.Candidates))
 	for i, candidate := range preview.Candidates {
@@ -509,7 +509,7 @@ func candidateNames(preview library.FetchPreview) []string {
 	return names
 }
 
-// fetchSkills 把 names 从预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
+// fetchSkills 把 names 从入库预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
 func fetchSkills(t *testing.T, lib library.Library, preview library.FetchPreview, names []string) []library.Skill {
 	t.Helper()
 	skills, err := getFetchedSkills(t.Context(), lib, preview, names)
@@ -534,7 +534,7 @@ func getFetchedSkills(ctx context.Context, lib library.Library, preview library.
 	return skills, nil
 }
 
-// fetchLocalDir 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
+// fetchLocalDir 对本地目录做入库预览,并把其中唯一的候选入库,供只需一个本地技能的用例复用。
 func fetchLocalDir(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
 	preview, err := lib.PreviewFetch(ctx, localRequest(dir))
 	if err != nil {

@@ -243,7 +243,7 @@ func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 	fx := inspectGitHubRepo(t, repo)
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
-	// 只拦 first/notes.md 这个 blob:它只在入库物化时才取,预览(各候选的 SKILL.md)不受影响。
+	// 只拦 first/notes.md 这个 blob:它只在入库物化时才取,入库预览(各候选的 SKILL.md)不受影响。
 	gate := newNetworkGate()
 	api.gateBlob(gate, fx.blobSHA("first/notes.md"))
 
@@ -269,7 +269,7 @@ func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 		return nil
 	})
 	mustFinishBeforeRelease(t, gate, "PreviewFetch of another Source", func(ctx context.Context) error {
-		// 同一仓库钉到 commit 是另一个 Source;它的预览只取各候选的 SKILL.md,不经受拦的 blob。
+		// 同一仓库钉到 commit 是另一个 Source;它的入库预览只取各候选的 SKILL.md,不经受拦的 blob。
 		pinned := gitHubRequest()
 		pinned.GitHub.Ref = fx.commit
 		other, err := lib.PreviewFetch(ctx, pinned)

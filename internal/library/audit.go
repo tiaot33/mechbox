@@ -12,12 +12,10 @@ import (
 )
 
 const (
-	auditRequestTimeout = 5 * time.Second // 单个候选的请求超时
-	maxAuditSize        = 1 << 20         // 单个审计响应的字节上限
+	auditRequestTimeout = 5 * time.Second
+	maxAuditSize        = 1 << 20
 )
 
-// GetSkillAudit 在用户查看单个技能时才查 skills.sh。审计只是展示用的覆盖层:任何失败都只降级为
-// Availability 状态;联网期间不持任何锁,已确定的结果写回预览,不可用的结果留待下次重查。
 func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
 	if !validSelectionName(name) {
@@ -34,7 +32,6 @@ func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, na
 	if state == nil {
 		return nil, &Error{Code: NotFound, Message: "get skill audit: unknown or discarded preview"}
 	}
-	// 候选与来源在预览建立后只读,可在锁外读取。
 	if _, err := selectSkills(state.skills, []string{name}); err != nil {
 		return nil, err
 	}
@@ -60,8 +57,6 @@ func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, na
 	return cloneAudit(&got), nil
 }
 
-// lookupAudit 请求 https://skills.sh/api/v1/skills/audit/{owner}/{repo}/{name}。路径逐段转义、
-// 不编码斜杠;不带 Authorization(匿名可读,带无效凭据反而 401)。404 表示尚无审计,其余失败为不可用。
 func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
 	unavailable := SkillAudit{Availability: AuditUnavailable}
 	ctx, cancel := context.WithTimeout(ctx, auditRequestTimeout)
@@ -103,13 +98,12 @@ func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
 	if len(payload.Audits) == 0 {
 		return SkillAudit{Availability: AuditNone}
 	}
-	// 解析宽松:必填字段缺失只丢该条;auditedAt 解析失败保留条目、时间为零值。
 	entries := make([]AuditEntry, 0, len(payload.Audits))
 	for _, audit := range payload.Audits {
 		if strings.TrimSpace(audit.Provider) == "" || strings.TrimSpace(audit.Slug) == "" || strings.TrimSpace(string(audit.Status)) == "" || strings.TrimSpace(audit.Summary) == "" {
 			continue
 		}
-		auditedAt, _ := time.Parse(time.RFC3339Nano, audit.AuditedAt) // 失败即零值
+		auditedAt, _ := time.Parse(time.RFC3339Nano, audit.AuditedAt)
 		entries = append(entries, AuditEntry{
 			Provider:   audit.Provider,
 			Slug:       audit.Slug,
@@ -127,12 +121,10 @@ func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
 	return SkillAudit{Availability: AuditAvailable, Entries: entries}
 }
 
-// auditPath 把 skills.sh 的 skill id(owner/repo/name)按路径段转义后拼接;整体 QueryEscape 会被 400 拒绝。
 func auditPath(owner, repo, name string) string {
 	return url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(name)
 }
 
-// cloneAudit 深拷贝审计快照,使返回给调用方的结果不与预览里的缓存共享可变数据。
 func cloneAudit(audit *SkillAudit) *SkillAudit {
 	if audit == nil {
 		return nil

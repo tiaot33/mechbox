@@ -11,7 +11,6 @@ func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err err
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 只读取稳定代码与展示名称;布局规则留在表里,由解析与安装项内部使用。
 	rows, err := l.db.QueryContext(ctx, `SELECT code, name FROM agents ORDER BY code`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -102,29 +101,28 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateInstallationsPolicy("unregister project", opts.Installations); err != nil {
+	if err := validateFolderPolicy("unregister project", opts.Folders); err != nil {
 		return err
 	}
 	var path string
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
-	// 待删的安装项路径在事务外先算好:单连接模式下事务内不能再走 l.db。
-	var trash installationTrash
-	if opts.Installations != Keep {
-		installations, err := l.ListInstallations(ctx)
+	var trash folderTrash
+	if opts.Folders != Keep {
+		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
 			return err
 		}
-		for _, installation := range installations {
-			if installation.Scope.Kind != ScopeProject || installation.Scope.ProjectID != id {
+		for _, skillScope := range skillScopes {
+			if skillScope.Scope.Kind != ScopeProject || skillScope.Scope.ProjectID != id {
 				continue
 			}
-			skill, err := l.GetSkill(ctx, installation.SkillID)
+			skill, err := l.GetSkill(ctx, skillScope.SkillID)
 			if err != nil {
 				return err
 			}
-			trash.targets = append(trash.targets, filepath.Join(installation.Directory, skill.Name))
+			trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
 		}
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -132,8 +130,8 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		return fmt.Errorf("begin unregister project: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project installations: %w", err)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_scopes WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project skill scopes: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE project_id = ?`, id); err != nil {
 		return fmt.Errorf("remove project group installs: %w", err)
@@ -152,48 +150,41 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 	if err != nil {
 		return "", err
 	}
-	_, directory, err = l.scopeLocation(ctx, row)
+	_, directory, err = l.scopeDirectory(ctx, row)
 	return directory, err
 }
 
-// scopeLocation 算出 Scope 的根目录与目录:根目录全局为 Open 时的用户主目录,项目为已登记路径;
-// 目录是根目录加该 Agent 的现行布局。只查库,不查磁盘。
-func (l *sqliteLibrary) scopeLocation(ctx context.Context, row scopeRow) (root, directory string, err error) {
-	// 两段规则都来自 agents 表:全局相对 $HOME,项目相对已注册项目根;不在代码里另写一套后缀。
-	layout, err := l.agentLayout(ctx, row.agent)
+func (l *sqliteLibrary) scopeDirectory(ctx context.Context, row scopeRow) (root, directory string, err error) {
+	dirs, err := l.agentDirectories(ctx, row.agent)
 	if err != nil {
 		return "", "", err
 	}
 	if row.projectID == nil {
-		return l.home, layout.globalDir(l.home), nil
+		return l.home, dirs.globalDir(l.home), nil
 	}
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, *row.projectID).Scan(&root); err != nil {
 		return "", "", fmt.Errorf("get registered project: %w", err)
 	}
-	return root, layout.projectDir(root), nil
+	return root, dirs.projectDir(root), nil
 }
 
-// agentLayout 是 agents 表里一个 Agent 的两段布局规则,均为斜杠分隔的相对路径。
-type agentLayout struct {
-	global  string // 相对用户主目录
-	project string // 相对 Registered project 根
+type agentDirectories struct {
+	global  string
+	project string
 }
 
-// globalDir 是该布局下全局 Scope 在 home 里的目录。
-func (layout agentLayout) globalDir(home string) string {
-	return filepath.Join(home, filepath.FromSlash(layout.global))
+func (dirs agentDirectories) globalDir(home string) string {
+	return filepath.Join(home, filepath.FromSlash(dirs.global))
 }
 
-// projectDir 是该布局下项目 Scope 在项目根 root 里的目录。
-func (layout agentLayout) projectDir(root string) string {
-	return filepath.Join(root, filepath.FromSlash(layout.project))
+func (dirs agentDirectories) projectDir(root string) string {
+	return filepath.Join(root, filepath.FromSlash(dirs.project))
 }
 
-// agentLayout 读取该 Agent 行的布局规则;代码不存在时错误经 typedError 变为 NotFound。
-func (l *sqliteLibrary) agentLayout(ctx context.Context, code AgentCode) (agentLayout, error) {
-	var layout agentLayout
-	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&layout.global, &layout.project); err != nil {
-		return agentLayout{}, fmt.Errorf("get agent: %w", err)
+func (l *sqliteLibrary) agentDirectories(ctx context.Context, code AgentCode) (agentDirectories, error) {
+	var dirs agentDirectories
+	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&dirs.global, &dirs.project); err != nil {
+		return agentDirectories{}, fmt.Errorf("get agent: %w", err)
 	}
-	return layout, nil
+	return dirs, nil
 }

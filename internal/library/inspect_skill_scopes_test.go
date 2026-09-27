@@ -12,7 +12,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestInspectInstallationsCurrentStaleModifiedAndInstallAgain(t *testing.T) {
+func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# v1\n")
@@ -30,35 +30,35 @@ func TestInspectInstallationsCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationCurrent)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent)
 
 	writeLocalSkill(t, source, "# v2\n")
 	if result, err := lib.Update(ctx, skill.ID); err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationStale)
+	requireInspectionStatuses(t, lib, library.SkillScopeStale)
 
-	// 再次安装不写盘,安装项仍是 stale;卸载后再次安装才按当前版本写入文件夹。
+	// 再次安装不写盘,仍是 stale;卸载后再次安装才按当前版本写入文件夹。
 	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationStale)
+	requireInspectionStatuses(t, lib, library.SkillScopeStale)
 	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationCurrent)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent)
 
 	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte(skillDocument(skill.Name, "# v1\n")), 0o644)
-	requireInspectionStatuses(t, lib, library.InstallationStale)
+	requireInspectionStatuses(t, lib, library.SkillScopeStale)
 
 	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# neither\n"), 0o644)
-	requireInspectionStatuses(t, lib, library.InstallationModified)
+	requireInspectionStatuses(t, lib, library.SkillScopeModified)
 }
 
-func TestInspectInstallationsReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
+func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
@@ -80,20 +80,20 @@ func TestInspectInstallationsReportsModifiedForExtraFileAndExecutableBit(t *test
 	target := filepath.Join(directory, skill.Name)
 
 	writeFile(t, filepath.Join(target, "extra.txt"), []byte("extra"), 0o644)
-	requireInspectionStatuses(t, lib, library.InstallationModified)
+	requireInspectionStatuses(t, lib, library.SkillScopeModified)
 	if err := os.Remove(filepath.Join(target, "extra.txt")); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationCurrent)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent)
 
 	script := filepath.Join(target, "scripts", "run.sh")
 	if err := os.Chmod(script, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationModified)
+	requireInspectionStatuses(t, lib, library.SkillScopeModified)
 }
 
-func TestInspectInstallationsReportsMissingWhenFolderRemoved(t *testing.T) {
+func TestInspectSkillScopesReportsMissingWhenFolderRemoved(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
@@ -114,10 +114,10 @@ func TestInspectInstallationsReportsMissingWhenFolderRemoved(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationMissing)
+	requireInspectionStatuses(t, lib, library.SkillScopeMissing)
 }
 
-func TestInspectInstallationsReportsDirectoryMissing(t *testing.T) {
+func TestInspectSkillScopesReportsDirectoryMissing(t *testing.T) {
 	t.Run("deleted project root", func(t *testing.T) {
 		ctx := t.Context()
 		t.Setenv("HOME", t.TempDir())
@@ -140,7 +140,7 @@ func TestInspectInstallationsReportsDirectoryMissing(t *testing.T) {
 		if err := os.RemoveAll(projectRoot); err != nil {
 			t.Fatal(err)
 		}
-		requireInspectionStatuses(t, lib, library.InstallationDirectoryMissing)
+		requireInspectionStatuses(t, lib, library.SkillScopeDirectoryMissing)
 	})
 
 	t.Run("foreign project path", func(t *testing.T) {
@@ -175,11 +175,11 @@ func TestInspectInstallationsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = lib.Close() })
-		requireInspectionStatuses(t, lib, library.InstallationDirectoryMissing)
+		requireInspectionStatuses(t, lib, library.SkillScopeDirectoryMissing)
 	})
 }
 
-func TestInspectInstallationsInspectsGroupInstallations(t *testing.T) {
+func TestInspectSkillScopesInspectsGroupSkillScopes(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -204,25 +204,25 @@ func TestInspectInstallationsInspectsGroupInstallations(t *testing.T) {
 	if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	got := inspectInstallations(t, lib)
-	want := []library.InstallationInspection{{
-		Installation: library.Installation{
+	got := inspectSkillScopes(t, lib)
+	want := []library.SkillScopeInspection{{
+		SkillScope: library.SkillScope{
 			SkillID:   skill.ID,
 			Scope:     scope,
 			Directory: directory,
 			Groups:    []library.GroupID{group.ID},
 		},
-		Status: library.InstallationCurrent,
+		Status: library.SkillScopeCurrent,
 	}}
 	if len(got) == 1 {
-		got[0].Installation.CreatedAt = time.Time{}
+		got[0].SkillScope.CreatedAt = time.Time{}
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("InspectInstallations() = %#v, want %#v", got, want)
+		t.Fatalf("InspectSkillScopes() = %#v, want %#v", got, want)
 	}
 }
 
-func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T) {
+func TestInspectSkillScopesIsReadOnlyAndMatchesListSkillScopes(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -255,7 +255,7 @@ func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T)
 			}
 		}
 	}
-	before, err := lib.ListInstallations(ctx)
+	before, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,9 +265,9 @@ func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T)
 	}
 	diskBefore := snapshotTree(t, directories...)
 
-	got := inspectInstallations(t, lib)
+	got := inspectSkillScopes(t, lib)
 
-	after, err := lib.ListInstallations(ctx)
+	after, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T)
 	}
 	diskAfter := snapshotTree(t, directories...)
 	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("ListInstallations changed: %#v, want %#v", after, before)
+		t.Fatalf("ListSkillScopes changed: %#v, want %#v", after, before)
 	}
 	if !reflect.DeepEqual(skillsAfter, skillsBefore) {
 		t.Fatalf("ListSkills changed: %#v, want %#v", skillsAfter, skillsBefore)
@@ -286,36 +286,36 @@ func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T)
 		t.Fatalf("disk changed: %#v, want %#v", diskAfter, diskBefore)
 	}
 	if len(got) != len(before) {
-		t.Fatalf("InspectInstallations len=%d, ListInstallations len=%d: %#v", len(got), len(before), got)
+		t.Fatalf("InspectSkillScopes len=%d, ListSkillScopes len=%d: %#v", len(got), len(before), got)
 	}
 	for i := range before {
-		if !reflect.DeepEqual(got[i].Installation, before[i]) {
-			t.Fatalf("InspectInstallations()[%d].Installation = %#v, want %#v", i, got[i].Installation, before[i])
+		if !reflect.DeepEqual(got[i].SkillScope, before[i]) {
+			t.Fatalf("InspectSkillScopes()[%d].SkillScope = %#v, want %#v", i, got[i].SkillScope, before[i])
 		}
-		if got[i].Status != library.InstallationCurrent {
-			t.Fatalf("InspectInstallations()[%d].Status = %q, want current", i, got[i].Status)
+		if got[i].Status != library.SkillScopeCurrent {
+			t.Fatalf("InspectSkillScopes()[%d].Status = %q, want current", i, got[i].Status)
 		}
 	}
 }
 
-func inspectInstallations(t *testing.T, lib library.Library) []library.InstallationInspection {
+func inspectSkillScopes(t *testing.T, lib library.Library) []library.SkillScopeInspection {
 	t.Helper()
-	got, err := lib.InspectInstallations(t.Context(), library.InstallationFilter{})
+	got, err := lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return got
 }
 
-func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.InstallationStatus) {
+func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.SkillScopeStatus) {
 	t.Helper()
-	got := inspectInstallations(t, lib)
+	got := inspectSkillScopes(t, lib)
 	if len(got) != len(want) {
-		t.Fatalf("InspectInstallations() = %#v, want %d statuses %v", got, len(want), want)
+		t.Fatalf("InspectSkillScopes() = %#v, want %d statuses %v", got, len(want), want)
 	}
 	for i := range want {
 		if got[i].Status != want[i] {
-			t.Fatalf("InspectInstallations()[%d].Status = %q, want %q (full %#v)", i, got[i].Status, want[i], got)
+			t.Fatalf("InspectSkillScopes()[%d].Status = %q, want %q (full %#v)", i, got[i].Status, want[i], got)
 		}
 	}
 }
@@ -352,7 +352,7 @@ func snapshotTree(t *testing.T, roots ...string) map[string]string {
 	return out
 }
 
-func TestInspectInstallationsByFilterIsSubsetOfFullInspection(t *testing.T) {
+func TestInspectSkillScopesByFilterIsSubsetOfFullInspection(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -377,13 +377,13 @@ func TestInspectInstallationsByFilterIsSubsetOfFullInspection(t *testing.T) {
 		}
 	}
 	updateLocalSkill(t, lib, first.ID, firstSource, "# first v2\n")
-	full := inspectInstallations(t, lib)
+	full := inspectSkillScopes(t, lib)
 	if len(full) != 5 {
-		t.Fatalf("InspectInstallations() = %#v, want 5", full)
+		t.Fatalf("InspectSkillScopes() = %#v, want 5", full)
 	}
 
-	subset := func(match func(library.InstallationInspection) bool) []library.InstallationInspection {
-		var want []library.InstallationInspection
+	subset := func(match func(library.SkillScopeInspection) bool) []library.SkillScopeInspection {
+		var want []library.SkillScopeInspection
 		for _, inspection := range full {
 			if match(inspection) {
 				want = append(want, inspection)
@@ -393,40 +393,40 @@ func TestInspectInstallationsByFilterIsSubsetOfFullInspection(t *testing.T) {
 	}
 	tests := []struct {
 		name   string
-		filter library.InstallationFilter
-		want   []library.InstallationInspection
+		filter library.SkillScopeFilter
+		want   []library.SkillScopeInspection
 	}{
-		{name: "skill", filter: library.InstallationFilter{SkillID: first.ID},
-			want: subset(func(i library.InstallationInspection) bool { return i.SkillID == first.ID })},
+		{name: "skill", filter: library.SkillScopeFilter{SkillID: first.ID},
+			want: subset(func(i library.SkillScopeInspection) bool { return i.SkillID == first.ID })},
 		{name: "scope", filter: scopeFilter(projectScope),
-			want: subset(func(i library.InstallationInspection) bool { return i.Scope == projectScope })},
-		{name: "both", filter: library.InstallationFilter{SkillID: second.ID, Scope: &codex},
-			want: subset(func(i library.InstallationInspection) bool { return i.SkillID == second.ID && i.Scope == codex })},
-		{name: "no installations", filter: library.InstallationFilter{SkillID: idle.ID}},
+			want: subset(func(i library.SkillScopeInspection) bool { return i.Scope == projectScope })},
+		{name: "both", filter: library.SkillScopeFilter{SkillID: second.ID, Scope: &codex},
+			want: subset(func(i library.SkillScopeInspection) bool { return i.SkillID == second.ID && i.Scope == codex })},
+		{name: "no skill scopes", filter: library.SkillScopeFilter{SkillID: idle.ID}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := lib.InspectInstallations(ctx, test.filter)
+			got, err := lib.InspectSkillScopes(ctx, test.filter)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(got) != len(test.want) || (len(got) > 0 && !reflect.DeepEqual(got, test.want)) {
-				t.Fatalf("InspectInstallations(%s) = %#v, want %#v", test.name, got, test.want)
+				t.Fatalf("InspectSkillScopes(%s) = %#v, want %#v", test.name, got, test.want)
 			}
 		})
 	}
 
 	unknownAgent := library.GlobalScope("unknown-agent")
-	for name, filter := range map[string]library.InstallationFilter{
+	for name, filter := range map[string]library.SkillScopeFilter{
 		"unknown skill": {SkillID: 999},
 		"unknown agent": {Scope: &unknownAgent},
 	} {
-		_, err := lib.InspectInstallations(ctx, filter)
+		_, err := lib.InspectSkillScopes(ctx, filter)
 		if !library.IsCode(err, library.NotFound) {
-			t.Fatalf("InspectInstallations(%s) error = %v, want not_found", name, err)
+			t.Fatalf("InspectSkillScopes(%s) error = %v, want not_found", name, err)
 		}
 	}
 	invalid := library.Scope{Kind: "nowhere", Agent: library.AgentCodex}
-	_, err = lib.InspectInstallations(ctx, library.InstallationFilter{Scope: &invalid})
+	_, err = lib.InspectSkillScopes(ctx, library.SkillScopeFilter{Scope: &invalid})
 	requireLibraryError(t, err, library.InvalidArgument)
 }

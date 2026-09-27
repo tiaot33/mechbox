@@ -169,7 +169,7 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	mapping, _ := json.Marshal(map[string]string{project.Path: newProjectPath})
 	t.Setenv("SKILLS_PROJECT_PATH_MAP", string(mapping))
 
-	// 拉取前的同步计划:报告远端身份与 schema 可接受,并带安装项可能过时的警告。
+	// 拉取前的同步计划:报告远端身份与 schema 可接受,并带已安装文件夹可能与新库不一致的警告。
 	pullPlan, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 		t.Fatalf("PlanSyncPull() = %#v, want existing remote with acceptable schema", pullPlan)
 	}
 	if len(pullPlan.Warnings) == 0 {
-		t.Fatal("PlanSyncPull() carried no installation warning")
+		t.Fatal("PlanSyncPull() carried no skill scope warning")
 	}
 	beforePull, err := lib.ListSkills(ctx)
 	if err != nil || len(beforePull) != 1 || beforePull[0].Name != "extra" {
@@ -189,12 +189,12 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(pullResult.Remote) != stub.etag || len(pullResult.Warnings) == 0 {
-		t.Fatalf("SyncPull() result = %#v, want remote identity and installation warning", pullResult)
+		t.Fatalf("SyncPull() result = %#v, want remote identity and skill scope warning", pullResult)
 	}
 
 	for _, path := range []string{newProjectPath, newHome} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("pull rebuilt installation at %s: %v", path, err)
+			t.Fatalf("pull rebuilt skill scope at %s: %v", path, err)
 		}
 	}
 	skills, err := lib.ListSkills(ctx)
@@ -223,20 +223,20 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	if len(projects) != 1 || projects[0].Path != newProjectPath {
 		t.Fatalf("projects after pull = %#v", projects)
 	}
-	// 安装项记录只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
+	// SkillScope 只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
 	// 不携带上一台机器的绝对路径。
-	installations, err := lib.ListInstallations(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantInstallations := []library.Installation{
+	wantSkillScopes := []library.SkillScope{
 		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Direct: true},
 		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), Groups: []library.GroupID{group.ID}},
 	}
-	if !reflect.DeepEqual(withoutCreatedAt(installations), wantInstallations) {
-		t.Fatalf("installations after pull = %#v, want %#v", installations, wantInstallations)
+	if !reflect.DeepEqual(withoutCreatedAt(skillScopes), wantSkillScopes) {
+		t.Fatalf("skill scopes after pull = %#v, want %#v", skillScopes, wantSkillScopes)
 	}
-	for _, want := range wantInstallations {
+	for _, want := range wantSkillScopes {
 		if dir, err := lib.Resolve(ctx, want.Scope); err != nil || dir != want.Directory {
 			t.Fatalf("Resolve(%#v) after pull = %q, %v; want %q", want.Scope, dir, err, want.Directory)
 		}

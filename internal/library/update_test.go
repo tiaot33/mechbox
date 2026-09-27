@@ -46,7 +46,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	installations, err := lib.ListInstallations(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,12 +91,12 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	for _, directory := range directories {
 		content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
 		if err != nil || string(content) != skillDocument("first", "old") {
-			t.Fatalf("installation changed: %q, %v", content, err)
+			t.Fatalf("skill scope changed: %q, %v", content, err)
 		}
 	}
-	after, err := lib.ListInstallations(ctx)
-	if err != nil || !reflect.DeepEqual(after, installations) {
-		t.Fatalf("installation records changed: %v, %v", after, err)
+	after, err := lib.ListSkillScopes(ctx)
+	if err != nil || !reflect.DeepEqual(after, skillScopes) {
+		t.Fatalf("skill scope records changed: %v, %v", after, err)
 	}
 	if err := os.RemoveAll(filepath.Join(repository, "first")); err != nil {
 		t.Fatal(err)

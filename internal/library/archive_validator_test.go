@@ -9,7 +9,7 @@ import (
 )
 
 // URL 来源的抓取记录里多了服务端给出的 HTTP validator:Fetch / Update 成功抓取后写到 Source 上,
-// 之后 CheckUpdates / Update 带条件头发请求,304 即无更新、零字节下载;预览 永远不带条件头。
+// 之后 CheckUpdates / Update 带条件头发请求,304 即无更新、零字节下载;入库预览永远不带条件头。
 
 var conditionalHeaders = []string{"If-None-Match", "If-Modified-Since"}
 
@@ -80,7 +80,7 @@ func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
 	server.assertNoBodyRead(t)
 
-	// 预览 必须拿到内容,永远不带条件头。
+	// 入库预览必须拿到内容,永远不带条件头。
 	if _, err := lib.PreviewFetch(ctx, server.request()); err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestURLIgnoresMalformedLastModified(t *testing.T) {
 	assertUnconditional(t, server.snapshot())
 }
 
-// 304 只在带了条件头的请求上有意义:预览 不带条件头却收到 304,按普通非 2xx 映射为 SourceUnreachable,不会被当成"无更新"。
+// 304 只在带了条件头的请求上有意义:入库预览不带条件头却收到 304,按普通非 2xx 映射为 SourceUnreachable,不会被当成"无更新"。
 func TestUnconditionalNotModifiedIsAnError(t *testing.T) {
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := newArchiveServer(t, archive, "")

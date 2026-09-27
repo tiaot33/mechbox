@@ -175,11 +175,11 @@ func TestFacadeFailureCodes(t *testing.T) {
 		want library.ErrorCode
 		call func(*testing.T, library.Library) error
 	}{
-		{name: "remove skill invalid installations", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.RemoveSkill(t.Context(), 1, library.RemoveSkillOptions{Installations: "nope"})
+		{name: "remove skill invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.RemoveSkill(t.Context(), 1, library.RemoveSkillOptions{Folders: "nope"})
 		}},
-		{name: "unregister project invalid installations", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{Installations: "nope"})
+		{name: "unregister project invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{Folders: "nope"})
 		}},
 		{name: "install invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
 			return lib.Install(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
@@ -196,8 +196,8 @@ func TestFacadeFailureCodes(t *testing.T) {
 			}
 			return lib.RemoveSkillFromGroup(t.Context(), group.ID, skill.ID, library.RemoveFromGroupOptions{})
 		}},
-		{name: "remove skill from group invalid unbacked installations", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{UnbackedInstallations: "nope"})
+		{name: "remove skill from group invalid if_no_other_install", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{IfNoOtherInstall: "nope"})
 		}},
 		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
 			_, err := lib.PreviewFetch(t.Context(), serveArchive(t, []byte("not-a-zip")))

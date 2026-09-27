@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// sourceDirectoryView 统一 GitHub tree 与 fs.FS 的只读目录访问;发现不读取辅助文件。
 type sourceDirectoryView interface {
 	readDir(string) ([]sourceEntry, error)
 	readFile(context.Context, string) ([]byte, error)
@@ -48,7 +47,6 @@ func (v fsSourceView) readFiles(ctx context.Context, names []string) ([][]byte, 
 	return contents, errs
 }
 
-// readLinkedDir 仅沿真实目录访问,避免优先目录或清单路径经 symlink 逃出扫描根。
 func readLinkedDir(view sourceDirectoryView, root, dir string) ([]sourceEntry, error) {
 	current := root
 	if dir != root {
@@ -82,16 +80,12 @@ var discoveryPriorityDirs = []string{
 	".roo/skills", ".trae/skills", ".windsurf/skills", ".zcode/skills", ".zencoder/skills",
 }
 
-// discoveryStep 是遍历按顺序留下的一步:file 非空表示待读取校验的 SKILL.md,否则是目录诊断 reason。
 type discoveryStep struct {
 	dir    string
 	file   string
 	reason error
 }
 
-// discoverCandidates 负责唯一的发现顺序与有效性规则;load 只补齐有效候选的文件或 blob 定位。
-// 遍历只取决于目录结构与 SKILL.md 是否存在,不取决于正文:所以每一轮先按顺序记下步骤,
-// 再并发读取本轮的 SKILL.md,最后按原顺序处理,诊断顺序与同名先到先得都与逐个读取一致。
 func discoverCandidates(ctx context.Context, view sourceDirectoryView, root string, load func(*discoveredSkill, string, []byte) error) (discoveredSource, error) {
 	result := discoveredSource{skills: []discoveredSkill{}}
 	pluginDirs, groups, err := pluginSearchPaths(ctx, view, root)
@@ -132,7 +126,6 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 		steps = append(steps, discoveryStep{dir: dir, file: entry.name})
 		return true
 	}
-	// flush 并发读取本轮记下的 SKILL.md,再按顺序处理;中止发现的错误取消其余读取并原样返回。
 	flush := func() error {
 		defer func() { steps = steps[:0] }()
 		var paths []string
@@ -197,7 +190,6 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// 优先项重叠时,不进入已经识别为 Skill 的目录内部。
 		if !fallback {
 			for parent := dir; parent != root && parent != "."; parent = path.Dir(parent) {
 				if processed[parent] {
@@ -254,7 +246,6 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 	return result, nil
 }
 
-// abortsDiscovery 表示错误不能记成候选诊断:取消、超时、超出读取上限,或 GitHub 快路径给不出完整结果(应改走克隆)。
 func abortsDiscovery(ctx context.Context, err error) bool {
 	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 		errors.Is(err, errReadLimit) || githubContentsUnavailable(err)

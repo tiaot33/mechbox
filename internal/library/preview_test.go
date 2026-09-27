@@ -60,7 +60,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// URL 入库必须仅依赖预览时下载的内容,不能再次访问远端。
+	// URL 入库必须仅依赖入库预览时下载的内容,不能再次访问远端。
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
 		t.Error("fetch contacted remote source")
 		return nil, errors.New("offline")
@@ -368,7 +368,7 @@ func TestCandidateFetchedIsQueriedWhenPreviewing(t *testing.T) {
 	if err != nil || again.Candidates[0].Fetched != fetched[0].ID || again.Candidates[1].Fetched != 0 {
 		t.Fatalf("fetched = %#v, %v", again, err)
 	}
-	// 预览建立时查询:之前打开的预览里仍是未入库,入库时按重复整批失败。
+	// 入库预览建立时查询:之前打开的入库预览里仍是未入库,入库时按重复整批失败。
 	if preview.Candidates[0].Fetched != 0 {
 		t.Fatalf("earlier preview changed = %#v", preview.Candidates)
 	}

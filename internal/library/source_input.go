@@ -20,7 +20,6 @@ const defaultGitTimeout = 5 * time.Minute
 
 var errGitTimeout = errors.New("operation timed out")
 
-// gitTimeout 是 clone/fetch 的独立超时;默认 5 分钟,可用 SKILLS_GIT_TIMEOUT 覆盖。
 func gitTimeout() time.Duration {
 	parsed, err := time.ParseDuration(os.Getenv("SKILLS_GIT_TIMEOUT"))
 	if err != nil || parsed <= 0 {
@@ -41,7 +40,6 @@ type githubInput struct {
 	tree       string
 }
 
-// parseGitHubInput 只解释明确的语法;远端 ref 的确认留在 Library 操作中。
 func parseGitHubInput(github GitHubInput) (result githubInput, err error) {
 	invalid := func() (githubInput, error) {
 		return githubInput{}, &Error{Code: InvalidArgument, Message: "invalid or ambiguous GitHub source input"}
@@ -114,8 +112,6 @@ func validSelectionName(value string) bool {
 	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value) && value != "." && value != ".." && !strings.ContainsAny(value, "/\\\x00\r\n")
 }
 
-// resolveGitHubInput 解析入库预览的 GitHub 输入:切分 tree URL 里的 ref 与路径,省略 ref 时发现默认分支。
-// 返回来源定位、来源内目录与 @name 指定的技能名(未指定为空)。
 func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator SourceLocator, subpath, name string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
@@ -209,8 +205,6 @@ func validateGitRef(ctx context.Context, ref string) error {
 	return nil
 }
 
-// runSourceGit 使用本机认证配置,禁止凭证提示;关闭 LFS smudge/filter,未安装 git-lfs 时仍可读普通文件。
-// 不将可能含凭证的 Git 输出返回调用方。
 func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	ssh, err := sourceSSHCommand(ctx)
 	if err != nil {
@@ -226,7 +220,6 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 		"-c", "filter.lfs.required=false",
 		"-c", "protocol.ext.allow=never",
 	}, args...)...)
-	// exec.Cmd 对重复键保留最后一次赋值,因此安全相关变量放在调用方环境之后。
 	command.Env = append(os.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GCM_INTERACTIVE=Never",
@@ -249,7 +242,6 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// missingRefError 给 clone / fetch 阶段报出的 ref 不存在(gitCommandError 唯一的 NotFound 来源)补上 Details.Name。
 func missingRefError(err error, ref string) error {
 	if typed, ok := errors.AsType[*Error](err); ok && typed.Code == NotFound && typed.Details.Name == "" {
 		typed.Details.Name = ref
@@ -305,7 +297,6 @@ func gitUnreachable(detail string) bool {
 		strings.Contains(detail, "no such host")
 }
 
-// sourceSSHCommand 保持 Git 的认证命令优先级;GIT_SSH 是路径,其余值是 shell 命令。
 func sourceSSHCommand(ctx context.Context) (string, error) {
 	if command := os.Getenv("GIT_SSH_COMMAND"); command != "" {
 		return command, nil
@@ -331,9 +322,7 @@ func sourceSSHCommand(ctx context.Context) (string, error) {
 	return "ssh", nil
 }
 
-// gitRemote 仅在同一 GitHub 仓库上尝试 HTTPS/SSH,不会切换 ref。
 func gitRemote(ctx context.Context, repository string, args ...string) ([]byte, error) {
-	// ls-remote 的仓库参数位于 HEAD 等筛选参数之前。
 	insert := len(args)
 	if insert > 0 && args[insert-1] == "HEAD" {
 		insert--
@@ -357,7 +346,6 @@ func gitRemote(ctx context.Context, repository string, args ...string) ([]byte, 
 	return output, err
 }
 
-// preferGitHubHTTPSError 在 SSH 回退也失败时保留 HTTPS 的认证失败,避免被 SSH 不可达盖掉。
 func preferGitHubHTTPSError(httpsErr, sshErr error) error {
 	if IsCode(httpsErr, Permission) {
 		return httpsErr

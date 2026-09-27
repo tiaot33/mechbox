@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// summaryQuery 选出 SkillSummary 的全部列;调用方追加 WHERE / ORDER BY。
-// FetchedAt 是最早版本的 created_at,UpdatedAt 与 Description 来自当前版本。
 const summaryQuery = `
 	SELECT skills.id, skills.name, current_version.description,
 		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
@@ -26,7 +24,6 @@ const summaryQuery = `
 	)
 `
 
-// getSummary 读取一个 skill 的身份、名字与来源元数据,不含文件正文。
 func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
 	summary, err := scanSummary(l.db.QueryRowContext(ctx, summaryQuery+`WHERE skills.id = ?`, id))
 	if err != nil {
@@ -35,8 +32,6 @@ func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummar
 	return summary, nil
 }
 
-// listSummaries 用一条语句读出一组 skill 的摘要:列表在一个快照里完成,另一进程在两条语句之间
-// 删掉一个 skill 不会让整个列表失败。
 func (l *sqliteLibrary) listSummaries(ctx context.Context, operation, clause string, args ...any) ([]SkillSummary, error) {
 	rows, err := l.db.QueryContext(ctx, summaryQuery+clause, args...)
 	if err != nil {
@@ -102,13 +97,11 @@ func formatStoredTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
 }
 
-// clockNow 返回写入 TEXT 列再读回后的 UTC 时间,去掉单调时钟,便于与 Get/List 的解析结果 DeepEqual。
 func clockNow() time.Time {
 	now, _ := parseStoredTime(formatStoredTime(time.Now().UTC()))
 	return now
 }
 
-// skillDescription 从文件集里的 SKILL.md 取 frontmatter description;没有或解析失败则为空。
 func skillDescription(files []File) string {
 	for _, file := range files {
 		if file.Path != "SKILL.md" {
@@ -123,8 +116,6 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-// fetchAll 在单个事务里原子提交多个来自同一来源的 skill:要么全部入库,要么库不变。
-// validator 是预览读取来源时 URL / Store 服务端给出的 HTTP validator,随 Source 一起写入;其他来源为空。
 func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []discoveredSkill, validator string) ([]Skill, error) {
 	if err := validateSource(source); err != nil {
 		return nil, err
@@ -149,7 +140,6 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []di
 	}
 	fetched := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
-		// GitHub 文件取自预览钉住的 commit(source.LastSeenRef),它就是该目录 tree 首次被确认为远端最新的地方。
 		description := skill.candidate.Description
 		if description == "" {
 			description = skillDescription(skill.files)
@@ -166,7 +156,6 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []di
 	return fetched, nil
 }
 
-// upsertSource 在事务内插入或更新来源行(含本次读取的 HTTP validator),返回其 id。
 func upsertSource(ctx context.Context, tx *sql.Tx, source Source, validator string) (int64, error) {
 	locator, err := json.Marshal(source.Locator)
 	if err != nil {
@@ -187,7 +176,6 @@ func upsertSource(ctx context.Context, tx *sql.Tx, source Source, validator stri
 	return sourceID, nil
 }
 
-// findSkillBySourceName 在事务内查找同一来源下的同名 skill;不存在时返回 0。
 func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name string) (SkillID, error) {
 	var id SkillID
 	err := tx.QueryRowContext(ctx, `SELECT id FROM skills WHERE source_id = ? AND name = ?`, sourceID, name).Scan(&id)
@@ -200,9 +188,7 @@ func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name
 	return id, nil
 }
 
-// insertSkill 在事务内写入一个 skill 及其首个版本,并设为当前版本。
 func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord, description string) (Skill, error) {
-	// 名字由来源发现阶段给出,调用方没有对应参数;为空是内部不变量被破坏,归 Internal。
 	if name == "" {
 		return Skill{}, fmt.Errorf("fetch skill: name is required")
 	}
@@ -233,17 +219,13 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 	return skill, err
 }
 
-// sourceState 是技能库不对外暴露、检查与更新据以走快路径的来源读取记录,以及这份内容所属的版本 ID 与读取时的检查确认时间。
 type sourceState struct {
-	updateCheckedAt string // 最近检查或成功更新的确认时间;检查提交前复核,防止覆盖期间的新结论
-	versionID       int64  // 返回文件所属的当前版本;Update 与检查保存都用它做提交阶段的复核依据
-	confirmedCommit string // 当前版本的确认 commit;仅 GitHub 来源非空
-	httpValidator   string // Source 上次成功读取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
+	updateCheckedAt string
+	versionID       int64
+	confirmedCommit string
+	httpValidator   string
 }
 
-// getSkill 读取 skill 及其当前版本的完整文件,连同其来源读取记录。
-// 先钉住版本 ID,再按该版本取文件,因此即使期间别处提交了新版本,返回的文件与版本 ID 也彼此一致。
-// 自带共享锁:Update / CheckUpdates 的网络阶段不持锁,读库这一步由它自己保护。
 func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -298,7 +280,6 @@ func (l *sqliteLibrary) ListSkillFiles(ctx context.Context, id SkillID) (files [
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// LEFT JOIN 保留无文件的技能,在同一快照里区分空列表与技能不存在。
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, length(blobs.content), version_files.mode
 		FROM skills
@@ -336,7 +317,6 @@ func (l *sqliteLibrary) GetSkillFile(ctx context.Context, id SkillID, path strin
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 同 ListSkillFiles:LEFT JOIN 保留技能行,在同一快照里区分路径不存在与技能不存在。
 	var fileExists bool
 	var mode sql.NullString
 	err = l.db.QueryRowContext(ctx, `
@@ -370,23 +350,22 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateInstallationsPolicy("remove skill", opts.Installations); err != nil {
+	if err := validateFolderPolicy("remove skill", opts.Folders); err != nil {
 		return err
 	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
 	}
-	// 待删的安装项路径在事务外先算好:单连接模式下事务内不能再走 l.db。
-	var trash installationTrash
-	if opts.Installations != Keep {
-		installations, err := l.ListInstallations(ctx)
+	var trash folderTrash
+	if opts.Folders != Keep {
+		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
 			return err
 		}
-		for _, installation := range installations {
-			if installation.SkillID == id {
-				trash.targets = append(trash.targets, filepath.Join(installation.Directory, skill.Name))
+		for _, skillScope := range skillScopes {
+			if skillScope.SkillID == id {
+				trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
 			}
 		}
 	}
@@ -397,7 +376,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	defer tx.Rollback()
 	statements := []string{
-		`DELETE FROM installations WHERE skill_id = ?`,
+		`DELETE FROM skill_scopes WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,

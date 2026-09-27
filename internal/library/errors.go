@@ -32,9 +32,6 @@ func typedError(err error) error {
 	return &Error{Code: code, Message: err.Error(), Err: err}
 }
 
-// sqliteErrorCode 是兜底映射:另一进程占着写锁(主码 SQLITE_BUSY / SQLITE_LOCKED,按主码匹配以覆盖
-// BUSY_SNAPSHOT、BUSY_RECOVERY 等扩展码)→ Busy;漏掉显式检查的 UNIQUE / PRIMARY KEY → AlreadyExists,
-// FOREIGN KEY → NotFound;其余 Internal。
 func sqliteErrorCode(err error) ErrorCode {
 	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
 	if !ok {
@@ -76,21 +73,21 @@ func preconditionError(operation, reason string, details ErrorDetails) *Error {
 	return &Error{Code: FailedPrecondition, Message: operation + ": " + reason, Details: details}
 }
 
-func validateInstallationsPolicy(operation string, policy InstallationsPolicy) error {
+func validateFolderPolicy(operation string, policy FolderPolicy) error {
 	switch policy {
 	case "", Keep, Remove:
 		return nil
 	default:
-		return argumentError(operation, "installations", "invalid installations option")
+		return argumentError(operation, "folders", "invalid folders option")
 	}
 }
 
 func validateMemberRemoval(operation string, policy MemberRemovalPolicy) error {
 	switch policy {
-	case "", KeepAsDirectInstall, WithdrawInstallation:
+	case "", KeepAsDirectInstall, UninstallMember:
 		return nil
 	default:
-		return argumentError(operation, "unbacked_installations", "invalid unbacked installations option")
+		return argumentError(operation, "if_no_other_install", "invalid if_no_other_install option")
 	}
 }
 

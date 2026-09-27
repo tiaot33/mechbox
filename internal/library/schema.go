@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	libraryApplicationID = 1397443650 // "SKLB"
-	librarySchemaVersion = 11
+	libraryApplicationID = 1397443650
+	librarySchemaVersion = 12
 	agentSeedSQL         = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
@@ -25,7 +25,6 @@ const (
 //go:embed schema.sql
 var schemaSQL string
 
-// seedAgents 只补缺失代码,已有名称与布局即使不同也不覆盖;库校验失败则撤销补种子。
 func seedAgents(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -41,13 +40,11 @@ func seedAgents(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
-// schemaReader 让 Open/Sync 的连接校验与补种子事务内的校验共用同一套规则。
 type schemaReader interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// errUnacceptableSchema 只标记已确认的库校验失败,不包含本地 I/O 或取消。
 var errUnacceptableSchema = errors.New("unacceptable library schema")
 
 func validateLibrarySchema(ctx context.Context, db schemaReader) error {
@@ -108,8 +105,6 @@ func schemaFingerprint(ctx context.Context, db schemaReader) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// requireLibraryIdentity 在补种子之前确认已有库是本工具的当前版本;身份或版本不符则拒绝,不改文件。
-// 产品尚未发布,不迁移旧版本库。
 func requireLibraryIdentity(ctx context.Context, db schemaReader) error {
 	var applicationID, userVersion int
 	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {

@@ -27,7 +27,7 @@ func (c cancelAfterPlacement) Err() error {
 	return c.Context.Err()
 }
 
-func TestGroupMidBatchCancellationRestoresInstallationsAndOrigins(t *testing.T) {
+func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 	for _, uninstall := range []bool{false, true} {
 		name := "install"
 		if uninstall {
@@ -82,10 +82,10 @@ func TestGroupMidBatchCancellationRestoresInstallationsAndOrigins(t *testing.T) 
 					t.Fatal(err)
 				}
 			} else {
-				// 首个成员覆盖未记录的文件夹,第二个成员原本没有安装项;shared 已有安装项,不写盘。
+				// 首个成员覆盖未记录的文件夹,第二个成员原本没有安装;shared 已安装,不写盘。
 				writeFile(t, firstPath, []byte("original local content"), 0o644)
 			}
-			before, err := lib.ListInstallations(ctx)
+			before, err := lib.ListSkillScopes(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -116,9 +116,9 @@ func TestGroupMidBatchCancellationRestoresInstallationsAndOrigins(t *testing.T) 
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("mid-batch error = %v, want cancellation", err)
 			}
-			after, err := lib.ListInstallations(ctx)
+			after, err := lib.ListSkillScopes(ctx)
 			if err != nil || !reflect.DeepEqual(before, after) {
-				t.Fatalf("installations changed: before=%#v after=%#v err=%v", before, after, err)
+				t.Fatalf("skill scopes changed: before=%#v after=%#v err=%v", before, after, err)
 			}
 			installsAfter, err := lib.ListGroupInstalls(ctx)
 			if err != nil || !reflect.DeepEqual(installsBefore, installsAfter) {
@@ -126,16 +126,16 @@ func TestGroupMidBatchCancellationRestoresInstallationsAndOrigins(t *testing.T) 
 			}
 			content, err := os.ReadFile(firstPath)
 			if err != nil || string(content) != string(original) {
-				t.Fatalf("first installation not restored: %q, %v", content, err)
+				t.Fatalf("first skill scope not restored: %q, %v", content, err)
 			}
 			for _, skill := range skills[1:] {
 				content, err := os.ReadFile(filepath.Join(directory, skill.Name, "SKILL.md"))
 				if !uninstall && skill.Name == "second" {
 					if !errors.Is(err, os.ErrNotExist) {
-						t.Fatalf("partial installation remains: %v", err)
+						t.Fatalf("partial skill scope remains: %v", err)
 					}
 				} else if err != nil || string(content) != skillDocument(skill.Name, skill.Name) {
-					t.Fatalf("installation %s changed: %q, %v", skill.Name, content, err)
+					t.Fatalf("skill scope %s changed: %q, %v", skill.Name, content, err)
 				}
 			}
 			requireNoStagedEntries(t, directory)
@@ -194,11 +194,11 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("uninstall left dangling installation: %v", err)
+		t.Fatalf("uninstall left dangling skill scope: %v", err)
 	}
-	installations, err := lib.ListInstallations(ctx)
-	if err != nil || len(installations) != 0 {
-		t.Fatalf("installations = %#v, %v", installations, err)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	if err != nil || len(skillScopes) != 0 {
+		t.Fatalf("skill scopes = %#v, %v", skillScopes, err)
 	}
 }
 
@@ -279,14 +279,14 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 		t.Fatal(directErr)
 	}
 	if content, err := os.ReadFile(target); err != nil || string(content) != skillDocument("first", "first") {
-		t.Fatalf("successful direct install installation lost: %q, %v", content, err)
+		t.Fatalf("successful direct install skill scope lost: %q, %v", content, err)
 	}
-	installations, err := lib.ListInstallations(ctx)
-	want := []library.Installation{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("installations = %#v, %v; want %#v", installations, err, want)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	want := []library.SkillScope{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("skill scopes = %#v, %v; want %#v", skillScopes, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("partial group installation remains: %v", err)
+		t.Fatalf("partial group skill scope remains: %v", err)
 	}
 }

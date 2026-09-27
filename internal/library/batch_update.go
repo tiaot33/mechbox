@@ -7,13 +7,12 @@ import (
 )
 
 func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
-	// 读取和保存各自短锁,网络阶段不持库锁。
 	defer func() { err = typedError(err) }()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var skills []Skill
-	var states []sourceState // 与 skills 对齐:各自的来源读取记录
+	var states []sourceState
 	var completed []bool
 	groups := make(map[SourceID][]int)
 	var sources []SourceID
@@ -73,8 +72,6 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		case SourceGitHub:
 			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
 		default:
-			// URL / Store / 本地目录整组只读一次来源。validator 是 Source 级的,同组各 Skill 读到的相同;
-			// URL / Store 记录了它时一次带条件头的请求覆盖整组,304 即全组无更新。
 			discovered, readErr = l.fetchSource(ctx, source, "", states[indices[0]].httpValidator)
 		}
 		if ctx.Err() != nil {
@@ -89,11 +86,10 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			if itemErr == nil {
 				switch source.Type {
 				case SourceGitHub:
-					// commit 命中的 Skill 不参与 tree 比较;同一 Source 下首个未命中的 Skill 才让快照取一次 tree。
 					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], states[index].confirmedCommit)
 				default:
 					if discovered.unchanged {
-						break // 304:整组沿用库中内容
+						break
 					}
 					selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
 					itemErr = selectErr
@@ -128,7 +124,6 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 	return results, ctx.Err()
 }
 
-// saveUpdateCheck 只给仍处于被比较版本的技能保存结果,不让旧检查覆盖更新后的状态。
 func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -140,13 +135,11 @@ func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state s
 	if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
 		return err
 	}
-	// 无内容变化的 Update 不生成新版本,仍须防止旧请求覆盖它的确认结果。
 	var storedAt string
 	var storedStatus UpdateCheckStatus
 	if err := tx.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, id).Scan(&storedAt, &storedStatus); err != nil {
 		return fmt.Errorf("read update check time: %w", err)
 	}
-	// 结论相同只刷新时间;期间写入的 failed 不算确认,可被成功结论覆盖。其余不同的新结论才算冲突。
 	if storedAt != state.updateCheckedAt && storedStatus != status && storedStatus != UpdateFailed {
 		return &Error{Code: Conflict, Message: "check updates: skill was confirmed while checking", Details: ErrorDetails{SkillID: id}}
 	}

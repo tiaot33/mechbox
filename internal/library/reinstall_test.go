@@ -12,7 +12,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// updateLocalSkill 改写本地 Source 的 SKILL.md 并 Update,使已有安装项变为 stale。
+// updateLocalSkill 改写本地 Source 的 SKILL.md 并 Update,使已安装的文件夹变为 stale。
 func updateLocalSkill(t *testing.T, lib library.Library, id library.SkillID, source, body string) {
 	t.Helper()
 	writeLocalSkill(t, source, body)
@@ -21,7 +21,7 @@ func updateLocalSkill(t *testing.T, lib library.Library, id library.SkillID, sou
 	}
 }
 
-func reinstall(t *testing.T, lib library.Library, filter library.InstallationFilter, opts library.ReinstallOptions) []library.ReinstallResult {
+func reinstall(t *testing.T, lib library.Library, filter library.SkillScopeFilter, opts library.ReinstallOptions) []library.ReinstallResult {
 	t.Helper()
 	results, err := lib.Reinstall(t.Context(), filter, opts)
 	if err != nil {
@@ -41,8 +41,8 @@ func reinstalledResult(id library.SkillID, scope library.Scope) library.Reinstal
 	return library.ReinstallResult{SkillID: id, Scope: scope, Outcome: library.Reinstalled}
 }
 
-func scopeFilter(scope library.Scope) library.InstallationFilter {
-	return library.InstallationFilter{Scope: &scope}
+func scopeFilter(scope library.Scope) library.SkillScopeFilter {
+	return library.SkillScopeFilter{Scope: &scope}
 }
 
 func TestReinstallKeepsInstalls(t *testing.T) {
@@ -77,34 +77,34 @@ func TestReinstallKeepsInstalls(t *testing.T) {
 	updateLocalSkill(t, lib, groupOnly.ID, groupOnlySource, "# group-only v2\n")
 	updateLocalSkill(t, lib, directOnly.ID, directOnlySource, "# direct-only v2\n")
 	updateLocalSkill(t, lib, both.ID, bothSource, "# both v2\n")
-	requireInspectionStatuses(t, lib, library.InstallationStale, library.InstallationStale, library.InstallationStale)
-	before := listInstallations(t, lib)
+	requireInspectionStatuses(t, lib, library.SkillScopeStale, library.SkillScopeStale, library.SkillScopeStale)
+	before := listSkillScopes(t, lib)
 
 	got := reinstall(t, lib, scopeFilter(scope), library.ReinstallOptions{})
 
 	requireReinstallResults(t, got, []library.ReinstallResult{
 		reinstalledResult(groupOnly.ID, scope), reinstalledResult(directOnly.ID, scope), reinstalledResult(both.ID, scope),
 	})
-	if after := listInstallations(t, lib); !reflect.DeepEqual(after, before) {
-		t.Fatalf("ListInstallations after reinstall = %#v, want %#v", after, before)
+	if after := listSkillScopes(t, lib); !reflect.DeepEqual(after, before) {
+		t.Fatalf("ListSkillScopes after reinstall = %#v, want %#v", after, before)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationCurrent, library.InstallationCurrent, library.InstallationCurrent)
-	requireInstallation(t, directory, groupOnly.Name, "# group-only v2\n")
-	requireInstallation(t, directory, directOnly.Name, "# direct-only v2\n")
-	requireInstallation(t, directory, both.Name, "# both v2\n")
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeCurrent, library.SkillScopeCurrent)
+	requireInstalledFolder(t, directory, groupOnly.Name, "# group-only v2\n")
+	requireInstalledFolder(t, directory, directOnly.Name, "# direct-only v2\n")
+	requireInstalledFolder(t, directory, both.Name, "# both v2\n")
 	requireNoStagedEntries(t, directory)
 
-	// 卸载组安装的效果与重新安装前一致:只由组安装撑着的安装项被移除,有直接安装的保留。
+	// 卸载组安装的效果与重新安装前一致:只由组安装留着的技能被卸载,有直接安装的保留。
 	if err := lib.UninstallGroup(ctx, group.ID, scope); err != nil {
 		t.Fatal(err)
 	}
-	want := []library.Installation{before[1], before[2]}
+	want := []library.SkillScope{before[1], before[2]}
 	want[1].Groups = nil
-	if after := listInstallations(t, lib); !reflect.DeepEqual(after, want) {
-		t.Fatalf("ListInstallations after UninstallGroup = %#v, want %#v", after, want)
+	if after := listSkillScopes(t, lib); !reflect.DeepEqual(after, want) {
+		t.Fatalf("ListSkillScopes after UninstallGroup = %#v, want %#v", after, want)
 	}
 	if _, err := os.Lstat(filepath.Join(directory, groupOnly.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("group-only installation remains after UninstallGroup: %v", err)
+		t.Fatalf("group-only skill scope remains after UninstallGroup: %v", err)
 	}
 }
 
@@ -134,14 +134,14 @@ func TestReinstallBySkillAndByScope(t *testing.T) {
 	updateLocalSkill(t, lib, updated.ID, updatedSource, "# updated v2\n")
 	updateLocalSkill(t, lib, other.ID, otherSource, "# other v2\n")
 
-	// 只给技能:它在所有作用域的安装项都跟上,顺序同 ListInstallations;另一个技能不受影响。
-	got := reinstall(t, lib, library.InstallationFilter{SkillID: updated.ID}, library.ReinstallOptions{})
+	// 只给技能:它在所有作用域的技能文件夹都跟上,顺序同 ListSkillScopes;另一个技能不受影响。
+	got := reinstall(t, lib, library.SkillScopeFilter{SkillID: updated.ID}, library.ReinstallOptions{})
 	requireReinstallResults(t, got, []library.ReinstallResult{
 		reinstalledResult(updated.ID, claude), reinstalledResult(updated.ID, codex), reinstalledResult(updated.ID, projectScope),
 	})
 	requireInspectionStatuses(t, lib,
-		library.InstallationCurrent, library.InstallationCurrent, library.InstallationCurrent,
-		library.InstallationStale, library.InstallationStale)
+		library.SkillScopeCurrent, library.SkillScopeCurrent, library.SkillScopeCurrent,
+		library.SkillScopeStale, library.SkillScopeStale)
 
 	// 只给作用域:只影响该作用域;已是当前版本的报 current 且不写盘。
 	got = reinstall(t, lib, scopeFilter(codex), library.ReinstallOptions{})
@@ -150,15 +150,15 @@ func TestReinstallBySkillAndByScope(t *testing.T) {
 		reinstalledResult(other.ID, codex),
 	})
 	requireInspectionStatuses(t, lib,
-		library.InstallationCurrent, library.InstallationCurrent, library.InstallationCurrent,
-		library.InstallationStale, library.InstallationCurrent)
+		library.SkillScopeCurrent, library.SkillScopeCurrent, library.SkillScopeCurrent,
+		library.SkillScopeStale, library.SkillScopeCurrent)
 
 	// 两者都给:单条重新安装。
-	got = reinstall(t, lib, library.InstallationFilter{SkillID: other.ID, Scope: &claude}, library.ReinstallOptions{})
+	got = reinstall(t, lib, library.SkillScopeFilter{SkillID: other.ID, Scope: &claude}, library.ReinstallOptions{})
 	requireReinstallResults(t, got, []library.ReinstallResult{reinstalledResult(other.ID, claude)})
 	requireInspectionStatuses(t, lib,
-		library.InstallationCurrent, library.InstallationCurrent, library.InstallationCurrent,
-		library.InstallationCurrent, library.InstallationCurrent)
+		library.SkillScopeCurrent, library.SkillScopeCurrent, library.SkillScopeCurrent,
+		library.SkillScopeCurrent, library.SkillScopeCurrent)
 }
 
 func TestReinstallRefusesModifiedUnlessOverwrite(t *testing.T) {
@@ -193,13 +193,13 @@ func TestReinstallRefusesModifiedUnlessOverwrite(t *testing.T) {
 	requireErrorDetails(t, got[0].Error, library.FailedPrecondition, library.ErrorDetails{Path: folder})
 	requireReinstallResults(t, got[1:], []library.ReinstallResult{reinstalledResult(stale.ID, scope)})
 	if diskAfter := snapshotTree(t, folder); !reflect.DeepEqual(diskAfter, diskBefore) {
-		t.Fatalf("modified installation changed: %#v, want %#v", diskAfter, diskBefore)
+		t.Fatalf("modified skill scope changed: %#v, want %#v", diskAfter, diskBefore)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationModified, library.InstallationCurrent)
+	requireInspectionStatuses(t, lib, library.SkillScopeModified, library.SkillScopeCurrent)
 
-	got = reinstall(t, lib, library.InstallationFilter{SkillID: edited.ID}, library.ReinstallOptions{OnConflict: library.Overwrite})
+	got = reinstall(t, lib, library.SkillScopeFilter{SkillID: edited.ID}, library.ReinstallOptions{OnConflict: library.Overwrite})
 	requireReinstallResults(t, got, []library.ReinstallResult{reinstalledResult(edited.ID, scope)})
-	requireInspectionStatuses(t, lib, library.InstallationCurrent, library.InstallationCurrent)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeCurrent)
 	if _, err := os.Lstat(filepath.Join(folder, "notes.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("overwrite kept stray file: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestReinstallWriteFailureRestoresItemAndContinues(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(lockedDirectory, 0o755) })
 
-	got := reinstall(t, lib, library.InstallationFilter{SkillID: skill.ID}, library.ReinstallOptions{})
+	got := reinstall(t, lib, library.SkillScopeFilter{SkillID: skill.ID}, library.ReinstallOptions{})
 
 	if len(got) != 2 {
 		t.Fatalf("Reinstall() = %#v, want 2 results", got)
@@ -252,14 +252,14 @@ func TestReinstallWriteFailureRestoresItemAndContinues(t *testing.T) {
 		}
 	}
 	if diskAfter := snapshotTree(t, folder); !reflect.DeepEqual(diskAfter, diskBefore) {
-		t.Fatalf("failed installation changed: %#v, want %#v", diskAfter, diskBefore)
+		t.Fatalf("failed skill scope changed: %#v, want %#v", diskAfter, diskBefore)
 	}
 	requireNoStagedEntries(t, lockedDirectory)
-	statuses := map[library.Scope]library.InstallationStatus{}
-	for _, inspection := range inspectInstallations(t, lib) {
+	statuses := map[library.Scope]library.SkillScopeStatus{}
+	for _, inspection := range inspectSkillScopes(t, lib) {
 		statuses[inspection.Scope] = inspection.Status
 	}
-	if statuses[writable] != library.InstallationCurrent || statuses[locked] != library.InstallationStale {
+	if statuses[writable] != library.SkillScopeCurrent || statuses[locked] != library.SkillScopeStale {
 		t.Fatalf("statuses = %#v, want writable current and locked stale", statuses)
 	}
 }
@@ -290,14 +290,14 @@ func TestReinstallRecreatesMissingFolderAndDirectory(t *testing.T) {
 	if err := os.RemoveAll(claudeDirectory); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationDirectoryMissing, library.InstallationMissing)
+	requireInspectionStatuses(t, lib, library.SkillScopeDirectoryMissing, library.SkillScopeMissing)
 
-	got := reinstall(t, lib, library.InstallationFilter{SkillID: skill.ID}, library.ReinstallOptions{})
+	got := reinstall(t, lib, library.SkillScopeFilter{SkillID: skill.ID}, library.ReinstallOptions{})
 
 	requireReinstallResults(t, got, []library.ReinstallResult{reinstalledResult(skill.ID, claude), reinstalledResult(skill.ID, codex)})
-	requireInspectionStatuses(t, lib, library.InstallationCurrent, library.InstallationCurrent)
-	requireInstallation(t, claudeDirectory, skill.Name, "# example\n")
-	requireInstallation(t, codexDirectory, skill.Name, "# example\n")
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeCurrent)
+	requireInstalledFolder(t, claudeDirectory, skill.Name, "# example\n")
+	requireInstalledFolder(t, codexDirectory, skill.Name, "# example\n")
 }
 
 func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
@@ -331,7 +331,7 @@ func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := reinstall(t, lib, library.InstallationFilter{SkillID: skill.ID}, library.ReinstallOptions{})
+	got := reinstall(t, lib, library.SkillScopeFilter{SkillID: skill.ID}, library.ReinstallOptions{})
 
 	if len(got) != 2 {
 		t.Fatalf("Reinstall() = %#v, want 2 results", got)
@@ -344,7 +344,7 @@ func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
 	if _, err := os.Lstat(project.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("project root was created: %v", err)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationCurrent, library.InstallationDirectoryMissing)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeDirectoryMissing)
 }
 
 func TestReinstallIgnoresMembersSkippedByGroupInstall(t *testing.T) {
@@ -358,7 +358,7 @@ func TestReinstallIgnoresMembersSkippedByGroupInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 目标里有未记录文件夹,组安装跳过该成员,它没有安装项记录。
+	// 目标里有未记录文件夹,组安装跳过该成员,它没有安装记录。
 	writeFile(t, filepath.Join(directory, skipped.Name, "SKILL.md"), []byte("# foreign\n"), 0o644)
 	group, err := lib.CreateGroup(ctx, "g")
 	if err != nil {
@@ -378,8 +378,8 @@ func TestReinstallIgnoresMembersSkippedByGroupInstall(t *testing.T) {
 	requireReinstallResults(t, got, []library.ReinstallResult{reinstalledResult(installed.ID, scope)})
 	requireSkillFile(t, directory, skipped.Name, "# foreign\n")
 
-	// 按技能筛选一个没有安装项的已知技能:空结果,不报错。
-	if got := reinstall(t, lib, library.InstallationFilter{SkillID: skipped.ID}, library.ReinstallOptions{}); len(got) != 0 {
+	// 按技能筛选一个没有安装的已知技能:空结果,不报错。
+	if got := reinstall(t, lib, library.SkillScopeFilter{SkillID: skipped.ID}, library.ReinstallOptions{}); len(got) != 0 {
 		t.Fatalf("Reinstall(skipped) = %#v, want empty", got)
 	}
 }
@@ -399,16 +399,16 @@ func TestReinstallRejectsInvalidFilters(t *testing.T) {
 	idle := library.GlobalScope(library.AgentClaudeCode)
 	tests := []struct {
 		name   string
-		filter library.InstallationFilter
+		filter library.SkillScopeFilter
 		opts   library.ReinstallOptions
 		code   library.ErrorCode
 	}{
 		{name: "no condition", code: library.InvalidArgument},
-		{name: "unknown skill", filter: library.InstallationFilter{SkillID: 999}, code: library.NotFound},
-		{name: "invalid scope", filter: library.InstallationFilter{Scope: &globalWithProject}, code: library.InvalidArgument},
-		{name: "unknown agent", filter: library.InstallationFilter{Scope: &unknownAgent}, code: library.NotFound},
-		{name: "unregistered project", filter: library.InstallationFilter{Scope: &unregistered}, code: library.NotFound},
-		{name: "invalid policy", filter: library.InstallationFilter{SkillID: skill.ID}, opts: library.ReinstallOptions{OnConflict: "merge"}, code: library.InvalidArgument},
+		{name: "unknown skill", filter: library.SkillScopeFilter{SkillID: 999}, code: library.NotFound},
+		{name: "invalid scope", filter: library.SkillScopeFilter{Scope: &globalWithProject}, code: library.InvalidArgument},
+		{name: "unknown agent", filter: library.SkillScopeFilter{Scope: &unknownAgent}, code: library.NotFound},
+		{name: "unregistered project", filter: library.SkillScopeFilter{Scope: &unregistered}, code: library.NotFound},
+		{name: "invalid policy", filter: library.SkillScopeFilter{SkillID: skill.ID}, opts: library.ReinstallOptions{OnConflict: "merge"}, code: library.InvalidArgument},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -479,7 +479,7 @@ func TestReinstallCancelReturnsCompletedItems(t *testing.T) {
 		t.Fatalf("Reinstall() error = %v, want context.Canceled in chain", err)
 	}
 	requireReinstallResults(t, got, []library.ReinstallResult{reinstalledResult(first.ID, scope)})
-	requireInspectionStatuses(t, lib, library.InstallationCurrent, library.InstallationStale)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeStale)
 
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
@@ -488,5 +488,5 @@ func TestReinstallCancelReturnsCompletedItems(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("Reinstall(canceled) = %#v, want no results", got)
 	}
-	requireInspectionStatuses(t, lib, library.InstallationCurrent, library.InstallationStale)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeStale)
 }
