@@ -1,6 +1,6 @@
 ## Codebase
 
-Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里的安装项由它生成。
+Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0008),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里的安装项由它生成。
 
 - `internal/library/api.go` — 全部领域类型 + `Library` 接口,带中文注释。**阅读入口,先读这个。**
 - `internal/library/library.go` — 实例生命周期:Open、Close、共享状态与操作锁。
@@ -18,7 +18,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 实现保持同一 `package library`;公开方法与其私有辅助函数按职责放在一起。
 
-新增任何应用或客户端时,按 [ADR 0010](docs/adr/0010-repo-layout-flat-module-apps-are-guests.md) 确定目录位置与 module 划分:应用依赖 Library,Library 不依赖应用。
+新增任何应用时:应用依赖 Library,Library 不依赖应用;默认共用根 module,入口放 `cmd/<app>/`。桌面端的位置见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
 
 **注释语言:代码注释一律使用中文**;标识符、技术术语保留英文。
 
@@ -26,7 +26,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 ### Ecosystem background
 
-涉及 Skill 格式、Agent 发现/调用、Agent 发现目录或同名行为时，先读 [Agent Skills 背景](docs/agents/agent-skills-background.md)；不熟悉生态时也从这里开始。产品集成边界与实现差异见 [ADR 0001](docs/adr/0001-sqlite-as-the-library.md)。
+涉及 Skill 格式、Agent 发现/调用、Agent 发现目录或同名行为时，先读 [Agent Skills 背景](docs/agents/agent-skills-background.md)；不熟悉生态时也从这里开始。本项目与生态的对应关系、尚未确认的差异见该文末节。
 
 ### Issue tracker
 

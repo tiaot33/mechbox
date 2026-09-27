@@ -287,7 +287,7 @@ func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
 
 // remapProjectPaths 按 SKILLS_PROJECT_PATH_MAP 把拉回库里 Registered project 的路径改成本机路径。
 // 只改 projects 表:安装项记录只记 Scope 身份,拉库后目录一律按本机 $HOME / 映射后的项目根 Resolve,
-// 不再改写任何绝对路径(见 ADR 0011)。
+// 不再改写任何绝对路径(见 ADR 0005)。
 //
 // 每个项目只按它在拉回库里记录的原路径查一次映射、按 id 改写,已改写的结果不再参与匹配,
 // 因此 {A→B, B→C} 确定地得到 A 的项目落在 B、B 的项目落在 C。改写顺序先在内存里按

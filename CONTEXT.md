@@ -2,9 +2,9 @@
 
 A tool for managing coding-agent skills: fetching them from their Sources into a Library, organising them, and installing them into the directories that coding agents read from.
 
-Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `SKILL.md` that agents discover from disk and load on demand. For format, discovery scopes, invocation, and same-name behavior, see [ecosystem background](docs/agents/agent-skills-background.md). Product terms stay in this file; integration boundaries and implementation gaps are recorded in [ADR 0001](docs/adr/0001-sqlite-as-the-library.md).
+Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `SKILL.md` that agents discover from disk and load on demand. For format, discovery scopes, invocation, and same-name behavior, see [ecosystem background](docs/agents/agent-skills-background.md). Product terms stay in this file; how the product maps onto the ecosystem, and known gaps, are at the end of the ecosystem background.
 
-> Term headings are bilingual: the **English** name is the canonical identifier used in code; the **中文** name is the term used in the v1 (Chinese-only) UI. See `docs/adr/0003`.
+> Term headings are bilingual: the **English** name is the canonical identifier used in code; the **中文** name is the term used in the v1 (Chinese-only) UI.
 
 ## Language · 术语
 
@@ -17,7 +17,7 @@ A coding agent with a stable code and a display name, loading skills from its gl
 _Avoid_: Assistant, tool, client / 助手、工具、客户端
 
 **Library · 库**:
-The tool's own authoritative store of skills plus their metadata (collections, groups, which skills are installed in which Scopes). The single source of truth: installed folders are written from it, never read back into it.
+The tool's own authoritative store of skills plus their metadata (collections, groups, which skills are installed in which Scopes). The single source of truth: installed folders are written from it, and edits made to them never flow back into it.
 _Avoid_: Store, database, cache, registry / 存储、数据库、缓存、注册表
 
 **Source · 来源**:
