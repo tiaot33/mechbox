@@ -164,45 +164,6 @@ type GitHubInput struct {
 	Subpath string `json:"subpath,omitempty"` // 仓库内目录
 }
 
-// File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
-type File struct {
-	Path    string   `json:"path"`
-	Content []byte   `json:"content"`
-	Mode    FileMode `json:"mode"`
-}
-
-// FileMetadata 是文件列表用的元数据,不含文件内容。
-type FileMetadata struct {
-	Path string   `json:"path"` // skill 内斜杠分隔的相对路径
-	Size int64    `json:"size"` // 内容的字节数
-	Mode FileMode `json:"mode"` // regular 或 executable
-}
-
-// Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
-type Skill struct {
-	ID          SkillID   `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
-	Source      Source    `json:"source"`
-	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
-	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
-	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
-	Files       []File    `json:"files"`
-}
-
-// SkillSummary 是浏览列表用的精简条目:身份、名字、描述、来源元数据与最近更新检查,不含文件正文。
-// 列表接口(ListSkills / ListGroupSkills / ListCollections)与入库(Fetch)返回它以保持轻量;
-// 完整文件通过 GetSkill / GetVersion 获取。
-type SkillSummary struct {
-	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近检查结果;nil 表示从未检查
-	ID              SkillID           `json:"id"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
-	Source          Source            `json:"source"`
-	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
-	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
-}
-
 // FetchPreviewID 是一次入库预览的不透明句柄,由 Library 签发。它不持久化、不参与
 // Sync、也不跨 Library 实例共享;进程退出、Close 或超时后被后端回收。
 type FetchPreviewID string
@@ -268,21 +229,43 @@ type PreviewDiagnostic struct {
 	Reason string `json:"reason"`
 }
 
-// SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
-type SkillVersion struct {
-	ID          VersionID `json:"id"`
-	SkillID     SkillID   `json:"skill_id"`
-	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
-	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
-	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
-	Files       []File    `json:"files,omitempty"`
+// File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
+type File struct {
+	Path    string   `json:"path"`
+	Content []byte   `json:"content"`
+	Mode    FileMode `json:"mode"`
 }
 
-// VersionDiff 是两个版本之间按文件路径归类的差异。
-type VersionDiff struct {
-	Changed []string `json:"changed"` // 两个版本都有、内容不同
-	Added   []string `json:"added"`   // 仅新版本有
-	Deleted []string `json:"deleted"` // 仅旧版本有
+// FileMetadata 是文件列表用的元数据,不含文件内容。
+type FileMetadata struct {
+	Path string   `json:"path"` // skill 内斜杠分隔的相对路径
+	Size int64    `json:"size"` // 内容的字节数
+	Mode FileMode `json:"mode"` // regular 或 executable
+}
+
+// Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
+type Skill struct {
+	ID          SkillID   `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source      Source    `json:"source"`
+	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
+	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
+	Files       []File    `json:"files"`
+}
+
+// SkillSummary 是浏览列表用的精简条目:身份、名字、描述、来源元数据与最近更新检查,不含文件正文。
+// 列表接口(ListSkills / ListGroupSkills / ListCollections)与入库(Fetch)返回它以保持轻量;
+// 完整文件通过 GetSkill / GetVersion 获取。
+type SkillSummary struct {
+	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近检查结果;nil 表示从未检查
+	ID              SkillID           `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source          Source            `json:"source"`
+	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
 }
 
 // UpdateResult 描述 Library 的更新结果;已有安装项不会自动重新安装。
@@ -314,6 +297,30 @@ type UpdateCheck struct {
 	Error     *Error  `json:"error,omitempty"`
 }
 
+// SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
+type SkillVersion struct {
+	ID          VersionID `json:"id"`
+	SkillID     SkillID   `json:"skill_id"`
+	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
+	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
+	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
+	Files       []File    `json:"files,omitempty"`
+}
+
+// VersionDiff 是两个版本之间按文件路径归类的差异。
+type VersionDiff struct {
+	Changed []string `json:"changed"` // 两个版本都有、内容不同
+	Added   []string `json:"added"`   // 仅新版本有
+	Deleted []string `json:"deleted"` // 仅旧版本有
+}
+
+// Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
+// Skills 是精简摘要,不含文件正文。
+type Collection struct {
+	Source Source         `json:"source"`
+	Skills []SkillSummary `json:"skills"`
+}
+
 // Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
 type Group struct {
 	ID        GroupID   `json:"id"`
@@ -340,6 +347,13 @@ const (
 type Agent struct {
 	Code AgentCode `json:"code"`
 	Name string    `json:"name"`
+}
+
+// RegisteredProject 是已注册的项目目录;注册后它与每个 Agent 组成一个 ProjectScope,
+// 目录由该 Agent 的项目级布局算出。
+type RegisteredProject struct {
+	ID   ProjectID `json:"id"`
+	Path string    `json:"path"`
 }
 
 // ScopeKind 是 Scope 的层级:某 Agent 的全局,或某 Agent 在某 Registered project 下。
@@ -509,20 +523,6 @@ type InstallationInspection struct {
 	Status InstallationStatus `json:"status"`
 }
 
-// Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
-// Skills 是精简摘要,不含文件正文。
-type Collection struct {
-	Source Source         `json:"source"`
-	Skills []SkillSummary `json:"skills"`
-}
-
-// RegisteredProject 是已注册的项目目录;注册后它与每个 Agent 组成一个 ProjectScope,
-// 目录由该 Agent 的项目级布局算出。
-type RegisteredProject struct {
-	ID   ProjectID `json:"id"`
-	Path string    `json:"path"`
-}
-
 // InstallationsPolicy 决定移除 skill 或注销项目时,磁盘上的安装项文件夹如何处理。
 type InstallationsPolicy string
 
@@ -575,7 +575,7 @@ type SyncResult struct {
 // Library 是桌面端使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
 // 见 docs/adr/0008-desktop-is-wails-v3-in-process.md。
 type Library interface {
-	// 预览、入库与更新
+	// 进库
 
 	// SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
 	// 无法转换为可预览 GitHub 地址的条目直接过滤掉。
@@ -606,17 +606,14 @@ type Library interface {
 	// 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次入库尚在进行时,再次入库返回
 	// FailedPrecondition;联网期间不持库锁,其他预览 / 列表 / 安装不必等它。
 	Fetch(ctx context.Context, id FetchPreviewID, names []string) ([]SkillSummary, error)
-	// Update 重新读取来源,在其中按名字重新定位该 skill,不经预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
-	// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
-	// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
-	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
-	// URL 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
-	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地目录重新发现候选后比较文件。
-	// 只更新 Library,不重新安装已有安装项。
-	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
-	// (Details.SkillID),两者都不留下任何写入。
-	// 成功后已有 LastUpdateCheck 改为 current 并刷新确认时间;失败保留原记录,从未检查的仍为 nil。
-	Update(ctx context.Context, id SkillID) (UpdateResult, error)
+
+	// 库里的技能
+	//
+	// 本接口里单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,
+	// 入库预览里的是 Candidate,装出去的是 Installation。
+
+	// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
+	ListSkills(ctx context.Context) ([]SkillSummary, error)
 	// GetSkill 读取一个 skill 及其当前版本的完整文件。
 	GetSkill(ctx context.Context, id SkillID) (Skill, error)
 	// ListSkillFiles 按路径排序列出当前版本的文件元数据,不读取文件正文;技能不存在返回 NotFound(Details.SkillID)。
@@ -625,6 +622,11 @@ type Library interface {
 	// 技能不存在返回 NotFound(Details.SkillID),路径不存在返回 NotFound(Details.Path);
 	// 与 ListSkillFiles 分别读取各自调用时的当前版本。
 	GetSkillFile(ctx context.Context, id SkillID, path string) (File, error)
+	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上安装项文件夹的去留。
+	RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) error
+
+	// 更新
+
 	// CheckUpdates 检查指定技能是否有更新;单项检查传入仅含一个 SkillID 的列表。
 	// 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
 	// 直接判定无更新;有未命中的才共用一次 tree,发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。
@@ -636,6 +638,17 @@ type Library interface {
 	// 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
 	// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
 	CheckUpdates(ctx context.Context, ids []SkillID) ([]UpdateCheck, error)
+	// Update 重新读取来源,在其中按名字重新定位该 skill,不经预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
+	// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
+	// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
+	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
+	// URL 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
+	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地目录重新发现候选后比较文件。
+	// 只更新 Library,不重新安装已有安装项。
+	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
+	// (Details.SkillID),两者都不留下任何写入。
+	// 成功后已有 LastUpdateCheck 改为 current 并刷新确认时间;失败保留原记录,从未检查的仍为 nil。
+	Update(ctx context.Context, id SkillID) (UpdateResult, error)
 
 	// 版本历史
 
@@ -646,7 +659,10 @@ type Library interface {
 	// DiffVersions 比较同一 skill 的两个版本,返回按路径归类的差异。
 	DiffVersions(ctx context.Context, oldID, newID VersionID) (VersionDiff, error)
 
-	// 分组
+	// 整理:集合与分组
+
+	// ListCollections 按 Source 聚合列出全部 skill。
+	ListCollections(ctx context.Context) ([]Collection, error)
 
 	// CreateGroup 创建分组。名字先 TrimSpace;若已被其他 Group 占用,则改为 name#N
 	// (N 从 2 起取最小空闲数字),大小写敏感、不加空格。空名仍是 InvalidArgument。
@@ -673,13 +689,6 @@ type Library interface {
 	// ListGroupsWithMembers 一次列出全部分组及其成员 ID,按 Group ID 升序;空组也在列。
 	// 不属于任何组的 skill 不出现在任何 Members 里。
 	ListGroupsWithMembers(ctx context.Context) ([]GroupWithMembers, error)
-
-	// skill 管理
-
-	// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
-	ListSkills(ctx context.Context) ([]SkillSummary, error)
-	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上安装项文件夹的去留。
-	RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) error
 
 	// 项目与 Scope
 
@@ -739,11 +748,6 @@ type Library interface {
 	// 一条失败不影响其他条。组安装时被跳过的成员没有安装项记录,不在结果里(补齐用 InstallGroup)。
 	// 整体取消时返回已完成的各条与 Canceled 错误,未执行的不出现在结果里。
 	Reinstall(ctx context.Context, filter InstallationFilter, opts ReinstallOptions) ([]ReinstallResult, error)
-
-	// 浏览
-
-	// ListCollections 按 Source 聚合列出全部 skill。
-	ListCollections(ctx context.Context) ([]Collection, error)
 
 	// 同步
 
