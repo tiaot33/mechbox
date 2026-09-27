@@ -6,7 +6,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/library.go` — 实例生命周期:Open、Close、共享状态与操作锁。
 - `internal/library/schema.go` + `schema.sql` — 库身份与 schema 校验;建表定义统一来自嵌入的 `schema.sql`。
 - `internal/library/skills.go` + `versions.go` — 入库、技能查询/移除、Collection、版本历史与差异。
-- `internal/library/preview.go` — 预览、候选选择与 FetchFromPreview(入库);`source_input.go` / `source_read.go` / `github_contents.go` 负责来源解析与内容读取(含本地目录)。
+- `internal/library/preview.go` — 入库预览(PreviewFetch)与入库(Fetch);`source_input.go` / `source_read.go` / `github_contents.go` 负责来源解析与内容读取(含本地目录)。
 - `internal/library/update.go` + `batch_update.go` — 单项与批量更新检查;`search.go` 负责市场搜索。
 - `internal/library/groups.go` + `projects.go` — Group 成员管理、项目注册与 Scope。
 - `internal/library/install.go` — 直接安装与组安装、安装项记录、磁盘暂存与回滚;安装项巡检(可按 `InstallationFilter` 缩小范围)与重新安装共用的筛选。

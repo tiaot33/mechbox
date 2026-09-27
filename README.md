@@ -25,7 +25,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`internal/library/library.go`](internal/library/library.go) | 实例生命周期、共享状态和操作锁 |
 | [`internal/library/schema.go`](internal/library/schema.go)、[`schema.sql`](internal/library/schema.sql) | 库身份、校验及唯一 DDL 来源 |
 | [`internal/library/skills.go`](internal/library/skills.go)、[`versions.go`](internal/library/versions.go) | 入库、查询/移除、Collection、版本历史与差异 |
-| [`internal/library/preview.go`](internal/library/preview.go) | 预览、候选选择与 FetchFromPreview |
+| [`internal/library/preview.go`](internal/library/preview.go) | 入库预览(PreviewFetch)与入库(Fetch) |
 | [`internal/library/source_input.go`](internal/library/source_input.go)、[`source_read.go`](internal/library/source_read.go)、[`github_contents.go`](internal/library/github_contents.go) | 来源解析、校验与内容获取 |
 | [`internal/library/update.go`](internal/library/update.go)、[`batch_update.go`](internal/library/batch_update.go)、[`search.go`](internal/library/search.go) | 更新、批量检查与市场搜索 |
 | [`internal/library/groups.go`](internal/library/groups.go)、[`projects.go`](internal/library/projects.go) | Group 成员、项目注册与 Scope |
@@ -68,14 +68,17 @@ if err != nil {
 }
 defer lib.Close()
 
-preview, err := lib.PreviewSource(ctx, library.SourceSpec{
-	Type:    library.SourceLocal,
-	Locator: library.SourceLocator{Path: "/path/to/skills"},
-})
+preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Local: "/path/to/skills"})
 if err != nil {
 	return err
 }
-skills, err := lib.FetchFromPreview(ctx, preview.ID, nil) // nil 表示全部候选
+var names []string
+for _, candidate := range preview.Candidates {
+	if candidate.Fetched == 0 { // 跳过已入库的候选
+		names = append(names, candidate.Name)
+	}
+}
+skills, err := lib.Fetch(ctx, preview.ID, names)
 if err != nil {
 	return err
 }
