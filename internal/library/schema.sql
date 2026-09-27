@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS version_files (
     PRIMARY KEY(version_id, path)
 );
 
--- 手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0007)。
+-- 手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
 -- 名字 UNIQUE:界面按名字挑选,重名无法区分;写入时重名自动改为 name#N。
 CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY,            -- 分组主键,由 SQLite 分配;成员关系和组安装均引用它
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS installations (
 CREATE UNIQUE INDEX IF NOT EXISTS installations_global_scope ON installations(skill_id, agent) WHERE project_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS installations_project_scope ON installations(skill_id, agent, project_id) WHERE project_id IS NOT NULL;
 
--- 组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0007)。空组也可以有组安装。
+-- 组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0006)。空组也可以有组安装。
 CREATE TABLE IF NOT EXISTS group_installs (
     id INTEGER PRIMARY KEY,                          -- 稳定记录 ID
     group_id INTEGER NOT NULL REFERENCES groups(id), -- 被安装的分组主键

@@ -25,7 +25,7 @@ GET https://skills.sh/api/v1/skills/audit/{id}
 
 官方写法是 `/api/v1/skills/audit/{source}/{skill}`，但 `{source}` 本身可含斜杠（`owner/repo`），路由是 catch-all：`x-matched-path: /api/v1/skills/audit/[...id]`。构造 URL 应把 `id` 按路径段拼接，**不要**把斜杠编码成 `%2F`。
 
-对本仓库：现有 `SearchSkills` 已拿到同样的 `id`（`internal/library/search.go`），可直接拼 audit URL。ADR 0006 仍适用——skills.sh 只做只读发现，审计也是覆盖层，不应当成 Store，也不该新增持久权威表。
+对本仓库：现有 `SearchSkills` 已拿到同样的 `id`（`internal/library/search.go`），可直接拼 audit URL。ADR 0004 仍适用——skills.sh 只做只读发现，审计也是覆盖层，不应当成 Store，也不该新增持久权威表。
 
 ---
 
@@ -198,7 +198,7 @@ GET https://add-skill.vercel.sh/audit?source={owner/repo}&skills={slug1,slug2}
 
 ## 对本仓库的含义
 
-1. **接入成本低。** 匿名 GET，路径用现有 `SearchSkill.ID`。与 ADR 0006、现有 legacy `/api/search` 一致，都不必上 Vercel OIDC / `sk_live_`。
+1. **接入成本低。** 匿名 GET，路径用现有 `SearchSkill.ID`。与 ADR 0004、现有 legacy `/api/search` 一致，都不必上 Vercel OIDC / `sk_live_`。
 2. **不要迁到 v1 search/detail 除非先解决鉴权。** 那两条匿名 401；只有 legacy search 和这条 audit 目前能白嫖。
 3. **404 是常态，不是传输失败。** 应与 HTTP 5xx / 超时分开。消息本身不能当「skill 不存在」。
 4. **不要把 `status` 当入库门闩。** 合作方会打架；`riskLevel` 有文档外取值；审计会过期。最多做成搜索/入库前的提示，并链到 `https://skills.sh/{id}/security/{provider}`。

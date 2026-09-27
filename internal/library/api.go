@@ -1,6 +1,6 @@
-// Package library 用 SQLite 数据库统一管理 Agent Skills:从来源预览、入库,再把 skill 安装
-// (复制)到 Claude Code 与 Codex 的 skills 目录。数据库是唯一权威数据源,
-// 磁盘上各 Agent 目录里的安装项只是它的副本。
+// Package library 用 SQLite 数据库统一管理 Agent Skills:从来源预览、入库,再把 skill 安装到
+// Claude Code 与 Codex 在各作用域读取的 skills 目录。数据库是唯一权威数据源:
+// Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改不会进库,巡检只拿它们与库里的版本比对。
 package library
 
 import (
@@ -105,7 +105,7 @@ func IsCode(err error, code ErrorCode) bool {
 	return ok && libraryErr.Code == code
 }
 
-// SourceType 是 skill 来源的类型(见 ADR 0006)。
+// SourceType 是 skill 来源的类型(见 ADR 0004)。
 type SourceType string
 
 const (
@@ -314,7 +314,7 @@ type UpdateCheck struct {
 	Error     *Error  `json:"error,omitempty"`
 }
 
-// Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0007)。
+// Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
 type Group struct {
 	ID        GroupID   `json:"id"`
 	Name      string    `json:"name"`
@@ -350,7 +350,7 @@ const (
 	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
 )
 
-// Scope 是安装项所在的层级身份,不含路径(见 ADR 0011)。目录由 Library 按该 Agent 的现行布局
+// Scope 是安装项所在的层级身份,不含路径(见 ADR 0005)。目录由 Library 按该 Agent 的现行布局
 // 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
 // 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
 // ListInstallations 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
@@ -428,7 +428,7 @@ type Installation struct {
 	CreatedAt time.Time `json:"created_at,omitzero"` // 安装项建立(首次安装)的时间。再次安装不更新
 }
 
-// GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0007)。
+// GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0006)。
 // 它是独立的记录,空组或成员全被跳过时也存在;App 据此显示整组开关。
 type GroupInstall struct {
 	GroupID   GroupID   `json:"group_id"`
@@ -572,8 +572,8 @@ type SyncResult struct {
 	Warnings []string       `json:"warnings,omitempty"`
 }
 
-// Library 是未来 TUI 使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
-// 见 docs/adr/0004-backend-library-facade-seam.md。
+// Library 是桌面端使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
+// 见 docs/adr/0008-desktop-is-wails-v3-in-process.md。
 type Library interface {
 	// 预览、入库与更新
 
@@ -656,7 +656,7 @@ type Library interface {
 	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
 	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
 	// DeleteGroup 删除分组及其全部组安装。非破坏性:仅由该组安装撑着的安装项会先转为直接安装,
-	// 磁盘上的安装项不会因删除分组而被移除(见 ADR 0007)。
+	// 磁盘上的安装项不会因删除分组而被移除。
 	DeleteGroup(ctx context.Context, id GroupID) error
 	// AddSkillToGroup 加入成员,并安装到该组已安装到的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
 	// 某 Scope 已有该 skill 的安装项时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的

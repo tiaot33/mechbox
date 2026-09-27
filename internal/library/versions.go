@@ -11,7 +11,7 @@ import (
 
 // gitRecord 是一个版本的 GitHub 读取记录:目录 tree SHA,以及这个 tree 最后一次被确认为远端最新时所在的 commit。
 // confirmedCommit 是版本级的——同一 Source 下各 Skill 各自记录,所以能单独用来判断某个 Skill 是否需要更新
-// (Source 级的 last_seen_ref 做不到,见 ADR 0006);为空表示未知,检查须取 tree 做完整比较。
+// (Source 级的 last_seen_ref 做不到);为空表示未知,检查须取 tree 做完整比较。
 type gitRecord struct {
 	treeSHA         string
 	confirmedCommit string

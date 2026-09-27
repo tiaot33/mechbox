@@ -103,7 +103,7 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("open library: %w", err)
 	}
 	// 到这里才确认这是本工具的库。journal mode 持久化在文件头里,放在校验之前会改写外来文件。
-	// WAL 下读者与写者互不阻塞(见 ADR 0012)。切换失败(文件系统不支持共享内存、另一进程的旧版本
+	// WAL 下读者与写者互不阻塞。切换失败(文件系统不支持共享内存、另一进程的旧版本
 	// 二进制正持有连接)就保持现状:busy_timeout 与 Busy 码仍然成立,下次 Open 再试。
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
 	return &sqliteLibrary{db: db, home: home, previews: map[FetchPreviewID]*previewState{}, githubMemo: newGitHubMemo()}, nil
