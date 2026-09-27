@@ -10,7 +10,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// Open 只补缺失的 Agent 行、不覆盖已有布局;已按身份记录的安装项记录在重开后按现行规则派生目录,
+// Open 只补缺失的 Agent 行、不覆盖已有 Agent 目录;已按身份记录的安装项记录在重开后按 agents 表重新算出目录,
 // 并可继续按身份安装。
 func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	home := t.TempDir()
@@ -45,12 +45,12 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// 只用 SQL 构造缺 Agent 行且另一行布局被改过的输入文件;结果仍经技能库公开方法观察。
+	// 只用 SQL 构造缺 Agent 行且另一行 Agent 目录被改过的输入文件;结果仍经技能库公开方法观察。
 	editLibraryFixture(t, path, `
 		DELETE FROM agents WHERE code = 'codex';
 		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
 	`)
-	// 目录按现行布局派生:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
+	// 目录按 agents 表算出:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
 	want := []library.Installation{
 		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Direct: true},
 		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Direct: true},

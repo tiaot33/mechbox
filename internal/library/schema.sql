@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS projects (
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
--- Agent 的稳定代码、展示名称与布局;规则分别相对用户主目录和已注册项目根,技能库不提供修改方法。
+-- Agent 的稳定代码、展示名称与 Agent 目录;目录分别相对用户主目录和已注册项目根,技能库不提供修改方法。
 CREATE TABLE IF NOT EXISTS agents (
     code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,如 claude-code / codex;Scope 和安装项记录以此标识 Agent
     name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Codex;不参与 Scope 身份判定
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 
 -- 安装项记录:某 skill 出现在某个 Scope 里。Scope 只以身份记录——Agent 代码 + 可选的已注册项目,
--- 不存目录;目录在列表和操作时按 agents 表的现行布局算出。
+-- 不存目录;目录在列表和操作时按 agents 表算出。
 -- 一个安装项由若干安装撑着:直接安装(direct)和/或覆盖它的组安装(该 skill 是成员且组已安装到此 Scope,
 -- 由 skill_groups × group_installs 推出,不另存);全部安装都撤销后,安装项文件夹和这行记录一起删除。
 CREATE TABLE IF NOT EXISTS installations (

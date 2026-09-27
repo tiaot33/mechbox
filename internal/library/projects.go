@@ -150,41 +150,41 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 	if err != nil {
 		return "", err
 	}
-	_, directory, err = l.scopeLocation(ctx, row)
+	_, directory, err = l.scopeDirectory(ctx, row)
 	return directory, err
 }
 
-func (l *sqliteLibrary) scopeLocation(ctx context.Context, row scopeRow) (root, directory string, err error) {
-	layout, err := l.agentLayout(ctx, row.agent)
+func (l *sqliteLibrary) scopeDirectory(ctx context.Context, row scopeRow) (root, directory string, err error) {
+	dirs, err := l.agentDirectories(ctx, row.agent)
 	if err != nil {
 		return "", "", err
 	}
 	if row.projectID == nil {
-		return l.home, layout.globalDir(l.home), nil
+		return l.home, dirs.globalDir(l.home), nil
 	}
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, *row.projectID).Scan(&root); err != nil {
 		return "", "", fmt.Errorf("get registered project: %w", err)
 	}
-	return root, layout.projectDir(root), nil
+	return root, dirs.projectDir(root), nil
 }
 
-type agentLayout struct {
+type agentDirectories struct {
 	global  string
 	project string
 }
 
-func (layout agentLayout) globalDir(home string) string {
-	return filepath.Join(home, filepath.FromSlash(layout.global))
+func (dirs agentDirectories) globalDir(home string) string {
+	return filepath.Join(home, filepath.FromSlash(dirs.global))
 }
 
-func (layout agentLayout) projectDir(root string) string {
-	return filepath.Join(root, filepath.FromSlash(layout.project))
+func (dirs agentDirectories) projectDir(root string) string {
+	return filepath.Join(root, filepath.FromSlash(dirs.project))
 }
 
-func (l *sqliteLibrary) agentLayout(ctx context.Context, code AgentCode) (agentLayout, error) {
-	var layout agentLayout
-	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&layout.global, &layout.project); err != nil {
-		return agentLayout{}, fmt.Errorf("get agent: %w", err)
+func (l *sqliteLibrary) agentDirectories(ctx context.Context, code AgentCode) (agentDirectories, error) {
+	var dirs agentDirectories
+	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&dirs.global, &dirs.project); err != nil {
+		return agentDirectories{}, fmt.Errorf("get agent: %w", err)
 	}
-	return layout, nil
+	return dirs, nil
 }

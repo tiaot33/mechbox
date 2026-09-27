@@ -140,7 +140,7 @@ func TestResolveIsReadOnly(t *testing.T) {
 }
 
 // 目录规则来自库内 agents 表的那一行,而不是代码里的常量:改了表里的规则,Resolve 随之变化。
-func TestResolveReadsLayoutRulesFromAgentsTable(t *testing.T) {
+func TestResolveReadsAgentDirectoriesFromAgentsTable(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)

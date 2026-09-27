@@ -11,7 +11,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// 单项安装的主路径只选定 Agent(全局 Scope):目录由 Library 按现行布局在隔离的 $HOME 下算出,
+// 单项安装的主路径只选定 Agent(全局 Scope):Agent 目录由 Library 在隔离的 $HOME 下算出,
 // 冲突 / Overwrite / Uninstall 的断言全部对着 Resolve 给出的目录,而不是测试自拟的路径。
 func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 	for agent, agentDirectory := range map[library.AgentCode]string{

@@ -342,15 +342,15 @@ const (
 	AgentCodex      AgentCode = "codex"
 )
 
-// Agent 是 Library 持有的一个安装目标 agent。暴露稳定代码与展示名称;布局规则与
-// 绝对目录不出现在这里,目录由 Library 按现行布局算出,调用方不自行拼路径。
+// Agent 是 Library 持有的一个安装目标 agent。暴露稳定代码与展示名称;Agent 目录
+// 不出现在这里,由 Library 算出,调用方不自行拼路径。
 type Agent struct {
 	Code AgentCode `json:"code"`
 	Name string    `json:"name"`
 }
 
 // RegisteredProject 是已注册的项目目录;注册后它与每个 Agent 组成一个 ProjectScope,
-// 目录由该 Agent 的项目级布局算出。
+// 各 Agent 目录在项目根下算出。
 type RegisteredProject struct {
 	ID   ProjectID `json:"id"`
 	Path string    `json:"path"`
@@ -364,8 +364,8 @@ const (
 	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
 )
 
-// Scope 是安装项所在的层级身份,不含路径(见 ADR 0005)。目录由 Library 按该 Agent 的现行布局
-// 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
+// Scope 是安装项所在的层级身份,不含路径(见 ADR 0005)。该 Agent 在此作用域的目录
+// 由 Library 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
 // 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
 // ListInstallations 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
 // 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
@@ -431,7 +431,7 @@ type GroupInstallPlan struct {
 
 // Installation 是一个安装项:skill 放进某个 Scope 目录里的文件夹,以及 Library 对它的记录。
 // 至少有一个安装(直接安装或组安装)撑着就存在,最后一个撤掉时移除。
-// 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
+// 记录只存 Scope 身份;Directory 是列表时 Resolve 出的 Agent 目录,
 // 不是 Install 的输入(Install 也不接受目录)。对照磁盘的安装项状态由 InspectInstallations 给出。
 type Installation struct {
 	SkillID   SkillID   `json:"skill_id"`
@@ -693,7 +693,7 @@ type Library interface {
 	// 项目与 Scope
 
 	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
-	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
+	// 不含 Agent 目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
 	ListAgents(ctx context.Context) ([]Agent, error)
 	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可安装的 ProjectScope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
@@ -701,7 +701,7 @@ type Library interface {
 	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部安装项记录与组安装;
 	// opts 决定磁盘上安装项文件夹的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
-	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
+	// Resolve 按 agents 表算出 Scope 对应的 Agent 目录:全局相对 Open 时的用户
 	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生安装项。
 	// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
 	// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
@@ -709,15 +709,15 @@ type Library interface {
 
 	// 安装与安装项
 	//
-	// 安装与安装计划方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
-	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
+	// 安装与安装计划方法都只接受 Scope 身份:Agent 目录由 Resolve 算出,记录按身份落库,
+	// 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
 
 	// PlanInstall 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
 	// 作用域根目录不存在时与 Install 一样返回 FailedPrecondition。
 	PlanInstall(ctx context.Context, id SkillID, scope Scope) (InstallPlan, error)
 	// Install 为 skill 在 Scope 记一个直接安装,并放入安装项;本技能在本作用域已有安装项时只补上直接安装,
 	// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重新安装)。作用域根目录(全局为用户主目录,
-	// 项目为已登记路径)不存在时返回 FailedPrecondition,Library 从不创建根目录,只创建其下的 Agent 布局目录。
+	// 项目为已登记路径)不存在时返回 FailedPrecondition,Library 从不创建根目录,只创建其下的 Agent 目录。
 	Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) error
 	// Uninstall 撤销直接安装;若仍有组安装撑着该安装项,安装项保留。
 	Uninstall(ctx context.Context, id SkillID, scope Scope) error
@@ -734,7 +734,7 @@ type Library interface {
 	UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) error
 	// ListGroupInstalls 列出全部组安装,按 Group、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
 	ListGroupInstalls(ctx context.Context) ([]GroupInstall, error)
-	// ListInstallations 列出全部安装项:Scope 身份、按现行布局派生的目录及撑着各安装项的安装。
+	// ListInstallations 列出全部安装项:Scope 身份、Resolve 出的 Agent 目录及撑着各安装项的安装。
 	ListInstallations(ctx context.Context) ([]Installation, error)
 	// InspectInstallations 对照磁盘给出 filter 范围内每个安装项的状态;不给条件时巡检整库。只读:不改库、
 	// 不改磁盘、不创建目录。结果顺序与 ListInstallations 相同,每条内嵌完整 Installation,是整库巡检结果的
@@ -743,7 +743,7 @@ type Library interface {
 	// Reinstall 把 filter 范围内已有记录的安装项改回技能的当前版本,不改变撑着它们的安装,
 	// Installation.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重新安装整库。
 	// 逐条执行、逐条返回结果(顺序同 ListInstallations):已是当前版本的不写盘;stale 原子替换;missing /
-	// directory_missing 重新创建(可建 Agent 布局目录,作用域根目录不存在时该条失败且不创建任何目录);
+	// directory_missing 重新创建(可建 Agent 目录,作用域根目录不存在时该条失败且不创建任何目录);
 	// 被手动改过的默认该条失败,opts.OnConflict 为 Overwrite 时覆盖。每条各自原子、单独持独占锁,
 	// 一条失败不影响其他条。组安装时被跳过的成员没有安装项记录,不在结果里(补齐用 InstallGroup)。
 	// 整体取消时返回已完成的各条与 Canceled 错误,未执行的不出现在结果里。

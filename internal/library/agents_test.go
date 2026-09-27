@@ -40,7 +40,7 @@ func TestListAgentsReturnsSeededCodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 含稳定代码与展示名称:结构体里没有布局规则,也没有绝对目录。
+	// 含稳定代码与展示名称:结构体里没有 Agent 目录。
 	want := seededAgents()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListAgents() = %#v, want %#v", got, want)

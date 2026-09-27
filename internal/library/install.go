@@ -80,7 +80,7 @@ func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scop
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	root, directory, err := l.scopeLocation(ctx, row)
+	root, directory, err := l.scopeDirectory(ctx, row)
 	if err != nil {
 		return resolvedScope{}, err
 	}

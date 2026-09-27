@@ -437,7 +437,7 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 }
 
 // 作用域根目录(项目为已登记路径)不在本机时 Library 不创建它:Install / InstallGroup 报 FailedPrecondition,
-// 不写盘、不留记录、不记组安装;加入成员跳过该 Scope,成员关系照加。根目录存在而 Agent 布局目录不存在时照常创建。
+// 不写盘、不留记录、不记组安装;加入成员跳过该 Scope,成员关系照加。根目录存在而 Agent 目录不存在时照常创建。
 func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -456,7 +456,7 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 根目录存在、.claude/skills 还不存在:组安装照常创建布局目录。
+	// 根目录存在、.claude/skills 还不存在:组安装照常创建 Agent 目录。
 	for _, target := range []library.Scope{global, scope} {
 		if _, err := lib.InstallGroup(ctx, g.ID, target, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
@@ -535,8 +535,8 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 			}
 			return link, real
 		},
-		// 主目录里的 Agent 布局目录经符号链接指向项目的同一布局目录(常见于 dotfiles 仓库)。
-		"layout is a symlink": func(t *testing.T, real string) (string, string) {
+		// 主目录里的 Agent 目录经符号链接指向项目里的 Agent 目录(常见于 dotfiles 仓库)。
+		"agent directory is a symlink": func(t *testing.T, real string) (string, string) {
 			home := t.TempDir()
 			if err := os.MkdirAll(filepath.Join(real, ".agents"), 0o755); err != nil {
 				t.Fatal(err)
