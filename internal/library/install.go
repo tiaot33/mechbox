@@ -93,51 +93,51 @@ type rowQuerier interface {
 
 const groupCoverageSQL = `EXISTS (
 	SELECT 1 FROM group_installs ga JOIN skill_groups sg ON sg.group_id = ga.group_id
-	WHERE sg.skill_id = installations.skill_id AND ga.agent = installations.agent
-		AND ga.project_id IS installations.project_id)`
+	WHERE sg.skill_id = skill_scopes.skill_id AND ga.agent = skill_scopes.agent
+		AND ga.project_id IS skill_scopes.project_id)`
 
-type installationRow struct {
+type skillScopeRow struct {
 	id     int64
 	direct bool
 }
 
-func findInstallation(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*installationRow, error) {
-	var row installationRow
-	err := q.QueryRowContext(ctx, `SELECT id, direct FROM installations WHERE skill_id = ? AND agent = ? AND project_id IS ?`, id, scope.agent, scope.projectID).Scan(&row.id, &row.direct)
+func findSkillScope(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (*skillScopeRow, error) {
+	var row skillScopeRow
+	err := q.QueryRowContext(ctx, `SELECT id, direct FROM skill_scopes WHERE skill_id = ? AND agent = ? AND project_id IS ?`, id, scope.agent, scope.projectID).Scan(&row.id, &row.direct)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("find installation: %w", err)
+		return nil, fmt.Errorf("find skill scope: %w", err)
 	}
 	return &row, nil
 }
 
-func dropUnbackedInstallation(ctx context.Context, tx *sql.Tx, installationID int64) (bool, error) {
-	result, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, installationID)
+func uninstallMember(ctx context.Context, tx *sql.Tx, skillScopeID int64) (bool, error) {
+	result, err := tx.ExecContext(ctx, `DELETE FROM skill_scopes WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, skillScopeID)
 	if err != nil {
-		return false, fmt.Errorf("remove installation: %w", err)
+		return false, fmt.Errorf("remove skill scope: %w", err)
 	}
 	removed, err := result.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("remove installation: %w", err)
+		return false, fmt.Errorf("remove skill scope: %w", err)
 	}
 	return removed > 0, nil
 }
 
-func keepUnbackedInstallation(ctx context.Context, tx *sql.Tx, installationID int64) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE installations SET direct = 1 WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, installationID); err != nil {
-		return fmt.Errorf("keep installation as direct install: %w", err)
+func keepAsDirectInstall(ctx context.Context, tx *sql.Tx, skillScopeID int64) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE skill_scopes SET direct = 1 WHERE id = ? AND direct = 0 AND NOT `+groupCoverageSQL, skillScopeID); err != nil {
+		return fmt.Errorf("keep skill scope as direct install: %w", err)
 	}
 	return nil
 }
 
-type installationTrash struct {
+type folderTrash struct {
 	targets []string
 	trashed []struct{ trash, target string }
 }
 
-func (t *installationTrash) commit(ctx context.Context, tx *sql.Tx, operation string) error {
+func (t *folderTrash) commit(ctx context.Context, tx *sql.Tx, operation string) error {
 	if err := t.trash(ctx); err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (t *installationTrash) commit(ctx context.Context, tx *sql.Tx, operation st
 	return nil
 }
 
-func (t *installationTrash) trash(ctx context.Context) error {
+func (t *folderTrash) trash(ctx context.Context) error {
 	for _, path := range t.targets {
 		if err := ctx.Err(); err != nil {
 			return errors.Join(err, t.restore())
@@ -162,14 +162,14 @@ func (t *installationTrash) trash(ctx context.Context) error {
 		if err := os.Rename(path, staged); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
-			return errors.Join(fmt.Errorf("remove installation folder: %w", err), t.restore())
+			return errors.Join(fmt.Errorf("remove skill folder: %w", err), t.restore())
 		}
 		t.trashed = append(t.trashed, struct{ trash, target string }{staged, path})
 	}
 	return nil
 }
 
-func (t *installationTrash) restore() error {
+func (t *folderTrash) restore() error {
 	var restoreErr error
 	for _, entry := range t.trashed {
 		restoreErr = errors.Join(restoreErr, os.Rename(entry.trash, entry.target))
@@ -185,7 +185,7 @@ type claimant struct {
 
 func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name string, target resolvedScope) (*claimant, error) {
 	rows, err := l.db.QueryContext(ctx, `
-		SELECT p.skill_id, s.name, p.agent, p.project_id FROM installations p
+		SELECT p.skill_id, s.name, p.agent, p.project_id FROM skill_scopes p
 		JOIN skills s ON s.id = p.skill_id
 		WHERE s.name = ? ORDER BY p.skill_id <> ?`, name, id)
 	if err != nil {
@@ -236,7 +236,7 @@ func (l *sqliteLibrary) placementConflict(ctx context.Context, operation string,
 			return existsError(operation, "target already exists", ErrorDetails{Path: path}), nil
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect installation target: %w", err)
+		return nil, fmt.Errorf("inspect target folder: %w", err)
 	}
 	return nil, nil
 }
@@ -305,7 +305,7 @@ func memberNameCounts(members []SkillSummary) map[string]int {
 
 func (l *sqliteLibrary) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
 	plan := InstallPlan{SkillID: id, Name: name, Directory: scope.directory, Target: filepath.Join(scope.directory, name), Status: InstallReady}
-	existing, err := findInstallation(ctx, l.db, id, scope.scopeRow)
+	existing, err := findSkillScope(ctx, l.db, id, scope.scopeRow)
 	if err != nil {
 		return plan, err
 	}
@@ -326,7 +326,7 @@ func (l *sqliteLibrary) planInstall(ctx context.Context, id SkillID, name string
 	if _, err := os.Lstat(plan.Target); err == nil {
 		plan.Status = InstallUntracked
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return plan, fmt.Errorf("inspect installation target: %w", err)
+		return plan, fmt.Errorf("inspect target folder: %w", err)
 	}
 	return plan, nil
 }
@@ -349,12 +349,12 @@ func (l *sqliteLibrary) Install(ctx context.Context, id SkillID, scope Scope, op
 	if err := target.requireRoot("install skill"); err != nil {
 		return err
 	}
-	existing, err := findInstallation(ctx, l.db, id, target.scopeRow)
+	existing, err := findSkillScope(ctx, l.db, id, target.scopeRow)
 	if err != nil {
 		return err
 	}
 	if existing != nil {
-		if _, err := l.db.ExecContext(ctx, `UPDATE installations SET direct = 1 WHERE id = ?`, existing.id); err != nil {
+		if _, err := l.db.ExecContext(ctx, `UPDATE skill_scopes SET direct = 1 WHERE id = ?`, existing.id); err != nil {
 			return fmt.Errorf("record direct install: %w", err)
 		}
 		return nil
@@ -368,7 +368,7 @@ func (l *sqliteLibrary) Install(ctx context.Context, id SkillID, scope Scope, op
 	}
 	placements := []*placement{{skill: skill, scope: target}}
 	return l.place(ctx, placements, func(tx *sql.Tx) error {
-		return recordInstallationTx(ctx, tx, skill.ID, target.scopeRow, true, clockNow())
+		return recordSkillScopeTx(ctx, tx, skill.ID, target.scopeRow, true, clockNow())
 	})
 }
 
@@ -400,7 +400,7 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 		return restoreErr
 	}
 	for _, item := range placements {
-		if err := item.scope.requireRoot("place installation"); err != nil {
+		if err := item.scope.requireRoot("place skill folder"); err != nil {
 			return err
 		}
 	}
@@ -433,14 +433,14 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 	if record != nil {
 		tx, err := l.db.BeginTx(ctx, nil)
 		if err != nil {
-			return errors.Join(fmt.Errorf("begin installation record: %w", err), rollback())
+			return errors.Join(fmt.Errorf("begin skill scope record: %w", err), rollback())
 		}
 		defer tx.Rollback()
 		if err := record(tx); err != nil {
 			return errors.Join(err, rollback())
 		}
 		if err := tx.Commit(); err != nil {
-			return errors.Join(fmt.Errorf("commit installation record: %w", err), rollback())
+			return errors.Join(fmt.Errorf("commit skill scope record: %w", err), rollback())
 		}
 	}
 	for _, item := range placements {
@@ -454,7 +454,7 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 func stageSkill(directory string, skill Skill) (string, error) {
 	stage, err := os.MkdirTemp(directory, "."+skill.Name+"-")
 	if err != nil {
-		return "", fmt.Errorf("stage installation: %w", err)
+		return "", fmt.Errorf("stage skill folder: %w", err)
 	}
 	for _, file := range skill.Files {
 		if !filepath.IsLocal(file.Path) {
@@ -464,7 +464,7 @@ func stageSkill(directory string, skill Skill) (string, error) {
 		path := filepath.Join(stage, filepath.FromSlash(file.Path))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			_ = os.RemoveAll(stage)
-			return "", fmt.Errorf("create installation directory: %w", err)
+			return "", fmt.Errorf("create skill folder: %w", err)
 		}
 		mode := os.FileMode(0o644)
 		if file.Mode == ModeExecutable {
@@ -472,7 +472,7 @@ func stageSkill(directory string, skill Skill) (string, error) {
 		}
 		if err := os.WriteFile(path, file.Content, mode); err != nil {
 			_ = os.RemoveAll(stage)
-			return "", fmt.Errorf("write installation file: %w", err)
+			return "", fmt.Errorf("write skill file: %w", err)
 		}
 	}
 	return stage, nil
@@ -482,24 +482,24 @@ func moveStageIntoPlace(stage, target string) (backup string, err error) {
 	if _, err := os.Lstat(target); err == nil {
 		backup = stage + ".old"
 		if err := os.Rename(target, backup); err != nil {
-			return "", fmt.Errorf("replace installation: %w", err)
+			return "", fmt.Errorf("replace skill folder: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect installation target: %w", err)
+		return "", fmt.Errorf("inspect target folder: %w", err)
 	}
 	if err := os.Rename(stage, target); err != nil {
 		if backup != "" {
 			_ = os.Rename(backup, target)
 		}
-		return "", fmt.Errorf("place installation: %w", err)
+		return "", fmt.Errorf("place skill folder: %w", err)
 	}
 	return backup, nil
 }
 
-func recordInstallationTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, direct bool, createdAt time.Time) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO installations(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
+func recordSkillScopeTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, direct bool, createdAt time.Time) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, scope.agent, scope.projectID, direct, formatStoredTime(createdAt)); err != nil {
-		return fmt.Errorf("record installation: %w", err)
+		return fmt.Errorf("record skill scope: %w", err)
 	}
 	return nil
 }
@@ -520,7 +520,7 @@ func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) 
 	if err != nil {
 		return err
 	}
-	existing, err := findInstallation(ctx, l.db, id, target.scopeRow)
+	existing, err := findSkillScope(ctx, l.db, id, target.scopeRow)
 	if err != nil {
 		return err
 	}
@@ -532,7 +532,7 @@ func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) 
 		if err != nil {
 			return err
 		}
-		return preconditionError("uninstall skill", "installation is only backed by a group", ErrorDetails{Name: name})
+		return preconditionError("uninstall skill", "skill is only installed here by a group install", ErrorDetails{Name: name})
 	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
@@ -543,14 +543,14 @@ func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) 
 		return fmt.Errorf("begin uninstall: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE installations SET direct = 0 WHERE id = ?`, existing.id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE skill_scopes SET direct = 0 WHERE id = ?`, existing.id); err != nil {
 		return fmt.Errorf("remove direct install: %w", err)
 	}
-	removed, err := dropUnbackedInstallation(ctx, tx, existing.id)
+	removed, err := uninstallMember(ctx, tx, existing.id)
 	if err != nil {
 		return err
 	}
-	var trash installationTrash
+	var trash folderTrash
 	if removed {
 		trash.targets = []string{filepath.Join(target.directory, skill.Name)}
 	}
@@ -585,7 +585,7 @@ func newMemberPlan(operation string, opts InstallOptions) *memberPlan {
 
 func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
-	existing, err := findInstallation(ctx, l.db, id, target.scopeRow)
+	existing, err := findSkillScope(ctx, l.db, id, target.scopeRow)
 	if err != nil {
 		return err
 	}
@@ -627,7 +627,7 @@ func (l *sqliteLibrary) applyMemberPlan(ctx context.Context, plan *memberPlan, r
 			return err
 		}
 		for _, item := range plan.placements {
-			if err := recordInstallationTx(ctx, tx, item.skill.ID, item.scope.scopeRow, false, now); err != nil {
+			if err := recordSkillScopeTx(ctx, tx, item.skill.ID, item.scope.scopeRow, false, now); err != nil {
 				return err
 			}
 		}
@@ -692,7 +692,7 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	if err != nil {
 		return fmt.Errorf("find group install: %w", err)
 	}
-	members, err := l.memberInstallations(ctx, groupID, 0, target.scopeRow)
+	members, err := l.memberSkillScopes(ctx, groupID, 0, target.scopeRow)
 	if err != nil {
 		return err
 	}
@@ -704,9 +704,9 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE id = ?`, groupInstallID); err != nil {
 		return fmt.Errorf("remove group install: %w", err)
 	}
-	var trash installationTrash
+	var trash folderTrash
 	for _, member := range members {
-		removed, err := dropUnbackedInstallation(ctx, tx, member.id)
+		removed, err := uninstallMember(ctx, tx, member.id)
 		if err != nil {
 			return err
 		}
@@ -717,15 +717,15 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	return trash.commit(ctx, tx, "group uninstall")
 }
 
-type memberInstallation struct {
+type memberSkillScope struct {
 	id   int64
 	name string
 	scopeRow
 }
 
-func (l *sqliteLibrary) memberInstallations(ctx context.Context, groupID GroupID, skillID SkillID, scope scopeRow) ([]memberInstallation, error) {
+func (l *sqliteLibrary) memberSkillScopes(ctx context.Context, groupID GroupID, skillID SkillID, scope scopeRow) ([]memberSkillScope, error) {
 	rows, err := l.db.QueryContext(ctx, `
-		SELECT p.id, s.name, p.agent, p.project_id FROM installations p
+		SELECT p.id, s.name, p.agent, p.project_id FROM skill_scopes p
 		JOIN skills s ON s.id = p.skill_id
 		JOIN skill_groups sg ON sg.skill_id = p.skill_id AND sg.group_id = ?
 		JOIN group_installs ga ON ga.group_id = sg.group_id AND ga.agent = p.agent AND ga.project_id IS p.project_id
@@ -733,19 +733,19 @@ func (l *sqliteLibrary) memberInstallations(ctx context.Context, groupID GroupID
 		ORDER BY p.skill_id, p.agent, p.project_id`,
 		groupID, skillID, skillID, scope.agent, scope.agent, scope.projectID)
 	if err != nil {
-		return nil, fmt.Errorf("list member installations: %w", err)
+		return nil, fmt.Errorf("list member skill scopes: %w", err)
 	}
-	var members []memberInstallation
+	var members []memberSkillScope
 	for rows.Next() {
-		var member memberInstallation
+		var member memberSkillScope
 		if err := rows.Scan(&member.id, &member.name, &member.agent, &member.projectID); err != nil {
 			_ = rows.Close()
-			return nil, fmt.Errorf("read member installation: %w", err)
+			return nil, fmt.Errorf("read member skill scope: %w", err)
 		}
 		members = append(members, member)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, fmt.Errorf("read member installations: %w", err)
+		return nil, fmt.Errorf("read member skill scopes: %w", err)
 	}
 	return members, nil
 }
@@ -806,57 +806,57 @@ func randomName(prefix string) (string, error) {
 	return prefix + hex.EncodeToString(buffer), nil
 }
 
-func (l *sqliteLibrary) ListInstallations(ctx context.Context) (installations []Installation, err error) {
+func (l *sqliteLibrary) ListSkillScopes(ctx context.Context) (skillScopes []SkillScope, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	return l.listInstallations(ctx, 0, nil)
+	return l.listSkillScopes(ctx, 0, nil)
 }
 
-func (l *sqliteLibrary) listInstallations(ctx context.Context, skillID SkillID, scope *scopeRow) (installations []Installation, err error) {
+func (l *sqliteLibrary) listSkillScopes(ctx context.Context, skillID SkillID, scope *scopeRow) (skillScopes []SkillScope, err error) {
 	var filter scopeRow
 	if scope != nil {
 		filter = *scope
 	}
-	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM installations
+	rows, err := l.db.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM skill_scopes
 		WHERE (? = 0 OR skill_id = ?) AND (? = '' OR (agent = ? AND project_id IS ?))
 		ORDER BY skill_id, agent, project_id`,
 		skillID, skillID, filter.agent, filter.agent, filter.projectID)
 	if err != nil {
-		return nil, fmt.Errorf("list installations: %w", err)
+		return nil, fmt.Errorf("list skill scopes: %w", err)
 	}
 	defer rows.Close()
 	var scopes []scopeRow
 	for rows.Next() {
 		var (
-			installation Installation
-			row          scopeRow
-			createdAt    string
+			skillScope SkillScope
+			row        scopeRow
+			createdAt  string
 		)
-		if err := rows.Scan(&installation.SkillID, &row.agent, &row.projectID, &installation.Direct, &createdAt); err != nil {
-			return nil, fmt.Errorf("read installation: %w", err)
+		if err := rows.Scan(&skillScope.SkillID, &row.agent, &row.projectID, &skillScope.Direct, &createdAt); err != nil {
+			return nil, fmt.Errorf("read skill scope: %w", err)
 		}
-		if installation.CreatedAt, err = parseStoredTime(createdAt); err != nil {
-			return nil, fmt.Errorf("read installation: %w", err)
+		if skillScope.CreatedAt, err = parseStoredTime(createdAt); err != nil {
+			return nil, fmt.Errorf("read skill scope: %w", err)
 		}
-		installation.Scope = row.scope()
+		skillScope.Scope = row.scope()
 		scopes = append(scopes, row)
-		installations = append(installations, installation)
+		skillScopes = append(skillScopes, skillScope)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read installations: %w", err)
+		return nil, fmt.Errorf("read skill scopes: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("close installations: %w", err)
+		return nil, fmt.Errorf("close skill scopes: %w", err)
 	}
-	for i := range installations {
-		if installations[i].Directory, err = l.Resolve(ctx, installations[i].Scope); err != nil {
+	for i := range skillScopes {
+		if skillScopes[i].Directory, err = l.Resolve(ctx, skillScopes[i].Scope); err != nil {
 			return nil, err
 		}
 		rows, err := l.db.QueryContext(ctx, `
 			SELECT ga.group_id FROM group_installs ga JOIN skill_groups sg ON sg.group_id = ga.group_id
 			WHERE sg.skill_id = ? AND ga.agent = ? AND ga.project_id IS ? ORDER BY ga.group_id`,
-			installations[i].SkillID, scopes[i].agent, scopes[i].projectID)
+			skillScopes[i].SkillID, scopes[i].agent, scopes[i].projectID)
 		if err != nil {
 			return nil, fmt.Errorf("list covering groups: %w", err)
 		}
@@ -866,16 +866,16 @@ func (l *sqliteLibrary) listInstallations(ctx context.Context, skillID SkillID, 
 				_ = rows.Close()
 				return nil, fmt.Errorf("read covering group: %w", err)
 			}
-			installations[i].Groups = append(installations[i].Groups, id)
+			skillScopes[i].Groups = append(skillScopes[i].Groups, id)
 		}
 		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return nil, fmt.Errorf("read covering groups: %w", err)
 		}
 	}
-	return installations, nil
+	return skillScopes, nil
 }
 
-func (l *sqliteLibrary) filteredInstallations(ctx context.Context, operation string, filter InstallationFilter) ([]Installation, error) {
+func (l *sqliteLibrary) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	var scope *scopeRow
@@ -891,52 +891,52 @@ func (l *sqliteLibrary) filteredInstallations(ctx context.Context, operation str
 			return nil, err
 		}
 	}
-	return l.listInstallations(ctx, filter.SkillID, scope)
+	return l.listSkillScopes(ctx, filter.SkillID, scope)
 }
 
-func (l *sqliteLibrary) InspectInstallations(ctx context.Context, filter InstallationFilter) (inspections []InstallationInspection, err error) {
+func (l *sqliteLibrary) InspectSkillScopes(ctx context.Context, filter SkillScopeFilter) (inspections []SkillScopeInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	installations, err := l.filteredInstallations(ctx, "inspect installations", filter)
+	skillScopes, err := l.filteredSkillScopes(ctx, "inspect skill scopes", filter)
 	if err != nil {
 		return nil, err
 	}
-	inspections = []InstallationInspection{}
-	for _, installation := range installations {
-		status, err := l.inspectInstallation(ctx, installation)
+	inspections = []SkillScopeInspection{}
+	for _, skillScope := range skillScopes {
+		status, err := l.inspectSkillScope(ctx, skillScope)
 		if err != nil {
 			return nil, err
 		}
-		inspections = append(inspections, InstallationInspection{Installation: installation, Status: status})
+		inspections = append(inspections, SkillScopeInspection{SkillScope: skillScope, Status: status})
 	}
 	return inspections, nil
 }
 
-func (l *sqliteLibrary) inspectInstallation(ctx context.Context, installation Installation) (InstallationStatus, error) {
+func (l *sqliteLibrary) inspectSkillScope(ctx context.Context, skillScope SkillScope) (SkillScopeStatus, error) {
 	var name string
 	var currentVersionID int64
-	if err := l.db.QueryRowContext(ctx, `SELECT name, current_version_id FROM skills WHERE id = ?`, installation.SkillID).Scan(&name, &currentVersionID); err != nil {
-		return "", fmt.Errorf("inspect installation: %w", err)
+	if err := l.db.QueryRowContext(ctx, `SELECT name, current_version_id FROM skills WHERE id = ?`, skillScope.SkillID).Scan(&name, &currentVersionID); err != nil {
+		return "", fmt.Errorf("inspect skill scope: %w", err)
 	}
 
-	if _, err := os.Lstat(installation.Directory); errors.Is(err, os.ErrNotExist) {
-		return InstallationDirectoryMissing, nil
+	if _, err := os.Lstat(skillScope.Directory); errors.Is(err, os.ErrNotExist) {
+		return SkillScopeDirectoryMissing, nil
 	} else if err != nil {
-		return "", fmt.Errorf("inspect installation directory: %w", err)
+		return "", fmt.Errorf("inspect agent directory: %w", err)
 	}
 
-	target := filepath.Join(installation.Directory, name)
+	target := filepath.Join(skillScope.Directory, name)
 	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
-		return InstallationMissing, nil
+		return SkillScopeMissing, nil
 	} else if err != nil {
-		return "", fmt.Errorf("inspect installation target: %w", err)
+		return "", fmt.Errorf("inspect target folder: %w", err)
 	}
 
 	disk, err := hashFiles(ctx, target)
 	if err != nil {
 		if errors.Is(err, errIrregularFile) {
-			return InstallationModified, nil
+			return SkillScopeModified, nil
 		}
 		return "", err
 	}
@@ -946,10 +946,10 @@ func (l *sqliteLibrary) inspectInstallation(ctx context.Context, installation In
 		return "", err
 	}
 	if maps.Equal(disk, current) {
-		return InstallationCurrent, nil
+		return SkillScopeCurrent, nil
 	}
 
-	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? AND id != ? ORDER BY id DESC`, installation.SkillID, currentVersionID)
+	rows, err := l.db.QueryContext(ctx, `SELECT id FROM skill_versions WHERE skill_id = ? AND id != ? ORDER BY id DESC`, skillScope.SkillID, currentVersionID)
 	if err != nil {
 		return "", fmt.Errorf("list skill versions: %w", err)
 	}
@@ -971,10 +971,10 @@ func (l *sqliteLibrary) inspectInstallation(ctx context.Context, installation In
 			return "", err
 		}
 		if maps.Equal(disk, files) {
-			return InstallationStale, nil
+			return SkillScopeStale, nil
 		}
 	}
-	return InstallationModified, nil
+	return SkillScopeModified, nil
 }
 
 func (l *sqliteLibrary) versionFingerprints(ctx context.Context, versionID int64) (map[string]fileMeta, error) {

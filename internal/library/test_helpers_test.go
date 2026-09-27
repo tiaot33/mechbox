@@ -186,9 +186,9 @@ func summaryIDs(skills []library.SkillSummary) []library.SkillID {
 	return ids
 }
 
-// withoutCreatedAt 去掉安装项建立时间,供不关心时间戳的既有 DeepEqual 断言使用。
-func withoutCreatedAt(installations []library.Installation) []library.Installation {
-	out := append([]library.Installation(nil), installations...)
+// withoutCreatedAt 去掉首次安装时间,供不关心时间戳的既有 DeepEqual 断言使用。
+func withoutCreatedAt(skillScopes []library.SkillScope) []library.SkillScope {
+	out := append([]library.SkillScope(nil), skillScopes...)
 	for i := range out {
 		out[i].CreatedAt = time.Time{}
 	}
@@ -321,14 +321,14 @@ func fetchLocalSkill(t *testing.T, lib library.Library, name, body string) (libr
 	return skill, source
 }
 
-// listInstallations 读出全部安装项,失败即终止测试。
-func listInstallations(t *testing.T, lib library.Library) []library.Installation {
+// listSkillScopes 读出全部 SkillScope,失败即终止测试。
+func listSkillScopes(t *testing.T, lib library.Library) []library.SkillScope {
 	t.Helper()
-	installations, err := lib.ListInstallations(t.Context())
+	skillScopes, err := lib.ListSkillScopes(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return installations
+	return skillScopes
 }
 
 // requireNoStagedEntries 断言 Scope 目录下没有以 "." 开头的暂存残留(安装暂存或删除暂存)。
@@ -357,8 +357,8 @@ func makeScopeReadOnly(t *testing.T, directory string) {
 	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
 }
 
-// requireInstallation 断言 directory 下 name 文件夹的 SKILL.md 正文。
-func requireInstallation(t *testing.T, directory, name, body string) {
+// requireInstalledFolder 断言 directory 下 name 文件夹的 SKILL.md 正文。
+func requireInstalledFolder(t *testing.T, directory, name, body string) {
 	t.Helper()
 	requireSkillFile(t, directory, name, skillDocument(name, body))
 }
@@ -368,7 +368,7 @@ func requireSkillFile(t *testing.T, directory, name, want string) {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
 	if err != nil || string(content) != want {
-		t.Fatalf("installation %s/SKILL.md = %q, %v; want %q", name, content, err, want)
+		t.Fatalf("skill scope %s/SKILL.md = %q, %v; want %q", name, content, err, want)
 	}
 }
 

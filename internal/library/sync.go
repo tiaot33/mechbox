@@ -29,7 +29,7 @@ type s3Config struct {
 	pathStyle                                                         bool
 }
 
-const pullInstallationWarning = "agent 目录里的安装项未随本次 pull 重建,可能与新库不一致"
+const pullFolderWarning = "agent 目录里已安装的技能文件夹未随本次 pull 重建,可能与新库不一致"
 
 func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
@@ -57,7 +57,7 @@ func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err er
 	if !schemaOK {
 		plan.Warnings = append(plan.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
 	}
-	plan.Warnings = append(plan.Warnings, pullInstallationWarning)
+	plan.Warnings = append(plan.Warnings, pullFolderWarning)
 	return plan, nil
 }
 
@@ -120,7 +120,7 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	if err := backupDatabase(ctx, l.db, check); err != nil {
 		return SyncResult{}, err
 	}
-	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullInstallationWarning}}, nil
+	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullFolderWarning}}, nil
 }
 
 func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {

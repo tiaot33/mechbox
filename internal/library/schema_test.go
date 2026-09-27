@@ -10,7 +10,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// Open 只补缺失的 Agent 行、不覆盖已有 Agent 目录;已按身份记录的安装项记录在重开后按 agents 表重新算出目录,
+// Open 只补缺失的 Agent 行、不覆盖已有 Agent 目录;已按身份记录的 SkillScope 在重开后按 agents 表重新算出目录,
 // 并可继续按身份安装。
 func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	home := t.TempDir()
@@ -51,7 +51,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
 	`)
 	// 目录按 agents 表算出:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
-	want := []library.Installation{
+	want := []library.SkillScope{
 		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Direct: true},
 		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Direct: true},
 		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".agents", "skills"), Direct: true},
@@ -62,12 +62,12 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
-		got, err := reopened.ListInstallations(ctx)
+		got, err := reopened.ListSkillScopes(ctx)
 		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
-			t.Fatalf("ListInstallations after Open = %#v, %v; want %#v", got, err, want)
+			t.Fatalf("ListSkillScopes after Open = %#v, %v; want %#v", got, err, want)
 		}
-		for _, installation := range want {
-			if err := reopened.Install(ctx, skill.ID, installation.Scope, library.InstallOptions{}); err != nil {
+		for _, skillScope := range want {
+			if err := reopened.Install(ctx, skill.ID, skillScope.Scope, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -78,7 +78,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 }
 
 func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
-	for _, index := range []string{"installations_global_scope", "installations_project_scope", "group_installs_global_scope", "group_installs_project_scope"} {
+	for _, index := range []string{"skill_scopes_global_scope", "skill_scopes_project_scope", "group_installs_global_scope", "group_installs_project_scope"} {
 		t.Run(index, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "library.db")
 			lib, err := library.Open(path)

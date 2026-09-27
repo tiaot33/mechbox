@@ -108,7 +108,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 	}
 }
 
-func TestGroupLifecycleKeepsSkillsAndInstallations(t *testing.T) {
+func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -166,32 +166,32 @@ func TestGroupLifecycleKeepsSkillsAndInstallations(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("DeleteGroup removed installation folder: %v", err)
+		t.Fatalf("DeleteGroup removed installed folder: %v", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("DeleteGroup removed skill: %v", err)
 	}
-	installations, err := lib.ListInstallations(ctx)
-	wantInstallations := []library.Installation{
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	wantSkillScopes := []library.SkillScope{
 		{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{second.ID}},
 		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Direct: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), wantInstallations) {
-		t.Fatalf("installations after DeleteGroup = %#v, %v; want %#v", installations, err, wantInstallations)
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), wantSkillScopes) {
+		t.Fatalf("skill scopes after DeleteGroup = %#v, %v; want %#v", skillScopes, err, wantSkillScopes)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
-		t.Fatalf("DeleteGroup removed group-only installation folder: %v", err)
+		t.Fatalf("DeleteGroup removed group-only installed folder: %v", err)
 	}
-	// 删组转为直接安装后,仍可按 Remove 策略连同安装项一起移除。
-	if err := lib.RemoveSkill(ctx, groupOnly.ID, library.RemoveSkillOptions{Installations: library.Remove}); err != nil {
+	// 删组转为直接安装后,仍可按 Remove 策略连同技能文件夹一起移除。
+	if err := lib.RemoveSkill(ctx, groupOnly.ID, library.RemoveSkillOptions{Folders: library.Remove}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("RemoveSkill(Remove) left installation: %v", err)
+		t.Fatalf("RemoveSkill(Remove) left skill scope: %v", err)
 	}
-	installations, err = lib.ListInstallations(ctx)
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), wantInstallations[:1]) {
-		t.Fatalf("installations after RemoveSkill = %#v, %v; want %#v", installations, err, wantInstallations[:1])
+	skillScopes, err = lib.ListSkillScopes(ctx)
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), wantSkillScopes[:1]) {
+		t.Fatalf("skill scopes after RemoveSkill = %#v, %v; want %#v", skillScopes, err, wantSkillScopes[:1])
 	}
 	groups, err = lib.ListGroups(ctx)
 	if err != nil || !reflect.DeepEqual(groups, []library.Group{second}) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-func (l *sqliteLibrary) Reinstall(ctx context.Context, filter InstallationFilter, opts ReinstallOptions) (results []ReinstallResult, err error) {
+func (l *sqliteLibrary) Reinstall(ctx context.Context, filter SkillScopeFilter, opts ReinstallOptions) (results []ReinstallResult, err error) {
 	defer func() { err = typedError(err) }()
 	const operation = "reinstall"
 	if err := validateConflictPolicy(operation, opts.OnConflict); err != nil {
@@ -18,17 +18,17 @@ func (l *sqliteLibrary) Reinstall(ctx context.Context, filter InstallationFilter
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	installations, err := l.filteredInstallations(ctx, operation, filter)
+	skillScopes, err := l.filteredSkillScopes(ctx, operation, filter)
 	if err != nil {
 		return nil, err
 	}
 	results = []ReinstallResult{}
-	for _, installation := range installations {
+	for _, skillScope := range skillScopes {
 		if err := ctx.Err(); err != nil {
 			return results, err
 		}
-		result := ReinstallResult{SkillID: installation.SkillID, Scope: installation.Scope}
-		outcome, itemErr := l.reinstallOne(ctx, operation, installation, opts.OnConflict)
+		result := ReinstallResult{SkillID: skillScope.SkillID, Scope: skillScope.Scope}
+		outcome, itemErr := l.reinstallOne(ctx, operation, skillScope, opts.OnConflict)
 		if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
 			return results, ctx.Err()
 		}
@@ -42,37 +42,37 @@ func (l *sqliteLibrary) Reinstall(ctx context.Context, filter InstallationFilter
 	return results, nil
 }
 
-func (l *sqliteLibrary) reinstallOne(ctx context.Context, operation string, installation Installation, policy ConflictPolicy) (ReinstallOutcome, error) {
+func (l *sqliteLibrary) reinstallOne(ctx context.Context, operation string, skillScope SkillScope, policy ConflictPolicy) (ReinstallOutcome, error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	target, err := l.resolveScope(ctx, operation, installation.Scope)
+	target, err := l.resolveScope(ctx, operation, skillScope.Scope)
 	if err != nil {
 		return "", err
 	}
-	existing, err := findInstallation(ctx, l.db, installation.SkillID, target.scopeRow)
+	existing, err := findSkillScope(ctx, l.db, skillScope.SkillID, target.scopeRow)
 	if err != nil {
 		return "", err
 	}
 	if existing == nil {
-		return "", &Error{Code: NotFound, Message: operation + ": installation no longer exists"}
+		return "", &Error{Code: NotFound, Message: operation + ": skill scope no longer exists"}
 	}
-	skill, _, err := l.getSkill(ctx, installation.SkillID)
+	skill, _, err := l.getSkill(ctx, skillScope.SkillID)
 	if err != nil {
 		return "", err
 	}
 	if err := target.requireRoot(operation); err != nil {
 		return "", err
 	}
-	status, err := l.inspectInstallation(ctx, Installation{SkillID: skill.ID, Directory: target.directory})
+	status, err := l.inspectSkillScope(ctx, SkillScope{SkillID: skill.ID, Directory: target.directory})
 	if err != nil {
 		return "", err
 	}
 	switch status {
-	case InstallationCurrent:
+	case SkillScopeCurrent:
 		return ReinstallCurrent, nil
-	case InstallationModified:
+	case SkillScopeModified:
 		if policy != Overwrite {
-			return "", preconditionError(operation, "installation was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
+			return "", preconditionError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
 		}
 	}
 	if err := l.place(ctx, []*placement{{skill: skill, scope: target}}, nil); err != nil {

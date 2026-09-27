@@ -36,8 +36,8 @@ func TestScopeJSONRoundTrip(t *testing.T) {
 	}
 }
 
-// ListInstallations 读出的 Scope 经 JSON 往返后仍能原样传回 Uninstall。
-func TestInstallationScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
+// ListSkillScopes 读出的 Scope 经 JSON 往返后仍能原样传回 Uninstall。
+func TestSkillScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -49,23 +49,23 @@ func TestInstallationScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 	if err := lib.Install(ctx, skill.ID, library.ProjectScope(library.AgentCodex, project.ID), library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	installations, err := lib.ListInstallations(ctx)
-	if err != nil || len(installations) != 1 {
-		t.Fatalf("ListInstallations() = %#v, %v; want one installation", installations, err)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	if err != nil || len(skillScopes) != 1 {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want one skill scope", skillScopes, err)
 	}
-	encoded, err := json.Marshal(installations[0])
+	encoded, err := json.Marshal(skillScopes[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded library.Installation
+	var decoded library.SkillScope
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Uninstall(ctx, decoded.SkillID, decoded.Scope); err != nil {
 		t.Fatalf("Uninstall(decoded scope %#v) = %v", decoded.Scope, err)
 	}
-	if installations, err := lib.ListInstallations(ctx); err != nil || len(installations) != 0 {
-		t.Fatalf("ListInstallations() after Uninstall = %#v, %v; want none", installations, err)
+	if skillScopes, err := lib.ListSkillScopes(ctx); err != nil || len(skillScopes) != 0 {
+		t.Fatalf("ListSkillScopes() after Uninstall = %#v, %v; want none", skillScopes, err)
 	}
 }
 

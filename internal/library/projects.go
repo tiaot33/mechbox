@@ -101,28 +101,28 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateInstallationsPolicy("unregister project", opts.Installations); err != nil {
+	if err := validateFolderPolicy("unregister project", opts.Folders); err != nil {
 		return err
 	}
 	var path string
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
-	var trash installationTrash
-	if opts.Installations != Keep {
-		installations, err := l.ListInstallations(ctx)
+	var trash folderTrash
+	if opts.Folders != Keep {
+		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
 			return err
 		}
-		for _, installation := range installations {
-			if installation.Scope.Kind != ScopeProject || installation.Scope.ProjectID != id {
+		for _, skillScope := range skillScopes {
+			if skillScope.Scope.Kind != ScopeProject || skillScope.Scope.ProjectID != id {
 				continue
 			}
-			skill, err := l.GetSkill(ctx, installation.SkillID)
+			skill, err := l.GetSkill(ctx, skillScope.SkillID)
 			if err != nil {
 				return err
 			}
-			trash.targets = append(trash.targets, filepath.Join(installation.Directory, skill.Name))
+			trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
 		}
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -130,8 +130,8 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		return fmt.Errorf("begin unregister project: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project installations: %w", err)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_scopes WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project skill scopes: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE project_id = ?`, id); err != nil {
 		return fmt.Errorf("remove project group installs: %w", err)

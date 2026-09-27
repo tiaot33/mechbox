@@ -36,20 +36,20 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 	}
 	target := filepath.Join(directory, skill.Name)
 	if _, err := os.Stat(filepath.Join(target, "SKILL.md")); err != nil {
-		t.Fatalf("project installation missing: %v", err)
+		t.Fatalf("project skill scope missing: %v", err)
 	}
-	installations, err := lib.ListInstallations(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.Installation{{
+	want := []library.SkillScope{{
 		SkillID:   skill.ID,
 		Scope:     scope,
 		Directory: directory,
 		Direct:    true,
 	}}
-	if !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() = %#v, want %#v", installations, want)
+	if !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() = %#v, want %#v", skillScopes, want)
 	}
 
 	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
@@ -61,15 +61,15 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("Uninstall removed library skill: %v", err)
 	}
-	if installations, err := lib.ListInstallations(ctx); err != nil || len(installations) != 0 {
-		t.Fatalf("ListInstallations() after uninstall = %#v, %v", installations, err)
+	if skillScopes, err := lib.ListSkillScopes(ctx); err != nil || len(skillScopes) != 0 {
+		t.Fatalf("ListSkillScopes() after uninstall = %#v, %v", skillScopes, err)
 	}
 	if err := lib.Uninstall(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Uninstall() not-installed skill error = %v, want NotFound", err)
 	}
 }
 
-// 整组安装在身份路径上仍是原子的:某成员目标被外来文件夹占用时整组拒绝,不留半组安装项。
+// 整组安装在身份路径上仍是原子的:某成员目标被外来文件夹占用时整组拒绝,不留装了一半的组。
 // 项目 Scope 上有未记录文件夹的成员被跳过,其余成员照常安装,组安装照常成立。
 func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 	ctx := t.Context()
@@ -102,17 +102,17 @@ func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 		{SkillID: first.ID, Scope: scope, Outcome: library.MemberInstalled},
 		skippedMember(second.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(directory, second.Name)}),
 	})
-	requireInstallation(t, directory, first.Name, "# first\n")
+	requireInstalledFolder(t, directory, first.Name, "# first\n")
 	if _, err := os.Stat(filepath.Join(directory, second.Name, "manual.txt")); err != nil {
 		t.Fatalf("conflicting directory changed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, second.Name, "SKILL.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("skipped member was installed: %v", err)
 	}
-	installations, err := lib.ListInstallations(ctx)
-	want := []library.Installation{{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{group.ID}}}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() = %#v, %v; want %#v", installations, err, want)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	want := []library.SkillScope{{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{group.ID}}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
 	installs, err := lib.ListGroupInstalls(ctx)
 	if want := []library.GroupInstall{{GroupID: group.ID, Scope: scope}}; err != nil || !reflect.DeepEqual(withoutGroupCreatedAt(installs), want) {
@@ -120,8 +120,8 @@ func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 	}
 }
 
-// 同一 skill 可同时占用两个 Agent 的全局 Scope,以及同一 Agent 的全局与项目 Scope:各是一个安装项。
-func TestIdentityScopesOfOneSkillAreIndependentInstallations(t *testing.T) {
+// 同一 skill 可同时占用两个 Agent 的全局 Scope,以及同一 Agent 的全局与项目 Scope:各是一个 SkillScope。
+func TestIdentityScopesOfOneSkillAreIndependentSkillScopes(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -140,9 +140,9 @@ func TestIdentityScopesOfOneSkillAreIndependentInstallations(t *testing.T) {
 			t.Fatalf("Install(%#v) = %v", scope, err)
 		}
 	}
-	installations, err := lib.ListInstallations(ctx)
-	if err != nil || len(installations) != len(scopes) {
-		t.Fatalf("ListInstallations() = %#v, %v; want %d installations", installations, err, len(scopes))
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	if err != nil || len(skillScopes) != len(scopes) {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want %d skill scopes", skillScopes, err, len(scopes))
 	}
 	for _, scope := range scopes {
 		directory, err := lib.Resolve(ctx, scope)
@@ -150,26 +150,26 @@ func TestIdentityScopesOfOneSkillAreIndependentInstallations(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-			t.Fatalf("installation for %#v missing: %v", scope, err)
+			t.Fatalf("skill scope for %#v missing: %v", scope, err)
 		}
 	}
 	// 撤销其中一条不影响其余两条。
 	if err := lib.Uninstall(ctx, skill.ID, scopes[0]); err != nil {
 		t.Fatal(err)
 	}
-	installations, err = lib.ListInstallations(ctx)
-	if err != nil || len(installations) != 2 {
-		t.Fatalf("ListInstallations() after one Uninstall = %#v, %v; want 2", installations, err)
+	skillScopes, err = lib.ListSkillScopes(ctx)
+	if err != nil || len(skillScopes) != 2 {
+		t.Fatalf("ListSkillScopes() after one Uninstall = %#v, %v; want 2", skillScopes, err)
 	}
-	for _, installation := range installations {
-		if installation.Scope == scopes[0] {
-			t.Fatalf("uninstalled scope still listed: %#v", installation)
+	for _, skillScope := range skillScopes {
+		if skillScope.Scope == scopes[0] {
+			t.Fatalf("uninstalled scope still listed: %#v", skillScope)
 		}
 	}
 }
 
 // 两个不同身份的 Scope 解析到同一目录(把 $HOME 本身登记为项目)时,第二次安装不能悄悄改写
-// 第一个安装项的身份:得到 AlreadyExists,原记录与磁盘保持原样。
+// 第一个 SkillScope 的身份:得到 AlreadyExists,原记录与磁盘保持原样。
 func TestInstallDoesNotOverwriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	ctx := t.Context()
 	// RegisterProject 会解析符号链接(macOS 的 /var → /private/var),HOME 先取规范路径以便两边一致。
@@ -201,17 +201,17 @@ func TestInstallDoesNotOverwriteAnotherScopeSharingTheDirectory(t *testing.T) {
 		err := lib.Install(ctx, skill.ID, projectScope, opts)
 		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: directory})
 	}
-	installations, err := lib.ListInstallations(ctx)
-	want := []library.Installation{{SkillID: skill.ID, Scope: global, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() = %#v, %v; want %#v", installations, err, want)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	want := []library.SkillScope{{SkillID: skill.ID, Scope: global, Directory: directory, Direct: true}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("global installation lost: %v", err)
+		t.Fatalf("global skill scope lost: %v", err)
 	}
 }
 
-// 两个身份争同一实际目录时,并发 Install 也不能绕过占用保护:最多一条记录,磁盘上的安装项仍在。
+// 两个身份争同一实际目录时,并发 Install 也不能绕过占用保护:最多一条记录,磁盘上的技能文件夹仍在。
 func TestInstallSerializesSharedDirectoryClaims(t *testing.T) {
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())
@@ -240,19 +240,19 @@ func TestInstallSerializesSharedDirectoryClaims(t *testing.T) {
 	}
 	close(start)
 	calls.Wait()
-	installations, err := lib.ListInstallations(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(installations) != 1 {
-		t.Fatalf("ListInstallations() = %#v, install errors=%v; want exactly one claim", installations, results)
+	if len(skillScopes) != 1 {
+		t.Fatalf("ListSkillScopes() = %#v, install errors=%v; want exactly one claim", skillScopes, results)
 	}
-	directory, err := lib.Resolve(ctx, installations[0].Scope)
+	directory, err := lib.Resolve(ctx, skillScopes[0].Scope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("surviving installation missing: %v", err)
+		t.Fatalf("surviving skill scope missing: %v", err)
 	}
 	var accepted, rejected int
 	for _, err := range results {
@@ -292,12 +292,12 @@ func TestInstallRejectsNameClaimedByAnotherSkill(t *testing.T) {
 		err := lib.Install(ctx, second.ID, scope, opts)
 		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID})
 	}
-	installations, err := lib.ListInstallations(ctx)
-	want := []library.Installation{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() = %#v, %v; want %#v", installations, err, want)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	want := []library.SkillScope{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
-	requireInstallation(t, directory, "commit", "# A\n")
+	requireInstalledFolder(t, directory, "commit", "# A\n")
 
 	// 换用 B 的正确路径:先撤 A,再安装 B。
 	if err := lib.Uninstall(ctx, first.ID, scope); err != nil {
@@ -306,15 +306,15 @@ func TestInstallRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	if err := lib.Install(ctx, second.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInstallation(t, directory, "commit", "# B\n")
-	installations, err = lib.ListInstallations(ctx)
-	want = []library.Installation{{SkillID: second.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() after switch = %#v, %v; want %#v", installations, err, want)
+	requireInstalledFolder(t, directory, "commit", "# B\n")
+	skillScopes, err = lib.ListSkillScopes(ctx)
+	want = []library.SkillScope{{SkillID: second.ID, Scope: scope, Directory: directory, Direct: true}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() after switch = %#v, %v; want %#v", skillScopes, err, want)
 	}
 }
 
-// 占用者只由组安装撑着(无直接安装)时同样受保护;另一组向该 Scope 安装时只跳过被占名字的成员,
+// 占用者只由组安装留着(无直接安装)时同样受保护;另一组向该 Scope 安装时只跳过被占名字的成员,
 // 其他成员照常安装。占用者撤走后再次安装该组即可补齐。
 func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 	ctx := t.Context()
@@ -357,15 +357,15 @@ func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 		skippedMember(second.ID, scope, library.FailedPrecondition, library.ErrorDetails{Path: target, Name: "commit", SkillID: first.ID}),
 		{SkillID: bystander.ID, Scope: scope, Outcome: library.MemberInstalled},
 	})
-	requireInstallation(t, directory, "bystander", "# bystander\n")
-	requireInstallation(t, directory, "commit", "# A\n")
-	installations, err := lib.ListInstallations(ctx)
-	want := []library.Installation{
+	requireInstalledFolder(t, directory, "bystander", "# bystander\n")
+	requireInstalledFolder(t, directory, "commit", "# A\n")
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	want := []library.SkillScope{
 		{SkillID: first.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{firstGroup.ID}},
 		{SkillID: bystander.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{secondGroup.ID}},
 	}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() = %#v, %v; want %#v", installations, err, want)
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
 
 	if err := lib.UninstallGroup(ctx, firstGroup.ID, scope); err != nil {
@@ -376,7 +376,7 @@ func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 		{SkillID: second.ID, Scope: scope, Outcome: library.MemberInstalled},
 		{SkillID: bystander.ID, Scope: scope, Outcome: library.MemberAlreadyInstalled},
 	})
-	requireInstallation(t, directory, "commit", "# B\n")
+	requireInstalledFolder(t, directory, "commit", "# B\n")
 }
 
 // 占用以实际目录为准:A 在全局 Scope,把 $HOME 登记为项目后向项目 Scope 安装同名的 B 同样被拒;
@@ -416,15 +416,15 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireInstallation(t, directory, "commit", "# A\n")
-	requireInstallation(t, otherDirectory, "commit", "# B\n")
-	installations, err := lib.ListInstallations(ctx)
-	want := []library.Installation{
+	requireInstalledFolder(t, directory, "commit", "# A\n")
+	requireInstalledFolder(t, otherDirectory, "commit", "# B\n")
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	want := []library.SkillScope{
 		{SkillID: first.ID, Scope: global, Directory: directory, Direct: true},
 		{SkillID: second.ID, Scope: otherAgent, Directory: otherDirectory, Direct: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
-		t.Fatalf("ListInstallations() = %#v, %v; want %#v", installations, err, want)
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
+		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
 
 	if err := os.RemoveAll(filepath.Join(directory, "commit")); err != nil {

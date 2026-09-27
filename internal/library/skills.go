@@ -350,22 +350,22 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateInstallationsPolicy("remove skill", opts.Installations); err != nil {
+	if err := validateFolderPolicy("remove skill", opts.Folders); err != nil {
 		return err
 	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
 	}
-	var trash installationTrash
-	if opts.Installations != Keep {
-		installations, err := l.ListInstallations(ctx)
+	var trash folderTrash
+	if opts.Folders != Keep {
+		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
 			return err
 		}
-		for _, installation := range installations {
-			if installation.SkillID == id {
-				trash.targets = append(trash.targets, filepath.Join(installation.Directory, skill.Name))
+		for _, skillScope := range skillScopes {
+			if skillScope.SkillID == id {
+				trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
 			}
 		}
 	}
@@ -376,7 +376,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	defer tx.Rollback()
 	statements := []string{
-		`DELETE FROM installations WHERE skill_id = ?`,
+		`DELETE FROM skill_scopes WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,

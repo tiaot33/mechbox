@@ -155,7 +155,7 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	covered, err := l.memberInstallations(ctx, id, 0, scopeRow{})
+	covered, err := l.memberSkillScopes(ctx, id, 0, scopeRow{})
 	if err != nil {
 		return err
 	}
@@ -170,8 +170,8 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group members: %w", err)
 	}
-	for _, installation := range covered {
-		if err := keepUnbackedInstallation(ctx, tx, installation.id); err != nil {
+	for _, skillScope := range covered {
+		if err := keepAsDirectInstall(ctx, tx, skillScope.id); err != nil {
 			return err
 		}
 	}
@@ -244,24 +244,24 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateMemberRemoval("remove skill from group", opts.UnbackedInstallations); err != nil {
+	if err := validateMemberRemoval("remove skill from group", opts.IfNoOtherInstall); err != nil {
 		return err
 	}
 	var exists int
 	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID).Scan(&exists); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	installations, err := l.memberInstallations(ctx, groupID, skillID, scopeRow{})
+	skillScopes, err := l.memberSkillScopes(ctx, groupID, skillID, scopeRow{})
 	if err != nil {
 		return err
 	}
-	targets := make([]string, len(installations))
-	for i, installation := range installations {
-		directory, err := l.Resolve(ctx, installation.scope())
+	targets := make([]string, len(skillScopes))
+	for i, skillScope := range skillScopes {
+		directory, err := l.Resolve(ctx, skillScope.scope())
 		if err != nil {
 			return err
 		}
-		targets[i] = filepath.Join(directory, installation.name)
+		targets[i] = filepath.Join(directory, skillScope.name)
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -271,10 +271,10 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	var trash installationTrash
-	for i, installation := range installations {
-		if opts.UnbackedInstallations == WithdrawInstallation {
-			removed, err := dropUnbackedInstallation(ctx, tx, installation.id)
+	var trash folderTrash
+	for i, skillScope := range skillScopes {
+		if opts.IfNoOtherInstall == UninstallMember {
+			removed, err := uninstallMember(ctx, tx, skillScope.id)
 			if err != nil {
 				return err
 			}
@@ -283,7 +283,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 			}
 			continue
 		}
-		if err := keepUnbackedInstallation(ctx, tx, installation.id); err != nil {
+		if err := keepAsDirectInstall(ctx, tx, skillScope.id); err != nil {
 			return err
 		}
 	}

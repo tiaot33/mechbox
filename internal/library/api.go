@@ -35,8 +35,8 @@ const (
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组安装撑着的安装项单独卸载;同一入库预览句柄的入库正在进行;
-	// 重新安装被手动改过的安装项而未选 Overwrite)。
+	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;对只由组安装留着的技能单独卸载;同一入库预览句柄的入库正在进行;
+	// 重新安装被手动改过的文件夹而未选 Overwrite)。
 	// 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
 	// 加入成员时根目录不存在也是如此。重新安装时逐条的这类失败放进 ReinstallResult.Error。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
@@ -78,7 +78,7 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径;NotFound:skill 当前版本里不存在的文件路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、撑着安装项的 Group 名或被占用的安装项名
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目;FailedPrecondition:根目录不存在的项目
 }
@@ -268,7 +268,7 @@ type SkillSummary struct {
 	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
 }
 
-// UpdateResult 描述 Library 的更新结果;已有安装项不会自动重新安装。
+// UpdateResult 描述 Library 的更新结果;已安装的文件夹不会自动重新安装。
 type UpdateResult struct {
 	Skill   Skill `json:"skill"`
 	Changed bool  `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
@@ -364,10 +364,10 @@ const (
 	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
 )
 
-// Scope 是安装项所在的层级身份,不含路径(见 ADR 0005)。该 Agent 在此作用域的目录
+// Scope 是技能安装所在的层级身份,不含路径(见 ADR 0005)。该 Agent 在此作用域的目录
 // 由 Library 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
 // 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
-// ListInstallations 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
+// ListSkillScopes 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
 // 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
 type Scope struct {
 	Kind      ScopeKind `json:"kind"`
@@ -386,14 +386,14 @@ func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
 }
 
 // ConflictPolicy 决定目标里有不是 Library 写入的内容时的处理方式:安装时是无记录的外来文件夹,
-// 重新安装时是被手动改过(modified)的安装项。安装目标已被另一个安装项占用(同一 skill 的另一 Scope,
-// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一个安装项,
+// 重新安装时是被手动改过(modified)的文件夹。目标文件夹已被另一个 SkillScope 占用(同一 skill 的另一 Scope,
+// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一个 SkillScope,
 // 需先 Uninstall 占用者。
 type ConflictPolicy string
 
 const (
 	Fail      ConflictPolicy = "fail"      // 安装返回 AlreadyExists;重新安装该条 FailedPrecondition(默认)
-	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的安装项
+	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的文件夹
 )
 
 type InstallOptions struct {
@@ -405,9 +405,9 @@ type InstallPlanStatus string
 
 const (
 	InstallReady            InstallPlanStatus = "ready"             // 目标不存在
-	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 本技能在本作用域已有安装项
-	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个安装项占用目标
-	InstallUntracked        InstallPlanStatus = "untracked"         // 目标存在但没有安装项记录
+	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 本技能已安装在本作用域
+	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个 SkillScope 占用目标文件夹
+	InstallUntracked        InstallPlanStatus = "untracked"         // 目标文件夹存在但 Library 没有记录
 	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:与组内其他成员同名且尚未安装,组安装时会被跳过;优先于 occupied / untracked / ready
 )
 
@@ -423,23 +423,23 @@ type InstallPlan struct {
 }
 
 // GroupInstallPlan 按组成员顺序报告各自状态。同名成员里尚未安装的标为 duplicate,组安装时会被跳过;
-// 已有安装项的那个仍是 installed,照常只补组安装。DuplicateNames 列出组内重复的名字。
+// 已安装的那个仍是 installed,照常只补组安装。DuplicateNames 列出组内重复的名字。
 type GroupInstallPlan struct {
 	Members        []InstallPlan `json:"members"`
 	DuplicateNames []string      `json:"duplicate_names,omitempty"`
 }
 
-// Installation 是一个安装项:skill 放进某个 Scope 目录里的文件夹,以及 Library 对它的记录。
-// 至少有一个安装(直接安装或组安装)撑着就存在,最后一个撤掉时移除。
+// SkillScope 是某个技能安装在某个 Scope:该 Scope 目录里的技能文件夹,以及 Library 对它的记录。
+// 只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
 // 记录只存 Scope 身份;Directory 是列表时 Resolve 出的 Agent 目录,
-// 不是 Install 的输入(Install 也不接受目录)。对照磁盘的安装项状态由 InspectInstallations 给出。
-type Installation struct {
+// 不是 Install 的输入(Install 也不接受目录)。对照磁盘的状态由 InspectSkillScopes 给出。
+type SkillScope struct {
 	SkillID   SkillID   `json:"skill_id"`
 	Scope     Scope     `json:"scope"`
 	Directory string    `json:"directory"`
-	Direct    bool      `json:"direct"`              // 有直接安装撑着
+	Direct    bool      `json:"direct"`              // 有直接安装留着它
 	Groups    []GroupID `json:"groups,omitempty"`    // 覆盖它的组安装所属的 Group:该 skill 是成员且组已安装到此 Scope,按 ID 升序
-	CreatedAt time.Time `json:"created_at,omitzero"` // 安装项建立(首次安装)的时间。再次安装不更新
+	CreatedAt time.Time `json:"created_at,omitzero"` // 首次安装到此 Scope 的时间。再次安装不更新
 }
 
 // GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0006)。
@@ -454,13 +454,13 @@ type GroupInstall struct {
 type GroupMemberOutcome string
 
 const (
-	MemberInstalled        GroupMemberOutcome = "installed"         // 新建了安装项
-	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已有安装项,只补上组安装,不写盘
+	MemberInstalled        GroupMemberOutcome = "installed"         // 新装到此 Scope
+	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已安装在此 Scope,只补上组安装,不写盘
 	MemberSkipped          GroupMemberOutcome = "skipped"           // 冲突跳过,原因见 Error;成员关系与组安装照常成立
 )
 
 // GroupMemberResult 是一个成员在一个 Scope 上的逐条结果,形状参考 UpdateCheck。
-// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一个安装项占用(Details.SkillID / Name / Path)
+// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一个 SkillScope 占用(Details.SkillID / Name / Path)
 // 、组内同名(Details.Name 与共同的目标 Path)或作用域根目录不存在(仅加入成员;Details.Path 为根目录,项目带 ProjectID),
 // AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
 type GroupMemberResult struct {
@@ -470,21 +470,21 @@ type GroupMemberResult struct {
 	Error   *Error             `json:"error,omitempty"`
 }
 
-// InstallationFilter 按技能、作用域缩小安装项范围,两个条件都可选、可组合;供 Reinstall 与
-// InspectInstallations 共用。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选。
+// SkillScopeFilter 按技能、作用域缩小 SkillScope 范围,两个条件都可选、可组合;供 Reinstall 与
+// InspectSkillScopes 共用。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选。
 // 未知技能、未知 Agent 或未登记项目返回 NotFound,Scope 组合不合法返回 InvalidArgument;
-// 已知但没有安装项时是空结果。结果顺序与 ListInstallations 一致。
-type InstallationFilter struct {
+// 已知但没有安装时是空结果。结果顺序与 ListSkillScopes 一致。
+type SkillScopeFilter struct {
 	SkillID SkillID `json:"skill_id,omitzero"`
 	Scope   *Scope  `json:"scope,omitempty"`
 }
 
-// ReinstallOptions 控制重新安装。OnConflict 决定被手动改过(modified)的安装项:默认 Fail 该条失败,Overwrite 覆盖。
+// ReinstallOptions 控制重新安装。OnConflict 决定被手动改过(modified)的文件夹:默认 Fail 该条失败,Overwrite 覆盖。
 type ReinstallOptions struct {
 	OnConflict ConflictPolicy `json:"on_conflict"`
 }
 
-// ReinstallOutcome 是重新安装时一个安装项的结果。
+// ReinstallOutcome 是重新安装时一个 SkillScope 的结果。
 type ReinstallOutcome string
 
 const (
@@ -493,9 +493,9 @@ const (
 	ReinstallFailed  ReinstallOutcome = "failed"      // 未重新安装,原因见 Error;磁盘保持原样
 )
 
-// ReinstallResult 是一个安装项的重新安装结果,形状与 GroupMemberResult 对齐。Error 仅在 ReinstallFailed 时非空:
-// FailedPrecondition 为被手动改过且未选 Overwrite(Details.Path 为安装项路径),或作用域根目录不存在
-// (Details.Path 为根目录,项目带 ProjectID);NotFound 为执行到该条时安装项已不存在;其余为 I/O 等故障。
+// ReinstallResult 是一个 SkillScope 的重新安装结果,形状与 GroupMemberResult 对齐。Error 仅在 ReinstallFailed 时非空:
+// FailedPrecondition 为被手动改过且未选 Overwrite(Details.Path 为技能文件夹路径),或作用域根目录不存在
+// (Details.Path 为根目录,项目带 ProjectID);NotFound 为执行到该条时该技能已不在此 Scope;其余为 I/O 等故障。
 type ReinstallResult struct {
 	SkillID SkillID          `json:"skill_id"`
 	Scope   Scope            `json:"scope"`
@@ -503,53 +503,53 @@ type ReinstallResult struct {
 	Error   *Error           `json:"error,omitempty"`
 }
 
-// InstallationStatus 是一个安装项对照磁盘后的状态。判定按此顺序,前一条命中即停:
+// SkillScopeStatus 是一个 SkillScope 对照磁盘后的状态。判定按此顺序,前一条命中即停:
 // Scope 目录不存在 → directory_missing;目标文件夹不存在 → missing;
 // 磁盘文件集 == 当前版本 → current;磁盘文件集 == 某个非当前版本(按 id 倒序) → stale;
 // 否则 modified(含非常规文件或空目录以外的异常)。
-type InstallationStatus string
+type SkillScopeStatus string
 
 const (
-	InstallationCurrent          InstallationStatus = "current"           // 磁盘文件集 == 当前版本
-	InstallationStale            InstallationStatus = "stale"             // 磁盘文件集 == 某个非当前版本
-	InstallationModified         InstallationStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
-	InstallationMissing          InstallationStatus = "missing"           // Scope 目录存在,目标文件夹不存在
-	InstallationDirectoryMissing InstallationStatus = "directory_missing" // Scope 目录本身不存在
+	SkillScopeCurrent          SkillScopeStatus = "current"           // 磁盘文件集 == 当前版本
+	SkillScopeStale            SkillScopeStatus = "stale"             // 磁盘文件集 == 某个非当前版本
+	SkillScopeModified         SkillScopeStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
+	SkillScopeMissing          SkillScopeStatus = "missing"           // Scope 目录存在,目标文件夹不存在
+	SkillScopeDirectoryMissing SkillScopeStatus = "directory_missing" // Scope 目录本身不存在
 )
 
-// InstallationInspection 是一个安装项及其对照磁盘后的状态。
-type InstallationInspection struct {
-	Installation
-	Status InstallationStatus `json:"status"`
+// SkillScopeInspection 是一个 SkillScope 及其对照磁盘后的状态。
+type SkillScopeInspection struct {
+	SkillScope
+	Status SkillScopeStatus `json:"status"`
 }
 
-// InstallationsPolicy 决定移除 skill 或注销项目时,磁盘上的安装项文件夹如何处理。
-type InstallationsPolicy string
+// FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
+type FolderPolicy string
 
 const (
-	Keep   InstallationsPolicy = "keep"   // 保留磁盘上的安装项文件夹,只删除数据库记录;必须显式选择
-	Remove InstallationsPolicy = "remove" // 连同磁盘上的安装项文件夹一起删除(默认,空字符串同义)
+	Keep   FolderPolicy = "keep"   // 保留磁盘上的技能文件夹,只删除数据库记录;必须显式选择
+	Remove FolderPolicy = "remove" // 连同磁盘上的技能文件夹一起删除(默认,空字符串同义)
 )
 
 type RemoveSkillOptions struct {
-	Installations InstallationsPolicy `json:"installations"` // 默认删除安装项文件夹,只有显式 Keep 保留
+	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
 }
 
 type UnregisterProjectOptions struct {
-	Installations InstallationsPolicy `json:"installations"` // 默认删除安装项文件夹,只有显式 Keep 保留
+	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
 }
 
-// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组安装的安装项如何处理。与 InstallationsPolicy
-// 含义与默认值都不同:只影响因移出而没有任何安装撑着的安装项,默认保留。
+// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
+// 含义与默认值都不同:只影响因移出而没有直接安装或组安装留着的技能,默认保留。
 type MemberRemovalPolicy string
 
 const (
-	KeepAsDirectInstall  MemberRemovalPolicy = "keep"     // 改为直接安装,磁盘不动(默认,空字符串同义)
-	WithdrawInstallation MemberRemovalPolicy = "withdraw" // 不补直接安装,连同磁盘上的文件夹一起移除
+	KeepAsDirectInstall MemberRemovalPolicy = "keep"      // 改为直接安装,磁盘不动(默认,空字符串同义)
+	UninstallMember     MemberRemovalPolicy = "uninstall" // 不补直接安装,连同磁盘上的文件夹一起移除
 )
 
 type RemoveFromGroupOptions struct {
-	UnbackedInstallations MemberRemovalPolicy `json:"unbacked_installations"` // 只管移出后没有任何安装撑着的安装项;默认 KeepAsDirectInstall
+	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管移出后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
 }
 
 // RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
@@ -566,7 +566,7 @@ type SyncPlan struct {
 }
 
 // SyncResult 是 Sync 推/拉成功后的结果:操作后的远端身份 + 可能的警告。
-// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘上的安装项可能与新库不一致)。
+// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘上已安装的文件夹可能与新库不一致)。
 type SyncResult struct {
 	Remote   RemoteIdentity `json:"remote"`
 	Warnings []string       `json:"warnings,omitempty"`
@@ -610,7 +610,7 @@ type Library interface {
 	// 库里的技能
 	//
 	// 本接口里单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,
-	// 入库预览里的是 Candidate,装出去的是 Installation。
+	// 入库预览里的是 Candidate,装出去的是 SkillScope。
 
 	// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
 	ListSkills(ctx context.Context) ([]SkillSummary, error)
@@ -622,7 +622,7 @@ type Library interface {
 	// 技能不存在返回 NotFound(Details.SkillID),路径不存在返回 NotFound(Details.Path);
 	// 与 ListSkillFiles 分别读取各自调用时的当前版本。
 	GetSkillFile(ctx context.Context, id SkillID, path string) (File, error)
-	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上安装项文件夹的去留。
+	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上技能文件夹的去留。
 	RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) error
 
 	// 更新
@@ -633,7 +633,7 @@ type Library interface {
 	// URL 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
 	// GitHub 无 SHA 的旧记录、本地来源以及 URL 的完整响应,比较文件内容与可执行位。
 	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
-	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或安装项。
+	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或安装。
 	// 保存前复核当前版本和确认时间;版本变化或期间确认了不同结论返回 Conflict,被移除返回 NotFound。
 	// 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
 	// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
@@ -644,7 +644,7 @@ type Library interface {
 	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
 	// URL 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
 	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地目录重新发现候选后比较文件。
-	// 只更新 Library,不重新安装已有安装项。
+	// 只更新 Library,不重新安装已安装的文件夹。
 	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
 	// (Details.SkillID),两者都不留下任何写入。
 	// 成功后已有 LastUpdateCheck 改为 current 并刷新确认时间;失败保留原记录,从未检查的仍为 nil。
@@ -671,17 +671,17 @@ type Library interface {
 	// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
 	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
 	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
-	// DeleteGroup 删除分组及其全部组安装。非破坏性:仅由该组安装撑着的安装项会先转为直接安装,
-	// 磁盘上的安装项不会因删除分组而被移除。
+	// DeleteGroup 删除分组及其全部组安装。非破坏性:只由该组安装留着的技能会先转为直接安装,
+	// 磁盘上的技能文件夹不会因删除分组而被移除。
 	DeleteGroup(ctx context.Context, id GroupID) error
 	// AddSkillToGroup 加入成员,并安装到该组已安装到的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
-	// 某 Scope 已有该 skill 的安装项时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的
+	// 该 skill 已安装在某 Scope 时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的
 	// 成员同名或作用域根目录不存在时跳过该 Scope,成员关系照常成立。不带覆盖开关:要覆盖某个 Scope 的
 	// 未记录文件夹,先 PlanGroupInstall 再对该 Scope 调 InstallGroup(Overwrite)。已是成员返回 AlreadyExists。
 	// I/O 失败或取消时整次复原,连同成员关系。
 	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) ([]GroupMemberResult, error)
-	// RemoveSkillFromGroup 移出成员;该 skill 在本组已安装到的 Scope 上的安装项失去本组的组安装。
-	// 因此没有任何安装撑着的安装项按 opts 处理:keep 改为直接安装、磁盘不动;withdraw 连文件夹一起移除。
+	// RemoveSkillFromGroup 移出成员;该 skill 在本组已安装到的各 Scope 上失去本组的组安装。
+	// 因此没有直接安装或组安装留着的,按 opts 处理:keep 改为直接安装、磁盘不动;uninstall 连文件夹一起移除。
 	// 不是成员返回 NotFound。
 	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) error
 	// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
@@ -698,16 +698,16 @@ type Library interface {
 	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可安装的 ProjectScope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
 	ListRegisteredProjects(ctx context.Context) ([]RegisteredProject, error)
-	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部安装项记录与组安装;
-	// opts 决定磁盘上安装项文件夹的去留。
+	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部安装记录与组安装;
+	// opts 决定磁盘上技能文件夹的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
 	// Resolve 按 agents 表算出 Scope 对应的 Agent 目录:全局相对 Open 时的用户
-	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生安装项。
+	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生安装。
 	// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
 	// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
 	Resolve(ctx context.Context, scope Scope) (string, error)
 
-	// 安装与安装项
+	// 安装、卸载与重新安装
 	//
 	// 安装与安装计划方法都只接受 Scope 身份:Agent 目录由 Resolve 算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
@@ -715,39 +715,39 @@ type Library interface {
 	// PlanInstall 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
 	// 作用域根目录不存在时与 Install 一样返回 FailedPrecondition。
 	PlanInstall(ctx context.Context, id SkillID, scope Scope) (InstallPlan, error)
-	// Install 为 skill 在 Scope 记一个直接安装,并放入安装项;本技能在本作用域已有安装项时只补上直接安装,
+	// Install 为 skill 在 Scope 记一个直接安装,并放入技能文件夹;本技能已安装在本作用域时只补上直接安装,
 	// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重新安装)。作用域根目录(全局为用户主目录,
 	// 项目为已登记路径)不存在时返回 FailedPrecondition,Library 从不创建根目录,只创建其下的 Agent 目录。
 	Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) error
-	// Uninstall 撤销直接安装;若仍有组安装撑着该安装项,安装项保留。
+	// Uninstall 撤销直接安装;若仍有组安装留着它,技能仍安装在此 Scope。
 	Uninstall(ctx context.Context, id SkillID, scope Scope) error
 	// PlanGroupInstall 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
 	// 作用域根目录不存在时与 InstallGroup 一样返回 FailedPrecondition。
 	PlanGroupInstall(ctx context.Context, groupID GroupID, scope Scope) (GroupInstallPlan, error)
 	// InstallGroup 在 Scope 记一个组安装(空组也记;已有则不变),并按成员顺序逐条返回结果:能安装的都安装,
-	// 已有安装项的只补上组安装、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未安装(同名的都跳过)
+	// 已安装在此 Scope 的只补上组安装、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未安装(同名的都跳过)
 	// 的成员跳过,再次 InstallGroup 可补齐。作用域根目录不存在时同 Install 返回 FailedPrecondition,
 	// 不记组安装。其余失败(I/O、取消)时撤销本次全部改动,含组安装记录。
 	InstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts InstallOptions) ([]GroupMemberResult, error)
-	// UninstallGroup 删除该组在此 Scope 的组安装;不再有任何安装撑着的成员安装项会被移除,失败时恢复整组状态。
+	// UninstallGroup 删除该组在此 Scope 的组安装;不再有直接安装或组安装留着的成员会被卸载,失败时恢复整组状态。
 	// 该组未组安装到此 Scope 返回 NotFound。
 	UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) error
 	// ListGroupInstalls 列出全部组安装,按 Group、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
 	ListGroupInstalls(ctx context.Context) ([]GroupInstall, error)
-	// ListInstallations 列出全部安装项:Scope 身份、Resolve 出的 Agent 目录及撑着各安装项的安装。
-	ListInstallations(ctx context.Context) ([]Installation, error)
-	// InspectInstallations 对照磁盘给出 filter 范围内每个安装项的状态;不给条件时巡检整库。只读:不改库、
-	// 不改磁盘、不创建目录。结果顺序与 ListInstallations 相同,每条内嵌完整 Installation,是整库巡检结果的
-	// 子集且逐条一致。判定规则见 InstallationStatus,筛选规则见 InstallationFilter。
-	InspectInstallations(ctx context.Context, filter InstallationFilter) ([]InstallationInspection, error)
-	// Reinstall 把 filter 范围内已有记录的安装项改回技能的当前版本,不改变撑着它们的安装,
-	// Installation.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重新安装整库。
-	// 逐条执行、逐条返回结果(顺序同 ListInstallations):已是当前版本的不写盘;stale 原子替换;missing /
+	// ListSkillScopes 列出全部 SkillScope:Scope 身份、Resolve 出的 Agent 目录及留着它的直接安装与组安装。
+	ListSkillScopes(ctx context.Context) ([]SkillScope, error)
+	// InspectSkillScopes 对照磁盘给出 filter 范围内每个 SkillScope 的状态;不给条件时巡检整库。只读:不改库、
+	// 不改磁盘、不创建目录。结果顺序与 ListSkillScopes 相同,每条内嵌完整 SkillScope,是整库巡检结果的
+	// 子集且逐条一致。判定规则见 SkillScopeStatus,筛选规则见 SkillScopeFilter。
+	InspectSkillScopes(ctx context.Context, filter SkillScopeFilter) ([]SkillScopeInspection, error)
+	// Reinstall 把 filter 范围内已有记录的技能文件夹改回技能的当前版本,不改变留着它们的直接安装与组安装,
+	// SkillScope.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重新安装整库。
+	// 逐条执行、逐条返回结果(顺序同 ListSkillScopes):已是当前版本的不写盘;stale 原子替换;missing /
 	// directory_missing 重新创建(可建 Agent 目录,作用域根目录不存在时该条失败且不创建任何目录);
 	// 被手动改过的默认该条失败,opts.OnConflict 为 Overwrite 时覆盖。每条各自原子、单独持独占锁,
-	// 一条失败不影响其他条。组安装时被跳过的成员没有安装项记录,不在结果里(补齐用 InstallGroup)。
+	// 一条失败不影响其他条。组安装时被跳过的成员没有安装记录,不在结果里(补齐用 InstallGroup)。
 	// 整体取消时返回已完成的各条与 Canceled 错误,未执行的不出现在结果里。
-	Reinstall(ctx context.Context, filter InstallationFilter, opts ReinstallOptions) ([]ReinstallResult, error)
+	Reinstall(ctx context.Context, filter SkillScopeFilter, opts ReinstallOptions) ([]ReinstallResult, error)
 
 	// 同步
 
@@ -760,7 +760,7 @@ type Library interface {
 	SyncPush(ctx context.Context, expected RemoteIdentity) (SyncResult, error)
 	// SyncPull 从 S3 拉回整库并原子替换本地,替换前校验 schema 并重映射项目路径;
 	// expected 为同步计划里的远端身份,若远端已变则返回 Conflict。
-	// 不重建或清理磁盘上的安装项,结果可能带警告提示安装项相对新库已过时。
+	// 不重建或清理磁盘上已安装的文件夹,结果可能带警告提示它们可能与新库不一致。
 	SyncPull(ctx context.Context, expected RemoteIdentity) (SyncResult, error)
 
 	Close() error

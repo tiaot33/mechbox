@@ -51,7 +51,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutReadingFiles(t *testing.T
 	if err := lib.Install(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	installations, err := lib.ListInstallations(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,11 +175,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutReadingFiles(t *testing.T
 	}
 	content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
 	if err != nil || string(content) != skillDocument("first", "first body") {
-		t.Fatalf("installation overwritten: %q, %v", content, err)
+		t.Fatalf("skill scope overwritten: %q, %v", content, err)
 	}
-	after, err := lib.ListInstallations(ctx)
-	if err != nil || !reflect.DeepEqual(after, installations) {
-		t.Fatalf("installation records changed: %#v, %v", after, err)
+	after, err := lib.ListSkillScopes(ctx)
+	if err != nil || !reflect.DeepEqual(after, skillScopes) {
+		t.Fatalf("skill scope records changed: %#v, %v", after, err)
 	}
 }
 

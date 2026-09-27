@@ -83,7 +83,7 @@ func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 		if errors.Is(err, errIrregularFile) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("hash installation files: %w", err)
+		return nil, fmt.Errorf("hash installed files: %w", err)
 	}
 	return files, nil
 }

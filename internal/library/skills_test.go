@@ -120,7 +120,7 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 	}
 }
 
-func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
+func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -167,18 +167,18 @@ func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
 		t.Fatalf("ListSkills() before removals = %#v, %v", skills, err)
 	}
 
-	if err := lib.RemoveSkill(ctx, keepSkill.ID, library.RemoveSkillOptions{Installations: library.Keep}); err != nil {
+	if err := lib.RemoveSkill(ctx, keepSkill.ID, library.RemoveSkillOptions{Folders: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(keepDirectory, keepSkill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("explicit Keep removed installation folder: %v", err)
+		t.Fatalf("explicit Keep removed installed folder: %v", err)
 	}
 	writeFile(t, filepath.Join(removeDirectory, removeSkill.Name, "SKILL.md"), []byte("edited"), 0o644)
 	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(removeDirectory, removeSkill.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Remove left installation folder behind: %v", err)
+		t.Fatalf("Remove left installed folder behind: %v", err)
 	}
 	if _, err := os.Stat(untracked); err != nil {
 		t.Fatalf("Remove touched an untracked directory: %v", err)
@@ -191,12 +191,12 @@ func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
 	if len(skills) != 0 {
 		t.Fatalf("ListSkills() after removals = %#v", skills)
 	}
-	installations, err := lib.ListInstallations(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(installations) != 0 {
-		t.Fatalf("ListInstallations() after removals = %#v", installations)
+	if len(skillScopes) != 0 {
+		t.Fatalf("ListSkillScopes() after removals = %#v", skillScopes)
 	}
 	if err := lib.RemoveSkill(ctx, library.SkillID(9999), library.RemoveSkillOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("RemoveSkill() unknown skill error = %v", err)
@@ -206,8 +206,8 @@ func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
 	}
 }
 
-// RemoveSkill(Remove) 先删记录、把安装项改名暂存、提交后才真正删除:改名失败时库与磁盘都原样不动;
-// 安装项已被手动删掉时仍成功;成功后 Scope 目录下不留暂存残留。
+// RemoveSkill(Remove) 先删记录、把技能文件夹改名暂存、提交后才真正删除:改名失败时库与磁盘都原样不动;
+// 技能文件夹已被手动删掉时仍成功;成功后 Scope 目录下不留暂存残留。
 func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -224,13 +224,13 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	before, err := lib.ListInstallations(ctx)
+	before, err := lib.ListSkillScopes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	makeScopeReadOnly(t, directory)
-	err = lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{Installations: library.Remove})
+	err = lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{Folders: library.Remove})
 	requireLibraryError(t, err, library.Permission)
 	if err := os.Chmod(directory, 0o755); err != nil {
 		t.Fatal(err)
@@ -239,35 +239,35 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(summaryIDs(skills), []library.SkillID{missing.ID, present.ID}) {
 		t.Fatalf("failed Remove changed skills: %#v, %v", skills, err)
 	}
-	after, err := lib.ListInstallations(ctx)
+	after, err := lib.ListSkillScopes(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
-		t.Fatalf("failed Remove changed installations: %#v, %v; want %#v", after, err, before)
+		t.Fatalf("failed Remove changed skill scopes: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
 	if err != nil || string(content) != skillDocument("present", "# present\n") {
-		t.Fatalf("failed Remove changed installation: %q, %v", content, err)
+		t.Fatalf("failed Remove changed skill scope: %q, %v", content, err)
 	}
 	requireNoStagedEntries(t, directory)
 
 	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.RemoveSkill(ctx, missing.ID, library.RemoveSkillOptions{Installations: library.Remove}); err != nil {
-		t.Fatalf("Remove with manually deleted installation = %v", err)
+	if err := lib.RemoveSkill(ctx, missing.ID, library.RemoveSkillOptions{Folders: library.Remove}); err != nil {
+		t.Fatalf("Remove with manually deleted skill scope = %v", err)
 	}
-	if err := lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{Installations: library.Remove}); err != nil {
+	if err := lib.RemoveSkill(ctx, present.ID, library.RemoveSkillOptions{Folders: library.Remove}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Remove left installation folder behind: %v", err)
+		t.Fatalf("Remove left installed folder behind: %v", err)
 	}
 	skills, err = lib.ListSkills(ctx)
 	if err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills() after removals = %#v, %v", skills, err)
 	}
-	installations, err := lib.ListInstallations(ctx)
-	if err != nil || len(installations) != 0 {
-		t.Fatalf("ListInstallations() after removals = %#v, %v", installations, err)
+	skillScopes, err := lib.ListSkillScopes(ctx)
+	if err != nil || len(skillScopes) != 0 {
+		t.Fatalf("ListSkillScopes() after removals = %#v, %v", skillScopes, err)
 	}
 	requireNoStagedEntries(t, directory)
 }

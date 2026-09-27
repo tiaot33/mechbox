@@ -272,15 +272,15 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	if _, err := lib.InstallGroup(t.Context(), group.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.RemoveSkill(t.Context(), fetched[0].ID, library.RemoveSkillOptions{Installations: library.Keep}); err != nil {
+	if err := lib.RemoveSkill(t.Context(), fetched[0].ID, library.RemoveSkillOptions{Folders: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
-	installations, err := lib.ListInstallations(t.Context())
-	if err != nil || len(installations) != 0 {
-		t.Fatalf("installations after remote removal = %#v, %v; want none", installations, err)
+	skillScopes, err := lib.ListSkillScopes(t.Context())
+	if err != nil || len(skillScopes) != 0 {
+		t.Fatalf("skill scopes after remote removal = %#v, %v; want none", skillScopes, err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, fetched[0].Name, "SKILL.md")); err != nil {
-		t.Fatalf("explicit Keep removed remote installation: %v", err)
+		t.Fatalf("explicit Keep removed remote skill scope: %v", err)
 	}
 	remaining, err := lib.ListSkills(t.Context())
 	if err != nil {

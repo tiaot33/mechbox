@@ -49,7 +49,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation, err := lib.ListInstallations(t.Context())
+	skillScope, err := lib.ListSkillScopes(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +79,9 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("mutated Library = %#v, %v", after, err)
 	}
-	afterInstallations, err := lib.ListInstallations(t.Context())
-	if err != nil || !reflect.DeepEqual(installation, afterInstallations) {
-		t.Fatalf("mutated installations = %#v, %v", afterInstallations, err)
+	afterSkillScopes, err := lib.ListSkillScopes(t.Context())
+	if err != nil || !reflect.DeepEqual(skillScope, afterSkillScopes) {
+		t.Fatalf("mutated skill scopes = %#v, %v", afterSkillScopes, err)
 	}
 	for _, original := range skills {
 		got, err := lib.GetSkill(t.Context(), original.ID)
