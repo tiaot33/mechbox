@@ -13,7 +13,7 @@ import (
 )
 
 // summaryQuery 选出 SkillSummary 的全部列;调用方追加 WHERE / ORDER BY。
-// InstalledAt 是最早版本的 created_at,UpdatedAt 与 Description 来自当前版本。
+// FetchedAt 是最早版本的 created_at,UpdatedAt 与 Description 来自当前版本。
 const summaryQuery = `
 	SELECT skills.id, skills.name, current_version.description,
 		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
@@ -60,21 +60,21 @@ func (l *sqliteLibrary) listSummaries(ctx context.Context, operation, clause str
 func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
 	var summary SkillSummary
 	var locator []byte
-	var fetched, installedAt, updatedAt string
+	var lastFetched, fetchedAt, updatedAt string
 	var checkedAt string
 	var check UpdateCheckState
-	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &fetched, &summary.Source.LastSeenRef, &installedAt, &updatedAt, &checkedAt, &check.Status)
+	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &lastFetched, &summary.Source.LastSeenRef, &fetchedAt, &updatedAt, &checkedAt, &check.Status)
 	if err != nil {
 		return SkillSummary{}, err
 	}
 	if err := json.Unmarshal(locator, &summary.Source.Locator); err != nil {
 		return SkillSummary{}, fmt.Errorf("decode source: %w", err)
 	}
-	if summary.Source.LastFetched, err = parseStoredTime(fetched); err != nil {
+	if summary.Source.LastFetched, err = parseStoredTime(lastFetched); err != nil {
 		return SkillSummary{}, fmt.Errorf("decode last fetched: %w", err)
 	}
-	if summary.InstalledAt, err = parseStoredTime(installedAt); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode installed at: %w", err)
+	if summary.FetchedAt, err = parseStoredTime(fetchedAt); err != nil {
+		return SkillSummary{}, fmt.Errorf("decode fetched at: %w", err)
 	}
 	if summary.UpdatedAt, err = parseStoredTime(updatedAt); err != nil {
 		return SkillSummary{}, fmt.Errorf("decode updated at: %w", err)
@@ -123,15 +123,15 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-// installAll 在单个事务里原子提交多个来自同一来源的 skill:要么全部入库,要么库不变。
-// validator 是本次抓取时 URL / Store 服务端给出的 HTTP validator,随 Source 一起写入;其他来源为空。
-func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []fetchedSkill, validator string) ([]Skill, error) {
+// fetchAll 在单个事务里原子提交多个来自同一来源的 skill:要么全部入库,要么库不变。
+// validator 是预览读取来源时 URL / Store 服务端给出的 HTTP validator,随 Source 一起写入;其他来源为空。
+func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []discoveredSkill, validator string) ([]Skill, error) {
 	if err := validateSource(source); err != nil {
 		return nil, err
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("begin install: %w", err)
+		return nil, fmt.Errorf("begin fetch: %w", err)
 	}
 	defer tx.Rollback()
 	sourceID, err := upsertSource(ctx, tx, source, validator)
@@ -144,13 +144,13 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 			return nil, err
 		}
 		if id != 0 {
-			return nil, existsError("install skill", "skill already installed", ErrorDetails{SkillID: id, Name: skill.name})
+			return nil, existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: id, Name: skill.name})
 		}
 	}
-	installed := make([]Skill, 0, len(skills))
+	fetched := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
-		// GitHub 文件取自 Fetch 钉住的 commit(source.LastSeenRef),它就是该目录 tree 首次被确认为远端最新的地方。
-		description := skill.preview.Description
+		// GitHub 文件取自预览钉住的 commit(source.LastSeenRef),它就是该目录 tree 首次被确认为远端最新的地方。
+		description := skill.candidate.Description
 		if description == "" {
 			description = skillDescription(skill.files)
 		}
@@ -158,15 +158,15 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 		if err != nil {
 			return nil, err
 		}
-		installed = append(installed, result)
+		fetched = append(fetched, result)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit install: %w", err)
+		return nil, fmt.Errorf("commit fetch: %w", err)
 	}
-	return installed, nil
+	return fetched, nil
 }
 
-// upsertSource 在事务内插入或更新来源行(含本次抓取的 HTTP validator),返回其 id。
+// upsertSource 在事务内插入或更新来源行(含本次读取的 HTTP validator),返回其 id。
 func upsertSource(ctx context.Context, tx *sql.Tx, source Source, validator string) (int64, error) {
 	locator, err := json.Marshal(source.Locator)
 	if err != nil {
@@ -204,7 +204,7 @@ func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name
 func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord, description string) (Skill, error) {
 	// 名字由来源发现阶段给出,调用方没有对应参数;为空是内部不变量被破坏,归 Internal。
 	if name == "" {
-		return Skill{}, fmt.Errorf("install skill: name is required")
+		return Skill{}, fmt.Errorf("fetch skill: name is required")
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
 	if err != nil {
@@ -224,7 +224,7 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 	}
 	source.ID = SourceID(sourceID)
 	source.LastFetched = source.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: source, GitTreeSHA: record.treeSHA, InstalledAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
+	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: source, GitTreeSHA: record.treeSHA, FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
@@ -233,33 +233,33 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 	return skill, err
 }
 
-// fetchState 是技能库不对外暴露、检查与更新据以走快路径的抓取记录,以及这份内容所属的版本 ID 与读取时的检查确认时间。
-type fetchState struct {
+// sourceState 是技能库不对外暴露、检查与更新据以走快路径的来源读取记录,以及这份内容所属的版本 ID 与读取时的检查确认时间。
+type sourceState struct {
 	updateCheckedAt string // 最近检查或成功更新的确认时间;检查提交前复核,防止覆盖期间的新结论
 	versionID       int64  // 返回文件所属的当前版本;Update 与检查保存都用它做提交阶段的复核依据
 	confirmedCommit string // 当前版本的确认 commit;仅 GitHub 来源非空
-	httpValidator   string // Source 上次成功抓取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
+	httpValidator   string // Source 上次成功读取时服务端给出的 HTTP validator 原文;仅 URL / Store 来源非空
 }
 
-// getSkill 读取 skill 及其当前版本的完整文件,连同其抓取记录。
+// getSkill 读取 skill 及其当前版本的完整文件,连同其来源读取记录。
 // 先钉住版本 ID,再按该版本取文件,因此即使期间别处提交了新版本,返回的文件与版本 ID 也彼此一致。
 // 自带共享锁:Update / CheckUpdates 的网络阶段不持锁,读库这一步由它自己保护。
-func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchState, error) {
+func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	summary, err := l.getSummary(ctx, id)
 	if err != nil {
-		return Skill{}, fetchState{}, err
+		return Skill{}, sourceState{}, err
 	}
 	skill := Skill{
 		ID:          summary.ID,
 		Name:        summary.Name,
 		Description: summary.Description,
 		Source:      summary.Source,
-		InstalledAt: summary.InstalledAt,
+		FetchedAt: summary.FetchedAt,
 		UpdatedAt:   summary.UpdatedAt,
 	}
-	var state fetchState
+	var state sourceState
 	if err := l.db.QueryRowContext(ctx, `
 		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator, skills.update_checked_at
 		FROM skills
@@ -267,7 +267,7 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 		JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
 	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator, &state.updateCheckedAt); err != nil {
-		return Skill{}, fetchState{}, fmt.Errorf("get skill version: %w", err)
+		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
 	}
 
 	rows, err := l.db.QueryContext(ctx, `
@@ -278,18 +278,18 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, fetchS
 		ORDER BY version_files.path
 	`, state.versionID)
 	if err != nil {
-		return Skill{}, fetchState{}, fmt.Errorf("get skill files: %w", err)
+		return Skill{}, sourceState{}, fmt.Errorf("get skill files: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var file File
 		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return Skill{}, fetchState{}, fmt.Errorf("read skill file: %w", err)
+			return Skill{}, sourceState{}, fmt.Errorf("read skill file: %w", err)
 		}
 		skill.Files = append(skill.Files, file)
 	}
 	if err := rows.Err(); err != nil {
-		return Skill{}, fetchState{}, fmt.Errorf("read skill files: %w", err)
+		return Skill{}, sourceState{}, fmt.Errorf("read skill files: %w", err)
 	}
 	return skill, state, nil
 }
@@ -370,23 +370,23 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateProjectedCopies("remove skill", opts.ProjectedCopies); err != nil {
+	if err := validateInstallationsPolicy("remove skill", opts.Installations); err != nil {
 		return err
 	}
 	skill, err := l.GetSkill(ctx, id)
 	if err != nil {
 		return err
 	}
-	// 待删的投影路径在事务外先算好:单连接模式下事务内不能再走 l.db。
-	var trash projectionTrash
-	if opts.ProjectedCopies != Keep {
-		projections, err := l.ListProjections(ctx)
+	// 待删的安装项路径在事务外先算好:单连接模式下事务内不能再走 l.db。
+	var trash installationTrash
+	if opts.Installations != Keep {
+		installations, err := l.ListInstallations(ctx)
 		if err != nil {
 			return err
 		}
-		for _, projection := range projections {
-			if projection.SkillID == id {
-				trash.targets = append(trash.targets, filepath.Join(projection.Directory, skill.Name))
+		for _, installation := range installations {
+			if installation.SkillID == id {
+				trash.targets = append(trash.targets, filepath.Join(installation.Directory, skill.Name))
 			}
 		}
 	}
@@ -397,7 +397,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	}
 	defer tx.Rollback()
 	statements := []string{
-		`DELETE FROM projections WHERE skill_id = ?`,
+		`DELETE FROM installations WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,

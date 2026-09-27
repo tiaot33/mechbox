@@ -13,14 +13,14 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if id <= 0 {
 		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}
 	}
-	// 网络前读出 skill 与抓取记录;state.versionID 是提交阶段复核的依据。
+	// 网络前读出 skill 与来源读取记录;state.versionID 是提交阶段复核的依据。
 	skill, state, err := l.getSkill(ctx, id)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	// 网络往返不持库锁:期间库可以被别的请求读写,提交前再复核。
 	changed := false
-	validator := "" // 本次抓取后应记在 Source 上的 HTTP validator;GitHub / local 恒为空
+	validator := "" // 本次读取后应记在 Source 上的 HTTP validator;GitHub / local 恒为空
 	if skill.Source.Type == SourceGitHub {
 		skill, changed, err = l.readGitHubUpdate(ctx, skill, state.confirmedCommit)
 	} else {
@@ -133,7 +133,7 @@ func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confi
 
 // readUpdate 读取目标 skill 的最新来源内容,在来源里按名字重新定位它,不持久化来源状态;GitHub 走 readGitHubUpdate。
 // validator 是 Source 记录的 HTTP validator:URL / Store 据它发条件请求,304 表示远端未变——文件与 last_seen_ref
-// 沿用库中的,只刷新 last_fetched。返回值里的 validator 是抓取后应记在 Source 上的值(304 时保持不变)。
+// 沿用库中的,只刷新 last_fetched。返回值里的 validator 是读取后应记在 Source 上的值(304 时保持不变)。
 func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator string) (Skill, string, error) {
 	discovered, err := l.fetchSource(ctx, skill.Source, "", validator)
 	if err != nil {
@@ -149,7 +149,7 @@ func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator s
 	}
 	skill.Files = fetched[0].files
 	skill.GitTreeSHA = fetched[0].gitTreeSHA
-	skill.Description = fetched[0].preview.Description
+	skill.Description = fetched[0].candidate.Description
 	skill.Source.LastSeenRef = discovered.ref
 	return skill, discovered.httpValidator, nil
 }

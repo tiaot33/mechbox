@@ -45,7 +45,7 @@ func holdDirectTransaction(t *testing.T, path, begin string) func() {
 
 // 另一进程正在长读(TUI 遍历一个大 skill 的文件)时,本进程的写事务照常提交,而不是在提交阶段等它读完。
 // rollback journal 下这会等满 busy_timeout 后失败;WAL 下读者永不阻塞写者。
-func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
+func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib, err := library.Open(path)
 	if err != nil {
@@ -60,7 +60,7 @@ func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	defer cancel()
 	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
-		t.Fatalf("Install while another process reads = %v, want success", err)
+		t.Fatalf("Fetch while another process reads = %v, want success", err)
 	}
 	release()
 	skills, err := lib.ListSkills(t.Context())
@@ -68,7 +68,7 @@ func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(skills) != 1 || skills[0].ID != skill.ID {
-		t.Fatalf("ListSkills after install = %v, want the installed skill", summaryIDs(skills))
+		t.Fatalf("ListSkills after install = %v, want the fetched skill", summaryIDs(skills))
 	}
 }
 
@@ -96,12 +96,12 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 		t.Fatalf("underlying error = %v, want sqlite3.ErrBusy reachable via errors.AsType", err)
 	}
 	if waited := time.Since(started); waited < 4*time.Second {
-		t.Fatalf("Install gave up after %v, want it to wait for busy_timeout first", waited)
+		t.Fatalf("Fetch gave up after %v, want it to wait for busy_timeout first", waited)
 	}
 	// 对方释放后同一操作直接成功:Busy 确实只是"稍后重试"。
 	release()
 	if _, err := fetchLocal(t.Context(), lib, source); err != nil {
-		t.Fatalf("Install after the other writer released = %v, want success", err)
+		t.Fatalf("Fetch after the other writer released = %v, want success", err)
 	}
 }
 

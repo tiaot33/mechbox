@@ -18,11 +18,11 @@ func TestSkillFilesMatchFullSkill(t *testing.T) {
 	writeFile(t, filepath.Join(source, "assets", "data.bin"), []byte{0, 255, 1}, 0o644)
 	writeFile(t, filepath.Join(source, "empty.txt"), []byte{}, 0o644)
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
-	installed, err := fetchLocal(t.Context(), lib, source)
+	fetched, err := fetchLocal(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireFilesMatchGetSkill(t, lib, installed.ID)
+	requireFilesMatchGetSkill(t, lib, fetched.ID)
 }
 
 func TestSkillFilesReadCurrentVersion(t *testing.T) {
@@ -59,7 +59,7 @@ func TestSkillFilesReadCurrentVersion(t *testing.T) {
 func TestSkillFilesReportMissingAndCanceled(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
-	skill := installNamedSkill(t, lib, "present")
+	skill := fetchNamedSkill(t, lib, "present")
 	// 路径按原样精确匹配,不做归一化。
 	for _, path := range []string{"missing.txt", "", "../SKILL.md", "./SKILL.md", "/SKILL.md"} {
 		_, err := lib.GetSkillFile(ctx, skill.ID, path)
@@ -82,7 +82,7 @@ func TestSkillFilesReportMissingAndCanceled(t *testing.T) {
 func TestSkillFilesOfEmptySkill(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib := openFetchLibrary(t, path)
+	lib := openLibraryAt(t, path)
 	source := filepath.Join(t.TempDir(), "empty")
 	writeLocalSkill(t, source, "")
 	empty, err := fetchLocal(ctx, lib, source)
@@ -94,7 +94,7 @@ func TestSkillFilesOfEmptySkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	editLibraryFixture(t, path, `DELETE FROM version_files`)
-	lib = openFetchLibrary(t, path)
+	lib = openLibraryAt(t, path)
 	files, err := lib.ListSkillFiles(ctx, empty.ID)
 	if err != nil || len(files) != 0 {
 		t.Fatalf("empty skill files = %#v, %v", files, err)

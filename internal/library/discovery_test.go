@@ -16,7 +16,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestFetchRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) {
+func TestPreviewRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		extra string
@@ -53,17 +53,17 @@ func TestFetchRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) 
 				t.Fatal(err)
 			}
 			lib := openTestLibrary(t)
-			fetch, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
+			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes()))
 			if !tc.valid {
-				if !library.IsCode(err, library.SourceInvalid) || fetch.ID != "" {
-					t.Fatalf("unsafe archive = %#v, %v", fetch, err)
+				if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
+					t.Fatalf("unsafe archive = %#v, %v", preview, err)
 				}
 				return
 			}
-			if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Path != "." {
-				t.Fatalf("root = %#v, %v", fetch, err)
+			if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Path != "." {
+				t.Fatalf("root = %#v, %v", preview, err)
 			}
-			installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,14 +72,14 @@ func TestFetchRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) 
 				{Path: "build/asset.bin", Content: []byte{0, 255, 42}, Mode: library.ModeExecutable},
 				{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep")), Mode: library.ModeRegular},
 			}
-			if !reflect.DeepEqual(installed[0].Files, want) {
-				t.Fatalf("root files = %#v", installed[0].Files)
+			if !reflect.DeepEqual(fetched[0].Files, want) {
+				t.Fatalf("root files = %#v", fetched[0].Files)
 			}
 		})
 	}
 }
 
-func TestFetchArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.T) {
+func TestPreviewArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.T) {
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
 	for _, file := range []struct {
@@ -105,9 +105,9 @@ func TestFetchArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.
 		t.Fatal(err)
 	}
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
-	if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "good" || len(fetch.Diagnostics) != 1 || fetch.Diagnostics[0].Path != "bad" {
-		t.Fatalf("archive candidates = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes()))
+	if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "good" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
+		t.Fatalf("archive candidates = %#v, %v", preview, err)
 	}
 	buffer.Reset()
 	writer = zip.NewWriter(&buffer)
@@ -117,12 +117,12 @@ func TestFetchArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceInvalid) {
+	if _, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes())); !library.IsCode(err, library.SourceInvalid) {
 		t.Fatalf("expanded limit = %v", err)
 	}
 }
 
-func TestFetchArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
+func TestPreviewArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		files int
@@ -153,18 +153,18 @@ func TestFetchArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
 				t.Fatal(err)
 			}
 			lib := openTestLibrary(t)
-			fetch, err := lib.Fetch(t.Context(), serveArchive(t, buffer.Bytes()))
+			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, buffer.Bytes()))
 			if !tc.ok {
-				if !library.IsCode(err, library.SourceInvalid) || fetch.ID != "" {
-					t.Fatalf("file count limit = %#v, %v", fetch, err)
+				if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
+					t.Fatalf("file count limit = %#v, %v", preview, err)
 				}
 				if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 					t.Fatalf("Library = %v, %v", skills, err)
 				}
 				return
 			}
-			if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "good" {
-				t.Fatalf("at limit = %#v, %v", fetch, err)
+			if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "good" {
+				t.Fatalf("at limit = %#v, %v", preview, err)
 			}
 		})
 	}
@@ -177,38 +177,38 @@ func (infiniteZeros) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func TestFetchArchiveRejectsOversizedDownloadWithoutCreatingSession(t *testing.T) {
+func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing.T) {
 	lib := openTestLibrary(t)
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(io.LimitReader(infiniteZeros{}, 64<<20+1)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
-	if !library.IsCode(err, library.SourceInvalid) || fetch.ID != "" {
-		t.Fatalf("download size = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+	if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
+		t.Fatalf("download size = %#v, %v", preview, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("Library = %v, %v", skills, err)
 	}
 }
 
-func TestFetchArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
+func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 	lib := openTestLibrary(t)
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })}
 	t.Cleanup(func() { http.DefaultClient = client })
-	_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/archive?token=example-secret"}})
+	_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/archive?token=example-secret"}})
 	if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("archive error exposed credentials or wrong code: %v", err)
 	}
-	_, err = lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/%zz"}})
+	_, err = lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://user:example-secret@source.example/%zz"}})
 	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("invalid URL exposed credentials or wrong code: %v", err)
 	}
 }
 
-func TestFetchDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.T) {
+func TestPreviewDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.T) {
 	content := "---\nname: useful\ndescription: >-\n  Helps with\n  useful work.\n---\n# Original\n"
 	spec := serveArchive(t, zipArchive(t, map[string]string{
 		"one/SKILL.md": content,
@@ -216,19 +216,19 @@ func TestFetchDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.
 		"bad/SKILL.md": "---\nname: broken\ndescription: [invalid]\n---\n",
 	}))
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), spec)
+	preview, err := lib.PreviewSource(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.FetchSkill{{Name: "useful", Description: "Helps with useful work.", Path: "one"}}
-	if !reflect.DeepEqual(fetch.Skills, want) || len(fetch.Diagnostics) != 2 || fetch.Diagnostics[0].Path != "bad" {
-		t.Fatalf("Fetch = %#v", fetch)
+	want := []library.Candidate{{Name: "useful", Description: "Helps with useful work.", Path: "one"}}
+	if !reflect.DeepEqual(preview.Skills, want) || len(preview.Diagnostics) != 2 || preview.Diagnostics[0].Path != "bad" {
+		t.Fatalf("PreviewSource = %#v", preview)
 	}
-	fetch.Skills[0].Name = "mutated"
-	fetch.Diagnostics[0].Reason = "mutated"
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"useful"})
-	if err != nil || len(installed) != 1 || string(installed[0].Files[0].Content) != content {
-		t.Fatalf("install = %#v, %v", installed, err)
+	preview.Skills[0].Name = "mutated"
+	preview.Diagnostics[0].Reason = "mutated"
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"useful"})
+	if err != nil || len(fetched) != 1 || string(fetched[0].Files[0].Content) != content {
+		t.Fatalf("install = %#v, %v", fetched, err)
 	}
 }
 
@@ -236,7 +236,7 @@ func skillDocument(name, body string) string {
 	return "---\nname: " + name + "\ndescription: \"\"\n---\n" + body
 }
 
-func TestFetchDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
+func TestPreviewDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
 	for _, root := range []string{"skills/good", ".claude/skills/other", "bad", "node_modules/ignored", "dist/ignored"} {
@@ -252,14 +252,14 @@ func TestFetchDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 	}
 	commitGit(t, repository, "candidates")
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fetch.Skills) != 2 || fetch.Skills[0].Name != "good" || fetch.Skills[1].Name != "other" || len(fetch.Diagnostics) != 1 || fetch.Diagnostics[0].Path != "bad" {
-		t.Fatalf("Fetch = %#v", fetch)
+	if len(preview.Skills) != 2 || preview.Skills[0].Name != "good" || preview.Skills[1].Name != "other" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
+		t.Fatalf("PreviewSource = %#v", preview)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"good"})
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"good"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,12 +269,12 @@ func TestFetchDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 		{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep nested")), Mode: library.ModeRegular},
 		{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(installed[0].Files, want) {
-		t.Fatalf("files = %#v", installed[0].Files)
+	if !reflect.DeepEqual(fetched[0].Files, want) {
+		t.Fatalf("files = %#v", fetched[0].Files)
 	}
 }
 
-func TestFetchRejectsInvalidCandidateSetsWithoutCreatingSession(t *testing.T) {
+func TestPreviewRejectsInvalidCandidateSetsWithoutCreatingPreview(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		files  map[string]string
@@ -286,9 +286,9 @@ func TestFetchRejectsInvalidCandidateSetsWithoutCreatingSession(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			fetch, err := lib.Fetch(t.Context(), serveArchive(t, zipArchive(t, tc.files)))
-			if !library.IsCode(err, library.SourceInvalid) || !strings.Contains(err.Error(), tc.detail) || fetch.ID != "" {
-				t.Fatalf("Fetch = %#v, %v", fetch, err)
+			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, zipArchive(t, tc.files)))
+			if !library.IsCode(err, library.SourceInvalid) || !strings.Contains(err.Error(), tc.detail) || preview.ID != "" {
+				t.Fatalf("PreviewSource = %#v, %v", preview, err)
 			}
 			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 				t.Fatalf("Library = %v, %v", skills, err)

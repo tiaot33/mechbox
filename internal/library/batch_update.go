@@ -13,7 +13,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		return nil, err
 	}
 	var skills []Skill
-	var states []fetchState // 与 skills 对齐:各自的抓取记录
+	var states []sourceState // 与 skills 对齐:各自的来源读取记录
 	var completed []bool
 	groups := make(map[SourceID][]int)
 	var sources []SourceID
@@ -37,7 +37,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		seen[id] = true
 		result := UpdateCheck{SkillID: id}
 		var skill Skill
-		var state fetchState
+		var state sourceState
 		var readErr error
 		if id <= 0 {
 			readErr = &Error{Code: InvalidArgument, Message: "skill ID must be positive"}
@@ -128,7 +128,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 }
 
 // saveUpdateCheck 只给仍处于被比较版本的技能保存结果,不让旧检查覆盖更新后的状态。
-func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state fetchState, status UpdateCheckStatus) error {
+func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	tx, err := l.db.BeginTx(ctx, nil)

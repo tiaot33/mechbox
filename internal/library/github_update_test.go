@@ -16,7 +16,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.T) {
+func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutReadingFiles(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":      {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/scripts/run":   {content: []byte{0, 255, 1}, mode: 0o755},
@@ -31,15 +31,15 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 2 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 2 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	first, second := installed[0], installed[1]
+	first, second := fetched[0], fetched[1]
 	if first.Name != "first" {
 		first, second = second, first
 	}
@@ -48,10 +48,10 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	projections, err := lib.ListProjections(ctx)
+	installations, err := lib.ListInstallations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := checkSingleUpdate(t, lib, ctx, first.ID); err != nil || available {
 		t.Fatalf("unchanged CheckUpdates = %v, %v", available, err)
 	}
-	// 安装时钉住的 commit 未变:只解析 commit,不取 tree。
+	// 入库时钉住的 commit 未变:只解析 commit,不取 tree。
 	assertGitHubCommitOnly(t, api, 1)
 	current, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || !reflect.DeepEqual(current, before) {
@@ -86,7 +86,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 		t.Fatalf("unrelated path second CheckUpdates = %v, %v", available, err)
 	}
 	// commit 前进、目录未变:要取 tree 比较目录 SHA,但不取 Skill 文件。
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	stale, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || stale.Source.LastSeenRef != fx.commit {
 		t.Fatalf("check refreshed last_seen_ref: %#v, %v", stale, err)
@@ -105,7 +105,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("unchanged Update created version: %#v, %v", versions, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 
 	writeFile(t, filepath.Join(repo, "first", "SKILL.md"), []byte(skillDocument("first", "updated body")), 0o644)
 	writeFile(t, filepath.Join(repo, "first", "scripts", "run"), []byte{9, 8, 7}, 0o755)
@@ -125,7 +125,7 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	if available, err := checkSingleUpdate(t, lib, ctx, second.ID); err != nil || available {
 		t.Fatalf("unchanged sibling CheckUpdates = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	afterCheck, err := lib.GetSkill(ctx, first.ID)
 	if err != nil || string(afterCheck.Files[0].Content) != skillDocument("first", "first body") {
 		t.Fatalf("check mutated files: %#v, %v", afterCheck, err)
@@ -175,11 +175,11 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutFetchingFiles(t *testing.
 	}
 	content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
 	if err != nil || string(content) != skillDocument("first", "first body") {
-		t.Fatalf("projection rewritten: %q, %v", content, err)
+		t.Fatalf("installation overwritten: %q, %v", content, err)
 	}
-	after, err := lib.ListProjections(ctx)
-	if err != nil || !reflect.DeepEqual(after, projections) {
-		t.Fatalf("projection records changed: %#v, %v", after, err)
+	after, err := lib.ListInstallations(ctx)
+	if err != nil || !reflect.DeepEqual(after, installations) {
+		t.Fatalf("installation records changed: %#v, %v", after, err)
 	}
 }
 
@@ -196,16 +196,16 @@ func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 2 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 2 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 	var foo, bar library.Skill
-	for _, skill := range installed {
+	for _, skill := range fetched {
 		switch skill.Name {
 		case "foo":
 			foo = skill
@@ -214,7 +214,7 @@ func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 		}
 	}
 	if foo.GitTreeSHA != fx.treeSHA("other") || bar.GitTreeSHA != fx.treeSHA("foo") {
-		t.Fatalf("installed SHAs foo=%q bar=%q, want other=%q foo=%q", foo.GitTreeSHA, bar.GitTreeSHA, fx.treeSHA("other"), fx.treeSHA("foo"))
+		t.Fatalf("fetched SHAs foo=%q bar=%q, want other=%q foo=%q", foo.GitTreeSHA, bar.GitTreeSHA, fx.treeSHA("other"), fx.treeSHA("foo"))
 	}
 
 	api.Reset()
@@ -234,7 +234,7 @@ func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 	if available, err := checkSingleUpdate(t, lib, ctx, foo.ID); err != nil || available {
 		t.Fatalf("unchanged skill foo CheckUpdates = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	api.Reset()
 	if available, err := checkSingleUpdate(t, lib, ctx, bar.ID); err != nil || !available {
 		t.Fatalf("changed skill bar CheckUpdates = %v, %v", available, err)
@@ -264,7 +264,7 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 
 	lib, skills := openGitHubLibraryWithoutTreeSHA(t)
 	if len(skills) != 2 {
-		t.Fatalf("installed skills = %#v, want two", skills)
+		t.Fatalf("fetched skills = %#v, want two", skills)
 	}
 	ctx := t.Context()
 	first, sibling := skills[0], skills[1]
@@ -336,13 +336,13 @@ func TestGitHubUpdateDownloadsOnlyChangedBlob(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "notes.md"), []byte("new notes"), 0o644)
@@ -350,7 +350,7 @@ func TestGitHubUpdateDownloadsOnlyChangedBlob(t *testing.T) {
 	changed := inspectGitHubRepo(t, repo)
 	api.Swap(changed)
 	api.Reset()
-	result, err := lib.Update(ctx, installed[0].ID)
+	result, err := lib.Update(ctx, fetched[0].ID)
 	if err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -364,12 +364,12 @@ func TestGitHubUpdateDownloadsOnlyChangedBlob(t *testing.T) {
 	}
 	assertGitHubBlobPaths(t, api, "demo/notes.md")
 
-	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	versions, err := lib.ListVersions(ctx, fetched[0].ID)
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %#v, %v", versions, err)
 	}
 	oldVer, err := lib.GetVersion(ctx, versions[0].ID)
-	if err != nil || !reflect.DeepEqual(oldVer.Files, installed[0].Files) {
+	if err != nil || !reflect.DeepEqual(oldVer.Files, fetched[0].Files) {
 		t.Fatalf("GetVersion old = %#v, %v", oldVer, err)
 	}
 	newVer, err := lib.GetVersion(ctx, versions[1].ID)
@@ -397,13 +397,13 @@ func TestGitHubUpdateReusesBlobWhenOnlyExecutableBitFlips(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 
 	if err := os.Chmod(filepath.Join(repo, "demo", "scripts", "run"), 0o644); err != nil {
@@ -416,7 +416,7 @@ func TestGitHubUpdateReusesBlobWhenOnlyExecutableBitFlips(t *testing.T) {
 	}
 	api.Swap(changed)
 	api.Reset()
-	result, err := lib.Update(ctx, installed[0].ID)
+	result, err := lib.Update(ctx, fetched[0].ID)
 	if err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -430,7 +430,7 @@ func TestGitHubUpdateReusesBlobWhenOnlyExecutableBitFlips(t *testing.T) {
 	}
 	assertGitHubBlobPaths(t, api)
 
-	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	versions, err := lib.ListVersions(ctx, fetched[0].ID)
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %#v, %v", versions, err)
 	}
@@ -454,13 +454,13 @@ func TestGitHubUpdateDownloadsOnlyAddedBlob(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "extra.md"), []byte("new file"), 0o644)
@@ -468,7 +468,7 @@ func TestGitHubUpdateDownloadsOnlyAddedBlob(t *testing.T) {
 	changed := inspectGitHubRepo(t, repo)
 	api.Swap(changed)
 	api.Reset()
-	result, err := lib.Update(ctx, installed[0].ID)
+	result, err := lib.Update(ctx, fetched[0].ID)
 	if err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -482,7 +482,7 @@ func TestGitHubUpdateDownloadsOnlyAddedBlob(t *testing.T) {
 	}
 	assertGitHubBlobPaths(t, api, "demo/extra.md")
 
-	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	versions, err := lib.ListVersions(ctx, fetched[0].ID)
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %#v, %v", versions, err)
 	}
@@ -510,13 +510,13 @@ func TestGitHubUpdateReusesBlobWhenFileMoves(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 
 	if err := os.MkdirAll(filepath.Join(repo, "demo", "docs"), 0o755); err != nil {
@@ -532,7 +532,7 @@ func TestGitHubUpdateReusesBlobWhenFileMoves(t *testing.T) {
 	}
 	api.Swap(changed)
 	api.Reset()
-	result, err := lib.Update(ctx, installed[0].ID)
+	result, err := lib.Update(ctx, fetched[0].ID)
 	if err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -545,7 +545,7 @@ func TestGitHubUpdateReusesBlobWhenFileMoves(t *testing.T) {
 	}
 	assertGitHubBlobPaths(t, api)
 
-	versions, err := lib.ListVersions(ctx, installed[0].ID)
+	versions, err := lib.ListVersions(ctx, fetched[0].ID)
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %#v, %v", versions, err)
 	}
@@ -574,13 +574,13 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "new")), 0o644)
@@ -593,7 +593,7 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "demo", "data.bin"), []byte("later HEAD"), 0o644)
 	commitGit(t, repo, "advance after API snapshot")
 
-	result, err := lib.Update(ctx, installed[0].ID)
+	result, err := lib.Update(ctx, fetched[0].ID)
 	if err != nil || !result.Changed {
 		t.Fatalf("blob-fail Update = %#v, %v", result, err)
 	}
@@ -624,7 +624,7 @@ func TestGitHubCheckUpdatesCancelDoesNotCompleteInFlightItem(t *testing.T) {
 	blockGitHubClone(t)
 	lib, skills := openGitHubLibraryWithoutTreeSHA(t)
 	if len(skills) != 2 {
-		t.Fatalf("installed skills = %#v, want two", skills)
+		t.Fatalf("fetched skills = %#v, want two", skills)
 	}
 	first, sibling := skills[0], skills[1]
 
@@ -658,18 +658,18 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 	spec := library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, spec)
+	preview, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	if installed[0].GitTreeSHA != "" {
-		t.Fatalf("URL GitTreeSHA = %q, want empty", installed[0].GitTreeSHA)
+	if fetched[0].GitTreeSHA != "" {
+		t.Fatalf("URL GitTreeSHA = %q, want empty", fetched[0].GitTreeSHA)
 	}
-	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || available {
+	if available, err := checkSingleUpdate(t, lib, ctx, fetched[0].ID); err != nil || available {
 		t.Fatalf("unchanged URL CheckUpdates = %v, %v", available, err)
 	}
 
@@ -677,14 +677,14 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 		"demo/SKILL.md": skillDocument("demo", "new"),
 		"demo/run":      "echo new",
 	})
-	if available, err := checkSingleUpdate(t, lib, ctx, installed[0].ID); err != nil || !available {
+	if available, err := checkSingleUpdate(t, lib, ctx, fetched[0].ID); err != nil || !available {
 		t.Fatalf("changed URL CheckUpdates = %v, %v", available, err)
 	}
-	result, err := lib.Update(ctx, installed[0].ID)
+	result, err := lib.Update(ctx, fetched[0].ID)
 	if err != nil || !result.Changed || result.Skill.GitTreeSHA != "" {
 		t.Fatalf("URL Update = %#v, %v", result, err)
 	}
-	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != "" {
+	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != "" {
 		t.Fatalf("URL persisted GitTreeSHA = %q, want empty", got)
 	}
 }
@@ -710,7 +710,7 @@ func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture,
 			allowed[entry.SHA] = true
 		}
 	}
-	var fetched []string
+	var requested []string
 	for _, req := range api.snapshot() {
 		sha, ok := strings.CutPrefix(req.path, "/repos/owner/repo/git/blobs/")
 		if !ok {
@@ -724,18 +724,18 @@ func assertGitHubUpdateBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture,
 			}
 		}
 		if !allowed[sha] && filePath != "SKILL.md" && !strings.HasSuffix(filePath, "/SKILL.md") {
-			t.Fatalf("Update fetched blob outside %s: %s (%v)", skillPath, sha, api.blobPaths())
+			t.Fatalf("Update requested blob outside %s: %s (%v)", skillPath, sha, api.blobPaths())
 		}
-		fetched = append(fetched, sha)
+		requested = append(requested, sha)
 	}
-	if len(fetched) == 0 {
-		t.Fatal("Update fetched no blobs")
+	if len(requested) == 0 {
+		t.Fatal("Update requested no blobs")
 	}
 }
 
-// assertGitHubCheckDoesNotFetchSkillFiles 适用于 commit 未命中、必须取 tree 比较目录 SHA 的检查:
+// assertGitHubCheckDoesNotReadSkillFiles 适用于 commit 未命中、必须取 tree 比较目录 SHA 的检查:
 // 取了 commit 与 tree,发现阶段至多读候选的 SKILL.md,不取任何其他 Skill 文件。commit 命中的场景用 assertGitHubCommitOnly。
-func assertGitHubCheckDoesNotFetchSkillFiles(t *testing.T, api *gitHubAPIMock) {
+func assertGitHubCheckDoesNotReadSkillFiles(t *testing.T, api *gitHubAPIMock) {
 	t.Helper()
 	commits, trees, _ := gitHubAPIKindCounts(t, api)
 	if commits == 0 || trees == 0 {
@@ -743,7 +743,7 @@ func assertGitHubCheckDoesNotFetchSkillFiles(t *testing.T, api *gitHubAPIMock) {
 	}
 	for _, p := range api.blobPaths() {
 		if p != "SKILL.md" && !strings.HasSuffix(p, "/SKILL.md") {
-			t.Fatalf("check fetched skill file %s (%v)", p, api.blobPaths())
+			t.Fatalf("check requested skill file %s (%v)", p, api.blobPaths())
 		}
 	}
 }

@@ -25,8 +25,8 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			_, err := lib.CreateGroup(t.Context(), "group")
 			return err
 		}},
-		{name: "install fetch unknown handle", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.InstallFetch(t.Context(), "no-such-handle", nil)
+		{name: "install preview unknown handle", want: library.NotFound, call: func(lib library.Library) error {
+			_, err := lib.FetchFromPreview(t.Context(), "no-such-handle", nil)
 			return err
 		}},
 		{name: "list versions", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
@@ -91,14 +91,14 @@ func TestErrorJSONOmitsEmptyDetailsAndInternalErr(t *testing.T) {
 
 	detailed, err := json.Marshal(&library.Error{
 		Code:    library.AlreadyExists,
-		Message: "install skill: skill already installed",
+		Message: "fetch skill: skill already fetched",
 		Details: library.ErrorDetails{SkillID: 3, Name: "demo", Field: "", Path: "", ProjectID: 0},
 		Err:     errors.New("sqlite"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(detailed) != `{"code":"already_exists","message":"install skill: skill already installed","details":{"name":"demo","skill_id":3}}` {
+	if string(detailed) != `{"code":"already_exists","message":"fetch skill: skill already fetched","details":{"name":"demo","skill_id":3}}` {
 		t.Fatalf("detailed JSON = %s", detailed)
 	}
 	if strings.Contains(string(detailed), "sqlite") || strings.Contains(string(detailed), "field") || strings.Contains(string(detailed), "path") {
@@ -171,37 +171,37 @@ func TestFacadeFailureCodes(t *testing.T) {
 		want library.ErrorCode
 		call func(*testing.T, library.Library) error
 	}{
-		{name: "remove skill invalid projected copies", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.RemoveSkill(t.Context(), 1, library.RemoveSkillOptions{ProjectedCopies: "nope"})
+		{name: "remove skill invalid installations", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.RemoveSkill(t.Context(), 1, library.RemoveSkillOptions{Installations: "nope"})
 		}},
-		{name: "unregister project invalid projected copies", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{ProjectedCopies: "nope"})
+		{name: "unregister project invalid installations", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{Installations: "nope"})
 		}},
-		{name: "activate invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.Activate(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
+		{name: "install invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.Install(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
 		}},
-		{name: "activate group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.ActivateGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.ActivateOptions{OnConflict: "nope"})
+		{name: "install group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			_, err := lib.InstallGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
 			return err
 		}},
 		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
-			skill := installNamedSkill(t, lib, "outsider")
+			skill := fetchNamedSkill(t, lib, "outsider")
 			group, err := lib.CreateGroup(t.Context(), "g")
 			if err != nil {
 				t.Fatal(err)
 			}
 			return lib.RemoveSkillFromGroup(t.Context(), group.ID, skill.ID, library.RemoveFromGroupOptions{})
 		}},
-		{name: "remove skill from group invalid projections", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{Projections: "nope"})
+		{name: "remove skill from group invalid installations", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{Installations: "nope"})
 		}},
-		{name: "fetch unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.Fetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
+		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
+			_, err := lib.PreviewSource(t.Context(), serveArchive(t, []byte("not-a-zip")))
 			return err
 		}},
-		{name: "fetch archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
+		{name: "preview archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
 			stubHTTPResponse(t, 500, strings.NewReader(""))
-			_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+			_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
 			return err
 		}},
 		{name: "search response over size limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
@@ -232,7 +232,7 @@ func TestFacadeFailureCodes(t *testing.T) {
 
 func TestCanceledOperationsStillMatchContext(t *testing.T) {
 	lib := openTestLibrary(t)
-	skill := installNamedSkill(t, lib, "cancel")
+	skill := fetchNamedSkill(t, lib, "cancel")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	for _, test := range []struct {
@@ -241,17 +241,17 @@ func TestCanceledOperationsStillMatchContext(t *testing.T) {
 	}{
 		{"update", func() error { _, err := lib.Update(ctx, skill.ID); return err }},
 		{"check updates", func() error { _, err := lib.CheckUpdates(ctx, []library.SkillID{skill.ID}); return err }},
-		{"fetch", func() error {
-			_, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+		{"preview", func() error {
+			_, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
 			return err
 		}},
 		{"search", func() error { _, err := lib.SearchSkills(ctx, "q"); return err }},
-		{"install fetch", func() error {
-			fetch, err := lib.Fetch(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body")})))
+		{"install preview", func() error {
+			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body")})))
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = lib.InstallFetch(ctx, fetch.ID, nil)
+			_, err = lib.FetchFromPreview(ctx, preview.ID, nil)
 			return err
 		}},
 	} {

@@ -28,7 +28,7 @@ type s3Stub struct {
 	// afterHead 若非 nil,在一次 HEAD 响应发出后触发一次(随即清空),
 	// 用来在"预检 HEAD"与"随后 PUT"之间注入一次远端改动,复现 TOCTOU 窗口。
 	afterHead func()
-	// gate 若非 nil,gateMethod 方法的请求在处理前先过闸;用来把 push / preview 停在网络上。
+	// gate 若非 nil,gateMethod 方法的请求在处理前先过闸;用来把 push / plan 停在网络上。
 	gate       *networkGate
 	gateMethod string
 }
@@ -90,7 +90,7 @@ func newS3Stub(t *testing.T) *s3Stub {
 	return stub
 }
 
-func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
+func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
 	oldHome := filepath.Join(t.TempDir(), "old-home")
@@ -125,26 +125,26 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
-	if _, err := lib.ActivateGroup(ctx, group.ID, projectScope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.InstallGroup(ctx, group.ID, projectScope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	globalScope := library.GlobalScope(library.AgentCodex)
-	if err := lib.Activate(ctx, original.ID, globalScope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, original.ID, globalScope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
-	// 推送前预览:远端尚无对象。
-	pushPreview, err := lib.PreviewSyncPush(ctx)
+	// 推送前的同步计划:远端尚无对象。
+	pushPlan, err := lib.PlanSyncPush(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pushPreview.RemoteExists || pushPreview.Remote != "" {
-		t.Fatalf("PreviewSyncPush() = %#v, want no remote object", pushPreview)
+	if pushPlan.RemoteExists || pushPlan.Remote != "" {
+		t.Fatalf("PlanSyncPush() = %#v, want no remote object", pushPlan)
 	}
 	if len(stub.stored) != 0 {
-		t.Fatal("push preview uploaded a database")
+		t.Fatal("push plan uploaded a database")
 	}
-	pushResult, err := lib.SyncPush(ctx, pushPreview.Remote)
+	pushResult, err := lib.SyncPush(ctx, pushPlan.Remote)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,32 +169,32 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	mapping, _ := json.Marshal(map[string]string{project.Path: newProjectPath})
 	t.Setenv("SKILLS_PROJECT_PATH_MAP", string(mapping))
 
-	// 拉取前预览:报告远端身份与 schema 可接受,并带投影可能过时的警告。
-	pullPreview, err := lib.PreviewSyncPull(ctx)
+	// 拉取前的同步计划:报告远端身份与 schema 可接受,并带安装项可能过时的警告。
+	pullPlan, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pullPreview.RemoteExists || string(pullPreview.Remote) != stub.etag || !pullPreview.SchemaOK {
-		t.Fatalf("PreviewSyncPull() = %#v, want existing remote with acceptable schema", pullPreview)
+	if !pullPlan.RemoteExists || string(pullPlan.Remote) != stub.etag || !pullPlan.SchemaOK {
+		t.Fatalf("PlanSyncPull() = %#v, want existing remote with acceptable schema", pullPlan)
 	}
-	if len(pullPreview.Warnings) == 0 {
-		t.Fatal("PreviewSyncPull() carried no projection warning")
+	if len(pullPlan.Warnings) == 0 {
+		t.Fatal("PlanSyncPull() carried no installation warning")
 	}
 	beforePull, err := lib.ListSkills(ctx)
 	if err != nil || len(beforePull) != 1 || beforePull[0].Name != "extra" {
-		t.Fatalf("pull preview replaced local library: %#v, %v", beforePull, err)
+		t.Fatalf("pull plan replaced local library: %#v, %v", beforePull, err)
 	}
-	pullResult, err := lib.SyncPull(ctx, pullPreview.Remote)
+	pullResult, err := lib.SyncPull(ctx, pullPlan.Remote)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(pullResult.Remote) != stub.etag || len(pullResult.Warnings) == 0 {
-		t.Fatalf("SyncPull() result = %#v, want remote identity and projection warning", pullResult)
+		t.Fatalf("SyncPull() result = %#v, want remote identity and installation warning", pullResult)
 	}
 
 	for _, path := range []string{newProjectPath, newHome} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("pull rebuilt projection at %s: %v", path, err)
+			t.Fatalf("pull rebuilt installation at %s: %v", path, err)
 		}
 	}
 	skills, err := lib.ListSkills(ctx)
@@ -223,20 +223,20 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	if len(projects) != 1 || projects[0].Path != newProjectPath {
 		t.Fatalf("projects after pull = %#v", projects)
 	}
-	// 投影记录只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
+	// 安装项记录只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
 	// 不携带上一台机器的绝对路径。
-	projections, err := lib.ListProjections(ctx)
+	installations, err := lib.ListInstallations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProjections := []library.Projection{
+	wantInstallations := []library.Installation{
 		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Direct: true},
 		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), Groups: []library.GroupID{group.ID}},
 	}
-	if !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections) {
-		t.Fatalf("projections after pull = %#v, want %#v", projections, wantProjections)
+	if !reflect.DeepEqual(withoutCreatedAt(installations), wantInstallations) {
+		t.Fatalf("installations after pull = %#v, want %#v", installations, wantInstallations)
 	}
-	for _, want := range wantProjections {
+	for _, want := range wantInstallations {
 		if dir, err := lib.Resolve(ctx, want.Scope); err != nil || dir != want.Directory {
 			t.Fatalf("Resolve(%#v) after pull = %q, %v; want %q", want.Scope, dir, err, want.Directory)
 		}
@@ -275,11 +275,11 @@ func TestSyncPullRemapsEachProjectOnceByItsOriginalPath(t *testing.T) {
 	t.Setenv("SKILLS_PROJECT_PATH_MAP", string(mapping))
 
 	for range 5 {
-		preview, err := lib.PreviewSyncPull(ctx)
+		plan, err := lib.PlanSyncPull(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := lib.SyncPull(ctx, preview.Remote); err != nil {
+		if _, err := lib.SyncPull(ctx, plan.Remote); err != nil {
 			t.Fatal(err)
 		}
 		projects, err := lib.ListRegisteredProjects(ctx)
@@ -337,11 +337,11 @@ func TestSyncPullRejectsCyclicProjectPathMappingWithoutTouchingLocalLibrary(t *t
 	mapping, _ := json.Marshal(map[string]string{projectA.Path: projectB.Path, projectB.Path: projectA.Path})
 	t.Setenv("SKILLS_PROJECT_PATH_MAP", string(mapping))
 
-	preview, err := lib.PreviewSyncPull(ctx)
+	plan, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.SyncPull(ctx, preview.Remote); !library.IsCode(err, library.InvalidArgument) {
+	if _, err := lib.SyncPull(ctx, plan.Remote); !library.IsCode(err, library.InvalidArgument) {
 		t.Fatalf("SyncPull() with cyclic mapping = %v, want InvalidArgument", err)
 	}
 	skills, err := lib.ListSkills(ctx)
@@ -375,28 +375,28 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 预览拿到当前身份,随后远端在预览之后发生变化。
-	preview, err := lib.PreviewSyncPull(ctx)
+	// 同步计划拿到当前身份,随后远端发生变化。
+	plan, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stub.set([]byte("different remote object"))
-	if _, err := lib.SyncPull(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+	if _, err := lib.SyncPull(ctx, plan.Remote); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("SyncPull() after remote change = %v, want Conflict", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("conflicting pull corrupted local library: %v", err)
 	}
 
-	// 身份匹配但内容不是合法库:预览标注 schema 不可接受,执行被拒且本地不受损。
-	badPreview, err := lib.PreviewSyncPull(ctx)
+	// 身份匹配但内容不是合法库:同步计划标注 schema 不可接受,执行被拒且本地不受损。
+	badPlan, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if badPreview.SchemaOK {
-		t.Fatalf("PreviewSyncPull() = %#v, want schema not acceptable", badPreview)
+	if badPlan.SchemaOK {
+		t.Fatalf("PlanSyncPull() = %#v, want schema not acceptable", badPlan)
 	}
-	if _, err := lib.SyncPull(ctx, badPreview.Remote); !library.IsCode(err, library.FailedPrecondition) {
+	if _, err := lib.SyncPull(ctx, badPlan.Remote); !library.IsCode(err, library.FailedPrecondition) {
 		t.Fatalf("SyncPull invalid database = %v, want FailedPrecondition", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
@@ -420,7 +420,7 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub.set(foreign)
-	foreignPreview, err := lib.PreviewSyncPull(ctx)
+	foreignPreview, err := lib.PlanSyncPull(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,16 +448,16 @@ func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 	if _, err := lib.SyncPush(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	preview, err := lib.PreviewSyncPush(ctx)
+	plan, err := lib.PlanSyncPush(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// 预检 HEAD 仍看到预览时的身份(通过),但紧接着(PUT 之前)远端被并发写者改动。
+	// 预检 HEAD 仍看到同步计划里的身份(通过),但紧接着(PUT 之前)远端被并发写者改动。
 	// 条件写(If-Match)必须捕获该窗口内的变化,拒绝覆盖。
 	intruder := []byte("concurrent remote write")
 	stub.afterHead = func() { stub.set(intruder) }
-	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+	if _, err := lib.SyncPush(ctx, plan.Remote); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("SyncPush() racing a concurrent remote write = %v, want Conflict", err)
 	}
 	if !bytes.Equal(stub.stored, intruder) {
@@ -510,7 +510,7 @@ func TestSyncImagesStayRollbackJournalWhileLocalLibraryStaysWAL(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
 	source := openTestLibrary(t)
-	installed := installNamedSkill(t, source, "shared")
+	fetched := fetchNamedSkill(t, source, "shared")
 	if _, err := source.SyncPush(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +528,7 @@ func TestSyncImagesStayRollbackJournalWhileLocalLibraryStaysWAL(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer target.Close()
-	installNamedSkill(t, target, "local-only")
+	fetchNamedSkill(t, target, "local-only")
 	if _, err := target.SyncPull(ctx, library.RemoteIdentity(stub.etag)); err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestSyncImagesStayRollbackJournalWhileLocalLibraryStaysWAL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(skills, []library.SkillSummary{summaryOf(installed)}) {
+	if !reflect.DeepEqual(skills, []library.SkillSummary{summaryOf(fetched)}) {
 		t.Fatalf("skills after pull = %#v, want exactly the pulled skill", skills)
 	}
 }
@@ -564,7 +564,7 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 
 	// 缺少必要配置时报 NotConfigured,而非裸的 Internal。
 	t.Setenv("SKILLS_S3_BUCKET", "")
-	if _, err := lib.PreviewSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
+	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
 		t.Fatalf("missing config error = %v, want NotConfigured", err)
 	}
 	if _, err := lib.SyncPull(t.Context(), ""); !library.IsCode(err, library.NotConfigured) {
@@ -572,7 +572,7 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 	}
 }
 
-func TestSyncPushPreviewPreservesRemoteAndMatchingOverwriteSucceeds(t *testing.T) {
+func TestSyncPushPlanPreservesRemoteAndMatchingOverwriteSucceeds(t *testing.T) {
 	stub := newS3Stub(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
@@ -587,18 +587,18 @@ func TestSyncPushPreviewPreservesRemoteAndMatchingOverwriteSucceeds(t *testing.T
 	if _, err := lib.CreateGroup(ctx, "new-local-group"); err != nil {
 		t.Fatal(err)
 	}
-	preview, err := lib.PreviewSyncPush(ctx)
+	plan, err := lib.PlanSyncPush(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !preview.RemoteExists || string(preview.Remote) != stub.etag || !bytes.Equal(before, stub.stored) {
-		t.Fatalf("push preview changed remote or returned wrong identity: %#v", preview)
+	if !plan.RemoteExists || string(plan.Remote) != stub.etag || !bytes.Equal(before, stub.stored) {
+		t.Fatalf("push plan changed remote or returned wrong identity: %#v", plan)
 	}
-	result, err := lib.SyncPush(ctx, preview.Remote)
+	result, err := lib.SyncPush(ctx, plan.Remote)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Remote == preview.Remote || bytes.Equal(before, stub.stored) {
+	if result.Remote == plan.Remote || bytes.Equal(before, stub.stored) {
 		t.Fatal("matching push did not update remote")
 	}
 	if _, err := lib.SyncPull(ctx, result.Remote); err != nil {
@@ -610,7 +610,7 @@ func TestSyncPushPreviewPreservesRemoteAndMatchingOverwriteSucceeds(t *testing.T
 	}
 }
 
-func TestSyncRejectsStalePreviewAfterRemoteCreationChangeOrDeletion(t *testing.T) {
+func TestSyncRejectsStalePlanAfterRemoteCreationChangeOrDeletion(t *testing.T) {
 	stub := newS3Stub(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
@@ -618,32 +618,32 @@ func TestSyncRejectsStalePreviewAfterRemoteCreationChangeOrDeletion(t *testing.T
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	preview, err := lib.PreviewSyncPush(ctx)
+	plan, err := lib.PlanSyncPush(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	intruder := []byte("another writer")
 	stub.set(intruder)
-	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+	if _, err := lib.SyncPush(ctx, plan.Remote); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("push after creation = %v, want Conflict", err)
 	}
-	preview, err = lib.PreviewSyncPush(ctx)
+	plan, err = lib.PlanSyncPush(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stub.set([]byte("changed writer"))
 	before := bytes.Clone(stub.stored)
-	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+	if _, err := lib.SyncPush(ctx, plan.Remote); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("push after change = %v, want Conflict", err)
 	}
 	if !bytes.Equal(before, stub.stored) {
 		t.Fatal("stale push changed remote")
 	}
 	stub.stored, stub.etag = nil, ""
-	if _, err := lib.SyncPush(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+	if _, err := lib.SyncPush(ctx, plan.Remote); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("push after deletion = %v, want Conflict", err)
 	}
-	if _, err := lib.SyncPull(ctx, preview.Remote); !library.IsCode(err, library.Conflict) {
+	if _, err := lib.SyncPull(ctx, plan.Remote); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("pull after deletion = %v, want Conflict", err)
 	}
 }
@@ -658,11 +658,11 @@ func TestAllSyncOperationsReportMissingConfiguration(t *testing.T) {
 	for _, key := range []string{"SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} {
 		t.Run(key, func(t *testing.T) {
 			t.Setenv(key, "")
-			_, pushPreviewErr := lib.PreviewSyncPush(t.Context())
-			_, pullPreviewErr := lib.PreviewSyncPull(t.Context())
+			_, pushPlanErr := lib.PlanSyncPush(t.Context())
+			_, pullPlanErr := lib.PlanSyncPull(t.Context())
 			_, pushErr := lib.SyncPush(t.Context(), "")
 			_, pullErr := lib.SyncPull(t.Context(), "")
-			for name, err := range map[string]error{"push preview": pushPreviewErr, "pull preview": pullPreviewErr, "push": pushErr, "pull": pullErr} {
+			for name, err := range map[string]error{"push plan": pushPlanErr, "pull plan": pullPlanErr, "push": pushErr, "pull": pullErr} {
 				if !library.IsCode(err, library.NotConfigured) {
 					t.Errorf("%s = %v, want NotConfigured", name, err)
 				}
@@ -687,11 +687,11 @@ func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	}
 	before := bytes.Clone(stub.stored)
 	stub.etag = ""
-	_, pushPreviewErr := lib.PreviewSyncPush(ctx)
-	_, pullPreviewErr := lib.PreviewSyncPull(ctx)
+	_, pushPlanErr := lib.PlanSyncPush(ctx)
+	_, pullPlanErr := lib.PlanSyncPull(ctx)
 	_, pushErr := lib.SyncPush(ctx, "")
 	_, pullErr := lib.SyncPull(ctx, "")
-	for name, err := range map[string]error{"push preview": pushPreviewErr, "pull preview": pullPreviewErr, "push": pushErr, "pull": pullErr} {
+	for name, err := range map[string]error{"push plan": pushPlanErr, "pull plan": pullPlanErr, "push": pushErr, "pull": pullErr} {
 		if !library.IsCode(err, library.SourceUnreachable) {
 			t.Errorf("%s without remote identity = %v, want SourceUnreachable", name, err)
 		}
@@ -705,7 +705,7 @@ func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	}
 }
 
-func TestPullPreviewReturnsTemporaryFileFailure(t *testing.T) {
+func TestPullPlanReturnsTemporaryFileFailure(t *testing.T) {
 	newS3Stub(t)
 	lib := openTestLibrary(t)
 	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
@@ -713,12 +713,12 @@ func TestPullPreviewReturnsTemporaryFileFailure(t *testing.T) {
 	}
 	// 在远端有效时制造本地暂存失败,不能把它伪装成 schema 不可接受。
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
-	if preview, err := lib.PreviewSyncPull(t.Context()); err == nil {
-		t.Fatalf("temporary file failure became successful preview: %#v", preview)
+	if plan, err := lib.PlanSyncPull(t.Context()); err == nil {
+		t.Fatalf("temporary file failure became successful plan: %#v", plan)
 	}
 }
 
-func TestPullPreviewPreservesCancellationDuringValidation(t *testing.T) {
+func TestPullPlanPreservesCancellationDuringValidation(t *testing.T) {
 	newS3Stub(t)
 	lib := openTestLibrary(t)
 	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
@@ -729,12 +729,12 @@ func TestPullPreviewPreservesCancellationDuringValidation(t *testing.T) {
 	base, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	// 下载完成并写入暂存库后才取消,确保覆盖校验阶段而非 HTTP 请求阶段。
-	fault := cancelAfterProjection{Context: base, cancel: cancel, changed: func() bool {
+	fault := cancelAfterPlacement{Context: base, cancel: cancel, changed: func() bool {
 		entries, _ := os.ReadDir(temp)
 		return len(entries) > 0
 	}}
-	if preview, err := lib.PreviewSyncPull(fault); !errors.Is(err, context.Canceled) {
-		t.Fatalf("validation cancellation = %#v, %v; want context.Canceled", preview, err)
+	if plan, err := lib.PlanSyncPull(fault); !errors.Is(err, context.Canceled) {
+		t.Fatalf("validation cancellation = %#v, %v; want context.Canceled", plan, err)
 	}
 	if entries, err := os.ReadDir(temp); err != nil || len(entries) != 0 {
 		t.Fatalf("temporary database not cleaned up: %v, %v", entries, err)

@@ -59,7 +59,7 @@ func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) err
 
 type discoveredSource struct {
 	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
-	skills         []fetchedSkill
+	skills         []discoveredSkill
 	diagnostics    []CandidateDiagnostic
 	ref            string
 	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator 原文(ETag 或 Last-Modified);
@@ -134,7 +134,7 @@ func (b *readBudget) take(size int64) error {
 }
 
 // fetchGitHub 对 github.com 先走 tree/blob 快路径;API 不可用时回退已加固的浅克隆。
-// 预览只取各候选 SKILL.md,安装再按 blob SHA 取所选目录。
+// 预览只取各候选 SKILL.md,入库时再按 blob SHA 取所选目录。
 func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {
 	var apiErr error
 	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
@@ -231,7 +231,7 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 		return result, err
 	}
 	for i, skill := range result.skills {
-		sha, shaErr := readGitTreeSHA(ctx, repository, skill.preview.Path)
+		sha, shaErr := readGitTreeSHA(ctx, repository, skill.candidate.Path)
 		if shaErr != nil {
 			return discoveredSource{}, shaErr
 		}
@@ -367,8 +367,8 @@ func readArchive(ctx context.Context, content []byte) (discoveredSource, error) 
 	return finishDiscovery(result)
 }
 
-func candidateMetadata(content []byte, root string) (FetchSkill, error) {
-	result := FetchSkill{Path: root}
+func candidateMetadata(content []byte, root string) (Candidate, error) {
+	result := Candidate{Path: root}
 	first, rest, ok := strings.Cut(string(content), "\n")
 	if !ok || strings.TrimSuffix(first, "\r") != "---" {
 		return result, errors.New("missing YAML frontmatter")
@@ -405,9 +405,9 @@ func candidateMetadata(content []byte, root string) (FetchSkill, error) {
 // discoverSkills 只在发现候选后读取完整文件;发现排除目录不会裁剪候选内资源。
 // budget 非 nil 时限制各候选累计读取的文件数与字节数;内容已另有上限的来源传 nil。
 func discoverSkills(ctx context.Context, source fs.FS, root string, budget *readBudget) (discoveredSource, error) {
-	return discoverCandidates(ctx, fsSourceView{source}, root, func(skill *fetchedSkill, _ string, _ []byte) error {
+	return discoverCandidates(ctx, fsSourceView{source}, root, func(skill *discoveredSkill, _ string, _ []byte) error {
 		var err error
-		skill.files, err = readCandidateFiles(ctx, source, skill.preview.Path, budget)
+		skill.files, err = readCandidateFiles(ctx, source, skill.candidate.Path, budget)
 		return err
 	})
 }

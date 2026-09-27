@@ -86,11 +86,11 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"activate group", func() error {
-			_, err := lib.ActivateGroup(ctx, unknownGroup, scope, library.ActivateOptions{})
+		{"install group", func() error {
+			_, err := lib.InstallGroup(ctx, unknownGroup, scope, library.InstallOptions{})
 			return err
 		}()},
-		{"deactivate group", lib.DeactivateGroup(ctx, unknownGroup, scope)},
+		{"uninstall group", lib.UninstallGroup(ctx, unknownGroup, scope)},
 		{"list group", func() error { _, err := lib.ListGroupSkills(ctx, unknownGroup); return err }()},
 		{"add to unknown group", func() error {
 			_, err := lib.AddSkillToGroup(ctx, unknownGroup, skill.ID)
@@ -108,7 +108,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 	}
 }
 
-func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
+func TestGroupLifecycleKeepsSkillsAndInstallations(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -156,42 +156,42 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.ActivateGroup(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.InstallGroup(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.ActivateGroup(ctx, second.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+	if _, err := lib.InstallGroup(ctx, second.ID, scope, library.InstallOptions{OnConflict: library.Overwrite}); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.DeleteGroup(ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
-		t.Fatalf("DeleteGroup removed projected copy: %v", err)
+		t.Fatalf("DeleteGroup removed installation folder: %v", err)
 	}
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("DeleteGroup removed skill: %v", err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	wantProjections := []library.Projection{
+	installations, err := lib.ListInstallations(ctx)
+	wantInstallations := []library.Installation{
 		{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{second.ID}},
 		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Direct: true},
 	}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections) {
-		t.Fatalf("projections after DeleteGroup = %#v, %v; want %#v", projections, err, wantProjections)
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), wantInstallations) {
+		t.Fatalf("installations after DeleteGroup = %#v, %v; want %#v", installations, err, wantInstallations)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name, "SKILL.md")); err != nil {
-		t.Fatalf("DeleteGroup removed group-only projected copy: %v", err)
+		t.Fatalf("DeleteGroup removed group-only installation folder: %v", err)
 	}
-	// 删组转为直接激活后,仍可按 Remove 策略连同投影一起移除。
-	if err := lib.RemoveSkill(ctx, groupOnly.ID, library.RemoveSkillOptions{ProjectedCopies: library.Remove}); err != nil {
+	// 删组转为直接安装后,仍可按 Remove 策略连同安装项一起移除。
+	if err := lib.RemoveSkill(ctx, groupOnly.ID, library.RemoveSkillOptions{Installations: library.Remove}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("RemoveSkill(Remove) left projection: %v", err)
+		t.Fatalf("RemoveSkill(Remove) left installation: %v", err)
 	}
-	projections, err = lib.ListProjections(ctx)
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), wantProjections[:1]) {
-		t.Fatalf("projections after RemoveSkill = %#v, %v; want %#v", projections, err, wantProjections[:1])
+	installations, err = lib.ListInstallations(ctx)
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), wantInstallations[:1]) {
+		t.Fatalf("installations after RemoveSkill = %#v, %v; want %#v", installations, err, wantInstallations[:1])
 	}
 	groups, err = lib.ListGroups(ctx)
 	if err != nil || !reflect.DeepEqual(groups, []library.Group{second}) {
@@ -296,7 +296,7 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 	} else {
 		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})
 	}
-	skill := installNamedSkill(t, lib, "member")
+	skill := fetchNamedSkill(t, lib, "member")
 	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestListGroupsWithMembersReflectsMembershipChanges(t *testing.T) {
 
 func TestListGroupsWithMembersWithoutGroupsIsEmpty(t *testing.T) {
 	lib := openTestLibrary(t)
-	installNamedSkill(t, lib, "ungrouped")
+	fetchNamedSkill(t, lib, "ungrouped")
 	requireGroupsWithMembers(t, lib, []library.GroupWithMembers{})
 }
 
@@ -374,9 +374,9 @@ func seedGroupsWithMembers(t *testing.T, lib library.Library) groupsWithMembersF
 	t.Helper()
 	ctx := t.Context()
 	f := groupsWithMembersFixture{
-		first:  installNamedSkill(t, lib, "first"),
-		second: installNamedSkill(t, lib, "second"),
-		loner:  installNamedSkill(t, lib, "loner"),
+		first:  fetchNamedSkill(t, lib, "first"),
+		second: fetchNamedSkill(t, lib, "second"),
+		loner:  fetchNamedSkill(t, lib, "loner"),
 	}
 	for _, group := range []struct {
 		dst  *library.Group

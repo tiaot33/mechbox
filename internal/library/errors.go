@@ -76,21 +76,21 @@ func preconditionError(operation, reason string, details ErrorDetails) *Error {
 	return &Error{Code: FailedPrecondition, Message: operation + ": " + reason, Details: details}
 }
 
-func validateProjectedCopies(operation string, policy ProjectedCopiesPolicy) error {
+func validateInstallationsPolicy(operation string, policy InstallationsPolicy) error {
 	switch policy {
 	case "", Keep, Remove:
 		return nil
 	default:
-		return argumentError(operation, "projected_copies", "invalid projected copies option")
+		return argumentError(operation, "installations", "invalid installations option")
 	}
 }
 
 func validateMemberRemoval(operation string, policy MemberRemovalPolicy) error {
 	switch policy {
-	case "", KeepProjection, WithdrawProjection:
+	case "", KeepInstallation, WithdrawInstallation:
 		return nil
 	default:
-		return argumentError(operation, "projections", "invalid projections option")
+		return argumentError(operation, "installations", "invalid installations option")
 	}
 }
 

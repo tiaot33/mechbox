@@ -186,9 +186,9 @@ func summaryIDs(skills []library.SkillSummary) []library.SkillID {
 	return ids
 }
 
-// withoutCreatedAt 去掉投影建立时间,供不关心时间戳的既有 DeepEqual 断言使用。
-func withoutCreatedAt(projections []library.Projection) []library.Projection {
-	out := append([]library.Projection(nil), projections...)
+// withoutCreatedAt 去掉安装项建立时间,供不关心时间戳的既有 DeepEqual 断言使用。
+func withoutCreatedAt(installations []library.Installation) []library.Installation {
+	out := append([]library.Installation(nil), installations...)
 	for i := range out {
 		out[i].CreatedAt = time.Time{}
 	}
@@ -201,7 +201,7 @@ func summaryOf(skill library.Skill) library.SkillSummary {
 		Name:        skill.Name,
 		Description: skill.Description,
 		Source:      skill.Source,
-		InstalledAt: skill.InstalledAt,
+		FetchedAt: skill.FetchedAt,
 		UpdatedAt:   skill.UpdatedAt,
 	}
 }
@@ -283,8 +283,8 @@ func journalMode(t *testing.T, path string) string {
 	return readLibraryScalar(t, path, `PRAGMA journal_mode`)
 }
 
-// installExampleSkill 在隔离目录里安装一个带可执行脚本的 skill,供激活用例复用。
-func installExampleSkill(t *testing.T, lib library.Library, name string) library.Skill {
+// fetchExampleSkill 在隔离目录里入库一个带可执行脚本的 skill,供安装用例复用。
+func fetchExampleSkill(t *testing.T, lib library.Library, name string) library.Skill {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
 	writeLocalSkill(t, source, "# "+name+"\n")
@@ -296,21 +296,21 @@ func installExampleSkill(t *testing.T, lib library.Library, name string) library
 	return skill
 }
 
-func installNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
+func fetchNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
 	t.Helper()
-	return installSkillWithBody(t, lib, name, "# "+name+"\n")
+	return fetchSkillWithBody(t, lib, name, "# "+name+"\n")
 }
 
-// installSkillWithBody 从一个独立的临时 Source 安装指定名字与 SKILL.md 正文的 skill;
+// fetchSkillWithBody 从一个独立的临时 Source 入库指定名字与 SKILL.md 正文的 skill;
 // 多次以同名调用会得到不同 Source 的同名 skill,靠正文区分。
-func installSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
+func fetchSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
 	t.Helper()
-	skill, _ := installLocalSkill(t, lib, name, body)
+	skill, _ := fetchLocalSkill(t, lib, name, body)
 	return skill
 }
 
-// installLocalSkill 从独立的本地 Source 安装 skill,并返回 Source 目录,供之后改内容再 Update。
-func installLocalSkill(t *testing.T, lib library.Library, name, body string) (library.Skill, string) {
+// fetchLocalSkill 从独立的本地 Source 入库 skill,并返回 Source 目录,供之后改内容再 Update。
+func fetchLocalSkill(t *testing.T, lib library.Library, name, body string) (library.Skill, string) {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
 	writeLocalSkill(t, source, body)
@@ -321,17 +321,17 @@ func installLocalSkill(t *testing.T, lib library.Library, name, body string) (li
 	return skill, source
 }
 
-// listProjections 读出全部投影,失败即终止测试。
-func listProjections(t *testing.T, lib library.Library) []library.Projection {
+// listInstallations 读出全部安装项,失败即终止测试。
+func listInstallations(t *testing.T, lib library.Library) []library.Installation {
 	t.Helper()
-	projections, err := lib.ListProjections(t.Context())
+	installations, err := lib.ListInstallations(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return projections
+	return installations
 }
 
-// requireNoStagedEntries 断言 Scope 目录下没有以 "." 开头的暂存残留(激活暂存或删除暂存)。
+// requireNoStagedEntries 断言 Scope 目录下没有以 "." 开头的暂存残留(安装暂存或删除暂存)。
 func requireNoStagedEntries(t *testing.T, directory string) {
 	t.Helper()
 	entries, err := os.ReadDir(directory)
@@ -357,8 +357,8 @@ func makeScopeReadOnly(t *testing.T, directory string) {
 	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
 }
 
-// requireProjection 断言 directory 下 name 文件夹的 SKILL.md 正文。
-func requireProjection(t *testing.T, directory, name, body string) {
+// requireInstallation 断言 directory 下 name 文件夹的 SKILL.md 正文。
+func requireInstallation(t *testing.T, directory, name, body string) {
 	t.Helper()
 	requireSkillFile(t, directory, name, skillDocument(name, body))
 }
@@ -368,7 +368,7 @@ func requireSkillFile(t *testing.T, directory, name, want string) {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
 	if err != nil || string(content) != want {
-		t.Fatalf("projection %s/SKILL.md = %q, %v; want %q", name, content, err, want)
+		t.Fatalf("installation %s/SKILL.md = %q, %v; want %q", name, content, err, want)
 	}
 }
 
@@ -383,7 +383,7 @@ func openTestLibrary(t *testing.T) library.Library {
 }
 
 // openGitHubLibraryWithoutTreeSHA 用当前 schema 构造缺少 GitHub 版本标识的数据,
-// 供 SHA 回填与批量检查取消用例复用;先经技能库安装,关库后仅清空待测字段。
+// 供 SHA 回填与批量检查取消用例复用;先经技能库入库,关库后仅清空待测字段。
 func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.Skill) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "library.db")
@@ -392,11 +392,11 @@ func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.S
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	skills, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+	skills, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func snapshotSkill(t *testing.T, lib library.Library, id library.SkillID) skillS
 }
 
 // assertGitHubCommitOnly 断言检查只解析了 commits 次 commit,没有取 tree、没有取任何 blob:
-// 当前版本的确认 commit 命中时的请求形状。commit 未命中、须取 tree 的场景用 assertGitHubCheckDoesNotFetchSkillFiles。
+// 当前版本的确认 commit 命中时的请求形状。commit 未命中、须取 tree 的场景用 assertGitHubCheckDoesNotReadSkillFiles。
 func assertGitHubCommitOnly(t *testing.T, api *gitHubAPIMock, commits int) {
 	t.Helper()
 	gotCommits, trees, blobs := gitHubAPIKindCounts(t, api)
@@ -500,14 +500,14 @@ func (g *networkGate) open() {
 
 // fetchLocal 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
 func fetchLocal(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
-	fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: dir}})
+	preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: dir}})
 	if err != nil {
 		return library.Skill{}, err
 	}
-	if len(fetch.Skills) != 1 {
-		return library.Skill{}, fmt.Errorf("local preview of %s found %d candidates, want 1", dir, len(fetch.Skills))
+	if len(preview.Skills) != 1 {
+		return library.Skill{}, fmt.Errorf("local preview of %s found %d candidates, want 1", dir, len(preview.Skills))
 	}
-	fetched, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil {
 		return library.Skill{}, err
 	}
@@ -520,18 +520,18 @@ func writeLocalSkill(t *testing.T, dir, body string) {
 	writeFile(t, filepath.Join(dir, "SKILL.md"), []byte(skillDocument(filepath.Base(dir), body)), 0o644)
 }
 
-// installURLSkill 经 Fetch + InstallFetch 从 URL 远端装入名为 name 的 skill。
-func installURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
+// fetchURLSkill 经 预览 + FetchFromPreview 从 URL 远端装入名为 name 的 skill。
+func fetchURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
 	t.Helper()
-	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})
+	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{name})
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{name})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return installed[0]
+	return fetched[0]
 }
 
 // stubGitHubCLI 隔离本机 gh 登录态,仅在进程边界提供受控响应。
@@ -574,7 +574,7 @@ func updateCheckState(t *testing.T, lib library.Library, id library.SkillID) *li
 	return nil
 }
 
-// requireMemberResults 断言组激活 / 加入成员的逐条结果;跳过项只比较错误码与 Details,不比较 Message。
+// requireMemberResults 断言组安装 / 加入成员的逐条结果;跳过项只比较错误码与 Details,不比较 Message。
 func requireMemberResults(t *testing.T, got []library.GroupMemberResult, err error, want []library.GroupMemberResult) {
 	t.Helper()
 	if err != nil {
@@ -613,11 +613,11 @@ func skippedMember(id library.SkillID, scope library.Scope, code library.ErrorCo
 	return library.GroupMemberResult{SkillID: id, Scope: scope, Outcome: library.MemberSkipped, Error: &library.Error{Code: code, Details: details}}
 }
 
-// withoutGroupActivatedAt 去掉组激活时间,供不关心时间戳的 DeepEqual 断言使用。
-func withoutGroupActivatedAt(activations []library.GroupActivation) []library.GroupActivation {
-	out := append([]library.GroupActivation(nil), activations...)
+// withoutGroupInstalledAt 去掉组安装时间,供不关心时间戳的 DeepEqual 断言使用。
+func withoutGroupInstalledAt(installs []library.GroupInstall) []library.GroupInstall {
+	out := append([]library.GroupInstall(nil), installs...)
 	for i := range out {
-		out[i].ActivatedAt = time.Time{}
+		out[i].InstalledAt = time.Time{}
 	}
 	return out
 }

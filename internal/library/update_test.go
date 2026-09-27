@@ -23,11 +23,11 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	writeSource("old", "old")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+	preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	skills, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	skills, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,11 +41,11 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 		if directories[i], err = lib.Resolve(ctx, scope); err != nil {
 			t.Fatal(err)
 		}
-		if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	projections, err := lib.ListProjections(ctx)
+	installations, err := lib.ListInstallations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +90,12 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	for _, directory := range directories {
 		content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
 		if err != nil || string(content) != skillDocument("first", "old") {
-			t.Fatalf("projection changed: %q, %v", content, err)
+			t.Fatalf("installation changed: %q, %v", content, err)
 		}
 	}
-	after, err := lib.ListProjections(ctx)
-	if err != nil || !reflect.DeepEqual(after, projections) {
-		t.Fatalf("projection records changed: %v, %v", after, err)
+	after, err := lib.ListInstallations(ctx)
+	if err != nil || !reflect.DeepEqual(after, installations) {
+		t.Fatalf("installation records changed: %v, %v", after, err)
 	}
 	if err := os.RemoveAll(filepath.Join(repository, "first")); err != nil {
 		t.Fatal(err)

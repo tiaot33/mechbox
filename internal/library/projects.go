@@ -11,7 +11,7 @@ func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err err
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 只读取稳定代码与展示名称;布局规则留在表里,由解析与投影内部使用。
+	// 只读取稳定代码与展示名称;布局规则留在表里,由解析与安装项内部使用。
 	rows, err := l.db.QueryContext(ctx, `SELECT code, name FROM agents ORDER BY code`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -102,29 +102,29 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateProjectedCopies("unregister project", opts.ProjectedCopies); err != nil {
+	if err := validateInstallationsPolicy("unregister project", opts.Installations); err != nil {
 		return err
 	}
 	var path string
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
-	// 待删的投影路径在事务外先算好:单连接模式下事务内不能再走 l.db。
-	var trash projectionTrash
-	if opts.ProjectedCopies != Keep {
-		projections, err := l.ListProjections(ctx)
+	// 待删的安装项路径在事务外先算好:单连接模式下事务内不能再走 l.db。
+	var trash installationTrash
+	if opts.Installations != Keep {
+		installations, err := l.ListInstallations(ctx)
 		if err != nil {
 			return err
 		}
-		for _, projection := range projections {
-			if projection.Scope.Kind != ScopeProject || projection.Scope.ProjectID != id {
+		for _, installation := range installations {
+			if installation.Scope.Kind != ScopeProject || installation.Scope.ProjectID != id {
 				continue
 			}
-			skill, err := l.GetSkill(ctx, projection.SkillID)
+			skill, err := l.GetSkill(ctx, installation.SkillID)
 			if err != nil {
 				return err
 			}
-			trash.targets = append(trash.targets, filepath.Join(projection.Directory, skill.Name))
+			trash.targets = append(trash.targets, filepath.Join(installation.Directory, skill.Name))
 		}
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -132,10 +132,10 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		return fmt.Errorf("begin unregister project: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM projections WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project projections: %w", err)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("remove project installations: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM group_activations WHERE project_id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE project_id = ?`, id); err != nil {
 		return fmt.Errorf("remove project group activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {

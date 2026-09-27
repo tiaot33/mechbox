@@ -15,12 +15,12 @@ type sqliteLibrary struct {
 	db   *sql.DB
 	home string // Open 时的用户主目录;全局 Scope 全程按它解析,不跟随后续 $HOME 变化
 	// mu 是共享 / 独占锁,不是读 / 写锁:DB 语句的串行化由单连接完成,这把锁保护的是
-	// 磁盘投影的 check-then-act 复合操作(Activate* / Deactivate*、加入 / 移出组成员)、home 以及 SyncPull 的整库替换。
+	// 磁盘安装项的 check-then-act 复合操作(Install* / Uninstall*、加入 / 移出组成员)、home 以及 SyncPull 的整库替换。
 	// 网络往返期间不得持有它,否则一个排队的独占者会让所有新来的共享者一起等网络。
 	mu sync.RWMutex
 
-	fetchMu sync.Mutex
-	fetches map[FetchID]*fetchSession
+	previewMu sync.Mutex
+	previews map[PreviewID]*previewSession
 	closed  bool
 
 	githubAuth githubAuth       // GitHub 鉴权阶梯状态(限流窗口、token / CLI 已确认可用),仅本实例持有
@@ -106,19 +106,19 @@ func Open(path string) (Library, error) {
 	// WAL 下读者与写者互不阻塞(见 ADR 0012)。切换失败(文件系统不支持共享内存、另一进程的旧版本
 	// 二进制正持有连接)就保持现状:busy_timeout 与 Busy 码仍然成立,下次 Open 再试。
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
-	return &sqliteLibrary{db: db, home: home, fetches: map[FetchID]*fetchSession{}, githubMemo: newGitHubMemo()}, nil
+	return &sqliteLibrary{db: db, home: home, previews: map[PreviewID]*previewSession{}, githubMemo: newGitHubMemo()}, nil
 }
 
 func (l *sqliteLibrary) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.fetchMu.Lock()
+	l.previewMu.Lock()
 	l.closed = true
-	for _, session := range l.fetches {
+	for _, session := range l.previews {
 		session.timer.Stop()
 	}
-	clear(l.fetches)
-	l.fetchMu.Unlock()
+	clear(l.previews)
+	l.previewMu.Unlock()
 	l.githubAuth.anonymousReset.Store(0)
 	l.githubAuth.useToken.Store(false)
 	l.githubAuth.useCLI.Store(false)

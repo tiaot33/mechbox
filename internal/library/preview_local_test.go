@@ -23,18 +23,18 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	writeFile(t, filepath.Join(root, "skills", "alpha-dir", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 	writeFile(t, filepath.Join(root, "skills", "beta", "SKILL.md"), []byte(skillDocument("beta", "beta body")), 0o644)
 
-	fetch, err := lib.Fetch(ctx, localSpec(root))
+	preview, err := lib.PreviewSource(ctx, localSpec(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.FetchSkill{{Name: "alpha", Path: "skills/alpha-dir"}, {Name: "beta", Path: "skills/beta"}}
-	if fetch.ID == "" || !reflect.DeepEqual(fetch.Skills, want) {
-		t.Fatalf("local preview = %#v; want candidates %#v", fetch, want)
+	want := []library.Candidate{{Name: "alpha", Path: "skills/alpha-dir"}, {Name: "beta", Path: "skills/beta"}}
+	if preview.ID == "" || !reflect.DeepEqual(preview.Skills, want) {
+		t.Fatalf("local preview = %#v; want candidates %#v", preview, want)
 	}
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("preview wrote to library: %v, %v", skills, err)
 	}
-	fetched, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	}
 	source := collections[0].Source
 	if source.Type != library.SourceLocal || source.Locator != (library.SourceLocator{Path: root}) || source.LastFetched.IsZero() {
-		t.Fatalf("source = %#v; want the previewed directory with a fetch time", source)
+		t.Fatalf("source = %#v; want the previewed directory with a preview time", source)
 	}
 }
 
@@ -71,14 +71,14 @@ func TestLocalPreviewResolvesRelativePathAndSelectsNames(t *testing.T) {
 
 	spec := localSpec(filepath.Base(root))
 	spec.Names = []string{"two"}
-	fetch, err := lib.Fetch(ctx, spec)
+	preview, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []library.FetchSkill{{Name: "two", Path: "two"}}; !reflect.DeepEqual(fetch.Skills, want) {
-		t.Fatalf("selected candidates = %#v; want %#v", fetch.Skills, want)
+	if want := []library.Candidate{{Name: "two", Path: "two"}}; !reflect.DeepEqual(preview.Skills, want) {
+		t.Fatalf("selected candidates = %#v; want %#v", preview.Skills, want)
 	}
-	fetched, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,14 +93,14 @@ func TestLocalPreviewPinsContentUntilFetch(t *testing.T) {
 	root := t.TempDir()
 	skillFile := filepath.Join(root, "SKILL.md")
 	writeFile(t, skillFile, []byte(skillDocument("pinned", "previewed")), 0o644)
-	fetch, err := lib.Fetch(ctx, localSpec(root))
+	preview, err := lib.PreviewSource(ctx, localSpec(root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 预览之后改动或删除目录,入库的仍是预览时的内容。
 	writeFile(t, skillFile, []byte(skillDocument("pinned", "edited later")), 0o644)
 	writeFile(t, filepath.Join(root, "extra.md"), []byte("added later"), 0o644)
-	fetched, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,11 +116,11 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "a", "SKILL.md"), []byte(skillDocument("first", "v1")), 0o644)
 	writeFile(t, filepath.Join(root, "b", "SKILL.md"), []byte(skillDocument("second", "v1")), 0o644)
-	fetch, err := lib.Fetch(ctx, localSpec(root))
+	preview, err := lib.PreviewSource(ctx, localSpec(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 		t.Fatalf("Update = %#v; want v2 from relocated directory", updated)
 	}
 	if updated.Skill.Source.LastFetched.IsZero() {
-		t.Fatalf("Update did not record fetch time on local source: %#v", updated.Skill.Source)
+		t.Fatalf("Update did not record preview time on local source: %#v", updated.Skill.Source)
 	}
 
 	// 名字从目录里消失时,更新报 NotFound。
@@ -184,8 +184,8 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			if _, err := lib.Fetch(t.Context(), test.spec); !library.IsCode(err, test.want) {
-				t.Fatalf("Fetch = %v; want %s", err, test.want)
+			if _, err := lib.PreviewSource(t.Context(), test.spec); !library.IsCode(err, test.want) {
+				t.Fatalf("PreviewSource = %v; want %s", err, test.want)
 			}
 		})
 	}

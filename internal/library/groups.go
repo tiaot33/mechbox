@@ -157,10 +157,10 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	// 本组组激活覆盖的投影在开事务前取齐(事务期间不能再走 l.db)。删组不写盘,持共享锁即可:会新建投影、
-	// 改成员或组激活的操作都持独占锁,不会与它交错;能交错的 UnregisterProject / RemoveSkill 只删记录,
-	// 被它们删掉的投影在下面的保留判定里只是一次空更新,而保留判定本身在事务内按当时状态重新检查。
-	covered, err := l.memberProjections(ctx, id, 0, scopeRow{})
+	// 本组组安装覆盖的安装项在开事务前取齐(事务期间不能再走 l.db)。删组不写盘,持共享锁即可:会新建安装项、
+	// 改成员或组安装的操作都持独占锁,不会与它交错;能交错的 UnregisterProject / RemoveSkill 只删记录,
+	// 被它们删掉的安装项在下面的保留判定里只是一次空更新,而保留判定本身在事务内按当时状态重新检查。
+	covered, err := l.memberInstallations(ctx, id, 0, scopeRow{})
 	if err != nil {
 		return err
 	}
@@ -169,15 +169,15 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 		return fmt.Errorf("delete group: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM group_activations WHERE group_id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group activations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group members: %w", err)
 	}
-	// 本组不再覆盖它们后,没有其他激活撑着的转为直接激活,磁盘不动。
-	for _, projection := range covered {
-		if err := keepUnbackedProjection(ctx, tx, projection.id); err != nil {
+	// 本组不再覆盖它们后,没有其他安装撑着的转为直接安装,磁盘不动。
+	for _, installation := range covered {
+		if err := keepUnbackedInstallation(ctx, tx, installation.id); err != nil {
 			return err
 		}
 	}
@@ -199,7 +199,7 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 }
 
 func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
-	// 加入成员会投影到组已激活的各 Scope,与激活一样持独占锁。
+	// 加入成员会安装到组已安装的各 Scope,与安装一样持独占锁。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -225,14 +225,14 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 		FROM skills WHERE id = ?`, groupID, skillID).Scan(&name, &duplicate); err != nil {
 		return nil, fmt.Errorf("add skill to group: %w", err)
 	}
-	activations, err := l.readGroupActivations(ctx, groupID)
+	installs, err := l.readGroupInstalls(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
-	// 不带覆盖开关:未记录文件夹一律跳过;要覆盖某个作用域,调用方对该作用域用 ActivateGroup(Overwrite)。
-	plan := newMemberPlan("add skill to group", ActivateOptions{})
-	for _, activation := range activations {
-		target, err := l.resolveScope(ctx, "add skill to group", activation.scope())
+	// 不带覆盖开关:未记录文件夹一律跳过;要覆盖某个作用域,调用方对该作用域用 InstallGroup(Overwrite)。
+	plan := newMemberPlan("add skill to group", InstallOptions{})
+	for _, install := range installs {
+		target, err := l.resolveScope(ctx, "add skill to group", install.scope())
 		if err != nil {
 			return nil, err
 		}
@@ -249,29 +249,29 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 }
 
 func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
-	// withdraw 会移除磁盘上的投影,与停用一样持独占锁。
+	// withdraw 会移除磁盘上的安装项,与卸载一样持独占锁。
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateMemberRemoval("remove skill from group", opts.Projections); err != nil {
+	if err := validateMemberRemoval("remove skill from group", opts.Installations); err != nil {
 		return err
 	}
 	var exists int
 	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID).Scan(&exists); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	// 本组激活到的各 Scope 上该成员的投影;目录在开事务前算好(事务期间不能再走 l.db)。
-	projections, err := l.memberProjections(ctx, groupID, skillID, scopeRow{})
+	// 本组安装到的各 Scope 上该成员的安装项;目录在开事务前算好(事务期间不能再走 l.db)。
+	installations, err := l.memberInstallations(ctx, groupID, skillID, scopeRow{})
 	if err != nil {
 		return err
 	}
-	targets := make([]string, len(projections))
-	for i, projection := range projections {
-		directory, err := l.Resolve(ctx, projection.scope())
+	targets := make([]string, len(installations))
+	for i, installation := range installations {
+		directory, err := l.Resolve(ctx, installation.scope())
 		if err != nil {
 			return err
 		}
-		targets[i] = filepath.Join(directory, projection.name)
+		targets[i] = filepath.Join(directory, installation.name)
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -281,11 +281,11 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	// 成员关系删掉后,本组的组激活不再覆盖这些投影;没有其他激活撑着的按 opts 处理。
-	var trash projectionTrash
-	for i, projection := range projections {
-		if opts.Projections == WithdrawProjection {
-			removed, err := dropUnbackedProjection(ctx, tx, projection.id)
+	// 成员关系删掉后,本组的组安装不再覆盖这些安装项;没有其他安装撑着的按 opts 处理。
+	var trash installationTrash
+	for i, installation := range installations {
+		if opts.Installations == WithdrawInstallation {
+			removed, err := dropUnbackedInstallation(ctx, tx, installation.id)
 			if err != nil {
 				return err
 			}
@@ -294,7 +294,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 			}
 			continue
 		}
-		if err := keepUnbackedProjection(ctx, tx, projection.id); err != nil {
+		if err := keepUnbackedInstallation(ctx, tx, installation.id); err != nil {
 			return err
 		}
 	}

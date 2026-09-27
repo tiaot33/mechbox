@@ -92,8 +92,8 @@ type discoveryStep struct {
 // discoverCandidates 负责唯一的发现顺序与有效性规则;load 只补齐有效候选的文件或 blob 定位。
 // 遍历只取决于目录结构与 SKILL.md 是否存在,不取决于正文:所以每一轮先按顺序记下步骤,
 // 再并发读取本轮的 SKILL.md,最后按原顺序处理,诊断顺序与同名先到先得都与逐个读取一致。
-func discoverCandidates(ctx context.Context, view sourceDirectoryView, root string, load func(*fetchedSkill, string, []byte) error) (discoveredSource, error) {
-	result := discoveredSource{skills: []fetchedSkill{}}
+func discoverCandidates(ctx context.Context, view sourceDirectoryView, root string, load func(*discoveredSkill, string, []byte) error) (discoveredSource, error) {
+	result := discoveredSource{skills: []discoveredSkill{}}
 	pluginDirs, groups, err := pluginSearchPaths(ctx, view, root)
 	if err != nil {
 		return result, err
@@ -172,7 +172,7 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 				continue
 			}
 			preview.PluginName = groups[step.dir]
-			skill := fetchedSkill{name: preview.Name, preview: preview}
+			skill := discoveredSkill{name: preview.Name, candidate: preview}
 			if err := load(&skill, step.file, contents[i]); err != nil {
 				if abortsDiscovery(ctx, err) {
 					return err

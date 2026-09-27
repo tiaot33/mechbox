@@ -19,7 +19,7 @@ func TestUpdateClearsAvailableCheck(t *testing.T) {
 		changed := name == "changed"
 		t.Run(name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			skill, source := installLocalSkill(t, lib, "example", "old")
+			skill, source := fetchLocalSkill(t, lib, "example", "old")
 			writeLocalSkill(t, source, "new")
 			if available, err := checkSingleUpdate(t, lib, t.Context(), skill.ID); err != nil || !available {
 				t.Fatalf("check = %v, %v", available, err)
@@ -42,7 +42,7 @@ func TestUpdateClearsAvailableCheck(t *testing.T) {
 
 func TestUpdateChecksReplaceFailuresAndRemovalStartsUnchecked(t *testing.T) {
 	lib := openTestLibrary(t)
-	skill, source := installLocalSkill(t, lib, "example", "old")
+	skill, source := fetchLocalSkill(t, lib, "example", "old")
 	for _, status := range []library.UpdateCheckStatus{library.UpdateCurrent, library.UpdateAvailable, library.UpdateFailed, library.UpdateCurrent} {
 		before := time.Now()
 		switch status {
@@ -86,9 +86,9 @@ func TestUpdateCheckStateSurvivesReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	unchecked := installNamedSkill(t, lib, "unchecked")
-	current := installNamedSkill(t, lib, "current")
-	failed, missing := installLocalSkill(t, lib, "failed", "old")
+	unchecked := fetchNamedSkill(t, lib, "unchecked")
+	current := fetchNamedSkill(t, lib, "current")
+	failed, missing := fetchLocalSkill(t, lib, "failed", "old")
 	if err := os.Rename(missing, missing+"-offline"); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestUpdateCheckStateSurvivesReopen(t *testing.T) {
 	if currentState == nil || currentState.Status != library.UpdateCurrent || failedState == nil || failedState.Status != library.UpdateFailed {
 		t.Fatalf("current = %+v, failed = %+v", currentState, failedState)
 	}
-	skill, source := installLocalSkill(t, lib, "example", "old")
+	skill, source := fetchLocalSkill(t, lib, "example", "old")
 	if got := updateCheckState(t, lib, skill.ID); got != nil {
 		t.Fatalf("unchecked = %+v", got)
 	}
@@ -168,7 +168,7 @@ func TestInFlightUpdateCheckDoesNotOverwriteUpdatedSkill(t *testing.T) {
 				_, _ = w.Write(*snapshot)
 			}))
 			t.Cleanup(server.Close)
-			skill := installURLSkill(t, lib, server.URL, "demo")
+			skill := fetchURLSkill(t, lib, server.URL, "demo")
 			if _, err := checkSingleUpdate(t, lib, t.Context(), skill.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -215,7 +215,7 @@ func TestOverlappingCheckSuccessReplacesConcurrentFailure(t *testing.T) {
 		_, _ = w.Write(snapshot)
 	}))
 	t.Cleanup(server.Close)
-	skill := installURLSkill(t, lib, server.URL, "demo")
+	skill := fetchURLSkill(t, lib, server.URL, "demo")
 	archive = zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
 	gate.arm()
 	var wg sync.WaitGroup

@@ -10,8 +10,8 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// 登记项目后,该项目与各 Agent 组成项目 Scope:激活落在 Resolve 给出的目录;UnregisterProject
-// 清掉项目 Scope 记录,磁盘上的投影按 ProjectedCopies 决定去留,外来文件夹与全局激活不动。
+// 登记项目后,该项目与各 Agent 组成项目 Scope:安装落在 Resolve 给出的目录;UnregisterProject
+// 清掉项目 Scope 记录,磁盘上的安装项按 Installations 决定去留,外来文件夹与全局安装不动。
 func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -66,26 +66,26 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, agent := range []library.AgentCode{library.AgentClaudeCode, library.AgentCodex} {
-		if err := lib.Activate(ctx, skill.ID, library.GlobalScope(agent), library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, skill.ID, library.GlobalScope(agent), library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	globalProjections, err := lib.ListProjections(ctx)
-	if err != nil || len(globalProjections) != 2 {
-		t.Fatalf("global projections = %#v, %v; want 2", globalProjections, err)
+	globalInstallations, err := lib.ListInstallations(ctx)
+	if err != nil || len(globalInstallations) != 2 {
+		t.Fatalf("global installations = %#v, %v; want 2", globalInstallations, err)
 	}
-	if err := lib.Activate(ctx, skill.ID, keepScope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, keepScope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	keptProjection := filepath.Join(keepDirectory, skill.Name, "SKILL.md")
-	if _, err := os.Stat(keptProjection); err != nil {
+	keptInstallation := filepath.Join(keepDirectory, skill.Name, "SKILL.md")
+	if _, err := os.Stat(keptInstallation); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Keep}); err != nil {
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{Installations: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(keptProjection); err != nil {
-		t.Fatalf("explicit Keep removed project projection: %v", err)
+	if _, err := os.Stat(keptInstallation); err != nil {
+		t.Fatalf("explicit Keep removed project installation: %v", err)
 	}
 	if _, err := lib.Resolve(ctx, keepScope); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Resolve() unregistered project scope error = %v, want NotFound", err)
@@ -110,7 +110,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.ActivateGroup(ctx, group.ID, removeScope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.InstallGroup(ctx, group.ID, removeScope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	manualFile := filepath.Join(removeDirectory, "manual-skill", "mine.txt")
@@ -119,7 +119,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(removeDirectory, skill.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Remove left project projection behind: %v", err)
+		t.Fatalf("Remove left project installation behind: %v", err)
 	}
 	if _, err := os.Stat(manualFile); err != nil {
 		t.Fatalf("Remove touched an untracked directory: %v", err)
@@ -128,12 +128,12 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	if err != nil || !reflect.DeepEqual(projections, globalProjections) {
-		t.Fatalf("ListProjections() after unregister = %#v, %v; want %#v", projections, err, globalProjections)
+	installations, err := lib.ListInstallations(ctx)
+	if err != nil || !reflect.DeepEqual(installations, globalInstallations) {
+		t.Fatalf("ListInstallations() after unregister = %#v, %v; want %#v", installations, err, globalInstallations)
 	}
-	for _, projection := range globalProjections {
-		requireProjection(t, projection.Directory, skill.Name, "# Example\n")
+	for _, installation := range globalInstallations {
+		requireInstallation(t, installation.Directory, skill.Name, "# Example\n")
 	}
 	if err := lib.UnregisterProject(ctx, library.ProjectID(9999), library.UnregisterProjectOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("UnregisterProject() unknown project error = %v", err)
@@ -143,8 +143,8 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	}
 }
 
-// UnregisterProject(Remove) 先删记录、把项目下全部投影改名暂存、提交后才真正删除:改名失败时
-// 项目、记录与文件夹都原样不动;投影已被手动删掉时仍成功;成功后不留暂存残留。
+// UnregisterProject(Remove) 先删记录、把项目下全部安装项改名暂存、提交后才真正删除:改名失败时
+// 项目、记录与文件夹都原样不动;安装项已被手动删掉时仍成功;成功后不留暂存残留。
 func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -153,28 +153,28 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	present := installNamedSkill(t, lib, "present")
-	missing := installNamedSkill(t, lib, "missing")
+	present := fetchNamedSkill(t, lib, "present")
+	missing := fetchNamedSkill(t, lib, "missing")
 	scope := library.ProjectScope(library.AgentCodex, project.ID)
 	directory, err := lib.Resolve(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, skill := range []library.Skill{present, missing} {
-		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
 		t.Fatal(err)
 	}
-	before, err := lib.ListProjections(ctx)
+	before, err := lib.ListInstallations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	makeScopeReadOnly(t, directory)
-	err = lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove})
+	err = lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{Installations: library.Remove})
 	requireLibraryError(t, err, library.Permission)
 	if err := os.Chmod(directory, 0o755); err != nil {
 		t.Fatal(err)
@@ -183,29 +183,29 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
 		t.Fatalf("failed Remove changed projects: %#v, %v", projects, err)
 	}
-	after, err := lib.ListProjections(ctx)
+	after, err := lib.ListInstallations(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
-		t.Fatalf("failed Remove changed projections: %#v, %v; want %#v", after, err, before)
+		t.Fatalf("failed Remove changed installations: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
 	if err != nil || string(content) != skillDocument("present", "# present\n") {
-		t.Fatalf("failed Remove changed projection: %q, %v", content, err)
+		t.Fatalf("failed Remove changed installation: %q, %v", content, err)
 	}
 	requireNoStagedEntries(t, directory)
 
-	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{ProjectedCopies: library.Remove}); err != nil {
-		t.Fatalf("Remove with a manually deleted projection = %v", err)
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{Installations: library.Remove}); err != nil {
+		t.Fatalf("Remove with a manually deleted installation = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Remove left project projection behind: %v", err)
+		t.Fatalf("Remove left project installation behind: %v", err)
 	}
 	projects, err = lib.ListRegisteredProjects(ctx)
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	if err != nil || len(projections) != 0 {
-		t.Fatalf("ListProjections() after unregister = %#v, %v", projections, err)
+	installations, err := lib.ListInstallations(ctx)
+	if err != nil || len(installations) != 0 {
+		t.Fatalf("ListInstallations() after unregister = %#v, %v", installations, err)
 	}
 	requireNoStagedEntries(t, directory)
 }

@@ -67,7 +67,7 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(collections) != 1 || !reflect.DeepEqual(collections[0].Source, skill.Source) {
-			t.Fatalf("collections = %#v, want installed Source", collections)
+			t.Fatalf("collections = %#v, want fetched Source", collections)
 		}
 		check(t, collections[0].Skills)
 	})

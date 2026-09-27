@@ -21,7 +21,7 @@ type fetchTransport func(*http.Request) (*http.Response, error)
 
 func (f fetchTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func mockFetchArchive(t *testing.T) library.SourceSpec {
+func mockPreviewArchive(t *testing.T) library.SourceSpec {
 	t.Helper()
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "first"), "second/SKILL.md": skillDocument("second", "second")})
 	client := http.DefaultClient
@@ -32,7 +32,7 @@ func mockFetchArchive(t *testing.T) library.SourceSpec {
 	return library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
 }
 
-func openFetchLibrary(t *testing.T, path string) library.Library {
+func openLibraryAt(t *testing.T, path string) library.Library {
 	t.Helper()
 	lib, err := library.Open(path)
 	if err != nil {
@@ -42,69 +42,69 @@ func openFetchLibrary(t *testing.T, path string) library.Library {
 	return lib
 }
 
-func TestFetchPreviewIsReadOnlyAndSessionScoped(t *testing.T) {
-	spec := mockFetchArchive(t)
+func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
+	spec := mockPreviewArchive(t)
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib := openFetchLibrary(t, path)
+	lib := openLibraryAt(t, path)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, spec)
+	preview, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.FetchSkill{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}
-	if fetch.ID == "" || fetch.Ref == "" || !reflect.DeepEqual(fetch.Skills, want) {
-		t.Fatalf("Fetch = %#v; want handle, remote ref and candidates %#v", fetch, want)
+	want := []library.Candidate{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}
+	if preview.ID == "" || preview.Ref == "" || !reflect.DeepEqual(preview.Skills, want) {
+		t.Fatalf("PreviewSource = %#v; want handle, remote ref and candidates %#v", preview, want)
 	}
-	abandoned, err := lib.Fetch(ctx, spec)
+	abandoned, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// URL 安装必须仅依赖暂存,不能再次访问远端。
+	// URL 入库必须仅依赖预览时下载的内容,不能再次访问远端。
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
 		t.Error("install contacted remote source")
 		return nil, errors.New("offline")
 	})}
-	fetch.Skills[0].Name = "changed by caller"
+	preview.Skills[0].Name = "changed by caller"
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills = %v, %v", skills, err)
 	}
 	if collections, err := lib.ListCollections(ctx); err != nil || len(collections) != 0 {
 		t.Fatalf("ListCollections = %v, %v", collections, err)
 	}
-	other := openFetchLibrary(t, path)
-	if _, err := other.InstallFetch(ctx, fetch.ID, nil); !library.IsCode(err, library.NotFound) {
+	other := openLibraryAt(t, path)
+	if _, err := other.FetchFromPreview(ctx, preview.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("other instance accepted handle: %v", err)
 	}
-	for _, id := range []library.FetchID{"", "unknown"} {
-		if _, err := lib.InstallFetch(ctx, id, nil); !library.IsCode(err, library.NotFound) {
+	for _, id := range []library.PreviewID{"", "unknown"} {
+		if _, err := lib.FetchFromPreview(ctx, id, nil); !library.IsCode(err, library.NotFound) {
 			t.Fatalf("unknown handle: %v", err)
 		}
 	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := lib.InstallFetch(cancelled, fetch.ID, nil); !errors.Is(err, context.Canceled) {
+	if _, err := lib.FetchFromPreview(cancelled, preview.ID, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled install: %v", err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, []string{"first"})
-	if err != nil || len(installed) != 1 || installed[0].Name != "first" || string(installed[0].Files[0].Content) != skillDocument("first", "first") {
-		t.Fatalf("install after preview mutation and cancellation = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
+	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" || string(fetched[0].Files[0].Content) != skillDocument("first", "first") {
+		t.Fatalf("install after preview mutation and cancellation = %#v, %v", fetched, err)
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.InstallFetch(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.FetchFromPreview(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("closed instance accepted handle: %v", err)
 	}
-	if _, err := lib.Fetch(ctx, spec); err == nil {
-		t.Fatal("closed instance accepted Fetch")
+	if _, err := lib.PreviewSource(ctx, spec); err == nil {
+		t.Fatal("closed instance accepted PreviewSource")
 	}
-	reopened := openFetchLibrary(t, path)
-	if _, err := reopened.InstallFetch(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
+	reopened := openLibraryAt(t, path)
+	if _, err := reopened.FetchFromPreview(ctx, abandoned.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reopened instance accepted handle: %v", err)
 	}
 }
 
-func TestFetchHandleLifetime(t *testing.T) {
+func TestPreviewHandleLifetime(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		wait    time.Duration
@@ -115,29 +115,29 @@ func TestFetchHandleLifetime(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				spec := mockFetchArchive(t)
-				lib := openFetchLibrary(t, ":memory:")
-				fetch, err := lib.Fetch(t.Context(), spec)
+				spec := mockPreviewArchive(t)
+				lib := openLibraryAt(t, ":memory:")
+				preview, err := lib.PreviewSource(t.Context(), spec)
 				if err != nil {
 					t.Fatal(err)
 				}
 				time.Sleep(test.wait)
 				synctest.Wait()
-				installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+				fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 				if test.expired {
-					if !library.IsCode(err, library.NotFound) || len(installed) != 0 {
-						t.Fatalf("expired handle install = %#v, %v", installed, err)
+					if !library.IsCode(err, library.NotFound) || len(fetched) != 0 {
+						t.Fatalf("expired handle install = %#v, %v", fetched, err)
 					}
-				} else if err != nil || len(installed) != 2 {
-					t.Fatalf("valid handle install = %#v, %v", installed, err)
+				} else if err != nil || len(fetched) != 2 {
+					t.Fatalf("valid handle install = %#v, %v", fetched, err)
 				}
 			})
 		})
 	}
 }
 
-func TestCloseDuringFetchDoesNotRetainSession(t *testing.T) {
-	spec := mockFetchArchive(t)
+func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
+	spec := mockPreviewArchive(t)
 	transport := http.DefaultClient.Transport
 	started, resume := make(chan struct{}), make(chan struct{})
 	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
@@ -145,25 +145,25 @@ func TestCloseDuringFetchDoesNotRetainSession(t *testing.T) {
 		<-resume
 		return transport.RoundTrip(r)
 	})
-	lib := openFetchLibrary(t, ":memory:")
+	lib := openLibraryAt(t, ":memory:")
 	finished := make(chan error, 1)
 	go func() {
-		_, err := lib.Fetch(t.Context(), spec)
+		_, err := lib.PreviewSource(t.Context(), spec)
 		finished <- err
 	}()
 	<-started
 	closeErr := lib.Close()
 	close(resume)
 	if err := <-finished; err == nil {
-		t.Error("Fetch succeeded after Close")
+		t.Error("PreviewSource succeeded after Close")
 	}
 	if closeErr != nil {
 		t.Fatal(closeErr)
 	}
 }
 
-func TestFetchSessionsAreNotSynced(t *testing.T) {
-	spec := mockFetchArchive(t)
+func TestPreviewsAreNotSynced(t *testing.T) {
+	spec := mockPreviewArchive(t)
 	archiveTransport := http.DefaultClient.Transport
 	var stored []byte
 	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
@@ -179,7 +179,7 @@ func TestFetchSessionsAreNotSynced(t *testing.T) {
 		}
 		header := make(http.Header)
 		if stored != nil {
-			header.Set("ETag", `"fetch-sync"`)
+			header.Set("ETag", `"preview-sync"`)
 		}
 		status := http.StatusOK
 		if stored == nil && r.Method != http.MethodPut {
@@ -193,39 +193,39 @@ func TestFetchSessionsAreNotSynced(t *testing.T) {
 	t.Setenv("AWS_REGION", "test-region")
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
-	lib := openFetchLibrary(t, filepath.Join(t.TempDir(), "library.db"))
-	fetch, err := lib.Fetch(t.Context(), spec)
+	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
+	preview, err := lib.PreviewSource(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	preview, err := lib.PreviewSyncPush(t.Context())
+	plan, err := lib.PlanSyncPush(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.SyncPush(t.Context(), preview.Remote); err != nil {
+	if _, err := lib.SyncPush(t.Context(), plan.Remote); err != nil {
 		t.Fatal(err)
 	}
-	other := openFetchLibrary(t, filepath.Join(t.TempDir(), "other.db"))
-	preview, err = other.PreviewSyncPull(t.Context())
+	other := openLibraryAt(t, filepath.Join(t.TempDir(), "other.db"))
+	plan, err = other.PlanSyncPull(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.SyncPull(t.Context(), preview.Remote); err != nil {
+	if _, err := other.SyncPull(t.Context(), plan.Remote); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.InstallFetch(t.Context(), fetch.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := other.FetchFromPreview(t.Context(), preview.ID, nil); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("synced instance accepted handle: %v", err)
 	}
 	if skills, err := other.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("synced skills = %v, %v", skills, err)
 	}
-	if _, err := lib.InstallFetch(t.Context(), fetch.ID, nil); err != nil {
+	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); err != nil {
 		t.Fatalf("SyncPush invalidated local handle: %v", err)
 	}
 }
 
-func TestFetchInvalidArgumentsHaveTypedErrors(t *testing.T) {
-	lib := openFetchLibrary(t, filepath.Join(t.TempDir(), "library.db"))
+func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
+	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
 	for _, spec := range []library.SourceSpec{
 		{Type: library.SourceLocal},
 		{Type: "unsupported"},
@@ -235,13 +235,13 @@ func TestFetchInvalidArgumentsHaveTypedErrors(t *testing.T) {
 		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "package"}},
 		{Type: library.SourceStore, Locator: library.SourceLocator{Version: "v1"}},
 	} {
-		if _, err := lib.Fetch(t.Context(), spec); !library.IsCode(err, library.InvalidArgument) {
-			t.Errorf("Fetch(%#v) = %v; want InvalidArgument", spec, err)
+		if _, err := lib.PreviewSource(t.Context(), spec); !library.IsCode(err, library.InvalidArgument) {
+			t.Errorf("PreviewSource(%#v) = %v; want InvalidArgument", spec, err)
 		}
 	}
 }
 
-func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
+func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 	t.Setenv("SKILLS_STORE_URL", "https://store.example/skills")
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "body")})
 	for _, spec := range []library.SourceSpec{
@@ -249,7 +249,7 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 		{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"}},
 	} {
 		t.Run(string(spec.Type), func(t *testing.T) {
-			lib := openFetchLibrary(t, ":memory:")
+			lib := openLibraryAt(t, ":memory:")
 			client := http.DefaultClient
 			t.Cleanup(func() { http.DefaultClient = client })
 
@@ -262,7 +262,7 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				}
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 			})}
-			if _, err := lib.Fetch(t.Context(), spec); err != nil {
+			if _, err := lib.PreviewSource(t.Context(), spec); err != nil {
 				t.Fatal(err)
 			}
 
@@ -272,7 +272,7 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				<-r.Context().Done()
 				return nil, r.Context().Err()
 			})
-			if _, err := lib.Fetch(ctx, spec); !errors.Is(err, context.Canceled) {
+			if _, err := lib.PreviewSource(ctx, spec); !errors.Is(err, context.Canceled) {
 				t.Fatalf("cancel = %v", err)
 			}
 
@@ -283,7 +283,7 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 				})
 				done := make(chan error, 1)
 				go func() {
-					_, err := lib.Fetch(t.Context(), spec)
+					_, err := lib.PreviewSource(t.Context(), spec)
 					done <- err
 				}()
 				synctest.Wait()
@@ -296,7 +296,7 @@ func TestFetchArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 	}
 }
 
-func TestFetchStoreRequiresConfiguredBaseURL(t *testing.T) {
+func TestPreviewStoreRequiresConfiguredBaseURL(t *testing.T) {
 	t.Setenv("SKILLS_STORE_URL", "")
 	lib := openTestLibrary(t)
 	client := http.DefaultClient
@@ -305,16 +305,16 @@ func TestFetchStoreRequiresConfiguredBaseURL(t *testing.T) {
 		return nil, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	fetch, err := lib.Fetch(t.Context(), library.SourceSpec{
+	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{
 		Type:    library.SourceStore,
 		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
 	})
-	if !library.IsCode(err, library.NotConfigured) || fetch.ID != "" {
-		t.Fatalf("unconfigured store = %#v, %v", fetch, err)
+	if !library.IsCode(err, library.NotConfigured) || preview.ID != "" {
+		t.Fatalf("unconfigured store = %#v, %v", preview, err)
 	}
 }
 
-func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
+func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		status int
@@ -333,7 +333,7 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer lib.Close()
-			_, err = lib.Fetch(t.Context(), library.SourceSpec{
+			_, err = lib.PreviewSource(t.Context(), library.SourceSpec{
 				Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL},
 			})
 			if !library.IsCode(err, test.code) {
@@ -349,7 +349,7 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lib.Close()
-	_, err = lib.Fetch(ctx, library.SourceSpec{
+	_, err = lib.PreviewSource(ctx, library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: "http://127.0.0.1/skills.zip"},
 	})
 	if !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
@@ -357,11 +357,11 @@ func TestFetchMapsErrorsAndPreservesCancellation(t *testing.T) {
 	}
 }
 
-func TestFetchInstalledIsQueriedOnEveryListing(t *testing.T) {
-	spec := mockFetchArchive(t)
+func TestCandidateFetchedIsQueriedOnEveryListing(t *testing.T) {
+	spec := mockPreviewArchive(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.Fetch(ctx, spec)
+	preview, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,54 +370,54 @@ func TestFetchInstalledIsQueriedOnEveryListing(t *testing.T) {
 	if _, err := fetchLocal(ctx, lib, source); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := lib.ListFetchSkills(ctx, preview.ID)
-	if err != nil || candidates.Skills[0].Installed != 0 {
+	candidates, err := lib.ListCandidates(ctx, preview.ID)
+	if err != nil || candidates.Skills[0].Fetched != 0 {
 		t.Fatalf("different source = %#v, %v", candidates, err)
 	}
-	other, err := lib.Fetch(ctx, spec)
+	other, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, other.ID, []string{"first"})
+	fetched, err := lib.FetchFromPreview(ctx, other.ID, []string{"first"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, fresh := range []bool{false, true} {
 		if fresh {
-			again, err := lib.Fetch(ctx, spec)
+			again, err := lib.PreviewSource(ctx, spec)
 			if err != nil {
 				t.Fatal(err)
 			}
-			candidates = again.FetchCandidates
+			candidates = again.PreviewCandidates
 		} else {
-			candidates, err = lib.ListFetchSkills(ctx, preview.ID)
+			candidates, err = lib.ListCandidates(ctx, preview.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-		if candidates.Skills[0].Installed != installed[0].ID || candidates.Skills[1].Installed != 0 {
-			t.Fatalf("installed = %#v", candidates)
+		if candidates.Skills[0].Fetched != fetched[0].ID || candidates.Skills[1].Fetched != 0 {
+			t.Fatalf("fetched = %#v", candidates)
 		}
 	}
-	_, err = lib.InstallFetch(ctx, preview.ID, []string{"first"})
-	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: installed[0].ID, Name: "first"})
-	if err := lib.RemoveSkill(ctx, installed[0].ID, library.RemoveSkillOptions{}); err != nil {
+	_, err = lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: fetched[0].ID, Name: "first"})
+	if err := lib.RemoveSkill(ctx, fetched[0].ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err = lib.ListFetchSkills(ctx, preview.ID)
-	if err != nil || candidates.Skills[0].Installed != 0 {
+	candidates, err = lib.ListCandidates(ctx, preview.ID)
+	if err != nil || candidates.Skills[0].Fetched != 0 {
 		t.Fatalf("removed = %#v, %v", candidates, err)
 	}
 	data, err := json.Marshal(candidates.Skills[0])
-	if err != nil || bytes.Contains(data, []byte(`"installed"`)) {
-		t.Fatalf("zero installed JSON = %s, %v", data, err)
+	if err != nil || bytes.Contains(data, []byte(`"fetched"`)) {
+		t.Fatalf("zero fetched JSON = %s, %v", data, err)
 	}
-	if _, err := lib.ListFetchSkills(ctx, "unknown"); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("unknown fetch = %v", err)
+	if _, err := lib.ListCandidates(ctx, "unknown"); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("unknown preview = %v", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := lib.ListFetchSkills(canceled, preview.ID); !library.IsCode(err, library.Canceled) {
+	if _, err := lib.ListCandidates(canceled, preview.ID); !library.IsCode(err, library.Canceled) {
 		t.Fatalf("canceled list = %v", err)
 	}
 }

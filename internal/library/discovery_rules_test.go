@@ -39,7 +39,7 @@ func discoverySources(t *testing.T, files map[string]string, check func(*testing
 	}
 }
 
-func TestFetchDiscoveryPrefersConventionalDirectories(t *testing.T) {
+func TestPreviewDiscoveryPrefersConventionalDirectories(t *testing.T) {
 	files := map[string]string{
 		"skills/category/useful/SKILL.md": skillDocument("useful", "keep"),
 		"skills/a/b/c/d/SKILL.md":         skillDocument("too-deep", "skip"),
@@ -49,7 +49,7 @@ func TestFetchDiscoveryPrefersConventionalDirectories(t *testing.T) {
 		".cursor/skills/cursor/SKILL.md":  skillDocument("cursor", "skip"),
 	}
 	discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.SourceSpec, api *gitHubAPIMock, fx gitHubFixture) {
-		got, err := lib.Fetch(t.Context(), spec)
+		got, err := lib.PreviewSource(t.Context(), spec)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,7 +67,7 @@ func TestFetchDiscoveryPrefersConventionalDirectories(t *testing.T) {
 	})
 }
 
-func TestFetchDiscoveryRootFallbackAndDuplicates(t *testing.T) {
+func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		files       map[string]string
@@ -87,7 +87,7 @@ func TestFetchDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			discoverySources(t, tc.files, func(t *testing.T, lib library.Library, spec library.SourceSpec, api *gitHubAPIMock, fx gitHubFixture) {
-				got, err := lib.Fetch(t.Context(), spec)
+				got, err := lib.PreviewSource(t.Context(), spec)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -99,13 +99,13 @@ func TestFetchDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 					diagnostics = append(diagnostics, d.Path)
 				}
 				if !reflect.DeepEqual(paths, tc.paths) || !reflect.DeepEqual(diagnostics, tc.diagnostics) {
-					t.Fatalf("candidates = %#v", got.FetchCandidates)
+					t.Fatalf("candidates = %#v", got.PreviewCandidates)
 				}
-				installed, err := lib.InstallFetch(t.Context(), got.ID, nil)
-				if err != nil || len(installed) != len(tc.paths) {
-					t.Fatalf("install = %#v, %v", installed, err)
+				fetched, err := lib.FetchFromPreview(t.Context(), got.ID, nil)
+				if err != nil || len(fetched) != len(tc.paths) {
+					t.Fatalf("install = %#v, %v", fetched, err)
 				}
-				for i, skill := range installed {
+				for i, skill := range fetched {
 					prefix := tc.paths[i] + "/"
 					if tc.paths[i] == "." {
 						prefix = ""
@@ -121,7 +121,7 @@ func TestFetchDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 	}
 }
 
-func TestFetchDiscoveryPluginManifests(t *testing.T) {
+func TestPreviewDiscoveryPluginManifests(t *testing.T) {
 	files := map[string]string{
 		".claude-plugin/marketplace.json": `{"metadata":{"pluginRoot":"./plugins"},"plugins":[{"name":"alpha","source":"./a","skills":["./skills/x","./special/q","../outside","./../../escape"]},{"name":"remote","source":{"source":"github","repo":"owner/remote"}},{"name":"unsafe","source":"../outside"}]}`,
 		".claude-plugin/plugin.json":      `{"name":"single","skills":["./extras/solo"]}`,
@@ -132,11 +132,11 @@ func TestFetchDiscoveryPluginManifests(t *testing.T) {
 		"examples/ignored/SKILL.md":       skillDocument("ignored", "body"),
 	}
 	discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.SourceSpec, api *gitHubAPIMock, fx gitHubFixture) {
-		got, err := lib.Fetch(t.Context(), spec)
+		got, err := lib.PreviewSource(t.Context(), spec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []library.FetchSkill{
+		want := []library.Candidate{
 			{Name: "x", Path: "plugins/a/skills/x", PluginName: "alpha"},
 			{Name: "y", Path: "plugins/a/skills/y"},
 			{Name: "q", Path: "plugins/a/special/q", PluginName: "alpha"},
@@ -169,15 +169,15 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 				spec.Locator.Repository = repo
 			}
 			lib := openTestLibrary(t)
-			fetched, err := lib.Fetch(t.Context(), spec)
+			preview, err := lib.PreviewSource(t.Context(), spec)
 			if err != nil {
 				t.Fatal(err)
 			}
-			installed, err := lib.InstallFetch(t.Context(), fetched.ID, []string{"same"})
+			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"same"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			id := installed[0].ID
+			id := fetched[0].ID
 			writeFile(t, filepath.Join(repo, "skills/first/SKILL.md"), []byte(skillDocument("same", "changed")), 0o644)
 			commitGit(t, repo, "change first")
 			fx = inspectGitHubRepo(t, repo)
@@ -223,11 +223,11 @@ func TestGitHubBatchCheckReusesDiscovery(t *testing.T) {
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	fetched, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetched.ID, nil)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,18 +236,18 @@ func TestGitHubBatchCheckReusesDiscovery(t *testing.T) {
 	commitGit(t, repo, "unrelated")
 	api.Swap(inspectGitHubRepo(t, repo))
 	api.Reset()
-	got, err := lib.CheckUpdates(t.Context(), []library.SkillID{installed[0].ID, installed[1].ID})
+	got, err := lib.CheckUpdates(t.Context(), []library.SkillID{fetched[0].ID, fetched[1].ID})
 	if err != nil || len(got) != 2 || got[0].Error != nil || got[1].Error != nil || got[0].Available || got[1].Available {
 		t.Fatalf("checks = %#v, %v", got, err)
 	}
-	// Fetch 已把各候选 SKILL.md 写入进程内 memo;commit 前进只再取新 root tree。
+	// 预览 已把各候选 SKILL.md 写入进程内 memo;commit 前进只再取新 root tree。
 	commits, trees, blobs := gitHubAPIKindCounts(t, api)
 	if commits != 1 || trees != 1 || blobs != 0 {
 		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want commit+tree only: %#v", commits, trees, blobs, api.snapshot())
 	}
 }
 
-func TestFetchDiscoverySubpathUsesRelativeConventions(t *testing.T) {
+func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 	files := map[string]string{
 		".claude-plugin/plugin.json":      `{"name":"wrong-root","skills":["./area/extras/solo"]}`,
 		"area/.claude-plugin/plugin.json": `{"name":"subpath","skills":["./extras/solo"]}`,
@@ -260,7 +260,7 @@ func TestFetchDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 			return
 		}
 		spec.Subpath = "area"
-		got, err := lib.Fetch(t.Context(), spec)
+		got, err := lib.PreviewSource(t.Context(), spec)
 		if err != nil || len(got.Skills) != 2 || got.Skills[0].Path != "area/skills/demo" || got.Skills[1].Path != "area/extras/solo" || got.Skills[1].PluginName != "subpath" {
 			t.Fatalf("subpath = %#v, %v", got, err)
 		}
@@ -268,14 +268,14 @@ func TestFetchDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 			assertGitHubPreviewRequests(t, api, fx, "area/.claude-plugin/plugin.json", "area/skills/demo/SKILL.md", "area/extras/solo/SKILL.md")
 		}
 		spec.Subpath = "area/skills/demo"
-		got, err = lib.Fetch(t.Context(), spec)
+		got, err = lib.PreviewSource(t.Context(), spec)
 		if err != nil || len(got.Skills) != 1 || got.Skills[0].Path != "area/skills/demo" {
 			t.Fatalf("subpath root = %#v, %v", got, err)
 		}
 	})
 }
 
-func TestFetchDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
+func TestPreviewDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
 	for _, manifest := range []string{
 		`{`,
 		`{"metadata":{"pluginRoot":"plugins"},"plugins":[{"name":"bad","source":"./hidden","skills":["./skills/x"]}]}`,
@@ -290,7 +290,7 @@ func TestFetchDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
 				"plugins/hidden/skills/x/SKILL.md": skillDocument("hidden", "body"),
 			}
 			discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.SourceSpec, api *gitHubAPIMock, fx gitHubFixture) {
-				got, err := lib.Fetch(t.Context(), spec)
+				got, err := lib.PreviewSource(t.Context(), spec)
 				if err != nil || len(got.Skills) != 1 || got.Skills[0].Name != "good" || got.Skills[0].PluginName != "" {
 					t.Fatalf("invalid manifest = %#v, %v", got, err)
 				}
@@ -299,7 +299,7 @@ func TestFetchDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
 	}
 }
 
-func TestFetchDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
+func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 	for _, exact := range []bool{false, true} {
 		files := map[string]string{
 			"demo/Skill.md": skillDocument("sorted-first", "mixed"),
@@ -334,15 +334,15 @@ func TestFetchDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 					blockGitHubClone(t)
 					spec = gitHubSpec()
 				}
-				got, err := lib.Fetch(t.Context(), spec)
+				got, err := lib.PreviewSource(t.Context(), spec)
 				if err != nil || len(got.Skills) != 1 || got.Skills[0].Name != want {
 					t.Fatalf("case selection = %#v, %v", got, err)
 				}
-				installed, err := lib.InstallFetch(t.Context(), got.ID, nil)
-				if err != nil || len(installed[0].Files) != len(files) {
-					t.Fatalf("case files = %#v, %v", installed, err)
+				fetched, err := lib.FetchFromPreview(t.Context(), got.ID, nil)
+				if err != nil || len(fetched[0].Files) != len(files) {
+					t.Fatalf("case files = %#v, %v", fetched, err)
 				}
-				for _, file := range installed[0].Files {
+				for _, file := range fetched[0].Files {
 					if string(file.Content) != files["demo/"+file.Path] {
 						t.Fatalf("changed filename/content: %#v", file)
 					}
