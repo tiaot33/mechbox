@@ -23,8 +23,8 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("example\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "example\n")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

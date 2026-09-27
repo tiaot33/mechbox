@@ -129,9 +129,9 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 		}
 		skills = append(skills, installed...)
 	}
-	local := t.TempDir()
-	writeFile(t, filepath.Join(local, "SKILL.md"), []byte("local content"), 0o644)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: local})
+	local := filepath.Join(t.TempDir(), "local")
+	writeLocalSkill(t, local, "local content")
+	skill, err := fetchLocal(t.Context(), lib, local)
 	if err != nil {
 		t.Fatal(err)
 	}

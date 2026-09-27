@@ -254,7 +254,8 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 	return result, nil
 }
 
-// abortsDiscovery 表示错误不能记成候选诊断:取消、超时,或 GitHub 快路径给不出完整结果(应改走克隆)。
+// abortsDiscovery 表示错误不能记成候选诊断:取消、超时、超出读取上限,或 GitHub 快路径给不出完整结果(应改走克隆)。
 func abortsDiscovery(ctx context.Context, err error) bool {
-	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || githubContentsUnavailable(err)
+	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, errReadLimit) || githubContentsUnavailable(err)
 }

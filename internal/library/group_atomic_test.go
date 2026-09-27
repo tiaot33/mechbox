@@ -49,8 +49,8 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			var skills []library.Skill
 			for _, name := range []string{"first", "second", "direct", "shared"} {
 				source := filepath.Join(t.TempDir(), name)
-				writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
-				skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+				writeLocalSkill(t, source, name)
+				skill, err := fetchLocal(ctx, lib, source)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -106,7 +106,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				}
 				// 已覆盖第一个成员并新增第二个成员,让回滚同时验证恢复与移除。
 				content, err = os.ReadFile(filepath.Join(directory, "second", "SKILL.md"))
-				return err == nil && string(content) == "second"
+				return err == nil && string(content) == skillDocument("second", "second")
 			}}
 			if deactivate {
 				err = lib.DeactivateGroup(fault, group.ID, scope)
@@ -134,7 +134,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 					if !errors.Is(err, os.ErrNotExist) {
 						t.Fatalf("partial projection remains: %v", err)
 					}
-				} else if err != nil || string(content) != skill.Name {
+				} else if err != nil || string(content) != skillDocument(skill.Name, skill.Name) {
 					t.Fatalf("projection %s changed: %q, %v", skill.Name, content, err)
 				}
 			}
@@ -148,8 +148,8 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("example"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "example")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
 		t.Fatal(err)
 	}
-	if content, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(content) != "example" {
+	if content, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(content) != skillDocument("example", "example") {
 		t.Fatalf("Overwrite = %q, %v", content, err)
 	}
 	if err := os.RemoveAll(target); err != nil {
@@ -218,8 +218,8 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	var first library.Skill
 	for _, name := range []string{"first", "second"} {
 		source := filepath.Join(t.TempDir(), name)
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, name)
+		skill, err := fetchLocal(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +240,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	defer cancel()
 	fault := cancelAfterProjection{Context: base, cancel: cancel, changed: func() bool {
 		content, err := os.ReadFile(target)
-		if err != nil || string(content) != "first" {
+		if err != nil || string(content) != skillDocument("first", "first") {
 			return false
 		}
 		pause()
@@ -278,7 +278,7 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	if directErr != nil {
 		t.Fatal(directErr)
 	}
-	if content, err := os.ReadFile(target); err != nil || string(content) != "first" {
+	if content, err := os.ReadFile(target); err != nil || string(content) != skillDocument("first", "first") {
 		t.Fatalf("successful direct activation projection lost: %q, %v", content, err)
 	}
 	projections, err := lib.ListProjections(ctx)

@@ -69,10 +69,12 @@ type discoveredSource struct {
 	unchanged bool
 }
 
-// fetchRemote 读取远端来源。validator 是 Source 上记录的 HTTP validator 原文(ETag 或 Last-Modified),
-// 非空时 URL / Store 的请求带条件头,304 以 unchanged 返回;GitHub 不使用它。Fetch 必须拿到内容,传空。
-func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
+// fetchSource 读取来源并发现候选。validator 是 Source 上记录的 HTTP validator 原文(ETag 或 Last-Modified),
+// 非空时 URL / Store 的请求带条件头,304 以 unchanged 返回;GitHub 与本地目录不使用它。预览必须拿到内容,传空。
+func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
 	switch source.Type {
+	case SourceLocal:
+		return fetchLocal(ctx, source.Locator.Path)
 	case SourceGitHub:
 		return l.fetchGitHub(ctx, source.Locator, subpath)
 	case SourceURL:
@@ -88,8 +90,47 @@ func (l *sqliteLibrary) fetchRemote(ctx context.Context, source Source, subpath,
 		}
 		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version), validator)
 	default:
-		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "unsupported remote source type"}
+		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "unsupported source type"}
 	}
+}
+
+// fetchLocal 按与远程来源相同的规则在本地目录里发现候选,并把候选文件读进内存:预览钉住的就是这份快照,
+// 之后目录再被改动也不影响入库。候选文件累计超过 maxFetchFiles 个或 maxFetchSize 字节即拒绝整个来源。
+func fetchLocal(ctx context.Context, root string) (discoveredSource, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return discoveredSource{}, fmt.Errorf("read local source: %w", err)
+	}
+	if !info.IsDir() {
+		return discoveredSource{}, argumentError("read local source", "path", "path is not a directory")
+	}
+	result, err := discoverSkills(ctx, os.DirFS(root), ".", &readBudget{files: maxFetchFiles, bytes: maxFetchSize})
+	if err != nil {
+		return result, err
+	}
+	return finishDiscovery(result)
+}
+
+// errReadLimit 表示读取候选文件超出了 readBudget;它中止整个发现,不记成单个候选的诊断。
+var errReadLimit = errors.New("source exceeds read limit")
+
+// readBudget 是一次发现读取候选文件的剩余额度,由同一次发现的各候选共用。
+type readBudget struct {
+	files int
+	bytes int64
+}
+
+// take 在读取前按文件大小扣除额度,超限返回 SourceInvalid。
+func (b *readBudget) take(size int64) error {
+	b.files--
+	b.bytes -= size
+	if b.files < 0 {
+		return fetchError(SourceInvalid, "read source", fmt.Errorf("%w: more than %d files", errReadLimit, maxFetchFiles))
+	}
+	if b.bytes < 0 {
+		return fetchError(SourceInvalid, "read source", fmt.Errorf("%w: more than %d bytes", errReadLimit, maxFetchSize))
+	}
+	return nil
 }
 
 // fetchGitHub 对 github.com 先走 tree/blob 快路径;API 不可用时回退已加固的浅克隆。
@@ -184,7 +225,7 @@ func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string
 			current = path.Join(current, component)
 		}
 	}
-	result, err = discoverSkills(ctx, source, current)
+	result, err = discoverSkills(ctx, source, current, nil)
 	result.ref = strings.TrimSpace(string(output))
 	if err != nil {
 		return result, err
@@ -319,7 +360,7 @@ func readArchive(ctx context.Context, content []byte) (discoveredSource, error) 
 		}
 		remaining -= archived.UncompressedSize64
 	}
-	result, err := discoverSkills(ctx, reader, ".")
+	result, err := discoverSkills(ctx, reader, ".", nil)
 	if err != nil {
 		return result, err
 	}
@@ -362,10 +403,11 @@ func candidateMetadata(content []byte, root string) (FetchSkill, error) {
 }
 
 // discoverSkills 只在发现候选后读取完整文件;发现排除目录不会裁剪候选内资源。
-func discoverSkills(ctx context.Context, source fs.FS, root string) (discoveredSource, error) {
+// budget 非 nil 时限制各候选累计读取的文件数与字节数;内容已另有上限的来源传 nil。
+func discoverSkills(ctx context.Context, source fs.FS, root string, budget *readBudget) (discoveredSource, error) {
 	return discoverCandidates(ctx, fsSourceView{source}, root, func(skill *fetchedSkill, _ string, _ []byte) error {
 		var err error
-		skill.files, err = readCandidateFiles(ctx, source, skill.preview.Path)
+		skill.files, err = readCandidateFiles(ctx, source, skill.preview.Path, budget)
 		return err
 	})
 }
@@ -379,7 +421,7 @@ func readSourceFile(ctx context.Context, source fs.FS, name string) ([]byte, err
 	return content, errors.Join(readErr, file.Close())
 }
 
-func readCandidateFiles(ctx context.Context, source fs.FS, root string) ([]File, error) {
+func readCandidateFiles(ctx context.Context, source fs.FS, root string, budget *readBudget) ([]File, error) {
 	var files []File
 	err := fs.WalkDir(source, root, func(current string, entry fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
@@ -403,6 +445,11 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string) ([]File,
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+		if budget != nil {
+			if err := budget.take(info.Size()); err != nil {
+				return err
+			}
 		}
 		content, err := readSourceFile(ctx, source, current)
 		if err != nil {

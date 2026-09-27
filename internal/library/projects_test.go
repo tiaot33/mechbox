@@ -60,8 +60,8 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	}
 
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "# Example\n")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 		t.Fatalf("failed Remove changed projections: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
-	if err != nil || string(content) != "# present\n" {
+	if err != nil || string(content) != skillDocument("present", "# present\n") {
 		t.Fatalf("failed Remove changed projection: %q, %v", content, err)
 	}
 	requireNoStagedEntries(t, directory)

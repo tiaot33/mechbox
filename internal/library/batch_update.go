@@ -68,16 +68,13 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		source := skills[indices[0]].Source
 		var discovered discoveredSource
 		var githubSnap githubSourceSnapshot
-		var localFiles []File
 		var readErr error
 		switch source.Type {
-		case SourceLocal:
-			localFiles, readErr = readFiles(ctx, source.Locator.Path)
 		case SourceGitHub:
 			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
 		default:
 			// validator 是 Source 级的,同组各 Skill 读到的相同;一次带条件头的请求覆盖整组,304 即全组无更新。
-			discovered, readErr = l.fetchRemote(ctx, source, "", states[indices[0]].httpValidator)
+			discovered, readErr = l.fetchSource(ctx, source, "", states[indices[0]].httpValidator)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -90,8 +87,6 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			available := false
 			if itemErr == nil {
 				switch source.Type {
-				case SourceLocal:
-					available = !filesEqual(skills[index].Files, localFiles)
 				case SourceGitHub:
 					// commit 命中的 Skill 不参与 tree 比较;同一 Source 下首个未命中的 Skill 才让快照取一次 tree。
 					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], states[index].confirmedCommit)

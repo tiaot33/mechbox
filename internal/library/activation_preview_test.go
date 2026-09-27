@@ -16,8 +16,8 @@ func TestPreviewActivateReadyAndProjected(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "# Example")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +59,8 @@ func TestPreviewActivateOccupancyAndUntracked(t *testing.T) {
 	ctx := t.Context()
 	install := func() library.Skill {
 		source := filepath.Join(t.TempDir(), "same")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Same"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# Same")
+		skill, err := fetchLocal(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -123,8 +123,8 @@ func TestPreviewActivateGroupReportsDuplicatesAndMemberStates(t *testing.T) {
 	}
 	for _, name := range []string{"same", "same", "ready"} {
 		source := filepath.Join(t.TempDir(), name)
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Skill"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# Skill")
+		skill, err := fetchLocal(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -255,7 +255,7 @@ func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
 	writeFile(t, filepath.Join(directory, "edited", "SKILL.md"), []byte("by hand\n"), 0o644)
 	results, err := lib.AddSkillToGroup(ctx, g.ID, edited.ID)
 	requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: edited.ID, Scope: scope, Outcome: library.MemberAlreadyProjected}})
-	requireProjection(t, directory, "edited", "by hand\n")
+	requireSkillFile(t, directory, "edited", "by hand\n")
 
 	untracked := installNamedSkill(t, lib, "untracked")
 	writeFile(t, filepath.Join(directory, "untracked", "manual.txt"), []byte("manual"), 0o644)
@@ -290,7 +290,7 @@ func TestAddingMemberToActiveGroupReportsEachScope(t *testing.T) {
 		skippedMember(namesake.ID, scope, library.FailedPrecondition, library.ErrorDetails{Name: "dup", Path: filepath.Join(directory, "dup")}),
 	})
 	requireProjection(t, directory, "untracked", "# untracked\n")
-	requireProjection(t, directory, "edited", "by hand\n")
+	requireSkillFile(t, directory, "edited", "by hand\n")
 }
 
 // 加入成员时落盘失败,整个操作复原:不留成员关系、投影记录与半成品目录。

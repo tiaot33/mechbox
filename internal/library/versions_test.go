@@ -13,16 +13,16 @@ import (
 func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("first\n"), 0o644)
+	writeLocalSkill(t, source, "first\n")
 	writeFile(t, filepath.Join(source, "unchanged.md"), []byte("same\n"), 0o644)
 	writeFile(t, filepath.Join(source, "deleted.md"), []byte("gone\n"), 0o644)
 
 	lib := openTestLibrary(t)
-	installed, err := lib.Install(ctx, library.LocalSource{Path: source})
+	installed, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("second\n"), 0o644)
+	writeLocalSkill(t, source, "second\n")
 	writeFile(t, filepath.Join(source, "added.md"), []byte("new\n"), 0o644)
 	if err := os.Remove(filepath.Join(source, "deleted.md")); err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsInstalledAt(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "timed")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: first edition\n---\nfirst\n"), 0o644)
 	lib := openTestLibrary(t)
-	installed, err := lib.Install(ctx, library.LocalSource{Path: source})
+	installed, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

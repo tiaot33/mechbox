@@ -123,21 +123,6 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-func (l *sqliteLibrary) Install(ctx context.Context, source LocalSource) (skill Skill, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	root, err := filepath.Abs(source.Path)
-	if err != nil {
-		return Skill{}, fmt.Errorf("resolve source path: %w", err)
-	}
-	files, err := readFiles(ctx, root)
-	if err != nil {
-		return Skill{}, err
-	}
-	return l.install(ctx, Source{Type: SourceLocal, Locator: SourceLocator{Path: root}}, filepath.Base(root), files)
-}
-
 // installAll 在单个事务里原子提交多个来自同一来源的 skill:要么全部入库,要么库不变。
 // validator 是本次抓取时 URL / Store 服务端给出的 HTTP validator,随 Source 一起写入;其他来源为空。
 func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []fetchedSkill, validator string) ([]Skill, error) {
@@ -179,14 +164,6 @@ func (l *sqliteLibrary) installAll(ctx context.Context, source Source, skills []
 		return nil, fmt.Errorf("commit install: %w", err)
 	}
 	return installed, nil
-}
-
-func (l *sqliteLibrary) install(ctx context.Context, source Source, name string, files []File) (Skill, error) {
-	skills, err := l.installAll(ctx, source, []fetchedSkill{{name: name, files: files}}, "")
-	if err != nil {
-		return Skill{}, err
-	}
-	return skills[0], nil
 }
 
 // upsertSource 在事务内插入或更新来源行(含本次抓取的 HTTP validator),返回其 id。

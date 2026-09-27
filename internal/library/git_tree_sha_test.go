@@ -94,7 +94,7 @@ func TestNonGitInstallsKeepEmptyGitTreeSHA(t *testing.T) {
 	ctx := t.Context()
 	localDir := filepath.Join(t.TempDir(), "local-skill")
 	writeFile(t, filepath.Join(localDir, "SKILL.md"), []byte(skillDocument("local-skill", "local")), 0o644)
-	local, err := lib.Install(ctx, library.LocalSource{Path: localDir})
+	local, err := fetchLocal(ctx, lib, localDir)
 	if err != nil {
 		t.Fatal(err)
 	}

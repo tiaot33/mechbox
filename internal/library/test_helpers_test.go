@@ -287,9 +287,9 @@ func journalMode(t *testing.T, path string) string {
 func installExampleSkill(t *testing.T, lib library.Library, name string) library.Skill {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+	writeLocalSkill(t, source, "# "+name+"\n")
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	skill, err := fetchLocal(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,8 +313,8 @@ func installSkillWithBody(t *testing.T, lib library.Library, name, body string) 
 func installLocalSkill(t *testing.T, lib library.Library, name, body string) (library.Skill, string) {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	writeLocalSkill(t, source, body)
+	skill, err := fetchLocal(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,9 +360,15 @@ func makeScopeReadOnly(t *testing.T, directory string) {
 // requireProjection 断言 directory 下 name 文件夹的 SKILL.md 正文。
 func requireProjection(t *testing.T, directory, name, body string) {
 	t.Helper()
+	requireSkillFile(t, directory, name, skillDocument(name, body))
+}
+
+// requireSkillFile 断言 directory/name/SKILL.md 的原样内容,用于手动写入或改过的文件夹。
+func requireSkillFile(t *testing.T, directory, name, want string) {
+	t.Helper()
 	content, err := os.ReadFile(filepath.Join(directory, name, "SKILL.md"))
-	if err != nil || string(content) != body {
-		t.Fatalf("projection %s/SKILL.md = %q, %v; want %q", name, content, err, body)
+	if err != nil || string(content) != want {
+		t.Fatalf("projection %s/SKILL.md = %q, %v; want %q", name, content, err, want)
 	}
 }
 
@@ -490,6 +496,28 @@ func (g *networkGate) awaitEntered(t *testing.T) {
 func (g *networkGate) open() {
 	g.hold.Store(false)
 	close(g.release)
+}
+
+// fetchLocal 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
+func fetchLocal(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
+	fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: dir}})
+	if err != nil {
+		return library.Skill{}, err
+	}
+	if len(fetch.Skills) != 1 {
+		return library.Skill{}, fmt.Errorf("local preview of %s found %d candidates, want 1", dir, len(fetch.Skills))
+	}
+	fetched, err := lib.InstallFetch(ctx, fetch.ID, nil)
+	if err != nil {
+		return library.Skill{}, err
+	}
+	return fetched[0], nil
+}
+
+// writeLocalSkill 在 dir 写入 SKILL.md:frontmatter 的名字取目录名,描述为空,正文为 body。
+func writeLocalSkill(t *testing.T, dir, body string) {
+	t.Helper()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), []byte(skillDocument(filepath.Base(dir), body)), 0o644)
 }
 
 // installURLSkill 经 Fetch + InstallFetch 从 URL 远端装入名为 name 的 skill。

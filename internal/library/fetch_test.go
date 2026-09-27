@@ -366,8 +366,8 @@ func TestFetchInstalledIsQueriedOnEveryListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := filepath.Join(t.TempDir(), "first")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Local"), 0o644)
-	if _, err := lib.Install(ctx, library.LocalSource{Path: source}); err != nil {
+	writeLocalSkill(t, source, "# Local")
+	if _, err := fetchLocal(ctx, lib, source); err != nil {
 		t.Fatal(err)
 	}
 	candidates, err := lib.ListFetchSkills(ctx, preview.ID)

@@ -20,14 +20,14 @@ func TestActivateAndDeactivateGlobalSkill(t *testing.T) {
 	} {
 		t.Run(string(agent), func(t *testing.T) {
 			source := filepath.Join(t.TempDir(), "example-skill")
-			writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+			writeLocalSkill(t, source, "# Example\n")
 			writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			lib := openTestLibrary(t)
 			ctx := t.Context()
-			skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+			skill, err := fetchLocal(ctx, lib, source)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,8 +111,8 @@ func TestActivateRecordsFirstActivationTimeAndIgnoresReactivation(t *testing.T) 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "timed")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("timed\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "timed\n")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestDeactivateKeepsLibraryAndDiskTogether(t *testing.T) {
 		t.Fatalf("failed Deactivate changed projections: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
-	if err != nil || string(content) != "# present\n" {
+	if err != nil || string(content) != skillDocument(present.Name, "# present\n") {
 		t.Fatalf("failed Deactivate changed projection: %q, %v", content, err)
 	}
 	requireNoStagedEntries(t, directory)
@@ -289,14 +289,14 @@ func TestActivateGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+	writeLocalSkill(t, firstSource, "# First\n")
+	writeLocalSkill(t, secondSource, "# Second\n")
 	lib := openTestLibrary(t)
-	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
+	first, err := fetchLocal(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
+	second, err := fetchLocal(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestActivateGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 		{SkillID: first.ID, Scope: scope, Outcome: library.MemberAlreadyProjected},
 		{SkillID: second.ID, Scope: scope, Outcome: library.MemberProjected},
 	})
-	requireProjection(t, directory, first.Name, "edited\n")
+	requireSkillFile(t, directory, first.Name, "edited\n")
 	requireProjection(t, directory, second.Name, "# Second\n")
 	if _, err := os.Stat(filepath.Join(directory, second.Name, "manual.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Overwrite kept the untracked folder: %v", err)
@@ -351,10 +351,10 @@ func TestActivateGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
 		t.Fatalf("re-Activate under Fail policy = %v, want success", err)
 	}
-	requireProjection(t, directory, skill.Name, "edited\n")
+	requireSkillFile(t, directory, skill.Name, "edited\n")
 	projections, err := lib.ListProjections(ctx)
 	want := []library.Projection{{SkillID: skill.ID, Scope: scope, Directory: directory, Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
@@ -387,7 +387,7 @@ func TestReactivatingNeverRewritesAnExistingProjection(t *testing.T) {
 	for range 2 {
 		results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{})
 		requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: skill.ID, Scope: scope, Outcome: library.MemberAlreadyProjected}})
-		requireProjection(t, directory, skill.Name, "edited\n")
+		requireSkillFile(t, directory, skill.Name, "edited\n")
 	}
 	projections, err = lib.ListProjections(ctx)
 	want[0].Groups = []library.GroupID{group.ID}
@@ -401,18 +401,18 @@ func TestActivateGroupSkipsAllMembersSharingAName(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "one", "dup", "SKILL.md"), []byte("# One\n"), 0o644)
-	writeFile(t, filepath.Join(root, "two", "dup", "SKILL.md"), []byte("# Two\n"), 0o644)
+	writeLocalSkill(t, filepath.Join(root, "one", "dup"), "# One\n")
+	writeLocalSkill(t, filepath.Join(root, "two", "dup"), "# Two\n")
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	first, err := lib.Install(ctx, library.LocalSource{Path: filepath.Join(root, "one", "dup")})
+	first, err := fetchLocal(ctx, lib, filepath.Join(root, "one", "dup"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(ctx, library.LocalSource{Path: filepath.Join(root, "two", "dup")})
+	second, err := fetchLocal(ctx, lib, filepath.Join(root, "two", "dup"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,18 +449,18 @@ func TestActivateGroupFailurePreservesDirectActivation(t *testing.T) {
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+	writeLocalSkill(t, firstSource, "# First\n")
+	writeLocalSkill(t, secondSource, "# Second\n")
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
+	first, err := fetchLocal(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
+	second, err := fetchLocal(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}

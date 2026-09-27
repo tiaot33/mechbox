@@ -100,12 +100,12 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 	t.Setenv("HOME", oldHome)
 	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
-	writeFile(t, filepath.Join(originalSource, "SKILL.md"), []byte("original\n"), 0o644)
-	original, err := lib.Install(ctx, library.LocalSource{Path: originalSource})
+	writeLocalSkill(t, originalSource, "original\n")
+	original, err := fetchLocal(ctx, lib, originalSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(originalSource, "SKILL.md"), []byte("updated\n"), 0o644)
+	writeLocalSkill(t, originalSource, "updated\n")
 	if _, err := lib.Update(ctx, original.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -159,8 +159,8 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	extraSource := filepath.Join(t.TempDir(), "extra")
-	writeFile(t, filepath.Join(extraSource, "SKILL.md"), []byte("extra\n"), 0o644)
-	if _, err := lib.Install(ctx, library.LocalSource{Path: extraSource}); err != nil {
+	writeLocalSkill(t, extraSource, "extra\n")
+	if _, err := fetchLocal(ctx, lib, extraSource); err != nil {
 		t.Fatal(err)
 	}
 	newProjectPath := filepath.Join(t.TempDir(), "new-project")
@@ -205,7 +205,7 @@ func TestSyncPreviewAndPushPullRoundTrip(t *testing.T) {
 		t.Fatalf("skills after pull = %#v", skills)
 	}
 	full, err := lib.GetSkill(ctx, original.ID)
-	if err != nil || string(full.Files[0].Content) != "updated\n" {
+	if err != nil || string(full.Files[0].Content) != skillDocument(original.Name, "updated\n") {
 		t.Fatalf("GetSkill after pull = %#v, %v", full, err)
 	}
 	versions, err := lib.ListVersions(ctx, original.ID)
@@ -330,8 +330,8 @@ func TestSyncPullRejectsCyclicProjectPathMappingWithoutTouchingLocalLibrary(t *t
 	}
 	// 拉取前本地库继续演进:成功的 pull 会把它替换掉,失败的 pull 必须原样保留。
 	localSource := filepath.Join(t.TempDir(), "local-only")
-	writeFile(t, filepath.Join(localSource, "SKILL.md"), []byte("local\n"), 0o644)
-	if _, err := lib.Install(ctx, library.LocalSource{Path: localSource}); err != nil {
+	writeLocalSkill(t, localSource, "local\n")
+	if _, err := fetchLocal(ctx, lib, localSource); err != nil {
 		t.Fatal(err)
 	}
 	mapping, _ := json.Marshal(map[string]string{projectA.Path: projectB.Path, projectB.Path: projectA.Path})
@@ -366,8 +366,8 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	source := filepath.Join(t.TempDir(), "keeper")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("keeper\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "keeper\n")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,8 +441,8 @@ func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	source := filepath.Join(t.TempDir(), "keeper")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("keeper\n"), 0o644)
-	if _, err := lib.Install(ctx, library.LocalSource{Path: source}); err != nil {
+	writeLocalSkill(t, source, "keeper\n")
+	if _, err := fetchLocal(ctx, lib, source); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := lib.SyncPush(ctx, ""); err != nil {

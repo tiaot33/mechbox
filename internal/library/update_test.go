@@ -125,10 +125,10 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
-	source := t.TempDir()
+	source := filepath.Join(t.TempDir(), "local")
 	path := filepath.Join(source, "SKILL.md")
-	writeFile(t, path, []byte("old"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "old")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			switch change {
 			case "content":
-				writeFile(t, path, []byte("new"), 0o644)
+				writeLocalSkill(t, source, "new")
 			case "mode":
 				if err := os.Chmod(path, 0o755); err != nil {
 					t.Fatal(err)

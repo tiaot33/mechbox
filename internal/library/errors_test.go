@@ -171,12 +171,6 @@ func TestFacadeFailureCodes(t *testing.T) {
 		want library.ErrorCode
 		call func(*testing.T, library.Library) error
 	}{
-		{name: "install local file path", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
-			file := filepath.Join(t.TempDir(), "not-dir")
-			writeFile(t, file, []byte("x"), 0o644)
-			_, err := lib.Install(t.Context(), library.LocalSource{Path: file})
-			return err
-		}},
 		{name: "remove skill invalid projected copies", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
 			return lib.RemoveSkill(t.Context(), 1, library.RemoveSkillOptions{ProjectedCopies: "nope"})
 		}},
@@ -215,17 +209,13 @@ func TestFacadeFailureCodes(t *testing.T) {
 			_, err := lib.SearchSkills(t.Context(), "q")
 			return err
 		}},
-		{name: "install local missing path", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.Install(t.Context(), library.LocalSource{Path: filepath.Join(t.TempDir(), "missing")})
-			return err
-		}},
-		{name: "install local unsupported file type", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			root := t.TempDir()
-			writeFile(t, filepath.Join(root, "SKILL.md"), []byte("# X\n"), 0o644)
+		{name: "preview local unsupported file type", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
+			root := filepath.Join(t.TempDir(), "linked")
+			writeLocalSkill(t, root, "# X\n")
 			if err := os.Symlink("/does-not-exist", filepath.Join(root, "link")); err != nil {
 				t.Fatal(err)
 			}
-			_, err := lib.Install(t.Context(), library.LocalSource{Path: root})
+			_, err := fetchLocal(t.Context(), lib, root)
 			return err
 		}},
 	}

@@ -15,10 +15,10 @@ import (
 func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# v1\n"), 0o644)
+	writeLocalSkill(t, source, "# v1\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 	}
 	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
 
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# v2\n"), 0o644)
+	writeLocalSkill(t, source, "# v2\n")
 	if result, err := lib.Update(ctx, skill.ID); err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -51,7 +51,7 @@ func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 	}
 	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
 
-	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# v1\n"), 0o644)
+	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte(skillDocument(skill.Name, "# v1\n")), 0o644)
 	requireInspectionStatuses(t, lib, library.ProjectionStale)
 
 	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# neither\n"), 0o644)
@@ -61,11 +61,11 @@ func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 func TestInspectProjectionsReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,10 +96,10 @@ func TestInspectProjectionsReportsModifiedForExtraFileAndExecutableBit(t *testin
 func TestInspectProjectionsReportsMissingWhenFolderRemoved(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +128,8 @@ func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		source := filepath.Join(t.TempDir(), "example-skill")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# Example\n")
+		skill, err := fetchLocal(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,8 +156,8 @@ func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		source := filepath.Join(t.TempDir(), "example-skill")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# Example\n")
+		skill, err := fetchLocal(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,8 +184,8 @@ func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Group\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "# Group\n")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,13 +228,13 @@ func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 	lib := openTestLibrary(t)
 	firstSource := filepath.Join(t.TempDir(), "first")
 	secondSource := filepath.Join(t.TempDir(), "second")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
-	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
+	writeLocalSkill(t, firstSource, "# First\n")
+	writeLocalSkill(t, secondSource, "# Second\n")
+	first, err := fetchLocal(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
+	second, err := fetchLocal(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}

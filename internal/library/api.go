@@ -123,11 +123,6 @@ const (
 	ModeExecutable FileMode = "executable"
 )
 
-// LocalSource 是本地安装的入参:一个本地目录路径。
-type LocalSource struct {
-	Path string `json:"path"`
-}
-
 // SourceLocator 是来源的定位信息;不同 SourceType 只使用其中一部分字段。
 type SourceLocator struct {
 	Repository string `json:"repository,omitempty"` // github:仓库地址
@@ -606,8 +601,6 @@ type Library interface {
 	// SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
 	SearchSkills(ctx context.Context, query string) (SearchResult, error)
 
-	// Install 把一个本地目录作为 skill 安装入库(一次性,不经 Fetch 会话)。
-	Install(ctx context.Context, source LocalSource) (Skill, error)
 	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区,返回句柄与候选 skill
 	// 名清单;此时尚无内容进入 Library。GitHub 预览只取各候选 SKILL.md 并钉住当时的
 	// commit;URL / Store 仍一次下载完整归档。本地目录不走 Fetch。

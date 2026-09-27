@@ -20,14 +20,13 @@ func TestUpdateClearsAvailableCheck(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			lib := openTestLibrary(t)
 			skill, source := installLocalSkill(t, lib, "example", "old")
-			file := filepath.Join(source, "SKILL.md")
-			writeFile(t, file, []byte("new"), 0o644)
+			writeLocalSkill(t, source, "new")
 			if available, err := checkSingleUpdate(t, lib, t.Context(), skill.ID); err != nil || !available {
 				t.Fatalf("check = %v, %v", available, err)
 			}
 			before := updateCheckState(t, lib, skill.ID)
 			if !changed {
-				writeFile(t, file, []byte("old"), 0o644)
+				writeLocalSkill(t, source, "old")
 			}
 			result, err := lib.Update(t.Context(), skill.ID)
 			if err != nil || result.Changed != changed {
@@ -44,18 +43,17 @@ func TestUpdateClearsAvailableCheck(t *testing.T) {
 func TestUpdateChecksReplaceFailuresAndRemovalStartsUnchecked(t *testing.T) {
 	lib := openTestLibrary(t)
 	skill, source := installLocalSkill(t, lib, "example", "old")
-	file := filepath.Join(source, "SKILL.md")
 	for _, status := range []library.UpdateCheckStatus{library.UpdateCurrent, library.UpdateAvailable, library.UpdateFailed, library.UpdateCurrent} {
 		before := time.Now()
 		switch status {
 		case library.UpdateAvailable:
-			writeFile(t, file, []byte("new"), 0o644)
+			writeLocalSkill(t, source, "new")
 		case library.UpdateFailed:
 			if err := os.Rename(source, source+"-offline"); err != nil {
 				t.Fatal(err)
 			}
 		case library.UpdateCurrent:
-			writeFile(t, file, []byte("old"), 0o644)
+			writeLocalSkill(t, source, "old")
 		}
 		_, err := checkSingleUpdate(t, lib, t.Context(), skill.ID)
 		if (err != nil) != (status == library.UpdateFailed) {
@@ -72,7 +70,7 @@ func TestUpdateChecksReplaceFailuresAndRemovalStartsUnchecked(t *testing.T) {
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("after removal = %+v, %v", skills, err)
 	}
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	skill, err := fetchLocal(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +104,7 @@ func TestUpdateCheckStateSurvivesReopen(t *testing.T) {
 	if got := updateCheckState(t, lib, skill.ID); got != nil {
 		t.Fatalf("unchecked = %+v", got)
 	}
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("new"), 0o644)
+	writeLocalSkill(t, source, "new")
 	start := time.Now()
 	available, err := checkSingleUpdate(t, lib, t.Context(), skill.ID)
 	if err != nil || !available {

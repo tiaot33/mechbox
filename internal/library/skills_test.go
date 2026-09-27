@@ -13,14 +13,14 @@ import (
 
 func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	writeFile(t, filepath.Join(source, "references", "guide.md"), []byte("nested\n"), 0o644)
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
 	writeFile(t, filepath.Join(source, "assets", "data.bin"), []byte{0x00, 0xff, 0x01}, 0o644)
 
 	lib := openTestLibrary(t)
 
-	installed, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	installed, err := fetchLocal(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,18 +35,19 @@ func TestInstallLocalSkillAndReadItBackIntact(t *testing.T) {
 		InstalledAt: installed.InstalledAt,
 		UpdatedAt:   installed.UpdatedAt,
 		Source: library.Source{
-			ID:      installed.Source.ID,
-			Type:    library.SourceLocal,
-			Locator: library.SourceLocator{Path: source},
+			ID:          installed.Source.ID,
+			Type:        library.SourceLocal,
+			Locator:     library.SourceLocator{Path: source},
+			LastFetched: installed.Source.LastFetched,
 		},
 		Files: []library.File{
-			{Path: "SKILL.md", Content: []byte("# Example\n"), Mode: library.ModeRegular},
+			{Path: "SKILL.md", Content: []byte(skillDocument("example-skill", "# Example\n")), Mode: library.ModeRegular},
 			{Path: "assets/data.bin", Content: []byte{0x00, 0xff, 0x01}, Mode: library.ModeRegular},
 			{Path: "references/guide.md", Content: []byte("nested\n"), Mode: library.ModeRegular},
 			{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\nexit 0\n"), Mode: library.ModeExecutable},
 		},
 	}
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(got, want) || got.Source.LastFetched.IsZero() {
 		t.Fatalf("GetSkill() = %#v, want %#v", got, want)
 	}
 	if !reflect.DeepEqual(installed, got) {
@@ -60,7 +61,7 @@ func TestInstallRecordsDescriptionAndVersionTimes(t *testing.T) {
 	withDesc := filepath.Join(t.TempDir(), "described")
 	writeFile(t, filepath.Join(withDesc, "SKILL.md"), []byte("---\nname: described\ndescription: a useful helper\n---\n# Described\n"), 0o644)
 	start := time.Now().UTC()
-	installed, err := lib.Install(ctx, library.LocalSource{Path: withDesc})
+	installed, err := fetchLocal(ctx, lib, withDesc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +85,8 @@ func TestInstallRecordsDescriptionAndVersionTimes(t *testing.T) {
 	}
 
 	plain := filepath.Join(t.TempDir(), "plain")
-	writeFile(t, filepath.Join(plain, "SKILL.md"), []byte("# Plain\n"), 0o644)
-	undocumented, err := lib.Install(ctx, library.LocalSource{Path: plain})
+	writeLocalSkill(t, plain, "# Plain\n")
+	undocumented, err := fetchLocal(ctx, lib, plain)
 	if err != nil || undocumented.Description != "" {
 		t.Fatalf("Install without frontmatter Description = %#v, %v; want empty", undocumented, err)
 	}
@@ -95,14 +96,14 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "z-first-skill")
 	secondSource := filepath.Join(root, "a-second-skill")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
+	writeLocalSkill(t, firstSource, "# First\n")
+	writeLocalSkill(t, secondSource, "# Second\n")
 	lib := openTestLibrary(t)
-	first, err := lib.Install(t.Context(), library.LocalSource{Path: firstSource})
+	first, err := fetchLocal(t.Context(), lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(t.Context(), library.LocalSource{Path: secondSource})
+	second, err := fetchLocal(t.Context(), lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +128,8 @@ func TestRemoveSkillKeepsOrRemovesProjectedCopies(t *testing.T) {
 	install := func(name string) library.Skill {
 		t.Helper()
 		source := filepath.Join(t.TempDir(), name)
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# "+name+"\n"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# "+name+"\n")
+		skill, err := fetchLocal(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,7 +244,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 		t.Fatalf("failed Remove changed projections: %#v, %v; want %#v", after, err, before)
 	}
 	content, err := os.ReadFile(filepath.Join(directory, present.Name, "SKILL.md"))
-	if err != nil || string(content) != "# present\n" {
+	if err != nil || string(content) != skillDocument("present", "# present\n") {
 		t.Fatalf("failed Remove changed projection: %q, %v", content, err)
 	}
 	requireNoStagedEntries(t, directory)
@@ -274,12 +275,12 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 func TestInstallDuplicateLocalSkillCarriesIdentity(t *testing.T) {
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "dup")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Dup\n"), 0o644)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "# Dup\n")
+	skill, err := fetchLocal(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = lib.Install(t.Context(), library.LocalSource{Path: source})
+	_, err = fetchLocal(t.Context(), lib, source)
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID, Name: skill.Name})
 	skills, err := lib.ListSkills(t.Context())
 	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {

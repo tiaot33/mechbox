@@ -55,10 +55,10 @@ func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	release := holdDirectTransaction(t, path, `BEGIN`)
 	defer release()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# example\n"), 0o644)
+	writeLocalSkill(t, source, "# example\n")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatalf("Install while another process reads = %v, want success", err)
 	}
@@ -84,9 +84,9 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	release := holdDirectTransaction(t, path, `BEGIN IMMEDIATE`)
 	defer release()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# example\n"), 0o644)
+	writeLocalSkill(t, source, "# example\n")
 	started := time.Now()
-	_, err = lib.Install(t.Context(), library.LocalSource{Path: source})
+	_, err = fetchLocal(t.Context(), lib, source)
 	typed := requireLibraryError(t, err, library.Busy)
 	if library.IsCode(err, library.Internal) {
 		t.Fatalf("busy error also reported as internal: %v", typed)
@@ -100,7 +100,7 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	}
 	// 对方释放后同一操作直接成功:Busy 确实只是"稍后重试"。
 	release()
-	if _, err := lib.Install(t.Context(), library.LocalSource{Path: source}); err != nil {
+	if _, err := fetchLocal(t.Context(), lib, source); err != nil {
 		t.Fatalf("Install after the other writer released = %v, want success", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		for round := range rounds {
 			name := fmt.Sprintf("instance%d-round%d", i, round)
 			sources[i][round] = filepath.Join(t.TempDir(), name)
-			writeFile(t, filepath.Join(sources[i][round], "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+			writeLocalSkill(t, sources[i][round], "# "+name+"\n")
 		}
 	}
 	failures := make(chan error, 2*rounds*3)
@@ -134,7 +134,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		wg.Go(func() {
 			for round := range rounds {
 				name := filepath.Base(sources[i][round])
-				skill, err := lib.Install(t.Context(), library.LocalSource{Path: sources[i][round]})
+				skill, err := fetchLocal(t.Context(), lib, sources[i][round])
 				if err != nil {
 					failures <- fmt.Errorf("%s install: %w", name, err)
 					continue

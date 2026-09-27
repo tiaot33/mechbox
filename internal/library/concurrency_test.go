@@ -346,8 +346,8 @@ func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	pushGate.awaitEntered(t)
 	mustFinishBeforeRelease(t, pushGate, "Install during push upload", func(ctx context.Context) error {
 		source := filepath.Join(t.TempDir(), "during-push")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# during push\n"), 0o644)
-		_, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# during push\n")
+		_, err := fetchLocal(ctx, lib, source)
 		return err
 	})
 	mustFinishBeforeRelease(t, pushGate, "Activate during push upload", func(ctx context.Context) error {

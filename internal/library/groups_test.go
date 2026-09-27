@@ -15,14 +15,14 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "source-one")
 	secondSource := filepath.Join(root, "source-two")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# One\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Two\n"), 0o644)
+	writeLocalSkill(t, firstSource, "# One\n")
+	writeLocalSkill(t, secondSource, "# Two\n")
 	lib := openTestLibrary(t)
-	first, err := lib.Install(t.Context(), library.LocalSource{Path: firstSource})
+	first, err := fetchLocal(t.Context(), lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(t.Context(), library.LocalSource{Path: secondSource})
+	second, err := fetchLocal(t.Context(), lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +67,10 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,14 +113,14 @@ func TestGroupLifecycleKeepsSkillsAndProjectedCopies(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("group\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "group\n")
+	skill, err := fetchLocal(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	groupOnlySource := filepath.Join(t.TempDir(), "group-only")
-	writeFile(t, filepath.Join(groupOnlySource, "SKILL.md"), []byte("group only\n"), 0o644)
-	groupOnly, err := lib.Install(ctx, library.LocalSource{Path: groupOnlySource})
+	writeLocalSkill(t, groupOnlySource, "group only\n")
+	groupOnly, err := fetchLocal(ctx, lib, groupOnlySource)
 	if err != nil {
 		t.Fatal(err)
 	}

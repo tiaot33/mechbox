@@ -15,7 +15,7 @@ import (
 // updateLocalSkill 改写本地 Source 的 SKILL.md 并 Update,使已有投影变为 stale。
 func updateLocalSkill(t *testing.T, lib library.Library, id library.SkillID, source, body string) {
 	t.Helper()
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte(body), 0o644)
+	writeLocalSkill(t, source, body)
 	if result, err := lib.Update(t.Context(), id); err != nil || !result.Changed {
 		t.Fatalf("Update(%d) = %#v, %v", id, result, err)
 	}
@@ -376,7 +376,7 @@ func TestRewriteProjectionsIgnoresMembersSkippedByGroupActivation(t *testing.T) 
 
 	got := rewriteProjections(t, lib, scopeFilter(scope), library.RewriteOptions{OnConflict: library.Overwrite})
 	requireRewriteResults(t, got, []library.RewriteResult{rewrittenResult(projected.ID, scope)})
-	requireProjection(t, directory, skipped.Name, "# foreign\n")
+	requireSkillFile(t, directory, skipped.Name, "# foreign\n")
 
 	// 按技能筛选一个没有投影的已知技能:空结果,不报错。
 	if got := rewriteProjections(t, lib, library.ProjectionFilter{SkillID: skipped.ID}, library.RewriteOptions{}); len(got) != 0 {
@@ -459,7 +459,7 @@ func TestRewriteProjectionsCancelReturnsCompletedItems(t *testing.T) {
 	// 第一条提交完成(新内容已就位且备份已清理)后取消。
 	cancelAfterFirst := cancelWhen{Context: ctx, cond: func() bool {
 		content, err := os.ReadFile(filepath.Join(directory, first.Name, "SKILL.md"))
-		if err != nil || string(content) != "# first v2\n" {
+		if err != nil || string(content) != skillDocument(first.Name, "# first v2\n") {
 			return false
 		}
 		entries, err := os.ReadDir(directory)

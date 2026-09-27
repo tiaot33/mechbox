@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"time"
 )
@@ -45,8 +46,13 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	if closed {
 		return Fetch{}, fmt.Errorf("fetch: library is closed")
 	}
-	if spec.Type == SourceLocal {
-		return Fetch{}, &Error{Code: InvalidArgument, Message: "fetch: local sources must use Install"}
+	if spec.Type == SourceLocal && spec.Locator.Path != "" {
+		// 本地来源的身份是被预览目录的绝对路径,定位里的其他字段不参与。
+		root, err := filepath.Abs(spec.Locator.Path)
+		if err != nil {
+			return Fetch{}, fmt.Errorf("resolve source path: %w", err)
+		}
+		spec.Locator = SourceLocator{Path: root}
 	}
 	source := Source{Type: spec.Type, Locator: spec.Locator}
 	if err := validateSource(source); err != nil {
@@ -61,7 +67,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 		}
 	}
 	// Fetch 必须拿到内容,不带条件头。
-	discovered, err := l.fetchRemote(ctx, source, spec.Subpath, "")
+	discovered, err := l.fetchSource(ctx, source, spec.Subpath, "")
 	if err != nil {
 		return Fetch{}, err
 	}
