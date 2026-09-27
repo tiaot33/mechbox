@@ -58,9 +58,10 @@ func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) err
 }
 
 type discoveredSource struct {
-	skills      []fetchedSkill
-	diagnostics []CandidateDiagnostic
-	ref         string
+	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
+	skills         []fetchedSkill
+	diagnostics    []CandidateDiagnostic
+	ref            string
 	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator 原文(ETag 或 Last-Modified);
 	// 未给出为空。304 时沿用请求所带的那个。
 	httpValidator string

@@ -25,15 +25,16 @@ type fetchedSkill struct {
 // 存活于进程内存,不落库、不参与 Sync;由后续安装、Close 或 TTL 过期回收。
 // source / subpath / ref / skills 建立后只读;installing、timer 与 audits 受 fetchMu 保护。
 type fetchSession struct {
-	source        Source
-	subpath       string
-	ref           string
-	httpValidator string // URL / Store 服务端随本次抓取给出的 validator;InstallFetch 随 Source 写入
-	skills        []fetchedSkill
-	diagnostics   []CandidateDiagnostic
-	timer         *time.Timer
-	installing    bool                  // 一次 InstallFetch 正在物化 / 入库;期间句柄不可再被安装,也不会过期
-	audits        map[string]SkillAudit // 按候选名缓存已确定的 skills.sh 审计;受 fetchMu 保护
+	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
+	source         Source
+	subpath        string
+	ref            string
+	httpValidator  string // URL / Store 服务端随本次抓取给出的 validator;InstallFetch 随 Source 写入
+	skills         []fetchedSkill
+	diagnostics    []CandidateDiagnostic
+	timer          *time.Timer
+	installing     bool                  // 一次 InstallFetch 正在物化 / 入库;期间句柄不可再被安装,也不会过期
+	audits         map[string]SkillAudit // 按候选名缓存已确定的 skills.sh 审计;受 fetchMu 保护
 }
 
 func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch, err error) {
@@ -86,7 +87,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, spec SourceSpec) (fetch Fetch
 	}
 	session := &fetchSession{
 		source: source, subpath: spec.Subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
-		skills: discovered.skills, diagnostics: discovered.diagnostics,
+		skills: discovered.skills, diagnostics: discovered.diagnostics, githubRepoSize: discovered.githubRepoSize,
 	}
 	candidates, err := l.fetchCandidates(ctx, session)
 	if err != nil {
