@@ -233,7 +233,7 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
 	}
 }
 
-func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
+func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
@@ -249,7 +249,7 @@ func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *te
 
 	lib := openTestLibrary(t)
 	local := fetchNamedSkill(t, lib, "local")
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,26 +258,26 @@ func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *te
 	var wg sync.WaitGroup
 	var fetched []library.Skill
 	var fetchErr error
-	wg.Go(func() { fetched, fetchErr = lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"}) })
+	wg.Go(func() { fetched, fetchErr = getFetchedSkills(t.Context(), lib, preview, []string{"first"}) })
 	gate.awaitEntered(t)
 
-	mustFinishBeforeRelease(t, gate, "second FetchFromPreview on the same handle", func(ctx context.Context) error {
-		_, err := lib.FetchFromPreview(ctx, preview.ID, []string{"second"})
+	mustFinishBeforeRelease(t, gate, "second Fetch on the same handle", func(ctx context.Context) error {
+		_, err := lib.Fetch(ctx, preview.ID, []string{"second"})
 		if !library.IsCode(err, library.FailedPrecondition) {
 			return fmt.Errorf("busy handle fetch = %v, want FailedPrecondition", err)
 		}
 		return nil
 	})
-	mustFinishBeforeRelease(t, gate, "PreviewSource of another Source", func(ctx context.Context) error {
+	mustFinishBeforeRelease(t, gate, "PreviewFetch of another Source", func(ctx context.Context) error {
 		// 同一仓库钉到 commit 是另一个 Source;它的预览只取各候选的 SKILL.md,不经受拦的 blob。
-		pinned := gitHubSpec()
-		pinned.Locator.Branch = fx.commit
-		other, err := lib.PreviewSource(ctx, pinned)
+		pinned := gitHubRequest()
+		pinned.GitHub.Ref = fx.commit
+		other, err := lib.PreviewFetch(ctx, pinned)
 		if err != nil {
 			return err
 		}
-		if other.ID == "" || len(other.Skills) != 2 {
-			return fmt.Errorf("other PreviewSource = %#v, want handle and both candidates", other)
+		if other.ID == "" || len(other.Candidates) != 2 {
+			return fmt.Errorf("other PreviewFetch = %#v, want handle and both candidates", other)
 		}
 		return nil
 	})
@@ -288,14 +288,14 @@ func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *te
 	gate.open()
 	wg.Wait()
 	if fetchErr != nil || len(fetched) != 1 || fetched[0].Name != "first" {
-		t.Fatalf("FetchFromPreview after release = %#v, %v", fetched, fetchErr)
+		t.Fatalf("Fetch after release = %#v, %v", fetched, fetchErr)
 	}
-	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.Fetch(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("consumed handle reused: %v; want NotFound", err)
 	}
 }
 
-func TestCloseDoesNotWaitForFetchFromPreviewMaterialization(t *testing.T) {
+func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md": {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/notes.md": {content: []byte("first notes"), mode: 0o644},
@@ -310,20 +310,20 @@ func TestCloseDoesNotWaitForFetchFromPreviewMaterialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
 	gate.arm()
 	var wg sync.WaitGroup
 	var fetchErr error
-	wg.Go(func() { _, fetchErr = lib.FetchFromPreview(t.Context(), preview.ID, nil) })
+	wg.Go(func() { _, fetchErr = lib.Fetch(t.Context(), preview.ID, candidateNames(preview)) })
 	gate.awaitEntered(t)
 	mustFinishBeforeRelease(t, gate, "Close", func(context.Context) error { return lib.Close() })
 	gate.open()
 	wg.Wait()
 	if fetchErr == nil {
-		t.Fatal("FetchFromPreview succeeded against a closed Library")
+		t.Fatal("Fetch succeeded against a closed Library")
 	}
 }
 

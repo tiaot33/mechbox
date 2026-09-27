@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -30,74 +31,61 @@ type previewState struct {
 	source         Source
 	subpath        string
 	ref            string
-	httpValidator  string // URL / Store 服务端随本次读取给出的 validator;FetchFromPreview 随 Source 写入
+	httpValidator  string // URL / Store 服务端随本次读取给出的 validator;Fetch 随 Source 写入
 	skills         []discoveredSkill
-	diagnostics    []CandidateDiagnostic
+	diagnostics    []PreviewDiagnostic
 	timer          *time.Timer
-	fetching       bool                  // 一次 FetchFromPreview 正在物化 / 入库;期间句柄不可再被入库,也不会过期
+	fetching       bool                  // 一次 Fetch 正在物化 / 入库;期间句柄不可再被入库,也不会过期
 	audits         map[string]SkillAudit // 按候选名缓存已确定的 skills.sh 审计;受 previewMu 保护
 }
 
-func (l *sqliteLibrary) PreviewSource(ctx context.Context, spec SourceSpec) (preview Preview, err error) {
+func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (preview FetchPreview, err error) {
 	defer func() { err = typedError(err) }()
 	l.previewMu.Lock()
 	closed := l.closed
 	l.previewMu.Unlock()
 	if closed {
-		return Preview{}, fmt.Errorf("preview source: library is closed")
+		return FetchPreview{}, fmt.Errorf("preview fetch: library is closed")
 	}
-	if spec.Type == SourceLocal && spec.Locator.Path != "" {
-		// 本地来源的身份是被预览目录的绝对路径,定位里的其他字段不参与。
-		root, err := filepath.Abs(spec.Locator.Path)
-		if err != nil {
-			return Preview{}, fmt.Errorf("resolve source path: %w", err)
-		}
-		spec.Locator = SourceLocator{Path: root}
-	}
-	source := Source{Type: spec.Type, Locator: spec.Locator}
-	if err := validateSource(source); err != nil {
-		return Preview{}, err
-	}
-	if !validSubpath(spec.Subpath) || (spec.Subpath != "" && spec.Type != SourceGitHub) {
-		return Preview{}, &Error{Code: InvalidArgument, Message: "invalid preview subpath"}
-	}
-	for _, name := range spec.Names {
-		if !validSelectionName(name) {
-			return Preview{}, &Error{Code: InvalidArgument, Message: "invalid preview name selection"}
-		}
+	source, subpath, names, err := l.previewSource(ctx, req)
+	if err != nil {
+		return FetchPreview{}, err
 	}
 	// 预览必须拿到内容,不带条件头。
-	discovered, err := l.fetchSource(ctx, source, spec.Subpath, "")
+	discovered, err := l.fetchSource(ctx, source, subpath, "")
 	if err != nil {
-		return Preview{}, err
+		if typed, ok := errors.AsType[*Error](err); ok && source.Type == SourceLocal && typed.Details.Field == "path" {
+			typed.Details.Field = "local"
+		}
+		return FetchPreview{}, err
 	}
-	discovered.skills, err = selectSkills(discovered.skills, spec.Names)
+	discovered.skills, err = selectSkills(discovered.skills, names)
 	if err != nil {
-		return Preview{}, err
+		return FetchPreview{}, err
 	}
 	source.LastFetched = time.Now().UTC()
 	source.LastSeenRef = discovered.ref
 	id, err := newPreviewID()
 	if err != nil {
-		return Preview{}, err
+		return FetchPreview{}, err
 	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
 	if l.closed {
-		return Preview{}, fmt.Errorf("preview source: library is closed")
+		return FetchPreview{}, fmt.Errorf("preview fetch: library is closed")
 	}
 	if err := ctx.Err(); err != nil {
-		return Preview{}, err
+		return FetchPreview{}, err
 	}
 	state := &previewState{
-		source: source, subpath: spec.Subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
+		source: source, subpath: subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
 		skills: discovered.skills, diagnostics: discovered.diagnostics, githubRepoSize: discovered.githubRepoSize,
 	}
 	candidates, err := l.listCandidates(ctx, state)
 	if err != nil {
-		return Preview{}, err
+		return FetchPreview{}, err
 	}
 	l.previews[id] = state
 	state.timer = time.AfterFunc(previewTTL, func() {
@@ -108,34 +96,63 @@ func (l *sqliteLibrary) PreviewSource(ctx context.Context, spec SourceSpec) (pre
 			delete(l.previews, id)
 		}
 	})
-	return Preview{ID: id, Ref: discovered.ref, PreviewCandidates: candidates}, nil
+	preview = FetchPreview{ID: id, Revision: discovered.ref, Candidates: candidates, Diagnostics: slices.Clone(state.diagnostics)}
+	if source.Type == SourceGitHub {
+		preview.Ref = source.Locator.Branch
+	}
+	return preview, nil
 }
 
-func (l *sqliteLibrary) ListCandidates(ctx context.Context, id PreviewID) (candidates PreviewCandidates, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	if err := ctx.Err(); err != nil {
-		return candidates, err
+// previewSource 把入库预览的输入转成来源、来源内目录与名字条件:GitHub / URL / Local 恰好给一个。
+// GitHub 输入在这里解析(见 resolveGitHubInput);本地目录的身份是其绝对路径。
+func (l *sqliteLibrary) previewSource(ctx context.Context, req PreviewFetchRequest) (source Source, subpath string, names []string, err error) {
+	var given []string
+	if req.GitHub != nil {
+		given = append(given, "github")
 	}
-	l.previewMu.Lock()
-	state := l.previews[id]
-	l.previewMu.Unlock()
-	if state == nil {
-		return candidates, &Error{Code: NotFound, Message: "list candidates: unknown or discarded preview"}
+	if req.URL != "" {
+		given = append(given, "url")
 	}
-	return l.listCandidates(ctx, state)
+	if req.Local != "" {
+		given = append(given, "local")
+	}
+	switch len(given) {
+	case 0:
+		return Source{}, "", nil, argumentError("preview fetch", "", "one of github, url or local is required")
+	case 1:
+	default:
+		return Source{}, "", nil, argumentError("preview fetch", given[1], "only one of github, url or local may be given")
+	}
+	switch {
+	case req.GitHub != nil:
+		locator, subpath, name, err := resolveGitHubInput(ctx, *req.GitHub)
+		if err != nil {
+			return Source{}, "", nil, err
+		}
+		if name != "" {
+			names = []string{name}
+		}
+		return Source{Type: SourceGitHub, Locator: locator}, subpath, names, nil
+	case req.URL != "":
+		return Source{Type: SourceURL, Locator: SourceLocator{URL: req.URL}}, "", nil, nil
+	default:
+		root, err := filepath.Abs(req.Local)
+		if err != nil {
+			return Source{}, "", nil, fmt.Errorf("resolve source path: %w", err)
+		}
+		return Source{Type: SourceLocal, Locator: SourceLocator{Path: root}}, "", nil, nil
+	}
 }
 
-// listCandidates 在本次调用按来源类型、定位与名字查询哪些候选已入库,不把结果写回预览。
-func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState) (PreviewCandidates, error) {
+// listCandidates 按来源类型、定位与名字查询哪些候选已入库,不把结果写回预览。
+func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState) ([]Candidate, error) {
 	locator, err := json.Marshal(state.source.Locator)
 	if err != nil {
-		return PreviewCandidates{}, fmt.Errorf("encode source locator: %w", err)
+		return nil, fmt.Errorf("encode source locator: %w", err)
 	}
 	rows, err := l.db.QueryContext(ctx, `SELECT s.name, s.id FROM skills s JOIN sources src ON src.id = s.source_id WHERE src.type = ? AND src.locator = ?`, state.source.Type, locator)
 	if err != nil {
-		return PreviewCandidates{}, fmt.Errorf("list fetched candidates: %w", err)
+		return nil, fmt.Errorf("list fetched candidates: %w", err)
 	}
 	defer rows.Close()
 	fetched := make(map[string]SkillID)
@@ -143,23 +160,26 @@ func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState)
 		var name string
 		var id SkillID
 		if err := rows.Scan(&name, &id); err != nil {
-			return PreviewCandidates{}, fmt.Errorf("read fetched candidate: %w", err)
+			return nil, fmt.Errorf("read fetched candidate: %w", err)
 		}
 		fetched[name] = id
 	}
 	if err := rows.Err(); err != nil {
-		return PreviewCandidates{}, fmt.Errorf("read fetched candidates: %w", err)
+		return nil, fmt.Errorf("read fetched candidates: %w", err)
 	}
-	result := PreviewCandidates{Skills: make([]Candidate, len(state.skills)), Diagnostics: slices.Clone(state.diagnostics)}
+	candidates := make([]Candidate, len(state.skills))
 	for i, skill := range state.skills {
-		result.Skills[i] = skill.candidate
-		result.Skills[i].Fetched = fetched[skill.candidate.Name]
+		candidates[i] = skill.candidate
+		candidates[i].Fetched = fetched[skill.candidate.Name]
 	}
-	return result, nil
+	return candidates, nil
 }
 
-func (l *sqliteLibrary) FetchFromPreview(ctx context.Context, id PreviewID, names []string) (fetched []Skill, err error) {
+func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []SkillSummary, err error) {
 	defer func() { err = typedError(err) }()
+	if len(names) == 0 {
+		return nil, argumentError("fetch", "names", "at least one skill name is required")
+	}
 	// 预览锁只用来取预览并把它标记为占用;物化(网络)与入库都在锁外,别的预览与列表不必等。
 	state, skills, err := l.claimPreview(id, names)
 	if err != nil {
@@ -175,20 +195,29 @@ func (l *sqliteLibrary) FetchFromPreview(ctx context.Context, id PreviewID, name
 	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	return l.fetchAll(ctx, state.source, skills, state.httpValidator)
+	created, err := l.fetchAll(ctx, state.source, skills, state.httpValidator)
+	if err != nil {
+		return nil, err
+	}
+	// 刚入库的技能还没有更新检查记录,LastUpdateCheck 为 nil。
+	fetched = make([]SkillSummary, len(created))
+	for i, skill := range created {
+		fetched[i] = SkillSummary{ID: skill.ID, Name: skill.Name, Description: skill.Description, Source: skill.Source, FetchedAt: skill.FetchedAt, UpdatedAt: skill.UpdatedAt}
+	}
+	return fetched, nil
 }
 
 // claimPreview 在预览锁内找到预览、选定候选并标记占用;占用中的预览对第二次入库返回 FailedPrecondition。
 // 占用期间停掉 TTL 计时器,物化途中不会被回收。
-func (l *sqliteLibrary) claimPreview(id PreviewID, names []string) (*previewState, []discoveredSkill, error) {
+func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previewState, []discoveredSkill, error) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
 	state := l.previews[id]
 	if state == nil {
-		return nil, nil, &Error{Code: NotFound, Message: "fetch from preview: unknown or discarded preview"}
+		return nil, nil, &Error{Code: NotFound, Message: "fetch: unknown or discarded preview"}
 	}
 	if state.fetching {
-		return nil, nil, preconditionError("fetch from preview", "another fetch from this preview is in progress", ErrorDetails{})
+		return nil, nil, preconditionError("fetch", "another fetch from this preview is in progress", ErrorDetails{})
 	}
 	skills, err := selectSkills(state.skills, names)
 	if err != nil {
@@ -203,7 +232,7 @@ func (l *sqliteLibrary) claimPreview(id PreviewID, names []string) (*previewStat
 
 // releasePreview 结束一次占用:成功提交后丢弃句柄(同一句柄不能再次使用);失败则解除占用并重新计时,可重试。
 // 预览已被 Close 清掉时无事可做。
-func (l *sqliteLibrary) releasePreview(id PreviewID, state *previewState, fetched bool) {
+func (l *sqliteLibrary) releasePreview(id FetchPreviewID, state *previewState, fetched bool) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
 	if l.previews[id] != state {
@@ -219,12 +248,12 @@ func (l *sqliteLibrary) releasePreview(id PreviewID, state *previewState, fetche
 	}
 }
 
-func newPreviewID() (PreviewID, error) {
+func newPreviewID() (FetchPreviewID, error) {
 	buffer := make([]byte, 16)
 	if _, err := rand.Read(buffer); err != nil {
 		return "", fmt.Errorf("issue preview handle: %w", err)
 	}
-	return PreviewID(hex.EncodeToString(buffer)), nil
+	return FetchPreviewID(hex.EncodeToString(buffer)), nil
 }
 
 func selectSkills(skills []discoveredSkill, selected []string) ([]discoveredSkill, error) {

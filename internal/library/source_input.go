@@ -42,20 +42,20 @@ type githubInput struct {
 }
 
 // parseGitHubInput 只解释明确的语法;远端 ref 的确认留在 Library 操作中。
-func parseGitHubInput(input string, opts ResolveSourceOptions) (result githubInput, err error) {
+func parseGitHubInput(github GitHubInput) (result githubInput, err error) {
 	invalid := func() (githubInput, error) {
 		return githubInput{}, &Error{Code: InvalidArgument, Message: "invalid or ambiguous GitHub source input"}
 	}
-	input = strings.TrimSpace(input)
+	input := strings.TrimSpace(github.Input)
 	if input == "" || strings.ContainsAny(input, "\x00\r\n\\") {
 		return invalid()
 	}
 	input, fragment, hasRef := strings.Cut(input, "#")
-	if hasRef && (fragment == "" || strings.Contains(fragment, "#") || (opts.Ref != "" && opts.Ref != fragment)) {
+	if hasRef && (fragment == "" || strings.Contains(fragment, "#") || (github.Ref != "" && github.Ref != fragment)) {
 		return invalid()
 	}
-	result.ref = cmp.Or(opts.Ref, fragment)
-	result.subpath = opts.Subpath
+	result.ref = cmp.Or(github.Ref, fragment)
+	result.subpath = github.Subpath
 	var repositoryPath string
 	if after, ok := strings.CutPrefix(input, "git@github.com:"); ok {
 		repositoryPath = after
@@ -114,22 +114,23 @@ func validSelectionName(value string) bool {
 	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value) && value != "." && value != ".." && !strings.ContainsAny(value, "/\\\x00\r\n")
 }
 
-func (l *sqliteLibrary) ResolveSource(ctx context.Context, input string, opts ResolveSourceOptions) (spec SourceSpec, err error) {
-	defer func() { err = typedError(err) }()
+// resolveGitHubInput 解析入库预览的 GitHub 输入:切分 tree URL 里的 ref 与路径,省略 ref 时发现默认分支。
+// 返回来源定位、来源内目录与 @name 指定的技能名(未指定为空)。
+func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator SourceLocator, subpath, name string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		return spec, err
+		return locator, "", "", err
 	}
-	parsed, err := parseGitHubInput(input, opts)
+	parsed, err := parseGitHubInput(github)
 	if err != nil {
-		return spec, err
+		return locator, "", "", err
 	}
 	if parsed.tree != "" {
 		if parsed.ref == "" {
 			refs, err := gitRemote(ctx, parsed.repository, "ls-remote", "--heads", "--tags")
 			if err != nil {
-				return spec, err
+				return locator, "", "", err
 			}
 			var matches []string
 			for line := range strings.SplitSeq(string(refs), "\n") {
@@ -151,7 +152,7 @@ func (l *sqliteLibrary) ResolveSource(ctx context.Context, input string, opts Re
 				}
 			}
 			if len(matches) != 1 || strings.Contains(matches[0], "/") {
-				return spec, &Error{Code: InvalidArgument, Message: "tree ref boundary is ambiguous; provide an explicit ref"}
+				return locator, "", "", &Error{Code: InvalidArgument, Message: "tree ref boundary is ambiguous; provide an explicit ref"}
 			}
 			parsed.ref = matches[0]
 		}
@@ -160,18 +161,18 @@ func (l *sqliteLibrary) ResolveSource(ctx context.Context, input string, opts Re
 			var ok bool
 			suffix, ok = strings.CutPrefix(parsed.tree, parsed.ref+"/")
 			if !ok {
-				return spec, &Error{Code: InvalidArgument, Message: "tree URL does not match explicit ref"}
+				return locator, "", "", &Error{Code: InvalidArgument, Message: "tree URL does not match explicit ref"}
 			}
 		}
 		if parsed.subpath != "" && parsed.subpath != suffix {
-			return spec, &Error{Code: InvalidArgument, Message: "conflicting source subpaths"}
+			return locator, "", "", &Error{Code: InvalidArgument, Message: "conflicting source subpaths"}
 		}
 		parsed.subpath = suffix
 	}
 	if parsed.ref == "" {
 		output, err := gitRemote(ctx, parsed.repository, "ls-remote", "--symref", "HEAD")
 		if err != nil {
-			return spec, err
+			return locator, "", "", err
 		}
 		for line := range strings.SplitSeq(string(output), "\n") {
 			if ref, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
@@ -180,20 +181,16 @@ func (l *sqliteLibrary) ResolveSource(ctx context.Context, input string, opts Re
 			}
 		}
 		if parsed.ref == "" {
-			return spec, &Error{Code: SourceUnreachable, Message: "remote default branch is unavailable"}
+			return locator, "", "", &Error{Code: SourceUnreachable, Message: "remote default branch is unavailable"}
 		}
 	}
 	if err := validateGitRef(ctx, parsed.ref); err != nil {
-		return spec, err
+		return locator, "", "", err
 	}
 	if fullCommit.MatchString(parsed.ref) {
 		parsed.ref = strings.ToLower(parsed.ref)
 	}
-	spec = SourceSpec{Type: SourceGitHub, Locator: SourceLocator{Repository: parsed.repository, Branch: parsed.ref}, Subpath: parsed.subpath}
-	if parsed.name != "" {
-		spec.Names = []string{parsed.name}
-	}
-	return spec, nil
+	return SourceLocator{Repository: parsed.repository, Branch: parsed.ref}, parsed.subpath, parsed.name, nil
 }
 
 func validateGitRef(ctx context.Context, ref string) error {
@@ -378,7 +375,7 @@ func validateSource(source Source) error {
 		if source.Locator.URL == "" {
 			return &Error{Code: InvalidArgument, Message: "invalid source: url is required"}
 		}
-	case SourceStore:
+	case sourceStore:
 		if source.Locator.PackageID == "" || source.Locator.Version == "" {
 			return &Error{Code: InvalidArgument, Message: "invalid source: store package id and version are required"}
 		}

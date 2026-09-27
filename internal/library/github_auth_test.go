@@ -32,20 +32,20 @@ func TestGitHubAnonymousRateLimitExpiresForLibrary(t *testing.T) {
 	api.rateLimitRemaining = "0"
 	api.rateLimitReset = strconv.FormatInt(reset.Unix(), 10)
 	lib := openTestLibrary(t)
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	for _, req := range api.snapshot() {
 		if !req.authed {
-			t.Fatal("PreviewSource retried anonymous API before rate limit reset")
+			t.Fatal("PreviewFetch retried anonymous API before rate limit reset")
 		}
 	}
 	api.Reset()
-	if _, err := openTestLibrary(t).PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := openTestLibrary(t).PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	if !api.sawAnonymousThenToken() {
@@ -54,12 +54,12 @@ func TestGitHubAnonymousRateLimitExpiresForLibrary(t *testing.T) {
 	time.Sleep(time.Until(reset) + time.Millisecond)
 	api.anonymousStatus = 0
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	for _, req := range api.snapshot() {
 		if req.authed {
-			t.Fatal("PreviewSource did not return to anonymous API after reset")
+			t.Fatal("PreviewFetch did not return to anonymous API after reset")
 		}
 	}
 }
@@ -79,14 +79,14 @@ func TestGitHubCLIAuthenticationPreviewsAndFetchesWithoutEnvironmentToken(t *tes
 			t.Setenv("GH_HOST", "unrelated.example")
 
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
-			if err != nil || preview.Ref != fx.commit || len(preview.Skills) != 1 || preview.Skills[0].Name != "demo" {
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil || preview.Revision != fx.commit || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "demo" {
 				t.Fatalf("authenticated preview = %#v, %v", preview, err)
 			}
 			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 				t.Fatalf("preview wrote Library: %#v, %v", skills, err)
 			}
-			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 			if err != nil || len(fetched) != 1 {
 				t.Fatalf("authenticated fetch = %#v, %v", fetched, err)
 			}
@@ -97,7 +97,7 @@ func TestGitHubCLIAuthenticationPreviewsAndFetchesWithoutEnvironmentToken(t *tes
 			if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
 				t.Fatalf("authenticated content = %#v", fetched[0])
 			}
-			if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); !library.IsCode(err, library.NotFound) {
+			if _, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
 				t.Fatalf("successful fetch kept handle: %v", err)
 			}
 		})
@@ -115,17 +115,17 @@ func TestGitHubFetchRateLimitFallsBackToPinnedSelectedSkills(t *testing.T) {
 	api := serveGitHubAPI(t, fx)
 	redirectGitHubClone(t, repo)
 	lib := openTestLibrary(t)
-	spec := gitHubSpec()
-	spec.Subpath = "skills"
-	preview, err := lib.PreviewSource(t.Context(), spec)
-	if err != nil || preview.Ref != fx.commit || len(preview.Skills) != 2 {
+	spec := gitHubRequest()
+	spec.GitHub.Subpath = "skills"
+	preview, err := lib.PreviewFetch(t.Context(), spec)
+	if err != nil || preview.Revision != fx.commit || len(preview.Candidates) != 2 {
 		t.Fatalf("preview = %#v, %v", preview, err)
 	}
 	writeFile(t, filepath.Join(repo, "skills/first/scripts/run"), []byte("new HEAD"), 0o755)
 	commitGit(t, repo, "advance HEAD after preview")
 	api.setBlobStatus(http.StatusTooManyRequests)
 	api.rateLimitReset = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"})
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"first"})
 	if err != nil || len(fetched) != 1 {
 		t.Fatalf("rate limited fetch = %#v, %v", fetched, err)
 	}
@@ -133,13 +133,13 @@ func TestGitHubFetchRateLimitFallsBackToPinnedSelectedSkills(t *testing.T) {
 		{Path: "SKILL.md", Content: []byte(skillDocument("first", "pinned")), Mode: library.ModeRegular},
 		{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].GitTreeSHA != fx.treeSHA("skills/first") || fetched[0].Source.LastSeenRef != fx.commit || fetched[0].Source.Locator != spec.Locator {
+	if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].GitTreeSHA != fx.treeSHA("skills/first") || fetched[0].Source.LastSeenRef != fx.commit || fetched[0].Source.Locator != (library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "main"}) {
 		t.Fatalf("fallback lost pinned content or Source identity: %#v", fetched[0])
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 1 || skills[0].Name != "first" {
 		t.Fatalf("fetched unselected skills: %#v, %v", skills, err)
 	}
-	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("successful fallback kept handle: %v", err)
 	}
 }
@@ -155,7 +155,7 @@ func TestGitHubFetchRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestGitHubFetchRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 		}
 		return transport.RoundTrip(r)
 	})
-	if fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); err == nil || len(fetched) != 0 || (!library.IsCode(err, library.SourceUnreachable) && !library.IsCode(err, library.Permission)) {
+	if fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); err == nil || len(fetched) != 0 || (!library.IsCode(err, library.SourceUnreachable) && !library.IsCode(err, library.Permission)) {
 		t.Fatalf("unavailable fetch = %#v, %v", fetched, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
@@ -176,14 +176,14 @@ func TestGitHubFetchRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 	}
 	redirectGitHubClone(t, repo)
 	api.Reset()
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 2 || fetched[0].GitTreeSHA != fx.treeSHA("first") || fetched[1].GitTreeSHA != fx.treeSHA("second") {
 		t.Fatalf("retry = %#v, %v", fetched, err)
 	}
 	if len(api.snapshot()) != 0 {
 		t.Fatalf("retry used anonymous API during rate limit window: %#v", api.snapshot())
 	}
-	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("successful retry kept handle: %v", err)
 	}
 }
@@ -209,11 +209,11 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 		return transport.RoundTrip(r)
 	})
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 1 || fetched[0].GitTreeSHA != fx.treeSHA("demo") || !reflect.DeepEqual(fetched[0].Files[1].Content, []byte{0, 255}) {
 		t.Fatalf("expired token blocked CLI authentication: %#v, %v", fetched, err)
 	}
@@ -228,7 +228,7 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 	if result, err := lib.Update(t.Context(), fetched[0].ID); err != nil || result.Changed {
 		t.Fatalf("unchanged update = %#v, %v", result, err)
 	}
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	if requests := api.snapshot(); len(requests) != 0 || expiredTokenRequests.Load() != 0 {
@@ -254,15 +254,15 @@ func TestGitHubRateLimitedPreviewSkipsAnonymousWithoutEnvironmentToken(t *testin
 				redirectGitHubClone(t, repo)
 			}
 			lib := openTestLibrary(t)
-			if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+			if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 				t.Fatal(err)
 			}
 			api.Reset()
-			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 			if err != nil {
 				t.Fatal(err)
 			}
-			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
 			if err != nil || len(fetched) != 1 || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
 				t.Fatalf("rate limited fetch = %#v, %v", fetched, err)
 			}
@@ -290,12 +290,12 @@ func TestGitHubDoesNotRememberBareForbiddenOrExpiredRateLimit(t *testing.T) {
 			blockGitHubClone(t)
 			t.Setenv("GH_TOKEN", "test-gh-token")
 			lib := openTestLibrary(t)
-			if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+			if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 				t.Fatal(err)
 			}
 			api.Reset()
-			if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil || !api.sawAnonymousThenToken() {
-				t.Fatalf("PreviewSource incorrectly skipped anonymous API: %v, %#v", err, api.snapshot())
+			if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil || !api.sawAnonymousThenToken() {
+				t.Fatalf("PreviewFetch incorrectly skipped anonymous API: %v, %#v", err, api.snapshot())
 			}
 		})
 	}
@@ -318,14 +318,14 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !api.sawAnonymousThenToken() {
-		t.Fatalf("first PreviewSource did not start from anonymous API: %#v", api.snapshot())
+		t.Fatalf("first PreviewFetch did not start from anonymous API: %#v", api.snapshot())
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
 		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
@@ -339,7 +339,7 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	if result, err := lib.Update(ctx, fetched[0].ID); err != nil || result.Changed {
 		t.Fatalf("unchanged update = %#v, %v", result, err)
 	}
-	if _, err := lib.PreviewSource(ctx, gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(ctx, gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	requests := api.snapshot()
@@ -360,7 +360,7 @@ func TestGitHubPrivateRepositoryClimbsTokenLadderOncePerLibrary(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 	api.Reset()
-	if _, err := reopened.PreviewSource(ctx, gitHubSpec()); err != nil {
+	if _, err := reopened.PreviewFetch(ctx, gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	if !api.sawAnonymousThenToken() {
@@ -378,21 +378,21 @@ func TestGitHubMissingRefDoesNotMakeLibrarySkipAnonymous(t *testing.T) {
 	blockGitHubClone(t)
 	t.Setenv("GITHUB_TOKEN", "public-token")
 	lib := openTestLibrary(t)
-	missing := gitHubSpec()
-	missing.Locator.Branch = "no-such-branch"
-	if _, err := lib.PreviewSource(t.Context(), missing); err == nil {
-		t.Fatal("PreviewSource of a missing ref succeeded")
+	missing := gitHubRequest()
+	missing.GitHub.Ref = "no-such-branch"
+	if _, err := lib.PreviewFetch(t.Context(), missing); err == nil {
+		t.Fatal("PreviewFetch of a missing ref succeeded")
 	}
 	if !api.sawAnonymousThenToken() {
 		t.Fatalf("missing ref did not climb anonymous → token: %#v", api.snapshot())
 	}
 	api.Reset()
-	if _, err := lib.PreviewSource(t.Context(), gitHubSpec()); err != nil {
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
 		t.Fatal(err)
 	}
 	requests := api.snapshot()
 	if len(requests) == 0 || requests[0].authed {
-		t.Fatalf("PreviewSource after a missing ref skipped anonymous API: %#v", requests)
+		t.Fatalf("PreviewFetch after a missing ref skipped anonymous API: %#v", requests)
 	}
 	for _, req := range requests {
 		if req.authed {
@@ -421,11 +421,11 @@ func TestGitHubRateLimitedTokenKeepsAnonymousDenialButNotCLI(t *testing.T) {
 		return transport.RoundTrip(r)
 	})
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
 		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
@@ -465,11 +465,11 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 			blockGitHubClone(t)
 			lib := openTestLibrary(t)
 			ctx := t.Context()
-			preview, err := lib.PreviewSource(ctx, gitHubSpec())
+			preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 			if err != nil {
 				t.Fatal(err)
 			}
-			fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+			fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 			if err != nil || len(fetched) != 2 {
 				t.Fatalf("fetch = %#v, %v", fetched, err)
 			}
@@ -561,15 +561,15 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 		runGit(t, t.TempDir(), "config", "--file", config, "--add", "url."+server.URL+".insteadOf", remote)
 	}
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
-	retry, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	retry, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +584,7 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 		name string
 		run  func() error
 	}{
-		{"PreviewSource", func() error { _, err := lib.PreviewSource(t.Context(), gitHubSpec()); return err }},
+		{"PreviewFetch", func() error { _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); return err }},
 		{"CheckUpdates", func() error { _, err := checkSingleUpdate(t, lib, t.Context(), fetched[0].ID); return err }},
 		{"Update", func() error { _, err := lib.Update(t.Context(), fetched[0].ID); return err }},
 	} {
@@ -595,14 +595,14 @@ func TestGitHubAuthenticationFailureKeepsPermissionAndHidesOutput(t *testing.T) 
 			}
 		})
 	}
-	// retry 的 blob 已在进程内 memo:FetchFromPreview 不再出网,失败也不得带出凭证或 CLI 输出。
-	if _, err := lib.FetchFromPreview(t.Context(), retry.ID, nil); err == nil || strings.Contains(fmt.Sprintf("%+v", err), secret) {
-		t.Fatalf("memoized FetchFromPreview = %v, want a secret-free error", err)
+	// retry 的 blob 已在进程内 memo:Fetch 不再出网,失败也不得带出凭证或 CLI 输出。
+	if _, err := lib.Fetch(t.Context(), retry.ID, candidateNames(retry)); err == nil || strings.Contains(fmt.Sprintf("%+v", err), secret) {
+		t.Fatalf("memoized Fetch = %v, want a secret-free error", err)
 	}
 	if err := lib.RemoveSkill(t.Context(), fetched[0].ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if skills, err := lib.FetchFromPreview(t.Context(), retry.ID, nil); err != nil || len(skills) != 1 {
+	if skills, err := lib.Fetch(t.Context(), retry.ID, candidateNames(retry)); err != nil || len(skills) != 1 {
 		t.Fatalf("retry after removing duplicate = %#v, %v", skills, err)
 	}
 }
@@ -623,7 +623,7 @@ wait
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := lib.PreviewSource(ctx, gitHubSpec())
+		_, err := lib.PreviewFetch(ctx, gitHubRequest())
 		done <- err
 	}()
 	deadline := time.Now().Add(5 * time.Second)
@@ -640,10 +640,10 @@ wait
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("cancelled PreviewSource = %v", err)
+			t.Fatalf("cancelled PreviewFetch = %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled PreviewSource did not stop promptly")
+		t.Fatal("cancelled PreviewFetch did not stop promptly")
 	}
 	time.Sleep(1100 * time.Millisecond)
 	if _, err := os.Stat(escaped); !errors.Is(err, os.ErrNotExist) {

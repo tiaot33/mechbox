@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -26,11 +27,13 @@ func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
 	result, err := lib.SearchSkills(t.Context(), "  testing tools  ")
-	if err != nil || len(result.Skills) != 2 || len(result.Diagnostics) != 1 {
+	// 无法转换为可预览 GitHub 地址的条目直接过滤掉。
+	if err != nil || len(result) != 2 {
 		t.Fatalf("search = %#v, %v", result, err)
 	}
-	first := result.Skills[0]
-	if first.ID != "owner/repo/testing" || first.Name != "testing" || first.SourceInput != "owner/repo@testing" || first.DetailURL != "https://skills.sh/owner/repo/testing" || first.Installs == nil || *first.Installs != 123 || result.Skills[1].Installs != nil {
+	first := result[0]
+	wantPreview := library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo@testing"}}
+	if first.ID != "owner/repo/testing" || first.Name != "testing" || !reflect.DeepEqual(first.Preview, wantPreview) || first.DetailURL != "https://skills.sh/owner/repo/testing" || first.Installs == nil || *first.Installs != 123 || result[1].Installs != nil {
 		t.Fatalf("search metadata = %#v", result)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
@@ -64,7 +67,7 @@ func TestSearchSkillsDistinguishesEmptyInvalidAndUnavailableResults(t *testing.T
 			t.Cleanup(func() { http.DefaultClient = client })
 			result, err := lib.SearchSkills(t.Context(), "testing")
 			if tc.code == "" {
-				if err != nil || len(result.Skills) != 0 {
+				if err != nil || result == nil || len(result) != 0 {
 					t.Fatalf("empty = %#v, %v", result, err)
 				}
 			} else if !library.IsCode(err, tc.code) {
@@ -96,7 +99,7 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"skills":[` + strings.Join(entries, ",") + `]}`))}, nil
 	})
 	result, err := lib.SearchSkills(t.Context(), "test")
-	if err != nil || len(result.Skills) != 20 {
+	if err != nil || len(result) != 20 {
 		t.Fatalf("limit = %#v, %v", result, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -122,7 +125,7 @@ func TestSearchSkillsDoesNotInterpretDisplayNamesAsRefs(t *testing.T) {
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
 	result, err := lib.SearchSkills(t.Context(), "display")
-	if err != nil || len(result.Skills) != 0 || len(result.Diagnostics) != 1 {
+	if err != nil || len(result) != 0 {
 		t.Fatalf("unsafe selector = %#v, %v", result, err)
 	}
 }

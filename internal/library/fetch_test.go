@@ -14,37 +14,37 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestFetchFromPreviewKeepsCandidateDescription(t *testing.T) {
+func TestFetchKeepsCandidateDescription(t *testing.T) {
 	for _, source := range []struct {
 		name string
-		spec func(*testing.T) library.SourceSpec
+		spec func(*testing.T) library.PreviewFetchRequest
 	}{
-		{"github", func(t *testing.T) library.SourceSpec {
+		{"github", func(t *testing.T) library.PreviewFetchRequest {
 			repository := t.TempDir()
 			runGit(t, repository, "init", "-b", "main")
 			writeFile(t, filepath.Join(repository, "useful", "SKILL.md"), []byte("---\nname: useful\ndescription: helps a lot\n---\nbody\n"), 0o644)
 			commitGit(t, repository, "initial")
-			return library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}}
+			return gitHubCloneRequest(t, repository)
 		}},
-		{"url", func(t *testing.T) library.SourceSpec {
+		{"url", func(t *testing.T) library.PreviewFetchRequest {
 			return serveArchive(t, zipArchive(t, map[string]string{"useful/SKILL.md": "---\nname: useful\ndescription: helps a lot\n---\nbody\n"}))
 		}},
 	} {
 		t.Run(source.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
 			ctx := t.Context()
-			preview, err := lib.PreviewSource(ctx, source.spec(t))
+			preview, err := lib.PreviewFetch(ctx, source.spec(t))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(preview.Skills) != 1 || preview.Skills[0].Description != "helps a lot" {
-				t.Fatalf("PreviewSource = %#v", preview)
+			if len(preview.Candidates) != 1 || preview.Candidates[0].Description != "helps a lot" {
+				t.Fatalf("PreviewFetch = %#v", preview)
 			}
-			description := preview.Skills[0].Description
-			preview.Skills[0].Description = "changed by caller"
-			fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+			description := preview.Candidates[0].Description
+			preview.Candidates[0].Description = "changed by caller"
+			fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 			if err != nil || len(fetched) != 1 || fetched[0].Description != "helps a lot" {
-				t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+				t.Fatalf("Fetch = %#v, %v", fetched, err)
 			}
 			summaries, err := lib.ListSkills(ctx)
 			if err != nil || len(summaries) != 1 || summaries[0].Description != description {
@@ -54,7 +54,7 @@ func TestFetchFromPreviewKeepsCandidateDescription(t *testing.T) {
 	}
 }
 
-func TestFetchFromPreviewFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
+func TestFetchFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 	repository := previewRepository(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
@@ -62,35 +62,38 @@ func TestFetchFromPreviewFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+	preview, err := lib.PreviewFetch(ctx, gitHubCloneRequest(t, repository))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(repository); err != nil {
 		t.Fatal(err)
 	}
-	if fetched, err := lib.FetchFromPreview(ctx, preview.ID, []string{"first", "missing"}); err == nil || len(fetched) != 0 {
+	if fetched, err := lib.Fetch(ctx, preview.ID, []string{"first", "missing"}); err == nil || len(fetched) != 0 {
 		t.Fatalf("unknown selection = %v, %v; want no results and error", fetched, err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if fetched, err := lib.FetchFromPreview(canceled, preview.ID, nil); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) || len(fetched) != 0 {
+	if fetched, err := lib.Fetch(canceled, preview.ID, candidateNames(preview)); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) || len(fetched) != 0 {
 		t.Fatalf("canceled fetch = %v, %v; want no results and Canceled", fetched, err)
 	}
 	collections, err := lib.ListCollections(ctx)
 	if err != nil || len(collections) != 0 {
 		t.Fatalf("failed attempts left collections: %v, %v", collections, err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	// 不指定名字不再表示全部入库;句柄保留,可按候选名重试。
+	_, err = lib.Fetch(ctx, preview.ID, nil)
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "names"})
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 2 || fetched[0].Name != "first" || fetched[1].Name != "second" {
-		t.Fatalf("offline retry with empty filter = %v, %v; want both Skills", fetched, err)
+		t.Fatalf("offline retry with all candidates = %v, %v; want both Skills", fetched, err)
 	}
-	if _, err := lib.FetchFromPreview(ctx, preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.Fetch(ctx, preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reused handle after success: %v; want NotFound", err)
 	}
 }
 
-func TestFetchFromPreviewConcurrentCallsConsumeHandleOnce(t *testing.T) {
+func TestFetchConcurrentCallsConsumeHandleOnce(t *testing.T) {
 	repository := previewRepository(t)
 	// 每轮使用独立的库,两个调用选择不同候选,避免唯一约束掩盖重复消费。
 	for range 10 {
@@ -100,16 +103,16 @@ func TestFetchFromPreviewConcurrentCallsConsumeHandleOnce(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = lib.Close() })
 		ctx := t.Context()
-		preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}})
+		preview, err := lib.PreviewFetch(ctx, gitHubCloneRequest(t, repository))
 		if err != nil {
 			t.Fatal(err)
 		}
 		start := make(chan struct{})
 		results := make(chan error, 2)
-		for _, name := range preview.Skills {
+		for _, name := range preview.Candidates {
 			go func() {
 				<-start
-				_, err := lib.FetchFromPreview(ctx, preview.ID, []string{name.Name})
+				_, err := lib.Fetch(ctx, preview.ID, []string{name.Name})
 				results <- err
 			}()
 		}
@@ -143,7 +146,7 @@ func previewRepository(t *testing.T) string {
 	return repository
 }
 
-func TestFetchFromPreviewIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
+func TestFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 	repository := previewRepository(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
 	if err != nil {
@@ -151,27 +154,27 @@ func TestFetchFromPreviewIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	spec := library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"}}
+	spec := gitHubCloneRequest(t, repository)
 
-	pre, err := lib.PreviewSource(ctx, spec)
+	pre, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.FetchFromPreview(ctx, pre.ID, []string{"second"}); err != nil {
+	if _, err := lib.Fetch(ctx, pre.ID, []string{"second"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.FetchFromPreview(ctx, pre.ID, []string{"first"}); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.Fetch(ctx, pre.ID, []string{"first"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reused preview handle error = %v, want NotFound", err)
 	}
 	before, err := lib.ListSkills(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := lib.PreviewSource(ctx, spec)
+	again, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.FetchFromPreview(ctx, again.ID, nil); !library.IsCode(err, library.AlreadyExists) {
+	if _, err := lib.Fetch(ctx, again.ID, candidateNames(again)); !library.IsCode(err, library.AlreadyExists) {
 		t.Fatalf("fetch existing candidate again = %v, want AlreadyExists", err)
 	} else {
 		requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: before[0].ID, Name: "second"})
@@ -186,12 +189,12 @@ func TestFetchFromPreviewIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 
 	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "changed second")), 0o644)
 	commitGit(t, repository, "changed")
-	batch, err := lib.PreviewSource(ctx, spec)
+	batch, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// first 会先写入事务,随后 second 与已有条目冲突;整批必须回滚。
-	if fetched, err := lib.FetchFromPreview(ctx, batch.ID, []string{"first", "second"}); err == nil || len(fetched) != 0 {
+	if fetched, err := lib.Fetch(ctx, batch.ID, []string{"first", "second"}); err == nil || len(fetched) != 0 {
 		t.Fatalf("failed batch = %v, %v; want no results and error", fetched, err)
 	}
 	skills, err := lib.ListSkills(ctx)
@@ -208,12 +211,12 @@ func TestFetchFromPreviewIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 	if err := os.RemoveAll(repository); err != nil {
 		t.Fatal(err)
 	}
-	if fetched, err := lib.FetchFromPreview(ctx, batch.ID, []string{"first"}); err != nil || len(fetched) != 1 {
+	if fetched, err := lib.Fetch(ctx, batch.ID, []string{"first"}); err != nil || len(fetched) != 1 {
 		t.Fatalf("retry from the same preview = %v, %v", fetched, err)
 	}
 }
 
-func TestFetchFromPreviewDefaultsToAllSkillsWithoutRereading(t *testing.T) {
+func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "# First\n"),
 		"first/guide.md":  "guide\n",
@@ -230,18 +233,16 @@ func TestFetchFromPreviewDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	lib := openTestLibrary(t)
 
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL + "/skills.zip"},
-	})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL + "/skills.zip"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 1 {
-		t.Fatalf("remote requests = %d, want PreviewSource only", requests.Load())
+		t.Fatalf("remote requests = %d, want PreviewFetch only", requests.Load())
 	}
 	if got, want := skillNames(fetched), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("fetched skills = %v, want %v", got, want)
@@ -290,7 +291,7 @@ func TestFetchFromPreviewDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	}
 }
 
-func TestFetchFromPreviewGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T) {
+func TestFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T) {
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
 	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "first\n")), 0o644)
@@ -299,13 +300,11 @@ func TestFetchFromPreviewGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testi
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
-	})
+	preview, err := lib.PreviewFetch(ctx, gitHubCloneRequest(t, repository))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
+	fetched, err := getFetchedSkills(ctx, lib, preview, []string{"first"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,75 +351,7 @@ func TestFetchFromPreviewGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testi
 	}
 }
 
-func TestFetchFromPreviewStoreUsesPackageVersionAndSelection(t *testing.T) {
-	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  skillDocument("first", "# First\n"),
-		"second/SKILL.md": skillDocument("second", "# Second\n"),
-	})
-	var requestedPath string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		requestedPath = request.URL.EscapedPath()
-		_, _ = w.Write(archive)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("SKILLS_STORE_URL", server.URL)
-
-	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{
-		Type:    library.SourceStore,
-		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.2.3 beta"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"second"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := skillNames(fetched), []string{"second"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("fetched skills = %v, want %v", got, want)
-	}
-	if got, want := requestedPath, "/owner%2Fpackage/1.2.3%20beta"; got != want {
-		t.Fatalf("store path = %q, want %q", got, want)
-	}
-}
-
-func TestFetchFromPreviewStoreDoesNotRereadSource(t *testing.T) {
-	archive := zipArchive(t, map[string]string{
-		"first/SKILL.md":  skillDocument("first", "# First\n"),
-		"second/SKILL.md": skillDocument("second", "# Second\n"),
-	})
-	var requests atomic.Int64
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		_, _ = w.Write(archive)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("SKILLS_STORE_URL", server.URL)
-
-	lib := openTestLibrary(t)
-	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type:    library.SourceStore,
-		Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server.Close()
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if requests.Load() != 1 {
-		t.Fatalf("remote requests = %d, want PreviewSource only", requests.Load())
-	}
-	if got, want := skillNames(fetched), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("fetched skills = %v, want %v", got, want)
-	}
-}
-
-func TestFetchFromPreviewPersistsTypedSourceAndSharesIt(t *testing.T) {
+func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "# First\n"),
 		"second/SKILL.md": skillDocument("second", "# Second\n"),
@@ -432,11 +363,11 @@ func TestFetchFromPreviewPersistsTypedSourceAndSharesIt(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL}})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,18 +378,19 @@ func TestFetchFromPreviewPersistsTypedSourceAndSharesIt(t *testing.T) {
 	if first.Source.ID != second.Source.ID {
 		t.Fatalf("source IDs = %d and %d, want one shared Source", first.Source.ID, second.Source.ID)
 	}
+	// 入库结果与技能列表的条目形状一致,不带文件。
+	if summaries, err := lib.ListSkills(ctx); err != nil || !reflect.DeepEqual(summaries, fetched) {
+		t.Fatalf("ListSkills() = %#v, %v; want fetch result %#v", summaries, err, fetched)
+	}
 	got, err := lib.GetSkill(ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, first) {
-		t.Fatalf("GetSkill() = %#v, want %#v", got, first)
-	}
 	if got.Source.ID == 0 || got.Source.Type != library.SourceURL || got.Source.Locator.URL != server.URL {
 		t.Fatalf("persisted Source = %#v, want typed url source", got.Source)
 	}
-	if got.Source.LastSeenRef == "" || got.Source.LastSeenRef != preview.Ref {
-		t.Fatalf("persisted ref = %q, want preview ref %q", got.Source.LastSeenRef, preview.Ref)
+	if got.Source.LastSeenRef == "" || got.Source.LastSeenRef != preview.Revision {
+		t.Fatalf("persisted ref = %q, want preview ref %q", got.Source.LastSeenRef, preview.Revision)
 	}
 	if got.Source.LastFetched.IsZero() {
 		t.Fatal("persisted source has zero LastFetched")

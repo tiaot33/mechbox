@@ -20,18 +20,18 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	writeFile(t, filepath.Join(root, "skills", "alpha-dir", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 	writeFile(t, filepath.Join(root, "skills", "beta", "SKILL.md"), []byte(skillDocument("beta", "beta body")), 0o644)
 
-	preview, err := lib.PreviewSource(ctx, localSpec(root))
+	preview, err := lib.PreviewFetch(ctx, localRequest(root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []library.Candidate{{Name: "alpha", Path: "skills/alpha-dir"}, {Name: "beta", Path: "skills/beta"}}
-	if preview.ID == "" || !reflect.DeepEqual(preview.Skills, want) {
+	if preview.ID == "" || !reflect.DeepEqual(preview.Candidates, want) {
 		t.Fatalf("local preview = %#v; want candidates %#v", preview, want)
 	}
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("preview wrote to library: %v, %v", skills, err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	}
 }
 
-func TestLocalPreviewResolvesRelativePathAndSelectsNames(t *testing.T) {
+func TestLocalPreviewResolvesRelativePathAndListsAllCandidates(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	root := t.TempDir()
@@ -66,20 +66,19 @@ func TestLocalPreviewResolvesRelativePathAndSelectsNames(t *testing.T) {
 	writeFile(t, filepath.Join(root, "two", "SKILL.md"), []byte(skillDocument("two", "")), 0o644)
 	t.Chdir(filepath.Dir(root))
 
-	spec := localSpec(filepath.Base(root))
-	spec.Names = []string{"two"}
-	preview, err := lib.PreviewSource(ctx, spec)
+	preview, err := lib.PreviewFetch(ctx, localRequest(filepath.Base(root)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []library.Candidate{{Name: "two", Path: "two"}}; !reflect.DeepEqual(preview.Skills, want) {
-		t.Fatalf("selected candidates = %#v; want %#v", preview.Skills, want)
+	// 本地目录总是列出全部候选,由入库时挑选。
+	if want := []library.Candidate{{Name: "one", Path: "one"}, {Name: "two", Path: "two"}}; !reflect.DeepEqual(preview.Candidates, want) {
+		t.Fatalf("candidates = %#v; want %#v", preview.Candidates, want)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, []string{"two"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fetched[0].Source.Locator.Path != root {
+	if len(fetched) != 1 || fetched[0].Name != "two" || fetched[0].Source.Locator.Path != root {
 		t.Fatalf("source path = %q; want absolute %q", fetched[0].Source.Locator.Path, root)
 	}
 }
@@ -90,14 +89,14 @@ func TestLocalPreviewPinsContentUntilFetch(t *testing.T) {
 	root := t.TempDir()
 	skillFile := filepath.Join(root, "SKILL.md")
 	writeFile(t, skillFile, []byte(skillDocument("pinned", "previewed")), 0o644)
-	preview, err := lib.PreviewSource(ctx, localSpec(root))
+	preview, err := lib.PreviewFetch(ctx, localRequest(root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 预览之后改动或删除目录,入库的仍是预览时的内容。
 	writeFile(t, skillFile, []byte(skillDocument("pinned", "edited later")), 0o644)
 	writeFile(t, filepath.Join(root, "extra.md"), []byte("added later"), 0o644)
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +112,11 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "a", "SKILL.md"), []byte(skillDocument("first", "v1")), 0o644)
 	writeFile(t, filepath.Join(root, "b", "SKILL.md"), []byte(skillDocument("second", "v1")), 0o644)
-	preview, err := lib.PreviewSource(ctx, localSpec(root))
+	preview, err := lib.PreviewFetch(ctx, localRequest(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,22 +177,21 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		spec library.SourceSpec
+		spec library.PreviewFetchRequest
 		want library.ErrorCode
 	}{
-		{name: "empty path", spec: localSpec(""), want: library.InvalidArgument},
-		{name: "file path", spec: localSpec(file), want: library.InvalidArgument},
-		{name: "missing path", spec: localSpec(filepath.Join(t.TempDir(), "missing")), want: library.SourceUnreachable},
-		{name: "no valid candidates", spec: localSpec(withoutCandidates), want: library.SourceInvalid},
-		{name: "too many files", spec: localSpec(tooMany), want: library.SourceInvalid},
-		{name: "too many bytes", spec: localSpec(tooLarge), want: library.SourceInvalid},
-		{name: "subpath", spec: library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: tooMany}, Subpath: "files"}, want: library.InvalidArgument},
+		{name: "empty path", spec: localRequest(""), want: library.InvalidArgument},
+		{name: "file path", spec: localRequest(file), want: library.InvalidArgument},
+		{name: "missing path", spec: localRequest(filepath.Join(t.TempDir(), "missing")), want: library.SourceUnreachable},
+		{name: "no valid candidates", spec: localRequest(withoutCandidates), want: library.SourceInvalid},
+		{name: "too many files", spec: localRequest(tooMany), want: library.SourceInvalid},
+		{name: "too many bytes", spec: localRequest(tooLarge), want: library.SourceInvalid},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			if _, err := lib.PreviewSource(t.Context(), test.spec); !library.IsCode(err, test.want) {
-				t.Fatalf("PreviewSource = %v; want %s", err, test.want)
+			if _, err := lib.PreviewFetch(t.Context(), test.spec); !library.IsCode(err, test.want) {
+				t.Fatalf("PreviewFetch = %v; want %s", err, test.want)
 			}
 		})
 	}

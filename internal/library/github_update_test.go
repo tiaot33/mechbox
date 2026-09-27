@@ -31,13 +31,13 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutReadingFiles(t *testing.T
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 2 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	first, second := fetched[0], fetched[1]
 	if first.Name != "first" {
@@ -196,13 +196,13 @@ func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 2 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	var foo, bar library.Skill
 	for _, skill := range fetched {
@@ -336,13 +336,13 @@ func TestGitHubUpdateDownloadsOnlyChangedBlob(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "notes.md"), []byte("new notes"), 0o644)
@@ -397,13 +397,13 @@ func TestGitHubUpdateReusesBlobWhenOnlyExecutableBitFlips(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 
 	if err := os.Chmod(filepath.Join(repo, "demo", "scripts", "run"), 0o644); err != nil {
@@ -454,13 +454,13 @@ func TestGitHubUpdateDownloadsOnlyAddedBlob(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "extra.md"), []byte("new file"), 0o644)
@@ -510,13 +510,13 @@ func TestGitHubUpdateReusesBlobWhenFileMoves(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 
 	if err := os.MkdirAll(filepath.Join(repo, "demo", "docs"), 0o755); err != nil {
@@ -574,13 +574,13 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "new")), 0o644)
@@ -655,16 +655,16 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	spec := library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}}
+	spec := library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, spec)
+	preview, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	if fetched[0].GitTreeSHA != "" {
 		t.Fatalf("URL GitTreeSHA = %q, want empty", fetched[0].GitTreeSHA)

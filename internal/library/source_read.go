@@ -23,6 +23,9 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// sourceStore 是 skill 商店来源(包 ID + 版本);公开 API 暂不支持,内部实现保留。
+const sourceStore SourceType = "store"
+
 const (
 	maxFetchSize  = 64 << 20 // 下载与展开的字节上限;本地目录预览时候选文件的累计字节上限
 	maxFetchFiles = 1000     // 展开文件个数上限;本地目录预览时候选文件的累计个数上限。超限拒绝整个来源
@@ -60,7 +63,7 @@ func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) err
 type discoveredSource struct {
 	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
 	skills         []discoveredSkill
-	diagnostics    []CandidateDiagnostic
+	diagnostics    []PreviewDiagnostic
 	ref            string
 	// httpValidator 是 URL / Store 服务端随本次响应给出的 validator 原文(ETag 或 Last-Modified);
 	// 未给出为空。304 时沿用请求所带的那个。
@@ -79,7 +82,7 @@ func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath,
 		return l.fetchGitHub(ctx, source.Locator, subpath)
 	case SourceURL:
 		return fetchArchive(ctx, source.Locator.URL, validator)
-	case SourceStore:
+	case sourceStore:
 		base := os.Getenv("SKILLS_STORE_URL")
 		if base == "" {
 			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}

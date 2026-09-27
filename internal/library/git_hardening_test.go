@@ -40,19 +40,16 @@ func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T)
 	t.Setenv("GIT_LFS_MARKER", marker)
 
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{
-		Type:    library.SourceGitHub,
-		Locator: library.SourceLocator{Repository: repository, Branch: "main"},
-	})
+	preview, err := lib.PreviewFetch(t.Context(), gitHubCloneRequest(t, repository))
 	if err != nil {
-		t.Fatalf("PreviewSource with LFS attributes and no git-lfs: %v", err)
+		t.Fatalf("PreviewFetch with LFS attributes and no git-lfs: %v", err)
 	}
 	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("git-lfs was invoked during PreviewSource")
+		t.Fatal("git-lfs was invoked during PreviewFetch")
 	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"demo"})
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "demo" {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	if got := string(fetched[0].Files[0].Content); !strings.Contains(got, "plain skill") {
 		t.Fatalf("fetched content = %q", got)
@@ -61,20 +58,17 @@ func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T)
 
 func TestPreviewRejectsExtGitProtocol(t *testing.T) {
 	sentinel := filepath.Join(t.TempDir(), "pwned")
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// 公开输入只接受 github.com;用户 git 配置仍可把它改写成 ext 协议,Library 必须拒绝执行。
+	serveGitHubRemoteOnly(t, "ext::touch "+sentinel)
 	runGit(t, t.TempDir(), "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), "protocol.ext.allow", "always")
 
 	lib := openTestLibrary(t)
-	_, err := lib.PreviewSource(t.Context(), library.SourceSpec{
-		Type:    library.SourceGitHub,
-		Locator: library.SourceLocator{Repository: "ext::touch " + sentinel, Branch: "main"},
-	})
+	_, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if _, statErr := os.Stat(sentinel); statErr == nil {
 		t.Fatal("ext protocol executed a host command")
 	}
 	if err == nil {
-		t.Fatal("PreviewSource accepted ext protocol")
+		t.Fatal("PreviewFetch accepted ext protocol")
 	}
 }
 
@@ -82,13 +76,11 @@ func TestPreviewGitTimesOutWithoutCallerDeadline(t *testing.T) {
 	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
 	lib := openTestLibrary(t)
 	start := time.Now()
-	_, err := lib.PreviewSource(context.Background(), library.SourceSpec{
-		Type:    library.SourceGitHub,
-		Locator: library.SourceLocator{Repository: hangingGitServer(t), Branch: "main"},
-	})
+	serveGitHubRemoteOnly(t, hangingGitServer(t))
+	_, err := lib.PreviewFetch(context.Background(), gitHubRequest())
 	elapsed := time.Since(start)
 	if elapsed > 10*time.Second {
-		t.Fatalf("PreviewSource hung for %v without independent git timeout", elapsed)
+		t.Fatalf("PreviewFetch hung for %v without independent git timeout", elapsed)
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		t.Fatalf("timeout leaked caller context error: %v", err)
@@ -102,15 +94,11 @@ func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 	repository, _ := githubRemote(t)
 	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
 	lib := openTestLibrary(t)
-	spec, err := lib.ResolveSource(t.Context(), "owner/repo", library.ResolveSourceOptions{})
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	preview, err := lib.PreviewSource(t.Context(), spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,11 +140,9 @@ func TestPreviewGitCancelStopsImmediately(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	t.Cleanup(server.Close)
+	serveGitHubRemoteOnly(t, server.URL)
 	start := time.Now()
-	_, err := lib.PreviewSource(ctx, library.SourceSpec{
-		Type:    library.SourceGitHub,
-		Locator: library.SourceLocator{Repository: server.URL, Branch: "main"},
-	})
+	_, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("in-flight cancel = %v", err)
 	}
@@ -181,31 +167,36 @@ func TestPreviewGitDistinguishesFailureReasonsWithoutExposingCredentials(t *test
 
 	for _, tc := range []struct {
 		name    string
-		locator library.SourceLocator
+		remote  string
+		ref     string
 		code    library.ErrorCode
 		message string
 	}{
 		{
 			name:    "authentication",
-			locator: library.SourceLocator{Repository: authURL, Branch: "trunk"},
+			remote:  authURL,
+			ref:     "trunk",
 			code:    library.Permission,
 			message: "authentication failed",
 		},
 		{
 			name:    "missing ref",
-			locator: library.SourceLocator{Repository: repository, Branch: "does-not-exist"},
+			remote:  "file://" + repository,
+			ref:     "does-not-exist",
 			code:    library.NotFound,
 			message: "ref not found",
 		},
 		{
 			name:    "unreachable",
-			locator: library.SourceLocator{Repository: closed.URL, Branch: "trunk"},
+			remote:  closed.URL,
+			ref:     "trunk",
 			code:    library.SourceUnreachable,
 			message: "could not be reached",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: tc.locator})
+			serveGitHubRemoteOnly(t, tc.remote)
+			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: tc.ref}})
 			if !library.IsCode(err, tc.code) || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("error = %v, want %s containing %q", err, tc.code, tc.message)
 			}

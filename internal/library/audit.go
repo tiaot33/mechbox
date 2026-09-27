@@ -16,9 +16,9 @@ const (
 	maxAuditSize        = 1 << 20         // 单个审计响应的字节上限
 )
 
-// CandidateAudit 在用户查看单个候选时才查 skills.sh。审计只是展示用的覆盖层:任何失败都只降级为
+// GetSkillAudit 在用户查看单个技能时才查 skills.sh。审计只是展示用的覆盖层:任何失败都只降级为
 // Availability 状态;联网期间不持任何锁,已确定的结果写回预览,不可用的结果留待下次重查。
-func (l *sqliteLibrary) CandidateAudit(ctx context.Context, id PreviewID, name string) (audit *SkillAudit, err error) {
+func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
 	if !validSelectionName(name) {
 		return nil, &Error{Code: InvalidArgument, Message: "invalid candidate name"}
@@ -32,7 +32,7 @@ func (l *sqliteLibrary) CandidateAudit(ctx context.Context, id PreviewID, name s
 	}
 	l.previewMu.Unlock()
 	if state == nil {
-		return nil, &Error{Code: NotFound, Message: "candidate audit: unknown or discarded preview"}
+		return nil, &Error{Code: NotFound, Message: "get skill audit: unknown or discarded preview"}
 	}
 	// 候选与来源在预览建立后只读,可在锁外读取。
 	if _, err := selectSkills(state.skills, []string{name}); err != nil {

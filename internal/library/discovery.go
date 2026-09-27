@@ -102,7 +102,7 @@ func discoverCandidates(ctx context.Context, view sourceDirectoryView, root stri
 	names := map[string]bool{}
 	var steps []discoveryStep
 	diagnose := func(dir string, err error) {
-		result.diagnostics = append(result.diagnostics, CandidateDiagnostic{Path: dir, Reason: err.Error()})
+		result.diagnostics = append(result.diagnostics, PreviewDiagnostic{Path: dir, Reason: err.Error()})
 	}
 	inspect := func(dir string) bool {
 		entries, err := readLinkedDir(view, root, dir)

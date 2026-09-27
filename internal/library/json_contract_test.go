@@ -26,6 +26,12 @@ func TestJSONFieldNamesAndValuesFollowTerminology(t *testing.T) {
 		{"member installed", library.MemberInstalled, `"installed"`},
 		{"member already installed", library.MemberAlreadyInstalled, `"already_installed"`},
 		{"reinstalled", library.Reinstalled, `"reinstalled"`},
+		{"preview fetch github", library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo@demo", Ref: "main", Subpath: "skills"}}, `{"github":{"input":"owner/repo@demo","ref":"main","subpath":"skills"}}`},
+		{"preview fetch url", library.PreviewFetchRequest{URL: "https://example.com/skills.zip"}, `{"url":"https://example.com/skills.zip"}`},
+		{"preview fetch local", library.PreviewFetchRequest{Local: "/skills"}, `{"local":"/skills"}`},
+		{"fetch preview ref and revision", library.FetchPreview{ID: "p", Ref: "main", Revision: "abc", Candidates: []library.Candidate{{Name: "demo"}}, Diagnostics: []library.PreviewDiagnostic{{Path: "bad", Reason: "missing SKILL.md"}}}, `{"id":"p","ref":"main","revision":"abc","candidates":[{"name":"demo","description":"","path":""}],"diagnostics":[{"path":"bad","reason":"missing SKILL.md"}]}`},
+		{"fetch preview without ref", library.FetchPreview{ID: "p", Revision: "hash", Candidates: []library.Candidate{}}, `{"id":"p","revision":"hash","candidates":[]}`},
+		{"search skill preview", library.SearchSkill{ID: "owner/repo/demo", Name: "demo", DetailURL: "https://skills.sh/owner/repo/demo", Preview: library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo@demo"}}}, `{"id":"owner/repo/demo","name":"demo","detail_url":"https://skills.sh/owner/repo/demo","preview":{"github":{"input":"owner/repo@demo"}}}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -25,8 +25,12 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			_, err := lib.CreateGroup(t.Context(), "group")
 			return err
 		}},
-		{name: "fetch from preview unknown handle", want: library.NotFound, call: func(lib library.Library) error {
-			_, err := lib.FetchFromPreview(t.Context(), "no-such-handle", nil)
+		{name: "fetch unknown handle", want: library.NotFound, call: func(lib library.Library) error {
+			_, err := lib.Fetch(t.Context(), "no-such-handle", []string{"demo"})
+			return err
+		}},
+		{name: "fetch without names", want: library.InvalidArgument, call: func(lib library.Library) error {
+			_, err := lib.Fetch(t.Context(), "no-such-handle", nil)
 			return err
 		}},
 		{name: "list versions", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
@@ -196,12 +200,12 @@ func TestFacadeFailureCodes(t *testing.T) {
 			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{UnbackedInstallations: "nope"})
 		}},
 		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
-			_, err := lib.PreviewSource(t.Context(), serveArchive(t, []byte("not-a-zip")))
+			_, err := lib.PreviewFetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
 			return err
 		}},
 		{name: "preview archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
 			stubHTTPResponse(t, 500, strings.NewReader(""))
-			_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
 			return err
 		}},
 		{name: "search response over size limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
@@ -242,16 +246,16 @@ func TestCanceledOperationsStillMatchContext(t *testing.T) {
 		{"update", func() error { _, err := lib.Update(ctx, skill.ID); return err }},
 		{"check updates", func() error { _, err := lib.CheckUpdates(ctx, []library.SkillID{skill.ID}); return err }},
 		{"preview", func() error {
-			_, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example/skills.zip"}})
+			_, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
 			return err
 		}},
 		{"search", func() error { _, err := lib.SearchSkills(ctx, "q"); return err }},
 		{"fetch from preview", func() error {
-			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body")})))
+			preview, err := lib.PreviewFetch(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body")})))
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = lib.FetchFromPreview(ctx, preview.ID, nil)
+			_, err = lib.Fetch(ctx, preview.ID, candidateNames(preview))
 			return err
 		}},
 	} {

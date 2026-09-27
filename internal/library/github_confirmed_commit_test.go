@@ -25,13 +25,13 @@ func TestGitHubCheckUpdatesOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	id := fetched[0].ID
 	before := snapshotSkill(t, lib, id)
@@ -77,13 +77,13 @@ func TestGitHubConfirmedCommitIsPerVersionNotPerSource(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 2 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	a, b := fetched[0], fetched[1]
 	if a.Name != "a" {
@@ -136,13 +136,13 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	id := fetched[0].ID
 
@@ -196,15 +196,15 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	spec := gitHubSpec()
-	spec.Locator.Branch = fx.commit
-	preview, err := lib.PreviewSource(ctx, spec)
+	spec := gitHubRequest()
+	spec.GitHub.Ref = fx.commit
+	preview, err := lib.PreviewFetch(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	id := fetched[0].ID
 
@@ -264,13 +264,13 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsReadTreeAtMostOnce(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil || len(fetched) != 3 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	byName := map[string]library.Skill{}
 	for _, skill := range fetched {
@@ -349,13 +349,13 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	preview, err := lib.PreviewSource(ctx, gitHubSpec())
+	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 {
-		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
+		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
 	id := fetched[0].ID
 	if err := lib.Close(); err != nil {

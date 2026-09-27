@@ -5,7 +5,7 @@ v1 唯一的客户端是桌面端。它是一个 Wails v3 应用:Go 进程直接
 ## 决定
 
 - **宿主形态**:Wails v3,与 Library 同进程。绑定方法沿用技能库的 `ctx` 优先、`(T, error)` 签名;参数与返回值经 JSON 往返，所以技能库类型必须能跨 JSON 往返(ADR 0004 的 serialization-ready 在这里第一次兑现)。
-- **Wails 版本**:v3 在选定时仍是 beta(`v3.0.0-beta.25`),钉住具体版本。选 v3 而不是稳定的 v2,是因为:绑定方法的 `ctx` 随前端 `promise.cancel()` 按次取消，长操作(PreviewSource、FetchFromPreview、Update、Sync)的取消不用接入层自管;错误以 JSON 放在前端错误的 `cause` 里,`*library.Error` 的码与 Details 直达前端;具名字符串类型生成 TS `enum`。**退回 v2 的条件**:v3 的 beta 变更阻塞开发且短期跟不上。退回时错误经 `ErrorFormatter` 编码成 JSON 字符串由前端解析，取消由接入层自管。
+- **Wails 版本**:v3 在选定时仍是 beta(`v3.0.0-beta.25`),钉住具体版本。选 v3 而不是稳定的 v2,是因为:绑定方法的 `ctx` 随前端 `promise.cancel()` 按次取消，长操作(PreviewFetch、Fetch、Update、Sync)的取消不用接入层自管;错误以 JSON 放在前端错误的 `cause` 里,`*library.Error` 的码与 Details 直达前端;具名字符串类型生成 TS `enum`。**退回 v2 的条件**:v3 的 beta 变更阻塞开发且短期跟不上。退回时错误经 `ErrorFormatter` 编码成 JSON 字符串由前端解析，取消由接入层自管。
 - **平台**:macOS 一等支持;Windows / Linux 只保证能编译。v3 在 Linux 默认需要 WebKitGTK 6.0。
 - **单实例**:开启 Wails 单实例锁。TUI 已搁置(ADR 0002),也没有 CLI,库的写入者只有这一个进程，所以不做跨进程的库修订号或变更通知，前端在自己的写操作之后重读。ADR 0012 的多进程共存底线保留不动。
 - **前端**:React + TypeScript + Vite + shadcn/ui + Tailwind CSS。TS 类型由 Wails 绑定生成器从技能库类型生成，不手写。
