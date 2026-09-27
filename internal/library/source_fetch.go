@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	maxFetchSize  = 64 << 20 // 下载与展开的字节上限
-	maxFetchFiles = 1000     // 展开文件个数上限;超限拒绝整个归档
+	maxFetchSize  = 64 << 20 // 下载与展开的字节上限;本地目录预览时候选文件的累计字节上限
+	maxFetchFiles = 1000     // 展开文件个数上限;本地目录预览时候选文件的累计个数上限。超限拒绝整个来源
 	// fetchConcurrency 是一次操作内并发远程读取的上限:足以摊薄逐个 blob 的往返与 gh 进程启动,
 	// 又不至于触发 GitHub 的次级限流。
 	fetchConcurrency = 8
@@ -120,9 +120,9 @@ type readBudget struct {
 	bytes int64
 }
 
-// take 在读取前按文件大小扣除额度,超限返回 SourceInvalid。
-func (b *readBudget) take(size int64) error {
-	b.files--
+// take 扣除 files 个文件与 size 字节的额度,超限返回 SourceInvalid。
+func (b *readBudget) take(files int, size int64) error {
+	b.files -= files
 	b.bytes -= size
 	if b.files < 0 {
 		return fetchError(SourceInvalid, "read source", fmt.Errorf("%w: more than %d files", errReadLimit, maxFetchFiles))
@@ -447,13 +447,20 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string, budget *
 			return err
 		}
 		if budget != nil {
-			if err := budget.take(info.Size()); err != nil {
+			// 读取前按文件大小扣除,超大文件不必读进内存就能拒绝。
+			if err := budget.take(1, info.Size()); err != nil {
 				return err
 			}
 		}
 		content, err := readSourceFile(ctx, source, current)
 		if err != nil {
 			return err
+		}
+		if budget != nil && int64(len(content)) > info.Size() {
+			// 文件在读取期间变大:按实际读到的字节补扣,不让它绕过上限。
+			if err := budget.take(0, int64(len(content))-info.Size()); err != nil {
+				return err
+			}
 		}
 		mode := ModeRegular
 		if info.Mode().Perm()&0o111 != 0 {

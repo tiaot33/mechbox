@@ -17,7 +17,7 @@ func TestPlanInstallReadyAndInstalled(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, source, "# Example")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
 	fetchSame := func() library.Skill {
 		source := filepath.Join(t.TempDir(), "same")
 		writeLocalSkill(t, source, "# Same")
-		skill, err := fetchLocal(ctx, lib, source)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +124,7 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 	for _, name := range []string{"same", "same", "ready"} {
 		source := filepath.Join(t.TempDir(), name)
 		writeLocalSkill(t, source, "# Skill")
-		skill, err := fetchLocal(ctx, lib, source)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -61,7 +61,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

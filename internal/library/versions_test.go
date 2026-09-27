@@ -18,7 +18,7 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	writeFile(t, filepath.Join(source, "deleted.md"), []byte("gone\n"), 0o644)
 
 	lib := openTestLibrary(t)
-	fetched, err := fetchLocal(ctx, lib, source)
+	fetched, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "timed")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: first edition\n---\nfirst\n"), 0o644)
 	lib := openTestLibrary(t)
-	fetched, err := fetchLocal(ctx, lib, source)
+	fetched, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

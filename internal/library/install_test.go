@@ -27,7 +27,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 			t.Setenv("HOME", home)
 			lib := openTestLibrary(t)
 			ctx := t.Context()
-			skill, err := fetchLocal(ctx, lib, source)
+			skill, err := fetchLocalDir(ctx, lib, source)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,7 +112,7 @@ func TestInstallRecordsFirstInstallTimeAndIgnoresInstallingAgain(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "timed")
 	writeLocalSkill(t, source, "timed\n")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,11 +292,11 @@ func TestInstallGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 	writeLocalSkill(t, firstSource, "# First\n")
 	writeLocalSkill(t, secondSource, "# Second\n")
 	lib := openTestLibrary(t)
-	first, err := fetchLocal(ctx, lib, firstSource)
+	first, err := fetchLocalDir(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fetchLocal(ctx, lib, secondSource)
+	second, err := fetchLocalDir(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestInstallingAgainNeverOverwritesAnExistingInstallation(t *testing.T) {
 	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,11 +408,11 @@ func TestInstallGroupSkipsAllMembersSharingAName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	first, err := fetchLocal(ctx, lib, filepath.Join(root, "one", "dup"))
+	first, err := fetchLocalDir(ctx, lib, filepath.Join(root, "one", "dup"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fetchLocal(ctx, lib, filepath.Join(root, "two", "dup"))
+	second, err := fetchLocalDir(ctx, lib, filepath.Join(root, "two", "dup"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,11 +456,11 @@ func TestInstallGroupFailurePreservesDirectInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	first, err := fetchLocal(ctx, lib, firstSource)
+	first, err := fetchLocalDir(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fetchLocal(ctx, lib, secondSource)
+	second, err := fetchLocalDir(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}

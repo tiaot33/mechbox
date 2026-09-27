@@ -20,7 +20,7 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 
 	lib := openTestLibrary(t)
 
-	fetched, err := fetchLocal(t.Context(), lib, source)
+	fetched, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 		t.Fatalf("GetSkill() = %#v, want %#v", got, want)
 	}
 	if !reflect.DeepEqual(fetched, got) {
-		t.Fatalf("fetchLocal() = %#v, GetSkill() = %#v", fetched, got)
+		t.Fatalf("fetchLocalDir() = %#v, GetSkill() = %#v", fetched, got)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 	withDesc := filepath.Join(t.TempDir(), "described")
 	writeFile(t, filepath.Join(withDesc, "SKILL.md"), []byte("---\nname: described\ndescription: a useful helper\n---\n# Described\n"), 0o644)
 	start := time.Now().UTC()
-	fetched, err := fetchLocal(ctx, lib, withDesc)
+	fetched, err := fetchLocalDir(ctx, lib, withDesc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,12 +81,12 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 		t.Fatalf("times = fetched %v updated %v version %v, want equal", fetched.FetchedAt, fetched.UpdatedAt, versions[0].CreatedAt)
 	}
 	if fetched.FetchedAt.Before(start) || fetched.FetchedAt.After(end) {
-		t.Fatalf("InstalledAt = %v, want in [%v, %v]", fetched.FetchedAt, start, end)
+		t.Fatalf("FetchedAt = %v, want in [%v, %v]", fetched.FetchedAt, start, end)
 	}
 
 	plain := filepath.Join(t.TempDir(), "plain")
 	writeLocalSkill(t, plain, "# Plain\n")
-	undocumented, err := fetchLocal(ctx, lib, plain)
+	undocumented, err := fetchLocalDir(ctx, lib, plain)
 	if err != nil || undocumented.Description != "" {
 		t.Fatalf("Fetch without description = %#v, %v; want empty", undocumented, err)
 	}
@@ -99,11 +99,11 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 	writeLocalSkill(t, firstSource, "# First\n")
 	writeLocalSkill(t, secondSource, "# Second\n")
 	lib := openTestLibrary(t)
-	first, err := fetchLocal(t.Context(), lib, firstSource)
+	first, err := fetchLocalDir(t.Context(), lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fetchLocal(t.Context(), lib, secondSource)
+	second, err := fetchLocalDir(t.Context(), lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
 		t.Helper()
 		source := filepath.Join(t.TempDir(), name)
 		writeLocalSkill(t, source, "# "+name+"\n")
-		skill, err := fetchLocal(ctx, lib, source)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -276,11 +276,11 @@ func TestFetchDuplicateLocalSkillCarriesIdentity(t *testing.T) {
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "dup")
 	writeLocalSkill(t, source, "# Dup\n")
-	skill, err := fetchLocal(t.Context(), lib, source)
+	skill, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fetchLocal(t.Context(), lib, source)
+	_, err = fetchLocalDir(t.Context(), lib, source)
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID, Name: skill.Name})
 	skills, err := lib.ListSkills(t.Context())
 	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {

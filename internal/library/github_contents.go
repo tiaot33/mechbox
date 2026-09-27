@@ -695,8 +695,8 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;各 Skill 的 blob 汇成一批并发取回。
 // 失败不入库,由调用方保留句柄。
-func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *previewSession, skills []discoveredSkill) error {
-	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
+func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, state *previewState, skills []discoveredSkill) error {
+	owner, repo, _ := githubOwnerRepo(state.source.Locator.Repository)
 	var all []githubBlob
 	for _, skill := range skills {
 		all = append(all, skill.blobs...)
@@ -704,7 +704,7 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *pr
 	if len(all) == 0 {
 		return nil
 	}
-	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, session.ref, session.githubRepoSize, all)
+	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, state.ref, state.githubRepoSize, all)
 	if err != nil {
 		if ctx.Err() != nil {
 			return err
@@ -712,7 +712,7 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *pr
 		if !githubContentsUnavailable(err) {
 			return githubMaterializeError(err)
 		}
-		return githubCloneError(ctx, err, materializeGitHubClone(ctx, session, skills))
+		return githubCloneError(ctx, err, materializeGitHubClone(ctx, state, skills))
 	}
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
@@ -726,10 +726,10 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *pr
 }
 
 // materializeGitHubClone 在钉住的 commit 上按预览时的 subpath 重新克隆发现,再按路径与 tree SHA 匹配所选 Skill。
-func materializeGitHubClone(ctx context.Context, session *previewSession, skills []discoveredSkill) error {
-	locator := session.source.Locator
-	locator.Branch = session.ref
-	discovered, err := fetchGitHubClone(ctx, locator, session.subpath)
+func materializeGitHubClone(ctx context.Context, state *previewState, skills []discoveredSkill) error {
+	locator := state.source.Locator
+	locator.Branch = state.ref
+	discovered, err := fetchGitHubClone(ctx, locator, state.subpath)
 	if err != nil {
 		return err
 	}

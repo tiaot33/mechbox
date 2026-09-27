@@ -18,11 +18,11 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 	writeLocalSkill(t, firstSource, "# One\n")
 	writeLocalSkill(t, secondSource, "# Two\n")
 	lib := openTestLibrary(t)
-	first, err := fetchLocal(t.Context(), lib, firstSource)
+	first, err := fetchLocalDir(t.Context(), lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fetchLocal(t.Context(), lib, secondSource)
+	second, err := fetchLocalDir(t.Context(), lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,13 +114,13 @@ func TestGroupLifecycleKeepsSkillsAndInstallations(t *testing.T) {
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
 	writeLocalSkill(t, source, "group\n")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	groupOnlySource := filepath.Join(t.TempDir(), "group-only")
 	writeLocalSkill(t, groupOnlySource, "group only\n")
-	groupOnly, err := fetchLocal(ctx, lib, groupOnlySource)
+	groupOnly, err := fetchLocalDir(ctx, lib, groupOnlySource)
 	if err != nil {
 		t.Fatal(err)
 	}

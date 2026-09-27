@@ -19,7 +19,7 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, root, "# Example\n")
 	writeFile(t, filepath.Join(root, "run.sh"), []byte("#!/bin/sh\necho example\n"), 0o755)
-	skill, err := fetchLocal(ctx, lib, root)
+	skill, err := fetchLocalDir(ctx, lib, root)
 	if err != nil {
 		t.Fatal(err)
 	}

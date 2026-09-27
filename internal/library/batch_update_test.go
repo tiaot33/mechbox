@@ -131,7 +131,7 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 	}
 	local := filepath.Join(t.TempDir(), "local")
 	writeLocalSkill(t, local, "local content")
-	skill, err := fetchLocal(t.Context(), lib, local)
+	skill, err := fetchLocalDir(t.Context(), lib, local)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -675,13 +675,13 @@ type Library interface {
 	// DeleteGroup 删除分组及其全部组安装。非破坏性:仅由该组安装撑着的安装项会先转为直接安装,
 	// 磁盘上的安装项不会因删除分组而被移除(见 ADR 0007)。
 	DeleteGroup(ctx context.Context, id GroupID) error
-	// AddSkillToGroup 加入成员,并安装到该组已组安装的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
+	// AddSkillToGroup 加入成员,并安装到该组已安装到的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
 	// 某 Scope 已有该 skill 的安装项时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的
 	// 成员同名或作用域根目录不存在时跳过该 Scope,成员关系照常成立。不带覆盖开关:要覆盖某个 Scope 的
 	// 未记录文件夹,先 PlanGroupInstall 再对该 Scope 调 InstallGroup(Overwrite)。已是成员返回 AlreadyExists。
 	// I/O 失败或取消时整次复原,连同成员关系。
 	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) ([]GroupMemberResult, error)
-	// RemoveSkillFromGroup 移出成员;该 skill 在本组已组安装的 Scope 上的安装项失去本组的组安装。
+	// RemoveSkillFromGroup 移出成员;该 skill 在本组已安装到的 Scope 上的安装项失去本组的组安装。
 	// 因此没有任何安装撑着的安装项按 opts 处理:keep 改为直接安装、磁盘不动;withdraw 连文件夹一起移除。
 	// 不是成员返回 NotFound。
 	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) error

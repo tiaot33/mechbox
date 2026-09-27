@@ -50,7 +50,7 @@ func TestGroupMidBatchCancellationRestoresInstallationsAndOrigins(t *testing.T) 
 			for _, name := range []string{"first", "second", "direct", "shared"} {
 				source := filepath.Join(t.TempDir(), name)
 				writeLocalSkill(t, source, name)
-				skill, err := fetchLocal(ctx, lib, source)
+				skill, err := fetchLocalDir(ctx, lib, source)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -149,7 +149,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, source, "example")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 	for _, name := range []string{"first", "second"} {
 		source := filepath.Join(t.TempDir(), name)
 		writeLocalSkill(t, source, name)
-		skill, err := fetchLocal(ctx, lib, source)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}

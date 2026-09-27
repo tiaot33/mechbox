@@ -101,7 +101,7 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	lib := openTestLibrary(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeLocalSkill(t, originalSource, "original\n")
-	original, err := fetchLocal(ctx, lib, originalSource)
+	original, err := fetchLocalDir(ctx, lib, originalSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	}
 	extraSource := filepath.Join(t.TempDir(), "extra")
 	writeLocalSkill(t, extraSource, "extra\n")
-	if _, err := fetchLocal(ctx, lib, extraSource); err != nil {
+	if _, err := fetchLocalDir(ctx, lib, extraSource); err != nil {
 		t.Fatal(err)
 	}
 	newProjectPath := filepath.Join(t.TempDir(), "new-project")
@@ -331,7 +331,7 @@ func TestSyncPullRejectsCyclicProjectPathMappingWithoutTouchingLocalLibrary(t *t
 	// 拉取前本地库继续演进:成功的 pull 会把它替换掉,失败的 pull 必须原样保留。
 	localSource := filepath.Join(t.TempDir(), "local-only")
 	writeLocalSkill(t, localSource, "local\n")
-	if _, err := fetchLocal(ctx, lib, localSource); err != nil {
+	if _, err := fetchLocalDir(ctx, lib, localSource); err != nil {
 		t.Fatal(err)
 	}
 	mapping, _ := json.Marshal(map[string]string{projectA.Path: projectB.Path, projectB.Path: projectA.Path})
@@ -367,7 +367,7 @@ func TestSyncPullRefusesChangedOrInvalidRemote(t *testing.T) {
 	t.Cleanup(func() { _ = lib.Close() })
 	source := filepath.Join(t.TempDir(), "keeper")
 	writeLocalSkill(t, source, "keeper\n")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +442,7 @@ func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 	t.Cleanup(func() { _ = lib.Close() })
 	source := filepath.Join(t.TempDir(), "keeper")
 	writeLocalSkill(t, source, "keeper\n")
-	if _, err := fetchLocal(ctx, lib, source); err != nil {
+	if _, err := fetchLocalDir(ctx, lib, source); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := lib.SyncPush(ctx, ""); err != nil {

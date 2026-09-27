@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,10 +10,6 @@ import (
 
 	"github.com/tiaot33/skills-tui/internal/library"
 )
-
-func localSpec(path string) library.SourceSpec {
-	return library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: path}}
-}
 
 func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *testing.T) {
 	lib := openTestLibrary(t)
@@ -57,7 +54,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	}
 	source := collections[0].Source
 	if source.Type != library.SourceLocal || source.Locator != (library.SourceLocator{Path: root}) || source.LastFetched.IsZero() {
-		t.Fatalf("source = %#v; want the previewed directory with a preview time", source)
+		t.Fatalf("source = %#v; want the previewed directory with a read time", source)
 	}
 }
 
@@ -147,7 +144,7 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 		t.Fatalf("Update = %#v; want v2 from relocated directory", updated)
 	}
 	if updated.Skill.Source.LastFetched.IsZero() {
-		t.Fatalf("Update did not record preview time on local source: %#v", updated.Skill.Source)
+		t.Fatalf("Update did not record read time on local source: %#v", updated.Skill.Source)
 	}
 
 	// 名字从目录里消失时,更新报 NotFound。
@@ -169,6 +166,16 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 	for i := range 1000 {
 		writeFile(t, filepath.Join(tooMany, "files", fmt.Sprintf("%04d.txt", i)), []byte("x"), 0o644)
 	}
+	tooLarge := t.TempDir()
+	writeFile(t, filepath.Join(tooLarge, "SKILL.md"), []byte(skillDocument("large", "")), 0o644)
+	// 稀疏文件:只声明大小不占磁盘,预览按文件大小在读取前拒绝。
+	large, err := os.Create(filepath.Join(tooLarge, "large.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(large.Truncate(64<<20), large.Close()); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name string
 		spec library.SourceSpec
@@ -179,6 +186,7 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 		{name: "missing path", spec: localSpec(filepath.Join(t.TempDir(), "missing")), want: library.SourceUnreachable},
 		{name: "no valid candidates", spec: localSpec(withoutCandidates), want: library.SourceInvalid},
 		{name: "too many files", spec: localSpec(tooMany), want: library.SourceInvalid},
+		{name: "too many bytes", spec: localSpec(tooLarge), want: library.SourceInvalid},
 		{name: "subpath", spec: library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: tooMany}, Subpath: "files"}, want: library.InvalidArgument},
 	}
 	for _, test := range tests {

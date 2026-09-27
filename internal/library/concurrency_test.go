@@ -347,7 +347,7 @@ func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	mustFinishBeforeRelease(t, pushGate, "Fetch during push upload", func(ctx context.Context) error {
 		source := filepath.Join(t.TempDir(), "during-push")
 		writeLocalSkill(t, source, "# during push\n")
-		_, err := fetchLocal(ctx, lib, source)
+		_, err := fetchLocalDir(ctx, lib, source)
 		return err
 	})
 	mustFinishBeforeRelease(t, pushGate, "Install during push upload", func(ctx context.Context) error {

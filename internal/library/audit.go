@@ -24,21 +24,21 @@ func (l *sqliteLibrary) CandidateAudit(ctx context.Context, id PreviewID, name s
 		return nil, &Error{Code: InvalidArgument, Message: "invalid candidate name"}
 	}
 	l.previewMu.Lock()
-	session := l.previews[id]
+	state := l.previews[id]
 	var cached SkillAudit
 	var hit bool
-	if session != nil {
-		cached, hit = session.audits[name]
+	if state != nil {
+		cached, hit = state.audits[name]
 	}
 	l.previewMu.Unlock()
-	if session == nil {
+	if state == nil {
 		return nil, &Error{Code: NotFound, Message: "candidate audit: unknown or discarded preview"}
 	}
 	// 候选与来源在预览建立后只读,可在锁外读取。
-	if _, err := selectSkills(session.skills, []string{name}); err != nil {
+	if _, err := selectSkills(state.skills, []string{name}); err != nil {
 		return nil, err
 	}
-	owner, repo, ok := githubOwnerRepo(session.source.Locator.Repository)
+	owner, repo, ok := githubOwnerRepo(state.source.Locator.Repository)
 	if !ok {
 		return nil, nil
 	}
@@ -51,10 +51,10 @@ func (l *sqliteLibrary) CandidateAudit(ctx context.Context, id PreviewID, name s
 	}
 	if got.Availability != AuditUnavailable {
 		l.previewMu.Lock()
-		if session.audits == nil {
-			session.audits = map[string]SkillAudit{}
+		if state.audits == nil {
+			state.audits = map[string]SkillAudit{}
 		}
-		session.audits[name] = got
+		state.audits[name] = got
 		l.previewMu.Unlock()
 	}
 	return cloneAudit(&got), nil

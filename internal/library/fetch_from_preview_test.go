@@ -75,7 +75,7 @@ func TestFetchFromPreviewFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if fetched, err := lib.FetchFromPreview(canceled, preview.ID, nil); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) || len(fetched) != 0 {
-		t.Fatalf("canceled install = %v, %v; want no results and Canceled", fetched, err)
+		t.Fatalf("canceled fetch = %v, %v; want no results and Canceled", fetched, err)
 	}
 	collections, err := lib.ListCollections(ctx)
 	if err != nil || len(collections) != 0 {
@@ -128,7 +128,7 @@ func TestFetchFromPreviewConcurrentCallsConsumeHandleOnce(t *testing.T) {
 		}
 		skills, err := lib.ListSkills(ctx)
 		if err != nil || len(skills) != 1 {
-			t.Fatalf("concurrent installs left %v, %v; want one Skill", skills, err)
+			t.Fatalf("concurrent fetches left %v, %v; want one Skill", skills, err)
 		}
 	}
 }

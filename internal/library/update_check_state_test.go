@@ -70,7 +70,7 @@ func TestUpdateChecksReplaceFailuresAndRemovalStartsUnchecked(t *testing.T) {
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("after removal = %+v, %v", skills, err)
 	}
-	skill, err := fetchLocal(t.Context(), lib, source)
+	skill, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

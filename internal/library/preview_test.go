@@ -87,7 +87,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	}
 	fetched, err := lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" || string(fetched[0].Files[0].Content) != skillDocument("first", "first") {
-		t.Fatalf("install after preview mutation and cancellation = %#v, %v", fetched, err)
+		t.Fatalf("fetch after preview mutation and cancellation = %#v, %v", fetched, err)
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
@@ -126,10 +126,10 @@ func TestPreviewHandleLifetime(t *testing.T) {
 				fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 				if test.expired {
 					if !library.IsCode(err, library.NotFound) || len(fetched) != 0 {
-						t.Fatalf("expired handle install = %#v, %v", fetched, err)
+						t.Fatalf("expired handle fetch = %#v, %v", fetched, err)
 					}
 				} else if err != nil || len(fetched) != 2 {
-					t.Fatalf("valid handle install = %#v, %v", fetched, err)
+					t.Fatalf("valid handle fetch = %#v, %v", fetched, err)
 				}
 			})
 		})
@@ -367,7 +367,7 @@ func TestCandidateFetchedIsQueriedOnEveryListing(t *testing.T) {
 	}
 	source := filepath.Join(t.TempDir(), "first")
 	writeLocalSkill(t, source, "# Local")
-	if _, err := fetchLocal(ctx, lib, source); err != nil {
+	if _, err := fetchLocalDir(ctx, lib, source); err != nil {
 		t.Fatal(err)
 	}
 	candidates, err := lib.ListCandidates(ctx, preview.ID)

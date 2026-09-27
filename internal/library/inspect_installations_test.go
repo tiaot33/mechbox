@@ -18,7 +18,7 @@ func TestInspectInstallationsCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 	writeLocalSkill(t, source, "# v1\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestInspectInstallationsReportsModifiedForExtraFileAndExecutableBit(t *test
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestInspectInstallationsReportsMissingWhenFolderRemoved(t *testing.T) {
 	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestInspectInstallationsReportsDirectoryMissing(t *testing.T) {
 		}
 		source := filepath.Join(t.TempDir(), "example-skill")
 		writeLocalSkill(t, source, "# Example\n")
-		skill, err := fetchLocal(ctx, lib, source)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,7 +157,7 @@ func TestInspectInstallationsReportsDirectoryMissing(t *testing.T) {
 		}
 		source := filepath.Join(t.TempDir(), "example-skill")
 		writeLocalSkill(t, source, "# Example\n")
-		skill, err := fetchLocal(ctx, lib, source)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +185,7 @@ func TestInspectInstallationsInspectsGroupInstallations(t *testing.T) {
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
 	writeLocalSkill(t, source, "# Group\n")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,11 +230,11 @@ func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T)
 	secondSource := filepath.Join(t.TempDir(), "second")
 	writeLocalSkill(t, firstSource, "# First\n")
 	writeLocalSkill(t, secondSource, "# Second\n")
-	first, err := fetchLocal(ctx, lib, firstSource)
+	first, err := fetchLocalDir(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fetchLocal(ctx, lib, secondSource)
+	second, err := fetchLocalDir(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}

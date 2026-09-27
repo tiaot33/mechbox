@@ -24,7 +24,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, source, "example\n")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

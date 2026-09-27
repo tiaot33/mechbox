@@ -289,7 +289,7 @@ func fetchExampleSkill(t *testing.T, lib library.Library, name string) library.S
 	source := filepath.Join(t.TempDir(), name)
 	writeLocalSkill(t, source, "# "+name+"\n")
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
-	skill, err := fetchLocal(t.Context(), lib, source)
+	skill, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func fetchLocalSkill(t *testing.T, lib library.Library, name, body string) (libr
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
 	writeLocalSkill(t, source, body)
-	skill, err := fetchLocal(t.Context(), lib, source)
+	skill, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,9 +498,14 @@ func (g *networkGate) open() {
 	close(g.release)
 }
 
-// fetchLocal 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
-func fetchLocal(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
-	preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: dir}})
+// localSpec 是预览本地目录 path 的来源规格。
+func localSpec(path string) library.SourceSpec {
+	return library.SourceSpec{Type: library.SourceLocal, Locator: library.SourceLocator{Path: path}}
+}
+
+// fetchLocalDir 预览本地目录并把其中唯一的候选入库,供只需一个本地技能的用例复用。
+func fetchLocalDir(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
+	preview, err := lib.PreviewSource(ctx, localSpec(dir))
 	if err != nil {
 		return library.Skill{}, err
 	}
@@ -520,7 +525,7 @@ func writeLocalSkill(t *testing.T, dir, body string) {
 	writeFile(t, filepath.Join(dir, "SKILL.md"), []byte(skillDocument(filepath.Base(dir), body)), 0o644)
 }
 
-// fetchURLSkill 经 预览 + FetchFromPreview 从 URL 远端装入名为 name 的 skill。
+// fetchURLSkill 经 PreviewSource + FetchFromPreview 从 URL 远端把名为 name 的 skill 入库。
 func fetchURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
 	t.Helper()
 	preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: url}})

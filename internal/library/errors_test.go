@@ -215,7 +215,7 @@ func TestFacadeFailureCodes(t *testing.T) {
 			if err := os.Symlink("/does-not-exist", filepath.Join(root, "link")); err != nil {
 				t.Fatal(err)
 			}
-			_, err := fetchLocal(t.Context(), lib, root)
+			_, err := fetchLocalDir(t.Context(), lib, root)
 			return err
 		}},
 	}

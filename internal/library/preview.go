@@ -22,10 +22,10 @@ type discoveredSkill struct {
 	blobs      []githubBlob // GitHub 快路径:入库时按 blob SHA 取所选文件
 }
 
-// previewSession 是一次预览在内存里的状态:来源规格 + 看到的远端标识 + 全部候选 skill。
+// previewState 是一次预览在内存里的状态:来源规格 + 看到的远端标识 + 全部候选 skill。
 // 存活于进程内存,不落库、不参与 Sync;由后续入库、Close 或 TTL 过期回收。
 // source / subpath / ref / skills 建立后只读;fetching、timer 与 audits 受 previewMu 保护。
-type previewSession struct {
+type previewState struct {
 	githubRepoSize int64 // tree 给出的整仓字节数,0 表示未知或超过下载上限
 	source         Source
 	subpath        string
@@ -91,20 +91,20 @@ func (l *sqliteLibrary) PreviewSource(ctx context.Context, spec SourceSpec) (pre
 	if err := ctx.Err(); err != nil {
 		return Preview{}, err
 	}
-	session := &previewSession{
+	state := &previewState{
 		source: source, subpath: spec.Subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
 		skills: discovered.skills, diagnostics: discovered.diagnostics, githubRepoSize: discovered.githubRepoSize,
 	}
-	candidates, err := l.listCandidates(ctx, session)
+	candidates, err := l.listCandidates(ctx, state)
 	if err != nil {
 		return Preview{}, err
 	}
-	l.previews[id] = session
-	session.timer = time.AfterFunc(previewTTL, func() {
+	l.previews[id] = state
+	state.timer = time.AfterFunc(previewTTL, func() {
 		l.previewMu.Lock()
 		defer l.previewMu.Unlock()
 		// 计时器可能在 claimPreview 停掉它之前就已触发并等在锁上:占用中的预览不回收,由 releasePreview 收尾。
-		if current := l.previews[id]; current == session && !current.fetching {
+		if current := l.previews[id]; current == state && !current.fetching {
 			delete(l.previews, id)
 		}
 	})
@@ -119,21 +119,21 @@ func (l *sqliteLibrary) ListCandidates(ctx context.Context, id PreviewID) (candi
 		return candidates, err
 	}
 	l.previewMu.Lock()
-	session := l.previews[id]
+	state := l.previews[id]
 	l.previewMu.Unlock()
-	if session == nil {
+	if state == nil {
 		return candidates, &Error{Code: NotFound, Message: "list candidates: unknown or discarded preview"}
 	}
-	return l.listCandidates(ctx, session)
+	return l.listCandidates(ctx, state)
 }
 
 // listCandidates 在本次调用按来源类型、定位与名字查询哪些候选已入库,不把结果写回预览。
-func (l *sqliteLibrary) listCandidates(ctx context.Context, session *previewSession) (PreviewCandidates, error) {
-	locator, err := json.Marshal(session.source.Locator)
+func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState) (PreviewCandidates, error) {
+	locator, err := json.Marshal(state.source.Locator)
 	if err != nil {
 		return PreviewCandidates{}, fmt.Errorf("encode source locator: %w", err)
 	}
-	rows, err := l.db.QueryContext(ctx, `SELECT s.name, s.id FROM skills s JOIN sources src ON src.id = s.source_id WHERE src.type = ? AND src.locator = ?`, session.source.Type, locator)
+	rows, err := l.db.QueryContext(ctx, `SELECT s.name, s.id FROM skills s JOIN sources src ON src.id = s.source_id WHERE src.type = ? AND src.locator = ?`, state.source.Type, locator)
 	if err != nil {
 		return PreviewCandidates{}, fmt.Errorf("list fetched candidates: %w", err)
 	}
@@ -150,8 +150,8 @@ func (l *sqliteLibrary) listCandidates(ctx context.Context, session *previewSess
 	if err := rows.Err(); err != nil {
 		return PreviewCandidates{}, fmt.Errorf("read fetched candidates: %w", err)
 	}
-	result := PreviewCandidates{Skills: make([]Candidate, len(session.skills)), Diagnostics: slices.Clone(session.diagnostics)}
-	for i, skill := range session.skills {
+	result := PreviewCandidates{Skills: make([]Candidate, len(state.skills)), Diagnostics: slices.Clone(state.diagnostics)}
+	for i, skill := range state.skills {
 		result.Skills[i] = skill.candidate
 		result.Skills[i].Fetched = fetched[skill.candidate.Name]
 	}
@@ -161,61 +161,61 @@ func (l *sqliteLibrary) listCandidates(ctx context.Context, session *previewSess
 func (l *sqliteLibrary) FetchFromPreview(ctx context.Context, id PreviewID, names []string) (fetched []Skill, err error) {
 	defer func() { err = typedError(err) }()
 	// 预览锁只用来取预览并把它标记为占用;物化(网络)与入库都在锁外,别的预览与列表不必等。
-	session, skills, err := l.claimPreview(id, names)
+	state, skills, err := l.claimPreview(id, names)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { l.releasePreview(id, session, err == nil) }()
-	if session.source.Type == SourceGitHub {
+	defer func() { l.releasePreview(id, state, err == nil) }()
+	if state.source.Type == SourceGitHub {
 		// 失败时预览仍保留完整候选,不写回部分物化的文件。
 		skills = slices.Clone(skills)
-		if err := l.materializeGitHubSkills(ctx, session, skills); err != nil {
+		if err := l.materializeGitHubSkills(ctx, state, skills); err != nil {
 			return nil, err
 		}
 	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	return l.fetchAll(ctx, session.source, skills, session.httpValidator)
+	return l.fetchAll(ctx, state.source, skills, state.httpValidator)
 }
 
 // claimPreview 在预览锁内找到预览、选定候选并标记占用;占用中的预览对第二次入库返回 FailedPrecondition。
 // 占用期间停掉 TTL 计时器,物化途中不会被回收。
-func (l *sqliteLibrary) claimPreview(id PreviewID, names []string) (*previewSession, []discoveredSkill, error) {
+func (l *sqliteLibrary) claimPreview(id PreviewID, names []string) (*previewState, []discoveredSkill, error) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
-	session := l.previews[id]
-	if session == nil {
+	state := l.previews[id]
+	if state == nil {
 		return nil, nil, &Error{Code: NotFound, Message: "fetch from preview: unknown or discarded preview"}
 	}
-	if session.fetching {
+	if state.fetching {
 		return nil, nil, preconditionError("fetch from preview", "another fetch from this preview is in progress", ErrorDetails{})
 	}
-	skills, err := selectSkills(session.skills, names)
+	skills, err := selectSkills(state.skills, names)
 	if err != nil {
 		return nil, nil, err
 	}
-	session.fetching = true
-	if session.timer != nil {
-		session.timer.Stop()
+	state.fetching = true
+	if state.timer != nil {
+		state.timer.Stop()
 	}
-	return session, skills, nil
+	return state, skills, nil
 }
 
 // releasePreview 结束一次占用:成功提交后丢弃句柄(同一句柄不能再次使用);失败则解除占用并重新计时,可重试。
 // 预览已被 Close 清掉时无事可做。
-func (l *sqliteLibrary) releasePreview(id PreviewID, session *previewSession, fetched bool) {
+func (l *sqliteLibrary) releasePreview(id PreviewID, state *previewState, fetched bool) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
-	if l.previews[id] != session {
+	if l.previews[id] != state {
 		return
 	}
 	if fetched {
 		delete(l.previews, id)
 		return
 	}
-	session.fetching = false
-	if session.timer != nil {
-		session.timer.Reset(previewTTL)
+	state.fetching = false
+	if state.timer != nil {
+		state.timer.Reset(previewTTL)
 	}
 }
 

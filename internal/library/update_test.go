@@ -128,7 +128,7 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "local")
 	path := filepath.Join(source, "SKILL.md")
 	writeLocalSkill(t, source, "old")
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,7 +58,7 @@ func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	writeLocalSkill(t, source, "# example\n")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatalf("Fetch while another process reads = %v, want success", err)
 	}
@@ -86,7 +86,7 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, source, "# example\n")
 	started := time.Now()
-	_, err = fetchLocal(t.Context(), lib, source)
+	_, err = fetchLocalDir(t.Context(), lib, source)
 	typed := requireLibraryError(t, err, library.Busy)
 	if library.IsCode(err, library.Internal) {
 		t.Fatalf("busy error also reported as internal: %v", typed)
@@ -100,7 +100,7 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	}
 	// 对方释放后同一操作直接成功:Busy 确实只是"稍后重试"。
 	release()
-	if _, err := fetchLocal(t.Context(), lib, source); err != nil {
+	if _, err := fetchLocalDir(t.Context(), lib, source); err != nil {
 		t.Fatalf("Fetch after the other writer released = %v, want success", err)
 	}
 }
@@ -134,7 +134,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		wg.Go(func() {
 			for round := range rounds {
 				name := filepath.Base(sources[i][round])
-				skill, err := fetchLocal(t.Context(), lib, sources[i][round])
+				skill, err := fetchLocalDir(t.Context(), lib, sources[i][round])
 				if err != nil {
 					failures <- fmt.Errorf("%s fetch: %w", name, err)
 					continue

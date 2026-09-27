@@ -20,7 +20,7 @@ type sqliteLibrary struct {
 	mu sync.RWMutex
 
 	previewMu sync.Mutex
-	previews  map[PreviewID]*previewSession
+	previews  map[PreviewID]*previewState
 	closed    bool
 
 	githubAuth githubAuth       // GitHub 鉴权阶梯状态(限流窗口、token / CLI 已确认可用),仅本实例持有
@@ -106,7 +106,7 @@ func Open(path string) (Library, error) {
 	// WAL 下读者与写者互不阻塞(见 ADR 0012)。切换失败(文件系统不支持共享内存、另一进程的旧版本
 	// 二进制正持有连接)就保持现状:busy_timeout 与 Busy 码仍然成立,下次 Open 再试。
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
-	return &sqliteLibrary{db: db, home: home, previews: map[PreviewID]*previewSession{}, githubMemo: newGitHubMemo()}, nil
+	return &sqliteLibrary{db: db, home: home, previews: map[PreviewID]*previewState{}, githubMemo: newGitHubMemo()}, nil
 }
 
 func (l *sqliteLibrary) Close() error {
@@ -114,8 +114,8 @@ func (l *sqliteLibrary) Close() error {
 	defer l.mu.Unlock()
 	l.previewMu.Lock()
 	l.closed = true
-	for _, session := range l.previews {
-		session.timer.Stop()
+	for _, state := range l.previews {
+		state.timer.Stop()
 	}
 	clear(l.previews)
 	l.previewMu.Unlock()

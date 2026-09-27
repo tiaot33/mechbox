@@ -73,7 +73,8 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		case SourceGitHub:
 			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
 		default:
-			// validator 是 Source 级的,同组各 Skill 读到的相同;一次带条件头的请求覆盖整组,304 即全组无更新。
+			// URL / Store / 本地目录整组只读一次来源。validator 是 Source 级的,同组各 Skill 读到的相同;
+			// URL / Store 记录了它时一次带条件头的请求覆盖整组,304 即全组无更新。
 			discovered, readErr = l.fetchSource(ctx, source, "", states[indices[0]].httpValidator)
 		}
 		if ctx.Err() != nil {

@@ -18,7 +18,7 @@ func TestSkillFilesMatchFullSkill(t *testing.T) {
 	writeFile(t, filepath.Join(source, "assets", "data.bin"), []byte{0, 255, 1}, 0o644)
 	writeFile(t, filepath.Join(source, "empty.txt"), []byte{}, 0o644)
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
-	fetched, err := fetchLocal(t.Context(), lib, source)
+	fetched, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestSkillFilesReadCurrentVersion(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "changing")
 	writeLocalSkill(t, source, "old")
 	writeFile(t, filepath.Join(source, "removed.txt"), []byte("removed"), 0o644)
-	skill, err := fetchLocal(ctx, lib, source)
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestSkillFilesOfEmptySkill(t *testing.T) {
 	lib := openLibraryAt(t, path)
 	source := filepath.Join(t.TempDir(), "empty")
 	writeLocalSkill(t, source, "")
-	empty, err := fetchLocal(ctx, lib, source)
+	empty, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
