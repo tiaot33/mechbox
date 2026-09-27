@@ -1,29 +1,29 @@
-# Multi-process coexistence floor: WAL, immediate transactions, and a retryable `busy`
+# 多进程共存底线：WAL、立即事务和可重试的 `busy`
 
-ADR 0008 accepted that two processes may open the same SQLite file at once and deferred the real fix — one owning daemon — to topology B. This ADR sets the floor under topology A: two processes on one file must never block each other's reads, must never lose a finished write at commit time, and must report a genuine write collision as something the caller can retry rather than as a bug.
+ADR 0008 接受两个进程可能同时打开同一个 SQLite 文件，并将真正的解决方案——由一个守护进程统一持有数据库——留到拓扑 B。本 ADR 为拓扑 A 建立底线：操作同一个文件的两个进程不得阻塞彼此的读取，不得在提交时丢失已经完成的写入工作；真正的写入冲突必须报告为调用方可重试的情况，而不是 bug。
 
-Under a rollback journal, readers and writers exclude each other: a long read in one process (walking a large skill's files) made the other process's write fail *at commit* after the driver's 5 s busy timeout, with all the transaction's work already done; a long write did the same to every write in the other process. Both surfaced as `internal("database is locked")`.
+使用回滚日志时，读取与写入相互排斥：一个进程的长时间读取（遍历大型技能的文件）会使另一个进程的写入在驱动等待锁的 5 秒超时后，于提交阶段失败，此时事务的全部工作已经完成；长时间写入也会使另一个进程的各次写入遭遇同样的问题。两种情况都表现为 `internal("database is locked")`。
 
-## The decisions
+## 决定
 
-- **The Library switches its file to `journal_mode=WAL`.** `Open` runs the pragma only after identity is confirmed — after an existing library's application id and schema version check out, or after a new library has its tables, `application_id` and `user_version` written — because the journal mode lives in the file header and running it earlier would mutate a foreign database that `Open` is about to reject. If the pragma does not yield `wal` (a filesystem without shared memory, an older binary still holding a connection), `Open` continues in the current mode: that is exactly the status quo, and the other two decisions still hold. The next `Open` tries again.
-- **Every transaction begins with `BEGIN IMMEDIATE`** (driver DSN `_txlock=immediate`), with `busy_timeout` written out explicitly as 5000 ms. All Library transactions are write transactions — pure reads run in autocommit — so IMMEDIATE costs nothing, lets writers queue through the busy handler instead of failing on upgrade, and rules out `SQLITE_BUSY_SNAPSHOT` from a deferred read-then-write under WAL. Maintainers no longer audit each transaction for "does it read before writing".
-- **`SQLITE_BUSY` / `SQLITE_LOCKED` map to a new `Busy` error code**, matched on the primary result code so `BUSY_SNAPSHOT`, `BUSY_RECOVERY` and friends are covered. It means "another process held the write lock past the wait limit; retry later". The Library only reports; whether and how often to retry is the caller's call. It is distinct from `SourceUnreachable` so a local lock is never presented as a network fault.
-- **Sync images stay on a rollback journal.** The backup API copies the WAL marker in the header along with the pages, so the push snapshot is switched back to `journal_mode=DELETE` before it is read; older versions can still open a pushed image. Pulling replaces the local file through the backup API into a WAL destination, which keeps it WAL — one pull does not silently revert the mode.
-- **One connection per process is kept** (`SetMaxOpenConns(1)`). In-process serialization still comes from it; "no `l.db` calls inside a transaction" in `install.go` (then `activation.go`) is unchanged. WAL changes what happens *between* processes, not within one.
+- **Library 将文件切换为 `journal_mode=WAL`。** `Open` 只在确认身份之后执行该 pragma：对于已有库，先验证应用标识和 schema 版本；对于新库，先写入表、`application_id` 和 `user_version`。原因是日志模式保存在文件头中，过早执行会改动一个即将被 `Open` 拒绝的外部数据库。如果 pragma 没有返回 `wal`（例如文件系统不支持共享内存，或旧版程序仍持有连接），`Open` 继续沿用当前模式；这只是保持原状，另外两项决策仍然成立。下次 `Open` 会再次尝试。
+- **每个事务都以 `BEGIN IMMEDIATE` 开始**（驱动 DSN 为 `_txlock=immediate`），并将 `busy_timeout` 显式设为 5000 ms。Library 的所有事务都是写事务，纯读取在自动提交模式下执行，因此 IMMEDIATE 没有额外成本；它让写入方通过 busy handler 排队，而不是在锁升级时失败，也排除了 WAL 下延迟事务先读后写导致的 `SQLITE_BUSY_SNAPSHOT`。维护者无需再逐个审查事务是否先读后写。
+- **将 `SQLITE_BUSY` / `SQLITE_LOCKED` 映射到新增的 `Busy` 错误码**，按主结果码匹配，以覆盖 `BUSY_SNAPSHOT`、`BUSY_RECOVERY` 等扩展码。它表示“另一进程持有写锁超过等待上限，请稍后重试”。Library 只报告错误；是否重试、以什么频率重试，由调用方决定。它与 `SourceUnreachable` 区分，确保本地锁冲突不会被当作网络故障展示。
+- **Sync 镜像保持使用回滚日志。** 备份 API 会随数据页一起复制文件头中的 WAL 标记，因此读取推送快照之前，先将其切回 `journal_mode=DELETE`；旧版本仍可打开推送的镜像。拉取时通过备份 API 将内容写入使用 WAL 的目标库，替换本地文件内容，并保持 WAL；一次拉取不会悄悄将模式切回去。
+- **保持每个进程一个连接**（`SetMaxOpenConns(1)`）。进程内仍靠它串行执行；`install.go`（当时为 `activation.go`）中“事务内不调用 `l.db`”的规则不变。WAL 改变的是进程之间的行为，不是进程内部的行为。
 
-## Considered and rejected
+## 考虑过但未采用的方案
 
-- **Daemon now (topology B).** Solves this and more — change notifications, atomic compound disk installs across processes — but adds daemon lifecycle and moves in-process callers off the facade. Rejected as before (ADR 0008); this ADR is the floor that makes A tolerable until B arrives.
-- **Set WAL through the DSN.** Simplest, but it takes effect before identity is checked and would rewrite the header of any `.db` the user points at by mistake, breaking `Open`'s "reject a foreign database without touching it" guarantee.
-- **Automatic retry inside the Library on `Busy`.** Hides latency the caller should show and makes cancellation semantics murkier; a stable code plus caller-side retry is smaller and honest.
-- **A configurable `busy_timeout`.** No evidence anyone needs a different number; the value is written out so it is visible, not so it is tunable.
+- **现在就引入守护进程（拓扑 B）。** 能解决当前问题，以及变更通知、跨进程复合磁盘安装操作的原子性等问题，但会增加守护进程的生命周期管理，并使进程内调用方不再直接使用门面。与之前一样不采用（ADR 0008）；本 ADR 建立的底线使拓扑 A 在拓扑 B 到来前足够可用。
+- **通过 DSN 设置 WAL。** 最简单，但会在身份校验之前生效，重写用户误指定的任意 `.db` 文件头，破坏 `Open`“拒绝外部数据库且不改动文件”的保证。
+- **Library 内部遇到 `Busy` 自动重试。** 会隐藏调用方本应展示的延迟，并使取消语义更模糊；稳定错误码加调用方重试更精简，也更如实反映行为。
+- **让 `busy_timeout` 可配置。** 没有证据表明有人需要其他数值；显式写出这个值是为了让它可见，不是为了让它可调。
 
-## Consequences
+## 后果
 
-- Two `Library` instances on one file interleave reads and writes without errors; a write in one no longer waits for a read in the other, and vice versa. Only two concurrent *writers* contend, and the loser gets `Busy` after 5 s.
-- **Disk layout changes.** The library directory gains `library.db-wal` and `library.db-shm`. SQLite checkpoints and removes `-wal` when the last connection closes cleanly; `-shm` may remain and is harmless. **Manual backups must not copy `library.db` alone while a process has it open** — pending writes live in `-wal`. Use the tool's Sync (its image is a consistent snapshot), or copy the file when no process has it open.
-- Legacy libraries are switched on their first `Open` by this version; schema version and contents are unchanged, so a synced image still opens on an older version.
-- Listing queries read in a single statement (one snapshot), so a skill removed by the other process mid-list no longer fails the whole list.
-- **Not solved here** (topology B): atomicity of compound disk-install operations across processes, and change notification between processes — a view in one process still goes stale until it reloads.
-- This ADR settles the multi-process coexistence floor; the effective journal mode should become visible through a status call when one exists.
+- 同一个文件上的两个 `Library` 实例可以交错读写而不报错；一个实例的写入不再等待另一个实例的读取，反之亦然。只有两个并发写入方才会争用，未能取得锁的一方在 5 秒后收到 `Busy`。
+- **磁盘布局发生变化。** 库目录中新增 `library.db-wal` 和 `library.db-shm`。最后一个连接正常关闭时，SQLite 会执行检查点并删除 `-wal`；`-shm` 可能保留，但无害。**只要仍有进程打开数据库，手动备份就不能只复制 `library.db`**，因为尚未写回数据库文件的写入保存在 `-wal` 中。应使用工具的 Sync（其镜像是一致性快照），或在没有进程打开数据库时复制文件。
+- 旧库在首次由此版本 `Open` 时切换模式；schema 版本和内容不变，因此同步镜像仍能由旧版本打开。
+- 列表查询在一条语句中读取，使用同一个快照，因此另一个进程在列出过程中移除技能，不再导致整个列表查询失败。
+- **此处未解决的问题**（留给拓扑 B）：跨进程复合磁盘安装操作的原子性，以及进程间变更通知；一个进程中的视图在重新加载之前仍可能过时。
+- 本 ADR 确定多进程共存的底线；以后提供状态查询接口时，应通过它展示实际生效的日志模式。

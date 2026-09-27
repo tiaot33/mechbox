@@ -1,48 +1,48 @@
-# "Install" means placing a skill in an Agent's directory
+# “Install”表示将技能放入 Agent 目录
 
-Until now the product used **Install** for bringing a skill *into* the Library and **Activation** for placing it *out* into an Agent's discovery directory (ADR 0001). The folder in the Agent directory was a **Projection**, bringing it back to the current version was a **Rewrite**, and looking at what a Source offers was a **Fetch** session. This ADR replaces that convention with the one the ecosystem already uses; the vocabulary itself lives in `CONTEXT.md`.
+此前，产品用 **Install** 表示将技能放入 Library，用 **Activation** 表示将技能从 Library 放到 Agent 的发现目录（ADR 0001）。Agent 目录中的文件夹称为 **Projection**，将其恢复到当前版本称为 **Rewrite**，查看 Source 提供哪些技能则称为一次 **Fetch** 会话。本 ADR 用生态中已有的约定取代这些旧用法；术语本身定义在 `CONTEXT.md` 中。
 
-## Why the old convention went
+## 为什么替换旧约定
 
-- **"Install" meant the opposite of what users expect.** Every skills CLI and the Claude Code plugin flow use "install" for "put it where the Agent finds it; afterwards it works". Here, a user who clicked Install had a skill the Agent could not see, and had to find a second verb.
-- **"Activate" sounds like licensing**, and collides with the Agent Skills spec, where activation means an Agent loading a skill's body at run time.
-- **"Projection" and "Rewrite" were developer metaphors.** Users say "installed", "where is it installed", "update it to the new version"; nobody says "project".
-- **"Fetch" did three jobs**: looking at a Source, the look itself as a session, and bringing skills into the Library. Sync's read-only report before push/pull was also called a "preview", colliding with the look at a Source.
+- **“Install”的含义与用户预期相反。** 各种技能 CLI 和 Claude Code 插件流程都用“install”表示“放到 Agent 能找到的位置，之后就能使用”。而在本产品中，用户点击 Install 后得到的技能仍无法被 Agent 看到，还得再找另一个操作。
+- **“Activate”听起来像许可证激活**，也与 Agent Skills 规范冲突；规范中的 activation 指 Agent 在运行时加载技能正文。
+- **“Projection”和“Rewrite”是开发者的比喻。** 用户会说“已安装”“安装在哪里”“更新到新版本”，不会说“投影”。
+- **“Fetch”承担了三种含义**：查看 Source、将这次查看作为一个会话，以及将技能带入 Library。Sync 在推送／拉取前的只读报告也称为“preview”，与查看 Source 的含义冲突。
 
-## The decisions
+## 决定
 
-| Code identifier | UI term | Meaning |
+| 代码标识符 | 界面术语 | 含义 |
 |---|---|---|
-| Preview | 预览 | Look at the skills a Source offers, pinned to its content at that moment; nothing enters the Library |
-| Candidate | 候选 | A skill in a Preview that can be chosen |
-| Fetch | 入库 | Bring chosen Candidates from a Preview into the Library — the old Install |
-| Install / Uninstall | 安装 / 卸载 | Choose to have a Library skill available in a Scope — the old Activate / Deactivate |
-| Group install | 组安装 | The old group activation |
-| Installation | 安装项 | The folder in a Scope and its record — the old Projection |
-| Install plan | 安装计划 | Read-only report before Install — the old activation preview |
-| Reinstall | 重新安装 | Bring an Installation back in line with a version — the old Rewrite |
-| Sync plan | 同步计划 | Read-only report before push / pull — the old sync preview |
+| Preview | 预览 | 查看 Source 提供的技能，固定为当时的内容；不向 Library 写入任何技能 |
+| Candidate | 候选 | Preview 中可供选择的技能 |
+| Fetch | 入库 | 将 Preview 中选定的 Candidate 带入 Library，即原来的 Install |
+| Install / Uninstall | 安装 / 卸载 | 选择让 Library 中的技能在某个 Scope 可用，即原来的 Activate / Deactivate |
+| Group install | 组安装 | 原来的 group activation |
+| Installation | 安装项 | Scope 中的文件夹及其记录，即原来的 Projection |
+| Install plan | 安装计划 | Install 前的只读报告，即原来的 activation preview |
+| Reinstall | 重新安装 | 将 Installation 恢复为与某个版本一致，即原来的 Rewrite |
+| Sync plan | 同步计划 | 推送／拉取前的只读报告，即原来的 sync preview |
 
-- **Fetch and Install are reused with their meanings reversed.** Any leftover old use would silently read as the new meaning and cannot be told apart by searching, so code, API, JSON, schema, comments, tests and docs switch together, and the product is unreleased, so no old names are kept. Identifiers for *reading content from a Source* (`fetchSource`, `maxFetchSize`, `Source.LastFetched`, JSON `last_fetched`) keep "fetch": that sense does not conflict with the new one.
-- **Installation is a separate word from Install** because one folder can be backed by several choices at once — a direct Install and one or more Group installs. Uninstalling one choice removes the folder only when nothing else backs it.
-- **"Plan" is the one word for read-only reports before execution** (Install plan, Sync plan); "Preview" is reserved for looking at a Source.
-- **Schema tables and columns follow the terms** (`installations`, `group_installs`), and the schema version is bumped. Existing local libraries and Sync snapshots on S3 cannot be opened any more; they must be rebuilt (see ADR 0001, 2026-09-26: no migrations before release).
+- **Fetch 和 Install 沿用原有单词，但含义发生反转。** 任何残留的旧用法都会被不知不觉地按新含义理解，无法通过搜索区分，因此代码、API、JSON、schema、注释、测试和文档一起切换。产品尚未发布，不保留旧名称。表示从 Source 读取内容的标识符（`fetchSource`、`maxFetchSize`、`Source.LastFetched`、JSON `last_fetched`）保留“fetch”，因为这种含义与新用法不冲突。
+- **Installation 与 Install 使用不同的词**，因为一个文件夹可以同时由多个选择撑着：一个直接 Install，以及一个或多个 Group install。撤销其中一个选择时，只有不再有其他选择撑着该文件夹，才会删除它。
+- **执行前的只读报告统一称为“Plan”**（Install plan、Sync plan）；“Preview”专用于查看 Source。
+- **Schema 的表名和列名跟随术语调整**（`installations`、`group_installs`），并提升 schema 版本。现有本地库和 S3 上的 Sync 快照不再能打开，必须重建（见 ADR 0001，2026-09-26：发布前不做迁移）。
 
-## Local directories go through Preview
+## 本地目录也经过 Preview
 
-The old `Install(LocalSource)` fetched one local folder directly, bypassing any Preview. With "new skills are fetched only from a Preview", a local directory is previewed like any remote Source:
+旧的 `Install(LocalSource)` 直接从一个本地文件夹入库，绕过了 Preview。按照“新技能只能从 Preview 入库”的规则，本地目录也与远程 Source 一样先预览：
 
-- **The Source is the previewed directory** (absolute path), not each skill folder. A directory may hold several skills; they share one Source and so one Collection. Update and update checks rediscover the directory and relocate each skill by name, exactly as for remote Sources; a skill whose name disappeared from the directory fails its update with `NotFound`.
-- **Names come from `SKILL.md`**, the same as every other Source. A local skill no longer takes its folder's name, and a folder without a valid frontmatter `name` and `description` is a diagnostic, not a Candidate.
-- **The Preview is a snapshot.** Remote Sources are pinned by a commit or a downloaded archive; a local directory can change between Preview and Fetch, so Preview reads the Candidates' files into memory and Fetch stores exactly that snapshot. To keep a large directory from being read wholesale, the Candidates' files are capped at 1000 files and 64 MiB in total (the archive limits); exceeding either rejects the Preview with `SourceInvalid`.
+- **Source 是被预览的目录**（绝对路径），不是每个技能的文件夹。一个目录可以包含多个技能，它们共享一个 Source，因此也属于同一个 Collection。Update 和更新检查会重新发现该目录，并按名称重新定位各个技能，与远程 Source 一致；如果目录中已找不到某个技能名称，该技能的更新返回 `NotFound`。
+- **名称来自 `SKILL.md`**，与其他 Source 一致。本地技能不再使用文件夹名；如果文件夹缺少有效的 frontmatter `name` 和 `description`，它会作为诊断项报告，不成为 Candidate。
+- **Preview 是快照。** 远程 Source 通过 commit 或已下载的压缩包固定内容；本地目录在 Preview 与 Fetch 之间可能变化，因此 Preview 将 Candidate 的文件读入内存，Fetch 严格保存该快照。为避免完整读入过大的目录，所有 Candidate 的文件合计最多 1000 个、64 MiB（与压缩包限制相同）；超过任一上限，就以 `SourceInvalid` 拒绝该 Preview。
 
-## Considered and rejected
+## 考虑过但未采用的方案
 
-- **Keep the old words and explain them in the UI.** The mismatch is with every other tool the user touches; an explanation does not survive the first click.
-- **New words only (e.g. "Deploy" for placing in a directory).** Avoids reversing Fetch and Install, but moves further from the ecosystem, which is the whole point.
-- **Verify the local directory at Fetch instead of snapshotting at Preview.** Reads the directory twice and still needs a rule for what "unchanged" means; a snapshot matches how URL / Store archives already behave.
+- **保留旧词，在界面中解释。** 这些用法与用户接触的其他工具都不一致，解释也难以在用户第一次点击后继续起作用。
+- **全部采用新词（例如用“Deploy”表示放入目录）。** 虽然避免了反转 Fetch 和 Install 的含义，却更偏离生态用语，违背了此次调整的目的。
+- **在 Fetch 时校验本地目录，而不是在 Preview 时生成快照。** 需要读取目录两次，仍然要定义什么叫“未变化”；使用快照则与 URL / Store 压缩包已有的行为一致。
 
-## Consequences
+## 后果
 
-- JSON changes for integrators: fields `installed` → `fetched` (Candidate), `installed_at` → `fetched_at` (Skill, SkillSummary), `activated_at` → `created_at` (GroupInstall, matching `Installation.created_at`), `projected_copies` → `installations` (RemoveSkillOptions, UnregisterProjectOptions), `projections` → `unbacked_installations` (RemoveFromGroupOptions, which only affects Installations left without any backing and defaults to keep, unlike the other two); values `projected` → `already_installed` (install plan status, matching the group member outcome it predicts) and `installed` (group member outcome), `already_projected` → `already_installed`, `rewritten` → `reinstalled`.
-- ADR 0001's statements that "Install writes into SQLite" and "Activation expands into the agent directory" are superseded by this ADR; other ADRs keep their decisions and now use the new words.
+- 面向集成方的 JSON 变更：字段 `installed` → `fetched`（Candidate）、`installed_at` → `fetched_at`（Skill、SkillSummary）、`activated_at` → `created_at`（GroupInstall，与 `Installation.created_at` 一致）、`projected_copies` → `installations`（RemoveSkillOptions、UnregisterProjectOptions）、`projections` → `unbacked_installations`（RemoveFromGroupOptions，只影响不再有任何安装关系撑着的 Installation，默认保留，与另外两个选项不同）；取值 `projected` → `already_installed`（安装计划状态，与其预测的组成员结果一致）及 `installed`（组成员结果）、`already_projected` → `already_installed`、`rewritten` → `reinstalled`。
+- ADR 0001 中“Install 写入 SQLite”和“Activation 展开到 Agent 目录”的表述由本 ADR 取代；其他 ADR 保留原有决策，改用新术语。

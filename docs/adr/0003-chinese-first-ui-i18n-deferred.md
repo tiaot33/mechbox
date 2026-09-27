@@ -1,7 +1,7 @@
-# Chinese-first, i18n deferred
+# 中文优先，国际化延后
 
-All user-facing text is Chinese. Full internationalisation (i18n) is a later expansion, not part of the first version: only Chinese exists, so there is nothing to switch between and no locale-selection machinery is built now.
+所有面向用户的文字都使用中文。完整的国际化（i18n）留待后续扩展，不属于首个版本：目前只有中文，无需切换语言，也不构建语言区域选择机制。
 
-Domain terms keep an English canonical name — used in code and in the glossary — alongside the Chinese term shown to users; see `CONTEXT.md`. That split is what keeps the deferral cheap: identifiers never need translating, only the presentation layer does.
+领域术语保留用于代码和术语表的英文标准名称，同时提供面向用户的中文名称，见 `CONTEXT.md`。这种区分使延后国际化的代价很低：标识符始终无需翻译，只需翻译展示层。
 
-How the presentation layer organises its strings is a decision for the code that owns them, once such code exists.
+展示层如何组织字符串，等到相关代码出现时，再由负责这些字符串的代码决定。

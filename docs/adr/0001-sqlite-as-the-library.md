@@ -1,16 +1,16 @@
-# SQLite is the Library
+# SQLite 就是 Library
 
-The Library — the tool's single source of truth — is a single SQLite database. It holds both skill **contents** (as blobs) and all **metadata**: collections, groups, installations, and registered projects. The folders in Agent directories are copies of it, not inputs.
+Library 是本工具的唯一权威数据源，由一个 SQLite 数据库承载。它保存技能的**内容**（以 blob 形式）和全部**元数据**：集合、组、安装项及已登记项目。Agent 目录中的文件夹是它的副本，不是输入。
 
-We chose one opaque store over skill folders on disk because it keeps the source of truth in exactly one place, gives transactional integrity across an operation that touches many skills at once, and makes S3 Sync a clean "export the database, push it" step. Sync is non-realtime, so SQLite's coarse, whole-blob nature costs nothing: a periodic export from SQLite is the sync artifact.
+我们选择一个对外隐藏内部结构的存储，而不是磁盘上的技能文件夹，因为这样可以将权威数据源保持在唯一位置，为同时涉及多个技能的操作提供事务完整性，并让 S3 Sync 简化为“导出数据库，再推送”。Sync 不是实时同步，因此以整个 SQLite 数据库为单位的粗粒度方式没有额外代价：定期从 SQLite 导出的文件就是同步产物。
 
-## Consequences
+## 后果
 
-- **Fetch** (入库) writes a previewed skill's files into SQLite as blobs.
-- **Install** (安装) expands a skill out of SQLite into the target agent directory as an Installation; **Uninstall** removes that folder once nothing else backs it.
-- *(Terminology updated 2026-09-27: these two bullets originally said "Install" for writing into SQLite and "Activation" for expanding into the agent directory. That convention is superseded by [ADR 0014](0014-install-means-agent-directory.md).)*
-- Skills with a local Source are edited through the tool rather than by editing files in place — content lives in the database, so authoring needs an explicit export/edit/re-import path or an in-tool editor (to be specified).
-- **Sync** exports the database and pushes it to S3 (and pulls to restore), reproducing a full setup on another machine.
+- **Fetch**（入库）将预览过的技能文件以 blob 形式写入 SQLite。
+- **Install**（安装）将技能从 SQLite 展开到目标 Agent 目录，形成一个 Installation；当不再有其他安装关系撑着它时，**Uninstall** 删除该文件夹。
+- *（术语于 2026-09-27 更新：以上两条原先用“Install”表示写入 SQLite，用“Activation”表示展开到 Agent 目录。该约定已被 [ADR 0014](0014-install-means-agent-directory.md) 取代。）*
+- 来自本地 Source 的技能通过工具编辑，而不是直接修改原处的文件。内容保存在数据库中，因此创作需要明确的导出／编辑／重新导入流程，或工具内的编辑器（待定义）。
+- **Sync** 导出数据库并推送到 S3，也可拉取以恢复，从而在另一台机器上复现完整配置。
 
 ## Agent Skills 生态背景与集成边界
 

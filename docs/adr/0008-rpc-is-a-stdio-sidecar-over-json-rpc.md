@@ -1,24 +1,24 @@
-# RPC transport choice: a stdio sidecar speaking JSON-RPC 2.0
+# RPC 传输选择：通过 stdio 使用 JSON-RPC 2.0 的 sidecar
 
 > **状态：已被 [ADR 0013](0013-desktop-is-wails-v3-in-process.md) 取代(2026-09-25)。** 桌面端与 Library 同进程，经 Wails 绑定调用;目前没有计划中的进程外调用方。下文保留为当时的推理，将来出现进程外调用方时可作参考。
 
-ADR 0004 shaped the `Library` facade to be serialization-ready and deferred the transport. This ADR records the transport that was picked for the day a non-Go caller needs one — nothing here is built yet. It is a technology choice with rejected alternatives, not a design for the adapter; the adapter's shape is decided when it is written.
+ADR 0004 将 `Library` 门面设计为可序列化，并延后了传输层。本 ADR 记录为未来非 Go 调用方选定的传输方式，此处内容尚未实现。它记录技术选型及未采用的替代方案，不设计适配器本身；适配器的具体形态等到编写时再决定。
 
-The criterion: pick the option that costs the least while the tool is single-user and local, without foreclosing a daemon-based, multi-client topology later — **"A now, B-ready"**.
+选择标准是：在工具仍面向单用户、本地使用时，采用成本最低的方案，同时保留以后转为基于守护进程的多客户端拓扑的可能性，即**“现在采用 A，为 B 做好准备”**。
 
-## The choices
+## 决定
 
-- **Sidecar child process, not a daemon.** The caller spawns the backend as its own child process and it dies with the caller. No port, no autostart, no discovery, no cross-process lifecycle. This assumes one caller at a time (see the coexistence note below).
-- **Transport is stdio.** The parent writes requests to the child's stdin and reads responses from stdout; the channel is private (no auth) and lifecycle-bound. Two constraints follow and are not negotiable once stdio is chosen: **all diagnostics go to stderr — nothing but protocol JSON may touch stdout**, or the stream corrupts (the classic LSP/MCP footgun); and the RPC server cannot share a process with anything else that owns the terminal's stdin/stdout.
-- **JSON-RPC 2.0 via `sourcegraph/jsonrpc2`.** The library gives us framing, request-ID multiplexing, notifications (cancellation, and change notification later), and a stream abstraction over the transport — exactly the A-now/B-ready seam. Only the method dispatch table would be ours to write.
+- **使用 sidecar 子进程，不使用守护进程。** 调用方将后端启动为自己的子进程，子进程随调用方退出。无需端口、自动启动、服务发现或独立的跨进程生命周期管理。前提是同一时刻只有一个调用方（见下文共存说明）。
+- **通过 stdio 传输。** 父进程向子进程的 stdin 写入请求，从 stdout 读取响应；通道是私有的（无需鉴权），并与生命周期绑定。选定 stdio 后，以下两个约束不可回避：**所有诊断信息都写入 stderr，stdout 只能输出协议 JSON**，否则会破坏数据流（LSP/MCP 中常见的陷阱）；RPC 服务也不能与其他占用终端 stdin/stdout 的功能共享进程。
+- **通过 `sourcegraph/jsonrpc2` 实现 JSON-RPC 2.0。** 该库提供消息分帧、请求 ID 多路复用、通知（取消，以及以后的变更通知）和传输之上的流抽象，恰好满足现在采用 A、为 B 预留接缝的要求。我们只需编写方法分发表。
 
-## Considered and rejected
+## 考虑过但未采用的方案
 
-- **Daemon + Unix socket (topology "B").** The right shape *once several callers must coexist and stay consistent* — one process owns the single SQLite connection, pushes change notifications, no write contention. Rejected now because it adds daemon lifecycle and forces every in-process caller onto RPC. Kept cheap to adopt later: the JSON-RPC contract is unchanged and the transport is already a swappable stream.
-- **gRPC / Connect.** Strong multi-language codegen, but HTTP/2-based — they do not ride raw stdio and would force a socket/TCP immediately. Off the table while transport is stdio.
-- **Hand-rolled JSON-RPC.** Zero dependency, but re-implements framing, concurrency, notifications, and transport abstraction that the library already provides and tests.
+- **守护进程 + Unix socket（拓扑 B）。** 一旦多个调用方需要共存并保持一致，这就是合适的形态：由一个进程持有唯一的 SQLite 连接并推送变更通知，没有写入争用。目前不采用，是因为它增加了守护进程的生命周期管理，并迫使所有进程内调用方改用 RPC。以后采用的成本仍然很低：JSON-RPC 契约不变，传输已经抽象为可替换的流。
+- **gRPC / Connect。** 多语言代码生成能力很强，但基于 HTTP/2，不能直接通过原始 stdio 传输，会立即引入 socket/TCP。在使用 stdio 传输期间不考虑。
+- **自行实现 JSON-RPC。** 虽然没有依赖，但会重新实现该库已经提供并测试过的分帧、并发、通知和传输抽象。
 
-## Consequences
+## 后果
 
-- Coexistence gap accepted: two processes may open one SQLite file (`SQLITE_BUSY`, stale views). Tolerated because the tool is manual and non-realtime; the real fix is topology B. ADR 0012 later set the floor under topology A — WAL, immediate transactions and a retryable `busy` — so the remaining gap is stale views and cross-process install atomicity, not lock failures.
-- No progress channel rides this transport unless ADR 0004 gains one first; the caller owns spinner/wait UX.
+- 接受共存方面的缺口：两个进程可能同时打开一个 SQLite 文件，出现 `SQLITE_BUSY` 或视图过时。工具依赖手动操作且非实时，因此可以容忍；真正的解决方案是拓扑 B。后来的 ADR 0012 为拓扑 A 建立了底线：WAL、立即事务和可重试的 `busy`。因此，剩下的缺口是视图过时和跨进程安装原子性，而非锁故障。
+- 除非 ADR 0004 先增加进度通道，否则该传输也不提供进度通道；加载指示与等待体验由调用方负责。

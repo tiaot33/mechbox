@@ -1,19 +1,19 @@
-# Skill history is content-addressed
+# 技能历史采用内容寻址
 
-Every skill keeps its full version history. A **version** is a snapshot of the skill's entire file set at one point in time.
+每个技能都保留完整的版本历史。一个**版本**就是该技能在某一时刻的完整文件集合快照。
 
-Blobs are stored **per file, not per directory**. Each file's content goes into a `blobs` table keyed by a content fingerprint (hash), so identical content is stored **once** for the whole Library. A version is a list of `(path, blob-fingerprint, mode)` rows in `version_files`, where `path` is the file's full path relative to the skill root (e.g. `scripts/helper.py`). Directory structure is **implied by those paths** — there is no directory table and no per-directory tree object (git-style layered trees are overkill at skill scale). `mode` records whether the file is regular or executable, so installing can restore the executable bit (e.g. `scripts/helper.py`).
+Blob **按文件存储，不按目录存储**。每个文件的内容存入以内容指纹（哈希）为键的 `blobs` 表，因此相同内容在整个 Library 中只存储**一次**。一个版本由 `version_files` 中的一组 `(path, blob-fingerprint, mode)` 行组成，其中 `path` 是文件相对于技能根目录的完整路径（例如 `scripts/helper.py`）。目录结构**隐含在这些路径中**，没有目录表，也没有逐目录的树对象（对于技能的规模而言，Git 式分层树过于复杂）。`mode` 记录文件是普通文件还是可执行文件，以便安装时恢复可执行位（例如 `scripts/helper.py`）。
 
-Per-file blobs are what make both **dedup and diff** work. A whole-directory blob would change its fingerprint on any edit (killing dedup) and would only tell you *that* a version changed, not *which* file (killing cheap diff). Diffing two versions is just comparing their two `version_files` lists: same path + different fingerprint = changed; path only in the old = deleted; path only in the new = added.
+按文件存储 blob 才能同时实现**去重与差异比较**。如果把整个目录存成一个 blob，任何编辑都会改变其指纹（无法有效去重），而且只能知道版本发生了变化，无法知道哪个文件变了（无法低成本比较差异）。比较两个版本只需比较各自的 `version_files` 列表：路径相同、指纹不同表示修改；路径只在旧版本中存在表示删除；路径只在新版本中存在表示新增。
 
-History is a core value of the tool, not an add-on. Because file contents live in the Library (see `0001`) and the whole Library is synced, history must be the Library's own data — it cannot lean on a remote git, and **skills with a local Source have no remote at all**. Naively copying every file on every version would bloat the Library on each tiny edit and slow Sync; content-addressing means keeping full history costs only the *new* content.
+历史记录是工具的核心价值，不是附加功能。文件内容保存在 Library 中（见 `0001`），同步也以整个 Library 为单位，因此历史必须是 Library 自己的数据，不能依赖远端 Git；而且**来自本地 Source 的技能根本没有远端**。如果每个版本都简单复制全部文件，每次微小编辑都会让 Library 膨胀并拖慢 Sync；内容寻址使保留完整历史只需付出存储新增内容的成本。
 
-## Consequences
+## 后果
 
-- Fetching, updating, or editing a skill fingerprints each file; only new fingerprints are written to `blobs`.
-- A version is one `skill_versions` row plus its `version_files` rows (`path`, `fingerprint`, `mode`), where `path` is relative to the skill root and directories are implied.
-- The `skills` row carries a **current version** pointer.
-- A blob is shared across versions, so it is only reclaimable when no `version_files` row points at it (future GC, to be specified).
-- Empty directories cannot be represented (no file to hang them on) and are not supported.
-- The data model supports diffing two versions (compare their `version_files` lists); exposing rollback / diff to users is deferred — this ADR only guarantees history is captured in full.
-- Each version carries `description` (the `SKILL.md` frontmatter value) and `created_at`. Description belongs on the version, not the skill: it is part of the snapshot, same as `git_tree_sha`. Putting it on `skills` would make Update a second write and break rollback (H3). `Skill.Description` is the current version's description.
+- 入库、更新或编辑技能时，为每个文件计算指纹；只有新指纹对应的内容才写入 `blobs`。
+- 一个版本由一行 `skill_versions` 记录及其对应的 `version_files` 行（`path`、`fingerprint`、`mode`）组成，其中 `path` 相对于技能根目录，目录结构隐含在路径中。
+- `skills` 行持有一个**当前版本**指针。
+- Blob 在多个版本间共享，因此只有不再被任何 `version_files` 行引用时才能回收（未来的 GC，待定义）。
+- 无法表示空目录（没有文件可以承载其路径），因此不支持空目录。
+- 数据模型支持比较两个版本的差异（比较各自的 `version_files` 列表）；面向用户的回滚／差异功能延后提供，本 ADR 只保证完整记录历史。
+- 每个版本保存 `description`（`SKILL.md` frontmatter 中的值）和 `created_at`。描述属于版本，不属于技能：它与 `git_tree_sha` 一样是快照的一部分。如果放在 `skills` 上，Update 就需要额外一次写入，并破坏回滚（H3）。`Skill.Description` 是当前版本的描述。

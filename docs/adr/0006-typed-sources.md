@@ -1,15 +1,15 @@
-# Sources are typed
+# 来源具有明确的类型
 
-Every skill records the **Source** it came from. A Source is its own table row, one per origin, shared by every skill that came from it. A Source has one of four **types**: `github`, `url`, `store`, `local`. Type-specific locator data (git repo + ref, a URL, a store package id + version, a local path) lives in one flexible field (JSON) rather than a column or a table per type. A Source also records `last_fetched` and a `last_seen_ref` (git commit / store version / downloaded-file fingerprint) as Source-level read state; per-skill update decisions use the version-level `confirmed_commit` and the Source-level `http_validator` described below.
+每个技能都记录其 **Source**（来源）。每个来源在表中有独立的一行，由来自该来源的所有技能共享。Source 有四种**类型**：`github`、`url`、`store`、`local`。各类型的定位信息（Git 仓库 + ref、URL、商店包 ID + 版本、本地路径）存放在一个灵活的 JSON 字段中，而不是为每种类型单独建列或建表。Source 还记录 `last_fetched` 和 `last_seen_ref`（Git commit／商店版本／下载文件指纹），作为 Source 级读取状态；逐技能的更新判定使用下文描述的版本级 `confirmed_commit` 与 Source 级 `http_validator`。
 
-Skills arrive from several kinds of origin and v1 supports all four. Making the Source a first-class row lets **Collection** (skills grouped by Source) be pure-derived — no table of its own — and lets a skill fetched from a local directory be expressed simply as a `local` Source. The four types carry differently-shaped locators, so a type tag plus a JSON locator avoids a column-per-type or a table-per-type; a new source kind is just a new enum value.
+技能可以来自多种来源，v1 支持上述全部四种。将 Source 作为独立记录，使 **Collection**（按 Source 分组的技能）可以完全派生，无需自己的表；从本地目录入库的技能也只需用 `local` Source 表示。四种类型的定位信息结构不同，采用类型标记加 JSON 定位信息，可以避免为每种类型分别建列或建表；新增来源类型只需增加一个枚举值。
 
-## Consequences
+## 后果
 
-- **Collection** is not stored; it is a `GROUP BY source`.
-- A skill fetched from a local directory is `source.type = local`; the Source is the previewed directory, which may hold several skills (see [ADR 0014](0014-install-means-agent-directory.md)).
+- **Collection** 不单独存储，而是通过 `GROUP BY source` 得到。
+- 从本地目录入库的技能使用 `source.type = local`；Source 是被预览的目录，其中可以包含多个技能（见 [ADR 0014](0014-install-means-agent-directory.md)）。
 - 各 Source 类型复用自身的读取逻辑。`CheckUpdates(ctx, []SkillID)` 自行读取来源,只保存最近检查结论与时间(#97);单项检查传一个 ID,统一返回逐项结果。GitHub 来源比较该 Skill 目录的 git tree SHA:相同则无更新、不取辅助文件;不同才视为有更新。无 SHA 的旧 GitHub 记录回退为比较文件内容及权限。URL / Store / local 仍比较文件内容及权限。`last_fetched` 与 `last_seen_ref` 记录来源读取状态;GitHub 的 `last_seen_ref` 仍是仓库 commit,它们由同一来源下的 Skills 共享,不能单独用于判断某个 Skill 是否需要更新(版本级的判定见下文「版本级确认 commit」)。
-- Updating a skill means re-reading its Source and relocating the skill there by name, producing a new version (see `0005`). GitHub 在目录 tree SHA 变化时才取文件并新增版本;SHA 未变可以刷新 `last_fetched` / `last_seen_ref`,但不新增版本。无 SHA 的旧记录在 Update 成功后补写 SHA(文件未变则只补写当前版本,不新增版本)。
+- 更新技能意味着重新读取其 Source，按名称重新定位该技能，并生成新版本（见 `0005`）。GitHub 在目录 tree SHA 变化时才取文件并新增版本;SHA 未变可以刷新 `last_fetched` / `last_seen_ref`,但不新增版本。无 SHA 的旧记录在 Update 成功后补写 SHA(文件未变则只补写当前版本,不新增版本)。
 - `Update` 只返回 Skill、Changed(#83 删除原有中文提示);GitHub 以 tree SHA 变化为准新增版本,其他来源仍以内容或权限变化为准。已有安装项与安装记录保持不变。
 
 ## GitHub 输入与 Git ref（#27）
