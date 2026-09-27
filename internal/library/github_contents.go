@@ -67,7 +67,7 @@ type githubClient struct {
 	memo     *githubObjectMemo
 }
 
-// newGitHubClient 是构造 GitHub 客户端的唯一入口;Fetch / InstallFetch 与检查 / 更新路径共用。
+// newGitHubClient 是构造 GitHub 客户端的唯一入口;预览 / 入库与检查 / 更新路径共用。
 func (l *sqliteLibrary) newGitHubClient() *githubClient {
 	client := &githubClient{token: githubToken(), auth: &l.githubAuth, memo: &l.githubMemo}
 	client.useToken.Store(l.githubAuth.useToken.Load())
@@ -120,7 +120,7 @@ func githubToken() string {
 }
 
 // fetchGitHubContents 用 GitHub Git Database API 按已解析的 owner/repo 与 ref 取 recursive tree。
-// 只取各候选 SKILL.md;安装再按 blob SHA 取所选目录。
+// 只取各候选 SKILL.md;入库时再按 blob SHA 取所选目录。
 func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
 	snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, locator)
 	if err != nil {
@@ -270,7 +270,7 @@ func githubCLIGet(ctx context.Context, location string, dest any) error {
 	return nil
 }
 
-// githubContentsUnavailable 表示快路径无法给出完整结果,Fetch 应回退浅克隆。
+// githubContentsUnavailable 表示快路径无法给出完整结果,应回退浅克隆。
 func githubContentsUnavailable(err error) bool {
 	if errors.Is(err, errGitHubContentsFallback) {
 		return true
@@ -279,8 +279,8 @@ func githubContentsUnavailable(err error) bool {
 	return ok
 }
 
-// githubInstallError 把安装阶段的 blob 失败映射为技能库的稳定错误码,不把 HTTP 正文或凭证写入 Message。
-func githubInstallError(err error) error {
+// githubMaterializeError 把入库阶段的 blob 失败映射为技能库的稳定错误码,不把 HTTP 正文或凭证写入 Message。
+func githubMaterializeError(err error) error {
 	if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden) {
 		return fetchError(Permission, "fetch source", errors.New("authentication failed"))
 	}
@@ -395,8 +395,8 @@ func (v githubSourceView) readFiles(ctx context.Context, names []string) ([][]by
 }
 
 func discoverFromGitHubTree(ctx context.Context, snap *githubSourceSnapshot, root string) (discoveredSource, error) {
-	return discoverCandidates(ctx, newGitHubSourceView(snap), root, func(skill *fetchedSkill, filename string, content []byte) error {
-		blobs, treeSHA, err := githubSkillBlobs(snap.entries, skill.preview.Path, snap.rootTree, snap.byPath)
+	return discoverCandidates(ctx, newGitHubSourceView(snap), root, func(skill *discoveredSkill, filename string, content []byte) error {
+		blobs, treeSHA, err := githubSkillBlobs(snap.entries, skill.candidate.Path, snap.rootTree, snap.byPath)
 		if err != nil {
 			return err
 		}
@@ -483,7 +483,7 @@ type githubSourceSnapshot struct {
 	repo         string
 	locator      SourceLocator
 	client       *githubClient
-	cloned       []fetchedSkill
+	cloned       []discoveredSkill
 	discovered   *discoveredSource
 	discoveryErr error
 	storedBlobs  map[string][]byte // 本次更新已从库读取的正文,不受进程 memo 的容量限制
@@ -598,16 +598,16 @@ func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubR
 	}
 	index := -1
 	if skill.GitTreeSHA != "" {
-		index = slices.IndexFunc(candidates, func(c fetchedSkill) bool { return c.gitTreeSHA == skill.GitTreeSHA })
+		index = slices.IndexFunc(candidates, func(c discoveredSkill) bool { return c.gitTreeSHA == skill.GitTreeSHA })
 	}
 	if index < 0 {
-		index = slices.IndexFunc(candidates, func(c fetchedSkill) bool { return c.name == skill.Name })
+		index = slices.IndexFunc(candidates, func(c discoveredSkill) bool { return c.name == skill.Name })
 	}
 	if index < 0 {
 		return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", skill.Name), Details: ErrorDetails{Name: skill.Name}}
 	}
 	found := candidates[index]
-	return githubRemoteSkill{gitTreeSHA: found.gitTreeSHA, files: found.files, blobs: found.blobs, description: found.preview.Description}, nil
+	return githubRemoteSkill{gitTreeSHA: found.gitTreeSHA, files: found.files, blobs: found.blobs, description: found.candidate.Description}, nil
 }
 
 func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote githubRemoteSkill) ([]File, error) {
@@ -628,7 +628,7 @@ func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote gi
 		return nil, err
 	}
 	if !githubContentsUnavailable(err) {
-		return nil, githubInstallError(err)
+		return nil, githubMaterializeError(err)
 	}
 	if cloneErr := s.fallbackClone(ctx); cloneErr != nil {
 		return nil, githubCloneError(ctx, err, cloneErr)
@@ -695,8 +695,8 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 
 // materializeGitHubSkills 在钉住的 commit 上取所选 Skill 的 blob;各 Skill 的 blob 汇成一批并发取回。
 // 失败不入库,由调用方保留句柄。
-func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
-	owner, repo, _ := githubOwnerRepo(session.source.Locator.Repository)
+func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, state *previewState, skills []discoveredSkill) error {
+	owner, repo, _ := githubOwnerRepo(state.source.Locator.Repository)
 	var all []githubBlob
 	for _, skill := range skills {
 		all = append(all, skill.blobs...)
@@ -704,15 +704,15 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fe
 	if len(all) == 0 {
 		return nil
 	}
-	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, session.ref, session.githubRepoSize, all)
+	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, state.ref, state.githubRepoSize, all)
 	if err != nil {
 		if ctx.Err() != nil {
 			return err
 		}
 		if !githubContentsUnavailable(err) {
-			return githubInstallError(err)
+			return githubMaterializeError(err)
 		}
-		return githubCloneError(ctx, err, materializeGitHubClone(ctx, session, skills))
+		return githubCloneError(ctx, err, materializeGitHubClone(ctx, state, skills))
 	}
 	for i, skill := range skills {
 		if len(skill.blobs) == 0 {
@@ -726,19 +726,19 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fe
 }
 
 // materializeGitHubClone 在钉住的 commit 上按预览时的 subpath 重新克隆发现,再按路径与 tree SHA 匹配所选 Skill。
-func materializeGitHubClone(ctx context.Context, session *fetchSession, skills []fetchedSkill) error {
-	locator := session.source.Locator
-	locator.Branch = session.ref
-	discovered, err := fetchGitHubClone(ctx, locator, session.subpath)
+func materializeGitHubClone(ctx context.Context, state *previewState, skills []discoveredSkill) error {
+	locator := state.source.Locator
+	locator.Branch = state.ref
+	discovered, err := fetchGitHubClone(ctx, locator, state.subpath)
 	if err != nil {
 		return err
 	}
 	for i, skill := range skills {
-		index := slices.IndexFunc(discovered.skills, func(cloned fetchedSkill) bool {
-			return cloned.preview.Path == skill.preview.Path && cloned.gitTreeSHA == skill.gitTreeSHA
+		index := slices.IndexFunc(discovered.skills, func(cloned discoveredSkill) bool {
+			return cloned.candidate.Path == skill.candidate.Path && cloned.gitTreeSHA == skill.gitTreeSHA
 		})
 		if index < 0 {
-			return githubInstallError(errGitHubContentsFallback)
+			return githubMaterializeError(errGitHubContentsFallback)
 		}
 		skills[i].files = discovered.skills[index].files
 		skills[i].blobs = nil
@@ -751,8 +751,8 @@ func githubCloneError(ctx context.Context, apiErr, cloneErr error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if IsCode(cloneErr, SourceUnreachable) && IsCode(githubInstallError(apiErr), Permission) {
-		return githubInstallError(apiErr)
+	if IsCode(cloneErr, SourceUnreachable) && IsCode(githubMaterializeError(apiErr), Permission) {
+		return githubMaterializeError(apiErr)
 	}
 	return cloneErr
 }

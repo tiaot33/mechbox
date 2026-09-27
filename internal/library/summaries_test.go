@@ -17,9 +17,9 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	root := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(root, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, root, "# Example\n")
 	writeFile(t, filepath.Join(root, "run.sh"), []byte("#!/bin/sh\necho example\n"), 0o755)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: root})
+	skill, err := fetchLocalDir(ctx, lib, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestBrowseSummariesOmitFilesAndDetailReadsPreserveContent(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(collections) != 1 || !reflect.DeepEqual(collections[0].Source, skill.Source) {
-			t.Fatalf("collections = %#v, want installed Source", collections)
+			t.Fatalf("collections = %#v, want fetched Source", collections)
 		}
 		check(t, collections[0].Skills)
 	})

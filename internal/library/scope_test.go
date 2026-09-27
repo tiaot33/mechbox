@@ -36,36 +36,36 @@ func TestScopeJSONRoundTrip(t *testing.T) {
 	}
 }
 
-// ListProjections 读出的 Scope 经 JSON 往返后仍能原样传回 Deactivate。
-func TestProjectionScopeRoundTripsThroughJSONIntoDeactivate(t *testing.T) {
+// ListInstallations 读出的 Scope 经 JSON 往返后仍能原样传回 Uninstall。
+func TestInstallationScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill := installExampleSkill(t, lib, "demo")
+	skill := fetchExampleSkill(t, lib, "demo")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, skill.ID, library.ProjectScope(library.AgentCodex, project.ID), library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, library.ProjectScope(library.AgentCodex, project.ID), library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	if err != nil || len(projections) != 1 {
-		t.Fatalf("ListProjections() = %#v, %v; want one projection", projections, err)
+	installations, err := lib.ListInstallations(ctx)
+	if err != nil || len(installations) != 1 {
+		t.Fatalf("ListInstallations() = %#v, %v; want one installation", installations, err)
 	}
-	encoded, err := json.Marshal(projections[0])
+	encoded, err := json.Marshal(installations[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded library.Projection
+	var decoded library.Installation
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Deactivate(ctx, decoded.SkillID, decoded.Scope); err != nil {
-		t.Fatalf("Deactivate(decoded scope %#v) = %v", decoded.Scope, err)
+	if err := lib.Uninstall(ctx, decoded.SkillID, decoded.Scope); err != nil {
+		t.Fatalf("Uninstall(decoded scope %#v) = %v", decoded.Scope, err)
 	}
-	if projections, err := lib.ListProjections(ctx); err != nil || len(projections) != 0 {
-		t.Fatalf("ListProjections() after Deactivate = %#v, %v; want none", projections, err)
+	if installations, err := lib.ListInstallations(ctx); err != nil || len(installations) != 0 {
+		t.Fatalf("ListInstallations() after Uninstall = %#v, %v; want none", installations, err)
 	}
 }
 
@@ -90,26 +90,26 @@ func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
 			_, err := lib.Resolve(ctx, scope)
 			return err
 		},
-		"PreviewActivate": func(scope library.Scope) error {
-			_, err := lib.PreviewActivate(ctx, 1, scope)
+		"PlanInstall": func(scope library.Scope) error {
+			_, err := lib.PlanInstall(ctx, 1, scope)
 			return err
 		},
-		"Activate": func(scope library.Scope) error {
-			return lib.Activate(ctx, 1, scope, library.ActivateOptions{})
+		"Install": func(scope library.Scope) error {
+			return lib.Install(ctx, 1, scope, library.InstallOptions{})
 		},
-		"Deactivate": func(scope library.Scope) error {
-			return lib.Deactivate(ctx, 1, scope)
+		"Uninstall": func(scope library.Scope) error {
+			return lib.Uninstall(ctx, 1, scope)
 		},
-		"PreviewActivateGroup": func(scope library.Scope) error {
-			_, err := lib.PreviewActivateGroup(ctx, 1, scope)
+		"PlanGroupInstall": func(scope library.Scope) error {
+			_, err := lib.PlanGroupInstall(ctx, 1, scope)
 			return err
 		},
-		"ActivateGroup": func(scope library.Scope) error {
-			_, err := lib.ActivateGroup(ctx, 1, scope, library.ActivateOptions{})
+		"InstallGroup": func(scope library.Scope) error {
+			_, err := lib.InstallGroup(ctx, 1, scope, library.InstallOptions{})
 			return err
 		},
-		"DeactivateGroup": func(scope library.Scope) error {
-			return lib.DeactivateGroup(ctx, 1, scope)
+		"UninstallGroup": func(scope library.Scope) error {
+			return lib.UninstallGroup(ctx, 1, scope)
 		},
 	}
 	for method, call := range methods {

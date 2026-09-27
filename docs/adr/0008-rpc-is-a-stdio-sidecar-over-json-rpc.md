@@ -20,5 +20,5 @@ The criterion: pick the option that costs the least while the tool is single-use
 
 ## Consequences
 
-- Coexistence gap accepted: two processes may open one SQLite file (`SQLITE_BUSY`, stale views). Tolerated because the tool is manual and non-realtime; the real fix is topology B. ADR 0012 later set the floor under topology A — WAL, immediate transactions and a retryable `busy` — so the remaining gap is stale views and cross-process projection atomicity, not lock failures.
+- Coexistence gap accepted: two processes may open one SQLite file (`SQLITE_BUSY`, stale views). Tolerated because the tool is manual and non-realtime; the real fix is topology B. ADR 0012 later set the floor under topology A — WAL, immediate transactions and a retryable `busy` — so the remaining gap is stale views and cross-process install atomicity, not lock failures.
 - No progress channel rides this transport unless ADR 0004 gains one first; the caller owns spinner/wait UX.

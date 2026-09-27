@@ -201,7 +201,7 @@ GET https://add-skill.vercel.sh/audit?source={owner/repo}&skills={slug1,slug2}
 1. **接入成本低。** 匿名 GET，路径用现有 `SearchSkill.ID`。与 ADR 0006、现有 legacy `/api/search` 一致，都不必上 Vercel OIDC / `sk_live_`。
 2. **不要迁到 v1 search/detail 除非先解决鉴权。** 那两条匿名 401；只有 legacy search 和这条 audit 目前能白嫖。
 3. **404 是常态，不是传输失败。** 应与 HTTP 5xx / 超时分开。消息本身不能当「skill 不存在」。
-4. **不要把 `status` 当安装门闩。** 合作方会打架；`riskLevel` 有文档外取值；审计会过期。最多做成搜索/安装前的提示，并链到 `https://skills.sh/{id}/security/{provider}`。
+4. **不要把 `status` 当入库门闩。** 合作方会打架；`riskLevel` 有文档外取值；审计会过期。最多做成搜索/入库前的提示，并链到 `https://skills.sh/{id}/security/{provider}`。
 5. **解析要宽松。** 必填：`provider`, `slug`, `status`, `summary`, `auditedAt`。`riskLevel` / `categories` 可选。`status` 按文档三值处理，未知值降级而不是整包失败。
 6. **URL 拼接：** `https://skills.sh/api/v1/skills/audit/` + 按 `/` 切开再 `PathEscape` **每一段**（与 `search.go` 对 `DetailURL` 的做法相同）。整段 `QueryEscape` / `%2F` 会 400。
 7. **请求头：** 不要带无效 `Authorization`。

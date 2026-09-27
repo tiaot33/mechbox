@@ -8,7 +8,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// 安装即记录钉住的 commit:远端没变时 CheckUpdates 只发一次 commits/{ref} 就能判定无更新,
+// 入库即记录钉住的 commit:远端没变时 CheckUpdates 只发一次 commits/{ref} 就能判定无更新,
 // 不取 recursive tree、不取任何 blob;这个判定随库文件持久化,Close 后重新 Open 仍然成立。
 func TestGitHubCheckUpdatesOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
@@ -25,15 +25,15 @@ func TestGitHubCheckUpdatesOnlyResolvesCommitWhenRemoteUnchangedAcrossReopen(t *
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	id := installed[0].ID
+	id := fetched[0].ID
 	before := snapshotSkill(t, lib, id)
 
 	api.Reset()
@@ -77,15 +77,15 @@ func TestGitHubConfirmedCommitIsPerVersionNotPerSource(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 2 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 2 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	a, b := installed[0], installed[1]
+	a, b := fetched[0], fetched[1]
 	if a.Name != "a" {
 		a, b = b, a
 	}
@@ -103,7 +103,7 @@ func TestGitHubConfirmedCommitIsPerVersionNotPerSource(t *testing.T) {
 	if err != nil || result.Changed || result.Skill.Source.LastSeenRef != changed.commit {
 		t.Fatalf("Update(a) = %#v, %v", result, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	if versions, err := lib.ListVersions(ctx, a.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("unchanged Update(a) wrote history: %#v, %v", versions, err)
 	}
@@ -136,15 +136,15 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	blockGitHubClone(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	id := installed[0].ID
+	id := fetched[0].ID
 
 	writeFile(t, filepath.Join(repo, "unrelated", "file"), []byte("more noise"), 0o644)
 	commitGit(t, repo, "unrelated")
@@ -156,7 +156,7 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("advanced commit CheckUpdates = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	if after := snapshotSkill(t, lib, id); !reflect.DeepEqual(after, before) {
 		t.Fatalf("check wrote Library: %#v, want %#v", after, before)
 	}
@@ -179,7 +179,7 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 	assertGitHubCommitOnly(t, api, 1)
 }
 
-// 钉住完整 40 位 SHA 的 Skill:Fetch 已按该 commit 写入 memo,之后检查零请求并报告无更新;
+// 钉住完整 40 位 SHA 的 Skill:预览 已按该 commit 写入 memo,之后检查零请求并报告无更新;
 // 重开(memo 清空)后也只发一次 commits。
 func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
@@ -198,21 +198,21 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 	ctx := t.Context()
 	spec := gitHubSpec()
 	spec.Locator.Branch = fx.commit
-	fetch, err := lib.Fetch(ctx, spec)
+	preview, err := lib.PreviewSource(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	id := installed[0].ID
+	id := fetched[0].ID
 
 	api.Reset()
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("pinned CheckUpdates = %v, %v", available, err)
 	}
-	// Fetch 已按完整 SHA 写入 memo,钉住的 commit 不再出网。
+	// 预览 已按完整 SHA 写入 memo,钉住的 commit 不再出网。
 	assertGitHubCommitOnly(t, api, 0)
 
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "moved on")), 0o644)
@@ -247,7 +247,7 @@ func TestGitHubPinnedCommitCheckOnlyResolvesCommit(t *testing.T) {
 
 // CheckUpdates 里同一 Source 下"命中"与"未命中"混合:一次 commits,至多一次 trees,命中的 Skill 不参与 tree 比较。
 // 同进程内 tree 已在 memo 里,冷启动后才能看到"恰好一次 trees"。
-func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T) {
+func TestGitHubCheckUpdatesMixedConfirmedSkillsReadTreeAtMostOnce(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"a/SKILL.md": {content: []byte(skillDocument("a", "a body")), mode: 0o644},
 		"b/SKILL.md": {content: []byte(skillDocument("b", "b body")), mode: 0o644},
@@ -264,16 +264,16 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 3 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 3 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 	byName := map[string]library.Skill{}
-	for _, skill := range installed {
+	for _, skill := range fetched {
 		byName[skill.Name] = skill
 	}
 	a, b, c := byName["a"], byName["b"], byName["c"]
@@ -325,7 +325,7 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsFetchTreeAtMostOnce(t *testing.T)
 	t.Cleanup(func() { _ = reopened.Close() })
 	api.Reset()
 	assertMixedChecks(reopened)
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	commits, trees, _ = gitHubAPIKindCounts(t, api)
 	if commits != 1 || trees != 1 {
 		t.Fatalf("cold mixed CheckUpdates commits=%d trees=%d, want exactly one of each: %#v", commits, trees, api.snapshot())
@@ -349,15 +349,15 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, gitHubSpec())
+	preview, err := lib.PreviewSource(ctx, gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	id := installed[0].ID
+	id := fetched[0].ID
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("unknown commit CheckUpdates = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 	// 走完整比较的检查同样只读:不能顺手把确认 commit 补上——重开后(memo 清空)检查仍须取 tree。
 	if after := snapshotSkill(t, lib, id); !reflect.DeepEqual(after, before) {
 		t.Fatalf("CheckUpdates wrote Library: %#v, want %#v", after, before)
@@ -390,7 +390,7 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("unknown commit CheckUpdates after reopen = %v, %v", available, err)
 	}
-	assertGitHubCheckDoesNotFetchSkillFiles(t, api)
+	assertGitHubCheckDoesNotReadSkillFiles(t, api)
 
 	api.Reset()
 	result, err := lib.Update(ctx, id)

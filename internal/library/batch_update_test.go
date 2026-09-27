@@ -31,25 +31,25 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	t.Cleanup(func() { http.DefaultClient = client })
 	var skills []library.Skill
 	for _, suffix := range []string{"/good", "/broken"} {
-		fetch, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example" + suffix}})
+		preview, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceURL, Locator: library.SourceLocator{URL: "https://source.example" + suffix}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+		fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		skills = append(skills, installed...)
+		skills = append(skills, fetched...)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	if err := lib.Activate(t.Context(), skills[0].ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(t.Context(), skills[0].ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := lib.ListSkills(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := lib.ListProjections(t.Context())
+	installation, err := lib.ListInstallations(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +79,9 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("mutated Library = %#v, %v", after, err)
 	}
-	afterProjections, err := lib.ListProjections(t.Context())
-	if err != nil || !reflect.DeepEqual(projection, afterProjections) {
-		t.Fatalf("mutated projections = %#v, %v", afterProjections, err)
+	afterInstallations, err := lib.ListInstallations(t.Context())
+	if err != nil || !reflect.DeepEqual(installation, afterInstallations) {
+		t.Fatalf("mutated installations = %#v, %v", afterInstallations, err)
 	}
 	for _, original := range skills {
 		got, err := lib.GetSkill(t.Context(), original.ID)
@@ -119,19 +119,19 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		fetch, err := lib.Fetch(t.Context(), spec)
+		preview, err := lib.PreviewSource(t.Context(), spec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+		fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		skills = append(skills, installed...)
+		skills = append(skills, fetched...)
 	}
-	local := t.TempDir()
-	writeFile(t, filepath.Join(local, "SKILL.md"), []byte("local content"), 0o644)
-	skill, err := lib.Install(t.Context(), library.LocalSource{Path: local})
+	local := filepath.Join(t.TempDir(), "local")
+	writeLocalSkill(t, local, "local content")
+	skill, err := fetchLocalDir(t.Context(), lib, local)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,20 +162,20 @@ func TestCheckUpdatesCancellationReturnsOnlyCompletedItems(t *testing.T) {
 	lib := openTestLibrary(t)
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
 	spec := serveArchive(t, archive)
-	first, err := lib.Fetch(t.Context(), spec)
+	first, err := lib.PreviewSource(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := lib.InstallFetch(t.Context(), first.ID, nil)
+	a, err := lib.FetchFromPreview(t.Context(), first.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec.Locator.URL += "?second"
-	second, err := lib.Fetch(t.Context(), spec)
+	second, err := lib.PreviewSource(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := lib.InstallFetch(t.Context(), second.ID, nil)
+	b, err := lib.FetchFromPreview(t.Context(), second.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

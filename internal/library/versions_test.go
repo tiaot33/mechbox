@@ -13,33 +13,33 @@ import (
 func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("first\n"), 0o644)
+	writeLocalSkill(t, source, "first\n")
 	writeFile(t, filepath.Join(source, "unchanged.md"), []byte("same\n"), 0o644)
 	writeFile(t, filepath.Join(source, "deleted.md"), []byte("gone\n"), 0o644)
 
 	lib := openTestLibrary(t)
-	installed, err := lib.Install(ctx, library.LocalSource{Path: source})
+	fetched, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("second\n"), 0o644)
+	writeLocalSkill(t, source, "second\n")
 	writeFile(t, filepath.Join(source, "added.md"), []byte("new\n"), 0o644)
 	if err := os.Remove(filepath.Join(source, "deleted.md")); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := lib.Update(ctx, installed.ID)
+	updated, err := lib.Update(ctx, fetched.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	current, err := lib.GetSkill(ctx, installed.ID)
+	current, err := lib.GetSkill(ctx, fetched.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(current, updated.Skill) {
 		t.Fatalf("GetSkill() = %#v, Update() = %#v", current, updated)
 	}
-	versions, err := lib.ListVersions(ctx, installed.ID)
+	versions, err := lib.ListVersions(ctx, fetched.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +50,8 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(first.Files, installed.Files) {
-		t.Fatalf("first version files = %#v, want %#v", first.Files, installed.Files)
+	if !reflect.DeepEqual(first.Files, fetched.Files) {
+		t.Fatalf("first version files = %#v, want %#v", first.Files, fetched.Files)
 	}
 	second, err := lib.GetVersion(ctx, versions[1].ID)
 	if err != nil {
@@ -75,33 +75,33 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	}
 }
 
-func TestUpdateChangesDescriptionOnNewVersionAndKeepsInstalledAt(t *testing.T) {
+func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "timed")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: first edition\n---\nfirst\n"), 0o644)
 	lib := openTestLibrary(t)
-	installed, err := lib.Install(ctx, library.LocalSource{Path: source})
+	fetched, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	installedAt := installed.InstalledAt
+	fetchedAt := fetched.FetchedAt
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: second edition\n---\nsecond\n"), 0o644)
 	time.Sleep(time.Millisecond)
-	updated, err := lib.Update(ctx, installed.ID)
+	updated, err := lib.Update(ctx, fetched.ID)
 	if err != nil || !updated.Changed {
 		t.Fatalf("Update = %#v, %v", updated, err)
 	}
-	current, err := lib.GetSkill(ctx, installed.ID)
+	current, err := lib.GetSkill(ctx, fetched.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if current.Description != "second edition" || updated.Skill.Description != "second edition" {
 		t.Fatalf("updated Description = %q / %q, want second edition", current.Description, updated.Skill.Description)
 	}
-	if !current.InstalledAt.Equal(installedAt) || current.UpdatedAt.Equal(installedAt) || current.UpdatedAt.Before(installedAt) {
-		t.Fatalf("InstalledAt %v UpdatedAt %v, want InstalledAt unchanged and UpdatedAt later", current.InstalledAt, current.UpdatedAt)
+	if !current.FetchedAt.Equal(fetchedAt) || current.UpdatedAt.Equal(fetchedAt) || current.UpdatedAt.Before(fetchedAt) {
+		t.Fatalf("FetchedAt %v UpdatedAt %v, want FetchedAt unchanged and UpdatedAt later", current.FetchedAt, current.UpdatedAt)
 	}
-	versions, err := lib.ListVersions(ctx, installed.ID)
+	versions, err := lib.ListVersions(ctx, fetched.ID)
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("ListVersions = %#v, %v", versions, err)
 	}
@@ -115,8 +115,8 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsInstalledAt(t *testing.T) {
 
 func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
 	lib := openTestLibrary(t)
-	first := installNamedSkill(t, lib, "one")
-	second := installNamedSkill(t, lib, "two")
+	first := fetchNamedSkill(t, lib, "one")
+	second := fetchNamedSkill(t, lib, "two")
 	oldVersions, err := lib.ListVersions(t.Context(), first.ID)
 	if err != nil {
 		t.Fatal(err)

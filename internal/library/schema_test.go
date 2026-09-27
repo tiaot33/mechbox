@@ -10,8 +10,8 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// Open 只补缺失的 Agent 行、不覆盖已有布局;已按身份记录的投影记录在重开后按现行规则派生目录,
-// 并可继续按身份激活。
+// Open 只补缺失的 Agent 行、不覆盖已有布局;已按身份记录的安装项记录在重开后按现行规则派生目录,
+// 并可继续按身份安装。
 func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -23,8 +23,8 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("example\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "example\n")
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		library.ProjectScope(library.AgentCodex, project.ID),
 	}
 	for _, scope := range scopes {
-		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -51,7 +51,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 		UPDATE agents SET name = 'Custom Claude', global_path = '.custom/global', project_path = '.custom/project' WHERE code = 'claude-code';
 	`)
 	// 目录按现行布局派生:claude-code 用表里保留的自定义规则,补种子的 codex 用种子规则。
-	want := []library.Projection{
+	want := []library.Installation{
 		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".custom", "global"), Direct: true},
 		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Direct: true},
 		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".agents", "skills"), Direct: true},
@@ -62,12 +62,12 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
-		got, err := reopened.ListProjections(ctx)
+		got, err := reopened.ListInstallations(ctx)
 		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
-			t.Fatalf("ListProjections after Open = %#v, %v; want %#v", got, err, want)
+			t.Fatalf("ListInstallations after Open = %#v, %v; want %#v", got, err, want)
 		}
-		for _, projection := range want {
-			if err := reopened.Activate(ctx, skill.ID, projection.Scope, library.ActivateOptions{}); err != nil {
+		for _, installation := range want {
+			if err := reopened.Install(ctx, skill.ID, installation.Scope, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -78,7 +78,7 @@ func TestOpenRepairsMissingAgentsAndAcceptsExistingRules(t *testing.T) {
 }
 
 func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
-	for _, index := range []string{"projections_global_scope", "projections_project_scope", "group_activations_global_scope", "group_activations_project_scope"} {
+	for _, index := range []string{"installations_global_scope", "installations_project_scope", "group_installs_global_scope", "group_installs_project_scope"} {
 		t.Run(index, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "library.db")
 			lib, err := library.Open(path)

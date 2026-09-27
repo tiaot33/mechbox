@@ -13,7 +13,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		return nil, err
 	}
 	var skills []Skill
-	var states []fetchState // 与 skills 对齐:各自的抓取记录
+	var states []sourceState // 与 skills 对齐:各自的来源读取记录
 	var completed []bool
 	groups := make(map[SourceID][]int)
 	var sources []SourceID
@@ -37,7 +37,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		seen[id] = true
 		result := UpdateCheck{SkillID: id}
 		var skill Skill
-		var state fetchState
+		var state sourceState
 		var readErr error
 		if id <= 0 {
 			readErr = &Error{Code: InvalidArgument, Message: "skill ID must be positive"}
@@ -68,16 +68,14 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		source := skills[indices[0]].Source
 		var discovered discoveredSource
 		var githubSnap githubSourceSnapshot
-		var localFiles []File
 		var readErr error
 		switch source.Type {
-		case SourceLocal:
-			localFiles, readErr = readFiles(ctx, source.Locator.Path)
 		case SourceGitHub:
 			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
 		default:
-			// validator 是 Source 级的,同组各 Skill 读到的相同;一次带条件头的请求覆盖整组,304 即全组无更新。
-			discovered, readErr = l.fetchRemote(ctx, source, "", states[indices[0]].httpValidator)
+			// URL / Store / 本地目录整组只读一次来源。validator 是 Source 级的,同组各 Skill 读到的相同;
+			// URL / Store 记录了它时一次带条件头的请求覆盖整组,304 即全组无更新。
+			discovered, readErr = l.fetchSource(ctx, source, "", states[indices[0]].httpValidator)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -90,8 +88,6 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			available := false
 			if itemErr == nil {
 				switch source.Type {
-				case SourceLocal:
-					available = !filesEqual(skills[index].Files, localFiles)
 				case SourceGitHub:
 					// commit 命中的 Skill 不参与 tree 比较;同一 Source 下首个未命中的 Skill 才让快照取一次 tree。
 					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], states[index].confirmedCommit)
@@ -133,7 +129,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 }
 
 // saveUpdateCheck 只给仍处于被比较版本的技能保存结果,不让旧检查覆盖更新后的状态。
-func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state fetchState, status UpdateCheckStatus) error {
+func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	tx, err := l.db.BeginTx(ctx, nil)

@@ -12,13 +12,13 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
+func TestInspectInstallationsCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# v1\n"), 0o644)
+	writeLocalSkill(t, source, "# v1\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,45 +27,45 @@ func TestInspectProjectionsCurrentStaleModifiedAndReactivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
+	requireInspectionStatuses(t, lib, library.InstallationCurrent)
 
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# v2\n"), 0o644)
+	writeLocalSkill(t, source, "# v2\n")
 	if result, err := lib.Update(ctx, skill.ID); err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionStale)
+	requireInspectionStatuses(t, lib, library.InstallationStale)
 
-	// 再次激活不写盘,投影仍是 stale;停用后重新激活才按当前版本投影。
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	// 再次安装不写盘,安装项仍是 stale;卸载后再次安装才按当前版本写入文件夹。
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionStale)
-	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
+	requireInspectionStatuses(t, lib, library.InstallationStale)
+	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
+	requireInspectionStatuses(t, lib, library.InstallationCurrent)
 
-	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# v1\n"), 0o644)
-	requireInspectionStatuses(t, lib, library.ProjectionStale)
+	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte(skillDocument(skill.Name, "# v1\n")), 0o644)
+	requireInspectionStatuses(t, lib, library.InstallationStale)
 
 	writeFile(t, filepath.Join(directory, skill.Name, "SKILL.md"), []byte("# neither\n"), 0o644)
-	requireInspectionStatuses(t, lib, library.ProjectionModified)
+	requireInspectionStatuses(t, lib, library.InstallationModified)
 }
 
-func TestInspectProjectionsReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
+func TestInspectInstallationsReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,32 +74,32 @@ func TestInspectProjectionsReportsModifiedForExtraFileAndExecutableBit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(directory, skill.Name)
 
 	writeFile(t, filepath.Join(target, "extra.txt"), []byte("extra"), 0o644)
-	requireInspectionStatuses(t, lib, library.ProjectionModified)
+	requireInspectionStatuses(t, lib, library.InstallationModified)
 	if err := os.Remove(filepath.Join(target, "extra.txt")); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionCurrent)
+	requireInspectionStatuses(t, lib, library.InstallationCurrent)
 
 	script := filepath.Join(target, "scripts", "run.sh")
 	if err := os.Chmod(script, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionModified)
+	requireInspectionStatuses(t, lib, library.InstallationModified)
 }
 
-func TestInspectProjectionsReportsMissingWhenFolderRemoved(t *testing.T) {
+func TestInspectInstallationsReportsMissingWhenFolderRemoved(t *testing.T) {
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
+	writeLocalSkill(t, source, "# Example\n")
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,16 +108,16 @@ func TestInspectProjectionsReportsMissingWhenFolderRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(filepath.Join(directory, skill.Name)); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.ProjectionMissing)
+	requireInspectionStatuses(t, lib, library.InstallationMissing)
 }
 
-func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
+func TestInspectInstallationsReportsDirectoryMissing(t *testing.T) {
 	t.Run("deleted project root", func(t *testing.T) {
 		ctx := t.Context()
 		t.Setenv("HOME", t.TempDir())
@@ -128,19 +128,19 @@ func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		source := filepath.Join(t.TempDir(), "example-skill")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# Example\n")
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
 		scope := library.ProjectScope(library.AgentCodex, project.ID)
-		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.RemoveAll(projectRoot); err != nil {
 			t.Fatal(err)
 		}
-		requireInspectionStatuses(t, lib, library.ProjectionDirectoryMissing)
+		requireInspectionStatuses(t, lib, library.InstallationDirectoryMissing)
 	})
 
 	t.Run("foreign project path", func(t *testing.T) {
@@ -156,13 +156,13 @@ func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		source := filepath.Join(t.TempDir(), "example-skill")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Example\n"), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# Example\n")
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
 		scope := library.ProjectScope(library.AgentCodex, project.ID)
-		if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		if err := lib.Close(); err != nil {
@@ -175,17 +175,17 @@ func TestInspectProjectionsReportsDirectoryMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = lib.Close() })
-		requireInspectionStatuses(t, lib, library.ProjectionDirectoryMissing)
+		requireInspectionStatuses(t, lib, library.InstallationDirectoryMissing)
 	})
 }
 
-func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
+func TestInspectInstallationsInspectsGroupInstallations(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# Group\n"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "# Group\n")
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,40 +201,40 @@ func TestInspectProjectionsInspectsGroupProjections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
+	if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	got := inspectProjections(t, lib)
-	want := []library.ProjectionInspection{{
-		Projection: library.Projection{
+	got := inspectInstallations(t, lib)
+	want := []library.InstallationInspection{{
+		Installation: library.Installation{
 			SkillID:   skill.ID,
 			Scope:     scope,
 			Directory: directory,
 			Groups:    []library.GroupID{group.ID},
 		},
-		Status: library.ProjectionCurrent,
+		Status: library.InstallationCurrent,
 	}}
 	if len(got) == 1 {
-		got[0].Projection.CreatedAt = time.Time{}
+		got[0].Installation.CreatedAt = time.Time{}
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("InspectProjections() = %#v, want %#v", got, want)
+		t.Fatalf("InspectInstallations() = %#v, want %#v", got, want)
 	}
 }
 
-func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
+func TestInspectInstallationsIsReadOnlyAndMatchesListInstallations(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	firstSource := filepath.Join(t.TempDir(), "first")
 	secondSource := filepath.Join(t.TempDir(), "second")
-	writeFile(t, filepath.Join(firstSource, "SKILL.md"), []byte("# First\n"), 0o644)
-	writeFile(t, filepath.Join(secondSource, "SKILL.md"), []byte("# Second\n"), 0o644)
-	first, err := lib.Install(ctx, library.LocalSource{Path: firstSource})
+	writeLocalSkill(t, firstSource, "# First\n")
+	writeLocalSkill(t, secondSource, "# Second\n")
+	first, err := fetchLocalDir(ctx, lib, firstSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := lib.Install(ctx, library.LocalSource{Path: secondSource})
+	second, err := fetchLocalDir(ctx, lib, secondSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,12 +250,12 @@ func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 				t.Fatal(err)
 			}
 			directories = append(directories, directory)
-			if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+			if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	before, err := lib.ListProjections(ctx)
+	before, err := lib.ListInstallations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,9 +265,9 @@ func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 	}
 	diskBefore := snapshotTree(t, directories...)
 
-	got := inspectProjections(t, lib)
+	got := inspectInstallations(t, lib)
 
-	after, err := lib.ListProjections(ctx)
+	after, err := lib.ListInstallations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 	}
 	diskAfter := snapshotTree(t, directories...)
 	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("ListProjections changed: %#v, want %#v", after, before)
+		t.Fatalf("ListInstallations changed: %#v, want %#v", after, before)
 	}
 	if !reflect.DeepEqual(skillsAfter, skillsBefore) {
 		t.Fatalf("ListSkills changed: %#v, want %#v", skillsAfter, skillsBefore)
@@ -286,36 +286,36 @@ func TestInspectProjectionsIsReadOnlyAndMatchesListProjections(t *testing.T) {
 		t.Fatalf("disk changed: %#v, want %#v", diskAfter, diskBefore)
 	}
 	if len(got) != len(before) {
-		t.Fatalf("InspectProjections len=%d, ListProjections len=%d: %#v", len(got), len(before), got)
+		t.Fatalf("InspectInstallations len=%d, ListInstallations len=%d: %#v", len(got), len(before), got)
 	}
 	for i := range before {
-		if !reflect.DeepEqual(got[i].Projection, before[i]) {
-			t.Fatalf("InspectProjections()[%d].Projection = %#v, want %#v", i, got[i].Projection, before[i])
+		if !reflect.DeepEqual(got[i].Installation, before[i]) {
+			t.Fatalf("InspectInstallations()[%d].Installation = %#v, want %#v", i, got[i].Installation, before[i])
 		}
-		if got[i].Status != library.ProjectionCurrent {
-			t.Fatalf("InspectProjections()[%d].Status = %q, want current", i, got[i].Status)
+		if got[i].Status != library.InstallationCurrent {
+			t.Fatalf("InspectInstallations()[%d].Status = %q, want current", i, got[i].Status)
 		}
 	}
 }
 
-func inspectProjections(t *testing.T, lib library.Library) []library.ProjectionInspection {
+func inspectInstallations(t *testing.T, lib library.Library) []library.InstallationInspection {
 	t.Helper()
-	got, err := lib.InspectProjections(t.Context(), library.ProjectionFilter{})
+	got, err := lib.InspectInstallations(t.Context(), library.InstallationFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return got
 }
 
-func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.ProjectionStatus) {
+func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.InstallationStatus) {
 	t.Helper()
-	got := inspectProjections(t, lib)
+	got := inspectInstallations(t, lib)
 	if len(got) != len(want) {
-		t.Fatalf("InspectProjections() = %#v, want %d statuses %v", got, len(want), want)
+		t.Fatalf("InspectInstallations() = %#v, want %d statuses %v", got, len(want), want)
 	}
 	for i := range want {
 		if got[i].Status != want[i] {
-			t.Fatalf("InspectProjections()[%d].Status = %q, want %q (full %#v)", i, got[i].Status, want[i], got)
+			t.Fatalf("InspectInstallations()[%d].Status = %q, want %q (full %#v)", i, got[i].Status, want[i], got)
 		}
 	}
 }
@@ -352,7 +352,7 @@ func snapshotTree(t *testing.T, roots ...string) map[string]string {
 	return out
 }
 
-func TestInspectProjectionsByFilterIsSubsetOfFullInspection(t *testing.T) {
+func TestInspectInstallationsByFilterIsSubsetOfFullInspection(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -360,30 +360,30 @@ func TestInspectProjectionsByFilterIsSubsetOfFullInspection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, firstSource := installLocalSkill(t, lib, "first", "# first v1\n")
-	second := installNamedSkill(t, lib, "second")
-	idle := installNamedSkill(t, lib, "idle")
+	first, firstSource := fetchLocalSkill(t, lib, "first", "# first v1\n")
+	second := fetchNamedSkill(t, lib, "second")
+	idle := fetchNamedSkill(t, lib, "idle")
 	codex := library.GlobalScope(library.AgentCodex)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
 	for _, scope := range []library.Scope{codex, claude, projectScope} {
-		if err := lib.Activate(ctx, first.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, scope := range []library.Scope{codex, projectScope} {
-		if err := lib.Activate(ctx, second.ID, scope, library.ActivateOptions{}); err != nil {
+		if err := lib.Install(ctx, second.ID, scope, library.InstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	updateLocalSkill(t, lib, first.ID, firstSource, "# first v2\n")
-	full := inspectProjections(t, lib)
+	full := inspectInstallations(t, lib)
 	if len(full) != 5 {
-		t.Fatalf("InspectProjections() = %#v, want 5", full)
+		t.Fatalf("InspectInstallations() = %#v, want 5", full)
 	}
 
-	subset := func(match func(library.ProjectionInspection) bool) []library.ProjectionInspection {
-		var want []library.ProjectionInspection
+	subset := func(match func(library.InstallationInspection) bool) []library.InstallationInspection {
+		var want []library.InstallationInspection
 		for _, inspection := range full {
 			if match(inspection) {
 				want = append(want, inspection)
@@ -393,40 +393,40 @@ func TestInspectProjectionsByFilterIsSubsetOfFullInspection(t *testing.T) {
 	}
 	tests := []struct {
 		name   string
-		filter library.ProjectionFilter
-		want   []library.ProjectionInspection
+		filter library.InstallationFilter
+		want   []library.InstallationInspection
 	}{
-		{name: "skill", filter: library.ProjectionFilter{SkillID: first.ID},
-			want: subset(func(i library.ProjectionInspection) bool { return i.SkillID == first.ID })},
+		{name: "skill", filter: library.InstallationFilter{SkillID: first.ID},
+			want: subset(func(i library.InstallationInspection) bool { return i.SkillID == first.ID })},
 		{name: "scope", filter: scopeFilter(projectScope),
-			want: subset(func(i library.ProjectionInspection) bool { return i.Scope == projectScope })},
-		{name: "both", filter: library.ProjectionFilter{SkillID: second.ID, Scope: &codex},
-			want: subset(func(i library.ProjectionInspection) bool { return i.SkillID == second.ID && i.Scope == codex })},
-		{name: "no projections", filter: library.ProjectionFilter{SkillID: idle.ID}},
+			want: subset(func(i library.InstallationInspection) bool { return i.Scope == projectScope })},
+		{name: "both", filter: library.InstallationFilter{SkillID: second.ID, Scope: &codex},
+			want: subset(func(i library.InstallationInspection) bool { return i.SkillID == second.ID && i.Scope == codex })},
+		{name: "no installations", filter: library.InstallationFilter{SkillID: idle.ID}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := lib.InspectProjections(ctx, test.filter)
+			got, err := lib.InspectInstallations(ctx, test.filter)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(got) != len(test.want) || (len(got) > 0 && !reflect.DeepEqual(got, test.want)) {
-				t.Fatalf("InspectProjections(%s) = %#v, want %#v", test.name, got, test.want)
+				t.Fatalf("InspectInstallations(%s) = %#v, want %#v", test.name, got, test.want)
 			}
 		})
 	}
 
 	unknownAgent := library.GlobalScope("unknown-agent")
-	for name, filter := range map[string]library.ProjectionFilter{
+	for name, filter := range map[string]library.InstallationFilter{
 		"unknown skill": {SkillID: 999},
 		"unknown agent": {Scope: &unknownAgent},
 	} {
-		_, err := lib.InspectProjections(ctx, filter)
+		_, err := lib.InspectInstallations(ctx, filter)
 		if !library.IsCode(err, library.NotFound) {
-			t.Fatalf("InspectProjections(%s) error = %v, want not_found", name, err)
+			t.Fatalf("InspectInstallations(%s) error = %v, want not_found", name, err)
 		}
 	}
 	invalid := library.Scope{Kind: "nowhere", Agent: library.AgentCodex}
-	_, err = lib.InspectProjections(ctx, library.ProjectionFilter{Scope: &invalid})
+	_, err = lib.InspectInstallations(ctx, library.InstallationFilter{Scope: &invalid})
 	requireLibraryError(t, err, library.InvalidArgument)
 }

@@ -8,8 +8,8 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// URL / Store 来源的抓取记录里多了服务端给出的 HTTP validator:InstallFetch / Update 成功抓取后写到 Source 上,
-// 之后 CheckUpdates / Update 带条件头发请求,304 即无更新、零字节下载;Fetch 永远不带条件头。
+// URL / Store 来源的抓取记录里多了服务端给出的 HTTP validator:FetchFromPreview / Update 成功抓取后写到 Source 上,
+// 之后 CheckUpdates / Update 带条件头发请求,304 即无更新、零字节下载;预览 永远不带条件头。
 
 var conditionalHeaders = []string{"If-None-Match", "If-Modified-Since"}
 
@@ -47,17 +47,17 @@ func singleRequest(t *testing.T, requests []http.Header) http.Header {
 	return requests[0]
 }
 
-func installArchive(t *testing.T, lib library.Library, spec library.SourceSpec) []library.Skill {
+func fetchArchive(t *testing.T, lib library.Library, spec library.SourceSpec) []library.Skill {
 	t.Helper()
-	fetch, err := lib.Fetch(t.Context(), spec)
+	preview, err := lib.PreviewSource(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || len(installed) == 0 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	if err != nil || len(fetched) == 0 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	return installed
+	return fetched
 }
 
 func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
@@ -69,19 +69,19 @@ func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = lib.Close() })
 	ctx := t.Context()
-	installed := installArchive(t, lib, server.spec())
+	fetched := fetchArchive(t, lib, server.spec())
 	assertUnconditional(t, server.snapshot())
-	id := installed[0].ID
+	id := fetched[0].ID
 
-	// 安装后:检查带 If-None-Match,收到 304 → 无更新,正文一个字节都没读。
+	// 入库后:检查带 If-None-Match,收到 304 → 无更新,正文一个字节都没读。
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
-		t.Fatalf("CheckUpdates after install = %v, %v", available, err)
+		t.Fatalf("CheckUpdates after fetch = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
 	server.assertNoBodyRead(t)
 
-	// Fetch 必须拿到内容,永远不带条件头。
-	if _, err := lib.Fetch(ctx, server.spec()); err != nil {
+	// 预览 必须拿到内容,永远不带条件头。
+	if _, err := lib.PreviewSource(ctx, server.spec()); err != nil {
 		t.Fatal(err)
 	}
 	assertUnconditional(t, server.snapshot())
@@ -134,7 +134,7 @@ func TestURLUpdateWritesNewValidatorWhenArchiveChanges(t *testing.T) {
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")}), `"v1"`)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	id := installArchive(t, lib, server.spec())[0].ID
+	id := fetchArchive(t, lib, server.spec())[0].ID
 	server.snapshot()
 
 	// 远端内容与 ETag 都变了:条件请求收到 200,按整包比较判定有更新。
@@ -164,7 +164,7 @@ func TestURLWithoutValidatorNeverSendsConditionalHeaders(t *testing.T) {
 	server := newArchiveServer(t, archive, "")
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	id := installArchive(t, lib, server.spec())[0].ID
+	id := fetchArchive(t, lib, server.spec())[0].ID
 	server.snapshot()
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("CheckUpdates = %v, %v", available, err)
@@ -193,7 +193,7 @@ func TestURLFallsBackToIfModifiedSinceWhenServerOnlySendsLastModified(t *testing
 	server.serveLastModified(archive, modified)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	id := installArchive(t, lib, server.spec())[0].ID
+	id := fetchArchive(t, lib, server.spec())[0].ID
 	server.snapshot()
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("CheckUpdates = %v, %v", available, err)
@@ -210,7 +210,7 @@ func TestURLEchoesWeakAndUnquotedETagsInIfNoneMatch(t *testing.T) {
 			server := newArchiveServer(t, archive, etag)
 			lib := openTestLibrary(t)
 			ctx := t.Context()
-			id := installArchive(t, lib, server.spec())[0].ID
+			id := fetchArchive(t, lib, server.spec())[0].ID
 			server.snapshot()
 			if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 				t.Fatalf("CheckUpdates = %v, %v", available, err)
@@ -227,7 +227,7 @@ func TestURLIgnoresMalformedLastModified(t *testing.T) {
 	server := newArchiveServer(t, archive, "")
 	server.serveLastModified(archive, "yesterday-ish")
 	lib := openTestLibrary(t)
-	id := installArchive(t, lib, server.spec())[0].ID
+	id := fetchArchive(t, lib, server.spec())[0].ID
 	server.snapshot()
 	if available, err := checkSingleUpdate(t, lib, t.Context(), id); err != nil || available {
 		t.Fatalf("CheckUpdates = %v, %v", available, err)
@@ -235,16 +235,16 @@ func TestURLIgnoresMalformedLastModified(t *testing.T) {
 	assertUnconditional(t, server.snapshot())
 }
 
-// 304 只在带了条件头的请求上有意义:Fetch 不带条件头却收到 304,按普通非 2xx 映射为 SourceUnreachable,不会被当成"无更新"。
+// 304 只在带了条件头的请求上有意义:预览 不带条件头却收到 304,按普通非 2xx 映射为 SourceUnreachable,不会被当成"无更新"。
 func TestUnconditionalNotModifiedIsAnError(t *testing.T) {
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := newArchiveServer(t, archive, "")
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	id := installArchive(t, lib, server.spec())[0].ID
+	id := fetchArchive(t, lib, server.spec())[0].ID
 	server.serveNotModified()
-	if fetch, err := lib.Fetch(ctx, server.spec()); !library.IsCode(err, library.SourceUnreachable) || fetch.ID != "" {
-		t.Fatalf("Fetch on unconditional 304 = %#v, %v, want SourceUnreachable", fetch, err)
+	if preview, err := lib.PreviewSource(ctx, server.spec()); !library.IsCode(err, library.SourceUnreachable) || preview.ID != "" {
+		t.Fatalf("PreviewSource on unconditional 304 = %#v, %v, want SourceUnreachable", preview, err)
 	}
 	// Source 没有 validator,检查也不带条件头,同样不能把 304 当无更新。
 	if available, err := checkSingleUpdate(t, lib, ctx, id); !library.IsCode(err, library.SourceUnreachable) || available {
@@ -259,9 +259,9 @@ func TestCheckUpdatesSendsOneConditionalRequestPerURLSource(t *testing.T) {
 	}), `"v1"`)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	installed := installArchive(t, lib, server.spec())
+	fetched := fetchArchive(t, lib, server.spec())
 	server.snapshot()
-	ids := skillIDs(installed)
+	ids := skillIDs(fetched)
 	results, err := lib.CheckUpdates(ctx, ids)
 	if err != nil || len(results) != 2 || results[0].Available || results[1].Available || results[0].Error != nil || results[1].Error != nil {
 		t.Fatalf("CheckUpdates on 304 = %#v, %v", results, err)
@@ -286,7 +286,7 @@ func TestStoreSourceUsesConditionalRequestsLikeURL(t *testing.T) {
 	spec := library.SourceSpec{Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"}}
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	id := installArchive(t, lib, spec)[0].ID
+	id := fetchArchive(t, lib, spec)[0].ID
 	assertUnconditional(t, server.snapshot())
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("Store CheckUpdates = %v, %v", available, err)

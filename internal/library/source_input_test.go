@@ -45,7 +45,7 @@ func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *test
 	commitGit(t, repository, "link")
 	lib := openTestLibrary(t)
 	for _, subpath := range []string{"../outside", ".git", "outside", "outside/nested"} {
-		_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "trunk"}, Subpath: subpath})
+		_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "trunk"}, Subpath: subpath})
 		if !library.IsCode(err, library.InvalidArgument) {
 			t.Fatalf("subpath %q: %v", subpath, err)
 		}
@@ -54,7 +54,7 @@ func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *test
 	defer cancel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { cancel(); <-r.Context().Done() }))
 	t.Cleanup(server.Close)
-	_, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: server.URL, Branch: "trunk"}})
+	_, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: server.URL, Branch: "trunk"}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("in-flight cancel = %v", err)
 	}
@@ -65,13 +65,13 @@ func TestGitSourceClassifiesPermissionWithoutExposingCredentials(t *testing.T) {
 	t.Cleanup(server.Close)
 	lib := openTestLibrary(t)
 	location := strings.Replace(server.URL, "://", "://secret-user:secret-password@", 1)
-	_, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: location, Branch: "trunk"}})
+	_, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: location, Branch: "trunk"}})
 	if !library.IsCode(err, library.Permission) || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("permission = %v", err)
 	}
 }
 
-func TestFetchUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
+func TestPreviewUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
 	for _, setting := range []string{"core.sshCommand", "GIT_SSH", "GIT_SSH_COMMAND"} {
 		t.Run(setting, func(t *testing.T) {
 			repository, _ := githubRemote(t)
@@ -92,9 +92,9 @@ func TestFetchUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
 			lib := openTestLibrary(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			fetch, err := lib.Fetch(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: "git@example.invalid:repo", Branch: "trunk"}})
-			if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "example" {
-				t.Fatalf("configured SSH = %#v, %v", fetch, err)
+			preview, err := lib.PreviewSource(ctx, library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: "git@example.invalid:repo", Branch: "trunk"}})
+			if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "example" {
+				t.Fatalf("configured SSH = %#v, %v", preview, err)
 			}
 		})
 	}
@@ -119,18 +119,18 @@ func TestResolveSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 		if err != nil || spec.Subpath != tc.subpath {
 			t.Fatalf("resolve = %#v, %v", spec, err)
 		}
-		fetch, err := lib.Fetch(t.Context(), spec)
-		if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != tc.name || fetch.Skills[0].Path != "skills/"+tc.name {
-			t.Fatalf("fetch = %#v, %v", fetch, err)
+		preview, err := lib.PreviewSource(t.Context(), spec)
+		if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != tc.name || preview.Skills[0].Path != "skills/"+tc.name {
+			t.Fatalf("preview = %#v, %v", preview, err)
 		}
-		installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+		fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if sourceID != 0 && sourceID != installed[0].Source.ID {
+		if sourceID != 0 && sourceID != fetched[0].Source.ID {
 			t.Fatal("subpath split Source")
 		}
-		sourceID = installed[0].Source.ID
+		sourceID = fetched[0].Source.ID
 	}
 	for _, name := range []string{"first", "second"} {
 		writeFile(t, filepath.Join(repository, "skills", name, "SKILL.md"), []byte(skillDocument(name, "advanced")), 0o644)
@@ -153,12 +153,12 @@ func TestResolveSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 	if err != nil || spec.Subpath != "skills" {
 		t.Fatalf("explicit tree = %#v, %v", spec, err)
 	}
-	if fetch, err := lib.Fetch(t.Context(), spec); err != nil || len(fetch.Skills) != 2 {
-		t.Fatalf("explicit tree fetch = %#v, %v", fetch, err)
+	if preview, err := lib.PreviewSource(t.Context(), spec); err != nil || len(preview.Skills) != 2 {
+		t.Fatalf("explicit tree preview = %#v, %v", preview, err)
 	}
 }
 
-func TestResolveAndFetchRejectBadInputsAndPreserveCancellation(t *testing.T) {
+func TestResolveAndPreviewRejectBadInputsAndPreserveCancellation(t *testing.T) {
 	_, _ = githubRemote(t)
 	lib := openTestLibrary(t)
 	for _, input := range []string{"", "owner", "https://gitlab.com/owner/repo", "https://token@github.com/owner/repo", "https://github.com/owner/repo/tree/trunk/../outside", "owner/repo#", "owner/repo@", "owner/repo#--upload-pack=bad", "owner/repo#bad..ref"} {
@@ -170,25 +170,25 @@ func TestResolveAndFetchRejectBadInputsAndPreserveCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = lib.Fetch(t.Context(), spec)
+	_, err = lib.PreviewSource(t.Context(), spec)
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Name: "does-not-exist"})
 	spec, err = lib.ResolveSource(t.Context(), "owner/repo@missing", library.ResolveSourceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = lib.Fetch(t.Context(), spec)
+	_, err = lib.PreviewSource(t.Context(), spec)
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Name: "missing"})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := lib.ResolveSource(ctx, "owner/repo", library.ResolveSourceOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel resolve = %v", err)
 	}
-	if _, err := lib.Fetch(ctx, spec); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancel fetch = %v", err)
+	if _, err := lib.PreviewSource(ctx, spec); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel preview = %v", err)
 	}
 }
 
-func TestResolveGitHubInputsFetchTheRequestedRefAndShareSource(t *testing.T) {
+func TestResolveGitHubInputsPreviewTheRequestedRefAndShareSource(t *testing.T) {
 	repository, sha := githubRemote(t)
 	runGit(t, repository, "tag", "v1")
 	lib := openTestLibrary(t)
@@ -198,18 +198,18 @@ func TestResolveGitHubInputsFetchTheRequestedRefAndShareSource(t *testing.T) {
 		if err != nil || spec.Locator.Repository != "https://github.com/owner/repo.git" || spec.Locator.Branch != "trunk" {
 			t.Fatalf("resolve %q = %#v, %v", input, spec, err)
 		}
-		fetch, err := lib.Fetch(t.Context(), spec)
-		if err != nil || fetch.Ref != sha {
-			t.Fatalf("fetch = %#v, %v", fetch, err)
+		preview, err := lib.PreviewSource(t.Context(), spec)
+		if err != nil || preview.Ref != sha {
+			t.Fatalf("preview = %#v, %v", preview, err)
 		}
 		if sourceID == 0 {
-			installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			sourceID = installed[0].Source.ID
+			sourceID = fetched[0].Source.ID
 		} else {
-			if _, err := lib.InstallFetch(t.Context(), fetch.ID, nil); err == nil {
+			if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); err == nil {
 				t.Fatalf("equivalent input created another Source: %v", err)
 			}
 		}
@@ -225,9 +225,9 @@ func TestResolveGitHubInputsFetchTheRequestedRefAndShareSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fetch, err := lib.Fetch(t.Context(), spec)
-		if err != nil || fetch.Ref != sha {
-			t.Fatalf("ref %s: %#v, %v", ref, fetch, err)
+		preview, err := lib.PreviewSource(t.Context(), spec)
+		if err != nil || preview.Ref != sha {
+			t.Fatalf("ref %s: %#v, %v", ref, preview, err)
 		}
 	}
 }
@@ -244,7 +244,7 @@ func TestGitSourceKeepsPermissionErrorWhenOtherTransportIsUnavailable(t *testing
 	if _, err := lib.ResolveSource(t.Context(), "owner/repo", library.ResolveSourceOptions{}); !library.IsCode(err, library.Permission) {
 		t.Fatalf("resolve fallback error = %v", err)
 	}
-	if _, err := lib.Fetch(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "trunk"}}); !library.IsCode(err, library.Permission) {
-		t.Fatalf("fetch fallback error = %v", err)
+	if _, err := lib.PreviewSource(t.Context(), library.SourceSpec{Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "trunk"}}); !library.IsCode(err, library.Permission) {
+		t.Fatalf("preview fallback error = %v", err)
 	}
 }

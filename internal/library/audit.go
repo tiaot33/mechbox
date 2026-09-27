@@ -16,29 +16,29 @@ const (
 	maxAuditSize        = 1 << 20         // 单个审计响应的字节上限
 )
 
-// FetchSkillAudit 在用户查看单个候选时才查 skills.sh。审计只是展示用的覆盖层:任何失败都只降级为
-// Availability 状态;联网期间不持任何锁,已确定的结果写回会话,不可用的结果留待下次重查。
-func (l *sqliteLibrary) FetchSkillAudit(ctx context.Context, id FetchID, name string) (audit *SkillAudit, err error) {
+// CandidateAudit 在用户查看单个候选时才查 skills.sh。审计只是展示用的覆盖层:任何失败都只降级为
+// Availability 状态;联网期间不持任何锁,已确定的结果写回预览,不可用的结果留待下次重查。
+func (l *sqliteLibrary) CandidateAudit(ctx context.Context, id PreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
 	if !validSelectionName(name) {
-		return nil, &Error{Code: InvalidArgument, Message: "invalid Fetch name selection"}
+		return nil, &Error{Code: InvalidArgument, Message: "invalid candidate name"}
 	}
-	l.fetchMu.Lock()
-	session := l.fetches[id]
+	l.previewMu.Lock()
+	state := l.previews[id]
 	var cached SkillAudit
 	var hit bool
-	if session != nil {
-		cached, hit = session.audits[name]
+	if state != nil {
+		cached, hit = state.audits[name]
 	}
-	l.fetchMu.Unlock()
-	if session == nil {
-		return nil, &Error{Code: NotFound, Message: "fetch skill audit: unknown or discarded fetch"}
+	l.previewMu.Unlock()
+	if state == nil {
+		return nil, &Error{Code: NotFound, Message: "candidate audit: unknown or discarded preview"}
 	}
-	// 候选与来源在会话建立后只读,可在锁外读取。
-	if _, err := selectSkills(session.skills, []string{name}); err != nil {
+	// 候选与来源在预览建立后只读,可在锁外读取。
+	if _, err := selectSkills(state.skills, []string{name}); err != nil {
 		return nil, err
 	}
-	owner, repo, ok := githubOwnerRepo(session.source.Locator.Repository)
+	owner, repo, ok := githubOwnerRepo(state.source.Locator.Repository)
 	if !ok {
 		return nil, nil
 	}
@@ -50,12 +50,12 @@ func (l *sqliteLibrary) FetchSkillAudit(ctx context.Context, id FetchID, name st
 		return nil, err
 	}
 	if got.Availability != AuditUnavailable {
-		l.fetchMu.Lock()
-		if session.audits == nil {
-			session.audits = map[string]SkillAudit{}
+		l.previewMu.Lock()
+		if state.audits == nil {
+			state.audits = map[string]SkillAudit{}
 		}
-		session.audits[name] = got
-		l.fetchMu.Unlock()
+		state.audits[name] = got
+		l.previewMu.Unlock()
 	}
 	return cloneAudit(&got), nil
 }
@@ -132,7 +132,7 @@ func auditPath(owner, repo, name string) string {
 	return url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(name)
 }
 
-// cloneAudit 深拷贝审计快照,使返回给调用方的结果不与会话缓存共享可变数据。
+// cloneAudit 深拷贝审计快照,使返回给调用方的结果不与预览里的缓存共享可变数据。
 func cloneAudit(audit *SkillAudit) *SkillAudit {
 	if audit == nil {
 		return nil

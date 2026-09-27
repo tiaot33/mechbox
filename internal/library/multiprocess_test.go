@@ -45,7 +45,7 @@ func holdDirectTransaction(t *testing.T, path, begin string) func() {
 
 // 另一进程正在长读(TUI 遍历一个大 skill 的文件)时,本进程的写事务照常提交,而不是在提交阶段等它读完。
 // rollback journal 下这会等满 busy_timeout 后失败;WAL 下读者永不阻塞写者。
-func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
+func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib, err := library.Open(path)
 	if err != nil {
@@ -55,12 +55,12 @@ func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	release := holdDirectTransaction(t, path, `BEGIN`)
 	defer release()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# example\n"), 0o644)
+	writeLocalSkill(t, source, "# example\n")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
-		t.Fatalf("Install while another process reads = %v, want success", err)
+		t.Fatalf("Fetch while another process reads = %v, want success", err)
 	}
 	release()
 	skills, err := lib.ListSkills(t.Context())
@@ -68,7 +68,7 @@ func TestInstallCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(skills) != 1 || skills[0].ID != skill.ID {
-		t.Fatalf("ListSkills after install = %v, want the installed skill", summaryIDs(skills))
+		t.Fatalf("ListSkills after fetch = %v, want the fetched skill", summaryIDs(skills))
 	}
 }
 
@@ -84,9 +84,9 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	release := holdDirectTransaction(t, path, `BEGIN IMMEDIATE`)
 	defer release()
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# example\n"), 0o644)
+	writeLocalSkill(t, source, "# example\n")
 	started := time.Now()
-	_, err = lib.Install(t.Context(), library.LocalSource{Path: source})
+	_, err = fetchLocalDir(t.Context(), lib, source)
 	typed := requireLibraryError(t, err, library.Busy)
 	if library.IsCode(err, library.Internal) {
 		t.Fatalf("busy error also reported as internal: %v", typed)
@@ -96,12 +96,12 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 		t.Fatalf("underlying error = %v, want sqlite3.ErrBusy reachable via errors.AsType", err)
 	}
 	if waited := time.Since(started); waited < 4*time.Second {
-		t.Fatalf("Install gave up after %v, want it to wait for busy_timeout first", waited)
+		t.Fatalf("Fetch gave up after %v, want it to wait for busy_timeout first", waited)
 	}
 	// 对方释放后同一操作直接成功:Busy 确实只是"稍后重试"。
 	release()
-	if _, err := lib.Install(t.Context(), library.LocalSource{Path: source}); err != nil {
-		t.Fatalf("Install after the other writer released = %v, want success", err)
+	if _, err := fetchLocalDir(t.Context(), lib, source); err != nil {
+		t.Fatalf("Fetch after the other writer released = %v, want success", err)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		for round := range rounds {
 			name := fmt.Sprintf("instance%d-round%d", i, round)
 			sources[i][round] = filepath.Join(t.TempDir(), name)
-			writeFile(t, filepath.Join(sources[i][round], "SKILL.md"), []byte("# "+name+"\n"), 0o644)
+			writeLocalSkill(t, sources[i][round], "# "+name+"\n")
 		}
 	}
 	failures := make(chan error, 2*rounds*3)
@@ -134,9 +134,9 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		wg.Go(func() {
 			for round := range rounds {
 				name := filepath.Base(sources[i][round])
-				skill, err := lib.Install(t.Context(), library.LocalSource{Path: sources[i][round]})
+				skill, err := fetchLocalDir(t.Context(), lib, sources[i][round])
 				if err != nil {
-					failures <- fmt.Errorf("%s install: %w", name, err)
+					failures <- fmt.Errorf("%s fetch: %w", name, err)
 					continue
 				}
 				if _, err := lib.ListSkills(t.Context()); err != nil {

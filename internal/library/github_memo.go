@@ -9,18 +9,18 @@ import (
 )
 
 // githubMemoTreeLimit 是进程内 recursive tree 条数上限。
-// CheckUpdates 每个 Source 最多一棵 tree;TUI 来回 Fetch 的仓库通常是个位数。
-// 16 棵覆盖一个会话的工作集。每棵是解码后的目录 listing,16 棵大约一两 MB,
+// CheckUpdates 每个 Source 最多一棵 tree;TUI 来回预览的仓库通常是个位数。
+// 16 棵覆盖一次使用的工作集。每棵是解码后的目录 listing,16 棵大约一两 MB,
 // 避免长时间浏览后无界占用。
 const githubMemoTreeLimit = 16
 
 // githubMemoCommitLimit 是进程内按完整 SHA 记忆的 commits 条数上限。
-// 与 tree 同量级:钉住 SHA 的 Fetch / 检查是少数,16 条足够当前工作集。
+// 与 tree 同量级:钉住 SHA 的预览 / 检查是少数,16 条足够当前工作集。
 const githubMemoCommitLimit = 16
 
 // githubMemoBlobLimit 是进程内 blob 正文总字节上限。
-// Agent Skills 以 SKILL.md 与小脚本为主;256 KiB 能留住当前会话预览过的
-// SKILL.md 和刚安装的辅助文件。更大的条目会挤出最久未用的,再访问回源;
+// Agent Skills 以 SKILL.md 与小脚本为主;256 KiB 能留住最近预览过的
+// SKILL.md 和刚入库的辅助文件。更大的条目会挤出最久未用的,再访问回源;
 // 单条超过上限则不写入。
 const githubMemoBlobLimit = 256 << 10
 

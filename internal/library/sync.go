@@ -29,38 +29,38 @@ type s3Config struct {
 	pathStyle                                                         bool
 }
 
-// pullProjectionWarning 提示 pull 后 agent 目录投影未随之重建,可能与新库不一致。
-const pullProjectionWarning = "agent 目录投影未随本次 pull 重建,可能与新库不一致"
+// pullInstallationWarning 提示 pull 后 agent 目录安装项未随之重建,可能与新库不一致。
+const pullInstallationWarning = "agent 目录里的安装项未随本次 pull 重建,可能与新库不一致"
 
-func (l *sqliteLibrary) PreviewSyncPush(ctx context.Context) (preview SyncPreview, err error) {
+func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
 	// 纯网络探测,不碰库,不加锁。
 	defer func() { err = typedError(err) }()
 	identity, exists, err := remoteIdentity(ctx)
 	if err != nil {
-		return SyncPreview{}, err
+		return SyncPlan{}, err
 	}
-	return SyncPreview{Remote: identity, RemoteExists: exists}, nil
+	return SyncPlan{Remote: identity, RemoteExists: exists}, nil
 }
 
-func (l *sqliteLibrary) PreviewSyncPull(ctx context.Context) (preview SyncPreview, err error) {
+func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
 	if err != nil {
-		return SyncPreview{}, err
+		return SyncPlan{}, err
 	}
 	_, cleanup, err := openPulledLibrary(ctx, data)
 	if err == nil {
 		defer cleanup()
 	} else if !unacceptableRemote(err) {
-		return SyncPreview{}, err
+		return SyncPlan{}, err
 	}
 	schemaOK := err == nil
-	preview = SyncPreview{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
+	plan = SyncPlan{Remote: RemoteIdentity(etag), RemoteExists: true, SchemaOK: schemaOK}
 	if !schemaOK {
-		preview.Warnings = append(preview.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
+		plan.Warnings = append(plan.Warnings, "远端库的 schema 不可接受,pull 将被拒绝")
 	}
-	preview.Warnings = append(preview.Warnings, pullProjectionWarning)
-	return preview, nil
+	plan.Warnings = append(plan.Warnings, pullInstallationWarning)
+	return plan, nil
 }
 
 func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
@@ -71,14 +71,14 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 		return SyncResult{}, err
 	}
 	if identity != expected {
-		return SyncResult{}, &Error{Code: Conflict, Message: "sync push: remote identity changed since preview"}
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync push: remote identity changed since sync plan"}
 	}
 	data, err := l.snapshotBytes(ctx)
 	if err != nil {
 		return SyncResult{}, err
 	}
-	// 条件写让 check-then-act 变原子:HEAD 预检只是快速失败,真正的守卫是这里的前置条件——
-	// 预览时无对象则要求写入时仍无对象(If-None-Match: *),否则要求远端仍是预览时的身份
+	// 条件写让 check-then-act 变原子:HEAD 查询只是快速失败,真正的守卫是这里的前置条件——
+	// 同步计划时无对象则要求写入时仍无对象(If-None-Match: *),否则要求远端仍是同步计划里的身份
 	// (If-Match: expected)。窗口内远端若被改动,服务端拒绝(412),不会覆盖。
 	conditions := map[string]string{"If-Match": string(expected)}
 	if expected == "" {
@@ -95,13 +95,13 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
 	if IsCode(err, NotFound) && expected != "" {
-		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since preview"}
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since sync plan"}
 	}
 	if err != nil {
 		return SyncResult{}, err
 	}
 	if RemoteIdentity(etag) != expected {
-		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since preview"}
+		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since sync plan"}
 	}
 	check, cleanup, err := openPulledLibrary(ctx, data)
 	if err != nil {
@@ -127,7 +127,7 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	if err := backupDatabase(ctx, l.db, check); err != nil {
 		return SyncResult{}, err
 	}
-	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullProjectionWarning}}, nil
+	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullInstallationWarning}}, nil
 }
 
 // remoteIdentity 通过 HEAD 读取远端对象的身份;对象不存在时返回 ("", false, nil)。
@@ -286,7 +286,7 @@ func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
 }
 
 // remapProjectPaths 按 SKILLS_PROJECT_PATH_MAP 把拉回库里 Registered project 的路径改成本机路径。
-// 只改 projects 表:投影记录只记 Scope 身份,拉库后目录一律按本机 $HOME / 映射后的项目根 Resolve,
+// 只改 projects 表:安装项记录只记 Scope 身份,拉库后目录一律按本机 $HOME / 映射后的项目根 Resolve,
 // 不再改写任何绝对路径(见 ADR 0011)。
 //
 // 每个项目只按它在拉回库里记录的原路径查一次映射、按 id 改写,已改写的结果不再参与匹配,
@@ -371,7 +371,7 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 }
 
 // s3Request 发起一次已签名的 S3 请求,返回响应体与对象的 ETag(远端身份)。
-// 对象不存在(404)映射为 NotFound,便于预览区分"远端尚无对象"与真正的故障。
+// 对象不存在(404)映射为 NotFound,便于同步计划区分"远端尚无对象"与真正的故障。
 // conditions 里的条件头(If-Match / If-None-Match)不参与签名(SigV4 只签指定头);
 // 服务端据其判定前置条件,不满足时返回 412,映射为 Conflict。
 func s3Request(ctx context.Context, method string, body []byte, conditions map[string]string) ([]byte, string, error) {
@@ -413,7 +413,7 @@ func s3Request(ctx context.Context, method string, body []byte, conditions map[s
 		return nil, "", &Error{Code: NotFound, Message: "S3 object not found"}
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed || s3Error.Code == "PreconditionFailed" {
-		return nil, "", &Error{Code: Conflict, Message: "remote object changed since preview"}
+		return nil, "", &Error{Code: Conflict, Message: "remote object changed since sync plan"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}

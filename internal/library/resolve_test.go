@@ -29,15 +29,15 @@ func TestResolveGlobalScopeUsesHomeAndAgentRule(t *testing.T) {
 	}
 }
 
-// 全局目录以 Open 时的 $HOME 为准;之后改环境变量不能让 Deactivate 删到别处。
-func TestResolveAndDeactivateUseHomeBoundAtOpen(t *testing.T) {
+// 全局目录以 Open 时的 $HOME 为准;之后改环境变量不能让 Uninstall 删到别处。
+func TestResolveAndUninstallUseHomeBoundAtOpen(t *testing.T) {
 	ctx := t.Context()
 	homeA, homeB := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", homeA)
 	lib := openTestLibrary(t)
-	skill := installExampleSkill(t, lib, "example")
+	skill := fetchExampleSkill(t, lib, "example")
 	scope := library.GlobalScope(library.AgentCodex)
-	if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	original := filepath.Join(homeA, ".agents", "skills", skill.Name, "SKILL.md")
@@ -49,15 +49,15 @@ func TestResolveAndDeactivateUseHomeBoundAtOpen(t *testing.T) {
 	if err != nil || got != want {
 		t.Fatalf("Resolve after HOME change = %q, %v; want Open-time %q", got, err, want)
 	}
-	if err := lib.Deactivate(ctx, skill.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(original); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("original projection remains: %v", err)
+		t.Fatalf("original installation remains: %v", err)
 	}
 	content, err := os.ReadFile(foreign)
 	if err != nil || string(content) != "other home content" {
-		t.Fatalf("unrelated projection in second HOME was removed: %q, %v", content, err)
+		t.Fatalf("unrelated installation in second HOME was removed: %q, %v", content, err)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestResolveUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	}
 }
 
-// Resolve 只是预览:不留下投影,也不在磁盘上创建目标目录。
+// Resolve 只读:不留下安装项,也不在磁盘上创建目标目录。
 func TestResolveIsReadOnly(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
@@ -133,9 +133,9 @@ func TestResolveIsReadOnly(t *testing.T) {
 			t.Fatalf("Resolve(%#v) left %q on disk: %v", scope, directory, err)
 		}
 	}
-	projections, err := lib.ListProjections(ctx)
-	if err != nil || len(projections) != 0 {
-		t.Fatalf("ListProjections() after Resolve = %#v, %v; want none", projections, err)
+	installations, err := lib.ListInstallations(ctx)
+	if err != nil || len(installations) != 0 {
+		t.Fatalf("ListInstallations() after Resolve = %#v, %v; want none", installations, err)
 	}
 }
 

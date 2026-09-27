@@ -20,7 +20,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestGitHubFetchPreviewTransfersOnlySkillMarkdown(t *testing.T) {
+func TestGitHubPreviewTransfersOnlySkillMarkdown(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":      {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/scripts/run":   {content: []byte{0, 255, 1}, mode: 0o755},
@@ -33,19 +33,19 @@ func TestGitHubFetchPreviewTransfersOnlySkillMarkdown(t *testing.T) {
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fetch.Ref != fx.commit {
-		t.Fatalf("Fetch.Ref = %q, want pinned commit %q", fetch.Ref, fx.commit)
+	if preview.Ref != fx.commit {
+		t.Fatalf("PreviewSource.Ref = %q, want pinned commit %q", preview.Ref, fx.commit)
 	}
-	want := []library.FetchSkill{
+	want := []library.Candidate{
 		{Name: "first", Path: "first"},
 		{Name: "second", Path: "second"},
 	}
-	if !reflect.DeepEqual(fetch.Skills, want) {
-		t.Fatalf("Fetch candidates = %#v, want %#v", fetch.Skills, want)
+	if !reflect.DeepEqual(preview.Skills, want) {
+		t.Fatalf("PreviewSource candidates = %#v, want %#v", preview.Skills, want)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 		t.Fatalf("preview wrote Library: %v, %v", skills, err)
@@ -53,7 +53,7 @@ func TestGitHubFetchPreviewTransfersOnlySkillMarkdown(t *testing.T) {
 	assertGitHubPreviewRequests(t, api, fx, "first/SKILL.md", "second/SKILL.md")
 }
 
-func TestGitHubInstallFetchTransfersSelectedSkillAndRecordsTreeSHA(t *testing.T) {
+func TestGitHubFetchFromPreviewTransfersSelectedSkillAndRecordsTreeSHA(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":    {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/scripts/run": {content: []byte{0, 255, 1}, mode: 0o755},
@@ -66,41 +66,41 @@ func TestGitHubInstallFetchTransfersSelectedSkillAndRecordsTreeSHA(t *testing.T)
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.Reset()
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"first"})
-	if err != nil || len(installed) != 1 || installed[0].Name != "first" {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"})
+	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
 	wantFiles := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("first", "first body")), Mode: library.ModeRegular},
 		{Path: "data.bin", Content: []byte{0, 1, 2, 255}, Mode: library.ModeRegular},
 		{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(installed[0].Files, wantFiles) {
-		t.Fatalf("installed files = %#v, want %#v", installed[0].Files, wantFiles)
+	if !reflect.DeepEqual(fetched[0].Files, wantFiles) {
+		t.Fatalf("fetched files = %#v, want %#v", fetched[0].Files, wantFiles)
 	}
 	wantSHA := fx.treeSHA("first")
-	if installed[0].GitTreeSHA != wantSHA {
-		t.Fatalf("InstallFetch GitTreeSHA = %q, want %q", installed[0].GitTreeSHA, wantSHA)
+	if fetched[0].GitTreeSHA != wantSHA {
+		t.Fatalf("FetchFromPreview GitTreeSHA = %q, want %q", fetched[0].GitTreeSHA, wantSHA)
 	}
-	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != wantSHA {
+	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != wantSHA {
 		t.Fatalf("persisted GitTreeSHA = %q, want %q", got, wantSHA)
 	}
 	commits, trees, _ := gitHubAPIKindCounts(t, api)
 	if commits != 0 || trees != 0 {
-		t.Fatalf("InstallFetch commits=%d trees=%d, want blobs only: %#v", commits, trees, api.snapshot())
+		t.Fatalf("FetchFromPreview commits=%d trees=%d, want blobs only: %#v", commits, trees, api.snapshot())
 	}
 	assertGitHubBlobPaths(t, api, "first/data.bin", "first/scripts/run")
-	if _, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"first"}); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("successful handle reused: %v", err)
 	}
 }
 
-func TestGitHubInstallFetchUsesPinnedCommitAfterHeadAdvances(t *testing.T) {
+func TestGitHubFetchFromPreviewUsesPinnedCommitAfterHeadAdvances(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "pinned")), mode: 0o644},
 		"demo/note.md":  {content: []byte("original note"), mode: 0o644},
@@ -111,12 +111,12 @@ func TestGitHubInstallFetchUsesPinnedCommitAfterHeadAdvances(t *testing.T) {
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fetch.Ref != fx.commit {
-		t.Fatalf("Fetch.Ref = %q, want %q", fetch.Ref, fx.commit)
+	if preview.Ref != fx.commit {
+		t.Fatalf("PreviewSource.Ref = %q, want %q", preview.Ref, fx.commit)
 	}
 
 	writeFile(t, filepath.Join(repo, "demo", "SKILL.md"), []byte(skillDocument("demo", "advanced")), 0o644)
@@ -128,22 +128,22 @@ func TestGitHubInstallFetchUsesPinnedCommitAfterHeadAdvances(t *testing.T) {
 		t.Fatal("fixture HEAD did not advance")
 	}
 
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	if installed[0].Source.LastSeenRef != fx.commit {
-		t.Fatalf("LastSeenRef = %q, want pinned %q", installed[0].Source.LastSeenRef, fx.commit)
+	if fetched[0].Source.LastSeenRef != fx.commit {
+		t.Fatalf("LastSeenRef = %q, want pinned %q", fetched[0].Source.LastSeenRef, fx.commit)
 	}
 	want := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("demo", "pinned")), Mode: library.ModeRegular},
 		{Path: "note.md", Content: []byte("original note"), Mode: library.ModeRegular},
 	}
-	if !reflect.DeepEqual(installed[0].Files, want) {
-		t.Fatalf("installed advanced HEAD content = %#v", installed[0].Files)
+	if !reflect.DeepEqual(fetched[0].Files, want) {
+		t.Fatalf("fetched advanced HEAD content = %#v", fetched[0].Files)
 	}
-	if installed[0].GitTreeSHA != wantSHA {
-		t.Fatalf("GitTreeSHA = %q, want pinned %q", installed[0].GitTreeSHA, wantSHA)
+	if fetched[0].GitTreeSHA != wantSHA {
+		t.Fatalf("GitTreeSHA = %q, want pinned %q", fetched[0].GitTreeSHA, wantSHA)
 	}
 }
 
@@ -167,29 +167,29 @@ func TestGitHubContentsFallsBackToCloneWhenAPIUnavailable(t *testing.T) {
 	t.Cleanup(func() { http.DefaultClient = client })
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	names := []string{}
-	for _, skill := range fetch.Skills {
+	for _, skill := range preview.Skills {
 		names = append(names, skill.Name)
 	}
 	if !reflect.DeepEqual(names, []string{"good", "other"}) && !reflect.DeepEqual(names, []string{"other", "good"}) {
-		t.Fatalf("fallback candidates = %#v", fetch)
+		t.Fatalf("fallback candidates = %#v", preview)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"good"})
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("fallback install = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"good"})
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("fallback fetch = %#v, %v", fetched, err)
 	}
 	want := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("good", "body")), Mode: library.ModeRegular},
 		{Path: "scripts/run", Content: []byte{9, 8, 7}, Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(installed[0].Files, want) {
-		t.Fatalf("fallback files = %#v", installed[0].Files)
+	if !reflect.DeepEqual(fetched[0].Files, want) {
+		t.Fatalf("fallback files = %#v", fetched[0].Files)
 	}
-	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != gitRevParse(t, repo, "HEAD:good") {
+	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != gitRevParse(t, repo, "HEAD:good") {
 		t.Fatalf("fallback GitTreeSHA = %q", got)
 	}
 }
@@ -204,13 +204,13 @@ func TestGitHubContentsFallsBackToCloneWhenTreeTruncated(t *testing.T) {
 	redirectGitHubClone(t, repo)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
-	if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "demo" {
-		t.Fatalf("truncated fallback = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "demo" {
+		t.Fatalf("truncated fallback = %#v, %v", preview, err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || installed[0].GitTreeSHA != fx.treeSHA("demo") {
-		t.Fatalf("truncated install = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	if err != nil || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
+		t.Fatalf("truncated fetch = %#v, %v", fetched, err)
 	}
 }
 
@@ -224,17 +224,17 @@ func TestGitHubContentsFallsBackToCloneWhenBlobIncomplete(t *testing.T) {
 	redirectGitHubClone(t, repo)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
-	if err != nil || len(fetch.Skills) != 1 {
-		t.Fatalf("incomplete blob fallback = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	if err != nil || len(preview.Skills) != 1 {
+		t.Fatalf("incomplete blob fallback = %#v, %v", preview, err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || string(installed[0].Files[0].Content) != skillDocument("demo", "body") {
-		t.Fatalf("incomplete blob install = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	if err != nil || string(fetched[0].Files[0].Content) != skillDocument("demo", "body") {
+		t.Fatalf("incomplete blob fetch = %#v, %v", fetched, err)
 	}
 }
 
-func TestGitHubInstallFetchFailureKeepsHandleForRetry(t *testing.T) {
+func TestGitHubFetchFromPreviewFailureKeepsHandleForRetry(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 		"demo/extra.md": {content: []byte("asset"), mode: 0o644},
@@ -244,26 +244,26 @@ func TestGitHubInstallFetchFailureKeepsHandleForRetry(t *testing.T) {
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.setFailBlobs(true)
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
-	if err == nil || len(installed) != 0 || !library.IsCode(err, library.SourceUnreachable) || library.IsCode(err, library.Internal) {
-		t.Fatalf("failed install = %#v, %v; want SourceUnreachable", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+	if err == nil || len(fetched) != 0 || !library.IsCode(err, library.SourceUnreachable) || library.IsCode(err, library.Internal) {
+		t.Fatalf("failed fetch = %#v, %v; want SourceUnreachable", fetched, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
-		t.Fatalf("failed install wrote Library: %v, %v", skills, err)
+		t.Fatalf("failed fetch wrote Library: %v, %v", skills, err)
 	}
 	api.setFailBlobs(false)
-	installed, err = lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
-	if err != nil || len(installed) != 1 || installed[0].Name != "demo" {
-		t.Fatalf("retry install = %#v, %v", installed, err)
+	fetched, err = lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+	if err != nil || len(fetched) != 1 || fetched[0].Name != "demo" {
+		t.Fatalf("retry fetch = %#v, %v", fetched, err)
 	}
 }
 
-func TestGitHubInstallFetchMapsForbiddenBlobsToPermission(t *testing.T) {
+func TestGitHubFetchFromPreviewMapsForbiddenBlobsToPermission(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 		"demo/extra.md": {content: []byte("asset"), mode: 0o644},
@@ -273,19 +273,19 @@ func TestGitHubInstallFetchMapsForbiddenBlobsToPermission(t *testing.T) {
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.setBlobStatus(http.StatusForbidden)
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
-	if err == nil || len(installed) != 0 || !library.IsCode(err, library.Permission) {
-		t.Fatalf("forbidden blob = %#v, %v; want Permission", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+	if err == nil || len(fetched) != 0 || !library.IsCode(err, library.Permission) {
+		t.Fatalf("forbidden blob = %#v, %v; want Permission", fetched, err)
 	}
 	redirectGitHubClone(t, repo)
-	installed, err = lib.InstallFetch(t.Context(), fetch.ID, []string{"demo"})
-	if err != nil || len(installed) != 1 || installed[0].Name != "demo" {
-		t.Fatalf("retry after forbidden blob = %#v, %v", installed, err)
+	fetched, err = lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
+	if err != nil || len(fetched) != 1 || fetched[0].Name != "demo" {
+		t.Fatalf("retry after forbidden blob = %#v, %v", fetched, err)
 	}
 }
 
@@ -303,16 +303,16 @@ func TestGitHubAnonymousAPIRetriesWithTokenThenSucceedsWithoutClone(t *testing.T
 			blockGitHubClone(t)
 
 			lib := openTestLibrary(t)
-			fetch, err := lib.Fetch(t.Context(), gitHubSpec())
-			if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "demo" {
-				t.Fatalf("token retry Fetch = %#v, %v", fetch, err)
+			preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+			if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "demo" {
+				t.Fatalf("token retry PreviewSource = %#v, %v", preview, err)
 			}
 			if !api.sawAnonymousThenToken() {
 				t.Fatalf("requests = %#v, want anonymous %d then token retry", api.snapshot(), status)
 			}
-			installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-			if err != nil || installed[0].GitTreeSHA != fx.treeSHA("demo") {
-				t.Fatalf("token retry install = %#v, %v", installed, err)
+			fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+			if err != nil || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
+				t.Fatalf("token retry fetch = %#v, %v", fetched, err)
 			}
 		})
 	}
@@ -334,13 +334,13 @@ func TestGitHubAPIErrorsDoNotExposeToken(t *testing.T) {
 	t.Cleanup(func() { http.DefaultClient = client })
 
 	lib := openTestLibrary(t)
-	_, err := lib.Fetch(t.Context(), gitHubSpec())
+	_, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err == nil || strings.Contains(err.Error(), token) {
 		t.Fatalf("error exposed token: %v", err)
 	}
 }
 
-func TestGitHubFetchHonorsSubpathAndNamesWithoutChangingSource(t *testing.T) {
+func TestGitHubPreviewHonorsSubpathAndNamesWithoutChangingSource(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"skills/first/SKILL.md":  {content: []byte(skillDocument("first", "one")), mode: 0o644},
 		"skills/second/SKILL.md": {content: []byte(skillDocument("second", "two")), mode: 0o644},
@@ -354,21 +354,21 @@ func TestGitHubFetchHonorsSubpathAndNamesWithoutChangingSource(t *testing.T) {
 	spec := gitHubSpec()
 	spec.Subpath = "skills"
 	spec.Names = []string{"first"}
-	fetch, err := lib.Fetch(t.Context(), spec)
-	if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "first" || fetch.Skills[0].Path != "skills/first" {
-		t.Fatalf("filtered Fetch = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), spec)
+	if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "first" || preview.Skills[0].Path != "skills/first" {
+		t.Fatalf("filtered PreviewSource = %#v, %v", preview, err)
 	}
 	assertNoBlobPath(t, api, "other/SKILL.md")
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || len(installed) != 1 || installed[0].Name != "first" {
-		t.Fatalf("filtered install = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" {
+		t.Fatalf("filtered fetch = %#v, %v", fetched, err)
 	}
-	if installed[0].GitTreeSHA != fx.treeSHA("skills/first") {
-		t.Fatalf("GitTreeSHA = %q, want %q", installed[0].GitTreeSHA, fx.treeSHA("skills/first"))
+	if fetched[0].GitTreeSHA != fx.treeSHA("skills/first") {
+		t.Fatalf("GitTreeSHA = %q, want %q", fetched[0].GitTreeSHA, fx.treeSHA("skills/first"))
 	}
 }
 
-func TestGitHubRootSkillPreviewAndInstallUseRootTreeSHA(t *testing.T) {
+func TestGitHubRootSkillPreviewAndFetchUseRootTreeSHA(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"SKILL.md":                   {content: []byte(skillDocument("root-skill", "root")), mode: 0o644},
 		"notes.md":                   {content: []byte("extra"), mode: 0o644},
@@ -379,21 +379,21 @@ func TestGitHubRootSkillPreviewAndInstallUseRootTreeSHA(t *testing.T) {
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
-	if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Path != "." || fetch.Skills[0].Name != "root-skill" {
-		t.Fatalf("root Fetch = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Path != "." || preview.Skills[0].Name != "root-skill" {
+		t.Fatalf("root PreviewSource = %#v, %v", preview, err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || installed[0].GitTreeSHA != fx.rootTree {
-		t.Fatalf("root install = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	if err != nil || fetched[0].GitTreeSHA != fx.rootTree {
+		t.Fatalf("root fetch = %#v, %v", fetched, err)
 	}
 	want := []library.File{
 		{Path: "SKILL.md", Content: []byte(skillDocument("root-skill", "root")), Mode: library.ModeRegular},
 		{Path: "notes.md", Content: []byte("extra"), Mode: library.ModeRegular},
 		{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep")), Mode: library.ModeRegular},
 	}
-	if !reflect.DeepEqual(installed[0].Files, want) {
-		t.Fatalf("root files = %#v", installed[0].Files)
+	if !reflect.DeepEqual(fetched[0].Files, want) {
+		t.Fatalf("root files = %#v", fetched[0].Files)
 	}
 }
 
@@ -412,20 +412,20 @@ func TestGitHubContentsFallsBackToCloneWhenSkillHasUnsupportedObject(t *testing.
 	redirectGitHubClone(t, repo)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
-	if err != nil || len(fetch.Skills) != 1 || fetch.Skills[0].Name != "good" || len(fetch.Diagnostics) != 1 {
-		t.Fatalf("unsupported object fallback = %#v, %v", fetch, err)
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
+	if err != nil || len(preview.Skills) != 1 || preview.Skills[0].Name != "good" || len(preview.Diagnostics) != 1 {
+		t.Fatalf("unsupported object fallback = %#v, %v", preview, err)
 	}
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"good"})
-	if err != nil || string(installed[0].Files[0].Content) != skillDocument("good", "body") {
-		t.Fatalf("unsupported object install = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"good"})
+	if err != nil || string(fetched[0].Files[0].Content) != skillDocument("good", "body") {
+		t.Fatalf("unsupported object fetch = %#v, %v", fetched, err)
 	}
 }
 
 // 并发上限与实现里的 fetchConcurrency 一致。
 const gitHubFetchConcurrency = 8
 
-func TestGitHubFetchReadsSkillMarkdownConcurrentlyWithinLimitAndKeepsOrder(t *testing.T) {
+func TestGitHubPreviewReadsSkillMarkdownConcurrentlyWithinLimitAndKeepsOrder(t *testing.T) {
 	files := map[string]repoFile{}
 	var names []string
 	for i := range 20 {
@@ -440,27 +440,27 @@ func TestGitHubFetchReadsSkillMarkdownConcurrentlyWithinLimitAndKeepsOrder(t *te
 	blockGitHubClone(t)
 	api.holdBlobs(50 * time.Millisecond)
 
-	fetch, err := openTestLibrary(t).Fetch(t.Context(), gitHubSpec())
+	preview, err := openTestLibrary(t).PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, skill := range fetch.Skills {
+	for _, skill := range preview.Skills {
 		got = append(got, skill.Name)
 	}
 	if !slices.Equal(got, names) {
 		t.Fatalf("candidates = %v, want %v", got, names)
 	}
 	wantDiagnostics := []library.CandidateDiagnostic{{Path: "skill-99", Reason: "duplicate skill name, first occurrence kept"}}
-	if !reflect.DeepEqual(fetch.Diagnostics, wantDiagnostics) {
-		t.Fatalf("diagnostics = %#v, want %#v", fetch.Diagnostics, wantDiagnostics)
+	if !reflect.DeepEqual(preview.Diagnostics, wantDiagnostics) {
+		t.Fatalf("diagnostics = %#v, want %#v", preview.Diagnostics, wantDiagnostics)
 	}
 	if peak := api.peakBlobs(); peak != gitHubFetchConcurrency {
 		t.Fatalf("concurrent SKILL.md reads peaked at %d, want %d", peak, gitHubFetchConcurrency)
 	}
 }
 
-func TestGitHubInstallFetchFetchesSelectedFilesConcurrentlyWithinLimit(t *testing.T) {
+func TestGitHubFetchFromPreviewReadsSelectedFilesConcurrentlyWithinLimit(t *testing.T) {
 	files := map[string]repoFile{}
 	for _, name := range []string{"first", "second", "third"} {
 		files[name+"/SKILL.md"] = repoFile{content: []byte(skillDocument(name, "body")), mode: 0o644}
@@ -473,16 +473,16 @@ func TestGitHubInstallFetchFetchesSelectedFilesConcurrentlyWithinLimit(t *testin
 	blockGitHubClone(t)
 
 	lib := openTestLibrary(t)
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.holdBlobs(50 * time.Millisecond)
-	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
-	if err != nil || len(installed) != 3 {
-		t.Fatalf("InstallFetch = %#v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
+	if err != nil || len(fetched) != 3 {
+		t.Fatalf("FetchFromPreview = %#v, %v", fetched, err)
 	}
-	for _, skill := range installed {
+	for _, skill := range fetched {
 		if len(skill.Files) != 6 {
 			t.Fatalf("%s has %d files, want 6", skill.Name, len(skill.Files))
 		}
@@ -625,7 +625,7 @@ type gitHubAPIMock struct {
 	rateLimitReset     string
 	requests           []gitHubAPIRequest
 	history            []gitHubFixture // Swap 之前服务过的各个 head
-	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸;用来把 InstallFetch 的物化阶段停在网络上。
+	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸;用来把 FetchFromPreview 的物化阶段停在网络上。
 	blobGate  *networkGate
 	gatedBlob string
 	// blobHold 非零时每个 blob 请求在途停留这么久,blobPeak 记下同时在途的最大数,用来观察并发度。
@@ -895,12 +895,12 @@ func assertGitHubPreviewRequests(t *testing.T, api *gitHubAPIMock, fx gitHubFixt
 	}
 	for _, sha := range blobs {
 		if !want[sha] {
-			t.Fatalf("preview fetched extra blob %s (%v)", sha, api.blobPaths())
+			t.Fatalf("preview requested extra blob %s (%v)", sha, api.blobPaths())
 		}
 	}
 }
 
-func assertGitHubInstallBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture, skillPath string) {
+func assertGitHubFetchBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture, skillPath string) {
 	t.Helper()
 	allowed := map[string]bool{}
 	for p, entry := range fx.paths {
@@ -913,24 +913,24 @@ func assertGitHubInstallBlobs(t *testing.T, api *gitHubAPIMock, fx gitHubFixture
 	}
 	for _, req := range api.snapshot() {
 		if strings.HasPrefix(req.path, "/repos/owner/repo/commits/") {
-			t.Fatal("InstallFetch re-resolved ref")
+			t.Fatal("FetchFromPreview re-resolved ref")
 		}
 		sha, ok := strings.CutPrefix(req.path, "/repos/owner/repo/git/blobs/")
 		if !ok {
 			continue
 		}
 		if !allowed[sha] {
-			t.Fatalf("InstallFetch fetched blob outside %s: %s (%v)", skillPath, sha, api.blobPaths())
+			t.Fatalf("FetchFromPreview requested blob outside %s: %s (%v)", skillPath, sha, api.blobPaths())
 		}
 	}
-	var fetched []string
+	var requested []string
 	for _, p := range api.blobPaths() {
 		if p != "" {
-			fetched = append(fetched, p)
+			requested = append(requested, p)
 		}
 	}
-	if len(fetched) == 0 {
-		t.Fatal("InstallFetch fetched no blobs")
+	if len(requested) == 0 {
+		t.Fatal("FetchFromPreview requested no blobs")
 	}
 }
 
@@ -938,7 +938,7 @@ func assertNoBlobPath(t *testing.T, api *gitHubAPIMock, filePath string) {
 	t.Helper()
 	for _, p := range api.blobPaths() {
 		if p == filePath {
-			t.Fatalf("fetched %s", filePath)
+			t.Fatalf("requested %s", filePath)
 		}
 	}
 }

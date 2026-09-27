@@ -1,6 +1,6 @@
-// Package library 用 SQLite 数据库统一管理 Agent Skills,并把激活的 skill
-// 投影(复制)到 Claude Code 与 Codex 的 skills 目录。数据库是唯一权威数据源,
-// 磁盘上的 skills 目录只是它的投影。
+// Package library 用 SQLite 数据库统一管理 Agent Skills:从来源预览、入库,再把 skill 安装
+// (复制)到 Claude Code 与 Codex 的 skills 目录。数据库是唯一权威数据源,
+// 磁盘上各 Agent 目录里的安装项只是它的副本。
 package library
 
 import (
@@ -25,20 +25,20 @@ const (
 	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法)。
 	// 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
 	InvalidArgument ErrorCode = "invalid_argument"
-	// NotFound 被引用的实体不存在(各类 ID、Fetch 句柄、候选名、远端不存在的 git ref)。
+	// NotFound 被引用的实体不存在(各类 ID、预览句柄、候选名、远端不存在的 git ref)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
-	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的激活目标)。
+	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的安装目标)。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
-	// Conflict 预览到执行之间状态已变(Sync 的远端身份;Update 读取来源期间该 skill 的当前版本已被别处改写)。
-	// 可重新预览 / 重新发起后再执行。
+	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间该 skill 的当前版本已被别处改写)。
+	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (激活目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组激活撑着的投影单独停用;同一 Fetch 句柄的安装正在进行;
-	// 重写被手动改过的投影而未选 Overwrite)。
-	// 组激活与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
-	// 加入成员时根目录不存在也是如此。重写时逐条的这类失败放进 RewriteResult.Error。
+	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;仅由组安装撑着的安装项单独卸载;同一预览句柄的入库正在进行;
+	// 重新安装被手动改过的安装项而未选 Overwrite)。
+	// 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
+	// 加入成员时根目录不存在也是如此。重新安装时逐条的这类失败放进 ReinstallResult.Error。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -78,8 +78,8 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径;NotFound:skill 当前版本里不存在的文件路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、撑着投影的 Group 名或被占用的投影名
-	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用激活目标的 skill;NotFound:不存在的 skill
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、撑着安装项的 Group 名或被占用的安装项名
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记的项目;FailedPrecondition:根目录不存在的项目
 }
 
@@ -115,18 +115,13 @@ const (
 	SourceLocal  SourceType = "local"  // 本地目录
 )
 
-// FileMode 记录文件是否可执行,投影到磁盘时据此设置权限位。
+// FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
 type FileMode string
 
 const (
 	ModeRegular    FileMode = "regular"
 	ModeExecutable FileMode = "executable"
 )
-
-// LocalSource 是本地安装的入参:一个本地目录路径。
-type LocalSource struct {
-	Path string `json:"path"`
-}
 
 // SourceLocator 是来源的定位信息;不同 SourceType 只使用其中一部分字段。
 type SourceLocator struct {
@@ -143,18 +138,18 @@ type Source struct {
 	ID          SourceID      `json:"id"`
 	Type        SourceType    `json:"type"`
 	Locator     SourceLocator `json:"locator"`
-	LastFetched time.Time     `json:"last_fetched"`  // 上次抓取时间(本地来源为零值)
+	LastFetched time.Time     `json:"last_fetched"`  // 来源内容最近一次被入库或经更新确认的时间
 	LastSeenRef string        `json:"last_seen_ref"` // 上次看到的远端标识(git commit 或内容哈希)
 }
 
-// SourceSpec 是发起 Fetch 时对远程来源的规格描述:只含类型与定位信息,不含
+// SourceSpec 是发起预览时对来源的规格描述:只含类型与定位信息,不含
 // 任何持久化字段(id / last_fetched / last_seen_ref),前端因此无法构造出非法的
-// Source 记录。本地目录安装走 Install,不使用 SourceSpec。
+// Source 记录。本地目录只用 Locator.Path,相对路径按当前工作目录解析为绝对路径。
 type SourceSpec struct {
 	Type    SourceType    `json:"type"`
 	Locator SourceLocator `json:"locator"`
-	Subpath string        `json:"subpath,omitempty"` // 本次 Fetch 的来源内目录,不进入 Source 身份
-	Names   []string      `json:"names,omitempty"`   // 本次 Fetch 的名称条件,不持久化
+	Subpath string        `json:"subpath,omitempty"` // 本次预览的来源内目录,仅 GitHub;不进入 Source 身份
+	Names   []string      `json:"names,omitempty"`   // 本次预览的名称条件,不持久化
 }
 
 // ResolveSourceOptions 提供明确的 ref 和来源内路径;带斜杠的 ref 应显式传入。
@@ -163,7 +158,8 @@ type ResolveSourceOptions struct {
 	Subpath string `json:"subpath,omitempty"`
 }
 
-// SearchSkill 是市场展示结果;来源仍须经 ResolveSource 和 Fetch 验证。
+// SearchSkill 是市场展示结果;来源仍须经 ResolveSource 和 PreviewSource 验证。
+// Installs 是 skills.sh 统计的安装量。
 type SearchSkill struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -172,7 +168,7 @@ type SearchSkill struct {
 	Installs    *int64 `json:"installs,omitempty"`
 }
 
-// SearchDiagnostic 描述无法转换为可安装 GitHub 来源的搜索条目。
+// SearchDiagnostic 描述无法转换为可预览 GitHub 来源的搜索条目。
 type SearchDiagnostic struct {
 	ID     string `json:"id"`
 	Reason string `json:"reason"`
@@ -204,9 +200,9 @@ type Skill struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source      Source    `json:"source"`
-	GitTreeSHA  string    `json:"git_tree_sha"`          // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
-	InstalledAt time.Time `json:"installed_at,omitzero"` // 最早版本的写入时间
-	UpdatedAt   time.Time `json:"updated_at,omitzero"`   // 当前版本的写入时间
+	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
+	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
 	Files       []File    `json:"files"`
 }
 
@@ -219,13 +215,13 @@ type SkillSummary struct {
 	Name            string            `json:"name"`
 	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source          Source            `json:"source"`
-	InstalledAt     time.Time         `json:"installed_at,omitzero"` // 最早版本的写入时间
-	UpdatedAt       time.Time         `json:"updated_at,omitzero"`   // 当前版本的写入时间
+	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
 }
 
-// FetchID 是一次 Fetch 会话的不透明句柄,由 Library 签发。它不持久化、不参与
+// PreviewID 是一次预览的不透明句柄,由 Library 签发。它不持久化、不参与
 // Sync、也不跨 Library 实例共享;进程退出、Close 或超时后被后端回收。
-type FetchID string
+type PreviewID string
 
 // AuditAvailability 说明一个候选在 skills.sh 上的审计查询结果处于哪种状态。
 type AuditAvailability string
@@ -257,39 +253,39 @@ type AuditEntry struct {
 	DetailURL  string      `json:"detail_url"`           // skills.sh 上该合作方的安全详情页
 }
 
-// SkillAudit 是一个 Fetch 候选在 skills.sh 上的审计概览:查看候选时经 FetchSkillAudit 按需查询,随会话缓存,
-// 只供展示。不入库、不参与 Sync、不影响安装。Entries 仅在 Availability 为 AuditAvailable 时非空。
+// SkillAudit 是一个预览候选在 skills.sh 上的审计概览:查看候选时经 CandidateAudit 按需查询,随预览缓存,
+// 只供展示。不入库、不参与 Sync、不影响入库。Entries 仅在 Availability 为 AuditAvailable 时非空。
 type SkillAudit struct {
 	Availability AuditAvailability `json:"availability"`
 	Entries      []AuditEntry      `json:"entries,omitempty"`
 }
 
-// FetchSkill 是安装前可浏览的候选;Path 相对来源根目录。skills.sh 审计不随候选返回,见 FetchSkillAudit。
-type FetchSkill struct {
-	Installed   SkillID `json:"installed,omitzero"`    // 同一来源同名的库内技能 ID;每次列出时现查,零值表示未安装
+// Candidate 是预览中可挑选入库的候选;Path 相对来源根目录。skills.sh 审计不随候选返回,见 CandidateAudit。
+type Candidate struct {
+	Fetched     SkillID `json:"fetched,omitzero"`      // 同一来源同名的库内技能 ID;每次列出时现查,零值表示未入库
 	PluginName  string  `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅供预览
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	Path        string  `json:"path"`
 }
 
-// CandidateDiagnostic 说明一个路径为何未成为可安装候选。
+// CandidateDiagnostic 说明一个路径为何未成为候选。
 type CandidateDiagnostic struct {
 	Path   string `json:"path"`
 	Reason string `json:"reason"`
 }
 
-// FetchCandidates 是一次暂存的候选与诊断;返回值不与会话共享可变数据。
-type FetchCandidates struct {
-	Skills      []FetchSkill          `json:"skills"`
+// PreviewCandidates 是一次预览的候选与诊断;返回值不与预览共享可变数据。
+type PreviewCandidates struct {
+	Skills      []Candidate           `json:"skills"`
 	Diagnostics []CandidateDiagnostic `json:"diagnostics,omitempty"`
 }
 
-// Fetch 是远程内容的暂存句柄及预览;此时尚无内容进入 Library。
-type Fetch struct {
-	ID  FetchID `json:"id"`
-	Ref string  `json:"ref"`
-	FetchCandidates
+// Preview 是一次预览的句柄及其候选;此时尚无内容进入 Library。
+type Preview struct {
+	ID  PreviewID `json:"id"`
+	Ref string    `json:"ref"`
+	PreviewCandidates
 }
 
 // SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
@@ -309,7 +305,7 @@ type VersionDiff struct {
 	Deleted []string `json:"deleted"` // 仅旧版本有
 }
 
-// UpdateResult 描述 Library 的更新结果;已有投影不会自动重写。
+// UpdateResult 描述 Library 的更新结果;已有安装项不会自动重新安装。
 type UpdateResult struct {
 	Skill   Skill `json:"skill"`
 	Changed bool  `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
@@ -359,7 +355,7 @@ const (
 	AgentCodex      AgentCode = "codex"
 )
 
-// Agent 是 Library 持有的一个投影目标 agent。暴露稳定代码与展示名称;布局规则与
+// Agent 是 Library 持有的一个安装目标 agent。暴露稳定代码与展示名称;布局规则与
 // 绝对目录不出现在这里,目录由 Library 按现行布局算出,调用方不自行拼路径。
 type Agent struct {
 	Code AgentCode `json:"code"`
@@ -374,10 +370,10 @@ const (
 	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
 )
 
-// Scope 是投影所在的层级身份,不含路径(见 ADR 0011)。目录由 Library 按该 Agent 的现行布局
-// 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Activate。
+// Scope 是安装项所在的层级身份,不含路径(见 ADR 0011)。目录由 Library 按该 Agent 的现行布局
+// 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
 // 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
-// ListProjections 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
+// ListInstallations 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
 // 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
 type Scope struct {
 	Kind      ScopeKind `json:"kind"`
@@ -395,82 +391,82 @@ func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
 	return Scope{Kind: ScopeProject, Agent: agent, ProjectID: projectID}
 }
 
-// ConflictPolicy 决定目标里有不是 Library 写入的内容时的处理方式:激活时是无记录的外来文件夹,
-// 重写时是被手动改过(modified)的投影。激活目标已被另一条投影占用(同一 skill 的另一 Scope,
-// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一条投影,
-// 需先 Deactivate 占用者。
+// ConflictPolicy 决定目标里有不是 Library 写入的内容时的处理方式:安装时是无记录的外来文件夹,
+// 重新安装时是被手动改过(modified)的安装项。安装目标已被另一个安装项占用(同一 skill 的另一 Scope,
+// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一个安装项,
+// 需先 Uninstall 占用者。
 type ConflictPolicy string
 
 const (
-	Fail      ConflictPolicy = "fail"      // 激活返回 AlreadyExists;重写该条 FailedPrecondition(默认)
-	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的投影
+	Fail      ConflictPolicy = "fail"      // 安装返回 AlreadyExists;重新安装该条 FailedPrecondition(默认)
+	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的安装项
 )
 
-type ActivateOptions struct {
+type InstallOptions struct {
 	OnConflict ConflictPolicy `json:"on_conflict"`
 }
 
-// ActivatePreviewStatus 是激活前的目标状态,不受执行时冲突策略影响;判定顺序与执行时一致。
-type ActivatePreviewStatus string
+// InstallPlanStatus 是安装前的目标状态,不受执行时冲突策略影响;判定顺序与执行时一致。
+type InstallPlanStatus string
 
 const (
-	ActivateReady     ActivatePreviewStatus = "ready"     // 目标不存在
-	ActivateProjected ActivatePreviewStatus = "projected" // 本技能在本作用域已有投影
-	ActivateOccupied  ActivatePreviewStatus = "occupied"  // 另一条投影占用目标
-	ActivateUntracked ActivatePreviewStatus = "untracked" // 目标存在但没有投影记录
-	ActivateDuplicate ActivatePreviewStatus = "duplicate" // 仅组预检:与组内其他成员同名且尚未投影,激活时会被跳过;优先于 occupied / untracked / ready
+	InstallReady            InstallPlanStatus = "ready"             // 目标不存在
+	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 本技能在本作用域已有安装项
+	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个安装项占用目标
+	InstallUntracked        InstallPlanStatus = "untracked"         // 目标存在但没有安装项记录
+	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:与组内其他成员同名且尚未安装,组安装时会被跳过;优先于 occupied / untracked / ready
 )
 
-// ActivatePreview 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
-type ActivatePreview struct {
-	SkillID         SkillID               `json:"skill_id"`
-	Name            string                `json:"name"`
-	Directory       string                `json:"directory"`
-	Target          string                `json:"target"`
-	Status          ActivatePreviewStatus `json:"status"`
-	OccupierSkillID SkillID               `json:"occupier_skill_id,omitzero"`
-	OccupierName    string                `json:"occupier_name,omitempty"`
+// InstallPlan 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
+type InstallPlan struct {
+	SkillID         SkillID           `json:"skill_id"`
+	Name            string            `json:"name"`
+	Directory       string            `json:"directory"`
+	Target          string            `json:"target"`
+	Status          InstallPlanStatus `json:"status"`
+	OccupierSkillID SkillID           `json:"occupier_skill_id,omitzero"`
+	OccupierName    string            `json:"occupier_name,omitempty"`
 }
 
-// GroupActivatePreview 按组成员顺序报告各自状态。同名成员里尚未投影的标为 duplicate,激活时会被跳过;
-// 已有投影的那个仍是 projected,照常只补组激活。DuplicateNames 列出组内重复的名字。
-type GroupActivatePreview struct {
-	Members        []ActivatePreview `json:"members"`
-	DuplicateNames []string          `json:"duplicate_names,omitempty"`
+// GroupInstallPlan 按组成员顺序报告各自状态。同名成员里尚未安装的标为 duplicate,组安装时会被跳过;
+// 已有安装项的那个仍是 installed,照常只补组安装。DuplicateNames 列出组内重复的名字。
+type GroupInstallPlan struct {
+	Members        []InstallPlan `json:"members"`
+	DuplicateNames []string      `json:"duplicate_names,omitempty"`
 }
 
-// Projection 是一条投影:skill 放进某个 Scope 目录里的文件夹,以及 Library 对它的记录。
-// 至少有一个激活(直接激活或组激活)撑着就存在,最后一个撤掉时移除。
+// Installation 是一个安装项:skill 放进某个 Scope 目录里的文件夹,以及 Library 对它的记录。
+// 至少有一个安装(直接安装或组安装)撑着就存在,最后一个撤掉时移除。
 // 记录只存 Scope 身份;Directory 是列表时按现行布局 Resolve 出的派生目录,
-// 不是 Activate 的输入(Activate 也不接受目录)。对照磁盘的投影状态由 InspectProjections 给出。
-type Projection struct {
+// 不是 Install 的输入(Install 也不接受目录)。对照磁盘的安装项状态由 InspectInstallations 给出。
+type Installation struct {
 	SkillID   SkillID   `json:"skill_id"`
 	Scope     Scope     `json:"scope"`
 	Directory string    `json:"directory"`
-	Direct    bool      `json:"direct"`              // 有直接激活撑着
-	Groups    []GroupID `json:"groups,omitempty"`    // 覆盖它的组激活所属的 Group:该 skill 是成员且组已激活到此 Scope,按 ID 升序
-	CreatedAt time.Time `json:"created_at,omitzero"` // 投影建立(首次激活)的时间。再次激活不更新
+	Direct    bool      `json:"direct"`              // 有直接安装撑着
+	Groups    []GroupID `json:"groups,omitempty"`    // 覆盖它的组安装所属的 Group:该 skill 是成员且组已安装到此 Scope,按 ID 升序
+	CreatedAt time.Time `json:"created_at,omitzero"` // 安装项建立(首次安装)的时间。再次安装不更新
 }
 
-// GroupActivation 是一个组激活:某 Group 激活到某 Scope,覆盖该组的当前成员(见 ADR 0007)。
+// GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0007)。
 // 它是独立的记录,空组或成员全被跳过时也存在;App 据此显示整组开关。
-type GroupActivation struct {
-	GroupID     GroupID   `json:"group_id"`
-	Scope       Scope     `json:"scope"`
-	ActivatedAt time.Time `json:"activated_at,omitzero"` // 首次激活时间。再次激活不更新
+type GroupInstall struct {
+	GroupID   GroupID   `json:"group_id"`
+	Scope     Scope     `json:"scope"`
+	CreatedAt time.Time `json:"created_at,omitzero"` // 组安装记录建立(首次组安装)的时间。再次组安装不更新
 }
 
-// GroupMemberOutcome 是组激活或加入成员时,一个成员在一个 Scope 上的结果。
+// GroupMemberOutcome 是组安装或加入成员时,一个成员在一个 Scope 上的结果。
 type GroupMemberOutcome string
 
 const (
-	MemberProjected        GroupMemberOutcome = "projected"         // 新建了投影
-	MemberAlreadyProjected GroupMemberOutcome = "already_projected" // 已有投影,只补上组激活,不写盘
-	MemberSkipped          GroupMemberOutcome = "skipped"           // 冲突跳过,原因见 Error;成员关系与组激活照常成立
+	MemberInstalled        GroupMemberOutcome = "installed"         // 新建了安装项
+	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已有安装项,只补上组安装,不写盘
+	MemberSkipped          GroupMemberOutcome = "skipped"           // 冲突跳过,原因见 Error;成员关系与组安装照常成立
 )
 
 // GroupMemberResult 是一个成员在一个 Scope 上的逐条结果,形状参考 UpdateCheck。
-// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一条投影占用(Details.SkillID / Name / Path)
+// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一个安装项占用(Details.SkillID / Name / Path)
 // 、组内同名(Details.Name 与共同的目标 Path)或作用域根目录不存在(仅加入成员;Details.Path 为根目录,项目带 ProjectID),
 // AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
 type GroupMemberResult struct {
@@ -480,57 +476,57 @@ type GroupMemberResult struct {
 	Error   *Error             `json:"error,omitempty"`
 }
 
-// ProjectionFilter 按技能、作用域缩小投影范围,两个条件都可选、可组合;供 RewriteProjections 与
-// InspectProjections 共用。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选。
+// InstallationFilter 按技能、作用域缩小安装项范围,两个条件都可选、可组合;供 Reinstall 与
+// InspectInstallations 共用。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选。
 // 未知技能、未知 Agent 或未登记项目返回 NotFound,Scope 组合不合法返回 InvalidArgument;
-// 已知但没有投影时是空结果。结果顺序与 ListProjections 一致。
-type ProjectionFilter struct {
+// 已知但没有安装项时是空结果。结果顺序与 ListInstallations 一致。
+type InstallationFilter struct {
 	SkillID SkillID `json:"skill_id,omitzero"`
 	Scope   *Scope  `json:"scope,omitempty"`
 }
 
-// RewriteOptions 控制重写。OnConflict 决定被手动改过(modified)的投影:默认 Fail 该条失败,Overwrite 覆盖。
-type RewriteOptions struct {
+// ReinstallOptions 控制重新安装。OnConflict 决定被手动改过(modified)的安装项:默认 Fail 该条失败,Overwrite 覆盖。
+type ReinstallOptions struct {
 	OnConflict ConflictPolicy `json:"on_conflict"`
 }
 
-// RewriteOutcome 是重写时一条投影的结果。
-type RewriteOutcome string
+// ReinstallOutcome 是重新安装时一个安装项的结果。
+type ReinstallOutcome string
 
 const (
-	Rewritten      RewriteOutcome = "rewritten" // 已按当前版本重写(含重新创建丢失的文件夹)
-	RewriteCurrent RewriteOutcome = "current"   // 已是当前版本,不写盘
-	RewriteFailed  RewriteOutcome = "failed"    // 未重写,原因见 Error;磁盘保持原样
+	Reinstalled      ReinstallOutcome = "reinstalled" // 已按当前版本重新安装(含重新创建丢失的文件夹)
+	ReinstallCurrent ReinstallOutcome = "current"     // 已是当前版本,不写盘
+	ReinstallFailed  ReinstallOutcome = "failed"      // 未重新安装,原因见 Error;磁盘保持原样
 )
 
-// RewriteResult 是一条投影的重写结果,形状与 GroupMemberResult 对齐。Error 仅在 RewriteFailed 时非空:
-// FailedPrecondition 为被手动改过且未选 Overwrite(Details.Path 为投影路径),或作用域根目录不存在
-// (Details.Path 为根目录,项目带 ProjectID);NotFound 为执行到该条时投影已不存在;其余为 I/O 等故障。
-type RewriteResult struct {
-	SkillID SkillID        `json:"skill_id"`
-	Scope   Scope          `json:"scope"`
-	Outcome RewriteOutcome `json:"outcome"`
-	Error   *Error         `json:"error,omitempty"`
+// ReinstallResult 是一个安装项的重新安装结果,形状与 GroupMemberResult 对齐。Error 仅在 ReinstallFailed 时非空:
+// FailedPrecondition 为被手动改过且未选 Overwrite(Details.Path 为安装项路径),或作用域根目录不存在
+// (Details.Path 为根目录,项目带 ProjectID);NotFound 为执行到该条时安装项已不存在;其余为 I/O 等故障。
+type ReinstallResult struct {
+	SkillID SkillID          `json:"skill_id"`
+	Scope   Scope            `json:"scope"`
+	Outcome ReinstallOutcome `json:"outcome"`
+	Error   *Error           `json:"error,omitempty"`
 }
 
-// ProjectionStatus 是一条投影对照磁盘后的状态。判定按此顺序,前一条命中即停:
+// InstallationStatus 是一个安装项对照磁盘后的状态。判定按此顺序,前一条命中即停:
 // Scope 目录不存在 → directory_missing;目标文件夹不存在 → missing;
 // 磁盘文件集 == 当前版本 → current;磁盘文件集 == 某个非当前版本(按 id 倒序) → stale;
 // 否则 modified(含非常规文件或空目录以外的异常)。
-type ProjectionStatus string
+type InstallationStatus string
 
 const (
-	ProjectionCurrent          ProjectionStatus = "current"           // 磁盘文件集 == 当前版本
-	ProjectionStale            ProjectionStatus = "stale"             // 磁盘文件集 == 某个非当前版本
-	ProjectionModified         ProjectionStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
-	ProjectionMissing          ProjectionStatus = "missing"           // Scope 目录存在,目标文件夹不存在
-	ProjectionDirectoryMissing ProjectionStatus = "directory_missing" // Scope 目录本身不存在
+	InstallationCurrent          InstallationStatus = "current"           // 磁盘文件集 == 当前版本
+	InstallationStale            InstallationStatus = "stale"             // 磁盘文件集 == 某个非当前版本
+	InstallationModified         InstallationStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
+	InstallationMissing          InstallationStatus = "missing"           // Scope 目录存在,目标文件夹不存在
+	InstallationDirectoryMissing InstallationStatus = "directory_missing" // Scope 目录本身不存在
 )
 
-// ProjectionInspection 是一条投影及其对照磁盘后的状态。
-type ProjectionInspection struct {
-	Projection
-	Status ProjectionStatus `json:"status"`
+// InstallationInspection 是一个安装项及其对照磁盘后的状态。
+type InstallationInspection struct {
+	Installation
+	Status InstallationStatus `json:"status"`
 }
 
 // Collection 是按 Source 自动聚合的 skill 集合;派生数据,数据库里没有对应表。
@@ -547,42 +543,42 @@ type RegisteredProject struct {
 	Path string    `json:"path"`
 }
 
-// ProjectedCopiesPolicy 决定移除 skill 或注销项目时,磁盘上的投影如何处理。
-type ProjectedCopiesPolicy string
+// InstallationsPolicy 决定移除 skill 或注销项目时,磁盘上的安装项文件夹如何处理。
+type InstallationsPolicy string
 
 const (
-	Keep   ProjectedCopiesPolicy = "keep"   // 保留磁盘上的投影,只删除数据库记录;必须显式选择
-	Remove ProjectedCopiesPolicy = "remove" // 连同磁盘上的投影一起删除(默认,空字符串同义)
+	Keep   InstallationsPolicy = "keep"   // 保留磁盘上的安装项文件夹,只删除数据库记录;必须显式选择
+	Remove InstallationsPolicy = "remove" // 连同磁盘上的安装项文件夹一起删除(默认,空字符串同义)
 )
 
 type RemoveSkillOptions struct {
-	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"` // 默认删除投影,只有显式 Keep 保留
+	Installations InstallationsPolicy `json:"installations"` // 默认删除安装项文件夹,只有显式 Keep 保留
 }
 
 type UnregisterProjectOptions struct {
-	ProjectedCopies ProjectedCopiesPolicy `json:"projected_copies"` // 默认删除投影,只有显式 Keep 保留
+	Installations InstallationsPolicy `json:"installations"` // 默认删除安装项文件夹,只有显式 Keep 保留
 }
 
-// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组激活的投影如何处理。与 ProjectedCopiesPolicy
-// 含义与默认值都不同:只影响因移出而没有任何激活撑着的投影,默认保留。
+// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组安装的安装项如何处理。与 InstallationsPolicy
+// 含义与默认值都不同:只影响因移出而没有任何安装撑着的安装项,默认保留。
 type MemberRemovalPolicy string
 
 const (
-	KeepProjection     MemberRemovalPolicy = "keep"     // 改为直接激活,磁盘不动(默认,空字符串同义)
-	WithdrawProjection MemberRemovalPolicy = "withdraw" // 不补直接激活,连同磁盘上的文件夹一起移除
+	KeepAsDirectInstall  MemberRemovalPolicy = "keep"     // 改为直接安装,磁盘不动(默认,空字符串同义)
+	WithdrawInstallation MemberRemovalPolicy = "withdraw" // 不补直接安装,连同磁盘上的文件夹一起移除
 )
 
 type RemoveFromGroupOptions struct {
-	Projections MemberRemovalPolicy `json:"projections"` // 默认 KeepProjection
+	UnbackedInstallations MemberRemovalPolicy `json:"unbacked_installations"` // 只管移出后没有任何安装撑着的安装项;默认 KeepAsDirectInstall
 }
 
 // RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
-// 预览时返回,执行时回传以绑定"用户确认的"与"实际推/拉的"是同一个远端对象。
+// 同步计划时返回,执行时回传以绑定"用户确认的"与"实际推/拉的"是同一个远端对象。
 type RemoteIdentity string
 
-// SyncPreview 是 Sync 推/拉执行前的预览:远端身份 + 相关校验提示,不改动本地库,
+// SyncPlan 是 Sync 推/拉执行前的只读报告:远端身份 + 相关校验提示,不改动本地库,
 // 也不提交推送。调用方据此确认后再带着 Remote 调用对应的执行方法。
-type SyncPreview struct {
+type SyncPlan struct {
 	Remote       RemoteIdentity `json:"remote"`        // 当前远端身份;RemoteExists 为 false 时无意义
 	RemoteExists bool           `json:"remote_exists"` // 远端是否已存在对象
 	SchemaOK     bool           `json:"schema_ok"`     // 仅 pull:远端库的 schema 是否可接受
@@ -590,7 +586,7 @@ type SyncPreview struct {
 }
 
 // SyncResult 是 Sync 推/拉成功后的结果:操作后的远端身份 + 可能的警告。
-// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘投影可能与新库不一致)。
+// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘上的安装项可能与新库不一致)。
 type SyncResult struct {
 	Remote   RemoteIdentity `json:"remote"`
 	Warnings []string       `json:"warnings,omitempty"`
@@ -599,41 +595,41 @@ type SyncResult struct {
 // Library 是未来 TUI 使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
 // 见 docs/adr/0004-backend-library-facade-seam.md。
 type Library interface {
-	// 安装与更新
+	// 预览、入库与更新
 
-	// ResolveSource 解析 GitHub 输入,省略 ref 时发现默认分支;只读且不创建 Fetch 会话。
+	// ResolveSource 解析 GitHub 输入,省略 ref 时发现默认分支;只读且不创建预览。
 	ResolveSource(ctx context.Context, input string, opts ResolveSourceOptions) (SourceSpec, error)
 	// SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
 	SearchSkills(ctx context.Context, query string) (SearchResult, error)
 
-	// Install 把一个本地目录作为 skill 安装入库(一次性,不经 Fetch 会话)。
-	Install(ctx context.Context, source LocalSource) (Skill, error)
-	// Fetch 按来源规格抓取远程内容到 Library 之外的临时暂存区,返回句柄与候选 skill
-	// 名清单;此时尚无内容进入 Library。GitHub 预览只取各候选 SKILL.md 并钉住当时的
-	// commit;URL / Store 仍一次下载完整归档。本地目录不走 Fetch。
-	// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响会话。
-	// 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在安装时返回 NotFound。
-	Fetch(ctx context.Context, spec SourceSpec) (Fetch, error)
-	// ListFetchSkills 列出暂存候选与诊断,并现查库内安装状态;未知或已失效句柄返回 NotFound。
-	ListFetchSkills(ctx context.Context, id FetchID) (FetchCandidates, error)
-	// FetchSkillAudit 按需向 skills.sh 查询一次 Fetch 中某个候选的审计,供查看单个候选时懒加载。
-	// 只供展示:不入库、不参与 Sync、不挡安装;查询失败降级为 AuditUnavailable,不返回错误。
-	// 结果随会话缓存,AuditUnavailable 不缓存、再次调用会重查。URL / Store 与非 github.com 来源
+	// PreviewSource 预览一个来源:发现其中的候选 skill,返回句柄与候选清单,此时尚无内容进入 Library。
+	// 预览钉住来源当时的内容:GitHub 只取各候选 SKILL.md 并钉住当时的 commit;URL / Store 一次下载完整归档;
+	// 本地目录把候选文件读进内存作为快照(候选文件累计超过 1000 个或 64 MiB 返回 SourceInvalid),
+	// 之后目录再被改动也不影响入库。本地来源的身份是该目录的绝对路径,同一目录下的技能归入同一 Collection。
+	// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响预览。
+	// 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在入库时返回 NotFound。
+	PreviewSource(ctx context.Context, spec SourceSpec) (Preview, error)
+	// ListCandidates 列出预览的候选与诊断,并现查各候选是否已入库;未知或已失效句柄返回 NotFound。
+	ListCandidates(ctx context.Context, id PreviewID) (PreviewCandidates, error)
+	// CandidateAudit 按需向 skills.sh 查询一次预览中某个候选的审计,供查看单个候选时懒加载。
+	// 只供展示:不入库、不参与 Sync、不挡入库;查询失败降级为 AuditUnavailable,不返回错误。
+	// 结果随预览缓存,AuditUnavailable 不缓存、再次调用会重查。URL / Store / 本地目录与非 github.com 来源
 	// 不在 skills.sh 收录范围,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
-	FetchSkillAudit(ctx context.Context, id FetchID, name string) (*SkillAudit, error)
-	// InstallFetch 从一次 Fetch 中选取 skill 原子提交入库(names 为空表示全部候选)。
-	// GitHub 来源可在 Fetch 已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
-	// 不跟随当前 HEAD。URL / Store 只读取暂存内容,不联网。要么所选 skill 全部入库,
-	// 要么库保持不变。成功后该 Fetch 句柄被丢弃(含未选候选),再次使用返回 NotFound;
-	// 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次安装尚在进行时,再次安装返回
-	// FailedPrecondition;联网期间不持库锁,其他 Fetch / 列表 / 激活不必等它。
-	InstallFetch(ctx context.Context, id FetchID, names []string) ([]Skill, error)
-	// Update 重新读取来源。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
+	CandidateAudit(ctx context.Context, id PreviewID, name string) (*SkillAudit, error)
+	// FetchFromPreview 从一次预览中选取候选原子提交入库(names 为空表示全部候选)。
+	// GitHub 来源可在预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
+	// 不跟随当前 HEAD。URL / Store / 本地目录只读取预览时的内容,不再读取来源。要么所选 skill 全部入库,
+	// 要么库保持不变。成功后该预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
+	// 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次入库尚在进行时,再次入库返回
+	// FailedPrecondition;联网期间不持库锁,其他预览 / 列表 / 安装不必等它。
+	FetchFromPreview(ctx context.Context, id PreviewID, names []string) ([]Skill, error)
+	// Update 重新读取来源,在其中按名字重新定位该 skill,不经预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
 	// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
 	// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
 	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
 	// URL / Store 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
-	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地仍比较文件。只更新 Library,不重写投影。
+	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地目录重新发现候选后比较文件。
+	// 只更新 Library,不重新安装已有安装项。
 	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
 	// (Details.SkillID),两者都不留下任何写入。
 	// 成功后已有 LastUpdateCheck 改为 current 并刷新确认时间;失败保留原记录,从未检查的仍为 nil。
@@ -652,7 +648,7 @@ type Library interface {
 	// URL / Store 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
 	// GitHub 无 SHA 的旧记录、本地来源以及 URL / Store 的完整响应,比较文件内容与可执行位。
 	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
-	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或投影。
+	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或安装项。
 	// 保存前复核当前版本和确认时间;版本变化或期间确认了不同结论返回 Conflict,被移除返回 NotFound。
 	// 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
 	// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
@@ -676,17 +672,17 @@ type Library interface {
 	// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
 	// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
 	RenameGroup(ctx context.Context, id GroupID, name string) (Group, error)
-	// DeleteGroup 删除分组及其全部组激活。非破坏性:仅由该组激活撑着的投影会先转为直接激活,
-	// 磁盘上的投影不会因删除分组而被移除(见 ADR 0007)。
+	// DeleteGroup 删除分组及其全部组安装。非破坏性:仅由该组安装撑着的安装项会先转为直接安装,
+	// 磁盘上的安装项不会因删除分组而被移除(见 ADR 0007)。
 	DeleteGroup(ctx context.Context, id GroupID) error
-	// AddSkillToGroup 加入成员,并投影到该组已激活的每个 Scope,按 ListGroupActivations 的顺序逐条返回结果。
-	// 某 Scope 已有该 skill 的投影时只补上组激活,不写盘;目标被占用、有未记录文件夹、与组内尚未投影的
+	// AddSkillToGroup 加入成员,并安装到该组已安装到的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
+	// 某 Scope 已有该 skill 的安装项时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的
 	// 成员同名或作用域根目录不存在时跳过该 Scope,成员关系照常成立。不带覆盖开关:要覆盖某个 Scope 的
-	// 未记录文件夹,先 PreviewActivateGroup 再对该 Scope 调 ActivateGroup(Overwrite)。已是成员返回 AlreadyExists。
+	// 未记录文件夹,先 PlanGroupInstall 再对该 Scope 调 InstallGroup(Overwrite)。已是成员返回 AlreadyExists。
 	// I/O 失败或取消时整次复原,连同成员关系。
 	AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) ([]GroupMemberResult, error)
-	// RemoveSkillFromGroup 移出成员;该 skill 在本组激活到的 Scope 上的投影失去本组的组激活。
-	// 因此没有任何激活撑着的投影按 opts 处理:keep 改为直接激活、磁盘不动;withdraw 连文件夹一起移除。
+	// RemoveSkillFromGroup 移出成员;该 skill 在本组已安装到的 Scope 上的安装项失去本组的组安装。
+	// 因此没有任何安装撑着的安装项按 opts 处理:keep 改为直接安装、磁盘不动;withdraw 连文件夹一起移除。
 	// 不是成员返回 NotFound。
 	RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) error
 	// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
@@ -699,7 +695,7 @@ type Library interface {
 
 	// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
 	ListSkills(ctx context.Context) ([]SkillSummary, error)
-	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上投影的去留。
+	// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上安装项文件夹的去留。
 	RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) error
 
 	// 项目与 Scope
@@ -707,59 +703,59 @@ type Library interface {
 	// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
 	// 不含布局规则或任何绝对目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
 	ListAgents(ctx context.Context) ([]Agent, error)
-	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可投影的 ProjectScope。
+	// RegisterProject 注册一个项目目录,使它与各 Agent 组成可安装的 ProjectScope。
 	RegisterProject(ctx context.Context, path string) (RegisteredProject, error)
 	ListRegisteredProjects(ctx context.Context) ([]RegisteredProject, error)
-	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部投影记录与组激活;
-	// opts 决定磁盘上投影的去留。
+	// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部安装项记录与组安装;
+	// opts 决定磁盘上安装项文件夹的去留。
 	UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) error
 	// Resolve 按 agents 表中该 Agent 的现行布局算出 Scope 对应的目录:全局相对 Open 时的用户
-	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生投影。
+	// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生安装项。
 	// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
 	// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
 	Resolve(ctx context.Context, scope Scope) (string, error)
 
-	// 激活与投影
+	// 安装与安装项
 	//
-	// 激活与预检方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
+	// 安装与安装计划方法都只接受 Scope 身份:目录由 Resolve 按现行布局算出,记录按身份落库,
 	// 未知 Agent 或未登记项目返回 NotFound。厂商改布局后只认现行目录,旧目录里的文件夹不管。
 
-	// PreviewActivate 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
-	// 作用域根目录不存在时与 Activate 一样返回 FailedPrecondition。
-	PreviewActivate(ctx context.Context, id SkillID, scope Scope) (ActivatePreview, error)
-	// Activate 为 skill 在 Scope 记一个直接激活并投影;本技能在本作用域已有投影时只补上直接激活,
-	// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重写)。作用域根目录(全局为用户主目录,
+	// PlanInstall 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
+	// 作用域根目录不存在时与 Install 一样返回 FailedPrecondition。
+	PlanInstall(ctx context.Context, id SkillID, scope Scope) (InstallPlan, error)
+	// Install 为 skill 在 Scope 记一个直接安装,并放入安装项;本技能在本作用域已有安装项时只补上直接安装,
+	// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重新安装)。作用域根目录(全局为用户主目录,
 	// 项目为已登记路径)不存在时返回 FailedPrecondition,Library 从不创建根目录,只创建其下的 Agent 布局目录。
-	Activate(ctx context.Context, id SkillID, scope Scope, opts ActivateOptions) error
-	// Deactivate 撤销直接激活;若仍有组激活撑着该投影,投影保留。
-	Deactivate(ctx context.Context, id SkillID, scope Scope) error
-	// PreviewActivateGroup 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
-	// 作用域根目录不存在时与 ActivateGroup 一样返回 FailedPrecondition。
-	PreviewActivateGroup(ctx context.Context, groupID GroupID, scope Scope) (GroupActivatePreview, error)
-	// ActivateGroup 在 Scope 记一个组激活(空组也记;已有则不变),并按成员顺序逐条返回结果:能投影的都投影,
-	// 已有投影的只补上组激活、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未投影(同名的都跳过)
-	// 的成员跳过,再次 ActivateGroup 可补齐。作用域根目录不存在时同 Activate 返回 FailedPrecondition,
-	// 不记组激活。其余失败(I/O、取消)时撤销本次全部改动,含组激活记录。
-	ActivateGroup(ctx context.Context, groupID GroupID, scope Scope, opts ActivateOptions) ([]GroupMemberResult, error)
-	// DeactivateGroup 删除该组在此 Scope 的组激活;不再有任何激活撑着的成员投影会被移除,失败时恢复整组状态。
-	// 该组未激活到此 Scope 返回 NotFound。
-	DeactivateGroup(ctx context.Context, groupID GroupID, scope Scope) error
-	// ListGroupActivations 列出全部组激活,按 Group、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
-	ListGroupActivations(ctx context.Context) ([]GroupActivation, error)
-	// ListProjections 列出全部投影:Scope 身份、按现行布局派生的目录及撑着各投影的激活。
-	ListProjections(ctx context.Context) ([]Projection, error)
-	// InspectProjections 对照磁盘给出 filter 范围内每条投影的状态;不给条件时巡检整库。只读:不改库、
-	// 不改磁盘、不创建目录。结果顺序与 ListProjections 相同,每条内嵌完整 Projection,是整库巡检结果的
-	// 子集且逐条一致。判定规则见 ProjectionStatus,筛选规则见 ProjectionFilter。
-	InspectProjections(ctx context.Context, filter ProjectionFilter) ([]ProjectionInspection, error)
-	// RewriteProjections 把 filter 范围内已有投影记录的投影改回技能的当前版本,不改变任何激活,
-	// Projection.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重写整库。
-	// 逐条执行、逐条返回结果(顺序同 ListProjections):已是当前版本的不写盘;stale 原子替换;missing /
+	Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) error
+	// Uninstall 撤销直接安装;若仍有组安装撑着该安装项,安装项保留。
+	Uninstall(ctx context.Context, id SkillID, scope Scope) error
+	// PlanGroupInstall 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
+	// 作用域根目录不存在时与 InstallGroup 一样返回 FailedPrecondition。
+	PlanGroupInstall(ctx context.Context, groupID GroupID, scope Scope) (GroupInstallPlan, error)
+	// InstallGroup 在 Scope 记一个组安装(空组也记;已有则不变),并按成员顺序逐条返回结果:能安装的都安装,
+	// 已有安装项的只补上组安装、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未安装(同名的都跳过)
+	// 的成员跳过,再次 InstallGroup 可补齐。作用域根目录不存在时同 Install 返回 FailedPrecondition,
+	// 不记组安装。其余失败(I/O、取消)时撤销本次全部改动,含组安装记录。
+	InstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts InstallOptions) ([]GroupMemberResult, error)
+	// UninstallGroup 删除该组在此 Scope 的组安装;不再有任何安装撑着的成员安装项会被移除,失败时恢复整组状态。
+	// 该组未组安装到此 Scope 返回 NotFound。
+	UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) error
+	// ListGroupInstalls 列出全部组安装,按 Group、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
+	ListGroupInstalls(ctx context.Context) ([]GroupInstall, error)
+	// ListInstallations 列出全部安装项:Scope 身份、按现行布局派生的目录及撑着各安装项的安装。
+	ListInstallations(ctx context.Context) ([]Installation, error)
+	// InspectInstallations 对照磁盘给出 filter 范围内每个安装项的状态;不给条件时巡检整库。只读:不改库、
+	// 不改磁盘、不创建目录。结果顺序与 ListInstallations 相同,每条内嵌完整 Installation,是整库巡检结果的
+	// 子集且逐条一致。判定规则见 InstallationStatus,筛选规则见 InstallationFilter。
+	InspectInstallations(ctx context.Context, filter InstallationFilter) ([]InstallationInspection, error)
+	// Reinstall 把 filter 范围内已有记录的安装项改回技能的当前版本,不改变撑着它们的安装,
+	// Installation.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重新安装整库。
+	// 逐条执行、逐条返回结果(顺序同 ListInstallations):已是当前版本的不写盘;stale 原子替换;missing /
 	// directory_missing 重新创建(可建 Agent 布局目录,作用域根目录不存在时该条失败且不创建任何目录);
 	// 被手动改过的默认该条失败,opts.OnConflict 为 Overwrite 时覆盖。每条各自原子、单独持独占锁,
-	// 一条失败不影响其他条。组激活时被跳过的成员没有投影记录,不在结果里(补齐用 ActivateGroup)。
+	// 一条失败不影响其他条。组安装时被跳过的成员没有安装项记录,不在结果里(补齐用 InstallGroup)。
 	// 整体取消时返回已完成的各条与 Canceled 错误,未执行的不出现在结果里。
-	RewriteProjections(ctx context.Context, filter ProjectionFilter, opts RewriteOptions) ([]RewriteResult, error)
+	Reinstall(ctx context.Context, filter InstallationFilter, opts ReinstallOptions) ([]ReinstallResult, error)
 
 	// 浏览
 
@@ -768,16 +764,16 @@ type Library interface {
 
 	// 同步
 
-	// PreviewSyncPush 报告推送目标的当前远端身份(若有),以便调用方知道可能覆盖远端。
-	PreviewSyncPush(ctx context.Context) (SyncPreview, error)
-	// PreviewSyncPull 报告远端库的身份与 schema 是否可接受,不替换本地库。
-	PreviewSyncPull(ctx context.Context) (SyncPreview, error)
-	// SyncPush 把整个数据库推送到 S3;expected 为预览时的远端身份,若远端已变则返回
-	// Conflict,调用方须重新预览。
+	// PlanSyncPush 生成推送的同步计划:报告推送目标的当前远端身份(若有),以便调用方知道可能覆盖远端。
+	PlanSyncPush(ctx context.Context) (SyncPlan, error)
+	// PlanSyncPull 生成拉取的同步计划:报告远端库的身份与 schema 是否可接受,不替换本地库。
+	PlanSyncPull(ctx context.Context) (SyncPlan, error)
+	// SyncPush 把整个数据库推送到 S3;expected 为同步计划里的远端身份,若远端已变则返回
+	// Conflict,调用方须重新生成同步计划。
 	SyncPush(ctx context.Context, expected RemoteIdentity) (SyncResult, error)
 	// SyncPull 从 S3 拉回整库并原子替换本地,替换前校验 schema 并重映射项目路径;
-	// expected 为预览时的远端身份,若远端已变则返回 Conflict。
-	// 不重建或清理磁盘投影,结果可能带警告提示投影相对新库已过时。
+	// expected 为同步计划里的远端身份,若远端已变则返回 Conflict。
+	// 不重建或清理磁盘上的安装项,结果可能带警告提示安装项相对新库已过时。
 	SyncPull(ctx context.Context, expected RemoteIdentity) (SyncResult, error)
 
 	Close() error

@@ -14,24 +14,24 @@ import (
 )
 
 // 在观察到指定成员的磁盘改动后同步取消,不依赖调度时序或内部故障注入接口。
-type cancelAfterProjection struct {
+type cancelAfterPlacement struct {
 	context.Context
 	cancel  context.CancelFunc
 	changed func() bool
 }
 
-func (c cancelAfterProjection) Err() error {
+func (c cancelAfterPlacement) Err() error {
 	if c.changed() {
 		c.cancel()
 	}
 	return c.Context.Err()
 }
 
-func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
-	for _, deactivate := range []bool{false, true} {
-		name := "activate"
-		if deactivate {
-			name = "deactivate"
+func TestGroupMidBatchCancellationRestoresInstallationsAndOrigins(t *testing.T) {
+	for _, uninstall := range []bool{false, true} {
+		name := "install"
+		if uninstall {
+			name = "uninstall"
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
@@ -49,8 +49,8 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			var skills []library.Skill
 			for _, name := range []string{"first", "second", "direct", "shared"} {
 				source := filepath.Join(t.TempDir(), name)
-				writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
-				skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+				writeLocalSkill(t, source, name)
+				skill, err := fetchLocalDir(ctx, lib, source)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -62,7 +62,7 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 				}
 			}
 			for _, skill := range skills[2:] {
-				if err := lib.Activate(ctx, skill.ID, scope, library.ActivateOptions{}); err != nil {
+				if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -73,23 +73,23 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			if _, err := lib.AddSkillToGroup(ctx, other.ID, skills[3].ID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := lib.ActivateGroup(ctx, other.ID, scope, library.ActivateOptions{}); err != nil {
+			if _, err := lib.InstallGroup(ctx, other.ID, scope, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			firstPath := filepath.Join(directory, "first", "SKILL.md")
-			if deactivate {
-				if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{}); err != nil {
+			if uninstall {
+				if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{}); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				// 首个成员覆盖未记录的文件夹,第二个成员原本没有投影;shared 已有投影,不写盘。
+				// 首个成员覆盖未记录的文件夹,第二个成员原本没有安装项;shared 已有安装项,不写盘。
 				writeFile(t, firstPath, []byte("original local content"), 0o644)
 			}
-			before, err := lib.ListProjections(ctx)
+			before, err := lib.ListInstallations(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
-			activationsBefore, err := lib.ListGroupActivations(ctx)
+			installsBefore, err := lib.ListGroupInstalls(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,43 +99,43 @@ func TestGroupMidBatchCancellationRestoresProjectionsAndOrigins(t *testing.T) {
 			}
 			base, cancel := context.WithCancel(ctx)
 			defer cancel()
-			fault := cancelAfterProjection{Context: base, cancel: cancel, changed: func() bool {
+			fault := cancelAfterPlacement{Context: base, cancel: cancel, changed: func() bool {
 				content, err := os.ReadFile(firstPath)
-				if deactivate {
+				if uninstall {
 					return errors.Is(err, os.ErrNotExist)
 				}
 				// 已覆盖第一个成员并新增第二个成员,让回滚同时验证恢复与移除。
 				content, err = os.ReadFile(filepath.Join(directory, "second", "SKILL.md"))
-				return err == nil && string(content) == "second"
+				return err == nil && string(content) == skillDocument("second", "second")
 			}}
-			if deactivate {
-				err = lib.DeactivateGroup(fault, group.ID, scope)
+			if uninstall {
+				err = lib.UninstallGroup(fault, group.ID, scope)
 			} else {
-				_, err = lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+				_, err = lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
 			}
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("mid-batch error = %v, want cancellation", err)
 			}
-			after, err := lib.ListProjections(ctx)
+			after, err := lib.ListInstallations(ctx)
 			if err != nil || !reflect.DeepEqual(before, after) {
-				t.Fatalf("projections changed: before=%#v after=%#v err=%v", before, after, err)
+				t.Fatalf("installations changed: before=%#v after=%#v err=%v", before, after, err)
 			}
-			activationsAfter, err := lib.ListGroupActivations(ctx)
-			if err != nil || !reflect.DeepEqual(activationsBefore, activationsAfter) {
-				t.Fatalf("group activations changed: before=%#v after=%#v err=%v", activationsBefore, activationsAfter, err)
+			installsAfter, err := lib.ListGroupInstalls(ctx)
+			if err != nil || !reflect.DeepEqual(installsBefore, installsAfter) {
+				t.Fatalf("group installs changed: before=%#v after=%#v err=%v", installsBefore, installsAfter, err)
 			}
 			content, err := os.ReadFile(firstPath)
 			if err != nil || string(content) != string(original) {
-				t.Fatalf("first projection not restored: %q, %v", content, err)
+				t.Fatalf("first installation not restored: %q, %v", content, err)
 			}
 			for _, skill := range skills[1:] {
 				content, err := os.ReadFile(filepath.Join(directory, skill.Name, "SKILL.md"))
-				if !deactivate && skill.Name == "second" {
+				if !uninstall && skill.Name == "second" {
 					if !errors.Is(err, os.ErrNotExist) {
-						t.Fatalf("partial projection remains: %v", err)
+						t.Fatalf("partial installation remains: %v", err)
 					}
-				} else if err != nil || string(content) != skill.Name {
-					t.Fatalf("projection %s changed: %q, %v", skill.Name, content, err)
+				} else if err != nil || string(content) != skillDocument(skill.Name, skill.Name) {
+					t.Fatalf("installation %s changed: %q, %v", skill.Name, content, err)
 				}
 			}
 			requireNoStagedEntries(t, directory)
@@ -148,8 +148,8 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "example")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("example"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	writeLocalSkill(t, source, "example")
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,15 +173,15 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err := os.Symlink(missing, target); err != nil {
 		t.Fatal(err)
 	}
-	results, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Fail})
+	results, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{OnConflict: library.Fail})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{skippedMember(skill.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: target})})
 	if got, err := os.Readlink(target); err != nil || got != missing {
 		t.Fatalf("conflict changed: %q, %v", got, err)
 	}
-	if _, err := lib.ActivateGroup(ctx, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite}); err != nil {
+	if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{OnConflict: library.Overwrite}); err != nil {
 		t.Fatal(err)
 	}
-	if content, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(content) != "example" {
+	if content, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(content) != skillDocument("example", "example") {
 		t.Fatalf("Overwrite = %q, %v", content, err)
 	}
 	if err := os.RemoveAll(target); err != nil {
@@ -190,19 +190,19 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err := os.Symlink(missing, target); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.DeactivateGroup(ctx, group.ID, scope); err != nil {
+	if err := lib.UninstallGroup(ctx, group.ID, scope); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("deactivation left dangling projection: %v", err)
+		t.Fatalf("uninstall left dangling installation: %v", err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	if err != nil || len(projections) != 0 {
-		t.Fatalf("projections = %#v, %v", projections, err)
+	installations, err := lib.ListInstallations(ctx)
+	if err != nil || len(installations) != 0 {
+		t.Fatalf("installations = %#v, %v", installations, err)
 	}
 }
 
-func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
+func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
@@ -218,8 +218,8 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	var first library.Skill
 	for _, name := range []string{"first", "second"} {
 		source := filepath.Join(t.TempDir(), name)
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte(name), 0o644)
-		skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, name)
+		skill, err := fetchLocalDir(ctx, lib, source)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,15 +232,15 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	}
 	target := filepath.Join(directory, first.Name, "SKILL.md")
 	writeFile(t, target, []byte("original"), 0o644)
-	projected, release := make(chan struct{}), make(chan struct{})
+	installed, release := make(chan struct{}), make(chan struct{})
 	resume := sync.OnceFunc(func() { close(release) })
 	defer resume()
-	pause := sync.OnceFunc(func() { close(projected); <-release })
+	pause := sync.OnceFunc(func() { close(installed); <-release })
 	base, cancel := context.WithCancel(ctx)
 	defer cancel()
-	fault := cancelAfterProjection{Context: base, cancel: cancel, changed: func() bool {
+	fault := cancelAfterPlacement{Context: base, cancel: cancel, changed: func() bool {
 		content, err := os.ReadFile(target)
-		if err != nil || string(content) != "first" {
+		if err != nil || string(content) != skillDocument("first", "first") {
 			return false
 		}
 		pause()
@@ -248,19 +248,19 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	}}
 	groupDone := make(chan error, 1)
 	go func() {
-		_, err := lib.ActivateGroup(fault, group.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		_, err := lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
 		groupDone <- err
 	}()
 	select {
-	case <-projected:
+	case <-installed:
 	case <-time.After(5 * time.Second):
-		t.Fatal("group never projected first member")
+		t.Fatal("group never installed first member")
 	}
 	directDone := make(chan error, 1)
 	go func() {
-		directDone <- lib.Activate(ctx, first.ID, scope, library.ActivateOptions{OnConflict: library.Overwrite})
+		directDone <- lib.Install(ctx, first.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
 	}()
-	// 旧实现允许直接激活在回滚前提交;串行实现则等分组回滚后再完成。
+	// 旧实现允许直接安装在回滚前提交;串行实现则等分组回滚后再完成。
 	var directErr error
 	finished := false
 	select {
@@ -278,15 +278,15 @@ func TestGroupRollbackPreservesConcurrentActivation(t *testing.T) {
 	if directErr != nil {
 		t.Fatal(directErr)
 	}
-	if content, err := os.ReadFile(target); err != nil || string(content) != "first" {
-		t.Fatalf("successful direct activation projection lost: %q, %v", content, err)
+	if content, err := os.ReadFile(target); err != nil || string(content) != skillDocument("first", "first") {
+		t.Fatalf("successful direct install installation lost: %q, %v", content, err)
 	}
-	projections, err := lib.ListProjections(ctx)
-	want := []library.Projection{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
-	if err != nil || !reflect.DeepEqual(withoutCreatedAt(projections), want) {
-		t.Fatalf("projections = %#v, %v; want %#v", projections, err, want)
+	installations, err := lib.ListInstallations(ctx)
+	want := []library.Installation{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(installations), want) {
+		t.Fatalf("installations = %#v, %v; want %#v", installations, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "second")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("partial group projection remains: %v", err)
+		t.Fatalf("partial group installation remains: %v", err)
 	}
 }

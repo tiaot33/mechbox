@@ -14,28 +14,28 @@ import (
 func TestSkillFilesMatchFullSkill(t *testing.T) {
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "files")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# 中文\n"), 0o644)
+	writeLocalSkill(t, source, "# 中文\n")
 	writeFile(t, filepath.Join(source, "assets", "data.bin"), []byte{0, 255, 1}, 0o644)
 	writeFile(t, filepath.Join(source, "empty.txt"), []byte{}, 0o644)
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
-	installed, err := lib.Install(t.Context(), library.LocalSource{Path: source})
+	fetched, err := fetchLocalDir(t.Context(), lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireFilesMatchGetSkill(t, lib, installed.ID)
+	requireFilesMatchGetSkill(t, lib, fetched.ID)
 }
 
 func TestSkillFilesReadCurrentVersion(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "changing")
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("old"), 0o644)
+	writeLocalSkill(t, source, "old")
 	writeFile(t, filepath.Join(source, "removed.txt"), []byte("removed"), 0o644)
-	skill, err := lib.Install(ctx, library.LocalSource{Path: source})
+	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("新版正文"), 0o644)
+	writeLocalSkill(t, source, "新版正文")
 	writeFile(t, filepath.Join(source, "new.sh"), []byte("new"), 0o755)
 	if err := os.Remove(filepath.Join(source, "removed.txt")); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestSkillFilesReadCurrentVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []library.FileMetadata{
-		{Path: "SKILL.md", Size: 12, Mode: library.ModeRegular},
+		{Path: "SKILL.md", Size: int64(len(skillDocument("changing", "新版正文"))), Mode: library.ModeRegular},
 		{Path: "new.sh", Size: 3, Mode: library.ModeExecutable},
 	}
 	got, err := lib.ListSkillFiles(ctx, skill.ID)
@@ -59,7 +59,7 @@ func TestSkillFilesReadCurrentVersion(t *testing.T) {
 func TestSkillFilesReportMissingAndCanceled(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
-	skill := installNamedSkill(t, lib, "present")
+	skill := fetchNamedSkill(t, lib, "present")
 	// 路径按原样精确匹配,不做归一化。
 	for _, path := range []string{"missing.txt", "", "../SKILL.md", "./SKILL.md", "/SKILL.md"} {
 		_, err := lib.GetSkillFile(ctx, skill.ID, path)
@@ -81,11 +81,20 @@ func TestSkillFilesReportMissingAndCanceled(t *testing.T) {
 
 func TestSkillFilesOfEmptySkill(t *testing.T) {
 	ctx := t.Context()
-	lib := openTestLibrary(t)
-	empty, err := lib.Install(ctx, library.LocalSource{Path: t.TempDir()})
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib := openLibraryAt(t, path)
+	source := filepath.Join(t.TempDir(), "empty")
+	writeLocalSkill(t, source, "")
+	empty, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 入库的候选总带 SKILL.md;直接清空版本的文件清单,构造一个没有文件的当前版本。
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	editLibraryFixture(t, path, `DELETE FROM version_files`)
+	lib = openLibraryAt(t, path)
 	files, err := lib.ListSkillFiles(ctx, empty.ID)
 	if err != nil || len(files) != 0 {
 		t.Fatalf("empty skill files = %#v, %v", files, err)

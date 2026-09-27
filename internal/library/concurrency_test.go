@@ -42,7 +42,7 @@ func mustFinishBeforeRelease(t *testing.T, gate *networkGate, what string, run f
 	}
 }
 
-func TestUpdateNetworkPhaseDoesNotBlockActivationOrListing(t *testing.T) {
+func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	gate := newNetworkGate()
 	var archive atomic.Pointer[[]byte]
@@ -50,8 +50,8 @@ func TestUpdateNetworkPhaseDoesNotBlockActivationOrListing(t *testing.T) {
 	archive.Store(&old)
 	server := serveGatedArchive(t, gate, func() []byte { return *archive.Load() })
 	lib := openTestLibrary(t)
-	demo := installURLSkill(t, lib, server.URL+"/skills.zip", "demo")
-	other := installNamedSkill(t, lib, "other")
+	demo := fetchURLSkill(t, lib, server.URL+"/skills.zip", "demo")
+	other := fetchNamedSkill(t, lib, "other")
 
 	updated := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
 	archive.Store(&updated)
@@ -62,8 +62,8 @@ func TestUpdateNetworkPhaseDoesNotBlockActivationOrListing(t *testing.T) {
 	wg.Go(func() { result, updateErr = lib.Update(t.Context(), demo.ID) })
 	gate.awaitEntered(t)
 
-	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
-		return lib.Activate(ctx, other.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
+	mustFinishBeforeRelease(t, gate, "Install", func(ctx context.Context) error {
+		return lib.Install(ctx, other.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{})
 	})
 	mustFinishBeforeRelease(t, gate, "ListSkills", func(ctx context.Context) error {
 		_, err := lib.ListSkills(ctx)
@@ -80,7 +80,7 @@ func TestUpdateNetworkPhaseDoesNotBlockActivationOrListing(t *testing.T) {
 	}
 }
 
-func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringFetch(t *testing.T) {
+func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 	for _, remoteChanged := range []bool{true, false} {
 		name := "unchanged remote"
 		if remoteChanged {
@@ -98,7 +98,7 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringFetch(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = lib.Close() })
-			demo := installURLSkill(t, lib, server.URL+"/skills.zip", "demo")
+			demo := fetchURLSkill(t, lib, server.URL+"/skills.zip", "demo")
 			lastFetched := readLibraryScalar(t, path, `SELECT last_fetched FROM sources WHERE id = ?`, demo.Source.ID)
 			blobs := readLibraryScalar(t, path, `SELECT count(*) FROM blobs`)
 
@@ -126,7 +126,7 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringFetch(t *testing.T) {
 				t.Fatalf("skills after racing removal = %v, %v; want none", skills, err)
 			}
 			if got := readLibraryScalar(t, path, `SELECT last_fetched FROM sources WHERE id = ?`, demo.Source.ID); got != lastFetched {
-				t.Fatalf("orphan source last_fetched rewritten: %q -> %q", lastFetched, got)
+				t.Fatalf("orphan source last_fetched overwritten: %q -> %q", lastFetched, got)
 			}
 			if got := readLibraryScalar(t, path, `SELECT count(*) FROM blobs`); got != blobs {
 				t.Fatalf("blobs written by a failed Update: %s -> %s", blobs, got)
@@ -152,7 +152,7 @@ func TestUpdateReportsSkillRemovedByAnotherInstanceAsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
-	demo := installURLSkill(t, first, server.URL+"/skills.zip", "demo")
+	demo := fetchURLSkill(t, first, server.URL+"/skills.zip", "demo")
 
 	gate.arm()
 	var wg sync.WaitGroup
@@ -174,7 +174,7 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 	archive.Store(&old)
 	server := serveGatedArchive(t, gate, func() []byte { return *archive.Load() })
 	lib := openTestLibrary(t)
-	demo := installURLSkill(t, lib, server.URL+"/skills.zip", "demo")
+	demo := fetchURLSkill(t, lib, server.URL+"/skills.zip", "demo")
 
 	updated := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
 	archive.Store(&updated)
@@ -206,14 +206,14 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 	}
 }
 
-func TestCheckUpdatesNetworkPhaseDoesNotBlockActivation(t *testing.T) {
+func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	gate := newNetworkGate()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := serveGatedArchive(t, gate, func() []byte { return archive })
 	lib := openTestLibrary(t)
-	demo := installURLSkill(t, lib, server.URL+"/skills.zip", "demo")
-	other := installNamedSkill(t, lib, "other")
+	demo := fetchURLSkill(t, lib, server.URL+"/skills.zip", "demo")
+	other := fetchNamedSkill(t, lib, "other")
 
 	gate.arm()
 	var wg sync.WaitGroup
@@ -222,8 +222,8 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockActivation(t *testing.T) {
 	wg.Go(func() { checks, batchErr = lib.CheckUpdates(t.Context(), []library.SkillID{demo.ID}) })
 	gate.awaitEntered(t)
 
-	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
-		return lib.Activate(ctx, other.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
+	mustFinishBeforeRelease(t, gate, "Install", func(ctx context.Context) error {
+		return lib.Install(ctx, other.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{})
 	})
 
 	gate.open()
@@ -233,7 +233,7 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockActivation(t *testing.T) {
 	}
 }
 
-func TestInstallFetchMaterializationDoesNotBlockOtherFetchesOrActivation(t *testing.T) {
+func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
@@ -243,59 +243,59 @@ func TestInstallFetchMaterializationDoesNotBlockOtherFetchesOrActivation(t *test
 	fx := inspectGitHubRepo(t, repo)
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
-	// 只拦 first/notes.md 这个 blob:它只在安装物化时才取,预览(各候选的 SKILL.md)不受影响。
+	// 只拦 first/notes.md 这个 blob:它只在入库物化时才取,预览(各候选的 SKILL.md)不受影响。
 	gate := newNetworkGate()
 	api.gateBlob(gate, fx.blobSHA("first/notes.md"))
 
 	lib := openTestLibrary(t)
-	local := installNamedSkill(t, lib, "local")
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	local := fetchNamedSkill(t, lib, "local")
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	gate.arm()
 	var wg sync.WaitGroup
-	var installed []library.Skill
-	var installErr error
-	wg.Go(func() { installed, installErr = lib.InstallFetch(t.Context(), fetch.ID, []string{"first"}) })
+	var fetched []library.Skill
+	var fetchErr error
+	wg.Go(func() { fetched, fetchErr = lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"}) })
 	gate.awaitEntered(t)
 
-	mustFinishBeforeRelease(t, gate, "second InstallFetch on the same handle", func(ctx context.Context) error {
-		_, err := lib.InstallFetch(ctx, fetch.ID, []string{"second"})
+	mustFinishBeforeRelease(t, gate, "second FetchFromPreview on the same handle", func(ctx context.Context) error {
+		_, err := lib.FetchFromPreview(ctx, preview.ID, []string{"second"})
 		if !library.IsCode(err, library.FailedPrecondition) {
-			return fmt.Errorf("busy handle install = %v, want FailedPrecondition", err)
+			return fmt.Errorf("busy handle fetch = %v, want FailedPrecondition", err)
 		}
 		return nil
 	})
-	mustFinishBeforeRelease(t, gate, "Fetch of another Source", func(ctx context.Context) error {
+	mustFinishBeforeRelease(t, gate, "PreviewSource of another Source", func(ctx context.Context) error {
 		// 同一仓库钉到 commit 是另一个 Source;它的预览只取各候选的 SKILL.md,不经受拦的 blob。
 		pinned := gitHubSpec()
 		pinned.Locator.Branch = fx.commit
-		other, err := lib.Fetch(ctx, pinned)
+		other, err := lib.PreviewSource(ctx, pinned)
 		if err != nil {
 			return err
 		}
 		if other.ID == "" || len(other.Skills) != 2 {
-			return fmt.Errorf("other Fetch = %#v, want handle and both candidates", other)
+			return fmt.Errorf("other PreviewSource = %#v, want handle and both candidates", other)
 		}
 		return nil
 	})
-	mustFinishBeforeRelease(t, gate, "Activate", func(ctx context.Context) error {
-		return lib.Activate(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
+	mustFinishBeforeRelease(t, gate, "Install", func(ctx context.Context) error {
+		return lib.Install(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{})
 	})
 
 	gate.open()
 	wg.Wait()
-	if installErr != nil || len(installed) != 1 || installed[0].Name != "first" {
-		t.Fatalf("InstallFetch after release = %#v, %v", installed, installErr)
+	if fetchErr != nil || len(fetched) != 1 || fetched[0].Name != "first" {
+		t.Fatalf("FetchFromPreview after release = %#v, %v", fetched, fetchErr)
 	}
-	if _, err := lib.InstallFetch(t.Context(), fetch.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("consumed handle reused: %v; want NotFound", err)
 	}
 }
 
-func TestCloseDoesNotWaitForInstallFetchMaterialization(t *testing.T) {
+func TestCloseDoesNotWaitForFetchFromPreviewMaterialization(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md": {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/notes.md": {content: []byte("first notes"), mode: 0o644},
@@ -310,29 +310,29 @@ func TestCloseDoesNotWaitForInstallFetchMaterialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	preview, err := lib.PreviewSource(t.Context(), gitHubSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	gate.arm()
 	var wg sync.WaitGroup
-	var installErr error
-	wg.Go(func() { _, installErr = lib.InstallFetch(t.Context(), fetch.ID, nil) })
+	var fetchErr error
+	wg.Go(func() { _, fetchErr = lib.FetchFromPreview(t.Context(), preview.ID, nil) })
 	gate.awaitEntered(t)
 	mustFinishBeforeRelease(t, gate, "Close", func(context.Context) error { return lib.Close() })
 	gate.open()
 	wg.Wait()
-	if installErr == nil {
-		t.Fatal("InstallFetch succeeded against a closed Library")
+	if fetchErr == nil {
+		t.Fatal("FetchFromPreview succeeded against a closed Library")
 	}
 }
 
-func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
+func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	stub := newS3Stub(t)
 	lib := openTestLibrary(t)
-	local := installNamedSkill(t, lib, "local")
-	preview, err := lib.PreviewSyncPush(t.Context())
+	local := fetchNamedSkill(t, lib, "local")
+	plan, err := lib.PlanSyncPush(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,16 +342,16 @@ func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	stub.gate, stub.gateMethod = pushGate, http.MethodPut
 	var wg sync.WaitGroup
 	var pushErr error
-	wg.Go(func() { _, pushErr = lib.SyncPush(t.Context(), preview.Remote) })
+	wg.Go(func() { _, pushErr = lib.SyncPush(t.Context(), plan.Remote) })
 	pushGate.awaitEntered(t)
-	mustFinishBeforeRelease(t, pushGate, "Install during push upload", func(ctx context.Context) error {
+	mustFinishBeforeRelease(t, pushGate, "Fetch during push upload", func(ctx context.Context) error {
 		source := filepath.Join(t.TempDir(), "during-push")
-		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("# during push\n"), 0o644)
-		_, err := lib.Install(ctx, library.LocalSource{Path: source})
+		writeLocalSkill(t, source, "# during push\n")
+		_, err := fetchLocalDir(ctx, lib, source)
 		return err
 	})
-	mustFinishBeforeRelease(t, pushGate, "Activate during push upload", func(ctx context.Context) error {
-		return lib.Activate(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.ActivateOptions{})
+	mustFinishBeforeRelease(t, pushGate, "Install during push upload", func(ctx context.Context) error {
+		return lib.Install(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{})
 	})
 	pushGate.open()
 	wg.Wait()
@@ -362,15 +362,15 @@ func TestSyncPushAndPreviewNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	headGate := newNetworkGate()
 	headGate.arm()
 	stub.gate, stub.gateMethod = headGate, http.MethodHead
-	var previewErr error
-	wg.Go(func() { _, previewErr = lib.PreviewSyncPush(t.Context()) })
+	var planErr error
+	wg.Go(func() { _, planErr = lib.PlanSyncPush(t.Context()) })
 	headGate.awaitEntered(t)
-	mustFinishBeforeRelease(t, headGate, "Deactivate during push preview", func(ctx context.Context) error {
-		return lib.Deactivate(ctx, local.ID, library.GlobalScope(library.AgentCodex))
+	mustFinishBeforeRelease(t, headGate, "Uninstall during push plan", func(ctx context.Context) error {
+		return lib.Uninstall(ctx, local.ID, library.GlobalScope(library.AgentCodex))
 	})
 	headGate.open()
 	wg.Wait()
-	if previewErr != nil {
-		t.Fatalf("PreviewSyncPush after release: %v", previewErr)
+	if planErr != nil {
+		t.Fatalf("PlanSyncPush after release: %v", planErr)
 	}
 }

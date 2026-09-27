@@ -14,7 +14,7 @@ import (
 
 var lowercaseGitSHA = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
-func TestGitHubInstallRecordsEachSkillDirectoryTreeSHA(t *testing.T) {
+func TestGitHubFetchRecordsEachSkillDirectoryTreeSHA(t *testing.T) {
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
 	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "first body")), 0o644)
@@ -23,15 +23,15 @@ func TestGitHubInstallRecordsEachSkillDirectoryTreeSHA(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, library.SourceSpec{
+	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
 		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 2 {
-		t.Fatalf("InstallFetch = %v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 2 {
+		t.Fatalf("FetchFromPreview = %v, %v", fetched, err)
 	}
 
 	want := map[string]string{
@@ -42,13 +42,13 @@ func TestGitHubInstallRecordsEachSkillDirectoryTreeSHA(t *testing.T) {
 		t.Fatal("fixture skills unexpectedly share a tree SHA")
 	}
 	seen := map[string]string{}
-	for _, skill := range installed {
+	for _, skill := range fetched {
 		got := readPersistedGitTreeSHA(t, lib, skill.ID)
 		if got != want[skill.Name] {
 			t.Fatalf("%s GitTreeSHA = %q, want %q", skill.Name, got, want[skill.Name])
 		}
 		if skill.GitTreeSHA != got {
-			t.Fatalf("InstallFetch %s GitTreeSHA = %q, want %q", skill.Name, skill.GitTreeSHA, got)
+			t.Fatalf("FetchFromPreview %s GitTreeSHA = %q, want %q", skill.Name, skill.GitTreeSHA, got)
 		}
 		seen[skill.Name] = got
 	}
@@ -67,22 +67,22 @@ func TestGitHubRootSkillUsesCommitRootTreeSHA(t *testing.T) {
 
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	fetch, err := lib.Fetch(ctx, library.SourceSpec{
+	preview, err := lib.PreviewSource(ctx, library.SourceSpec{
 		Type: library.SourceGitHub, Locator: library.SourceLocator{Repository: repository, Branch: "main"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := lib.InstallFetch(ctx, fetch.ID, nil)
-	if err != nil || len(installed) != 1 {
-		t.Fatalf("InstallFetch = %v, %v", installed, err)
+	fetched, err := lib.FetchFromPreview(ctx, preview.ID, nil)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("FetchFromPreview = %v, %v", fetched, err)
 	}
-	if got := readPersistedGitTreeSHA(t, lib, installed[0].ID); got != want {
+	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != want {
 		t.Fatalf("root GitTreeSHA = %q, want commit root tree %q", got, want)
 	}
 }
 
-func TestNonGitInstallsKeepEmptyGitTreeSHA(t *testing.T) {
+func TestNonGitFetchesKeepEmptyGitTreeSHA(t *testing.T) {
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "demo")})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(archive)
@@ -94,31 +94,31 @@ func TestNonGitInstallsKeepEmptyGitTreeSHA(t *testing.T) {
 	ctx := t.Context()
 	localDir := filepath.Join(t.TempDir(), "local-skill")
 	writeFile(t, filepath.Join(localDir, "SKILL.md"), []byte(skillDocument("local-skill", "local")), 0o644)
-	local, err := lib.Install(ctx, library.LocalSource{Path: localDir})
+	local, err := fetchLocalDir(ctx, lib, localDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	urlFetch, err := lib.Fetch(ctx, library.SourceSpec{
+	urlPreview, err := lib.PreviewSource(ctx, library.SourceSpec{
 		Type: library.SourceURL, Locator: library.SourceLocator{URL: server.URL + "/skills.zip"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	urlSkills, err := lib.InstallFetch(ctx, urlFetch.ID, []string{"demo"})
+	urlSkills, err := lib.FetchFromPreview(ctx, urlPreview.ID, []string{"demo"})
 	if err != nil || len(urlSkills) != 1 {
-		t.Fatalf("URL InstallFetch = %v, %v", urlSkills, err)
+		t.Fatalf("URL FetchFromPreview = %v, %v", urlSkills, err)
 	}
 
-	storeFetch, err := lib.Fetch(ctx, library.SourceSpec{
+	storePreview, err := lib.PreviewSource(ctx, library.SourceSpec{
 		Type: library.SourceStore, Locator: library.SourceLocator{PackageID: "owner/package", Version: "1.0.0"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	storeSkills, err := lib.InstallFetch(ctx, storeFetch.ID, []string{"demo"})
+	storeSkills, err := lib.FetchFromPreview(ctx, storePreview.ID, []string{"demo"})
 	if err != nil || len(storeSkills) != 1 {
-		t.Fatalf("Store InstallFetch = %v, %v", storeSkills, err)
+		t.Fatalf("Store FetchFromPreview = %v, %v", storeSkills, err)
 	}
 
 	for _, skill := range []library.Skill{local, urlSkills[0], storeSkills[0]} {
@@ -126,7 +126,7 @@ func TestNonGitInstallsKeepEmptyGitTreeSHA(t *testing.T) {
 			t.Fatalf("%s GitTreeSHA = %q, want empty", skill.Name, got)
 		}
 		if skill.GitTreeSHA != "" {
-			t.Fatalf("install result %s GitTreeSHA = %q, want empty", skill.Name, skill.GitTreeSHA)
+			t.Fatalf("fetch result %s GitTreeSHA = %q, want empty", skill.Name, skill.GitTreeSHA)
 		}
 	}
 }
