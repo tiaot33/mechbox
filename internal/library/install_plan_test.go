@@ -57,7 +57,7 @@ func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
 	t.Setenv("HOME", home)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
-	install := func() library.Skill {
+	fetchSame := func() library.Skill {
 		source := filepath.Join(t.TempDir(), "same")
 		writeLocalSkill(t, source, "# Same")
 		skill, err := fetchLocal(ctx, lib, source)
@@ -66,7 +66,7 @@ func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
 		}
 		return skill
 	}
-	a, b := install(), install()
+	a, b := fetchSame(), fetchSame()
 	scope := library.GlobalScope(library.AgentCodex)
 	if err := lib.Install(ctx, a.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)

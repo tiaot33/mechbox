@@ -98,7 +98,7 @@ func TestGitHubCLIAuthenticationPreviewsAndFetchesWithoutEnvironmentToken(t *tes
 				t.Fatalf("authenticated content = %#v", fetched[0])
 			}
 			if _, err := lib.FetchFromPreview(t.Context(), preview.ID, nil); !library.IsCode(err, library.NotFound) {
-				t.Fatalf("successful install kept handle: %v", err)
+				t.Fatalf("successful fetch kept handle: %v", err)
 			}
 		})
 	}
@@ -172,7 +172,7 @@ func TestGitHubFetchRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 		t.Fatalf("unavailable install = %#v, %v", fetched, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
-		t.Fatalf("failed install wrote partial Library: %#v, %v", skills, err)
+		t.Fatalf("failed fetch wrote partial Library: %#v, %v", skills, err)
 	}
 	redirectGitHubClone(t, repo)
 	api.Reset()

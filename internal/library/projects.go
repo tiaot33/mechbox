@@ -136,7 +136,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 		return fmt.Errorf("remove project installations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project group activations: %w", err)
+		return fmt.Errorf("remove project group installs: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("unregister project: %w", err)

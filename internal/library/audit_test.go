@@ -170,7 +170,7 @@ func TestCandidateAuditValidatesHandleAndCandidate(t *testing.T) {
 	}
 	// 入库成功后句柄失效。
 	if _, err := lib.CandidateAudit(t.Context(), preview.ID, "second"); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("audit after install = %v, want NotFound", err)
+		t.Fatalf("audit after fetch = %v, want NotFound", err)
 	}
 
 	// URL / Store 来源不在 skills.sh 收录范围:返回 nil,也不发请求。

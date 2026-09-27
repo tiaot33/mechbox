@@ -62,7 +62,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 				t.Fatal(err)
 			}
 			if info.Mode().Perm()&0o111 == 0 {
-				t.Fatal("activated script is not executable")
+				t.Fatal("installed script is not executable")
 			}
 			installations, err := lib.ListInstallations(ctx)
 			if err != nil {
@@ -268,7 +268,7 @@ func TestInstallAndUninstallGroupPreservesDirectInstall(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
-				t.Fatalf("directly activated installation was removed: %v", err)
+				t.Fatalf("directly installed installation was removed: %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(directory, second.Name)); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("via-group-only installation remains: %v", err)
@@ -489,7 +489,7 @@ func TestInstallGroupFailurePreservesDirectInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
-		t.Fatalf("failed group install removed directly activated installation: %v", err)
+		t.Fatalf("failed group install removed directly installed installation: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, second.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed group install left a partial member: %v", err)

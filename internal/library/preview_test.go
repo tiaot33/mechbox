@@ -61,7 +61,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	}
 	// URL 入库必须仅依赖预览时下载的内容,不能再次访问远端。
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
-		t.Error("install contacted remote source")
+		t.Error("fetch contacted remote source")
 		return nil, errors.New("offline")
 	})}
 	preview.Skills[0].Name = "changed by caller"
@@ -83,7 +83,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err := lib.FetchFromPreview(cancelled, preview.ID, nil); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled install: %v", err)
+		t.Fatalf("cancelled fetch: %v", err)
 	}
 	fetched, err := lib.FetchFromPreview(ctx, preview.ID, []string{"first"})
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" || string(fetched[0].Files[0].Content) != skillDocument("first", "first") {

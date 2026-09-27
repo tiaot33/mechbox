@@ -75,7 +75,7 @@ func TestURLCheckAndUpdateSendIfNoneMatchAndTreat304AsNoUpdate(t *testing.T) {
 
 	// 入库后:检查带 If-None-Match,收到 304 → 无更新,正文一个字节都没读。
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
-		t.Fatalf("CheckUpdates after install = %v, %v", available, err)
+		t.Fatalf("CheckUpdates after fetch = %v, %v", available, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
 	server.assertNoBodyRead(t)

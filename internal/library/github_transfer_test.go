@@ -204,11 +204,11 @@ esac
 	}
 	fetched, err := lib.FetchFromPreview(t.Context(), preview.ID, nil)
 	if err != nil || len(fetched) != 2 {
-		t.Fatalf("install = %#v, %v", fetched, err)
+		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
 	calls, _ = os.ReadFile(log)
 	if strings.Count(string(calls), "/tarball/") != 1 || strings.Contains(string(calls), "/git/blobs/") {
-		t.Fatalf("install CLI calls: %s", calls)
+		t.Fatalf("fetch CLI calls: %s", calls)
 	}
 }
 
@@ -292,7 +292,7 @@ func TestGitHubSmallOrOversizedRepositoryUsesRawFetch(t *testing.T) {
 			api.Reset()
 			got, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})
 			if err != nil || len(got) != 1 || len(got[0].Files) != count+1 {
-				t.Fatalf("install = %#v, %v", got, err)
+				t.Fatalf("fetch = %#v, %v", got, err)
 			}
 			if raw.Load() != int32(count) || archives.Load() != 0 {
 				t.Fatalf("raw=%d archives=%d", raw.Load(), archives.Load())

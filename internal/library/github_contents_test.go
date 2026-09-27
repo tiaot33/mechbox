@@ -254,7 +254,7 @@ func TestGitHubFetchFromPreviewFailureKeepsHandleForRetry(t *testing.T) {
 		t.Fatalf("failed install = %#v, %v; want SourceUnreachable", fetched, err)
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
-		t.Fatalf("failed install wrote Library: %v, %v", skills, err)
+		t.Fatalf("failed fetch wrote Library: %v, %v", skills, err)
 	}
 	api.setFailBlobs(false)
 	fetched, err = lib.FetchFromPreview(t.Context(), preview.ID, []string{"demo"})

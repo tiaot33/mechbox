@@ -257,14 +257,14 @@ func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *te
 	gate.arm()
 	var wg sync.WaitGroup
 	var fetched []library.Skill
-	var installErr error
-	wg.Go(func() { fetched, installErr = lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"}) })
+	var fetchErr error
+	wg.Go(func() { fetched, fetchErr = lib.FetchFromPreview(t.Context(), preview.ID, []string{"first"}) })
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "second FetchFromPreview on the same handle", func(ctx context.Context) error {
 		_, err := lib.FetchFromPreview(ctx, preview.ID, []string{"second"})
 		if !library.IsCode(err, library.FailedPrecondition) {
-			return fmt.Errorf("busy handle install = %v, want FailedPrecondition", err)
+			return fmt.Errorf("busy handle fetch = %v, want FailedPrecondition", err)
 		}
 		return nil
 	})
@@ -287,8 +287,8 @@ func TestFetchFromPreviewMaterializationDoesNotBlockOtherPreviewsOrInstall(t *te
 
 	gate.open()
 	wg.Wait()
-	if installErr != nil || len(fetched) != 1 || fetched[0].Name != "first" {
-		t.Fatalf("FetchFromPreview after release = %#v, %v", fetched, installErr)
+	if fetchErr != nil || len(fetched) != 1 || fetched[0].Name != "first" {
+		t.Fatalf("FetchFromPreview after release = %#v, %v", fetched, fetchErr)
 	}
 	if _, err := lib.FetchFromPreview(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("consumed handle reused: %v; want NotFound", err)
@@ -316,13 +316,13 @@ func TestCloseDoesNotWaitForFetchFromPreviewMaterialization(t *testing.T) {
 	}
 	gate.arm()
 	var wg sync.WaitGroup
-	var installErr error
-	wg.Go(func() { _, installErr = lib.FetchFromPreview(t.Context(), preview.ID, nil) })
+	var fetchErr error
+	wg.Go(func() { _, fetchErr = lib.FetchFromPreview(t.Context(), preview.ID, nil) })
 	gate.awaitEntered(t)
 	mustFinishBeforeRelease(t, gate, "Close", func(context.Context) error { return lib.Close() })
 	gate.open()
 	wg.Wait()
-	if installErr == nil {
+	if fetchErr == nil {
 		t.Fatal("FetchFromPreview succeeded against a closed Library")
 	}
 }

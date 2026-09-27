@@ -256,7 +256,7 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 		Name:        summary.Name,
 		Description: summary.Description,
 		Source:      summary.Source,
-		FetchedAt: summary.FetchedAt,
+		FetchedAt:   summary.FetchedAt,
 		UpdatedAt:   summary.UpdatedAt,
 	}
 	var state sourceState

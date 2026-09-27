@@ -30,10 +30,10 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 	}
 
 	want := library.Skill{
-		ID:          fetched.ID,
-		Name:        "example-skill",
+		ID:        fetched.ID,
+		Name:      "example-skill",
 		FetchedAt: fetched.FetchedAt,
-		UpdatedAt:   fetched.UpdatedAt,
+		UpdatedAt: fetched.UpdatedAt,
 		Source: library.Source{
 			ID:          fetched.Source.ID,
 			Type:        library.SourceLocal,
@@ -125,7 +125,7 @@ func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 
-	install := func(name string) library.Skill {
+	fetchSkill := func(name string) library.Skill {
 		t.Helper()
 		source := filepath.Join(t.TempDir(), name)
 		writeLocalSkill(t, source, "# "+name+"\n")
@@ -135,8 +135,8 @@ func TestRemoveSkillKeepsOrRemovesInstallations(t *testing.T) {
 		}
 		return skill
 	}
-	keepSkill := install("keep-skill")
-	removeSkill := install("remove-skill")
+	keepSkill := fetchSkill("keep-skill")
+	removeSkill := fetchSkill("remove-skill")
 	group, err := lib.CreateGroup(ctx, "temporary")
 	if err != nil {
 		t.Fatal(err)
@@ -284,6 +284,6 @@ func TestFetchDuplicateLocalSkillCarriesIdentity(t *testing.T) {
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: skill.ID, Name: skill.Name})
 	skills, err := lib.ListSkills(t.Context())
 	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {
-		t.Fatalf("duplicate install changed library: %#v, %v", skills, err)
+		t.Fatalf("duplicate fetch changed library: %#v, %v", skills, err)
 	}
 }

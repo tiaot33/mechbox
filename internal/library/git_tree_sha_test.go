@@ -126,7 +126,7 @@ func TestNonGitFetchesKeepEmptyGitTreeSHA(t *testing.T) {
 			t.Fatalf("%s GitTreeSHA = %q, want empty", skill.Name, got)
 		}
 		if skill.GitTreeSHA != "" {
-			t.Fatalf("install result %s GitTreeSHA = %q, want empty", skill.Name, skill.GitTreeSHA)
+			t.Fatalf("fetch result %s GitTreeSHA = %q, want empty", skill.Name, skill.GitTreeSHA)
 		}
 	}
 }

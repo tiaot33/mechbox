@@ -201,7 +201,7 @@ func summaryOf(skill library.Skill) library.SkillSummary {
 		Name:        skill.Name,
 		Description: skill.Description,
 		Source:      skill.Source,
-		FetchedAt: skill.FetchedAt,
+		FetchedAt:   skill.FetchedAt,
 		UpdatedAt:   skill.UpdatedAt,
 	}
 }

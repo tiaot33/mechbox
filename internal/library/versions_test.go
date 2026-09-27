@@ -99,7 +99,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 		t.Fatalf("updated Description = %q / %q, want second edition", current.Description, updated.Skill.Description)
 	}
 	if !current.FetchedAt.Equal(installedAt) || current.UpdatedAt.Equal(installedAt) || current.UpdatedAt.Before(installedAt) {
-		t.Fatalf("InstalledAt %v UpdatedAt %v, want InstalledAt unchanged and UpdatedAt later", current.FetchedAt, current.UpdatedAt)
+		t.Fatalf("FetchedAt %v UpdatedAt %v, want FetchedAt unchanged and UpdatedAt later", current.FetchedAt, current.UpdatedAt)
 	}
 	versions, err := lib.ListVersions(ctx, fetched.ID)
 	if err != nil || len(versions) != 2 {

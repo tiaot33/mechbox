@@ -25,7 +25,7 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			_, err := lib.CreateGroup(t.Context(), "group")
 			return err
 		}},
-		{name: "install preview unknown handle", want: library.NotFound, call: func(lib library.Library) error {
+		{name: "fetch from preview unknown handle", want: library.NotFound, call: func(lib library.Library) error {
 			_, err := lib.FetchFromPreview(t.Context(), "no-such-handle", nil)
 			return err
 		}},
@@ -246,7 +246,7 @@ func TestCanceledOperationsStillMatchContext(t *testing.T) {
 			return err
 		}},
 		{"search", func() error { _, err := lib.SearchSkills(ctx, "q"); return err }},
-		{"install preview", func() error {
+		{"fetch from preview", func() error {
 			preview, err := lib.PreviewSource(t.Context(), serveArchive(t, zipArchive(t, map[string]string{"s/SKILL.md": skillDocument("s", "body")})))
 			if err != nil {
 				t.Fatal(err)

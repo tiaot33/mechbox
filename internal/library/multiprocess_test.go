@@ -136,7 +136,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 				name := filepath.Base(sources[i][round])
 				skill, err := fetchLocal(t.Context(), lib, sources[i][round])
 				if err != nil {
-					failures <- fmt.Errorf("%s install: %w", name, err)
+					failures <- fmt.Errorf("%s fetch: %w", name, err)
 					continue
 				}
 				if _, err := lib.ListSkills(t.Context()); err != nil {

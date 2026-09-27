@@ -26,7 +26,7 @@ type s3Stub struct {
 	stored []byte
 	etag   string
 	// afterHead 若非 nil,在一次 HEAD 响应发出后触发一次(随即清空),
-	// 用来在"预检 HEAD"与"随后 PUT"之间注入一次远端改动,复现 TOCTOU 窗口。
+	// 用来在"HEAD 查询"与"随后 PUT"之间注入一次远端改动,复现 TOCTOU 窗口。
 	afterHead func()
 	// gate 若非 nil,gateMethod 方法的请求在处理前先过闸;用来把 push / plan 停在网络上。
 	gate       *networkGate
@@ -453,7 +453,7 @@ func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 预检 HEAD 仍看到同步计划里的身份(通过),但紧接着(PUT 之前)远端被并发写者改动。
+	// HEAD 查询仍看到同步计划里的身份(通过),但紧接着(PUT 之前)远端被并发写者改动。
 	// 条件写(If-Match)必须捕获该窗口内的变化,拒绝覆盖。
 	intruder := []byte("concurrent remote write")
 	stub.afterHead = func() { stub.set(intruder) }

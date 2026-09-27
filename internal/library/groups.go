@@ -170,7 +170,7 @@ func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error)
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE group_id = ?`, id); err != nil {
-		return fmt.Errorf("delete group activations: %w", err)
+		return fmt.Errorf("delete group installs: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group members: %w", err)

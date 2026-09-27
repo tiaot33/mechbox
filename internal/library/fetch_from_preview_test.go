@@ -120,7 +120,7 @@ func TestFetchFromPreviewConcurrentCallsConsumeHandleOnce(t *testing.T) {
 			if err := <-results; err == nil {
 				succeeded++
 			} else if !library.IsCode(err, library.FailedPrecondition) && !library.IsCode(err, library.NotFound) {
-				t.Errorf("concurrent install error = %v, want FailedPrecondition or NotFound", err)
+				t.Errorf("concurrent fetch error = %v, want FailedPrecondition or NotFound", err)
 			}
 		}
 		if succeeded != 1 {
@@ -172,12 +172,12 @@ func TestFetchFromPreviewIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := lib.FetchFromPreview(ctx, again.ID, nil); !library.IsCode(err, library.AlreadyExists) {
-		t.Fatalf("reinstall existing candidate = %v, want AlreadyExists", err)
+		t.Fatalf("fetch existing candidate again = %v, want AlreadyExists", err)
 	} else {
 		requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{SkillID: before[0].ID, Name: "second"})
 	}
 	if after, err := lib.ListSkills(ctx); err != nil || len(after) != 1 || after[0].ID != before[0].ID {
-		t.Fatalf("failed batch install changed library: %#v, %v", after, err)
+		t.Fatalf("failed batch fetch changed library: %#v, %v", after, err)
 	}
 	versions, err := lib.ListVersions(ctx, before[0].ID)
 	if err != nil {
@@ -209,7 +209,7 @@ func TestFetchFromPreviewIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fetched, err := lib.FetchFromPreview(ctx, batch.ID, []string{"first"}); err != nil || len(fetched) != 1 {
-		t.Fatalf("retry from staged PreviewSource = %v, %v", fetched, err)
+		t.Fatalf("retry from the same preview = %v, %v", fetched, err)
 	}
 }
 
