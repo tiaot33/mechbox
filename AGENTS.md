@@ -1,6 +1,6 @@
 ## Codebase
 
-Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里的安装项只是它的副本。
+Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0004),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里的安装项由它生成。
 
 - `internal/library/api.go` — 全部领域类型 + `Library` 接口,带中文注释。**阅读入口,先读这个。**
 - `internal/library/library.go` — 实例生命周期:Open、Close、共享状态与操作锁。
