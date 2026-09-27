@@ -68,7 +68,7 @@ func TestGitHubTarballInstallAndMissingFileFallback(t *testing.T) {
 			fx := inspectGitHubRepo(t, repo)
 			api := serveGitHubAPI(t, fx)
 			blockGitHubClone(t)
-			archive := gitHubTarball(t, fx, missing)
+			archive := gitHubTarball(t, fx, missing, nil)
 			var downloads atomic.Int32
 			base := http.DefaultClient.Transport
 			http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
@@ -114,14 +114,17 @@ func TestGitHubTarballInstallAndMissingFileFallback(t *testing.T) {
 	}
 }
 
-// gitHubTarball 故意不带可执行位,验证安装权限来自 tree。
-func gitHubTarball(t *testing.T, fx gitHubFixture, missing string) []byte {
+// gitHubTarball 故意不带可执行位,验证安装权限来自 tree;extra 在正常文件之前写入额外条目。
+func gitHubTarball(t *testing.T, fx gitHubFixture, missing string, extra func(*tar.Writer)) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	gz := gzip.NewWriter(&buffer)
 	tw := tar.NewWriter(gz)
 	if err := tw.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": fx.commit}}); err != nil {
 		t.Fatal(err)
+	}
+	if extra != nil {
+		extra(tw)
 	}
 	for _, e := range fx.entries {
 		if e.Type != "blob" || e.Path == missing {
@@ -165,7 +168,7 @@ func TestGitHubCLIUsesBatchedGraphQLAndOneTarball(t *testing.T) {
 	}
 	log := filepath.Join(t.TempDir(), "calls")
 	archive := filepath.Join(t.TempDir(), "archive")
-	writeFile(t, archive, gitHubTarball(t, fx, ""), 0o600)
+	writeFile(t, archive, gitHubTarball(t, fx, "", nil), 0o600)
 	t.Setenv("TRANSFER_OLD_GH", oldGH)
 	t.Setenv("TRANSFER_LOG", log)
 	t.Setenv("TRANSFER_ARCHIVE", archive)
@@ -239,7 +242,7 @@ func TestGitHubRawMismatchFallsBackAndMemoIsReused(t *testing.T) {
 }
 
 func TestGitHubSmallOrOversizedRepositoryUsesRawInstall(t *testing.T) {
-	for _, scenario := range []string{"small", "too-many-files", "too-many-bytes", "unknown-size"} {
+	for _, scenario := range []string{"small", "mostly-unrelated", "too-many-bytes", "unknown-size"} {
 		t.Run(scenario, func(t *testing.T) {
 			count := 1
 			if scenario != "small" {
@@ -252,10 +255,9 @@ func TestGitHubSmallOrOversizedRepositoryUsesRawInstall(t *testing.T) {
 			repo := writeGitHubRepo(t, files)
 			fx := inspectGitHubRepo(t, repo)
 			switch scenario {
-			case "too-many-files":
-				for i := range 1001 {
-					fx.entries = append(fx.entries, gitHubTreeEntry{Path: fmt.Sprintf("unrelated/f%d", i), Type: "blob", Mode: "100644", SHA: fx.blobSHA("demo/file00"), Size: 1})
-				}
+			case "mostly-unrelated":
+				// 整仓超过小仓阈值,待取字节远小于整仓:不值得下载归档。
+				fx.entries = append(fx.entries, gitHubTreeEntry{Path: "unrelated/big", Type: "blob", Mode: "100644", SHA: fx.blobSHA("demo/file00"), Size: 5 << 20})
 			case "too-many-bytes":
 				fx.entries = append(fx.entries, gitHubTreeEntry{Path: "unrelated/huge", Type: "blob", Mode: "100644", SHA: fx.blobSHA("demo/file00"), Size: 65 << 20})
 			}
@@ -346,7 +348,7 @@ func transferResponse(body []byte) *http.Response {
 }
 
 func TestGitHubGraphQLFallbackAndBatchLimit(t *testing.T) {
-	for _, scenario := range []string{"binary", "truncated", "null", "empty", "bad-sha", "large-batch"} {
+	for _, scenario := range []string{"null", "empty", "bad-sha", "large-batch"} {
 		t.Run(scenario, func(t *testing.T) {
 			count := 2
 			if scenario == "large-batch" {
@@ -373,13 +375,9 @@ func TestGitHubGraphQLFallbackAndBatchLimit(t *testing.T) {
 			objects := map[string]any{}
 			for i := range count {
 				content := fx.blobs[fx.blobSHA(fmt.Sprintf("skill%03d/SKILL.md", i))]
-				blob := map[string]any{"text": string(content), "isBinary": false, "isTruncated": false, "byteSize": len(content)}
+				blob := map[string]any{"text": string(content)}
 				if i == 0 {
 					switch scenario {
-					case "binary":
-						blob["isBinary"] = true
-					case "truncated":
-						blob["isTruncated"] = true
 					case "null":
 						blob["text"] = nil
 					case "empty":
@@ -422,8 +420,8 @@ fi
 	}
 }
 
-func TestGitHubUnsafeOrOversizedTarballFallsBack(t *testing.T) {
-	for _, scenario := range []string{"unsafe-path", "symlink", "expanded-limit", "entry-limit", "download-limit"} {
+func TestGitHubTarballSkipsUnrelatedEntriesAndEnforcesLimits(t *testing.T) {
+	for _, scenario := range []string{"unrelated-entries", "symlink-at-wanted-path", "expanded-limit", "download-limit"} {
 		t.Run(scenario, func(t *testing.T) {
 			files := map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}}
 			for i := range 12 {
@@ -433,33 +431,39 @@ func TestGitHubUnsafeOrOversizedTarballFallsBack(t *testing.T) {
 			fx := inspectGitHubRepo(t, repo)
 			api := serveGitHubAPI(t, fx)
 			blockGitHubClone(t)
-			var buffer bytes.Buffer
-			gz := gzip.NewWriter(&buffer)
-			tw := tar.NewWriter(gz)
-			header := &tar.Header{Name: "repo/demo/file00", Mode: 0o644}
-			switch scenario {
-			case "unsafe-path":
-				header.Name = "repo/../../escape"
-			case "symlink":
-				header.Typeflag = tar.TypeSymlink
-				header.Linkname = "/etc/passwd"
-			case "expanded-limit":
-				header.Size = 65 << 20
-			}
-			if err := tw.WriteHeader(header); err != nil {
-				t.Fatal(err)
-			}
-			if scenario == "entry-limit" {
-				for i := range 1001 {
-					if err := tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("repo/dir%d/", i), Typeflag: tar.TypeDir}); err != nil {
-						t.Fatal(err)
-					}
+			writeHeader := func(tw *tar.Writer, header *tar.Header) {
+				if err := tw.WriteHeader(header); err != nil {
+					t.Fatal(err)
 				}
 			}
-			// 展开超限只需 header;解析器必须在读正文前拒绝。
-			_ = tw.Close()
-			if err := gz.Close(); err != nil {
-				t.Fatal(err)
+			var archive []byte
+			var wantBlobs, allFiles []string
+			for i := range 12 {
+				allFiles = append(allFiles, fmt.Sprintf("demo/file%02d", i))
+			}
+			switch scenario {
+			case "unrelated-entries":
+				// 归档不落盘、正文按 SHA 校验,无关的异常条目不应让整个归档作废。
+				archive = gitHubTarball(t, fx, "", func(tw *tar.Writer) {
+					writeHeader(tw, &tar.Header{Name: "repo-sha/../../escape", Mode: 0o644})
+					writeHeader(tw, &tar.Header{Name: "repo-sha/link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"})
+				})
+			case "symlink-at-wanted-path":
+				archive = gitHubTarball(t, fx, "demo/file00", func(tw *tar.Writer) {
+					writeHeader(tw, &tar.Header{Name: "repo-sha/demo/file00", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"})
+				})
+				wantBlobs = []string{"demo/file00"}
+			case "expanded-limit":
+				// 压缩后很小、展开超限的条目排在最前,读到上限即停止,全部文件逐个回退。
+				archive = gitHubTarball(t, fx, "", func(tw *tar.Writer) {
+					writeHeader(tw, &tar.Header{Name: "repo-sha/zeros", Mode: 0o644, Size: 65 << 20})
+					if _, err := io.Copy(tw, io.LimitReader(zeroTransferReader{}, 65<<20)); err != nil {
+						t.Fatal(err)
+					}
+				})
+				wantBlobs = allFiles
+			case "download-limit":
+				wantBlobs = allFiles
 			}
 			var archives atomic.Int32
 			base := http.DefaultClient.Transport
@@ -471,7 +475,7 @@ func TestGitHubUnsafeOrOversizedTarballFallsBack(t *testing.T) {
 				if scenario == "download-limit" {
 					return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(io.LimitReader(zeroTransferReader{}, (64<<20)+1))}, nil
 				}
-				return transferResponse(buffer.Bytes()), nil
+				return transferResponse(archive), nil
 			})
 			lib := openTestLibrary(t)
 			fetch, err := lib.Fetch(t.Context(), gitHubSpec())
@@ -483,11 +487,59 @@ func TestGitHubUnsafeOrOversizedTarballFallsBack(t *testing.T) {
 			if err != nil || len(installed) != 1 || len(installed[0].Files) != 13 {
 				t.Fatalf("Install = %#v, %v", installed, err)
 			}
-			if archives.Load() != 1 || len(api.blobPaths()) != 12 {
-				t.Fatalf("archives=%d blobs=%v", archives.Load(), api.blobPaths())
+			for _, f := range installed[0].Files {
+				if !bytes.Equal(f.Content, files["demo/"+f.Path].content) {
+					t.Errorf("wrong content: %s", f.Path)
+				}
 			}
+			if archives.Load() != 1 {
+				t.Fatalf("archives = %d, want 1", archives.Load())
+			}
+			assertGitHubBlobPaths(t, api, wantBlobs...)
 		})
 	}
+}
+
+func TestGitHubLargeRepositoryUsesTarballWhenMostBytesAreWanted(t *testing.T) {
+	files := map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}}
+	for i := range 12 {
+		files[fmt.Sprintf("demo/file%02d", i)] = repoFile{content: []byte(fmt.Sprintf("data %d", i)), mode: 0o644}
+	}
+	repo := writeGitHubRepo(t, files)
+	fx := inspectGitHubRepo(t, repo)
+	// 只调大 tree 声明的大小:待取约 12MB,整仓约 32MB,超过小仓阈值但占比足够。
+	for i, e := range fx.entries {
+		if strings.HasPrefix(e.Path, "demo/file") {
+			fx.entries[i].Size = 1 << 20
+		}
+	}
+	fx.entries = append(fx.entries, gitHubTreeEntry{Path: "unrelated/big", Type: "blob", Mode: "100644", SHA: fx.blobSHA("demo/file00"), Size: 20 << 20})
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	archive := gitHubTarball(t, fx, "unrelated/big", nil)
+	var archives atomic.Int32
+	base := http.DefaultClient.Transport
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "codeload.github.com" {
+			return base.RoundTrip(r)
+		}
+		archives.Add(1)
+		return transferResponse(archive), nil
+	})
+	lib := openTestLibrary(t)
+	fetch, err := lib.Fetch(t.Context(), gitHubSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.Reset()
+	installed, err := lib.InstallFetch(t.Context(), fetch.ID, nil)
+	if err != nil || len(installed) != 1 || len(installed[0].Files) != 13 {
+		t.Fatalf("Install = %#v, %v", installed, err)
+	}
+	if archives.Load() != 1 {
+		t.Fatalf("archives = %d, want 1", archives.Load())
+	}
+	assertGitHubBlobPaths(t, api)
 }
 
 type zeroTransferReader struct{}
@@ -545,7 +597,7 @@ func TestGitHubRawCancellationStopsAllRequests(t *testing.T) {
 	assertGitHubBlobPaths(t, api)
 }
 
-func TestGitHubTransferCancellationStopsCLIAndCleansTarball(t *testing.T) {
+func TestGitHubTransferCancellationStopsCLIAndDownloads(t *testing.T) {
 	for _, phase := range []string{"graphql", "tarball", "http-tarball"} {
 		t.Run(phase, func(t *testing.T) {
 			files := map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}}
@@ -556,8 +608,6 @@ func TestGitHubTransferCancellationStopsCLIAndCleansTarball(t *testing.T) {
 			fx := inspectGitHubRepo(t, repo)
 			api := serveGitHubAPI(t, fx)
 			blockGitHubClone(t)
-			scratch := t.TempDir()
-			t.Setenv("TMPDIR", scratch)
 			lib := openTestLibrary(t)
 			var fetch library.Fetch
 			if phase != "graphql" {
@@ -632,10 +682,6 @@ esac
 				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("transfer did not stop")
-			}
-			remnants, err := filepath.Glob(filepath.Join(scratch, "skills-github-*"))
-			if err != nil || len(remnants) != 0 {
-				t.Fatalf("temporary archives: %v, %v", remnants, err)
 			}
 			if phase != "http-tarball" {
 				time.Sleep(1100 * time.Millisecond)

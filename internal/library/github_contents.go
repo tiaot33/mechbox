@@ -10,14 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -31,6 +29,7 @@ type githubBlob struct {
 	path     string // Skill 内相对路径
 	repoPath string // 仓库内相对路径,用于按 commit 读取 raw
 	sha      string
+	size     int64 // tree 给出的字节数,缺失为 0
 	mode     FileMode
 	content  []byte // 已取到的正文;预览阶段通常只有 SKILL.md
 }
@@ -140,7 +139,7 @@ func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo str
 		return discoveredSource{}, err
 	}
 	result.ref = snap.ref
-	result.githubArchiveOK = githubArchiveAllowed(snap.entries)
+	result.githubRepoSize = githubRepoSize(snap.entries)
 	return finishDiscovery(result)
 }
 
@@ -293,45 +292,13 @@ func isGitHubAuthRetry(err error) bool {
 	return ok && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden || httpErr.status == http.StatusNotFound || httpErr.rateLimited)
 }
 
+// githubAPIGetOnce 以给定凭证(空为匿名)请求一次 REST 并解析 JSON。
 func githubAPIGetOnce(ctx context.Context, location, token string, dest any) error {
-	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
+	var body bytes.Buffer
+	if err := githubDownload(ctx, location, token, &body); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-	if err != nil {
-		return errGitHubContentsFallback
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "skills-tui")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return errGitHubContentsFallback
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(contextReader{ctx, response.Body}, maxFetchSize+1))
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	if err != nil {
-		return errGitHubContentsFallback
-	}
-	if len(body) > maxFetchSize {
-		return errGitHubContentsFallback
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		// 限流响应恒带 Reset;解析失败存 0 即不避让。
-		reset, _ := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
-		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response), reset: reset}
-	}
-	if err := json.Unmarshal(body, dest); err != nil {
+	if json.Unmarshal(body.Bytes(), dest) != nil {
 		return errGitHubContentsFallback
 	}
 	return nil
@@ -402,7 +369,7 @@ func (v githubSourceView) readFile(ctx context.Context, name string) ([]byte, er
 	if !ok || !githubRegularBlob(entry) {
 		return nil, fs.ErrNotExist
 	}
-	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, false, []githubBlob{{repoPath: entry.Path, sha: entry.SHA, content: v.snap.storedBlobs[entry.SHA]}})
+	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, 0, []githubBlob{{repoPath: entry.Path, sha: entry.SHA, content: v.snap.storedBlobs[entry.SHA]}})
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +383,7 @@ func (v githubSourceView) readFiles(ctx context.Context, names []string) ([][]by
 		entry := v.snap.byPath[name]
 		blobs[i] = githubBlob{repoPath: name, sha: entry.SHA, content: v.snap.storedBlobs[entry.SHA]}
 	}
-	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, false, blobs)
+	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, 0, blobs)
 	errs := make([]error, len(names))
 	if err != nil {
 		contents = make([][]byte, len(names))
@@ -476,7 +443,7 @@ func githubSkillBlobs(entries []githubTreeEntry, skillPath, rootTree string, byP
 		if entry.Mode == "100755" {
 			mode = ModeExecutable
 		}
-		blobs = append(blobs, githubBlob{path: rel, repoPath: entry.Path, sha: entry.SHA, mode: mode})
+		blobs = append(blobs, githubBlob{path: rel, repoPath: entry.Path, sha: entry.SHA, mode: mode, size: githubEntrySize(entry)})
 	}
 	slices.SortFunc(blobs, func(a, b githubBlob) int { return cmp.Compare(a.path, b.path) })
 	return blobs, treeSHA, nil
@@ -653,7 +620,7 @@ func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote gi
 			blobs[i].content = content
 		}
 	}
-	contents, err := s.client.transferBlobs(ctx, s.owner, s.repo, s.ref, githubArchiveAllowed(s.entries), blobs)
+	contents, err := s.client.transferBlobs(ctx, s.owner, s.repo, s.ref, githubRepoSize(s.entries), blobs)
 	if err == nil {
 		return githubFiles(remote.blobs, contents), nil
 	}
@@ -737,7 +704,7 @@ func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, session *fe
 	if len(all) == 0 {
 		return nil
 	}
-	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, session.ref, session.githubArchiveOK, all)
+	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, session.ref, session.githubRepoSize, all)
 	if err != nil {
 		if ctx.Err() != nil {
 			return err

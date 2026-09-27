@@ -6,10 +6,8 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"net/http"
 	"net/url"
@@ -37,6 +35,9 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	if err != nil {
 		return errGitHubContentsFallback
 	}
+	if req.URL.Host == githubAPIHost {
+		req.Header.Set("Accept", "application/vnd.github+json")
+	}
 	req.Header.Set("User-Agent", "skills-tui")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -58,6 +59,7 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		// 限流响应恒带 Reset;解析失败存 0 即不避让。
 		reset, _ := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
 		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response), reset: reset}
 	}
@@ -71,109 +73,83 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	return nil
 }
 
-// githubArchiveAllowed 只在 tree 给出全仓文件数和大小时允许整仓下载。
-func githubArchiveAllowed(entries []githubTreeEntry) bool {
-	count, size := 0, int64(0)
+const (
+	githubArchiveSmallRepo = 4 << 20 // 整仓不超过此值时,一次下载总比多轮往返划算
+	githubArchiveMaxWaste  = 4       // 否则整仓至多是待取字节的这么多倍才下载归档
+)
+
+// githubRepoSize 返回 tree 中全部文件的总字节数;任一条目缺少大小或总量超过下载上限时返回 0,不走整仓下载。
+func githubRepoSize(entries []githubTreeEntry) int64 {
+	size := int64(0)
 	for _, entry := range entries {
 		if entry.Type != "blob" {
 			continue
 		}
-		count++
 		if entry.Size == nil || *entry.Size < 0 || *entry.Size > maxFetchSize-size {
-			return false
+			return 0
 		}
 		size += *entry.Size
 	}
-	return count <= maxFetchFiles
+	return size
 }
 
-// transferBlobs 先复用已有正文与 memo;批量传输只处理尚缺的 SHA,最后逐个 blob 补齐。
-func (c *githubClient) transferBlobs(ctx context.Context, owner, repo, commit string, archiveOK bool, blobs []githubBlob) ([][]byte, error) {
-	contents := make([][]byte, len(blobs))
-	pending := map[string]githubBlob{}
+func githubEntrySize(entry githubTreeEntry) int64 {
+	if entry.Size == nil {
+		return 0
+	}
+	return *entry.Size
+}
+
+// githubArchiveWorth 判断整仓归档是否比逐个取划算:待取文件超过一个并发批次,
+// 且整仓足够小,或下载的无关字节不超过待取字节的若干倍。
+func githubArchiveWorth(repoSize int64, pending map[string]githubBlob) bool {
+	if repoSize <= 0 || len(pending) <= fetchConcurrency {
+		return false
+	}
+	if repoSize <= githubArchiveSmallRepo {
+		return true
+	}
+	wanted := int64(0)
+	for _, blob := range pending {
+		wanted += blob.size
+	}
+	return wanted*githubArchiveMaxWaste >= repoSize
+}
+
+// transferBlobs 按 blobs 顺序返回正文:先用已有正文与 memo,划算时取一次整仓归档(repoSize 为 0 表示不取),
+// 剩下的走 raw(只有 gh 时走 GraphQL),最后逐个 blob 补齐。每一级取回的正文都已按 blob SHA 校验。
+func (c *githubClient) transferBlobs(ctx context.Context, owner, repo, commit string, repoSize int64, blobs []githubBlob) ([][]byte, error) {
 	found := map[string][]byte{}
-	for i, blob := range blobs {
+	pending := map[string]githubBlob{}
+	for _, blob := range blobs {
 		content := blob.content
 		if content == nil {
 			content, _ = memoGet(c.memo, &c.memo.blobs, memoKey(memoBlob, owner, repo, blob.sha))
 		}
 		if content != nil {
-			contents[i] = content
 			found[blob.sha] = content
 		} else {
 			pending[blob.sha] = blob
 		}
 	}
+	take := func(got map[string][]byte) {
+		for sha, content := range got {
+			found[sha] = content
+			delete(pending, sha)
+		}
+	}
+	// 同一 SHA 可能出现在多个路径,其中一处已有正文即可。
 	for sha := range found {
 		delete(pending, sha)
 	}
-	if len(pending) > fetchConcurrency && archiveOK {
-		got, err := c.tarball(ctx, owner, repo, commit, pending)
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		if err == nil {
-			for sha, content := range got {
-				found[sha] = content
-				delete(pending, sha)
-			}
-		}
-	} else {
-		todo := slices.Collect(maps.Values(pending))
-		slices.SortFunc(todo, func(a, b githubBlob) int { return strings.Compare(a.repoPath, b.repoPath) })
-		results := make([][]byte, len(todo))
-		_ = c.request(ctx, func(token string) error {
-			errs := make([]error, len(todo))
-			err := runConcurrent(ctx, len(todo), func(ctx context.Context, i int) error {
-				if results[i] != nil {
-					return nil
-				}
-				blob := todo[i]
-				key := memoKey(memoBlob, owner, repo, blob.sha)
-				key.raw = true
-				results[i], errs[i] = memoized(ctx, c.memo, &c.memo.blobs, key, func() ([]byte, bool, error) {
-					location := "https://raw.githubusercontent.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + commit + "/" + escapeGitHubPath(blob.repoPath)
-					var body bytes.Buffer
-					err := githubDownload(ctx, location, token, &body)
-					if err == nil && gitBlobSHA(body.Bytes()) != key.id {
-						err = errGitHubContentsFallback
-					}
-					if err != nil {
-						return nil, false, err
-					}
-					content := body.Bytes()
-					if content == nil {
-						content = []byte{}
-					}
-					return content, true, nil
-				})
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-			// 先处理需要爬阶梯的失败,其他缺失随后逐个回退。
-			for _, err := range errs {
-				if isGitHubAuthRetry(err) {
-					return err
-				}
-			}
-			for _, err := range errs {
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}, func() error { return c.graphqlBlobs(ctx, owner, repo, todo, results) })
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		for i, blob := range todo {
-			if results[i] != nil {
-				found[blob.sha] = results[i]
-				delete(pending, blob.sha)
-			}
-		}
+	if githubArchiveWorth(repoSize, pending) {
+		take(c.tarball(ctx, owner, repo, commit, pending))
+	}
+	if len(pending) > 0 && ctx.Err() == nil {
+		take(c.rawBlobs(ctx, owner, repo, commit, pending))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	todo := slices.Collect(maps.Values(pending))
 	results := make([][]byte, len(todo))
@@ -187,124 +163,125 @@ func (c *githubClient) transferBlobs(ctx context.Context, owner, repo, commit st
 	for i, blob := range todo {
 		found[blob.sha] = results[i]
 	}
+	contents := make([][]byte, len(blobs))
 	for i, blob := range blobs {
-		if contents[i] == nil {
-			contents[i] = found[blob.sha]
-		}
+		contents[i] = found[blob.sha]
 	}
-	return contents, ctx.Err()
+	return contents, nil
 }
 
-func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, pending map[string]githubBlob) (map[string][]byte, error) {
-	file, err := os.CreateTemp("", "skills-github-*.tar.gz")
-	if err != nil {
+// rawBlobs 按 commit 从 raw 有界并发取正文,只有 gh 时改用 GraphQL 批量取;取不到的留给调用方逐个回退。
+func (c *githubClient) rawBlobs(ctx context.Context, owner, repo, commit string, pending map[string]githubBlob) map[string][]byte {
+	todo := slices.Collect(maps.Values(pending))
+	slices.SortFunc(todo, func(a, b githubBlob) int { return strings.Compare(a.repoPath, b.repoPath) })
+	results := make([][]byte, len(todo))
+	_ = c.request(ctx, func(token string) error {
+		errs := make([]error, len(todo))
+		if err := runConcurrent(ctx, len(todo), func(ctx context.Context, i int) error {
+			if results[i] == nil {
+				results[i], errs[i] = c.rawBlob(ctx, owner, repo, commit, todo[i], token)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		// 先返回需要爬阶梯的失败,其他缺失随后逐个回退。
+		for _, err := range errs {
+			if isGitHubAuthRetry(err) {
+				return err
+			}
+		}
+		for _, err := range errs {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}, func() error { return c.graphqlBlobs(ctx, owner, repo, todo, results) })
+	got := map[string][]byte{}
+	for i, blob := range todo {
+		if results[i] != nil {
+			got[blob.sha] = results[i]
+		}
+	}
+	return got
+}
+
+func (c *githubClient) rawBlob(ctx context.Context, owner, repo, commit string, blob githubBlob, token string) ([]byte, error) {
+	location := "https://raw.githubusercontent.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + commit + "/" + escapeGitHubPath(blob.repoPath)
+	var body bytes.Buffer
+	if err := githubDownload(ctx, location, token, &body); err != nil {
+		return nil, err
+	}
+	content := body.Bytes()
+	if gitBlobSHA(content) != blob.sha {
 		return nil, errGitHubContentsFallback
 	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	err = c.request(ctx, func(token string) error {
-		if err := file.Truncate(0); err != nil {
-			return errGitHubContentsFallback
-		}
-		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return errGitHubContentsFallback
-		}
+	if content == nil {
+		content = []byte{}
+	}
+	memoPut(c.memo, &c.memo.blobs, memoKey(memoBlob, owner, repo, blob.sha), content)
+	return content, nil
+}
+
+// tarball 下载 commit 的整仓归档,只取出 pending 里 SHA 相符的文件。归档不落盘,路径只用于查找,
+// 正文以 tree 的 blob SHA 为准,所以无关条目、symlink、异常路径一律跳过;
+// 归档损坏或超限时保留已校验的部分,缺失的由调用方回退。
+func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, pending map[string]githubBlob) map[string][]byte {
+	var archive bytes.Buffer
+	err := c.request(ctx, func(token string) error {
+		archive.Reset()
 		location := "https://codeload.github.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/tar.gz/" + commit
 		if token != "" {
 			location = githubAPIURL("/repos/%s/%s/tarball/%s", owner, repo, commit)
 		}
-		return githubDownload(ctx, location, token, file)
+		return githubDownload(ctx, location, token, &archive)
 	}, func() error {
-		if err := file.Truncate(0); err != nil {
-			return errGitHubContentsFallback
-		}
-		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return errGitHubContentsFallback
-		}
+		archive.Reset()
 		endpoint := "/repos/" + owner + "/" + repo + "/tarball/" + commit
-		return githubCLIOutput(ctx, file, "api", endpoint, "--method", "GET", "--hostname", "github.com")
+		return githubCLIOutput(ctx, &archive, "api", endpoint, "--method", "GET", "--hostname", "github.com")
 	})
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, errGitHubContentsFallback
-	}
-	gz, err := gzip.NewReader(file)
+	gz, err := gzip.NewReader(&archive)
 	if err != nil {
-		return nil, errGitHubContentsFallback
+		return nil
 	}
 	defer gz.Close()
-	// 连 PAX 元数据与 tar 填充也受展开上限约束,避免只统计普通文件而漏掉压缩炸弹。
-	expanded := &io.LimitedReader{R: contextReader{ctx, gz}, N: maxFetchSize + 1}
-	reader := tar.NewReader(expanded)
-	wanted := map[string]string{}
+	// 展开字节上限连 tar 头与填充一起算,防压缩炸弹。
+	reader := tar.NewReader(io.LimitReader(contextReader{ctx, gz}, maxFetchSize))
+	wanted := make(map[string]string, len(pending))
 	for sha, blob := range pending {
 		wanted[blob.repoPath] = sha
 	}
 	found := map[string][]byte{}
-	seen := map[string]bool{}
-	size := int64(0)
-	root := ""
-	for count := 0; ; count++ {
+	for len(found) < len(wanted) {
 		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
+		if err != nil {
 			break
 		}
-		if err != nil || count >= maxFetchFiles {
-			return nil, errGitHubContentsFallback
-		}
-		// GitHub 的 git archive 带全局 PAX comment;它是元数据,没有可安装的文件正文。
-		if header.Typeflag == tar.TypeXGlobalHeader {
-			continue
-		}
-		name := strings.TrimSuffix(header.Name, "/")
-		if !fs.ValidPath(name) || strings.ContainsAny(name, `\:`) || seen[name] {
-			return nil, errGitHubContentsFallback
-		}
-		seen[name] = true
-		prefix, rel, _ := strings.Cut(name, "/")
-		if root == "" {
-			root = prefix
-		}
-		if root != prefix {
-			return nil, errGitHubContentsFallback
-		}
-		if header.Typeflag == tar.TypeDir {
-			if header.Size != 0 {
-				return nil, errGitHubContentsFallback
-			}
-			continue
-		}
-		if header.Typeflag != tar.TypeReg || rel == "" || header.Size < 0 || header.Size > maxFetchSize-size {
-			return nil, errGitHubContentsFallback
-		}
-		size += header.Size
-		sha, needed := wanted[rel]
-		if !needed {
+		// 顶层目录是 {repo}-{sha}/,去掉后即 tree 路径。
+		_, rel, _ := strings.Cut(header.Name, "/")
+		sha, ok := wanted[rel]
+		if !ok || header.Typeflag != tar.TypeReg {
 			continue
 		}
 		content, err := io.ReadAll(reader)
 		if err != nil {
-			return nil, errGitHubContentsFallback
+			break
 		}
 		if gitBlobSHA(content) == sha {
 			found[sha] = content
+			memoPut(c.memo, &c.memo.blobs, memoKey(memoBlob, owner, repo, sha), content)
 		}
 	}
-	if expanded.N <= 0 {
-		return nil, errGitHubContentsFallback
-	}
-	// 完整归档通过安全校验后才提交 memo,缺文件由调用方逐个补齐。
-	for sha, content := range found {
-		memoPut(c.memo, &c.memo.blobs, memoKey(memoBlob, owner, repo, sha), content)
-	}
-	return found, nil
+	return found
 }
 
 const githubGraphQLBatchSize = 100
 
-// graphqlBlobs 每批最多 100 个对象;二进制、截断、编码或 SHA 不符的正文留给 blob 回退。
+// graphqlBlobs 每批最多 100 个对象。二进制 blob 的 text 为 null,截断或编码转换过的文本 SHA 对不上,都留给 blob 回退。
 func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blobs []githubBlob, contents [][]byte) error {
 	var missing []int
 	for i := range blobs {
@@ -316,7 +293,7 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 		var query strings.Builder
 		fmt.Fprintf(&query, "query { repository(owner:%q, name:%q) {", owner, repo)
 		for _, i := range batch {
-			fmt.Fprintf(&query, " b%d: object(oid:%q) { ... on Blob { text isBinary isTruncated byteSize } }", i, blobs[i].sha)
+			fmt.Fprintf(&query, " b%d: object(oid:%q) { ... on Blob { text } }", i, blobs[i].sha)
 		}
 		query.WriteString(" } }")
 		var body bytes.Buffer
@@ -328,10 +305,7 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 		var payload struct {
 			Data struct {
 				Repository map[string]*struct {
-					Text        *string `json:"text"`
-					IsBinary    bool    `json:"isBinary"`
-					IsTruncated bool    `json:"isTruncated"`
-					ByteSize    int     `json:"byteSize"`
+					Text *string `json:"text"`
 				} `json:"repository"`
 			} `json:"data"`
 		}
@@ -343,11 +317,11 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 		}
 		for _, i := range batch {
 			blob := payload.Data.Repository[fmt.Sprintf("b%d", i)]
-			if blob == nil || blob.Text == nil || *blob.Text == "" || blob.IsBinary || blob.IsTruncated {
+			if blob == nil || blob.Text == nil {
 				continue
 			}
 			content := []byte(*blob.Text)
-			if len(content) != blob.ByteSize || gitBlobSHA(content) != blobs[i].sha {
+			if gitBlobSHA(content) != blobs[i].sha {
 				continue
 			}
 			contents[i] = content
