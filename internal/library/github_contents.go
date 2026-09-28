@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 const githubAPIHost = "api.github.com"
@@ -306,11 +307,11 @@ func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, er
 
 type githubSourceView struct {
 	snap *githubSourceSnapshot
-	dirs map[string][]sourceEntry
+	dirs map[string][]discovery.Entry
 }
 
 func newGitHubSourceView(snap *githubSourceSnapshot) githubSourceView {
-	v := githubSourceView{snap: snap, dirs: map[string][]sourceEntry{".": {}}}
+	v := githubSourceView{snap: snap, dirs: map[string][]discovery.Entry{".": {}}}
 	for _, entry := range snap.entries {
 		var mode fs.FileMode
 		if entry.Type == "tree" {
@@ -322,15 +323,15 @@ func newGitHubSourceView(snap *githubSourceSnapshot) githubSourceView {
 			mode = fs.ModeIrregular
 		}
 		parent := path.Dir(entry.Path)
-		v.dirs[parent] = append(v.dirs[parent], sourceEntry{path.Base(entry.Path), mode})
+		v.dirs[parent] = append(v.dirs[parent], discovery.Entry{Name: path.Base(entry.Path), Mode: mode})
 	}
 	for dir := range v.dirs {
-		slices.SortFunc(v.dirs[dir], func(a, b sourceEntry) int { return cmp.Compare(a.name, b.name) })
+		slices.SortFunc(v.dirs[dir], func(a, b discovery.Entry) int { return cmp.Compare(a.Name, b.Name) })
 	}
 	return v
 }
 
-func (v githubSourceView) readDir(dir string) ([]sourceEntry, error) {
+func (v githubSourceView) ReadDir(dir string) ([]discovery.Entry, error) {
 	entries, ok := v.dirs[dir]
 	if !ok {
 		return nil, fs.ErrNotExist
@@ -338,19 +339,19 @@ func (v githubSourceView) readDir(dir string) ([]sourceEntry, error) {
 	return entries, nil
 }
 
-func (v githubSourceView) readFile(ctx context.Context, name string) ([]byte, error) {
+func (v githubSourceView) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	entry, ok := v.snap.byPath[name]
 	if !ok || !githubRegularBlob(entry) {
 		return nil, fs.ErrNotExist
 	}
 	contents, err := v.snap.client.transferBlobs(ctx, v.snap.owner, v.snap.repo, v.snap.ref, 0, []githubBlob{{repoPath: entry.Path, sha: entry.SHA, content: v.snap.storedBlobs[entry.SHA]}})
 	if err != nil {
-		return nil, err
+		return nil, githubDiscoveryError(err)
 	}
 	return contents[0], nil
 }
 
-func (v githubSourceView) readFiles(ctx context.Context, names []string) ([][]byte, []error) {
+func (v githubSourceView) ReadFiles(ctx context.Context, names []string) ([][]byte, []error) {
 	blobs := make([]githubBlob, len(names))
 	for i, name := range names {
 		entry := v.snap.byPath[name]
@@ -361,17 +362,25 @@ func (v githubSourceView) readFiles(ctx context.Context, names []string) ([][]by
 	if err != nil {
 		contents = make([][]byte, len(names))
 		for i := range errs {
-			errs[i] = err
+			errs[i] = githubDiscoveryError(err)
 		}
 	}
 	return contents, errs
 }
 
+func githubDiscoveryError(err error) error {
+	if githubContentsUnavailable(err) {
+		return discovery.Abort(err)
+	}
+	return err
+}
+
 func discoverFromGitHubTree(ctx context.Context, snap *githubSourceSnapshot, root string) (discoveredSource, error) {
-	return discoverCandidates(ctx, newGitHubSourceView(snap), root, func(skill *discoveredSkill, filename string, content []byte) error {
-		blobs, treeSHA, err := githubSkillBlobs(snap.entries, skill.candidate.Path, snap.rootTree, snap.byPath)
+	loaded := map[string]discoveredSkill{}
+	candidates, diagnostics, err := discovery.Scan(ctx, newGitHubSourceView(snap), root, func(candidate discovery.Candidate, filename string, content []byte) error {
+		blobs, treeSHA, err := githubSkillBlobs(snap.entries, candidate.Path, snap.rootTree, snap.byPath)
 		if err != nil {
-			return err
+			return githubDiscoveryError(err)
 		}
 		for i, blob := range blobs {
 			if blob.path == filename {
@@ -379,16 +388,19 @@ func discoverFromGitHubTree(ctx context.Context, snap *githubSourceSnapshot, roo
 				break
 			}
 		}
-		skill.blobs, skill.gitTreeSHA = blobs, treeSHA
+		loaded[candidate.Path] = discoveredSkill{blobs: blobs, gitTreeSHA: treeSHA}
 		return nil
 	})
-}
-
-func githubUnderRoot(p, root string) bool {
-	if root == "." {
-		return true
+	if err != nil {
+		return discoveredSource{}, err
 	}
-	return p == root || strings.HasPrefix(p, root+"/")
+	skills := make([]discoveredSkill, len(candidates))
+	for i, candidate := range candidates {
+		skill := loaded[candidate.Path]
+		skill.name, skill.candidate = candidate.Name, candidate
+		skills[i] = skill
+	}
+	return discoveredSource{skills: skills, diagnostics: diagnostics}, nil
 }
 
 func githubRegularBlob(entry githubTreeEntry) bool {

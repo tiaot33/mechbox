@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 const (
@@ -18,7 +20,7 @@ const (
 
 func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
-	if !validSelectionName(name) {
+	if !discovery.ValidName(name) {
 		return nil, &Error{Code: InvalidArgument, Message: "invalid candidate name"}
 	}
 	l.previewMu.Lock()

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 
 	"github.com/mattn/go-sqlite3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 func typedError(err error) error {
@@ -20,6 +21,10 @@ func typedError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		code = Canceled
+	case errors.Is(err, discovery.ErrTooLarge):
+		return fetchError(SourceInvalid, "read source", err)
+	case errors.Is(err, discovery.ErrNoCandidates):
+		code = SourceInvalid
 	case errors.Is(err, sql.ErrNoRows):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):

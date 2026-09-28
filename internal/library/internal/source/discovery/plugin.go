@@ -1,4 +1,4 @@
-package library
+package discovery
 
 import (
 	"cmp"
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func pluginSearchPaths(ctx context.Context, view sourceDirectoryView, root string) ([]string, map[string]string, error) {
+func pluginSearchPaths(ctx context.Context, view View, root string) ([]string, map[string]string, error) {
 	var dirs []string
 	groups := map[string]string{}
 	readManifest := func(name string, dest any) (bool, error) {
@@ -17,10 +17,10 @@ func pluginSearchPaths(ctx context.Context, view sourceDirectoryView, root strin
 		if err != nil {
 			return false, nil
 		}
-		if slices.IndexFunc(entries, func(e sourceEntry) bool { return e.name == name && e.mode.IsRegular() }) < 0 {
+		if slices.IndexFunc(entries, func(e Entry) bool { return e.Name == name && e.Mode.IsRegular() }) < 0 {
 			return false, nil
 		}
-		content, err := view.readFile(ctx, path.Join(root, ".claude-plugin", name))
+		content, err := view.ReadFile(ctx, path.Join(root, ".claude-plugin", name))
 		if err != nil {
 			return false, err
 		}
@@ -92,7 +92,7 @@ func pluginLocalPath(root, base, value string) (string, bool) {
 		}
 	}
 	dir := path.Join(base, value)
-	if !githubUnderRoot(dir, root) {
+	if !underRoot(dir, root) {
 		return "", false
 	}
 	return dir, true

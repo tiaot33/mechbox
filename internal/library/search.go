@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result []SearchSkill, err error) {
@@ -75,7 +77,7 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 			return nil, fetchError(SourceInvalid, "read search response", errors.New("missing or invalid result fields"))
 		}
 		source, err := parseGitHubInput(GitHubInput{Input: skill.Source})
-		if err != nil || source.tree != "" || source.ref != "" || source.name != "" || !validSelectionName(skill.Name) || strings.Contains(skill.Name, "#") {
+		if err != nil || source.tree != "" || source.ref != "" || source.name != "" || !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
 			continue
 		}
 		repository := strings.TrimSuffix(strings.TrimPrefix(source.repository, "https://github.com/"), ".git")

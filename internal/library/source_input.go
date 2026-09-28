@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 const sourceTimeout = 30 * time.Second
@@ -80,7 +82,7 @@ func parseGitHubInput(github GitHubInput) (result githubInput, err error) {
 	if len(parts) == 2 {
 		var selected bool
 		parts[1], result.name, selected = strings.Cut(parts[1], "@")
-		if selected && !validSelectionName(result.name) {
+		if selected && !discovery.ValidName(result.name) {
 			return invalid()
 		}
 	}
@@ -106,10 +108,6 @@ func parseGitHubInput(github GitHubInput) (result githubInput, err error) {
 
 func validSubpath(value string) bool {
 	return value == "" || (fs.ValidPath(value) && !strings.ContainsAny(value, "\\:\x00") && !strings.Contains("/"+value+"/", "/.git/"))
-}
-
-func validSelectionName(value string) bool {
-	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value) && value != "." && value != ".." && !strings.ContainsAny(value, "/\\\x00\r\n")
 }
 
 func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator SourceLocator, subpath, name string, err error) {

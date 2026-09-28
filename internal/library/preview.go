@@ -10,13 +10,15 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 const previewTTL = 30 * time.Minute
 
 type discoveredSkill struct {
 	name       string
-	candidate  Candidate
+	candidate  discovery.Candidate
 	files      []File
 	gitTreeSHA string
 	blobs      []githubBlob
@@ -29,7 +31,7 @@ type previewState struct {
 	ref            string
 	httpValidator  string
 	skills         []discoveredSkill
-	diagnostics    []PreviewDiagnostic
+	diagnostics    []discovery.Diagnostic
 	timer          *time.Timer
 	fetching       bool
 	audits         map[string]SkillAudit
@@ -90,7 +92,7 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 			delete(l.previews, id)
 		}
 	})
-	preview = FetchPreview{ID: id, Revision: discovered.ref, Candidates: candidates, Diagnostics: slices.Clone(state.diagnostics)}
+	preview = FetchPreview{ID: id, Revision: discovered.ref, Candidates: candidates, Diagnostics: previewDiagnostics(state.diagnostics)}
 	if source.Type == SourceGitHub {
 		preview.Ref = source.Locator.Branch
 	}
@@ -160,10 +162,21 @@ func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState)
 	}
 	candidates := make([]Candidate, len(state.skills))
 	for i, skill := range state.skills {
-		candidates[i] = skill.candidate
-		candidates[i].Fetched = fetched[skill.candidate.Name]
+		c := skill.candidate
+		candidates[i] = Candidate{Fetched: fetched[c.Name], PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
 	}
 	return candidates, nil
+}
+
+func previewDiagnostics(diagnostics []discovery.Diagnostic) []PreviewDiagnostic {
+	if diagnostics == nil {
+		return nil
+	}
+	result := make([]PreviewDiagnostic, len(diagnostics))
+	for i, d := range diagnostics {
+		result[i] = PreviewDiagnostic{Path: d.Path, Reason: d.Reason}
+	}
+	return result
 }
 
 func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []SkillSummary, err error) {

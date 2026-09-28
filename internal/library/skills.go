@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 const summaryQuery = `
@@ -107,7 +109,7 @@ func skillDescription(files []File) string {
 		if file.Path != "SKILL.md" {
 			continue
 		}
-		meta, err := candidateMetadata(file.Content, ".")
+		meta, err := discovery.ParseSkillMD(file.Content, ".")
 		if err != nil {
 			return ""
 		}

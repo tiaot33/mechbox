@@ -3,7 +3,6 @@ package library
 import (
 	"archive/zip"
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,8 +19,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"go.yaml.in/yaml/v3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
 const sourceStore SourceType = "store"
@@ -59,7 +57,7 @@ func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) err
 type discoveredSource struct {
 	githubRepoSize int64
 	skills         []discoveredSkill
-	diagnostics    []PreviewDiagnostic
+	diagnostics    []discovery.Diagnostic
 	ref            string
 	httpValidator  string
 	unchanged      bool
@@ -95,30 +93,11 @@ func fetchLocal(ctx context.Context, root string) (discoveredSource, error) {
 	if !info.IsDir() {
 		return discoveredSource{}, argumentError("read local source", "path", "path is not a directory")
 	}
-	result, err := discoverSkills(ctx, os.DirFS(root), ".", &readBudget{files: maxFetchFiles, bytes: maxFetchSize})
+	result, err := discoverSkills(ctx, os.DirFS(root), ".", discovery.NewBudget(maxFetchFiles, maxFetchSize))
 	if err != nil {
 		return result, err
 	}
 	return finishDiscovery(result)
-}
-
-var errReadLimit = errors.New("source exceeds read limit")
-
-type readBudget struct {
-	files int
-	bytes int64
-}
-
-func (b *readBudget) take(files int, size int64) error {
-	b.files -= files
-	b.bytes -= size
-	if b.files < 0 {
-		return fetchError(SourceInvalid, "read source", fmt.Errorf("%w: more than %d files", errReadLimit, maxFetchFiles))
-	}
-	if b.bytes < 0 {
-		return fetchError(SourceInvalid, "read source", fmt.Errorf("%w: more than %d bytes", errReadLimit, maxFetchSize))
-	}
-	return nil
 }
 
 func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {
@@ -344,111 +323,21 @@ func readArchive(ctx context.Context, content []byte) (discoveredSource, error) 
 	return finishDiscovery(result)
 }
 
-func candidateMetadata(content []byte, root string) (Candidate, error) {
-	result := Candidate{Path: root}
-	first, rest, ok := strings.Cut(string(content), "\n")
-	if !ok || strings.TrimSuffix(first, "\r") != "---" {
-		return result, errors.New("missing YAML frontmatter")
-	}
-	var front strings.Builder
-	closed := false
-	for line := range strings.SplitSeq(rest, "\n") {
-		if strings.TrimSuffix(line, "\r") == "---" {
-			closed = true
-			break
-		}
-		front.WriteString(line)
-		front.WriteByte('\n')
-	}
-	if !closed {
-		return result, errors.New("unclosed YAML frontmatter")
-	}
-	var metadata map[string]any
-	if err := yaml.Unmarshal([]byte(front.String()), &metadata); err != nil {
-		return result, fmt.Errorf("invalid YAML frontmatter: %w", err)
-	}
-	name, ok := metadata["name"].(string)
-	if !ok || !validSelectionName(name) {
-		return result, errors.New("name must be a non-empty safe string")
-	}
-	result.Name = name
-	result.Description, ok = metadata["description"].(string)
-	if !ok {
-		return result, errors.New("description must be a string")
-	}
-	return result, nil
-}
-
-func discoverSkills(ctx context.Context, source fs.FS, root string, budget *readBudget) (discoveredSource, error) {
-	return discoverCandidates(ctx, fsSourceView{source}, root, func(skill *discoveredSkill, _ string, _ []byte) error {
-		var err error
-		skill.files, err = readCandidateFiles(ctx, source, skill.candidate.Path, budget)
-		return err
-	})
-}
-
-func readSourceFile(ctx context.Context, source fs.FS, name string) ([]byte, error) {
-	file, err := source.Open(name)
+func discoverSkills(ctx context.Context, source fs.FS, root string, budget *discovery.Budget) (discoveredSource, error) {
+	found, diagnostics, err := discovery.ScanFS(ctx, source, root, budget)
 	if err != nil {
-		return nil, err
+		return discoveredSource{}, err
 	}
-	content, readErr := io.ReadAll(contextReader{ctx, file})
-	return content, errors.Join(readErr, file.Close())
-}
-
-func readCandidateFiles(ctx context.Context, source fs.FS, root string, budget *readBudget) ([]File, error) {
-	var files []File
-	err := fs.WalkDir(source, root, func(current string, entry fs.DirEntry, err error) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err != nil {
-			return err
-		}
-		if entry.Name() == ".git" {
-			if entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if !entry.Type().IsRegular() {
-			return fetchError(SourceInvalid, "read source", fmt.Errorf("unsupported file type: %s", current))
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if budget != nil {
-			if err := budget.take(1, info.Size()); err != nil {
-				return err
-			}
-		}
-		content, err := readSourceFile(ctx, source, current)
-		if err != nil {
-			return err
-		}
-		if budget != nil && int64(len(content)) > info.Size() {
-			if err := budget.take(0, int64(len(content))-info.Size()); err != nil {
-				return err
-			}
-		}
-		files = append(files, File{Path: strings.TrimPrefix(current, root+"/"), Content: content, Mode: skillfile.ModeOf(info.Mode())})
-		return nil
-	})
-	slices.SortFunc(files, func(a, b File) int { return cmp.Compare(a.Path, b.Path) })
-	return files, err
+	skills := make([]discoveredSkill, len(found))
+	for i, skill := range found {
+		skills[i] = discoveredSkill{name: skill.Name, candidate: skill.Candidate, files: skill.Files}
+	}
+	return discoveredSource{skills: skills, diagnostics: diagnostics}, nil
 }
 
 func finishDiscovery(result discoveredSource) (discoveredSource, error) {
 	if len(result.skills) == 0 {
-		reasons := make([]string, len(result.diagnostics))
-		for i, d := range result.diagnostics {
-			reasons[i] = d.Path + ": " + d.Reason
-		}
-		return discoveredSource{}, fetchError(SourceInvalid, "no valid Skill candidates", errors.New(strings.Join(reasons, "; ")))
+		return discoveredSource{}, discovery.NoCandidates(result.diagnostics)
 	}
 	return result, nil
 }
