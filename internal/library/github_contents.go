@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
 const githubAPIHost = "api.github.com"
@@ -650,7 +652,7 @@ func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill
 	if err != nil {
 		return false, err
 	}
-	return !filesEqual(skill.Files, files), nil
+	return !skillfile.Equal(skill.Files, files), nil
 }
 
 func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, state *previewState, skills []discoveredSkill) error {

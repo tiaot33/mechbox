@@ -2,11 +2,11 @@ package library
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
 type gitRecord struct {
@@ -32,8 +32,7 @@ func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File,
 		return 0, fmt.Errorf("read version id: %w", err)
 	}
 	for _, file := range files {
-		sum := sha256.Sum256(file.Content)
-		fingerprint := hex.EncodeToString(sum[:])
+		fingerprint := skillfile.Fingerprint(file.Content)
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
 			return 0, fmt.Errorf("store %s: %w", file.Path, err)
 		}
@@ -120,13 +119,13 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 	if oldVersion.SkillID != newVersion.SkillID {
 		return VersionDiff{}, argumentError("diff skill versions", "", "versions belong to different skills")
 	}
-	oldFiles := make(map[string][sha256.Size]byte, len(oldVersion.Files))
+	oldFiles := make(map[string]string, len(oldVersion.Files))
 	for _, file := range oldVersion.Files {
-		oldFiles[file.Path] = sha256.Sum256(file.Content)
+		oldFiles[file.Path] = skillfile.Fingerprint(file.Content)
 	}
-	newFiles := make(map[string][sha256.Size]byte, len(newVersion.Files))
+	newFiles := make(map[string]string, len(newVersion.Files))
 	for _, file := range newVersion.Files {
-		newFiles[file.Path] = sha256.Sum256(file.Content)
+		newFiles[file.Path] = skillfile.Fingerprint(file.Content)
 	}
 	for _, file := range oldVersion.Files {
 		newSum, ok := newFiles[file.Path]

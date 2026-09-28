@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
 // SkillID 各实体的数据库主键,定义为不同类型以免互相传错。
@@ -115,11 +117,11 @@ const (
 )
 
 // FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
-type FileMode string
+type FileMode = skillfile.Mode
 
 const (
-	ModeRegular    FileMode = "regular"
-	ModeExecutable FileMode = "executable"
+	ModeRegular    = skillfile.ModeRegular
+	ModeExecutable = skillfile.ModeExecutable
 )
 
 // SourceLocator 是来源的定位信息;不同 SourceType 只使用其中一部分字段。
@@ -230,11 +232,7 @@ type PreviewDiagnostic struct {
 }
 
 // File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
-type File struct {
-	Path    string   `json:"path"`
-	Content []byte   `json:"content"`
-	Mode    FileMode `json:"mode"`
-}
+type File = skillfile.File
 
 // FileMetadata 是文件列表用的元数据,不含文件内容。
 type FileMetadata struct {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
 func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
@@ -94,7 +96,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 					selected, selectErr := selectSkills(discovered.skills, []string{skills[index].Name})
 					itemErr = selectErr
 					if itemErr == nil {
-						available = !filesEqual(skills[index].Files, selected[0].files)
+						available = !skillfile.Equal(skills[index].Files, selected[0].files)
 					}
 				}
 			}

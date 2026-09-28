@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -434,11 +435,7 @@ func readCandidateFiles(ctx context.Context, source fs.FS, root string, budget *
 				return err
 			}
 		}
-		mode := ModeRegular
-		if info.Mode().Perm()&0o111 != 0 {
-			mode = ModeExecutable
-		}
-		files = append(files, File{Path: strings.TrimPrefix(current, root+"/"), Content: content, Mode: mode})
+		files = append(files, File{Path: strings.TrimPrefix(current, root+"/"), Content: content, Mode: skillfile.ModeOf(info.Mode())})
 		return nil
 	})
 	slices.SortFunc(files, func(a, b File) int { return cmp.Compare(a.Path, b.Path) })

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
@@ -25,7 +27,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		var latest Skill
 		latest, validator, err = l.readUpdate(ctx, skill, state.httpValidator)
 		if err == nil {
-			changed = !filesEqual(skill.Files, latest.Files)
+			changed = !skillfile.Equal(skill.Files, latest.Files)
 			skill = latest
 		}
 	}
@@ -111,7 +113,7 @@ func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confi
 				return Skill{}, false, err
 			}
 			if !shaKnown {
-				changed = !filesEqual(skill.Files, files)
+				changed = !skillfile.Equal(skill.Files, files)
 			}
 			skill.Files = files
 		}
