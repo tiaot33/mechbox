@@ -1,0 +1,745 @@
+package library_test
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library"
+)
+
+// gitHubModes 是 GitHub 来源的两种读取方式:REST API,以及 API 不可用时的浅克隆。
+// 同一条行为在两种方式下结果应完全一致。serve 返回的 advance 在仓库提交新内容后调用,让远端看到新的 HEAD。
+var gitHubModes = []struct {
+	name  string
+	serve func(t *testing.T, repo string) (advance func())
+}{
+	{"api", func(t *testing.T, repo string) func() {
+		api := serveGitHubAPI(t, inspectGitHubRepo(t, repo))
+		blockGitHubClone(t)
+		return func() { api.Swap(inspectGitHubRepo(t, repo)) }
+	}},
+	{"clone", func(t *testing.T, repo string) func() {
+		serveGitHubCloneOnly(t, repo)
+		return func() {}
+	}},
+}
+
+func TestGitHubPreviewAndFetch(t *testing.T) {
+	for _, mode := range gitHubModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"first/SKILL.md":       {content: []byte(skillDocument("first", "first body")), mode: 0o644},
+				"first/scripts/run":    {content: []byte{0, 255, 1}, mode: 0o755},
+				"first/data.bin":       {content: []byte{0, 1, 2, 255}, mode: 0o644},
+				"other-dir/SKILL.md":   {content: []byte(skillDocument("second", "second body")), mode: 0o644},
+				"unrelated/large.bin":  {content: []byte("not a skill"), mode: 0o644},
+				"other-dir/extra.md":   {content: []byte("other skill"), mode: 0o644},
+				"first/nested/note.md": {content: []byte("nested"), mode: 0o644},
+			})
+			mode.serve(t, repo)
+			lib := openTestLibrary(t)
+
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if preview.Ref != "main" || preview.Revision != gitRevParse(t, repo, "HEAD") {
+				t.Fatalf("Ref / Revision = %q / %q", preview.Ref, preview.Revision)
+			}
+			want := []library.Candidate{{Name: "first", Path: "first"}, {Name: "second", Path: "other-dir"}}
+			if !reflect.DeepEqual(preview.Candidates, want) {
+				t.Fatalf("candidates = %#v, want %#v", preview.Candidates, want)
+			}
+			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
+				t.Fatalf("preview wrote Library: %v, %v", skills, err)
+			}
+
+			fetched := fetchSkills(t, lib, preview, []string{"first"})
+			wantFiles := []library.File{
+				{Path: "SKILL.md", Content: []byte(skillDocument("first", "first body")), Mode: library.ModeRegular},
+				{Path: "data.bin", Content: []byte{0, 1, 2, 255}, Mode: library.ModeRegular},
+				{Path: "nested/note.md", Content: []byte("nested"), Mode: library.ModeRegular},
+				{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
+			}
+			if !reflect.DeepEqual(fetched[0].Files, wantFiles) {
+				t.Fatalf("files = %#v, want %#v", fetched[0].Files, wantFiles)
+			}
+			wantSource := library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "main"}
+			if fetched[0].Source.Locator != wantSource || fetched[0].Source.LastSeenRef != preview.Revision {
+				t.Fatalf("source = %#v", fetched[0].Source)
+			}
+			if _, err := lib.Fetch(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
+				t.Fatalf("handle reused after successful fetch: %v", err)
+			}
+		})
+	}
+}
+
+func TestGitHubFetchKeepsPreviewedContentAfterHeadAdvances(t *testing.T) {
+	for _, mode := range gitHubModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"demo/SKILL.md": {content: []byte(skillDocument("demo", "pinned")), mode: 0o644},
+				"demo/note.md":  {content: []byte("original note"), mode: 0o644},
+			})
+			advance := mode.serve(t, repo)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			writeFile(t, filepath.Join(repo, "demo", "note.md"), []byte("advanced note"), 0o644)
+			commitGit(t, repo, "advance")
+			advance()
+
+			fetched := fetchSkills(t, lib, preview, []string{"demo"})
+			want := []library.File{
+				{Path: "SKILL.md", Content: []byte(skillDocument("demo", "pinned")), Mode: library.ModeRegular},
+				{Path: "note.md", Content: []byte("original note"), Mode: library.ModeRegular},
+			}
+			if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].Source.LastSeenRef != preview.Revision {
+				t.Fatalf("fetched = %#v, want previewed content at %s", fetched[0], preview.Revision)
+			}
+		})
+	}
+}
+
+func TestGitHubPreviewSelectsBySubpathNameAndRoot(t *testing.T) {
+	for _, mode := range gitHubModes {
+		t.Run(mode.name+"/subpath and name", func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"skills/first/SKILL.md":  {content: []byte(skillDocument("first", "one")), mode: 0o644},
+				"skills/second/SKILL.md": {content: []byte(skillDocument("second", "two")), mode: 0o644},
+				"other/SKILL.md":         {content: []byte(skillDocument("other", "outside")), mode: 0o644},
+			})
+			mode.serve(t, repo)
+			lib := openTestLibrary(t)
+			request := gitHubRequest()
+			request.GitHub.Input = "owner/repo@first"
+			request.GitHub.Subpath = "skills"
+			preview, err := lib.PreviewFetch(t.Context(), request)
+			if err != nil || !reflect.DeepEqual(preview.Candidates, []library.Candidate{{Name: "first", Path: "skills/first"}}) {
+				t.Fatalf("preview = %#v, %v", preview, err)
+			}
+			fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+			if fetched[0].Source.Locator.Repository != "https://github.com/owner/repo.git" {
+				t.Fatalf("subpath changed source identity: %#v", fetched[0].Source)
+			}
+		})
+		t.Run(mode.name+"/root skill", func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"SKILL.md":                   {content: []byte(skillDocument("root-skill", "root")), mode: 0o644},
+				"notes.md":                   {content: []byte("extra"), mode: 0o644},
+				"references/nested/SKILL.md": {content: []byte(skillDocument("nested", "keep")), mode: 0o644},
+			})
+			mode.serve(t, repo)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil || !reflect.DeepEqual(preview.Candidates, []library.Candidate{{Name: "root-skill", Path: "."}}) {
+				t.Fatalf("preview = %#v, %v", preview, err)
+			}
+			fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+			want := []library.File{
+				{Path: "SKILL.md", Content: []byte(skillDocument("root-skill", "root")), Mode: library.ModeRegular},
+				{Path: "notes.md", Content: []byte("extra"), Mode: library.ModeRegular},
+				{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep")), Mode: library.ModeRegular},
+			}
+			if !reflect.DeepEqual(fetched[0].Files, want) {
+				t.Fatalf("files = %#v", fetched[0].Files)
+			}
+		})
+	}
+}
+
+func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
+	for _, mode := range gitHubModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"first/SKILL.md":     {content: []byte(skillDocument("first", "one")), mode: 0o644},
+				"first/notes.md":     {content: []byte("v1"), mode: 0o644},
+				"other-dir/SKILL.md": {content: []byte(skillDocument("second", "two")), mode: 0o644},
+			})
+			advance := mode.serve(t, repo)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			skills := fetchSkills(t, lib, preview, []string{"first", "second"})
+			ids := skillIDs(skills)
+			requireAvailable := func(want ...bool) {
+				t.Helper()
+				checks, err := lib.CheckUpdates(t.Context(), ids)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i, check := range checks {
+					if check.Error != nil || check.Available != want[i] {
+						t.Fatalf("check %s = %#v, want available %v", skills[i].Name, check, want[i])
+					}
+				}
+			}
+			requireAvailable(false, false)
+
+			writeFile(t, filepath.Join(repo, "README.md"), []byte("outside every skill"), 0o644)
+			commitGit(t, repo, "unrelated change")
+			advance()
+			requireAvailable(false, false)
+
+			writeFile(t, filepath.Join(repo, "first", "notes.md"), []byte("v2"), 0o644)
+			commitGit(t, repo, "change first")
+			advance()
+			requireAvailable(true, false)
+
+			updated, err := lib.Update(t.Context(), skills[0].ID)
+			if err != nil || !updated.Changed {
+				t.Fatalf("Update(first) = %#v, %v", updated, err)
+			}
+			want := library.File{Path: "notes.md", Content: []byte("v2"), Mode: library.ModeRegular}
+			if !slices.ContainsFunc(updated.Skill.Files, func(file library.File) bool { return reflect.DeepEqual(file, want) }) || updated.Skill.Source.LastSeenRef != gitRevParse(t, repo, "HEAD") {
+				t.Fatalf("updated skill = %#v", updated.Skill)
+			}
+			if unchanged, err := lib.Update(t.Context(), skills[1].ID); err != nil || unchanged.Changed {
+				t.Fatalf("Update(second) = %#v, %v", unchanged, err)
+			}
+			requireAvailable(false, false)
+			if versions, err := lib.ListVersions(t.Context(), skills[0].ID); err != nil || len(versions) != 2 {
+				t.Fatalf("versions = %#v, %v", versions, err)
+			}
+		})
+	}
+}
+
+func TestGitHubFallsBackToCloneWhenAPIIsIncomplete(t *testing.T) {
+	files := map[string]repoFile{
+		"good/SKILL.md":    {content: []byte(skillDocument("good", "body")), mode: 0o644},
+		"good/scripts/run": {content: []byte{9, 8, 7}, mode: 0o755},
+	}
+	for _, tc := range []struct {
+		name  string
+		serve func(t *testing.T, repo string)
+	}{
+		{"api unavailable", func(t *testing.T, repo string) { serveGitHubCloneOnly(t, repo) }},
+		{"truncated tree", func(t *testing.T, repo string) {
+			fx := inspectGitHubRepo(t, repo)
+			fx.truncated = true
+			serveGitHubAPI(t, fx)
+			redirectGitHubClone(t, repo)
+		}},
+		{"incomplete blob", func(t *testing.T, repo string) {
+			fx := inspectGitHubRepo(t, repo)
+			fx.incompleteBlob = fx.blobSHA("good/SKILL.md")
+			serveGitHubAPI(t, fx)
+			redirectGitHubClone(t, repo)
+		}},
+		{"rate limited blobs", func(t *testing.T, repo string) {
+			api := serveGitHubAPI(t, inspectGitHubRepo(t, repo))
+			api.setBlobStatus(http.StatusTooManyRequests)
+			api.rateLimitReset = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+			redirectGitHubClone(t, repo)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, files)
+			tc.serve(t, repo)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil || len(preview.Candidates) != 1 {
+				t.Fatalf("preview = %#v, %v", preview, err)
+			}
+			fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+			want := []library.File{
+				{Path: "SKILL.md", Content: []byte(skillDocument("good", "body")), Mode: library.ModeRegular},
+				{Path: "scripts/run", Content: []byte{9, 8, 7}, Mode: library.ModeExecutable},
+			}
+			if !reflect.DeepEqual(fetched[0].Files, want) {
+				t.Fatalf("files = %#v", fetched[0].Files)
+			}
+		})
+	}
+}
+
+func TestGitHubSkillWithUnsupportedObjectIsReportedAsDiagnostic(t *testing.T) {
+	for _, mode := range gitHubModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"good/SKILL.md": {content: []byte(skillDocument("good", "body")), mode: 0o644},
+				"bad/SKILL.md":  {content: []byte(skillDocument("bad", "body")), mode: 0o644},
+			})
+			if err := os.Symlink("/does-not-exist", filepath.Join(repo, "bad", "link")); err != nil {
+				t.Fatal(err)
+			}
+			commitGit(t, repo, "symlink")
+			mode.serve(t, repo)
+			redirectGitHubClone(t, repo)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "good" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
+				t.Fatalf("preview = %#v, %v", preview, err)
+			}
+			fetchSkills(t, lib, preview, []string{"good"})
+		})
+	}
+}
+
+func TestGitHubFetchFailureLeavesLibraryUnchangedAndKeepsHandle(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fail func(api *gitHubAPIMock)
+		code library.ErrorCode
+	}{
+		{"unreadable blobs", func(api *gitHubAPIMock) { api.setFailBlobs(true) }, library.SourceUnreachable},
+		{"forbidden blobs", func(api *gitHubAPIMock) { api.setBlobStatus(http.StatusForbidden) }, library.Permission},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, map[string]repoFile{
+				"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+				"demo/extra.md": {content: []byte("asset"), mode: 0o644},
+			})
+			api := serveGitHubAPI(t, inspectGitHubRepo(t, repo))
+			blockGitHubClone(t)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.fail(api)
+			if fetched, err := lib.Fetch(t.Context(), preview.ID, []string{"demo"}); !library.IsCode(err, tc.code) || len(fetched) != 0 {
+				t.Fatalf("Fetch = %#v, %v; want %s", fetched, err, tc.code)
+			}
+			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
+				t.Fatalf("failed fetch wrote Library: %v, %v", skills, err)
+			}
+			redirectGitHubClone(t, repo)
+			if fetched, err := lib.Fetch(t.Context(), preview.ID, []string{"demo"}); err != nil || len(fetched) != 1 {
+				t.Fatalf("retry = %#v, %v", fetched, err)
+			}
+		})
+	}
+}
+
+func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/scripts/run": {content: []byte{0, 255, 1}, mode: 0o755},
+	})
+	fx := inspectGitHubRepo(t, repo)
+	for _, credential := range []string{"environment token", "gh CLI"} {
+		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusTooManyRequests} {
+			t.Run(credential+"/"+http.StatusText(status), func(t *testing.T) {
+				api := serveGitHubAPI(t, fx)
+				api.anonymousStatus = status
+				blockGitHubClone(t)
+				if credential == "gh CLI" {
+					serveGitHubCLI(t, fx)
+				} else {
+					t.Setenv("GITHUB_TOKEN", "test-github-token")
+				}
+				lib := openTestLibrary(t)
+				preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+				if err != nil || len(preview.Candidates) != 1 {
+					t.Fatalf("preview = %#v, %v", preview, err)
+				}
+				fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+				if len(fetched[0].Files) != 2 {
+					t.Fatalf("files = %#v", fetched[0].Files)
+				}
+			})
+		}
+	}
+}
+
+func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
+	const secret = "private-token-and-cli-output"
+	serveGitHubAPI(t, inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	})))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	redirectGitHubRemote(t, server.URL)
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+
+	stubGitHubCLI(t, "echo '"+secret+"'\necho '"+secret+"' >&2\nexit 1\n")
+	t.Setenv("GITHUB_TOKEN", secret)
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusForbidden, map[string]string{"message": secret}), nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = client })
+	for _, operation := range []struct {
+		name string
+		run  func() error
+	}{
+		{"PreviewFetch", func() error { _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); return err }},
+		{"CheckUpdates", func() error { _, err := checkSingleUpdate(t, lib, t.Context(), fetched[0].ID); return err }},
+		{"Update", func() error { _, err := lib.Update(t.Context(), fetched[0].ID); return err }},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			err := operation.run()
+			if !library.IsCode(err, library.Permission) || strings.Contains(fmt.Sprintf("%+v", err), secret) {
+				t.Fatalf("error = %v, want Permission without credentials", err)
+			}
+		})
+	}
+}
+
+func TestGitHubCancellationStopsChildProcesses(t *testing.T) {
+	api := serveGitHubAPI(t, gitHubFixture{})
+	api.anonymousStatus = http.StatusTooManyRequests
+	blockGitHubClone(t)
+	ready := filepath.Join(t.TempDir(), "ready")
+	escaped := filepath.Join(t.TempDir(), "escaped")
+	t.Setenv("GH_TEST_READY", ready)
+	t.Setenv("GH_TEST_ESCAPED", escaped)
+	stubGitHubCLI(t, `sh -c 'echo ready > "$GH_TEST_READY"; sleep 1; echo escaped > "$GH_TEST_ESCAPED"' &
+wait
+`)
+	lib := openTestLibrary(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := lib.PreviewFetch(ctx, gitHubRequest())
+		done <- err
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("remote operation did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled PreviewFetch = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled PreviewFetch did not stop promptly")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := os.Stat(escaped); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("child process survived cancellation: %v", err)
+	}
+}
+
+type repoFile struct {
+	content []byte
+	mode    os.FileMode
+}
+
+// gitHubFixture 是某个 commit 上仓库的 GitHub API 视图:commit、根 tree、全部条目与 blob 内容。
+type gitHubFixture struct {
+	commit         string
+	rootTree       string
+	entries        []gitHubTreeEntry
+	blobs          map[string][]byte
+	paths          map[string]gitHubTreeEntry
+	truncated      bool
+	incompleteBlob string
+}
+
+type gitHubTreeEntry struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"`
+	Type string `json:"type"`
+	SHA  string `json:"sha"`
+	Size int    `json:"size,omitempty"`
+}
+
+func (fx gitHubFixture) blobSHA(filePath string) string {
+	return fx.paths[filePath].SHA
+}
+
+// gitHubRequest 是对 owner/repo 的 main 分支做入库预览的请求;显式给出 ref,不发现默认分支。
+func gitHubRequest() library.PreviewFetchRequest {
+	return library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "main"}}
+}
+
+func writeGitHubRepo(t *testing.T, files map[string]repoFile) string {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	for name, file := range files {
+		writeFile(t, filepath.Join(repo, filepath.FromSlash(name)), file.content, file.mode)
+	}
+	commitGit(t, repo, "initial")
+	return repo
+}
+
+func gitRevParse(t *testing.T, repository, spec string) string {
+	t.Helper()
+	output, err := exec.Command("git", "-C", repository, "rev-parse", spec).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func inspectGitHubRepo(t *testing.T, repo string) gitHubFixture {
+	t.Helper()
+	fx := gitHubFixture{
+		commit:   gitRevParse(t, repo, "HEAD"),
+		rootTree: gitRevParse(t, repo, "HEAD^{tree}"),
+		blobs:    map[string][]byte{},
+		paths:    map[string]gitHubTreeEntry{},
+	}
+	output, err := exec.Command("git", "-c", "core.excludesFile=/dev/null", "-C", repo, "ls-tree", "-r", "-t", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
+		meta, filePath, ok := strings.Cut(line, "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) != 3 {
+			t.Fatalf("ls-tree: %q", line)
+		}
+		entry := gitHubTreeEntry{Path: filePath, Mode: fields[0], Type: fields[1], SHA: fields[2]}
+		if entry.Type == "blob" {
+			content, err := exec.Command("git", "-c", "core.excludesFile=/dev/null", "-C", repo, "cat-file", "-p", entry.SHA).Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry.Size = len(content)
+			fx.blobs[entry.SHA] = content
+		}
+		fx.entries = append(fx.entries, entry)
+		fx.paths[filePath] = entry
+	}
+	return fx
+}
+
+func blockGitHubClone(t *testing.T) {
+	t.Helper()
+	redirectGitHubClone(t, filepath.Join(t.TempDir(), "missing-remote"))
+}
+
+func redirectGitHubClone(t *testing.T, repo string) {
+	t.Helper()
+	redirectGitHubRemote(t, "file://"+repo)
+}
+
+// redirectGitHubRemote 把 owner/repo 的 HTTPS 与 SSH 远端都改写到 remote,并隔离本机 gh 登录态。
+func redirectGitHubRemote(t *testing.T, remote string) {
+	t.Helper()
+	stubGitHubCLI(t, "exit 1\n")
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	runGit(t, t.TempDir(), "config", "--file", config, "url."+remote+".insteadOf", "https://github.com/owner/repo.git")
+	runGit(t, t.TempDir(), "config", "--file", config, "--add", "url."+remote+".insteadOf", "git@github.com:owner/repo.git")
+}
+
+// serveGitHubCloneOnly 让 GitHub API 一律 500,并把 owner/repo 的克隆重定向到本地仓库 repo。
+func serveGitHubCloneOnly(t *testing.T, repo string) {
+	t.Helper()
+	serveGitHubRemoteOnly(t, "file://"+repo)
+}
+
+// serveGitHubRemoteOnly 让 GitHub API 一律 500,并把 owner/repo 的 git 远端改写到 remote。
+func serveGitHubRemoteOnly(t *testing.T, remote string) {
+	t.Helper()
+	redirectGitHubRemote(t, remote)
+	stubHTTPResponse(t, http.StatusInternalServerError, strings.NewReader("boom"))
+}
+
+// gitHubCloneRequest 让 owner/repo 走浅克隆并指向本地仓库 repository,返回对其 main 分支做入库预览的请求。
+func gitHubCloneRequest(t *testing.T, repository string) library.PreviewFetchRequest {
+	t.Helper()
+	serveGitHubCloneOnly(t, repository)
+	return gitHubRequest()
+}
+
+// gitHubAPIMock 按 gitHubFixture 回答 GitHub REST API;Swap 后旧 commit 及其 tree 仍可按 SHA 取到。
+type gitHubAPIMock struct {
+	mu                 sync.Mutex
+	fx                 gitHubFixture
+	history            []gitHubFixture
+	anonymousStatus    int
+	failBlobs          bool
+	blobStatus         int
+	rateLimitRemaining string
+	rateLimitReset     string
+	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸,用来把操作停在网络阶段。
+	blobGate  *networkGate
+	gatedBlob string
+}
+
+func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
+	t.Helper()
+	stubGitHubCLI(t, "exit 1\n")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	mock := &gitHubAPIMock{fx: cloneGitHubFixture(fx)}
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(mock.roundTrip)}
+	t.Cleanup(func() { http.DefaultClient = client })
+	return mock
+}
+
+func cloneGitHubFixture(fx gitHubFixture) gitHubFixture {
+	cloned := fx
+	cloned.blobs = maps.Clone(fx.blobs)
+	cloned.paths = maps.Clone(fx.paths)
+	cloned.entries = slices.Clone(fx.entries)
+	return cloned
+}
+
+func (m *gitHubAPIMock) Swap(fx gitHubFixture) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.history = append(m.history, m.fx)
+	next := cloneGitHubFixture(fx)
+	for sha, content := range m.fx.blobs {
+		if _, ok := next.blobs[sha]; !ok {
+			next.blobs[sha] = content
+		}
+	}
+	m.fx = next
+}
+
+func (m *gitHubAPIMock) setFailBlobs(fail bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failBlobs = fail
+}
+
+func (m *gitHubAPIMock) setBlobStatus(status int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blobStatus = status
+}
+
+// gateBlob 让指定 SHA 的 blob 请求受 gate 控制;须在发出请求前调用。
+func (m *gitHubAPIMock) gateBlob(gate *networkGate, sha string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blobGate, m.gatedBlob = gate, sha
+}
+
+func (m *gitHubAPIMock) head(match func(gitHubFixture) bool) (gitHubFixture, bool) {
+	heads := append([]gitHubFixture{m.fx}, m.history...)
+	i := slices.IndexFunc(heads, match)
+	if i < 0 {
+		return gitHubFixture{}, false
+	}
+	return heads[i], true
+}
+
+func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != "api.github.com" {
+		return &http.Response{StatusCode: http.StatusBadGateway, Body: http.NoBody, Header: make(http.Header)}, nil
+	}
+	m.mu.Lock()
+	gate, gated := m.blobGate, m.gatedBlob
+	m.mu.Unlock()
+	if gate != nil && r.URL.Path == "/repos/owner/repo/git/blobs/"+gated {
+		gate.pass()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.anonymousStatus != 0 && r.Header.Get("Authorization") == "" {
+		return m.errorResponse(m.anonymousStatus), nil
+	}
+	notFound := jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"})
+	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
+		head, found := m.fx, ref == "main"
+		if !found {
+			head, found = m.head(func(h gitHubFixture) bool { return strings.EqualFold(ref, h.commit) })
+		}
+		if !found {
+			return notFound, nil
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"sha": head.commit, "commit": map[string]any{"tree": map[string]string{"sha": head.rootTree}}}), nil
+	}
+	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"); ok {
+		head, found := m.head(func(h gitHubFixture) bool { return sha == h.rootTree || sha == h.commit })
+		if !found {
+			return notFound, nil
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"sha": head.rootTree, "tree": head.entries, "truncated": head.truncated}), nil
+	}
+	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/blobs/"); ok {
+		if m.blobStatus != 0 {
+			return m.errorResponse(m.blobStatus), nil
+		}
+		if m.failBlobs || sha == m.fx.incompleteBlob {
+			return jsonResponse(http.StatusOK, map[string]any{"sha": sha, "encoding": "base64", "content": "", "size": 99}), nil
+		}
+		content, ok := m.fx.blobs[sha]
+		if !ok {
+			return notFound, nil
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"sha": sha, "encoding": "base64", "content": base64.StdEncoding.EncodeToString(content), "size": len(content)}), nil
+	}
+	return notFound, nil
+}
+
+func (m *gitHubAPIMock) errorResponse(status int) *http.Response {
+	response := jsonResponse(status, map[string]string{"message": "unavailable"})
+	response.Header.Set("X-RateLimit-Remaining", m.rateLimitRemaining)
+	response.Header.Set("X-RateLimit-Reset", m.rateLimitReset)
+	return response
+}
+
+func jsonResponse(status int, body any) *http.Response {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	header := make(http.Header)
+	header.Set("Content-Type", "application/json")
+	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(string(payload))), Header: header}
+}
+
+// serveGitHubCLI 用一个只回答 fx 的 gh 脚本模拟已登录的 GitHub CLI。
+func serveGitHubCLI(t *testing.T, fx gitHubFixture) {
+	t.Helper()
+	var script strings.Builder
+	script.WriteString(`[ "$1" = api ] || exit 1
+case "$2" in
+`)
+	respond := func(endpoint string, payload any) {
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&script, "'%s') cat <<'JSON'\n%s\nJSON\n;;\n", endpoint, body)
+	}
+	respond("/repos/owner/repo/commits/main", map[string]any{"sha": fx.commit, "commit": map[string]any{"tree": map[string]string{"sha": fx.rootTree}}})
+	respond("/repos/owner/repo/git/trees/"+fx.rootTree+"?recursive=1", map[string]any{"tree": fx.entries, "truncated": fx.truncated})
+	for sha, content := range fx.blobs {
+		respond("/repos/owner/repo/git/blobs/"+sha, map[string]any{"encoding": "base64", "content": base64.StdEncoding.EncodeToString(content), "size": len(content)})
+	}
+	script.WriteString("*) exit 1 ;;\nesac\n")
+	stubGitHubCLI(t, script.String())
+}

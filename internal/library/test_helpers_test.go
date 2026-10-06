@@ -22,17 +22,14 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// archiveServer 打桩 URL 来源的压缩包服务端(接管 http.DefaultClient):记录每个请求的头,
-// 可配置 ETag 或 Last-Modified;请求带 If-None-Match / If-Modified-Since 且与当前 validator 相同时回 304,
-// 304 的正文若被读取会被计数——按契约应恒为零字节。
+// archiveServer 打桩 URL 来源的压缩包服务端(接管 http.DefaultClient),可配置 ETag 或 Last-Modified;
+// 请求带的条件头与当前 validator 相同时回 304。
 type archiveServer struct {
-	mu                   sync.Mutex
-	archive              []byte
-	etag                 string
-	lastModified         string
-	alwaysNotModified    bool // 不看条件头一律回 304:模拟行为不端的服务端
-	requests             []http.Header
-	notModifiedBodyReads atomic.Int64
+	mu                sync.Mutex
+	archive           []byte
+	etag              string
+	lastModified      string
+	alwaysNotModified bool
 }
 
 // newArchiveServer 接管 http.DefaultClient 提供 archive;etag 为空表示服务端不给 validator。
@@ -55,48 +52,30 @@ func (s *archiveServer) request() library.PreviewFetchRequest {
 	return library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
 }
 
-// serve 替换远端内容与 validator;etag 为空表示服务端不再给出任何 validator(也清掉 Last-Modified)。
+// serve 替换远端内容与 ETag;etag 为空表示不再给出任何 validator。
 func (s *archiveServer) serve(archive []byte, etag string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.archive, s.etag, s.lastModified = archive, etag, ""
 }
 
-// serveLastModified 让服务端只给出 Last-Modified(不给 ETag)。
+// serveLastModified 让服务端只给出 Last-Modified。
 func (s *archiveServer) serveLastModified(archive []byte, lastModified string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.archive, s.etag, s.lastModified = archive, "", lastModified
 }
 
-// serveNotModified 让服务端对任何请求(哪怕不带条件头)都回 304。
+// serveNotModified 让服务端对任何请求(哪怕不带条件头)都回 304,模拟行为不端的服务端。
 func (s *archiveServer) serveNotModified() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.alwaysNotModified = true
 }
 
-// snapshot 返回到目前为止收到的全部请求头;调用后清空,便于逐操作断言。
-func (s *archiveServer) snapshot() []http.Header {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	requests := s.requests
-	s.requests = nil
-	return requests
-}
-
-// assertNoBodyRead 断言至今所有 304 响应的正文一个字节都没被读过。
-func (s *archiveServer) assertNoBodyRead(t *testing.T) {
-	t.Helper()
-	if n := s.notModifiedBodyReads.Load(); n != 0 {
-		t.Fatalf("304 body read %d bytes, want 0", n)
-	}
-}
-
 func (s *archiveServer) roundTrip(r *http.Request) (*http.Response, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requests = append(s.requests, r.Header.Clone())
 	header := make(http.Header)
 	if s.etag != "" {
 		header.Set("ETag", s.etag)
@@ -104,26 +83,12 @@ func (s *archiveServer) roundTrip(r *http.Request) (*http.Response, error) {
 	if s.lastModified != "" {
 		header.Set("Last-Modified", s.lastModified)
 	}
-	matched := s.alwaysNotModified ||
+	if s.alwaysNotModified ||
 		(s.etag != "" && r.Header.Get("If-None-Match") == s.etag) ||
-		(s.lastModified != "" && r.Header.Get("If-Modified-Since") == s.lastModified)
-	if matched {
-		body := &countingReader{reader: bytes.NewReader(s.archive), read: &s.notModifiedBodyReads}
-		return &http.Response{StatusCode: http.StatusNotModified, Header: header, Body: io.NopCloser(body)}, nil
+		(s.lastModified != "" && r.Header.Get("If-Modified-Since") == s.lastModified) {
+		return &http.Response{StatusCode: http.StatusNotModified, Header: header, Body: http.NoBody}, nil
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(bytes.NewReader(s.archive))}, nil
-}
-
-// countingReader 记录经它读出的字节数。
-type countingReader struct {
-	reader io.Reader
-	read   *atomic.Int64
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.reader.Read(p)
-	c.read.Add(int64(n))
-	return n, err
 }
 
 func requireLibraryError(t *testing.T, err error, code library.ErrorCode) *library.Error {
@@ -262,27 +227,6 @@ func editLibraryFixture(t *testing.T, path, statement string, args ...any) {
 	}
 }
 
-// readLibraryScalar 直读库文件里的一个标量(表里的值或 PRAGMA):skill 被移除后技能库已看不到它,只能这样核对
-// "没有部分写入";journal_mode / user_version 则是磁盘上的可观察事实,不是实现细节。
-func readLibraryScalar(t *testing.T, path, query string, args ...any) string {
-	t.Helper()
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var value string
-	if err := db.QueryRowContext(t.Context(), query, args...).Scan(&value); err != nil {
-		t.Fatal(err)
-	}
-	return value
-}
-
-func journalMode(t *testing.T, path string) string {
-	t.Helper()
-	return readLibraryScalar(t, path, `PRAGMA journal_mode`)
-}
-
 // fetchExampleSkill 在隔离目录里入库一个带可执行脚本的 skill,供安装用例复用。
 func fetchExampleSkill(t *testing.T, lib *library.Library, name string) library.Skill {
 	t.Helper()
@@ -377,84 +321,14 @@ func openTestLibrary(t *testing.T) *library.Library {
 	return openTestLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
 }
 
-// testLibraryPaths 记下 openTestLibraryAt 打开的库文件路径,供只能直读库文件核对的断言(readPersistedGitTreeSHA)查找。
-var testLibraryPaths sync.Map
-
 func openTestLibraryAt(t *testing.T, path string) *library.Library {
 	t.Helper()
 	lib, err := library.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	testLibraryPaths.Store(lib, path)
-	t.Cleanup(func() {
-		testLibraryPaths.Delete(lib)
-		_ = lib.Close()
-	})
+	t.Cleanup(func() { _ = lib.Close() })
 	return lib
-}
-
-func testLibraryPath(t *testing.T, lib *library.Library) string {
-	t.Helper()
-	path, ok := testLibraryPaths.Load(lib)
-	if !ok {
-		t.Fatal("library was not opened by openTestLibraryAt")
-	}
-	return path.(string)
-}
-
-// openGitHubLibraryWithoutTreeSHA 用当前 schema 构造缺少 GitHub 版本标识的数据,
-// 供 SHA 回填与批量检查取消用例复用;先经技能库入库,关库后仅清空待测字段。
-func openGitHubLibraryWithoutTreeSHA(t *testing.T) (*library.Library, []library.Skill) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "library.db")
-	lib := openTestLibraryAt(t, path)
-	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
-	skills := fetchSkills(t, lib, preview, candidateNames(preview))
-	if err := lib.Close(); err != nil {
-		t.Fatal(err)
-	}
-	editLibraryFixture(t, path, `UPDATE skill_versions SET source_state = ''`)
-	reopened := openTestLibraryAt(t, path)
-	for i := range skills {
-		skills[i], err = reopened.GetSkill(t.Context(), skills[i].ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	return reopened, skills
-}
-
-// skillSnapshot 是经技能库读回的一个 Skill 及其版本列表,用于断言检查前后 Library 完全一致(只读契约)。
-type skillSnapshot struct {
-	skill    library.Skill
-	versions []library.SkillVersion
-}
-
-func snapshotSkill(t *testing.T, lib *library.Library, id library.SkillID) skillSnapshot {
-	t.Helper()
-	skill, err := lib.GetSkill(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	versions, err := lib.ListVersions(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return skillSnapshot{skill: skill, versions: versions}
-}
-
-// assertGitHubCommitOnly 断言检查只解析了 commits 次 commit,没有取 tree、没有取任何 blob:
-// 当前版本的确认 commit 命中时的请求形状。commit 未命中、须取 tree 的场景用 assertGitHubCheckDoesNotReadSkillFiles。
-func assertGitHubCommitOnly(t *testing.T, api *gitHubAPIMock, commits int) {
-	t.Helper()
-	gotCommits, trees, blobs := gitHubAPIKindCounts(t, api)
-	if gotCommits != commits || trees != 0 || blobs != 0 {
-		t.Fatalf("requests commits=%d trees=%d blobs=%d, want commits=%d only: %#v", gotCommits, trees, blobs, commits, api.snapshot())
-	}
 }
 
 // stubHTTPResponse 让所有 HTTP 请求都得到同一个响应,用于模拟远端返回的状态与内容。

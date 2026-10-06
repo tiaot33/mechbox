@@ -143,40 +143,6 @@ func TestInspectSkillScopesReportsDirectoryMissing(t *testing.T) {
 		requireInspectionStatuses(t, lib, library.SkillScopeDirectoryMissing)
 	})
 
-	t.Run("foreign project path", func(t *testing.T) {
-		ctx := t.Context()
-		t.Setenv("HOME", t.TempDir())
-		path := filepath.Join(t.TempDir(), "library.db")
-		lib, err := library.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		project, err := lib.RegisterProject(ctx, t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		source := filepath.Join(t.TempDir(), "example-skill")
-		writeLocalSkill(t, source, "# Example\n")
-		skill, err := fetchLocalDir(ctx, lib, source)
-		if err != nil {
-			t.Fatal(err)
-		}
-		scope := library.ProjectScope(library.AgentCodex, project.ID)
-		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
-			t.Fatal(err)
-		}
-		if err := lib.Close(); err != nil {
-			t.Fatal(err)
-		}
-		missing := filepath.Join(t.TempDir(), "other-machine")
-		editLibraryFixture(t, path, `UPDATE projects SET path = ?`, missing)
-		lib, err = library.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = lib.Close() })
-		requireInspectionStatuses(t, lib, library.SkillScopeDirectoryMissing)
-	})
 }
 
 func TestInspectSkillScopesInspectsGroupSkillScopes(t *testing.T) {

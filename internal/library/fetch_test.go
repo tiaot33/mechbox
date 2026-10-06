@@ -222,10 +222,10 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 		"first/guide.md":  "guide\n",
 		"second/SKILL.md": skillDocument("second", "# Second\n"),
 	})
-	var requests atomic.Int64
+	var served atomic.Pointer[[]byte]
+	served.Store(&archive)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		_, _ = w.Write(archive)
+		_, _ = w.Write(*served.Load())
 	}))
 	t.Cleanup(server.Close)
 
@@ -237,12 +237,14 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	changed := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "# Changed\n")})
+	served.Store(&changed)
 	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 1 {
-		t.Fatalf("remote requests = %d, want PreviewFetch only", requests.Load())
+	if string(fetched[0].Files[0].Content) != skillDocument("first", "# First\n") {
+		t.Fatalf("Fetch reread the remote: %q", fetched[0].Files[0].Content)
 	}
 	if got, want := skillNames(fetched), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("fetched skills = %v, want %v", got, want)

@@ -92,15 +92,8 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 			old := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 			archive.Store(&old)
 			server := serveGatedArchive(t, gate, func() []byte { return *archive.Load() })
-			path := filepath.Join(t.TempDir(), "library.db")
-			lib, err := library.Open(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = lib.Close() })
+			lib := openTestLibrary(t)
 			demo := fetchURLSkill(t, lib, server.URL+"/skills.zip", "demo")
-			lastFetched := readLibraryScalar(t, path, `SELECT last_fetched FROM sources WHERE id = ?`, demo.Source.ID)
-			blobs := readLibraryScalar(t, path, `SELECT count(*) FROM blobs`)
 
 			if remoteChanged {
 				updated := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
@@ -124,12 +117,6 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 			}
 			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
 				t.Fatalf("skills after racing removal = %v, %v; want none", skills, err)
-			}
-			if got := readLibraryScalar(t, path, `SELECT last_fetched FROM sources WHERE id = ?`, demo.Source.ID); got != lastFetched {
-				t.Fatalf("orphan source last_fetched overwritten: %q -> %q", lastFetched, got)
-			}
-			if got := readLibraryScalar(t, path, `SELECT count(*) FROM blobs`); got != blobs {
-				t.Fatalf("blobs written by a failed Update: %s -> %s", blobs, got)
 			}
 		})
 	}

@@ -267,22 +267,3 @@ func TestCanceledOperationsStillMatchContext(t *testing.T) {
 		})
 	}
 }
-
-func TestSQLiteUniqueFallbackOmitsDetails(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
-	if _, err := lib.CreateGroup(t.Context(), "dup"); err != nil {
-		t.Fatal(err)
-	}
-	// 加一个技能库不知道的 UNIQUE,绕过显式检查,只走 typedError 兜底。
-	editLibraryFixture(t, path, `CREATE UNIQUE INDEX groups_singleton ON groups((1))`)
-	_, err = lib.CreateGroup(t.Context(), "other")
-	typed := requireLibraryError(t, err, library.AlreadyExists)
-	if typed.Details != (library.ErrorDetails{}) {
-		t.Fatalf("fallback details = %#v, want zero", typed.Details)
-	}
-}

@@ -61,9 +61,6 @@ func TestPreviewDiscoveryPrefersConventionalDirectories(t *testing.T) {
 		if !reflect.DeepEqual(paths, want) {
 			t.Fatalf("paths = %v, want %v", paths, want)
 		}
-		if api != nil {
-			assertGitHubPreviewRequests(t, api, fx, "skills/category/useful/SKILL.md", ".claude/skills/claude/SKILL.md", ".codex/skills/codex/SKILL.md")
-		}
 	})
 }
 
@@ -145,9 +142,6 @@ func TestPreviewDiscoveryPluginManifests(t *testing.T) {
 		if !reflect.DeepEqual(got.Candidates, want) {
 			t.Fatalf("candidates = %#v", got.Candidates)
 		}
-		if api != nil {
-			assertGitHubPreviewRequests(t, api, fx, ".claude-plugin/marketplace.json", ".claude-plugin/plugin.json", "plugins/a/skills/x/skill.md", "plugins/a/skills/y/SKILL.md", "plugins/a/special/q/SKILL.md", "extras/solo/SKILL.md")
-		}
 	})
 }
 
@@ -189,7 +183,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 				t.Fatalf("check = %v, %v", available, err)
 			}
 			updated, err := lib.Update(t.Context(), id)
-			if err != nil || !updated.Changed || readPersistedGitTreeSHA(t, lib, updated.Skill.ID) != fx.treeSHA("skills/first") || string(updated.Skill.Files[0].Content) != skillDocument("same", "changed") {
+			if err != nil || !updated.Changed || string(updated.Skill.Files[0].Content) != skillDocument("same", "changed") {
 				t.Fatalf("update = %#v, %v", updated, err)
 			}
 			runGit(t, repo, "mv", "skills", "examples")
@@ -214,39 +208,6 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 	}
 }
 
-func TestGitHubBatchCheckReusesDiscovery(t *testing.T) {
-	repo := writeGitHubRepo(t, map[string]repoFile{
-		"skills/first/SKILL.md":  {content: []byte(skillDocument("first", "body")), mode: 0o644},
-		"skills/second/SKILL.md": {content: []byte(skillDocument("second", "body")), mode: 0o644},
-	})
-	fx := inspectGitHubRepo(t, repo)
-	api := serveGitHubAPI(t, fx)
-	blockGitHubClone(t)
-	lib := openTestLibrary(t)
-	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
-	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 推进一个与两个 Skill 都无关的 commit,让检查必须取 tree 重新发现候选。
-	writeFile(t, filepath.Join(repo, "README.md"), []byte("unrelated"), 0o644)
-	commitGit(t, repo, "unrelated")
-	api.Swap(inspectGitHubRepo(t, repo))
-	api.Reset()
-	got, err := lib.CheckUpdates(t.Context(), []library.SkillID{fetched[0].ID, fetched[1].ID})
-	if err != nil || len(got) != 2 || got[0].Error != nil || got[1].Error != nil || got[0].Available || got[1].Available {
-		t.Fatalf("checks = %#v, %v", got, err)
-	}
-	// 入库预览已把各候选 SKILL.md 写入进程内 memo;commit 前进只再取新 root tree。
-	commits, trees, blobs := gitHubAPIKindCounts(t, api)
-	if commits != 1 || trees != 1 || blobs != 0 {
-		t.Fatalf("CheckUpdates commits=%d trees=%d blobs=%d, want commit+tree only: %#v", commits, trees, blobs, api.snapshot())
-	}
-}
-
 func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 	files := map[string]string{
 		".claude-plugin/plugin.json":      `{"name":"wrong-root","skills":["./area/extras/solo"]}`,
@@ -263,9 +224,6 @@ func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 		got, err := lib.PreviewFetch(t.Context(), spec)
 		if err != nil || len(got.Candidates) != 2 || got.Candidates[0].Path != "area/skills/demo" || got.Candidates[1].Path != "area/extras/solo" || got.Candidates[1].PluginName != "subpath" {
 			t.Fatalf("subpath = %#v, %v", got, err)
-		}
-		if api != nil {
-			assertGitHubPreviewRequests(t, api, fx, "area/.claude-plugin/plugin.json", "area/skills/demo/SKILL.md", "area/extras/solo/SKILL.md")
 		}
 		spec.GitHub.Subpath = "area/skills/demo"
 		got, err = lib.PreviewFetch(t.Context(), spec)

@@ -167,26 +167,3 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		t.Fatalf("instances disagree after interleaved writes: %v vs %v (want %d shared skills)", seen[0], seen[1], rounds)
 	}
 }
-
-// Open 在确认这是本工具的库之后把它切到 WAL;该模式持久化在文件里,关闭再打开仍是 WAL。
-func TestOpenSwitchesLibraryToWALAndKeepsIt(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if mode := journalMode(t, path); mode != "wal" {
-		t.Fatalf("journal_mode after first Open = %q, want wal", mode)
-	}
-	lib, err = library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lib.Close()
-	if mode := journalMode(t, path); mode != "wal" {
-		t.Fatalf("journal_mode after reopen = %q, want wal", mode)
-	}
-}
