@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
 	"slices"
 	"time"
@@ -13,93 +12,90 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-type scopeRow struct {
-	agent     AgentCode
-	projectID *ProjectID
+// ConflictPolicy 决定目标里有不是 Library 写入的内容时的处理方式:安装时是无记录的外来文件夹,
+// 重新安装时是被手动改过(modified)的文件夹。目标文件夹已被另一个 SkillScope 占用(同一 skill 的另一 Scope,
+// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一个 SkillScope,
+// 需先 Uninstall 占用者。
+type ConflictPolicy string
+
+const (
+	Fail      ConflictPolicy = "fail"      // 安装返回 AlreadyExists;重新安装该条 FailedPrecondition(默认)
+	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的文件夹
+)
+
+// InstallOptions 是 Install 与 InstallGroup 的选项。
+type InstallOptions struct {
+	OnConflict ConflictPolicy `json:"on_conflict"`
 }
 
-func scopeOf(operation string, scope Scope) (scopeRow, error) {
-	switch scope.Kind {
-	case ScopeGlobal:
-		if scope.ProjectID != 0 {
-			return scopeRow{}, argumentError(operation, "project_id", "global scope must not have a project")
-		}
-		return scopeRow{agent: scope.Agent}, nil
-	case ScopeProject:
-		if scope.ProjectID <= 0 {
-			return scopeRow{}, argumentError(operation, "project_id", "project scope requires a project")
-		}
-		return scopeRow{agent: scope.Agent, projectID: new(scope.ProjectID)}, nil
-	default:
-		return scopeRow{}, argumentError(operation, "kind", "unknown scope kind")
-	}
+// InstallPlanStatus 是安装前的目标状态,不受执行时冲突策略影响;判定顺序与执行时一致。
+type InstallPlanStatus string
+
+const (
+	InstallReady            InstallPlanStatus = "ready"             // 目标不存在
+	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 本技能已安装在本作用域
+	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个 SkillScope 占用目标文件夹
+	InstallUntracked        InstallPlanStatus = "untracked"         // 目标文件夹存在但 Library 没有记录
+	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:与组内其他成员同名且尚未安装,组安装时会被跳过;优先于 occupied / untracked / ready
+)
+
+// InstallPlan 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
+type InstallPlan struct {
+	SkillID         SkillID           `json:"skill_id"`
+	Name            string            `json:"name"`
+	Directory       string            `json:"directory"`
+	Target          string            `json:"target"`
+	Status          InstallPlanStatus `json:"status"`
+	OccupierSkillID SkillID           `json:"occupier_skill_id,omitzero"`
+	OccupierName    string            `json:"occupier_name,omitempty"`
 }
 
-func (r scopeRow) scope() Scope {
-	if r.projectID == nil {
-		return GlobalScope(r.agent)
-	}
-	return ProjectScope(r.agent, *r.projectID)
+// GroupInstallPlan 按组成员顺序报告各自状态。同名成员里尚未安装的标为 duplicate,组安装时会被跳过;
+// 已安装的那个仍是 installed,照常只补组安装。DuplicateNames 列出组内重复的名字。
+type GroupInstallPlan struct {
+	Members        []InstallPlan `json:"members"`
+	DuplicateNames []string      `json:"duplicate_names,omitempty"`
 }
 
-type resolvedScope struct {
-	scopeRow
-	root      string
-	directory string
+// SkillScope 是某个技能安装在某个 Scope:该 Scope 目录里的技能文件夹,以及 Library 对它的记录。
+// 只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
+// 记录只存 Scope 身份;Directory 是列表时 Resolve 出的 Agent 目录,
+// 不是 Install 的输入(Install 也不接受目录)。对照磁盘的状态由 InspectSkillScopes 给出。
+type SkillScope struct {
+	SkillID   SkillID   `json:"skill_id"`
+	Scope     Scope     `json:"scope"`
+	Directory string    `json:"directory"`
+	Direct    bool      `json:"direct"`              // 有直接安装留着它
+	Groups    []GroupID `json:"groups,omitempty"`    // 覆盖它的组安装所属的 Group:该 skill 是成员且组已安装到此 Scope,按 ID 升序
+	CreatedAt time.Time `json:"created_at,omitzero"` // 首次安装到此 Scope 的时间。再次安装不更新
 }
 
-func (s resolvedScope) rootMissing(operation string) (*Error, error) {
-	exists, err := agentdir.DirectoryExists(s.root)
-	if err != nil {
-		return nil, fmt.Errorf("inspect scope root: %w", err)
-	}
-	if exists {
-		return nil, nil
-	}
-	details := ErrorDetails{Path: s.root}
-	if s.projectID != nil {
-		details.ProjectID = *s.projectID
-	}
-	return preconditionError(operation, "scope root does not exist", details), nil
+// GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0006)。
+// 它是独立的记录,空组或成员全被跳过时也存在;App 据此显示整组开关。
+type GroupInstall struct {
+	GroupID   GroupID   `json:"group_id"`
+	Scope     Scope     `json:"scope"`
+	CreatedAt time.Time `json:"created_at,omitzero"` // 组安装记录建立(首次组安装)的时间。再次组安装不更新
 }
 
-func (s resolvedScope) requireRoot(operation string) error {
-	missing, err := s.rootMissing(operation)
-	if err != nil {
-		return err
-	}
-	if missing != nil {
-		return missing
-	}
-	return nil
-}
+// GroupMemberOutcome 是组安装或加入成员时,一个成员在一个 Scope 上的结果。
+type GroupMemberOutcome string
 
-func (l *Library) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
-	row, err := scopeOf(operation, scope)
-	if err != nil {
-		return resolvedScope{}, err
-	}
-	root, directory, err := l.scopeDirectory(ctx, row)
-	if err != nil {
-		return resolvedScope{}, err
-	}
-	return resolvedScope{scopeRow: row, root: root, directory: directory}, nil
-}
+const (
+	MemberInstalled        GroupMemberOutcome = "installed"         // 新装到此 Scope
+	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已安装在此 Scope,只补上组安装,不写盘
+	MemberSkipped          GroupMemberOutcome = "skipped"           // 冲突跳过,原因见 Error;成员关系与组安装照常成立
+)
 
-func (r scopeRow) record() store.Scope {
-	scope := store.Scope{Agent: string(r.agent)}
-	if r.projectID != nil {
-		scope.ProjectID = new(int64(*r.projectID))
-	}
-	return scope
-}
-
-func scopeRowOf(scope store.Scope) scopeRow {
-	row := scopeRow{agent: AgentCode(scope.Agent)}
-	if scope.ProjectID != nil {
-		row.projectID = new(ProjectID(*scope.ProjectID))
-	}
-	return row
+// GroupMemberResult 是一个成员在一个 Scope 上的逐条结果,形状参考 UpdateCheck。
+// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一个 SkillScope 占用(Details.SkillID / Name / Path)
+// 、组内同名(Details.Name 与共同的目标 Path)或作用域根目录不存在(仅加入成员;Details.Path 为根目录,项目带 ProjectID),
+// AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
+type GroupMemberResult struct {
+	SkillID SkillID            `json:"skill_id"`
+	Scope   Scope              `json:"scope"`
+	Outcome GroupMemberOutcome `json:"outcome"`
+	Error   *Error             `json:"error,omitempty"`
 }
 
 type claimant struct {
@@ -548,96 +544,4 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 		skillScopes = append(skillScopes, skillScope)
 	}
 	return skillScopes, nil
-}
-
-func (l *Library) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	var scope *scopeRow
-	if filter.Scope != nil {
-		target, err := l.resolveScope(ctx, operation, *filter.Scope)
-		if err != nil {
-			return nil, err
-		}
-		scope = &target.scopeRow
-	}
-	if filter.SkillID != 0 {
-		if _, err := l.getSummary(ctx, filter.SkillID); err != nil {
-			return nil, err
-		}
-	}
-	return l.listSkillScopes(ctx, filter.SkillID, scope)
-}
-
-// InspectSkillScopes 对照磁盘给出 filter 范围内每个 SkillScope 的状态;不给条件时巡检整库。只读:不改库、
-// 不改磁盘、不创建目录。结果顺序与 ListSkillScopes 相同,每条内嵌完整 SkillScope,是整库巡检结果的
-// 子集且逐条一致。判定规则见 SkillScopeStatus,筛选规则见 SkillScopeFilter。
-func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilter) (inspections []SkillScopeInspection, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	skillScopes, err := l.filteredSkillScopes(ctx, "inspect skill scopes", filter)
-	if err != nil {
-		return nil, err
-	}
-	inspections = []SkillScopeInspection{}
-	for _, skillScope := range skillScopes {
-		status, err := l.inspectSkillScope(ctx, skillScope)
-		if err != nil {
-			return nil, err
-		}
-		inspections = append(inspections, SkillScopeInspection{SkillScope: skillScope, Status: status})
-	}
-	return inspections, nil
-}
-
-func (l *Library) inspectSkillScope(ctx context.Context, skillScope SkillScope) (SkillScopeStatus, error) {
-	name, currentVersionID, err := l.store.SkillHead(ctx, int64(skillScope.SkillID))
-	if err != nil {
-		return "", err
-	}
-
-	if exists, err := agentdir.Exists(skillScope.Directory); err != nil {
-		return "", fmt.Errorf("inspect agent directory: %w", err)
-	} else if !exists {
-		return SkillScopeDirectoryMissing, nil
-	}
-
-	target := filepath.Join(skillScope.Directory, name)
-	if exists, err := agentdir.Exists(target); err != nil {
-		return "", fmt.Errorf("inspect target folder: %w", err)
-	} else if !exists {
-		return SkillScopeMissing, nil
-	}
-
-	disk, err := agentdir.Read(ctx, target)
-	if err != nil {
-		if errors.Is(err, agentdir.ErrIrregularFile) {
-			return SkillScopeModified, nil
-		}
-		return "", err
-	}
-
-	current, err := l.store.VersionDigests(ctx, currentVersionID)
-	if err != nil {
-		return "", err
-	}
-	if maps.Equal(disk, current) {
-		return SkillScopeCurrent, nil
-	}
-
-	versionIDs, err := l.store.OlderVersionIDs(ctx, int64(skillScope.SkillID), currentVersionID)
-	if err != nil {
-		return "", err
-	}
-	for _, versionID := range versionIDs {
-		files, err := l.store.VersionDigests(ctx, versionID)
-		if err != nil {
-			return "", err
-		}
-		if maps.Equal(disk, files) {
-			return SkillScopeStale, nil
-		}
-	}
-	return SkillScopeModified, nil
 }

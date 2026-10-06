@@ -11,6 +11,36 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
+// GroupID 是分组的数据库主键。
+type GroupID int64
+
+// Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
+type Group struct {
+	ID        GroupID   `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间
+}
+
+// GroupWithMembers 是一个 Group 连同它的全部成员,由 ListGroupsWithMembers 一次给出整库的"技能 ↔ 组"关系。
+type GroupWithMembers struct {
+	Group   Group     `json:"group"`
+	Members []SkillID `json:"members"` // 成员 skill 的 ID,按 ID 升序,与 ListGroupSkills 一致;空组为空列表而非 nil
+}
+
+// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
+// 含义与默认值都不同:只影响因移出而没有直接安装或组安装留着的技能,默认保留。
+type MemberRemovalPolicy string
+
+const (
+	KeepAsDirectInstall MemberRemovalPolicy = "keep"      // 改为直接安装,磁盘不动(默认,空字符串同义)
+	UninstallMember     MemberRemovalPolicy = "uninstall" // 不补直接安装,连同磁盘上的文件夹一起移除
+)
+
+// RemoveFromGroupOptions 是 RemoveSkillFromGroup 的选项。
+type RemoveFromGroupOptions struct {
+	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管移出后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
+}
+
 func groupOf(row store.Group) Group {
 	return Group{ID: GroupID(row.ID), Name: row.Name, CreatedAt: row.CreatedAt}
 }

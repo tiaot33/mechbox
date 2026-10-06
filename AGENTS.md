@@ -3,17 +3,20 @@
 Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0008),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里已安装的技能文件夹由它生成。
 
 - `internal/library/doc.go` — 包说明。**阅读入口,先读这个**;方法签名用 `go doc -all ./internal/library` 查看。
-- `internal/library/api.go` — 公开领域类型(下一步按用户流程拆到各文件)。
-- `internal/library/library.go` — `Library` 结构体与实例生命周期:Open、Close、共享状态与操作锁。
-- `internal/library/skills.go` + `versions.go` — 入库、技能查询/移除、Collection、版本历史与差异。
-- `internal/library/preview.go` — 入库预览(PreviewFetch)与入库(Fetch);`source_read.go` 的 `openSnapshot` 按来源类型打开快照,入库预览、入库、更新与批量检查都只经 `Snapshot`。
-- `internal/library/update.go` + `batch_update.go` — 单项与批量更新检查;`search.go` 与 `audit.go` 负责市场搜索与入库预览里的审计查询。
-- `internal/library/groups.go` + `projects.go` — Group 成员管理、项目注册与 Scope。
-- `internal/library/install.go` — 直接安装与组安装、SkillScope 记录;改磁盘的操作统一按「`agentdir.Change` 暂存 → 开事务写记录 → `Commit` 移到位 → 提交事务 → `Done`」进行,失败时 defer 倒序撤销;SkillScope 巡检(可按 `SkillScopeFilter` 缩小范围)与重新安装共用的筛选。
-- `internal/library/reinstall.go` — 重新安装:把已安装的技能文件夹带回当前版本,不改留着它的直接安装与组安装。
-- `internal/library/sync.go` — 整库与 S3 的推拉同步:远端身份比对、`SKILLS_PROJECT_PATH_MAP` 解析;快照、拉回库校验与替换由 `store` 完成。
-- `internal/library/errors.go` — 内部错误转换。
-- `internal/library/internal/skillfile` — 技能文件 `File` / `Mode`(`api.go` 以类型别名公开)、文件集合比较、内容指纹。
+- `internal/library/library.go` — `Library` 结构体与实例生命周期:Open、Close、共享状态与操作锁;`applyChange` 把 `store.InTx` 与 `agentdir.Change` 合成一次提交:暂存 → 开事务写记录 → `Commit` 移到位 → 提交事务 → `Done`,失败时 defer 倒序撤销。
+- `internal/library/errors.go` — 公开错误类型 `Error` / `ErrorCode` / `ErrorDetails`,以及唯一的翻译点 `typedError` 和参数校验。
+- 以下每个文件按用户流程放一步的公开类型、公开方法与其私有辅助函数:
+  - `fetch.go` — 搜索、入库预览、审计、入库;`openSnapshot` 按来源类型打开快照,入库预览、入库、更新与批量检查都只经 `Snapshot`。
+  - `skills.go` — 来源与技能的公开类型、技能查询 / 移除,以及 store 记录到公开类型的转换。
+  - `collections.go` — 按来源聚合的 Collection。
+  - `update.go` — 批量检查与单项更新。
+  - `versions.go` — 版本历史与差异。
+  - `groups.go` — Group 与成员管理。
+  - `projects.go` — Agent、项目注册、Scope 与 `Resolve`。
+  - `install.go` — 安装预览、直接安装与组安装、卸载、安装记录列表。
+  - `reinstall.go` — SkillScope 巡检(可按 `SkillScopeFilter` 缩小范围)与重新安装。
+  - `sync.go` — 整库与 S3 的推拉同步:远端身份比对、`SKILLS_PROJECT_PATH_MAP` 解析;快照、拉回库校验与替换由 `store` 完成。
+- `internal/library/internal/skillfile` — 技能文件 `File` / `Mode`(`skills.go` 以类型别名公开)、文件集合比较、内容指纹,以及巡检用的 `Digest`。
 - `internal/library/internal/source` — 来源的统一接口 `Snapshot`(钉住的一份来源内容:候选、按名取文件、检查更新)。`Check` 返回变了 / 没变 / 未知三态,未知时由 `update.go` 的 `checkSnapshot` 取文件比较;各来源自己的读取状态 `State` 存在 `skill_versions.source_state`,Library 只存取不解析。子包共用的哨兵错误 `ErrUnreachable` / `ErrPermission` / `ErrInvalid` 也在这里。
 - `internal/library/internal/source/local` — 本地目录来源。
 - `internal/library/internal/source/download` — URL 来源(也用于 store):下载 zip 压缩包,按 HTTP validator 发条件请求;validator 作为 `State` 记在各 Skill 的版本上。

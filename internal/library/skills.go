@@ -1,19 +1,107 @@
 package library
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
+
+// SkillID 是库里技能的数据库主键。各实体的 ID 定义为不同类型,以免互相传错。
+type SkillID int64
+
+// SourceID 是来源的数据库主键。
+type SourceID int64
+
+// SourceType 是 skill 来源的类型(见 ADR 0004)。
+type SourceType string
+
+const (
+	SourceGitHub SourceType = "github" // GitHub 仓库 + Git ref
+	SourceURL    SourceType = "url"    // 直接下载的 zip 压缩包
+	SourceLocal  SourceType = "local"  // 本地目录
+)
+
+// FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
+type FileMode = skillfile.Mode
+
+const (
+	ModeRegular    = skillfile.ModeRegular
+	ModeExecutable = skillfile.ModeExecutable
+)
+
+// SourceLocator 是来源的定位信息;不同 SourceType 只使用其中一部分字段。
+type SourceLocator struct {
+	Repository string `json:"repository,omitempty"` // github:仓库地址
+	Branch     string `json:"branch,omitempty"`     // github:Git ref(分支、tag 或完整 SHA),保留已有字段名
+	URL        string `json:"url,omitempty"`        // url:压缩包地址
+	PackageID  string `json:"package_id,omitempty"` // 暂不支持的来源类型使用,公开 API 不产生
+	Version    string `json:"version,omitempty"`    // 暂不支持的来源类型使用,公开 API 不产生
+	Path       string `json:"path,omitempty"`       // local:本地目录的绝对路径
+}
+
+// Source 是一个已记录的 skill 来源。
+type Source struct {
+	ID          SourceID      `json:"id"`
+	Type        SourceType    `json:"type"`
+	Locator     SourceLocator `json:"locator"`
+	LastFetched time.Time     `json:"last_fetched"`  // 来源内容最近一次被入库或经更新确认的时间
+	LastSeenRef string        `json:"last_seen_ref"` // 上次看到的远端标识(git commit 或内容哈希)
+}
+
+// File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
+type File = skillfile.File
+
+// FileMetadata 是文件列表用的元数据,不含文件内容。
+type FileMetadata struct {
+	Path string   `json:"path"` // skill 内斜杠分隔的相对路径
+	Size int64    `json:"size"` // 内容的字节数
+	Mode FileMode `json:"mode"` // regular 或 executable
+}
+
+// Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
+type Skill struct {
+	ID          SkillID   `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source      Source    `json:"source"`
+	VersionID   VersionID `json:"version_id"`          // 当前版本的 SkillVersion.ID,可直接传给 GetVersion / DiffVersions
+	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
+	Files       []File    `json:"files"`
+}
+
+// SkillSummary 是浏览列表用的精简条目:身份、名字、描述、来源元数据与最近更新检查,不含文件正文。
+// 列表接口(ListSkills / ListGroupSkills / ListCollections)与入库(Fetch)返回它以保持轻量;
+// 完整文件通过 GetSkill / GetVersion 获取。
+type SkillSummary struct {
+	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近检查结果;nil 表示从未检查
+	ID              SkillID           `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source          Source            `json:"source"`
+	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
+}
+
+// FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
+type FolderPolicy string
+
+const (
+	Keep   FolderPolicy = "keep"   // 保留磁盘上的技能文件夹,只删除数据库记录;必须显式选择
+	Remove FolderPolicy = "remove" // 连同磁盘上的技能文件夹一起删除(默认,空字符串同义)
+)
+
+// RemoveSkillOptions 是 RemoveSkill 的选项。
+type RemoveSkillOptions struct {
+	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
+}
 
 func sourceOf(row store.Source) (Source, error) {
 	src := Source{ID: SourceID(row.ID), Type: SourceType(row.Type), LastFetched: row.LastFetched, LastSeenRef: row.LastSeenRef}
@@ -68,93 +156,6 @@ func (l *Library) getSummary(ctx context.Context, id SkillID) (SkillSummary, err
 
 func clockNow() time.Time {
 	return time.Now().UTC().Round(0)
-}
-
-func skillDescription(files []File) string {
-	for _, file := range files {
-		if file.Path != "SKILL.md" {
-			continue
-		}
-		meta, err := discovery.ParseSkillMD(file.Content, ".")
-		if err != nil {
-			return ""
-		}
-		return meta.Description
-	}
-	return ""
-}
-
-func (l *Library) fetchAll(ctx context.Context, src Source, skills []source.Skill) ([]Skill, error) {
-	if err := validateSource(src); err != nil {
-		return nil, err
-	}
-	record, err := sourceRecord(src)
-	if err != nil {
-		return nil, err
-	}
-	fetched := make([]Skill, 0, len(skills))
-	err = l.store.InTx(ctx, func(tx *store.Tx) error {
-		sourceID, err := tx.UpsertSource(ctx, record)
-		if err != nil {
-			return err
-		}
-		for _, skill := range skills {
-			id, err := tx.FindSkill(ctx, sourceID, skill.Name)
-			if err != nil {
-				return err
-			}
-			if id != 0 {
-				return existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: SkillID(id), Name: skill.Name})
-			}
-		}
-		for _, skill := range skills {
-			if skill.Name == "" {
-				return fmt.Errorf("fetch skill: name is required")
-			}
-			description := skill.Description
-			if description == "" {
-				description = skillDescription(skill.Files)
-			}
-			createdAt := clockNow()
-			skillID, versionID, err := tx.InsertSkill(ctx, sourceID, skill.Name, store.NewVersion{Description: description, Files: skill.Files, State: string(skill.State), CreatedAt: createdAt})
-			if err != nil {
-				return err
-			}
-			result := src
-			result.ID = SourceID(sourceID)
-			result.LastFetched = result.LastFetched.UTC()
-			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: result, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: skill.Files})
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return fetched, nil
-}
-
-func validateSource(source Source) error {
-	switch source.Type {
-	case SourceGitHub:
-		if source.Locator.Repository == "" || source.Locator.Branch == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: github repository and branch are required"}
-		}
-	case SourceURL:
-		if source.Locator.URL == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: url is required"}
-		}
-	case sourceStore:
-		if source.Locator.PackageID == "" || source.Locator.Version == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: store package id and version are required"}
-		}
-	case SourceLocal:
-		if source.Locator.Path == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: local path is required"}
-		}
-	default:
-		return &Error{Code: InvalidArgument, Message: fmt.Sprintf("invalid source: unsupported source type %q", source.Type)}
-	}
-	return nil
 }
 
 // GetSkill 读取一个 skill 及其当前版本的完整文件。
@@ -269,26 +270,4 @@ func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillO
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
 		return tx.RemoveSkill(ctx, int64(id))
 	})
-}
-
-// ListCollections 按 Source 聚合列出全部 skill。
-func (l *Library) ListCollections(ctx context.Context) (collections []Collection, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	skills, err := l.ListSkills(ctx)
-	if err != nil {
-		return nil, err
-	}
-	slices.SortFunc(skills, func(a, b SkillSummary) int {
-		return cmp.Or(cmp.Compare(a.Source.ID, b.Source.ID), cmp.Compare(a.ID, b.ID))
-	})
-	for _, skill := range skills {
-		if len(collections) == 0 || collections[len(collections)-1].Source.ID != skill.Source.ID {
-			collections = append(collections, Collection{Source: skill.Source})
-		}
-		last := len(collections) - 1
-		collections[last].Skills = append(collections[last].Skills, skill)
-	}
-	return collections, nil
 }

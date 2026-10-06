@@ -12,6 +12,26 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
+// RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
+// 同步计划时返回,执行时回传以绑定"用户确认的"与"实际推/拉的"是同一个远端对象。
+type RemoteIdentity string
+
+// SyncPlan 是 Sync 推/拉执行前的只读报告:远端身份 + 相关校验提示,不改动本地库,
+// 也不提交推送。调用方据此确认后再带着 Remote 调用对应的执行方法。
+type SyncPlan struct {
+	Remote       RemoteIdentity `json:"remote"`        // 当前远端身份;RemoteExists 为 false 时无意义
+	RemoteExists bool           `json:"remote_exists"` // 远端是否已存在对象
+	SchemaOK     bool           `json:"schema_ok"`     // 仅 pull:远端库的 schema 是否可接受
+	Warnings     []string       `json:"warnings,omitempty"`
+}
+
+// SyncResult 是 Sync 推/拉成功后的结果:操作后的远端身份 + 可能的警告。
+// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘上已安装的文件夹可能与新库不一致)。
+type SyncResult struct {
+	Remote   RemoteIdentity `json:"remote"`
+	Warnings []string       `json:"warnings,omitempty"`
+}
+
 const pullFolderWarning = "agent 目录里已安装的技能文件夹未随本次 pull 重建,可能与新库不一致"
 
 // PlanSyncPush 生成推送的同步计划:报告推送目标的当前远端身份(若有),以便调用方知道可能覆盖远端。

@@ -11,6 +11,154 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
+// ProjectID 是已登记项目的数据库主键。
+type ProjectID int64
+
+// AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
+type AgentCode string
+
+const (
+	AgentClaudeCode AgentCode = "claude-code"
+	AgentCodex      AgentCode = "codex"
+)
+
+// Agent 是 Library 持有的一个安装目标 agent。暴露稳定代码与展示名称;Agent 目录
+// 不出现在这里,由 Library 算出,调用方不自行拼路径。
+type Agent struct {
+	Code AgentCode `json:"code"`
+	Name string    `json:"name"`
+}
+
+// RegisteredProject 是已注册的项目目录;注册后它与每个 Agent 组成一个 ProjectScope,
+// 各 Agent 目录在项目根下算出。
+type RegisteredProject struct {
+	ID   ProjectID `json:"id"`
+	Path string    `json:"path"`
+}
+
+// ScopeKind 是 Scope 的层级:某 Agent 的全局,或某 Agent 在某 Registered project 下。
+type ScopeKind string
+
+const (
+	ScopeGlobal  ScopeKind = "global"  // 目录相对用户主目录
+	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
+)
+
+// Scope 是技能安装所在的层级身份,不含路径(见 ADR 0005)。该 Agent 在此作用域的目录
+// 由 Library 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
+// 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
+// ListSkillScopes 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
+// 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
+type Scope struct {
+	Kind      ScopeKind `json:"kind"`
+	Agent     AgentCode `json:"agent"`
+	ProjectID ProjectID `json:"project_id,omitzero"` // 仅 ScopeProject;全局为零值
+}
+
+// GlobalScope 是某个 Agent 的全局 Scope。
+func GlobalScope(agent AgentCode) Scope {
+	return Scope{Kind: ScopeGlobal, Agent: agent}
+}
+
+// ProjectScope 是某个 Agent 在某个 Registered project 下的 Scope。
+func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
+	return Scope{Kind: ScopeProject, Agent: agent, ProjectID: projectID}
+}
+
+// UnregisterProjectOptions 是 UnregisterProject 的选项。
+type UnregisterProjectOptions struct {
+	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
+}
+
+type scopeRow struct {
+	agent     AgentCode
+	projectID *ProjectID
+}
+
+func scopeOf(operation string, scope Scope) (scopeRow, error) {
+	switch scope.Kind {
+	case ScopeGlobal:
+		if scope.ProjectID != 0 {
+			return scopeRow{}, argumentError(operation, "project_id", "global scope must not have a project")
+		}
+		return scopeRow{agent: scope.Agent}, nil
+	case ScopeProject:
+		if scope.ProjectID <= 0 {
+			return scopeRow{}, argumentError(operation, "project_id", "project scope requires a project")
+		}
+		return scopeRow{agent: scope.Agent, projectID: new(scope.ProjectID)}, nil
+	default:
+		return scopeRow{}, argumentError(operation, "kind", "unknown scope kind")
+	}
+}
+
+func (r scopeRow) scope() Scope {
+	if r.projectID == nil {
+		return GlobalScope(r.agent)
+	}
+	return ProjectScope(r.agent, *r.projectID)
+}
+
+type resolvedScope struct {
+	scopeRow
+	root      string
+	directory string
+}
+
+func (s resolvedScope) rootMissing(operation string) (*Error, error) {
+	exists, err := agentdir.DirectoryExists(s.root)
+	if err != nil {
+		return nil, fmt.Errorf("inspect scope root: %w", err)
+	}
+	if exists {
+		return nil, nil
+	}
+	details := ErrorDetails{Path: s.root}
+	if s.projectID != nil {
+		details.ProjectID = *s.projectID
+	}
+	return preconditionError(operation, "scope root does not exist", details), nil
+}
+
+func (s resolvedScope) requireRoot(operation string) error {
+	missing, err := s.rootMissing(operation)
+	if err != nil {
+		return err
+	}
+	if missing != nil {
+		return missing
+	}
+	return nil
+}
+
+func (l *Library) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
+	row, err := scopeOf(operation, scope)
+	if err != nil {
+		return resolvedScope{}, err
+	}
+	root, directory, err := l.scopeDirectory(ctx, row)
+	if err != nil {
+		return resolvedScope{}, err
+	}
+	return resolvedScope{scopeRow: row, root: root, directory: directory}, nil
+}
+
+func (r scopeRow) record() store.Scope {
+	scope := store.Scope{Agent: string(r.agent)}
+	if r.projectID != nil {
+		scope.ProjectID = new(int64(*r.projectID))
+	}
+	return scope
+}
+
+func scopeRowOf(scope store.Scope) scopeRow {
+	row := scopeRow{agent: AgentCode(scope.Agent)}
+	if scope.ProjectID != nil {
+		row.projectID = new(ProjectID(*scope.ProjectID))
+	}
+	return row
+}
+
 // ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
 // 不含 Agent 目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
 func (l *Library) ListAgents(ctx context.Context) (agents []Agent, err error) {
@@ -141,17 +289,4 @@ func (l *Library) scopeDirectory(ctx context.Context, row scopeRow) (root, direc
 		return "", "", err
 	}
 	return project.Path, filepath.Join(project.Path, filepath.FromSlash(agent.ProjectPath)), nil
-}
-
-func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
-	if err := l.store.InTx(ctx, func(tx *store.Tx) error {
-		if err := record(tx); err != nil {
-			return err
-		}
-		return change.Commit(ctx)
-	}); err != nil {
-		return err
-	}
-	change.Done()
-	return nil
 }

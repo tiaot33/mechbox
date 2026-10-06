@@ -2,10 +2,30 @@ package library
 
 import (
 	"context"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
+
+// VersionID 是技能版本的数据库主键:全库唯一,同一技能内越新越大。
+type VersionID int64
+
+// SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
+type SkillVersion struct {
+	ID          VersionID `json:"id"`
+	SkillID     SkillID   `json:"skill_id"`
+	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
+	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
+	Files       []File    `json:"files,omitempty"`
+}
+
+// VersionDiff 是两个版本之间按文件路径归类的差异。
+type VersionDiff struct {
+	Changed []string `json:"changed"` // 两个版本都有、内容不同
+	Added   []string `json:"added"`   // 仅新版本有
+	Deleted []string `json:"deleted"` // 仅旧版本有
+}
 
 func versionOf(row store.Version) SkillVersion {
 	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: row.Files}

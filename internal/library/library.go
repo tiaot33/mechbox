@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
@@ -70,4 +71,17 @@ func (l *Library) Close() error {
 	l.previewMu.Unlock()
 	l.github.Close()
 	return l.store.Close()
+}
+
+func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
+	if err := l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := record(tx); err != nil {
+			return err
+		}
+		return change.Commit(ctx)
+	}); err != nil {
+		return err
+	}
+	change.Done()
+	return nil
 }
