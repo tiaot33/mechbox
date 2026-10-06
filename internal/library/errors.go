@@ -8,6 +8,7 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
+	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
@@ -45,11 +46,15 @@ func typedError(err error) error {
 		return fetchError(SourceInvalid, "read source", err)
 	case errors.Is(err, discovery.ErrNoCandidates), errors.Is(err, source.ErrInvalid), errors.Is(err, market.ErrInvalidResponse):
 		code = SourceInvalid
-	case errors.Is(err, source.ErrUnreachable), errors.Is(err, market.ErrUnreachable):
+	case errors.Is(err, source.ErrUnreachable), errors.Is(err, market.ErrUnreachable), errors.Is(err, s3.ErrUnreachable):
 		code = SourceUnreachable
-	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission):
+	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission), errors.Is(err, s3.ErrPermission):
 		code = Permission
-	case errors.Is(err, sql.ErrNoRows), errors.Is(err, github.ErrSubpathNotFound):
+	case errors.Is(err, s3.ErrNotConfigured):
+		code = NotConfigured
+	case errors.Is(err, s3.ErrPreconditionFailed):
+		code = Conflict
+	case errors.Is(err, sql.ErrNoRows), errors.Is(err, github.ErrSubpathNotFound), errors.Is(err, s3.ErrNotFound):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):
 		code = Permission

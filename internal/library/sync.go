@@ -1,20 +1,12 @@
 package library
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,12 +14,8 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 )
-
-type s3Config struct {
-	endpoint, bucket, key, region, accessKey, secretKey, sessionToken string
-	pathStyle                                                         bool
-}
 
 const pullFolderWarning = "agent 目录里已安装的技能文件夹未随本次 pull 重建,可能与新库不一致"
 
@@ -42,7 +30,7 @@ func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err er
 
 func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
-	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
+	data, etag, err := s3.Get(ctx)
 	if err != nil {
 		return SyncPlan{}, err
 	}
@@ -74,11 +62,7 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 	if err != nil {
 		return SyncResult{}, err
 	}
-	conditions := map[string]string{"If-Match": string(expected)}
-	if expected == "" {
-		conditions = map[string]string{"If-None-Match": "*"}
-	}
-	_, etag, err := s3Request(ctx, http.MethodPut, data, conditions)
+	etag, err := s3.Put(ctx, data, string(expected))
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -87,8 +71,8 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 
 func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
 	defer func() { err = typedError(err) }()
-	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
-	if IsCode(err, NotFound) && expected != "" {
+	data, etag, err := s3.Get(ctx)
+	if errors.Is(err, s3.ErrNotFound) && expected != "" {
 		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since sync plan"}
 	}
 	if err != nil {
@@ -124,9 +108,9 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 }
 
 func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
-	_, etag, err := s3Request(ctx, http.MethodHead, nil, nil)
+	etag, err := s3.Head(ctx)
 	if err != nil {
-		if IsCode(err, NotFound) {
+		if errors.Is(err, s3.ErrNotFound) {
 			return "", false, nil
 		}
 		return "", false, err
@@ -345,142 +329,4 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 		}
 	}
 	return tx.Commit()
-}
-
-func s3Request(ctx context.Context, method string, body []byte, conditions map[string]string) ([]byte, string, error) {
-	cfg, err := loadS3Config()
-	if err != nil {
-		return nil, "", err
-	}
-	resource := "/" + awsURIEncode(cfg.key, true)
-	if cfg.pathStyle {
-		resource = "/" + awsURIEncode(cfg.bucket, false) + resource
-	}
-	requestURL := strings.TrimRight(cfg.endpoint, "/") + resource
-	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, "", fmt.Errorf("create S3 request: %w", err)
-	}
-	signS3Request(req, body, cfg, time.Now().UTC())
-	for name, value := range conditions {
-		req.Header.Set(name, value)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, "", &Error{Code: SourceUnreachable, Message: "reach S3: " + err.Error(), Err: err}
-	}
-	defer resp.Body.Close()
-	response, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, "", &Error{Code: SourceUnreachable, Message: "read S3 response: " + err.Error(), Err: err}
-	}
-	var s3Error struct {
-		Code string `xml:"Code"`
-	}
-	_ = xml.Unmarshal(response, &s3Error)
-	permissionCode := map[string]bool{"AccessDenied": true, "InvalidAccessKeyId": true, "SignatureDoesNotMatch": true, "ExpiredToken": true, "InvalidToken": true}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || permissionCode[s3Error.Code] {
-		return nil, "", &Error{Code: Permission, Message: "S3 permission denied"}
-	}
-	if resp.StatusCode == http.StatusNotFound || s3Error.Code == "NoSuchKey" {
-		return nil, "", &Error{Code: NotFound, Message: "S3 object not found"}
-	}
-	if resp.StatusCode == http.StatusPreconditionFailed || s3Error.Code == "PreconditionFailed" {
-		return nil, "", &Error{Code: Conflict, Message: "remote object changed since sync plan"}
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}
-	}
-	etag := resp.Header.Get("ETag")
-	if etag == "" && method != http.MethodPut {
-		return nil, "", &Error{Code: SourceUnreachable, Message: "S3 response missing ETag"}
-	}
-	return response, etag, nil
-}
-
-func loadS3Config() (s3Config, error) {
-	cfg := s3Config{
-		endpoint:     os.Getenv("SKILLS_S3_ENDPOINT"),
-		bucket:       os.Getenv("SKILLS_S3_BUCKET"),
-		key:          os.Getenv("SKILLS_S3_KEY"),
-		region:       os.Getenv("AWS_REGION"),
-		accessKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
-		secretKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		sessionToken: os.Getenv("AWS_SESSION_TOKEN"),
-	}
-	if cfg.key == "" {
-		cfg.key = "library.db"
-	}
-	if cfg.region == "" {
-		cfg.region = "us-east-1"
-	}
-	if cfg.bucket == "" || cfg.accessKey == "" || cfg.secretKey == "" {
-		return s3Config{}, &Error{Code: NotConfigured, Message: "sync: S3 bucket and AWS credentials are required"}
-	}
-	if cfg.endpoint == "" {
-		if strings.Contains(cfg.bucket, ".") {
-			cfg.endpoint = "https://s3." + cfg.region + ".amazonaws.com"
-			cfg.pathStyle = true
-		} else {
-			cfg.endpoint = "https://" + cfg.bucket + ".s3." + cfg.region + ".amazonaws.com"
-		}
-	} else {
-		cfg.pathStyle = true
-	}
-	endpoint, err := url.ParseRequestURI(cfg.endpoint)
-	if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.User != nil {
-		if err == nil {
-			err = fmt.Errorf("endpoint must be an http(s) origin without credentials, query, or fragment")
-		}
-		return s3Config{}, &Error{Code: NotConfigured, Message: "invalid S3 endpoint: " + err.Error(), Err: err}
-	}
-	return cfg, nil
-}
-
-func awsURIEncode(value string, preserveSlash bool) string {
-	const hexadecimal = "0123456789ABCDEF"
-	var encoded strings.Builder
-	for i := range len(value) {
-		character := value[i]
-		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-._~", rune(character)) || preserveSlash && character == '/' {
-			encoded.WriteByte(character)
-			continue
-		}
-		encoded.WriteByte('%')
-		encoded.WriteByte(hexadecimal[character>>4])
-		encoded.WriteByte(hexadecimal[character&15])
-	}
-	return encoded.String()
-}
-
-func signS3Request(req *http.Request, payload []byte, cfg s3Config, now time.Time) {
-	payloadSum := sha256.Sum256(payload)
-	payloadHash := hex.EncodeToString(payloadSum[:])
-	date := now.Format("20060102")
-	amzDate := now.Format("20060102T150405Z")
-	req.Header.Set("x-amz-content-sha256", payloadHash)
-	req.Header.Set("x-amz-date", amzDate)
-	headers := "host:" + req.URL.Host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + amzDate + "\n"
-	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
-	if cfg.sessionToken != "" {
-		req.Header.Set("x-amz-security-token", cfg.sessionToken)
-		headers += "x-amz-security-token:" + cfg.sessionToken + "\n"
-		signedHeaders += ";x-amz-security-token"
-	}
-	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n\n" + headers + "\n" + signedHeaders + "\n" + payloadHash
-	canonicalSum := sha256.Sum256([]byte(canonical))
-	scope := date + "/" + cfg.region + "/s3/aws4_request"
-	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(canonicalSum[:])
-	kDate := hmacSHA256([]byte("AWS4"+cfg.secretKey), date)
-	kRegion := hmacSHA256(kDate, cfg.region)
-	kService := hmacSHA256(kRegion, "s3")
-	kSigning := hmacSHA256(kService, "aws4_request")
-	signature := hex.EncodeToString(hmacSHA256(kSigning, toSign))
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+cfg.accessKey+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
-}
-
-func hmacSHA256(key []byte, value string) []byte {
-	h := hmac.New(sha256.New, key)
-	_, _ = h.Write([]byte(value))
-	return h.Sum(nil)
 }
