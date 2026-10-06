@@ -13,7 +13,7 @@ import (
 )
 
 // updateLocalSkill 改写本地 Source 的 SKILL.md 并 Update,使已安装的文件夹变为 stale。
-func updateLocalSkill(t *testing.T, lib library.Library, id library.SkillID, source, body string) {
+func updateLocalSkill(t *testing.T, lib *library.Library, id library.SkillID, source, body string) {
 	t.Helper()
 	writeLocalSkill(t, source, body)
 	if result, err := lib.Update(t.Context(), id); err != nil || !result.Changed {
@@ -21,7 +21,7 @@ func updateLocalSkill(t *testing.T, lib library.Library, id library.SkillID, sou
 	}
 }
 
-func reinstall(t *testing.T, lib library.Library, filter library.SkillScopeFilter, opts library.ReinstallOptions) []library.ReinstallResult {
+func reinstall(t *testing.T, lib *library.Library, filter library.SkillScopeFilter, opts library.ReinstallOptions) []library.ReinstallResult {
 	t.Helper()
 	results, err := lib.Reinstall(t.Context(), filter, opts)
 	if err != nil {

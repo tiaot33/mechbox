@@ -284,7 +284,7 @@ func journalMode(t *testing.T, path string) string {
 }
 
 // fetchExampleSkill 在隔离目录里入库一个带可执行脚本的 skill,供安装用例复用。
-func fetchExampleSkill(t *testing.T, lib library.Library, name string) library.Skill {
+func fetchExampleSkill(t *testing.T, lib *library.Library, name string) library.Skill {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
 	writeLocalSkill(t, source, "# "+name+"\n")
@@ -296,21 +296,21 @@ func fetchExampleSkill(t *testing.T, lib library.Library, name string) library.S
 	return skill
 }
 
-func fetchNamedSkill(t *testing.T, lib library.Library, name string) library.Skill {
+func fetchNamedSkill(t *testing.T, lib *library.Library, name string) library.Skill {
 	t.Helper()
 	return fetchSkillWithBody(t, lib, name, "# "+name+"\n")
 }
 
 // fetchSkillWithBody 从一个独立的临时 Source 入库指定名字与 SKILL.md 正文的 skill;
 // 多次以同名调用会得到不同 Source 的同名 skill,靠正文区分。
-func fetchSkillWithBody(t *testing.T, lib library.Library, name, body string) library.Skill {
+func fetchSkillWithBody(t *testing.T, lib *library.Library, name, body string) library.Skill {
 	t.Helper()
 	skill, _ := fetchLocalSkill(t, lib, name, body)
 	return skill
 }
 
 // fetchLocalSkill 从独立的本地 Source 入库 skill,并返回 Source 目录,供之后改内容再 Update。
-func fetchLocalSkill(t *testing.T, lib library.Library, name, body string) (library.Skill, string) {
+func fetchLocalSkill(t *testing.T, lib *library.Library, name, body string) (library.Skill, string) {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)
 	writeLocalSkill(t, source, body)
@@ -322,7 +322,7 @@ func fetchLocalSkill(t *testing.T, lib library.Library, name, body string) (libr
 }
 
 // listSkillScopes 读出全部 SkillScope,失败即终止测试。
-func listSkillScopes(t *testing.T, lib library.Library) []library.SkillScope {
+func listSkillScopes(t *testing.T, lib *library.Library) []library.SkillScope {
 	t.Helper()
 	skillScopes, err := lib.ListSkillScopes(t.Context())
 	if err != nil {
@@ -372,7 +372,7 @@ func requireSkillFile(t *testing.T, directory, name, want string) {
 	}
 }
 
-func openTestLibrary(t *testing.T) library.Library {
+func openTestLibrary(t *testing.T) *library.Library {
 	t.Helper()
 	return openTestLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
 }
@@ -380,7 +380,7 @@ func openTestLibrary(t *testing.T) library.Library {
 // testLibraryPaths 记下 openTestLibraryAt 打开的库文件路径,供只能直读库文件核对的断言(readPersistedGitTreeSHA)查找。
 var testLibraryPaths sync.Map
 
-func openTestLibraryAt(t *testing.T, path string) library.Library {
+func openTestLibraryAt(t *testing.T, path string) *library.Library {
 	t.Helper()
 	lib, err := library.Open(path)
 	if err != nil {
@@ -394,7 +394,7 @@ func openTestLibraryAt(t *testing.T, path string) library.Library {
 	return lib
 }
 
-func testLibraryPath(t *testing.T, lib library.Library) string {
+func testLibraryPath(t *testing.T, lib *library.Library) string {
 	t.Helper()
 	path, ok := testLibraryPaths.Load(lib)
 	if !ok {
@@ -405,7 +405,7 @@ func testLibraryPath(t *testing.T, lib library.Library) string {
 
 // openGitHubLibraryWithoutTreeSHA 用当前 schema 构造缺少 GitHub 版本标识的数据,
 // 供 SHA 回填与批量检查取消用例复用;先经技能库入库,关库后仅清空待测字段。
-func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.Skill) {
+func openGitHubLibraryWithoutTreeSHA(t *testing.T) (*library.Library, []library.Skill) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib := openTestLibraryAt(t, path)
@@ -434,7 +434,7 @@ type skillSnapshot struct {
 	versions []library.SkillVersion
 }
 
-func snapshotSkill(t *testing.T, lib library.Library, id library.SkillID) skillSnapshot {
+func snapshotSkill(t *testing.T, lib *library.Library, id library.SkillID) skillSnapshot {
 	t.Helper()
 	skill, err := lib.GetSkill(t.Context(), id)
 	if err != nil {
@@ -523,7 +523,7 @@ func candidateNames(preview library.FetchPreview) []string {
 }
 
 // fetchSkills 把 names 从入库预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
-func fetchSkills(t *testing.T, lib library.Library, preview library.FetchPreview, names []string) []library.Skill {
+func fetchSkills(t *testing.T, lib *library.Library, preview library.FetchPreview, names []string) []library.Skill {
 	t.Helper()
 	skills, err := getFetchedSkills(t.Context(), lib, preview, names)
 	if err != nil {
@@ -533,7 +533,7 @@ func fetchSkills(t *testing.T, lib library.Library, preview library.FetchPreview
 }
 
 // getFetchedSkills 是 fetchSkills 的不失败版本:入库后按入库顺序用 GetSkill 读回完整技能。
-func getFetchedSkills(ctx context.Context, lib library.Library, preview library.FetchPreview, names []string) ([]library.Skill, error) {
+func getFetchedSkills(ctx context.Context, lib *library.Library, preview library.FetchPreview, names []string) ([]library.Skill, error) {
 	summaries, err := lib.Fetch(ctx, preview.ID, names)
 	if err != nil {
 		return nil, err
@@ -548,7 +548,7 @@ func getFetchedSkills(ctx context.Context, lib library.Library, preview library.
 }
 
 // fetchLocalDir 对本地目录做入库预览,并把其中唯一的候选入库,供只需一个本地技能的用例复用。
-func fetchLocalDir(ctx context.Context, lib library.Library, dir string) (library.Skill, error) {
+func fetchLocalDir(ctx context.Context, lib *library.Library, dir string) (library.Skill, error) {
 	preview, err := lib.PreviewFetch(ctx, localRequest(dir))
 	if err != nil {
 		return library.Skill{}, err
@@ -570,7 +570,7 @@ func writeLocalSkill(t *testing.T, dir, body string) {
 }
 
 // fetchURLSkill 经 PreviewFetch + Fetch 从 URL 远端把名为 name 的 skill 入库。
-func fetchURLSkill(t *testing.T, lib library.Library, url, name string) library.Skill {
+func fetchURLSkill(t *testing.T, lib *library.Library, url, name string) library.Skill {
 	t.Helper()
 	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: url})
 	if err != nil {
@@ -588,7 +588,7 @@ func stubGitHubCLI(t *testing.T, script string) {
 }
 
 // checkSingleUpdate 通过公开批量接口检查一个技能,校验结果数量和身份,再交给场景断言状态或逐项错误。
-func checkSingleUpdate(t *testing.T, lib library.Library, ctx context.Context, id library.SkillID) (bool, error) {
+func checkSingleUpdate(t *testing.T, lib *library.Library, ctx context.Context, id library.SkillID) (bool, error) {
 	t.Helper()
 	checks, err := lib.CheckUpdates(ctx, []library.SkillID{id})
 	if err != nil {
@@ -604,7 +604,7 @@ func checkSingleUpdate(t *testing.T, lib library.Library, ctx context.Context, i
 }
 
 // updateCheckState 经列表接口读取指定技能的最近检查记录。
-func updateCheckState(t *testing.T, lib library.Library, id library.SkillID) *library.UpdateCheckState {
+func updateCheckState(t *testing.T, lib *library.Library, id library.SkillID) *library.UpdateCheckState {
 	t.Helper()
 	skills, err := lib.ListSkills(t.Context())
 	if err != nil {

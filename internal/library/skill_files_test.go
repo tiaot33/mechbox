@@ -105,7 +105,7 @@ func TestSkillFilesOfEmptySkill(t *testing.T) {
 
 // requireFilesMatchGetSkill 核对两个按需读取方法与 GetSkill 的完整文件一致:
 // 元数据的路径、Mode 相同且大小等于内容字节数,单文件读取与同路径文件完全相同。
-func requireFilesMatchGetSkill(t *testing.T, lib library.Library, id library.SkillID) {
+func requireFilesMatchGetSkill(t *testing.T, lib *library.Library, id library.SkillID) {
 	t.Helper()
 	full, err := lib.GetSkill(t.Context(), id)
 	if err != nil {

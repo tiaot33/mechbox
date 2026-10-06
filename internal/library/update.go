@@ -10,7 +10,17 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
+// Update 重新读取来源,在其中按名字重新定位该 skill,不经入库预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
+// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
+// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
+// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
+// URL 在当前版本记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
+// 200 则整包比较文件,把新 validator 记到新版本或当前版本上,并写回 last_seen_ref。本地目录重新发现候选后比较文件。
+// 只更新 Library,不重新安装已安装的文件夹。
+// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
+// (Details.SkillID),两者都不留下任何写入。
+// 成功后已有 LastUpdateCheck 改为 current 并刷新确认时间;失败保留原记录,从未检查的仍为 nil。
+func (l *Library) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
 	defer func() { err = typedError(err) }()
 	if id <= 0 {
 		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}

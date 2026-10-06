@@ -109,7 +109,7 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 // 全部成功、无任何错误码;结束后两边看到的 skill 列表一致。
 func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
-	var instances [2]library.Library
+	var instances [2]*library.Library
 	for i := range instances {
 		lib, err := library.Open(path)
 		if err != nil {

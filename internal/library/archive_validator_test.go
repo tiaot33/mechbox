@@ -47,7 +47,7 @@ func singleRequest(t *testing.T, requests []http.Header) http.Header {
 	return requests[0]
 }
 
-func fetchArchive(t *testing.T, lib library.Library, spec library.PreviewFetchRequest) []library.Skill {
+func fetchArchive(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest) []library.Skill {
 	t.Helper()
 	preview, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {

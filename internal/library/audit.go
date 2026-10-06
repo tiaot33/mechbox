@@ -9,7 +9,11 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 )
 
-func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
+// GetSkillAudit 按需向 skills.sh 查询一次入库预览中某个技能的审计,供查看单个技能时懒加载。
+// 只供展示:不入库、不参与 Sync、不挡入库;查询失败降级为 AuditUnavailable,不返回错误。
+// 结果随入库预览缓存,AuditUnavailable 不缓存、再次调用会重查。URL / 本地目录与非 github.com 来源
+// 不在 skills.sh 收录范围,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
+func (l *Library) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
 	if !discovery.ValidName(name) {
 		return nil, &Error{Code: InvalidArgument, Message: "invalid candidate name"}

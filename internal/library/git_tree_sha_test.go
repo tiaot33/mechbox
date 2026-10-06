@@ -77,7 +77,7 @@ func TestGitHubRootSkillUsesCommitRootTreeSHA(t *testing.T) {
 
 // readPersistedGitTreeSHA 读当前版本来源读取记录里 GitHub 记下的目录 tree SHA。
 // 这是 GitHub 来源的内部记录,公开方法不暴露,只能直读库文件核对;未记录时为空。
-func readPersistedGitTreeSHA(t *testing.T, lib library.Library, id library.SkillID) string {
+func readPersistedGitTreeSHA(t *testing.T, lib *library.Library, id library.SkillID) string {
 	t.Helper()
 	sha := readLibraryScalar(t, testLibraryPath(t, lib), `
 		SELECT CASE WHEN v.source_state = '' THEN '' ELSE COALESCE(json_extract(v.source_state, '$.tree'), '') END

@@ -58,7 +58,7 @@ func summariesOf(rows []store.Summary, err error) ([]SkillSummary, error) {
 	return skills, nil
 }
 
-func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
+func (l *Library) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
 	row, err := l.store.GetSummary(ctx, int64(id))
 	if err != nil {
 		return SkillSummary{}, err
@@ -84,7 +84,7 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-func (l *sqliteLibrary) fetchAll(ctx context.Context, src Source, skills []source.Skill) ([]Skill, error) {
+func (l *Library) fetchAll(ctx context.Context, src Source, skills []source.Skill) ([]Skill, error) {
 	if err := validateSource(src); err != nil {
 		return nil, err
 	}
@@ -157,7 +157,8 @@ func validateSource(source Source) error {
 	return nil
 }
 
-func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
+// GetSkill 读取一个 skill 及其当前版本的完整文件。
+func (l *Library) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
 	defer func() { err = typedError(err) }()
 	skill, _, err = l.getSkill(ctx, id)
 	return skill, err
@@ -169,7 +170,7 @@ type sourceState struct {
 	snapshot  source.State
 }
 
-func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
+func (l *Library) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	summary, err := l.getSummary(ctx, id)
@@ -193,7 +194,8 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 	return skill, sourceState{checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
 }
 
-func (l *sqliteLibrary) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
+// ListSkillFiles 按路径排序列出当前版本的文件元数据,不读取文件正文;技能不存在返回 NotFound(Details.SkillID)。
+func (l *Library) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -210,7 +212,10 @@ func (l *sqliteLibrary) ListSkillFiles(ctx context.Context, id SkillID) (files [
 	return files, nil
 }
 
-func (l *sqliteLibrary) GetSkillFile(ctx context.Context, id SkillID, path string) (file File, err error) {
+// GetSkillFile 按 skill 内的相对路径精确读取当前版本的单个文件,不做路径归一化。
+// 技能不存在返回 NotFound(Details.SkillID),路径不存在返回 NotFound(Details.Path);
+// 与 ListSkillFiles 分别读取各自调用时的当前版本。
+func (l *Library) GetSkillFile(ctx context.Context, id SkillID, path string) (file File, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -227,14 +232,16 @@ func (l *sqliteLibrary) GetSkillFile(ctx context.Context, id SkillID, path strin
 	return file, nil
 }
 
-func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
+// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
+func (l *Library) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	return summariesOf(l.store.ListSummaries(ctx))
 }
 
-func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
+// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上技能文件夹的去留。
+func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -264,7 +271,8 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	})
 }
 
-func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Collection, err error) {
+// ListCollections 按 Source 聚合列出全部 skill。
+func (l *Library) ListCollections(ctx context.Context) (collections []Collection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()

@@ -8,7 +8,18 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
+// CheckUpdates 检查指定技能是否有更新;单项检查传入仅含一个 SkillID 的列表。
+// 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
+// 直接判定无更新;有未命中的才共用一次 tree,发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。
+// URL 整组只发一次请求,用第一项当前版本记录的 HTTP validator 带条件头;304 时记录同一 validator 的 Skill 判定无更新,
+// 记录不同的再无条件读取一次。
+// GitHub 无 SHA 的旧记录、本地来源以及 URL 的完整响应,比较文件内容与可执行位。
+// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
+// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或安装。
+// 保存前复核当前版本和确认时间;版本变化或期间确认了不同结论返回 Conflict,被移除返回 NotFound。
+// 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
+// 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
+func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
 	defer func() { err = typedError(err) }()
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -106,7 +117,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 	return results, ctx.Err()
 }
 
-func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
+func (l *Library) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.InTx(ctx, func(tx *store.Tx) error {

@@ -11,7 +11,9 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
+// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
+// 不含 Agent 目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
+func (l *Library) ListAgents(ctx context.Context) (agents []Agent, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -25,7 +27,8 @@ func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err err
 	return agents, nil
 }
 
-func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
+// RegisterProject 注册一个项目目录,使它与各 Agent 组成可安装的 ProjectScope。
+func (l *Library) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -59,7 +62,8 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 	return project, nil
 }
 
-func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []RegisteredProject, err error) {
+// ListRegisteredProjects 按路径列出全部已登记项目。
+func (l *Library) ListRegisteredProjects(ctx context.Context) (projects []RegisteredProject, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -73,7 +77,9 @@ func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []
 	return projects, nil
 }
 
-func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
+// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部安装记录与组安装;
+// opts 决定磁盘上技能文件夹的去留。
+func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -106,7 +112,11 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	})
 }
 
-func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory string, err error) {
+// Resolve 按 agents 表算出 Scope 对应的 Agent 目录:全局相对 Open 时的用户
+// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生安装。
+// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
+// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
+func (l *Library) Resolve(ctx context.Context, scope Scope) (directory string, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -118,7 +128,7 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 	return directory, err
 }
 
-func (l *sqliteLibrary) scopeDirectory(ctx context.Context, row scopeRow) (root, directory string, err error) {
+func (l *Library) scopeDirectory(ctx context.Context, row scopeRow) (root, directory string, err error) {
 	agent, err := l.store.GetAgent(ctx, string(row.agent))
 	if err != nil {
 		return "", "", err
@@ -133,7 +143,7 @@ func (l *sqliteLibrary) scopeDirectory(ctx context.Context, row scopeRow) (root,
 	return project.Path, filepath.Join(project.Path, filepath.FromSlash(agent.ProjectPath)), nil
 }
 
-func (l *sqliteLibrary) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
+func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
 	if err := l.store.InTx(ctx, func(tx *store.Tx) error {
 		if err := record(tx); err != nil {
 			return err

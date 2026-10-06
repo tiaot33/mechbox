@@ -11,7 +11,8 @@ func versionOf(row store.Version) SkillVersion {
 	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: row.Files}
 }
 
-func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
+// ListVersions 按先后顺序列出 skill 的全部版本(不含文件内容)。
+func (l *Library) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -25,7 +26,8 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions 
 	return versions, nil
 }
 
-func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
+// GetVersion 读取某个版本及其完整文件。
+func (l *Library) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -36,7 +38,8 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version S
 	return versionOf(row), nil
 }
 
-func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
+// DiffVersions 比较同一 skill 的两个版本,返回按路径归类的差异。
+func (l *Library) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()

@@ -19,41 +19,41 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 		name       string
 		closeFirst bool
 		want       library.ErrorCode
-		call       func(library.Library) error
+		call       func(*library.Library) error
 	}{
-		{name: "create group", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+		{name: "create group", closeFirst: true, want: library.Internal, call: func(lib *library.Library) error {
 			_, err := lib.CreateGroup(t.Context(), "group")
 			return err
 		}},
-		{name: "fetch unknown handle", want: library.NotFound, call: func(lib library.Library) error {
+		{name: "fetch unknown handle", want: library.NotFound, call: func(lib *library.Library) error {
 			_, err := lib.Fetch(t.Context(), "no-such-handle", []string{"demo"})
 			return err
 		}},
-		{name: "fetch without names", want: library.InvalidArgument, call: func(lib library.Library) error {
+		{name: "fetch without names", want: library.InvalidArgument, call: func(lib *library.Library) error {
 			_, err := lib.Fetch(t.Context(), "no-such-handle", nil)
 			return err
 		}},
-		{name: "list versions", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+		{name: "list versions", closeFirst: true, want: library.Internal, call: func(lib *library.Library) error {
 			_, err := lib.ListVersions(t.Context(), 1)
 			return err
 		}},
-		{name: "get version", want: library.NotFound, call: func(lib library.Library) error {
+		{name: "get version", want: library.NotFound, call: func(lib *library.Library) error {
 			_, err := lib.GetVersion(t.Context(), 9999)
 			return err
 		}},
-		{name: "diff versions", want: library.NotFound, call: func(lib library.Library) error {
+		{name: "diff versions", want: library.NotFound, call: func(lib *library.Library) error {
 			_, err := lib.DiffVersions(t.Context(), 9998, 9999)
 			return err
 		}},
-		{name: "source update", want: library.NotFound, call: func(lib library.Library) error {
+		{name: "source update", want: library.NotFound, call: func(lib *library.Library) error {
 			_, err := checkSingleUpdate(t, lib, t.Context(), 9999)
 			return err
 		}},
-		{name: "list registered projects", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+		{name: "list registered projects", closeFirst: true, want: library.Internal, call: func(lib *library.Library) error {
 			_, err := lib.ListRegisteredProjects(t.Context())
 			return err
 		}},
-		{name: "list collections", closeFirst: true, want: library.Internal, call: func(lib library.Library) error {
+		{name: "list collections", closeFirst: true, want: library.Internal, call: func(lib *library.Library) error {
 			_, err := lib.ListCollections(t.Context())
 			return err
 		}},
@@ -173,22 +173,22 @@ func TestFacadeFailureCodes(t *testing.T) {
 	tests := []struct {
 		name string
 		want library.ErrorCode
-		call func(*testing.T, library.Library) error
+		call func(*testing.T, *library.Library) error
 	}{
-		{name: "remove skill invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+		{name: "remove skill invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			return lib.RemoveSkill(t.Context(), 1, library.RemoveSkillOptions{Folders: "nope"})
 		}},
-		{name: "unregister project invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+		{name: "unregister project invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{Folders: "nope"})
 		}},
-		{name: "install invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+		{name: "install invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			return lib.Install(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
 		}},
-		{name: "install group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+		{name: "install group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			_, err := lib.InstallGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
 			return err
 		}},
-		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib library.Library) error {
+		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib *library.Library) error {
 			skill := fetchNamedSkill(t, lib, "outsider")
 			group, err := lib.CreateGroup(t.Context(), "g")
 			if err != nil {
@@ -196,24 +196,24 @@ func TestFacadeFailureCodes(t *testing.T) {
 			}
 			return lib.RemoveSkillFromGroup(t.Context(), group.ID, skill.ID, library.RemoveFromGroupOptions{})
 		}},
-		{name: "remove skill from group invalid if_no_other_install", want: library.InvalidArgument, call: func(t *testing.T, lib library.Library) error {
+		{name: "remove skill from group invalid if_no_other_install", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{IfNoOtherInstall: "nope"})
 		}},
-		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
+		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib *library.Library) error {
 			_, err := lib.PreviewFetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
 			return err
 		}},
-		{name: "preview archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib library.Library) error {
+		{name: "preview archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib *library.Library) error {
 			stubHTTPResponse(t, 500, strings.NewReader(""))
 			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
 			return err
 		}},
-		{name: "search response over size limit", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
+		{name: "search response over size limit", want: library.SourceInvalid, call: func(t *testing.T, lib *library.Library) error {
 			stubHTTPResponse(t, 200, io.LimitReader(infiniteZeros{}, 1<<20+1))
 			_, err := lib.SearchSkills(t.Context(), "q")
 			return err
 		}},
-		{name: "preview local unsupported file type", want: library.SourceInvalid, call: func(t *testing.T, lib library.Library) error {
+		{name: "preview local unsupported file type", want: library.SourceInvalid, call: func(t *testing.T, lib *library.Library) error {
 			root := filepath.Join(t.TempDir(), "linked")
 			writeLocalSkill(t, root, "# X\n")
 			if err := os.Symlink("/does-not-exist", filepath.Join(root, "link")); err != nil {

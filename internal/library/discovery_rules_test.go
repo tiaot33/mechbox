@@ -11,7 +11,7 @@ import (
 )
 
 // 三条真实来源路径共用同一份内容与技能库断言。
-func discoverySources(t *testing.T, files map[string]string, check func(*testing.T, library.Library, library.PreviewFetchRequest, *gitHubAPIMock, gitHubFixture)) {
+func discoverySources(t *testing.T, files map[string]string, check func(*testing.T, *library.Library, library.PreviewFetchRequest, *gitHubAPIMock, gitHubFixture)) {
 	t.Helper()
 	for _, source := range []string{"github", "clone", "archive"} {
 		t.Run(source, func(t *testing.T) {
@@ -48,7 +48,7 @@ func TestPreviewDiscoveryPrefersConventionalDirectories(t *testing.T) {
 		".codex/skills/codex/SKILL.md":    skillDocument("codex", "keep"),
 		".cursor/skills/cursor/SKILL.md":  skillDocument("cursor", "skip"),
 	}
-	discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
+	discoverySources(t, files, func(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
 		got, err := lib.PreviewFetch(t.Context(), spec)
 		if err != nil {
 			t.Fatal(err)
@@ -86,7 +86,7 @@ func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 		{"required metadata", map[string]string{"a/SKILL.md": "---\nname: a\n---\n", "b/SKILL.md": "---\nname: b\ndescription: 123\n---\n", "c/SKILL.md": skillDocument("valid", "body")}, []string{"c"}, []string{"a", "b"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			discoverySources(t, tc.files, func(t *testing.T, lib library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
+			discoverySources(t, tc.files, func(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
 				got, err := lib.PreviewFetch(t.Context(), spec)
 				if err != nil {
 					t.Fatal(err)
@@ -131,7 +131,7 @@ func TestPreviewDiscoveryPluginManifests(t *testing.T) {
 		"extras/solo/SKILL.md":            skillDocument("solo", "body"),
 		"examples/ignored/SKILL.md":       skillDocument("ignored", "body"),
 	}
-	discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
+	discoverySources(t, files, func(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
 		got, err := lib.PreviewFetch(t.Context(), spec)
 		if err != nil {
 			t.Fatal(err)
@@ -255,7 +255,7 @@ func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 		"area/extras/solo/SKILL.md":       skillDocument("solo", "body"),
 		"area/examples/hidden/SKILL.md":   skillDocument("hidden", "body"),
 	}
-	discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
+	discoverySources(t, files, func(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
 		if spec.GitHub == nil {
 			return
 		}
@@ -289,7 +289,7 @@ func TestPreviewDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
 				"skills/good/SKILL.md":             skillDocument("good", "body"),
 				"plugins/hidden/skills/x/SKILL.md": skillDocument("hidden", "body"),
 			}
-			discoverySources(t, files, func(t *testing.T, lib library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
+			discoverySources(t, files, func(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
 				got, err := lib.PreviewFetch(t.Context(), spec)
 				if err != nil || len(got.Candidates) != 1 || got.Candidates[0].Name != "good" || got.Candidates[0].PluginName != "" {
 					t.Fatalf("invalid manifest = %#v, %v", got, err)

@@ -74,7 +74,7 @@ func (s resolvedScope) requireRoot(operation string) error {
 	return nil
 }
 
-func (l *sqliteLibrary) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
+func (l *Library) resolveScope(ctx context.Context, operation string, scope Scope) (resolvedScope, error) {
 	row, err := scopeOf(operation, scope)
 	if err != nil {
 		return resolvedScope{}, err
@@ -107,7 +107,7 @@ type claimant struct {
 	name    string
 }
 
-func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name string, target resolvedScope) (*claimant, error) {
+func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, target resolvedScope) (*claimant, error) {
 	claimants, err := l.store.Claimants(ctx, name, int64(id))
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name str
 	return nil, nil
 }
 
-func (l *sqliteLibrary) placementConflict(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, policy ConflictPolicy) (*Error, error) {
+func (l *Library) placementConflict(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, policy ConflictPolicy) (*Error, error) {
 	other, err := l.targetClaimant(ctx, id, name, target)
 	if err != nil {
 		return nil, err
@@ -150,7 +150,9 @@ func (l *sqliteLibrary) placementConflict(ctx context.Context, operation string,
 	return nil, nil
 }
 
-func (l *sqliteLibrary) PlanInstall(ctx context.Context, id SkillID, scope Scope) (plan InstallPlan, err error) {
+// PlanInstall 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
+// 作用域根目录不存在时与 Install 一样返回 FailedPrecondition。
+func (l *Library) PlanInstall(ctx context.Context, id SkillID, scope Scope) (plan InstallPlan, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -168,7 +170,9 @@ func (l *sqliteLibrary) PlanInstall(ctx context.Context, id SkillID, scope Scope
 	return l.planInstall(ctx, skill.ID, skill.Name, target)
 }
 
-func (l *sqliteLibrary) PlanGroupInstall(ctx context.Context, groupID GroupID, scope Scope) (plan GroupInstallPlan, err error) {
+// PlanGroupInstall 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
+// 作用域根目录不存在时与 InstallGroup 一样返回 FailedPrecondition。
+func (l *Library) PlanGroupInstall(ctx context.Context, groupID GroupID, scope Scope) (plan GroupInstallPlan, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -212,7 +216,7 @@ func memberNameCounts(members []SkillSummary) map[string]int {
 	return counts
 }
 
-func (l *sqliteLibrary) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
+func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
 	plan := InstallPlan{SkillID: id, Name: name, Directory: scope.directory, Target: filepath.Join(scope.directory, name), Status: InstallReady}
 	existing, err := l.store.FindSkillScope(ctx, int64(id), scope.record())
 	if err != nil {
@@ -242,7 +246,10 @@ func (l *sqliteLibrary) planInstall(ctx context.Context, id SkillID, name string
 	return plan, nil
 }
 
-func (l *sqliteLibrary) Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) (err error) {
+// Install 为 skill 在 Scope 记一个直接安装,并放入技能文件夹;本技能已安装在本作用域时只补上直接安装,
+// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重新安装)。作用域根目录(全局为用户主目录,
+// 项目为已登记路径)不存在时返回 FailedPrecondition,Library 从不创建根目录,只创建其下的 Agent 目录。
+func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -285,7 +292,7 @@ type placement struct {
 	scope resolvedScope
 }
 
-func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, record func(*store.Tx) error) (err error) {
+func (l *Library) place(ctx context.Context, placements []*placement, record func(*store.Tx) error) (err error) {
 	for _, item := range placements {
 		if err := item.scope.requireRoot("place skill folder"); err != nil {
 			return err
@@ -308,7 +315,8 @@ func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, reco
 	return nil
 }
 
-func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) (err error) {
+// Uninstall 撤销直接安装;若仍有组安装留着它,技能仍安装在此 Scope。
+func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -360,7 +368,7 @@ func newMemberPlan(operation string, opts InstallOptions) *memberPlan {
 	return &memberPlan{operation: operation, opts: opts, results: []GroupMemberResult{}, planned: map[string]bool{}}
 }
 
-func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
+func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
 	existing, err := l.store.FindSkillScope(ctx, int64(id), target.record())
 	if err != nil {
@@ -383,7 +391,7 @@ func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id Ski
 	return nil
 }
 
-func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) (*Error, error) {
+func (l *Library) memberBlocker(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) (*Error, error) {
 	if missing, err := target.rootMissing(plan.operation); err != nil || missing != nil {
 		return missing, err
 	}
@@ -397,7 +405,7 @@ func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id 
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict)
 }
 
-func (l *sqliteLibrary) applyMemberPlan(ctx context.Context, plan *memberPlan, record func(tx *store.Tx, now time.Time) error) ([]GroupMemberResult, error) {
+func (l *Library) applyMemberPlan(ctx context.Context, plan *memberPlan, record func(tx *store.Tx, now time.Time) error) ([]GroupMemberResult, error) {
 	now := clockNow()
 	err := l.place(ctx, plan.placements, func(tx *store.Tx) error {
 		if err := record(tx, now); err != nil {
@@ -416,7 +424,11 @@ func (l *sqliteLibrary) applyMemberPlan(ctx context.Context, plan *memberPlan, r
 	return plan.results, nil
 }
 
-func (l *sqliteLibrary) InstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts InstallOptions) (_ []GroupMemberResult, err error) {
+// InstallGroup 在 Scope 记一个组安装(空组也记;已有则不变),并按成员顺序逐条返回结果:能安装的都安装,
+// 已安装在此 Scope 的只补上组安装、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未安装(同名的都跳过)
+// 的成员跳过,再次 InstallGroup 可补齐。作用域根目录不存在时同 Install 返回 FailedPrecondition,
+// 不记组安装。其余失败(I/O、取消)时撤销本次全部改动,含组安装记录。
+func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts InstallOptions) (_ []GroupMemberResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -449,7 +461,9 @@ func (l *sqliteLibrary) InstallGroup(ctx context.Context, groupID GroupID, scope
 	})
 }
 
-func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
+// UninstallGroup 删除该组在此 Scope 的组安装;不再有直接安装或组安装留着的成员会被卸载,失败时恢复整组状态。
+// 该组未组安装到此 Scope 返回 NotFound。
+func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -490,7 +504,8 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	})
 }
 
-func (l *sqliteLibrary) ListGroupInstalls(ctx context.Context) (installs []GroupInstall, err error) {
+// ListGroupInstalls 列出全部组安装,按 Group、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
+func (l *Library) ListGroupInstalls(ctx context.Context) (installs []GroupInstall, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -504,14 +519,15 @@ func (l *sqliteLibrary) ListGroupInstalls(ctx context.Context) (installs []Group
 	return installs, nil
 }
 
-func (l *sqliteLibrary) ListSkillScopes(ctx context.Context) (skillScopes []SkillScope, err error) {
+// ListSkillScopes 列出全部 SkillScope:Scope 身份、Resolve 出的 Agent 目录及留着它的直接安装与组安装。
+func (l *Library) ListSkillScopes(ctx context.Context) (skillScopes []SkillScope, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	return l.listSkillScopes(ctx, 0, nil)
 }
 
-func (l *sqliteLibrary) listSkillScopes(ctx context.Context, skillID SkillID, scope *scopeRow) ([]SkillScope, error) {
+func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *scopeRow) ([]SkillScope, error) {
 	var filter *store.Scope
 	if scope != nil {
 		filter = new(scope.record())
@@ -534,7 +550,7 @@ func (l *sqliteLibrary) listSkillScopes(ctx context.Context, skillID SkillID, sc
 	return skillScopes, nil
 }
 
-func (l *sqliteLibrary) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
+func (l *Library) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	var scope *scopeRow
@@ -553,7 +569,10 @@ func (l *sqliteLibrary) filteredSkillScopes(ctx context.Context, operation strin
 	return l.listSkillScopes(ctx, filter.SkillID, scope)
 }
 
-func (l *sqliteLibrary) InspectSkillScopes(ctx context.Context, filter SkillScopeFilter) (inspections []SkillScopeInspection, err error) {
+// InspectSkillScopes 对照磁盘给出 filter 范围内每个 SkillScope 的状态;不给条件时巡检整库。只读:不改库、
+// 不改磁盘、不创建目录。结果顺序与 ListSkillScopes 相同,每条内嵌完整 SkillScope,是整库巡检结果的
+// 子集且逐条一致。判定规则见 SkillScopeStatus,筛选规则见 SkillScopeFilter。
+func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilter) (inspections []SkillScopeInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -572,7 +591,7 @@ func (l *sqliteLibrary) InspectSkillScopes(ctx context.Context, filter SkillScop
 	return inspections, nil
 }
 
-func (l *sqliteLibrary) inspectSkillScope(ctx context.Context, skillScope SkillScope) (SkillScopeStatus, error) {
+func (l *Library) inspectSkillScope(ctx context.Context, skillScope SkillScope) (SkillScopeStatus, error) {
 	name, currentVersionID, err := l.store.SkillHead(ctx, int64(skillScope.SkillID))
 	if err != nil {
 		return "", err

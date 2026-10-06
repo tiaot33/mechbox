@@ -25,7 +25,7 @@ func errUnsupportedSource() error {
 	return &Error{Code: InvalidArgument, Message: "unsupported source type"}
 }
 
-func (l *sqliteLibrary) openSnapshot(ctx context.Context, src Source, subpath string, hint source.State) (source.Snapshot, error) {
+func (l *Library) openSnapshot(ctx context.Context, src Source, subpath string, hint source.State) (source.Snapshot, error) {
 	switch src.Type {
 	case SourceLocal:
 		locator, err := json.Marshal(src.Locator)

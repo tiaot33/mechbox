@@ -298,7 +298,7 @@ func TestInspectSkillScopesIsReadOnlyAndMatchesListSkillScopes(t *testing.T) {
 	}
 }
 
-func inspectSkillScopes(t *testing.T, lib library.Library) []library.SkillScopeInspection {
+func inspectSkillScopes(t *testing.T, lib *library.Library) []library.SkillScopeInspection {
 	t.Helper()
 	got, err := lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil {
@@ -307,7 +307,7 @@ func inspectSkillScopes(t *testing.T, lib library.Library) []library.SkillScopeI
 	return got
 }
 
-func requireInspectionStatuses(t *testing.T, lib library.Library, want ...library.SkillScopeStatus) {
+func requireInspectionStatuses(t *testing.T, lib *library.Library, want ...library.SkillScopeStatus) {
 	t.Helper()
 	got := inspectSkillScopes(t, lib)
 	if len(got) != len(want) {

@@ -9,7 +9,9 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 )
 
-func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result []SearchSkill, err error) {
+// SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
+// 无法转换为可做入库预览的 GitHub 地址的条目直接过滤掉。
+func (l *Library) SearchSkills(ctx context.Context, query string) (result []SearchSkill, err error) {
 	defer func() { err = typedError(err) }()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()

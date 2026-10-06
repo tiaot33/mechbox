@@ -2,8 +2,9 @@
 
 Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0008),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里已安装的技能文件夹由它生成。
 
-- `internal/library/api.go` — 全部领域类型 + `Library` 接口,带中文注释。**阅读入口,先读这个。**
-- `internal/library/library.go` — 实例生命周期:Open、Close、共享状态与操作锁。
+- `internal/library/doc.go` — 包说明。**阅读入口,先读这个**;方法签名用 `go doc -all ./internal/library` 查看。
+- `internal/library/api.go` — 公开领域类型(下一步按用户流程拆到各文件)。
+- `internal/library/library.go` — `Library` 结构体与实例生命周期:Open、Close、共享状态与操作锁。
 - `internal/library/skills.go` + `versions.go` — 入库、技能查询/移除、Collection、版本历史与差异。
 - `internal/library/preview.go` — 入库预览(PreviewFetch)与入库(Fetch);`source_read.go` 的 `openSnapshot` 按来源类型打开快照,入库预览、入库、更新与批量检查都只经 `Snapshot`。
 - `internal/library/update.go` + `batch_update.go` — 单项与批量更新检查;`search.go` 与 `audit.go` 负责市场搜索与入库预览里的审计查询。
@@ -29,7 +30,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 新增任何应用时:应用依赖 Library,Library 不依赖应用;默认共用根 module,入口放 `cmd/<app>/`。桌面端的位置见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
 
-**注释:只有 `internal/library/api.go`、`schema.sql`,以及 `api.go` 用类型别名公开的内部类型写注释,其他非测试代码不写注释**(`//go:build`、`//go:embed` 等编译指令除外)。注释一律使用中文;标识符、技术术语保留英文。
+**注释:`library` 包的导出标识符(类型、函数、方法、常量)都写 doc comment;`schema.sql`,以及以类型别名公开的内部类型(如 `skillfile.File`)也写注释。其他非测试代码(未导出的实现、各子包)不写注释**(`//go:build`、`//go:embed` 等编译指令除外)。注释一律使用中文;标识符、技术术语保留英文。
 
 ## Agent skills
 

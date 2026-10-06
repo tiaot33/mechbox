@@ -10,7 +10,9 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-type sqliteLibrary struct {
+// Library 是桌面端使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
+// 见 docs/adr/0008-desktop-is-wails-v3-in-process.md。
+type Library struct {
 	store *store.Store
 	home  string
 	mu    sync.RWMutex
@@ -24,7 +26,7 @@ type sqliteLibrary struct {
 
 type libraryOperationKey struct{}
 
-func (l *sqliteLibrary) sharedOperation(ctx context.Context) (context.Context, func()) {
+func (l *Library) sharedOperation(ctx context.Context) (context.Context, func()) {
 	if ctx.Value(libraryOperationKey{}) == l {
 		return ctx, func() {}
 	}
@@ -32,7 +34,7 @@ func (l *sqliteLibrary) sharedOperation(ctx context.Context) (context.Context, f
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
 }
 
-func (l *sqliteLibrary) exclusiveOperation(ctx context.Context) (context.Context, func()) {
+func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func()) {
 	if ctx.Value(libraryOperationKey{}) == l {
 		return ctx, func() {}
 	}
@@ -40,7 +42,9 @@ func (l *sqliteLibrary) exclusiveOperation(ctx context.Context) (context.Context
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
 }
 
-func Open(path string) (Library, error) {
+// Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本;应用标识或 schema 版本不符时
+// 报错且不改动文件。只补缺失的 Agent 默认行,不覆盖已有的名称和目录规则。
+func Open(path string) (*Library, error) {
 	db, err := store.Open(path)
 	if err != nil {
 		return nil, err
@@ -50,10 +54,11 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: find home directory: %w", err)
 	}
-	return &sqliteLibrary{store: db, home: home, previews: map[FetchPreviewID]*previewState{}, github: github.NewClient()}, nil
+	return &Library{store: db, home: home, previews: map[FetchPreviewID]*previewState{}, github: github.NewClient()}, nil
 }
 
-func (l *sqliteLibrary) Close() error {
+// Close 关闭 Library:丢弃全部入库预览句柄,清空 GitHub 缓存并关闭数据库。
+func (l *Library) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.previewMu.Lock()

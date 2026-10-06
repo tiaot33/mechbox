@@ -14,7 +14,8 @@ import (
 
 const pullFolderWarning = "agent 目录里已安装的技能文件夹未随本次 pull 重建,可能与新库不一致"
 
-func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
+// PlanSyncPush 生成推送的同步计划:报告推送目标的当前远端身份(若有),以便调用方知道可能覆盖远端。
+func (l *Library) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
 	identity, exists, err := remoteIdentity(ctx)
 	if err != nil {
@@ -23,7 +24,8 @@ func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err er
 	return SyncPlan{Remote: identity, RemoteExists: exists}, nil
 }
 
-func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
+// PlanSyncPull 生成拉取的同步计划:报告远端库的身份与 schema 是否可接受,不替换本地库。
+func (l *Library) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3.Get(ctx)
 	if err != nil {
@@ -44,7 +46,9 @@ func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err er
 	return plan, nil
 }
 
-func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
+// SyncPush 把整个数据库推送到 S3;expected 为同步计划里的远端身份,若远端已变则返回
+// Conflict,调用方须重新生成同步计划。
+func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
 	defer func() { err = typedError(err) }()
 	identity, _, err := remoteIdentity(ctx)
 	if err != nil {
@@ -64,7 +68,10 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 	return SyncResult{Remote: RemoteIdentity(etag)}, nil
 }
 
-func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
+// SyncPull 从 S3 拉回整库并原子替换本地,替换前校验 schema 并重映射项目路径;
+// expected 为同步计划里的远端身份,若远端已变则返回 Conflict。
+// 不重建或清理磁盘上已安装的文件夹,结果可能带警告提示它们可能与新库不一致。
+func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
 	defer func() { err = typedError(err) }()
 	data, etag, err := s3.Get(ctx)
 	if errors.Is(err, s3.ErrNotFound) && expected != "" {
@@ -113,7 +120,7 @@ func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
 	return RemoteIdentity(etag), true, nil
 }
 
-func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
+func (l *Library) snapshotBytes(ctx context.Context) ([]byte, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.Snapshot(ctx)

@@ -370,7 +370,7 @@ type groupsWithMembersFixture struct {
 	empty, both, single  library.Group
 }
 
-func seedGroupsWithMembers(t *testing.T, lib library.Library) groupsWithMembersFixture {
+func seedGroupsWithMembers(t *testing.T, lib *library.Library) groupsWithMembersFixture {
 	t.Helper()
 	ctx := t.Context()
 	f := groupsWithMembersFixture{
@@ -404,7 +404,7 @@ func seedGroupsWithMembers(t *testing.T, lib library.Library) groupsWithMembersF
 	return f
 }
 
-func requireGroupsWithMembers(t *testing.T, lib library.Library, want []library.GroupWithMembers) {
+func requireGroupsWithMembers(t *testing.T, lib *library.Library, want []library.GroupWithMembers) {
 	t.Helper()
 	got, err := lib.ListGroupsWithMembers(t.Context())
 	if err != nil || !reflect.DeepEqual(got, want) {

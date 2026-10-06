@@ -289,7 +289,7 @@ func TestGitHubCheckUpdatesMixedConfirmedSkillsReadTreeAtMostOnce(t *testing.T) 
 	before := []skillSnapshot{snapshotSkill(t, lib, a.ID), snapshotSkill(t, lib, b.ID), snapshotSkill(t, lib, c.ID)}
 
 	ids := []library.SkillID{a.ID, b.ID, c.ID, a.ID}
-	assertMixedChecks := func(lib library.Library) {
+	assertMixedChecks := func(lib *library.Library) {
 		t.Helper()
 		checks, err := lib.CheckUpdates(ctx, ids)
 		if err != nil || len(checks) != 3 {

@@ -12,7 +12,7 @@ import (
 )
 
 // requireSkillScopes 断言全部 SkillScope(忽略首次安装时间)。
-func requireSkillScopes(t *testing.T, lib library.Library, want []library.SkillScope) {
+func requireSkillScopes(t *testing.T, lib *library.Library, want []library.SkillScope) {
 	t.Helper()
 	skillScopes, err := lib.ListSkillScopes(t.Context())
 	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {

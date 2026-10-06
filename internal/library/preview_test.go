@@ -32,7 +32,7 @@ func mockPreviewArchive(t *testing.T) library.PreviewFetchRequest {
 	return library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
 }
 
-func openLibraryAt(t *testing.T, path string) library.Library {
+func openLibraryAt(t *testing.T, path string) *library.Library {
 	t.Helper()
 	lib, err := library.Open(path)
 	if err != nil {

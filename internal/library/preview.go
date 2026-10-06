@@ -27,7 +27,18 @@ type previewState struct {
 	audits      map[string]SkillAudit
 }
 
-func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (preview FetchPreview, err error) {
+// PreviewFetch 发起一次入库预览:发现来源中的候选 skill,返回句柄与候选清单,此时尚无内容进入 Library。
+// req 的 GitHub / URL / Local 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空。
+// GitHub 输入在这里解析:输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
+// 路径不一致返回 InvalidArgument;省略 ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main;
+// @name 时入库预览只列该技能,不存在返回 NotFound。URL 与本地目录总是列出全部候选。
+// 入库预览钉住来源当时的内容:GitHub 只取各候选 SKILL.md 并钉住当时的 commit;URL 一次下载完整归档;
+// 本地目录把候选文件读进内存作为快照(候选文件累计超过 1000 个或 64 MiB 返回 SourceInvalid),
+// 之后目录再被改动也不影响入库。本地来源的身份是该目录的绝对路径,同一目录下的技能归入同一 Collection。
+// 一个有效候选都没有时返回 SourceInvalid,诊断写在错误信息里。
+// 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响入库预览。
+// 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在入库时返回 NotFound。
+func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (preview FetchPreview, err error) {
 	defer func() { err = typedError(err) }()
 	l.previewMu.Lock()
 	closed := l.closed
@@ -92,7 +103,7 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	return preview, nil
 }
 
-func (l *sqliteLibrary) previewSource(ctx context.Context, req PreviewFetchRequest) (source Source, subpath string, names []string, err error) {
+func (l *Library) previewSource(ctx context.Context, req PreviewFetchRequest) (source Source, subpath string, names []string, err error) {
 	var given []string
 	if req.GitHub != nil {
 		given = append(given, "github")
@@ -131,7 +142,7 @@ func (l *sqliteLibrary) previewSource(ctx context.Context, req PreviewFetchReque
 	}
 }
 
-func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState) ([]Candidate, error) {
+func (l *Library) listCandidates(ctx context.Context, state *previewState) ([]Candidate, error) {
 	locator, err := json.Marshal(state.source.Locator)
 	if err != nil {
 		return nil, fmt.Errorf("encode source locator: %w", err)
@@ -158,7 +169,15 @@ func previewDiagnostics(diagnostics []discovery.Diagnostic) []PreviewDiagnostic 
 	return result
 }
 
-func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []SkillSummary, err error) {
+// Fetch 从一次入库预览中选取候选原子提交入库,返回入库技能的摘要(不含文件,需要时用 GetSkill)。
+// names 为空返回 InvalidArgument;"全部入库"由调用方把 Fetched 为零的候选名收集起来传入。
+// 所选技能中有已入库的,整批返回 AlreadyExists。
+// GitHub 来源可在入库预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
+// 不跟随当前 HEAD。URL / 本地目录只读取入库预览时的内容,不再读取来源。要么所选 skill 全部入库,
+// 要么库保持不变。成功后该入库预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
+// 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次入库尚在进行时,再次入库返回
+// FailedPrecondition;联网期间不持库锁,其他入库预览 / 列表 / 安装不必等它。
+func (l *Library) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []SkillSummary, err error) {
 	defer func() { err = typedError(err) }()
 	if len(names) == 0 {
 		return nil, argumentError("fetch", "names", "at least one skill name is required")
@@ -185,7 +204,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	return fetched, nil
 }
 
-func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previewState, error) {
+func (l *Library) claimPreview(id FetchPreviewID, names []string) (*previewState, error) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
 	state := l.previews[id]
@@ -205,7 +224,7 @@ func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previe
 	return state, nil
 }
 
-func (l *sqliteLibrary) releasePreview(id FetchPreviewID, state *previewState, fetched bool) {
+func (l *Library) releasePreview(id FetchPreviewID, state *previewState, fetched bool) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
 	if l.previews[id] != state {
