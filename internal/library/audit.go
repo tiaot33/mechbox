@@ -34,7 +34,7 @@ func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, na
 	if state == nil {
 		return nil, &Error{Code: NotFound, Message: "get skill audit: unknown or discarded preview"}
 	}
-	if _, err := selectSkills(state.skills, []string{name}); err != nil {
+	if _, err := selectCandidates(state.candidates, []string{name}); err != nil {
 		return nil, err
 	}
 	owner, repo, ok := githubOwnerRepo(state.source.Locator.Repository)

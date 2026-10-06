@@ -75,13 +75,6 @@ func fetchError(code ErrorCode, operation string, err error) error {
 	return &Error{Code: code, Message: operation + ": " + err.Error(), Err: err}
 }
 
-func fetchErrorCode(err error) ErrorCode {
-	if errors.Is(err, fs.ErrPermission) {
-		return Permission
-	}
-	return SourceUnreachable
-}
-
 func argumentError(operation, field, reason string) *Error {
 	return &Error{Code: InvalidArgument, Message: operation + ": " + reason, Details: ErrorDetails{Field: field}}
 }

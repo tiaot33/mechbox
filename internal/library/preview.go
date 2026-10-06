@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
@@ -23,20 +22,16 @@ type discoveredSkill struct {
 	files      []File
 	gitTreeSHA string
 	blobs      []githubBlob
-	state      source.State
 }
 
 type previewState struct {
-	githubRepoSize int64
-	source         Source
-	subpath        string
-	ref            string
-	skills         []discoveredSkill
-	diagnostics    []discovery.Diagnostic
-	snapshot       source.Snapshot
-	timer          *time.Timer
-	fetching       bool
-	audits         map[string]SkillAudit
+	source      Source
+	snapshot    source.Snapshot
+	candidates  []discovery.Candidate
+	diagnostics []discovery.Diagnostic
+	timer       *time.Timer
+	fetching    bool
+	audits      map[string]SkillAudit
 }
 
 func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (preview FetchPreview, err error) {
@@ -51,12 +46,11 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	if err != nil {
 		return FetchPreview{}, err
 	}
-	var discovered discoveredSource
-	snapshot, err := openSnapshot(ctx, source, nil)
-	if err == nil && snapshot != nil {
-		discovered, err = snapshotSource(ctx, snapshot)
-	} else if err == nil {
-		discovered, err = l.fetchGitHub(ctx, source.Locator, subpath)
+	var candidates []discovery.Candidate
+	var diagnostics []discovery.Diagnostic
+	snapshot, err := l.openSnapshot(ctx, source, subpath, nil)
+	if err == nil {
+		candidates, diagnostics, err = snapshot.Candidates(ctx)
 	}
 	if err != nil {
 		err = typedError(err)
@@ -65,12 +59,12 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 		}
 		return FetchPreview{}, err
 	}
-	discovered.skills, err = selectSkills(discovered.skills, names)
+	candidates, err = selectCandidates(candidates, names)
 	if err != nil {
 		return FetchPreview{}, err
 	}
 	source.LastFetched = time.Now().UTC()
-	source.LastSeenRef = discovered.ref
+	source.LastSeenRef = snapshot.Revision()
 	id, err := newPreviewID()
 	if err != nil {
 		return FetchPreview{}, err
@@ -85,12 +79,8 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	if err := ctx.Err(); err != nil {
 		return FetchPreview{}, err
 	}
-	state := &previewState{
-		source: source, subpath: subpath, ref: discovered.ref,
-		skills: discovered.skills, diagnostics: discovered.diagnostics, githubRepoSize: discovered.githubRepoSize,
-		snapshot: snapshot,
-	}
-	candidates, err := l.listCandidates(ctx, state)
+	state := &previewState{source: source, snapshot: snapshot, candidates: candidates, diagnostics: diagnostics}
+	listed, err := l.listCandidates(ctx, state)
 	if err != nil {
 		return FetchPreview{}, err
 	}
@@ -102,7 +92,7 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 			delete(l.previews, id)
 		}
 	})
-	preview = FetchPreview{ID: id, Revision: discovered.ref, Candidates: candidates, Diagnostics: previewDiagnostics(state.diagnostics)}
+	preview = FetchPreview{ID: id, Revision: source.LastSeenRef, Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}
 	if source.Type == SourceGitHub {
 		preview.Ref = source.Locator.Branch
 	}
@@ -170,9 +160,8 @@ func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState)
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read fetched candidates: %w", err)
 	}
-	candidates := make([]Candidate, len(state.skills))
-	for i, skill := range state.skills {
-		c := skill.candidate
+	candidates := make([]Candidate, len(state.candidates))
+	for i, c := range state.candidates {
 		candidates[i] = Candidate{Fetched: fetched[c.Name], PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
 	}
 	return candidates, nil
@@ -194,22 +183,14 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	if len(names) == 0 {
 		return nil, argumentError("fetch", "names", "at least one skill name is required")
 	}
-	state, skills, err := l.claimPreview(id, names)
+	state, err := l.claimPreview(id, names)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { l.releasePreview(id, state, err == nil) }()
-	if state.snapshot != nil {
-		skills, err = snapshotSkills(ctx, state.snapshot, skills)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if state.source.Type == SourceGitHub {
-		skills = slices.Clone(skills)
-		if err := l.materializeGitHubSkills(ctx, state, skills); err != nil {
-			return nil, err
-		}
+	skills, err := state.snapshot.Fetch(ctx, names)
+	if err != nil {
+		return nil, err
 	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -224,25 +205,24 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	return fetched, nil
 }
 
-func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previewState, []discoveredSkill, error) {
+func (l *sqliteLibrary) claimPreview(id FetchPreviewID, names []string) (*previewState, error) {
 	l.previewMu.Lock()
 	defer l.previewMu.Unlock()
 	state := l.previews[id]
 	if state == nil {
-		return nil, nil, &Error{Code: NotFound, Message: "fetch: unknown or discarded preview"}
+		return nil, &Error{Code: NotFound, Message: "fetch: unknown or discarded preview"}
 	}
 	if state.fetching {
-		return nil, nil, preconditionError("fetch", "another fetch from this preview is in progress", ErrorDetails{})
+		return nil, preconditionError("fetch", "another fetch from this preview is in progress", ErrorDetails{})
 	}
-	skills, err := selectSkills(state.skills, names)
-	if err != nil {
-		return nil, nil, err
+	if _, err := selectCandidates(state.candidates, names); err != nil {
+		return nil, err
 	}
 	state.fetching = true
 	if state.timer != nil {
 		state.timer.Stop()
 	}
-	return state, skills, nil
+	return state, nil
 }
 
 func (l *sqliteLibrary) releasePreview(id FetchPreviewID, state *previewState, fetched bool) {
@@ -270,18 +250,26 @@ func newPreviewID() (FetchPreviewID, error) {
 }
 
 func selectSkills(skills []discoveredSkill, selected []string) ([]discoveredSkill, error) {
+	return selectNamed(skills, selected, func(skill discoveredSkill) string { return skill.name })
+}
+
+func selectCandidates(candidates []discovery.Candidate, selected []string) ([]discovery.Candidate, error) {
+	return selectNamed(candidates, selected, func(candidate discovery.Candidate) string { return candidate.Name })
+}
+
+func selectNamed[T any](items []T, selected []string, nameOf func(T) string) ([]T, error) {
 	if len(selected) == 0 {
-		return skills, nil
+		return items, nil
 	}
 	wanted := make(map[string]bool, len(selected))
 	for _, name := range selected {
 		wanted[name] = true
 	}
-	result := make([]discoveredSkill, 0, len(selected))
-	for _, skill := range skills {
-		if wanted[skill.name] {
-			result = append(result, skill)
-			delete(wanted, skill.name)
+	result := make([]T, 0, len(selected))
+	for _, item := range items {
+		if name := nameOf(item); wanted[name] {
+			result = append(result, item)
+			delete(wanted, name)
 		}
 	}
 	if len(wanted) != 0 {

@@ -247,7 +247,6 @@ type Skill struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source      Source    `json:"source"`
-	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源当前版本的目录 tree SHA;非 git 或尚未记录时为空
 	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
 	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
 	Files       []File    `json:"files"`
@@ -300,7 +299,6 @@ type SkillVersion struct {
 	ID          VersionID `json:"id"`
 	SkillID     SkillID   `json:"skill_id"`
 	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
-	GitTreeSHA  string    `json:"git_tree_sha"`        // GitHub 来源该版本 Skill 目录的 git tree SHA;非 git 或尚未记录时为空
 	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
 	Files       []File    `json:"files,omitempty"`
 }

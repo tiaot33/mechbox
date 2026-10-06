@@ -84,8 +84,8 @@ func TestGitHubFetchTransfersSelectedSkillAndRecordsTreeSHA(t *testing.T) {
 		t.Fatalf("fetched files = %#v, want %#v", fetched[0].Files, wantFiles)
 	}
 	wantSHA := fx.treeSHA("first")
-	if fetched[0].GitTreeSHA != wantSHA {
-		t.Fatalf("Fetch GitTreeSHA = %q, want %q", fetched[0].GitTreeSHA, wantSHA)
+	if readPersistedGitTreeSHA(t, lib, fetched[0].ID) != wantSHA {
+		t.Fatalf("Fetch GitTreeSHA = %q, want %q", readPersistedGitTreeSHA(t, lib, fetched[0].ID), wantSHA)
 	}
 	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != wantSHA {
 		t.Fatalf("persisted GitTreeSHA = %q, want %q", got, wantSHA)
@@ -142,8 +142,8 @@ func TestGitHubFetchUsesPinnedCommitAfterHeadAdvances(t *testing.T) {
 	if !reflect.DeepEqual(fetched[0].Files, want) {
 		t.Fatalf("fetched advanced HEAD content = %#v", fetched[0].Files)
 	}
-	if fetched[0].GitTreeSHA != wantSHA {
-		t.Fatalf("GitTreeSHA = %q, want pinned %q", fetched[0].GitTreeSHA, wantSHA)
+	if readPersistedGitTreeSHA(t, lib, fetched[0].ID) != wantSHA {
+		t.Fatalf("GitTreeSHA = %q, want pinned %q", readPersistedGitTreeSHA(t, lib, fetched[0].ID), wantSHA)
 	}
 }
 
@@ -209,7 +209,7 @@ func TestGitHubContentsFallsBackToCloneWhenTreeTruncated(t *testing.T) {
 		t.Fatalf("truncated fallback = %#v, %v", preview, err)
 	}
 	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
-	if err != nil || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
+	if err != nil || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("demo") {
 		t.Fatalf("truncated fetch = %#v, %v", fetched, err)
 	}
 }
@@ -311,7 +311,7 @@ func TestGitHubAnonymousAPIRetriesWithTokenThenSucceedsWithoutClone(t *testing.T
 				t.Fatalf("requests = %#v, want anonymous %d then token retry", api.snapshot(), status)
 			}
 			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
-			if err != nil || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
+			if err != nil || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("demo") {
 				t.Fatalf("token retry fetch = %#v, %v", fetched, err)
 			}
 		})
@@ -363,8 +363,8 @@ func TestGitHubPreviewHonorsSubpathAndNamesWithoutChangingSource(t *testing.T) {
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" {
 		t.Fatalf("filtered fetch = %#v, %v", fetched, err)
 	}
-	if fetched[0].GitTreeSHA != fx.treeSHA("skills/first") {
-		t.Fatalf("GitTreeSHA = %q, want %q", fetched[0].GitTreeSHA, fx.treeSHA("skills/first"))
+	if readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("skills/first") {
+		t.Fatalf("GitTreeSHA = %q, want %q", readPersistedGitTreeSHA(t, lib, fetched[0].ID), fx.treeSHA("skills/first"))
 	}
 }
 
@@ -384,7 +384,7 @@ func TestGitHubRootSkillPreviewAndFetchUseRootTreeSHA(t *testing.T) {
 		t.Fatalf("root PreviewFetch = %#v, %v", preview, err)
 	}
 	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
-	if err != nil || fetched[0].GitTreeSHA != fx.rootTree {
+	if err != nil || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.rootTree {
 		t.Fatalf("root fetch = %#v, %v", fetched, err)
 	}
 	want := []library.File{

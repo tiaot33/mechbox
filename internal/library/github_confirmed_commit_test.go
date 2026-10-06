@@ -163,7 +163,7 @@ func TestGitHubUnchangedUpdateReconfirmsVersionOnAdvancedCommit(t *testing.T) {
 
 	api.Reset()
 	result, err := lib.Update(ctx, id)
-	if err != nil || result.Changed || result.Skill.Source.LastSeenRef != advanced.commit || result.Skill.GitTreeSHA != fx.treeSHA("demo") {
+	if err != nil || result.Changed || result.Skill.Source.LastSeenRef != advanced.commit || readPersistedGitTreeSHA(t, lib, result.Skill.ID) != fx.treeSHA("demo") {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
 	// 紧挨着的 CheckUpdates 已取过新 root tree,Update 只再解析 branch commit。
@@ -343,11 +343,7 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	lib := openTestLibraryAt(t, path)
 	ctx := t.Context()
 	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
 	if err != nil {
@@ -361,12 +357,8 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	editLibraryFixture(t, path, `UPDATE skill_versions SET confirmed_commit = ''`)
-	lib, err = library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	editLibraryFixture(t, path, `UPDATE skill_versions SET source_state = json_remove(source_state, '$.commit')`)
+	lib = openTestLibraryAt(t, path)
 
 	api.Reset()
 	before := snapshotSkill(t, lib, id)
@@ -381,11 +373,7 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	lib, err = library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	lib = openTestLibraryAt(t, path)
 	api.Reset()
 	if available, err := checkSingleUpdate(t, lib, ctx, id); err != nil || available {
 		t.Fatalf("unknown commit CheckUpdates after reopen = %v, %v", available, err)
@@ -394,7 +382,7 @@ func TestGitHubVersionWithoutConfirmedCommitComparesTreeUntilUpdated(t *testing.
 
 	api.Reset()
 	result, err := lib.Update(ctx, id)
-	if err != nil || result.Changed || result.Skill.GitTreeSHA != fx.treeSHA("demo") {
+	if err != nil || result.Changed || readPersistedGitTreeSHA(t, lib, result.Skill.ID) != fx.treeSHA("demo") {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
 	if versions, err := lib.ListVersions(ctx, id); err != nil || len(versions) != 1 {

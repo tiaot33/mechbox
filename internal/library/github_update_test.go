@@ -96,8 +96,8 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutReadingFiles(t *testing.T
 	if err != nil || result.Changed {
 		t.Fatalf("unchanged Update = %#v, %v", result, err)
 	}
-	if result.Skill.GitTreeSHA != fx.treeSHA("first") {
-		t.Fatalf("unchanged Update GitTreeSHA = %q, want %q", result.Skill.GitTreeSHA, fx.treeSHA("first"))
+	if got := readPersistedGitTreeSHA(t, lib, first.ID); got != fx.treeSHA("first") {
+		t.Fatalf("unchanged Update GitTreeSHA = %q, want %q", got, fx.treeSHA("first"))
 	}
 	if result.Skill.Source.LastSeenRef != other.commit {
 		t.Fatalf("unchanged Update last_seen_ref = %q, want new commit %q", result.Skill.Source.LastSeenRef, other.commit)
@@ -163,9 +163,6 @@ func TestGitHubCheckAndUpdateUseDirectoryTreeSHAWithoutReadingFiles(t *testing.T
 	if !reflect.DeepEqual(result.Skill.Files, wantFiles) {
 		t.Fatalf("updated files = %#v, want %#v", result.Skill.Files, wantFiles)
 	}
-	if result.Skill.GitTreeSHA != changed.treeSHA("first") {
-		t.Fatalf("updated GitTreeSHA = %q, want %q", result.Skill.GitTreeSHA, changed.treeSHA("first"))
-	}
 	if got := readPersistedGitTreeSHA(t, lib, first.ID); got != changed.treeSHA("first") {
 		t.Fatalf("persisted GitTreeSHA = %q, want %q", got, changed.treeSHA("first"))
 	}
@@ -213,8 +210,8 @@ func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 			bar = skill
 		}
 	}
-	if foo.GitTreeSHA != fx.treeSHA("other") || bar.GitTreeSHA != fx.treeSHA("foo") {
-		t.Fatalf("fetched SHAs foo=%q bar=%q, want other=%q foo=%q", foo.GitTreeSHA, bar.GitTreeSHA, fx.treeSHA("other"), fx.treeSHA("foo"))
+	if gotFoo, gotBar := readPersistedGitTreeSHA(t, lib, foo.ID), readPersistedGitTreeSHA(t, lib, bar.ID); gotFoo != fx.treeSHA("other") || gotBar != fx.treeSHA("foo") {
+		t.Fatalf("fetched SHAs foo=%q bar=%q, want other=%q foo=%q", gotFoo, gotBar, fx.treeSHA("other"), fx.treeSHA("foo"))
 	}
 
 	api.Reset()
@@ -246,8 +243,8 @@ func TestGitHubCheckUpdatesMatchesSkillNameNotDirectoryName(t *testing.T) {
 	if string(result.Skill.Files[0].Content) != skillDocument("bar", "changed bar") {
 		t.Fatalf("Update bar wrote the other skill: %#v", result.Skill.Files)
 	}
-	if result.Skill.GitTreeSHA != changed.treeSHA("foo") {
-		t.Fatalf("bar GitTreeSHA = %q, want directory foo %q", result.Skill.GitTreeSHA, changed.treeSHA("foo"))
+	if got := readPersistedGitTreeSHA(t, lib, bar.ID); got != changed.treeSHA("foo") {
+		t.Fatalf("bar GitTreeSHA = %q, want directory foo %q", got, changed.treeSHA("foo"))
 	}
 }
 
@@ -268,8 +265,8 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	}
 	ctx := t.Context()
 	first, sibling := skills[0], skills[1]
-	if first.GitTreeSHA != "" || sibling.GitTreeSHA != "" {
-		t.Fatalf("fixture GitTreeSHA first=%q sibling=%q, want empty", first.GitTreeSHA, sibling.GitTreeSHA)
+	if gotFirst, gotSibling := readPersistedGitTreeSHA(t, lib, first.ID), readPersistedGitTreeSHA(t, lib, sibling.ID); gotFirst != "" || gotSibling != "" {
+		t.Fatalf("fixture GitTreeSHA first=%q sibling=%q, want empty", gotFirst, gotSibling)
 	}
 
 	api.Reset()
@@ -287,9 +284,6 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	result, err := lib.Update(ctx, first.ID)
 	if err != nil || result.Changed {
 		t.Fatalf("empty SHA same files Update = %#v, %v", result, err)
-	}
-	if result.Skill.GitTreeSHA != fx.treeSHA("first") {
-		t.Fatalf("backfilled GitTreeSHA = %q, want %q", result.Skill.GitTreeSHA, fx.treeSHA("first"))
 	}
 	if got := readPersistedGitTreeSHA(t, lib, first.ID); got != fx.treeSHA("first") {
 		t.Fatalf("persisted backfill = %q, want %q", got, fx.treeSHA("first"))
@@ -317,8 +311,8 @@ func TestGitHubEmptyTreeSHAFallsBackToFilesThenBackfillsOnUpdate(t *testing.T) {
 	if err != nil || !result.Changed {
 		t.Fatalf("empty SHA changed files Update = %#v, %v", result, err)
 	}
-	if result.Skill.GitTreeSHA != changed.treeSHA("sibling") {
-		t.Fatalf("new version GitTreeSHA = %q, want %q", result.Skill.GitTreeSHA, changed.treeSHA("sibling"))
+	if got := readPersistedGitTreeSHA(t, lib, sibling.ID); got != changed.treeSHA("sibling") {
+		t.Fatalf("new version GitTreeSHA = %q, want %q", got, changed.treeSHA("sibling"))
 	}
 	if versions, err := lib.ListVersions(ctx, sibling.ID); err != nil || len(versions) != 2 {
 		t.Fatalf("changed empty SHA versions = %#v, %v", versions, err)
@@ -604,8 +598,8 @@ func TestGitHubUpdateFallsBackToCloneWhenBlobsFailAfterTree(t *testing.T) {
 	if !reflect.DeepEqual(result.Skill.Files, want) {
 		t.Fatalf("cloned update files = %#v, want %#v", result.Skill.Files, want)
 	}
-	if result.Skill.GitTreeSHA != changed.treeSHA("demo") {
-		t.Fatalf("cloned update SHA = %q, want %q", result.Skill.GitTreeSHA, changed.treeSHA("demo"))
+	if got := readPersistedGitTreeSHA(t, lib, result.Skill.ID); got != changed.treeSHA("demo") {
+		t.Fatalf("cloned update SHA = %q, want %q", got, changed.treeSHA("demo"))
 	}
 	if result.Skill.Source.LastSeenRef != changed.commit {
 		t.Fatalf("cloned update ref = %q, want %q", result.Skill.Source.LastSeenRef, changed.commit)
@@ -620,18 +614,23 @@ func TestGitHubCheckUpdatesCancelDoesNotCompleteInFlightItem(t *testing.T) {
 		"sibling/notes.md": {content: []byte("notes"), mode: 0o644},
 	})
 	fx := inspectGitHubRepo(t, repo)
-	serveGitHubAPI(t, fx)
+	api := serveGitHubAPI(t, fx)
 	blockGitHubClone(t)
 	lib, skills := openGitHubLibraryWithoutTreeSHA(t)
 	if len(skills) != 2 {
 		t.Fatalf("fetched skills = %#v, want two", skills)
 	}
 	first, sibling := skills[0], skills[1]
+	// 远端 notes.md 变了:sibling 没有目录 SHA,只能下载这个文件来比较,取消就发生在这次下载上。
+	writeFile(t, filepath.Join(repo, "sibling", "notes.md"), []byte("changed notes"), 0o644)
+	commitGit(t, repo, "change sibling notes")
+	changed := inspectGitHubRepo(t, repo)
+	api.Swap(changed)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	transport := http.DefaultClient.Transport
-	notesSHA := fx.blobSHA("sibling/notes.md")
+	notesSHA := changed.blobSHA("sibling/notes.md")
 	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
 		if strings.HasSuffix(r.URL.Path, "/git/blobs/"+notesSHA) {
 			cancel()
@@ -645,7 +644,7 @@ func TestGitHubCheckUpdatesCancelDoesNotCompleteInFlightItem(t *testing.T) {
 	}
 }
 
-func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) {
+func TestURLCheckAndUpdateStillCompareFiles(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
 		"demo/SKILL.md": skillDocument("demo", "old"),
 		"demo/run":      "echo old",
@@ -666,9 +665,6 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 	if err != nil || len(fetched) != 1 {
 		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
-	if fetched[0].GitTreeSHA != "" {
-		t.Fatalf("URL GitTreeSHA = %q, want empty", fetched[0].GitTreeSHA)
-	}
 	if available, err := checkSingleUpdate(t, lib, ctx, fetched[0].ID); err != nil || available {
 		t.Fatalf("unchanged URL CheckUpdates = %v, %v", available, err)
 	}
@@ -681,11 +677,8 @@ func TestURLCheckAndUpdateStillCompareFilesAndKeepEmptyGitTreeSHA(t *testing.T) 
 		t.Fatalf("changed URL CheckUpdates = %v, %v", available, err)
 	}
 	result, err := lib.Update(ctx, fetched[0].ID)
-	if err != nil || !result.Changed || result.Skill.GitTreeSHA != "" {
+	if err != nil || !result.Changed {
 		t.Fatalf("URL Update = %#v, %v", result, err)
-	}
-	if got := readPersistedGitTreeSHA(t, lib, fetched[0].ID); got != "" {
-		t.Fatalf("URL persisted GitTreeSHA = %q, want empty", got)
 	}
 }
 

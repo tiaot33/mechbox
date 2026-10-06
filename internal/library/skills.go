@@ -119,8 +119,8 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []discoveredSkill) ([]Skill, error) {
-	if err := validateSource(source); err != nil {
+func (l *sqliteLibrary) fetchAll(ctx context.Context, src Source, skills []source.Skill) ([]Skill, error) {
+	if err := validateSource(src); err != nil {
 		return nil, err
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -128,26 +128,26 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []di
 		return nil, fmt.Errorf("begin fetch: %w", err)
 	}
 	defer tx.Rollback()
-	sourceID, err := upsertSource(ctx, tx, source)
+	sourceID, err := upsertSource(ctx, tx, src)
 	if err != nil {
 		return nil, err
 	}
 	for _, skill := range skills {
-		id, err := findSkillBySourceName(ctx, tx, sourceID, skill.name)
+		id, err := findSkillBySourceName(ctx, tx, sourceID, skill.Name)
 		if err != nil {
 			return nil, err
 		}
 		if id != 0 {
-			return nil, existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: id, Name: skill.name})
+			return nil, existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: id, Name: skill.Name})
 		}
 	}
 	fetched := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
-		description := skill.candidate.Description
+		description := skill.Description
 		if description == "" {
-			description = skillDescription(skill.files)
+			description = skillDescription(skill.Files)
 		}
-		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceVersionRecord(source, skill.gitTreeSHA, skill.state), description)
+		result, err := insertSkill(ctx, tx, sourceID, src, skill.Name, skill.Files, skill.State, description)
 		if err != nil {
 			return nil, err
 		}
@@ -191,7 +191,7 @@ func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name
 	return id, nil
 }
 
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record versionRecord, description string) (Skill, error) {
+func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, src Source, name string, files []File, state source.State, description string) (Skill, error) {
 	if name == "" {
 		return Skill{}, fmt.Errorf("fetch skill: name is required")
 	}
@@ -204,16 +204,16 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source,
 		return Skill{}, fmt.Errorf("read skill id: %w", err)
 	}
 	createdAt := clockNow()
-	versionID, err := createVersion(ctx, tx, skillID, files, record, description, createdAt)
+	versionID, err := createVersion(ctx, tx, skillID, files, state, description, createdAt)
 	if err != nil {
 		return Skill{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
 		return Skill{}, fmt.Errorf("select current version: %w", err)
 	}
-	source.ID = SourceID(sourceID)
-	source.LastFetched = source.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: source, GitTreeSHA: record.treeSHA, FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
+	src.ID = SourceID(sourceID)
+	src.LastFetched = src.LastFetched.UTC()
+	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: src, FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
@@ -225,7 +225,6 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 type sourceState struct {
 	updateCheckedAt string
 	versionID       int64
-	confirmedCommit string
 	snapshot        source.State
 }
 
@@ -247,11 +246,11 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 	var state sourceState
 	var snapshotState string
 	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, skill_versions.source_state, skills.update_checked_at
+		SELECT skill_versions.id, skill_versions.source_state, skills.update_checked_at
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &snapshotState, &state.updateCheckedAt); err != nil {
+	`, id).Scan(&state.versionID, &snapshotState, &state.updateCheckedAt); err != nil {
 		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
 	}
 	state.snapshot = source.State(snapshotState)

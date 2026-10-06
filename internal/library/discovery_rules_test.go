@@ -189,7 +189,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 				t.Fatalf("check = %v, %v", available, err)
 			}
 			updated, err := lib.Update(t.Context(), id)
-			if err != nil || !updated.Changed || updated.Skill.GitTreeSHA != fx.treeSHA("skills/first") || string(updated.Skill.Files[0].Content) != skillDocument("same", "changed") {
+			if err != nil || !updated.Changed || readPersistedGitTreeSHA(t, lib, updated.Skill.ID) != fx.treeSHA("skills/first") || string(updated.Skill.Files[0].Content) != skillDocument("same", "changed") {
 				t.Fatalf("update = %#v, %v", updated, err)
 			}
 			runGit(t, repo, "mv", "skills", "examples")

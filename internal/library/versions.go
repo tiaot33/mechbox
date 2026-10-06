@@ -10,22 +10,8 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
 
-type versionRecord struct {
-	treeSHA         string
-	confirmedCommit string
-	state           source.State
-}
-
-func sourceVersionRecord(src Source, treeSHA string, state source.State) versionRecord {
-	record := versionRecord{treeSHA: treeSHA, state: state}
-	if src.Type == SourceGitHub {
-		record.confirmedCommit = src.LastSeenRef
-	}
-	return record
-}
-
-func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record versionRecord, description string, createdAt time.Time) (int64, error) {
-	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit, source_state, description, created_at) VALUES (?, ?, ?, ?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit, string(record.state), description, formatStoredTime(createdAt))
+func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, state source.State, description string, createdAt time.Time) (int64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, source_state, description, created_at) VALUES (?, ?, ?, ?)`, skillID, string(state), description, formatStoredTime(createdAt))
 	if err != nil {
 		return 0, fmt.Errorf("store skill version: %w", err)
 	}
@@ -49,7 +35,7 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions 
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, git_tree_sha, description, created_at FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
+	rows, err := l.db.QueryContext(ctx, `SELECT id, description, created_at FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("list skill versions: %w", err)
 	}
@@ -57,7 +43,7 @@ func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions 
 	for rows.Next() {
 		var createdAt string
 		version := SkillVersion{SkillID: id}
-		if err := rows.Scan(&version.ID, &version.GitTreeSHA, &version.Description, &createdAt); err != nil {
+		if err := rows.Scan(&version.ID, &version.Description, &createdAt); err != nil {
 			return nil, fmt.Errorf("read skill version: %w", err)
 		}
 		if version.CreatedAt, err = parseStoredTime(createdAt); err != nil {
@@ -77,7 +63,7 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version S
 	defer func() { err = typedError(err) }()
 	version = SkillVersion{ID: id}
 	var createdAt string
-	if err := l.db.QueryRowContext(ctx, `SELECT skill_id, git_tree_sha, description, created_at FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.GitTreeSHA, &version.Description, &createdAt); err != nil {
+	if err := l.db.QueryRowContext(ctx, `SELECT skill_id, description, created_at FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.Description, &createdAt); err != nil {
 		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
 	}
 	if version.CreatedAt, err = parseStoredTime(createdAt); err != nil {

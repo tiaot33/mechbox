@@ -94,7 +94,7 @@ func TestGitHubCLIAuthenticationPreviewsAndFetchesWithoutEnvironmentToken(t *tes
 				{Path: "SKILL.md", Content: []byte(skillDocument("demo", "body")), Mode: library.ModeRegular},
 				{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 			}
-			if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
+			if !reflect.DeepEqual(fetched[0].Files, want) || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("demo") {
 				t.Fatalf("authenticated content = %#v", fetched[0])
 			}
 			if _, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
@@ -133,7 +133,7 @@ func TestGitHubFetchRateLimitFallsBackToPinnedSelectedSkills(t *testing.T) {
 		{Path: "SKILL.md", Content: []byte(skillDocument("first", "pinned")), Mode: library.ModeRegular},
 		{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].GitTreeSHA != fx.treeSHA("skills/first") || fetched[0].Source.LastSeenRef != fx.commit || fetched[0].Source.Locator != (library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "main"}) {
+	if !reflect.DeepEqual(fetched[0].Files, want) || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("skills/first") || fetched[0].Source.LastSeenRef != fx.commit || fetched[0].Source.Locator != (library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "main"}) {
 		t.Fatalf("fallback lost pinned content or Source identity: %#v", fetched[0])
 	}
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 1 || skills[0].Name != "first" {
@@ -177,7 +177,7 @@ func TestGitHubFetchRateLimitFailureRemainsAtomicAndRetryable(t *testing.T) {
 	redirectGitHubClone(t, repo)
 	api.Reset()
 	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
-	if err != nil || len(fetched) != 2 || fetched[0].GitTreeSHA != fx.treeSHA("first") || fetched[1].GitTreeSHA != fx.treeSHA("second") {
+	if err != nil || len(fetched) != 2 || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("first") || readPersistedGitTreeSHA(t, lib, fetched[1].ID) != fx.treeSHA("second") {
 		t.Fatalf("retry = %#v, %v", fetched, err)
 	}
 	if len(api.snapshot()) != 0 {
@@ -214,7 +214,7 @@ func TestGitHubExpiredEnvironmentTokenUsesCLIAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
-	if err != nil || len(fetched) != 1 || fetched[0].GitTreeSHA != fx.treeSHA("demo") || !reflect.DeepEqual(fetched[0].Files[1].Content, []byte{0, 255}) {
+	if err != nil || len(fetched) != 1 || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("demo") || !reflect.DeepEqual(fetched[0].Files[1].Content, []byte{0, 255}) {
 		t.Fatalf("expired token blocked CLI authentication: %#v, %v", fetched, err)
 	}
 	api.Reset()
@@ -263,7 +263,7 @@ func TestGitHubRateLimitedPreviewSkipsAnonymousWithoutEnvironmentToken(t *testin
 				t.Fatal(err)
 			}
 			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
-			if err != nil || len(fetched) != 1 || fetched[0].GitTreeSHA != fx.treeSHA("demo") {
+			if err != nil || len(fetched) != 1 || readPersistedGitTreeSHA(t, lib, fetched[0].ID) != fx.treeSHA("demo") {
 				t.Fatalf("rate limited fetch = %#v, %v", fetched, err)
 			}
 			if len(api.snapshot()) != 0 {
@@ -505,7 +505,7 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 				}
 			}
 			result, err := lib.Update(ctx, fetched[0].ID)
-			if err != nil || result.Changed || result.Skill.GitTreeSHA != fx.treeSHA("first") {
+			if err != nil || result.Changed || readPersistedGitTreeSHA(t, lib, result.Skill.ID) != fx.treeSHA("first") {
 				t.Fatalf("unchanged update = %#v, %v", result, err)
 			}
 			if versions, err := lib.ListVersions(ctx, fetched[0].ID); err != nil || len(versions) != 1 {
@@ -531,7 +531,7 @@ func TestGitHubRateLimitedChecksAndUpdatesKeepTreeSHASemantics(t *testing.T) {
 				}
 			}
 			result, err = lib.Update(ctx, fetched[0].ID)
-			if err != nil || !result.Changed || result.Skill.GitTreeSHA != changed.treeSHA("first") || result.Skill.Source.LastSeenRef != changed.commit {
+			if err != nil || !result.Changed || readPersistedGitTreeSHA(t, lib, result.Skill.ID) != changed.treeSHA("first") || result.Skill.Source.LastSeenRef != changed.commit {
 				t.Fatalf("changed update = %#v, %v", result, err)
 			}
 			if !reflect.DeepEqual(result.Skill.Files[1], library.File{Path: "data", Content: []byte{0, 255}, Mode: library.ModeExecutable}) {

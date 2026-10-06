@@ -53,17 +53,16 @@ func runConcurrent(ctx context.Context, n int, fn func(context.Context, int) err
 }
 
 type discoveredSource struct {
-	githubRepoSize int64
-	skills         []discoveredSkill
-	diagnostics    []discovery.Diagnostic
-	ref            string
+	skills      []discoveredSkill
+	diagnostics []discovery.Diagnostic
+	ref         string
 }
 
 func errUnsupportedSource() error {
 	return &Error{Code: InvalidArgument, Message: "unsupported source type"}
 }
 
-func openSnapshot(ctx context.Context, src Source, hint source.State) (source.Snapshot, error) {
+func (l *sqliteLibrary) openSnapshot(ctx context.Context, src Source, subpath string, hint source.State) (source.Snapshot, error) {
 	switch src.Type {
 	case SourceLocal:
 		locator, err := json.Marshal(src.Locator)
@@ -83,7 +82,7 @@ func openSnapshot(ctx context.Context, src Source, hint source.State) (source.Sn
 		}
 		return openDownload(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(src.Locator.PackageID)+"/"+url.PathEscape(src.Locator.Version), hint)
 	case SourceGitHub:
-		return nil, nil
+		return l.openGitHub(ctx, src.Locator, subpath)
 	default:
 		return nil, errUnsupportedSource()
 	}
@@ -95,61 +94,6 @@ func openDownload(ctx context.Context, location string, hint source.State) (sour
 		return nil, fmt.Errorf("encode source locator: %w", err)
 	}
 	return download.Open(ctx, locator, hint, maxFetchFiles, maxFetchSize)
-}
-
-func snapshotSource(ctx context.Context, snapshot source.Snapshot) (discoveredSource, error) {
-	candidates, diagnostics, err := snapshot.Candidates(ctx)
-	if err != nil {
-		return discoveredSource{}, err
-	}
-	skills := make([]discoveredSkill, len(candidates))
-	for i, candidate := range candidates {
-		skills[i] = discoveredSkill{name: candidate.Name, candidate: candidate}
-	}
-	return discoveredSource{skills: skills, diagnostics: diagnostics, ref: snapshot.Revision()}, nil
-}
-
-func snapshotSkills(ctx context.Context, snapshot source.Snapshot, selected []discoveredSkill) ([]discoveredSkill, error) {
-	names := make([]string, len(selected))
-	for i, skill := range selected {
-		names[i] = skill.name
-	}
-	fetched, err := snapshot.Fetch(ctx, names)
-	if err != nil {
-		return nil, err
-	}
-	byName := make(map[string]source.Skill, len(fetched))
-	for _, skill := range fetched {
-		byName[skill.Name] = skill
-	}
-	skills := slices.Clone(selected)
-	for i := range skills {
-		got := byName[skills[i].name]
-		skills[i].files, skills[i].state = got.Files, got.State
-	}
-	return skills, nil
-}
-
-func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {
-	var apiErr error
-	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
-		result, err := l.fetchGitHubContents(ctx, owner, repo, locator, subpath)
-		if err == nil {
-			return result, nil
-		}
-		if ctx.Err() != nil {
-			return discoveredSource{}, err
-		}
-		if !githubContentsUnavailable(err) {
-			return discoveredSource{}, err
-		}
-		apiErr = err
-	}
-	result, err := fetchGitHubClone(ctx, locator, subpath)
-	if err != nil {
-		return result, githubCloneError(ctx, apiErr, err)
-	}
-	return finishDiscovery(result)
 }
 
 func fetchGitHubClone(ctx context.Context, locator SourceLocator, subpath string) (result discoveredSource, err error) {
@@ -260,11 +204,4 @@ func discoverSkills(ctx context.Context, source fs.FS, root string, budget *disc
 		skills[i] = discoveredSkill{name: skill.Name, candidate: skill.Candidate, files: skill.Files}
 	}
 	return discoveredSource{skills: skills, diagnostics: diagnostics}, nil
-}
-
-func finishDiscovery(result discoveredSource) (discoveredSource, error) {
-	if len(result.skills) == 0 {
-		return discoveredSource{}, discovery.NoCandidates(result.diagnostics)
-	}
-	return result, nil
 }

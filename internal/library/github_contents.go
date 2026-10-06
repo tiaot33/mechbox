@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
@@ -109,27 +109,6 @@ func githubOwnerRepo(repository string) (owner, repo string, ok bool) {
 
 func githubToken() string {
 	return cmp.Or(os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
-}
-
-func (l *sqliteLibrary) fetchGitHubContents(ctx context.Context, owner, repo string, locator SourceLocator, subpath string) (discoveredSource, error) {
-	snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, locator)
-	if err != nil {
-		return discoveredSource{}, err
-	}
-	if err := snap.loadTree(ctx); err != nil {
-		return discoveredSource{}, err
-	}
-	root, err := resolveGitHubSubpath(snap.entries, subpath)
-	if err != nil {
-		return discoveredSource{}, err
-	}
-	result, err := discoverFromGitHubTree(ctx, &snap, root)
-	if err != nil {
-		return discoveredSource{}, err
-	}
-	result.ref = snap.ref
-	result.githubRepoSize = githubRepoSize(snap.entries)
-	return finishDiscovery(result)
 }
 
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
@@ -306,11 +285,11 @@ func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, er
 }
 
 type githubSourceView struct {
-	snap *githubSourceSnapshot
+	snap *githubSnapshot
 	dirs map[string][]discovery.Entry
 }
 
-func newGitHubSourceView(snap *githubSourceSnapshot) githubSourceView {
+func newGitHubSourceView(snap *githubSnapshot) githubSourceView {
 	v := githubSourceView{snap: snap, dirs: map[string][]discovery.Entry{".": {}}}
 	for _, entry := range snap.entries {
 		var mode fs.FileMode
@@ -375,7 +354,7 @@ func githubDiscoveryError(err error) error {
 	return err
 }
 
-func discoverFromGitHubTree(ctx context.Context, snap *githubSourceSnapshot, root string) (discoveredSource, error) {
+func discoverFromGitHubTree(ctx context.Context, snap *githubSnapshot, root string) (discoveredSource, error) {
 	loaded := map[string]discoveredSkill{}
 	candidates, diagnostics, err := discovery.Scan(ctx, newGitHubSourceView(snap), root, func(candidate discovery.Candidate, filename string, content []byte) error {
 		blobs, treeSHA, err := githubSkillBlobs(snap.entries, candidate.Path, snap.rootTree, snap.byPath)
@@ -457,7 +436,7 @@ func githubFiles(blobs []githubBlob, contents [][]byte) []File {
 	return files
 }
 
-type githubSourceSnapshot struct {
+type githubSnapshot struct {
 	ref          string
 	rootTree     string
 	entries      []githubTreeEntry
@@ -465,53 +444,202 @@ type githubSourceSnapshot struct {
 	owner        string
 	repo         string
 	locator      SourceLocator
+	subpath      string
 	client       *githubClient
-	cloned       []discoveredSkill
-	discovered   *discoveredSource
+	skills       []discoveredSkill
+	diagnostics  []discovery.Diagnostic
+	discovered   bool
 	discoveryErr error
 	storedBlobs  map[string][]byte
 }
 
-type githubRemoteSkill struct {
-	gitTreeSHA  string
-	files       []File
-	blobs       []githubBlob
-	description string
+type githubState struct {
+	Commit string `json:"commit,omitempty"`
+	Tree   string `json:"tree,omitempty"`
 }
 
-func (l *sqliteLibrary) readGitHubSnapshot(ctx context.Context, source Source) (githubSourceSnapshot, error) {
+func decodeGitHubState(raw source.State) githubState {
+	var state githubState
+	if len(raw) > 0 && json.Unmarshal(raw, &state) != nil {
+		return githubState{}
+	}
+	return state
+}
+
+func encodeGitHubState(commit, tree string) source.State {
+	encoded, _ := json.Marshal(githubState{Commit: commit, Tree: tree})
+	return encoded
+}
+
+func (l *sqliteLibrary) openGitHub(ctx context.Context, locator SourceLocator, subpath string) (*githubSnapshot, error) {
+	s := &githubSnapshot{locator: locator, subpath: subpath}
 	var apiErr error
-	if owner, repo, ok := githubOwnerRepo(source.Locator.Repository); ok {
-		snap, err := l.fetchGitHubCommitSnapshot(ctx, owner, repo, source.Locator)
+	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
+		client := l.newGitHubClient()
+		commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
 		if err == nil {
-			snap.locator = source.Locator
-			return snap, nil
+			s.ref, s.rootTree, s.owner, s.repo, s.client = commit, rootTree, owner, repo, client
+			return s, nil
 		}
-		if ctx.Err() != nil {
-			return githubSourceSnapshot{}, err
-		}
-		if !githubContentsUnavailable(err) {
-			return githubSourceSnapshot{}, err
+		if ctx.Err() != nil || !githubContentsUnavailable(err) {
+			return nil, err
 		}
 		apiErr = err
 	}
-	discovered, err := fetchGitHubClone(ctx, source.Locator, "")
-	if err != nil {
-		return githubSourceSnapshot{}, githubCloneError(ctx, apiErr, err)
+	if err := s.clone(ctx, locator.Branch); err != nil {
+		return nil, githubCloneError(ctx, apiErr, err)
 	}
-	return githubSourceSnapshot{ref: discovered.ref, cloned: discovered.skills, locator: source.Locator}, nil
+	return s, nil
 }
 
-func (l *sqliteLibrary) fetchGitHubCommitSnapshot(ctx context.Context, owner, repo string, locator SourceLocator) (githubSourceSnapshot, error) {
-	client := l.newGitHubClient()
-	commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
-	if err != nil {
-		return githubSourceSnapshot{}, err
-	}
-	return githubSourceSnapshot{ref: commit, rootTree: rootTree, owner: owner, repo: repo, client: client}, nil
+func (s *githubSnapshot) Revision() string {
+	return s.ref
 }
 
-func (s *githubSourceSnapshot) loadTree(ctx context.Context) error {
+func (s *githubSnapshot) Candidates(ctx context.Context) ([]discovery.Candidate, []discovery.Diagnostic, error) {
+	if err := s.discover(ctx); err != nil {
+		return nil, nil, err
+	}
+	if len(s.skills) == 0 {
+		return nil, nil, discovery.NoCandidates(s.diagnostics)
+	}
+	candidates := make([]discovery.Candidate, len(s.skills))
+	for i, skill := range s.skills {
+		candidates[i] = skill.candidate
+	}
+	return candidates, s.diagnostics, nil
+}
+
+func (s *githubSnapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, error) {
+	if err := s.discover(ctx); err != nil {
+		return nil, err
+	}
+	selected, err := selectSkills(s.skills, names)
+	if err != nil {
+		return nil, err
+	}
+	selected = slices.Clone(selected)
+	if err := s.materialize(ctx, selected); err != nil {
+		return nil, err
+	}
+	result := make([]source.Skill, len(selected))
+	for i, skill := range selected {
+		result[i] = source.Skill{Name: skill.name, Description: skill.candidate.Description, Files: skill.files, State: encodeGitHubState(s.ref, skill.gitTreeSHA)}
+	}
+	return result, nil
+}
+
+func (s *githubSnapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+	state := decodeGitHubState(have.State)
+	if state.Commit != "" && state.Commit == s.ref {
+		return source.Unchanged, have.State, nil
+	}
+	s.rememberGitBlobs(have.Files)
+	if err := s.discover(ctx); err != nil {
+		return source.Unknown, nil, err
+	}
+	remote, err := selectSkills(s.skills, []string{have.Name})
+	if err != nil {
+		return source.Unknown, nil, err
+	}
+	tree := remote[0].gitTreeSHA
+	switch {
+	case state.Tree == "" || tree == "":
+		return source.Unknown, nil, nil
+	case state.Tree == tree:
+		return source.Unchanged, encodeGitHubState(s.ref, tree), nil
+	default:
+		return source.Changed, nil, nil
+	}
+}
+
+func (s *githubSnapshot) discover(ctx context.Context) error {
+	if s.discovered {
+		return s.discoveryErr
+	}
+	s.discovered = true
+	s.discoveryErr = s.discoverTree(ctx)
+	if s.discoveryErr != nil && ctx.Err() == nil && githubContentsUnavailable(s.discoveryErr) {
+		s.discoveryErr = githubCloneError(ctx, s.discoveryErr, s.clone(ctx, s.ref))
+	}
+	return s.discoveryErr
+}
+
+func (s *githubSnapshot) discoverTree(ctx context.Context) error {
+	if err := s.loadTree(ctx); err != nil {
+		return err
+	}
+	root, err := resolveGitHubSubpath(s.entries, s.subpath)
+	if err != nil {
+		return err
+	}
+	result, err := discoverFromGitHubTree(ctx, s, root)
+	if err != nil {
+		return err
+	}
+	s.skills, s.diagnostics = result.skills, result.diagnostics
+	return nil
+}
+
+func (s *githubSnapshot) clone(ctx context.Context, ref string) error {
+	locator := s.locator
+	locator.Branch = ref
+	discovered, err := fetchGitHubClone(ctx, locator, s.subpath)
+	if err != nil {
+		return err
+	}
+	s.ref, s.skills, s.diagnostics, s.discovered, s.discoveryErr = discovered.ref, discovered.skills, discovered.diagnostics, true, nil
+	return nil
+}
+
+func (s *githubSnapshot) materialize(ctx context.Context, skills []discoveredSkill) error {
+	var all []githubBlob
+	for _, skill := range skills {
+		if skill.files != nil {
+			continue
+		}
+		for _, blob := range skill.blobs {
+			if content, ok := s.storedBlobs[blob.sha]; ok && blob.content == nil {
+				blob.content = content
+			}
+			all = append(all, blob)
+		}
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	contents, err := s.client.transferBlobs(ctx, s.owner, s.repo, s.ref, githubRepoSize(s.entries), all)
+	if err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		if !githubContentsUnavailable(err) {
+			return githubMaterializeError(err)
+		}
+		if cloneErr := s.clone(ctx, s.ref); cloneErr != nil {
+			return githubCloneError(ctx, err, cloneErr)
+		}
+		for i, skill := range skills {
+			cloned, err := selectSkills(s.skills, []string{skill.name})
+			if err != nil {
+				return err
+			}
+			skills[i] = cloned[0]
+		}
+		return nil
+	}
+	for i, skill := range skills {
+		if skill.files != nil {
+			continue
+		}
+		skills[i].files = githubFiles(skill.blobs, contents)
+		contents = contents[len(skill.blobs):]
+		skills[i].blobs = nil
+	}
+	return nil
+}
+
+func (s *githubSnapshot) loadTree(ctx context.Context) error {
 	if s.byPath != nil {
 		return nil
 	}
@@ -537,98 +665,18 @@ func gitBlobSHA(content []byte) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-func (s *githubSourceSnapshot) rememberGitBlobs(files []File) {
+func (s *githubSnapshot) rememberGitBlobs(files []File) {
 	if s.client == nil {
 		return
 	}
-	s.storedBlobs = make(map[string][]byte, len(files))
+	if s.storedBlobs == nil {
+		s.storedBlobs = make(map[string][]byte, len(files))
+	}
 	for _, file := range files {
 		sha := gitBlobSHA(file.Content)
 		s.storedBlobs[sha] = file.Content
 		memoPut(s.client.memo, &s.client.memo.blobs, memoKey(memoBlob, s.owner, s.repo, sha), file.Content)
 	}
-}
-
-func (s *githubSourceSnapshot) confirms(confirmedCommit string) bool {
-	return confirmedCommit != "" && s.ref == confirmedCommit
-}
-
-func (s *githubSourceSnapshot) locate(ctx context.Context, skill Skill) (githubRemoteSkill, error) {
-	if s.cloned == nil && s.discovered == nil {
-		result, err := discoveredSource{}, s.loadTree(ctx)
-		if err == nil {
-			result, err = discoverFromGitHubTree(ctx, s, ".")
-		}
-		s.discovered = &result
-		if err != nil && ctx.Err() == nil && githubContentsUnavailable(err) {
-			err = githubCloneError(ctx, err, s.fallbackClone(ctx))
-		}
-		s.discoveryErr = err
-	}
-	if s.discoveryErr != nil {
-		return githubRemoteSkill{}, s.discoveryErr
-	}
-	candidates := s.cloned
-	if s.cloned == nil {
-		candidates = s.discovered.skills
-	}
-	index := -1
-	if skill.GitTreeSHA != "" {
-		index = slices.IndexFunc(candidates, func(c discoveredSkill) bool { return c.gitTreeSHA == skill.GitTreeSHA })
-	}
-	if index < 0 {
-		index = slices.IndexFunc(candidates, func(c discoveredSkill) bool { return c.name == skill.Name })
-	}
-	if index < 0 {
-		return githubRemoteSkill{}, &Error{Code: NotFound, Message: fmt.Sprintf("source skill %q not found", skill.Name), Details: ErrorDetails{Name: skill.Name}}
-	}
-	found := candidates[index]
-	return githubRemoteSkill{gitTreeSHA: found.gitTreeSHA, files: found.files, blobs: found.blobs, description: found.candidate.Description}, nil
-}
-
-func (s *githubSourceSnapshot) files(ctx context.Context, skill Skill, remote githubRemoteSkill) ([]File, error) {
-	if remote.files != nil {
-		return remote.files, nil
-	}
-	blobs := slices.Clone(remote.blobs)
-	for i, blob := range blobs {
-		if content, ok := s.storedBlobs[blob.sha]; ok {
-			blobs[i].content = content
-		}
-	}
-	contents, err := s.client.transferBlobs(ctx, s.owner, s.repo, s.ref, githubRepoSize(s.entries), blobs)
-	if err == nil {
-		return githubFiles(remote.blobs, contents), nil
-	}
-	if ctx.Err() != nil {
-		return nil, err
-	}
-	if !githubContentsUnavailable(err) {
-		return nil, githubMaterializeError(err)
-	}
-	if cloneErr := s.fallbackClone(ctx); cloneErr != nil {
-		return nil, githubCloneError(ctx, err, cloneErr)
-	}
-	relocated, locErr := s.locate(ctx, skill)
-	if locErr != nil {
-		return nil, locErr
-	}
-	return relocated.files, nil
-}
-
-func (s *githubSourceSnapshot) fallbackClone(ctx context.Context) error {
-	if s.cloned != nil {
-		return nil
-	}
-	locator := s.locator
-	locator.Branch = s.ref
-	discovered, err := fetchGitHubClone(ctx, locator, "")
-	if err != nil {
-		return err
-	}
-	s.cloned = discovered.skills
-	s.ref = discovered.ref
-	return nil
 }
 
 func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (string, error) {
@@ -647,74 +695,6 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 		return "", errGitHubContentsFallback
 	}
 	return sha, nil
-}
-
-func githubSkillHasUpdate(ctx context.Context, snap *githubSourceSnapshot, skill Skill, confirmedCommit string) (bool, error) {
-	if snap.confirms(confirmedCommit) {
-		return false, nil
-	}
-	remote, err := snap.locate(ctx, skill)
-	if err != nil {
-		return false, err
-	}
-	if skill.GitTreeSHA != "" && remote.gitTreeSHA != "" {
-		return skill.GitTreeSHA != remote.gitTreeSHA, nil
-	}
-	files, err := snap.files(ctx, skill, remote)
-	if err != nil {
-		return false, err
-	}
-	return !skillfile.Equal(skill.Files, files), nil
-}
-
-func (l *sqliteLibrary) materializeGitHubSkills(ctx context.Context, state *previewState, skills []discoveredSkill) error {
-	owner, repo, _ := githubOwnerRepo(state.source.Locator.Repository)
-	var all []githubBlob
-	for _, skill := range skills {
-		all = append(all, skill.blobs...)
-	}
-	if len(all) == 0 {
-		return nil
-	}
-	contents, err := l.newGitHubClient().transferBlobs(ctx, owner, repo, state.ref, state.githubRepoSize, all)
-	if err != nil {
-		if ctx.Err() != nil {
-			return err
-		}
-		if !githubContentsUnavailable(err) {
-			return githubMaterializeError(err)
-		}
-		return githubCloneError(ctx, err, materializeGitHubClone(ctx, state, skills))
-	}
-	for i, skill := range skills {
-		if len(skill.blobs) == 0 {
-			continue
-		}
-		skills[i].files = githubFiles(skill.blobs, contents)
-		contents = contents[len(skill.blobs):]
-		skills[i].blobs = nil
-	}
-	return nil
-}
-
-func materializeGitHubClone(ctx context.Context, state *previewState, skills []discoveredSkill) error {
-	locator := state.source.Locator
-	locator.Branch = state.ref
-	discovered, err := fetchGitHubClone(ctx, locator, state.subpath)
-	if err != nil {
-		return err
-	}
-	for i, skill := range skills {
-		index := slices.IndexFunc(discovered.skills, func(cloned discoveredSkill) bool {
-			return cloned.candidate.Path == skill.candidate.Path && cloned.gitTreeSHA == skill.gitTreeSHA
-		})
-		if index < 0 {
-			return githubMaterializeError(errGitHubContentsFallback)
-		}
-		skills[i].files = discovered.skills[index].files
-		skills[i].blobs = nil
-	}
-	return nil
 }
 
 func githubCloneError(ctx context.Context, apiErr, cloneErr error) error {

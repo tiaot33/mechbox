@@ -25,13 +25,12 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 -- skill 的历史版本及快照元数据;文件清单在 version_files。
--- git_tree_sha 与 confirmed_commit 一起构成该版本的来源读取记录:目录内容是什么、在哪个 commit 上确认过它是远端最新。
+-- source_state 是该版本的来源读取记录,内容由来源定义:GitHub 记该 Skill 目录的 tree SHA 与确认它是远端最新时所在的 commit,
+-- URL 记服务端给出的 HTTP validator,本地目录不记。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY,                          -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序
     skill_id INTEGER NOT NULL REFERENCES skills(id), -- 此版本所属的 skill,关联 skills.id
-    git_tree_sha TEXT NOT NULL DEFAULT '',           -- GitHub 来源该 Skill 目录的 git tree SHA;非 GitHub 来源或尚未记录时为空
-    confirmed_commit TEXT NOT NULL DEFAULT '',       -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;查时远端 commit 与之相同即无更新、不取 tree。非 git 或尚未记录时为空 = 未知,走完整比较
     source_state TEXT NOT NULL DEFAULT '',           -- 来源自己记录的该版本读取状态,JSON;由来源子包定义和解释,Library 只存取不解析。空 = 无状态,检查更新时比较内容
     description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
     created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano

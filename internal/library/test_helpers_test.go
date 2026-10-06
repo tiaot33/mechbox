@@ -374,12 +374,33 @@ func requireSkillFile(t *testing.T, directory, name, want string) {
 
 func openTestLibrary(t *testing.T) library.Library {
 	t.Helper()
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	return openTestLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
+}
+
+// testLibraryPaths 记下 openTestLibraryAt 打开的库文件路径,供只能直读库文件核对的断言(readPersistedGitTreeSHA)查找。
+var testLibraryPaths sync.Map
+
+func openTestLibraryAt(t *testing.T, path string) library.Library {
+	t.Helper()
+	lib, err := library.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = lib.Close() })
+	testLibraryPaths.Store(lib, path)
+	t.Cleanup(func() {
+		testLibraryPaths.Delete(lib)
+		_ = lib.Close()
+	})
 	return lib
+}
+
+func testLibraryPath(t *testing.T, lib library.Library) string {
+	t.Helper()
+	path, ok := testLibraryPaths.Load(lib)
+	if !ok {
+		t.Fatal("library was not opened by openTestLibraryAt")
+	}
+	return path.(string)
 }
 
 // openGitHubLibraryWithoutTreeSHA 用当前 schema 构造缺少 GitHub 版本标识的数据,
@@ -387,11 +408,7 @@ func openTestLibrary(t *testing.T) library.Library {
 func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.Skill) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	lib := openTestLibraryAt(t, path)
 	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil {
 		t.Fatal(err)
@@ -400,12 +417,8 @@ func openGitHubLibraryWithoutTreeSHA(t *testing.T) (library.Library, []library.S
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	editLibraryFixture(t, path, `UPDATE skill_versions SET git_tree_sha = '', confirmed_commit = ''`)
-	reopened, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = reopened.Close() })
+	editLibraryFixture(t, path, `UPDATE skill_versions SET source_state = ''`)
+	reopened := openTestLibraryAt(t, path)
 	for i := range skills {
 		skills[i], err = reopened.GetSkill(t.Context(), skills[i].ID)
 		if err != nil {
