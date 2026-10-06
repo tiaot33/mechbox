@@ -176,12 +176,13 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		name string
-		spec library.PreviewFetchRequest
-		want library.ErrorCode
+		name  string
+		spec  library.PreviewFetchRequest
+		want  library.ErrorCode
+		field string
 	}{
 		{name: "empty path", spec: localRequest(""), want: library.InvalidArgument},
-		{name: "file path", spec: localRequest(file), want: library.InvalidArgument},
+		{name: "file path", spec: localRequest(file), want: library.InvalidArgument, field: "local"},
 		{name: "missing path", spec: localRequest(filepath.Join(t.TempDir(), "missing")), want: library.SourceUnreachable},
 		{name: "no valid candidates", spec: localRequest(withoutCandidates), want: library.SourceInvalid},
 		{name: "too many files", spec: localRequest(tooMany), want: library.SourceInvalid},
@@ -190,8 +191,12 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			if _, err := lib.PreviewFetch(t.Context(), test.spec); !library.IsCode(err, test.want) {
+			_, err := lib.PreviewFetch(t.Context(), test.spec)
+			if !library.IsCode(err, test.want) {
 				t.Fatalf("PreviewFetch = %v; want %s", err, test.want)
+			}
+			if got := library.ErrorOf(err).Details.Field; got != test.field {
+				t.Fatalf("PreviewFetch field = %q; want %q", got, test.field)
 			}
 		})
 	}

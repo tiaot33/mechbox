@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
@@ -32,6 +33,7 @@ type previewState struct {
 	httpValidator  string
 	skills         []discoveredSkill
 	diagnostics    []discovery.Diagnostic
+	snapshot       source.Snapshot
 	timer          *time.Timer
 	fetching       bool
 	audits         map[string]SkillAudit
@@ -49,8 +51,15 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	if err != nil {
 		return FetchPreview{}, err
 	}
-	discovered, err := l.fetchSource(ctx, source, subpath, "")
+	var discovered discoveredSource
+	snapshot, err := openSnapshot(ctx, source)
+	if err == nil && snapshot != nil {
+		discovered = snapshotSource(snapshot)
+	} else if err == nil {
+		discovered, err = l.fetchSource(ctx, source, subpath, "")
+	}
 	if err != nil {
+		err = typedError(err)
 		if typed, ok := errors.AsType[*Error](err); ok && source.Type == SourceLocal && typed.Details.Field == "path" {
 			typed.Details.Field = "local"
 		}
@@ -79,6 +88,7 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	state := &previewState{
 		source: source, subpath: subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
 		skills: discovered.skills, diagnostics: discovered.diagnostics, githubRepoSize: discovered.githubRepoSize,
+		snapshot: snapshot,
 	}
 	candidates, err := l.listCandidates(ctx, state)
 	if err != nil {
@@ -189,6 +199,12 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 		return nil, err
 	}
 	defer func() { l.releasePreview(id, state, err == nil) }()
+	if state.snapshot != nil {
+		skills, err = snapshotSkills(ctx, state.snapshot, skills)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if state.source.Type == SourceGitHub {
 		skills = slices.Clone(skills)
 		if err := l.materializeGitHubSkills(ctx, state, skills); err != nil {

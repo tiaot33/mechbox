@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
 
 func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
@@ -66,15 +67,16 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			return finish(), err
 		}
 		indices := groups[sourceID]
-		source := skills[indices[0]].Source
+		src := skills[indices[0]].Source
 		var discovered discoveredSource
 		var githubSnap githubSourceSnapshot
-		var readErr error
-		switch source.Type {
-		case SourceGitHub:
-			githubSnap, readErr = l.readGitHubSnapshot(ctx, source)
+		snapshot, readErr := openSnapshot(ctx, src)
+		switch {
+		case readErr != nil, snapshot != nil:
+		case src.Type == SourceGitHub:
+			githubSnap, readErr = l.readGitHubSnapshot(ctx, src)
 		default:
-			discovered, readErr = l.fetchSource(ctx, source, "", states[indices[0]].httpValidator)
+			discovered, readErr = l.fetchSource(ctx, src, "", states[indices[0]].httpValidator)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -86,8 +88,10 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			itemErr := readErr
 			available := false
 			if itemErr == nil {
-				switch source.Type {
-				case SourceGitHub:
+				switch {
+				case snapshot != nil:
+					available, itemErr = snapshot.Check(ctx, source.Have{Name: skills[index].Name, Files: skills[index].Files})
+				case src.Type == SourceGitHub:
 					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], states[index].confirmedCommit)
 				default:
 					if discovered.unchanged {

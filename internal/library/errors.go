@@ -7,7 +7,9 @@ import (
 	"io/fs"
 
 	"github.com/mattn/go-sqlite3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 )
 
 func typedError(err error) error {
@@ -16,6 +18,12 @@ func typedError(err error) error {
 	}
 	if _, ok := errors.AsType[*Error](err); ok {
 		return err
+	}
+	if missing, ok := errors.AsType[*source.SkillNotFoundError](err); ok {
+		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Name}, Err: err}
+	}
+	if errors.Is(err, local.ErrNotDirectory) {
+		return argumentError("read local source", "path", "path is not a directory")
 	}
 	code := Internal
 	switch {

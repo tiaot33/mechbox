@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,7 +20,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 )
 
 const sourceStore SourceType = "store"
@@ -65,8 +68,6 @@ type discoveredSource struct {
 
 func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
 	switch source.Type {
-	case SourceLocal:
-		return fetchLocal(ctx, source.Locator.Path)
 	case SourceGitHub:
 		return l.fetchGitHub(ctx, source.Locator, subpath)
 	case SourceURL:
@@ -85,19 +86,44 @@ func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath,
 	}
 }
 
-func fetchLocal(ctx context.Context, root string) (discoveredSource, error) {
-	info, err := os.Stat(root)
+func openSnapshot(ctx context.Context, src Source) (source.Snapshot, error) {
+	if src.Type != SourceLocal {
+		return nil, nil
+	}
+	locator, err := json.Marshal(src.Locator)
 	if err != nil {
-		return discoveredSource{}, fmt.Errorf("read local source: %w", err)
+		return nil, fmt.Errorf("encode source locator: %w", err)
 	}
-	if !info.IsDir() {
-		return discoveredSource{}, argumentError("read local source", "path", "path is not a directory")
+	return local.Open(ctx, locator, maxFetchFiles, maxFetchSize)
+}
+
+func snapshotSource(snapshot source.Snapshot) discoveredSource {
+	candidates, diagnostics := snapshot.Candidates()
+	skills := make([]discoveredSkill, len(candidates))
+	for i, candidate := range candidates {
+		skills[i] = discoveredSkill{name: candidate.Name, candidate: candidate}
 	}
-	result, err := discoverSkills(ctx, os.DirFS(root), ".", discovery.NewBudget(maxFetchFiles, maxFetchSize))
+	return discoveredSource{skills: skills, diagnostics: diagnostics, ref: snapshot.Revision()}
+}
+
+func snapshotSkills(ctx context.Context, snapshot source.Snapshot, selected []discoveredSkill) ([]discoveredSkill, error) {
+	names := make([]string, len(selected))
+	for i, skill := range selected {
+		names[i] = skill.name
+	}
+	fetched, err := snapshot.Fetch(ctx, names)
 	if err != nil {
-		return result, err
+		return nil, err
 	}
-	return finishDiscovery(result)
+	files := make(map[string][]File, len(fetched))
+	for _, skill := range fetched {
+		files[skill.Name] = skill.Files
+	}
+	skills := slices.Clone(selected)
+	for i := range skills {
+		skills[i].files = files[skills[i].name]
+	}
+	return skills, nil
 }
 
 func (l *sqliteLibrary) fetchGitHub(ctx context.Context, locator SourceLocator, subpath string) (discoveredSource, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
@@ -21,9 +22,14 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	}
 	changed := false
 	validator := ""
-	if skill.Source.Type == SourceGitHub {
+	snapshot, err := openSnapshot(ctx, skill.Source)
+	switch {
+	case err != nil:
+	case snapshot != nil:
+		skill, changed, err = readSnapshotUpdate(ctx, snapshot, skill)
+	case skill.Source.Type == SourceGitHub:
 		skill, changed, err = l.readGitHubUpdate(ctx, skill, state.confirmedCommit)
-	} else {
+	default:
 		var latest Skill
 		latest, validator, err = l.readUpdate(ctx, skill, state.httpValidator)
 		if err == nil {
@@ -121,6 +127,23 @@ func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confi
 		skill.Description = remote.description
 	}
 	skill.Source.LastSeenRef = snap.ref
+	skill.Source.LastFetched = time.Now().UTC()
+	return skill, changed, nil
+}
+
+func readSnapshotUpdate(ctx context.Context, snapshot source.Snapshot, skill Skill) (Skill, bool, error) {
+	changed, err := snapshot.Check(ctx, source.Have{Name: skill.Name, Files: skill.Files})
+	if err != nil {
+		return Skill{}, false, err
+	}
+	if changed {
+		latest, err := snapshot.Fetch(ctx, []string{skill.Name})
+		if err != nil {
+			return Skill{}, false, err
+		}
+		skill.Files, skill.Description, skill.GitTreeSHA = latest[0].Files, latest[0].Description, ""
+	}
+	skill.Source.LastSeenRef = snapshot.Revision()
 	skill.Source.LastFetched = time.Now().UTC()
 	return skill, changed, nil
 }
