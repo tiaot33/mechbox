@@ -1,4 +1,4 @@
-package library
+package agentdir
 
 import (
 	"context"
@@ -11,15 +11,37 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
-type fileMeta struct {
-	fingerprint string
-	mode        FileMode
+var ErrIrregularFile = errors.New("irregular file")
+
+type Meta struct {
+	Fingerprint string
+	Mode        skillfile.Mode
 }
 
-var errIrregularFile = errors.New("irregular file")
+func Exists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
 
-func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
-	files := make(map[string]fileMeta)
+func DirectoryExists(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.IsDir(), nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func Read(ctx context.Context, root string) (map[string]Meta, error) {
+	files := make(map[string]Meta)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -35,7 +57,7 @@ func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return errIrregularFile
+			return ErrIrregularFile
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -45,11 +67,11 @@ func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 		if err != nil {
 			return err
 		}
-		files[filepath.ToSlash(relative)] = fileMeta{fingerprint: skillfile.Fingerprint(content), mode: skillfile.ModeOf(info.Mode())}
+		files[filepath.ToSlash(relative)] = Meta{Fingerprint: skillfile.Fingerprint(content), Mode: skillfile.ModeOf(info.Mode())}
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, errIrregularFile) {
+		if errors.Is(err, ErrIrregularFile) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("hash installed files: %w", err)
@@ -57,7 +79,7 @@ func hashFiles(ctx context.Context, root string) (map[string]fileMeta, error) {
 	return files, nil
 }
 
-func canonicalDirectory(path string) string {
+func Canonical(path string) string {
 	current, rest := filepath.Clean(path), ""
 	for {
 		if resolved, err := filepath.EvalSymlinks(current); err == nil {

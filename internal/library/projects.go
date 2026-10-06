@@ -2,9 +2,12 @@ package library
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 )
 
 func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
@@ -108,7 +111,8 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
 		return fmt.Errorf("get registered project: %w", err)
 	}
-	var trash folderTrash
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	if opts.Folders != Keep {
 		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
@@ -122,7 +126,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 			if err != nil {
 				return err
 			}
-			trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
+			change.Remove(skillScope.Directory, skill.Name)
 		}
 	}
 	tx, err := l.db.BeginTx(ctx, nil)
@@ -139,7 +143,7 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("unregister project: %w", err)
 	}
-	return trash.commit(ctx, tx, "unregister project")
+	return commitChange(ctx, tx, &change, "unregister project")
 }
 
 func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory string, err error) {

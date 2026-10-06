@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 )
 
 func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
@@ -255,14 +256,16 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	if err != nil {
 		return err
 	}
-	targets := make([]string, len(skillScopes))
+	targets := make([]struct{ directory, name string }, len(skillScopes))
 	for i, skillScope := range skillScopes {
 		directory, err := l.Resolve(ctx, skillScope.scope())
 		if err != nil {
 			return err
 		}
-		targets[i] = filepath.Join(directory, skillScope.name)
+		targets[i].directory, targets[i].name = directory, skillScope.name
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin remove skill from group: %w", err)
@@ -271,7 +274,6 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID); err != nil {
 		return fmt.Errorf("remove skill from group: %w", err)
 	}
-	var trash folderTrash
 	for i, skillScope := range skillScopes {
 		if opts.IfNoOtherInstall == UninstallMember {
 			removed, err := uninstallMember(ctx, tx, skillScope.id)
@@ -279,7 +281,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 				return err
 			}
 			if removed {
-				trash.targets = append(trash.targets, targets[i])
+				change.Remove(targets[i].directory, targets[i].name)
 			}
 			continue
 		}
@@ -287,7 +289,7 @@ func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupI
 			return err
 		}
 	}
-	return trash.commit(ctx, tx, "remove skill from group")
+	return commitChange(ctx, tx, &change, "remove skill from group")
 }
 
 func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {

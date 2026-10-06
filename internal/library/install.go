@@ -2,16 +2,15 @@ package library
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 )
 
 type scopeRow struct {
@@ -50,12 +49,12 @@ type resolvedScope struct {
 }
 
 func (s resolvedScope) rootMissing(operation string) (*Error, error) {
-	info, err := os.Stat(s.root)
-	if err == nil && info.IsDir() {
-		return nil, nil
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	exists, err := agentdir.DirectoryExists(s.root)
+	if err != nil {
 		return nil, fmt.Errorf("inspect scope root: %w", err)
+	}
+	if exists {
+		return nil, nil
 	}
 	details := ErrorDetails{Path: s.root}
 	if s.projectID != nil {
@@ -132,51 +131,6 @@ func keepAsDirectInstall(ctx context.Context, tx *sql.Tx, skillScopeID int64) er
 	return nil
 }
 
-type folderTrash struct {
-	targets []string
-	trashed []struct{ trash, target string }
-}
-
-func (t *folderTrash) commit(ctx context.Context, tx *sql.Tx, operation string) error {
-	if err := t.trash(ctx); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return errors.Join(fmt.Errorf("commit %s: %w", operation, err), t.restore())
-	}
-	for _, entry := range t.trashed {
-		_ = os.RemoveAll(entry.trash)
-	}
-	return nil
-}
-
-func (t *folderTrash) trash(ctx context.Context) error {
-	for _, path := range t.targets {
-		if err := ctx.Err(); err != nil {
-			return errors.Join(err, t.restore())
-		}
-		staged, err := randomName(filepath.Join(filepath.Dir(path), ".remove-"))
-		if err != nil {
-			return errors.Join(err, t.restore())
-		}
-		if err := os.Rename(path, staged); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return errors.Join(fmt.Errorf("remove skill folder: %w", err), t.restore())
-		}
-		t.trashed = append(t.trashed, struct{ trash, target string }{staged, path})
-	}
-	return nil
-}
-
-func (t *folderTrash) restore() error {
-	var restoreErr error
-	for _, entry := range t.trashed {
-		restoreErr = errors.Join(restoreErr, os.Rename(entry.trash, entry.target))
-	}
-	return restoreErr
-}
-
 type claimant struct {
 	skillID SkillID
 	name    string
@@ -203,13 +157,13 @@ func (l *sqliteLibrary) targetClaimant(ctx context.Context, id SkillID, name str
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, fmt.Errorf("read claimants: %w", err)
 	}
-	want := canonicalDirectory(target.directory)
+	want := agentdir.Canonical(target.directory)
 	for _, other := range claimants {
 		directory, err := l.Resolve(ctx, other.scope())
 		if err != nil {
 			return nil, err
 		}
-		if canonicalDirectory(directory) != want {
+		if agentdir.Canonical(directory) != want {
 			continue
 		}
 		return &other, nil
@@ -231,12 +185,12 @@ func (l *sqliteLibrary) placementConflict(ctx context.Context, operation string,
 		}), nil
 	}
 	path := filepath.Join(target.directory, name)
-	if _, err := os.Lstat(path); err == nil {
-		if policy != Overwrite {
-			return existsError(operation, "target already exists", ErrorDetails{Path: path}), nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	exists, err := agentdir.Exists(path)
+	if err != nil {
 		return nil, fmt.Errorf("inspect target folder: %w", err)
+	}
+	if exists && policy != Overwrite {
+		return existsError(operation, "target already exists", ErrorDetails{Path: path}), nil
 	}
 	return nil, nil
 }
@@ -323,10 +277,12 @@ func (l *sqliteLibrary) planInstall(ctx context.Context, id SkillID, name string
 		plan.OccupierName = other.name
 		return plan, nil
 	}
-	if _, err := os.Lstat(plan.Target); err == nil {
-		plan.Status = InstallUntracked
-	} else if !errors.Is(err, os.ErrNotExist) {
+	exists, err := agentdir.Exists(plan.Target)
+	if err != nil {
 		return plan, fmt.Errorf("inspect target folder: %w", err)
+	}
+	if exists {
+		plan.Status = InstallUntracked
 	}
 	return plan, nil
 }
@@ -373,127 +329,50 @@ func (l *sqliteLibrary) Install(ctx context.Context, id SkillID, scope Scope, op
 }
 
 type placement struct {
-	skill  Skill
-	scope  resolvedScope
-	folder string
-	stage  string
-	backup string
-	moved  bool
+	skill Skill
+	scope resolvedScope
 }
 
-func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, record func(*sql.Tx) error) error {
-	rollback := func() error {
-		var restoreErr error
-		for i := len(placements) - 1; i >= 0; i-- {
-			item := placements[i]
-			if item.moved {
-				if err := os.RemoveAll(item.folder); err != nil {
-					restoreErr = errors.Join(restoreErr, err)
-				} else if item.backup != "" {
-					restoreErr = errors.Join(restoreErr, os.Rename(item.backup, item.folder))
-				}
-			}
-			if item.stage != "" {
-				restoreErr = errors.Join(restoreErr, os.RemoveAll(item.stage))
-			}
-		}
-		return restoreErr
-	}
+func (l *sqliteLibrary) place(ctx context.Context, placements []*placement, record func(*sql.Tx) error) (err error) {
 	for _, item := range placements {
 		if err := item.scope.requireRoot("place skill folder"); err != nil {
 			return err
 		}
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	for _, item := range placements {
-		if err := os.MkdirAll(item.scope.directory, 0o755); err != nil {
-			return errors.Join(fmt.Errorf("create scope: %w", err), rollback())
-		}
-		stage, err := stageSkill(item.scope.directory, item.skill)
-		if err != nil {
-			return errors.Join(err, rollback())
-		}
-		item.stage = stage
-		item.folder = filepath.Join(item.scope.directory, item.skill.Name)
-	}
-	for _, item := range placements {
-		if err := ctx.Err(); err != nil {
-			return errors.Join(err, rollback())
-		}
-		backup, err := moveStageIntoPlace(item.stage, item.folder)
-		if err != nil {
-			return errors.Join(err, rollback())
-		}
-		item.backup = backup
-		item.moved = true
-		item.stage = ""
-	}
-	if err := ctx.Err(); err != nil {
-		return errors.Join(err, rollback())
-	}
-	if record != nil {
-		tx, err := l.db.BeginTx(ctx, nil)
-		if err != nil {
-			return errors.Join(fmt.Errorf("begin skill scope record: %w", err), rollback())
-		}
-		defer tx.Rollback()
-		if err := record(tx); err != nil {
-			return errors.Join(err, rollback())
-		}
-		if err := tx.Commit(); err != nil {
-			return errors.Join(fmt.Errorf("commit skill scope record: %w", err), rollback())
+		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, item.skill.Files); err != nil {
+			return err
 		}
 	}
-	for _, item := range placements {
-		if item.backup != "" {
-			_ = os.RemoveAll(item.backup)
+	if record == nil {
+		if err := change.Commit(ctx); err != nil {
+			return err
 		}
+		change.Done()
+		return nil
 	}
-	return nil
-}
-
-func stageSkill(directory string, skill Skill) (string, error) {
-	stage, err := os.MkdirTemp(directory, "."+skill.Name+"-")
+	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", fmt.Errorf("stage skill folder: %w", err)
+		return fmt.Errorf("begin skill scope record: %w", err)
 	}
-	for _, file := range skill.Files {
-		if !filepath.IsLocal(file.Path) {
-			_ = os.RemoveAll(stage)
-			return "", fmt.Errorf("invalid skill path: %s", file.Path)
-		}
-		path := filepath.Join(stage, filepath.FromSlash(file.Path))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			_ = os.RemoveAll(stage)
-			return "", fmt.Errorf("create skill folder: %w", err)
-		}
-		mode := os.FileMode(0o644)
-		if file.Mode == ModeExecutable {
-			mode = 0o755
-		}
-		if err := os.WriteFile(path, file.Content, mode); err != nil {
-			_ = os.RemoveAll(stage)
-			return "", fmt.Errorf("write skill file: %w", err)
-		}
+	defer tx.Rollback()
+	if err := record(tx); err != nil {
+		return err
 	}
-	return stage, nil
+	return commitChange(ctx, tx, &change, "skill scope record")
 }
 
-func moveStageIntoPlace(stage, target string) (backup string, err error) {
-	if _, err := os.Lstat(target); err == nil {
-		backup = stage + ".old"
-		if err := os.Rename(target, backup); err != nil {
-			return "", fmt.Errorf("replace skill folder: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect target folder: %w", err)
+func commitChange(ctx context.Context, tx *sql.Tx, change *agentdir.Change, operation string) error {
+	if err := change.Commit(ctx); err != nil {
+		return err
 	}
-	if err := os.Rename(stage, target); err != nil {
-		if backup != "" {
-			_ = os.Rename(backup, target)
-		}
-		return "", fmt.Errorf("place skill folder: %w", err)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit %s: %w", operation, err)
 	}
-	return backup, nil
+	change.Done()
+	return nil
 }
 
 func recordSkillScopeTx(ctx context.Context, tx *sql.Tx, id SkillID, scope scopeRow, direct bool, createdAt time.Time) error {
@@ -538,6 +417,8 @@ func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) 
 	if err != nil {
 		return err
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin uninstall: %w", err)
@@ -550,11 +431,10 @@ func (l *sqliteLibrary) Uninstall(ctx context.Context, id SkillID, scope Scope) 
 	if err != nil {
 		return err
 	}
-	var trash folderTrash
 	if removed {
-		trash.targets = []string{filepath.Join(target.directory, skill.Name)}
+		change.Remove(target.directory, skill.Name)
 	}
-	return trash.commit(ctx, tx, "uninstall")
+	return commitChange(ctx, tx, &change, "uninstall")
 }
 
 func coveringGroupName(ctx context.Context, q rowQuerier, id SkillID, scope scopeRow) (string, error) {
@@ -598,7 +478,7 @@ func (l *sqliteLibrary) planMember(ctx context.Context, plan *memberPlan, id Ski
 		if err != nil {
 			return err
 		}
-		plan.planned[filepath.Join(canonicalDirectory(target.directory), name)] = true
+		plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] = true
 		plan.placements = append(plan.placements, &placement{skill: skill, scope: target})
 		result.Outcome = MemberInstalled
 	}
@@ -614,7 +494,7 @@ func (l *sqliteLibrary) memberBlocker(ctx context.Context, plan *memberPlan, id 
 	if duplicate {
 		return preconditionError(plan.operation, "multiple members install to the same target", ErrorDetails{Name: name, Path: path}), nil
 	}
-	if plan.planned[filepath.Join(canonicalDirectory(target.directory), name)] {
+	if plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] {
 		return preconditionError(plan.operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
 	}
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict)
@@ -696,6 +576,8 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	if err != nil {
 		return err
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin group uninstall: %w", err)
@@ -704,17 +586,16 @@ func (l *sqliteLibrary) UninstallGroup(ctx context.Context, groupID GroupID, sco
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE id = ?`, groupInstallID); err != nil {
 		return fmt.Errorf("remove group install: %w", err)
 	}
-	var trash folderTrash
 	for _, member := range members {
 		removed, err := uninstallMember(ctx, tx, member.id)
 		if err != nil {
 			return err
 		}
 		if removed {
-			trash.targets = append(trash.targets, filepath.Join(target.directory, member.name))
+			change.Remove(target.directory, member.name)
 		}
 	}
-	return trash.commit(ctx, tx, "group uninstall")
+	return commitChange(ctx, tx, &change, "group uninstall")
 }
 
 type memberSkillScope struct {
@@ -796,14 +677,6 @@ func (l *sqliteLibrary) readGroupInstalls(ctx context.Context, groupID GroupID) 
 		return nil, fmt.Errorf("read group install: %w", err)
 	}
 	return installs, nil
-}
-
-func randomName(prefix string) (string, error) {
-	buffer := make([]byte, 8)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", fmt.Errorf("generate temp name: %w", err)
-	}
-	return prefix + hex.EncodeToString(buffer), nil
 }
 
 func (l *sqliteLibrary) ListSkillScopes(ctx context.Context) (skillScopes []SkillScope, err error) {
@@ -920,22 +793,22 @@ func (l *sqliteLibrary) inspectSkillScope(ctx context.Context, skillScope SkillS
 		return "", fmt.Errorf("inspect skill scope: %w", err)
 	}
 
-	if _, err := os.Lstat(skillScope.Directory); errors.Is(err, os.ErrNotExist) {
-		return SkillScopeDirectoryMissing, nil
-	} else if err != nil {
+	if exists, err := agentdir.Exists(skillScope.Directory); err != nil {
 		return "", fmt.Errorf("inspect agent directory: %w", err)
+	} else if !exists {
+		return SkillScopeDirectoryMissing, nil
 	}
 
 	target := filepath.Join(skillScope.Directory, name)
-	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
-		return SkillScopeMissing, nil
-	} else if err != nil {
+	if exists, err := agentdir.Exists(target); err != nil {
 		return "", fmt.Errorf("inspect target folder: %w", err)
+	} else if !exists {
+		return SkillScopeMissing, nil
 	}
 
-	disk, err := hashFiles(ctx, target)
+	disk, err := agentdir.Read(ctx, target)
 	if err != nil {
-		if errors.Is(err, errIrregularFile) {
+		if errors.Is(err, agentdir.ErrIrregularFile) {
 			return SkillScopeModified, nil
 		}
 		return "", err
@@ -977,17 +850,17 @@ func (l *sqliteLibrary) inspectSkillScope(ctx context.Context, skillScope SkillS
 	return SkillScopeModified, nil
 }
 
-func (l *sqliteLibrary) versionFingerprints(ctx context.Context, versionID int64) (map[string]fileMeta, error) {
+func (l *sqliteLibrary) versionFingerprints(ctx context.Context, versionID int64) (map[string]agentdir.Meta, error) {
 	rows, err := l.db.QueryContext(ctx, `SELECT path, fingerprint, mode FROM version_files WHERE version_id = ?`, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("list version fingerprints: %w", err)
 	}
 	defer rows.Close()
-	files := make(map[string]fileMeta)
+	files := make(map[string]agentdir.Meta)
 	for rows.Next() {
 		var path string
-		var meta fileMeta
-		if err := rows.Scan(&path, &meta.fingerprint, &meta.mode); err != nil {
+		var meta agentdir.Meta
+		if err := rows.Scan(&path, &meta.Fingerprint, &meta.Mode); err != nil {
 			return nil, fmt.Errorf("read version fingerprint: %w", err)
 		}
 		files[path] = meta

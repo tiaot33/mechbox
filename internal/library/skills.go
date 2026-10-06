@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
@@ -385,7 +385,8 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	if err != nil {
 		return err
 	}
-	var trash folderTrash
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	if opts.Folders != Keep {
 		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
@@ -393,7 +394,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 		}
 		for _, skillScope := range skillScopes {
 			if skillScope.SkillID == id {
-				trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
+				change.Remove(skillScope.Directory, skill.Name)
 			}
 		}
 	}
@@ -416,7 +417,7 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 			return fmt.Errorf("remove skill: %w", err)
 		}
 	}
-	return trash.commit(ctx, tx, "remove skill")
+	return commitChange(ctx, tx, &change, "remove skill")
 }
 
 func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {
