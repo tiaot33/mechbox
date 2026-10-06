@@ -539,7 +539,6 @@ func (s *githubSnapshot) Check(ctx context.Context, have source.Have) (source.St
 	if state.Commit != "" && state.Commit == s.ref {
 		return source.Unchanged, have.State, nil
 	}
-	s.rememberGitBlobs(have.Files)
 	if err := s.discover(ctx); err != nil {
 		return source.Unknown, nil, err
 	}
@@ -550,10 +549,12 @@ func (s *githubSnapshot) Check(ctx context.Context, have source.Have) (source.St
 	tree := remote[0].gitTreeSHA
 	switch {
 	case state.Tree == "" || tree == "":
+		s.rememberGitBlobs(have.Files)
 		return source.Unknown, nil, nil
 	case state.Tree == tree:
 		return source.Unchanged, encodeGitHubState(s.ref, tree), nil
 	default:
+		s.rememberGitBlobs(have.Files)
 		return source.Changed, nil, nil
 	}
 }
