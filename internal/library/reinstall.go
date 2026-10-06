@@ -49,7 +49,7 @@ func (l *sqliteLibrary) reinstallOne(ctx context.Context, operation string, skil
 	if err != nil {
 		return "", err
 	}
-	existing, err := findSkillScope(ctx, l.db, skillScope.SkillID, target.scopeRow)
+	existing, err := l.store.FindSkillScope(ctx, int64(skillScope.SkillID), target.record())
 	if err != nil {
 		return "", err
 	}

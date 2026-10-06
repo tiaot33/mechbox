@@ -13,11 +13,6 @@ import (
 
 var ErrIrregularFile = errors.New("irregular file")
 
-type Meta struct {
-	Fingerprint string
-	Mode        skillfile.Mode
-}
-
 func Exists(path string) (bool, error) {
 	_, err := os.Lstat(path)
 	if err == nil {
@@ -40,8 +35,8 @@ func DirectoryExists(path string) (bool, error) {
 	return false, err
 }
 
-func Read(ctx context.Context, root string) (map[string]Meta, error) {
-	files := make(map[string]Meta)
+func Read(ctx context.Context, root string) (map[string]skillfile.Digest, error) {
+	files := make(map[string]skillfile.Digest)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -67,7 +62,7 @@ func Read(ctx context.Context, root string) (map[string]Meta, error) {
 		if err != nil {
 			return err
 		}
-		files[filepath.ToSlash(relative)] = Meta{Fingerprint: skillfile.Fingerprint(content), Mode: skillfile.ModeOf(info.Mode())}
+		files[filepath.ToSlash(relative)] = skillfile.Digest{Fingerprint: skillfile.Fingerprint(content), Mode: skillfile.ModeOf(info.Mode())}
 		return nil
 	})
 	if err != nil {
