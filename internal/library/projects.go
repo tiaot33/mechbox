@@ -8,26 +8,19 @@ import (
 	"path/filepath"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
 func (l *sqliteLibrary) ListAgents(ctx context.Context) (agents []Agent, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT code, name FROM agents ORDER BY code`)
+	rows, err := l.store.ListAgents(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list agents: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var agent Agent
-		if err := rows.Scan(&agent.Code, &agent.Name); err != nil {
-			return nil, fmt.Errorf("read agent: %w", err)
-		}
-		agents = append(agents, agent)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read agents: %w", err)
+	for _, row := range rows {
+		agents = append(agents, Agent{Code: AgentCode(row.Code), Name: row.Name})
 	}
 	return agents, nil
 }
@@ -55,26 +48,14 @@ func (l *sqliteLibrary) RegisterProject(ctx context.Context, path string) (proje
 		return RegisteredProject{}, argumentError("register project", "path", "path is not a directory")
 	}
 	project.Path = filepath.Clean(project.Path)
-	result, err := l.db.ExecContext(ctx, `INSERT OR IGNORE INTO projects(path) VALUES (?)`, project.Path)
+	row, created, err := l.store.RegisterProject(ctx, project.Path)
 	if err != nil {
-		return RegisteredProject{}, fmt.Errorf("register project: %w", err)
+		return RegisteredProject{}, err
 	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return RegisteredProject{}, fmt.Errorf("register project: %w", err)
+	if !created {
+		return RegisteredProject{}, existsError("register project", "path already registered", ErrorDetails{ProjectID: ProjectID(row.ID), Path: project.Path})
 	}
-	if inserted == 0 {
-		var id ProjectID
-		if err := l.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE path = ?`, project.Path).Scan(&id); err != nil {
-			return RegisteredProject{}, fmt.Errorf("read registered project: %w", err)
-		}
-		return RegisteredProject{}, existsError("register project", "path already registered", ErrorDetails{ProjectID: id, Path: project.Path})
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return RegisteredProject{}, fmt.Errorf("read project id: %w", err)
-	}
-	project.ID = ProjectID(id)
+	project.ID = ProjectID(row.ID)
 	return project, nil
 }
 
@@ -82,20 +63,12 @@ func (l *sqliteLibrary) ListRegisteredProjects(ctx context.Context) (projects []
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, path FROM projects ORDER BY path, id`)
+	rows, err := l.store.ListProjects(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list registered projects: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var project RegisteredProject
-		if err := rows.Scan(&project.ID, &project.Path); err != nil {
-			return nil, fmt.Errorf("read registered project: %w", err)
-		}
-		projects = append(projects, project)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read registered projects: %w", err)
+	for _, row := range rows {
+		projects = append(projects, RegisteredProject{ID: ProjectID(row.ID), Path: row.Path})
 	}
 	return projects, nil
 }
@@ -107,9 +80,8 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 	if err := validateFolderPolicy("unregister project", opts.Folders); err != nil {
 		return err
 	}
-	var path string
-	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, id).Scan(&path); err != nil {
-		return fmt.Errorf("get registered project: %w", err)
+	if _, err := l.store.GetProject(ctx, int64(id)); err != nil {
+		return err
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
@@ -129,21 +101,9 @@ func (l *sqliteLibrary) UnregisterProject(ctx context.Context, id ProjectID, opt
 			change.Remove(skillScope.Directory, skill.Name)
 		}
 	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin unregister project: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_scopes WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project skill scopes: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE project_id = ?`, id); err != nil {
-		return fmt.Errorf("remove project group installs: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("unregister project: %w", err)
-	}
-	return commitChange(ctx, tx, &change, "unregister project")
+	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		return tx.UnregisterProject(ctx, int64(id))
+	})
 }
 
 func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory string, err error) {
@@ -159,36 +119,29 @@ func (l *sqliteLibrary) Resolve(ctx context.Context, scope Scope) (directory str
 }
 
 func (l *sqliteLibrary) scopeDirectory(ctx context.Context, row scopeRow) (root, directory string, err error) {
-	dirs, err := l.agentDirectories(ctx, row.agent)
+	agent, err := l.store.GetAgent(ctx, string(row.agent))
 	if err != nil {
 		return "", "", err
 	}
 	if row.projectID == nil {
-		return l.home, dirs.globalDir(l.home), nil
+		return l.home, filepath.Join(l.home, filepath.FromSlash(agent.GlobalPath)), nil
 	}
-	if err := l.db.QueryRowContext(ctx, `SELECT path FROM projects WHERE id = ?`, *row.projectID).Scan(&root); err != nil {
-		return "", "", fmt.Errorf("get registered project: %w", err)
+	project, err := l.store.GetProject(ctx, int64(*row.projectID))
+	if err != nil {
+		return "", "", err
 	}
-	return root, dirs.projectDir(root), nil
+	return project.Path, filepath.Join(project.Path, filepath.FromSlash(agent.ProjectPath)), nil
 }
 
-type agentDirectories struct {
-	global  string
-	project string
-}
-
-func (dirs agentDirectories) globalDir(home string) string {
-	return filepath.Join(home, filepath.FromSlash(dirs.global))
-}
-
-func (dirs agentDirectories) projectDir(root string) string {
-	return filepath.Join(root, filepath.FromSlash(dirs.project))
-}
-
-func (l *sqliteLibrary) agentDirectories(ctx context.Context, code AgentCode) (agentDirectories, error) {
-	var dirs agentDirectories
-	if err := l.db.QueryRowContext(ctx, `SELECT global_path, project_path FROM agents WHERE code = ?`, code).Scan(&dirs.global, &dirs.project); err != nil {
-		return agentDirectories{}, fmt.Errorf("get agent: %w", err)
+func (l *sqliteLibrary) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
+	if err := l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := record(tx); err != nil {
+			return err
+		}
+		return change.Commit(ctx)
+	}); err != nil {
+		return err
 	}
-	return dirs, nil
+	change.Done()
+	return nil
 }
