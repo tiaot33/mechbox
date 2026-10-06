@@ -2,7 +2,6 @@ package library
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"sync"
@@ -13,7 +12,6 @@ import (
 
 type sqliteLibrary struct {
 	store *store.Store
-	db    *sql.DB
 	home  string
 	mu    sync.RWMutex
 
@@ -52,7 +50,7 @@ func Open(path string) (Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: find home directory: %w", err)
 	}
-	return &sqliteLibrary{store: db, db: db.DB(), home: home, previews: map[FetchPreviewID]*previewState{}, github: github.NewClient()}, nil
+	return &sqliteLibrary{store: db, home: home, previews: map[FetchPreviewID]*previewState{}, github: github.NewClient()}, nil
 }
 
 func (l *sqliteLibrary) Close() error {

@@ -2,12 +2,10 @@ package library
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"io/fs"
 	"strings"
 
-	"github.com/mattn/go-sqlite3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
@@ -63,34 +61,14 @@ func typedError(err error) error {
 		code = Busy
 	case errors.Is(err, store.ErrAlreadyExists):
 		code = AlreadyExists
-	case errors.Is(err, sql.ErrNoRows), errors.Is(err, store.ErrNotFound), errors.Is(err, github.ErrSubpathNotFound), errors.Is(err, s3.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, github.ErrSubpathNotFound), errors.Is(err, s3.ErrNotFound):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):
 		code = Permission
 	case errors.Is(err, fs.ErrNotExist):
 		code = SourceUnreachable
-	default:
-		code = sqliteErrorCode(err)
 	}
 	return &Error{Code: code, Message: err.Error(), Err: err}
-}
-
-func sqliteErrorCode(err error) ErrorCode {
-	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
-	if !ok {
-		return Internal
-	}
-	if sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked {
-		return Busy
-	}
-	switch sqliteErr.ExtendedCode {
-	case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey:
-		return AlreadyExists
-	case sqlite3.ErrConstraintForeignKey:
-		return NotFound
-	default:
-		return Internal
-	}
 }
 
 func fetchError(code ErrorCode, operation string, err error) error {

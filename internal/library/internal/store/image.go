@@ -40,7 +40,7 @@ func (s *Store) Snapshot(ctx context.Context) ([]byte, error) {
 	}
 	if err := backup(ctx, snapshotDB, s.db); err != nil {
 		_ = snapshotDB.Close()
-		return nil, fmt.Errorf("snapshot library: %w", err)
+		return nil, fmt.Errorf("snapshot library: %w", wrap(err))
 	}
 	var mode string
 	err = snapshotDB.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
@@ -85,7 +85,7 @@ func OpenImage(ctx context.Context, data []byte) (*Image, error) {
 		if sqliteErr, ok := errors.AsType[sqlite3.Error](err); ok && (sqliteErr.Code == sqlite3.ErrCorrupt || sqliteErr.Code == sqlite3.ErrNotADB) {
 			err = fmt.Errorf("%w: %w", ErrUnacceptable, err)
 		}
-		return nil, fmt.Errorf("validate pulled library: %w", err)
+		return nil, fmt.Errorf("validate pulled library: %w", wrap(err))
 	}
 	return image, nil
 }
@@ -112,6 +112,10 @@ func (i *Image) Close() {
 }
 
 func (i *Image) RemapProjectPaths(ctx context.Context, paths map[string]string) error {
+	return wrap(i.remapProjectPaths(ctx, paths))
+}
+
+func (i *Image) remapProjectPaths(ctx context.Context, paths map[string]string) error {
 	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -172,7 +176,7 @@ func (i *Image) RemapProjectPaths(ctx context.Context, paths map[string]string) 
 }
 
 func (s *Store) Replace(ctx context.Context, image *Image) error {
-	return backup(ctx, s.db, image.db)
+	return wrap(backup(ctx, s.db, image.db))
 }
 
 func backup(ctx context.Context, destination, source *sql.DB) error {

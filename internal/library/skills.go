@@ -66,23 +66,8 @@ func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummar
 	return summaryOf(row)
 }
 
-func parseStoredTime(value string) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse(time.RFC3339Nano, value)
-}
-
-func formatStoredTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339Nano)
-}
-
 func clockNow() time.Time {
-	now, _ := parseStoredTime(formatStoredTime(time.Now().UTC()))
-	return now
+	return time.Now().UTC().Round(0)
 }
 
 func skillDescription(files []File) string {

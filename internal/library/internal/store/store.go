@@ -36,7 +36,6 @@ type Store struct {
 
 type Tx struct {
 	queries
-	tx *sql.Tx
 }
 
 func Open(path string) (*Store, error) {
@@ -97,17 +96,13 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) DB() *sql.DB {
-	return s.db
-}
-
 func (s *Store) InTx(ctx context.Context, fn func(*Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", wrap(err))
 	}
 	defer tx.Rollback()
-	if err := fn(&Tx{queries: queries{tx}, tx: tx}); err != nil {
+	if err := fn(&Tx{queries{tx}}); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
