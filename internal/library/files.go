@@ -4,25 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (r contextReader) Read(buffer []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return r.reader.Read(buffer)
-}
 
 type fileMeta struct {
 	fingerprint string

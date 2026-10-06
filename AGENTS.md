@@ -7,7 +7,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/schema.go` + `schema.sql` — 库身份与 schema 校验;建表定义统一来自嵌入的 `schema.sql`。
 - `internal/library/skills.go` + `versions.go` — 入库、技能查询/移除、Collection、版本历史与差异。
 - `internal/library/preview.go` — 入库预览(PreviewFetch)与入库(Fetch);`source_read.go` 的 `openSnapshot` 按来源类型打开快照,入库预览、入库、更新与批量检查都只经 `Snapshot`。
-- `internal/library/update.go` + `batch_update.go` — 单项与批量更新检查;`search.go` 负责市场搜索。
+- `internal/library/update.go` + `batch_update.go` — 单项与批量更新检查;`search.go` 与 `audit.go` 负责市场搜索与入库预览里的审计查询。
 - `internal/library/groups.go` + `projects.go` — Group 成员管理、项目注册与 Scope。
 - `internal/library/install.go` — 直接安装与组安装、SkillScope 记录、磁盘暂存与回滚;SkillScope 巡检(可按 `SkillScopeFilter` 缩小范围)与重新安装共用的筛选。
 - `internal/library/reinstall.go` — 重新安装:把已安装的技能文件夹带回当前版本,不改留着它的直接安装与组安装。
@@ -19,6 +19,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/internal/source/download` — URL 来源(也用于 store):下载 zip 压缩包,按 HTTP validator 发条件请求;validator 作为 `State` 记在各 Skill 的版本上。
 - `internal/library/internal/source/github` — GitHub 来源:`input.go` 解析 GitHub 输入并跑 git 命令,`contents.go` 是 `Snapshot` 实现(commit / tree / blob、目录 tree SHA 与确认 commit 作为 `State`),`transfer.go` / `memo.go` 负责下载与对象缓存,`clone.go` 是 API 不可用时的浅克隆回退。`Client` 持有跨操作共享的认证降级状态与缓存,由 Library 持有、`Close` 时清空。
 - `internal/library/internal/source/discovery` — 各来源共用的候选发现:目录扫描规则、插件清单、SKILL.md frontmatter 解析、读取上限。子包只返回自己的哨兵错误,由 `errors.go` 的 `typedError` 翻译成公开错误码。
+- `internal/library/internal/market` — skills.sh 的搜索与审计接口:发请求、限制响应大小、解析结果;返回自己的哨兵错误 `ErrUnreachable` / `ErrPermission` / `ErrInvalidResponse`。哪些结果能转成入库预览、审计查不到时算哪种状态,由 Library 决定。
 - `internal/library/*_test.go` — 按行为组织的技能库公开规格(`package library_test`);共享辅助函数在 `test_helpers_test.go`。
 - `cmd/demo/main.go` — 可运行的入口示例,用内存数据库演示 Library 的导入、调用和关闭;运行 `go run ./cmd/demo`。
 

@@ -2,21 +2,11 @@ package library
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/url"
 	"slices"
-	"strings"
-	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
-)
-
-const (
-	auditRequestTimeout = 5 * time.Second
-	maxAuditSize        = 1 << 20
 )
 
 func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
@@ -61,71 +51,27 @@ func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, na
 }
 
 func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
-	unavailable := SkillAudit{Availability: AuditUnavailable}
-	ctx, cancel := context.WithTimeout(ctx, auditRequestTimeout)
-	defer cancel()
-	id := auditPath(owner, repo, name)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://skills.sh/api/v1/skills/audit/"+id, nil)
+	found, err := market.Audit(ctx, owner, repo, name)
 	if err != nil {
-		return unavailable
+		return SkillAudit{Availability: AuditUnavailable}
 	}
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return unavailable
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
+	if len(found) == 0 {
 		return SkillAudit{Availability: AuditNone}
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return unavailable
-	}
-	body, err := io.ReadAll(io.LimitReader(contextReader{ctx, response.Body}, maxAuditSize+1))
-	if err != nil || len(body) > maxAuditSize {
-		return unavailable
-	}
-	var payload struct {
-		Audits []struct {
-			Provider   string      `json:"provider"`
-			Slug       string      `json:"slug"`
-			Status     AuditStatus `json:"status"`
-			Summary    string      `json:"summary"`
-			AuditedAt  string      `json:"auditedAt"`
-			RiskLevel  string      `json:"riskLevel"`
-			Categories []string    `json:"categories"`
-		} `json:"audits"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil || payload.Audits == nil {
-		return unavailable
-	}
-	if len(payload.Audits) == 0 {
-		return SkillAudit{Availability: AuditNone}
-	}
-	entries := make([]AuditEntry, 0, len(payload.Audits))
-	for _, audit := range payload.Audits {
-		if strings.TrimSpace(audit.Provider) == "" || strings.TrimSpace(audit.Slug) == "" || strings.TrimSpace(string(audit.Status)) == "" || strings.TrimSpace(audit.Summary) == "" {
-			continue
+	entries := make([]AuditEntry, len(found))
+	for i, entry := range found {
+		entries[i] = AuditEntry{
+			Provider:   entry.Provider,
+			Slug:       entry.Slug,
+			Status:     AuditStatus(entry.Status),
+			Summary:    entry.Summary,
+			AuditedAt:  entry.AuditedAt,
+			RiskLevel:  entry.RiskLevel,
+			Categories: entry.Categories,
+			DetailURL:  entry.DetailURL,
 		}
-		auditedAt, _ := time.Parse(time.RFC3339Nano, audit.AuditedAt)
-		entries = append(entries, AuditEntry{
-			Provider:   audit.Provider,
-			Slug:       audit.Slug,
-			Status:     audit.Status,
-			Summary:    audit.Summary,
-			AuditedAt:  auditedAt.UTC(),
-			RiskLevel:  audit.RiskLevel,
-			Categories: audit.Categories,
-			DetailURL:  "https://skills.sh/" + id + "/security/" + url.PathEscape(audit.Slug),
-		})
-	}
-	if len(entries) == 0 {
-		return unavailable
 	}
 	return SkillAudit{Availability: AuditAvailable, Entries: entries}
-}
-
-func auditPath(owner, repo, name string) string {
-	return url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(name)
 }
 
 func cloneAudit(audit *SkillAudit) *SkillAudit {

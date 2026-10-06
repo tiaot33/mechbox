@@ -7,6 +7,7 @@ import (
 	"io/fs"
 
 	"github.com/mattn/go-sqlite3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
@@ -42,11 +43,11 @@ func typedError(err error) error {
 		code = Canceled
 	case errors.Is(err, discovery.ErrTooLarge):
 		return fetchError(SourceInvalid, "read source", err)
-	case errors.Is(err, discovery.ErrNoCandidates), errors.Is(err, source.ErrInvalid):
+	case errors.Is(err, discovery.ErrNoCandidates), errors.Is(err, source.ErrInvalid), errors.Is(err, market.ErrInvalidResponse):
 		code = SourceInvalid
-	case errors.Is(err, source.ErrUnreachable):
+	case errors.Is(err, source.ErrUnreachable), errors.Is(err, market.ErrUnreachable):
 		code = SourceUnreachable
-	case errors.Is(err, source.ErrPermission):
+	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission):
 		code = Permission
 	case errors.Is(err, sql.ErrNoRows), errors.Is(err, github.ErrSubpathNotFound):
 		code = NotFound
