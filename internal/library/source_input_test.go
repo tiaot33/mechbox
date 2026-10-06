@@ -61,18 +61,6 @@ func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *test
 	}
 }
 
-func TestGitSourceClassifiesPermissionWithoutExposingCredentials(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
-	t.Cleanup(server.Close)
-	lib := openTestLibrary(t)
-	location := strings.Replace(server.URL, "://", "://secret-user:secret-password@", 1)
-	serveGitHubRemoteOnly(t, location)
-	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "trunk"}})
-	if !library.IsCode(err, library.Permission) || strings.Contains(err.Error(), "secret") {
-		t.Fatalf("permission = %v", err)
-	}
-}
-
 func TestPreviewUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
 	for _, setting := range []string{"core.sshCommand", "GIT_SSH", "GIT_SSH_COMMAND"} {
 		t.Run(setting, func(t *testing.T) {

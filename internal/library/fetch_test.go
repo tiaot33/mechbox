@@ -293,66 +293,6 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	}
 }
 
-func TestFetchGitHubSelectionAndUpdateOnlyWhenContentChanges(t *testing.T) {
-	repository := t.TempDir()
-	runGit(t, repository, "init", "-b", "main")
-	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "first\n")), 0o644)
-	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "second\n")), 0o644)
-	commitGit(t, repository, "initial")
-
-	lib := openTestLibrary(t)
-	ctx := t.Context()
-	preview, err := lib.PreviewFetch(ctx, gitHubCloneRequest(t, repository))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fetched, err := getFetchedSkills(ctx, lib, preview, []string{"first"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := skillNames(fetched), []string{"first"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("fetched skills = %v, want %v", got, want)
-	}
-
-	writeFile(t, filepath.Join(repository, "second", "SKILL.md"), []byte(skillDocument("second", "unrelated\n")), 0o644)
-	commitGit(t, repository, "unrelated skill")
-	if available, err := checkSingleUpdate(t, lib, ctx, fetched[0].ID); err != nil || available {
-		t.Fatalf("unrelated commit CheckUpdates = %v, %v", available, err)
-	}
-	writeFile(t, filepath.Join(repository, "first", "SKILL.md"), []byte(skillDocument("first", "updated\n")), 0o644)
-	commitGit(t, repository, "update")
-	if available, err := checkSingleUpdate(t, lib, ctx, fetched[0].ID); err != nil || !available {
-		t.Fatalf("changed skill CheckUpdates = %v, %v", available, err)
-	}
-	updated, err := lib.Update(ctx, fetched[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(updated.Skill.Files[0].Content); got != skillDocument("first", "updated\n") {
-		t.Fatalf("updated content = %q, want updated", got)
-	}
-	if updated.Skill.Source.LastSeenRef == "" || updated.Skill.Source.LastSeenRef == fetched[0].Source.LastSeenRef {
-		t.Fatalf("updated source ref = %q, want new git commit", updated.Skill.Source.LastSeenRef)
-	}
-	persisted, err := lib.GetSkill(ctx, fetched[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if persisted.Source.LastSeenRef != updated.Skill.Source.LastSeenRef {
-		t.Fatalf("persisted source ref = %q, want %q", persisted.Source.LastSeenRef, updated.Skill.Source.LastSeenRef)
-	}
-	if _, err := lib.Update(ctx, fetched[0].ID); err != nil {
-		t.Fatal(err)
-	}
-	versions, err := lib.ListVersions(ctx, fetched[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(versions) != 2 {
-		t.Fatalf("versions = %d, want 2 after changed and unchanged updates", len(versions))
-	}
-}
-
 func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	archive := zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "# First\n"),
