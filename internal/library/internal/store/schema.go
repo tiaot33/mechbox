@@ -1,4 +1,4 @@
-package library
+package store
 
 import (
 	"context"
@@ -6,15 +6,14 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 )
 
 const (
-	libraryApplicationID = 1397443650
-	librarySchemaVersion = 15
-	agentSeedSQL         = `
+	applicationID = 1397443650
+	schemaVersion = 15
+	agentSeedSQL  = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
 			('codex', 'Codex', '.agents/skills', '.agents/skills')
@@ -34,7 +33,7 @@ func seedAgents(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, agentSeedSQL); err != nil {
 		return err
 	}
-	if err := validateLibrarySchema(ctx, tx); err != nil {
+	if err := validateSchema(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -45,10 +44,8 @@ type schemaReader interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-var errUnacceptableSchema = errors.New("unacceptable library schema")
-
-func validateLibrarySchema(ctx context.Context, db schemaReader) error {
-	if err := requireLibraryIdentity(ctx, db); err != nil {
+func validateSchema(ctx context.Context, db schemaReader) error {
+	if err := requireIdentity(ctx, db); err != nil {
 		return err
 	}
 	actual, err := schemaFingerprint(ctx, db)
@@ -68,7 +65,7 @@ func validateLibrarySchema(ctx context.Context, db schemaReader) error {
 		return err
 	}
 	if actual != expected {
-		return fmt.Errorf("%w: schema fingerprint mismatch", errUnacceptableSchema)
+		return fmt.Errorf("%w: schema fingerprint mismatch", ErrUnacceptable)
 	}
 	return validateForeignKeys(ctx, db)
 }
@@ -80,7 +77,7 @@ func validateForeignKeys(ctx context.Context, db schemaReader) error {
 	}
 	defer rows.Close()
 	if rows.Next() {
-		return fmt.Errorf("%w: foreign key check failed", errUnacceptableSchema)
+		return fmt.Errorf("%w: foreign key check failed", ErrUnacceptable)
 	}
 	return rows.Err()
 }
@@ -105,16 +102,16 @@ func schemaFingerprint(ctx context.Context, db schemaReader) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func requireLibraryIdentity(ctx context.Context, db schemaReader) error {
-	var applicationID, userVersion int
-	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
+func requireIdentity(ctx context.Context, db schemaReader) error {
+	var actualID, userVersion int
+	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&actualID); err != nil {
 		return err
 	}
 	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
 		return err
 	}
-	if applicationID != libraryApplicationID || userVersion != librarySchemaVersion {
-		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", errUnacceptableSchema, applicationID, userVersion)
+	if actualID != applicationID || userVersion != schemaVersion {
+		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", ErrUnacceptable, actualID, userVersion)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"io/fs"
+	"strings"
 
 	"github.com/mattn/go-sqlite3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
@@ -14,6 +15,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
 func typedError(err error) error {
@@ -35,6 +37,9 @@ func typedError(err error) error {
 	if missing, ok := errors.AsType[*github.RefNotFoundError](err); ok {
 		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Ref}, Err: err}
 	}
+	if conflict, ok := errors.AsType[*store.ProjectPathConflictError](err); ok {
+		return &Error{Code: InvalidArgument, Message: "SKILLS_PROJECT_PATH_MAP: target path still held by another registered project (occupied target or cyclic mapping): " + strings.Join(conflict.Pending, ", "), Err: err}
+	}
 	if invalid, ok := errors.AsType[*github.InputError](err); ok {
 		return &Error{Code: InvalidArgument, Message: invalid.Reason, Err: err}
 	}
@@ -54,7 +59,11 @@ func typedError(err error) error {
 		code = NotConfigured
 	case errors.Is(err, s3.ErrPreconditionFailed):
 		code = Conflict
-	case errors.Is(err, sql.ErrNoRows), errors.Is(err, github.ErrSubpathNotFound), errors.Is(err, s3.ErrNotFound):
+	case errors.Is(err, store.ErrBusy):
+		code = Busy
+	case errors.Is(err, store.ErrAlreadyExists):
+		code = AlreadyExists
+	case errors.Is(err, sql.ErrNoRows), errors.Is(err, store.ErrNotFound), errors.Is(err, github.ErrSubpathNotFound), errors.Is(err, s3.ErrNotFound):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):
 		code = Permission

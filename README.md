@@ -23,7 +23,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`cmd/demo/main.go`](cmd/demo/main.go) | 可直接运行的入口示例：导入、打开、调用并关闭 Library |
 | [`internal/library/api.go`](internal/library/api.go) | 进程内 Go 公共接口、DTO、选项和错误契约 |
 | [`internal/library/library.go`](internal/library/library.go) | 实例生命周期、共享状态和操作锁 |
-| [`internal/library/schema.go`](internal/library/schema.go)、[`schema.sql`](internal/library/schema.sql) | 库身份、校验及唯一 DDL 来源 |
+| [`internal/library/internal/store/schema.go`](internal/library/internal/store/schema.go)、[`schema.sql`](internal/library/internal/store/schema.sql) | 库身份、校验及唯一 DDL 来源 |
 | [`internal/library/skills.go`](internal/library/skills.go)、[`versions.go`](internal/library/versions.go) | 入库、查询/移除、Collection、版本历史与差异 |
 | [`internal/library/preview.go`](internal/library/preview.go) | 入库预览(PreviewFetch)与入库(Fetch) |
 | [`internal/library/source_input.go`](internal/library/source_input.go)、[`source_read.go`](internal/library/source_read.go)、[`github_contents.go`](internal/library/github_contents.go) | 来源解析、校验与内容获取 |
@@ -89,7 +89,7 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 
 ## 数据库
 
-[`internal/library/schema.sql`](internal/library/schema.sql) 通过 Go `embed` 直接用于新库初始化，因此代码与可查看的 DDL 不会形成两份事实来源。当前包含 11 张表：
+[`internal/library/internal/store/schema.sql`](internal/library/internal/store/schema.sql) 通过 Go `embed` 直接用于新库初始化，因此代码与可查看的 DDL 不会形成两份事实来源。当前包含 11 张表：
 
 - 来源和技能：`sources`、`skills`
 - 版本和内容：`skill_versions`、`blobs`、`version_files`
