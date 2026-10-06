@@ -136,26 +136,13 @@ func (l *sqliteLibrary) listCandidates(ctx context.Context, state *previewState)
 	if err != nil {
 		return nil, fmt.Errorf("encode source locator: %w", err)
 	}
-	rows, err := l.db.QueryContext(ctx, `SELECT s.name, s.id FROM skills s JOIN sources src ON src.id = s.source_id WHERE src.type = ? AND src.locator = ?`, state.source.Type, locator)
+	fetched, err := l.store.SkillsFromSource(ctx, string(state.source.Type), locator)
 	if err != nil {
-		return nil, fmt.Errorf("list fetched candidates: %w", err)
-	}
-	defer rows.Close()
-	fetched := make(map[string]SkillID)
-	for rows.Next() {
-		var name string
-		var id SkillID
-		if err := rows.Scan(&name, &id); err != nil {
-			return nil, fmt.Errorf("read fetched candidate: %w", err)
-		}
-		fetched[name] = id
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read fetched candidates: %w", err)
+		return nil, err
 	}
 	candidates := make([]Candidate, len(state.candidates))
 	for i, c := range state.candidates {
-		candidates[i] = Candidate{Fetched: fetched[c.Name], PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
+		candidates[i] = Candidate{Fetched: SkillID(fetched[c.Name]), PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
 	}
 	return candidates, nil
 }

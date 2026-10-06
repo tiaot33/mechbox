@@ -2,57 +2,25 @@ package library
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, state source.State, description string, createdAt time.Time) (int64, error) {
-	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, source_state, description, created_at) VALUES (?, ?, ?, ?)`, skillID, string(state), description, formatStoredTime(createdAt))
-	if err != nil {
-		return 0, fmt.Errorf("store skill version: %w", err)
-	}
-	versionID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("read version id: %w", err)
-	}
-	for _, file := range files {
-		fingerprint := skillfile.Fingerprint(file.Content)
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
-			return 0, fmt.Errorf("store %s: %w", file.Path, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES (?, ?, ?, ?)`, versionID, file.Path, fingerprint, file.Mode); err != nil {
-			return 0, fmt.Errorf("store %s metadata: %w", file.Path, err)
-		}
-	}
-	return versionID, nil
+func versionOf(row store.Version) SkillVersion {
+	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: row.Files}
 }
 
 func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, description, created_at FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
+	rows, err := l.store.ListVersions(ctx, int64(id))
 	if err != nil {
-		return nil, fmt.Errorf("list skill versions: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var createdAt string
-		version := SkillVersion{SkillID: id}
-		if err := rows.Scan(&version.ID, &version.Description, &createdAt); err != nil {
-			return nil, fmt.Errorf("read skill version: %w", err)
-		}
-		if version.CreatedAt, err = parseStoredTime(createdAt); err != nil {
-			return nil, fmt.Errorf("read skill version: %w", err)
-		}
-		versions = append(versions, version)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read skill versions: %w", err)
+	for _, row := range rows {
+		versions = append(versions, versionOf(row))
 	}
 	return versions, nil
 }
@@ -61,35 +29,11 @@ func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version S
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	version = SkillVersion{ID: id}
-	var createdAt string
-	if err := l.db.QueryRowContext(ctx, `SELECT skill_id, description, created_at FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.Description, &createdAt); err != nil {
-		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
-	}
-	if version.CreatedAt, err = parseStoredTime(createdAt); err != nil {
-		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
-	}
-	rows, err := l.db.QueryContext(ctx, `
-		SELECT version_files.path, blobs.content, version_files.mode
-		FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE version_files.version_id = ?
-		ORDER BY version_files.path
-	`, id)
+	row, err := l.store.GetVersion(ctx, int64(id))
 	if err != nil {
-		return SkillVersion{}, fmt.Errorf("get skill version files: %w", err)
+		return SkillVersion{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var file File
-		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return SkillVersion{}, fmt.Errorf("read skill version file: %w", err)
-		}
-		version.Files = append(version.Files, file)
-	}
-	if err := rows.Err(); err != nil {
-		return SkillVersion{}, fmt.Errorf("read skill version files: %w", err)
-	}
-	return version, nil
+	return versionOf(row), nil
 }
 
 func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {

@@ -200,7 +200,7 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	if err := l.requireSkill(ctx, skillID); err != nil {
+	if err := l.store.RequireSkill(ctx, int64(skillID)); err != nil {
 		return nil, err
 	}
 	var exists int
@@ -299,7 +299,7 @@ func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (s
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	return l.listSummaries(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
+	return summariesOf(l.store.ListGroupSummaries(ctx, int64(groupID)))
 }
 
 func (l *sqliteLibrary) ListGroupsWithMembers(ctx context.Context) (groups []GroupWithMembers, err error) {

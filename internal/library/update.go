@@ -2,13 +2,12 @@ package library
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
 func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateResult, err error) {
@@ -37,55 +36,41 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	skill.Source.LastFetched = time.Now().UTC()
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	tx, err := l.db.BeginTx(ctx, nil)
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
+			return err
+		}
+		if changed {
+			createdAt := clockNow()
+			versionID, err := tx.AddVersion(ctx, int64(id), store.NewVersion{Description: skill.Description, Files: skill.Files, State: string(latest.State), CreatedAt: createdAt})
+			if err != nil {
+				return err
+			}
+			skill.VersionID = VersionID(versionID)
+			skill.UpdatedAt = createdAt
+		} else if err := tx.ConfirmVersion(ctx, int64(id), string(latest.State)); err != nil {
+			return err
+		}
+		if err := tx.RecordSourceFetch(ctx, int64(skill.Source.ID), skill.Source.LastFetched, skill.Source.LastSeenRef); err != nil {
+			return err
+		}
+		return tx.ConfirmUpdateCheck(ctx, int64(id), clockNow(), string(UpdateCurrent))
+	})
 	if err != nil {
-		return UpdateResult{}, fmt.Errorf("begin update: %w", err)
-	}
-	defer tx.Rollback()
-	if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
 		return UpdateResult{}, err
-	}
-	if changed {
-		createdAt := clockNow()
-		versionID, err := createVersion(ctx, tx, int64(id), skill.Files, latest.State, skill.Description, createdAt)
-		if err != nil {
-			return UpdateResult{}, err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
-			return UpdateResult{}, fmt.Errorf("select current version: %w", err)
-		}
-		skill.VersionID = VersionID(versionID)
-		skill.UpdatedAt = createdAt
-	} else if _, err := tx.ExecContext(ctx, `
-		UPDATE skill_versions SET source_state = ?
-		WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
-	`, string(latest.State), id); err != nil {
-		return UpdateResult{}, fmt.Errorf("confirm current version: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`,
-		skill.Source.LastFetched.Format(time.RFC3339Nano), skill.Source.LastSeenRef, skill.Source.ID); err != nil {
-		return UpdateResult{}, fmt.Errorf("update source: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = CASE WHEN update_check_status = '' THEN '' ELSE ? END WHERE id = ?`,
-		formatStoredTime(clockNow()), UpdateCurrent, id); err != nil {
-		return UpdateResult{}, fmt.Errorf("confirm update check: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return UpdateResult{}, fmt.Errorf("commit update: %w", err)
 	}
 	return UpdateResult{Skill: skill, Changed: changed}, nil
 }
 
-func requireCurrentVersion(ctx context.Context, tx *sql.Tx, id SkillID, expected int64) error {
-	var actual sql.NullInt64
-	err := tx.QueryRowContext(ctx, `SELECT current_version_id FROM skills WHERE id = ?`, id).Scan(&actual)
-	if errors.Is(err, sql.ErrNoRows) {
+func requireCurrentVersion(ctx context.Context, tx *store.Tx, id SkillID, expected int64) error {
+	actual, err := tx.CurrentVersionID(ctx, int64(id))
+	if errors.Is(err, store.ErrNotFound) {
 		return &Error{Code: NotFound, Message: "skill was removed while fetching", Details: ErrorDetails{SkillID: id}, Err: err}
 	}
 	if err != nil {
-		return fmt.Errorf("verify skill version: %w", err)
+		return err
 	}
-	if actual.Int64 != expected {
+	if actual != expected {
 		return &Error{Code: Conflict, Message: "skill changed while fetching", Details: ErrorDetails{SkillID: id}}
 	}
 	return nil

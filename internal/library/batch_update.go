@@ -3,9 +3,9 @@ package library
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
 func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (results []UpdateCheck, err error) {
@@ -109,24 +109,17 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 func (l *sqliteLibrary) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin update check: %w", err)
-	}
-	defer tx.Rollback()
-	if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
-		return err
-	}
-	var storedAt string
-	var storedStatus UpdateCheckStatus
-	if err := tx.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, id).Scan(&storedAt, &storedStatus); err != nil {
-		return fmt.Errorf("read update check time: %w", err)
-	}
-	if storedAt != state.updateCheckedAt && storedStatus != status && storedStatus != UpdateFailed {
-		return &Error{Code: Conflict, Message: "check updates: skill was confirmed while checking", Details: ErrorDetails{SkillID: id}}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = ? WHERE id = ?`, formatStoredTime(clockNow()), status, id); err != nil {
-		return fmt.Errorf("save update check: %w", err)
-	}
-	return tx.Commit()
+	return l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
+			return err
+		}
+		storedAt, storedStatus, err := tx.UpdateCheck(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		if !storedAt.Equal(state.checkedAt) && UpdateCheckStatus(storedStatus) != status && UpdateCheckStatus(storedStatus) != UpdateFailed {
+			return &Error{Code: Conflict, Message: "check updates: skill was confirmed while checking", Details: ErrorDetails{SkillID: id}}
+		}
+		return tx.SaveUpdateCheck(ctx, int64(id), clockNow(), string(status))
+	})
 }

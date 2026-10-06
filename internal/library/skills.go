@@ -3,7 +3,6 @@ package library
 import (
 	"cmp"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,77 +12,58 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-const summaryQuery = `
-	SELECT skills.id, skills.name, current_version.description,
-		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
-		first_version.created_at, current_version.created_at, skills.update_checked_at, skills.update_check_status
-	FROM skills
-	JOIN sources ON sources.id = skills.source_id
-	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
-	JOIN skill_versions AS first_version ON first_version.id = (
-		SELECT id FROM skill_versions WHERE skill_id = skills.id ORDER BY id LIMIT 1
-	)
-`
+func sourceOf(row store.Source) (Source, error) {
+	src := Source{ID: SourceID(row.ID), Type: SourceType(row.Type), LastFetched: row.LastFetched, LastSeenRef: row.LastSeenRef}
+	if err := json.Unmarshal(row.Locator, &src.Locator); err != nil {
+		return Source{}, fmt.Errorf("decode source: %w", err)
+	}
+	return src, nil
+}
 
-func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
-	summary, err := scanSummary(l.db.QueryRowContext(ctx, summaryQuery+`WHERE skills.id = ?`, id))
+func sourceRecord(src Source) (store.Source, error) {
+	locator, err := json.Marshal(src.Locator)
 	if err != nil {
-		return SkillSummary{}, fmt.Errorf("get skill: %w", err)
+		return store.Source{}, fmt.Errorf("encode source: %w", err)
+	}
+	return store.Source{ID: int64(src.ID), Type: string(src.Type), Locator: locator, LastFetched: src.LastFetched, LastSeenRef: src.LastSeenRef}, nil
+}
+
+func summaryOf(row store.Summary) (SkillSummary, error) {
+	src, err := sourceOf(row.Source)
+	if err != nil {
+		return SkillSummary{}, err
+	}
+	summary := SkillSummary{ID: SkillID(row.ID), Name: row.Name, Description: row.Description, Source: src, FetchedAt: row.FetchedAt, UpdatedAt: row.UpdatedAt}
+	if row.CheckStatus != "" {
+		summary.LastUpdateCheck = &UpdateCheckState{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
 	}
 	return summary, nil
 }
 
-func (l *sqliteLibrary) listSummaries(ctx context.Context, operation, clause string, args ...any) ([]SkillSummary, error) {
-	rows, err := l.db.QueryContext(ctx, summaryQuery+clause, args...)
+func summariesOf(rows []store.Summary, err error) ([]SkillSummary, error) {
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", operation, err)
+		return nil, err
 	}
-	defer rows.Close()
 	var skills []SkillSummary
-	for rows.Next() {
-		summary, err := scanSummary(rows)
+	for _, row := range rows {
+		summary, err := summaryOf(row)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", operation, err)
+			return nil, err
 		}
 		skills = append(skills, summary)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s: %w", operation, err)
 	}
 	return skills, nil
 }
 
-func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
-	var summary SkillSummary
-	var locator []byte
-	var lastFetched, fetchedAt, updatedAt string
-	var checkedAt string
-	var check UpdateCheckState
-	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &lastFetched, &summary.Source.LastSeenRef, &fetchedAt, &updatedAt, &checkedAt, &check.Status)
+func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
+	row, err := l.store.GetSummary(ctx, int64(id))
 	if err != nil {
 		return SkillSummary{}, err
 	}
-	if err := json.Unmarshal(locator, &summary.Source.Locator); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode source: %w", err)
-	}
-	if summary.Source.LastFetched, err = parseStoredTime(lastFetched); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode last fetched: %w", err)
-	}
-	if summary.FetchedAt, err = parseStoredTime(fetchedAt); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode fetched at: %w", err)
-	}
-	if summary.UpdatedAt, err = parseStoredTime(updatedAt); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode updated at: %w", err)
-	}
-	if check.Status != "" {
-		if check.CheckedAt, err = parseStoredTime(checkedAt); err != nil {
-			return SkillSummary{}, fmt.Errorf("decode update checked at: %w", err)
-		}
-		summary.LastUpdateCheck = &check
-	}
-	return summary, nil
+	return summaryOf(row)
 }
 
 func parseStoredTime(value string) (time.Time, error) {
@@ -123,38 +103,47 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, src Source, skills []sourc
 	if err := validateSource(src); err != nil {
 		return nil, err
 	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin fetch: %w", err)
-	}
-	defer tx.Rollback()
-	sourceID, err := upsertSource(ctx, tx, src)
+	record, err := sourceRecord(src)
 	if err != nil {
 		return nil, err
 	}
-	for _, skill := range skills {
-		id, err := findSkillBySourceName(ctx, tx, sourceID, skill.Name)
-		if err != nil {
-			return nil, err
-		}
-		if id != 0 {
-			return nil, existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: id, Name: skill.Name})
-		}
-	}
 	fetched := make([]Skill, 0, len(skills))
-	for _, skill := range skills {
-		description := skill.Description
-		if description == "" {
-			description = skillDescription(skill.Files)
-		}
-		result, err := insertSkill(ctx, tx, sourceID, src, skill.Name, skill.Files, skill.State, description)
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		sourceID, err := tx.UpsertSource(ctx, record)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		fetched = append(fetched, result)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit fetch: %w", err)
+		for _, skill := range skills {
+			id, err := tx.FindSkill(ctx, sourceID, skill.Name)
+			if err != nil {
+				return err
+			}
+			if id != 0 {
+				return existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: SkillID(id), Name: skill.Name})
+			}
+		}
+		for _, skill := range skills {
+			if skill.Name == "" {
+				return fmt.Errorf("fetch skill: name is required")
+			}
+			description := skill.Description
+			if description == "" {
+				description = skillDescription(skill.Files)
+			}
+			createdAt := clockNow()
+			skillID, versionID, err := tx.InsertSkill(ctx, sourceID, skill.Name, store.NewVersion{Description: description, Files: skill.Files, State: string(skill.State), CreatedAt: createdAt})
+			if err != nil {
+				return err
+			}
+			result := src
+			result.ID = SourceID(sourceID)
+			result.LastFetched = result.LastFetched.UTC()
+			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: result, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: skill.Files})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return fetched, nil
 }
@@ -183,63 +172,6 @@ func validateSource(source Source) error {
 	return nil
 }
 
-func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error) {
-	locator, err := json.Marshal(source.Locator)
-	if err != nil {
-		return 0, fmt.Errorf("encode source: %w", err)
-	}
-	fetched := formatStoredTime(source.LastFetched)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO sources(type, locator, last_fetched, last_seen_ref) VALUES (?, ?, ?, ?)
-		ON CONFLICT(type, locator) DO UPDATE SET
-			last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref
-	`, source.Type, locator, fetched, source.LastSeenRef); err != nil {
-		return 0, fmt.Errorf("store source: %w", err)
-	}
-	var sourceID int64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM sources WHERE type = ? AND locator = ?`, source.Type, locator).Scan(&sourceID); err != nil {
-		return 0, fmt.Errorf("read source: %w", err)
-	}
-	return sourceID, nil
-}
-
-func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name string) (SkillID, error) {
-	var id SkillID
-	err := tx.QueryRowContext(ctx, `SELECT id FROM skills WHERE source_id = ? AND name = ?`, sourceID, name).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("find skill: %w", err)
-	}
-	return id, nil
-}
-
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, src Source, name string, files []File, state source.State, description string) (Skill, error) {
-	if name == "" {
-		return Skill{}, fmt.Errorf("fetch skill: name is required")
-	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
-	if err != nil {
-		return Skill{}, fmt.Errorf("store skill: %w", err)
-	}
-	skillID, err := result.LastInsertId()
-	if err != nil {
-		return Skill{}, fmt.Errorf("read skill id: %w", err)
-	}
-	createdAt := clockNow()
-	versionID, err := createVersion(ctx, tx, skillID, files, state, description, createdAt)
-	if err != nil {
-		return Skill{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
-		return Skill{}, fmt.Errorf("select current version: %w", err)
-	}
-	src.ID = SourceID(sourceID)
-	src.LastFetched = src.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: src, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
-}
-
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
 	defer func() { err = typedError(err) }()
 	skill, _, err = l.getSkill(ctx, id)
@@ -247,9 +179,9 @@ func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, 
 }
 
 type sourceState struct {
-	updateCheckedAt string
-	versionID       int64
-	snapshot        source.State
+	checkedAt time.Time
+	versionID int64
+	snapshot  source.State
 }
 
 func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
@@ -259,84 +191,36 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 	if err != nil {
 		return Skill{}, sourceState{}, err
 	}
+	current, err := l.store.GetCurrent(ctx, int64(id))
+	if err != nil {
+		return Skill{}, sourceState{}, err
+	}
 	skill := Skill{
 		ID:          summary.ID,
 		Name:        summary.Name,
 		Description: summary.Description,
 		Source:      summary.Source,
+		VersionID:   VersionID(current.VersionID),
 		FetchedAt:   summary.FetchedAt,
 		UpdatedAt:   summary.UpdatedAt,
+		Files:       current.Files,
 	}
-	var state sourceState
-	var snapshotState string
-	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.source_state, skills.update_checked_at
-		FROM skills
-		JOIN skill_versions ON skill_versions.id = skills.current_version_id
-		WHERE skills.id = ?
-	`, id).Scan(&state.versionID, &snapshotState, &state.updateCheckedAt); err != nil {
-		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
-	}
-	skill.VersionID = VersionID(state.versionID)
-	state.snapshot = source.State(snapshotState)
-
-	rows, err := l.db.QueryContext(ctx, `
-		SELECT version_files.path, blobs.content, version_files.mode
-		FROM version_files
-		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE version_files.version_id = ?
-		ORDER BY version_files.path
-	`, state.versionID)
-	if err != nil {
-		return Skill{}, sourceState{}, fmt.Errorf("get skill files: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var file File
-		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return Skill{}, sourceState{}, fmt.Errorf("read skill file: %w", err)
-		}
-		skill.Files = append(skill.Files, file)
-	}
-	if err := rows.Err(); err != nil {
-		return Skill{}, sourceState{}, fmt.Errorf("read skill files: %w", err)
-	}
-	return skill, state, nil
+	return skill, sourceState{checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
 }
 
 func (l *sqliteLibrary) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `
-		SELECT version_files.path, length(blobs.content), version_files.mode
-		FROM skills
-		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id
-		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
-		ORDER BY version_files.path
-	`, id)
-	if err != nil {
-		return nil, fmt.Errorf("list skill files: %w", err)
-	}
-	defer rows.Close()
-	skillExists := false
-	for rows.Next() {
-		skillExists = true
-		var path, mode sql.NullString
-		var size sql.NullInt64
-		if err := rows.Scan(&path, &size, &mode); err != nil {
-			return nil, fmt.Errorf("read skill file metadata: %w", err)
-		}
-		if path.Valid {
-			files = append(files, FileMetadata{Path: path.String, Size: size.Int64, Mode: FileMode(mode.String)})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list skill files: %w", err)
-	}
-	if !skillExists {
+	rows, err := l.store.ListCurrentFiles(ctx, int64(id))
+	if errors.Is(err, store.ErrNotFound) {
 		return nil, &Error{Code: NotFound, Message: "list skill files: skill not found", Details: ErrorDetails{SkillID: id}}
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: row.Mode})
 	}
 	return files, nil
 }
@@ -345,25 +229,16 @@ func (l *sqliteLibrary) GetSkillFile(ctx context.Context, id SkillID, path strin
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	var fileExists bool
-	var mode sql.NullString
-	err = l.db.QueryRowContext(ctx, `
-		SELECT version_files.path IS NOT NULL, blobs.content, version_files.mode
-		FROM skills
-		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id AND version_files.path = ?
-		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
-	`, path, id).Scan(&fileExists, &file.Content, &mode)
-	if errors.Is(err, sql.ErrNoRows) {
+	file, found, err := l.store.GetCurrentFile(ctx, int64(id), path)
+	if errors.Is(err, store.ErrNotFound) {
 		return File{}, &Error{Code: NotFound, Message: "get skill file: skill not found", Details: ErrorDetails{SkillID: id}}
 	}
 	if err != nil {
-		return File{}, fmt.Errorf("get skill file: %w", err)
+		return File{}, err
 	}
-	if !fileExists {
+	if !found {
 		return File{}, &Error{Code: NotFound, Message: "get skill file: file not found", Details: ErrorDetails{Path: path}}
 	}
-	file.Path, file.Mode = path, FileMode(mode.String)
 	return file, nil
 }
 
@@ -371,7 +246,7 @@ func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, 
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	return l.listSummaries(ctx, "list skills", `ORDER BY skills.name, skills.id`)
+	return summariesOf(l.store.ListSummaries(ctx))
 }
 
 func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
@@ -399,33 +274,9 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 		}
 	}
 
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin remove skill: %w", err)
-	}
-	defer tx.Rollback()
-	statements := []string{
-		`DELETE FROM skill_scopes WHERE skill_id = ?`,
-		`DELETE FROM skill_groups WHERE skill_id = ?`,
-		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
-		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
-		`DELETE FROM skill_versions WHERE skill_id = ?`,
-		`DELETE FROM skills WHERE id = ?`,
-	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement, id); err != nil {
-			return fmt.Errorf("remove skill: %w", err)
-		}
-	}
-	return commitChange(ctx, tx, &change, "remove skill")
-}
-
-func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {
-	var exists int
-	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skills WHERE id = ?`, id).Scan(&exists); err != nil {
-		return fmt.Errorf("get skill: %w", err)
-	}
-	return nil
+	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		return tx.RemoveSkill(ctx, int64(id))
+	})
 }
 
 func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Collection, err error) {
