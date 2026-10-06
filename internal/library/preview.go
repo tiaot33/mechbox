@@ -12,17 +12,10 @@ import (
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 )
 
 const previewTTL = 30 * time.Minute
-
-type discoveredSkill struct {
-	name       string
-	candidate  discovery.Candidate
-	files      []File
-	gitTreeSHA string
-	blobs      []githubBlob
-}
 
 type previewState struct {
 	source      Source
@@ -119,14 +112,14 @@ func (l *sqliteLibrary) previewSource(ctx context.Context, req PreviewFetchReque
 	}
 	switch {
 	case req.GitHub != nil:
-		locator, subpath, name, err := resolveGitHubInput(ctx, *req.GitHub)
+		resolved, err := github.Resolve(ctx, github.Input{Input: req.GitHub.Input, Ref: req.GitHub.Ref, Subpath: req.GitHub.Subpath})
 		if err != nil {
 			return Source{}, "", nil, err
 		}
-		if name != "" {
-			names = []string{name}
+		if resolved.Name != "" {
+			names = []string{resolved.Name}
 		}
-		return Source{Type: SourceGitHub, Locator: locator}, subpath, names, nil
+		return Source{Type: SourceGitHub, Locator: SourceLocator{Repository: resolved.Repository, Branch: resolved.Ref}}, resolved.Subpath, names, nil
 	case req.URL != "":
 		return Source{Type: SourceURL, Locator: SourceLocator{URL: req.URL}}, "", nil, nil
 	default:
@@ -247,10 +240,6 @@ func newPreviewID() (FetchPreviewID, error) {
 		return "", fmt.Errorf("issue preview handle: %w", err)
 	}
 	return FetchPreviewID(hex.EncodeToString(buffer)), nil
-}
-
-func selectSkills(skills []discoveredSkill, selected []string) ([]discoveredSkill, error) {
-	return selectNamed(skills, selected, func(skill discoveredSkill) string { return skill.name })
 }
 
 func selectCandidates(candidates []discovery.Candidate, selected []string) ([]discovery.Candidate, error) {

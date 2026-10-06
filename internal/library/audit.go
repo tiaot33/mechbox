@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 )
 
 const (
@@ -37,7 +38,7 @@ func (l *sqliteLibrary) GetSkillAudit(ctx context.Context, id FetchPreviewID, na
 	if _, err := selectCandidates(state.candidates, []string{name}); err != nil {
 		return nil, err
 	}
-	owner, repo, ok := githubOwnerRepo(state.source.Locator.Repository)
+	owner, repo, ok := github.OwnerRepo(state.source.Locator.Repository)
 	if !ok {
 		return nil, nil
 	}

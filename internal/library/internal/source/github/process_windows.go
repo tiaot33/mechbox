@@ -1,4 +1,4 @@
-package library
+package github
 
 import (
 	"os/exec"

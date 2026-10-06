@@ -1,6 +1,6 @@
 //go:build !unix && !windows
 
-package library
+package github
 
 import "os/exec"
 

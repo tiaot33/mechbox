@@ -1,4 +1,4 @@
-package library
+package github
 
 import (
 	"cmp"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
@@ -42,9 +43,9 @@ type githubInput struct {
 	tree       string
 }
 
-func parseGitHubInput(github GitHubInput) (result githubInput, err error) {
+func parseGitHubInput(github Input) (result githubInput, err error) {
 	invalid := func() (githubInput, error) {
-		return githubInput{}, &Error{Code: InvalidArgument, Message: "invalid or ambiguous GitHub source input"}
+		return githubInput{}, invalidInput("invalid or ambiguous GitHub source input")
 	}
 	input := strings.TrimSpace(github.Input)
 	if input == "" || strings.ContainsAny(input, "\x00\r\n\\") {
@@ -106,11 +107,31 @@ func parseGitHubInput(github GitHubInput) (result githubInput, err error) {
 	return result, nil
 }
 
+func PlainRepository(input string) (string, bool) {
+	parsed, err := parseGitHubInput(Input{Input: input})
+	if err != nil || parsed.tree != "" || parsed.ref != "" || parsed.name != "" {
+		return "", false
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(parsed.repository, "https://github.com/"), ".git"), true
+}
+
 func validSubpath(value string) bool {
 	return value == "" || (fs.ValidPath(value) && !strings.ContainsAny(value, "\\:\x00") && !strings.Contains("/"+value+"/", "/.git/"))
 }
 
-func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator SourceLocator, subpath, name string, err error) {
+type Resolved struct {
+	Repository string
+	Ref        string
+	Subpath    string
+	Name       string
+}
+
+func Resolve(ctx context.Context, input Input) (Resolved, error) {
+	locator, subpath, name, err := resolveGitHubInput(ctx, input)
+	return Resolved{Repository: locator.Repository, Ref: locator.Branch, Subpath: subpath, Name: name}, err
+}
+
+func resolveGitHubInput(ctx context.Context, github Input) (locator repoLocator, subpath, name string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -146,7 +167,7 @@ func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator Source
 				}
 			}
 			if len(matches) != 1 || strings.Contains(matches[0], "/") {
-				return locator, "", "", &Error{Code: InvalidArgument, Message: "tree ref boundary is ambiguous; provide an explicit ref"}
+				return locator, "", "", invalidInput("tree ref boundary is ambiguous; provide an explicit ref")
 			}
 			parsed.ref = matches[0]
 		}
@@ -155,11 +176,11 @@ func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator Source
 			var ok bool
 			suffix, ok = strings.CutPrefix(parsed.tree, parsed.ref+"/")
 			if !ok {
-				return locator, "", "", &Error{Code: InvalidArgument, Message: "tree URL does not match explicit ref"}
+				return locator, "", "", invalidInput("tree URL does not match explicit ref")
 			}
 		}
 		if parsed.subpath != "" && parsed.subpath != suffix {
-			return locator, "", "", &Error{Code: InvalidArgument, Message: "conflicting source subpaths"}
+			return locator, "", "", invalidInput("conflicting source subpaths")
 		}
 		parsed.subpath = suffix
 	}
@@ -175,7 +196,7 @@ func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator Source
 			}
 		}
 		if parsed.ref == "" {
-			return locator, "", "", &Error{Code: SourceUnreachable, Message: "remote default branch is unavailable"}
+			return locator, "", "", fmt.Errorf("remote default branch is unavailable: %w", source.ErrUnreachable)
 		}
 	}
 	if err := validateGitRef(ctx, parsed.ref); err != nil {
@@ -184,12 +205,12 @@ func resolveGitHubInput(ctx context.Context, github GitHubInput) (locator Source
 	if fullCommit.MatchString(parsed.ref) {
 		parsed.ref = strings.ToLower(parsed.ref)
 	}
-	return SourceLocator{Repository: parsed.repository, Branch: parsed.ref}, parsed.subpath, parsed.name, nil
+	return repoLocator{Repository: parsed.repository, Branch: parsed.ref}, parsed.subpath, parsed.name, nil
 }
 
 func validateGitRef(ctx context.Context, ref string) error {
 	if ref == "" || strings.HasPrefix(ref, "-") || strings.Contains(ref, "@{") || strings.ContainsAny(ref, "\x00\r\n") {
-		return &Error{Code: InvalidArgument, Message: "invalid Git ref"}
+		return invalidInput("invalid Git ref")
 	}
 	if fullCommit.MatchString(ref) {
 		return nil
@@ -198,7 +219,7 @@ func validateGitRef(ctx context.Context, ref string) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return &Error{Code: InvalidArgument, Message: "invalid Git ref"}
+		return invalidInput("invalid Git ref")
 	}
 	return nil
 }
@@ -232,7 +253,7 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, ctx.Err()
 	}
 	if commandCtx.Err() != nil {
-		return nil, fetchError(SourceUnreachable, "git", errGitTimeout)
+		return nil, fmt.Errorf("git: %w: %w", errGitTimeout, source.ErrUnreachable)
 	}
 	if err != nil {
 		return nil, gitCommandError(output)
@@ -241,8 +262,8 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func missingRefError(err error, ref string) error {
-	if typed, ok := errors.AsType[*Error](err); ok && typed.Code == NotFound && typed.Details.Name == "" {
-		typed.Details.Name = ref
+	if missing, ok := errors.AsType[*RefNotFoundError](err); ok && missing.Ref == "" {
+		missing.Ref = ref
 	}
 	return err
 }
@@ -251,13 +272,13 @@ func gitCommandError(output []byte) error {
 	detail := strings.ToLower(string(output))
 	switch {
 	case gitAuthFailure(detail):
-		return fetchError(Permission, "git", errors.New("authentication failed"))
+		return fmt.Errorf("git: authentication failed: %w", source.ErrPermission)
 	case gitMissingRef(detail):
-		return &Error{Code: NotFound, Message: "git: ref not found"}
+		return &RefNotFoundError{}
 	case gitUnreachable(detail):
-		return fetchError(SourceUnreachable, "git", errors.New("remote could not be reached"))
+		return fmt.Errorf("git: remote could not be reached: %w", source.ErrUnreachable)
 	default:
-		return fetchError(SourceUnreachable, "git", errors.New("operation failed; check source, ref and authentication"))
+		return fmt.Errorf("git: operation failed; check source, ref and authentication: %w", source.ErrUnreachable)
 	}
 }
 
@@ -311,7 +332,7 @@ func sourceSSHCommand(ctx context.Context) (string, error) {
 	}
 	if err != nil {
 		if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 1 {
-			return "", fetchError(Internal, "read Git SSH configuration", errors.New("git config failed"))
+			return "", errors.New("read Git SSH configuration: git config failed")
 		}
 	}
 	if executable := os.Getenv("GIT_SSH"); executable != "" {
@@ -345,32 +366,8 @@ func gitRemote(ctx context.Context, repository string, args ...string) ([]byte, 
 }
 
 func preferGitHubHTTPSError(httpsErr, sshErr error) error {
-	if IsCode(httpsErr, Permission) {
+	if errors.Is(httpsErr, source.ErrPermission) {
 		return httpsErr
 	}
 	return sshErr
-}
-
-func validateSource(source Source) error {
-	switch source.Type {
-	case SourceGitHub:
-		if source.Locator.Repository == "" || source.Locator.Branch == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: github repository and branch are required"}
-		}
-	case SourceURL:
-		if source.Locator.URL == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: url is required"}
-		}
-	case sourceStore:
-		if source.Locator.PackageID == "" || source.Locator.Version == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: store package id and version are required"}
-		}
-	case SourceLocal:
-		if source.Locator.Path == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: local path is required"}
-		}
-	default:
-		return &Error{Code: InvalidArgument, Message: fmt.Sprintf("invalid source: unsupported source type %q", source.Type)}
-	}
-	return nil
 }

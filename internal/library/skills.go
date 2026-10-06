@@ -159,6 +159,30 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, src Source, skills []sourc
 	return fetched, nil
 }
 
+func validateSource(source Source) error {
+	switch source.Type {
+	case SourceGitHub:
+		if source.Locator.Repository == "" || source.Locator.Branch == "" {
+			return &Error{Code: InvalidArgument, Message: "invalid source: github repository and branch are required"}
+		}
+	case SourceURL:
+		if source.Locator.URL == "" {
+			return &Error{Code: InvalidArgument, Message: "invalid source: url is required"}
+		}
+	case sourceStore:
+		if source.Locator.PackageID == "" || source.Locator.Version == "" {
+			return &Error{Code: InvalidArgument, Message: "invalid source: store package id and version are required"}
+		}
+	case SourceLocal:
+		if source.Locator.Path == "" {
+			return &Error{Code: InvalidArgument, Message: "invalid source: local path is required"}
+		}
+	default:
+		return &Error{Code: InvalidArgument, Message: fmt.Sprintf("invalid source: unsupported source type %q", source.Type)}
+	}
+	return nil
+}
+
 func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error) {
 	locator, err := json.Marshal(source.Locator)
 	if err != nil {

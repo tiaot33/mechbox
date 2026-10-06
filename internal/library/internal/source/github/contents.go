@@ -1,4 +1,4 @@
-package library
+package github
 
 import (
 	"bytes"
@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
@@ -33,7 +34,7 @@ type githubBlob struct {
 	repoPath string
 	sha      string
 	size     int64
-	mode     FileMode
+	mode     skillfile.Mode
 	content  []byte
 }
 
@@ -61,10 +62,10 @@ type githubClient struct {
 	memo     *githubObjectMemo
 }
 
-func (l *sqliteLibrary) newGitHubClient() *githubClient {
-	client := &githubClient{token: githubToken(), auth: &l.githubAuth, memo: &l.githubMemo}
-	client.useToken.Store(l.githubAuth.useToken.Load())
-	client.useCLI.Store(l.githubAuth.useCLI.Load())
+func (c *Client) session() *githubClient {
+	client := &githubClient{token: githubToken(), auth: &c.auth, memo: &c.memo}
+	client.useToken.Store(c.auth.useToken.Load())
+	client.useCLI.Store(c.auth.useCLI.Load())
 	return client
 }
 
@@ -97,7 +98,7 @@ type githubBlobResponse struct {
 	Truncated bool   `json:"truncated"`
 }
 
-func githubOwnerRepo(repository string) (owner, repo string, ok bool) {
+func OwnerRepo(repository string) (owner, repo string, ok bool) {
 	rest, ok := strings.CutPrefix(repository, "https://github.com/")
 	if !ok {
 		return "", "", false
@@ -238,9 +239,9 @@ func githubContentsUnavailable(err error) bool {
 
 func githubMaterializeError(err error) error {
 	if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden) {
-		return fetchError(Permission, "fetch source", errors.New("authentication failed"))
+		return fmt.Errorf("fetch source: authentication failed: %w", source.ErrPermission)
 	}
-	return fetchError(SourceUnreachable, "fetch source", errors.New("source could not be reached"))
+	return fmt.Errorf("fetch source: %w", source.ErrUnreachable)
 }
 
 func isGitHubAuthRetry(err error) bool {
@@ -275,10 +276,10 @@ func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, er
 		current = path.Join(current, component)
 		index := slices.IndexFunc(entries, func(entry githubTreeEntry) bool { return entry.Path == current })
 		if index < 0 {
-			return "", &Error{Code: NotFound, Message: "source subpath not found"}
+			return "", ErrSubpathNotFound
 		}
 		if entries[index].Type != "tree" {
-			return "", &Error{Code: InvalidArgument, Message: "source subpath must contain only real directories"}
+			return "", invalidInput("source subpath must contain only real directories")
 		}
 	}
 	return subpath, nil
@@ -403,9 +404,9 @@ func githubSkillBlobs(entries []githubTreeEntry, skillPath, rootTree string, byP
 		if !githubRegularBlob(entry) {
 			return nil, "", errGitHubContentsFallback
 		}
-		mode := ModeRegular
+		mode := skillfile.ModeRegular
 		if entry.Mode == "100755" {
-			mode = ModeExecutable
+			mode = skillfile.ModeExecutable
 		}
 		blobs = append(blobs, githubBlob{path: rel, repoPath: entry.Path, sha: entry.SHA, mode: mode, size: githubEntrySize(entry)})
 	}
@@ -428,10 +429,10 @@ func githubDotGitPath(rel string) bool {
 	return rel == ".git" || strings.HasPrefix(rel, ".git/") || strings.Contains(rel, "/.git/")
 }
 
-func githubFiles(blobs []githubBlob, contents [][]byte) []File {
-	files := make([]File, len(blobs))
+func githubFiles(blobs []githubBlob, contents [][]byte) []skillfile.File {
+	files := make([]skillfile.File, len(blobs))
 	for i, blob := range blobs {
-		files[i] = File{Path: blob.path, Content: bytes.Clone(contents[i]), Mode: blob.mode}
+		files[i] = skillfile.File{Path: blob.path, Content: bytes.Clone(contents[i]), Mode: blob.mode}
 	}
 	return files
 }
@@ -443,7 +444,7 @@ type githubSnapshot struct {
 	byPath       map[string]githubTreeEntry
 	owner        string
 	repo         string
-	locator      SourceLocator
+	locator      repoLocator
 	subpath      string
 	client       *githubClient
 	skills       []discoveredSkill
@@ -471,14 +472,18 @@ func encodeGitHubState(commit, tree string) source.State {
 	return encoded
 }
 
-func (l *sqliteLibrary) openGitHub(ctx context.Context, locator SourceLocator, subpath string) (*githubSnapshot, error) {
+func Open(ctx context.Context, client *Client, loc source.Locator, subpath string) (source.Snapshot, error) {
+	var locator repoLocator
+	if err := json.Unmarshal(loc, &locator); err != nil {
+		return nil, fmt.Errorf("decode github locator: %w", err)
+	}
 	s := &githubSnapshot{locator: locator, subpath: subpath}
 	var apiErr error
-	if owner, repo, ok := githubOwnerRepo(locator.Repository); ok {
-		client := l.newGitHubClient()
-		commit, rootTree, err := client.commit(ctx, owner, repo, locator.Branch)
+	if owner, repo, ok := OwnerRepo(locator.Repository); ok {
+		session := client.session()
+		commit, rootTree, err := session.commit(ctx, owner, repo, locator.Branch)
 		if err == nil {
-			s.ref, s.rootTree, s.owner, s.repo, s.client = commit, rootTree, owner, repo, client
+			s.ref, s.rootTree, s.owner, s.repo, s.client = commit, rootTree, owner, repo, session
 			return s, nil
 		}
 		if ctx.Err() != nil || !githubContentsUnavailable(err) {
@@ -665,7 +670,7 @@ func gitBlobSHA(content []byte) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-func (s *githubSnapshot) rememberGitBlobs(files []File) {
+func (s *githubSnapshot) rememberGitBlobs(files []skillfile.File) {
 	if s.client == nil {
 		return
 	}
@@ -701,8 +706,39 @@ func githubCloneError(ctx context.Context, apiErr, cloneErr error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if IsCode(cloneErr, SourceUnreachable) && IsCode(githubMaterializeError(apiErr), Permission) {
+	if errors.Is(cloneErr, source.ErrUnreachable) && errors.Is(githubMaterializeError(apiErr), source.ErrPermission) {
 		return githubMaterializeError(apiErr)
 	}
 	return cloneErr
+}
+
+type discoveredSkill struct {
+	name       string
+	candidate  discovery.Candidate
+	files      []skillfile.File
+	gitTreeSHA string
+	blobs      []githubBlob
+}
+
+func selectSkills(skills []discoveredSkill, selected []string) ([]discoveredSkill, error) {
+	if len(selected) == 0 {
+		return skills, nil
+	}
+	wanted := make(map[string]bool, len(selected))
+	for _, name := range selected {
+		wanted[name] = true
+	}
+	result := make([]discoveredSkill, 0, len(selected))
+	for _, skill := range skills {
+		if wanted[skill.name] {
+			result = append(result, skill)
+			delete(wanted, skill.name)
+		}
+	}
+	for _, name := range selected {
+		if wanted[name] {
+			return nil, &source.SkillNotFoundError{Name: name}
+		}
+	}
+	return result, nil
 }

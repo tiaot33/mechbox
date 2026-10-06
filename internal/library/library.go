@@ -9,6 +9,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 )
 
 type sqliteLibrary struct {
@@ -20,8 +21,7 @@ type sqliteLibrary struct {
 	previews  map[FetchPreviewID]*previewState
 	closed    bool
 
-	githubAuth githubAuth
-	githubMemo githubObjectMemo
+	github *github.Client
 }
 
 type libraryOperationKey struct{}
@@ -92,7 +92,7 @@ func Open(path string) (Library, error) {
 		return nil, fmt.Errorf("open library: %w", err)
 	}
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
-	return &sqliteLibrary{db: db, home: home, previews: map[FetchPreviewID]*previewState{}, githubMemo: newGitHubMemo()}, nil
+	return &sqliteLibrary{db: db, home: home, previews: map[FetchPreviewID]*previewState{}, github: github.NewClient()}, nil
 }
 
 func (l *sqliteLibrary) Close() error {
@@ -105,9 +105,6 @@ func (l *sqliteLibrary) Close() error {
 	}
 	clear(l.previews)
 	l.previewMu.Unlock()
-	l.githubAuth.anonymousReset.Store(0)
-	l.githubAuth.useToken.Store(false)
-	l.githubAuth.useCLI.Store(false)
-	l.githubMemo.release()
+	l.github.Close()
 	return l.db.Close()
 }

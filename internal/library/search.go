@@ -9,13 +9,17 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 )
+
+const searchTimeout = 30 * time.Second
 
 func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result []SearchSkill, err error) {
 	defer func() { err = typedError(err) }()
-	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -76,11 +80,10 @@ func (l *sqliteLibrary) SearchSkills(ctx context.Context, query string) (result 
 		if strings.TrimSpace(skill.ID) == "" || strings.TrimSpace(skill.Name) == "" || strings.TrimSpace(skill.Source) == "" || (skill.Installs != nil && *skill.Installs < 0) {
 			return nil, fetchError(SourceInvalid, "read search response", errors.New("missing or invalid result fields"))
 		}
-		source, err := parseGitHubInput(GitHubInput{Input: skill.Source})
-		if err != nil || source.tree != "" || source.ref != "" || source.name != "" || !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
+		repository, ok := github.PlainRepository(skill.Source)
+		if !ok || !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
 			continue
 		}
-		repository := strings.TrimSuffix(strings.TrimPrefix(source.repository, "https://github.com/"), ".git")
 		segments := strings.Split(skill.ID, "/")
 		for i, segment := range segments {
 			segments[i] = url.PathEscape(segment)

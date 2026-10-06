@@ -10,6 +10,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 )
 
@@ -29,6 +30,12 @@ func typedError(err error) error {
 	if errors.Is(err, download.ErrInvalidURL) {
 		return argumentError("fetch source", "url", "invalid source URL")
 	}
+	if missing, ok := errors.AsType[*github.RefNotFoundError](err); ok {
+		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Ref}, Err: err}
+	}
+	if invalid, ok := errors.AsType[*github.InputError](err); ok {
+		return &Error{Code: InvalidArgument, Message: invalid.Reason, Err: err}
+	}
 	code := Internal
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
@@ -41,7 +48,7 @@ func typedError(err error) error {
 		code = SourceUnreachable
 	case errors.Is(err, source.ErrPermission):
 		code = Permission
-	case errors.Is(err, sql.ErrNoRows):
+	case errors.Is(err, sql.ErrNoRows), errors.Is(err, github.ErrSubpathNotFound):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):
 		code = Permission
