@@ -8,7 +8,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
@@ -50,12 +49,12 @@ func (s *snapshot) Revision() string {
 	return ""
 }
 
-func (s *snapshot) Candidates() ([]discovery.Candidate, []discovery.Diagnostic) {
+func (s *snapshot) Candidates(context.Context) ([]discovery.Candidate, []discovery.Diagnostic, error) {
 	candidates := make([]discovery.Candidate, len(s.skills))
 	for i, skill := range s.skills {
 		candidates[i] = skill.Candidate
 	}
-	return candidates, s.diagnostics
+	return candidates, s.diagnostics, nil
 }
 
 func (s *snapshot) Fetch(_ context.Context, names []string) ([]source.Skill, error) {
@@ -73,10 +72,9 @@ func (s *snapshot) Fetch(_ context.Context, names []string) ([]source.Skill, err
 	return result, nil
 }
 
-func (s *snapshot) Check(ctx context.Context, have source.Have) (bool, error) {
-	latest, err := s.Fetch(ctx, []string{have.Name})
-	if err != nil {
-		return false, err
+func (s *snapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+	if _, err := s.Fetch(ctx, []string{have.Name}); err != nil {
+		return source.Unknown, nil, err
 	}
-	return !skillfile.Equal(have.Files, latest[0].Files), nil
+	return source.Unknown, nil, nil
 }

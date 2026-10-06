@@ -22,11 +22,19 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	}
 	changed := false
 	validator := ""
-	snapshot, err := openSnapshot(ctx, skill.Source)
+	var latest source.Skill
+	snapshot, err := openSnapshot(ctx, skill.Source, state.snapshot)
 	switch {
 	case err != nil:
 	case snapshot != nil:
-		skill, changed, err = readSnapshotUpdate(ctx, snapshot, skill)
+		changed, latest, err = checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: skill.Files, State: state.snapshot}, true)
+		if changed {
+			skill.Files, skill.Description, skill.GitTreeSHA = latest.Files, latest.Description, ""
+		}
+		if revision := snapshot.Revision(); revision != "" {
+			skill.Source.LastSeenRef = revision
+		}
+		skill.Source.LastFetched = time.Now().UTC()
 	case skill.Source.Type == SourceGitHub:
 		skill, changed, err = l.readGitHubUpdate(ctx, skill, state.confirmedCommit)
 	default:
@@ -50,7 +58,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 	if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
 		return UpdateResult{}, err
 	}
-	record := sourceGitRecord(skill.Source, skill.GitTreeSHA)
+	record := sourceVersionRecord(skill.Source, skill.GitTreeSHA, latest.State)
 	if changed {
 		createdAt := clockNow()
 		versionID, err := createVersion(ctx, tx, int64(id), skill.Files, record, skill.Description, createdAt)
@@ -66,6 +74,13 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 			UPDATE skill_versions SET git_tree_sha = ?, confirmed_commit = ?
 			WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
 		`, record.treeSHA, record.confirmedCommit, id); err != nil {
+			return UpdateResult{}, fmt.Errorf("confirm current version: %w", err)
+		}
+	} else if snapshot != nil {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE skill_versions SET source_state = ?
+			WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
+		`, string(record.state), id); err != nil {
 			return UpdateResult{}, fmt.Errorf("confirm current version: %w", err)
 		}
 	}
@@ -131,21 +146,23 @@ func (l *sqliteLibrary) readGitHubUpdate(ctx context.Context, skill Skill, confi
 	return skill, changed, nil
 }
 
-func readSnapshotUpdate(ctx context.Context, snapshot source.Snapshot, skill Skill) (Skill, bool, error) {
-	changed, err := snapshot.Check(ctx, source.Have{Name: skill.Name, Files: skill.Files})
+func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Have, needFiles bool) (bool, source.Skill, error) {
+	status, state, err := snapshot.Check(ctx, have)
 	if err != nil {
-		return Skill{}, false, err
+		return false, source.Skill{}, err
 	}
-	if changed {
-		latest, err := snapshot.Fetch(ctx, []string{skill.Name})
-		if err != nil {
-			return Skill{}, false, err
-		}
-		skill.Files, skill.Description, skill.GitTreeSHA = latest[0].Files, latest[0].Description, ""
+	switch {
+	case status == source.Unchanged:
+		return false, source.Skill{Name: have.Name, Files: have.Files, State: state}, nil
+	case status == source.Changed && !needFiles:
+		return true, source.Skill{}, nil
 	}
-	skill.Source.LastSeenRef = snapshot.Revision()
-	skill.Source.LastFetched = time.Now().UTC()
-	return skill, changed, nil
+	fetched, err := snapshot.Fetch(ctx, []string{have.Name})
+	if err != nil {
+		return false, source.Skill{}, err
+	}
+	latest := fetched[0]
+	return status == source.Changed || !skillfile.Equal(have.Files, latest.Files), latest, nil
 }
 
 func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator string) (Skill, string, error) {

@@ -10,22 +10,34 @@ import (
 
 type Locator []byte
 
+type State []byte
+
+type Status int
+
+const (
+	Unknown Status = iota
+	Unchanged
+	Changed
+)
+
 type Snapshot interface {
 	Revision() string
-	Candidates() ([]discovery.Candidate, []discovery.Diagnostic)
+	Candidates(ctx context.Context) ([]discovery.Candidate, []discovery.Diagnostic, error)
 	Fetch(ctx context.Context, names []string) ([]Skill, error)
-	Check(ctx context.Context, have Have) (bool, error)
+	Check(ctx context.Context, have Have) (Status, State, error)
 }
 
 type Skill struct {
 	Name        string
 	Description string
 	Files       []skillfile.File
+	State       State
 }
 
 type Have struct {
 	Name  string
 	Files []skillfile.File
+	State State
 }
 
 type SkillNotFoundError struct {

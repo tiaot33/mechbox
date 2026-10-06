@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
@@ -146,7 +147,7 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []di
 		if description == "" {
 			description = skillDescription(skill.files)
 		}
-		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceGitRecord(source, skill.gitTreeSHA), description)
+		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceVersionRecord(source, skill.gitTreeSHA, skill.state), description)
 		if err != nil {
 			return nil, err
 		}
@@ -190,7 +191,7 @@ func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name
 	return id, nil
 }
 
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord, description string) (Skill, error) {
+func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record versionRecord, description string) (Skill, error) {
 	if name == "" {
 		return Skill{}, fmt.Errorf("fetch skill: name is required")
 	}
@@ -226,6 +227,7 @@ type sourceState struct {
 	versionID       int64
 	confirmedCommit string
 	httpValidator   string
+	snapshot        source.State
 }
 
 func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
@@ -244,15 +246,17 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 		UpdatedAt:   summary.UpdatedAt,
 	}
 	var state sourceState
+	var snapshotState string
 	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator, skills.update_checked_at
+		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, skill_versions.source_state, sources.http_validator, skills.update_checked_at
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
-	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator, &state.updateCheckedAt); err != nil {
+	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &snapshotState, &state.httpValidator, &state.updateCheckedAt); err != nil {
 		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
 	}
+	state.snapshot = source.State(snapshotState)
 
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode

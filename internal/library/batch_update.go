@@ -70,7 +70,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 		src := skills[indices[0]].Source
 		var discovered discoveredSource
 		var githubSnap githubSourceSnapshot
-		snapshot, readErr := openSnapshot(ctx, src)
+		snapshot, readErr := openSnapshot(ctx, src, states[indices[0]].snapshot)
 		switch {
 		case readErr != nil, snapshot != nil:
 		case src.Type == SourceGitHub:
@@ -90,7 +90,7 @@ func (l *sqliteLibrary) CheckUpdates(ctx context.Context, ids []SkillID) (result
 			if itemErr == nil {
 				switch {
 				case snapshot != nil:
-					available, itemErr = snapshot.Check(ctx, source.Have{Name: skills[index].Name, Files: skills[index].Files})
+					available, _, itemErr = checkSnapshot(ctx, snapshot, source.Have{Name: skills[index].Name, Files: skills[index].Files, State: states[index].snapshot}, false)
 				case src.Type == SourceGitHub:
 					available, itemErr = githubSkillHasUpdate(ctx, &githubSnap, skills[index], states[index].confirmedCommit)
 				default:

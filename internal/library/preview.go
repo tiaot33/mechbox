@@ -23,6 +23,7 @@ type discoveredSkill struct {
 	files      []File
 	gitTreeSHA string
 	blobs      []githubBlob
+	state      source.State
 }
 
 type previewState struct {
@@ -52,9 +53,9 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 		return FetchPreview{}, err
 	}
 	var discovered discoveredSource
-	snapshot, err := openSnapshot(ctx, source)
+	snapshot, err := openSnapshot(ctx, source, nil)
 	if err == nil && snapshot != nil {
-		discovered = snapshotSource(snapshot)
+		discovered, err = snapshotSource(ctx, snapshot)
 	} else if err == nil {
 		discovered, err = l.fetchSource(ctx, source, subpath, "")
 	}

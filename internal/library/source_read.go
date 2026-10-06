@@ -86,7 +86,7 @@ func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath,
 	}
 }
 
-func openSnapshot(ctx context.Context, src Source) (source.Snapshot, error) {
+func openSnapshot(ctx context.Context, src Source, _ source.State) (source.Snapshot, error) {
 	if src.Type != SourceLocal {
 		return nil, nil
 	}
@@ -97,13 +97,16 @@ func openSnapshot(ctx context.Context, src Source) (source.Snapshot, error) {
 	return local.Open(ctx, locator, maxFetchFiles, maxFetchSize)
 }
 
-func snapshotSource(snapshot source.Snapshot) discoveredSource {
-	candidates, diagnostics := snapshot.Candidates()
+func snapshotSource(ctx context.Context, snapshot source.Snapshot) (discoveredSource, error) {
+	candidates, diagnostics, err := snapshot.Candidates(ctx)
+	if err != nil {
+		return discoveredSource{}, err
+	}
 	skills := make([]discoveredSkill, len(candidates))
 	for i, candidate := range candidates {
 		skills[i] = discoveredSkill{name: candidate.Name, candidate: candidate}
 	}
-	return discoveredSource{skills: skills, diagnostics: diagnostics, ref: snapshot.Revision()}
+	return discoveredSource{skills: skills, diagnostics: diagnostics, ref: snapshot.Revision()}, nil
 }
 
 func snapshotSkills(ctx context.Context, snapshot source.Snapshot, selected []discoveredSkill) ([]discoveredSkill, error) {
@@ -115,13 +118,14 @@ func snapshotSkills(ctx context.Context, snapshot source.Snapshot, selected []di
 	if err != nil {
 		return nil, err
 	}
-	files := make(map[string][]File, len(fetched))
+	byName := make(map[string]source.Skill, len(fetched))
 	for _, skill := range fetched {
-		files[skill.Name] = skill.Files
+		byName[skill.Name] = skill
 	}
 	skills := slices.Clone(selected)
 	for i := range skills {
-		skills[i].files = files[skills[i].name]
+		got := byName[skills[i].name]
+		skills[i].files, skills[i].state = got.Files, got.State
 	}
 	return skills, nil
 }

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS skill_versions (
     skill_id INTEGER NOT NULL REFERENCES skills(id), -- 此版本所属的 skill,关联 skills.id
     git_tree_sha TEXT NOT NULL DEFAULT '',           -- GitHub 来源该 Skill 目录的 git tree SHA;非 GitHub 来源或尚未记录时为空
     confirmed_commit TEXT NOT NULL DEFAULT '',       -- GitHub 来源该目录 tree 最后一次被确认为远端最新时所在的 commit;查时远端 commit 与之相同即无更新、不取 tree。非 git 或尚未记录时为空 = 未知,走完整比较
+    source_state TEXT NOT NULL DEFAULT '',           -- 来源自己记录的该版本读取状态,JSON;由来源子包定义和解释,Library 只存取不解析。空 = 无状态,检查更新时比较内容
     description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
     created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano
 );

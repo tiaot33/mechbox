@@ -7,23 +7,25 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
 
-type gitRecord struct {
+type versionRecord struct {
 	treeSHA         string
 	confirmedCommit string
+	state           source.State
 }
 
-func sourceGitRecord(source Source, treeSHA string) gitRecord {
-	record := gitRecord{treeSHA: treeSHA}
-	if source.Type == SourceGitHub {
-		record.confirmedCommit = source.LastSeenRef
+func sourceVersionRecord(src Source, treeSHA string, state source.State) versionRecord {
+	record := versionRecord{treeSHA: treeSHA, state: state}
+	if src.Type == SourceGitHub {
+		record.confirmedCommit = src.LastSeenRef
 	}
 	return record
 }
 
-func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record gitRecord, description string, createdAt time.Time) (int64, error) {
-	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit, description, created_at) VALUES (?, ?, ?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit, description, formatStoredTime(createdAt))
+func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record versionRecord, description string, createdAt time.Time) (int64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit, source_state, description, created_at) VALUES (?, ?, ?, ?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit, string(record.state), description, formatStoredTime(createdAt))
 	if err != nil {
 		return 0, fmt.Errorf("store skill version: %w", err)
 	}
