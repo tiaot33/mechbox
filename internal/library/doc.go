@@ -5,6 +5,52 @@
 // 单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,入库预览里的是 Candidate,
 // 装出去的是 SkillScope。
 //
+// 用 [Open] 打开库,得到 [*Library];用完调用 [Library.Close]。方法可在多个 goroutine 里同时调用。
+// 方法返回的错误用 [ErrorOf] 取出 [*Error],或用 [IsCode] 按错误码判断。
+//
+// # 用户流程
+//
+// 下面按用户操作的顺序列出每一步用到的方法和所在文件。
+//
+// 搜索与入库(fetch.go):
+//   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求。
+//   - [Library.PreviewFetch] 对 GitHub、URL 或本地目录做入库预览,列出候选。
+//   - [Library.GetSkillAudit] 查看候选在 skills.sh 上的审计,可选。
+//   - [Library.Fetch] 把选中的候选入库。
+//
+// 查看库里的技能(skills.go、collections.go、versions.go):
+//   - [Library.ListSkills]、[Library.ListCollections] 列出技能,后者按来源聚合。
+//   - [Library.GetSkill]、[Library.ListSkillFiles]、[Library.GetSkillFile] 读取技能与文件。
+//   - [Library.ListVersions]、[Library.GetVersion]、[Library.DiffVersions] 查看版本历史与差异。
+//   - [Library.RemoveSkill] 从库中移除技能。
+//
+// 更新(update.go):
+//   - [Library.CheckUpdates] 检查哪些技能有更新,结果随技能保存。
+//   - [Library.Update] 重新读取来源,有变化时写入新版本;不重新安装。
+//
+// 分组(groups.go):
+//   - [Library.CreateGroup]、[Library.RenameGroup]、[Library.DeleteGroup] 管理分组。
+//   - [Library.ListGroups]、[Library.ListGroupsWithMembers]、[Library.ListGroupSkills] 列出分组与成员。
+//   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope。
+//
+// 选择安装位置(projects.go):
+//   - [Library.ListAgents]、[Library.ListRegisteredProjects] 列出可组成 Scope 的 Agent 与项目。
+//   - [Library.RegisterProject]、[Library.UnregisterProject] 登记与注销项目。
+//   - [Library.Resolve] 算出某个 Scope 对应的 Agent 目录。
+//
+// 安装(install.go):
+//   - [Library.PlanInstall] 再 [Library.Install]:先看目标状态,再直接安装;[Library.Uninstall] 撤销。
+//   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
+//   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。
+//
 // 安装与安装计划方法都只接受 Scope 身份:Agent 目录由 Resolve 算出,记录按身份落库,
 // 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
+//
+// 巡检与重新安装(reinstall.go):
+//   - [Library.InspectSkillScopes] 对照磁盘检查已安装的技能文件夹。
+//   - [Library.Reinstall] 把它们改回技能的当前版本。
+//
+// 同步(sync.go):
+//   - [Library.PlanSyncPush] 再 [Library.SyncPush]:把整库推送到 S3。
+//   - [Library.PlanSyncPull] 再 [Library.SyncPull]:从 S3 拉回整库替换本地。
 package library
