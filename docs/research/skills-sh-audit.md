@@ -25,7 +25,7 @@ GET https://skills.sh/api/v1/skills/audit/{id}
 
 官方写法是 `/api/v1/skills/audit/{source}/{skill}`，但 `{source}` 本身可含斜杠（`owner/repo`），路由是 catch-all：`x-matched-path: /api/v1/skills/audit/[...id]`。构造 URL 应把 `id` 按路径段拼接，**不要**把斜杠编码成 `%2F`。
 
-对本仓库：现有 `SearchSkills` 已拿到同样的 `id`（`internal/library/search.go`），可直接拼 audit URL。ADR 0004 仍适用——skills.sh 只做只读发现，审计也是覆盖层，不应当成 Store，也不该新增持久权威表。
+对本仓库：现有 `SearchSkills` 已拿到同样的 `id`（`internal/library/internal/market/search.go`），可直接拼 audit URL。ADR 0004 仍适用——skills.sh 只做只读发现，审计也是覆盖层，不应当成 Store，也不该新增持久权威表。
 
 ---
 
@@ -203,7 +203,7 @@ GET https://add-skill.vercel.sh/audit?source={owner/repo}&skills={slug1,slug2}
 3. **404 是常态，不是传输失败。** 应与 HTTP 5xx / 超时分开。消息本身不能当「skill 不存在」。
 4. **不要把 `status` 当入库门闩。** 合作方会打架；`riskLevel` 有文档外取值；审计会过期。最多做成搜索/入库前的提示，并链到 `https://skills.sh/{id}/security/{provider}`。
 5. **解析要宽松。** 必填：`provider`, `slug`, `status`, `summary`, `auditedAt`。`riskLevel` / `categories` 可选。`status` 按文档三值处理，未知值降级而不是整包失败。
-6. **URL 拼接：** `https://skills.sh/api/v1/skills/audit/` + 按 `/` 切开再 `PathEscape` **每一段**（与 `search.go` 对 `DetailURL` 的做法相同）。整段 `QueryEscape` / `%2F` 会 400。
+6. **URL 拼接：** `https://skills.sh/api/v1/skills/audit/` + 按 `/` 切开再 `PathEscape` **每一段**（与 `market/search.go` 对 `DetailURL` 的做法相同）。整段 `QueryEscape` / `%2F` 会 400。
 7. **请求头：** 不要带无效 `Authorization`。
 8. **well-known。** 当前搜索会把非 GitHub 来源打进 `Diagnostics`。即便以后做 audit，`open.feishu.cn/...` 这类也可能 404 或只有部分合作方。
 

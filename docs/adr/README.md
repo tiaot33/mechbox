@@ -1,6 +1,6 @@
 # 设计决策记录
 
-每篇只记录一个现在仍然成立的决定，以及做这个决定的原因。术语以 [CONTEXT.md](../../CONTEXT.md) 为准；具体行为以 `internal/library/api.go` 的注释和测试为准。决定改了就直接改对应的那一篇，历史交给 git。
+每篇只记录一个现在仍然成立的决定，以及做这个决定的原因。术语以 [CONTEXT.md](../../CONTEXT.md) 为准；具体行为以 `internal/library` 的 doc comment（`go doc -all ./internal/library`）和测试为准。决定改了就直接改对应的那一篇，历史交给 git。
 
 ## 总览
 

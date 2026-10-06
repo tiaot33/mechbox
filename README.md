@@ -21,20 +21,20 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`CONTEXT.md`](CONTEXT.md) | 产品术语及统一语言 |
 | [`docs/adr/`](docs/adr/) | 现行的设计决策，按主题索引见其中的 README |
 | [`cmd/demo/main.go`](cmd/demo/main.go) | 可直接运行的入口示例：导入、打开、调用并关闭 Library |
-| [`internal/library/api.go`](internal/library/api.go) | 进程内 Go 公共接口、DTO、选项和错误契约 |
-| [`internal/library/library.go`](internal/library/library.go) | 实例生命周期、共享状态和操作锁 |
+| [`internal/library/doc.go`](internal/library/doc.go) | 包说明：按用户流程列出每一步用到的方法和所在文件，阅读入口 |
+| [`internal/library/library.go`](internal/library/library.go) | `Library` 结构体、`Open` / `Close`、操作锁，以及把数据库事务和磁盘改动合成一次提交 |
+| [`internal/library/errors.go`](internal/library/errors.go) | 公开错误类型与错误码，以及把各子包错误翻译成错误码的唯一入口 |
+| [`internal/library/fetch.go`](internal/library/fetch.go) | 市场搜索、入库预览、审计与入库 |
+| [`internal/library/skills.go`](internal/library/skills.go)、[`collections.go`](internal/library/collections.go)、[`versions.go`](internal/library/versions.go) | 技能查询/移除、Collection、版本历史与差异 |
+| [`internal/library/update.go`](internal/library/update.go) | 批量检查与更新 |
+| [`internal/library/groups.go`](internal/library/groups.go)、[`projects.go`](internal/library/projects.go) | Group 成员、Agent、项目注册与 Scope |
+| [`internal/library/install.go`](internal/library/install.go)、[`reinstall.go`](internal/library/reinstall.go) | 直接安装与组安装、安装记录；巡检与重新安装 |
+| [`internal/library/sync.go`](internal/library/sync.go) | 整库推拉同步与项目路径对应 |
+| [`internal/library/internal/`](internal/library/internal/) | 实现子包，只有 `library` 能导入：`store`（SQLite）、`agentdir`（Agent 目录里的技能文件夹）、`source/…`（GitHub、URL、本地目录等来源）、`market`（skills.sh）、`s3`、`skillfile` |
 | [`internal/library/internal/store/schema.go`](internal/library/internal/store/schema.go)、[`schema.sql`](internal/library/internal/store/schema.sql) | 库身份、校验及唯一 DDL 来源 |
-| [`internal/library/skills.go`](internal/library/skills.go)、[`versions.go`](internal/library/versions.go) | 入库、查询/移除、Collection、版本历史与差异 |
-| [`internal/library/preview.go`](internal/library/preview.go) | 入库预览(PreviewFetch)与入库(Fetch) |
-| [`internal/library/source_input.go`](internal/library/source_input.go)、[`source_read.go`](internal/library/source_read.go)、[`github_contents.go`](internal/library/github_contents.go) | 来源解析、校验与内容获取 |
-| [`internal/library/update.go`](internal/library/update.go)、[`batch_update.go`](internal/library/batch_update.go)、[`search.go`](internal/library/search.go) | 更新、批量检查与市场搜索 |
-| [`internal/library/groups.go`](internal/library/groups.go)、[`projects.go`](internal/library/projects.go) | Group 成员、项目注册与 Scope |
-| [`internal/library/install.go`](internal/library/install.go)、[`reinstall.go`](internal/library/reinstall.go) | 直接安装与组安装、安装记录与巡检、磁盘暂存与回滚、重新安装 |
-| [`internal/library/sync.go`](internal/library/sync.go) | 快照、全库替换、项目路径对应和 S3 同步 |
-| [`internal/library/files.go`](internal/library/files.go)、[`errors.go`](internal/library/errors.go) | 共享文件操作与内部错误转换 |
 | `internal/library/*_test.go` | 按行为组织的技能库公开测试;共享辅助函数在 `test_helpers_test.go` |
 
-建议依次阅读 `CONTEXT.md`、相关 ADR、`internal/library/api.go`、测试，最后再进入具体实现。
+建议依次阅读 `CONTEXT.md`、相关 ADR、`internal/library/doc.go`（方法签名与说明用 `go doc -all ./internal/library` 查看）、测试，最后再进入具体实现。
 
 桌面端放在 `cmd/desktop/`，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。应用依赖 Library，Library 不依赖应用；默认共用根 module。
 
@@ -85,7 +85,7 @@ if err != nil {
 err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{})
 ```
 
-`Library` 是供桌面端直接调用的进程内 Go 接口，位于 `internal/library`，导入路径为 `github.com/tiaot33/skills-tui/internal/library`；Go 调用方的包路径须为 `github.com/tiaot33/skills-tui` 或其子路径。当前没有网络监听入口；以后若有别的进程要用库，届时再定通信方式，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
+`*library.Library` 是供桌面端直接调用的进程内 Go API，位于 `internal/library`，导入路径为 `github.com/tiaot33/skills-tui/internal/library`；Go 调用方的包路径须为 `github.com/tiaot33/skills-tui` 或其子路径。当前没有网络监听入口；以后若有别的进程要用库，届时再定通信方式，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
 
 ## 数据库
 
