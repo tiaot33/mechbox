@@ -31,7 +31,6 @@ type previewState struct {
 	source         Source
 	subpath        string
 	ref            string
-	httpValidator  string
 	skills         []discoveredSkill
 	diagnostics    []discovery.Diagnostic
 	snapshot       source.Snapshot
@@ -57,7 +56,7 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 	if err == nil && snapshot != nil {
 		discovered, err = snapshotSource(ctx, snapshot)
 	} else if err == nil {
-		discovered, err = l.fetchSource(ctx, source, subpath, "")
+		discovered, err = l.fetchGitHub(ctx, source.Locator, subpath)
 	}
 	if err != nil {
 		err = typedError(err)
@@ -87,7 +86,7 @@ func (l *sqliteLibrary) PreviewFetch(ctx context.Context, req PreviewFetchReques
 		return FetchPreview{}, err
 	}
 	state := &previewState{
-		source: source, subpath: subpath, ref: discovered.ref, httpValidator: discovered.httpValidator,
+		source: source, subpath: subpath, ref: discovered.ref,
 		skills: discovered.skills, diagnostics: discovered.diagnostics, githubRepoSize: discovered.githubRepoSize,
 		snapshot: snapshot,
 	}
@@ -214,7 +213,7 @@ func (l *sqliteLibrary) Fetch(ctx context.Context, id FetchPreviewID, names []st
 	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	created, err := l.fetchAll(ctx, state.source, skills, state.httpValidator)
+	created, err := l.fetchAll(ctx, state.source, skills)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
@@ -39,6 +40,12 @@ type Have struct {
 	Files []skillfile.File
 	State State
 }
+
+var (
+	ErrUnreachable = errors.New("source could not be reached")
+	ErrPermission  = errors.New("permission denied")
+	ErrInvalid     = errors.New("invalid source content")
+)
 
 type SkillNotFoundError struct {
 	Name string

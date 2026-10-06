@@ -9,11 +9,7 @@ CREATE TABLE IF NOT EXISTS sources (
     locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 包ID+版本 / 本地路径)
     last_fetched TEXT NOT NULL DEFAULT '',  -- 来源内容最近一次被入库或经更新确认的时间,RFC3339Nano;空串 = 从未读取
     last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希);Source 级展示信息,
-                                            -- 同来源下各 Skill 共享,更新判定走 skill_versions.confirmed_commit / http_validator
-    http_validator TEXT NOT NULL DEFAULT '',-- URL / Store 上次成功读取时服务端给出的 HTTP validator 原文
-                                            -- (优先 ETag,否则合法 HTTP-date 的 Last-Modified);检查与更新据它发条件请求,
-                                            -- 能解析为日期的填 If-Modified-Since、其余填 If-None-Match,304 即无更新。
-                                            -- 服务端未给出、GitHub / local 来源恒为空 = 不带条件头
+                                            -- 同来源下各 Skill 共享,更新判定走 skill_versions 上的读取记录
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
 );
 

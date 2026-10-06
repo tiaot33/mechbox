@@ -21,7 +21,6 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		return UpdateResult{}, err
 	}
 	changed := false
-	validator := ""
 	var latest source.Skill
 	snapshot, err := openSnapshot(ctx, skill.Source, state.snapshot)
 	switch {
@@ -35,15 +34,8 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 			skill.Source.LastSeenRef = revision
 		}
 		skill.Source.LastFetched = time.Now().UTC()
-	case skill.Source.Type == SourceGitHub:
-		skill, changed, err = l.readGitHubUpdate(ctx, skill, state.confirmedCommit)
 	default:
-		var latest Skill
-		latest, validator, err = l.readUpdate(ctx, skill, state.httpValidator)
-		if err == nil {
-			changed = !skillfile.Equal(skill.Files, latest.Files)
-			skill = latest
-		}
+		skill, changed, err = l.readGitHubUpdate(ctx, skill, state.confirmedCommit)
 	}
 	if err != nil {
 		return UpdateResult{}, err
@@ -84,8 +76,8 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 			return UpdateResult{}, fmt.Errorf("confirm current version: %w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ?, http_validator = ? WHERE id = ?`,
-		skill.Source.LastFetched.Format(time.RFC3339Nano), skill.Source.LastSeenRef, validator, skill.Source.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`,
+		skill.Source.LastFetched.Format(time.RFC3339Nano), skill.Source.LastSeenRef, skill.Source.ID); err != nil {
 		return UpdateResult{}, fmt.Errorf("update source: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = CASE WHEN update_check_status = '' THEN '' ELSE ? END WHERE id = ?`,
@@ -163,24 +155,4 @@ func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Ha
 	}
 	latest := fetched[0]
 	return status == source.Changed || !skillfile.Equal(have.Files, latest.Files), latest, nil
-}
-
-func (l *sqliteLibrary) readUpdate(ctx context.Context, skill Skill, validator string) (Skill, string, error) {
-	discovered, err := l.fetchSource(ctx, skill.Source, "", validator)
-	if err != nil {
-		return Skill{}, "", err
-	}
-	skill.Source.LastFetched = time.Now().UTC()
-	if discovered.unchanged {
-		return skill, validator, nil
-	}
-	fetched, err := selectSkills(discovered.skills, []string{skill.Name})
-	if err != nil {
-		return Skill{}, "", err
-	}
-	skill.Files = fetched[0].files
-	skill.GitTreeSHA = fetched[0].gitTreeSHA
-	skill.Description = fetched[0].candidate.Description
-	skill.Source.LastSeenRef = discovered.ref
-	return skill, discovered.httpValidator, nil
 }

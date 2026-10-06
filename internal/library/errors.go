@@ -9,6 +9,7 @@ import (
 	"github.com/mattn/go-sqlite3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 )
 
@@ -25,14 +26,21 @@ func typedError(err error) error {
 	if errors.Is(err, local.ErrNotDirectory) {
 		return argumentError("read local source", "path", "path is not a directory")
 	}
+	if errors.Is(err, download.ErrInvalidURL) {
+		return argumentError("fetch source", "url", "invalid source URL")
+	}
 	code := Internal
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		code = Canceled
 	case errors.Is(err, discovery.ErrTooLarge):
 		return fetchError(SourceInvalid, "read source", err)
-	case errors.Is(err, discovery.ErrNoCandidates):
+	case errors.Is(err, discovery.ErrNoCandidates), errors.Is(err, source.ErrInvalid):
 		code = SourceInvalid
+	case errors.Is(err, source.ErrUnreachable):
+		code = SourceUnreachable
+	case errors.Is(err, source.ErrPermission):
+		code = Permission
 	case errors.Is(err, sql.ErrNoRows):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):

@@ -119,7 +119,7 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []discoveredSkill, validator string) ([]Skill, error) {
+func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []discoveredSkill) ([]Skill, error) {
 	if err := validateSource(source); err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []di
 		return nil, fmt.Errorf("begin fetch: %w", err)
 	}
 	defer tx.Rollback()
-	sourceID, err := upsertSource(ctx, tx, source, validator)
+	sourceID, err := upsertSource(ctx, tx, source)
 	if err != nil {
 		return nil, err
 	}
@@ -159,17 +159,17 @@ func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []di
 	return fetched, nil
 }
 
-func upsertSource(ctx context.Context, tx *sql.Tx, source Source, validator string) (int64, error) {
+func upsertSource(ctx context.Context, tx *sql.Tx, source Source) (int64, error) {
 	locator, err := json.Marshal(source.Locator)
 	if err != nil {
 		return 0, fmt.Errorf("encode source: %w", err)
 	}
 	fetched := formatStoredTime(source.LastFetched)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO sources(type, locator, last_fetched, last_seen_ref, http_validator) VALUES (?, ?, ?, ?, ?)
+		INSERT INTO sources(type, locator, last_fetched, last_seen_ref) VALUES (?, ?, ?, ?)
 		ON CONFLICT(type, locator) DO UPDATE SET
-			last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref, http_validator = excluded.http_validator
-	`, source.Type, locator, fetched, source.LastSeenRef, validator); err != nil {
+			last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref
+	`, source.Type, locator, fetched, source.LastSeenRef); err != nil {
 		return 0, fmt.Errorf("store source: %w", err)
 	}
 	var sourceID int64
@@ -226,7 +226,6 @@ type sourceState struct {
 	updateCheckedAt string
 	versionID       int64
 	confirmedCommit string
-	httpValidator   string
 	snapshot        source.State
 }
 
@@ -248,12 +247,11 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 	var state sourceState
 	var snapshotState string
 	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, skill_versions.source_state, sources.http_validator, skills.update_checked_at
+		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, skill_versions.source_state, skills.update_checked_at
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
-		JOIN sources ON sources.id = skills.source_id
 		WHERE skills.id = ?
-	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &snapshotState, &state.httpValidator, &state.updateCheckedAt); err != nil {
+	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &snapshotState, &state.updateCheckedAt); err != nil {
 		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
 	}
 	state.snapshot = source.State(snapshotState)

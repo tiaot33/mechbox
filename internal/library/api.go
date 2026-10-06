@@ -628,7 +628,8 @@ type Library interface {
 	// CheckUpdates 检查指定技能是否有更新;单项检查传入仅含一个 SkillID 的列表。
 	// 去重保序,每个 Source(含 ref)只远程读取一次:GitHub 解析一次 commit,确认 commit 命中的 Skill
 	// 直接判定无更新;有未命中的才共用一次 tree,发现结果在同一 Source 内复用,各 Skill 用各自目录 SHA 比较。
-	// URL 整组只发一次请求;Source 记录了 HTTP validator 时带条件头,304 即整组无更新。
+	// URL 整组只发一次请求,用第一项当前版本记录的 HTTP validator 带条件头;304 时记录同一 validator 的 Skill 判定无更新,
+	// 记录不同的再无条件读取一次。
 	// GitHub 无 SHA 的旧记录、本地来源以及 URL 的完整响应,比较文件内容与可执行位。
 	// 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
 	// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或安装。
@@ -640,8 +641,8 @@ type Library interface {
 	// 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
 	// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
 	// 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
-	// URL 在 Source 记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
-	// 200 则整包比较文件,并把新 validator 随 last_seen_ref 写回。本地目录重新发现候选后比较文件。
+	// URL 在当前版本记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
+	// 200 则整包比较文件,把新 validator 记到新版本或当前版本上,并写回 last_seen_ref。本地目录重新发现候选后比较文件。
 	// 只更新 Library,不重新安装已安装的文件夹。
 	// 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
 	// (Details.SkillID),两者都不留下任何写入。

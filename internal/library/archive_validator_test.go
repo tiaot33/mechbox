@@ -8,7 +8,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// URL 来源的抓取记录里多了服务端给出的 HTTP validator:Fetch / Update 成功抓取后写到 Source 上,
+// URL 来源的抓取记录里多了服务端给出的 HTTP validator:Fetch / Update 成功抓取后记到该 Skill 的版本上,
 // 之后 CheckUpdates / Update 带条件头发请求,304 即无更新、零字节下载;入库预览永远不带条件头。
 
 var conditionalHeaders = []string{"If-None-Match", "If-Modified-Since"}
@@ -278,4 +278,42 @@ func TestCheckUpdatesSendsOneConditionalRequestPerURLSource(t *testing.T) {
 		t.Fatalf("CheckUpdates on 200 = %#v, %v", results, err)
 	}
 	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
+}
+
+// validator 记在各 Skill 的当前版本上:同一压缩包里只更新了一个 Skill,
+// 另一个 Skill 仍按自己入库时的 validator 判断,不会被新 validator 的 304 误判为最新。
+func TestURLValidatorIsPerVersionNotPerSource(t *testing.T) {
+	server := newArchiveServer(t, zipArchive(t, map[string]string{
+		"first/SKILL.md":  skillDocument("first", "old"),
+		"second/SKILL.md": skillDocument("second", "old"),
+	}), `"v1"`)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	fetched := fetchArchive(t, lib, server.request())
+	first, second := fetched[0].ID, fetched[1].ID
+	server.serve(zipArchive(t, map[string]string{
+		"first/SKILL.md":  skillDocument("first", "new"),
+		"second/SKILL.md": skillDocument("second", "new"),
+	}), `"v2"`)
+	server.snapshot()
+
+	if result, err := lib.Update(ctx, first); err != nil || !result.Changed {
+		t.Fatalf("Update first = %#v, %v", result, err)
+	}
+	server.snapshot()
+
+	if available, err := checkSingleUpdate(t, lib, ctx, second); err != nil || !available {
+		t.Fatalf("CheckUpdates second after updating first = %v, %v", available, err)
+	}
+	assertConditional(t, server.snapshot(), "If-None-Match", `"v1"`)
+
+	// 同组里 validator 不同:按第一项发条件请求,304 后为记录不同的 Skill 再无条件读一次。
+	results, err := lib.CheckUpdates(ctx, []library.SkillID{first, second})
+	if err != nil || len(results) != 2 || results[0].Available || !results[1].Available || results[0].Error != nil || results[1].Error != nil {
+		t.Fatalf("CheckUpdates mixed validators = %#v, %v", results, err)
+	}
+	requests := server.snapshot()
+	if len(requests) != 2 || requests[0].Get("If-None-Match") != `"v2"` || requests[1].Get("If-None-Match") != "" {
+		t.Fatalf("requests = %#v, want conditional v2 then unconditional", requests)
+	}
 }

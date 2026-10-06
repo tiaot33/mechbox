@@ -1,17 +1,11 @@
 package library
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -22,6 +16,7 @@ import (
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 )
 
@@ -62,39 +57,44 @@ type discoveredSource struct {
 	skills         []discoveredSkill
 	diagnostics    []discovery.Diagnostic
 	ref            string
-	httpValidator  string
-	unchanged      bool
 }
 
-func (l *sqliteLibrary) fetchSource(ctx context.Context, source Source, subpath, validator string) (discoveredSource, error) {
-	switch source.Type {
-	case SourceGitHub:
-		return l.fetchGitHub(ctx, source.Locator, subpath)
+func errUnsupportedSource() error {
+	return &Error{Code: InvalidArgument, Message: "unsupported source type"}
+}
+
+func openSnapshot(ctx context.Context, src Source, hint source.State) (source.Snapshot, error) {
+	switch src.Type {
+	case SourceLocal:
+		locator, err := json.Marshal(src.Locator)
+		if err != nil {
+			return nil, fmt.Errorf("encode source locator: %w", err)
+		}
+		return local.Open(ctx, locator, maxFetchFiles, maxFetchSize)
 	case SourceURL:
-		return fetchArchive(ctx, source.Locator.URL, validator)
+		return openDownload(ctx, src.Locator.URL, hint)
 	case sourceStore:
 		base := os.Getenv("SKILLS_STORE_URL")
 		if base == "" {
-			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}
+			return nil, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}
 		}
 		if _, err := url.Parse(base); err != nil {
-			return discoveredSource{}, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
+			return nil, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
 		}
-		return fetchArchive(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(source.Locator.PackageID)+"/"+url.PathEscape(source.Locator.Version), validator)
+		return openDownload(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(src.Locator.PackageID)+"/"+url.PathEscape(src.Locator.Version), hint)
+	case SourceGitHub:
+		return nil, nil
 	default:
-		return discoveredSource{}, &Error{Code: InvalidArgument, Message: "unsupported source type"}
+		return nil, errUnsupportedSource()
 	}
 }
 
-func openSnapshot(ctx context.Context, src Source, _ source.State) (source.Snapshot, error) {
-	if src.Type != SourceLocal {
-		return nil, nil
-	}
-	locator, err := json.Marshal(src.Locator)
+func openDownload(ctx context.Context, location string, hint source.State) (source.Snapshot, error) {
+	locator, err := json.Marshal(SourceLocator{URL: location})
 	if err != nil {
 		return nil, fmt.Errorf("encode source locator: %w", err)
 	}
-	return local.Open(ctx, locator, maxFetchFiles, maxFetchSize)
+	return download.Open(ctx, locator, hint, maxFetchFiles, maxFetchSize)
 }
 
 func snapshotSource(ctx context.Context, snapshot source.Snapshot) (discoveredSource, error) {
@@ -248,109 +248,6 @@ func readGitTreeSHA(ctx context.Context, repository, skillPath string) (string, 
 		return "", fetchError(Internal, "read git tree", errors.New("invalid skill directory tree SHA"))
 	}
 	return sha, nil
-}
-
-func responseValidator(header http.Header) string {
-	if etag := header.Get("ETag"); etag != "" {
-		return etag
-	}
-	if modified := header.Get("Last-Modified"); modified != "" {
-		if _, err := http.ParseTime(modified); err == nil {
-			return modified
-		}
-	}
-	return ""
-}
-
-func applyValidator(req *http.Request, validator string) {
-	if validator == "" {
-		return
-	}
-	if _, err := http.ParseTime(validator); err == nil {
-		req.Header.Set("If-Modified-Since", validator)
-		return
-	}
-	req.Header.Set("If-None-Match", validator)
-}
-
-func fetchArchive(ctx context.Context, location, validator string) (result discoveredSource, err error) {
-	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-	if err != nil {
-		return result, argumentError("fetch source", "url", "invalid source URL")
-	}
-	applyValidator(req, validator)
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
-		return result, fetchError(fetchErrorCode(err), "fetch source", errors.New("source could not be reached"))
-	}
-	defer response.Body.Close()
-	if validator != "" && response.StatusCode == http.StatusNotModified {
-		return discoveredSource{httpValidator: validator, unchanged: true}, nil
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		code := SourceUnreachable
-		if response.StatusCode == 401 || response.StatusCode == 403 {
-			code = Permission
-		}
-		return result, fetchError(code, "fetch source", fmt.Errorf("HTTP %d", response.StatusCode))
-	}
-	content, err := io.ReadAll(io.LimitReader(contextReader{ctx, response.Body}, maxFetchSize+1))
-	if err != nil {
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
-		return result, fetchError(SourceUnreachable, "read source", errors.New("source response could not be read"))
-	}
-	if len(content) > maxFetchSize {
-		return result, fetchError(SourceInvalid, "read source", errors.New("archive exceeds size limit"))
-	}
-	result, err = readArchive(ctx, content)
-	if err != nil {
-		return result, err
-	}
-	sum := sha256.Sum256(content)
-	result.ref = hex.EncodeToString(sum[:])
-	result.httpValidator = responseValidator(response.Header)
-	return result, nil
-}
-
-func readArchive(ctx context.Context, content []byte) (discoveredSource, error) {
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
-	if err != nil {
-		return discoveredSource{}, fetchError(SourceInvalid, "read source archive", err)
-	}
-	if len(reader.File) > maxFetchFiles {
-		return discoveredSource{}, fetchError(SourceInvalid, "read source archive", errors.New("archive exceeds file count limit"))
-	}
-	seen := make(map[string]bool)
-	remaining := uint64(maxFetchSize)
-	for _, archived := range reader.File {
-		if err := ctx.Err(); err != nil {
-			return discoveredSource{}, err
-		}
-		name := strings.TrimSuffix(archived.Name, "/")
-		if name == "" || name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, `\:`) || seen[name] {
-			return discoveredSource{}, fetchError(SourceInvalid, "read source archive", errors.New("unsafe or duplicate path"))
-		}
-		seen[name] = true
-		if archived.UncompressedSize64 > remaining {
-			return discoveredSource{}, fetchError(SourceInvalid, "read source archive", errors.New("expanded content exceeds size limit"))
-		}
-		remaining -= archived.UncompressedSize64
-	}
-	result, err := discoverSkills(ctx, reader, ".", nil)
-	if err != nil {
-		return result, err
-	}
-	return finishDiscovery(result)
 }
 
 func discoverSkills(ctx context.Context, source fs.FS, root string, budget *discovery.Budget) (discoveredSource, error) {
