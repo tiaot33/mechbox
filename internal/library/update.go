@@ -54,6 +54,7 @@ func (l *sqliteLibrary) Update(ctx context.Context, id SkillID) (result UpdateRe
 		if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, id); err != nil {
 			return UpdateResult{}, fmt.Errorf("select current version: %w", err)
 		}
+		skill.VersionID = VersionID(versionID)
 		skill.UpdatedAt = createdAt
 	} else if _, err := tx.ExecContext(ctx, `
 		UPDATE skill_versions SET source_state = ?

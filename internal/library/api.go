@@ -247,6 +247,7 @@ type Skill struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source      Source    `json:"source"`
+	VersionID   VersionID `json:"version_id"`          // 当前版本的 SkillVersion.ID,可直接传给 GetVersion / DiffVersions
 	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
 	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
 	Files       []File    `json:"files"`

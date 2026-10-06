@@ -32,6 +32,7 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 	want := library.Skill{
 		ID:        fetched.ID,
 		Name:      "example-skill",
+		VersionID: fetched.VersionID,
 		FetchedAt: fetched.FetchedAt,
 		UpdatedAt: fetched.UpdatedAt,
 		Source: library.Source{

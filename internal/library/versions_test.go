@@ -128,3 +128,38 @@ func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
 	_, err = lib.DiffVersions(t.Context(), oldVersions[0].ID, newVersions[0].ID)
 	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{})
 }
+
+// Skill.VersionID 是当前版本的 SkillVersion.ID:入库、Update 与 GetSkill 都与 ListVersions 的最后一项一致,
+// 无变化的 Update 不换版本。
+func TestSkillReportsCurrentVersionID(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	dir := filepath.Join(t.TempDir(), "demo")
+	writeLocalSkill(t, dir, "v1\n")
+	fetched, err := fetchLocalDir(ctx, lib, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions, err := lib.ListVersions(ctx, fetched.ID)
+	if err != nil || len(versions) != 1 || fetched.VersionID != versions[0].ID {
+		t.Fatalf("fetched VersionID = %d, ListVersions = %#v, %v", fetched.VersionID, versions, err)
+	}
+
+	writeLocalSkill(t, dir, "v2\n")
+	updated, err := lib.Update(ctx, fetched.ID)
+	if err != nil || !updated.Changed {
+		t.Fatalf("Update = %#v, %v", updated, err)
+	}
+	versions, err = lib.ListVersions(ctx, fetched.ID)
+	if err != nil || len(versions) != 2 || updated.Skill.VersionID != versions[1].ID {
+		t.Fatalf("updated VersionID = %d, ListVersions = %#v, %v", updated.Skill.VersionID, versions, err)
+	}
+	current, err := lib.GetSkill(ctx, fetched.ID)
+	if err != nil || current.VersionID != versions[1].ID {
+		t.Fatalf("GetSkill VersionID = %d, %v; want %d", current.VersionID, err, versions[1].ID)
+	}
+	unchanged, err := lib.Update(ctx, fetched.ID)
+	if err != nil || unchanged.Changed || unchanged.Skill.VersionID != versions[1].ID {
+		t.Fatalf("unchanged Update = %#v, %v", unchanged, err)
+	}
+}

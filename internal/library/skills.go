@@ -237,7 +237,7 @@ func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, src Source, na
 	}
 	src.ID = SourceID(sourceID)
 	src.LastFetched = src.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: src, FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
+	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: src, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
 }
 
 func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
@@ -277,6 +277,7 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 	`, id).Scan(&state.versionID, &snapshotState, &state.updateCheckedAt); err != nil {
 		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
 	}
+	skill.VersionID = VersionID(state.versionID)
 	state.snapshot = source.State(snapshotState)
 
 	rows, err := l.db.QueryContext(ctx, `
