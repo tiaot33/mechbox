@@ -8,7 +8,6 @@ import (
 	"slices"
 )
 
-// Mode 记录文件是否可执行,安装到磁盘时据此设置权限位。
 type Mode string
 
 const (
@@ -16,7 +15,6 @@ const (
 	ModeExecutable Mode = "executable"
 )
 
-// File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
 type File struct {
 	Path    string `json:"path"`
 	Content []byte `json:"content"`

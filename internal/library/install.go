@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -285,7 +286,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 
 type placement struct {
 	skill Skill
-	files []File
+	files []skillfile.File
 	scope resolvedScope
 }
 

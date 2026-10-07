@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
@@ -456,7 +457,7 @@ func cloneAudit(audit *SkillAudit) *SkillAudit {
 	return &cloned
 }
 
-func skillDescription(files []File) string {
+func skillDescription(files []skillfile.File) string {
 	for _, file := range files {
 		if file.Path != "SKILL.md" {
 			continue
