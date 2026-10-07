@@ -32,7 +32,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`internal/library/sync.go`](internal/library/sync.go) | 整库推拉同步与项目路径对应 |
 | [`internal/library/internal/`](internal/library/internal/) | 实现子包，只有 `library` 能导入：`store`（SQLite）、`agentdir`（Agent 目录里的技能文件夹）、`source/…`（GitHub、URL、本地目录等来源）、`market`（skills.sh）、`s3`、`skillfile` |
 | [`internal/library/internal/store/schema.go`](internal/library/internal/store/schema.go)、[`schema.sql`](internal/library/internal/store/schema.sql) | 库身份、校验及唯一 DDL 来源 |
-| `internal/library/*_test.go` | 按行为组织的技能库公开测试;共享辅助函数在 `test_helpers_test.go` |
+| [`test/library/`](test/library/) | 技能库的集成测试：按行为组织，只经公开 API 断言；共享辅助函数在 `test_helpers_test.go` |
 
 建议依次阅读 `CONTEXT.md`、相关 ADR、`internal/library/doc.go`（方法签名与说明用 `go doc -all ./internal/library` 查看）、测试，最后再进入具体实现。
 
@@ -46,7 +46,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 go test -race ./...
 go vet ./...
 go doc ./internal/library.Library
-go test -list . ./internal/library
+go test -list . ./test/library
 ```
 
 可运行的入口示例见 [`cmd/demo/main.go`](cmd/demo/main.go)。在仓库根目录执行：
