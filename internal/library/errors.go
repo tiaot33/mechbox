@@ -10,9 +10,6 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -115,23 +112,14 @@ func typedError(err error) error {
 	if _, ok := errors.AsType[*Error](err); ok {
 		return err
 	}
-	if missing, ok := errors.AsType[*source.SkillNotFoundError](err); ok {
+	if missing, ok := errors.AsType[*source.NotFoundError](err); ok {
 		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Name}, Err: err}
 	}
-	if errors.Is(err, local.ErrNotDirectory) {
-		return argumentError("read local source", "path", "path is not a directory")
-	}
-	if errors.Is(err, download.ErrInvalidURL) {
-		return argumentError("fetch source", "url", "invalid source URL")
-	}
-	if missing, ok := errors.AsType[*github.RefNotFoundError](err); ok {
-		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Ref}, Err: err}
+	if _, ok := errors.AsType[*source.InputError](err); ok {
+		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}
 	}
 	if conflict, ok := errors.AsType[*store.ProjectPathConflictError](err); ok {
 		return &Error{Code: InvalidArgument, Message: "SKILLS_PROJECT_PATH_MAP: target path still held by another registered project (occupied target or cyclic mapping): " + strings.Join(conflict.Pending, ", "), Err: err}
-	}
-	if invalid, ok := errors.AsType[*github.InputError](err); ok {
-		return &Error{Code: InvalidArgument, Message: invalid.Reason, Err: err}
 	}
 	code := Internal
 	switch {
@@ -153,7 +141,9 @@ func typedError(err error) error {
 		code = Busy
 	case errors.Is(err, store.ErrAlreadyExists):
 		code = AlreadyExists
-	case errors.Is(err, store.ErrNotFound), errors.Is(err, github.ErrSubpathNotFound), errors.Is(err, s3.ErrNotFound):
+	case errors.Is(err, source.ErrUnsupported):
+		code = InvalidArgument
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, s3.ErrNotFound):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):
 		code = Permission

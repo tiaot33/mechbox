@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -88,7 +86,7 @@ type SkillAudit struct {
 // FetchPreview 是一次入库预览的句柄及其候选;此时尚无内容进入 Library。
 type FetchPreview struct {
 	ID          FetchPreviewID      `json:"id"`
-	Ref         string              `json:"ref,omitempty"` // 仅 GitHub:实际使用的分支或 tag,省略时为发现的默认分支
+	Ref         string              `json:"ref,omitempty"` // Git 类来源实际使用的分支或 tag,省略时为发现的默认分支;其他来源为空
 	Revision    string              `json:"revision"`      // 钉住的内容:GitHub 为 commit,其他为内容哈希
 	Candidates  []Candidate         `json:"candidates"`
 	Diagnostics []PreviewDiagnostic `json:"diagnostics,omitempty"`
@@ -139,7 +137,7 @@ func (l *Library) SearchSkills(ctx context.Context, query string) (result []Sear
 const previewTTL = 30 * time.Minute
 
 type previewState struct {
-	source      Source
+	source      store.Source
 	snapshot    source.Snapshot
 	candidates  []discovery.Candidate
 	diagnostics []discovery.Diagnostic
@@ -149,7 +147,8 @@ type previewState struct {
 }
 
 // PreviewFetch 发起一次入库预览:发现来源中的候选 skill,返回句柄与候选清单,此时尚无内容进入 Library。
-// req 的 GitHub / URL / Local 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空。
+// req 的 GitHub / URL / Local 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空;
+// 所给的输入本身无效时 Details.Field 为该字段(github / url / local)。
 // GitHub 输入在这里解析:输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
 // 路径不一致返回 InvalidArgument;省略 ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main;
 // @name 时入库预览只列该技能,不存在返回 NotFound。URL 与本地目录总是列出全部候选。
@@ -167,29 +166,28 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	if closed {
 		return FetchPreview{}, fmt.Errorf("preview fetch: library is closed")
 	}
-	source, subpath, names, err := l.previewSource(ctx, req)
+	target, field, err := previewTarget(ctx, req)
 	if err != nil {
-		return FetchPreview{}, err
+		return FetchPreview{}, inputField(err, field)
 	}
 	var candidates []discovery.Candidate
 	var diagnostics []discovery.Diagnostic
-	snapshot, err := l.openSnapshot(ctx, source, subpath, nil)
+	snapshot, err := l.sources.Open(ctx, target.Type, target.Locator, target.Subpath, nil)
 	if err == nil {
 		candidates, diagnostics, err = snapshot.Candidates(ctx)
 	}
 	if err != nil {
-		err = typedError(err)
-		if typed, ok := errors.AsType[*Error](err); ok && source.Type == SourceLocal && typed.Details.Field == "path" {
-			typed.Details.Field = "local"
-		}
-		return FetchPreview{}, err
+		return FetchPreview{}, inputField(err, field)
 	}
-	candidates, err = selectCandidates(candidates, names)
+	candidates, err = selectCandidates(candidates, target.Names)
 	if err != nil {
 		return FetchPreview{}, err
 	}
-	source.LastFetched = time.Now().UTC()
-	source.LastSeenRef = snapshot.Revision()
+	record := store.Source{Type: target.Type, Locator: target.Locator, LastFetched: time.Now().UTC(), LastSeenRef: snapshot.Revision()}
+	description, err := l.sources.Describe(record.Type, record.Locator)
+	if err != nil {
+		return FetchPreview{}, err
+	}
 	id, err := newPreviewID()
 	if err != nil {
 		return FetchPreview{}, err
@@ -204,7 +202,7 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	if err := ctx.Err(); err != nil {
 		return FetchPreview{}, err
 	}
-	state := &previewState{source: source, snapshot: snapshot, candidates: candidates, diagnostics: diagnostics}
+	state := &previewState{source: record, snapshot: snapshot, candidates: candidates, diagnostics: diagnostics}
 	listed, err := l.listCandidates(ctx, state)
 	if err != nil {
 		return FetchPreview{}, err
@@ -217,14 +215,10 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 			delete(l.previews, id)
 		}
 	})
-	preview = FetchPreview{ID: id, Revision: source.LastSeenRef, Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}
-	if source.Type == SourceGitHub {
-		preview.Ref = source.Locator.Branch
-	}
-	return preview, nil
+	return FetchPreview{ID: id, Ref: description.Ref, Revision: record.LastSeenRef, Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}, nil
 }
 
-func (l *Library) previewSource(ctx context.Context, req PreviewFetchRequest) (source Source, subpath string, names []string, err error) {
+func previewTarget(ctx context.Context, req PreviewFetchRequest) (target source.Target, field string, err error) {
 	var given []string
 	if req.GitHub != nil {
 		given = append(given, "github")
@@ -237,38 +231,31 @@ func (l *Library) previewSource(ctx context.Context, req PreviewFetchRequest) (s
 	}
 	switch len(given) {
 	case 0:
-		return Source{}, "", nil, argumentError("preview fetch", "", "one of github, url or local is required")
+		return source.Target{}, "", argumentError("preview fetch", "", "one of github, url or local is required")
 	case 1:
 	default:
-		return Source{}, "", nil, argumentError("preview fetch", given[1], "only one of github, url or local may be given")
+		return source.Target{}, "", argumentError("preview fetch", given[1], "only one of github, url or local may be given")
 	}
 	switch {
 	case req.GitHub != nil:
-		resolved, err := github.Resolve(ctx, github.Input{Input: req.GitHub.Input, Ref: req.GitHub.Ref, Subpath: req.GitHub.Subpath})
-		if err != nil {
-			return Source{}, "", nil, err
-		}
-		if resolved.Name != "" {
-			names = []string{resolved.Name}
-		}
-		return Source{Type: SourceGitHub, Locator: SourceLocator{Repository: resolved.Repository, Branch: resolved.Ref}}, resolved.Subpath, names, nil
+		target, err = github.Locate(ctx, github.Input{Input: req.GitHub.Input, Ref: req.GitHub.Ref, Subpath: req.GitHub.Subpath})
 	case req.URL != "":
-		return Source{Type: SourceURL, Locator: SourceLocator{URL: req.URL}}, "", nil, nil
+		target, err = download.Locate(req.URL)
 	default:
-		root, err := filepath.Abs(req.Local)
-		if err != nil {
-			return Source{}, "", nil, fmt.Errorf("resolve source path: %w", err)
-		}
-		return Source{Type: SourceLocal, Locator: SourceLocator{Path: root}}, "", nil, nil
+		target, err = local.Locate(req.Local)
 	}
+	return target, given[0], err
+}
+
+func inputField(err error, field string) error {
+	if _, ok := errors.AsType[*source.InputError](err); ok {
+		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: field}, Err: err}
+	}
+	return err
 }
 
 func (l *Library) listCandidates(ctx context.Context, state *previewState) ([]Candidate, error) {
-	locator, err := json.Marshal(state.source.Locator)
-	if err != nil {
-		return nil, fmt.Errorf("encode source locator: %w", err)
-	}
-	fetched, err := l.store.SkillsFromSource(ctx, string(state.source.Type), locator)
+	fetched, err := l.store.SkillsFromSource(ctx, state.source.Type, state.source.Locator)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +406,7 @@ func (l *Library) GetSkillAudit(ctx context.Context, id FetchPreviewID, name str
 	if _, err := selectCandidates(state.candidates, []string{name}); err != nil {
 		return nil, err
 	}
-	owner, repo, ok := github.OwnerRepo(state.source.Locator.Repository)
+	owner, repo, ok := github.OwnerRepo(state.source.Type, state.source.Locator)
 	if !ok {
 		return nil, nil
 	}
@@ -491,17 +478,16 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-func (l *Library) fetchAll(ctx context.Context, src Source, skills []source.Skill) ([]Skill, error) {
-	if err := validateSource(src); err != nil {
-		return nil, err
-	}
-	record, err := sourceRecord(src)
-	if err != nil {
-		return nil, err
-	}
+func (l *Library) fetchAll(ctx context.Context, record store.Source, skills []source.Skill) ([]Skill, error) {
 	fetched := make([]Skill, 0, len(skills))
-	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+	err := l.store.InTx(ctx, func(tx *store.Tx) error {
 		sourceID, err := tx.UpsertSource(ctx, record)
+		if err != nil {
+			return err
+		}
+		saved := record
+		saved.ID = sourceID
+		src, err := l.sourceOf(saved)
 		if err != nil {
 			return err
 		}
@@ -527,10 +513,7 @@ func (l *Library) fetchAll(ctx context.Context, src Source, skills []source.Skil
 			if err != nil {
 				return err
 			}
-			result := src
-			result.ID = SourceID(sourceID)
-			result.LastFetched = result.LastFetched.UTC()
-			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: result, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: skill.Files})
+			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: src, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: skill.Files})
 		}
 		return nil
 	})
@@ -538,50 +521,4 @@ func (l *Library) fetchAll(ctx context.Context, src Source, skills []source.Skil
 		return nil, err
 	}
 	return fetched, nil
-}
-
-func validateSource(source Source) error {
-	switch source.Type {
-	case SourceGitHub:
-		if source.Locator.Repository == "" || source.Locator.Branch == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: github repository and branch are required"}
-		}
-	case SourceURL:
-		if source.Locator.URL == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: url is required"}
-		}
-	case SourceLocal:
-		if source.Locator.Path == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: local path is required"}
-		}
-	default:
-		return &Error{Code: InvalidArgument, Message: fmt.Sprintf("invalid source: unsupported source type %q", source.Type)}
-	}
-	return nil
-}
-
-const (
-	maxFetchSize  = 64 << 20
-	maxFetchFiles = 1000
-)
-
-func errUnsupportedSource() error {
-	return &Error{Code: InvalidArgument, Message: "unsupported source type"}
-}
-
-func (l *Library) openSnapshot(ctx context.Context, src Source, subpath string, hint source.State) (source.Snapshot, error) {
-	locator, err := json.Marshal(src.Locator)
-	if err != nil {
-		return nil, fmt.Errorf("encode source locator: %w", err)
-	}
-	switch src.Type {
-	case SourceLocal:
-		return local.Open(ctx, locator, maxFetchFiles, maxFetchSize)
-	case SourceURL:
-		return download.Open(ctx, locator, hint, maxFetchFiles, maxFetchSize)
-	case SourceGitHub:
-		return github.Open(ctx, l.github, locator, subpath)
-	default:
-		return nil, errUnsupportedSource()
-	}
 }

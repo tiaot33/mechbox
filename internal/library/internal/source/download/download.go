@@ -22,7 +22,7 @@ import (
 
 const timeout = 30 * time.Second
 
-var ErrInvalidURL = errors.New("invalid source URL")
+const Type = "url"
 
 type locator struct {
 	URL string `json:"url"`
@@ -45,16 +45,49 @@ type snapshot struct {
 	validator   string
 }
 
-func Open(ctx context.Context, loc source.Locator, hint source.State, maxFiles int, maxBytes int64) (source.Snapshot, error) {
-	var decoded locator
-	if err := json.Unmarshal(loc, &decoded); err != nil {
-		return nil, fmt.Errorf("decode url locator: %w", err)
+func Locate(url string) (source.Target, error) {
+	encoded, err := json.Marshal(locator{URL: url})
+	if err != nil {
+		return source.Target{}, fmt.Errorf("encode url locator: %w", err)
 	}
-	s := &snapshot{url: decoded.URL, maxFiles: maxFiles, maxBytes: maxBytes}
+	return source.Target{Type: Type, Locator: encoded}, nil
+}
+
+type Kind struct {
+	maxFiles int
+	maxBytes int64
+}
+
+func New(maxFiles int, maxBytes int64) Kind {
+	return Kind{maxFiles: maxFiles, maxBytes: maxBytes}
+}
+
+func (k Kind) Describe(loc source.Locator) (source.Description, error) {
+	decoded, err := decode(loc)
+	if err != nil {
+		return source.Description{}, err
+	}
+	return source.Description{Label: decoded.URL}, nil
+}
+
+func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, hint source.State) (source.Snapshot, error) {
+	decoded, err := decode(loc)
+	if err != nil {
+		return nil, err
+	}
+	s := &snapshot{url: decoded.URL, maxFiles: k.maxFiles, maxBytes: k.maxBytes}
 	if err := s.read(ctx, decodeState(hint)); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+func decode(loc source.Locator) (locator, error) {
+	var decoded locator
+	if err := json.Unmarshal(loc, &decoded); err != nil {
+		return locator{}, fmt.Errorf("decode url locator: %w", err)
+	}
+	return decoded, nil
 }
 
 func (s *snapshot) Revision() string {
@@ -78,7 +111,7 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 	}
 	for _, name := range names {
 		if !slices.ContainsFunc(s.skills, func(skill discovery.Skill) bool { return skill.Name == name }) {
-			return nil, &source.SkillNotFoundError{Name: name}
+			return nil, &source.NotFoundError{What: "source skill", Name: name}
 		}
 	}
 	encoded := encodeState(s.validator)
@@ -116,7 +149,7 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 	if err != nil {
-		return ErrInvalidURL
+		return &source.InputError{Reason: "fetch source: invalid source URL"}
 	}
 	applyValidator(req, validator)
 	response, err := http.DefaultClient.Do(req)

@@ -98,7 +98,7 @@ type githubBlobResponse struct {
 	Truncated bool   `json:"truncated"`
 }
 
-func OwnerRepo(repository string) (owner, repo string, ok bool) {
+func ownerRepo(repository string) (owner, repo string, ok bool) {
 	rest, ok := strings.CutPrefix(repository, "https://github.com/")
 	if !ok {
 		return "", "", false
@@ -276,7 +276,7 @@ func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, er
 		current = path.Join(current, component)
 		index := slices.IndexFunc(entries, func(entry githubTreeEntry) bool { return entry.Path == current })
 		if index < 0 {
-			return "", ErrSubpathNotFound
+			return "", &source.NotFoundError{What: "source subpath"}
 		}
 		if entries[index].Type != "tree" {
 			return "", invalidInput("source subpath must contain only real directories")
@@ -472,15 +472,15 @@ func encodeGitHubState(commit, tree string) source.State {
 	return encoded
 }
 
-func Open(ctx context.Context, client *Client, loc source.Locator, subpath string) (source.Snapshot, error) {
-	var locator repoLocator
-	if err := json.Unmarshal(loc, &locator); err != nil {
-		return nil, fmt.Errorf("decode github locator: %w", err)
+func (c *Client) Open(ctx context.Context, loc source.Locator, subpath string, _ source.State) (source.Snapshot, error) {
+	locator, err := decodeLocator(loc)
+	if err != nil {
+		return nil, err
 	}
 	s := &githubSnapshot{locator: locator, subpath: subpath}
 	var apiErr error
-	if owner, repo, ok := OwnerRepo(locator.Repository); ok {
-		session := client.session()
+	if owner, repo, ok := ownerRepo(locator.Repository); ok {
+		session := c.session()
 		commit, rootTree, err := session.commit(ctx, owner, repo, locator.Branch)
 		if err == nil {
 			s.ref, s.rootTree, s.owner, s.repo, s.client = commit, rootTree, owner, repo, session
@@ -738,7 +738,7 @@ func selectSkills(skills []discoveredSkill, selected []string) ([]discoveredSkil
 	}
 	for _, name := range selected {
 		if wanted[name] {
-			return nil, &source.SkillNotFoundError{Name: name}
+			return nil, &source.NotFoundError{What: "source skill", Name: name}
 		}
 	}
 	return result, nil

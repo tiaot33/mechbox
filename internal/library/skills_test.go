@@ -38,7 +38,7 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 		Source: library.Source{
 			ID:          fetched.Source.ID,
 			Type:        library.SourceLocal,
-			Locator:     library.SourceLocator{Path: source},
+			Label:       source,
 			LastFetched: fetched.Source.LastFetched,
 		},
 		Files: []library.File{

@@ -2,9 +2,16 @@ package github
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"fmt"
 	"io"
+	"net/url"
+	"strings"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
+
+const Type = "github"
 
 type Client struct {
 	auth githubAuth
@@ -33,26 +40,48 @@ type repoLocator struct {
 	Branch     string `json:"branch,omitempty"`
 }
 
-var ErrSubpathNotFound = errors.New("source subpath not found")
-
-type RefNotFoundError struct {
-	Ref string
+func (c *Client) Describe(loc source.Locator) (source.Description, error) {
+	locator, err := decodeLocator(loc)
+	if err != nil {
+		return source.Description{}, err
+	}
+	description := source.Description{Label: locator.Repository, Ref: locator.Branch}
+	if owner, repo, ok := ownerRepo(locator.Repository); ok {
+		description.Label = owner + "/" + repo
+		description.ViewURL = "https://github.com/" + owner + "/" + repo + "/tree/" + escapeRef(locator.Branch)
+	}
+	return description, nil
 }
 
-func (e *RefNotFoundError) Error() string {
-	return "git: ref not found"
+func OwnerRepo(sourceType string, loc source.Locator) (owner, repo string, ok bool) {
+	if sourceType != Type {
+		return "", "", false
+	}
+	locator, err := decodeLocator(loc)
+	if err != nil {
+		return "", "", false
+	}
+	return ownerRepo(locator.Repository)
 }
 
-type InputError struct {
-	Reason string
+func decodeLocator(loc source.Locator) (repoLocator, error) {
+	var locator repoLocator
+	if err := json.Unmarshal(loc, &locator); err != nil {
+		return repoLocator{}, fmt.Errorf("decode github locator: %w", err)
+	}
+	return locator, nil
 }
 
-func (e *InputError) Error() string {
-	return e.Reason
+func escapeRef(ref string) string {
+	segments := strings.Split(ref, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	return strings.Join(segments, "/")
 }
 
 func invalidInput(reason string) error {
-	return &InputError{Reason: reason}
+	return &source.InputError{Reason: reason}
 }
 
 type contextReader struct {

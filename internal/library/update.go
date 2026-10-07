@@ -58,7 +58,7 @@ func (l *Library) Update(ctx context.Context, id SkillID) (result UpdateResult, 
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	snapshot, err := l.openSnapshot(ctx, skill.Source, "", state.snapshot)
+	snapshot, err := l.sources.Open(ctx, state.source.Type, state.source.Locator, "", state.snapshot)
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -203,8 +203,8 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 			return finish(), err
 		}
 		indices := groups[sourceID]
-		src := skills[indices[0]].Source
-		snapshot, readErr := l.openSnapshot(ctx, src, "", states[indices[0]].snapshot)
+		first := states[indices[0]]
+		snapshot, readErr := l.sources.Open(ctx, first.source.Type, first.source.Locator, "", first.snapshot)
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
 		}

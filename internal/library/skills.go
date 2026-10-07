@@ -2,9 +2,7 @@ package library
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
@@ -36,21 +34,15 @@ const (
 	ModeExecutable = skillfile.ModeExecutable
 )
 
-// SourceLocator 是来源的定位信息;不同 SourceType 只使用其中一部分字段。
-type SourceLocator struct {
-	Repository string `json:"repository,omitempty"` // github:仓库地址
-	Branch     string `json:"branch,omitempty"`     // github:Git ref(分支、tag 或完整 SHA),保留已有字段名
-	URL        string `json:"url,omitempty"`        // url:压缩包地址
-	Path       string `json:"path,omitempty"`       // local:本地目录的绝对路径
-}
-
-// Source 是一个已记录的 skill 来源。
+// Source 是一个已记录的 skill 来源。展示用的字段由库按来源类型生成,调用方不必区分类型去拼。
 type Source struct {
-	ID          SourceID      `json:"id"`
-	Type        SourceType    `json:"type"`
-	Locator     SourceLocator `json:"locator"`
-	LastFetched time.Time     `json:"last_fetched"`  // 来源内容最近一次被入库或经更新确认的时间
-	LastSeenRef string        `json:"last_seen_ref"` // 上次看到的远端标识(git commit 或内容哈希)
+	ID          SourceID   `json:"id"`
+	Type        SourceType `json:"type"`
+	Label       string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
+	Ref         string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
+	ViewURL     string     `json:"view_url,omitempty"` // 在来源上查看的网页;URL 与本地目录为空
+	LastFetched time.Time  `json:"last_fetched"`       // 来源内容最近一次被入库或经更新确认的时间
+	LastSeenRef string     `json:"last_seen_ref"`      // 上次看到的远端标识(git commit 或内容哈希)
 }
 
 // File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
@@ -101,24 +93,24 @@ type RemoveSkillOptions struct {
 	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
 }
 
-func sourceOf(row store.Source) (Source, error) {
-	src := Source{ID: SourceID(row.ID), Type: SourceType(row.Type), LastFetched: row.LastFetched, LastSeenRef: row.LastSeenRef}
-	if err := json.Unmarshal(row.Locator, &src.Locator); err != nil {
-		return Source{}, fmt.Errorf("decode source: %w", err)
-	}
-	return src, nil
-}
-
-func sourceRecord(src Source) (store.Source, error) {
-	locator, err := json.Marshal(src.Locator)
+func (l *Library) sourceOf(row store.Source) (Source, error) {
+	description, err := l.sources.Describe(row.Type, row.Locator)
 	if err != nil {
-		return store.Source{}, fmt.Errorf("encode source: %w", err)
+		return Source{}, err
 	}
-	return store.Source{ID: int64(src.ID), Type: string(src.Type), Locator: locator, LastFetched: src.LastFetched, LastSeenRef: src.LastSeenRef}, nil
+	return Source{
+		ID:          SourceID(row.ID),
+		Type:        SourceType(row.Type),
+		Label:       description.Label,
+		Ref:         description.Ref,
+		ViewURL:     description.ViewURL,
+		LastFetched: row.LastFetched,
+		LastSeenRef: row.LastSeenRef,
+	}, nil
 }
 
-func summaryOf(row store.Summary) (SkillSummary, error) {
-	src, err := sourceOf(row.Source)
+func (l *Library) summaryOf(row store.Summary) (SkillSummary, error) {
+	src, err := l.sourceOf(row.Source)
 	if err != nil {
 		return SkillSummary{}, err
 	}
@@ -129,13 +121,13 @@ func summaryOf(row store.Summary) (SkillSummary, error) {
 	return summary, nil
 }
 
-func summariesOf(rows []store.Summary, err error) ([]SkillSummary, error) {
+func (l *Library) summariesOf(rows []store.Summary, err error) ([]SkillSummary, error) {
 	if err != nil {
 		return nil, err
 	}
 	var skills []SkillSummary
 	for _, row := range rows {
-		summary, err := summaryOf(row)
+		summary, err := l.summaryOf(row)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +141,7 @@ func (l *Library) getSummary(ctx context.Context, id SkillID) (SkillSummary, err
 	if err != nil {
 		return SkillSummary{}, err
 	}
-	return summaryOf(row)
+	return l.summaryOf(row)
 }
 
 func clockNow() time.Time {
@@ -164,6 +156,7 @@ func (l *Library) GetSkill(ctx context.Context, id SkillID) (skill Skill, err er
 }
 
 type sourceState struct {
+	source    store.Source
 	checkedAt time.Time
 	versionID int64
 	snapshot  source.State
@@ -172,7 +165,11 @@ type sourceState struct {
 func (l *Library) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	summary, err := l.getSummary(ctx, id)
+	row, err := l.store.GetSummary(ctx, int64(id))
+	if err != nil {
+		return Skill{}, sourceState{}, err
+	}
+	summary, err := l.summaryOf(row)
 	if err != nil {
 		return Skill{}, sourceState{}, err
 	}
@@ -190,7 +187,7 @@ func (l *Library) getSkill(ctx context.Context, id SkillID) (Skill, sourceState,
 		UpdatedAt:   summary.UpdatedAt,
 		Files:       current.Files,
 	}
-	return skill, sourceState{checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
+	return skill, sourceState{source: row.Source, checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
 }
 
 // ListSkillFiles 按路径排序列出当前版本的文件元数据,不读取文件正文;技能不存在返回 NotFound(Details.SkillID)。
@@ -236,7 +233,7 @@ func (l *Library) ListSkills(ctx context.Context) (skills []SkillSummary, err er
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	return summariesOf(l.store.ListSummaries(ctx))
+	return l.summariesOf(l.store.ListSummaries(ctx))
 }
 
 // RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上技能文件夹的去留。

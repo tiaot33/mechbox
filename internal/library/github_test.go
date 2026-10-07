@@ -81,8 +81,7 @@ func TestGitHubPreviewAndFetch(t *testing.T) {
 			if !reflect.DeepEqual(fetched[0].Files, wantFiles) {
 				t.Fatalf("files = %#v, want %#v", fetched[0].Files, wantFiles)
 			}
-			wantSource := library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "main"}
-			if fetched[0].Source.Locator != wantSource || fetched[0].Source.LastSeenRef != preview.Revision {
+			if got := fetched[0].Source; got.Type != library.SourceGitHub || got.Label != "owner/repo" || got.Ref != "main" || got.ViewURL != "https://github.com/owner/repo/tree/main" || got.LastSeenRef != preview.Revision {
 				t.Fatalf("source = %#v", fetched[0].Source)
 			}
 			if _, err := lib.Fetch(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
@@ -140,7 +139,7 @@ func TestGitHubPreviewSelectsBySubpathNameAndRoot(t *testing.T) {
 				t.Fatalf("preview = %#v, %v", preview, err)
 			}
 			fetched := fetchSkills(t, lib, preview, candidateNames(preview))
-			if fetched[0].Source.Locator.Repository != "https://github.com/owner/repo.git" {
+			if fetched[0].Source.Label != "owner/repo" {
 				t.Fatalf("subpath changed source identity: %#v", fetched[0].Source)
 			}
 		})

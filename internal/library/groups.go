@@ -242,7 +242,7 @@ func (l *Library) ListGroupSkills(ctx context.Context, groupID GroupID) (skills 
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	return summariesOf(l.store.ListGroupSummaries(ctx, int64(groupID)))
+	return l.summariesOf(l.store.ListGroupSummaries(ctx, int64(groupID)))
 }
 
 // ListGroupsWithMembers 一次列出全部分组及其成员 ID,按 Group ID 升序;空组也在列。

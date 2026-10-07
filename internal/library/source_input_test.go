@@ -144,6 +144,9 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 	if err != nil || preview.Ref != "feature/topic" || len(preview.Candidates) != 2 {
 		t.Fatalf("explicit tree preview = %#v, %v", preview, err)
 	}
+	if fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); err != nil || fetched[0].Source.ViewURL != "https://github.com/owner/repo/tree/feature/topic" {
+		t.Fatalf("slash ref source = %#v, %v", fetched, err)
+	}
 	for _, input := range []library.GitHubInput{
 		{Input: tree, Ref: "feature/topic", Subpath: "other"},
 		{Input: "owner/repo#trunk", Ref: "feature/topic"},
@@ -204,8 +207,8 @@ func TestGitHubInputsPreviewTheRequestedRefAndShareSource(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if want := (library.SourceLocator{Repository: "https://github.com/owner/repo.git", Branch: "trunk"}); fetched[0].Source.Locator != want {
-				t.Fatalf("source locator = %#v, want %#v", fetched[0].Source.Locator, want)
+			if got := fetched[0].Source; got.Label != "owner/repo" || got.Ref != "trunk" {
+				t.Fatalf("source = %#v, want owner/repo at trunk", got)
 			}
 			fetchedID = fetched[0].ID
 		} else if preview.Candidates[0].Fetched != fetchedID {

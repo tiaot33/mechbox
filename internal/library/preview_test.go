@@ -237,8 +237,8 @@ func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
 		{name: "github and url", req: library.PreviewFetchRequest{GitHub: gitHub, URL: "https://source.example/skills.zip"}, field: "url"},
 		{name: "url and local", req: library.PreviewFetchRequest{URL: "https://source.example/skills.zip", Local: t.TempDir()}, field: "local"},
 		{name: "github and local", req: library.PreviewFetchRequest{GitHub: gitHub, Local: t.TempDir()}, field: "local"},
-		{name: "empty github input", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{}}},
-		{name: "github without owner", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "repo", Ref: "main"}}},
+		{name: "empty github input", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{}}, field: "github"},
+		{name: "github without owner", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "repo", Ref: "main"}}, field: "github"},
 		{name: "invalid url", req: library.PreviewFetchRequest{URL: "://bad"}, field: "url"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -53,7 +53,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 		t.Fatalf("collections = %#v; want one collection for the previewed directory", collections)
 	}
 	source := collections[0].Source
-	if source.Type != library.SourceLocal || source.Locator != (library.SourceLocator{Path: root}) || source.LastFetched.IsZero() {
+	if source.Type != library.SourceLocal || source.Label != root || source.Ref != "" || source.ViewURL != "" || source.LastFetched.IsZero() {
 		t.Fatalf("source = %#v; want the previewed directory with a read time", source)
 	}
 }
@@ -78,8 +78,8 @@ func TestLocalPreviewResolvesRelativePathAndListsAllCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fetched) != 1 || fetched[0].Name != "two" || fetched[0].Source.Locator.Path != root {
-		t.Fatalf("source path = %q; want absolute %q", fetched[0].Source.Locator.Path, root)
+	if len(fetched) != 1 || fetched[0].Name != "two" || fetched[0].Source.Label != root {
+		t.Fatalf("source label = %q; want absolute %q", fetched[0].Source.Label, root)
 	}
 }
 

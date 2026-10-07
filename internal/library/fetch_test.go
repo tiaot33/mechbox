@@ -328,7 +328,7 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Source.ID == 0 || got.Source.Type != library.SourceURL || got.Source.Locator.URL != server.URL {
+	if got.Source.ID == 0 || got.Source.Type != library.SourceURL || got.Source.Label != server.URL || got.Source.Ref != "" || got.Source.ViewURL != "" {
 		t.Fatalf("persisted Source = %#v, want typed url source", got.Source)
 	}
 	if got.Source.LastSeenRef == "" || got.Source.LastSeenRef != preview.Revision {

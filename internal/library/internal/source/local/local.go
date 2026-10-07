@@ -3,34 +3,63 @@ package local
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 )
 
-var ErrNotDirectory = errors.New("path is not a directory")
+const Type = "local"
 
 type locator struct {
 	Path string `json:"path"`
 }
 
-func Open(ctx context.Context, loc source.Locator, maxFiles int, maxBytes int64) (source.Snapshot, error) {
-	var decoded locator
-	if err := json.Unmarshal(loc, &decoded); err != nil {
-		return nil, fmt.Errorf("decode local locator: %w", err)
+func Locate(path string) (source.Target, error) {
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return source.Target{}, fmt.Errorf("resolve source path: %w", err)
+	}
+	encoded, err := json.Marshal(locator{Path: root})
+	if err != nil {
+		return source.Target{}, fmt.Errorf("encode local locator: %w", err)
+	}
+	return source.Target{Type: Type, Locator: encoded}, nil
+}
+
+type Kind struct {
+	maxFiles int
+	maxBytes int64
+}
+
+func New(maxFiles int, maxBytes int64) Kind {
+	return Kind{maxFiles: maxFiles, maxBytes: maxBytes}
+}
+
+func (k Kind) Describe(loc source.Locator) (source.Description, error) {
+	decoded, err := decode(loc)
+	if err != nil {
+		return source.Description{}, err
+	}
+	return source.Description{Label: decoded.Path}, nil
+}
+
+func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, _ source.State) (source.Snapshot, error) {
+	decoded, err := decode(loc)
+	if err != nil {
+		return nil, err
 	}
 	info, err := os.Stat(decoded.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read local source: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, ErrNotDirectory
+		return nil, &source.InputError{Reason: "read local source: path is not a directory"}
 	}
-	skills, diagnostics, err := discovery.ScanFS(ctx, os.DirFS(decoded.Path), ".", discovery.NewBudget(maxFiles, maxBytes))
+	skills, diagnostics, err := discovery.ScanFS(ctx, os.DirFS(decoded.Path), ".", discovery.NewBudget(k.maxFiles, k.maxBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +67,14 @@ func Open(ctx context.Context, loc source.Locator, maxFiles int, maxBytes int64)
 		return nil, discovery.NoCandidates(diagnostics)
 	}
 	return &snapshot{skills: skills, diagnostics: diagnostics}, nil
+}
+
+func decode(loc source.Locator) (locator, error) {
+	var decoded locator
+	if err := json.Unmarshal(loc, &decoded); err != nil {
+		return locator{}, fmt.Errorf("decode local locator: %w", err)
+	}
+	return decoded, nil
 }
 
 type snapshot struct {
@@ -60,7 +97,7 @@ func (s *snapshot) Candidates(context.Context) ([]discovery.Candidate, []discove
 func (s *snapshot) Fetch(_ context.Context, names []string) ([]source.Skill, error) {
 	for _, name := range names {
 		if !slices.ContainsFunc(s.skills, func(skill discovery.Skill) bool { return skill.Name == name }) {
-			return nil, &source.SkillNotFoundError{Name: name}
+			return nil, &source.NotFoundError{What: "source skill", Name: name}
 		}
 	}
 	var result []source.Skill

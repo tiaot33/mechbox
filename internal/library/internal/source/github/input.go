@@ -3,6 +3,7 @@ package github
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -119,16 +120,20 @@ func validSubpath(value string) bool {
 	return value == "" || (fs.ValidPath(value) && !strings.ContainsAny(value, "\\:\x00") && !strings.Contains("/"+value+"/", "/.git/"))
 }
 
-type Resolved struct {
-	Repository string
-	Ref        string
-	Subpath    string
-	Name       string
-}
-
-func Resolve(ctx context.Context, input Input) (Resolved, error) {
+func Locate(ctx context.Context, input Input) (source.Target, error) {
 	locator, subpath, name, err := resolveGitHubInput(ctx, input)
-	return Resolved{Repository: locator.Repository, Ref: locator.Branch, Subpath: subpath, Name: name}, err
+	if err != nil {
+		return source.Target{}, err
+	}
+	encoded, err := json.Marshal(locator)
+	if err != nil {
+		return source.Target{}, fmt.Errorf("encode github locator: %w", err)
+	}
+	target := source.Target{Type: Type, Locator: encoded, Subpath: subpath}
+	if name != "" {
+		target.Names = []string{name}
+	}
+	return target, nil
 }
 
 func resolveGitHubInput(ctx context.Context, github Input) (locator repoLocator, subpath, name string, err error) {
@@ -262,8 +267,8 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func missingRefError(err error, ref string) error {
-	if missing, ok := errors.AsType[*RefNotFoundError](err); ok && missing.Ref == "" {
-		missing.Ref = ref
+	if missing, ok := errors.AsType[*source.NotFoundError](err); ok && missing.Name == "" {
+		missing.Name = ref
 	}
 	return err
 }
@@ -274,7 +279,7 @@ func gitCommandError(output []byte) error {
 	case gitAuthFailure(detail):
 		return fmt.Errorf("git: authentication failed: %w", source.ErrPermission)
 	case gitMissingRef(detail):
-		return &RefNotFoundError{}
+		return &source.NotFoundError{What: "git ref"}
 	case gitUnreachable(detail):
 		return fmt.Errorf("git: remote could not be reached: %w", source.ErrUnreachable)
 	default:

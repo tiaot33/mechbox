@@ -7,7 +7,10 @@ import (
 	"sync"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -22,8 +25,14 @@ type Library struct {
 	previews  map[FetchPreviewID]*previewState
 	closed    bool
 
-	github *github.Client
+	github  *github.Client
+	sources source.Kinds
 }
+
+const (
+	maxFetchSize  = 64 << 20
+	maxFetchFiles = 1000
+)
 
 type libraryOperationKey struct{}
 
@@ -55,7 +64,18 @@ func Open(path string) (*Library, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: find home directory: %w", err)
 	}
-	return &Library{store: db, home: home, previews: map[FetchPreviewID]*previewState{}, github: github.NewClient()}, nil
+	client := github.NewClient()
+	return &Library{
+		store:    db,
+		home:     home,
+		previews: map[FetchPreviewID]*previewState{},
+		github:   client,
+		sources: source.Kinds{
+			github.Type:   client,
+			download.Type: download.New(maxFetchFiles, maxFetchSize),
+			local.Type:    local.New(maxFetchFiles, maxFetchSize),
+		},
+	}, nil
 }
 
 // Close 关闭 Library:丢弃全部入库预览句柄,清空 GitHub 缓存并关闭数据库。
