@@ -234,15 +234,15 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 	})
 }
 
-// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
-func (l *Library) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {
+// ListGroupSkills 列出分组里的技能。
+func (l *Library) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []Skill, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	return l.summariesOf(l.store.ListGroupSummaries(ctx, int64(groupID)))
+	return l.skillsOf(l.store.ListGroupSkills(ctx, int64(groupID)))
 }
 
 // ListGroupsWithMembers 一次列出全部分组及其成员 ID,按 Group ID 升序;空组也在列。

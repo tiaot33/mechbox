@@ -75,7 +75,7 @@ func (l *Library) filteredSkillScopes(ctx context.Context, operation string, fil
 		scope = &target.scopeRow
 	}
 	if filter.SkillID != 0 {
-		if _, err := l.getSummary(ctx, filter.SkillID); err != nil {
+		if _, err := l.GetSkill(ctx, filter.SkillID); err != nil {
 			return nil, err
 		}
 	}
@@ -212,7 +212,7 @@ func (l *Library) reinstallOne(ctx context.Context, operation string, skillScope
 	if existing == nil {
 		return "", &Error{Code: NotFound, Message: operation + ": skill scope no longer exists"}
 	}
-	skill, _, err := l.getSkill(ctx, skillScope.SkillID)
+	skill, current, err := l.getCurrent(ctx, skillScope.SkillID)
 	if err != nil {
 		return "", err
 	}
@@ -231,7 +231,7 @@ func (l *Library) reinstallOne(ctx context.Context, operation string, skillScope
 			return "", preconditionError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
 		}
 	}
-	if err := l.place(ctx, []*placement{{skill: skill, scope: target}}, nil); err != nil {
+	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target}}, nil); err != nil {
 		return "", err
 	}
 	return Reinstalled, nil

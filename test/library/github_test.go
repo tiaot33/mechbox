@@ -78,10 +78,10 @@ func TestGitHubPreviewAndFetch(t *testing.T) {
 				{Path: "nested/note.md", Content: []byte("nested"), Mode: library.ModeRegular},
 				{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 			}
-			if !reflect.DeepEqual(fetched[0].Files, wantFiles) {
-				t.Fatalf("files = %#v, want %#v", fetched[0].Files, wantFiles)
+			if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), wantFiles) {
+				t.Fatalf("files = %#v, want %#v", skillFiles(t, lib, fetched[0]), wantFiles)
 			}
-			if got := fetched[0].Source; got.Type != library.SourceGitHub || got.Label != "owner/repo" || got.Ref != "main" || got.ViewURL != "https://github.com/owner/repo/tree/main" || got.LastSeenRef != preview.Revision {
+			if got := fetched[0].Source; got.Type != library.SourceGitHub || got.Label != "owner/repo" || got.Ref != "main" || got.ViewURL != "https://github.com/owner/repo/tree/main" || fetched[0].Revision != preview.Revision {
 				t.Fatalf("source = %#v", fetched[0].Source)
 			}
 			if _, err := lib.Fetch(t.Context(), preview.ID, []string{"second"}); !library.IsCode(err, library.NotFound) {
@@ -114,7 +114,7 @@ func TestGitHubFetchKeepsPreviewedContentAfterHeadAdvances(t *testing.T) {
 				{Path: "SKILL.md", Content: []byte(skillDocument("demo", "pinned")), Mode: library.ModeRegular},
 				{Path: "note.md", Content: []byte("original note"), Mode: library.ModeRegular},
 			}
-			if !reflect.DeepEqual(fetched[0].Files, want) || fetched[0].Source.LastSeenRef != preview.Revision {
+			if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), want) || fetched[0].Revision != preview.Revision {
 				t.Fatalf("fetched = %#v, want previewed content at %s", fetched[0], preview.Revision)
 			}
 		})
@@ -161,8 +161,8 @@ func TestGitHubPreviewSelectsBySubpathNameAndRoot(t *testing.T) {
 				{Path: "notes.md", Content: []byte("extra"), Mode: library.ModeRegular},
 				{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep")), Mode: library.ModeRegular},
 			}
-			if !reflect.DeepEqual(fetched[0].Files, want) {
-				t.Fatalf("files = %#v", fetched[0].Files)
+			if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), want) {
+				t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
 			}
 		})
 	}
@@ -213,11 +213,16 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 				t.Fatalf("Update(first) = %#v, %v", updated, err)
 			}
 			want := library.File{Path: "notes.md", Content: []byte("v2"), Mode: library.ModeRegular}
-			if !slices.ContainsFunc(updated.Skill.Files, func(file library.File) bool { return reflect.DeepEqual(file, want) }) || updated.Skill.Source.LastSeenRef != gitRevParse(t, repo, "HEAD") {
+			if !slices.ContainsFunc(skillFiles(t, lib, updated.Skill), func(file library.File) bool { return reflect.DeepEqual(file, want) }) || updated.Skill.Revision != gitRevParse(t, repo, "HEAD") {
 				t.Fatalf("updated skill = %#v", updated.Skill)
 			}
-			if unchanged, err := lib.Update(t.Context(), skills[1].ID); err != nil || unchanged.Changed {
-				t.Fatalf("Update(second) = %#v, %v", unchanged, err)
+			// 同一来源的另一个技能没有更新,仍停在入库时的 commit。
+			if second, err := lib.GetSkill(t.Context(), skills[1].ID); err != nil || second.Revision != preview.Revision {
+				t.Fatalf("second before its own update = %#v, %v; want revision %s", second, err, preview.Revision)
+			}
+			unchanged, err := lib.Update(t.Context(), skills[1].ID)
+			if err != nil || unchanged.Changed || unchanged.Skill.Revision != gitRevParse(t, repo, "HEAD") || !unchanged.Skill.UpdatedAt.IsZero() {
+				t.Fatalf("Update(second) = %#v, %v; want confirmed at HEAD without a new version", unchanged, err)
 			}
 			requireAvailable(false, false)
 			if versions, err := lib.ListVersions(t.Context(), skills[0].ID); err != nil || len(versions) != 2 {
@@ -269,8 +274,8 @@ func TestGitHubFallsBackToCloneWhenAPIIsIncomplete(t *testing.T) {
 				{Path: "SKILL.md", Content: []byte(skillDocument("good", "body")), Mode: library.ModeRegular},
 				{Path: "scripts/run", Content: []byte{9, 8, 7}, Mode: library.ModeExecutable},
 			}
-			if !reflect.DeepEqual(fetched[0].Files, want) {
-				t.Fatalf("files = %#v", fetched[0].Files)
+			if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), want) {
+				t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
 			}
 		})
 	}
@@ -358,8 +363,8 @@ func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
 					t.Fatalf("preview = %#v, %v", preview, err)
 				}
 				fetched := fetchSkills(t, lib, preview, candidateNames(preview))
-				if len(fetched[0].Files) != 2 {
-					t.Fatalf("files = %#v", fetched[0].Files)
+				if len(skillFiles(t, lib, fetched[0])) != 2 {
+					t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
 				}
 			})
 		}

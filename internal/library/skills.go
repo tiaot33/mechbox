@@ -36,13 +36,11 @@ const (
 
 // Source 是一个已记录的 skill 来源。展示用的字段由库按来源类型生成,调用方不必区分类型去拼。
 type Source struct {
-	ID          SourceID   `json:"id"`
-	Type        SourceType `json:"type"`
-	Label       string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
-	Ref         string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
-	ViewURL     string     `json:"view_url,omitempty"` // 在来源上查看的网页;URL 与本地目录为空
-	LastFetched time.Time  `json:"last_fetched"`       // 来源内容最近一次被入库或经更新确认的时间
-	LastSeenRef string     `json:"last_seen_ref"`      // 上次看到的远端标识(git commit 或内容哈希)
+	ID      SourceID   `json:"id"`
+	Type    SourceType `json:"type"`
+	Label   string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
+	Ref     string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
+	ViewURL string     `json:"view_url,omitempty"` // 在来源上查看的网页;URL 与本地目录为空
 }
 
 // File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
@@ -55,29 +53,18 @@ type FileMetadata struct {
 	Mode FileMode `json:"mode"` // regular 或 executable
 }
 
-// Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
+// Skill 是库里的一个技能;列表、详情、入库结果与组成员都返回它。不含文件内容,
+// 文件用 VersionID 经 ListVersionFiles / GetVersionFile 读取。
 type Skill struct {
-	ID          SkillID   `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
-	Source      Source    `json:"source"`
-	VersionID   VersionID `json:"version_id"`          // 当前版本的 SkillVersion.ID,可直接传给 GetVersion / DiffVersions
-	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
-	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
-	Files       []File    `json:"files"`
-}
-
-// SkillSummary 是浏览列表用的精简条目:身份、名字、描述、来源元数据与最近更新检查,不含文件正文。
-// 列表接口(ListSkills / ListGroupSkills / ListCollections)与入库(Fetch)返回它以保持轻量;
-// 完整文件通过 GetSkill / GetVersion 获取。
-type SkillSummary struct {
-	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近检查结果;nil 表示从未检查
+	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近一次更新检查的结论;nil 表示从未检查
 	ID              SkillID           `json:"id"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	Source          Source            `json:"source"`
-	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
-	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
+	VersionID       VersionID         `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、查看版本历史与差异
+	Revision        string            `json:"revision,omitempty"`  // 当前版本对应的来源标识,与入库预览的 Revision 同义:GitHub 为 commit,URL 为内容哈希,本地目录为空
+	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
 }
 
 // FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -99,106 +86,107 @@ func (l *Library) sourceOf(row store.Source) (Source, error) {
 		return Source{}, err
 	}
 	return Source{
-		ID:          SourceID(row.ID),
-		Type:        SourceType(row.Type),
-		Label:       description.Label,
-		Ref:         description.Ref,
-		ViewURL:     description.ViewURL,
-		LastFetched: row.LastFetched,
-		LastSeenRef: row.LastSeenRef,
+		ID:      SourceID(row.ID),
+		Type:    SourceType(row.Type),
+		Label:   description.Label,
+		Ref:     description.Ref,
+		ViewURL: description.ViewURL,
 	}, nil
 }
 
-func (l *Library) summaryOf(row store.Summary) (SkillSummary, error) {
+func (l *Library) skillOf(row store.Skill) (Skill, error) {
 	src, err := l.sourceOf(row.Source)
 	if err != nil {
-		return SkillSummary{}, err
+		return Skill{}, err
 	}
-	summary := SkillSummary{ID: SkillID(row.ID), Name: row.Name, Description: row.Description, Source: src, FetchedAt: row.FetchedAt, UpdatedAt: row.UpdatedAt}
+	skill := Skill{
+		ID:          SkillID(row.ID),
+		Name:        row.Name,
+		Description: row.Description,
+		Source:      src,
+		VersionID:   VersionID(row.VersionID),
+		Revision:    row.Revision,
+		FetchedAt:   row.FetchedAt,
+		UpdatedAt:   row.UpdatedAt,
+	}
 	if row.CheckStatus != "" {
-		summary.LastUpdateCheck = &UpdateCheckState{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
+		skill.LastUpdateCheck = &UpdateCheckState{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
 	}
-	return summary, nil
+	return skill, nil
 }
 
-func (l *Library) summariesOf(rows []store.Summary, err error) ([]SkillSummary, error) {
+func (l *Library) skillsOf(rows []store.Skill, err error) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	var skills []SkillSummary
+	var skills []Skill
 	for _, row := range rows {
-		summary, err := l.summaryOf(row)
+		skill, err := l.skillOf(row)
 		if err != nil {
 			return nil, err
 		}
-		skills = append(skills, summary)
+		skills = append(skills, skill)
 	}
 	return skills, nil
-}
-
-func (l *Library) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
-	row, err := l.store.GetSummary(ctx, int64(id))
-	if err != nil {
-		return SkillSummary{}, err
-	}
-	return l.summaryOf(row)
 }
 
 func clockNow() time.Time {
 	return time.Now().UTC().Round(0)
 }
 
-// GetSkill 读取一个 skill 及其当前版本的完整文件。
+// GetSkill 读取库里的一个技能,与 ListSkills 返回的条目相同;技能不存在返回 NotFound。
 func (l *Library) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
 	defer func() { err = typedError(err) }()
-	skill, _, err = l.getSkill(ctx, id)
-	return skill, err
+	row, err := l.store.GetSkill(ctx, int64(id))
+	if err != nil {
+		return Skill{}, err
+	}
+	return l.skillOf(row)
 }
 
-type sourceState struct {
+type currentVersion struct {
 	source    store.Source
 	checkedAt time.Time
 	versionID int64
 	snapshot  source.State
+	revision  string
+	files     []File
 }
 
-func (l *Library) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
+func (l *Library) getCurrent(ctx context.Context, id SkillID) (Skill, currentVersion, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	row, err := l.store.GetSummary(ctx, int64(id))
+	row, err := l.store.GetSkill(ctx, int64(id))
 	if err != nil {
-		return Skill{}, sourceState{}, err
+		return Skill{}, currentVersion{}, err
 	}
-	summary, err := l.summaryOf(row)
+	skill, err := l.skillOf(row)
 	if err != nil {
-		return Skill{}, sourceState{}, err
+		return Skill{}, currentVersion{}, err
 	}
 	current, err := l.store.GetCurrent(ctx, int64(id))
 	if err != nil {
-		return Skill{}, sourceState{}, err
+		return Skill{}, currentVersion{}, err
 	}
-	skill := Skill{
-		ID:          summary.ID,
-		Name:        summary.Name,
-		Description: summary.Description,
-		Source:      summary.Source,
-		VersionID:   VersionID(current.VersionID),
-		FetchedAt:   summary.FetchedAt,
-		UpdatedAt:   summary.UpdatedAt,
-		Files:       current.Files,
-	}
-	return skill, sourceState{source: row.Source, checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
+	return skill, currentVersion{
+		source:    row.Source,
+		checkedAt: current.CheckedAt,
+		versionID: current.VersionID,
+		snapshot:  source.State(current.State),
+		revision:  current.Revision,
+		files:     current.Files,
+	}, nil
 }
 
-// ListSkillFiles 按路径排序列出当前版本的文件元数据,不读取文件正文;技能不存在返回 NotFound(Details.SkillID)。
-func (l *Library) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
+// ListVersionFiles 按路径排序列出某个版本的文件元数据,不读取文件正文;版本不存在返回 NotFound。
+// 查看技能当前的文件时传 Skill.VersionID,浏览途中技能被更新也仍读到同一版本。
+func (l *Library) ListVersionFiles(ctx context.Context, id VersionID) (files []FileMetadata, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.store.ListCurrentFiles(ctx, int64(id))
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, &Error{Code: NotFound, Message: "list skill files: skill not found", Details: ErrorDetails{SkillID: id}}
-	}
+	rows, err := l.store.ListVersionFiles(ctx, int64(id))
 	if err != nil {
 		return nil, err
 	}
@@ -208,35 +196,32 @@ func (l *Library) ListSkillFiles(ctx context.Context, id SkillID) (files []FileM
 	return files, nil
 }
 
-// GetSkillFile 按 skill 内的相对路径精确读取当前版本的单个文件,不做路径归一化。
-// 技能不存在返回 NotFound(Details.SkillID),路径不存在返回 NotFound(Details.Path);
-// 与 ListSkillFiles 分别读取各自调用时的当前版本。
-func (l *Library) GetSkillFile(ctx context.Context, id SkillID, path string) (file File, err error) {
+// GetVersionFile 按 skill 内的相对路径精确读取某个版本的单个文件,不做路径归一化。
+// 版本不存在返回 NotFound,路径不存在返回 NotFound(Details.Path)。
+func (l *Library) GetVersionFile(ctx context.Context, id VersionID, path string) (file File, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	file, found, err := l.store.GetCurrentFile(ctx, int64(id), path)
-	if errors.Is(err, store.ErrNotFound) {
-		return File{}, &Error{Code: NotFound, Message: "get skill file: skill not found", Details: ErrorDetails{SkillID: id}}
-	}
+	file, found, err := l.store.GetVersionFile(ctx, int64(id), path)
 	if err != nil {
 		return File{}, err
 	}
 	if !found {
-		return File{}, &Error{Code: NotFound, Message: "get skill file: file not found", Details: ErrorDetails{Path: path}}
+		return File{}, &Error{Code: NotFound, Message: "get version file: file not found", Details: ErrorDetails{Path: path}}
 	}
 	return file, nil
 }
 
-// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
-func (l *Library) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
+// ListSkills 按名字列出库里的全部技能。
+func (l *Library) ListSkills(ctx context.Context) (skills []Skill, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	return l.summariesOf(l.store.ListSummaries(ctx))
+	return l.skillsOf(l.store.ListSkills(ctx))
 }
 
-// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上技能文件夹的去留。
+// RemoveSkill 从库里移除技能及其全部版本、组成员关系与安装记录。默认同时删除它在各作用域里已安装的文件夹,
+// opts.Folders 为 Keep 时保留这些文件夹;只从一个作用域撤掉而保留在库里用 Uninstall。
 func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()

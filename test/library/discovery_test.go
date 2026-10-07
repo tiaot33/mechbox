@@ -63,7 +63,7 @@ func TestPreviewRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T
 			if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Path != "." {
 				t.Fatalf("root = %#v, %v", preview, err)
 			}
-			fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
+			fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,8 +72,8 @@ func TestPreviewRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T
 				{Path: "build/asset.bin", Content: []byte{0, 255, 42}, Mode: library.ModeExecutable},
 				{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep")), Mode: library.ModeRegular},
 			}
-			if !reflect.DeepEqual(fetched[0].Files, want) {
-				t.Fatalf("root files = %#v", fetched[0].Files)
+			if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), want) {
+				t.Fatalf("root files = %#v", skillFiles(t, lib, fetched[0]))
 			}
 		})
 	}
@@ -226,8 +226,8 @@ func TestPreviewDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testin
 	}
 	preview.Candidates[0].Name = "mutated"
 	preview.Diagnostics[0].Reason = "mutated"
-	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"useful"})
-	if err != nil || len(fetched) != 1 || string(fetched[0].Files[0].Content) != content {
+	fetched, err := lib.Fetch(t.Context(), preview.ID, []string{"useful"})
+	if err != nil || len(fetched) != 1 || string(skillFiles(t, lib, fetched[0])[0].Content) != content {
 		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
 }
@@ -260,7 +260,7 @@ func TestPreviewDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 	if len(preview.Candidates) != 2 || preview.Candidates[0].Name != "good" || preview.Candidates[1].Name != "other" || len(preview.Diagnostics) != 1 || preview.Diagnostics[0].Path != "bad" {
 		t.Fatalf("PreviewFetch = %#v", preview)
 	}
-	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"good"})
+	fetched, err := lib.Fetch(t.Context(), preview.ID, []string{"good"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,8 +270,8 @@ func TestPreviewDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 		{Path: "references/nested/SKILL.md", Content: []byte(skillDocument("nested", "keep nested")), Mode: library.ModeRegular},
 		{Path: "scripts/run", Content: []byte{0, 255, 1}, Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(fetched[0].Files, want) {
-		t.Fatalf("files = %#v", fetched[0].Files)
+	if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), want) {
+		t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
 	}
 }
 

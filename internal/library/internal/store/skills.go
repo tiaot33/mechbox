@@ -11,18 +11,18 @@ import (
 )
 
 type Source struct {
-	ID          int64
-	Type        string
-	Locator     []byte
-	LastFetched time.Time
-	LastSeenRef string
+	ID      int64
+	Type    string
+	Locator []byte
 }
 
-type Summary struct {
+type Skill struct {
 	ID          int64
 	Name        string
 	Description string
 	Source      Source
+	VersionID   int64
+	Revision    string
 	FetchedAt   time.Time
 	UpdatedAt   time.Time
 	CheckedAt   time.Time
@@ -32,6 +32,7 @@ type Summary struct {
 type Current struct {
 	VersionID int64
 	State     string
+	Revision  string
 	CheckedAt time.Time
 	Files     []skillfile.File
 }
@@ -46,13 +47,15 @@ type NewVersion struct {
 	Description string
 	Files       []skillfile.File
 	State       string
+	Revision    string
 	CreatedAt   time.Time
 }
 
-const summaryQuery = `
+const skillQuery = `
 	SELECT skills.id, skills.name, current_version.description,
-		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
-		first_version.created_at, current_version.created_at, skills.update_checked_at, skills.update_check_status
+		sources.id, sources.type, sources.locator, current_version.id, current_version.revision,
+		first_version.created_at, CASE WHEN current_version.id = first_version.id THEN '' ELSE current_version.created_at END,
+		skills.update_checked_at, skills.update_check_status
 	FROM skills
 	JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -61,75 +64,72 @@ const summaryQuery = `
 	)
 `
 
-func (q queries) GetSummary(ctx context.Context, id int64) (Summary, error) {
-	summary, err := scanSummary(q.q.QueryRowContext(ctx, summaryQuery+`WHERE skills.id = ?`, id))
+func (q queries) GetSkill(ctx context.Context, id int64) (Skill, error) {
+	skill, err := scanSkill(q.q.QueryRowContext(ctx, skillQuery+`WHERE skills.id = ?`, id))
 	if err != nil {
-		return Summary{}, fmt.Errorf("get skill: %w", wrap(err))
+		return Skill{}, fmt.Errorf("get skill: %w", wrap(err))
 	}
-	return summary, nil
+	return skill, nil
 }
 
-func (q queries) ListSummaries(ctx context.Context) ([]Summary, error) {
-	return q.listSummaries(ctx, "list skills", `ORDER BY skills.name, skills.id`)
+func (q queries) ListSkills(ctx context.Context) ([]Skill, error) {
+	return q.listSkills(ctx, "list skills", `ORDER BY skills.name, skills.id`)
 }
 
-func (q queries) ListGroupSummaries(ctx context.Context, groupID int64) ([]Summary, error) {
-	return q.listSummaries(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
+func (q queries) ListGroupSkills(ctx context.Context, groupID int64) ([]Skill, error) {
+	return q.listSkills(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
 }
 
-func (q queries) listSummaries(ctx context.Context, operation, clause string, args ...any) ([]Summary, error) {
-	rows, err := q.q.QueryContext(ctx, summaryQuery+clause, args...)
+func (q queries) listSkills(ctx context.Context, operation, clause string, args ...any) ([]Skill, error) {
+	rows, err := q.q.QueryContext(ctx, skillQuery+clause, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", operation, wrap(err))
 	}
 	defer rows.Close()
-	var summaries []Summary
+	var skills []Skill
 	for rows.Next() {
-		summary, err := scanSummary(rows)
+		skill, err := scanSkill(rows)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", operation, wrap(err))
 		}
-		summaries = append(summaries, summary)
+		skills = append(skills, skill)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", operation, wrap(err))
 	}
-	return summaries, nil
+	return skills, nil
 }
 
-func scanSummary(row interface{ Scan(...any) error }) (Summary, error) {
-	var summary Summary
-	var lastFetched, fetchedAt, updatedAt, checkedAt string
-	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &summary.Source.Locator, &lastFetched, &summary.Source.LastSeenRef, &fetchedAt, &updatedAt, &checkedAt, &summary.CheckStatus)
+func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
+	var skill Skill
+	var fetchedAt, updatedAt, checkedAt string
+	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus)
 	if err != nil {
-		return Summary{}, err
+		return Skill{}, err
 	}
-	if summary.Source.LastFetched, err = parseTime(lastFetched); err != nil {
-		return Summary{}, fmt.Errorf("decode last fetched: %w", err)
+	if skill.FetchedAt, err = parseTime(fetchedAt); err != nil {
+		return Skill{}, fmt.Errorf("decode fetched at: %w", err)
 	}
-	if summary.FetchedAt, err = parseTime(fetchedAt); err != nil {
-		return Summary{}, fmt.Errorf("decode fetched at: %w", err)
+	if skill.UpdatedAt, err = parseTime(updatedAt); err != nil {
+		return Skill{}, fmt.Errorf("decode updated at: %w", err)
 	}
-	if summary.UpdatedAt, err = parseTime(updatedAt); err != nil {
-		return Summary{}, fmt.Errorf("decode updated at: %w", err)
-	}
-	if summary.CheckStatus != "" {
-		if summary.CheckedAt, err = parseTime(checkedAt); err != nil {
-			return Summary{}, fmt.Errorf("decode update checked at: %w", err)
+	if skill.CheckStatus != "" {
+		if skill.CheckedAt, err = parseTime(checkedAt); err != nil {
+			return Skill{}, fmt.Errorf("decode update checked at: %w", err)
 		}
 	}
-	return summary, nil
+	return skill, nil
 }
 
 func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error) {
 	var current Current
 	var checkedAt string
 	if err := q.q.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.source_state, skills.update_checked_at
+		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_checked_at
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, skillID).Scan(&current.VersionID, &current.State, &checkedAt); err != nil {
+	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &checkedAt); err != nil {
 		return Current{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error
@@ -168,54 +168,54 @@ func (q queries) versionFiles(ctx context.Context, versionID int64, operation st
 	return files, nil
 }
 
-func (q queries) ListCurrentFiles(ctx context.Context, skillID int64) ([]FileInfo, error) {
+func (q queries) ListVersionFiles(ctx context.Context, versionID int64) ([]FileInfo, error) {
 	rows, err := q.q.QueryContext(ctx, `
 		SELECT version_files.path, length(blobs.content), version_files.mode
-		FROM skills
-		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id
+		FROM skill_versions
+		LEFT JOIN version_files ON version_files.version_id = skill_versions.id
 		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
+		WHERE skill_versions.id = ?
 		ORDER BY version_files.path
-	`, skillID)
+	`, versionID)
 	if err != nil {
-		return nil, fmt.Errorf("list skill files: %w", wrap(err))
+		return nil, fmt.Errorf("list version files: %w", wrap(err))
 	}
 	defer rows.Close()
-	skillExists := false
+	versionExists := false
 	var files []FileInfo
 	for rows.Next() {
-		skillExists = true
+		versionExists = true
 		var path, mode sql.NullString
 		var size sql.NullInt64
 		if err := rows.Scan(&path, &size, &mode); err != nil {
-			return nil, fmt.Errorf("read skill file metadata: %w", wrap(err))
+			return nil, fmt.Errorf("read version file metadata: %w", wrap(err))
 		}
 		if path.Valid {
 			files = append(files, FileInfo{Path: path.String, Size: size.Int64, Mode: skillfile.Mode(mode.String)})
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list skill files: %w", wrap(err))
+		return nil, fmt.Errorf("list version files: %w", wrap(err))
 	}
-	if !skillExists {
-		return nil, fmt.Errorf("list skill files: %w", ErrNotFound)
+	if !versionExists {
+		return nil, fmt.Errorf("list version files: %w", ErrNotFound)
 	}
 	return files, nil
 }
 
-func (q queries) GetCurrentFile(ctx context.Context, skillID int64, path string) (skillfile.File, bool, error) {
+func (q queries) GetVersionFile(ctx context.Context, versionID int64, path string) (skillfile.File, bool, error) {
 	var fileExists bool
 	var mode sql.NullString
 	file := skillfile.File{Path: path}
 	err := q.q.QueryRowContext(ctx, `
 		SELECT version_files.path IS NOT NULL, blobs.content, version_files.mode
-		FROM skills
-		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id AND version_files.path = ?
+		FROM skill_versions
+		LEFT JOIN version_files ON version_files.version_id = skill_versions.id AND version_files.path = ?
 		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
-	`, path, skillID).Scan(&fileExists, &file.Content, &mode)
+		WHERE skill_versions.id = ?
+	`, path, versionID).Scan(&fileExists, &file.Content, &mode)
 	if err != nil {
-		return skillfile.File{}, false, fmt.Errorf("get skill file: %w", wrap(err))
+		return skillfile.File{}, false, fmt.Errorf("get version file: %w", wrap(err))
 	}
 	if !fileExists {
 		return skillfile.File{}, false, nil
@@ -255,10 +255,9 @@ func (q queries) SkillsFromSource(ctx context.Context, sourceType string, locato
 
 func (t *Tx) UpsertSource(ctx context.Context, source Source) (int64, error) {
 	if _, err := t.q.ExecContext(ctx, `
-		INSERT INTO sources(type, locator, last_fetched, last_seen_ref) VALUES (?, ?, ?, ?)
-		ON CONFLICT(type, locator) DO UPDATE SET
-			last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref
-	`, source.Type, source.Locator, formatTime(source.LastFetched), source.LastSeenRef); err != nil {
+		INSERT INTO sources(type, locator) VALUES (?, ?)
+		ON CONFLICT(type, locator) DO NOTHING
+	`, source.Type, source.Locator); err != nil {
 		return 0, fmt.Errorf("store source: %w", wrap(err))
 	}
 	var sourceID int64
@@ -319,19 +318,12 @@ func (t *Tx) CurrentVersionID(ctx context.Context, skillID int64) (int64, error)
 	return current.Int64, nil
 }
 
-func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state string) error {
+func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision string) error {
 	if _, err := t.q.ExecContext(ctx, `
-		UPDATE skill_versions SET source_state = ?
+		UPDATE skill_versions SET source_state = ?, revision = ?
 		WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
-	`, state, skillID); err != nil {
+	`, state, revision, skillID); err != nil {
 		return fmt.Errorf("confirm current version: %w", wrap(err))
-	}
-	return nil
-}
-
-func (t *Tx) RecordSourceFetch(ctx context.Context, sourceID int64, lastFetched time.Time, lastSeenRef string) error {
-	if _, err := t.q.ExecContext(ctx, `UPDATE sources SET last_fetched = ?, last_seen_ref = ? WHERE id = ?`, formatTime(lastFetched), lastSeenRef, sourceID); err != nil {
-		return fmt.Errorf("update source: %w", wrap(err))
 	}
 	return nil
 }

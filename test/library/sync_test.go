@@ -205,7 +205,7 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 		t.Fatalf("skills after pull = %#v", skills)
 	}
 	full, err := lib.GetSkill(ctx, original.ID)
-	if err != nil || string(full.Files[0].Content) != skillDocument(original.Name, "updated\n") {
+	if err != nil || string(skillFiles(t, lib, full)[0].Content) != skillDocument(original.Name, "updated\n") {
 		t.Fatalf("GetSkill after pull = %#v, %v", full, err)
 	}
 	versions, err := lib.ListVersions(ctx, original.ID)

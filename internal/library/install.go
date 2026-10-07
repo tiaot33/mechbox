@@ -204,7 +204,7 @@ func (l *Library) PlanGroupInstall(ctx context.Context, groupID GroupID, scope S
 	return plan, nil
 }
 
-func memberNameCounts(members []SkillSummary) map[string]int {
+func memberNameCounts(members []Skill) map[string]int {
 	counts := make(map[string]int, len(members))
 	for _, member := range members {
 		counts[member.Name]++
@@ -256,7 +256,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	if err != nil {
 		return err
 	}
-	skill, err := l.GetSkill(ctx, id)
+	skill, current, err := l.getCurrent(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	if conflict != nil {
 		return conflict
 	}
-	placements := []*placement{{skill: skill, scope: target}}
+	placements := []*placement{{skill: skill, files: current.files, scope: target}}
 	return l.place(ctx, placements, func(tx *store.Tx) error {
 		return tx.RecordSkillScope(ctx, int64(skill.ID), target.record(), true, clockNow())
 	})
@@ -285,6 +285,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 
 type placement struct {
 	skill Skill
+	files []File
 	scope resolvedScope
 }
 
@@ -297,7 +298,7 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	for _, item := range placements {
-		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, item.skill.Files); err != nil {
+		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, item.files); err != nil {
 			return err
 		}
 	}
@@ -375,12 +376,12 @@ func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, 
 	} else if result.Error, err = l.memberBlocker(ctx, plan, id, name, target, duplicate); err != nil {
 		return err
 	} else if result.Error == nil {
-		skill, err := l.GetSkill(ctx, id)
+		skill, current, err := l.getCurrent(ctx, id)
 		if err != nil {
 			return err
 		}
 		plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] = true
-		plan.placements = append(plan.placements, &placement{skill: skill, scope: target})
+		plan.placements = append(plan.placements, &placement{skill: skill, files: current.files, scope: target})
 		result.Outcome = MemberInstalled
 	}
 	plan.results = append(plan.results, result)

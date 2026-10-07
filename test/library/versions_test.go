@@ -50,15 +50,15 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(first.Files, fetched.Files) {
-		t.Fatalf("first version files = %#v, want %#v", first.Files, fetched.Files)
+	if !reflect.DeepEqual(first.Files, skillFiles(t, lib, fetched)) {
+		t.Fatalf("first version files = %#v, want %#v", first.Files, skillFiles(t, lib, fetched))
 	}
 	second, err := lib.GetVersion(ctx, versions[1].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(second.Files, updated.Skill.Files) {
-		t.Fatalf("second version files = %#v, want %#v", second.Files, updated.Skill.Files)
+	if !reflect.DeepEqual(second.Files, skillFiles(t, lib, updated.Skill)) {
+		t.Fatalf("second version files = %#v, want %#v", second.Files, skillFiles(t, lib, updated.Skill))
 	}
 
 	diff, err := lib.DiffVersions(ctx, versions[0].ID, versions[1].ID)

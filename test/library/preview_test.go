@@ -86,8 +86,8 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	if _, err := lib.Fetch(cancelled, preview.ID, []string{"first"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled fetch: %v", err)
 	}
-	fetched, err := getFetchedSkills(ctx, lib, preview, []string{"first"})
-	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" || string(fetched[0].Files[0].Content) != skillDocument("first", "first") {
+	fetched, err := lib.Fetch(ctx, preview.ID, []string{"first"})
+	if err != nil || len(fetched) != 1 || fetched[0].Name != "first" || string(skillFiles(t, lib, fetched[0])[0].Content) != skillDocument("first", "first") {
 		t.Fatalf("fetch after preview mutation and cancellation = %#v, %v", fetched, err)
 	}
 	if err := lib.Close(); err != nil {

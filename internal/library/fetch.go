@@ -183,7 +183,7 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	if err != nil {
 		return FetchPreview{}, err
 	}
-	record := store.Source{Type: target.Type, Locator: target.Locator, LastFetched: time.Now().UTC(), LastSeenRef: snapshot.Revision()}
+	record := store.Source{Type: target.Type, Locator: target.Locator}
 	description, err := l.sources.Describe(record.Type, record.Locator)
 	if err != nil {
 		return FetchPreview{}, err
@@ -215,7 +215,7 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 			delete(l.previews, id)
 		}
 	})
-	return FetchPreview{ID: id, Ref: description.Ref, Revision: record.LastSeenRef, Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}, nil
+	return FetchPreview{ID: id, Ref: description.Ref, Revision: snapshot.Revision(), Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}, nil
 }
 
 func previewTarget(ctx context.Context, req PreviewFetchRequest) (target source.Target, field string, err error) {
@@ -277,7 +277,7 @@ func previewDiagnostics(diagnostics []discovery.Diagnostic) []PreviewDiagnostic 
 	return result
 }
 
-// Fetch 从一次入库预览中选取候选原子提交入库,返回入库技能的摘要(不含文件,需要时用 GetSkill)。
+// Fetch 从一次入库预览中选取候选原子提交入库,返回入库的技能。
 // names 为空返回 InvalidArgument;"全部入库"由调用方把 Fetched 为零的候选名收集起来传入。
 // 所选技能中有已入库的,整批返回 AlreadyExists。
 // GitHub 来源可在入库预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
@@ -285,7 +285,7 @@ func previewDiagnostics(diagnostics []discovery.Diagnostic) []PreviewDiagnostic 
 // 要么库保持不变。成功后该入库预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
 // 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次入库尚在进行时,再次入库返回
 // FailedPrecondition;联网期间不持库锁,其他入库预览 / 列表 / 安装不必等它。
-func (l *Library) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []SkillSummary, err error) {
+func (l *Library) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []Skill, err error) {
 	defer func() { err = typedError(err) }()
 	if len(names) == 0 {
 		return nil, argumentError("fetch", "names", "at least one skill name is required")
@@ -301,15 +301,7 @@ func (l *Library) Fetch(ctx context.Context, id FetchPreviewID, names []string) 
 	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	created, err := l.fetchAll(ctx, state.source, skills)
-	if err != nil {
-		return nil, err
-	}
-	fetched = make([]SkillSummary, len(created))
-	for i, skill := range created {
-		fetched[i] = SkillSummary{ID: skill.ID, Name: skill.Name, Description: skill.Description, Source: skill.Source, FetchedAt: skill.FetchedAt, UpdatedAt: skill.UpdatedAt}
-	}
-	return fetched, nil
+	return l.fetchAll(ctx, state.source, state.snapshot.Revision(), skills)
 }
 
 func (l *Library) claimPreview(id FetchPreviewID, names []string) (*previewState, error) {
@@ -478,7 +470,7 @@ func skillDescription(files []File) string {
 	return ""
 }
 
-func (l *Library) fetchAll(ctx context.Context, record store.Source, skills []source.Skill) ([]Skill, error) {
+func (l *Library) fetchAll(ctx context.Context, record store.Source, revision string, skills []source.Skill) ([]Skill, error) {
 	fetched := make([]Skill, 0, len(skills))
 	err := l.store.InTx(ctx, func(tx *store.Tx) error {
 		sourceID, err := tx.UpsertSource(ctx, record)
@@ -509,11 +501,11 @@ func (l *Library) fetchAll(ctx context.Context, record store.Source, skills []so
 				description = skillDescription(skill.Files)
 			}
 			createdAt := clockNow()
-			skillID, versionID, err := tx.InsertSkill(ctx, sourceID, skill.Name, store.NewVersion{Description: description, Files: skill.Files, State: string(skill.State), CreatedAt: createdAt})
+			skillID, versionID, err := tx.InsertSkill(ctx, sourceID, skill.Name, store.NewVersion{Description: description, Files: skill.Files, State: string(skill.State), Revision: revision, CreatedAt: createdAt})
 			if err != nil {
 				return err
 			}
-			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: src, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: skill.Files})
+			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: src, VersionID: VersionID(versionID), Revision: revision, FetchedAt: createdAt})
 		}
 		return nil
 	})
