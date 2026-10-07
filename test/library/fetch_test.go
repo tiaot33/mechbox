@@ -46,9 +46,9 @@ func TestFetchKeepsCandidateDescription(t *testing.T) {
 			if err != nil || len(fetched) != 1 || fetched[0].Description != "helps a lot" {
 				t.Fatalf("Fetch = %#v, %v", fetched, err)
 			}
-			summaries, err := lib.ListSkills(ctx)
-			if err != nil || len(summaries) != 1 || summaries[0].Description != description {
-				t.Fatalf("ListSkills description = %#v, %v; want %q", summaries, err, description)
+			listed, err := lib.ListSkills(ctx)
+			if err != nil || len(listed) != 1 || listed[0].Description != description {
+				t.Fatalf("ListSkills description = %#v, %v; want %q", listed, err, description)
 			}
 		})
 	}
@@ -239,12 +239,12 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	}
 	changed := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "# Changed\n")})
 	served.Store(&changed)
-	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(fetched[0].Files[0].Content) != skillDocument("first", "# First\n") {
-		t.Fatalf("Fetch reread the remote: %q", fetched[0].Files[0].Content)
+	if string(skillFiles(t, lib, fetched[0])[0].Content) != skillDocument("first", "# First\n") {
+		t.Fatalf("Fetch reread the remote: %q", skillFiles(t, lib, fetched[0])[0].Content)
 	}
 	if got, want := skillNames(fetched), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("fetched skills = %v, want %v", got, want)
@@ -256,7 +256,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || !reflect.DeepEqual(summaryNames(collections[0].Skills), []string{"first", "second"}) {
+	if len(collections) != 1 || !reflect.DeepEqual(skillNames(collections[0].Skills), []string{"first", "second"}) {
 		t.Fatalf("collections = %#v, want both remote skills grouped by Source", collections)
 	}
 	group, err := lib.CreateGroup(t.Context(), "remote group")
@@ -288,7 +288,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := summaryNames(remaining), []string{"second"}; !reflect.DeepEqual(got, want) {
+	if got, want := skillNames(remaining), []string{"second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("skills after remote removal = %v, want %v", got, want)
 	}
 }
@@ -321,8 +321,8 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 		t.Fatalf("source IDs = %d and %d, want one shared Source", first.Source.ID, second.Source.ID)
 	}
 	// 入库结果与技能列表的条目形状一致,不带文件。
-	if summaries, err := lib.ListSkills(ctx); err != nil || !reflect.DeepEqual(summaries, fetched) {
-		t.Fatalf("ListSkills() = %#v, %v; want fetch result %#v", summaries, err, fetched)
+	if listed, err := lib.ListSkills(ctx); err != nil || !reflect.DeepEqual(listed, fetched) {
+		t.Fatalf("ListSkills() = %#v, %v; want fetch result %#v", listed, err, fetched)
 	}
 	got, err := lib.GetSkill(ctx, first.ID)
 	if err != nil {
@@ -331,17 +331,17 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	if got.Source.ID == 0 || got.Source.Type != library.SourceURL || got.Source.Label != server.URL || got.Source.Ref != "" || got.Source.ViewURL != "" {
 		t.Fatalf("persisted Source = %#v, want typed url source", got.Source)
 	}
-	if got.Source.LastSeenRef == "" || got.Source.LastSeenRef != preview.Revision {
-		t.Fatalf("persisted ref = %q, want preview ref %q", got.Source.LastSeenRef, preview.Revision)
+	if got.Revision == "" || got.Revision != preview.Revision {
+		t.Fatalf("persisted revision = %q, want preview revision %q", got.Revision, preview.Revision)
 	}
-	if got.Source.LastFetched.IsZero() {
-		t.Fatal("persisted source has zero LastFetched")
+	if got.FetchedAt.IsZero() || !got.UpdatedAt.IsZero() {
+		t.Fatalf("FetchedAt = %v, UpdatedAt = %v; want fetch time and no update time", got.FetchedAt, got.UpdatedAt)
 	}
 	collections, err := lib.ListCollections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || !reflect.DeepEqual(summaryIDs(collections[0].Skills), []library.SkillID{first.ID, second.ID}) {
+	if len(collections) != 1 || !reflect.DeepEqual(skillIDs(collections[0].Skills), []library.SkillID{first.ID, second.ID}) {
 		t.Fatalf("ListCollections() = %#v, want both skills in one collection", collections)
 	}
 }

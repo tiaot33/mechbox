@@ -47,11 +47,11 @@ func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("git-lfs was invoked during PreviewFetch")
 	}
-	fetched, err := getFetchedSkills(t.Context(), lib, preview, []string{"demo"})
+	fetched, err := lib.Fetch(t.Context(), preview.ID, []string{"demo"})
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "demo" {
 		t.Fatalf("Fetch = %#v, %v", fetched, err)
 	}
-	if got := string(fetched[0].Files[0].Content); !strings.Contains(got, "plain skill") {
+	if got := string(skillFiles(t, lib, fetched[0])[0].Content); !strings.Contains(got, "plain skill") {
 		t.Fatalf("fetched content = %q", got)
 	}
 }

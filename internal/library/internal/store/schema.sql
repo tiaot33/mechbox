@@ -7,9 +7,6 @@ CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,                -- 来源主键,由 SQLite 分配;同一来源可包含多个 skill
     type TEXT NOT NULL,                     -- 来源类型:github / url / local
     locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 本地路径)
-    last_fetched TEXT NOT NULL DEFAULT '',  -- 来源内容最近一次被入库或经更新确认的时间,RFC3339Nano;空串 = 从未读取
-    last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希);Source 级展示信息,
-                                            -- 同来源下各 Skill 共享,更新判定走 skill_versions 上的读取记录
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
 );
 
@@ -27,11 +24,13 @@ CREATE TABLE IF NOT EXISTS skills (
 -- skill 的历史版本及快照元数据;文件清单在 version_files。
 -- source_state 是该版本的来源读取记录,内容由来源定义:GitHub 记该 Skill 目录的 tree SHA 与确认它是远端最新时所在的 commit,
 -- URL 记服务端给出的 HTTP validator,本地目录不记。
+-- revision 是该版本内容在来源上对应的标识,供展示与按来源比较各 skill 是否在同一版本。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY,                          -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序
     skill_id INTEGER NOT NULL REFERENCES skills(id), -- 此版本所属的 skill,关联 skills.id
     source_state TEXT NOT NULL DEFAULT '',           -- 来源自己记录的该版本读取状态,JSON;由来源子包定义和解释,Library 只存取不解析。空 = 无状态,检查更新时比较内容
+    revision TEXT NOT NULL DEFAULT '',               -- 最近一次确认此版本内容时来源的标识:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空;更新确认无变化时刷新
     description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
     created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano
 );

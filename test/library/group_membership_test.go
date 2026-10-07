@@ -272,8 +272,8 @@ func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
 	requireInstalledFolder(t, directory, "dup", "# holder\n")
 
 	members, err := lib.ListGroupSkills(ctx, g.ID)
-	if want := []library.SkillID{holder.ID, edited.ID, untracked.ID, namesake.ID}; err != nil || !reflect.DeepEqual(summaryIDs(members), want) {
-		t.Fatalf("ListGroupSkills() = %v, %v; want %v", summaryIDs(members), err, want)
+	if want := []library.SkillID{holder.ID, edited.ID, untracked.ID, namesake.ID}; err != nil || !reflect.DeepEqual(skillIDs(members), want) {
+		t.Fatalf("ListGroupSkills() = %v, %v; want %v", skillIDs(members), err, want)
 	}
 	via := []library.GroupID{g.ID}
 	requireSkillScopes(t, lib, []library.SkillScope{
@@ -426,8 +426,8 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 	requireInstalledFolder(t, projectDir, "member", "# member\n")
 	requireNoStagedEntries(t, globalDir)
 	members, err := lib.ListGroupSkills(ctx, g.ID)
-	if err != nil || !reflect.DeepEqual(summaryIDs(members), []library.SkillID{skill.ID}) {
-		t.Fatalf("ListGroupSkills() after failed uninstall = %v, %v; want [%d]", summaryIDs(members), err, skill.ID)
+	if err != nil || !reflect.DeepEqual(skillIDs(members), []library.SkillID{skill.ID}) {
+		t.Fatalf("ListGroupSkills() after failed uninstall = %v, %v; want [%d]", skillIDs(members), err, skill.ID)
 	}
 	via := []library.GroupID{g.ID}
 	requireSkillScopes(t, lib, []library.SkillScope{
@@ -497,8 +497,8 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 		{SkillID: skill.ID, Scope: global, Outcome: library.MemberInstalled},
 	})
 	members, err := lib.ListGroupSkills(ctx, g.ID)
-	if err != nil || !reflect.DeepEqual(summaryIDs(members), []library.SkillID{present.ID, skill.ID}) {
-		t.Fatalf("ListGroupSkills() = %v, %v; want [%d %d]", summaryIDs(members), err, present.ID, skill.ID)
+	if err != nil || !reflect.DeepEqual(skillIDs(members), []library.SkillID{present.ID, skill.ID}) {
+		t.Fatalf("ListGroupSkills() = %v, %v; want [%d %d]", skillIDs(members), err, present.ID, skill.ID)
 	}
 	if _, err := os.Lstat(project.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing project root was created: %v", err)

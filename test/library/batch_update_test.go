@@ -33,7 +33,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
+		fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +79,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	}
 	for _, original := range skills {
 		got, err := lib.GetSkill(t.Context(), original.ID)
-		if err != nil || !reflect.DeepEqual(got.Files, original.Files) {
+		if err != nil || !reflect.DeepEqual(skillFiles(t, lib, got), skillFiles(t, lib, original)) {
 			t.Fatalf("mutated content = %#v, %v", got, err)
 		}
 		versions, err := lib.ListVersions(t.Context(), original.ID)
@@ -112,7 +112,7 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
+		fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 		if err != nil {
 			t.Fatal(err)
 		}

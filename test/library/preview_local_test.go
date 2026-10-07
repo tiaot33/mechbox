@@ -31,7 +31,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("preview wrote to library: %v, %v", skills, err)
 	}
-	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +42,8 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 		{Path: "SKILL.md", Content: []byte(skillDocument("alpha", "alpha body")), Mode: library.ModeRegular},
 		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Mode: library.ModeExecutable},
 	}
-	if !reflect.DeepEqual(fetched[0].Files, wantFiles) {
-		t.Fatalf("alpha files = %#v", fetched[0].Files)
+	if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), wantFiles) {
+		t.Fatalf("alpha files = %#v", skillFiles(t, lib, fetched[0]))
 	}
 	collections, err := lib.ListCollections(ctx)
 	if err != nil {
@@ -53,8 +53,8 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 		t.Fatalf("collections = %#v; want one collection for the previewed directory", collections)
 	}
 	source := collections[0].Source
-	if source.Type != library.SourceLocal || source.Label != root || source.Ref != "" || source.ViewURL != "" || source.LastFetched.IsZero() {
-		t.Fatalf("source = %#v; want the previewed directory with a read time", source)
+	if source.Type != library.SourceLocal || source.Label != root || source.Ref != "" || source.ViewURL != "" {
+		t.Fatalf("source = %#v; want the previewed directory", source)
 	}
 }
 
@@ -96,13 +96,13 @@ func TestLocalPreviewPinsContentUntilFetch(t *testing.T) {
 	// 入库预览之后改动或删除目录,入库的仍是入库预览时的内容。
 	writeFile(t, skillFile, []byte(skillDocument("pinned", "edited later")), 0o644)
 	writeFile(t, filepath.Join(root, "extra.md"), []byte("added later"), 0o644)
-	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []library.File{{Path: "SKILL.md", Content: []byte(skillDocument("pinned", "previewed")), Mode: library.ModeRegular}}
-	if !reflect.DeepEqual(fetched[0].Files, want) {
-		t.Fatalf("fetched files = %#v; want preview-time snapshot", fetched[0].Files)
+	if !reflect.DeepEqual(skillFiles(t, lib, fetched[0]), want) {
+		t.Fatalf("fetched files = %#v; want preview-time snapshot", skillFiles(t, lib, fetched[0]))
 	}
 }
 
@@ -139,11 +139,11 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updated.Changed || string(updated.Skill.Files[0].Content) != skillDocument("first", "v2") {
+	if !updated.Changed || string(skillFiles(t, lib, updated.Skill)[0].Content) != skillDocument("first", "v2") {
 		t.Fatalf("Update = %#v; want v2 from relocated directory", updated)
 	}
-	if updated.Skill.Source.LastFetched.IsZero() {
-		t.Fatalf("Update did not record read time on local source: %#v", updated.Skill.Source)
+	if updated.Skill.UpdatedAt.IsZero() || updated.Skill.Revision != "" {
+		t.Fatalf("updated skill = %#v; want an update time and no revision for a local source", updated.Skill)
 	}
 
 	// 名字从目录里消失时,更新报 NotFound。

@@ -1,6 +1,7 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"time"
@@ -12,7 +13,7 @@ import (
 
 // UpdateResult 描述 Library 的更新结果;已安装的文件夹不会自动重新安装。
 type UpdateResult struct {
-	Skill   Skill `json:"skill"`
+	Skill   Skill `json:"skill"`   // 更新后的技能;文件经 VersionID 读取
 	Changed bool  `json:"changed"` // GitHub 为目录 tree SHA 变化并生成了新版本;其他来源为内容或权限变化
 }
 
@@ -41,10 +42,10 @@ type UpdateCheck struct {
 
 // Update 重新读取来源,在其中按名字重新定位该 skill,不经入库预览。GitHub 先解析一次 commit:与当前版本记录的确认 commit 相同即无变化,不取 tree;
 // 否则发现候选、比较该 Skill 目录的 tree SHA:相同则不取辅助文件、不新增版本,不同才取文件并写入新版本
-// (带新 SHA 与本次 commit)。无变化时刷新当前版本的确认 commit 与 last_fetched / last_seen_ref;
+// (带新 SHA 与本次 commit)。无变化时把当前版本的确认 commit 与 Revision 刷新为本次 commit;
 // 无 SHA 的旧 GitHub 记录回退为比较文件与可执行位,成功后补写 SHA 与确认 commit。
-// URL 在当前版本记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,只刷新 last_fetched;
-// 200 则整包比较文件,把新 validator 记到新版本或当前版本上,并写回 last_seen_ref。本地目录重新发现候选后比较文件。
+// URL 在当前版本记录了 HTTP validator 时带条件头:304 即无变化,不下载、不新增版本,Revision 不变;
+// 200 则整包比较文件,把新 validator 与内容哈希记到新版本或当前版本上。本地目录重新发现候选后比较文件。
 // 只更新 Library,不重新安装已安装的文件夹。
 // 联网期间不持库锁;提交前复核:skill 已被移除返回 NotFound,当前版本已被别处改写返回 Conflict
 // (Details.SkillID),两者都不留下任何写入。
@@ -54,7 +55,7 @@ func (l *Library) Update(ctx context.Context, id SkillID) (result UpdateResult, 
 	if id <= 0 {
 		return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill ID must be positive"}
 	}
-	skill, state, err := l.getSkill(ctx, id)
+	skill, state, err := l.getCurrent(ctx, id)
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -62,40 +63,35 @@ func (l *Library) Update(ctx context.Context, id SkillID) (result UpdateResult, 
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	changed, latest, err := checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: internalFiles(skill.Files), State: state.snapshot}, true)
+	changed, latest, err := checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: state.files, State: state.snapshot}, true)
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	if changed {
-		skill.Files, skill.Description = publicFiles(latest.Files), latest.Description
-	}
-	if revision := snapshot.Revision(); revision != "" {
-		skill.Source.LastSeenRef = revision
-	}
-	skill.Source.LastFetched = time.Now().UTC()
+	revision := cmp.Or(snapshot.Revision(), state.revision)
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
+	var updated store.Skill
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		if err := requireCurrentVersion(ctx, tx, id, state.versionID); err != nil {
 			return err
 		}
 		if changed {
-			createdAt := clockNow()
-			versionID, err := tx.AddVersion(ctx, int64(id), store.NewVersion{Description: skill.Description, Files: latest.Files, State: string(latest.State), CreatedAt: createdAt})
-			if err != nil {
+			if _, err := tx.AddVersion(ctx, int64(id), store.NewVersion{Description: latest.Description, Files: latest.Files, State: string(latest.State), Revision: revision, CreatedAt: clockNow()}); err != nil {
 				return err
 			}
-			skill.VersionID = VersionID(versionID)
-			skill.UpdatedAt = createdAt
-		} else if err := tx.ConfirmVersion(ctx, int64(id), string(latest.State)); err != nil {
+		} else if err := tx.ConfirmVersion(ctx, int64(id), string(latest.State), revision); err != nil {
 			return err
 		}
-		if err := tx.RecordSourceFetch(ctx, int64(skill.Source.ID), skill.Source.LastFetched, skill.Source.LastSeenRef); err != nil {
+		if err := tx.ConfirmUpdateCheck(ctx, int64(id), clockNow(), string(UpdateCurrent)); err != nil {
 			return err
 		}
-		return tx.ConfirmUpdateCheck(ctx, int64(id), clockNow(), string(UpdateCurrent))
+		updated, err = tx.GetSkill(ctx, int64(id))
+		return err
 	})
 	if err != nil {
+		return UpdateResult{}, err
+	}
+	if skill, err = l.skillOf(updated); err != nil {
 		return UpdateResult{}, err
 	}
 	return UpdateResult{Skill: skill, Changed: changed}, nil
@@ -141,7 +137,7 @@ func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Ha
 // 记录不同的再无条件读取一次。
 // GitHub 无 SHA 的旧记录、本地来源以及 URL 的完整响应,比较文件内容与可执行位。
 // 技能不存在或来源读取失败等逐项错误放在 UpdateCheck.Error,不阻断其他来源。
-// 每项完成后保存检查时间与结论,经 SkillSummary.LastUpdateCheck 读取;不改技能内容、版本或安装。
+// 每项完成后保存检查时间与结论,经 Skill.LastUpdateCheck 读取;不改技能内容、版本或安装。
 // 保存前复核当前版本和确认时间;版本变化或期间确认了不同结论返回 Conflict,被移除返回 NotFound。
 // 同版本的并发检查结论相同时仍成功并刷新时间;期间写入的 failed 可被成功结论覆盖,冲突项不覆盖已有记录。
 // 整体取消返回已完成项与 context 错误,未完成项保留原记录。持久化故障作为整体错误返回。
@@ -151,7 +147,7 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 		return nil, err
 	}
 	var skills []Skill
-	var states []sourceState
+	var states []currentVersion
 	var completed []bool
 	groups := make(map[SourceID][]int)
 	var sources []SourceID
@@ -175,12 +171,12 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 		seen[id] = true
 		result := UpdateCheck{SkillID: id}
 		var skill Skill
-		var state sourceState
+		var state currentVersion
 		var readErr error
 		if id <= 0 {
 			readErr = &Error{Code: InvalidArgument, Message: "skill ID must be positive"}
 		} else {
-			skill, state, readErr = l.getSkill(ctx, id)
+			skill, state, readErr = l.getCurrent(ctx, id)
 		}
 		if ctx.Err() != nil {
 			return finish(), ctx.Err()
@@ -215,7 +211,7 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 			itemErr := readErr
 			available := false
 			if itemErr == nil {
-				available, _, itemErr = checkSnapshot(ctx, snapshot, source.Have{Name: skills[index].Name, Files: internalFiles(skills[index].Files), State: states[index].snapshot}, false)
+				available, _, itemErr = checkSnapshot(ctx, snapshot, source.Have{Name: skills[index].Name, Files: states[index].files, State: states[index].snapshot}, false)
 			}
 			if ctx.Err() != nil {
 				return finish(), ctx.Err()
@@ -243,7 +239,7 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 	return results, ctx.Err()
 }
 
-func (l *Library) saveUpdateCheck(ctx context.Context, id SkillID, state sourceState, status UpdateCheckStatus) error {
+func (l *Library) saveUpdateCheck(ctx context.Context, id SkillID, state currentVersion, status UpdateCheckStatus) error {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.InTx(ctx, func(tx *store.Tx) error {

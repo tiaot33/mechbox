@@ -12,7 +12,7 @@ import (
 
 const (
 	applicationID = 1397443650
-	schemaVersion = 15
+	schemaVersion = 16
 	agentSeedSQL  = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),

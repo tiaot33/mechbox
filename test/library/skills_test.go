@@ -1,10 +1,13 @@
 package library_test
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,26 +37,24 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 		Name:      "example-skill",
 		VersionID: fetched.VersionID,
 		FetchedAt: fetched.FetchedAt,
-		UpdatedAt: fetched.UpdatedAt,
 		Source: library.Source{
-			ID:          fetched.Source.ID,
-			Type:        library.SourceLocal,
-			Label:       source,
-			LastFetched: fetched.Source.LastFetched,
-		},
-		Files: []library.File{
-			{Path: "SKILL.md", Content: []byte(skillDocument("example-skill", "# Example\n")), Mode: library.ModeRegular},
-			{Path: "assets/data.bin", Content: []byte{0x00, 0xff, 0x01}, Mode: library.ModeRegular},
-			{Path: "references/guide.md", Content: []byte("nested\n"), Mode: library.ModeRegular},
-			{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\nexit 0\n"), Mode: library.ModeExecutable},
+			ID:    fetched.Source.ID,
+			Type:  library.SourceLocal,
+			Label: source,
 		},
 	}
-	if !reflect.DeepEqual(got, want) || got.Source.LastFetched.IsZero() {
+	if !reflect.DeepEqual(got, want) || got.FetchedAt.IsZero() {
 		t.Fatalf("GetSkill() = %#v, want %#v", got, want)
 	}
 	if !reflect.DeepEqual(fetched, got) {
 		t.Fatalf("fetchLocalDir() = %#v, GetSkill() = %#v", fetched, got)
 	}
+	requireVersionFiles(t, lib, got.VersionID, []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("example-skill", "# Example\n")), Mode: library.ModeRegular},
+		{Path: "assets/data.bin", Content: []byte{0x00, 0xff, 0x01}, Mode: library.ModeRegular},
+		{Path: "references/guide.md", Content: []byte("nested\n"), Mode: library.ModeRegular},
+		{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\nexit 0\n"), Mode: library.ModeExecutable},
+	})
 }
 
 func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
@@ -67,9 +68,9 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	end := time.Now().UTC()
-	summaries, err := lib.ListSkills(ctx)
-	if err != nil || len(summaries) != 1 || summaries[0].Description != "a useful helper" {
-		t.Fatalf("ListSkills description = %#v, %v", summaries, err)
+	listed, err := lib.ListSkills(ctx)
+	if err != nil || len(listed) != 1 || listed[0].Description != "a useful helper" {
+		t.Fatalf("ListSkills description = %#v, %v", listed, err)
 	}
 	if fetched.Description != "a useful helper" {
 		t.Fatalf("Fetch Description = %q, want a useful helper", fetched.Description)
@@ -78,8 +79,8 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 	if err != nil || len(versions) != 1 {
 		t.Fatalf("ListVersions = %#v, %v", versions, err)
 	}
-	if !fetched.FetchedAt.Equal(fetched.UpdatedAt) || !fetched.FetchedAt.Equal(versions[0].CreatedAt) {
-		t.Fatalf("times = fetched %v updated %v version %v, want equal", fetched.FetchedAt, fetched.UpdatedAt, versions[0].CreatedAt)
+	if !fetched.FetchedAt.Equal(versions[0].CreatedAt) || !fetched.UpdatedAt.IsZero() {
+		t.Fatalf("times = fetched %v updated %v version %v, want fetch time of the first version and no update time", fetched.FetchedAt, fetched.UpdatedAt, versions[0].CreatedAt)
 	}
 	if fetched.FetchedAt.Before(start) || fetched.FetchedAt.After(end) {
 		t.Fatalf("FetchedAt = %v, want in [%v, %v]", fetched.FetchedAt, start, end)
@@ -90,6 +91,142 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 	undocumented, err := fetchLocalDir(ctx, lib, plain)
 	if err != nil || undocumented.Description != "" {
 		t.Fatalf("Fetch without description = %#v, %v; want empty", undocumented, err)
+	}
+}
+
+// 列表、组成员、集合与详情给出的是同一个技能,不带文件;详情也带最近一次更新检查。
+func TestListsAndDetailReturnTheSameSkill(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	skill := fetchExampleSkill(t, lib, "example")
+	group, err := lib.CreateGroup(ctx, "examples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.CheckUpdates(ctx, []library.SkillID{skill.ID}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := lib.GetSkill(ctx, skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.LastUpdateCheck == nil || detail.LastUpdateCheck.Status != library.UpdateCurrent {
+		t.Fatalf("GetSkill LastUpdateCheck = %#v, want current", detail.LastUpdateCheck)
+	}
+	data, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fields["files"]; ok {
+		t.Fatalf("skill exposes files: %s", data)
+	}
+	listed, err := lib.ListSkills(ctx)
+	if err != nil || !reflect.DeepEqual(listed, []library.Skill{detail}) {
+		t.Fatalf("ListSkills = %#v, %v; want %#v", listed, err, detail)
+	}
+	members, err := lib.ListGroupSkills(ctx, group.ID)
+	if err != nil || !reflect.DeepEqual(members, []library.Skill{detail}) {
+		t.Fatalf("ListGroupSkills = %#v, %v; want %#v", members, err, detail)
+	}
+	collections, err := lib.ListCollections(ctx)
+	if err != nil || !reflect.DeepEqual(collections, []library.Collection{{Source: detail.Source, Skills: []library.Skill{detail}}}) {
+		t.Fatalf("ListCollections = %#v, %v", collections, err)
+	}
+}
+
+// 更新时间只在更新带来新版本后才有;读文件按版本 ID,技能更新后旧版本的文件仍按原样可读。
+func TestUpdateTimeAndVersionFilesAcrossUpdate(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "changing")
+	writeLocalSkill(t, source, "old")
+	writeFile(t, filepath.Join(source, "removed.txt"), []byte("removed"), 0o644)
+	fetched, err := fetchLocalDir(ctx, lib, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := lib.Update(ctx, fetched.ID)
+	if err != nil || unchanged.Changed || !unchanged.Skill.UpdatedAt.IsZero() || unchanged.Skill.VersionID != fetched.VersionID {
+		t.Fatalf("Update without changes = %#v, %v; want no update time and the same version", unchanged, err)
+	}
+
+	writeLocalSkill(t, source, "新版正文")
+	writeFile(t, filepath.Join(source, "new.sh"), []byte("new"), 0o755)
+	if err := os.Remove(filepath.Join(source, "removed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := lib.Update(ctx, fetched.ID)
+	if err != nil || !updated.Changed {
+		t.Fatalf("Update = %#v, %v", updated, err)
+	}
+	versions, err := lib.ListVersions(ctx, fetched.ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("ListVersions = %#v, %v", versions, err)
+	}
+	detail, err := lib.GetSkill(ctx, fetched.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(detail, updated.Skill) || detail.VersionID != versions[1].ID || !detail.UpdatedAt.Equal(versions[1].CreatedAt) || !detail.FetchedAt.Equal(fetched.FetchedAt) {
+		t.Fatalf("after Update GetSkill = %#v, Update = %#v; want the new version, its time as UpdatedAt and the original FetchedAt", detail, updated.Skill)
+	}
+
+	requireVersionFiles(t, lib, detail.VersionID, []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("changing", "新版正文")), Mode: library.ModeRegular},
+		{Path: "new.sh", Content: []byte("new"), Mode: library.ModeExecutable},
+	})
+	_, err = lib.GetVersionFile(ctx, detail.VersionID, "removed.txt")
+	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Path: "removed.txt"})
+	requireVersionFiles(t, lib, fetched.VersionID, []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("changing", "old")), Mode: library.ModeRegular},
+		{Path: "removed.txt", Content: []byte("removed"), Mode: library.ModeRegular},
+	})
+}
+
+func TestVersionFilesReportMissingAndCanceled(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	skill := fetchNamedSkill(t, lib, "present")
+	// 路径按原样精确匹配,不做归一化。
+	for _, path := range []string{"missing.txt", "", "../SKILL.md", "./SKILL.md", "/SKILL.md"} {
+		_, err := lib.GetVersionFile(ctx, skill.VersionID, path)
+		requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Path: path})
+	}
+	_, err := lib.ListVersionFiles(ctx, 99999)
+	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{})
+	_, err = lib.GetVersionFile(ctx, 99999, "SKILL.md")
+	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{})
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := lib.ListVersionFiles(canceled, skill.VersionID); !library.IsCode(err, library.Canceled) {
+		t.Fatalf("canceled list error = %v", err)
+	}
+	if _, err := lib.GetVersionFile(canceled, skill.VersionID, "SKILL.md"); !library.IsCode(err, library.Canceled) {
+		t.Fatalf("canceled read error = %v", err)
+	}
+}
+
+// requireVersionFiles 核对版本的文件列表与逐个读取:元数据按路径排序、大小等于内容字节数,单文件读取与 want 完全相同。
+func requireVersionFiles(t *testing.T, lib *library.Library, id library.VersionID, want []library.File) {
+	t.Helper()
+	var wantMetadata []library.FileMetadata
+	for _, file := range want {
+		wantMetadata = append(wantMetadata, library.FileMetadata{Path: file.Path, Size: int64(len(file.Content)), Mode: file.Mode})
+		got, err := lib.GetVersionFile(t.Context(), id, file.Path)
+		if err != nil || !reflect.DeepEqual(got, file) {
+			t.Fatalf("GetVersionFile(%q) = %#v, %v; want %#v", file.Path, got, err, file)
+		}
+	}
+	metadata, err := lib.ListVersionFiles(t.Context(), id)
+	if err != nil || !slices.Equal(metadata, wantMetadata) {
+		t.Fatalf("ListVersionFiles = %#v, %v; want %#v", metadata, err, wantMetadata)
 	}
 }
 
@@ -113,8 +250,8 @@ func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []library.Collection{
-		{Source: first.Source, Skills: []library.SkillSummary{summaryOf(first)}},
-		{Source: second.Source, Skills: []library.SkillSummary{summaryOf(second)}},
+		{Source: first.Source, Skills: []library.Skill{first}},
+		{Source: second.Source, Skills: []library.Skill{second}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListCollections() = %#v, want %#v", got, want)
@@ -237,7 +374,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	skills, err := lib.ListSkills(ctx)
-	if err != nil || !reflect.DeepEqual(summaryIDs(skills), []library.SkillID{missing.ID, present.ID}) {
+	if err != nil || !reflect.DeepEqual(skillIDs(skills), []library.SkillID{missing.ID, present.ID}) {
 		t.Fatalf("failed Remove changed skills: %#v, %v", skills, err)
 	}
 	after, err := lib.ListSkillScopes(ctx)

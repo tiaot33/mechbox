@@ -68,7 +68,7 @@ func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(skills) != 1 || skills[0].ID != skill.ID {
-		t.Fatalf("ListSkills after fetch = %v, want the fetched skill", summaryIDs(skills))
+		t.Fatalf("ListSkills after fetch = %v, want the fetched skill", skillIDs(skills))
 	}
 }
 
@@ -187,7 +187,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		seen[i] = summaryIDs(skills)
+		seen[i] = skillIDs(skills)
 	}
 	if len(seen[0]) != rounds || !slices.Equal(seen[0], seen[1]) {
 		t.Fatalf("instances disagree after interleaved writes: %v vs %v (want %d shared skills)", seen[0], seen[1], rounds)

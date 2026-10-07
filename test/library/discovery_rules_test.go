@@ -98,7 +98,7 @@ func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 				if !reflect.DeepEqual(paths, tc.paths) || !reflect.DeepEqual(diagnostics, tc.diagnostics) {
 					t.Fatalf("candidates = %#v", got.Candidates)
 				}
-				fetched, err := getFetchedSkills(t.Context(), lib, got, candidateNames(got))
+				fetched, err := lib.Fetch(t.Context(), got.ID, candidateNames(got))
 				if err != nil || len(fetched) != len(tc.paths) {
 					t.Fatalf("fetch = %#v, %v", fetched, err)
 				}
@@ -107,7 +107,7 @@ func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 					if tc.paths[i] == "." {
 						prefix = ""
 					}
-					for _, file := range skill.Files {
+					for _, file := range skillFiles(t, lib, skill) {
 						if string(file.Content) != tc.files[prefix+file.Path] {
 							t.Fatalf("unexpected content: %s/%s", prefix, file.Path)
 						}
@@ -183,7 +183,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 				t.Fatalf("check = %v, %v", available, err)
 			}
 			updated, err := lib.Update(t.Context(), id)
-			if err != nil || !updated.Changed || string(updated.Skill.Files[0].Content) != skillDocument("same", "changed") {
+			if err != nil || !updated.Changed || string(skillFiles(t, lib, updated.Skill)[0].Content) != skillDocument("same", "changed") {
 				t.Fatalf("update = %#v, %v", updated, err)
 			}
 			runGit(t, repo, "mv", "skills", "examples")
@@ -296,11 +296,11 @@ func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 				if err != nil || len(got.Candidates) != 1 || got.Candidates[0].Name != want {
 					t.Fatalf("case selection = %#v, %v", got, err)
 				}
-				fetched, err := getFetchedSkills(t.Context(), lib, got, candidateNames(got))
-				if err != nil || len(fetched[0].Files) != len(files) {
+				fetched, err := lib.Fetch(t.Context(), got.ID, candidateNames(got))
+				if err != nil || len(skillFiles(t, lib, fetched[0])) != len(files) {
 					t.Fatalf("case files = %#v, %v", fetched, err)
 				}
-				for _, file := range fetched[0].Files {
+				for _, file := range skillFiles(t, lib, fetched[0]) {
 					if string(file.Content) != files["demo/"+file.Path] {
 						t.Fatalf("changed filename/content: %#v", file)
 					}

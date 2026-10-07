@@ -17,8 +17,8 @@ func TestJSONFieldNamesAndValuesFollowTerminology(t *testing.T) {
 		want  string
 	}{
 		{"candidate fetched", library.Candidate{Fetched: 7, Name: "demo"}, `{"fetched":7,"name":"demo","description":"","path":""}`},
-		{"skill summary fetched_at", library.SkillSummary{FetchedAt: at}, `{"id":0,"name":"","description":"","source":{"id":0,"type":"","label":"","last_fetched":"0001-01-01T00:00:00Z","last_seen_ref":""},"fetched_at":"2026-09-27T00:00:00Z"}`},
-		{"source display", library.Source{ID: 1, Type: library.SourceGitHub, Label: "owner/repo", Ref: "main", ViewURL: "https://github.com/owner/repo/tree/main", LastFetched: at, LastSeenRef: "abc"}, `{"id":1,"type":"github","label":"owner/repo","ref":"main","view_url":"https://github.com/owner/repo/tree/main","last_fetched":"2026-09-27T00:00:00Z","last_seen_ref":"abc"}`},
+		{"skill never updated", library.Skill{VersionID: 3, Revision: "abc", FetchedAt: at}, `{"id":0,"name":"","description":"","source":{"id":0,"type":"","label":""},"version_id":3,"revision":"abc","fetched_at":"2026-09-27T00:00:00Z"}`},
+		{"source display", library.Source{ID: 1, Type: library.SourceGitHub, Label: "owner/repo", Ref: "main", ViewURL: "https://github.com/owner/repo/tree/main"}, `{"id":1,"type":"github","label":"owner/repo","ref":"main","view_url":"https://github.com/owner/repo/tree/main"}`},
 		{"group install created_at", library.GroupInstall{GroupID: 1, Scope: library.GlobalScope(library.AgentCodex), CreatedAt: at}, `{"group_id":1,"scope":{"kind":"global","agent":"codex"},"created_at":"2026-09-27T00:00:00Z"}`},
 		{"remove skill folders", library.RemoveSkillOptions{Folders: library.Keep}, `{"folders":"keep"}`},
 		{"unregister project folders", library.UnregisterProjectOptions{Folders: library.Remove}, `{"folders":"remove"}`},

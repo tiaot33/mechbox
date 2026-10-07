@@ -135,22 +135,6 @@ func skillNames(skills []library.Skill) []string {
 	return names
 }
 
-func summaryNames(skills []library.SkillSummary) []string {
-	names := make([]string, len(skills))
-	for i, skill := range skills {
-		names[i] = skill.Name
-	}
-	return names
-}
-
-func summaryIDs(skills []library.SkillSummary) []library.SkillID {
-	ids := make([]library.SkillID, len(skills))
-	for i, skill := range skills {
-		ids[i] = skill.ID
-	}
-	return ids
-}
-
 // withoutCreatedAt 去掉首次安装时间,供不关心时间戳的既有 DeepEqual 断言使用。
 func withoutCreatedAt(skillScopes []library.SkillScope) []library.SkillScope {
 	out := append([]library.SkillScope(nil), skillScopes...)
@@ -158,17 +142,6 @@ func withoutCreatedAt(skillScopes []library.SkillScope) []library.SkillScope {
 		out[i].CreatedAt = time.Time{}
 	}
 	return out
-}
-
-func summaryOf(skill library.Skill) library.SkillSummary {
-	return library.SkillSummary{
-		ID:          skill.ID,
-		Name:        skill.Name,
-		Description: skill.Description,
-		Source:      skill.Source,
-		FetchedAt:   skill.FetchedAt,
-		UpdatedAt:   skill.UpdatedAt,
-	}
 }
 
 func writeFile(t *testing.T, path string, content []byte, mode os.FileMode) {
@@ -396,29 +369,14 @@ func candidateNames(preview library.FetchPreview) []string {
 	return names
 }
 
-// fetchSkills 把 names 从入库预览入库,再按入库顺序用 GetSkill 读回完整技能,供需要文件或 tree SHA 的用例复用。
+// fetchSkills 把 names 从入库预览入库,失败即终止测试。
 func fetchSkills(t *testing.T, lib *library.Library, preview library.FetchPreview, names []string) []library.Skill {
 	t.Helper()
-	skills, err := getFetchedSkills(t.Context(), lib, preview, names)
+	skills, err := lib.Fetch(t.Context(), preview.ID, names)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return skills
-}
-
-// getFetchedSkills 是 fetchSkills 的不失败版本:入库后按入库顺序用 GetSkill 读回完整技能。
-func getFetchedSkills(ctx context.Context, lib *library.Library, preview library.FetchPreview, names []string) ([]library.Skill, error) {
-	summaries, err := lib.Fetch(ctx, preview.ID, names)
-	if err != nil {
-		return nil, err
-	}
-	skills := make([]library.Skill, len(summaries))
-	for i, summary := range summaries {
-		if skills[i], err = lib.GetSkill(ctx, summary.ID); err != nil {
-			return nil, err
-		}
-	}
-	return skills, nil
 }
 
 // fetchLocalDir 对本地目录做入库预览,并把其中唯一的候选入库,供只需一个本地技能的用例复用。
@@ -430,7 +388,7 @@ func fetchLocalDir(ctx context.Context, lib *library.Library, dir string) (libra
 	if len(preview.Candidates) != 1 {
 		return library.Skill{}, fmt.Errorf("local preview of %s found %d candidates, want 1", dir, len(preview.Candidates))
 	}
-	fetched, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
+	fetched, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		return library.Skill{}, err
 	}
@@ -539,4 +497,14 @@ func withoutGroupCreatedAt(installs []library.GroupInstall) []library.GroupInsta
 		out[i].CreatedAt = time.Time{}
 	}
 	return out
+}
+
+// skillFiles 读出技能当前版本的全部文件。
+func skillFiles(t *testing.T, lib *library.Library, skill library.Skill) []library.File {
+	t.Helper()
+	version, err := lib.GetVersion(t.Context(), skill.VersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version.Files
 }

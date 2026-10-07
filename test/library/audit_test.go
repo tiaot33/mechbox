@@ -154,7 +154,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 		t.Fatalf("GetSkillAudit = %#v, %v", audit, err)
 	}
 	// 审计结论只供展示:fail 也不挡入库;入库后的 Skill、列表与版本历史都没有审计的落脚点。
-	fetched, err := getFetchedSkills(t.Context(), lib, preview, candidateNames(preview))
+	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "second" {
 		t.Fatalf("fetch = %#v, %v", fetched, err)
 	}
@@ -162,7 +162,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(skill, fetched[0]) {
 		t.Fatalf("GetSkill = %#v, %v", skill, err)
 	}
-	if skills, err := lib.ListSkills(t.Context()); err != nil || !reflect.DeepEqual(skills, []library.SkillSummary{summaryOf(fetched[0])}) {
+	if skills, err := lib.ListSkills(t.Context()); err != nil || !reflect.DeepEqual(skills, fetched) {
 		t.Fatalf("ListSkills = %#v, %v", skills, err)
 	}
 	if versions, err := lib.ListVersions(t.Context(), fetched[0].ID); err != nil || len(versions) != 1 {

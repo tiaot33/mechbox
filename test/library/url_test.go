@@ -44,8 +44,8 @@ func TestURLNotModifiedMeansNoUpdate(t *testing.T) {
 			if err != nil || result.Changed {
 				t.Fatalf("Update = %#v, %v", result, err)
 			}
-			if !result.Skill.Source.LastFetched.After(before.Source.LastFetched) || result.Skill.Source.LastSeenRef != before.Source.LastSeenRef {
-				t.Fatalf("source after no-op update = %#v, before %#v", result.Skill.Source, before.Source)
+			if result.Skill.Revision == "" || result.Skill.Revision != before.Revision || !result.Skill.UpdatedAt.IsZero() {
+				t.Fatalf("skill after no-op update = %#v, before %#v", result.Skill, before)
 			}
 			if versions, err := lib.ListVersions(t.Context(), id); err != nil || len(versions) != 1 {
 				t.Fatalf("versions = %#v, %v", versions, err)
@@ -64,7 +64,7 @@ func TestURLUpdateWritesChangedArchive(t *testing.T) {
 		t.Fatalf("CheckUpdates after remote change = %v, %v", available, err)
 	}
 	result, err := lib.Update(t.Context(), id)
-	if err != nil || !result.Changed || string(result.Skill.Files[0].Content) != skillDocument("demo", "new") {
+	if err != nil || !result.Changed || string(skillFiles(t, lib, result.Skill)[0].Content) != skillDocument("demo", "new") {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
 	if versions, err := lib.ListVersions(t.Context(), id); err != nil || len(versions) != 2 {

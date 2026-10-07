@@ -28,7 +28,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skills, err := getFetchedSkills(ctx, lib, preview, candidateNames(preview))
+	skills, err := lib.Fetch(ctx, preview.ID, candidateNames(preview))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,11 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	check(first.ID, true)
 	check(second.ID, false)
 	current, err := lib.GetSkill(ctx, first.ID)
-	if err != nil || !reflect.DeepEqual(current, first) {
+	if err != nil || current.LastUpdateCheck == nil || current.LastUpdateCheck.Status != library.UpdateAvailable {
+		t.Fatalf("check result on skill: %#v, %v", current, err)
+	}
+	current.LastUpdateCheck = nil
+	if !reflect.DeepEqual(current, first) {
 		t.Fatalf("check mutated skill: %#v, %v", current, err)
 	}
 	versions, err := lib.ListVersions(ctx, first.ID)
@@ -73,7 +77,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	// 更新一个 skill 后,共享 Source 的抓取状态不能掩盖另一个 skill 的变化。
 	writeSource("new", "new")
 	result, err := lib.Update(ctx, first.ID)
-	if err != nil || !result.Changed || string(result.Skill.Files[0].Content) != skillDocument("first", "new") {
+	if err != nil || !result.Changed || string(skillFiles(t, lib, result.Skill)[0].Content) != skillDocument("first", "new") {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
 	assertUpdateResultFields(t, result)

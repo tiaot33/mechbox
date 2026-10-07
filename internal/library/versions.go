@@ -16,6 +16,7 @@ type SkillVersion struct {
 	ID          VersionID `json:"id"`
 	SkillID     SkillID   `json:"skill_id"`
 	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Revision    string    `json:"revision,omitempty"`  // 最近一次确认该版本内容时的来源标识:GitHub 为 commit,URL 为内容哈希,本地目录为空
 	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
 	Files       []File    `json:"files,omitempty"`
 }
@@ -28,7 +29,7 @@ type VersionDiff struct {
 }
 
 func versionOf(row store.Version) SkillVersion {
-	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: publicFiles(row.Files)}
+	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, Revision: row.Revision, CreatedAt: row.CreatedAt, Files: publicFiles(row.Files)}
 }
 
 // ListVersions 按先后顺序列出 skill 的全部版本(不含文件内容)。

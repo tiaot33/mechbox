@@ -188,7 +188,7 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 		t.Fatalf("versions = %v, %v; want initial + one update", versions, err)
 	}
 	current, err := lib.GetSkill(t.Context(), demo.ID)
-	if err != nil || string(current.Files[0].Content) != skillDocument("demo", "new") {
+	if err != nil || string(skillFiles(t, lib, current)[0].Content) != skillDocument("demo", "new") {
 		t.Fatalf("current skill = %#v, %v; want the committed update", current, err)
 	}
 }
@@ -245,7 +245,7 @@ func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 	var wg sync.WaitGroup
 	var fetched []library.Skill
 	var fetchErr error
-	wg.Go(func() { fetched, fetchErr = getFetchedSkills(t.Context(), lib, preview, []string{"first"}) })
+	wg.Go(func() { fetched, fetchErr = lib.Fetch(t.Context(), preview.ID, []string{"first"}) })
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "second Fetch on the same handle", func(ctx context.Context) error {

@@ -56,10 +56,10 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := summaryIDs(debuggingSkills), []library.SkillID{first.ID, second.ID}; !reflect.DeepEqual(got, want) {
+	if got, want := skillIDs(debuggingSkills), []library.SkillID{first.ID, second.ID}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("debugging members = %v, want %v", got, want)
 	}
-	if got, want := summaryIDs(shippingSkills), []library.SkillID{first.ID}; !reflect.DeepEqual(got, want) {
+	if got, want := skillIDs(shippingSkills), []library.SkillID{first.ID}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("shipping members = %v, want %v", got, want)
 	}
 }
@@ -324,7 +324,7 @@ func TestListGroupsWithMembersListsEveryGroupWithAscendingMembers(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := summaryIDs(members); !reflect.DeepEqual(got, group.Members) {
+		if got := skillIDs(members); !reflect.DeepEqual(got, group.Members) {
 			t.Fatalf("group %d members = %v, ListGroupSkills = %v", group.Group.ID, group.Members, got)
 		}
 	}

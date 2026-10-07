@@ -16,7 +16,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `install.go` — 安装预览、直接安装与组安装、卸载、安装记录列表。
   - `reinstall.go` — SkillScope 巡检(可按 `SkillScopeFilter` 缩小范围)与重新安装。
   - `sync.go` — 整库与 S3 的推拉同步:远端身份比对、`SKILLS_PROJECT_PATH_MAP` 解析;快照、拉回库校验与替换由 `store` 完成。
-- `internal/library/internal/skillfile` — 技能文件 `File` / `Mode`(`library` 另有同形的公开类型 `File` / `FileMode`,由 `skills.go` 在出入口转换)、文件集合比较、内容指纹,以及巡检用的 `Digest`。
+- `internal/library/internal/skillfile` — 技能文件 `File` / `Mode`(`library` 另有同形的公开类型 `File` / `FileMode`,由 `skills.go` 在出口转换)、文件集合比较、内容指纹,以及巡检用的 `Digest`。
 - `internal/library/internal/source` — 每种来源实现的 `Kind`(按定位信息打开 `Snapshot`、生成展示名称 / Ref / 查看链接)与按来源类型分派的 `Kinds`;`Snapshot` 是钉住的一份来源内容:候选、按名取文件、检查更新。定位信息 `Locator` 对 Library 不透明,由各来源的 `Locate` 从用户输入生成。`Check` 返回变了 / 没变 / 未知三态,未知时由 `update.go` 的 `checkSnapshot` 取文件比较;各来源自己的读取状态 `State` 存在 `skill_versions.source_state`,Library 只存取不解析。子包共用的错误也在这里:哨兵错误 `ErrUnreachable` / `ErrPermission` / `ErrInvalid` / `ErrUnsupported`,以及输入不合法的 `InputError`、ref / 子路径 / 技能不存在的 `NotFoundError`;各来源不另定义错误。
 - `internal/library/internal/source/local` — 本地目录来源。
 - `internal/library/internal/source/download` — URL 来源:下载 zip 压缩包,按 HTTP validator 发条件请求;validator 作为 `State` 记在各 Skill 的版本上。
