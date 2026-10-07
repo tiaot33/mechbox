@@ -105,6 +105,32 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	}
 }
 
+// 另一进程占着写锁超过等待上限时,打开库同样返回可重试的 Busy;对方释放后即可打开。
+func TestOpenReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	release := holdDirectTransaction(t, path, `BEGIN IMMEDIATE`)
+	blocked, err := library.Open(path)
+	if err == nil {
+		_ = blocked.Close()
+	}
+	requireLibraryError(t, err, library.Busy)
+	release()
+	reopened, err := library.Open(path)
+	if err != nil {
+		t.Fatalf("Open after the other writer released = %v, want success", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // 两个 Library 实例(等价于 TUI 与桌面端两个进程——SQLite 的文件锁按连接生效)并发混合读写若干轮,
 // 全部成功、无任何错误码;结束后两边看到的 skill 列表一致。
 func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {

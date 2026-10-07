@@ -42,11 +42,11 @@ func Open(path string) (*Store, error) {
 	ctx := context.Background()
 	db, err := openDB(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("open library: %w", err)
+		return nil, fmt.Errorf("open library: %w", wrap(err))
 	}
 	if err := initialize(ctx, db); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, wrap(err)
 	}
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
 	return newStore(db), nil
@@ -124,6 +124,9 @@ func wrap(err error) error {
 	}
 	if sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked {
 		return fmt.Errorf("%w: %w", ErrBusy, err)
+	}
+	if sqliteErr.Code == sqlite3.ErrNotADB {
+		return fmt.Errorf("%w: %w", ErrUnacceptable, err)
 	}
 	switch sqliteErr.ExtendedCode {
 	case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey:

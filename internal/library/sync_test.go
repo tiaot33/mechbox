@@ -481,10 +481,11 @@ func TestOpenRejectsForeignDatabaseWithoutMutatingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lib, err := library.Open(path); err == nil {
+	lib, err := library.Open(path)
+	if err == nil {
 		_ = lib.Close()
-		t.Fatal("Open accepted a foreign database")
 	}
+	requireLibraryError(t, err, library.FailedPrecondition)
 	if after, err := os.ReadFile(path); err != nil || !bytes.Equal(after, before) {
 		t.Fatalf("foreign database changed: %v", err)
 	}

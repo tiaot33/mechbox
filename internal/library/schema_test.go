@@ -93,10 +93,11 @@ func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if invalid, err := library.Open(path); err == nil {
+			invalid, err := library.Open(path)
+			if err == nil {
 				_ = invalid.Close()
-				t.Fatal("Open accepted a library without its Scope identity constraint")
 			}
+			requireLibraryError(t, err, library.FailedPrecondition)
 			after, err := os.ReadFile(path)
 			if err != nil || !bytes.Equal(before, after) {
 				t.Fatalf("rejected Open changed the library file: %v", err)
@@ -120,12 +121,31 @@ func TestOpenRejectsOtherSchemaVersionsWithoutChangingTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if old, err := library.Open(path); err == nil {
+	old, err := library.Open(path)
+	if err == nil {
 		_ = old.Close()
-		t.Fatal("Open accepted a library with an older schema version")
 	}
+	requireLibraryError(t, err, library.FailedPrecondition)
 	after, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("rejected Open changed the library file: %v", err)
+	}
+}
+
+// 用户选错了文件(不是 SQLite 数据库)时,Open 返回 FailedPrecondition,文件保持不变。
+func TestOpenRejectsNonDatabaseFileWithoutChangingIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	before := bytes.Repeat([]byte("not a sqlite database\n"), 256)
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lib, err := library.Open(path)
+	if err == nil {
+		_ = lib.Close()
+	}
+	requireLibraryError(t, err, library.FailedPrecondition)
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("rejected Open changed the file: %v", err)
 	}
 }

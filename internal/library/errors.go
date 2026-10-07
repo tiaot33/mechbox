@@ -33,7 +33,8 @@ const (
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
 	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;对只由组安装留着的技能单独卸载;同一入库预览句柄的入库正在进行;
-	// 重新安装被手动改过的文件夹而未选 Overwrite)。
+	// 重新安装被手动改过的文件夹而未选 Overwrite;Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;
+	// 同步拉回的远端库不可接受)。
 	// 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
 	// 加入成员时根目录不存在也是如此。重新安装时逐条的这类失败放进 ReinstallResult.Error。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
@@ -137,6 +138,8 @@ func typedError(err error) error {
 		code = NotConfigured
 	case errors.Is(err, s3.ErrPreconditionFailed):
 		code = Conflict
+	case errors.Is(err, store.ErrUnacceptable):
+		code = FailedPrecondition
 	case errors.Is(err, store.ErrBusy):
 		code = Busy
 	case errors.Is(err, store.ErrAlreadyExists):

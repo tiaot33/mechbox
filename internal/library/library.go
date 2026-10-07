@@ -52,9 +52,11 @@ func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
 }
 
-// Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本;应用标识或 schema 版本不符时
-// 报错且不改动文件。只补缺失的 Agent 默认行,不覆盖已有的名称和目录规则。
-func Open(path string) (*Library, error) {
+// Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本;不是 SQLite 文件、应用标识、
+// schema 版本或表结构不符时返回 FailedPrecondition 且不改动文件;另一进程占着写锁超过等待上限返回 Busy。
+// 只补缺失的 Agent 默认行,不覆盖已有的名称和目录规则。
+func Open(path string) (lib *Library, err error) {
+	defer func() { err = typedError(err) }()
 	db, err := store.Open(path)
 	if err != nil {
 		return nil, err
@@ -79,7 +81,8 @@ func Open(path string) (*Library, error) {
 }
 
 // Close 关闭 Library:丢弃全部入库预览句柄,清空 GitHub 缓存并关闭数据库。
-func (l *Library) Close() error {
+func (l *Library) Close() (err error) {
+	defer func() { err = typedError(err) }()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.previewMu.Lock()
