@@ -27,11 +27,11 @@ const (
 )
 
 // FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
-type FileMode = skillfile.Mode
+type FileMode string
 
 const (
-	ModeRegular    = skillfile.ModeRegular
-	ModeExecutable = skillfile.ModeExecutable
+	ModeRegular    FileMode = "regular"
+	ModeExecutable FileMode = "executable"
 )
 
 // Source 是一个已记录的 skill 来源。展示用的字段由库按来源类型生成,调用方不必区分类型去拼。
@@ -46,7 +46,33 @@ type Source struct {
 }
 
 // File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
-type File = skillfile.File
+type File struct {
+	Path    string   `json:"path"`
+	Content []byte   `json:"content"`
+	Mode    FileMode `json:"mode"` // regular 或 executable
+}
+
+func publicFiles(files []skillfile.File) []File {
+	if files == nil {
+		return nil
+	}
+	converted := make([]File, len(files))
+	for i, file := range files {
+		converted[i] = File{Path: file.Path, Content: file.Content, Mode: FileMode(file.Mode)}
+	}
+	return converted
+}
+
+func internalFiles(files []File) []skillfile.File {
+	if files == nil {
+		return nil
+	}
+	converted := make([]skillfile.File, len(files))
+	for i, file := range files {
+		converted[i] = skillfile.File{Path: file.Path, Content: file.Content, Mode: skillfile.Mode(file.Mode)}
+	}
+	return converted
+}
 
 // FileMetadata 是文件列表用的元数据,不含文件内容。
 type FileMetadata struct {
@@ -185,7 +211,7 @@ func (l *Library) getSkill(ctx context.Context, id SkillID) (Skill, sourceState,
 		VersionID:   VersionID(current.VersionID),
 		FetchedAt:   summary.FetchedAt,
 		UpdatedAt:   summary.UpdatedAt,
-		Files:       current.Files,
+		Files:       publicFiles(current.Files),
 	}
 	return skill, sourceState{source: row.Source, checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
 }
@@ -203,7 +229,7 @@ func (l *Library) ListSkillFiles(ctx context.Context, id SkillID) (files []FileM
 		return nil, err
 	}
 	for _, row := range rows {
-		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: row.Mode})
+		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: FileMode(row.Mode)})
 	}
 	return files, nil
 }
@@ -215,7 +241,7 @@ func (l *Library) GetSkillFile(ctx context.Context, id SkillID, path string) (fi
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	file, found, err := l.store.GetCurrentFile(ctx, int64(id), path)
+	current, found, err := l.store.GetCurrentFile(ctx, int64(id), path)
 	if errors.Is(err, store.ErrNotFound) {
 		return File{}, &Error{Code: NotFound, Message: "get skill file: skill not found", Details: ErrorDetails{SkillID: id}}
 	}
@@ -225,7 +251,7 @@ func (l *Library) GetSkillFile(ctx context.Context, id SkillID, path string) (fi
 	if !found {
 		return File{}, &Error{Code: NotFound, Message: "get skill file: file not found", Details: ErrorDetails{Path: path}}
 	}
-	return file, nil
+	return File{Path: current.Path, Content: current.Content, Mode: FileMode(current.Mode)}, nil
 }
 
 // ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
