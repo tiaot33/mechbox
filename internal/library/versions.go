@@ -2,110 +2,64 @@ package library
 
 import (
 	"context"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
-	"fmt"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-type gitRecord struct {
-	treeSHA         string
-	confirmedCommit string
+// VersionID 是技能版本的数据库主键:全库唯一,同一技能内越新越大。
+type VersionID int64
+
+// SkillVersion 是 skill 的一个历史版本;列表场景下 Files 为空,详情才带内容。
+type SkillVersion struct {
+	ID          VersionID `json:"id"`
+	SkillID     SkillID   `json:"skill_id"`
+	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
+	CreatedAt   time.Time `json:"created_at,omitzero"` // 版本写入时间
+	Files       []File    `json:"files,omitempty"`
 }
 
-func sourceGitRecord(source Source, treeSHA string) gitRecord {
-	record := gitRecord{treeSHA: treeSHA}
-	if source.Type == SourceGitHub {
-		record.confirmedCommit = source.LastSeenRef
-	}
-	return record
+// VersionDiff 是两个版本之间按文件路径归类的差异。
+type VersionDiff struct {
+	Changed []string `json:"changed"` // 两个版本都有、内容不同
+	Added   []string `json:"added"`   // 仅新版本有
+	Deleted []string `json:"deleted"` // 仅旧版本有
 }
 
-func createVersion(ctx context.Context, tx *sql.Tx, skillID int64, files []File, record gitRecord, description string, createdAt time.Time) (int64, error) {
-	result, err := tx.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, git_tree_sha, confirmed_commit, description, created_at) VALUES (?, ?, ?, ?, ?)`, skillID, record.treeSHA, record.confirmedCommit, description, formatStoredTime(createdAt))
-	if err != nil {
-		return 0, fmt.Errorf("store skill version: %w", err)
-	}
-	versionID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("read version id: %w", err)
-	}
-	for _, file := range files {
-		sum := sha256.Sum256(file.Content)
-		fingerprint := hex.EncodeToString(sum[:])
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO blobs(fingerprint, content) VALUES (?, ?)`, fingerprint, file.Content); err != nil {
-			return 0, fmt.Errorf("store %s: %w", file.Path, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO version_files(version_id, path, fingerprint, mode) VALUES (?, ?, ?, ?)`, versionID, file.Path, fingerprint, file.Mode); err != nil {
-			return 0, fmt.Errorf("store %s metadata: %w", file.Path, err)
-		}
-	}
-	return versionID, nil
+func versionOf(row store.Version) SkillVersion {
+	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: row.Files}
 }
 
-func (l *sqliteLibrary) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
+// ListVersions 按先后顺序列出 skill 的全部版本(不含文件内容)。
+func (l *Library) ListVersions(ctx context.Context, id SkillID) (versions []SkillVersion, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, git_tree_sha, description, created_at FROM skill_versions WHERE skill_id = ? ORDER BY id`, id)
+	rows, err := l.store.ListVersions(ctx, int64(id))
 	if err != nil {
-		return nil, fmt.Errorf("list skill versions: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var createdAt string
-		version := SkillVersion{SkillID: id}
-		if err := rows.Scan(&version.ID, &version.GitTreeSHA, &version.Description, &createdAt); err != nil {
-			return nil, fmt.Errorf("read skill version: %w", err)
-		}
-		if version.CreatedAt, err = parseStoredTime(createdAt); err != nil {
-			return nil, fmt.Errorf("read skill version: %w", err)
-		}
-		versions = append(versions, version)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read skill versions: %w", err)
+	for _, row := range rows {
+		versions = append(versions, versionOf(row))
 	}
 	return versions, nil
 }
 
-func (l *sqliteLibrary) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
+// GetVersion 读取某个版本及其完整文件。
+func (l *Library) GetVersion(ctx context.Context, id VersionID) (version SkillVersion, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	version = SkillVersion{ID: id}
-	var createdAt string
-	if err := l.db.QueryRowContext(ctx, `SELECT skill_id, git_tree_sha, description, created_at FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.GitTreeSHA, &version.Description, &createdAt); err != nil {
-		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
-	}
-	if version.CreatedAt, err = parseStoredTime(createdAt); err != nil {
-		return SkillVersion{}, fmt.Errorf("get skill version: %w", err)
-	}
-	rows, err := l.db.QueryContext(ctx, `
-		SELECT version_files.path, blobs.content, version_files.mode
-		FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE version_files.version_id = ?
-		ORDER BY version_files.path
-	`, id)
+	row, err := l.store.GetVersion(ctx, int64(id))
 	if err != nil {
-		return SkillVersion{}, fmt.Errorf("get skill version files: %w", err)
+		return SkillVersion{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var file File
-		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return SkillVersion{}, fmt.Errorf("read skill version file: %w", err)
-		}
-		version.Files = append(version.Files, file)
-	}
-	if err := rows.Err(); err != nil {
-		return SkillVersion{}, fmt.Errorf("read skill version files: %w", err)
-	}
-	return version, nil
+	return versionOf(row), nil
 }
 
-func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
+// DiffVersions 比较同一 skill 的两个版本,返回按路径归类的差异。
+func (l *Library) DiffVersions(ctx context.Context, oldID, newID VersionID) (diff VersionDiff, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -120,13 +74,13 @@ func (l *sqliteLibrary) DiffVersions(ctx context.Context, oldID, newID VersionID
 	if oldVersion.SkillID != newVersion.SkillID {
 		return VersionDiff{}, argumentError("diff skill versions", "", "versions belong to different skills")
 	}
-	oldFiles := make(map[string][sha256.Size]byte, len(oldVersion.Files))
+	oldFiles := make(map[string]string, len(oldVersion.Files))
 	for _, file := range oldVersion.Files {
-		oldFiles[file.Path] = sha256.Sum256(file.Content)
+		oldFiles[file.Path] = skillfile.Fingerprint(file.Content)
 	}
-	newFiles := make(map[string][sha256.Size]byte, len(newVersion.Files))
+	newFiles := make(map[string]string, len(newVersion.Files))
 	for _, file := range newVersion.Files {
-		newFiles[file.Path] = sha256.Sum256(file.Content)
+		newFiles[file.Path] = skillfile.Fingerprint(file.Content)
 	}
 	for _, file := range oldVersion.Files {
 		newSum, ok := newFiles[file.Path]

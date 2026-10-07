@@ -2,16 +2,52 @@ package library
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Group, err error) {
+// GroupID 是分组的数据库主键。
+type GroupID int64
+
+// Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
+type Group struct {
+	ID        GroupID   `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间
+}
+
+// GroupWithMembers 是一个 Group 连同它的全部成员,由 ListGroupsWithMembers 一次给出整库的"技能 ↔ 组"关系。
+type GroupWithMembers struct {
+	Group   Group     `json:"group"`
+	Members []SkillID `json:"members"` // 成员 skill 的 ID,按 ID 升序,与 ListGroupSkills 一致;空组为空列表而非 nil
+}
+
+// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
+// 含义与默认值都不同:只影响因移出而没有直接安装或组安装留着的技能,默认保留。
+type MemberRemovalPolicy string
+
+const (
+	KeepAsDirectInstall MemberRemovalPolicy = "keep"      // 改为直接安装,磁盘不动(默认,空字符串同义)
+	UninstallMember     MemberRemovalPolicy = "uninstall" // 不补直接安装,连同磁盘上的文件夹一起移除
+)
+
+// RemoveFromGroupOptions 是 RemoveSkillFromGroup 的选项。
+type RemoveFromGroupOptions struct {
+	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管移出后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
+}
+
+func groupOf(row store.Group) Group {
+	return Group{ID: GroupID(row.ID), Name: row.Name, CreatedAt: row.CreatedAt}
+}
+
+// CreateGroup 创建分组。名字先 TrimSpace;若已被其他 Group 占用,则改为 name#N
+// (N 从 2 起取最小空闲数字),大小写敏感、不加空格。空名仍是 InvalidArgument。
+func (l *Library) CreateGroup(ctx context.Context, name string) (group Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -19,46 +55,37 @@ func (l *sqliteLibrary) CreateGroup(ctx context.Context, name string) (group Gro
 	if name == "" {
 		return Group{}, argumentError("create group", "name", "name is required")
 	}
-	taken, err := occupiedGroupNames(ctx, l.db, 0)
+	taken, err := l.store.GroupNames(ctx)
 	if err != nil {
 		return Group{}, err
 	}
 	name = uniqueGroupName(name, taken)
 	createdAt := clockNow()
-	result, err := l.db.ExecContext(ctx, `INSERT INTO groups(name, created_at) VALUES (?, ?)`, name, formatStoredTime(createdAt))
+	id, err := l.store.CreateGroup(ctx, name, createdAt)
 	if err != nil {
-		return Group{}, fmt.Errorf("create group: %w", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return Group{}, fmt.Errorf("read group id: %w", err)
+		return Group{}, err
 	}
 	return Group{ID: GroupID(id), Name: name, CreatedAt: createdAt}, nil
 }
 
-func (l *sqliteLibrary) ListGroups(ctx context.Context) (groups []Group, err error) {
+// ListGroups 按 Group ID 升序列出全部分组。
+func (l *Library) ListGroups(ctx context.Context) (groups []Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, name, created_at FROM groups ORDER BY id`)
+	rows, err := l.store.ListGroups(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list groups: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		group, err := scanGroup(rows)
-		if err != nil {
-			return nil, fmt.Errorf("read group: %w", err)
-		}
-		groups = append(groups, group)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read groups: %w", err)
+	for _, row := range rows {
+		groups = append(groups, groupOf(row))
 	}
 	return groups, nil
 }
 
-func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string) (group Group, err error) {
+// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
+// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
+func (l *Library) RenameGroup(ctx context.Context, id GroupID, name string) (group Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -66,34 +93,28 @@ func (l *sqliteLibrary) RenameGroup(ctx context.Context, id GroupID, name string
 	if name == "" {
 		return Group{}, argumentError("rename group", "name", "name is required")
 	}
-	current, err := getGroup(ctx, l.db, id)
-	if err != nil {
-		return Group{}, fmt.Errorf("rename group: %w", err)
-	}
-	if current.Name == name {
-		return current, nil
-	}
-	taken, err := occupiedGroupNames(ctx, l.db, id)
+	row, err := l.store.GetGroup(ctx, int64(id))
 	if err != nil {
 		return Group{}, err
 	}
+	current := groupOf(row)
+	if current.Name == name {
+		return current, nil
+	}
+	taken, err := l.store.GroupNames(ctx)
+	if err != nil {
+		return Group{}, err
+	}
+	delete(taken, current.Name)
 	name = uniqueGroupName(name, taken)
-	result, err := l.db.ExecContext(ctx, `UPDATE groups SET name = ? WHERE id = ?`, name, id)
-	if err != nil {
-		return Group{}, fmt.Errorf("rename group: %w", err)
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return Group{}, fmt.Errorf("rename group: %w", err)
-	}
-	if changed == 0 {
-		return Group{}, fmt.Errorf("rename group: %w", sql.ErrNoRows)
+	if err := l.store.RenameGroup(ctx, int64(id), name); err != nil {
+		return Group{}, err
 	}
 	current.Name = name
 	return current, nil
 }
 
-func uniqueGroupName(name string, taken map[string]GroupID) string {
+func uniqueGroupName(name string, taken map[string]int64) string {
 	if _, exists := taken[name]; !exists {
 		return name
 	}
@@ -105,126 +126,50 @@ func uniqueGroupName(name string, taken map[string]GroupID) string {
 	}
 }
 
-func occupiedGroupNames(ctx context.Context, q interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}, except GroupID) (map[string]GroupID, error) {
-	rows, err := q.QueryContext(ctx, `SELECT id, name FROM groups`)
-	if err != nil {
-		return nil, fmt.Errorf("list group names: %w", err)
-	}
-	defer rows.Close()
-	taken := map[string]GroupID{}
-	for rows.Next() {
-		var (
-			id   GroupID
-			name string
-		)
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil, fmt.Errorf("read group name: %w", err)
-		}
-		if id != except {
-			taken[name] = id
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read group names: %w", err)
-	}
-	return taken, nil
-}
-
-func getGroup(ctx context.Context, q rowQuerier, id GroupID) (Group, error) {
-	return scanGroup(q.QueryRowContext(ctx, `SELECT id, name, created_at FROM groups WHERE id = ?`, id))
-}
-
-func scanGroup(row interface{ Scan(...any) error }, extra ...any) (Group, error) {
-	var (
-		group     Group
-		createdAt string
-	)
-	if err := row.Scan(append([]any{&group.ID, &group.Name, &createdAt}, extra...)...); err != nil {
-		return Group{}, err
-	}
-	var err error
-	if group.CreatedAt, err = parseStoredTime(createdAt); err != nil {
-		return Group{}, err
-	}
-	return group, nil
-}
-
-func (l *sqliteLibrary) DeleteGroup(ctx context.Context, id GroupID) (err error) {
+// DeleteGroup 删除分组及其全部组安装。非破坏性:只由该组安装留着的技能会先转为直接安装,
+// 磁盘上的技能文件夹不会因删除分组而被移除。
+func (l *Library) DeleteGroup(ctx context.Context, id GroupID) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	covered, err := l.memberSkillScopes(ctx, id, 0, scopeRow{})
-	if err != nil {
-		return err
-	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("delete group: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM group_installs WHERE group_id = ?`, id); err != nil {
-		return fmt.Errorf("delete group installs: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
-		return fmt.Errorf("delete group members: %w", err)
-	}
-	for _, skillScope := range covered {
-		if err := keepAsDirectInstall(ctx, tx, skillScope.id); err != nil {
-			return err
-		}
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete group: %w", err)
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete group: %w", err)
-	}
-	if changed == 0 {
-		return fmt.Errorf("delete group: %w", sql.ErrNoRows)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("delete group: %w", err)
-	}
-	return nil
+	return l.store.InTx(ctx, func(tx *store.Tx) error {
+		return tx.DeleteGroup(ctx, int64(id))
+	})
 }
 
-func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
+// AddSkillToGroup 加入成员,并安装到该组已安装到的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
+// 该 skill 已安装在某 Scope 时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的
+// 成员同名或作用域根目录不存在时跳过该 Scope,成员关系照常成立。不带覆盖开关:要覆盖某个 Scope 的
+// 未记录文件夹,先 PlanGroupInstall 再对该 Scope 调 InstallGroup(Overwrite)。已是成员返回 AlreadyExists。
+// I/O 失败或取消时整次复原,连同成员关系。
+func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	if err := l.requireSkill(ctx, skillID); err != nil {
+	if err := l.store.RequireSkill(ctx, int64(skillID)); err != nil {
 		return nil, err
 	}
-	var exists int
-	err = l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE skill_id = ? AND group_id = ?`, skillID, groupID).Scan(&exists)
-	if err == nil {
+	member, err := l.store.IsMember(ctx, int64(groupID), int64(skillID))
+	if err != nil {
+		return nil, err
+	}
+	if member {
 		return nil, existsError("add skill to group", "skill is already a member", ErrorDetails{SkillID: skillID})
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("add skill to group: %w", err)
+	name, duplicate, err := l.store.MemberCandidate(ctx, int64(groupID), int64(skillID))
+	if err != nil {
+		return nil, err
 	}
-	var name string
-	var duplicate bool
-	if err := l.db.QueryRowContext(ctx, `SELECT name, EXISTS (
-			SELECT 1 FROM skill_groups sg JOIN skills other ON other.id = sg.skill_id
-			WHERE sg.group_id = ? AND other.name = skills.name)
-		FROM skills WHERE id = ?`, groupID, skillID).Scan(&name, &duplicate); err != nil {
-		return nil, fmt.Errorf("add skill to group: %w", err)
-	}
-	installs, err := l.readGroupInstalls(ctx, groupID)
+	installs, err := l.store.ListGroupInstalls(ctx, int64(groupID))
 	if err != nil {
 		return nil, err
 	}
 	plan := newMemberPlan("add skill to group", InstallOptions{})
 	for _, install := range installs {
-		target, err := l.resolveScope(ctx, "add skill to group", install.scope())
+		target, err := l.resolveScope(ctx, "add skill to group", scopeRowOf(install.Scope).scope())
 		if err != nil {
 			return nil, err
 		}
@@ -232,110 +177,96 @@ func (l *sqliteLibrary) AddSkillToGroup(ctx context.Context, groupID GroupID, sk
 			return nil, err
 		}
 	}
-	return l.applyMemberPlan(ctx, plan, func(tx *sql.Tx, _ time.Time) error {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO skill_groups(skill_id, group_id) VALUES (?, ?)`, skillID, groupID); err != nil {
-			return fmt.Errorf("add skill to group: %w", err)
-		}
-		return nil
+	return l.applyMemberPlan(ctx, plan, func(tx *store.Tx, _ time.Time) error {
+		return tx.AddMember(ctx, int64(groupID), int64(skillID))
 	})
 }
 
-func (l *sqliteLibrary) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
+// RemoveSkillFromGroup 移出成员;该 skill 在本组已安装到的各 Scope 上失去本组的组安装。
+// 因此没有直接安装或组安装留着的,按 opts 处理:keep 改为直接安装、磁盘不动;uninstall 连文件夹一起移除。
+// 不是成员返回 NotFound。
+func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateMemberRemoval("remove skill from group", opts.IfNoOtherInstall); err != nil {
 		return err
 	}
-	var exists int
-	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID).Scan(&exists); err != nil {
-		return fmt.Errorf("remove skill from group: %w", err)
-	}
-	skillScopes, err := l.memberSkillScopes(ctx, groupID, skillID, scopeRow{})
+	member, err := l.store.IsMember(ctx, int64(groupID), int64(skillID))
 	if err != nil {
 		return err
 	}
-	targets := make([]string, len(skillScopes))
+	if !member {
+		return &Error{Code: NotFound, Message: "remove skill from group: skill is not a member"}
+	}
+	skillScopes, err := l.store.MemberSkillScopes(ctx, int64(groupID), int64(skillID), nil)
+	if err != nil {
+		return err
+	}
+	directories := make([]string, len(skillScopes))
 	for i, skillScope := range skillScopes {
-		directory, err := l.Resolve(ctx, skillScope.scope())
-		if err != nil {
+		if directories[i], err = l.Resolve(ctx, scopeRowOf(skillScope.Scope).scope()); err != nil {
 			return err
 		}
-		targets[i] = filepath.Join(directory, skillScope.name)
 	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin remove skill from group: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ? AND skill_id = ?`, groupID, skillID); err != nil {
-		return fmt.Errorf("remove skill from group: %w", err)
-	}
-	var trash folderTrash
-	for i, skillScope := range skillScopes {
-		if opts.IfNoOtherInstall == UninstallMember {
-			removed, err := uninstallMember(ctx, tx, skillScope.id)
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
+	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		if err := tx.RemoveMember(ctx, int64(groupID), int64(skillID)); err != nil {
+			return err
+		}
+		for i, skillScope := range skillScopes {
+			if opts.IfNoOtherInstall != UninstallMember {
+				if err := tx.KeepAsDirectInstall(ctx, skillScope.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			removed, err := tx.UninstallMember(ctx, skillScope.ID)
 			if err != nil {
 				return err
 			}
 			if removed {
-				trash.targets = append(trash.targets, targets[i])
+				change.Remove(directories[i], skillScope.Name)
 			}
-			continue
 		}
-		if err := keepAsDirectInstall(ctx, tx, skillScope.id); err != nil {
-			return err
-		}
-	}
-	return trash.commit(ctx, tx, "remove skill from group")
+		return nil
+	})
 }
 
-func (l *sqliteLibrary) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {
+// ListGroupSkills 列出分组成员的精简摘要(不含文件正文)。
+func (l *Library) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []SkillSummary, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
-	return l.listSummaries(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
+	return l.summariesOf(l.store.ListGroupSummaries(ctx, int64(groupID)))
 }
 
-func (l *sqliteLibrary) ListGroupsWithMembers(ctx context.Context) (groups []GroupWithMembers, err error) {
+// ListGroupsWithMembers 一次列出全部分组及其成员 ID,按 Group ID 升序;空组也在列。
+// 不属于任何组的 skill 不出现在任何 Members 里。
+func (l *Library) ListGroupsWithMembers(ctx context.Context) (groups []GroupWithMembers, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `SELECT groups.id, groups.name, groups.created_at, skill_groups.skill_id
-		FROM groups LEFT JOIN skill_groups ON skill_groups.group_id = groups.id
-		ORDER BY groups.id, skill_groups.skill_id`)
+	rows, err := l.store.ListGroupsWithMembers(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list groups with members: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 	groups = []GroupWithMembers{}
-	for rows.Next() {
-		var member sql.NullInt64
-		group, err := scanGroup(rows, &member)
-		if err != nil {
-			return nil, fmt.Errorf("read group with members: %w", err)
+	for _, row := range rows {
+		group := GroupWithMembers{Group: groupOf(row.Group), Members: []SkillID{}}
+		for _, id := range row.Members {
+			group.Members = append(group.Members, SkillID(id))
 		}
-		if n := len(groups); n == 0 || groups[n-1].Group.ID != group.ID {
-			groups = append(groups, GroupWithMembers{Group: group, Members: []SkillID{}})
-		}
-		if member.Valid {
-			last := &groups[len(groups)-1]
-			last.Members = append(last.Members, SkillID(member.Int64))
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read groups with members: %w", err)
+		groups = append(groups, group)
 	}
 	return groups, nil
 }
 
-func (l *sqliteLibrary) requireGroup(ctx context.Context, id GroupID) error {
-	var exists int
-	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM groups WHERE id = ?`, id).Scan(&exists); err != nil {
-		return fmt.Errorf("get group: %w", err)
-	}
-	return nil
+func (l *Library) requireGroup(ctx context.Context, id GroupID) error {
+	_, err := l.store.GetGroup(ctx, int64(id))
+	return err
 }

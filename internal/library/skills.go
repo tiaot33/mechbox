@@ -1,235 +1,179 @@
 package library
 
 import (
-	"cmp"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"path/filepath"
-	"slices"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-const summaryQuery = `
-	SELECT skills.id, skills.name, current_version.description,
-		sources.id, sources.type, sources.locator, sources.last_fetched, sources.last_seen_ref,
-		first_version.created_at, current_version.created_at, skills.update_checked_at, skills.update_check_status
-	FROM skills
-	JOIN sources ON sources.id = skills.source_id
-	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
-	JOIN skill_versions AS first_version ON first_version.id = (
-		SELECT id FROM skill_versions WHERE skill_id = skills.id ORDER BY id LIMIT 1
-	)
-`
+// SkillID 是库里技能的数据库主键。各实体的 ID 定义为不同类型,以免互相传错。
+type SkillID int64
 
-func (l *sqliteLibrary) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
-	summary, err := scanSummary(l.db.QueryRowContext(ctx, summaryQuery+`WHERE skills.id = ?`, id))
+// SourceID 是来源的数据库主键。
+type SourceID int64
+
+// SourceType 是 skill 来源的类型(见 ADR 0004)。
+type SourceType string
+
+const (
+	SourceGitHub SourceType = "github" // GitHub 仓库 + Git ref
+	SourceURL    SourceType = "url"    // 直接下载的 zip 压缩包
+	SourceLocal  SourceType = "local"  // 本地目录
+)
+
+// FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
+type FileMode = skillfile.Mode
+
+const (
+	ModeRegular    = skillfile.ModeRegular
+	ModeExecutable = skillfile.ModeExecutable
+)
+
+// Source 是一个已记录的 skill 来源。展示用的字段由库按来源类型生成,调用方不必区分类型去拼。
+type Source struct {
+	ID          SourceID   `json:"id"`
+	Type        SourceType `json:"type"`
+	Label       string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
+	Ref         string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
+	ViewURL     string     `json:"view_url,omitempty"` // 在来源上查看的网页;URL 与本地目录为空
+	LastFetched time.Time  `json:"last_fetched"`       // 来源内容最近一次被入库或经更新确认的时间
+	LastSeenRef string     `json:"last_seen_ref"`      // 上次看到的远端标识(git commit 或内容哈希)
+}
+
+// File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
+type File = skillfile.File
+
+// FileMetadata 是文件列表用的元数据,不含文件内容。
+type FileMetadata struct {
+	Path string   `json:"path"` // skill 内斜杠分隔的相对路径
+	Size int64    `json:"size"` // 内容的字节数
+	Mode FileMode `json:"mode"` // regular 或 executable
+}
+
+// Skill 是库中的一个 skill;Files 是当前版本的完整文件内容。
+type Skill struct {
+	ID          SkillID   `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source      Source    `json:"source"`
+	VersionID   VersionID `json:"version_id"`          // 当前版本的 SkillVersion.ID,可直接传给 GetVersion / DiffVersions
+	FetchedAt   time.Time `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt   time.Time `json:"updated_at,omitzero"` // 当前版本的写入时间
+	Files       []File    `json:"files"`
+}
+
+// SkillSummary 是浏览列表用的精简条目:身份、名字、描述、来源元数据与最近更新检查,不含文件正文。
+// 列表接口(ListSkills / ListGroupSkills / ListCollections)与入库(Fetch)返回它以保持轻量;
+// 完整文件通过 GetSkill / GetVersion 获取。
+type SkillSummary struct {
+	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近检查结果;nil 表示从未检查
+	ID              SkillID           `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Source          Source            `json:"source"`
+	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间:最早版本的写入时间
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 当前版本的写入时间
+}
+
+// FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
+type FolderPolicy string
+
+const (
+	Keep   FolderPolicy = "keep"   // 保留磁盘上的技能文件夹,只删除数据库记录;必须显式选择
+	Remove FolderPolicy = "remove" // 连同磁盘上的技能文件夹一起删除(默认,空字符串同义)
+)
+
+// RemoveSkillOptions 是 RemoveSkill 的选项。
+type RemoveSkillOptions struct {
+	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
+}
+
+func (l *Library) sourceOf(row store.Source) (Source, error) {
+	description, err := l.sources.Describe(row.Type, row.Locator)
 	if err != nil {
-		return SkillSummary{}, fmt.Errorf("get skill: %w", err)
+		return Source{}, err
+	}
+	return Source{
+		ID:          SourceID(row.ID),
+		Type:        SourceType(row.Type),
+		Label:       description.Label,
+		Ref:         description.Ref,
+		ViewURL:     description.ViewURL,
+		LastFetched: row.LastFetched,
+		LastSeenRef: row.LastSeenRef,
+	}, nil
+}
+
+func (l *Library) summaryOf(row store.Summary) (SkillSummary, error) {
+	src, err := l.sourceOf(row.Source)
+	if err != nil {
+		return SkillSummary{}, err
+	}
+	summary := SkillSummary{ID: SkillID(row.ID), Name: row.Name, Description: row.Description, Source: src, FetchedAt: row.FetchedAt, UpdatedAt: row.UpdatedAt}
+	if row.CheckStatus != "" {
+		summary.LastUpdateCheck = &UpdateCheckState{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
 	}
 	return summary, nil
 }
 
-func (l *sqliteLibrary) listSummaries(ctx context.Context, operation, clause string, args ...any) ([]SkillSummary, error) {
-	rows, err := l.db.QueryContext(ctx, summaryQuery+clause, args...)
+func (l *Library) summariesOf(rows []store.Summary, err error) ([]SkillSummary, error) {
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", operation, err)
+		return nil, err
 	}
-	defer rows.Close()
 	var skills []SkillSummary
-	for rows.Next() {
-		summary, err := scanSummary(rows)
+	for _, row := range rows {
+		summary, err := l.summaryOf(row)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", operation, err)
+			return nil, err
 		}
 		skills = append(skills, summary)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s: %w", operation, err)
 	}
 	return skills, nil
 }
 
-func scanSummary(row interface{ Scan(...any) error }) (SkillSummary, error) {
-	var summary SkillSummary
-	var locator []byte
-	var lastFetched, fetchedAt, updatedAt string
-	var checkedAt string
-	var check UpdateCheckState
-	err := row.Scan(&summary.ID, &summary.Name, &summary.Description, &summary.Source.ID, &summary.Source.Type, &locator, &lastFetched, &summary.Source.LastSeenRef, &fetchedAt, &updatedAt, &checkedAt, &check.Status)
+func (l *Library) getSummary(ctx context.Context, id SkillID) (SkillSummary, error) {
+	row, err := l.store.GetSummary(ctx, int64(id))
 	if err != nil {
 		return SkillSummary{}, err
 	}
-	if err := json.Unmarshal(locator, &summary.Source.Locator); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode source: %w", err)
-	}
-	if summary.Source.LastFetched, err = parseStoredTime(lastFetched); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode last fetched: %w", err)
-	}
-	if summary.FetchedAt, err = parseStoredTime(fetchedAt); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode fetched at: %w", err)
-	}
-	if summary.UpdatedAt, err = parseStoredTime(updatedAt); err != nil {
-		return SkillSummary{}, fmt.Errorf("decode updated at: %w", err)
-	}
-	if check.Status != "" {
-		if check.CheckedAt, err = parseStoredTime(checkedAt); err != nil {
-			return SkillSummary{}, fmt.Errorf("decode update checked at: %w", err)
-		}
-		summary.LastUpdateCheck = &check
-	}
-	return summary, nil
-}
-
-func parseStoredTime(value string) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse(time.RFC3339Nano, value)
-}
-
-func formatStoredTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339Nano)
+	return l.summaryOf(row)
 }
 
 func clockNow() time.Time {
-	now, _ := parseStoredTime(formatStoredTime(time.Now().UTC()))
-	return now
+	return time.Now().UTC().Round(0)
 }
 
-func skillDescription(files []File) string {
-	for _, file := range files {
-		if file.Path != "SKILL.md" {
-			continue
-		}
-		meta, err := candidateMetadata(file.Content, ".")
-		if err != nil {
-			return ""
-		}
-		return meta.Description
-	}
-	return ""
-}
-
-func (l *sqliteLibrary) fetchAll(ctx context.Context, source Source, skills []discoveredSkill, validator string) ([]Skill, error) {
-	if err := validateSource(source); err != nil {
-		return nil, err
-	}
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin fetch: %w", err)
-	}
-	defer tx.Rollback()
-	sourceID, err := upsertSource(ctx, tx, source, validator)
-	if err != nil {
-		return nil, err
-	}
-	for _, skill := range skills {
-		id, err := findSkillBySourceName(ctx, tx, sourceID, skill.name)
-		if err != nil {
-			return nil, err
-		}
-		if id != 0 {
-			return nil, existsError("fetch skill", "skill already fetched", ErrorDetails{SkillID: id, Name: skill.name})
-		}
-	}
-	fetched := make([]Skill, 0, len(skills))
-	for _, skill := range skills {
-		description := skill.candidate.Description
-		if description == "" {
-			description = skillDescription(skill.files)
-		}
-		result, err := insertSkill(ctx, tx, sourceID, source, skill.name, skill.files, sourceGitRecord(source, skill.gitTreeSHA), description)
-		if err != nil {
-			return nil, err
-		}
-		fetched = append(fetched, result)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit fetch: %w", err)
-	}
-	return fetched, nil
-}
-
-func upsertSource(ctx context.Context, tx *sql.Tx, source Source, validator string) (int64, error) {
-	locator, err := json.Marshal(source.Locator)
-	if err != nil {
-		return 0, fmt.Errorf("encode source: %w", err)
-	}
-	fetched := formatStoredTime(source.LastFetched)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO sources(type, locator, last_fetched, last_seen_ref, http_validator) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(type, locator) DO UPDATE SET
-			last_fetched = excluded.last_fetched, last_seen_ref = excluded.last_seen_ref, http_validator = excluded.http_validator
-	`, source.Type, locator, fetched, source.LastSeenRef, validator); err != nil {
-		return 0, fmt.Errorf("store source: %w", err)
-	}
-	var sourceID int64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM sources WHERE type = ? AND locator = ?`, source.Type, locator).Scan(&sourceID); err != nil {
-		return 0, fmt.Errorf("read source: %w", err)
-	}
-	return sourceID, nil
-}
-
-func findSkillBySourceName(ctx context.Context, tx *sql.Tx, sourceID int64, name string) (SkillID, error) {
-	var id SkillID
-	err := tx.QueryRowContext(ctx, `SELECT id FROM skills WHERE source_id = ? AND name = ?`, sourceID, name).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("find skill: %w", err)
-	}
-	return id, nil
-}
-
-func insertSkill(ctx context.Context, tx *sql.Tx, sourceID int64, source Source, name string, files []File, record gitRecord, description string) (Skill, error) {
-	if name == "" {
-		return Skill{}, fmt.Errorf("fetch skill: name is required")
-	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
-	if err != nil {
-		return Skill{}, fmt.Errorf("store skill: %w", err)
-	}
-	skillID, err := result.LastInsertId()
-	if err != nil {
-		return Skill{}, fmt.Errorf("read skill id: %w", err)
-	}
-	createdAt := clockNow()
-	versionID, err := createVersion(ctx, tx, skillID, files, record, description, createdAt)
-	if err != nil {
-		return Skill{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE skills SET current_version_id = ? WHERE id = ?`, versionID, skillID); err != nil {
-		return Skill{}, fmt.Errorf("select current version: %w", err)
-	}
-	source.ID = SourceID(sourceID)
-	source.LastFetched = source.LastFetched.UTC()
-	return Skill{ID: SkillID(skillID), Name: name, Description: description, Source: source, GitTreeSHA: record.treeSHA, FetchedAt: createdAt, UpdatedAt: createdAt, Files: files}, nil
-}
-
-func (l *sqliteLibrary) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
+// GetSkill 读取一个 skill 及其当前版本的完整文件。
+func (l *Library) GetSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
 	defer func() { err = typedError(err) }()
 	skill, _, err = l.getSkill(ctx, id)
 	return skill, err
 }
 
 type sourceState struct {
-	updateCheckedAt string
-	versionID       int64
-	confirmedCommit string
-	httpValidator   string
+	source    store.Source
+	checkedAt time.Time
+	versionID int64
+	snapshot  source.State
 }
 
-func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
+func (l *Library) getSkill(ctx context.Context, id SkillID) (Skill, sourceState, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	summary, err := l.getSummary(ctx, id)
+	row, err := l.store.GetSummary(ctx, int64(id))
+	if err != nil {
+		return Skill{}, sourceState{}, err
+	}
+	summary, err := l.summaryOf(row)
+	if err != nil {
+		return Skill{}, sourceState{}, err
+	}
+	current, err := l.store.GetCurrent(ctx, int64(id))
 	if err != nil {
 		return Skill{}, sourceState{}, err
 	}
@@ -238,115 +182,62 @@ func (l *sqliteLibrary) getSkill(ctx context.Context, id SkillID) (Skill, source
 		Name:        summary.Name,
 		Description: summary.Description,
 		Source:      summary.Source,
+		VersionID:   VersionID(current.VersionID),
 		FetchedAt:   summary.FetchedAt,
 		UpdatedAt:   summary.UpdatedAt,
+		Files:       current.Files,
 	}
-	var state sourceState
-	if err := l.db.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.git_tree_sha, skill_versions.confirmed_commit, sources.http_validator, skills.update_checked_at
-		FROM skills
-		JOIN skill_versions ON skill_versions.id = skills.current_version_id
-		JOIN sources ON sources.id = skills.source_id
-		WHERE skills.id = ?
-	`, id).Scan(&state.versionID, &skill.GitTreeSHA, &state.confirmedCommit, &state.httpValidator, &state.updateCheckedAt); err != nil {
-		return Skill{}, sourceState{}, fmt.Errorf("get skill version: %w", err)
-	}
-
-	rows, err := l.db.QueryContext(ctx, `
-		SELECT version_files.path, blobs.content, version_files.mode
-		FROM version_files
-		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE version_files.version_id = ?
-		ORDER BY version_files.path
-	`, state.versionID)
-	if err != nil {
-		return Skill{}, sourceState{}, fmt.Errorf("get skill files: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var file File
-		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
-			return Skill{}, sourceState{}, fmt.Errorf("read skill file: %w", err)
-		}
-		skill.Files = append(skill.Files, file)
-	}
-	if err := rows.Err(); err != nil {
-		return Skill{}, sourceState{}, fmt.Errorf("read skill files: %w", err)
-	}
-	return skill, state, nil
+	return skill, sourceState{source: row.Source, checkedAt: current.CheckedAt, versionID: current.VersionID, snapshot: source.State(current.State)}, nil
 }
 
-func (l *sqliteLibrary) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
+// ListSkillFiles 按路径排序列出当前版本的文件元数据,不读取文件正文;技能不存在返回 NotFound(Details.SkillID)。
+func (l *Library) ListSkillFiles(ctx context.Context, id SkillID) (files []FileMetadata, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	rows, err := l.db.QueryContext(ctx, `
-		SELECT version_files.path, length(blobs.content), version_files.mode
-		FROM skills
-		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id
-		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
-		ORDER BY version_files.path
-	`, id)
-	if err != nil {
-		return nil, fmt.Errorf("list skill files: %w", err)
-	}
-	defer rows.Close()
-	skillExists := false
-	for rows.Next() {
-		skillExists = true
-		var path, mode sql.NullString
-		var size sql.NullInt64
-		if err := rows.Scan(&path, &size, &mode); err != nil {
-			return nil, fmt.Errorf("read skill file metadata: %w", err)
-		}
-		if path.Valid {
-			files = append(files, FileMetadata{Path: path.String, Size: size.Int64, Mode: FileMode(mode.String)})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list skill files: %w", err)
-	}
-	if !skillExists {
+	rows, err := l.store.ListCurrentFiles(ctx, int64(id))
+	if errors.Is(err, store.ErrNotFound) {
 		return nil, &Error{Code: NotFound, Message: "list skill files: skill not found", Details: ErrorDetails{SkillID: id}}
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: row.Mode})
 	}
 	return files, nil
 }
 
-func (l *sqliteLibrary) GetSkillFile(ctx context.Context, id SkillID, path string) (file File, err error) {
+// GetSkillFile 按 skill 内的相对路径精确读取当前版本的单个文件,不做路径归一化。
+// 技能不存在返回 NotFound(Details.SkillID),路径不存在返回 NotFound(Details.Path);
+// 与 ListSkillFiles 分别读取各自调用时的当前版本。
+func (l *Library) GetSkillFile(ctx context.Context, id SkillID, path string) (file File, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	var fileExists bool
-	var mode sql.NullString
-	err = l.db.QueryRowContext(ctx, `
-		SELECT version_files.path IS NOT NULL, blobs.content, version_files.mode
-		FROM skills
-		LEFT JOIN version_files ON version_files.version_id = skills.current_version_id AND version_files.path = ?
-		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skills.id = ?
-	`, path, id).Scan(&fileExists, &file.Content, &mode)
-	if errors.Is(err, sql.ErrNoRows) {
+	file, found, err := l.store.GetCurrentFile(ctx, int64(id), path)
+	if errors.Is(err, store.ErrNotFound) {
 		return File{}, &Error{Code: NotFound, Message: "get skill file: skill not found", Details: ErrorDetails{SkillID: id}}
 	}
 	if err != nil {
-		return File{}, fmt.Errorf("get skill file: %w", err)
+		return File{}, err
 	}
-	if !fileExists {
+	if !found {
 		return File{}, &Error{Code: NotFound, Message: "get skill file: file not found", Details: ErrorDetails{Path: path}}
 	}
-	file.Path, file.Mode = path, FileMode(mode.String)
 	return file, nil
 }
 
-func (l *sqliteLibrary) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
+// ListSkills 列出全部 skill 的精简摘要(不含文件正文)。
+func (l *Library) ListSkills(ctx context.Context) (skills []SkillSummary, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	return l.listSummaries(ctx, "list skills", `ORDER BY skills.name, skills.id`)
+	return l.summariesOf(l.store.ListSummaries(ctx))
 }
 
-func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
+// RemoveSkill 从库中移除 skill 及其全部版本;opts 决定磁盘上技能文件夹的去留。
+func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -357,7 +248,8 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 	if err != nil {
 		return err
 	}
-	var trash folderTrash
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	if opts.Folders != Keep {
 		skillScopes, err := l.ListSkillScopes(ctx)
 		if err != nil {
@@ -365,57 +257,12 @@ func (l *sqliteLibrary) RemoveSkill(ctx context.Context, id SkillID, opts Remove
 		}
 		for _, skillScope := range skillScopes {
 			if skillScope.SkillID == id {
-				trash.targets = append(trash.targets, filepath.Join(skillScope.Directory, skill.Name))
+				change.Remove(skillScope.Directory, skill.Name)
 			}
 		}
 	}
 
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin remove skill: %w", err)
-	}
-	defer tx.Rollback()
-	statements := []string{
-		`DELETE FROM skill_scopes WHERE skill_id = ?`,
-		`DELETE FROM skill_groups WHERE skill_id = ?`,
-		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
-		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
-		`DELETE FROM skill_versions WHERE skill_id = ?`,
-		`DELETE FROM skills WHERE id = ?`,
-	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement, id); err != nil {
-			return fmt.Errorf("remove skill: %w", err)
-		}
-	}
-	return trash.commit(ctx, tx, "remove skill")
-}
-
-func (l *sqliteLibrary) requireSkill(ctx context.Context, id SkillID) error {
-	var exists int
-	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM skills WHERE id = ?`, id).Scan(&exists); err != nil {
-		return fmt.Errorf("get skill: %w", err)
-	}
-	return nil
-}
-
-func (l *sqliteLibrary) ListCollections(ctx context.Context) (collections []Collection, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	skills, err := l.ListSkills(ctx)
-	if err != nil {
-		return nil, err
-	}
-	slices.SortFunc(skills, func(a, b SkillSummary) int {
-		return cmp.Or(cmp.Compare(a.Source.ID, b.Source.ID), cmp.Compare(a.ID, b.ID))
+	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		return tx.RemoveSkill(ctx, int64(id))
 	})
-	for _, skill := range skills {
-		if len(collections) == 0 || collections[len(collections)-1].Source.ID != skill.Source.ID {
-			collections = append(collections, Collection{Source: skill.Source})
-		}
-		last := len(collections) - 1
-		collections[last].Skills = append(collections[last].Skills, skill)
-	}
-	return collections, nil
 }

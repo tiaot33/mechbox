@@ -1,37 +1,41 @@
 package library
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
-	"maps"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
-	"time"
 
-	"github.com/mattn/go-sqlite3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-type s3Config struct {
-	endpoint, bucket, key, region, accessKey, secretKey, sessionToken string
-	pathStyle                                                         bool
+// RemoteIdentity 是 Sync 远端对象的身份标识(S3 ETag);空值表示远端当前无对象。
+// 同步计划时返回,执行时回传以绑定"用户确认的"与"实际推/拉的"是同一个远端对象。
+type RemoteIdentity string
+
+// SyncPlan 是 Sync 推/拉执行前的只读报告:远端身份 + 相关校验提示,不改动本地库,
+// 也不提交推送。调用方据此确认后再带着 Remote 调用对应的执行方法。
+type SyncPlan struct {
+	Remote       RemoteIdentity `json:"remote"`        // 当前远端身份;RemoteExists 为 false 时无意义
+	RemoteExists bool           `json:"remote_exists"` // 远端是否已存在对象
+	SchemaOK     bool           `json:"schema_ok"`     // 仅 pull:远端库的 schema 是否可接受
+	Warnings     []string       `json:"warnings,omitempty"`
+}
+
+// SyncResult 是 Sync 推/拉成功后的结果:操作后的远端身份 + 可能的警告。
+// 警告表示操作已成功但调用方需留意某事(如 pull 后磁盘上已安装的文件夹可能与新库不一致)。
+type SyncResult struct {
+	Remote   RemoteIdentity `json:"remote"`
+	Warnings []string       `json:"warnings,omitempty"`
 }
 
 const pullFolderWarning = "agent 目录里已安装的技能文件夹未随本次 pull 重建,可能与新库不一致"
 
-func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
+// PlanSyncPush 生成推送的同步计划:报告推送目标的当前远端身份(若有),以便调用方知道可能覆盖远端。
+func (l *Library) PlanSyncPush(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
 	identity, exists, err := remoteIdentity(ctx)
 	if err != nil {
@@ -40,16 +44,17 @@ func (l *sqliteLibrary) PlanSyncPush(ctx context.Context) (plan SyncPlan, err er
 	return SyncPlan{Remote: identity, RemoteExists: exists}, nil
 }
 
-func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
+// PlanSyncPull 生成拉取的同步计划:报告远端库的身份与 schema 是否可接受,不替换本地库。
+func (l *Library) PlanSyncPull(ctx context.Context) (plan SyncPlan, err error) {
 	defer func() { err = typedError(err) }()
-	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
+	data, etag, err := s3.Get(ctx)
 	if err != nil {
 		return SyncPlan{}, err
 	}
-	_, cleanup, err := openPulledLibrary(ctx, data)
+	image, err := store.OpenImage(ctx, data)
 	if err == nil {
-		defer cleanup()
-	} else if !unacceptableRemote(err) {
+		defer image.Close()
+	} else if !errors.Is(err, store.ErrUnacceptable) {
 		return SyncPlan{}, err
 	}
 	schemaOK := err == nil
@@ -61,7 +66,9 @@ func (l *sqliteLibrary) PlanSyncPull(ctx context.Context) (plan SyncPlan, err er
 	return plan, nil
 }
 
-func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
+// SyncPush 把整个数据库推送到 S3;expected 为同步计划里的远端身份,若远端已变则返回
+// Conflict,调用方须重新生成同步计划。
+func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
 	defer func() { err = typedError(err) }()
 	identity, _, err := remoteIdentity(ctx)
 	if err != nil {
@@ -74,21 +81,20 @@ func (l *sqliteLibrary) SyncPush(ctx context.Context, expected RemoteIdentity) (
 	if err != nil {
 		return SyncResult{}, err
 	}
-	conditions := map[string]string{"If-Match": string(expected)}
-	if expected == "" {
-		conditions = map[string]string{"If-None-Match": "*"}
-	}
-	_, etag, err := s3Request(ctx, http.MethodPut, data, conditions)
+	etag, err := s3.Put(ctx, data, string(expected))
 	if err != nil {
 		return SyncResult{}, err
 	}
 	return SyncResult{Remote: RemoteIdentity(etag)}, nil
 }
 
-func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
+// SyncPull 从 S3 拉回整库并原子替换本地,替换前校验 schema 并重映射项目路径;
+// expected 为同步计划里的远端身份,若远端已变则返回 Conflict。
+// 不重建或清理磁盘上已安装的文件夹,结果可能带警告提示它们可能与新库不一致。
+func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (result SyncResult, err error) {
 	defer func() { err = typedError(err) }()
-	data, etag, err := s3Request(ctx, http.MethodGet, nil, nil)
-	if IsCode(err, NotFound) && expected != "" {
+	data, etag, err := s3.Get(ctx)
+	if errors.Is(err, s3.ErrNotFound) && expected != "" {
 		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote object deleted since sync plan"}
 	}
 	if err != nil {
@@ -97,17 +103,17 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 	if RemoteIdentity(etag) != expected {
 		return SyncResult{}, &Error{Code: Conflict, Message: "sync pull: remote identity changed since sync plan"}
 	}
-	check, cleanup, err := openPulledLibrary(ctx, data)
+	image, err := store.OpenImage(ctx, data)
 	if err != nil {
-		if unacceptableRemote(err) {
+		if errors.Is(err, store.ErrUnacceptable) {
 			failure := preconditionError("sync pull", "remote library is not acceptable", ErrorDetails{})
 			failure.Err = err
 			return SyncResult{}, failure
 		}
 		return SyncResult{}, err
 	}
-	defer cleanup()
-	if err := remapProjectPaths(ctx, check, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
+	defer image.Close()
+	if err := remapProjectPaths(ctx, image, os.Getenv("SKILLS_PROJECT_PATH_MAP")); err != nil {
 		return SyncResult{}, fmt.Errorf("remap pulled projects: %w", err)
 	}
 	l.mu.Lock()
@@ -117,16 +123,16 @@ func (l *sqliteLibrary) SyncPull(ctx context.Context, expected RemoteIdentity) (
 		return SyncResult{}, fmt.Errorf("sync pull: find home directory: %w", err)
 	}
 	l.home = home
-	if err := backupDatabase(ctx, l.db, check); err != nil {
+	if err := l.store.Replace(ctx, image); err != nil {
 		return SyncResult{}, err
 	}
 	return SyncResult{Remote: RemoteIdentity(etag), Warnings: []string{pullFolderWarning}}, nil
 }
 
 func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
-	_, etag, err := s3Request(ctx, http.MethodHead, nil, nil)
+	etag, err := s3.Head(ctx)
 	if err != nil {
-		if IsCode(err, NotFound) {
+		if errors.Is(err, s3.ErrNotFound) {
 			return "", false, nil
 		}
 		return "", false, err
@@ -134,144 +140,13 @@ func remoteIdentity(ctx context.Context) (RemoteIdentity, bool, error) {
 	return RemoteIdentity(etag), true, nil
 }
 
-func (l *sqliteLibrary) snapshotBytes(ctx context.Context) ([]byte, error) {
+func (l *Library) snapshotBytes(ctx context.Context) ([]byte, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	snapshot, err := os.CreateTemp("", ".library-sync-*.db")
-	if err != nil {
-		return nil, fmt.Errorf("create sync snapshot: %w", err)
-	}
-	snapshotPath := snapshot.Name()
-	_ = snapshot.Close()
-	defer os.Remove(snapshotPath)
-	snapshotDB, err := openLibraryDB(ctx, snapshotPath)
-	if err != nil {
-		return nil, fmt.Errorf("open sync snapshot: %w", err)
-	}
-	if err := backupDatabase(ctx, snapshotDB, l.db); err != nil {
-		_ = snapshotDB.Close()
-		return nil, fmt.Errorf("snapshot library: %w", err)
-	}
-	var mode string
-	err = snapshotDB.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
-	if err == nil && mode != "delete" {
-		err = fmt.Errorf("journal_mode stayed %q", mode)
-	}
-	if err != nil {
-		_ = snapshotDB.Close()
-		return nil, fmt.Errorf("reset sync snapshot journal mode: %w", err)
-	}
-	if err := snapshotDB.Close(); err != nil {
-		return nil, fmt.Errorf("close sync snapshot: %w", err)
-	}
-	data, err := os.ReadFile(snapshotPath)
-	if err != nil {
-		return nil, fmt.Errorf("read sync snapshot: %w", err)
-	}
-	return data, nil
+	return l.store.Snapshot(ctx)
 }
 
-func openPulledLibrary(ctx context.Context, data []byte) (*sql.DB, func(), error) {
-	download, err := os.CreateTemp("", ".library-pull-*.db")
-	if err != nil {
-		return nil, nil, fmt.Errorf("create pull file: %w", err)
-	}
-	downloadPath := download.Name()
-	var check *sql.DB
-	cleanup := func() {
-		if check != nil {
-			_ = check.Close()
-		}
-		_ = os.Remove(downloadPath)
-	}
-	if _, err := download.Write(data); err != nil {
-		_ = download.Close()
-		cleanup()
-		return nil, nil, fmt.Errorf("write pulled library: %w", err)
-	}
-	if err := download.Close(); err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("close pulled library: %w", err)
-	}
-	check, err = openLibraryDB(ctx, downloadPath)
-	if err == nil {
-		err = validatePulledDatabase(ctx, check)
-	}
-	if err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("validate pulled library: %w", err)
-	}
-	return check, cleanup, nil
-}
-
-func unacceptableRemote(err error) bool {
-	if errors.Is(err, errUnacceptableSchema) {
-		return true
-	}
-	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
-	return ok && (sqliteErr.Code == sqlite3.ErrCorrupt || sqliteErr.Code == sqlite3.ErrNotADB)
-}
-
-func validatePulledDatabase(ctx context.Context, check *sql.DB) error {
-	var integrity string
-	if err := check.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
-		return fmt.Errorf("validate pulled library: %w", err)
-	}
-	if integrity != "ok" {
-		return fmt.Errorf("%w: integrity=%q", errUnacceptableSchema, integrity)
-	}
-	if err := validateLibrarySchema(ctx, check); err != nil {
-		return fmt.Errorf("validate pulled library: %w", err)
-	}
-	return nil
-}
-
-func backupDatabase(ctx context.Context, destination, source *sql.DB) error {
-	destinationConn, err := destination.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer destinationConn.Close()
-	sourceConn, err := source.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer sourceConn.Close()
-	return destinationConn.Raw(func(destinationDriver any) error {
-		destinationSQLite, ok := destinationDriver.(*sqlite3.SQLiteConn)
-		if !ok {
-			return fmt.Errorf("unexpected destination SQLite driver %T", destinationDriver)
-		}
-		return sourceConn.Raw(func(sourceDriver any) error {
-			sourceSQLite, ok := sourceDriver.(*sqlite3.SQLiteConn)
-			if !ok {
-				return fmt.Errorf("unexpected source SQLite driver %T", sourceDriver)
-			}
-			backup, err := destinationSQLite.Backup("main", sourceSQLite, "main")
-			if err != nil {
-				return err
-			}
-			for {
-				done, err := backup.Step(128)
-				if err != nil {
-					_ = backup.Close()
-					return err
-				}
-				if done {
-					return backup.Close()
-				}
-				select {
-				case <-ctx.Done():
-					_ = backup.Close()
-					return ctx.Err()
-				case <-time.After(time.Millisecond):
-				}
-			}
-		})
-	})
-}
-
-func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
+func remapProjectPaths(ctx context.Context, image *store.Image, raw string) error {
 	paths := map[string]string{}
 	if raw != "" {
 		if err := json.Unmarshal([]byte(raw), &paths); err != nil {
@@ -288,199 +163,5 @@ func remapProjectPaths(ctx context.Context, db *sql.DB, raw string) error {
 		}
 		paths[old] = filepath.Clean(absolute)
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	current := map[ProjectID]string{}
-	pending := map[ProjectID]string{}
-	rows, err := tx.QueryContext(ctx, `SELECT id, path FROM projects`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var id ProjectID
-		var path string
-		if err := rows.Scan(&id, &path); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		current[id] = path
-		if newPath, ok := paths[path]; ok && newPath != path {
-			pending[id] = newPath
-		}
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return err
-	}
-	occupied := map[string]bool{}
-	for _, path := range current {
-		occupied[path] = true
-	}
-	var order []ProjectID
-	for len(pending) > 0 {
-		progressed := false
-		for _, id := range slices.Sorted(maps.Keys(pending)) {
-			if occupied[pending[id]] {
-				continue
-			}
-			delete(occupied, current[id])
-			occupied[pending[id]] = true
-			order = append(order, id)
-			delete(pending, id)
-			progressed = true
-		}
-		if !progressed {
-			var stuck []string
-			for _, id := range slices.Sorted(maps.Keys(pending)) {
-				stuck = append(stuck, current[id]+" -> "+pending[id])
-			}
-			return &Error{Code: InvalidArgument, Message: "SKILLS_PROJECT_PATH_MAP: target path still held by another registered project (occupied target or cyclic mapping): " + strings.Join(stuck, ", ")}
-		}
-	}
-	for _, id := range order {
-		if _, err := tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE id = ?`, paths[current[id]], id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func s3Request(ctx context.Context, method string, body []byte, conditions map[string]string) ([]byte, string, error) {
-	cfg, err := loadS3Config()
-	if err != nil {
-		return nil, "", err
-	}
-	resource := "/" + awsURIEncode(cfg.key, true)
-	if cfg.pathStyle {
-		resource = "/" + awsURIEncode(cfg.bucket, false) + resource
-	}
-	requestURL := strings.TrimRight(cfg.endpoint, "/") + resource
-	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, "", fmt.Errorf("create S3 request: %w", err)
-	}
-	signS3Request(req, body, cfg, time.Now().UTC())
-	for name, value := range conditions {
-		req.Header.Set(name, value)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, "", &Error{Code: SourceUnreachable, Message: "reach S3: " + err.Error(), Err: err}
-	}
-	defer resp.Body.Close()
-	response, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, "", &Error{Code: SourceUnreachable, Message: "read S3 response: " + err.Error(), Err: err}
-	}
-	var s3Error struct {
-		Code string `xml:"Code"`
-	}
-	_ = xml.Unmarshal(response, &s3Error)
-	permissionCode := map[string]bool{"AccessDenied": true, "InvalidAccessKeyId": true, "SignatureDoesNotMatch": true, "ExpiredToken": true, "InvalidToken": true}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || permissionCode[s3Error.Code] {
-		return nil, "", &Error{Code: Permission, Message: "S3 permission denied"}
-	}
-	if resp.StatusCode == http.StatusNotFound || s3Error.Code == "NoSuchKey" {
-		return nil, "", &Error{Code: NotFound, Message: "S3 object not found"}
-	}
-	if resp.StatusCode == http.StatusPreconditionFailed || s3Error.Code == "PreconditionFailed" {
-		return nil, "", &Error{Code: Conflict, Message: "remote object changed since sync plan"}
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", &Error{Code: SourceUnreachable, Message: fmt.Sprintf("S3 returned %s", resp.Status)}
-	}
-	etag := resp.Header.Get("ETag")
-	if etag == "" && method != http.MethodPut {
-		return nil, "", &Error{Code: SourceUnreachable, Message: "S3 response missing ETag"}
-	}
-	return response, etag, nil
-}
-
-func loadS3Config() (s3Config, error) {
-	cfg := s3Config{
-		endpoint:     os.Getenv("SKILLS_S3_ENDPOINT"),
-		bucket:       os.Getenv("SKILLS_S3_BUCKET"),
-		key:          os.Getenv("SKILLS_S3_KEY"),
-		region:       os.Getenv("AWS_REGION"),
-		accessKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
-		secretKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		sessionToken: os.Getenv("AWS_SESSION_TOKEN"),
-	}
-	if cfg.key == "" {
-		cfg.key = "library.db"
-	}
-	if cfg.region == "" {
-		cfg.region = "us-east-1"
-	}
-	if cfg.bucket == "" || cfg.accessKey == "" || cfg.secretKey == "" {
-		return s3Config{}, &Error{Code: NotConfigured, Message: "sync: S3 bucket and AWS credentials are required"}
-	}
-	if cfg.endpoint == "" {
-		if strings.Contains(cfg.bucket, ".") {
-			cfg.endpoint = "https://s3." + cfg.region + ".amazonaws.com"
-			cfg.pathStyle = true
-		} else {
-			cfg.endpoint = "https://" + cfg.bucket + ".s3." + cfg.region + ".amazonaws.com"
-		}
-	} else {
-		cfg.pathStyle = true
-	}
-	endpoint, err := url.ParseRequestURI(cfg.endpoint)
-	if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.User != nil {
-		if err == nil {
-			err = fmt.Errorf("endpoint must be an http(s) origin without credentials, query, or fragment")
-		}
-		return s3Config{}, &Error{Code: NotConfigured, Message: "invalid S3 endpoint: " + err.Error(), Err: err}
-	}
-	return cfg, nil
-}
-
-func awsURIEncode(value string, preserveSlash bool) string {
-	const hexadecimal = "0123456789ABCDEF"
-	var encoded strings.Builder
-	for i := range len(value) {
-		character := value[i]
-		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-._~", rune(character)) || preserveSlash && character == '/' {
-			encoded.WriteByte(character)
-			continue
-		}
-		encoded.WriteByte('%')
-		encoded.WriteByte(hexadecimal[character>>4])
-		encoded.WriteByte(hexadecimal[character&15])
-	}
-	return encoded.String()
-}
-
-func signS3Request(req *http.Request, payload []byte, cfg s3Config, now time.Time) {
-	payloadSum := sha256.Sum256(payload)
-	payloadHash := hex.EncodeToString(payloadSum[:])
-	date := now.Format("20060102")
-	amzDate := now.Format("20060102T150405Z")
-	req.Header.Set("x-amz-content-sha256", payloadHash)
-	req.Header.Set("x-amz-date", amzDate)
-	headers := "host:" + req.URL.Host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + amzDate + "\n"
-	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
-	if cfg.sessionToken != "" {
-		req.Header.Set("x-amz-security-token", cfg.sessionToken)
-		headers += "x-amz-security-token:" + cfg.sessionToken + "\n"
-		signedHeaders += ";x-amz-security-token"
-	}
-	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n\n" + headers + "\n" + signedHeaders + "\n" + payloadHash
-	canonicalSum := sha256.Sum256([]byte(canonical))
-	scope := date + "/" + cfg.region + "/s3/aws4_request"
-	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(canonicalSum[:])
-	kDate := hmacSHA256([]byte("AWS4"+cfg.secretKey), date)
-	kRegion := hmacSHA256(kDate, cfg.region)
-	kService := hmacSHA256(kRegion, "s3")
-	kSigning := hmacSHA256(kService, "aws4_request")
-	signature := hex.EncodeToString(hmacSHA256(kSigning, toSign))
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+cfg.accessKey+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
-}
-
-func hmacSHA256(key []byte, value string) []byte {
-	h := hmac.New(sha256.New, key)
-	_, _ = h.Write([]byte(value))
-	return h.Sum(nil)
+	return image.RemapProjectPaths(ctx, paths)
 }
