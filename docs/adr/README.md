@@ -5,6 +5,7 @@
 ## 总览
 
 - [0009 用户操作流程：先入库，再安装](0009-user-flow-fetch-then-install.md)
+- [0010 产品承诺：用户没有点头，Agent 用的技能就不变](0010-product-promises.md)
 
 ## 库与数据
 

@@ -22,7 +22,11 @@ _Avoid_: Store, database, cache, registry / 存储、数据库、缓存、注册
 
 **Source · 来源**:
 The origin a skill was fetched from — typically a git repo, or a local directory.
-_Avoid_: Origin, remote, provider / 源头、远端、提供方
+_Avoid_: Origin, remote, provider, upstream / 源头、远端、提供方、上游
+
+**Revision · 来源版本**:
+What a Source contained at one moment: a commit for a git repo, a content hash otherwise. A Source moving to a new Revision gives a skill a new Version only if that skill's files changed.
+_Avoid_: Version, release / 版本、发行版
 
 **Preview · 入库预览**:
 A temporary look at the skills a Source offers, remote or local, pinned to what the Source contained at that moment; nothing enters the Library. New skills are fetched only from a Preview, exactly as previewed; a successful Fetch consumes it, and an unused one expires.
@@ -36,9 +40,25 @@ _Avoid_: Result, match / 结果、匹配项
 Bringing chosen Candidates from a Preview into the Library. Distinct from Install: Fetch brings a skill *into* the tool; Install places it *out* into an Agent's directory.
 _Avoid_: Install, download, add, import, pull / 安装、下载、添加、导入、拉取
 
+**Version · 版本**:
+A complete copy of one skill's files as a Fetch or an Update brought them into the Library. Each skill has exactly one current Version; Install and Reinstall place that one.
+_Avoid_: Revision, snapshot, release / 来源版本、快照、发行版
+
 **Update · 更新**:
 Bringing a newer version of an already-fetched skill from its Source into the Library, without a Preview. Where the skill is installed is left as it is; the user chooses when to Reinstall it in each Scope.
 _Avoid_: Upgrade, re-fetch / 升级、重新入库
+
+**Update check · 检查更新**:
+A read-only look at whether a Collection's Source has moved to a new Revision, and what that would change. It never changes the Library or installed folders, so it may run without the user asking.
+_Avoid_: Refresh, poll, sync / 刷新、轮询、同步
+
+**Update plan · 更新计划**:
+A read-only report, before an Update, of how a Collection's skills differ between the Library and the Source's newest Revision, including skills the Source has added or removed; the user chooses which changes the Update brings in.
+_Avoid_: Preview, report, diff / 预览、报告、差异
+
+**Rollback · 回滚**:
+Returning the skills an Update changed to the Versions they had before it.
+_Avoid_: Undo, revert, restore, downgrade / 撤销、回退、还原、降级
 
 **Collection · 集合**:
 Skills grouped by their Source (i.e. by source repo). Automatic — a skill's collection follows from where it came.

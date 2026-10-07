@@ -43,6 +43,10 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 涉及 Skill 格式、Agent 发现/调用、Agent 发现目录或同名行为时，先读 [Agent Skills 背景](docs/agents/agent-skills-background.md)；不熟悉生态时也从这里开始。本项目与生态的对应关系、尚未确认的差异见该文末节。
 
+### Product
+
+设计桌面端交互，或判断一个功能该不该做、该做成什么样时，先读 [产品定位](docs/product/positioning.md)。涉及检查更新、更新、回滚时，再读 [更新的产品逻辑](docs/product/update.md)。任何功能都要守住的承诺见 [ADR 0010](docs/adr/0010-product-promises.md)。
+
 ### Issue tracker
 
 Issues live in this repo's GitHub Issues (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
