@@ -20,7 +20,7 @@ echo "构建前端与 server 模式二进制…"
 (cd "$desktop/frontend" && pnpm build >/dev/null)
 (cd "$desktop" && go build -tags server,production -o "$work/server" . 2>/dev/null)
 
-# 测试数据：三个本地技能(alpha 带一个可执行脚本)、两个项目目录、一个供 URL 安装的 zip。
+# 测试数据：一个目录里的三个本地技能(alpha 带一个可执行脚本)、两个项目目录、一个供 URL 入库的 zip。
 home="$work/home"
 mkdir -p "$home/code/proj-a" "$home/code/proj-b"
 for name in alpha beta gamma; do

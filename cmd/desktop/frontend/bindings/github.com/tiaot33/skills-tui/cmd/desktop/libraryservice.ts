@@ -19,14 +19,6 @@ import * as library$0 from "../../internal/library/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
-export function Activate(id: library$0.SkillID, scope: library$0.Scope, opts: library$0.ActivateOptions): $CancellablePromise<void> {
-    return $Call.ByID(2801563615, id, scope, opts);
-}
-
-export function ActivateGroup(groupID: library$0.GroupID, scope: library$0.Scope, opts: library$0.ActivateOptions): $CancellablePromise<library$0.GroupMemberResult[] | null> {
-    return $Call.ByID(3147463334, groupID, scope, opts);
-}
-
 export function AddSkillToGroup(groupID: library$0.GroupID, skillID: library$0.SkillID): $CancellablePromise<library$0.GroupMemberResult[] | null> {
     return $Call.ByID(3410498058, groupID, skillID);
 }
@@ -46,14 +38,6 @@ export function CreateGroup(name: string): $CancellablePromise<library$0.Group> 
     return $Call.ByID(3572708797, name);
 }
 
-export function Deactivate(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {
-    return $Call.ByID(1313946140, id, scope);
-}
-
-export function DeactivateGroup(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<void> {
-    return $Call.ByID(1946856591, groupID, scope);
-}
-
 export function DeleteGroup(id: library$0.GroupID): $CancellablePromise<void> {
     return $Call.ByID(486162608, id);
 }
@@ -62,12 +46,16 @@ export function DiffVersions(oldID: library$0.VersionID, newID: library$0.Versio
     return $Call.ByID(4170673460, oldID, newID);
 }
 
-export function Fetch(spec: library$0.SourceSpec): $CancellablePromise<library$0.Fetch> {
-    return $Call.ByID(972130338, spec);
+export function Fetch(id: library$0.FetchPreviewID, names: string[] | null): $CancellablePromise<library$0.SkillSummary[] | null> {
+    return $Call.ByID(972130338, id, names);
 }
 
 export function GetSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(3591563083, id);
+}
+
+export function GetSkillAudit(id: library$0.FetchPreviewID, name: string): $CancellablePromise<library$0.SkillAudit | null> {
+    return $Call.ByID(3835043506, id, name);
 }
 
 export function GetSkillFile(id: library$0.SkillID, path: string): $CancellablePromise<library$0.File> {
@@ -85,16 +73,16 @@ export function Info(): $CancellablePromise<$models.AppInfo> {
     return $Call.ByID(170646414);
 }
 
-export function InspectProjections(filter: library$0.ProjectionFilter): $CancellablePromise<library$0.ProjectionInspection[] | null> {
-    return $Call.ByID(1176001212, filter);
+export function InspectSkillScopes(filter: library$0.SkillScopeFilter): $CancellablePromise<library$0.SkillScopeInspection[] | null> {
+    return $Call.ByID(2027736142, filter);
 }
 
-export function Install(source: library$0.LocalSource): $CancellablePromise<library$0.Skill> {
-    return $Call.ByID(220967381, source);
+export function Install(id: library$0.SkillID, scope: library$0.Scope, opts: library$0.InstallOptions): $CancellablePromise<void> {
+    return $Call.ByID(220967381, id, scope, opts);
 }
 
-export function InstallFetch(id: library$0.FetchID, names: string[] | null): $CancellablePromise<library$0.Skill[] | null> {
-    return $Call.ByID(3053333587, id, names);
+export function InstallGroup(groupID: library$0.GroupID, scope: library$0.Scope, opts: library$0.InstallOptions): $CancellablePromise<library$0.GroupMemberResult[] | null> {
+    return $Call.ByID(1741483516, groupID, scope, opts);
 }
 
 export function ListAgents(): $CancellablePromise<library$0.Agent[] | null> {
@@ -105,12 +93,8 @@ export function ListCollections(): $CancellablePromise<library$0.Collection[] | 
     return $Call.ByID(135981115);
 }
 
-export function ListFetchSkills(id: library$0.FetchID): $CancellablePromise<library$0.FetchCandidates> {
-    return $Call.ByID(361377500, id);
-}
-
-export function ListGroupActivations(): $CancellablePromise<library$0.GroupActivation[] | null> {
-    return $Call.ByID(815205314);
+export function ListGroupInstalls(): $CancellablePromise<library$0.GroupInstall[] | null> {
+    return $Call.ByID(560511249);
 }
 
 export function ListGroupSkills(groupID: library$0.GroupID): $CancellablePromise<library$0.SkillSummary[] | null> {
@@ -125,16 +109,16 @@ export function ListGroupsWithMembers(): $CancellablePromise<library$0.GroupWith
     return $Call.ByID(1398571129);
 }
 
-export function ListProjections(): $CancellablePromise<library$0.Projection[] | null> {
-    return $Call.ByID(1272217220);
-}
-
 export function ListRegisteredProjects(): $CancellablePromise<library$0.RegisteredProject[] | null> {
     return $Call.ByID(2677723792);
 }
 
 export function ListSkillFiles(id: library$0.SkillID): $CancellablePromise<library$0.FileMetadata[] | null> {
     return $Call.ByID(1866552674, id);
+}
+
+export function ListSkillScopes(): $CancellablePromise<library$0.SkillScope[] | null> {
+    return $Call.ByID(2812998614);
 }
 
 export function ListSkills(): $CancellablePromise<library$0.SkillSummary[] | null> {
@@ -145,24 +129,32 @@ export function ListVersions(id: library$0.SkillID): $CancellablePromise<library
     return $Call.ByID(2258615823, id);
 }
 
-export function PreviewActivate(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<library$0.ActivatePreview> {
-    return $Call.ByID(3007940979, id, scope);
+export function PlanGroupInstall(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<library$0.GroupInstallPlan> {
+    return $Call.ByID(4013631623, groupID, scope);
 }
 
-export function PreviewActivateGroup(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<library$0.GroupActivatePreview> {
-    return $Call.ByID(3884057386, groupID, scope);
+export function PlanInstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<library$0.InstallPlan> {
+    return $Call.ByID(3522939696, id, scope);
 }
 
-export function PreviewSyncPull(): $CancellablePromise<library$0.SyncPreview> {
-    return $Call.ByID(2281584010);
+export function PlanSyncPull(): $CancellablePromise<library$0.SyncPlan> {
+    return $Call.ByID(986267041);
 }
 
-export function PreviewSyncPush(): $CancellablePromise<library$0.SyncPreview> {
-    return $Call.ByID(2245910201);
+export function PlanSyncPush(): $CancellablePromise<library$0.SyncPlan> {
+    return $Call.ByID(1020557754);
+}
+
+export function PreviewFetch(req: library$0.PreviewFetchRequest): $CancellablePromise<library$0.FetchPreview> {
+    return $Call.ByID(2817557670, req);
 }
 
 export function RegisterProject(path: string): $CancellablePromise<library$0.RegisteredProject> {
     return $Call.ByID(1972591636, path);
+}
+
+export function Reinstall(filter: library$0.SkillScopeFilter, opts: library$0.ReinstallOptions): $CancellablePromise<library$0.ReinstallResult[] | null> {
+    return $Call.ByID(3254091762, filter, opts);
 }
 
 export function RemoveSkill(id: library$0.SkillID, opts: library$0.RemoveSkillOptions): $CancellablePromise<void> {
@@ -181,15 +173,7 @@ export function Resolve(scope: library$0.Scope): $CancellablePromise<string> {
     return $Call.ByID(95479150, scope);
 }
 
-export function ResolveSource(input: string, opts: library$0.ResolveSourceOptions): $CancellablePromise<library$0.SourceSpec> {
-    return $Call.ByID(352691331, input, opts);
-}
-
-export function RewriteProjections(filter: library$0.ProjectionFilter, opts: library$0.RewriteOptions): $CancellablePromise<library$0.RewriteResult[] | null> {
-    return $Call.ByID(2281286480, filter, opts);
-}
-
-export function SearchSkills(query: string): $CancellablePromise<library$0.SearchResult> {
+export function SearchSkills(query: string): $CancellablePromise<library$0.SearchSkill[] | null> {
     return $Call.ByID(2526005404, query);
 }
 
@@ -199,6 +183,14 @@ export function SyncPull(expected: library$0.RemoteIdentity): $CancellablePromis
 
 export function SyncPush(expected: library$0.RemoteIdentity): $CancellablePromise<library$0.SyncResult> {
     return $Call.ByID(377176661, expected);
+}
+
+export function Uninstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {
+    return $Call.ByID(3701070568, id, scope);
+}
+
+export function UninstallGroup(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<void> {
+    return $Call.ByID(2742724331, groupID, scope);
 }
 
 export function UnregisterProject(id: library$0.ProjectID, opts: library$0.UnregisterProjectOptions): $CancellablePromise<void> {

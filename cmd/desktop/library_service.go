@@ -29,7 +29,7 @@ func defaultLibraryPath() (string, error) {
 // 方法沿用技能库的 ctx 优先、(T, error) 签名，ctx 随前端 promise.cancel() 取消。
 type LibraryService struct {
 	path string
-	lib  library.Library
+	lib  *library.Library
 }
 
 // NewLibraryService 创建绑定服务;库在 Wails 启动服务时才打开。
@@ -77,7 +77,6 @@ func (s *LibraryService) Info() (AppInfo, error) {
 // 从 Finder / Dock 启动的应用读不到 shell 里设置的环境变量(运行时配置另有 issue)。
 type ConfigStatus struct {
 	Sync        bool `json:"sync"`         // S3 同步:bucket 与 AWS 凭证齐全
-	StoreURL    bool `json:"store_url"`    // 商店来源:SKILLS_STORE_URL
 	GitHubToken bool `json:"github_token"` // GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
 }
 
@@ -93,7 +92,6 @@ func (s *LibraryService) Config() ConfigStatus {
 	}
 	return ConfigStatus{
 		Sync:        set("SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
-		StoreURL:    set("SKILLS_STORE_URL"),
 		GitHubToken: set("GITHUB_TOKEN") || set("GH_TOKEN"),
 	}
 }

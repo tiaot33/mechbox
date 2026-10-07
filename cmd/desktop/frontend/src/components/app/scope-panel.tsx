@@ -1,29 +1,29 @@
-// 右栏：作用域——全局与每个已登记项目下，只展开有投影的 Agent,其余折进"其他 N 个 Agent";
+// 右栏：作用域——全局与每个已登记项目下，只展开装有技能的 Agent,其余折进"其他 N 个 Agent";
 // 项目行折叠时用小图标显示在用的 Agent。点选一行即选中该作用域(与顶栏胶囊同步)。
-// 作用域行接受拖放：技能 = 独立激活，组 = 整组激活;拖到折叠的项目或"其他 Agent"上停 0.5 秒自动展开。
-import { Fragment, useRef, useState } from "react";
+// 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖到折叠的项目或"其他 Agent"上停 0.5 秒自动展开。
+import { useRef, useState } from "react";
 import type { Agent } from "@bindings/internal/library";
 import { registerProject, unregisterProject } from "@/lib/actions";
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
 import type { Snapshot } from "@/lib/library";
 import {
   agentsUsedIn,
-  needsRewrite,
+  needsReinstall,
   parseScope,
   placeOf,
   projectName,
-  projectionsIn,
   scopeKey,
   scopeOf,
   shortPath,
+  skillScopesIn,
   type Place,
   type ScopeKey,
 } from "@/lib/model";
 import { resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
 import { Icon } from "./icons";
-import { pickDirectory } from "./install-dialog";
-import { AgentMark, Count } from "./parts";
+import { pickDirectory } from "./fetch-dialog";
+import { AgentIcon, Count } from "./parts";
 
 interface ScopePanelProps {
   s: Snapshot;
@@ -54,34 +54,32 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
         }
       : {};
 
-  const scopeRow = (agent: Agent, place: Place, dim = false) => {
+  const scopeRow = (agent: Agent, place: Place) => {
     const key = scopeKey(scopeOf(agent.code, place));
-    const projections = projectionsIn(s, key);
-    const issues = projections.filter(needsRewrite).length;
+    const installed = skillScopesIn(s, key);
+    const issues = installed.filter(needsReinstall).length;
     const already = !!dnd.item && alreadyInScope(s, dnd.item, key);
     return (
       <li key={key}>
         <button
           type="button"
-          className={`nav-item sub ${dim ? "dim" : ""} ${scope === key ? "active" : ""} ${already ? "already" : ""}`}
+          className={`nav-item sub ${scope === key ? "active" : ""} ${already ? "already" : ""}`}
           onClick={() => onScope(scope === key ? null : key)}
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
-          <AgentMark code={agent.code} name={agent.name} />
-          <span className="grow">{agent.name}</span>
-          {issues > 0 && (
-            <span className="status warn" title={`${issues} 条投影与当前版本不一致`}>
-              {issues}
-            </span>
-          )}
-          {projections.length > 0 && <Count value={projections.length} />}
+          <AgentIcon code={agent.code} name={agent.name} />
+          <span className="grow ellipsis">
+            {agent.name}
+            {issues > 0 && <i className="issue-dot" title={`${issues} 个技能文件夹与当前版本不一致，需要重新安装`} />}
+          </span>
+          <Count value={installed.length} />
         </button>
       </li>
     );
   };
 
-  // 每个地方只展开"用到的 Agent"(有投影，或正被选中);其余折进"其他 N 个 Agent",展开后淡色显示。
+  // 每个地方只展开"用到的 Agent"(装有技能，或正被选中);其余折进"其他 N 个 Agent",展开后淡色显示在开关之上。
   const agentRows = (place: Place) => {
     const used = agentsUsedIn(s, place);
     const shown = s.agents.filter(
@@ -92,20 +90,20 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
     return (
       <>
         {shown.map((a) => scopeRow(a, place))}
+        {more && rest.map((a) => scopeRow(a, place))}
         {rest.length > 0 && (
           <li>
             <button
               type="button"
-              className="nav-item sub more"
+              className={`nav-item sub more ${more ? "open" : ""}`}
               onClick={() => onToggleMore(place)}
               {...springProps(!more, () => onToggleMore(place))}
             >
-              <Icon name="plus" />
+              <Icon name="down" />
               <span className="grow">{more ? "收起" : `其他 ${rest.length} 个 Agent`}</span>
             </button>
           </li>
         )}
-        {more && rest.map((a) => scopeRow(a, place, true))}
       </>
     );
   };
@@ -114,72 +112,67 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
 
   return (
     <aside className="a-right">
-      <div className="nav-sec">
+      <div className="nav-sec rail-head">
         <span>
           <Icon name="globe" /> 全局
         </span>
       </div>
-      <ul className="nav">{agentRows(0)}</ul>
-      <div className="nav-sec">
+      <ul className="nav tree">{agentRows(0)}</ul>
+      <div className="nav-sec rail-head">
         <span>
           <Icon name="folder" /> 已登记项目
         </span>
-        <button type="button" className="icon-btn sm" title="登记项目" onClick={register}>
+        <button type="button" className="icon-btn sm sec-add" title="登记项目" onClick={register}>
           <Icon name="plus" />
         </button>
       </div>
-      <ul className="nav">
+      <ul className="nav tree">
         {s.projects.map((p) => {
           const open = expanded.has(p.id);
-          const count = s.projections.filter((x) => placeOf(x.scope) === p.id).length;
+          const count = s.skillScopes.filter((x) => placeOf(x.scope) === p.id).length;
           return (
-            <Fragment key={p.id}>
-              <li>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className={`nav-item proj ${open ? "open" : ""}`}
-                  onClick={() => onToggleProject(p.id)}
-                  title={shortPath(s, p.path)}
-                  {...springProps(!open, () => onToggleProject(p.id))}
-                >
-                  <Icon name="folder" />
-                  <span className="grow ellipsis">{projectName(s, p.id)}</span>
-                  {!open && (
-                    <span className="marks">
-                      {agentsUsedIn(s, p.id).map((a) => (
-                        <AgentMark key={a.code} code={a.code} name={a.name} />
-                      ))}
-                    </span>
-                  )}
-                  <span className="row-actions">
-                    <button
-                      type="button"
-                      className="icon-btn sm"
-                      title="注销项目"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void unregisterProject(ui, s, p);
-                      }}
-                    >
-                      <Icon name="close" />
-                    </button>
+            <li key={p.id}>
+              <div
+                role="button"
+                tabIndex={0}
+                className={`nav-item proj ${open ? "open" : ""} ${selected && placeOf(selected) === p.id ? "current" : ""}`}
+                onClick={() => onToggleProject(p.id)}
+                title={shortPath(s, p.path)}
+                {...springProps(!open, () => onToggleProject(p.id))}
+              >
+                <Icon name="folder" />
+                <span className="grow ellipsis">{projectName(s, p.id)}</span>
+                {!open && (
+                  <span className="marks">
+                    {agentsUsedIn(s, p.id).map((a) => (
+                      <AgentIcon key={a.code} code={a.code} name={a.name} />
+                    ))}
                   </span>
-                  <Count value={count} />
-                  <span className="chev">
-                    <Icon name="chev" />
-                  </span>
-                </div>
-              </li>
-              {open && agentRows(p.id)}
-            </Fragment>
+                )}
+                <span className="row-actions">
+                  <button
+                    type="button"
+                    className="icon-btn sm"
+                    title="注销项目"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void unregisterProject(ui, s, p);
+                    }}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </span>
+                <Count value={count} />
+                <span className="chev">
+                  <Icon name="chev" />
+                </span>
+              </div>
+              {open && <ul className="nav tree">{agentRows(p.id)}</ul>}
+            </li>
           );
         })}
       </ul>
-      {s.projects.length === 0 && <p className="hint pad">还没有登记项目。登记后可以把技能激活到项目级目录。</p>}
-      <p className="hint pad">
-        把技能卡片或组拖到这里即可激活;拖到折叠的项目或"其他 Agent"上停一下会自动展开。点选一个作用域，卡片上会出现它的激活开关。
-      </p>
+      {s.projects.length === 0 && <p className="hint pad">还没有登记项目。登记后可以把技能安装到项目级目录。</p>}
     </aside>
   );
 }
@@ -213,7 +206,7 @@ function RegisterProjectDialog({ home, onClose }: { home: string; onClose: () =>
         </>
       }
     >
-      <p className="hint">登记后，这个项目与每个 Agent 组成项目级作用域，技能可以激活到项目里的 Agent 目录。</p>
+      <p className="hint">登记后，这个项目与每个 Agent 组成项目级作用域，技能可以安装到项目里的 Agent 目录。</p>
       <div className="row">
         <input
           className="input grow"

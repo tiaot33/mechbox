@@ -1,27 +1,27 @@
-// 技能详情抽屉(原型变体 A 的右侧抽屉):元数据与组成员、各作用域激活、文件、版本历史，以及更新 / 重写 / 移除。
+// 技能详情抽屉(原型变体 A 的右侧抽屉):元数据与组成员、各作用域的安装、文件、版本历史，以及更新 / 重新安装 / 移除。
 import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
+import { Browser } from "@wailsio/runtime";
 import {
   FileMode,
   type AgentCode,
   SourceType,
   UpdateCheckStatus,
   type FileMetadata,
-  type Skill,
   type SkillSummary,
   type SkillVersion,
   type Source,
   type VersionDiff,
 } from "@bindings/internal/library";
 import {
-  activateSkill,
   addSkillToGroup,
   checkUpdates,
   createGroup,
-  deactivateSkill,
+  installSkill,
+  reinstall,
   removeSkill,
   removeSkillFromGroup,
-  rewrite,
+  uninstallSkill,
   updateSkill,
 } from "@/lib/actions";
 import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/content";
@@ -29,15 +29,15 @@ import type { Snapshot } from "@/lib/library";
 import {
   agentName,
   agentsUsedIn,
-  needsRewrite,
+  needsReinstall,
   projectName,
-  projectionIn,
-  projectionStatus,
-  projectionsOf,
   scopeKey,
   scopeLabel,
   scopeOf,
   shortPath,
+  skillScopeIn,
+  skillScopeStatus,
+  skillScopesOf,
   sourceKindLabel,
   sourceLabel,
   updateAvailable,
@@ -47,18 +47,22 @@ import { useUI } from "@/lib/ui";
 import { Icon, SourceIcon } from "./icons";
 import { AgentMark } from "./parts";
 
+const checkStatus: Record<UpdateCheckStatus, { label: string; tone: string }> = {
+  [UpdateCheckStatus.UpdateAvailable]: { label: "有更新", tone: "warn" },
+  [UpdateCheckStatus.UpdateCurrent]: { label: "已是最新", tone: "ok" },
+  [UpdateCheckStatus.UpdateFailed]: { label: "检查失败", tone: "bad" },
+  [UpdateCheckStatus.$zero]: { label: "已是最新", tone: "ok" },
+};
+
 function sourceRef(source: Source): string {
-  const l = source.locator;
   switch (source.type) {
     case SourceType.SourceGitHub:
-      return [l.branch || "默认分支", source.last_seen_ref?.slice(0, 12)].filter(Boolean).join(" · ");
-    case SourceType.SourceStore:
-      return l.version ? `v${l.version}` : "—";
+      return [source.ref || "默认分支", source.last_seen_ref?.slice(0, 12)].filter(Boolean).join(" · ");
     case SourceType.SourceURL:
       try {
-        return new URL(l.url ?? "").host;
+        return new URL(source.label).host;
       } catch {
-        return l.url ?? "—";
+        return source.label || "—";
       }
     default:
       return "本地目录";
@@ -67,28 +71,22 @@ function sourceRef(source: Source): string {
 
 export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSummary; onClose: () => void }) {
   const ui = useUI();
-  const [detail, setDetail] = useState<Skill | null>(null);
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [versions, setVersions] = useState<SkillVersion[]>([]);
   const id = skill.id;
 
   // 技能内容变化(更新、重装)时 updated_at 变，随之重读详情。
   useEffect(() => {
-    const calls = [
-      LibraryService.GetSkill(id),
-      LibraryService.ListSkillFiles(id),
-      LibraryService.ListVersions(id),
-    ] as const;
-    calls[0].then(setDetail, () => {});
-    calls[1].then((f) => setFiles(f ?? []), () => {});
-    calls[2].then((v) => setVersions(v ?? []), () => {});
+    const calls = [LibraryService.ListSkillFiles(id), LibraryService.ListVersions(id)] as const;
+    calls[0].then((f) => setFiles(f ?? []), () => {});
+    calls[1].then((v) => setVersions(v ?? []), () => {});
     return () => calls.forEach((c) => void c.cancel());
   }, [id, skill.updated_at]);
 
   const groups = s.groups.filter((g) => g.members?.includes(id));
   const notIn = s.groups.filter((g) => !g.members?.includes(id));
-  const projections = projectionsOf(s, id);
-  const stale = projections.filter(needsRewrite).length;
+  const installed = skillScopesOf(s, id);
+  const stale = installed.filter(needsReinstall).length;
   const check = skill.last_update_check;
 
   return (
@@ -122,10 +120,10 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
               <Icon name="up" />
               重新读取来源
             </button>
-            {projections.length > 0 && (
-              <button type="button" className="pill-btn sm" onClick={() => rewrite(ui, s, { skill_id: id }, `「${skill.name}」`)}>
+            {installed.length > 0 && (
+              <button type="button" className="pill-btn sm" onClick={() => reinstall(ui, s, { skill_id: id }, `「${skill.name}」`)}>
                 <Icon name="refresh" />
-                重写全部投影
+                全部重新安装
               </button>
             )}
             <span className="grow" />
@@ -152,15 +150,19 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                 <span className="muted">{sourceKindLabel[skill.source.type]}</span>
               </dd>
               <dt>来源版本</dt>
-              <dd className="mono">{sourceRef(skill.source)}</dd>
-              {detail?.git_tree_sha && (
-                <>
-                  <dt>目录 SHA</dt>
-                  <dd className="mono">{detail.git_tree_sha.slice(0, 12)}</dd>
-                </>
-              )}
-              <dt>安装于</dt>
-              <dd>{formatDate(skill.installed_at)}</dd>
+              <dd>
+                <span className="mono">{sourceRef(skill.source)}</span>
+                {skill.source.view_url && (
+                  <>
+                    {" "}
+                    <button type="button" className="link" onClick={() => void Browser.OpenURL(skill.source.view_url!)}>
+                      在 GitHub 查看
+                    </button>
+                  </>
+                )}
+              </dd>
+              <dt>入库于</dt>
+              <dd>{formatDate(skill.fetched_at)}</dd>
               <dt>当前版本</dt>
               <dd>
                 {formatDate(skill.updated_at)} · 共 {versions.length} 个版本
@@ -169,15 +171,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
               <dd>
                 {check ? (
                   <>
-                    <span
-                      className={`status ${check.status === UpdateCheckStatus.UpdateAvailable ? "warn" : check.status === UpdateCheckStatus.UpdateFailed ? "bad" : "ok"}`}
-                    >
-                      {check.status === UpdateCheckStatus.UpdateAvailable
-                        ? "有更新"
-                        : check.status === UpdateCheckStatus.UpdateFailed
-                          ? "检查失败"
-                          : "已是最新"}
-                    </span>{" "}
+                    <span className={`status ${checkStatus[check.status].tone}`}>{checkStatus[check.status].label}</span>{" "}
                     <span className="muted tiny">{formatDate(check.checked_at)}</span>
                   </>
                 ) : (
@@ -217,9 +211,9 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
 
           <section className="card">
             <div className="card-h">
-              <span>激活</span>
+              <span>安装</span>
               <span className="muted">
-                {projections.length} 个作用域{stale ? ` · ${stale} 个需重写` : ""}
+                {installed.length} 个作用域{stale ? ` · ${stale} 个需重新安装` : ""}
               </span>
             </div>
             <table className="scope-table">
@@ -232,9 +226,9 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                 </tr>
               </thead>
               <tbody>
-                {projections.map((p) => {
-                  const st = projectionStatus[p.status];
-                  const toggle = () => (p.direct ? deactivateSkill(ui, s, id, p.scope) : activateSkill(ui, s, id, p.scope));
+                {installed.map((p) => {
+                  const st = skillScopeStatus[p.status];
+                  const toggle = () => (p.direct ? uninstallSkill(ui, s, id, p.scope) : installSkill(ui, s, id, p.scope));
                   return (
                     <tr key={scopeKey(p.scope)}>
                       <td>
@@ -244,7 +238,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                           role="switch"
                           aria-checked={p.direct}
                           onClick={toggle}
-                          title={p.direct ? "停用独立激活" : "只经由组激活;点击追加独立激活"}
+                          title={p.direct ? "卸载直接安装" : "只随组安装;点击追加直接安装"}
                         >
                           <i />
                         </button>
@@ -257,24 +251,24 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                         <div className="mono tiny muted">{shortPath(s, p.directory)}</div>
                       </td>
                       <td>
-                        {p.direct && <span className="prov prov-ind">独立</span>}
+                        {p.direct && <span className="prov prov-ind">直接</span>}
                         {(p.groups ?? []).map((g) => (
                           <span key={g} className="prov prov-grp">
-                            经由「{s.groups.find((x) => x.group.id === g)?.group.name}」
+                            随「{s.groups.find((x) => x.group.id === g)?.group.name}」
                           </span>
                         ))}
                       </td>
                       <td>
                         <span className={`status ${st.tone}`}>{st.label}</span>
-                        {needsRewrite(p) && (
+                        {needsReinstall(p) && (
                           <>
                             {" "}
                             <button
                               type="button"
                               className="link"
-                              onClick={() => rewrite(ui, s, { skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
+                              onClick={() => reinstall(ui, s, { skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
                             >
-                              重写
+                              重新安装
                             </button>
                           </>
                         )}
@@ -282,22 +276,22 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                     </tr>
                   );
                 })}
-                {projections.length === 0 && (
+                {installed.length === 0 && (
                   <tr>
                     <td colSpan={4} className="muted">
-                      还没有激活到任何作用域
+                      还没有安装到任何作用域
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-            <ActivateTo s={s} skillID={id} />
+            <InstallTo s={s} skillID={id} />
             <p className="hint">
-              开关只控制<b>独立激活</b>;经由组的激活需在组上停用。停掉最后一个激活时，文件夹会从该目录移除。
+              开关只控制<b>直接安装</b>;随组安装的需在组上卸载。直接安装和组安装都撤掉时，文件夹会从该目录移除。
             </p>
           </section>
 
-          <FilesCard skillID={id} files={files} updatedAt={skill.updated_at} />
+          <FilesCard skillID={id} files={files} />
           <VersionsCard versions={versions} />
         </div>
       </aside>
@@ -305,19 +299,19 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
   );
 }
 
-// ActivateTo 是"激活到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面。
-function ActivateTo({ s, skillID }: { s: Snapshot; skillID: number }) {
+// InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面。
+function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   const ui = useUI();
   const [place, setPlace] = useState<Place>(0);
   const used = agentsUsedIn(s, place);
   const rest = s.agents.filter((a) => !used.includes(a));
-  const available = (code: AgentCode) => !projectionIn(s, skillID, scopeKey(scopeOf(code, place)));
+  const available = (code: AgentCode) => !skillScopeIn(s, skillID, scopeKey(scopeOf(code, place)));
   const first = [...used, ...rest].find((a) => available(a.code));
   const [agent, setAgent] = useState<AgentCode | "">("");
   const chosen = agent && available(agent) ? agent : (first?.code ?? "");
   return (
-    <div className="activate-to">
-      <span className="tiny muted">激活到</span>
+    <div className="install-to">
+      <span className="tiny muted">安装到</span>
       <select value={place} onChange={(e) => setPlace(Number(e.target.value))}>
         <option value={0}>全局</option>
         {s.projects.map((p) => (
@@ -348,17 +342,17 @@ function ActivateTo({ s, skillID }: { s: Snapshot; skillID: number }) {
         type="button"
         className="pill-btn accent sm"
         disabled={!chosen}
-        onClick={() => chosen && activateSkill(ui, s, skillID, scopeOf(chosen, place))}
+        onClick={() => chosen && installSkill(ui, s, skillID, scopeOf(chosen, place))}
       >
         <Icon name="plus" />
-        激活
+        安装
       </button>
     </div>
   );
 }
 
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
-function FilesCard({ skillID, files, updatedAt }: { skillID: number; files: FileMetadata[]; updatedAt?: string }) {
+function FilesCard({ skillID, files }: { skillID: number; files: FileMetadata[] }) {
   const [path, setPath] = useState("SKILL.md");
   const [content, setContent] = useState<string | null | undefined>(undefined);
   const [raw, setRaw] = useState(false);
@@ -368,7 +362,7 @@ function FilesCard({ skillID, files, updatedAt }: { skillID: number; files: File
     const call = LibraryService.GetSkillFile(skillID, path);
     call.then((f) => setContent(decodeContent(f.content)), () => setContent(null));
     return () => void call.cancel();
-  }, [skillID, path, files, updatedAt]);
+  }, [skillID, path, files]);
   const markdown = path.toLowerCase().endsWith(".md") && !raw;
   return (
     <section className="card">
@@ -442,7 +436,7 @@ function VersionsCard({ versions }: { versions: SkillVersion[] }) {
       <ol className="versions">
         {list.map((v, i) => (
           <li key={v.id}>
-            <span className="mono">{v.git_tree_sha ? v.git_tree_sha.slice(0, 10) : `#${v.id}`}</span>
+            <span className="mono">#{v.id}</span>
             <span>{formatDate(v.created_at)}</span>
             {i === 0 ? (
               <span className="status ok">当前</span>

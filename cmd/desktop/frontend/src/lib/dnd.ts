@@ -1,10 +1,10 @@
-// 拖放(原型变体 A):左 = 整理进哪个组，右 = 激活到哪个作用域。
-// - 技能卡片 → 右栏作用域 = 独立激活;技能卡片 → 左栏组 = 加入该组。
-// - 组(左栏组行或列表顶部的组标题条)→ 右栏作用域 = 整组激活。
+// 拖放(原型变体 A):左 = 整理进哪个组，右 = 安装到哪个作用域。
+// - 技能卡片 → 右栏作用域 = 直接安装;技能卡片 → 左栏组 = 加入该组。
+// - 组(左栏组行或列表顶部的组标题条)→ 右栏作用域 = 组安装。
 import { createContext, useContext } from "react";
 import type { GroupID, SkillID } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { projectionIn, type ScopeKey } from "./model";
+import { scopeKey, skillScopeIn, type ScopeKey } from "./model";
 
 export type DragItem = { kind: "skill"; id: SkillID } | { kind: "group"; id: GroupID };
 
@@ -24,10 +24,10 @@ export function useDnD(): DnD {
   return dnd;
 }
 
-// alreadyInScope:拖动的东西已经在那个作用域(技能已有独立激活 / 组已整组激活),放下没有意义。
+// alreadyInScope:拖动的东西已经在那个作用域(技能已直接安装 / 组已组安装),放下没有意义。
 export function alreadyInScope(s: Snapshot, item: DragItem, key: ScopeKey): boolean {
-  if (item.kind === "skill") return !!projectionIn(s, item.id, key)?.direct;
-  return s.groupActivations.some((a) => a.group_id === item.id && `${a.scope.agent}@${a.scope.project_id ?? 0}` === key);
+  if (item.kind === "skill") return !!skillScopeIn(s, item.id, key)?.direct;
+  return s.groupInstalls.some((a) => a.group_id === item.id && scopeKey(a.scope) === key);
 }
 
 // alreadyInGroup:技能已是该组成员。

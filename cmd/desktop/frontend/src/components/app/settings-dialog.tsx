@@ -21,7 +21,7 @@ export function SettingsDialog({ s, config, onClose }: { s: Snapshot; config: Co
           </dd>
           <dt>规模</dt>
           <dd>
-            {s.skills.length} 个技能 · {s.groups.length} 个组 · {s.projects.length} 个已登记项目 · {s.projections.length} 个投影
+            {s.skills.length} 个技能 · {s.groups.length} 个组 · {s.projects.length} 个已登记项目 · 共安装 {s.skillScopes.length} 处
           </dd>
         </dl>
       </section>
@@ -46,8 +46,6 @@ export function SettingsDialog({ s, config, onClose }: { s: Snapshot; config: Co
         <dl className="kv">
           <dt>S3 同步</dt>
           <dd>{state(config.sync, "已配置", "未配置")} SKILLS_S3_BUCKET、AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY</dd>
-          <dt>商店来源</dt>
-          <dd>{state(config.store_url, "已配置", "未配置")} SKILLS_STORE_URL</dd>
           <dt>GitHub 令牌</dt>
           <dd>{state(config.github_token, "已配置", "匿名访问")} GITHUB_TOKEN 或 GH_TOKEN</dd>
         </dl>

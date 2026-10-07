@@ -1,14 +1,14 @@
-// 主界面的领域辅助：作用域身份、来源展示、激活状态与筛选，都从只读快照派生。
+// 主界面的领域辅助：作用域身份、来源展示、安装状态与筛选，都从只读快照派生。
 import {
-  ProjectionStatus,
   ScopeKind,
+  SkillScopeStatus,
   SourceType,
   UpdateCheckStatus,
   type AgentCode,
   type GroupWithMembers,
   type ProjectID,
-  type ProjectionInspection,
   type Scope,
+  type SkillScopeInspection,
   type SkillSummary,
   type Source,
   type SourceID,
@@ -46,8 +46,7 @@ export function agentName(s: Snapshot, code: AgentCode): string {
 }
 
 export function projectName(s: Snapshot, id: ProjectID): string {
-  const path = s.projects.find((p) => p.id === id)?.path ?? "";
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  return lastSegment(s.projects.find((p) => p.id === id)?.path ?? "");
 }
 
 export function scopeLabel(s: Snapshot, scope: Scope): string {
@@ -60,46 +59,46 @@ export function shortPath(s: Snapshot, path: string): string {
   return home && (path === home || path.startsWith(home + "/")) ? "~" + path.slice(home.length) : path;
 }
 
-// agentsUsedIn 是某个地方实际有投影的 Agent,按 Agent 列表顺序。
+// agentsUsedIn 是某个地方实际装有技能的 Agent,按 Agent 列表顺序。
 export function agentsUsedIn(s: Snapshot, place: Place) {
-  return s.agents.filter((a) => s.projections.some((p) => p.scope.agent === a.code && placeOf(p.scope) === place));
+  return s.agents.filter((a) => s.skillScopes.some((p) => p.scope.agent === a.code && placeOf(p.scope) === place));
 }
 
-// ---------- 投影与激活 ----------
+// ---------- 安装 ----------
 
-export function projectionsOf(s: Snapshot, skillID: number): ProjectionInspection[] {
-  return s.projections.filter((p) => p.skill_id === skillID);
+export function skillScopesOf(s: Snapshot, skillID: number): SkillScopeInspection[] {
+  return s.skillScopes.filter((p) => p.skill_id === skillID);
 }
 
-export function projectionsIn(s: Snapshot, key: ScopeKey): ProjectionInspection[] {
-  return s.projections.filter((p) => scopeKey(p.scope) === key);
+export function skillScopesIn(s: Snapshot, key: ScopeKey): SkillScopeInspection[] {
+  return s.skillScopes.filter((p) => scopeKey(p.scope) === key);
 }
 
-export function projectionIn(s: Snapshot, skillID: number, key: ScopeKey): ProjectionInspection | undefined {
-  return s.projections.find((p) => p.skill_id === skillID && scopeKey(p.scope) === key);
+export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection | undefined {
+  return s.skillScopes.find((p) => p.skill_id === skillID && scopeKey(p.scope) === key);
 }
 
-export function needsRewrite(p: ProjectionInspection): boolean {
-  return p.status !== ProjectionStatus.ProjectionCurrent;
+export function needsReinstall(p: SkillScopeInspection): boolean {
+  return p.status !== SkillScopeStatus.SkillScopeCurrent;
 }
 
-export const projectionStatus: Record<ProjectionStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
-  [ProjectionStatus.ProjectionCurrent]: { label: "最新", tone: "ok" },
-  [ProjectionStatus.ProjectionStale]: { label: "旧版本", tone: "warn" },
-  [ProjectionStatus.ProjectionModified]: { label: "已被改动", tone: "bad" },
-  [ProjectionStatus.ProjectionMissing]: { label: "目录缺失", tone: "bad" },
-  [ProjectionStatus.ProjectionDirectoryMissing]: { label: "作用域目录缺失", tone: "bad" },
-  [ProjectionStatus.$zero]: { label: "未知", tone: "warn" },
+export const skillScopeStatus: Record<SkillScopeStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
+  [SkillScopeStatus.SkillScopeCurrent]: { label: "最新", tone: "ok" },
+  [SkillScopeStatus.SkillScopeStale]: { label: "旧版本", tone: "warn" },
+  [SkillScopeStatus.SkillScopeModified]: { label: "被手动改过", tone: "bad" },
+  [SkillScopeStatus.SkillScopeMissing]: { label: "文件夹不在了", tone: "bad" },
+  [SkillScopeStatus.SkillScopeDirectoryMissing]: { label: "Agent 目录不在了", tone: "bad" },
+  [SkillScopeStatus.$zero]: { label: "未知", tone: "warn" },
 };
 
-// groupStateIn 是组在某个作用域的整组激活状态：组激活是独立记录(空组也可以有),有记录即为 on。
-// 成员各自的独立激活不算整组激活。
+// groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on。
+// 成员各自的直接安装不算组安装。
 export function groupStateIn(s: Snapshot, group: GroupWithMembers, key: ScopeKey): "on" | "off" {
-  return s.groupActivations.some((a) => a.group_id === group.group.id && scopeKey(a.scope) === key) ? "on" : "off";
+  return s.groupInstalls.some((a) => a.group_id === group.group.id && scopeKey(a.scope) === key) ? "on" : "off";
 }
 
 export function viaGroupCount(s: Snapshot, group: GroupWithMembers, key: ScopeKey): number {
-  return (group.members ?? []).filter((id) => projectionIn(s, id, key)?.groups?.includes(group.group.id)).length;
+  return (group.members ?? []).filter((id) => skillScopeIn(s, id, key)?.groups?.includes(group.group.id)).length;
 }
 
 export function updateAvailable(skill: SkillSummary): boolean {
@@ -111,7 +110,6 @@ export function updateAvailable(skill: SkillSummary): boolean {
 export const sourceKindLabel: Record<SourceType, string> = {
   [SourceType.SourceGitHub]: "GitHub",
   [SourceType.SourceURL]: "URL",
-  [SourceType.SourceStore]: "商店",
   [SourceType.SourceLocal]: "自研",
   [SourceType.$zero]: "未知",
 };
@@ -120,30 +118,25 @@ function lastSegment(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-// sourceLabel 是集合在左栏里的名字：GitHub 取 owner/repo,商店取包 ID,URL 取文件名，本地取缩写路径。
+// sourceLabel 是集合在左栏里的名字：GitHub 取 owner/repo,URL 取文件名，本地取缩写路径。
 export function sourceLabel(s: Snapshot, source: Source): string {
-  const l = source.locator;
   switch (source.type) {
     case SourceType.SourceGitHub:
-      return (l.repository ?? "").replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
-    case SourceType.SourceStore:
-      return l.package_id ?? "";
+      return source.label;
     case SourceType.SourceURL:
-      return lastSegment(l.url ?? "");
+      return lastSegment(source.label);
     case SourceType.SourceLocal:
-      return shortPath(s, l.path ?? "");
+      return shortPath(s, source.label);
     default:
       return "未知来源";
   }
 }
 
-// sourceShort 是卡片上的来源短名：GitHub 取 owner,商店取包名末段,URL 取文件名，本地一律"自研"。
+// sourceShort 是卡片上的来源短名：GitHub 取 owner,URL 取文件名，本地一律"自研"。
 export function sourceShort(s: Snapshot, source: Source): string {
   switch (source.type) {
     case SourceType.SourceGitHub:
       return sourceLabel(s, source).split("/")[0];
-    case SourceType.SourceStore:
-      return lastSegment(sourceLabel(s, source));
     case SourceType.SourceURL:
       return sourceLabel(s, source).replace(/\.zip$/, "");
     default:
@@ -190,7 +183,7 @@ export function filterTitle(s: Snapshot, filter: SkillFilter): string {
 export interface ListQuery {
   filter: SkillFilter;
   search: string;
-  activeOnlyIn: ScopeKey | null; // 仅显示在该作用域已激活的技能
+  installedOnlyIn: ScopeKey | null; // 仅显示已安装在该作用域的技能
 }
 
 export function visibleSkills(s: Snapshot, q: ListQuery): SkillSummary[] {
@@ -207,7 +200,7 @@ export function visibleSkills(s: Snapshot, q: ListQuery): SkillSummary[] {
   if (f.kind === "updates") skills = skills.filter(updateAvailable);
   const text = q.search.trim().toLowerCase();
   if (text) skills = skills.filter((x) => (x.name + " " + x.description).toLowerCase().includes(text));
-  const key = q.activeOnlyIn;
-  if (key) skills = skills.filter((x) => projectionIn(s, x.id, key));
+  const key = q.installedOnlyIn;
+  if (key) skills = skills.filter((x) => skillScopeIn(s, x.id, key));
   return skills;
 }

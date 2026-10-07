@@ -1,5 +1,6 @@
 // 桌面端端到端验证：server 模式 + 本机 Chrome,按界面操作走遍技能库的全部功能，并核对磁盘。
 // 由 run.sh 准备环境后调用;单独运行时需给出下面几个环境变量。
+import assert from "node:assert";
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
@@ -48,9 +49,6 @@ async function step(name, fn) {
     if (await page.locator(".scrim").count()) await page.locator(".scrim").click({ force: true });
   }
 }
-function assert(cond, msg) {
-  if (!cond) throw new Error(msg);
-}
 const modal = () => page.locator(".modal").last();
 const card = (name) => page.locator(".a-card", { has: page.locator(".a-card-name", { hasText: new RegExp(`^${name}$`) }) });
 const drawer = () => page.locator(".drawer");
@@ -72,10 +70,19 @@ async function settle() {
   await page.waitForFunction(() => !document.querySelector(".tb-crumb .spin"), null, { timeout: 30000 });
 }
 const btn = (scope, name) => scope.getByRole("button", { name, exact: true });
-async function installLocal(dir) {
-  await page.locator(".side-btn", { hasText: "安装技能" }).click();
+async function openFetch() {
+  await page.locator(".side-btn", { hasText: "入库技能" }).click();
+}
+// previewLocal 对本地目录做入库预览，等到候选列表出现。
+async function previewLocal(dir) {
+  await openFetch();
   await modal().locator("input.input").first().fill(dir);
-  await btn(modal(), "安装").click();
+  await btn(modal(), "入库预览").click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+}
+async function fetchLocal(dir) {
+  await previewLocal(dir);
+  await btn(modal(), "入库所选").click();
 }
 async function openDrawer(name) {
   if (await drawer().count()) await page.locator(".scrim").click({ force: true });
@@ -103,66 +110,59 @@ const scopeDir = async () => {
   return t.replace(/^~/, HOME);
 };
 
-// ============ 安装 ============
-await step("本地安装 alpha/beta/gamma", async () => {
+// ============ 入库 ============
+await step("本地目录入库 alpha/beta/gamma(入库预览 → 候选 → 入库)", async () => {
+  await previewLocal(SK);
   for (const n of ["alpha", "beta", "gamma"]) {
-    await installLocal(`${SK}/${n}`);
-    await toast(`已安装「${n}」`);
-    await settle();
+    assert((await modal().locator(".list-row", { hasText: n }).count()) === 1, `候选里应有 ${n}`);
   }
+  await btn(modal(), "入库所选").click();
+  await toast("已入库 3 个技能");
+  await settle();
   assert((await page.locator(".a-card").count()) === 3, "应有 3 张卡片");
-  assert((await page.locator(".a-left .nav-item", { hasText: "my-skills/alpha" }).count()) === 1, "集合里应有 alpha 来源");
+  assert((await page.locator(".a-left .nav-item", { hasText: "code/my-skills" }).count()) === 1, "同一目录下的技能应归入一个集合");
 });
 
-await step("重复安装同一目录报错", async () => {
-  await installLocal(`${SK}/alpha`);
-  await toast("已经存在", "error");
-  await modal().getByRole("button", { name: "取消" }).click();
+await step("再次预览同一目录：候选标已入库、不能再选", async () => {
+  await previewLocal(SK);
+  assert((await modal().locator(".list-row .badge", { hasText: "已入库" }).count()) === 3, "三个候选都应标已入库");
+  assert(await btn(modal(), "入库所选").isDisabled(), "没有可入库的候选时不能提交");
+  await page.keyboard.press("Escape");
 });
 
-await step("安装不存在的目录报错", async () => {
-  await installLocal(`${SK}/nope`);
+await step("预览不存在的目录报错", async () => {
+  await openFetch();
+  await modal().locator("input.input").first().fill(`${SK}/nope`);
+  await btn(modal(), "入库预览").click();
   await page.waitForSelector(".toast.show.error");
   await modal().getByRole("button", { name: "取消" }).click();
 });
 
 await step("本地路径：相对路径被拦下，~ 展开为主目录", async () => {
-  await page.locator(".side-btn", { hasText: "安装技能" }).click();
-  await modal().locator("input.input").first().fill("code/my-skills/alpha");
+  await openFetch();
+  await modal().locator("input.input").first().fill("code/my-skills");
   assert((await modal().locator(".field-error").count()) === 1, "相对路径应提示");
-  assert(await btn(modal(), "安装").isDisabled(), "相对路径时不能提交");
-  await modal().locator("input.input").first().fill("~/code/my-skills/alpha");
+  assert(await btn(modal(), "入库预览").isDisabled(), "相对路径时不能提交");
+  await modal().locator("input.input").first().fill("~/code/my-skills");
   assert((await modal().locator(".field-error").count()) === 0, "~ 路径不应提示");
-  await btn(modal(), "安装").click();
-  await toast("已经存在", "error"); // alpha 已安装：说明 ~ 被展开成了同一个目录
-  await modal().getByRole("button", { name: "取消" }).click();
+  await btn(modal(), "入库预览").click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  // 候选都已入库：说明 ~ 被展开成了同一个目录
+  assert((await modal().locator(".list-row .badge", { hasText: "已入库" }).count()) === 3, "~ 应展开为同一目录");
+  await page.keyboard.press("Escape");
 });
 
-await step("URL 压缩包安装(Fetch → 候选 → InstallFetch)", async () => {
-  await page.locator(".side-btn", { hasText: "安装技能" }).click();
+await step("URL 压缩包入库(入库预览 → 候选 → 入库)", async () => {
+  await openFetch();
   await btn(modal(), "URL 压缩包").click();
   await modal().locator("input.input").first().fill(ZIP_URL);
-  await btn(modal(), "获取候选").click();
-  await modal().locator("h3", { hasText: "选择要安装的技能" }).waitFor({ timeout: 20000 });
+  await btn(modal(), "入库预览").click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 20000 });
   assert((await modal().locator(".list-row", { hasText: "delta" }).count()) === 1, "候选里应有 delta");
-  await btn(modal(), "刷新安装状态").click();
-  await settle();
-  await btn(modal(), "安装所选").click();
-  await toast("已安装 1 个技能");
+  await btn(modal(), "入库所选").click();
+  await toast("已入库 1 个技能");
   await settle();
   assert((await card("delta").count()) === 1, "应出现 delta 卡片");
-});
-
-await step("商店来源未配置时提示", async () => {
-  await page.locator(".side-btn", { hasText: "安装技能" }).click();
-  await btn(modal(), "商店").click();
-  assert((await modal().locator(".notice.warn", { hasText: "SKILLS_STORE_URL" }).count()) === 1, "应提示未配置");
-  await modal().locator("input.input").first().fill("some/pkg");
-  assert(await btn(modal(), "获取候选").isDisabled(), "只填包 ID 时应不能提交");
-  await modal().locator("input.input").nth(1).fill("1.0.0");
-  await btn(modal(), "获取候选").click();
-  await toast("缺少所需配置", "error");
-  await modal().getByRole("button", { name: "取消" }).click();
 });
 
 // ============ 详情抽屉：文件与元数据 ============
@@ -254,70 +254,73 @@ await step("重复登记同一项目报错", async () => {
   await modal().getByRole("button", { name: "取消" }).click();
 });
 
-// ============ 激活 ============
+// ============ 安装 ============
 let claudeGlobal;
-await step("详情：激活到 Claude Code 全局，并落盘", async () => {
+await step("详情：安装到 Claude Code 全局，并落盘", async () => {
   await openDrawer("alpha");
   const d = drawer();
-  await d.locator(".activate-to select").nth(0).selectOption("0");
-  await d.locator(".activate-to select").nth(1).selectOption("claude-code");
-  await btn(d, "激活").click();
-  await toast("已激活「alpha」");
+  await d.locator(".install-to select").nth(0).selectOption("0");
+  await d.locator(".install-to select").nth(1).selectOption("claude-code");
+  await btn(d, "安装").click();
+  await toast("已安装「alpha」");
   await settle();
-  assert((await d.locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).count()) === 1, "激活表应有该行");
+  assert((await d.locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).count()) === 1, "安装表应有该行");
   claudeGlobal = (await d.locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).locator(".mono").textContent()).replace(/^~/, HOME);
   assert(fs.existsSync(path.join(claudeGlobal, "alpha", "SKILL.md")), `磁盘上应有 ${claudeGlobal}/alpha`);
   assert(fs.statSync(path.join(claudeGlobal, "alpha", "scripts", "run.sh")).mode & 0o100, "run.sh 应保持可执行");
 });
 
-await step("选择作用域(胶囊弹层 → 其他 Agent 下拉)后卡片开关激活 beta", async () => {
+await step("选择作用域(胶囊弹层 → 其他 Agent 下拉)后卡片开关安装 beta", async () => {
   await closeDrawer();
   await selectScope("Codex");
   assert((await page.locator(".scope-pill", { hasText: "Codex" }).count()) === 1, "胶囊应显示 Codex");
   await card("beta").locator(".switch").click();
-  await toast("已激活「beta」到 Codex · 全局");
+  await toast("已安装「beta」到 Codex · 全局");
   await settle();
   assert((await card("beta").locator(".switch.on").count()) === 1, "开关应打开");
   const dir = await scopeDir();
   assert(fs.existsSync(path.join(dir, "beta", "SKILL.md")), `磁盘上应有 ${dir}/beta`);
 });
 
-await step("仅已激活筛选", async () => {
+await step("仅已安装筛选", async () => {
   await page.locator(".toggle-label .switch").click();
   await page.waitForTimeout(200);
-  assert((await page.locator(".a-card").count()) === 1, "仅已激活时应只剩 beta");
+  assert((await page.locator(".a-card").count()) === 1, "仅已安装时应只剩 beta");
   await page.locator(".toggle-label .switch").click();
 });
 
-await step("整组激活(摘要里的组开关)→ 经由组 → 停用整组", async () => {
+await step("组安装(摘要里的组开关)→ 随组安装 → 卸载组安装", async () => {
   await page.locator(".gchip", { hasText: "前端调试" }).click();
-  await toast("已整组激活「前端调试」");
+  await toast("已把「前端调试」组安装到");
   await settle();
-  assert((await card("alpha").locator(".a-card-foot", { hasText: "经由「前端调试」" }).count()) === 1, "alpha 应经由组激活");
+  assert((await card("alpha").locator(".a-card-foot", { hasText: "随「前端调试」安装" }).count()) === 1, "alpha 应随组安装");
   assert((await page.locator(".gchip.on", { hasText: "前端调试" }).count()) === 1, "组开关应为 on");
   await page.locator(".gchip", { hasText: "前端调试" }).click();
-  await toast("已停用「前端调试」");
+  await toast("已卸载「前端调试」");
   await settle();
-  assert((await card("alpha").locator(".a-card-foot", { hasText: "未激活" }).count()) === 1, "停用后 alpha 应未激活");
+  assert((await card("alpha").locator(".a-card-foot", { hasText: "未安装" }).count()) === 1, "卸载后 alpha 应未安装");
 });
 
-await step("卡片开关停用独立激活", async () => {
+await step("卡片开关卸载直接安装", async () => {
   await card("beta").locator(".switch").click();
-  await toast("已停用「beta」");
+  await toast("已卸载「beta」");
   await settle();
   const dir = await scopeDir();
-  assert(!fs.existsSync(path.join(dir, "beta")), "停用最后一个激活后文件夹应移除");
+  assert(!fs.existsSync(path.join(dir, "beta")), "撤掉最后一个安装后文件夹应移除");
 });
 
-await step("激活到项目作用域(右栏项目展开 → 其他 Agent → 选中)", async () => {
+await step("安装到项目作用域(右栏项目展开 → 其他 Agent → 选中)", async () => {
   await clearScope();
   await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).click();
   await page.locator(".a-right .nav-item.more").nth(1).click();
   await page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).nth(1).click();
   await settle();
   assert((await page.locator(".scope-pill", { hasText: "proj-a" }).count()) === 1, "胶囊应显示 proj-a");
+  assert((await page.locator(".toggle-label .switch.on").count()) === 1, "右栏点选应打开仅已安装筛选");
+  assert((await page.locator(".a-card").count()) === 0, "该作用域还没有安装，列表应为空");
+  await page.locator(".toggle-label .switch").click();
   await card("gamma").locator(".switch").click();
-  await toast("已激活「gamma」");
+  await toast("已安装「gamma」");
   await settle();
   const dir = await scopeDir();
   // macOS 上 /tmp 是 /private/tmp 的软链接，登记时路径被规范化。
@@ -325,44 +328,44 @@ await step("激活到项目作用域(右栏项目展开 → 其他 Agent → 选
   assert(fs.existsSync(path.join(dir, "gamma", "SKILL.md")), "项目里应有 gamma");
 });
 
-await step("未记录的外来文件夹：预检后询问覆盖", async () => {
+await step("未记录的外来文件夹：安装计划发现后询问覆盖", async () => {
   const dir = await scopeDir();
   fs.mkdirSync(path.join(dir, "beta"), { recursive: true });
   fs.writeFileSync(path.join(dir, "beta", "note.txt"), "hand made");
   await card("beta").locator(".switch").click();
   await modal().locator("h3", { hasText: "目标已有同名文件夹" }).waitFor();
-  await btn(modal(), "覆盖并激活").click();
-  await toast("已激活「beta」");
+  await btn(modal(), "覆盖并安装").click();
+  await toast("已安装「beta」");
   await settle();
   assert(fs.existsSync(path.join(dir, "beta", "SKILL.md")) && !fs.existsSync(path.join(dir, "beta", "note.txt")), "应已覆盖");
 });
 
-// ============ 重写 ============
-await step("刷新发现被改动的投影 → 全部重写 → 询问覆盖", async () => {
+// ============ 重新安装 ============
+await step("刷新发现被手动改过的文件夹 → 全部重新安装 → 询问覆盖", async () => {
   const dir = await scopeDir();
   fs.writeFileSync(path.join(dir, "gamma", "SKILL.md"), "edited by hand\n");
   await page.locator(".titlebar button[title^='刷新']").click();
   await settle();
   await page.locator(".a-scope-sum .stat.warn", { hasText: "1" }).waitFor();
-  assert((await card("gamma").locator(".status", { hasText: "已被改动" }).count()) === 1, "gamma 应标已被改动");
-  await btn(page.locator(".a-scope-sum"), "全部重写").click();
-  await modal().locator("h3", { hasText: "有投影被手动改过" }).waitFor();
+  assert((await card("gamma").locator(".status", { hasText: "被手动改过" }).count()) === 1, "gamma 应标被手动改过");
+  await btn(page.locator(".a-scope-sum"), "全部重新安装").click();
+  await modal().locator("h3", { hasText: "有技能文件夹被手动改过" }).waitFor();
   await btn(modal(), "覆盖这些改动").click();
-  await toast("已重写");
+  await toast("已重新安装");
   await settle();
   assert(fs.readFileSync(path.join(dir, "gamma", "SKILL.md"), "utf8").includes("name: gamma"), "文件应恢复");
 });
 
-await step("删除投影文件夹 → 目录缺失 → 详情里单条重写", async () => {
+await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单条重新安装", async () => {
   const dir = await scopeDir();
   fs.rmSync(path.join(dir, "gamma"), { recursive: true });
   await page.locator(".titlebar button[title^='刷新']").click();
   await settle();
   await openDrawer("gamma");
   const row = drawer().locator(".scope-table tbody tr", { hasText: "proj-a" });
-  assert((await row.locator(".status", { hasText: "目录缺失" }).count()) === 1, "应显示目录缺失");
-  await btn(row, "重写").click();
-  await toast("已重写 1 个投影");
+  assert((await row.locator(".status", { hasText: "文件夹不在了" }).count()) === 1, "应显示文件夹不在了");
+  await btn(row, "重新安装").click();
+  await toast("已重新安装 1 处");
   await settle();
   assert(fs.existsSync(path.join(dir, "gamma", "SKILL.md")), "应已重新创建");
   await closeDrawer();
@@ -394,12 +397,12 @@ await step("版本历史：两个版本、与当前比较、查看旧版文件",
   assert((await d.locator(".meta", { hasText: "已是最新" }).count()) === 1, "更新后检查状态应为已是最新");
 });
 
-await step("详情：重新读取来源 → 询问重写投影 → 重写", async () => {
+await step("详情：重新读取来源 → 询问重新安装 → 重新安装", async () => {
   fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v3"\n---\n\n# gamma v3\n');
   await btn(drawer(), "重新读取来源").click();
-  await modal().locator("h3", { hasText: "的投影重写到新版本" }).waitFor();
-  await btn(modal(), "重写").click();
-  await toast("已重写");
+  await modal().locator("h3", { hasText: "重新安装到新版本" }).waitFor();
+  await btn(modal(), "重新安装").click();
+  await toast("已重新安装");
   await settle();
   const projDir = `${HOME}/code/proj-a`;
   const found = fs.readdirSync(projDir, { recursive: true }).find((f) => String(f).endsWith("gamma/SKILL.md"));
@@ -414,36 +417,36 @@ await step("拖放：卡片 → 左栏组(加入)", async () => {
   await settle();
 });
 
-await step("拖放：卡片 → 右栏作用域(激活)", async () => {
+await step("拖放：卡片 → 右栏作用域(安装)", async () => {
   await card("delta").dragTo(page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).first());
-  await toast("已激活「delta」到 Claude Code · 全局");
+  await toast("已安装「delta」到 Claude Code · 全局");
   await settle();
   assert(fs.existsSync(path.join(claudeGlobal, "delta", "SKILL.md")), "磁盘上应有 delta");
 });
 
-await step("拖放：组 → 右栏作用域(整组激活)", async () => {
+await step("拖放：组 → 右栏作用域(组安装)", async () => {
   await page.locator(".a-left .nav-item", { hasText: "前端调试" }).dragTo(page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).first());
-  await toast("已整组激活「前端调试」");
+  await toast("已把「前端调试」组安装到");
   await settle();
 });
 
-await step("组标题条：整组激活于 chip、停用", async () => {
+await step("组标题条：组安装于 chip、卸载", async () => {
   await page.locator(".a-left .nav-item", { hasText: "前端调试" }).click();
   const head = page.locator(".a-group-head");
-  assert((await head.locator(".chip", { hasText: "全局" }).count()) === 1, "应显示整组激活于全局");
+  assert((await head.locator(".chip", { hasText: "全局" }).count()) === 1, "应显示组安装于全局");
   await head.locator(".chip", { hasText: "全局" }).locator("button").click();
-  await toast("已停用「前端调试」");
+  await toast("已卸载「前端调试」");
   await settle();
   await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
 });
 
-await step("移出分组(有组激活时询问去留)", async () => {
+await step("移出分组(有组安装时询问去留)", async () => {
   await selectScope("Claude Code");
-  await page.locator(".gchip", { hasText: "前端调试" }).click(); // 重新整组激活
+  await page.locator(".gchip", { hasText: "前端调试" }).click(); // 重新组安装
   await settle();
   await openDrawer("alpha");
   await drawer().locator(".chip", { hasText: "前端调试" }).locator("button").click();
-  await modal().locator(".choice", { hasText: "一并撤回" }).click();
+  await modal().locator(".choice", { hasText: "一并卸载" }).click();
   await btn(modal(), "移出").click();
   await toast("移出「前端调试」");
   await settle();
@@ -459,7 +462,7 @@ await step("搜索与 ⌘K、列表视图、侧栏开关", async () => {
   assert((await page.locator(".a-card").count()) === 1, "搜索 gam 应只剩 1 张");
   await page.keyboard.press("Escape");
   await page.locator(".icon-seg button[title='列表']").click();
-  assert((await page.locator(".a-list.list").count()) === 1, "应切到列表");
+  assert((await page.locator(".a-list.is-list").count()) === 1, "应切到列表");
   await page.locator(".icon-seg button[title='卡片']").click();
   await page.locator(".titlebar button[title='显示/隐藏侧栏']").click();
   assert((await page.locator(".a-left").count()) === 0, "左栏应隐藏");
@@ -473,7 +476,15 @@ await step("集合筛选", async () => {
 });
 
 // ============ 同步与设置 ============
-await step("同步：未配置时预览报错", async () => {
+await step("左栏分节折叠与展开", async () => {
+  const toggle = page.locator(".a-left .sec-toggle", { hasText: "集合" });
+  await toggle.click();
+  assert((await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).isVisible()) === false, "折叠后集合条目应隐藏");
+  await toggle.click();
+  assert(await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).isVisible(), "展开后集合条目应可见");
+});
+
+await step("同步：未配置时同步计划报错", async () => {
   await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
   assert((await modal().locator(".notice.warn", { hasText: "SKILLS_S3_BUCKET" }).count()) === 1, "应提示未配置");
   await btn(modal(), "推送到 S3…").click();
@@ -491,25 +502,25 @@ await step("设置：库路径、Agent、配置状态", async () => {
 });
 
 // ============ 冲突与失败路径 ============
-await step("占用冲突：同名技能已在该作用域，激活被拦下并说明占用者", async () => {
+await step("占用冲突：同名技能已在该作用域，安装被拦下并说明占用者", async () => {
   const dir = `${HOME}/code/other/gamma`;
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(`${dir}/SKILL.md`, '---\nname: gamma\ndescription: "another gamma"\n---\n');
-  await installLocal(dir);
-  await toast("已安装「gamma」");
+  await fetchLocal(`${HOME}/code/other`);
+  await toast("已入库 1 个技能");
   await settle();
   await selectScope("Claude Code");
   // 原 gamma 先占住 Claude Code 全局目录里的 gamma 文件夹
   const cards = page.locator(".a-card", { has: page.locator(".a-card-name", { hasText: /^gamma$/ }) });
   await cards.nth(0).locator(".switch").click();
-  await toast("已激活「gamma」");
+  await toast("已安装「gamma」");
   await settle();
   await cards.nth(1).locator(".switch").click();
-  await toast("已被「gamma」的投影占用", "error");
+  await toast("已被「gamma」占用", "error");
   await clearScope();
 });
 
-await step("整组激活遇到外来文件夹：选择跳过，结果列出被跳过的成员", async () => {
+await step("组安装遇到外来文件夹：选择跳过，结果列出被跳过的成员", async () => {
   await selectScope("Codex");
   const dir = await scopeDir();
   fs.mkdirSync(path.join(dir, "delta"), { recursive: true });
@@ -517,18 +528,19 @@ await step("整组激活遇到外来文件夹：选择跳过，结果列出被�
   await page.locator(".gchip", { hasText: "前端调试" }).click();
   await modal().locator(".notice.warn", { hasText: "delta" }).waitFor();
   await modal().locator(".choice", { hasText: "跳过这些成员" }).click();
-  await btn(modal(), "激活").click();
-  await modal().locator("h3", { hasText: "整组激活「前端调试」" }).waitFor();
+  await btn(modal(), "安装").click();
+  await modal().locator("h3", { hasText: "组安装「前端调试」" }).waitFor();
   assert((await modal().locator(".list-row", { hasText: "delta" }).locator(".status", { hasText: "已跳过" }).count()) === 1, "delta 应被跳过");
   await btn(modal(), "知道了").click();
   assert(fs.existsSync(path.join(dir, "delta", "x.txt")), "外来文件夹应保持原样");
-  await page.locator(".gchip", { hasText: "前端调试" }).click(); // 停用整组，恢复
+  await page.locator(".gchip", { hasText: "前端调试" }).click(); // 卸载组安装，恢复
   await settle();
   await clearScope();
 });
 
-await step("检查更新失败：来源目录不见了，列出失败原因", async () => {
-  fs.renameSync(`${SK}/beta`, `${SK}/beta.bak`);
+await step("检查更新失败：来源目录里的技能不见了，列出失败原因", async () => {
+  // 移出来源目录：留在目录里改个名，仍会按 SKILL.md 里的名字被重新找到。
+  fs.renameSync(`${SK}/beta`, `${HOME}/beta.bak`);
   try {
     await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
     await modal().locator("h3", { hasText: "检查更新" }).waitFor();
@@ -536,15 +548,15 @@ await step("检查更新失败：来源目录不见了，列出失败原因", as
     await btn(modal(), "知道了").click();
     await settle();
   } finally {
-    fs.renameSync(`${SK}/beta.bak`, `${SK}/beta`);
+    fs.renameSync(`${HOME}/beta.bak`, `${SK}/beta`);
   }
 });
 
 // ============ 移除 ============
-await step("移除技能(保留磁盘投影)", async () => {
+await step("移除技能(保留已安装的文件夹)", async () => {
   await openDrawer("delta");
   await btn(drawer(), "移除技能").click();
-  await modal().locator(".choice", { hasText: "保留磁盘上的投影" }).click();
+  await modal().locator(".choice", { hasText: "保留已安装的文件夹" }).click();
   await btn(modal(), "移除").click();
   await toast("已移除");
   await settle();
@@ -553,7 +565,7 @@ await step("移除技能(保留磁盘投影)", async () => {
   assert(fs.existsSync(path.join(claudeGlobal, "delta")), "保留时磁盘上的 delta 应还在");
 });
 
-await step("移除技能(同时删除投影)", async () => {
+await step("移除技能(同时删除已安装的文件夹)", async () => {
   await openDrawer("alpha");
   await btn(drawer(), "移除技能").click();
   await btn(modal(), "移除").click();
@@ -562,7 +574,7 @@ await step("移除技能(同时删除投影)", async () => {
   assert(!fs.existsSync(path.join(claudeGlobal, "alpha")), "磁盘上的 alpha 应被删除");
 });
 
-await step("注销项目(删除项目里的投影)", async () => {
+await step("注销项目(删除项目里已安装的文件夹)", async () => {
   const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-a" });
   await row.hover();
   await row.locator(".row-actions button").click();
@@ -571,33 +583,36 @@ await step("注销项目(删除项目里的投影)", async () => {
   await settle();
   assert((await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).count()) === 0, "项目应消失");
   const left = fs.readdirSync(`${HOME}/code/proj-a`, { recursive: true }).filter((f) => String(f).endsWith("SKILL.md"));
-  assert(left.length === 0, `项目里的投影应被删除，剩余:${left}`);
+  assert(left.length === 0, `项目里已安装的文件夹应被删除，剩余:${left}`);
 });
 
 // ============ 市场与 GitHub(需要网络) ============
-await step("[网络] 技能市场搜索 → 安装", async () => {
+await step("[网络] 技能市场搜索 → 入库", async () => {
   await page.locator(".side-btn", { hasText: "技能市场" }).click();
   await modal().locator("input").fill("frontend design");
   await btn(modal(), "搜索").click();
   await modal().locator(".list-row").first().waitFor({ timeout: 30000 });
-  await modal().locator(".list-row").first().getByRole("button", { name: "安装…" }).click();
-  await modal().locator("h3", { hasText: "选择要安装的技能" }).waitFor({ timeout: 90000 });
-  await btn(modal(), "安装所选").click();
-  await toast("已安装", undefined);
+  await modal().locator(".list-row").first().getByRole("button", { name: "入库", exact: true }).click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 90000 });
+  await btn(modal(), "入库所选").click();
+  await toast("已入库", undefined);
   await settle();
 });
 
-await step("[网络] GitHub 安装(owner/repo@技能名)", async () => {
-  await page.locator(".side-btn", { hasText: "安装技能" }).click();
+await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
+  await openFetch();
   await btn(modal(), "GitHub").click();
   await modal().locator("input.input").first().fill("anthropics/skills@pdf");
-  await btn(modal(), "获取候选").click();
-  await modal().locator("h3", { hasText: "选择要安装的技能" }).waitFor({ timeout: 90000 });
+  await btn(modal(), "入库预览").click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 90000 });
   assert((await modal().locator(".list-row", { hasText: "pdf" }).count()) >= 1, "候选里应有 pdf");
-  await btn(modal(), "安装所选").click();
-  await toast("已安装");
+  await btn(modal(), "入库所选").click();
+  await toast("已入库");
   await settle();
+  assert((await page.locator(".a-left .nav-item", { hasText: "anthropics/skills" }).count()) === 1, "集合名应为 owner/repo");
   await openDrawer("pdf");
+  assert((await drawer().locator(".src-chip", { hasText: "anthropics/skills" }).count()) === 1, "详情里集合应为 owner/repo");
+  assert((await drawer().locator("button.link", { hasText: "在 GitHub 查看" }).count()) === 1, "GitHub 来源应有查看链接");
   await btn(drawer(), "检查更新").click();
   await toast("都是最新");
   await closeDrawer();

@@ -27,11 +27,6 @@ export interface ConfigStatus {
     "sync": boolean;
 
     /**
-     * 商店来源:SKILLS_STORE_URL
-     */
-    "store_url": boolean;
-
-    /**
      * GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
      */
     "github_token": boolean;

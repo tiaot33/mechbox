@@ -1,138 +1,151 @@
-// 远程安装的第二步：浏览一次 Fetch 暂存的候选(含 skills.sh 审计与诊断),勾选后 InstallFetch。
-// 安装方式(GitHub / URL / 商店 / 市场)都在拿到 Fetch 后进入这里。
+// 入库的第二步：浏览一次入库预览的候选与诊断，勾选后 Fetch 入库。
+// 入库技能(本地目录 / GitHub / URL)与技能市场都在拿到入库预览后进入这里。
 import { useState } from "react";
 import { Browser } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   AuditAvailability,
   AuditStatus,
-  type Fetch,
-  type FetchCandidates,
-  type FetchSkill,
+  type Candidate,
+  type FetchPreview,
+  type FetchPreviewID,
+  type SkillAudit,
 } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
+import { Diagnostics, toggled } from "./parts";
 
-export function FetchReview({ fetch, onClose, onBack }: { fetch: Fetch; onClose: () => void; onBack?: () => void }) {
+interface FetchReviewProps {
+  preview: FetchPreview;
+  audits: boolean; // 只有 GitHub 来源在 skills.sh 收录范围内，才提供审计查询
+  onClose: () => void;
+  onBack: () => void;
+}
+
+export function FetchReview({ preview, audits, onClose, onBack }: FetchReviewProps) {
   const ui = useUI();
-  const [candidates, setCandidates] = useState<FetchCandidates>(fetch);
-  const skills = candidates.skills ?? [];
-  // 默认勾选尚未安装的候选。
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(skills.filter((s) => !s.installed).map((s) => s.name)),
-  );
-  const [installing, setInstalling] = useState(false);
+  const candidates = preview.candidates ?? [];
+  const fresh = candidates.filter((c) => !c.fetched);
+  // 默认勾选尚未入库的候选;已入库的不能再选(整批会因 AlreadyExists 失败)。
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(fresh.map((c) => c.name)));
+  const [fetching, setFetching] = useState(false);
 
-  const toggle = (name: string) =>
-    setSelected((set) => {
-      const next = new Set(set);
-      if (!next.delete(name)) next.add(name);
-      return next;
-    });
+  const toggle = (name: string) => setSelected((set) => toggled(set, name));
 
-  // 重新查一遍库内安装状态(ListFetchSkills 每次现查)。
-  const refresh = () =>
-    ui.run(() => LibraryService.ListFetchSkills(fetch.id), { reload: false }).then((c) => c && setCandidates(c));
-
-  const install = async () => {
-    setInstalling(true);
+  const fetchSelected = async () => {
+    setFetching(true);
     const names = [...selected];
-    const installed = await ui.run(() => LibraryService.InstallFetch(fetch.id, names), {
-      success: (list) => `已安装 ${list?.length ?? 0} 个技能`,
+    const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names), {
+      success: (list) => `已入库 ${list?.length ?? 0} 个技能`,
     });
-    setInstalling(false);
-    if (installed) onClose();
+    setFetching(false);
+    if (fetched) onClose();
   };
 
   return (
     <Modal
-      title="选择要安装的技能"
+      title="入库预览"
       wide
       onClose={onClose}
       footer={
         <>
-          {onBack && (
-            <button type="button" className="pill-btn" onClick={onBack}>
-              返回
-            </button>
-          )}
-          <button type="button" className="link" onClick={refresh}>
-            刷新安装状态
+          <button type="button" className="pill-btn" onClick={onBack}>
+            返回
           </button>
           <span className="grow" />
           <span className="tiny muted">
-            已选 {selected.size} / {skills.length}
+            已选 {selected.size} / {fresh.length}
           </span>
           <button
             type="button"
             className="pill-btn accent"
-            disabled={selected.size === 0 || installing}
-            aria-busy={installing}
-            onClick={install}
+            disabled={selected.size === 0 || fetching}
+            aria-busy={fetching}
+            onClick={fetchSelected}
           >
-            {installing ? <span className="spin" /> : null}
-            安装所选
+            {fetching ? <span className="spin" /> : null}
+            入库所选
           </button>
         </>
       }
     >
       <div className="row tiny muted">
         <span>
-          {skills.length} 个候选{fetch.ref ? ` · 来源版本 ${fetch.ref.slice(0, 12)}` : ""}
+          {candidates.length} 个候选{preview.ref ? ` · ${preview.ref}` : ""}
+          {preview.revision ? ` · ${preview.revision.slice(0, 12)}` : ""}
         </span>
         <span className="grow" />
-        <button type="button" className="link" onClick={() => setSelected(new Set(skills.map((s) => s.name)))}>
+        <button type="button" className="link" onClick={() => setSelected(new Set(fresh.map((c) => c.name)))}>
           全选
         </button>
         <button type="button" className="link" onClick={() => setSelected(new Set())}>
           全不选
         </button>
       </div>
-      {skills.length > 0 ? (
-        <div className="list-box">
-          {skills.map((skill) => (
-            <label key={skill.path + skill.name} className={`list-row clickable ${selected.has(skill.name) ? "on" : ""}`}>
-              <input type="checkbox" checked={selected.has(skill.name)} onChange={() => toggle(skill.name)} />
-              <div className="grow">
-                <div className="row">
-                  <b>{skill.name}</b>
-                  {skill.plugin_name && <span className="badge">{skill.plugin_name}</span>}
-                  {skill.installed ? <span className="badge" title="同一来源的同名技能已在库中;要取新内容请在技能详情里点「更新」">已安装</span> : null}
-                  <span className="grow" />
-                  <AuditBadge skill={skill} />
-                </div>
-                {skill.description && <div className="desc">{skill.description}</div>}
-                <div className="mono tiny muted">{skill.path || "/"}</div>
-              </div>
+      {candidates.length > 0 ? (
+        <div className="list-box scroll">
+          {candidates.map((c) => (
+            <label
+              key={c.path + c.name}
+              className={`list-row compact clickable ${selected.has(c.name) ? "on" : ""}`}
+              title={c.description || undefined}
+            >
+              {/* 每条一行，描述放在悬停提示里，二十来个候选一屏看完。 */}
+              <input
+                type="checkbox"
+                checked={selected.has(c.name)}
+                disabled={!!c.fetched}
+                onChange={() => toggle(c.name)}
+              />
+              <b className="name">{c.name}</b>
+              {c.plugin_name && <span className="badge">{c.plugin_name}</span>}
+              {c.fetched ? (
+                <span className="badge" title="同一来源的同名技能已在库中;要取新内容请在技能详情里点「更新」">
+                  已入库
+                </span>
+              ) : null}
+              <span className="mono tiny muted path grow">{c.path || "/"}</span>
+              {audits && <Audit previewID={preview.id} candidate={c} />}
             </label>
           ))}
         </div>
       ) : (
-        <div className="notice warn">来源里没有找到可安装的技能。</div>
+        <div className="notice warn">来源里没有找到可入库的技能。</div>
       )}
-      {(candidates.diagnostics ?? []).length > 0 && (
-        <details>
-          <summary className="tiny muted">{candidates.diagnostics!.length} 个路径未成为候选</summary>
-          <div className="list-box" style={{ marginTop: 6 }}>
-            {candidates.diagnostics!.map((d) => (
-              <div key={d.path} className="list-row">
-                <span className="mono tiny">{d.path}</span>
-                <span className="grow" />
-                <span className="tiny muted">{d.reason}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+      <Diagnostics
+        summary={`${preview.diagnostics?.length} 个路径未成为候选`}
+        items={(preview.diagnostics ?? []).map((d) => ({ key: d.path, reason: d.reason }))}
+      />
     </Modal>
   );
 }
 
-// AuditBadge 概括 skills.sh 的审计：只供参考，不影响安装。
-function AuditBadge({ skill }: { skill: FetchSkill }) {
-  const audit = skill.audit;
-  if (!audit) return null;
-  if (audit.availability === AuditAvailability.AuditNone) return <span className="badge">无审计</span>;
-  if (audit.availability === AuditAvailability.AuditUnavailable) return <span className="badge">审计不可用</span>;
+// Audit 按需查询 skills.sh 的审计(点击才联网),查到后概括成一个标记：只供参考，不影响入库。
+function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate: Candidate }) {
+  const [audit, setAudit] = useState<SkillAudit | null | "loading" | undefined>(undefined);
+  const load = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setAudit("loading");
+    LibraryService.GetSkillAudit(previewID, candidate.name).then(
+      (a) => setAudit(a),
+      () => setAudit(undefined),
+    );
+  };
+  if (audit === undefined) {
+    return (
+      <button type="button" className="link tiny" onClick={load}>
+        查看审计
+      </button>
+    );
+  }
+  if (audit === "loading") return <span className="spin" />;
+  if (!audit || audit.availability === AuditAvailability.AuditNone) return <span className="badge">无审计</span>;
+  if (audit.availability === AuditAvailability.AuditUnavailable) {
+    return (
+      <button type="button" className="badge" title="点击重试" onClick={load}>
+        审计不可用
+      </button>
+    );
+  }
   const entries = audit.entries ?? [];
   const fail = entries.filter((e) => e.status === AuditStatus.AuditFail).length;
   const warn = entries.filter((e) => e.status === AuditStatus.AuditWarn).length;

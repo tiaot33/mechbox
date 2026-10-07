@@ -1,7 +1,8 @@
 // 全局界面服务：toast、弹窗(确认 / 输入 / 自定义)与写操作执行器 run。
-// 写操作统一经 run:显示忙碌、失败时按错误码提示、成功后重读快照(前端在自己的写操作之后重读，见 ADR 0013)。
+// 写操作统一经 run:显示忙碌、失败时按错误码提示、成功后重读快照(前端在自己的写操作之后重读，见 ADR 0008)。
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorCode } from "@bindings/internal/library";
+import { Icon } from "@/components/app/icons";
 import { describeError } from "./errors";
 import { toLibraryError, type LibraryError } from "./library";
 
@@ -24,7 +25,6 @@ export interface PromptOptions {
   title: string;
   label?: string;
   initial?: string;
-  placeholder?: string;
   confirm?: string;
 }
 
@@ -32,7 +32,7 @@ export interface RunOptions<T> {
   success?: string | ((value: T) => string | undefined);
   reload?: boolean; // 默认 true
   // onError 返回 true 表示已自行处理，run 不再弹 toast。
-  onError?: (err: LibraryError) => boolean | Promise<boolean>;
+  onError?: (err: LibraryError) => boolean;
 }
 
 interface UIService {
@@ -102,11 +102,11 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
       } catch (e) {
         const err = toLibraryError(e);
         if (err.code === ErrorCode.Canceled) return undefined;
-        if (!(opts.onError && (await opts.onError(err)))) toast(describeError(err), "error");
+        if (!opts.onError?.(err)) toast(describeError(err), "error");
         return undefined;
       } finally {
         setPending((n) => n - 1);
-        // 失败也重读：部分成功(如组激活里跳过的成员)或状态已被别处改变时，界面要跟上。
+        // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
         if (opts.reload !== false) reload();
       }
     },
@@ -156,10 +156,7 @@ export function Modal({
         <div className="modal-head">
           <h3>{title}</h3>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <Icon name="close" />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -229,7 +226,6 @@ function PromptDialog({ opts, close }: { opts: PromptOptions; close: (value?: st
           className="input"
           autoFocus
           value={value}
-          placeholder={opts.placeholder}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />

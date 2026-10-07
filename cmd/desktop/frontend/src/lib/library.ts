@@ -7,12 +7,13 @@ import {
   type Error as LibraryErrorModel,
   type Agent,
   type Collection,
-  type GroupActivation,
+  type GroupInstall,
   type GroupWithMembers,
-  type ProjectionInspection,
   type RegisteredProject,
+  type SkillScopeInspection,
   type SkillSummary,
 } from "@bindings/internal/library";
+import { parseScope, type ScopeKey } from "./model";
 
 // LibraryError 就是技能库的 library.Error(类型由绑定生成);Go 端的 MarshalError 把任意错误规范成它，
 // Wails 运行时放在被拒绝的 Error 的 cause 上。
@@ -34,8 +35,8 @@ export interface Snapshot {
   skills: SkillSummary[];
   collections: Collection[];
   groups: GroupWithMembers[];
-  groupActivations: GroupActivation[];
-  projections: ProjectionInspection[];
+  groupInstalls: GroupInstall[];
+  skillScopes: SkillScopeInspection[];
 }
 
 export type SnapshotState =
@@ -68,14 +69,14 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
       list(track(LibraryService.ListSkills())),
       list(track(LibraryService.ListCollections())),
       list(track(LibraryService.ListGroupsWithMembers())),
-      list(track(LibraryService.ListGroupActivations())),
-      list(track(LibraryService.InspectProjections({}))),
+      list(track(LibraryService.ListGroupInstalls())),
+      list(track(LibraryService.InspectSkillScopes({}))),
     ]).then(
-      ([info, agents, projects, skills, collections, groups, groupActivations, projections]) => {
+      ([info, agents, projects, skills, collections, groups, groupInstalls, skillScopes]) => {
         if (cancelled) return;
         setState({
           status: "ready",
-          snapshot: { info, agents, projects, skills, collections, groups, groupActivations, projections },
+          snapshot: { info, agents, projects, skills, collections, groups, groupInstalls, skillScopes },
         });
       },
       (err: unknown) => {
@@ -95,18 +96,15 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
   return [state, reload];
 }
 
-// useScopeDirectory 按 Agent 现行布局解析作用域目录;scope 为 null 时不请求。
-export function useScopeDirectory(scope: Parameters<typeof LibraryService.Resolve>[0] | null): string | undefined {
+// useScopeDirectory 解析作用域对应的 Agent 目录;scope 为 null 时不请求。
+export function useScopeDirectory(scope: ScopeKey | null): string | undefined {
   const [directory, setDirectory] = useState<string>();
-  const key = scope ? `${scope.agent}@${scope.project_id ?? 0}` : "";
   useEffect(() => {
     setDirectory(undefined);
     if (!scope) return;
-    const call = LibraryService.Resolve(scope);
+    const call = LibraryService.Resolve(parseScope(scope));
     call.then(setDirectory, () => setDirectory(undefined));
     return () => void call.cancel();
-    // scope 对象每次渲染都是新的，按身份 key 触发。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [scope]);
   return directory;
 }

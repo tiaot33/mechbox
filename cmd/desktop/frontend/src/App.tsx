@@ -2,13 +2,14 @@
 // 点卡片打开右侧详情抽屉。写操作经 lib/actions 与 lib/ui 的 run 执行，完成后重读快照。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
+import { FetchDialog } from "@/components/app/fetch-dialog";
 import { FilterSidebar } from "@/components/app/filter-sidebar";
-import { InstallDialog } from "@/components/app/install-dialog";
 import { ScopePanel } from "@/components/app/scope-panel";
 import { SkillDrawer } from "@/components/app/skill-drawer";
+import { toggled } from "@/components/app/parts";
 import { SkillList } from "@/components/app/skill-list";
 import { Toolbar, type ListView } from "@/components/app/toolbar";
-import { activateGroup, activateSkill, addSkillToGroup } from "@/lib/actions";
+import { addSkillToGroup, installGroup, installSkill } from "@/lib/actions";
 import { DnDContext, type DnD, type DragItem } from "@/lib/dnd";
 import { useLibrarySnapshot, useScopeDirectory, type LibraryError, type Snapshot } from "@/lib/library";
 import {
@@ -25,12 +26,6 @@ import {
 import { UIProvider, useUI } from "@/lib/ui";
 import "./app.css";
 
-function toggled<T>(set: Set<T>, value: T): Set<T> {
-  const next = new Set(set);
-  if (!next.delete(value)) next.add(value);
-  return next;
-}
-
 export default function App() {
   const [state, reload] = useLibrarySnapshot();
   return (
@@ -44,9 +39,8 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const ui = useUI();
   const [filter, setFilter] = useState<SkillFilter>({ kind: "all" });
   const [scope, setScope] = useState<ScopeKey | null>(null);
-  const [scopeMenu, setScopeMenu] = useState(false);
   const [search, setSearch] = useState("");
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [installedOnly, setInstalledOnly] = useState(false);
   const [view, setView] = useState<ListView>("card");
   const [left, setLeft] = useState(true);
   const [right, setRight] = useState(true);
@@ -54,7 +48,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const [moreAgents, setMoreAgents] = useState<Set<Place>>(new Set());
   const [drawer, setDrawer] = useState<number | null>(null);
   const [drag, setDrag] = useState<DragItem | null>(null);
-  const [config, setConfig] = useState<ConfigStatus>({ sync: false, store_url: false, github_token: false });
+  const [config, setConfig] = useState<ConfigStatus>({ sync: false, github_token: false });
   const ghost = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,9 +58,9 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   }, []);
 
   const s: Snapshot | undefined = state.status === "ready" ? state.snapshot : undefined;
-  const scopeDirectory = useScopeDirectory(scope ? parseScope(scope) : null);
+  const scopeDirectory = useScopeDirectory(scope);
   const current = s ? resolveFilter(s, filter) : filter;
-  const skills = s ? visibleSkills(s, { filter: current, search, activeOnlyIn: activeOnly ? scope : null }) : [];
+  const skills = s ? visibleSkills(s, { filter: current, search, installedOnlyIn: installedOnly ? scope : null }) : [];
   const drawerSkill = s && drawer !== null ? s.skills.find((x) => x.id === drawer) : undefined;
 
   // 作用域或项目被移除(注销项目、拉取了别的库)后，界面上的选择退回。
@@ -80,7 +74,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const selectScope = (key: ScopeKey | null) => {
     setScope(key);
     if (!key) {
-      setActiveOnly(false);
+      setInstalledOnly(false);
       return;
     }
     const sc = parseScope(key);
@@ -90,8 +84,8 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   };
 
   const home = s?.info.home_dir ?? "";
-  const openInstall = useCallback(() => {
-    void ui.open((close) => <InstallDialog config={config} home={home} onClose={close} />);
+  const openFetch = useCallback(() => {
+    void ui.open((close) => <FetchDialog config={config} home={home} onClose={close} />);
   }, [ui, config, home]);
 
   const dnd: DnD = useMemo(
@@ -115,7 +109,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
         if (!s || !drag) return;
         const sc = parseScope(key);
         setDrag(null);
-        void (drag.kind === "skill" ? activateSkill(ui, s, drag.id, sc) : activateGroup(ui, s, drag.id, sc));
+        void (drag.kind === "skill" ? installSkill(ui, s, drag.id, sc) : installGroup(ui, s, drag.id, sc));
       },
       dropOnGroup: (id) => {
         if (!s || drag?.kind !== "skill") return;
@@ -136,16 +130,14 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
           busy={ui.busy}
           scope={scope}
           scopeDirectory={scopeDirectory}
-          scopeMenu={scopeMenu}
           search={search}
-          activeOnly={activeOnly}
+          installedOnly={installedOnly}
           view={view}
           left={left}
           right={right}
           onScope={selectScope}
-          onScopeMenu={setScopeMenu}
           onSearch={setSearch}
-          onActiveOnly={setActiveOnly}
+          onInstalledOnly={setInstalledOnly}
           onView={setView}
           onLeft={() => setLeft(!left)}
           onRight={() => setRight(!right)}
@@ -156,7 +148,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
           {state.status === "error" && <LoadError error={state.error} onRetry={reload} />}
           {s && (
             <>
-              {left && <FilterSidebar s={s} config={config} filter={current} onFilter={setFilter} />}
+              {left && <FilterSidebar s={s} config={config} filter={current} onFilter={setFilter} onFetch={openFetch} />}
               <SkillList
                 s={s}
                 skills={skills}
@@ -166,7 +158,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
                 view={view}
                 selected={drawer}
                 onOpen={(id) => setDrawer(drawer === id ? null : id)}
-                onInstall={openInstall}
+                onFetch={openFetch}
               />
               {right && (
                 <ScopePanel
@@ -174,7 +166,11 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
                   scope={scope}
                   expanded={expanded}
                   moreAgents={moreAgents}
-                  onScope={selectScope}
+                  onScope={(key) => {
+                    // 在右栏点选作用域即按它筛选列表;关掉顶栏"仅已安装"可回到全部技能继续安装。
+                    selectScope(key);
+                    if (key) setInstalledOnly(true);
+                  }}
                   onToggleProject={(id) => setExpanded((set) => toggled(set, id))}
                   onToggleMore={(place) => setMoreAgents((set) => toggled(set, place))}
                 />

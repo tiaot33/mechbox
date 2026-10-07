@@ -1,18 +1,18 @@
 // 统一工具栏：左 = 侧栏开关 + 当前筛选;中 = 作用域胶囊;右 = 搜索与视图控制 + 右栏开关。
 // 整条是窗口拖动区，能点的元素在 app.css 里显式 no-drag。
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
 import {
   agentName,
   agentsUsedIn,
-  needsRewrite,
+  needsReinstall,
   parseScope,
   projectName,
-  projectionsIn,
   scopeKey,
   scopeOf,
   shortPath,
+  skillScopesIn,
   type Place,
   type ScopeKey,
 } from "@/lib/model";
@@ -28,16 +28,14 @@ interface ToolbarProps {
   busy: boolean;
   scope: ScopeKey | null;
   scopeDirectory: string | undefined;
-  scopeMenu: boolean;
   search: string;
-  activeOnly: boolean;
+  installedOnly: boolean;
   view: ListView;
   left: boolean;
   right: boolean;
   onScope: (key: ScopeKey | null) => void;
-  onScopeMenu: (open: boolean) => void;
   onSearch: (text: string) => void;
-  onActiveOnly: (on: boolean) => void;
+  onInstalledOnly: (on: boolean) => void;
   onView: (view: ListView) => void;
   onLeft: () => void;
   onRight: () => void;
@@ -47,6 +45,7 @@ interface ToolbarProps {
 export function Toolbar(props: ToolbarProps) {
   const { snapshot: s, scope } = props;
   const search = useRef<HTMLInputElement>(null);
+  const [menu, setMenu] = useState(false);
 
   // ⌘K 聚焦搜索框。
   useEffect(() => {
@@ -76,7 +75,7 @@ export function Toolbar(props: ToolbarProps) {
           </span>
         </div>
         <div className="tb-center">
-          {s && <ScopePill {...props} s={s} open={props.scopeMenu} />}
+          {s && <ScopePill {...props} s={s} open={menu} onOpen={setMenu} />}
         </div>
         <div className="tb-right">
           <label className="search tb-search">
@@ -93,18 +92,18 @@ export function Toolbar(props: ToolbarProps) {
           {s && scope && (
             <label
               className="toggle-label"
-              title={`只看在 ${agentName(s, parseScope(scope).agent)} 这个作用域已激活的技能`}
+              title={`只看已安装在 ${agentName(s, parseScope(scope).agent)} 这个作用域的技能`}
             >
               <button
                 type="button"
-                className={`switch ${props.activeOnly ? "on" : ""}`}
+                className={`switch ${props.installedOnly ? "on" : ""}`}
                 role="switch"
-                aria-checked={props.activeOnly}
-                onClick={() => props.onActiveOnly(!props.activeOnly)}
+                aria-checked={props.installedOnly}
+                onClick={() => props.onInstalledOnly(!props.installedOnly)}
               >
                 <i />
               </button>
-              <span>仅已激活</span>
+              <span>仅已安装</span>
             </label>
           )}
           <div className="seg icon-seg">
@@ -115,7 +114,7 @@ export function Toolbar(props: ToolbarProps) {
               <Icon name="grid" />
             </button>
           </div>
-          <button type="button" className="icon-btn" onClick={props.onRefresh} title="刷新(重新读取技能库并对照磁盘检查投影)">
+          <button type="button" className="icon-btn" onClick={props.onRefresh} title="刷新(重新读取技能库并对照磁盘巡检已安装的技能)">
             <Icon name="refresh" />
           </button>
           <button type="button" className={`icon-btn ${props.right ? "on" : ""}`} onClick={props.onRight} title="显示/隐藏作用域栏">
@@ -123,16 +122,18 @@ export function Toolbar(props: ToolbarProps) {
           </button>
         </div>
       </header>
-      {s && props.scopeMenu && <ScopeMenu s={s} {...props} />}
+      {s && menu && <ScopeMenu {...props} s={s} onOpen={setMenu} />}
     </>
   );
 }
 
 // ScopePill 是顶栏中间的作用域胶囊：未选时是虚线占位，选中后显示 Agent · 地方，点开是选择弹层,× 清除。
-function ScopePill({ s, scope, open, scopeDirectory, onScope, onScopeMenu }: ToolbarProps & { s: Snapshot; open: boolean }) {
+type MenuProps = ToolbarProps & { s: Snapshot; onOpen: (open: boolean) => void };
+
+function ScopePill({ s, scope, open, scopeDirectory, onScope, onOpen }: MenuProps & { open: boolean }) {
   if (!scope) {
     return (
-      <button type="button" className={`scope-pill empty ${open ? "open" : ""}`} onClick={() => onScopeMenu(!open)}>
+      <button type="button" className={`scope-pill empty ${open ? "open" : ""}`} onClick={() => onOpen(!open)}>
         <Icon name="globe" />
         <span>选择作用域</span>
         <Icon name="down" />
@@ -140,10 +141,10 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope, onScopeMenu }: Too
     );
   }
   const sc = parseScope(scope);
-  const issues = projectionsIn(s, scope).filter(needsRewrite).length;
+  const issues = skillScopesIn(s, scope).filter(needsReinstall).length;
   return (
     <div className={`scope-pill ${open ? "open" : ""}`} title={scopeDirectory ? shortPath(s, scopeDirectory) : undefined}>
-      <button type="button" className="scope-pill-main" onClick={() => onScopeMenu(!open)}>
+      <button type="button" className="scope-pill-main" onClick={() => onOpen(!open)}>
         <AgentMark code={sc.agent} name={agentName(s, sc.agent)} />
         <b>{agentName(s, sc.agent)}</b>
         <span className="muted">· {sc.project_id ? projectName(s, sc.project_id) : "全局"}</span>
@@ -157,19 +158,19 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope, onScopeMenu }: Too
   );
 }
 
-// ScopeMenu 是作用域弹层：按地方分组，只列有投影的 Agent,其余 Agent 用每处一个下拉补上。
-function ScopeMenu({ s, scope, scopeDirectory, onScope, onScopeMenu }: ToolbarProps & { s: Snapshot }) {
+// ScopeMenu 是作用域弹层：按地方分组，只列装有技能的 Agent,其余 Agent 用每处一个下拉补上。
+function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps) {
   const places: { id: Place; name: string; path: string }[] = [
     { id: 0, name: "全局", path: "~" },
     ...s.projects.map((p) => ({ id: p.id, name: projectName(s, p.id), path: shortPath(s, p.path) })),
   ];
-  const pick = (key: ScopeKey) => {
+  const pick = (key: ScopeKey | null) => {
     onScope(key);
-    onScopeMenu(false);
+    onOpen(false);
   };
   return (
     <>
-      <div className="menu-scrim" onClick={() => onScopeMenu(false)} />
+      <div className="menu-scrim" onClick={() => onOpen(false)} />
       <div className="scope-menu">
         {places.map((place) => {
           const used = agentsUsedIn(s, place.id);
@@ -182,7 +183,10 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onScopeMenu }: ToolbarPr
                   <Icon name={place.id ? "folder" : "globe"} />
                   {place.name}
                 </span>
-                <span className="mono tiny muted">{place.path}</span>
+                {/* 名字已是路径末段，放不下时截掉末尾、保留父目录，用来区分同名项目。 */}
+                <span className="mono tiny muted sm-path" title={place.path}>
+                  {place.path}
+                </span>
               </div>
               {used.map((a) => (
                 <button
@@ -193,7 +197,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onScopeMenu }: ToolbarPr
                 >
                   <AgentMark code={a.code} name={a.name} />
                   <span className="grow">{a.name}</span>
-                  <Count value={projectionsIn(s, key(a.code)).length} />
+                  <Count value={skillScopesIn(s, key(a.code)).length} />
                 </button>
               ))}
               {rest.length > 0 && (
@@ -215,10 +219,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onScopeMenu }: ToolbarPr
             <button
               type="button"
               className="link"
-              onClick={() => {
-                onScope(null);
-                onScopeMenu(false);
-              }}
+              onClick={() => pick(null)}
             >
               清除
             </button>

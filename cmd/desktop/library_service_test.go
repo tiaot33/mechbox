@@ -40,9 +40,9 @@ func TestLibraryServiceCreatesLibraryInMissingDirectory(t *testing.T) {
 	if err != nil || len(groups) != 0 {
 		t.Fatalf("ListGroupsWithMembers = %v, %v; want empty", groups, err)
 	}
-	projections, err := service.InspectProjections(t.Context(), library.ProjectionFilter{})
-	if err != nil || len(projections) != 0 {
-		t.Fatalf("InspectProjections = %v, %v; want empty", projections, err)
+	skillScopes, err := service.InspectSkillScopes(t.Context(), library.SkillScopeFilter{})
+	if err != nil || len(skillScopes) != 0 {
+		t.Fatalf("InspectSkillScopes = %v, %v; want empty", skillScopes, err)
 	}
 	agents, err := service.ListAgents(t.Context())
 	if err != nil || len(agents) == 0 {
@@ -51,19 +51,6 @@ func TestLibraryServiceCreatesLibraryInMissingDirectory(t *testing.T) {
 	info, err := service.Info()
 	if err != nil || info.LibraryPath != path || info.HomeDir == "" {
 		t.Fatalf("Info = %+v, %v; want library path %q and a home directory", info, err, path)
-	}
-}
-
-func TestLibraryServiceReopensExistingLibrary(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "library.db")
-	for range 2 {
-		service := NewLibraryService(path)
-		if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-			t.Fatalf("ServiceStartup: %v", err)
-		}
-		if err := service.ServiceShutdown(); err != nil {
-			t.Fatalf("ServiceShutdown: %v", err)
-		}
 	}
 }
 

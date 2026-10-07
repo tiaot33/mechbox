@@ -13,7 +13,7 @@ v1 只有桌面端这一个界面。它是一个 Wails v3 应用：Go 进程直�
   - 如果 beta 的变动阻塞了开发，且短期内跟不上，就退回 v2。退回后，错误编码成 JSON 字符串传递，取消由桌面端自己管理。
 - **单实例运行。** 只有这一个进程写库，所以不做跨进程的变更通知；前端在自己完成写操作后重新读取数据。
 - **平台**：macOS 优先支持；Windows 和 Linux 只保证能编译。
-- **前端技术栈**：React + TypeScript + Vite + shadcn/ui + Tailwind CSS。
+- **前端技术栈**：React + TypeScript + Vite。样式照 UI 原型手写在一份 CSS 里；起初引入的 shadcn/ui 和 Tailwind CSS 界面实际没用到，已移除，需要现成的弹层组件时再加回来。
 - **代码位置**：`cmd/desktop/`，Go 入口、`frontend/` 和构建配置都放在这里。
   - 前端放在 Go 入口的目录下，是因为 `go:embed` 不能引用包目录以外的文件。
   - Wails 专属的代码（绑定、事件、窗口）都留在这里，库不依赖 Wails。原则是应用依赖库，库不依赖应用。
