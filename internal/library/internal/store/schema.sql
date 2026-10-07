@@ -5,8 +5,8 @@
 -- skill 的来源。
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,                -- 来源主键,由 SQLite 分配;同一来源可包含多个 skill
-    type TEXT NOT NULL,                     -- 来源类型:github / url / store / local
-    locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 包ID+版本 / 本地路径)
+    type TEXT NOT NULL,                     -- 来源类型:github / url / local
+    locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 本地路径)
     last_fetched TEXT NOT NULL DEFAULT '',  -- 来源内容最近一次被入库或经更新确认的时间,RFC3339Nano;空串 = 从未读取
     last_seen_ref TEXT NOT NULL DEFAULT '', -- 上次看到的远端标识(git commit 或压缩包哈希);Source 级展示信息,
                                             -- 同来源下各 Skill 共享,更新判定走 skill_versions 上的读取记录

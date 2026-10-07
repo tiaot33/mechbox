@@ -41,8 +41,6 @@ type SourceLocator struct {
 	Repository string `json:"repository,omitempty"` // github:仓库地址
 	Branch     string `json:"branch,omitempty"`     // github:Git ref(分支、tag 或完整 SHA),保留已有字段名
 	URL        string `json:"url,omitempty"`        // url:压缩包地址
-	PackageID  string `json:"package_id,omitempty"` // 暂不支持的来源类型使用,公开 API 不产生
-	Version    string `json:"version,omitempty"`    // 暂不支持的来源类型使用,公开 API 不产生
 	Path       string `json:"path,omitempty"`       // local:本地目录的绝对路径
 }
 

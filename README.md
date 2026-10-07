@@ -6,7 +6,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 
 ## 当前能力
 
-- 对本地目录、GitHub 仓库、ZIP URL 或技能商店做入库预览，挑选候选入库，之后更新。
+- 对本地目录、GitHub 仓库或 ZIP URL 做入库预览，挑选候选入库，之后更新。
 - 保存技能的完整文件（含相对路径和可执行权限）与全部版本历史，可比较版本差异；相同内容的文件只存一份。
 - 按来源自动形成集合，用户可跨来源手动建组。
 - 登记项目，把单个技能或整个组安装到 Claude Code、Codex 的全局或项目作用域；可巡检已安装的技能是否被手动改过、落后于库里的版本或已缺失，并重新安装。
@@ -107,7 +107,6 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 
 | 环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
-| `SKILLS_STORE_URL` | 技能商店基础 URL | 无；使用 store Source 时必填 |
 | `SKILLS_S3_BUCKET` | S3 bucket | 无；同步时必填 |
 | `SKILLS_S3_KEY` | S3 object key | `library.db` |
 | `SKILLS_S3_ENDPOINT` | S3 兼容服务地址 | AWS S3 地址 |
@@ -117,7 +116,7 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
 | `SKILLS_PROJECT_PATH_MAP` | Pull 时旧项目路径到本机路径的 JSON 对象；每个项目只按拉回库里的原路径匹配一次，不链式改写；目标路径仍被其他项目占用或映射成环时 pull 以 `InvalidArgument` 失败、本地库不变 | `{}` |
 
-GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL 和 store Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
+GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
 
 ## 尚未实现
 

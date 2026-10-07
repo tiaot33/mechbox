@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -552,10 +550,6 @@ func validateSource(source Source) error {
 		if source.Locator.URL == "" {
 			return &Error{Code: InvalidArgument, Message: "invalid source: url is required"}
 		}
-	case sourceStore:
-		if source.Locator.PackageID == "" || source.Locator.Version == "" {
-			return &Error{Code: InvalidArgument, Message: "invalid source: store package id and version are required"}
-		}
 	case SourceLocal:
 		if source.Locator.Path == "" {
 			return &Error{Code: InvalidArgument, Message: "invalid source: local path is required"}
@@ -565,8 +559,6 @@ func validateSource(source Source) error {
 	}
 	return nil
 }
-
-const sourceStore SourceType = "store"
 
 const (
 	maxFetchSize  = 64 << 20
@@ -578,39 +570,18 @@ func errUnsupportedSource() error {
 }
 
 func (l *Library) openSnapshot(ctx context.Context, src Source, subpath string, hint source.State) (source.Snapshot, error) {
+	locator, err := json.Marshal(src.Locator)
+	if err != nil {
+		return nil, fmt.Errorf("encode source locator: %w", err)
+	}
 	switch src.Type {
 	case SourceLocal:
-		locator, err := json.Marshal(src.Locator)
-		if err != nil {
-			return nil, fmt.Errorf("encode source locator: %w", err)
-		}
 		return local.Open(ctx, locator, maxFetchFiles, maxFetchSize)
 	case SourceURL:
-		return openDownload(ctx, src.Locator.URL, hint)
-	case sourceStore:
-		base := os.Getenv("SKILLS_STORE_URL")
-		if base == "" {
-			return nil, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is not configured"}
-		}
-		if _, err := url.Parse(base); err != nil {
-			return nil, &Error{Code: NotConfigured, Message: "fetch store source: SKILLS_STORE_URL is invalid", Err: err}
-		}
-		return openDownload(ctx, strings.TrimRight(base, "/")+"/"+url.PathEscape(src.Locator.PackageID)+"/"+url.PathEscape(src.Locator.Version), hint)
+		return download.Open(ctx, locator, hint, maxFetchFiles, maxFetchSize)
 	case SourceGitHub:
-		locator, err := json.Marshal(src.Locator)
-		if err != nil {
-			return nil, fmt.Errorf("encode source locator: %w", err)
-		}
 		return github.Open(ctx, l.github, locator, subpath)
 	default:
 		return nil, errUnsupportedSource()
 	}
-}
-
-func openDownload(ctx context.Context, location string, hint source.State) (source.Snapshot, error) {
-	locator, err := json.Marshal(SourceLocator{URL: location})
-	if err != nil {
-		return nil, fmt.Errorf("encode source locator: %w", err)
-	}
-	return download.Open(ctx, locator, hint, maxFetchFiles, maxFetchSize)
 }
