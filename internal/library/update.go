@@ -62,12 +62,12 @@ func (l *Library) Update(ctx context.Context, id SkillID) (result UpdateResult, 
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	changed, latest, err := checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: skill.Files, State: state.snapshot}, true)
+	changed, latest, err := checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: internalFiles(skill.Files), State: state.snapshot}, true)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	if changed {
-		skill.Files, skill.Description = latest.Files, latest.Description
+		skill.Files, skill.Description = publicFiles(latest.Files), latest.Description
 	}
 	if revision := snapshot.Revision(); revision != "" {
 		skill.Source.LastSeenRef = revision
@@ -81,7 +81,7 @@ func (l *Library) Update(ctx context.Context, id SkillID) (result UpdateResult, 
 		}
 		if changed {
 			createdAt := clockNow()
-			versionID, err := tx.AddVersion(ctx, int64(id), store.NewVersion{Description: skill.Description, Files: skill.Files, State: string(latest.State), CreatedAt: createdAt})
+			versionID, err := tx.AddVersion(ctx, int64(id), store.NewVersion{Description: skill.Description, Files: latest.Files, State: string(latest.State), CreatedAt: createdAt})
 			if err != nil {
 				return err
 			}
@@ -215,7 +215,7 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 			itemErr := readErr
 			available := false
 			if itemErr == nil {
-				available, _, itemErr = checkSnapshot(ctx, snapshot, source.Have{Name: skills[index].Name, Files: skills[index].Files, State: states[index].snapshot}, false)
+				available, _, itemErr = checkSnapshot(ctx, snapshot, source.Have{Name: skills[index].Name, Files: internalFiles(skills[index].Files), State: states[index].snapshot}, false)
 			}
 			if ctx.Err() != nil {
 				return finish(), ctx.Err()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
@@ -464,7 +465,7 @@ func cloneAudit(audit *SkillAudit) *SkillAudit {
 	return &cloned
 }
 
-func skillDescription(files []File) string {
+func skillDescription(files []skillfile.File) string {
 	for _, file := range files {
 		if file.Path != "SKILL.md" {
 			continue
@@ -513,7 +514,7 @@ func (l *Library) fetchAll(ctx context.Context, record store.Source, skills []so
 			if err != nil {
 				return err
 			}
-			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: src, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: skill.Files})
+			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: src, VersionID: VersionID(versionID), FetchedAt: createdAt, UpdatedAt: createdAt, Files: publicFiles(skill.Files)})
 		}
 		return nil
 	})

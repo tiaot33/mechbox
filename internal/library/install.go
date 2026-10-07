@@ -297,7 +297,7 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	for _, item := range placements {
-		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, item.skill.Files); err != nil {
+		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, internalFiles(item.skill.Files)); err != nil {
 			return err
 		}
 	}

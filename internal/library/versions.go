@@ -28,7 +28,7 @@ type VersionDiff struct {
 }
 
 func versionOf(row store.Version) SkillVersion {
-	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: row.Files}
+	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, CreatedAt: row.CreatedAt, Files: publicFiles(row.Files)}
 }
 
 // ListVersions 按先后顺序列出 skill 的全部版本(不含文件内容)。
