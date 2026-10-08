@@ -23,14 +23,6 @@ const (
 	SourceLocal  SourceType = "local"  // 本地目录
 )
 
-// FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
-type FileMode string
-
-const (
-	ModeRegular    FileMode = "regular"
-	ModeExecutable FileMode = "executable"
-)
-
 // Source 是集合与技能上的「来自哪里」,只供展示;字段由库按来源类型生成,调用方不必区分类型去拼。
 // 要引用集合本身(打开集合、更新)用 CollectionID。
 type Source struct {
@@ -38,31 +30,6 @@ type Source struct {
 	Label   string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
 	Ref     string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
 	ViewURL string     `json:"view_url,omitempty"` // 在来源上查看的网页;URL 与本地目录为空
-}
-
-// File 是 skill 里的一个文件;Path 是 skill 内斜杠分隔的相对路径。
-type File struct {
-	Path    string   `json:"path"`
-	Content []byte   `json:"content"`
-	Mode    FileMode `json:"mode"` // regular 或 executable
-}
-
-func publicFiles(files []skillfile.File) []File {
-	if files == nil {
-		return nil
-	}
-	converted := make([]File, len(files))
-	for i, file := range files {
-		converted[i] = File{Path: file.Path, Content: file.Content, Mode: FileMode(file.Mode)}
-	}
-	return converted
-}
-
-// FileMetadata 是文件列表用的元数据,不含文件内容。
-type FileMetadata struct {
-	Path string   `json:"path"` // skill 内斜杠分隔的相对路径
-	Size int64    `json:"size"` // 内容的字节数
-	Mode FileMode `json:"mode"` // regular 或 executable
 }
 
 // Skill 是库里的一个技能;列表、详情与入库结果都返回它,集合和组只给出技能 ID。不含文件内容,
@@ -74,8 +41,8 @@ type Skill struct {
 	Description     string            `json:"description"`   // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
 	CollectionID    CollectionID      `json:"collection_id"` // 所在集合;从技能打开集合或更新时用它
 	Source          Source            `json:"source"`
-	VersionID       VersionID         `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、查看版本历史与差异
-	Revision        string            `json:"revision,omitempty"`  // 当前版本对应的来源标识,与入库预览的 Revision 同义:GitHub 为 commit,URL 为内容哈希,本地目录为空
+	VersionID       VersionID         `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、在版本历史里标出当前版本与比较差异
+	Revision        string            `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
 	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间
 	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
 }
@@ -191,38 +158,6 @@ func (l *Library) getCurrent(ctx context.Context, id SkillID) (Skill, currentVer
 		revision:  current.Revision,
 		files:     current.Files,
 	}, nil
-}
-
-// ListVersionFiles 按路径排序列出某个版本的文件元数据,不读取文件正文;版本不存在返回 NotFound。
-// 查看技能当前的文件时传 Skill.VersionID,浏览途中技能被更新也仍读到同一版本。
-func (l *Library) ListVersionFiles(ctx context.Context, id VersionID) (files []FileMetadata, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	rows, err := l.store.ListVersionFiles(ctx, int64(id))
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: FileMode(row.Mode)})
-	}
-	return files, nil
-}
-
-// GetVersionFile 按 skill 内的相对路径精确读取某个版本的单个文件,不做路径归一化。
-// 版本不存在返回 NotFound,路径不存在返回 NotFound(Details.Path)。
-func (l *Library) GetVersionFile(ctx context.Context, id VersionID, path string) (file File, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	stored, found, err := l.store.GetVersionFile(ctx, int64(id), path)
-	if err != nil {
-		return File{}, err
-	}
-	if !found {
-		return File{}, &Error{Code: NotFound, Message: "get version file: file not found", Details: ErrorDetails{Path: path}}
-	}
-	return File{Path: stored.Path, Content: stored.Content, Mode: FileMode(stored.Mode)}, nil
 }
 
 // ListSkills 按名字列出库里的全部技能。

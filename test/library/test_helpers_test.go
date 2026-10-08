@@ -518,9 +518,17 @@ func withoutGroupCreatedAt(installs []library.GroupInstall) []library.GroupInsta
 // skillFiles 读出技能当前版本的全部文件。
 func skillFiles(t *testing.T, lib *library.Library, skill library.Skill) []library.File {
 	t.Helper()
-	version, err := lib.GetVersion(t.Context(), skill.VersionID)
+	metadata, err := lib.ListVersionFiles(t.Context(), skill.VersionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return version.Files
+	var files []library.File
+	for _, entry := range metadata {
+		file, err := lib.GetVersionFile(t.Context(), skill.VersionID, entry.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	return files
 }

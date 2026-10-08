@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -14,7 +15,12 @@ type Version struct {
 	Description string
 	Revision    string
 	CreatedAt   time.Time
-	Files       []skillfile.File
+}
+
+type FileInfo struct {
+	Path string
+	Size int64
+	Mode skillfile.Mode
 }
 
 func (t *Tx) AddVersion(ctx context.Context, skillID int64, version NewVersion) (int64, error) {
@@ -62,6 +68,9 @@ func (q queries) ListVersions(ctx context.Context, skillID int64) ([]Version, er
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read skill versions: %w", wrap(err))
 	}
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("list skill versions: %w", ErrNotFound)
+	}
 	return versions, nil
 }
 
@@ -75,8 +84,82 @@ func (q queries) GetVersion(ctx context.Context, id int64) (Version, error) {
 	if version.CreatedAt, err = parseTime(createdAt); err != nil {
 		return Version{}, fmt.Errorf("get skill version: %w", err)
 	}
-	if version.Files, err = q.versionFiles(ctx, id, "get skill version files"); err != nil {
-		return Version{}, err
-	}
 	return version, nil
+}
+
+func (q queries) ListVersionFiles(ctx context.Context, versionID int64) ([]FileInfo, error) {
+	rows, err := q.q.QueryContext(ctx, `
+		SELECT version_files.path, length(blobs.content), version_files.mode
+		FROM skill_versions
+		LEFT JOIN version_files ON version_files.version_id = skill_versions.id
+		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE skill_versions.id = ?
+		ORDER BY version_files.path
+	`, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("list version files: %w", wrap(err))
+	}
+	defer rows.Close()
+	versionExists := false
+	var files []FileInfo
+	for rows.Next() {
+		versionExists = true
+		var path, mode sql.NullString
+		var size sql.NullInt64
+		if err := rows.Scan(&path, &size, &mode); err != nil {
+			return nil, fmt.Errorf("read version file metadata: %w", wrap(err))
+		}
+		if path.Valid {
+			files = append(files, FileInfo{Path: path.String, Size: size.Int64, Mode: skillfile.Mode(mode.String)})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list version files: %w", wrap(err))
+	}
+	if !versionExists {
+		return nil, fmt.Errorf("list version files: %w", ErrNotFound)
+	}
+	return files, nil
+}
+
+func (q queries) GetVersionFile(ctx context.Context, versionID int64, path string) (skillfile.File, bool, error) {
+	var fileExists bool
+	var mode sql.NullString
+	file := skillfile.File{Path: path}
+	err := q.q.QueryRowContext(ctx, `
+		SELECT version_files.path IS NOT NULL, blobs.content, version_files.mode
+		FROM skill_versions
+		LEFT JOIN version_files ON version_files.version_id = skill_versions.id AND version_files.path = ?
+		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE skill_versions.id = ?
+	`, path, versionID).Scan(&fileExists, &file.Content, &mode)
+	if err != nil {
+		return skillfile.File{}, false, fmt.Errorf("get version file: %w", wrap(err))
+	}
+	if !fileExists {
+		return skillfile.File{}, false, nil
+	}
+	file.Mode = skillfile.Mode(mode.String)
+	return file, true, nil
+}
+
+func (q queries) VersionDigests(ctx context.Context, versionID int64) (map[string]skillfile.Digest, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT path, fingerprint, mode FROM version_files WHERE version_id = ?`, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("list version fingerprints: %w", wrap(err))
+	}
+	defer rows.Close()
+	files := make(map[string]skillfile.Digest)
+	for rows.Next() {
+		var path string
+		var digest skillfile.Digest
+		if err := rows.Scan(&path, &digest.Fingerprint, &digest.Mode); err != nil {
+			return nil, fmt.Errorf("read version fingerprint: %w", wrap(err))
+		}
+		files[path] = digest
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read version fingerprints: %w", wrap(err))
+	}
+	return files, nil
 }
