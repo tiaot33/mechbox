@@ -132,11 +132,8 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	members, err := lib.ListGroupSkills(ctx, group.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.Install(ctx, members[0].ID, scope, library.InstallOptions{}); err != nil {
+	members := groupMembers(t, lib, group.ID)
+	if err := lib.Install(ctx, members[0], scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := lib.ListSkillScopes(ctx)
@@ -149,7 +146,7 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 	}
 	// 同名且尚未安装的成员标为 duplicate(优先于它本来的 occupied),已安装的那个仍是 installed。
 	for i, status := range []library.InstallPlanStatus{library.InstallAlreadyInstalled, library.InstallDuplicate, library.InstallReady} {
-		if got.Members[i].SkillID != members[i].ID || got.Members[i].Status != status {
+		if got.Members[i].SkillID != members[i] || got.Members[i].Status != status {
 			t.Fatalf("member %d = %#v", i, got.Members[i])
 		}
 	}
@@ -157,11 +154,10 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("plan changed skill scopes: %#v, %v", after, err)
 	}
-	afterSkills, err := lib.ListGroupSkills(ctx, group.ID)
-	if err != nil || !reflect.DeepEqual(members, afterSkills) {
-		t.Fatalf("plan changed skills: %#v, %v", afterSkills, err)
+	if afterMembers := groupMembers(t, lib, group.ID); !reflect.DeepEqual(members, afterMembers) {
+		t.Fatalf("plan changed members: %v, want %v", afterMembers, members)
 	}
-	if err := lib.RemoveSkillFromGroup(ctx, group.ID, members[0].ID, library.RemoveFromGroupOptions{}); err != nil {
+	if err := lib.RemoveSkillFromGroup(ctx, group.ID, members[0], library.RemoveFromGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = lib.PlanGroupInstall(ctx, group.ID, scope)

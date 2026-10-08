@@ -149,8 +149,8 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 	var skills []Skill
 	var states []currentVersion
 	var completed []bool
-	groups := make(map[SourceID][]int)
-	var sources []SourceID
+	groups := make(map[CollectionID][]int)
+	var collections []CollectionID
 	seen := make(map[SkillID]bool)
 	finish := func() []UpdateCheck {
 		done := make([]UpdateCheck, 0, len(results))
@@ -184,21 +184,21 @@ func (l *Library) CheckUpdates(ctx context.Context, ids []SkillID) (results []Up
 		if readErr != nil {
 			result.Error, _ = errors.AsType[*Error](typedError(readErr))
 		} else {
-			if len(groups[skill.Source.ID]) == 0 {
-				sources = append(sources, skill.Source.ID)
+			if len(groups[skill.CollectionID]) == 0 {
+				collections = append(collections, skill.CollectionID)
 			}
-			groups[skill.Source.ID] = append(groups[skill.Source.ID], len(results))
+			groups[skill.CollectionID] = append(groups[skill.CollectionID], len(results))
 		}
 		results = append(results, result)
 		skills = append(skills, skill)
 		states = append(states, state)
 		completed = append(completed, readErr != nil)
 	}
-	for _, sourceID := range sources {
+	for _, collectionID := range collections {
 		if err := ctx.Err(); err != nil {
 			return finish(), err
 		}
-		indices := groups[sourceID]
+		indices := groups[collectionID]
 		first := states[indices[0]]
 		snapshot, readErr := l.sources.Open(ctx, first.source.Type, first.source.Locator, "", first.snapshot)
 		if ctx.Err() != nil {

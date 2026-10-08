@@ -3,7 +3,7 @@
 // Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改不会进库,巡检只拿它们与库里的版本比对。
 //
 // 单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,入库预览里的是 Candidate,
-// 装出去的是 SkillScope。
+// 装出去的是 SkillScope。集合(Collection)与组(Group)只给出技能 ID,技能信息统一从 [Library.ListSkills] 取。
 //
 // 用 [Open] 打开库,得到 [*Library];用完调用 [Library.Close]。方法可在多个 goroutine 里同时调用。
 // 方法返回的错误用 [ErrorOf] 取出 [*Error],或用 [IsCode] 按错误码判断。
@@ -19,7 +19,7 @@
 //   - [Library.Fetch] 把选中的候选入库。
 //
 // 查看库里的技能(skills.go、collections.go、versions.go):
-//   - [Library.ListSkills]、[Library.ListCollections] 列出技能,后者按来源聚合。
+//   - [Library.ListSkills] 列出技能;[Library.ListCollections] 列出集合:每个来源一个,带集合里的技能 ID。
 //   - [Library.GetSkill] 读取一个技能;[Library.ListVersionFiles]、[Library.GetVersionFile] 按技能的当前版本 ID 列出和读取文件。
 //   - [Library.ListVersions]、[Library.GetVersion]、[Library.DiffVersions] 查看版本历史与差异。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
@@ -30,7 +30,7 @@
 //
 // 分组(groups.go):
 //   - [Library.CreateGroup]、[Library.RenameGroup]、[Library.DeleteGroup] 管理分组。
-//   - [Library.ListGroups]、[Library.ListGroupsWithMembers]、[Library.ListGroupSkills] 列出分组与成员。
+//   - [Library.ListGroups] 列出全部组及成员的技能 ID。
 //   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope。
 //
 // 选择安装位置(projects.go):

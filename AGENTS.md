@@ -8,10 +8,10 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - 以下每个文件按用户流程放一步的公开类型、公开方法与其私有辅助函数:
   - `fetch.go` — 搜索、入库预览、审计、入库;`previewTarget` 把入库预览请求里给出的那个字段交给对应来源的 `Locate`,入库预览、入库、更新与批量检查都只经 `source.Kinds` 打开的 `Snapshot`。
   - `skills.go` — 来源与技能的公开类型、技能查询 / 移除,以及 store 记录到公开类型的转换(来源的展示字段由各来源的 `Describe` 生成)。
-  - `collections.go` — 按来源聚合的 Collection。
+  - `collections.go` — 按来源聚合的 Collection 与集合的身份 `CollectionID`(值就是来源那一行的主键)。
   - `update.go` — 批量检查与单项更新。
   - `versions.go` — 版本历史与差异。
-  - `groups.go` — Group 与成员管理。
+  - `groups.go` — Group(带成员的技能 ID)与成员管理。
   - `projects.go` — Agent、项目注册、Scope 与 `Resolve`。
   - `install.go` — 安装预览、直接安装与组安装、卸载、安装记录列表。
   - `reinstall.go` — SkillScope 巡检(可按 `SkillScopeFilter` 缩小范围)与重新安装。

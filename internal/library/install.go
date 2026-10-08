@@ -177,7 +177,10 @@ func (l *Library) PlanGroupInstall(ctx context.Context, groupID GroupID, scope S
 	if err != nil {
 		return plan, err
 	}
-	members, err := l.ListGroupSkills(ctx, groupID)
+	if err := l.requireGroup(ctx, groupID); err != nil {
+		return plan, err
+	}
+	members, err := l.skillsOf(l.store.ListGroupSkills(ctx, int64(groupID)))
 	if err != nil {
 		return plan, err
 	}
@@ -443,7 +446,7 @@ func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope
 	if err := target.requireRoot("install group"); err != nil {
 		return nil, err
 	}
-	members, err := l.ListGroupSkills(ctx, groupID)
+	members, err := l.skillsOf(l.store.ListGroupSkills(ctx, int64(groupID)))
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
 -- 产品尚未发布,不迁移旧版本库:Open 只接受当前 user_version 的库。
 
--- skill 的来源。
+-- skill 的来源。一个来源就是一个集合,id 也是集合的身份(library.CollectionID)。
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,                -- 来源主键,由 SQLite 分配;同一来源可包含多个 skill
     type TEXT NOT NULL,                     -- 来源类型:github / url / local

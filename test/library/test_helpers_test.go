@@ -127,6 +127,22 @@ func skillIDs(skills []library.Skill) []library.SkillID {
 	return ids
 }
 
+// groupMembers 从 ListGroups 取出某个组的成员 ID;组不存在时测试失败。
+func groupMembers(t *testing.T, lib *library.Library, id library.GroupID) []library.SkillID {
+	t.Helper()
+	groups, err := lib.ListGroups(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range groups {
+		if group.ID == id {
+			return group.Members
+		}
+	}
+	t.Fatalf("ListGroups() = %#v, want group %d", groups, id)
+	return nil
+}
+
 func skillNames(skills []library.Skill) []string {
 	names := make([]string, len(skills))
 	for i, skill := range skills {

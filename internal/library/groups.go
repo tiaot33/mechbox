@@ -15,19 +15,15 @@ import (
 type GroupID int64
 
 // Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
+// 只给出成员的技能 ID,技能信息从 ListSkills / GetSkill 取。
 type Group struct {
 	ID        GroupID   `json:"id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at,omitzero"` // 创建时间
+	Members   []SkillID `json:"members"`             // 成员的技能 ID,按 ID 升序;空组为空列表
 }
 
-// GroupWithMembers 是一个 Group 连同它的全部成员,由 ListGroupsWithMembers 一次给出整库的"技能 ↔ 组"关系。
-type GroupWithMembers struct {
-	Group   Group     `json:"group"`
-	Members []SkillID `json:"members"` // 成员 skill 的 ID,按 ID 升序,与 ListGroupSkills 一致;空组为空列表而非 nil
-}
-
-// MemberRemovalPolicy 决定把 skill 移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
+// MemberRemovalPolicy 决定把技能移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
 // 含义与默认值都不同:只影响因移出而没有直接安装或组安装留着的技能,默认保留。
 type MemberRemovalPolicy string
 
@@ -42,11 +38,15 @@ type RemoveFromGroupOptions struct {
 }
 
 func groupOf(row store.Group) Group {
-	return Group{ID: GroupID(row.ID), Name: row.Name, CreatedAt: row.CreatedAt}
+	members := make([]SkillID, len(row.Members))
+	for i, id := range row.Members {
+		members[i] = SkillID(id)
+	}
+	return Group{ID: GroupID(row.ID), Name: row.Name, CreatedAt: row.CreatedAt, Members: members}
 }
 
-// CreateGroup 创建分组。名字先 TrimSpace;若已被其他 Group 占用,则改为 name#N
-// (N 从 2 起取最小空闲数字),大小写敏感、不加空格。空名仍是 InvalidArgument。
+// CreateGroup 新建一个空组。名字去掉首尾空白;和已有组重名时改成 name#2、name#3…
+// (取最小的空闲数字,大小写敏感、不加空格)。空名返回 InvalidArgument。
 func (l *Library) CreateGroup(ctx context.Context, name string) (group Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -65,10 +65,10 @@ func (l *Library) CreateGroup(ctx context.Context, name string) (group Group, er
 	if err != nil {
 		return Group{}, err
 	}
-	return Group{ID: GroupID(id), Name: name, CreatedAt: createdAt}, nil
+	return Group{ID: GroupID(id), Name: name, CreatedAt: createdAt, Members: []SkillID{}}, nil
 }
 
-// ListGroups 按 Group ID 升序列出全部分组。
+// ListGroups 按组 ID 升序列出全部组及各自的成员;空组也在列。没有组时返回空列表。
 func (l *Library) ListGroups(ctx context.Context) (groups []Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -77,14 +77,15 @@ func (l *Library) ListGroups(ctx context.Context) (groups []Group, err error) {
 	if err != nil {
 		return nil, err
 	}
+	groups = []Group{}
 	for _, row := range rows {
 		groups = append(groups, groupOf(row))
 	}
 	return groups, nil
 }
 
-// RenameGroup 重命名分组并返回最终生效的 Group。唯一规则与 CreateGroup 相同;
-// 改成自己当前的名字则不变。空名仍是 InvalidArgument。
+// RenameGroup 给组改名,返回改名后的组及其当前成员。名字规则与 CreateGroup 相同;
+// 改成自己现在的名字时不变。空名返回 InvalidArgument,组不存在返回 NotFound。
 func (l *Library) RenameGroup(ctx context.Context, id GroupID, name string) (group Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -95,6 +96,9 @@ func (l *Library) RenameGroup(ctx context.Context, id GroupID, name string) (gro
 	}
 	row, err := l.store.GetGroup(ctx, int64(id))
 	if err != nil {
+		return Group{}, err
+	}
+	if row.Members, err = l.store.GroupMembers(ctx, int64(id)); err != nil {
 		return Group{}, err
 	}
 	current := groupOf(row)
@@ -126,8 +130,8 @@ func uniqueGroupName(name string, taken map[string]int64) string {
 	}
 }
 
-// DeleteGroup 删除分组及其全部组安装。非破坏性:只由该组安装留着的技能会先转为直接安装,
-// 磁盘上的技能文件夹不会因删除分组而被移除。
+// DeleteGroup 删除组,连同它在各作用域的组安装。只因为这个组才装上的技能改为直接安装,
+// 磁盘上的技能文件夹不动。组不存在返回 NotFound。
 func (l *Library) DeleteGroup(ctx context.Context, id GroupID) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -137,11 +141,11 @@ func (l *Library) DeleteGroup(ctx context.Context, id GroupID) (err error) {
 	})
 }
 
-// AddSkillToGroup 加入成员,并安装到该组已安装到的每个 Scope,按 ListGroupInstalls 的顺序逐条返回结果。
-// 该 skill 已安装在某 Scope 时只补上组安装,不写盘;目标被占用、有未记录文件夹、与组内尚未安装的
-// 成员同名或作用域根目录不存在时跳过该 Scope,成员关系照常成立。不带覆盖开关:要覆盖某个 Scope 的
-// 未记录文件夹,先 PlanGroupInstall 再对该 Scope 调 InstallGroup(Overwrite)。已是成员返回 AlreadyExists。
-// I/O 失败或取消时整次复原,连同成员关系。
+// AddSkillToGroup 把技能加入组:组已经装到哪些作用域,就把它装到哪些作用域,按 ListGroupInstalls 的顺序
+// 每个作用域返回一条结果。技能已经装在那里时只补记组安装,不写盘;目标被占用、有未记录文件夹、与组内
+// 尚未安装的成员同名或作用域根目录不存在时跳过该作用域,成员关系照常成立。不提供覆盖开关(见 ADR 0006):
+// 要覆盖某个作用域的未记录文件夹,先 PlanGroupInstall 再对该作用域调 InstallGroup(Overwrite)。
+// 已是成员返回 AlreadyExists。中途失败或取消时整次复原,连同成员关系。
 func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -182,8 +186,8 @@ func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID 
 	})
 }
 
-// RemoveSkillFromGroup 移出成员;该 skill 在本组已安装到的各 Scope 上失去本组的组安装。
-// 因此没有直接安装或组安装留着的,按 opts 处理:keep 改为直接安装、磁盘不动;uninstall 连文件夹一起移除。
+// RemoveSkillFromGroup 把技能移出组;它在这个组装到的各作用域里失去这个组的组安装。
+// 没有直接安装或别的组安装留着的,按 opts 处理:保留(改为直接安装、磁盘不动,默认)或一并卸载。
 // 不是成员返回 NotFound。
 func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
@@ -232,38 +236,6 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 		}
 		return nil
 	})
-}
-
-// ListGroupSkills 列出分组里的技能。
-func (l *Library) ListGroupSkills(ctx context.Context, groupID GroupID) (skills []Skill, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	if err := l.requireGroup(ctx, groupID); err != nil {
-		return nil, err
-	}
-	return l.skillsOf(l.store.ListGroupSkills(ctx, int64(groupID)))
-}
-
-// ListGroupsWithMembers 一次列出全部分组及其成员 ID,按 Group ID 升序;空组也在列。
-// 不属于任何组的 skill 不出现在任何 Members 里。
-func (l *Library) ListGroupsWithMembers(ctx context.Context) (groups []GroupWithMembers, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	rows, err := l.store.ListGroupsWithMembers(ctx)
-	if err != nil {
-		return nil, err
-	}
-	groups = []GroupWithMembers{}
-	for _, row := range rows {
-		group := GroupWithMembers{Group: groupOf(row.Group), Members: []SkillID{}}
-		for _, id := range row.Members {
-			group.Members = append(group.Members, SkillID(id))
-		}
-		groups = append(groups, group)
-	}
-	return groups, nil
 }
 
 func (l *Library) requireGroup(ctx context.Context, id GroupID) error {
