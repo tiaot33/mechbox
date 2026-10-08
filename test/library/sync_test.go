@@ -212,10 +212,10 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions after pull = %#v, %v", versions, err)
 	}
-	groupSkills, err := lib.ListGroupSkills(ctx, group.ID)
-	if err != nil || len(groupSkills) != 1 || groupSkills[0].ID != original.ID {
-		t.Fatalf("group after pull = %#v, %v", groupSkills, err)
-	}
+	group.Members = []library.SkillID{original.ID}
+	requireGroups(t, lib, []library.Group{group})
+	// 拉回的库保留集合的 ID。
+	requireCollections(t, lib, []library.Collection{{ID: original.CollectionID, Source: original.Source, Skills: []library.SkillID{original.ID}}})
 	projects, err := lib.ListRegisteredProjects(ctx)
 	if err != nil {
 		t.Fatal(err)

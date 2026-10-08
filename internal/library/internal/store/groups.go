@@ -12,11 +12,7 @@ type Group struct {
 	ID        int64
 	Name      string
 	CreatedAt time.Time
-}
-
-type GroupWithMembers struct {
-	Group   Group
-	Members []int64
+	Members   []int64
 }
 
 func (q queries) GroupNames(ctx context.Context) (map[string]int64, error) {
@@ -50,26 +46,6 @@ func (q queries) CreateGroup(ctx context.Context, name string, createdAt time.Ti
 		return 0, fmt.Errorf("read group id: %w", wrap(err))
 	}
 	return id, nil
-}
-
-func (q queries) ListGroups(ctx context.Context) ([]Group, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT id, name, created_at FROM groups ORDER BY id`)
-	if err != nil {
-		return nil, fmt.Errorf("list groups: %w", wrap(err))
-	}
-	defer rows.Close()
-	var groups []Group
-	for rows.Next() {
-		group, err := scanGroup(rows)
-		if err != nil {
-			return nil, fmt.Errorf("read group: %w", wrap(err))
-		}
-		groups = append(groups, group)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read groups: %w", wrap(err))
-	}
-	return groups, nil
 }
 
 func (q queries) GetGroup(ctx context.Context, id int64) (Group, error) {
@@ -108,23 +84,23 @@ func (q queries) RenameGroup(ctx context.Context, id int64, name string) error {
 	return nil
 }
 
-func (q queries) ListGroupsWithMembers(ctx context.Context) ([]GroupWithMembers, error) {
+func (q queries) ListGroups(ctx context.Context) ([]Group, error) {
 	rows, err := q.q.QueryContext(ctx, `SELECT groups.id, groups.name, groups.created_at, skill_groups.skill_id
 		FROM groups LEFT JOIN skill_groups ON skill_groups.group_id = groups.id
 		ORDER BY groups.id, skill_groups.skill_id`)
 	if err != nil {
-		return nil, fmt.Errorf("list groups with members: %w", wrap(err))
+		return nil, fmt.Errorf("list groups: %w", wrap(err))
 	}
 	defer rows.Close()
-	var groups []GroupWithMembers
+	var groups []Group
 	for rows.Next() {
 		var member sql.NullInt64
 		group, err := scanGroup(rows, &member)
 		if err != nil {
-			return nil, fmt.Errorf("read group with members: %w", wrap(err))
+			return nil, fmt.Errorf("read group: %w", wrap(err))
 		}
-		if n := len(groups); n == 0 || groups[n-1].Group.ID != group.ID {
-			groups = append(groups, GroupWithMembers{Group: group})
+		if n := len(groups); n == 0 || groups[n-1].ID != group.ID {
+			groups = append(groups, group)
 		}
 		if member.Valid {
 			last := &groups[len(groups)-1]
@@ -132,9 +108,29 @@ func (q queries) ListGroupsWithMembers(ctx context.Context) ([]GroupWithMembers,
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read groups with members: %w", wrap(err))
+		return nil, fmt.Errorf("read groups: %w", wrap(err))
 	}
 	return groups, nil
+}
+
+func (q queries) GroupMembers(ctx context.Context, id int64) ([]int64, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT skill_id FROM skill_groups WHERE group_id = ? ORDER BY skill_id`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list group members: %w", wrap(err))
+	}
+	defer rows.Close()
+	var members []int64
+	for rows.Next() {
+		var member int64
+		if err := rows.Scan(&member); err != nil {
+			return nil, fmt.Errorf("read group member: %w", wrap(err))
+		}
+		members = append(members, member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read group members: %w", wrap(err))
+	}
+	return members, nil
 }
 
 func (q queries) IsMember(ctx context.Context, groupID, skillID int64) (bool, error) {

@@ -129,28 +129,6 @@ func TestUpdateCheckStateSurvivesReopen(t *testing.T) {
 			t.Fatalf("reopened %d = %+v, want %+v", id, got, state)
 		}
 	}
-	group, err := lib.CreateGroup(t.Context(), "checks")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, skill.ID); err != nil {
-		t.Fatal(err)
-	}
-	members, err := lib.ListGroupSkills(t.Context(), group.ID)
-	if err != nil || len(members) != 1 || !reflect.DeepEqual(members[0].LastUpdateCheck, want) {
-		t.Fatalf("group checks = %+v, %v", members, err)
-	}
-	collections, err := lib.ListCollections(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, collection := range collections {
-		for _, summary := range collection.Skills {
-			if got := updateCheckState(t, lib, summary.ID); !reflect.DeepEqual(summary.LastUpdateCheck, got) {
-				t.Fatalf("collection check = %+v, want %+v", summary.LastUpdateCheck, got)
-			}
-		}
-	}
 }
 
 func TestInFlightUpdateCheckDoesNotOverwriteUpdatedSkill(t *testing.T) {

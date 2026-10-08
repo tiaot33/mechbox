@@ -506,7 +506,7 @@ func (l *Library) fetchAll(ctx context.Context, record store.Source, revision st
 			if err != nil {
 				return err
 			}
-			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, Source: src, VersionID: VersionID(versionID), Revision: revision, FetchedAt: createdAt})
+			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, CollectionID: CollectionID(sourceID), Source: src, VersionID: VersionID(versionID), Revision: revision, FetchedAt: createdAt})
 		}
 		return nil
 	})

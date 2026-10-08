@@ -104,7 +104,7 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 	}
 	commitGit(t, repository, "multiple skills")
 	lib := openTestLibrary(t)
-	var sourceID library.SourceID
+	var collectionID library.CollectionID
 	for _, tc := range []struct{ input, name string }{
 		{"https://github.com/owner/repo/tree/trunk/skills/first", "first"},
 		{"owner/repo@second", "second"},
@@ -117,10 +117,10 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if sourceID != 0 && sourceID != fetched[0].Source.ID {
-			t.Fatal("subpath split Source")
+		if collectionID != 0 && collectionID != fetched[0].CollectionID {
+			t.Fatal("subpath split collection")
 		}
-		sourceID = fetched[0].Source.ID
+		collectionID = fetched[0].CollectionID
 	}
 	for _, name := range []string{"first", "second"} {
 		writeFile(t, filepath.Join(repository, "skills", name, "SKILL.md"), []byte(skillDocument(name, "advanced")), 0o644)

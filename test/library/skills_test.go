@@ -33,12 +33,12 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 	}
 
 	want := library.Skill{
-		ID:        fetched.ID,
-		Name:      "example-skill",
-		VersionID: fetched.VersionID,
-		FetchedAt: fetched.FetchedAt,
+		ID:           fetched.ID,
+		Name:         "example-skill",
+		CollectionID: fetched.CollectionID,
+		VersionID:    fetched.VersionID,
+		FetchedAt:    fetched.FetchedAt,
 		Source: library.Source{
-			ID:    fetched.Source.ID,
 			Type:  library.SourceLocal,
 			Label: source,
 		},
@@ -94,18 +94,11 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 	}
 }
 
-// 列表、组成员、集合与详情给出的是同一个技能,不带文件;详情也带最近一次更新检查。
+// 列表与详情给出的是同一个技能,不带文件;详情也带最近一次更新检查。
 func TestListsAndDetailReturnTheSameSkill(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example")
-	group, err := lib.CreateGroup(ctx, "examples")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := lib.CheckUpdates(ctx, []library.SkillID{skill.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -130,14 +123,6 @@ func TestListsAndDetailReturnTheSameSkill(t *testing.T) {
 	listed, err := lib.ListSkills(ctx)
 	if err != nil || !reflect.DeepEqual(listed, []library.Skill{detail}) {
 		t.Fatalf("ListSkills = %#v, %v; want %#v", listed, err, detail)
-	}
-	members, err := lib.ListGroupSkills(ctx, group.ID)
-	if err != nil || !reflect.DeepEqual(members, []library.Skill{detail}) {
-		t.Fatalf("ListGroupSkills = %#v, %v; want %#v", members, err, detail)
-	}
-	collections, err := lib.ListCollections(ctx)
-	if err != nil || !reflect.DeepEqual(collections, []library.Collection{{Source: detail.Source, Skills: []library.Skill{detail}}}) {
-		t.Fatalf("ListCollections = %#v, %v", collections, err)
 	}
 }
 
@@ -227,34 +212,6 @@ func requireVersionFiles(t *testing.T, lib *library.Library, id library.VersionI
 	metadata, err := lib.ListVersionFiles(t.Context(), id)
 	if err != nil || !slices.Equal(metadata, wantMetadata) {
 		t.Fatalf("ListVersionFiles = %#v, %v; want %#v", metadata, err, wantMetadata)
-	}
-}
-
-func TestListCollectionsDerivesLocalSkillsFromTheirSources(t *testing.T) {
-	root := t.TempDir()
-	firstSource := filepath.Join(root, "z-first-skill")
-	secondSource := filepath.Join(root, "a-second-skill")
-	writeLocalSkill(t, firstSource, "# First\n")
-	writeLocalSkill(t, secondSource, "# Second\n")
-	lib := openTestLibrary(t)
-	first, err := fetchLocalDir(t.Context(), lib, firstSource)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := fetchLocalDir(t.Context(), lib, secondSource)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := lib.ListCollections(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []library.Collection{
-		{Source: first.Source, Skills: []library.Skill{first}},
-		{Source: second.Source, Skills: []library.Skill{second}},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ListCollections() = %#v, want %#v", got, want)
 	}
 }
 

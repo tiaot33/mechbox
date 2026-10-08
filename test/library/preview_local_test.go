@@ -49,7 +49,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || len(collections[0].Skills) != 2 {
+	if len(collections) != 1 || !reflect.DeepEqual(collections[0].Skills, skillIDs(fetched)) {
 		t.Fatalf("collections = %#v; want one collection for the previewed directory", collections)
 	}
 	source := collections[0].Source

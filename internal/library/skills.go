@@ -14,9 +14,6 @@ import (
 // SkillID 是库里技能的数据库主键。各实体的 ID 定义为不同类型,以免互相传错。
 type SkillID int64
 
-// SourceID 是来源的数据库主键。
-type SourceID int64
-
 // SourceType 是 skill 来源的类型(见 ADR 0004)。
 type SourceType string
 
@@ -34,9 +31,9 @@ const (
 	ModeExecutable FileMode = "executable"
 )
 
-// Source 是一个已记录的 skill 来源。展示用的字段由库按来源类型生成,调用方不必区分类型去拼。
+// Source 是集合与技能上的「来自哪里」,只供展示;字段由库按来源类型生成,调用方不必区分类型去拼。
+// 要引用集合本身(打开集合、更新)用 CollectionID。
 type Source struct {
-	ID      SourceID   `json:"id"`
 	Type    SourceType `json:"type"`
 	Label   string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
 	Ref     string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
@@ -68,13 +65,14 @@ type FileMetadata struct {
 	Mode FileMode `json:"mode"` // regular 或 executable
 }
 
-// Skill 是库里的一个技能;列表、详情、入库结果与组成员都返回它。不含文件内容,
+// Skill 是库里的一个技能;列表、详情与入库结果都返回它,集合和组只给出技能 ID。不含文件内容,
 // 文件用 VersionID 经 ListVersionFiles / GetVersionFile 读取。
 type Skill struct {
 	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近一次更新检查的结论;nil 表示从未检查
 	ID              SkillID           `json:"id"`
 	Name            string            `json:"name"`
-	Description     string            `json:"description"` // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	Description     string            `json:"description"`   // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	CollectionID    CollectionID      `json:"collection_id"` // 所在集合;从技能打开集合或更新时用它
 	Source          Source            `json:"source"`
 	VersionID       VersionID         `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、查看版本历史与差异
 	Revision        string            `json:"revision,omitempty"`  // 当前版本对应的来源标识,与入库预览的 Revision 同义:GitHub 为 commit,URL 为内容哈希,本地目录为空
@@ -101,7 +99,6 @@ func (l *Library) sourceOf(row store.Source) (Source, error) {
 		return Source{}, err
 	}
 	return Source{
-		ID:      SourceID(row.ID),
 		Type:    SourceType(row.Type),
 		Label:   description.Label,
 		Ref:     description.Ref,
@@ -115,14 +112,15 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 		return Skill{}, err
 	}
 	skill := Skill{
-		ID:          SkillID(row.ID),
-		Name:        row.Name,
-		Description: row.Description,
-		Source:      src,
-		VersionID:   VersionID(row.VersionID),
-		Revision:    row.Revision,
-		FetchedAt:   row.FetchedAt,
-		UpdatedAt:   row.UpdatedAt,
+		ID:           SkillID(row.ID),
+		Name:         row.Name,
+		Description:  row.Description,
+		CollectionID: CollectionID(row.Source.ID),
+		Source:       src,
+		VersionID:    VersionID(row.VersionID),
+		Revision:     row.Revision,
+		FetchedAt:    row.FetchedAt,
+		UpdatedAt:    row.UpdatedAt,
 	}
 	if row.CheckStatus != "" {
 		skill.LastUpdateCheck = &UpdateCheckState{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}

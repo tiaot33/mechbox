@@ -17,8 +17,11 @@ func TestJSONFieldNamesAndValuesFollowTerminology(t *testing.T) {
 		want  string
 	}{
 		{"candidate fetched", library.Candidate{Fetched: 7, Name: "demo"}, `{"fetched":7,"name":"demo","description":"","path":""}`},
-		{"skill never updated", library.Skill{VersionID: 3, Revision: "abc", FetchedAt: at}, `{"id":0,"name":"","description":"","source":{"id":0,"type":"","label":""},"version_id":3,"revision":"abc","fetched_at":"2026-09-27T00:00:00Z"}`},
-		{"source display", library.Source{ID: 1, Type: library.SourceGitHub, Label: "owner/repo", Ref: "main", ViewURL: "https://github.com/owner/repo/tree/main"}, `{"id":1,"type":"github","label":"owner/repo","ref":"main","view_url":"https://github.com/owner/repo/tree/main"}`},
+		{"skill never updated", library.Skill{CollectionID: 2, VersionID: 3, Revision: "abc", FetchedAt: at}, `{"id":0,"name":"","description":"","collection_id":2,"source":{"type":"","label":""},"version_id":3,"revision":"abc","fetched_at":"2026-09-27T00:00:00Z"}`},
+		{"source display", library.Source{Type: library.SourceGitHub, Label: "owner/repo", Ref: "main", ViewURL: "https://github.com/owner/repo/tree/main"}, `{"type":"github","label":"owner/repo","ref":"main","view_url":"https://github.com/owner/repo/tree/main"}`},
+		{"collection skill ids", library.Collection{ID: 2, Source: library.Source{Type: library.SourceLocal, Label: "/skills"}, Skills: []library.SkillID{4, 5}}, `{"id":2,"source":{"type":"local","label":"/skills"},"skills":[4,5]}`},
+		{"group members", library.Group{ID: 1, Name: "debugging", CreatedAt: at, Members: []library.SkillID{4}}, `{"id":1,"name":"debugging","created_at":"2026-09-27T00:00:00Z","members":[4]}`},
+		{"empty group members", library.Group{ID: 1, Name: "empty", Members: []library.SkillID{}}, `{"id":1,"name":"empty","members":[]}`},
 		{"group install created_at", library.GroupInstall{GroupID: 1, Scope: library.GlobalScope(library.AgentCodex), CreatedAt: at}, `{"group_id":1,"scope":{"kind":"global","agent":"codex"},"created_at":"2026-09-27T00:00:00Z"}`},
 		{"remove skill folders", library.RemoveSkillOptions{Folders: library.Keep}, `{"folders":"keep"}`},
 		{"unregister project folders", library.UnregisterProjectOptions{Folders: library.Remove}, `{"folders":"remove"}`},

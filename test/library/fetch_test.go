@@ -249,14 +249,14 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	if got, want := skillNames(fetched), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("fetched skills = %v, want %v", got, want)
 	}
-	if fetched[0].Source.ID == 0 || fetched[0].Source.ID != fetched[1].Source.ID {
-		t.Fatalf("source IDs = %d and %d, want one persisted Source", fetched[0].Source.ID, fetched[1].Source.ID)
+	if fetched[0].CollectionID == 0 || fetched[0].CollectionID != fetched[1].CollectionID {
+		t.Fatalf("collection IDs = %d and %d, want one persisted collection", fetched[0].CollectionID, fetched[1].CollectionID)
 	}
 	collections, err := lib.ListCollections(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || !reflect.DeepEqual(skillNames(collections[0].Skills), []string{"first", "second"}) {
+	if len(collections) != 1 || !reflect.DeepEqual(collections[0].Skills, skillIDs(fetched)) {
 		t.Fatalf("collections = %#v, want both remote skills grouped by Source", collections)
 	}
 	group, err := lib.CreateGroup(t.Context(), "remote group")
@@ -317,8 +317,8 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 		t.Fatalf("fetched = %#v, want two skills", fetched)
 	}
 	first, second := fetched[0], fetched[1]
-	if first.Source.ID != second.Source.ID {
-		t.Fatalf("source IDs = %d and %d, want one shared Source", first.Source.ID, second.Source.ID)
+	if first.CollectionID != second.CollectionID {
+		t.Fatalf("collection IDs = %d and %d, want one shared collection", first.CollectionID, second.CollectionID)
 	}
 	// 入库结果与技能列表的条目形状一致,不带文件。
 	if listed, err := lib.ListSkills(ctx); err != nil || !reflect.DeepEqual(listed, fetched) {
@@ -328,7 +328,7 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Source.ID == 0 || got.Source.Type != library.SourceURL || got.Source.Label != server.URL || got.Source.Ref != "" || got.Source.ViewURL != "" {
+	if got.CollectionID == 0 || got.Source.Type != library.SourceURL || got.Source.Label != server.URL || got.Source.Ref != "" || got.Source.ViewURL != "" {
 		t.Fatalf("persisted Source = %#v, want typed url source", got.Source)
 	}
 	if got.Revision == "" || got.Revision != preview.Revision {
@@ -341,7 +341,7 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(collections) != 1 || !reflect.DeepEqual(skillIDs(collections[0].Skills), []library.SkillID{first.ID, second.ID}) {
+	if len(collections) != 1 || collections[0].ID != first.CollectionID || !reflect.DeepEqual(collections[0].Skills, []library.SkillID{first.ID, second.ID}) {
 		t.Fatalf("ListCollections() = %#v, want both skills in one collection", collections)
 	}
 }
