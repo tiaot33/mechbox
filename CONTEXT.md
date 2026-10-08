@@ -45,7 +45,7 @@ A complete copy of one skill's files as a Fetch or an Update brought them into t
 _Avoid_: Revision, snapshot, release / 来源版本、快照、发行版
 
 **Update · 更新**:
-Bringing a newer version of an already-fetched skill from its Source into the Library, without a Preview. Where the skill is installed is left as it is; the user chooses when to Reinstall it in each Scope.
+Bringing the skills the user kept checked in an Update plan to their Source's newest Revision in the Library, without a Preview; new skills never enter this way, only by Fetch. The same confirmation Reinstalls them in the Scopes the user kept checked; the rest are left as they are.
 _Avoid_: Upgrade, re-fetch / 升级、重新入库
 
 **Update check · 检查更新**:
@@ -53,11 +53,15 @@ A read-only look at whether a Collection's Source has moved to a new Revision, a
 _Avoid_: Refresh, poll, sync / 刷新、轮询、同步
 
 **Update plan · 更新计划**:
-A read-only report, before an Update, of how a Collection's skills differ between the Library and the Source's newest Revision, including skills the Source has added or removed; the user chooses which changes the Update brings in.
+A read-only report, before an Update, of how a Collection's skills differ between the Library and the Source's newest Revision, including skills the Source has removed or probably renamed, and of the Scopes where the changed skills are installed. The user chooses which skills and which Scopes the Update takes.
 _Avoid_: Preview, report, diff / 预览、报告、差异
 
+**Skip · 跳过**:
+The user's choice to set aside a skill's change in one Revision of its Source, so it no longer awaits an Update until a later Revision changes that skill again. Leaving a skill unchecked in an Update plan is not a Skip.
+_Avoid_: Ignore, dismiss, pin / 忽略、不再提醒、固定
+
 **Rollback · 回滚**:
-Returning the skills an Update changed to the Versions they had before it.
+Returning the skills an Update changed to the Versions they had before it, and Reinstalling them in the Scopes that Update reinstalled, except where they have since been reinstalled or edited.
 _Avoid_: Undo, revert, restore, downgrade / 撤销、回退、还原、降级
 
 **Collection · 集合**:
