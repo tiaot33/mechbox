@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
@@ -29,7 +30,7 @@ func DirectoryExists(path string) (bool, error) {
 	if err == nil {
 		return info.IsDir(), nil
 	}
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return false, nil
 	}
 	return false, err

@@ -551,6 +551,39 @@ func TestListRegisteredProjectsMarksProjectsNotOnThisMachine(t *testing.T) {
 	}
 }
 
+// 项目目录树被移走、原来的上级目录处留下一个同名文件时,该项目同样算不在这台机器上:列表照常返回,其他项目不受影响。
+func TestListRegisteredProjectsMarksProjectWhoseParentBecameAFile(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	parent := filepath.Join(t.TempDir(), "parent")
+	if err := os.MkdirAll(filepath.Join(parent, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := lib.RegisterProject(ctx, filepath.Join(parent, "app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Dir(moved.Path), filepath.Join(t.TempDir(), "elsewhere")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Dir(moved.Path), []byte("not a directory"), 0o644)
+	missing := moved
+	missing.Missing = true
+	want := []library.RegisteredProject{missing, other}
+	if other.Name < missing.Name {
+		want = []library.RegisteredProject{other, missing}
+	}
+	projects, err := lib.ListRegisteredProjects(ctx)
+	if err != nil || !reflect.DeepEqual(projects, want) {
+		t.Fatalf("ListRegisteredProjects() = %#v, %v; want %#v", projects, err, want)
+	}
+}
+
 // 项目不在这台机器上时也能注销:要删的文件夹本来就不在,算成功,安装记录与组安装一并撤掉。
 func TestUnregisterProjectNotOnThisMachine(t *testing.T) {
 	ctx := t.Context()
