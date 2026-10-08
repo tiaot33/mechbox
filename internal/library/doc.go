@@ -41,16 +41,18 @@
 //   - [Library.ScopeDirectory] 查某个作用域的目录。
 //
 // 安装(install.go):
-//   - [Library.PlanInstall] 再 [Library.Install]:先看目标状态,再直接安装;[Library.Uninstall] 撤销。
+//   - [Library.PlanInstall] 再 [Library.Install]:先看会装到哪个文件夹、那里现在是什么情况,再直接安装;
+//     目标处有不是从库里装的同名文件夹时,用户同意后才覆盖。[Library.Uninstall] 撤销。
 //   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
-//   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。
+//   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。看一个技能装在哪些地方,用
+//     [Library.ListSkillScopes] 或 [Library.InspectSkillScopes] 按技能筛选;移除技能的确认框用后者说明哪几处用户改过。
 //
 // 安装与安装计划方法都只接受 Scope 身份:Agent 目录与 [Library.ScopeDirectory] 给出的相同,记录按身份落库,
 // 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
 //
 // 巡检与重新安装(reinstall.go):
-//   - [Library.InspectSkillScopes] 对照磁盘检查已安装的技能文件夹。
-//   - [Library.Reinstall] 把它们改回技能的当前版本。
+//   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。
+//   - [Library.Reinstall] 把用户选中的几处换成技能的当前版本;改过的那一处要单独同意覆盖。
 //
 // 同步(sync.go):
 //   - [Library.PlanSyncPush] 再 [Library.SyncPush]:把整库推送到 S3。

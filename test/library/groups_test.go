@@ -160,7 +160,7 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 	if _, err := lib.InstallGroup(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.InstallGroup(ctx, second.ID, scope, library.InstallOptions{OnConflict: library.Overwrite}); err != nil {
+	if _, err := lib.InstallGroup(ctx, second.ID, scope, library.InstallOptions{Overwrite: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.DeleteGroup(ctx, first.ID); err != nil {
@@ -172,10 +172,10 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 	if _, err := lib.GetSkill(ctx, skill.ID); err != nil {
 		t.Fatalf("DeleteGroup removed skill: %v", err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	wantSkillScopes := []library.SkillScope{
-		{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{second.ID}},
-		{SkillID: groupOnly.ID, Scope: scope, Directory: directory, Direct: true},
+		{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(directory, skill.Name), Groups: []library.GroupID{second.ID}},
+		{SkillID: groupOnly.ID, Scope: scope, Folder: filepath.Join(directory, groupOnly.Name), Direct: true},
 	}
 	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), wantSkillScopes) {
 		t.Fatalf("skill scopes after DeleteGroup = %#v, %v; want %#v", skillScopes, err, wantSkillScopes)
@@ -190,7 +190,7 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(directory, groupOnly.Name)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("RemoveSkill(Remove) left skill scope: %v", err)
 	}
-	skillScopes, err = lib.ListSkillScopes(ctx)
+	skillScopes, err = lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), wantSkillScopes[:1]) {
 		t.Fatalf("skill scopes after RemoveSkill = %#v, %v; want %#v", skillScopes, err, wantSkillScopes[:1])
 	}
@@ -424,7 +424,7 @@ func requireGroups(t *testing.T, lib *library.Library, want []library.Group) {
 // requireSkillScopes 断言全部 SkillScope(忽略首次安装时间)。
 func requireSkillScopes(t *testing.T, lib *library.Library, want []library.SkillScope) {
 	t.Helper()
-	skillScopes, err := lib.ListSkillScopes(t.Context())
+	skillScopes, err := lib.ListSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
 		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
@@ -490,12 +490,12 @@ func TestGroupMembershipFollowsGroupInstallInEveryScope(t *testing.T) {
 	}
 	via := []library.GroupID{g.ID}
 	requireSkillScopes(t, lib, []library.SkillScope{
-		{SkillID: a.ID, Scope: projectScope, Directory: projectDir, Direct: true},
-		{SkillID: a.ID, Scope: global, Directory: globalDir, Direct: true},
-		{SkillID: b.ID, Scope: projectScope, Directory: projectDir, Groups: via},
-		{SkillID: b.ID, Scope: global, Directory: globalDir, Groups: via},
-		{SkillID: c.ID, Scope: projectScope, Directory: projectDir, Groups: via},
-		{SkillID: c.ID, Scope: global, Directory: globalDir, Groups: via},
+		{SkillID: a.ID, Scope: projectScope, Folder: filepath.Join(projectDir, a.Name), Direct: true},
+		{SkillID: a.ID, Scope: global, Folder: filepath.Join(globalDir, a.Name), Direct: true},
+		{SkillID: b.ID, Scope: projectScope, Folder: filepath.Join(projectDir, b.Name), Groups: via},
+		{SkillID: b.ID, Scope: global, Folder: filepath.Join(globalDir, b.Name), Groups: via},
+		{SkillID: c.ID, Scope: projectScope, Folder: filepath.Join(projectDir, c.Name), Groups: via},
+		{SkillID: c.ID, Scope: global, Folder: filepath.Join(globalDir, c.Name), Groups: via},
 	})
 	requireInstalledFolder(t, globalDir, "a", "# a\n")
 	if err := lib.Uninstall(ctx, a.ID, global); err != nil {
@@ -514,7 +514,7 @@ func TestGroupMembershipFollowsGroupInstallInEveryScope(t *testing.T) {
 		requireNoInstalledFolder(t, projectDir, name)
 	}
 	requireInstalledFolder(t, projectDir, "a", "# a\n")
-	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: a.ID, Scope: projectScope, Directory: projectDir, Direct: true}})
+	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: a.ID, Scope: projectScope, Folder: filepath.Join(projectDir, a.Name), Direct: true}})
 	if installs, err := lib.ListGroupInstalls(ctx); err != nil || len(installs) != 0 {
 		t.Fatalf("ListGroupInstalls() after UninstallGroup = %#v, %v; want none", installs, err)
 	}
@@ -550,7 +550,7 @@ func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
 		results, err = lib.AddSkillToGroup(ctx, g.ID, skill.ID)
 		requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: skill.ID, Scope: scope, Outcome: library.MemberInstalled}})
 		requireInstalledFolder(t, directory, "late", "# late\n")
-		requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{g.ID}}})
+		requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(directory, skill.Name), Groups: []library.GroupID{g.ID}}})
 
 		if err := lib.RemoveSkillFromGroup(ctx, g.ID, skill.ID, library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember}); err != nil {
 			t.Fatal(err)
@@ -610,8 +610,8 @@ func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
 				}
 			}
 			requireSkillScopes(t, lib, []library.SkillScope{
-				{SkillID: shared.ID, Scope: scope, Directory: directory, Groups: []library.GroupID{groups[1].ID}},
-				{SkillID: direct.ID, Scope: scope, Directory: directory, Direct: true},
+				{SkillID: shared.ID, Scope: scope, Folder: filepath.Join(directory, shared.Name), Groups: []library.GroupID{groups[1].ID}},
+				{SkillID: direct.ID, Scope: scope, Folder: filepath.Join(directory, direct.Name), Direct: true},
 			})
 			requireInstalledFolder(t, directory, "shared", "# shared\n")
 			requireInstalledFolder(t, directory, "direct", "# direct\n")
@@ -623,12 +623,12 @@ func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
 			if policy == library.KeepAsDirectInstall {
 				requireInstalledFolder(t, directory, "shared", "# shared\n")
 				requireSkillScopes(t, lib, []library.SkillScope{
-					{SkillID: shared.ID, Scope: scope, Directory: directory, Direct: true},
-					{SkillID: direct.ID, Scope: scope, Directory: directory, Direct: true},
+					{SkillID: shared.ID, Scope: scope, Folder: filepath.Join(directory, shared.Name), Direct: true},
+					{SkillID: direct.ID, Scope: scope, Folder: filepath.Join(directory, direct.Name), Direct: true},
 				})
 			} else {
 				requireNoInstalledFolder(t, directory, "shared")
-				requireSkillScopes(t, lib, []library.SkillScope{{SkillID: direct.ID, Scope: scope, Directory: directory, Direct: true}})
+				requireSkillScopes(t, lib, []library.SkillScope{{SkillID: direct.ID, Scope: scope, Folder: filepath.Join(directory, direct.Name), Direct: true}})
 			}
 			requireNoStagedEntries(t, directory)
 		})
@@ -636,7 +636,7 @@ func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
 }
 
 // 加入已安装的组时:已安装的(即使文件夹被手动改过)只补组安装、不写盘;有未记录文件夹或与组内成员同名的跳过,
-// 成员关系照常成立,之后再次 InstallGroup(Overwrite)补齐未记录文件夹那一项。
+// 成员关系照常成立,之后同意覆盖再次 InstallGroup 补齐未记录文件夹那一项。
 func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -686,12 +686,12 @@ func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
 	}
 	via := []library.GroupID{g.ID}
 	requireSkillScopes(t, lib, []library.SkillScope{
-		{SkillID: holder.ID, Scope: scope, Directory: directory, Groups: via},
-		{SkillID: edited.ID, Scope: scope, Directory: directory, Direct: true, Groups: via},
+		{SkillID: holder.ID, Scope: scope, Folder: filepath.Join(directory, holder.Name), Groups: via},
+		{SkillID: edited.ID, Scope: scope, Folder: filepath.Join(directory, edited.Name), Direct: true, Groups: via},
 	})
 
 	// 组内同名的成员此后在组安装时都被跳过,包括已安装的 holder 以外的那一个。
-	results, err = lib.InstallGroup(ctx, g.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
+	results, err = lib.InstallGroup(ctx, g.ID, scope, library.InstallOptions{Overwrite: true})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{
 		{SkillID: holder.ID, Scope: scope, Outcome: library.MemberAlreadyInstalled},
 		{SkillID: edited.ID, Scope: scope, Outcome: library.MemberAlreadyInstalled},
@@ -784,7 +784,7 @@ func TestUnregisterProjectAndDeleteGroupClearGroupInstalls(t *testing.T) {
 	if installs, err := lib.ListGroupInstalls(ctx); err != nil || len(installs) != 0 {
 		t.Fatalf("ListGroupInstalls() after DeleteGroup = %#v, %v; want none", installs, err)
 	}
-	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: global, Directory: globalDir, Direct: true}})
+	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: global, Folder: filepath.Join(globalDir, skill.Name), Direct: true}})
 	requireInstalledFolder(t, globalDir, "member", "# member\n")
 }
 
@@ -838,8 +838,8 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 	}
 	via := []library.GroupID{g.ID}
 	requireSkillScopes(t, lib, []library.SkillScope{
-		{SkillID: skill.ID, Scope: global, Directory: globalDir, Groups: via},
-		{SkillID: skill.ID, Scope: projectScope, Directory: projectDir, Groups: via},
+		{SkillID: skill.ID, Scope: global, Folder: filepath.Join(globalDir, skill.Name), Groups: via},
+		{SkillID: skill.ID, Scope: projectScope, Folder: filepath.Join(projectDir, skill.Name), Groups: via},
 	})
 }
 
@@ -920,9 +920,9 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 	}
 	via := []library.GroupID{g.ID}
 	requireSkillScopes(t, lib, []library.SkillScope{
-		{SkillID: present.ID, Scope: scope, Directory: directory, Groups: via},
-		{SkillID: present.ID, Scope: global, Directory: globalDir, Groups: via},
-		{SkillID: skill.ID, Scope: global, Directory: globalDir, Groups: via},
+		{SkillID: present.ID, Scope: scope, Folder: filepath.Join(directory, present.Name), Groups: via},
+		{SkillID: present.ID, Scope: global, Folder: filepath.Join(globalDir, present.Name), Groups: via},
+		{SkillID: skill.ID, Scope: global, Folder: filepath.Join(globalDir, skill.Name), Groups: via},
 	})
 }
 
@@ -993,11 +993,11 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 				skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: projectDir}),
 			})
 			requireInstalledFolder(t, globalDir, "shared", "# shared\n")
-			results, err = lib.InstallGroup(ctx, g.ID, sameDirectory, library.InstallOptions{OnConflict: library.Overwrite})
+			results, err = lib.InstallGroup(ctx, g.ID, sameDirectory, library.InstallOptions{Overwrite: true})
 			requireMemberResults(t, results, err, []library.GroupMemberResult{
 				skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: projectDir}),
 			})
-			requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: global, Directory: globalDir, Groups: []library.GroupID{g.ID}}})
+			requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: global, Folder: filepath.Join(globalDir, skill.Name), Groups: []library.GroupID{g.ID}}})
 		})
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
@@ -13,61 +12,48 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-// ConflictPolicy 决定目标里有不是 Library 写入的内容时的处理方式:安装时是无记录的外来文件夹,
-// 重新安装时是被手动改过(modified)的文件夹。目标文件夹已被另一个 SkillScope 占用(同一 skill 的另一 Scope,
-// 或同名的另一 skill)时两种策略都返回 FailedPrecondition:同一目录下的一个文件夹名至多归一个 SkillScope,
-// 需先 Uninstall 占用者。
-type ConflictPolicy string
-
-const (
-	Fail      ConflictPolicy = "fail"      // 安装返回 AlreadyExists;重新安装该条 FailedPrecondition(默认)
-	Overwrite ConflictPolicy = "overwrite" // 原子替换外来文件夹或被手动改过的文件夹
-)
-
 // InstallOptions 是 Install 与 InstallGroup 的选项。
 type InstallOptions struct {
-	OnConflict ConflictPolicy `json:"on_conflict"`
+	// Overwrite 同意覆盖目标处不是从库里装的同名文件夹;目标被另一个技能占用时仍然不装。默认不覆盖。
+	Overwrite bool `json:"overwrite"`
 }
 
-// InstallPlanStatus 是安装前的目标状态,不受执行时冲突策略影响;判定顺序与执行时一致。
+// InstallPlanStatus 是安装前,一个技能在所选作用域的情况。和执行时的判定一致,与是否同意覆盖无关。
 type InstallPlanStatus string
 
 const (
-	InstallReady            InstallPlanStatus = "ready"             // 目标不存在
-	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 本技能已安装在本作用域
-	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个 SkillScope 占用目标文件夹
-	InstallUntracked        InstallPlanStatus = "untracked"         // 目标文件夹存在但 Library 没有记录
-	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:与组内其他成员同名且尚未安装,组安装时会被跳过;优先于 occupied / untracked / ready
+	InstallReady            InstallPlanStatus = "ready"             // 可以安装
+	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 已经装在这里,安装只会补记这次选择
+	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个技能已经装在这里(见 OccupierSkillID),先卸载它
+	InstallUntracked        InstallPlanStatus = "untracked"         // 这里有同名文件夹但不是从库里装的,可以选择覆盖
+	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:组里还有同名技能,这几个都不会装;优先于 occupied / untracked / ready
 )
 
-// InstallPlan 只描述目标事实;不校验无记录文件夹的内容或来历,也不是执行令牌。
+// InstallPlan 是安装前看到的一个技能在所选作用域的情况。只读,不校验同名文件夹的内容或来历,也不是执行令牌。
 type InstallPlan struct {
-	SkillID         SkillID           `json:"skill_id"`
-	Name            string            `json:"name"`
-	Directory       string            `json:"directory"`
-	Target          string            `json:"target"`
-	Status          InstallPlanStatus `json:"status"`
-	OccupierSkillID SkillID           `json:"occupier_skill_id,omitzero"`
-	OccupierName    string            `json:"occupier_name,omitempty"`
+	SkillID SkillID           `json:"skill_id"`
+	Name    string            `json:"name"`
+	Folder  string            `json:"folder"` // 这个技能在该作用域的文件夹路径
+	Status  InstallPlanStatus `json:"status"`
+	// OccupierSkillID 是已经装在 Folder 的技能,仅 occupied 时非零;界面用它查占用者来自哪个来源。
+	// 同一目录里同名才算占用,所以占用者与本技能同名。本技能的另一个作用域恰好算出同一目录时,它等于 SkillID。
+	OccupierSkillID SkillID `json:"occupier_skill_id,omitzero"`
 }
 
-// GroupInstallPlan 按组成员顺序报告各自状态。同名成员里尚未安装的标为 duplicate,组安装时会被跳过;
-// 已安装的那个仍是 installed,照常只补组安装。DuplicateNames 列出组内重复的名字。
+// GroupInstallPlan 按组成员顺序列出各自的安装计划。组里同名的成员中尚未安装的标为 duplicate,
+// 组安装时都会被跳过;已经装在这里的那个仍是 already_installed,照常只补记组安装。
 type GroupInstallPlan struct {
-	Members        []InstallPlan `json:"members"`
-	DuplicateNames []string      `json:"duplicate_names,omitempty"`
+	Members []InstallPlan `json:"members"`
 }
 
-// SkillScope 是某个技能安装在某个 Scope:该 Scope 目录里的技能文件夹,以及 Library 对它的记录。
-// 只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
-// 记录只存 Scope 身份;Directory 是列表时按 ScopeDirectory 的规则算出的目录,
-// 不是 Install 的输入(Install 也不接受目录)。对照磁盘的状态由 InspectSkillScopes 给出。
+// SkillScope 是某个技能装在某个 Scope:只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
+// 对照磁盘的状态由 InspectSkillScopes 给出。
 type SkillScope struct {
 	SkillID   SkillID   `json:"skill_id"`
 	Scope     Scope     `json:"scope"`
-	Directory string    `json:"directory"`
-	Direct    bool      `json:"direct"`              // 有直接安装留着它
-	Groups    []GroupID `json:"groups,omitempty"`    // 覆盖它的组安装所属的 Group:该 skill 是成员且组已安装到此 Scope,按 ID 升序
+	Folder    string    `json:"folder"`              // 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出
+	Direct    bool      `json:"direct"`              // 有直接安装留着它;为 false 时只靠组安装留在这里,不能单独卸载
+	Groups    []GroupID `json:"groups,omitempty"`    // 组安装留着它的 Group:该技能是成员且组已安装到此 Scope,按 ID 升序
 	CreatedAt time.Time `json:"created_at,omitzero"` // 首次安装到此 Scope 的时间。再次安装不更新
 }
 
@@ -83,15 +69,16 @@ type GroupInstall struct {
 type GroupMemberOutcome string
 
 const (
-	MemberInstalled        GroupMemberOutcome = "installed"         // 新装到此 Scope
-	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已安装在此 Scope,只补上组安装,不写盘
-	MemberSkipped          GroupMemberOutcome = "skipped"           // 冲突跳过,原因见 Error;成员关系与组安装照常成立
+	MemberInstalled        GroupMemberOutcome = "installed"         // 装到了这里
+	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已经装在这里,只补记组安装,文件夹不动
+	MemberSkipped          GroupMemberOutcome = "skipped"           // 没装,原因见 Error;成员关系与组安装照常成立
 )
 
-// GroupMemberResult 是一个成员在一个 Scope 上的逐条结果,形状参考 UpdateCheck。
-// Error 仅在 MemberSkipped 时非空:FailedPrecondition 为目标被另一个 SkillScope 占用(Details.SkillID / Name / Path)
-// 、组内同名(Details.Name 与共同的目标 Path)或作用域根目录不存在(仅加入成员;Details.Path 为根目录,项目带 ProjectID),
-// AlreadyExists 为目标有未记录文件夹且未选 Overwrite(Details.Path)。
+// GroupMemberResult 是一个成员在一个 Scope 上的结果。Error 仅在 MemberSkipped 时非空,按跳过原因:
+//   - 被另一个技能占用:FailedPrecondition,Details.SkillID / Name / Path 为占用者与其文件夹;
+//   - 组里同名:FailedPrecondition,Details.Name 为同名的名字,Path 为共同的文件夹;
+//   - 作用域根目录不存在(仅加入成员时):FailedPrecondition,Details.Path 为根目录,项目带 ProjectID;
+//   - 有不是从库里装的同名文件夹且没同意覆盖:AlreadyExists,Details.Path 为该文件夹。
 type GroupMemberResult struct {
 	SkillID SkillID            `json:"skill_id"`
 	Scope   Scope              `json:"scope"`
@@ -123,7 +110,7 @@ func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, t
 	return nil, nil
 }
 
-func (l *Library) placementConflict(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, policy ConflictPolicy) (*Error, error) {
+func (l *Library) placementConflict(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, overwrite bool) (*Error, error) {
 	other, err := l.targetClaimant(ctx, id, name, target)
 	if err != nil {
 		return nil, err
@@ -141,14 +128,15 @@ func (l *Library) placementConflict(ctx context.Context, operation string, id Sk
 	if err != nil {
 		return nil, fmt.Errorf("inspect target folder: %w", err)
 	}
-	if exists && policy != Overwrite {
+	if exists && !overwrite {
 		return existsError(operation, "target already exists", ErrorDetails{Path: path}), nil
 	}
 	return nil, nil
 }
 
-// PlanInstall 只读报告解析目录与目标状态,不创建目录;未知技能或作用域返回 NotFound,
-// 作用域根目录不存在时与 Install 一样返回 FailedPrecondition。
+// PlanInstall 给出技能装到 scope 会怎样:装到哪个文件夹、那里现在是什么情况。只读,不创建目录。
+// 未知技能、未知 Agent 或未登记项目返回 NotFound;作用域根目录不存在(项目不在这台机器上)时与 Install 一样
+// 返回 FailedPrecondition(Details.Path 为根目录,项目带 ProjectID)。
 func (l *Library) PlanInstall(ctx context.Context, id SkillID, scope Scope) (plan InstallPlan, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -167,8 +155,8 @@ func (l *Library) PlanInstall(ctx context.Context, id SkillID, scope Scope) (pla
 	return l.planInstall(ctx, skill.ID, skill.Name, target)
 }
 
-// PlanGroupInstall 只读报告组内同名和各成员目标状态;空组成功返回空成员列表。
-// 作用域根目录不存在时与 InstallGroup 一样返回 FailedPrecondition。
+// PlanGroupInstall 逐个成员给出组装到 scope 会怎样;空组返回空成员列表。组安装之后再看一次,
+// 状态不是 already_installed 的就是还没装上的成员。作用域根目录不存在时与 InstallGroup 一样返回 FailedPrecondition。
 func (l *Library) PlanGroupInstall(ctx context.Context, groupID GroupID, scope Scope) (plan GroupInstallPlan, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -188,11 +176,6 @@ func (l *Library) PlanGroupInstall(ctx context.Context, groupID GroupID, scope S
 		return plan, err
 	}
 	counts := memberNameCounts(members)
-	for _, member := range members {
-		if counts[member.Name] > 1 && !slices.Contains(plan.DuplicateNames, member.Name) {
-			plan.DuplicateNames = append(plan.DuplicateNames, member.Name)
-		}
-	}
 	plan.Members = make([]InstallPlan, 0, len(members))
 	for _, member := range members {
 		item, err := l.planInstall(ctx, member.ID, member.Name, target)
@@ -201,7 +184,7 @@ func (l *Library) PlanGroupInstall(ctx context.Context, groupID GroupID, scope S
 		}
 		if counts[member.Name] > 1 && item.Status != InstallAlreadyInstalled {
 			item.Status = InstallDuplicate
-			item.OccupierSkillID, item.OccupierName = 0, ""
+			item.OccupierSkillID = 0
 		}
 		plan.Members = append(plan.Members, item)
 	}
@@ -217,7 +200,7 @@ func memberNameCounts(members []Skill) map[string]int {
 }
 
 func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
-	plan := InstallPlan{SkillID: id, Name: name, Directory: scope.directory, Target: filepath.Join(scope.directory, name), Status: InstallReady}
+	plan := InstallPlan{SkillID: id, Name: name, Folder: filepath.Join(scope.directory, name), Status: InstallReady}
 	existing, err := l.store.FindSkillScope(ctx, int64(id), scope.record())
 	if err != nil {
 		return plan, err
@@ -233,10 +216,9 @@ func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scop
 	if other != nil {
 		plan.Status = InstallOccupied
 		plan.OccupierSkillID = other.skillID
-		plan.OccupierName = other.name
 		return plan, nil
 	}
-	exists, err := agentdir.Exists(plan.Target)
+	exists, err := agentdir.Exists(plan.Folder)
 	if err != nil {
 		return plan, fmt.Errorf("inspect target folder: %w", err)
 	}
@@ -246,16 +228,16 @@ func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scop
 	return plan, nil
 }
 
-// Install 为 skill 在 Scope 记一个直接安装,并放入技能文件夹;本技能已安装在本作用域时只补上直接安装,
-// 不写盘(文件夹丢失也不补回;把文件夹带到当前版本是单独的重新安装)。作用域根目录(全局为用户主目录,
-// 项目为已登记路径)不存在时返回 FailedPrecondition,Library 从不创建根目录,只创建其下的 Agent 目录。
+// Install 把技能的当前版本装到 scope:记一个直接安装,并放入技能文件夹;成功时文件夹完整就位,失败时磁盘和库都保持原样。
+// 本技能已经装在这里时只补记这次选择,文件夹不动(文件夹丢了也不补回,放回去用 Reinstall)。
+// 目标处有不是从库里装的同名文件夹时返回 AlreadyExists(Details.Path),opts.Overwrite 同意时覆盖它;
+// 被另一个技能占用时返回 FailedPrecondition(Details.SkillID / Name / Path),需先卸载占用者。
+// 作用域根目录(全局为用户主目录,项目为已登记路径)不存在时返回 FailedPrecondition;Library 从不创建根目录,
+// 只创建其下的 Agent 目录。
 func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateConflictPolicy("install", opts.OnConflict); err != nil {
-		return err
-	}
 	target, err := l.resolveScope(ctx, "install", scope)
 	if err != nil {
 		return err
@@ -274,7 +256,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	if existing != nil {
 		return l.store.MarkDirect(ctx, existing.ID)
 	}
-	conflict, err := l.placementConflict(ctx, "install skill", skill.ID, skill.Name, target, opts.OnConflict)
+	conflict, err := l.placementConflict(ctx, "install skill", skill.ID, skill.Name, target, opts.Overwrite)
 	if err != nil {
 		return err
 	}
@@ -316,7 +298,9 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 	return nil
 }
 
-// Uninstall 撤销直接安装;若仍有组安装留着它,技能仍安装在此 Scope。
+// Uninstall 撤销直接安装;没有组安装留着它时,技能文件夹随之删除。技能只靠组安装留在这里时返回
+// FailedPrecondition(Details.Name 为组名;界面可按 SkillScope.Direct 提前得知),没装在这里返回 NotFound。
+// 不检查文件夹是否被改过:确认前用 InspectSkillScopes 查出 modified 的地方,告诉用户这些修改会丢掉。
 func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -351,7 +335,7 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 			return err
 		}
 		if removed {
-			change.Remove(target.directory, skill.Name)
+			change.Remove(filepath.Join(target.directory, skill.Name))
 		}
 		return nil
 	})
@@ -403,7 +387,7 @@ func (l *Library) memberBlocker(ctx context.Context, plan *memberPlan, id SkillI
 	if plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] {
 		return preconditionError(plan.operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
 	}
-	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.OnConflict)
+	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.Overwrite)
 }
 
 func (l *Library) applyMemberPlan(ctx context.Context, plan *memberPlan, record func(tx *store.Tx, now time.Time) error) ([]GroupMemberResult, error) {
@@ -425,17 +409,15 @@ func (l *Library) applyMemberPlan(ctx context.Context, plan *memberPlan, record 
 	return plan.results, nil
 }
 
-// InstallGroup 在 Scope 记一个组安装(空组也记;已有则不变),并按成员顺序逐条返回结果:能安装的都安装,
-// 已安装在此 Scope 的只补上组安装、不写盘;目标被占用、有未记录文件夹(且未选 Overwrite)、组内同名且尚未安装(同名的都跳过)
-// 的成员跳过,再次 InstallGroup 可补齐。作用域根目录不存在时同 Install 返回 FailedPrecondition,
-// 不记组安装。其余失败(I/O、取消)时撤销本次全部改动,含组安装记录。
+// InstallGroup 把组装到 scope:记一个组安装(空组也记;已有则不变),这是持续的选择,以后加入的成员也会装到这里(见 ADR 0006)。
+// 按成员顺序逐个返回结果:能装的都装上;已经装在这里的只补记组安装,文件夹不动;被另一个技能占用、组里同名、
+// 有不是从库里装的同名文件夹且没同意覆盖的成员跳过,原因见 GroupMemberResult,处理后再次 InstallGroup 可补齐。
+// 作用域根目录不存在时同 Install 返回 FailedPrecondition,不记组安装。其余失败(I/O、取消)时磁盘和库都保持原样,
+// 包括组安装记录。
 func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts InstallOptions) (_ []GroupMemberResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if err := validateConflictPolicy("install group", opts.OnConflict); err != nil {
-		return nil, err
-	}
 	target, err := l.resolveScope(ctx, "install group", scope)
 	if err != nil {
 		return nil, err
@@ -462,8 +444,8 @@ func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope
 	})
 }
 
-// UninstallGroup 删除该组在此 Scope 的组安装;不再有直接安装或组安装留着的成员会被卸载,失败时恢复整组状态。
-// 该组未组安装到此 Scope 返回 NotFound。
+// UninstallGroup 撤销该组在 scope 的组安装;不再有直接安装或别的组安装留着的成员随之卸载,失败时磁盘和库都保持原样。
+// 该组没有组安装到这里返回 NotFound。和 Uninstall 一样不检查文件夹是否被改过。
 func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -498,7 +480,7 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 				return err
 			}
 			if removed {
-				change.Remove(target.directory, member.Name)
+				change.Remove(filepath.Join(target.directory, member.Name))
 			}
 		}
 		return nil
@@ -520,12 +502,12 @@ func (l *Library) ListGroupInstalls(ctx context.Context) (installs []GroupInstal
 	return installs, nil
 }
 
-// ListSkillScopes 列出全部 SkillScope:Scope 身份、该作用域的目录(同 ScopeDirectory)及留着它的直接安装与组安装。
-func (l *Library) ListSkillScopes(ctx context.Context) (skillScopes []SkillScope, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
+// ListSkillScopes 列出 filter 范围内技能装在哪些地方,以及留着它们的直接安装与组安装;零值 filter 列出全库,
+// 筛选规则见 SkillScopeFilter。不读磁盘:只要列出位置(技能列表上的「装在 3 处」、组页)用它;
+// 要知道每一处现在什么样(技能详情页、移除技能或卸载前的确认框)用 InspectSkillScopes。
+func (l *Library) ListSkillScopes(ctx context.Context, filter SkillScopeFilter) (skillScopes []SkillScope, err error) {
 	defer func() { err = typedError(err) }()
-	return l.listSkillScopes(ctx, 0, nil)
+	return l.filteredSkillScopes(ctx, "list skill scopes", filter)
 }
 
 func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *scopeRow) ([]SkillScope, error) {
@@ -539,9 +521,13 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 	}
 	var skillScopes []SkillScope
 	for _, row := range rows {
-		skillScope := SkillScope{SkillID: SkillID(row.SkillID), Scope: scopeRowOf(row.Scope).scope(), Direct: row.Direct, CreatedAt: row.CreatedAt}
-		if _, skillScope.Directory, err = l.scopeDirectory(ctx, scopeRowOf(row.Scope)); err != nil {
+		_, directory, err := l.scopeDirectory(ctx, scopeRowOf(row.Scope))
+		if err != nil {
 			return nil, err
+		}
+		skillScope := SkillScope{
+			SkillID: SkillID(row.SkillID), Scope: scopeRowOf(row.Scope).scope(), Folder: filepath.Join(directory, row.Name),
+			Direct: row.Direct, CreatedAt: row.CreatedAt,
 		}
 		for _, id := range row.Groups {
 			skillScope.Groups = append(skillScope.Groups, GroupID(id))

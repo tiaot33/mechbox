@@ -61,8 +61,8 @@ func (c *Change) Stage(ctx context.Context, directory, name string, files []skil
 	return nil
 }
 
-func (c *Change) Remove(directory, name string) {
-	c.removals = append(c.removals, filepath.Join(directory, name))
+func (c *Change) Remove(folder string) {
+	c.removals = append(c.removals, folder)
 }
 
 func (c *Change) Commit(ctx context.Context) error {

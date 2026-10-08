@@ -185,13 +185,6 @@ func TestFacadeFailureCodes(t *testing.T) {
 		{name: "unregister project invalid folders", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			return lib.UnregisterProject(t.Context(), 1, library.UnregisterProjectOptions{Folders: "nope"})
 		}},
-		{name: "install invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
-			return lib.Install(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
-		}},
-		{name: "install group invalid on conflict", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
-			_, err := lib.InstallGroup(t.Context(), 1, library.GlobalScope(library.AgentCodex), library.InstallOptions{OnConflict: "nope"})
-			return err
-		}},
 		{name: "remove skill not in group", want: library.NotFound, call: func(t *testing.T, lib *library.Library) error {
 			skill := fetchNamedSkill(t, lib, "outsider")
 			group, err := lib.CreateGroup(t.Context(), "g")

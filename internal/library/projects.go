@@ -283,19 +283,14 @@ func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts Unre
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	if opts.Folders != Keep {
-		skillScopes, err := l.ListSkillScopes(ctx)
+		skillScopes, err := l.listSkillScopes(ctx, 0, nil)
 		if err != nil {
 			return err
 		}
 		for _, skillScope := range skillScopes {
-			if skillScope.Scope.Kind != ScopeProject || skillScope.Scope.ProjectID != id {
-				continue
+			if skillScope.Scope.Kind == ScopeProject && skillScope.Scope.ProjectID == id {
+				change.Remove(skillScope.Folder)
 			}
-			skill, err := l.GetSkill(ctx, skillScope.SkillID)
-			if err != nil {
-				return err
-			}
-			change.Remove(skillScope.Directory, skill.Name)
 		}
 	}
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {

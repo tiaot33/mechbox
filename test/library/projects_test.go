@@ -69,7 +69,7 @@ func TestSkillScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 	if err := lib.Install(ctx, skill.ID, library.ProjectScope(library.AgentCodex, project.ID), library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 1 {
 		t.Fatalf("ListSkillScopes() = %#v, %v; want one skill scope", skillScopes, err)
 	}
@@ -84,7 +84,7 @@ func TestSkillScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 	if err := lib.Uninstall(ctx, decoded.SkillID, decoded.Scope); err != nil {
 		t.Fatalf("Uninstall(decoded scope %#v) = %v", decoded.Scope, err)
 	}
-	if skillScopes, err := lib.ListSkillScopes(ctx); err != nil || len(skillScopes) != 0 {
+	if skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{}); err != nil || len(skillScopes) != 0 {
 		t.Fatalf("ListSkillScopes() after Uninstall = %#v, %v; want none", skillScopes, err)
 	}
 }
@@ -264,7 +264,7 @@ func TestScopeDirectoryIsReadOnly(t *testing.T) {
 			t.Fatalf("ScopeDirectory(%#v) left %q on disk: %v", scope, directory, err)
 		}
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 0 {
 		t.Fatalf("ListSkillScopes() after ScopeDirectory = %#v, %v; want none", skillScopes, err)
 	}
@@ -330,7 +330,7 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	globalSkillScopes, err := lib.ListSkillScopes(ctx)
+	globalSkillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || len(globalSkillScopes) != 2 {
 		t.Fatalf("global skill scopes = %#v, %v; want 2", globalSkillScopes, err)
 	}
@@ -388,12 +388,12 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(skillScopes, globalSkillScopes) {
 		t.Fatalf("ListSkillScopes() after unregister = %#v, %v; want %#v", skillScopes, err, globalSkillScopes)
 	}
 	for _, skillScope := range globalSkillScopes {
-		requireInstalledFolder(t, skillScope.Directory, skill.Name, "# Example\n")
+		requireInstalledFolder(t, filepath.Dir(skillScope.Folder), skill.Name, "# Example\n")
 	}
 	if err := lib.UnregisterProject(ctx, library.ProjectID(9999), library.UnregisterProjectOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("UnregisterProject() unknown project error = %v", err)
@@ -428,7 +428,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
 		t.Fatal(err)
 	}
-	before, err := lib.ListSkillScopes(ctx)
+	before, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(projects, []library.RegisteredProject{project}) {
 		t.Fatalf("failed Remove changed projects: %#v, %v", projects, err)
 	}
-	after, err := lib.ListSkillScopes(ctx)
+	after, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(after, before) {
 		t.Fatalf("failed Remove changed skill scopes: %#v, %v; want %#v", after, err, before)
 	}
@@ -463,7 +463,7 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ListRegisteredProjects() after unregister = %#v, %v", projects, err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 0 {
 		t.Fatalf("ListSkillScopes() after unregister = %#v, %v", skillScopes, err)
 	}
@@ -623,7 +623,7 @@ func TestUnregisterProjectNotOnThisMachine(t *testing.T) {
 }
 
 // 改项目位置后项目 ID、直接安装与组安装都延续,目录改按新位置算;旧位置的文件夹原样留着,库不再管。
-// 新位置的状态照常由巡检给出:新位置没有这些文件夹时是 directory_missing,整个项目目录搬过去时是 current。
+// 新位置的状态照常由巡检给出:新位置没有这些文件夹时是 missing,整个项目目录搬过去时是 current。
 func TestRelocateProjectKeepsInstallsAndLeavesOldFolders(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -690,7 +690,7 @@ func TestRelocateProjectKeepsInstallsAndLeavesOldFolders(t *testing.T) {
 	}
 	for i := range after {
 		moved := before[i]
-		moved.Directory = filepath.Join(wantPath, strings.TrimPrefix(before[i].Directory, project.Path))
+		moved.Folder = filepath.Join(wantPath, strings.TrimPrefix(before[i].Folder, project.Path))
 		if !reflect.DeepEqual(after[i], moved) {
 			t.Fatalf("ListSkillScopes()[%d] after relocate = %#v, want %#v", i, after[i], moved)
 		}
@@ -704,7 +704,7 @@ func TestRelocateProjectKeepsInstallsAndLeavesOldFolders(t *testing.T) {
 			t.Fatalf("old folder of %s after relocate = %v, %v; want left in place", skill.Name, matches, err)
 		}
 	}
-	requireInspectionStatuses(t, lib, library.SkillScopeDirectoryMissing, library.SkillScopeDirectoryMissing)
+	requireInspectionStatuses(t, lib, library.SkillScopeMissing, library.SkillScopeMissing)
 
 	movedRoot := filepath.Join(t.TempDir(), "app")
 	if err := os.Rename(project.Path, movedRoot); err != nil {

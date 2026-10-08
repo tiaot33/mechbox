@@ -257,7 +257,7 @@ func fetchLocalSkill(t *testing.T, lib *library.Library, name, body string) (lib
 // listSkillScopes 读出全部 SkillScope,失败即终止测试。
 func listSkillScopes(t *testing.T, lib *library.Library) []library.SkillScope {
 	t.Helper()
-	skillScopes, err := lib.ListSkillScopes(t.Context())
+	skillScopes, err := lib.ListSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
