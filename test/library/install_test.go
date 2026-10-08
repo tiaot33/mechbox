@@ -12,7 +12,7 @@ import (
 )
 
 // 单项安装的主路径只选定 Agent(全局 Scope):Agent 目录由 Library 在隔离的 $HOME 下算出,
-// 冲突 / Overwrite / Uninstall 的断言全部对着 Resolve 给出的目录,而不是测试自拟的路径。
+// 冲突 / Overwrite / Uninstall 的断言全部对着 ScopeDirectory 给出的目录,而不是测试自拟的路径。
 func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 	for agent, agentDirectory := range map[library.AgentCode]string{
 		library.AgentCodex:      ".agents",
@@ -33,12 +33,12 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 			}
 
 			scope := library.GlobalScope(agent)
-			directory, err := lib.Resolve(ctx, scope)
+			directory, err := lib.ScopeDirectory(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if directory != filepath.Join(home, agentDirectory, "skills") {
-				t.Fatalf("Resolve(%#v) = %q; want under isolated HOME", scope, directory)
+				t.Fatalf("ScopeDirectory(%#v) = %q; want under isolated HOME", scope, directory)
 			}
 			target := filepath.Join(directory, skill.Name)
 			writeFile(t, filepath.Join(target, "old.txt"), []byte("old"), 0o644)
@@ -149,7 +149,7 @@ func TestUninstallKeepsLibraryAndDiskTogether(t *testing.T) {
 	present := fetchNamedSkill(t, lib, "present")
 	missing := fetchNamedSkill(t, lib, "missing")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestInstallAndUninstallGroupPreservesDirectInstall(t *testing.T) {
 				}
 			}
 			scope := library.GlobalScope(library.AgentCodex)
-			directory, err := lib.Resolve(ctx, scope)
+			directory, err := lib.ScopeDirectory(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -310,7 +310,7 @@ func TestInstallGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 		}
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestInstallingAgainNeverOverwritesAnExistingFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestInstallGroupSkipsAllMembersSharingAName(t *testing.T) {
 		}
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestInstallGroupFailurePreservesDirectInstall(t *testing.T) {
 		}
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

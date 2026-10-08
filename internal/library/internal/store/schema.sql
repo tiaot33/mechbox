@@ -66,12 +66,14 @@ CREATE TABLE IF NOT EXISTS skill_groups (
 );
 
 -- 已注册的项目目录;注册后与每个 Agent 组成项目 Scope,目录由 agents.project_path 算出。
+-- 改项目位置只改写 path,id 不变,引用它的安装记录与组安装随之指向新位置。
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY,  -- 已注册项目主键,由 SQLite 分配;用作 ProjectScope 的项目身份
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
 -- Agent 的稳定代码、展示名称与 Agent 目录;目录分别相对用户主目录和已注册项目根,技能库不提供修改方法。
+-- 应用内置的 Agent 每次打开库时按本版应用写入,已有的行以应用为准覆盖名称和目录;本版应用不认识的行保持原样。
 CREATE TABLE IF NOT EXISTS agents (
     code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,如 claude-code / codex;Scope 和 SkillScope 以此标识 Agent
     name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Codex;不参与 Scope 身份判定

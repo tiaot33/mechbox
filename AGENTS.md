@@ -12,7 +12,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `update.go` — 批量检查与单项更新。
   - `versions.go` — 版本历史与差异,以及文件的公开类型与按版本 ID 读取文件(技能详情页看当前文件也走这里)。
   - `groups.go` — Group(带成员的技能 ID)与成员管理。
-  - `projects.go` — Agent、项目注册、Scope 与 `Resolve`。
+  - `projects.go` — Agent、项目登记 / 改位置 / 注销、Scope 与 `ScopeDirectory`。
   - `install.go` — 安装预览、直接安装与组安装、卸载、安装记录列表。
   - `reinstall.go` — SkillScope 巡检(可按 `SkillScopeFilter` 缩小范围)与重新安装。
   - `sync.go` — 整库与 S3 的推拉同步:远端身份比对、`SKILLS_PROJECT_PATH_MAP` 解析;快照、拉回库校验与替换由 `store` 完成。

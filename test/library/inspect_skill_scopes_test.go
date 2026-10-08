@@ -23,7 +23,7 @@ func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testin
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestInspectSkillScopesReportsMissingWhenFolderRemoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestInspectSkillScopesInspectsGroupSkillScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestInspectSkillScopesIsReadOnlyAndMatchesListSkillScopes(t *testing.T) {
 	var directories []string
 	for _, skill := range []library.Skill{first, second} {
 		for _, scope := range scopes {
-			directory, err := lib.Resolve(ctx, scope)
+			directory, err := lib.ScopeDirectory(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
 			}

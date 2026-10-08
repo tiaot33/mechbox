@@ -199,11 +199,11 @@ func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {
 	}
 	keepScope := library.GlobalScope(library.AgentCodex)
 	removeScope := library.GlobalScope(library.AgentClaudeCode)
-	keepDirectory, err := lib.Resolve(ctx, keepScope)
+	keepDirectory, err := lib.ScopeDirectory(ctx, keepScope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	removeDirectory, err := lib.Resolve(ctx, removeScope)
+	removeDirectory, err := lib.ScopeDirectory(ctx, removeScope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	present := fetchNamedSkill(t, lib, "present")
 	missing := fetchNamedSkill(t, lib, "missing")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

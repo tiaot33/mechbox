@@ -153,7 +153,7 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 		t.Fatalf("ListGroups() = %#v, want %#v", got, want)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,11 +453,11 @@ func TestGroupMembershipFollowsGroupInstallInEveryScope(t *testing.T) {
 	}
 	global := library.GlobalScope(library.AgentCodex)
 	projectScope := library.ProjectScope(library.AgentClaudeCode, project.ID)
-	globalDir, err := lib.Resolve(ctx, global)
+	globalDir, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectDir, err := lib.Resolve(ctx, projectScope)
+	projectDir, err := lib.ScopeDirectory(ctx, projectScope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +527,7 @@ func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,7 +579,7 @@ func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
 			shared := fetchNamedSkill(t, lib, "shared")
 			direct := fetchNamedSkill(t, lib, "direct")
 			scope := library.GlobalScope(library.AgentCodex)
-			directory, err := lib.Resolve(ctx, scope)
+			directory, err := lib.ScopeDirectory(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -642,7 +642,7 @@ func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +708,7 @@ func TestAddingMemberRollsBackMembershipWhenInstallFails(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -750,7 +750,7 @@ func TestUnregisterProjectAndDeleteGroupClearGroupInstalls(t *testing.T) {
 	}
 	global := library.GlobalScope(library.AgentCodex)
 	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
-	globalDir, err := lib.Resolve(ctx, global)
+	globalDir, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -801,11 +801,11 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 	}
 	global := library.GlobalScope(library.AgentCodex)
 	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
-	globalDir, err := lib.Resolve(ctx, global)
+	globalDir, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectDir, err := lib.Resolve(ctx, projectScope)
+	projectDir, err := lib.ScopeDirectory(ctx, projectScope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,7 +854,7 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.ProjectScope(library.AgentClaudeCode, project.ID)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +914,7 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(withoutGroupCreatedAt(installs), want) {
 		t.Fatalf("ListGroupInstalls() = %#v, %v; want %#v", installs, err, want)
 	}
-	globalDir, err := lib.Resolve(ctx, global)
+	globalDir, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -969,11 +969,11 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 			}
 			global := library.GlobalScope(library.AgentCodex)
 			sameDirectory := library.ProjectScope(library.AgentCodex, project.ID)
-			globalDir, err := lib.Resolve(ctx, global)
+			globalDir, err := lib.ScopeDirectory(ctx, global)
 			if err != nil {
 				t.Fatal(err)
 			}
-			projectDir, err := lib.Resolve(ctx, sameDirectory)
+			projectDir, err := lib.ScopeDirectory(ctx, sameDirectory)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -60,7 +60,7 @@ type GroupInstallPlan struct {
 
 // SkillScope 是某个技能安装在某个 Scope:该 Scope 目录里的技能文件夹,以及 Library 对它的记录。
 // 只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
-// 记录只存 Scope 身份;Directory 是列表时 Resolve 出的 Agent 目录,
+// 记录只存 Scope 身份;Directory 是列表时按 ScopeDirectory 的规则算出的目录,
 // 不是 Install 的输入(Install 也不接受目录)。对照磁盘的状态由 InspectSkillScopes 给出。
 type SkillScope struct {
 	SkillID   SkillID   `json:"skill_id"`
@@ -111,7 +111,7 @@ func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, t
 	}
 	want := agentdir.Canonical(target.directory)
 	for _, other := range claimants {
-		directory, err := l.Resolve(ctx, scopeRowOf(other.Scope).scope())
+		_, directory, err := l.scopeDirectory(ctx, scopeRowOf(other.Scope))
 		if err != nil {
 			return nil, err
 		}
@@ -520,7 +520,7 @@ func (l *Library) ListGroupInstalls(ctx context.Context) (installs []GroupInstal
 	return installs, nil
 }
 
-// ListSkillScopes 列出全部 SkillScope:Scope 身份、Resolve 出的 Agent 目录及留着它的直接安装与组安装。
+// ListSkillScopes 列出全部 SkillScope:Scope 身份、该作用域的目录(同 ScopeDirectory)及留着它的直接安装与组安装。
 func (l *Library) ListSkillScopes(ctx context.Context) (skillScopes []SkillScope, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -540,7 +540,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 	var skillScopes []SkillScope
 	for _, row := range rows {
 		skillScope := SkillScope{SkillID: SkillID(row.SkillID), Scope: scopeRowOf(row.Scope).scope(), Direct: row.Direct, CreatedAt: row.CreatedAt}
-		if skillScope.Directory, err = l.Resolve(ctx, skillScope.Scope); err != nil {
+		if _, skillScope.Directory, err = l.scopeDirectory(ctx, scopeRowOf(row.Scope)); err != nil {
 			return nil, err
 		}
 		for _, id := range row.Groups {

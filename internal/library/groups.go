@@ -209,7 +209,7 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 	}
 	directories := make([]string, len(skillScopes))
 	for i, skillScope := range skillScopes {
-		if directories[i], err = l.Resolve(ctx, scopeRowOf(skillScope.Scope).scope()); err != nil {
+		if _, directories[i], err = l.scopeDirectory(ctx, scopeRowOf(skillScope.Scope)); err != nil {
 			return err
 		}
 	}

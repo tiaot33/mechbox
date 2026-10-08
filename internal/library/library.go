@@ -54,7 +54,8 @@ func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func
 
 // Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本;不是 SQLite 文件、应用标识、
 // schema 版本或表结构不符时返回 FailedPrecondition 且不改动文件;另一进程占着写锁超过等待上限返回 Busy。
-// 只补缺失的 Agent 默认行,不覆盖已有的名称和目录规则。
+// 应用内置的 Agent 以本版应用为准:缺的补上,已有的名称和目录被覆盖,厂商换了读取目录时已有的库也随应用版本用上新目录;
+// 库里有、本版应用不认识的 Agent(例如从装了更新版本应用的机器同步来的)保持原样。
 func Open(path string) (lib *Library, err error) {
 	defer func() { err = typedError(err) }()
 	db, err := store.Open(path)
