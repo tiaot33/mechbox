@@ -144,22 +144,33 @@ func (q queries) GetVersionFile(ctx context.Context, versionID int64, path strin
 }
 
 func (q queries) VersionDigests(ctx context.Context, versionID int64) (map[string]skillfile.Digest, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT path, fingerprint, mode FROM version_files WHERE version_id = ?`, versionID)
+	rows, err := q.q.QueryContext(ctx, `
+		SELECT version_files.path, version_files.fingerprint, version_files.mode
+		FROM skill_versions
+		LEFT JOIN version_files ON version_files.version_id = skill_versions.id
+		WHERE skill_versions.id = ?
+	`, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("list version fingerprints: %w", wrap(err))
 	}
 	defer rows.Close()
+	versionExists := false
 	files := make(map[string]skillfile.Digest)
 	for rows.Next() {
-		var path string
-		var digest skillfile.Digest
-		if err := rows.Scan(&path, &digest.Fingerprint, &digest.Mode); err != nil {
+		versionExists = true
+		var path, fingerprint, mode sql.NullString
+		if err := rows.Scan(&path, &fingerprint, &mode); err != nil {
 			return nil, fmt.Errorf("read version fingerprint: %w", wrap(err))
 		}
-		files[path] = digest
+		if path.Valid {
+			files[path.String] = skillfile.Digest{Fingerprint: fingerprint.String, Mode: skillfile.Mode(mode.String)}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read version fingerprints: %w", wrap(err))
+	}
+	if !versionExists {
+		return nil, fmt.Errorf("list version fingerprints: %w", ErrNotFound)
 	}
 	return files, nil
 }

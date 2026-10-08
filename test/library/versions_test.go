@@ -3,10 +3,12 @@ package library_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -182,6 +184,52 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 	}
 	if versions[0].CreatedAt.Equal(versions[1].CreatedAt) {
 		t.Fatal("new version CreatedAt did not advance")
+	}
+}
+
+// 比较差异时技能被并发移除:每次比较要么得到完整正确的差异,要么返回 NotFound,不会把真实的改动报成空差异。
+func TestDiffVersionsWhileSkillIsRemoved(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	want := library.VersionDiff{Changed: []string{"SKILL.md"}, Added: []string{}, Deleted: []string{}}
+	for i := range 20 {
+		source := filepath.Join(t.TempDir(), fmt.Sprintf("racing-%d", i))
+		writeLocalSkill(t, source, "first\n")
+		fetched, err := fetchLocalDir(ctx, lib, source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeLocalSkill(t, source, "second\n")
+		updated, err := lib.Update(ctx, fetched.ID)
+		if err != nil || !updated.Changed {
+			t.Fatalf("Update = %#v, %v", updated, err)
+		}
+
+		var wg sync.WaitGroup
+		var diffErr error
+		started := make(chan struct{})
+		wg.Go(func() {
+			close(started)
+			for {
+				diff, err := lib.DiffVersions(ctx, fetched.VersionID, updated.Skill.VersionID)
+				if err != nil {
+					diffErr = err
+					return
+				}
+				if !reflect.DeepEqual(diff, want) {
+					diffErr = fmt.Errorf("DiffVersions() = %#v, want %#v", diff, want)
+					return
+				}
+			}
+		})
+		<-started
+		if err := lib.RemoveSkill(ctx, fetched.ID, library.RemoveSkillOptions{Folders: library.Keep}); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+		if !library.IsCode(diffErr, library.NotFound) {
+			t.Fatalf("DiffVersions while removing = %v, want the full diff until NotFound", diffErr)
+		}
 	}
 }
 

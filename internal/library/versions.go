@@ -25,8 +25,8 @@ type SkillVersion struct {
 type FileMode string
 
 const (
-	ModeRegular    FileMode = "regular"
-	ModeExecutable FileMode = "executable"
+	ModeRegular    FileMode = "regular"    // 普通文件
+	ModeExecutable FileMode = "executable" // 可执行文件,安装到磁盘时带可执行权限位
 )
 
 // File 是技能某个版本里的一个文件;Path 是技能内斜杠分隔的相对路径。
