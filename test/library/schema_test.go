@@ -55,6 +55,9 @@ func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
 		{SkillID: skill.ID, Scope: scopes[2], Folder: filepath.Join(project.Path, ".claude", "skills", skill.Name), Direct: true},
 		{SkillID: skill.ID, Scope: scopes[1], Folder: filepath.Join(home, ".agents", "skills", skill.Name), Direct: true},
 	}
+	// 装到 Claude Code 全局时建出了 ~/.claude,之后它算检测到。
+	wantAgents := seededAgents(home)
+	wantAgents[0].Detected = true
 	for range 2 {
 		reopened, err := library.Open(path)
 		if err != nil {
@@ -62,8 +65,8 @@ func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = reopened.Close() })
 		agents, err := reopened.ListAgents(ctx)
-		if err != nil || !reflect.DeepEqual(agents, seededAgents()) {
-			t.Fatalf("ListAgents after Open = %#v, %v; want %#v", agents, err, seededAgents())
+		if err != nil || !reflect.DeepEqual(agents, wantAgents) {
+			t.Fatalf("ListAgents after Open = %#v, %v; want %#v", agents, err, wantAgents)
 		}
 		got, err := reopened.ListSkillScopes(ctx, library.SkillScopeFilter{})
 		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
@@ -96,7 +99,9 @@ func TestOpenKeepsAgentsUnknownToThisVersion(t *testing.T) {
 	reopened := openTestLibraryAt(t, path)
 	ctx := t.Context()
 	agents, err := reopened.ListAgents(ctx)
-	want := append(seededAgents(), library.Agent{Code: "future-agent", Name: "Future Agent"})
+	want := append(seededAgents(home), library.Agent{
+		Code: "future-agent", Name: "Future Agent", GlobalDirectory: filepath.Join(home, ".future", "skills"), ProjectDirectory: ".future/project-skills",
+	})
 	if err != nil || !reflect.DeepEqual(agents, want) {
 		t.Fatalf("ListAgents after Open = %#v, %v; want %#v", agents, err, want)
 	}

@@ -12,6 +12,45 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
+// SyncSettings 是同步用的 S3 设置,由调用方(例如设置页)传给 [Library.SetSyncSettings]。
+// 各项与环境变量一一对应,留空时的处理也与环境变量相同:对象名默认 library.db,区域默认 us-east-1,
+// 服务地址留空时按存储桶与区域使用 AWS S3。
+type SyncSettings struct {
+	// Endpoint 是服务地址(对应 SKILLS_S3_ENDPOINT)。
+	Endpoint string `json:"endpoint,omitempty"`
+	// Bucket 是存储桶(对应 SKILLS_S3_BUCKET)。
+	Bucket string `json:"bucket"`
+	// Key 是对象名(对应 SKILLS_S3_KEY)。
+	Key string `json:"key,omitempty"`
+	// Region 是区域(对应 AWS_REGION)。
+	Region string `json:"region,omitempty"`
+	// AccessKeyID 对应 AWS_ACCESS_KEY_ID。
+	AccessKeyID string `json:"access_key_id"`
+	// SecretAccessKey 对应 AWS_SECRET_ACCESS_KEY。
+	SecretAccessKey string `json:"secret_access_key"`
+	// SessionToken 对应 AWS_SESSION_TOKEN。
+	SessionToken string `json:"session_token,omitempty"`
+}
+
+// SetSyncSettings 设置同步用的 S3 设置,之后的同步计划、推送与拉回立即使用。整组取用:传入非 nil 时只用传入的这一组,
+// 留空的项不再从环境变量补;传 nil 表示没有传入,回到读取 SKILLS_S3_*、AWS_* 环境变量。设置只在这个 Library 实例上有效,
+// 不写进库,也不随同步传到别的机器。传入的设置缺少存储桶或密钥时,同步方法与环境变量缺项时一样返回 NotConfigured。
+func (l *Library) SetSyncSettings(settings *SyncSettings) {
+	if settings == nil {
+		l.syncSettings.Store(nil)
+		return
+	}
+	l.syncSettings.Store(&s3.Settings{
+		Endpoint:        settings.Endpoint,
+		Bucket:          settings.Bucket,
+		Key:             settings.Key,
+		Region:          settings.Region,
+		AccessKeyID:     settings.AccessKeyID,
+		SecretAccessKey: settings.SecretAccessKey,
+		SessionToken:    settings.SessionToken,
+	})
+}
+
 // RemoteIdentity 是同步计划里远端那份库的标识:原样传回执行方法,界面不展示;空表示计划时远端没有库。
 // 执行时远端已不是这一份,返回 Conflict,确保推送覆盖的、拉回恢复的就是用户在计划里确认的那一份。
 type RemoteIdentity string
@@ -68,7 +107,7 @@ type SyncPullPlan struct {
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) PlanSyncPush(ctx context.Context) (plan SyncPushPlan, err error) {
 	defer func() { err = typedError(err) }()
-	object, err := s3.Head(ctx)
+	object, err := s3.Head(ctx, l.syncSettings.Load())
 	if errors.Is(err, s3.ErrNotFound) {
 		return SyncPushPlan{}, nil
 	}
@@ -83,7 +122,7 @@ func (l *Library) PlanSyncPush(ctx context.Context) (plan SyncPushPlan, err erro
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) PlanSyncPull(ctx context.Context) (plan SyncPullPlan, err error) {
 	defer func() { err = typedError(err) }()
-	data, object, err := s3.Get(ctx)
+	data, object, err := s3.Get(ctx, l.syncSettings.Load())
 	if errors.Is(err, s3.ErrNotFound) {
 		return SyncPullPlan{CannotPull: CannotPullNoRemote}, nil
 	}
@@ -120,7 +159,8 @@ func (l *Library) PlanSyncPull(ctx context.Context) (plan SyncPullPlan, err erro
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote RemoteLibrary, err error) {
 	defer func() { err = typedError(err) }()
-	object, err := s3.Head(ctx)
+	settings := l.syncSettings.Load()
+	object, err := s3.Head(ctx, settings)
 	switch {
 	case errors.Is(err, s3.ErrNotFound):
 		object = s3.Object{}
@@ -134,7 +174,7 @@ func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote
 	if err != nil {
 		return RemoteLibrary{}, err
 	}
-	object, err = s3.Put(ctx, data, string(expected), machineName())
+	object, err = s3.Put(ctx, settings, data, string(expected), machineName())
 	if err != nil {
 		return RemoteLibrary{}, err
 	}
@@ -157,7 +197,7 @@ func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote
 //   - 内置 Agent 与 [Open] 时一样以本机应用为准;全局作用域按本机的用户主目录。
 func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (err error) {
 	defer func() { err = typedError(err) }()
-	data, object, err := s3.Get(ctx)
+	data, object, err := s3.Get(ctx, l.syncSettings.Load())
 	if errors.Is(err, s3.ErrNotFound) && expected != "" {
 		return &Error{Code: Conflict, Message: "sync pull: remote library deleted since sync plan"}
 	}

@@ -3,6 +3,7 @@ package library_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +24,8 @@ import (
 
 // s3Stub 是一个内存 S3 打桩,记录当前对象内容并按内容哈希给出 ETag。
 // 它兑现条件写(If-Match / If-None-Match),据此模拟并发写者与前置条件失败(412);
-// 像 S3 一样保存推送时的元数据、在 HEAD / GET 上返回 Last-Modified 与元数据,并拒绝未签名的 x-amz-* 头。
+// 像 S3 一样保存推送时的元数据、在 HEAD / GET 上返回 Last-Modified 与元数据,并拒绝未签名的 x-amz-* 头;
+// 按 secrets 里该 Access Key ID 的 Secret Access Key 校验 SigV4 签名,不认识的 Access Key ID 或签名不符返回 403。
 type s3Stub struct {
 	stored     []byte
 	etag       string
@@ -34,6 +37,68 @@ type s3Stub struct {
 	// gate 若非 nil,gateMethod 方法的请求在处理前先过闸;用来把 push / plan 停在网络上。
 	gate       *networkGate
 	gateMethod string
+	// endpoint 是打桩服务的地址;secrets 是认得的 Access Key ID 与对应的 Secret Access Key;
+	// requests 按顺序记下每个签名正确的请求用了哪组凭证、发到哪个路径。
+	endpoint string
+	secrets  map[string]string
+	requests []s3Request
+}
+
+// s3Request 是打桩记下的一次请求:Access Key ID、签名里的区域、Session Token 与请求路径。
+type s3Request struct {
+	accessKey, region, sessionToken, path string
+}
+
+// verifySigV4 按 secrets 重算 SigV4 签名,签名与请求相符时返回这次请求用的凭证。
+func verifySigV4(r *http.Request, secrets map[string]string) (s3Request, bool) {
+	fields := map[string]string{}
+	for field := range strings.SplitSeq(strings.TrimPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 "), ", ") {
+		name, value, _ := strings.Cut(field, "=")
+		fields[name] = value
+	}
+	scope := strings.Split(fields["Credential"], "/")
+	if len(scope) != 5 {
+		return s3Request{}, false
+	}
+	secret, ok := secrets[scope[0]]
+	if !ok {
+		return s3Request{}, false
+	}
+	body, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	payloadSum := sha256.Sum256(body)
+	payloadHash := hex.EncodeToString(payloadSum[:])
+	if r.Header.Get("X-Amz-Content-Sha256") != payloadHash {
+		return s3Request{}, false
+	}
+	var headers strings.Builder
+	for name := range strings.SplitSeq(fields["SignedHeaders"], ";") {
+		value := r.Header.Get(name)
+		if name == "host" {
+			value = r.Host
+		}
+		headers.WriteString(name + ":" + strings.TrimSpace(value) + "\n")
+	}
+	canonical := r.Method + "\n" + r.URL.EscapedPath() + "\n\n" + headers.String() + "\n" + fields["SignedHeaders"] + "\n" + payloadHash
+	canonicalSum := sha256.Sum256([]byte(canonical))
+	toSign := "AWS4-HMAC-SHA256\n" + r.Header.Get("X-Amz-Date") + "\n" + strings.Join(scope[1:], "/") + "\n" + hex.EncodeToString(canonicalSum[:])
+	key := []byte("AWS4" + secret)
+	for _, part := range append(scope[1:], toSign) {
+		mac := hmac.New(sha256.New, key)
+		mac.Write([]byte(part))
+		key = mac.Sum(nil)
+	}
+	if !hmac.Equal([]byte(hex.EncodeToString(key)), []byte(fields["Signature"])) {
+		return s3Request{}, false
+	}
+	return s3Request{accessKey: scope[0], region: scope[2], sessionToken: r.Header.Get("X-Amz-Security-Token"), path: r.URL.EscapedPath()}, true
+}
+
+// takeRequests 返回并清空已记下的请求。
+func (s *s3Stub) takeRequests() []s3Request {
+	taken := s.requests
+	s.requests = nil
+	return taken
 }
 
 func (s *s3Stub) set(data []byte) {
@@ -59,7 +124,7 @@ func (s *s3Stub) edit(t *testing.T, statement string) {
 
 func newS3Stub(t *testing.T) *s3Stub {
 	t.Helper()
-	stub := &s3Stub{}
+	stub := &s3Stub{secrets: map[string]string{"test-key": "test-secret"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authorization := r.Header.Get("Authorization")
 		if !strings.HasPrefix(authorization, "AWS4-HMAC-SHA256 ") {
@@ -72,6 +137,12 @@ func newS3Stub(t *testing.T) *s3Stub {
 				return
 			}
 		}
+		request, ok := verifySigV4(r, stub.secrets)
+		if !ok {
+			http.Error(w, "signature does not match", http.StatusForbidden)
+			return
+		}
+		stub.requests = append(stub.requests, request)
 		if stub.gate != nil && r.Method == stub.gateMethod {
 			stub.gate.pass()
 		}
@@ -111,6 +182,7 @@ func newS3Stub(t *testing.T) *s3Stub {
 		}
 	}))
 	t.Cleanup(server.Close)
+	stub.endpoint = server.URL
 	t.Setenv("SKILLS_S3_ENDPOINT", server.URL)
 	t.Setenv("SKILLS_S3_BUCKET", "test-bucket")
 	t.Setenv("SKILLS_S3_KEY", "backups/test$file+name.db")
@@ -505,6 +577,8 @@ func TestSyncPullReplacesLibraryAndKeepsProjectsForRelocation(t *testing.T) {
 
 // 拉回的库里内置 Agent 缺行或名称、目录规则来自另一个版本的应用时,拉回后与 Open 一样以本机应用为准。
 func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	stub := newS3Stub(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
@@ -520,12 +594,8 @@ func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents, err := lib.ListAgents(ctx)
-	if err != nil || !reflect.DeepEqual(agents, seededAgents()) {
-		t.Fatalf("ListAgents() after pull = %#v, %v; want %#v", agents, err, seededAgents())
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !reflect.DeepEqual(agents, seededAgents(home)) {
+		t.Fatalf("ListAgents() after pull = %#v, %v; want %#v", agents, err, seededAgents(home))
 	}
 	if dir, err := lib.ScopeDirectory(ctx, library.GlobalScope(library.AgentCodex)); err != nil || dir != filepath.Join(home, ".agents", "skills") {
 		t.Fatalf("ScopeDirectory(codex global) after pull = %q, %v", dir, err)
@@ -632,5 +702,107 @@ func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	groups, err := lib.ListGroups(ctx)
 	if err != nil || len(groups) != 1 || groups[0].Name != "local-group" {
 		t.Fatalf("local library changed: %#v, %v", groups, err)
+	}
+}
+
+// 调用方传入同步设置后,不设置任何环境变量也能推送和拉回:请求发到传入的服务地址、存储桶与对象名,
+// 用传入的 Access Key ID、Secret Access Key、区域签名,并带上传入的 Session Token。
+func TestSyncPushAndPullWithPassedSettings(t *testing.T) {
+	stub := newS3Stub(t)
+	stub.secrets["settings-key"] = "settings-secret"
+	for _, key := range []string{"SKILLS_S3_ENDPOINT", "SKILLS_S3_BUCKET", "SKILLS_S3_KEY", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+		t.Setenv(key, "")
+	}
+	lib := openTestLibrary(t)
+	lib.SetSyncSettings(&library.SyncSettings{
+		Endpoint:        stub.endpoint,
+		Bucket:          "settings-bucket",
+		Key:             "settings.db",
+		Region:          "settings-region",
+		AccessKeyID:     "settings-key",
+		SecretAccessKey: "settings-secret",
+		SessionToken:    "settings-session",
+	})
+	ctx := t.Context()
+	group, err := lib.CreateGroup(ctx, "pushed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushPlan, err := lib.PlanSyncPush(ctx)
+	if err != nil || pushPlan.Remote != nil {
+		t.Fatalf("push plan = %#v, %v", pushPlan, err)
+	}
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.DeleteGroup(ctx, group.ID); err != nil {
+		t.Fatal(err)
+	}
+	pullPlan, err := lib.PlanSyncPull(ctx)
+	if err != nil || !pullPlan.CanPull || pullPlan.Groups != 1 {
+		t.Fatalf("pull plan = %#v, %v", pullPlan, err)
+	}
+	if err := lib.SyncPull(ctx, pullPlan.Remote.Identity); err != nil {
+		t.Fatal(err)
+	}
+	if groups, err := lib.ListGroups(ctx); err != nil || len(groups) != 1 || groups[0].Name != "pushed" {
+		t.Fatalf("groups after pull = %#v, %v", groups, err)
+	}
+	want := s3Request{accessKey: "settings-key", region: "settings-region", sessionToken: "settings-session", path: "/settings-bucket/settings.db"}
+	requests := stub.takeRequests()
+	if len(requests) == 0 || slices.ContainsFunc(requests, func(r s3Request) bool { return r != want }) {
+		t.Fatalf("requests = %+v, want passed settings only", requests)
+	}
+}
+
+// 同步设置整组取用:传入了就只用传入的那一组,缺的项不从环境变量补;在同一个 Library 上改设置,
+// 下一次同步就用新值;传 nil 回到环境变量。
+func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {
+	stub := newS3Stub(t)
+	stub.secrets["settings-key"] = "settings-secret"
+	stub.secrets["rotated-key"] = "rotated-secret"
+	t.Setenv("AWS_SESSION_TOKEN", "environment-session")
+	lib := openTestLibrary(t)
+	planPush := func() s3Request {
+		t.Helper()
+		if _, err := lib.PlanSyncPush(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		requests := stub.takeRequests()
+		if len(requests) != 1 {
+			t.Fatalf("requests = %+v, want one", requests)
+		}
+		return requests[0]
+	}
+	environment := s3Request{accessKey: "test-key", region: "test-region", sessionToken: "environment-session", path: "/test-bucket/backups/test%24file%2Bname.db"}
+	if got := planPush(); got != environment {
+		t.Fatalf("environment request = %+v, want %+v", got, environment)
+	}
+
+	lib.SetSyncSettings(&library.SyncSettings{Bucket: "settings-bucket"})
+	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
+		t.Fatalf("partial settings = %v, want NotConfigured without falling back to environment", err)
+	}
+	if requests := stub.takeRequests(); len(requests) != 0 {
+		t.Fatalf("partial settings sent %+v", requests)
+	}
+
+	// 传入的那组没填区域、对象名与 Session Token:按原有规则取默认区域与对象名,不带 Session Token,不用环境变量里的。
+	for key, secret := range map[string]string{"settings-key": "settings-secret", "rotated-key": "rotated-secret"} {
+		lib.SetSyncSettings(&library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: key, SecretAccessKey: secret})
+		want := s3Request{accessKey: key, region: "us-east-1", path: "/settings-bucket/library.db"}
+		if got := planPush(); got != want {
+			t.Fatalf("request = %+v, want %+v", got, want)
+		}
+	}
+
+	lib.SetSyncSettings(&library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: "settings-key", SecretAccessKey: "wrong-secret"})
+	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.Permission) {
+		t.Fatalf("wrong secret = %v, want Permission", err)
+	}
+
+	lib.SetSyncSettings(nil)
+	if got := planPush(); got != environment {
+		t.Fatalf("request after clearing settings = %+v, want environment %+v", got, environment)
 	}
 }

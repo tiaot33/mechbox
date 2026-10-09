@@ -18,22 +18,6 @@ import (
 // ProjectID 是已登记项目的身份:登记时分配,注销前不变;同步到另一台机器、或改了项目位置后仍指同一个项目。
 type ProjectID int64
 
-// AgentCode 是 Agent 的稳定代码:跨应用版本、跨同步都不变。界面上区分 Agent(例如按代码取色)应该用它,不用名称。
-type AgentCode string
-
-// v1 内置的两个 Agent。调用方不应假定只有这两个,可选的 Agent 以 [Library.ListAgents] 为准。
-const (
-	AgentClaudeCode AgentCode = "claude-code"
-	AgentCodex      AgentCode = "codex"
-)
-
-// Agent 是应用支持的一个 Agent:稳定代码和展示名称。名称可能随应用版本变化,身份以代码为准。
-// 它在各作用域读取技能的目录不在这里,用 [Library.ScopeDirectory] 查。
-type Agent struct {
-	Code AgentCode `json:"code"`
-	Name string    `json:"name"`
-}
-
 // RegisteredProject 是一个已登记项目:登记后它与每个 Agent 组成一个项目作用域。
 // 界面上「Codex · ai-workflow-engine」这样的显示用 Agent.Name 和 Name 拼出。
 type RegisteredProject struct {
@@ -114,7 +98,15 @@ func (r scopeRow) scope() Scope {
 type resolvedScope struct {
 	scopeRow
 	root      string
+	relative  string
 	directory string
+}
+
+func (s resolvedScope) sharesFolderWith(other resolvedScope) bool {
+	if (s.projectID == nil) != (other.projectID == nil) || s.relative != other.relative {
+		return false
+	}
+	return s.projectID == nil || *s.projectID == *other.projectID
 }
 
 func (s resolvedScope) rootMissing(operation string) (*Error, error) {
@@ -148,11 +140,7 @@ func (l *Library) resolveScope(ctx context.Context, operation string, scope Scop
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	root, directory, err := l.scopeDirectory(ctx, row)
-	if err != nil {
-		return resolvedScope{}, err
-	}
-	return resolvedScope{scopeRow: row, root: root, directory: directory}, nil
+	return l.resolveRow(ctx, row)
 }
 
 func (r scopeRow) record() store.Scope {
@@ -169,23 +157,6 @@ func scopeRowOf(scope store.Scope) scopeRow {
 		row.projectID = new(ProjectID(*scope.ProjectID))
 	}
 	return row
-}
-
-// ListAgents 列出全部 Agent,按代码排序。Agent 随应用版本内置,用户和调用方都不能增删改;
-// 库从装了更新版本应用的机器同步来、本版应用不认识的 Agent 也在其中。结果只在应用版本变化时改变,
-// 调用方载入一次即可。
-func (l *Library) ListAgents(ctx context.Context) (agents []Agent, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	rows, err := l.store.ListAgents(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		agents = append(agents, Agent{Code: AgentCode(row.Code), Name: row.Name})
-	}
-	return agents, nil
 }
 
 // RegisterProject 登记一个项目目录,使它与每个 Agent 组成可安装的项目作用域。path 必须是本机上存在的目录,
@@ -299,23 +270,25 @@ func (l *Library) ScopeDirectory(ctx context.Context, scope Scope) (directory st
 	if err != nil {
 		return "", err
 	}
-	_, directory, err = l.scopeDirectory(ctx, row)
-	return directory, err
+	target, err := l.resolveRow(ctx, row)
+	return target.directory, err
 }
 
-func (l *Library) scopeDirectory(ctx context.Context, row scopeRow) (root, directory string, err error) {
+func (l *Library) resolveRow(ctx context.Context, row scopeRow) (resolvedScope, error) {
 	agent, err := l.store.GetAgent(ctx, string(row.agent))
 	if err != nil {
-		return "", "", err
+		return resolvedScope{}, err
 	}
-	if row.projectID == nil {
-		return l.home, filepath.Join(l.home, filepath.FromSlash(agent.GlobalPath)), nil
+	target := resolvedScope{scopeRow: row, root: l.home, relative: agent.GlobalPath}
+	if row.projectID != nil {
+		project, err := l.store.GetProject(ctx, int64(*row.projectID))
+		if err != nil {
+			return resolvedScope{}, err
+		}
+		target.root, target.relative = project.Path, agent.ProjectPath
 	}
-	project, err := l.store.GetProject(ctx, int64(*row.projectID))
-	if err != nil {
-		return "", "", err
-	}
-	return project.Path, filepath.Join(project.Path, filepath.FromSlash(agent.ProjectPath)), nil
+	target.directory = filepath.Join(target.root, filepath.FromSlash(target.relative))
+	return target, nil
 }
 
 func registeredProjects(rows []store.Project) ([]RegisteredProject, error) {

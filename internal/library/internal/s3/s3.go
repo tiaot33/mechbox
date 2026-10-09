@@ -22,6 +22,10 @@ var (
 	ErrPreconditionFailed = errors.New("remote object changed since sync plan")
 )
 
+type Settings struct {
+	Endpoint, Bucket, Key, Region, AccessKeyID, SecretAccessKey, SessionToken string
+}
+
 type config struct {
 	endpoint, bucket, key, region, accessKey, secretKey, sessionToken string
 	pathStyle                                                         bool
@@ -35,16 +39,16 @@ type Object struct {
 
 const pushedFromHeader = "x-amz-meta-pushed-from"
 
-func Head(ctx context.Context) (Object, error) {
-	_, object, err := request(ctx, http.MethodHead, nil, nil)
+func Head(ctx context.Context, settings *Settings) (Object, error) {
+	_, object, err := request(ctx, settings, http.MethodHead, nil, nil)
 	return object, err
 }
 
-func Get(ctx context.Context) ([]byte, Object, error) {
-	return request(ctx, http.MethodGet, nil, nil)
+func Get(ctx context.Context, settings *Settings) ([]byte, Object, error) {
+	return request(ctx, settings, http.MethodGet, nil, nil)
 }
 
-func Put(ctx context.Context, data []byte, expected, pushedFrom string) (Object, error) {
+func Put(ctx context.Context, settings *Settings, data []byte, expected, pushedFrom string) (Object, error) {
 	headers := map[string]string{"If-Match": expected}
 	if expected == "" {
 		headers = map[string]string{"If-None-Match": "*"}
@@ -52,7 +56,7 @@ func Put(ctx context.Context, data []byte, expected, pushedFrom string) (Object,
 	if pushedFrom != "" {
 		headers[pushedFromHeader] = url.QueryEscape(pushedFrom)
 	}
-	_, object, err := request(ctx, http.MethodPut, data, headers)
+	_, object, err := request(ctx, settings, http.MethodPut, data, headers)
 	if err != nil {
 		return Object{}, err
 	}
@@ -60,8 +64,8 @@ func Put(ctx context.Context, data []byte, expected, pushedFrom string) (Object,
 	return object, nil
 }
 
-func request(ctx context.Context, method string, body []byte, headers map[string]string) ([]byte, Object, error) {
-	cfg, err := loadConfig()
+func request(ctx context.Context, settings *Settings, method string, body []byte, headers map[string]string) ([]byte, Object, error) {
+	cfg, err := loadConfig(settings)
 	if err != nil {
 		return nil, Object{}, err
 	}
@@ -121,15 +125,30 @@ func request(ctx context.Context, method string, body []byte, headers map[string
 	return response, object, nil
 }
 
-func loadConfig() (config, error) {
+func environmentSettings() *Settings {
+	return &Settings{
+		Endpoint:        os.Getenv("SKILLS_S3_ENDPOINT"),
+		Bucket:          os.Getenv("SKILLS_S3_BUCKET"),
+		Key:             os.Getenv("SKILLS_S3_KEY"),
+		Region:          os.Getenv("AWS_REGION"),
+		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
+	}
+}
+
+func loadConfig(settings *Settings) (config, error) {
+	if settings == nil {
+		settings = environmentSettings()
+	}
 	cfg := config{
-		endpoint:     os.Getenv("SKILLS_S3_ENDPOINT"),
-		bucket:       os.Getenv("SKILLS_S3_BUCKET"),
-		key:          os.Getenv("SKILLS_S3_KEY"),
-		region:       os.Getenv("AWS_REGION"),
-		accessKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
-		secretKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		sessionToken: os.Getenv("AWS_SESSION_TOKEN"),
+		endpoint:     settings.Endpoint,
+		bucket:       settings.Bucket,
+		key:          settings.Key,
+		region:       settings.Region,
+		accessKey:    settings.AccessKeyID,
+		secretKey:    settings.SecretAccessKey,
+		sessionToken: settings.SessionToken,
 	}
 	if cfg.key == "" {
 		cfg.key = "library.db"

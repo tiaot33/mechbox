@@ -13,7 +13,7 @@ A package of instructions and optional resources with a root `SKILL.md`, which a
 _Avoid_: Plugin, extension, prompt / 插件、扩展、提示词
 
 **Agent · 智能体**:
-A coding agent with a stable code and a display name, loading skills from its global and Registered project directories; changing its name does not change its identity. v1 targets Claude Code and Codex only.
+A coding agent with a stable code and a display name, loading skills from its global and Registered project directories; changing its name does not change its identity. Built-in Agents (Claude Code, Codex) have directories the product maintains; a user may add a custom Agent and set its directories, the global one under the home directory. Several Agents may read the same directory.
 _Avoid_: Assistant, tool, client / 助手、工具、客户端
 
 **Library · 库**:
@@ -73,7 +73,7 @@ A user-defined gathering of skills by scenario (e.g. "frontend debugging"). Orth
 _Avoid_: Tag, category, set / 标签、分类、集
 
 **Scope · 作用域**:
-One of two kinds: an Agent's global level, or an Agent together with one Registered project. Chosen by kind, never by directory. A skill installed in a Scope has its folder in the Agent's directory for that Scope; users see, inspect, reinstall and uninstall it one skill and one Scope at a time.
+One of two kinds: an Agent's global level, or an Agent together with one Registered project. Chosen by kind, never by directory. A skill installed in a Scope has its folder in the Agent's directory for that Scope; users see, inspect, reinstall and uninstall it one skill and one Scope at a time. Scopes of Agents that read the same directory share one folder: installing in one counts for all of them, and uninstalling from one removes it from all.
 _Avoid_: Target, context, location, path, Installation / 目标、上下文、位置、路径、安装项
 
 **Registered project · 已登记项目**:

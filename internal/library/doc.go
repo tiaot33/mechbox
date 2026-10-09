@@ -1,5 +1,5 @@
 // Package library 用 SQLite 数据库统一管理 Agent Skills:先对来源做入库预览再入库,然后把 skill 安装到
-// Claude Code 与 Codex 在各作用域读取的 skills 目录。数据库是唯一权威数据源:
+// 各 Agent(内置的 Claude Code、Codex 与用户添加的自定义 Agent)在各作用域读取的 skills 目录。数据库是唯一权威数据源:
 // Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改不会进库,巡检只拿它们与库里的版本比对。
 //
 // 单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,入库预览里的是 Candidate,
@@ -11,6 +11,11 @@
 // # 用户流程
 //
 // 下面按用户操作的顺序列出每一步用到的方法和所在文件。
+//
+// 设置(library.go、sync.go):
+//   - [Library.SetGitHubToken] 传入访问 GitHub 用的个人访问令牌;没传入时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
+//   - [Library.SetSyncSettings] 传入同步用的 S3 设置,整组取用;没传入时读 SKILLS_S3_*、AWS_* 环境变量。
+//     两者都只在这个 Library 实例上有效,改完下一次请求就用新值。
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求。
@@ -36,6 +41,15 @@
 //   - [Library.CreateGroup]、[Library.RenameGroup]、[Library.DeleteGroup] 管理分组。
 //   - [Library.ListGroups] 列出全部组及成员的技能 ID。
 //   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope。
+//
+// 设置 Agent(agents.go):
+//   - [Library.ListAgents] 列出 Agent,带是否在这台机器上检测到、是否自定义,以及它读取技能的目录。
+//   - [Library.AddAgent]、[Library.EditAgent]、[Library.DeleteAgent] 添加、修改、删除自定义 Agent;改目录时选择是否迁移,
+//     删除时选择是否一并删除文件夹。内置 Agent 不能改。改目录或删除都不动其他 Agent 还在读的文件夹:迁移时复制过去,
+//     删除时即使选了一并删除也保留,安装记录转给还在读的 Agent。
+//   - 几个 Agent 的目录相同时共用技能文件夹:装到其中一个,共用的 Agent 也算已装;从其中一个卸载,没有组安装留着时
+//     文件夹随之删除,它们都不再算已装。列表与巡检里每个共用的 Agent 各列一处,[SkillScope].SharedWith 给出共用的 Agent,
+//     卸载前界面据此提示。
 //
 // 选择安装位置(projects.go):
 //   - [Library.ListAgents]、[Library.ListRegisteredProjects] 列出可选的 Agent 与项目;界面上的

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
@@ -26,14 +27,14 @@ const (
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
 	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、安装目标处不是从库里装的同名文件夹),
-	// 或重新安装时这一处被改过、且没同意覆盖。
+	// 或重新安装时这一处被改过、且没同意覆盖,或改 Agent 目录迁移时新目录里在复制期间出现了同名文件夹(整次不改)。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间勾选的技能被另一次更新改过)。
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;同一入库预览句柄的入库正在进行;
+	// (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;修改或删除内置 Agent;同一入库预览句柄的入库正在进行;
 	// Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回时 S3 上的库不能拉回)。
 	// 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
 	// 加入成员时根目录不存在也是如此。重新安装时根目录不存在放进那一处的 ReinstallResult.Error。
@@ -115,6 +116,9 @@ func typedError(err error) error {
 	}
 	if missing, ok := errors.AsType[*source.NotFoundError](err); ok {
 		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Name}, Err: err}
+	}
+	if exists, ok := errors.AsType[*agentdir.TargetExistsError](err); ok {
+		return &Error{Code: AlreadyExists, Message: err.Error(), Details: ErrorDetails{Path: exists.Path}, Err: err}
 	}
 	if _, ok := errors.AsType[*source.InputError](err); ok {
 		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}

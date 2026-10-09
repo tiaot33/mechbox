@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -13,12 +12,8 @@ type Scope struct {
 	ProjectID *int64
 }
 
-type SkillScopeRef struct {
-	ID     int64
-	Direct bool
-}
-
 type SkillScope struct {
+	ID        int64
 	SkillID   int64
 	Name      string
 	Scope     Scope
@@ -34,9 +29,16 @@ type Claimant struct {
 }
 
 type MemberScope struct {
-	ID    int64
-	Name  string
-	Scope Scope
+	ID      int64
+	SkillID int64
+	Name    string
+	Scope   Scope
+}
+
+type PlaceSkillScope struct {
+	ID     int64
+	Agent  string
+	Direct bool
 }
 
 type GroupInstall struct {
@@ -50,16 +52,29 @@ const groupCoverageSQL = `EXISTS (
 	WHERE sg.skill_id = skill_scopes.skill_id AND ga.agent = skill_scopes.agent
 		AND ga.project_id IS skill_scopes.project_id)`
 
-func (q queries) FindSkillScope(ctx context.Context, skillID int64, scope Scope) (*SkillScopeRef, error) {
-	var ref SkillScopeRef
-	err := q.q.QueryRowContext(ctx, `SELECT id, direct FROM skill_scopes WHERE skill_id = ? AND agent = ? AND project_id IS ?`, skillID, scope.Agent, scope.ProjectID).Scan(&ref.ID, &ref.Direct)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
+func (q queries) PlaceSkillScopes(ctx context.Context, skillID int64, scope Scope) ([]PlaceSkillScope, error) {
+	rows, err := q.q.QueryContext(ctx, `
+		SELECT p.id, p.agent, p.direct FROM skill_scopes p
+		JOIN agents a ON a.code = p.agent JOIN agents t ON t.code = ?
+		WHERE p.skill_id = ? AND p.project_id IS ?
+			AND CASE WHEN p.project_id IS NULL THEN a.global_path = t.global_path ELSE a.project_path = t.project_path END
+		ORDER BY p.agent <> t.code, p.agent`, scope.Agent, skillID, scope.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("find skill scope: %w", wrap(err))
+		return nil, fmt.Errorf("list skill scopes sharing the folder: %w", wrap(err))
 	}
-	return &ref, nil
+	defer rows.Close()
+	var place []PlaceSkillScope
+	for rows.Next() {
+		var row PlaceSkillScope
+		if err := rows.Scan(&row.ID, &row.Agent, &row.Direct); err != nil {
+			return nil, fmt.Errorf("read skill scope sharing the folder: %w", wrap(err))
+		}
+		place = append(place, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read skill scopes sharing the folder: %w", wrap(err))
+	}
+	return place, nil
 }
 
 func (q queries) MarkDirect(ctx context.Context, skillScopeID int64) error {
@@ -69,17 +84,12 @@ func (q queries) MarkDirect(ctx context.Context, skillScopeID int64) error {
 	return nil
 }
 
-func (q queries) ListSkillScopes(ctx context.Context, skillID int64, filter *Scope) ([]SkillScope, error) {
-	var agent string
-	var projectID *int64
-	if filter != nil {
-		agent, projectID = filter.Agent, filter.ProjectID
-	}
-	rows, err := q.q.QueryContext(ctx, `SELECT p.skill_id, s.name, p.agent, p.project_id, p.direct, p.created_at
+func (q queries) ListSkillScopes(ctx context.Context, skillID int64) ([]SkillScope, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT p.id, p.skill_id, s.name, p.agent, p.project_id, p.direct, p.created_at
 		FROM skill_scopes p JOIN skills s ON s.id = p.skill_id
-		WHERE (? = 0 OR p.skill_id = ?) AND (? = '' OR (p.agent = ? AND p.project_id IS ?))
+		WHERE ? = 0 OR p.skill_id = ?
 		ORDER BY p.skill_id, p.agent, p.project_id`,
-		skillID, skillID, agent, agent, projectID)
+		skillID, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("list skill scopes: %w", wrap(err))
 	}
@@ -87,7 +97,7 @@ func (q queries) ListSkillScopes(ctx context.Context, skillID int64, filter *Sco
 	for rows.Next() {
 		var skillScope SkillScope
 		var createdAt string
-		if err := rows.Scan(&skillScope.SkillID, &skillScope.Name, &skillScope.Scope.Agent, &skillScope.Scope.ProjectID, &skillScope.Direct, &createdAt); err != nil {
+		if err := rows.Scan(&skillScope.ID, &skillScope.SkillID, &skillScope.Name, &skillScope.Scope.Agent, &skillScope.Scope.ProjectID, &skillScope.Direct, &createdAt); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("read skill scope: %w", wrap(err))
 		}
@@ -175,7 +185,7 @@ func (q queries) MemberSkillScopes(ctx context.Context, groupID, skillID int64, 
 		agent, projectID = filter.Agent, filter.ProjectID
 	}
 	rows, err := q.q.QueryContext(ctx, `
-		SELECT p.id, s.name, p.agent, p.project_id FROM skill_scopes p
+		SELECT p.id, p.skill_id, s.name, p.agent, p.project_id FROM skill_scopes p
 		JOIN skills s ON s.id = p.skill_id
 		JOIN skill_groups sg ON sg.skill_id = p.skill_id AND sg.group_id = ?
 		JOIN group_installs ga ON ga.group_id = sg.group_id AND ga.agent = p.agent AND ga.project_id IS p.project_id
@@ -189,7 +199,7 @@ func (q queries) MemberSkillScopes(ctx context.Context, groupID, skillID int64, 
 	var members []MemberScope
 	for rows.Next() {
 		var member MemberScope
-		if err := rows.Scan(&member.ID, &member.Name, &member.Scope.Agent, &member.Scope.ProjectID); err != nil {
+		if err := rows.Scan(&member.ID, &member.SkillID, &member.Name, &member.Scope.Agent, &member.Scope.ProjectID); err != nil {
 			return nil, fmt.Errorf("read member skill scope: %w", wrap(err))
 		}
 		members = append(members, member)
@@ -308,6 +318,55 @@ func (t *Tx) KeepAsDirectInstall(ctx context.Context, skillScopeID int64) error 
 func (t *Tx) RemoveGroupInstall(ctx context.Context, groupInstallID int64) error {
 	if _, err := t.q.ExecContext(ctx, `DELETE FROM group_installs WHERE id = ?`, groupInstallID); err != nil {
 		return fmt.Errorf("remove group install: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) RemoveSkillScope(ctx context.Context, skillScopeID int64) error {
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM skill_scopes WHERE id = ?`, skillScopeID); err != nil {
+		return fmt.Errorf("remove skill scope: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent string) error {
+	var skillID int64
+	var projectID *int64
+	var direct bool
+	var createdAt string
+	if err := t.q.QueryRowContext(ctx, `SELECT skill_id, project_id, direct, created_at FROM skill_scopes WHERE id = ?`, skillScopeID).
+		Scan(&skillID, &projectID, &direct, &createdAt); err != nil {
+		return fmt.Errorf("read skill scope to hand over: %w", wrap(err))
+	}
+	result, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = max(direct, ?) WHERE skill_id = ? AND agent = ? AND project_id IS ?`,
+		direct, skillID, agent, projectID)
+	if err != nil {
+		return fmt.Errorf("hand over skill scope: %w", wrap(err))
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("hand over skill scope: %w", wrap(err))
+	}
+	if updated == 0 {
+		if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
+			skillID, agent, projectID, direct, createdAt); err != nil {
+			return fmt.Errorf("hand over skill scope: %w", wrap(err))
+		}
+	}
+	if _, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = 1 WHERE skill_id = ? AND agent = ? AND project_id IS ? AND direct = 0 AND NOT `+groupCoverageSQL,
+		skillID, agent, projectID); err != nil {
+		return fmt.Errorf("hand over skill scope: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) ClaimSkillScope(ctx context.Context, skillID int64, scope Scope, createdAt time.Time) error {
+	if err := t.RecordSkillScope(ctx, skillID, scope, false, createdAt); err != nil {
+		return err
+	}
+	if _, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = 1 WHERE skill_id = ? AND agent = ? AND project_id IS ? AND direct = 0 AND NOT `+groupCoverageSQL,
+		skillID, scope.Agent, scope.ProjectID); err != nil {
+		return fmt.Errorf("claim skill scope: %w", wrap(err))
 	}
 	return nil
 }
