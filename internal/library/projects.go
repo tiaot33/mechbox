@@ -271,7 +271,7 @@ func (l *Library) RelocateProject(ctx context.Context, id ProjectID, path string
 // 但库从此不再管理它们。项目目录本身、库没装的文件夹都不动。项目不在这台机器上时也能注销:
 // 要删的文件夹本来就不在,算成功。未登记的 id 返回 NotFound。
 func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateFolderPolicy("unregister project", opts.Folders); err != nil {
