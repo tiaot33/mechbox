@@ -1,13 +1,15 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查更新与提示方式是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
-// GitHub、同步暂时只读展示外部配置状态;Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销。
+// GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
+// Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销。
 import { useEffect, useRef, useState } from "react";
-import { AppService, CheckInterval, type ConfigStatus, type Settings } from "@bindings/cmd/desktop";
+import { AppService, CheckInterval, type Settings } from "@bindings/cmd/desktop";
 import { unregisterProject } from "@/lib/actions";
 import type { Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { AgentDialog, AgentSection } from "./agent-settings";
+import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
 import { Icon } from "./icons";
 import { ProjectPathDialog } from "./scope-panel";
 
@@ -21,9 +23,10 @@ const intervals: { value: CheckInterval; label: string }[] = [
   { value: CheckInterval.CheckWeekly, label: "每周" },
 ];
 
-export function SettingsPage({ s, config, onClose }: { s: Snapshot; config: ConfigStatus; onClose: () => void }) {
+export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onClose: () => void; onConfigChange: () => void }) {
   const ui = useUI();
   const [settings, setSettings] = useState<Settings>();
+  const credentials = useCredentials(onConfigChange);
   const [current, setCurrent] = useState<Section>(sections[0]);
   const refs = useRef<Partial<Record<Section, HTMLElement | null>>>({});
 
@@ -66,13 +69,6 @@ export function SettingsPage({ s, config, onClose }: { s: Snapshot; config: Conf
       {children}
     </section>
   );
-  const state = (ok: boolean, yes: string, no: string) => <span className={`status ${ok ? "ok" : "warn"}`}>{ok ? yes : no}</span>;
-  const envHint = (
-    <p className="hint">
-      从 Finder / Dock 启动的应用读不到 shell 里设置的环境变量。需要这些配置时，可在终端里运行
-      bin/skills-manager.app/Contents/MacOS/skills-manager。
-    </p>
-  );
   const register = () => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} onClose={close} />);
 
   return (
@@ -105,28 +101,8 @@ export function SettingsPage({ s, config, onClose }: { s: Snapshot; config: Conf
         <main className="a-center tile">
           <div className="a-scroll">
             <div className="settings">
-              {card(
-                "GitHub",
-                "读取自环境变量",
-                <>
-                  <dl className="kv">
-                    <dt>GitHub 令牌</dt>
-                    <dd>{state(config.github_token, "已配置", "匿名访问")} GITHUB_TOKEN 或 GH_TOKEN</dd>
-                  </dl>
-                  {envHint}
-                </>,
-              )}
-              {card(
-                "同步",
-                "读取自环境变量",
-                <>
-                  <dl className="kv">
-                    <dt>S3 同步</dt>
-                    <dd>{state(config.sync, "已配置", "未配置")} SKILLS_S3_BUCKET、AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY</dd>
-                  </dl>
-                  {envHint}
-                </>,
-              )}
+              {card("GitHub", "令牌存在系统钥匙串里", credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
+              {card("同步", "密钥存在系统钥匙串里", credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
               {card(
                 "检查更新",
                 null,

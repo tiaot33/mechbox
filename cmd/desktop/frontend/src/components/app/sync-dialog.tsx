@@ -104,9 +104,9 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
       <p className="hint">手动把整个技能库推送到 S3,或从 S3 拉回，在另一台机器上还原同样的配置。不会自动进行。</p>
       {!config.sync && (
         <div className="notice warn">
-          未配置 S3:需要环境变量 SKILLS_S3_BUCKET、AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY(可选
-          SKILLS_S3_ENDPOINT、SKILLS_S3_KEY、AWS_REGION、AWS_SESSION_TOKEN)。从 Finder 启动的应用读不到
-          shell 里的环境变量。
+          未配置 S3:在设置页的同步分区填写存储桶、Access Key ID 和 Secret Access Key,或设置环境变量
+          SKILLS_S3_BUCKET、AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY(可选 SKILLS_S3_ENDPOINT、SKILLS_S3_KEY、
+          AWS_REGION、AWS_SESSION_TOKEN)。
         </div>
       )}
       {!plan && (

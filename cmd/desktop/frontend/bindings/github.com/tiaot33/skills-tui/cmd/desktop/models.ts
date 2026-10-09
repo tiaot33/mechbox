@@ -56,19 +56,34 @@ export enum CheckInterval {
 };
 
 /**
- * ConfigStatus 报告技能库依赖的外部配置是否就绪。这些配置目前只能来自环境变量;
- * 从 Finder / Dock 启动的应用读不到 shell 里设置的环境变量(运行时配置另有 issue)。
+ * ConfigStatus 报告技能库依赖的外部配置是否就绪：设置页里填了就看设置页的，没填才看环境变量。
  */
 export interface ConfigStatus {
     /**
-     * S3 同步:bucket 与 AWS 凭证齐全
+     * S3 同步：存储桶与密钥齐全
      */
     "sync": boolean;
 
     /**
-     * GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
+     * GitHub 令牌：设置页或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
      */
     "github_token": boolean;
+}
+
+/**
+ * Credentials 是设置页 GitHub 与同步分区里填的内容。令牌、Secret Access Key、Session Token 存在系统钥匙串里，
+ * 其余几项存在 settings.json;都只属于这台机器，不进技能库，也不随同步走(见 ADR 0011)。
+ */
+export interface Credentials {
+    /**
+     * 留空时技能库读 GITHUB_TOKEN / GH_TOKEN
+     */
+    "github_token": string;
+
+    /**
+     * 全部留空时技能库读 SKILLS_S3_*、AWS_*;填了任意一项就整组用这里的
+     */
+    "sync": library$0.SyncSettings;
 }
 
 /**

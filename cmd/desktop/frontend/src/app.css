@@ -406,3 +406,6 @@ body { background: transparent; font-family: var(--ui-font); font-size: 13px; li
 .card-h + .set-row { border-top: 0; padding-top: 0; }
 .set-row .hint { margin-top: 2px; }
 .set-row.disabled { color: var(--ui-muted); }
+.cred-form { display: flex; flex-direction: column; gap: 10px; }
+fieldset.cred-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+.cred-form .hint { margin-top: 0; }
