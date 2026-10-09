@@ -55,11 +55,9 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const [settings, setSettings] = useState(false);
   const ghost = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const call = LibraryService.Config();
-    call.then(setConfig, () => {});
-    return () => void call.cancel();
-  }, []);
+  // 设置页保存 GitHub 令牌或同步设置后重读，保存晚于回到主界面完成时也一样。
+  const loadConfig = useCallback(() => void LibraryService.Config().then(setConfig, () => {}), []);
+  useEffect(loadConfig, [loadConfig]);
 
   // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
   useEffect(() => Events.On("updates-checked", reload), [reload]);
@@ -141,7 +139,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   if (s && settings) {
     return (
       <div className="window">
-        <SettingsPage s={s} config={config} onClose={() => setSettings(false)} />
+        <SettingsPage s={s} onClose={() => setSettings(false)} onConfigChange={loadConfig} />
       </div>
     );
   }

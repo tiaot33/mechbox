@@ -26,9 +26,15 @@ type AppService struct {
 
 	mu          sync.Mutex
 	settings    Settings
+	sync        syncFields
 	hidden      bool
 	opened      bool
 	lastAttempt time.Time
+
+	credMu      sync.Mutex
+	keychain    secretStore
+	secrets     secrets
+	secretsRead bool
 
 	nativeMu sync.Mutex
 	tray     *application.SystemTray
@@ -41,16 +47,23 @@ type AppService struct {
 
 // NewAppService 创建应用设置服务;app 与 window 在 main 里创建窗口后填入。
 func NewAppService(path string, lib *LibraryService) *AppService {
-	return &AppService{path: path, library: lib, wake: make(chan struct{}, 1)}
+	return &AppService{path: path, library: lib, keychain: defaultKeychain(), wake: make(chan struct{}, 1)}
 }
 
-// ServiceStartup 读取设置并开始后台检查;它排在 LibraryService 之后启动，技能库已经打开。
+// ServiceStartup 读取设置，把设置页里填的 GitHub 令牌与同步设置交给技能库，并开始后台检查;
+// 它排在 LibraryService 之后启动，技能库已经打开。
 func (a *AppService) ServiceStartup(context.Context, application.ServiceOptions) error {
-	settings, err := loadSettings(a.path)
+	file, err := loadSettings(a.path)
 	if err != nil && a.app != nil {
 		a.app.Logger.Warn("settings unreadable, using defaults", "error", err)
 	}
-	a.settings = settings
+	a.settings, a.sync = file.Settings, file.Sync
+	a.credMu.Lock()
+	if err := a.readSecrets(); err != nil && a.app != nil {
+		a.app.Logger.Warn("keychain unreadable", "error", err)
+	}
+	a.applyCredentials(a.credentials())
+	a.credMu.Unlock()
 	a.opened = true
 	loop, stop := context.WithCancel(context.Background())
 	a.stop = stop
@@ -81,7 +94,7 @@ func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 		return Settings{}, fmt.Errorf("unknown check interval %q", settings.CheckInterval)
 	}
 	a.mu.Lock()
-	err := saveSettings(a.path, settings)
+	err := saveSettings(a.path, settingsFile{Settings: settings, Sync: a.sync})
 	if err == nil {
 		a.settings = settings
 	}

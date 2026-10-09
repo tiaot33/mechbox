@@ -207,10 +207,20 @@ func (s *LibraryService) Reinstall(ctx context.Context, requests []library.Reins
 // ---------- GitHub 与同步 ----------
 
 func (s *LibraryService) SetGitHubToken(token string) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.token = token != ""
 	s.lib.SetGitHubToken(token)
 }
 
 func (s *LibraryService) SetSyncSettings(settings *library.SyncSettings) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.sync = nil
+	if settings != nil {
+		given := *settings
+		s.sync = &given
+	}
 	s.lib.SetSyncSettings(settings)
 }
 

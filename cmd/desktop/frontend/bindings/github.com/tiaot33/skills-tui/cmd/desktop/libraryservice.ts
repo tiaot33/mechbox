@@ -32,7 +32,7 @@ export function CheckUpdates(collections: library$0.CollectionID[] | null): $Can
 }
 
 /**
- * Config 返回外部配置的就绪状态，只看是否设置，不校验取值。
+ * Config 返回外部配置的就绪状态，只看是否填了，不校验取值。
  */
 export function Config(): $CancellablePromise<$models.ConfigStatus> {
     return $Call.ByID(3000412408);

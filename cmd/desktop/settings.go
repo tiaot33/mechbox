@@ -48,29 +48,42 @@ func (i CheckInterval) valid() bool {
 	return timed || i == CheckOnOpen
 }
 
+type settingsFile struct {
+	Settings
+	Sync syncFields `json:"sync,omitzero"`
+}
+
+type syncFields struct {
+	Endpoint    string `json:"endpoint,omitempty"`
+	Bucket      string `json:"bucket,omitempty"`
+	Key         string `json:"key,omitempty"`
+	Region      string `json:"region,omitempty"`
+	AccessKeyID string `json:"access_key_id,omitempty"`
+}
+
 func defaultSettings() Settings {
 	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
 }
 
-func loadSettings(path string) (Settings, error) {
-	settings := defaultSettings()
+func loadSettings(path string) (settingsFile, error) {
+	file := settingsFile{Settings: defaultSettings()}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return settings, nil
+		return file, nil
 	}
 	if err != nil {
-		return settings, fmt.Errorf("read settings: %w", err)
+		return file, fmt.Errorf("read settings: %w", err)
 	}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return defaultSettings(), fmt.Errorf("parse settings %s: %w", path, err)
+	if err := json.Unmarshal(data, &file); err != nil {
+		return settingsFile{Settings: defaultSettings()}, fmt.Errorf("parse settings %s: %w", path, err)
 	}
-	if !settings.CheckInterval.valid() {
-		settings.CheckInterval = defaultSettings().CheckInterval
+	if !file.CheckInterval.valid() {
+		file.CheckInterval = defaultSettings().CheckInterval
 	}
-	return settings, nil
+	return file, nil
 }
 
-func saveSettings(path string, settings Settings) error {
+func saveSettings(path string, settings settingsFile) error {
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err

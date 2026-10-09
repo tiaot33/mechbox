@@ -139,7 +139,7 @@ export function FetchDialog({ config, home, onClose }: { config: ConfigStatus; h
             </label>
           </div>
           {!config.github_token && (
-            <div className="notice warn">未设置 GITHUB_TOKEN / GH_TOKEN,匿名访问 GitHub API 容易被限流。</div>
+            <div className="notice warn">设置页没有填 GitHub 令牌，也没有设置 GITHUB_TOKEN / GH_TOKEN,匿名访问 GitHub API 容易被限流。</div>
           )}
         </>
       )}

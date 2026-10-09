@@ -77,10 +77,7 @@ func fetchSkill(t *testing.T, lib *library.Library, req library.PreviewFetchRequ
 func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 	lib := startLibrary(t)
 	path := filepath.Join(t.TempDir(), settingsFileName)
-	first := NewAppService(path, lib)
-	if err := first.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup: %v", err)
-	}
+	first := startApp(t, path, lib)
 	if got := first.Settings(); got != defaultSettings() {
 		t.Fatalf("first start = %+v; want defaults", got)
 	}
@@ -93,6 +90,7 @@ func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 	}
 
 	second := NewAppService(path, lib)
+	second.keychain = first.keychain
 	if err := second.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup after restart: %v", err)
 	}
