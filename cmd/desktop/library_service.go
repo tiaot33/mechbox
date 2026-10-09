@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -33,6 +34,10 @@ func defaultLibraryPath() (string, error) {
 type LibraryService struct {
 	path string
 	lib  *library.Library
+
+	configMu sync.Mutex
+	token    bool
+	sync     *library.SyncSettings
 }
 
 // NewLibraryService 创建绑定服务;库在 Wails 启动服务时才打开。
@@ -97,14 +102,13 @@ func appVersion() string {
 	return ""
 }
 
-// ConfigStatus 报告技能库依赖的外部配置是否就绪。这些配置目前只能来自环境变量;
-// 从 Finder / Dock 启动的应用读不到 shell 里设置的环境变量(运行时配置另有 issue)。
+// ConfigStatus 报告技能库依赖的外部配置是否就绪：设置页里填了就看设置页的，没填才看环境变量。
 type ConfigStatus struct {
-	Sync        bool `json:"sync"`         // S3 同步:bucket 与 AWS 凭证齐全
-	GitHubToken bool `json:"github_token"` // GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
+	Sync        bool `json:"sync"`         // S3 同步：存储桶与密钥齐全
+	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
 }
 
-// Config 返回外部配置的就绪状态，只看是否设置，不校验取值。
+// Config 返回外部配置的就绪状态，只看是否填了，不校验取值。
 func (s *LibraryService) Config() ConfigStatus {
 	set := func(names ...string) bool {
 		for _, name := range names {
@@ -114,8 +118,14 @@ func (s *LibraryService) Config() ConfigStatus {
 		}
 		return true
 	}
-	return ConfigStatus{
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	status := ConfigStatus{
 		Sync:        set("SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
-		GitHubToken: set("GITHUB_TOKEN") || set("GH_TOKEN"),
+		GitHubToken: s.token || set("GITHUB_TOKEN") || set("GH_TOKEN"),
 	}
+	if s.sync != nil {
+		status.Sync = s.sync.Bucket != "" && s.sync.AccessKeyID != "" && s.sync.SecretAccessKey != ""
+	}
+	return status
 }

@@ -15,5 +15,6 @@ export {
 export type {
     AppInfo,
     ConfigStatus,
+    Credentials,
     Settings
 } from "./models.js";

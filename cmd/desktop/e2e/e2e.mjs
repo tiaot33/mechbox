@@ -666,6 +666,78 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   await page.waitForSelector(".a-list");
 });
 
+await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部留空时回到环境变量", async () => {
+  const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
+  const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
+  const section = (name) => page.locator(".settings .card", { has: page.locator(".card-h > span:first-child", { hasText: new RegExp(`^${name}$`) }) });
+  const field = (name, label) => section(name).locator("label.field", { hasText: label }).locator("input");
+  const sidebarSync = () => page.locator(".a-left .nav-item", { hasText: "同步" });
+  // 回到主界面后侧栏重读配置状态，等它变成预期的文字
+  const sidebarSays = async (text, message) => {
+    await sidebarSync().filter({ hasText: text }).waitFor({ timeout: 5000 }).catch(() => assert.fail(message));
+  };
+  const open = async () => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await field("GitHub", "个人访问令牌").waitFor();
+  };
+  await sidebarSays("未配置", "没填同步设置、也没有环境变量时侧栏应显示未配置");
+  await open();
+  assert(await btn(section("GitHub"), "保存").isDisabled(), "没改时不能保存");
+  assert((await field("GitHub", "个人访问令牌").getAttribute("type")) === "password", "令牌输入框应遮住内容");
+  await field("GitHub", "个人访问令牌").fill("ghp_e2e_token");
+  await btn(section("GitHub"), "保存").click();
+  await toast("已保存 GitHub 令牌");
+  await settle();
+
+  // 整组取用：只填存储桶时缺密钥，仍是未配置
+  await field("同步", "存储桶").fill("e2e-bucket");
+  await btn(section("同步"), "保存").click();
+  await toast("已保存同步设置");
+  await settle();
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  await sidebarSays("未配置", "只填了存储桶时应仍显示未配置");
+
+  await open();
+  await field("同步", "服务地址").fill(endpoint);
+  await field("同步", "Access Key ID").fill("AKIDE2E");
+  await field("同步", "Secret Access Key").fill("e2e-secret");
+  await btn(section("同步"), "保存").click();
+  await toast("已保存同步设置");
+  await settle();
+  const raw = fs.readFileSync(settingsFile, "utf8");
+  assert.deepStrictEqual(JSON.parse(raw).sync, { endpoint, bucket: "e2e-bucket", access_key_id: "AKIDE2E" });
+  for (const secret of ["ghp_e2e_token", "e2e-secret"]) assert(!raw.includes(secret), `settings.json 里不应有 ${secret}`);
+
+  // 重新载入后仍在;侧栏与同步框认设置页的值，同步计划发到设置页填的服务地址
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await sidebarSays("手动", "填好同步设置后侧栏应显示手动");
+  await sidebarSync().click();
+  assert((await modal().locator(".notice.warn", { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
+  await btn(modal(), "推送到 S3…").click();
+  await modal().locator(".kv dd", { hasText: "还没有" }).waitFor();
+  await page.keyboard.press("Escape");
+  await open();
+  assert((await field("GitHub", "个人访问令牌").inputValue()) === "ghp_e2e_token", "重新载入后令牌应仍在");
+  assert((await field("同步", "存储桶").inputValue()) === "e2e-bucket", "重新载入后存储桶应仍在");
+  assert((await field("同步", "Secret Access Key").inputValue()) === "e2e-secret", "重新载入后密钥应仍在");
+
+  // 全部清空：回到读环境变量
+  await field("GitHub", "个人访问令牌").fill("");
+  await btn(section("GitHub"), "保存").click();
+  await toast("已保存 GitHub 令牌");
+  await settle();
+  for (const label of ["服务地址", "存储桶", "Access Key ID", "Secret Access Key"]) await field("同步", label).fill("");
+  await btn(section("同步"), "保存").click();
+  await toast("已保存同步设置");
+  await settle();
+  assert(!("sync" in JSON.parse(fs.readFileSync(settingsFile, "utf8"))), "清空后 settings.json 里不应再有同步设置");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  await sidebarSays("未配置", "清空后侧栏应回到未配置");
+});
+
 // ============ 冲突与失败路径 ============
 await step("占用冲突：同名技能已在该作用域，安装被拦下并说明占用者", async () => {
   const dir = `${HOME}/code/other/gamma`;

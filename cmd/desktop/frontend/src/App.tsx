@@ -55,11 +55,13 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const [settings, setSettings] = useState(false);
   const ghost = useRef<HTMLDivElement>(null);
 
+  // 设置页里改了 GitHub 令牌或同步设置，回到主界面时重读。
   useEffect(() => {
+    if (settings) return;
     const call = LibraryService.Config();
     call.then(setConfig, () => {});
     return () => void call.cancel();
-  }, []);
+  }, [settings]);
 
   // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
   useEffect(() => Events.On("updates-checked", reload), [reload]);
@@ -141,7 +143,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   if (s && settings) {
     return (
       <div className="window">
-        <SettingsPage s={s} config={config} onClose={() => setSettings(false)} />
+        <SettingsPage s={s} onClose={() => setSettings(false)} />
       </div>
     );
   }
