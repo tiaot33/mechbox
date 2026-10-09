@@ -7,11 +7,11 @@ import {
   type Error as LibraryErrorModel,
   type Agent,
   type Collection,
+  type Group,
   type GroupInstall,
-  type GroupWithMembers,
   type RegisteredProject,
+  type Skill,
   type SkillScopeInspection,
-  type SkillSummary,
 } from "@bindings/internal/library";
 import { parseScope, type ScopeKey } from "./model";
 
@@ -32,9 +32,9 @@ export interface Snapshot {
   info: AppInfo;
   agents: Agent[];
   projects: RegisteredProject[];
-  skills: SkillSummary[];
+  skills: Skill[];
   collections: Collection[];
-  groups: GroupWithMembers[];
+  groups: Group[];
   groupInstalls: GroupInstall[];
   skillScopes: SkillScopeInspection[];
 }
@@ -68,7 +68,7 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
       list(track(LibraryService.ListRegisteredProjects())),
       list(track(LibraryService.ListSkills())),
       list(track(LibraryService.ListCollections())),
-      list(track(LibraryService.ListGroupsWithMembers())),
+      list(track(LibraryService.ListGroups())),
       list(track(LibraryService.ListGroupInstalls())),
       list(track(LibraryService.InspectSkillScopes({}))),
     ]).then(
@@ -96,13 +96,13 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
   return [state, reload];
 }
 
-// useScopeDirectory 解析作用域对应的 Agent 目录;scope 为 null 时不请求。
+// useScopeDirectory 查作用域对应的 Agent 目录;scope 为 null 时不请求。
 export function useScopeDirectory(scope: ScopeKey | null): string | undefined {
   const [directory, setDirectory] = useState<string>();
   useEffect(() => {
     setDirectory(undefined);
     if (!scope) return;
-    const call = LibraryService.Resolve(parseScope(scope));
+    const call = LibraryService.ScopeDirectory(parseScope(scope));
     call.then(setDirectory, () => setDirectory(undefined));
     return () => void call.cancel();
   }, [scope]);

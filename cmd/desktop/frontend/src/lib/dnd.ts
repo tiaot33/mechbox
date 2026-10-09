@@ -32,7 +32,7 @@ export function alreadyInScope(s: Snapshot, item: DragItem, key: ScopeKey): bool
 
 // alreadyInGroup:技能已是该组成员。
 export function alreadyInGroup(s: Snapshot, item: DragItem, id: GroupID): boolean {
-  return item.kind === "skill" && !!s.groups.find((g) => g.group.id === id)?.members?.includes(item.id);
+  return item.kind === "skill" && !!s.groups.find((g) => g.id === id)?.members?.includes(item.id);
 }
 
 // dropProps 生成放置目标的事件处理:canDrop 为 false 时不接受放置。

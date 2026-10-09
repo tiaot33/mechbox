@@ -5,14 +5,15 @@ import {
   SourceType,
   UpdateCheckStatus,
   type AgentCode,
-  type GroupWithMembers,
+  type Collection,
+  type CollectionID,
+  type Group,
+  type GroupID,
   type ProjectID,
   type Scope,
+  type Skill,
   type SkillScopeInspection,
-  type SkillSummary,
   type Source,
-  type SourceID,
-  type GroupID,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 
@@ -46,7 +47,7 @@ export function agentName(s: Snapshot, code: AgentCode): string {
 }
 
 export function projectName(s: Snapshot, id: ProjectID): string {
-  return lastSegment(s.projects.find((p) => p.id === id)?.path ?? "");
+  return s.projects.find((p) => p.id === id)?.name ?? "";
 }
 
 export function scopeLabel(s: Snapshot, scope: Scope): string {
@@ -87,22 +88,69 @@ export const skillScopeStatus: Record<SkillScopeStatus, { label: string; tone: "
   [SkillScopeStatus.SkillScopeStale]: { label: "旧版本", tone: "warn" },
   [SkillScopeStatus.SkillScopeModified]: { label: "被手动改过", tone: "bad" },
   [SkillScopeStatus.SkillScopeMissing]: { label: "文件夹不在了", tone: "bad" },
-  [SkillScopeStatus.SkillScopeDirectoryMissing]: { label: "Agent 目录不在了", tone: "bad" },
+  [SkillScopeStatus.SkillScopeRootMissing]: { label: "项目不在这台机器上", tone: "bad" },
   [SkillScopeStatus.$zero]: { label: "未知", tone: "warn" },
 };
 
 // groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on。
 // 成员各自的直接安装不算组安装。
-export function groupStateIn(s: Snapshot, group: GroupWithMembers, key: ScopeKey): "on" | "off" {
-  return s.groupInstalls.some((a) => a.group_id === group.group.id && scopeKey(a.scope) === key) ? "on" : "off";
+export function groupStateIn(s: Snapshot, group: Group, key: ScopeKey): "on" | "off" {
+  return s.groupInstalls.some((a) => a.group_id === group.id && scopeKey(a.scope) === key) ? "on" : "off";
 }
 
-export function viaGroupCount(s: Snapshot, group: GroupWithMembers, key: ScopeKey): number {
-  return (group.members ?? []).filter((id) => skillScopeIn(s, id, key)?.groups?.includes(group.group.id)).length;
+export function viaGroupCount(s: Snapshot, group: Group, key: ScopeKey): number {
+  return (group.members ?? []).filter((id) => skillScopeIn(s, id, key)?.groups?.includes(group.id)).length;
 }
 
-export function updateAvailable(skill: SkillSummary): boolean {
-  return skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable;
+// ---------- 更新 ----------
+// 本地目录来源的作者就是用户自己：不进更新列表、不计入计数，技能上只有"重新读取"。
+
+export function isLocal(source: Source): boolean {
+  return source.type === SourceType.SourceLocal;
+}
+
+export function updateAvailable(skill: Skill): boolean {
+  return !isLocal(skill.source) && skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable;
+}
+
+export function deletedInSource(skill: Skill): boolean {
+  return skill.last_update_check?.status === UpdateCheckStatus.UpdateDeleted;
+}
+
+export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
+  const ids = new Set(c.skills ?? []);
+  return s.skills.filter((x) => ids.has(x.id));
+}
+
+// updatableCollections 是有新版本的集合(不含本地目录来源),按集合列表顺序。
+export function updatableCollections(s: Snapshot): Collection[] {
+  return s.collections.filter((c) => !isLocal(c.source) && collectionSkills(s, c).some(updateAvailable));
+}
+
+// checkableCollections 是检查更新的范围：本地目录来源不检查。
+export function checkableCollections(s: Snapshot): CollectionID[] {
+  return s.collections.filter((c) => !isLocal(c.source)).map((c) => c.id);
+}
+
+export function shortRevision(revision: string): string {
+  return revision.slice(0, 7);
+}
+
+// revisionSummary 说明集合里的技能在哪个来源版本上:都在同一个时"在 a1b2c3";
+// 不在同一个时直接写"pdf 在 d4e5f6,其余 4 个在 a1b2c3",不起专门的名字。本地目录来源为空。
+export function revisionSummary(skills: Skill[]): string {
+  const byRevision = new Map<string, Skill[]>();
+  for (const x of skills) {
+    if (!x.revision) continue;
+    const key = shortRevision(x.revision);
+    byRevision.set(key, [...(byRevision.get(key) ?? []), x]);
+  }
+  if (byRevision.size === 0) return "";
+  const groups = [...byRevision.entries()].sort((a, b) => b[1].length - a[1].length);
+  const [main, ...others] = groups;
+  if (!others.length) return `在 ${main[0]}`;
+  const parts = others.map(([rev, list]) => `${list.map((x) => x.name).join("、")} 在 ${rev}`);
+  return `${parts.join(",")},其余 ${main[1].length} 个在 ${main[0]}`;
 }
 
 // ---------- 来源 ----------
@@ -149,32 +197,33 @@ export function sourceShort(s: Snapshot, source: Source): string {
 export type SkillFilter =
   | { kind: "all" }
   | { kind: "updates" }
-  | { kind: "collection"; sourceID: SourceID }
+  | { kind: "collection"; collectionID: CollectionID }
   | { kind: "group"; groupID: GroupID };
 
 export function sameFilter(a: SkillFilter, b: SkillFilter): boolean {
-  if (a.kind === "collection" && b.kind === "collection") return a.sourceID === b.sourceID;
+  if (a.kind === "collection" && b.kind === "collection") return a.collectionID === b.collectionID;
   if (a.kind === "group" && b.kind === "group") return a.groupID === b.groupID;
   return a.kind === b.kind;
 }
 
-// resolveFilter 把指向已不存在的集合或组的筛选退回"所有技能"。
+// resolveFilter 把指向已不存在的集合或组、或已没有更新的筛选退回"所有技能"。
 export function resolveFilter(s: Snapshot, filter: SkillFilter): SkillFilter {
-  if (filter.kind === "collection" && !s.collections.some((c) => c.source.id === filter.sourceID)) return { kind: "all" };
-  if (filter.kind === "group" && !s.groups.some((g) => g.group.id === filter.groupID)) return { kind: "all" };
+  if (filter.kind === "collection" && !s.collections.some((c) => c.id === filter.collectionID)) return { kind: "all" };
+  if (filter.kind === "group" && !s.groups.some((g) => g.id === filter.groupID)) return { kind: "all" };
+  if (filter.kind === "updates" && !updatableCollections(s).length) return { kind: "all" };
   return filter;
 }
 
 export function filterTitle(s: Snapshot, filter: SkillFilter): string {
   switch (filter.kind) {
     case "collection": {
-      const c = s.collections.find((c) => c.source.id === filter.sourceID);
+      const c = s.collections.find((c) => c.id === filter.collectionID);
       return c ? sourceLabel(s, c.source) : "所有技能";
     }
     case "group":
-      return s.groups.find((g) => g.group.id === filter.groupID)?.group.name ?? "所有技能";
+      return s.groups.find((g) => g.id === filter.groupID)?.name ?? "所有技能";
     case "updates":
-      return "有可用更新";
+      return "更新";
     default:
       return "所有技能";
   }
@@ -186,15 +235,15 @@ export interface ListQuery {
   installedOnlyIn: ScopeKey | null; // 仅显示已安装在该作用域的技能
 }
 
-export function visibleSkills(s: Snapshot, q: ListQuery): SkillSummary[] {
+export function visibleSkills(s: Snapshot, q: ListQuery): Skill[] {
   let skills = s.skills;
   const f = q.filter;
   if (f.kind === "collection") {
-    const ids = new Set((s.collections.find((c) => c.source.id === f.sourceID)?.skills ?? []).map((x) => x.id));
+    const ids = new Set(s.collections.find((c) => c.id === f.collectionID)?.skills ?? []);
     skills = skills.filter((x) => ids.has(x.id));
   }
   if (f.kind === "group") {
-    const ids = new Set(s.groups.find((g) => g.group.id === f.groupID)?.members ?? []);
+    const ids = new Set(s.groups.find((g) => g.id === f.groupID)?.members ?? []);
     skills = skills.filter((x) => ids.has(x.id));
   }
   if (f.kind === "updates") skills = skills.filter(updateAvailable);

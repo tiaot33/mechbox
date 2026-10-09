@@ -2,8 +2,8 @@
 // 项目行折叠时用小图标显示在用的 Agent。点选一行即选中该作用域(与顶栏胶囊同步)。
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖到折叠的项目或"其他 Agent"上停 0.5 秒自动展开。
 import { useRef, useState } from "react";
-import type { Agent } from "@bindings/internal/library";
-import { registerProject, unregisterProject } from "@/lib/actions";
+import type { Agent, RegisteredProject } from "@bindings/internal/library";
+import { registerProject, relocateProject, unregisterProject } from "@/lib/actions";
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
 import type { Snapshot } from "@/lib/library";
 import {
@@ -108,7 +108,9 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
     );
   };
 
-  const register = () => ui.open((close) => <RegisterProjectDialog home={s.info.home_dir} onClose={close} />);
+  const register = () => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} onClose={close} />);
+  const relocate = (project: RegisteredProject) =>
+    ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={project} onClose={close} />);
 
   return (
     <aside className="a-right">
@@ -137,11 +139,16 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                 tabIndex={0}
                 className={`nav-item proj ${open ? "open" : ""} ${selected && placeOf(selected) === p.id ? "current" : ""}`}
                 onClick={() => onToggleProject(p.id)}
-                title={shortPath(s, p.path)}
+                title={p.missing ? `${shortPath(s, p.path)}\n不在这台机器上` : shortPath(s, p.path)}
                 {...springProps(!open, () => onToggleProject(p.id))}
               >
                 <Icon name="folder" />
                 <span className="grow ellipsis">{projectName(s, p.id)}</span>
+                {p.missing && (
+                  <span className="badge warn" title="项目目录在这台机器上不存在;可以改项目位置">
+                    不在这台机器上
+                  </span>
+                )}
                 {!open && (
                   <span className="marks">
                     {agentsUsedIn(s, p.id).map((a) => (
@@ -150,6 +157,17 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                   </span>
                 )}
                 <span className="row-actions">
+                  <button
+                    type="button"
+                    className="icon-btn sm"
+                    title="改项目位置"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void relocate(p);
+                    }}
+                  >
+                    <Icon name="edit" />
+                  </button>
                   <button
                     type="button"
                     className="icon-btn sm"
@@ -177,22 +195,30 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
   );
 }
 
-// RegisterProjectDialog 登记一个项目目录：可直接输入路径，也可用系统目录选择框。
-function RegisterProjectDialog({ home, onClose }: { home: string; onClose: () => void }) {
+// ProjectPathDialog 登记一个项目目录，或给出 project 时改它的位置:可直接输入路径，也可用系统目录选择框。
+function ProjectPathDialog({
+  home,
+  project,
+  onClose,
+}: {
+  home: string;
+  project?: RegisteredProject;
+  onClose: () => void;
+}) {
   const ui = useUI();
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(project?.path ?? "");
   const [working, setWorking] = useState(false);
   const resolved = resolveLocalPath(path, home);
   const submit = async () => {
     if (!resolved?.path) return;
     setWorking(true);
-    const ok = await registerProject(ui, resolved.path);
+    const ok = project ? await relocateProject(ui, project, resolved.path) : await registerProject(ui, resolved.path);
     setWorking(false);
     if (ok) onClose();
   };
   return (
     <Modal
-      title="登记项目"
+      title={project ? `改项目「${project.name}」的位置` : "登记项目"}
       onClose={onClose}
       footer={
         <>
@@ -201,12 +227,16 @@ function RegisterProjectDialog({ home, onClose }: { home: string; onClose: () =>
           </button>
           <button type="button" className="pill-btn accent" disabled={!resolved?.path || working} onClick={submit}>
             {working ? <span className="spin" /> : null}
-            登记
+            {project ? "改位置" : "登记"}
           </button>
         </>
       }
     >
-      <p className="hint">登记后，这个项目与每个 Agent 组成项目级作用域，技能可以安装到项目里的 Agent 目录。</p>
+      <p className="hint">
+        {project
+          ? "把项目指到本机上的目录(从别的机器同步过来，或项目目录被移动、改名之后)。直接安装与组安装都保留;旧位置的技能文件夹不搬动，技能库从此不再管。"
+          : "登记后，这个项目与每个 Agent 组成项目级作用域，技能可以安装到项目里的 Agent 目录。"}
+      </p>
       <div className="row">
         <input
           className="input grow"
@@ -220,7 +250,7 @@ function RegisterProjectDialog({ home, onClose }: { home: string; onClose: () =>
           type="button"
           className="pill-btn"
           onClick={async () => {
-            const dir = await pickDirectory("选择要登记的项目目录");
+            const dir = await pickDirectory(project ? "选择项目在这台机器上的目录" : "选择要登记的项目目录");
             if (dir) setPath(dir);
           }}
         >

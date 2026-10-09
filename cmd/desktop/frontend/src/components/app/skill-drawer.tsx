@@ -8,29 +8,32 @@ import {
   SourceType,
   UpdateCheckStatus,
   type FileMetadata,
-  type SkillSummary,
+  type Skill,
   type SkillVersion,
-  type Source,
   type VersionDiff,
+  type VersionID,
 } from "@bindings/internal/library";
 import {
   addSkillToGroup,
-  checkUpdates,
   createGroup,
   installSkill,
   reinstall,
   removeSkill,
   removeSkillFromGroup,
+  openUpdate,
   uninstallSkill,
-  updateSkill,
 } from "@/lib/actions";
 import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/content";
 import type { Snapshot } from "@/lib/library";
 import {
   agentName,
   agentsUsedIn,
+  collectionSkills,
+  deletedInSource,
+  isLocal,
   needsReinstall,
   projectName,
+  revisionSummary,
   scopeKey,
   scopeLabel,
   scopeOf,
@@ -48,16 +51,31 @@ import { Icon, SourceIcon } from "./icons";
 import { AgentMark } from "./parts";
 
 const checkStatus: Record<UpdateCheckStatus, { label: string; tone: string }> = {
-  [UpdateCheckStatus.UpdateAvailable]: { label: "有更新", tone: "warn" },
+  [UpdateCheckStatus.UpdateAvailable]: { label: "有新版本", tone: "warn" },
   [UpdateCheckStatus.UpdateCurrent]: { label: "已是最新", tone: "ok" },
+  [UpdateCheckStatus.UpdateDeleted]: { label: "来源里已删除", tone: "" },
   [UpdateCheckStatus.UpdateFailed]: { label: "检查失败", tone: "bad" },
   [UpdateCheckStatus.$zero]: { label: "已是最新", tone: "ok" },
 };
 
-function sourceRef(source: Source): string {
+// collectionRelation 说明技能和集合里其他技能的关系：是否在同一个来源版本上，以及其他技能有没有新版本。
+function collectionRelation(skill: Skill, collection: Skill[]): string {
+  const others = collection.filter((x) => x.id !== skill.id);
+  const pending = others.filter(updateAvailable).length;
+  const aligned = new Set(collection.map((x) => x.revision).filter(Boolean)).size <= 1;
+  return [
+    aligned ? `和其他 ${others.length} 个技能在同一个来源版本上` : revisionSummary(collection),
+    pending ? `${pending} 个有新版本` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function sourceRef(skill: Skill): string {
+  const source = skill.source;
   switch (source.type) {
     case SourceType.SourceGitHub:
-      return [source.ref || "默认分支", source.last_seen_ref?.slice(0, 12)].filter(Boolean).join(" · ");
+      return [source.ref || "默认分支", skill.revision?.slice(0, 12)].filter(Boolean).join(" · ");
     case SourceType.SourceURL:
       try {
         return new URL(source.label).host;
@@ -69,25 +87,28 @@ function sourceRef(source: Source): string {
   }
 }
 
-export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSummary; onClose: () => void }) {
+export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; onClose: () => void }) {
   const ui = useUI();
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [versions, setVersions] = useState<SkillVersion[]>([]);
   const id = skill.id;
 
-  // 技能内容变化(更新、重装)时 updated_at 变，随之重读详情。
+  // 更新带来新版本时 version_id 变，确认来源没变时 revision 前移，随之重读文件与版本历史。
+  // 文件按版本 ID 读：浏览途中技能被更新，读到的仍是同一版本。
   useEffect(() => {
-    const calls = [LibraryService.ListSkillFiles(id), LibraryService.ListVersions(id)] as const;
+    const calls = [LibraryService.ListVersionFiles(skill.version_id), LibraryService.ListVersions(id)] as const;
     calls[0].then((f) => setFiles(f ?? []), () => {});
     calls[1].then((v) => setVersions(v ?? []), () => {});
     return () => calls.forEach((c) => void c.cancel());
-  }, [id, skill.updated_at]);
+  }, [id, skill.version_id, skill.revision]);
 
   const groups = s.groups.filter((g) => g.members?.includes(id));
   const notIn = s.groups.filter((g) => !g.members?.includes(id));
   const installed = skillScopesOf(s, id);
   const stale = installed.filter(needsReinstall).length;
   const check = skill.last_update_check;
+  const c = s.collections.find((x) => x.id === skill.collection_id);
+  const collection = c ? collectionSkills(s, c) : [];
 
   return (
     <>
@@ -104,22 +125,30 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
           <div className="detail-title">
             <h2>{skill.name}</h2>
             {updateAvailable(skill) && (
-              <button type="button" className="pill-btn accent" onClick={() => updateSkill(ui, s, id)}>
+              <button type="button" className="pill-btn accent" onClick={() => openUpdate(ui, s, skill.collection_id, id)}>
                 <Icon name="up" />
-                更新到新版本
+                更新
               </button>
             )}
           </div>
           {skill.description && <p className="detail-desc">{skill.description}</p>}
+          {deletedInSource(skill) && (
+            <div className="notice" style={{ marginBottom: 10 }}>
+              作者已从 {sourceLabel(s, skill.source)} 删掉了「{skill.name}」(也可能是改了名)。你的副本还在，可以继续用。
+            </div>
+          )}
           <div className="detail-actions">
-            <button type="button" className="pill-btn sm" onClick={() => checkUpdates(ui, s, [id])}>
-              <Icon name="refresh" />
-              检查更新
-            </button>
-            <button type="button" className="pill-btn sm" onClick={() => updateSkill(ui, s, id)}>
-              <Icon name="up" />
-              重新读取来源
-            </button>
+            {isLocal(skill.source) && (
+              <button
+                type="button"
+                className="pill-btn sm"
+                onClick={() => openUpdate(ui, s, skill.collection_id, id)}
+                title="从目录读出当前内容成为新版本，并换到装过它的地方"
+              >
+                <Icon name="up" />
+                重新读取
+              </button>
+            )}
             {installed.length > 0 && (
               <button type="button" className="pill-btn sm" onClick={() => reinstall(ui, s, { skill_id: id }, `「${skill.name}」`)}>
                 <Icon name="refresh" />
@@ -149,9 +178,15 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                 </span>{" "}
                 <span className="muted">{sourceKindLabel[skill.source.type]}</span>
               </dd>
+              {collection.length > 1 && (
+                <>
+                  <dt>同一来源</dt>
+                  <dd>{collectionRelation(skill, collection)}</dd>
+                </>
+              )}
               <dt>来源版本</dt>
               <dd>
-                <span className="mono">{sourceRef(skill.source)}</span>
+                <span className="mono">{sourceRef(skill)}</span>
                 {skill.source.view_url && (
                   <>
                     {" "}
@@ -165,25 +200,30 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
               <dd>{formatDate(skill.fetched_at)}</dd>
               <dt>当前版本</dt>
               <dd>
-                {formatDate(skill.updated_at)} · 共 {versions.length} 个版本
+                {formatDate(versions.find((v) => v.id === skill.version_id)?.created_at)} · 共 {versions.length} 个版本
               </dd>
-              <dt>更新检查</dt>
-              <dd>
-                {check ? (
-                  <>
-                    <span className={`status ${checkStatus[check.status].tone}`}>{checkStatus[check.status].label}</span>{" "}
-                    <span className="muted tiny">{formatDate(check.checked_at)}</span>
-                  </>
-                ) : (
-                  <span className="muted">从未检查</span>
-                )}
-              </dd>
+              {/* 本地目录来源不检查更新，只有"重新读取"。 */}
+              {!isLocal(skill.source) && (
+                <>
+                  <dt>检查更新</dt>
+                  <dd>
+                    {check ? (
+                      <>
+                        <span className={`status ${checkStatus[check.status].tone}`}>{checkStatus[check.status].label}</span>{" "}
+                        <span className="muted tiny">{formatDate(check.checked_at)}</span>
+                      </>
+                    ) : (
+                      <span className="muted">从未检查</span>
+                    )}
+                  </dd>
+                </>
+              )}
               <dt>组</dt>
               <dd className="chips">
                 {groups.map((g) => (
-                  <span key={g.group.id} className="chip">
-                    {g.group.name}
-                    <button type="button" onClick={() => removeSkillFromGroup(ui, s, g.group.id, id)} title="移出分组">
+                  <span key={g.id} className="chip">
+                    {g.name}
+                    <button type="button" onClick={() => removeSkillFromGroup(ui, s, g.id, id)} title="移出分组">
                       ×
                     </button>
                   </span>
@@ -199,8 +239,8 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                 >
                   <option value="">+ 加入分组</option>
                   {notIn.map((g) => (
-                    <option key={g.group.id} value={g.group.id}>
-                      {g.group.name}
+                    <option key={g.id} value={g.id}>
+                      {g.name}
                     </option>
                   ))}
                   <option value="new">新建组…</option>
@@ -248,13 +288,13 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
                           <AgentMark code={p.scope.agent} name={agentName(s, p.scope.agent)} />
                           {scopeLabel(s, p.scope)}
                         </div>
-                        <div className="mono tiny muted">{shortPath(s, p.directory)}</div>
+                        <div className="mono tiny muted">{shortPath(s, p.folder)}</div>
                       </td>
                       <td>
                         {p.direct && <span className="prov prov-ind">直接</span>}
                         {(p.groups ?? []).map((g) => (
                           <span key={g} className="prov prov-grp">
-                            随「{s.groups.find((x) => x.group.id === g)?.group.name}」
+                            随「{s.groups.find((x) => x.id === g)?.name}」
                           </span>
                         ))}
                       </td>
@@ -291,8 +331,8 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: SkillSu
             </p>
           </section>
 
-          <FilesCard skillID={id} files={files} />
-          <VersionsCard versions={versions} />
+          <FilesCard versionID={skill.version_id} files={files} />
+          <VersionsCard versions={versions} currentID={skill.version_id} />
         </div>
       </aside>
     </>
@@ -352,17 +392,17 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
 }
 
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
-function FilesCard({ skillID, files }: { skillID: number; files: FileMetadata[] }) {
+function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMetadata[] }) {
   const [path, setPath] = useState("SKILL.md");
   const [content, setContent] = useState<string | null | undefined>(undefined);
   const [raw, setRaw] = useState(false);
   useEffect(() => {
     setContent(undefined);
     if (!files.some((f) => f.path === path)) return;
-    const call = LibraryService.GetSkillFile(skillID, path);
+    const call = LibraryService.GetVersionFile(versionID, path);
     call.then((f) => setContent(decodeContent(f.content)), () => setContent(null));
     return () => void call.cancel();
-  }, [skillID, path, files]);
+  }, [versionID, path, files]);
   const markdown = path.toLowerCase().endsWith(".md") && !raw;
   return (
     <section className="card">
@@ -405,27 +445,33 @@ function FilesCard({ skillID, files }: { skillID: number; files: FileMetadata[] 
 }
 
 // VersionsCard 列出版本历史(最新在前);可查看某个版本的文件，或与当前版本比较。
-function VersionsCard({ versions }: { versions: SkillVersion[] }) {
+function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; currentID: VersionID }) {
   const ui = useUI();
   const list = [...versions].reverse();
-  const current = list[0];
   const [diff, setDiff] = useState<{ id: number; diff: VersionDiff } | null>(null);
-  const [viewing, setViewing] = useState<SkillVersion | null>(null);
+  const [viewing, setViewing] = useState<{ id: VersionID; files: FileMetadata[] } | null>(null);
   const [viewPath, setViewPath] = useState("");
+  const [viewedText, setViewedText] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    setViewedText(undefined);
+    if (!viewing || !viewPath) return;
+    const call = LibraryService.GetVersionFile(viewing.id, viewPath);
+    call.then((f) => setViewedText(decodeContent(f.content)), () => setViewedText(null));
+    return () => void call.cancel();
+  }, [viewing, viewPath]);
 
   const compare = async (v: SkillVersion) => {
-    const d = await ui.run(() => LibraryService.DiffVersions(v.id, current.id), { reload: false });
+    const d = await ui.run(() => LibraryService.DiffVersions(v.id, currentID), { reload: false });
     if (d) setDiff({ id: v.id, diff: d });
   };
   const view = async (v: SkillVersion) => {
-    const full = await ui.run(() => LibraryService.GetVersion(v.id), { reload: false });
-    if (full) {
-      setViewing(full);
-      setViewPath(full.files?.[0]?.path ?? "");
+    const files = await ui.run(() => LibraryService.ListVersionFiles(v.id), { reload: false });
+    if (files !== undefined) {
+      setViewing({ id: v.id, files: files ?? [] });
+      setViewPath(files?.[0]?.path ?? "");
     }
   };
-  const viewed = viewing?.files?.find((f) => f.path === viewPath);
-  const viewedText = viewed ? decodeContent(viewed.content) : undefined;
 
   return (
     <section className="card">
@@ -434,11 +480,12 @@ function VersionsCard({ versions }: { versions: SkillVersion[] }) {
         <span className="muted tiny">{versions.length} 个版本</span>
       </div>
       <ol className="versions">
-        {list.map((v, i) => (
+        {list.map((v) => (
           <li key={v.id}>
             <span className="mono">#{v.id}</span>
             <span>{formatDate(v.created_at)}</span>
-            {i === 0 ? (
+            {v.revision && <span className="mono tiny muted">{v.revision.slice(0, 12)}</span>}
+            {v.id === currentID ? (
               <span className="status ok">当前</span>
             ) : (
               <button type="button" className="link" onClick={() => compare(v)}>
@@ -477,7 +524,7 @@ function VersionsCard({ versions }: { versions: SkillVersion[] }) {
           <div className="row">
             <b className="tiny">版本 #{viewing.id} 的文件</b>
             <select value={viewPath} onChange={(e) => setViewPath(e.target.value)}>
-              {(viewing.files ?? []).map((f) => (
+              {viewing.files.map((f) => (
                 <option key={f.path} value={f.path}>
                   {f.path}
                 </option>
@@ -488,7 +535,11 @@ function VersionsCard({ versions }: { versions: SkillVersion[] }) {
               收起
             </button>
           </div>
-          {viewedText === null ? <div className="notice">二进制文件，不显示内容。</div> : <pre className="code">{viewedText}</pre>}
+          {viewedText === null ? (
+            <div className="notice">二进制文件，不显示内容。</div>
+          ) : viewedText !== undefined ? (
+            <pre className="code">{viewedText}</pre>
+          ) : null}
         </div>
       )}
     </section>

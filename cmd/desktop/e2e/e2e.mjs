@@ -2,12 +2,14 @@
 // 由 run.sh 准备环境后调用;单独运行时需给出下面几个环境变量。
 import assert from "node:assert";
 import { chromium } from "playwright-core";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 const HOME = process.env.E2E_HOME;
 const URL = process.env.E2E_URL;
 const ZIP_URL = process.env.E2E_ZIP_URL;
+const ZIP_DIR = process.env.E2E_ZIP_DIR;
 const SHOTS = process.env.E2E_SHOTS ?? "/tmp/skills-e2e-shots";
 const NETWORK = process.env.E2E_NETWORK === "1";
 if (!HOME || !URL || !ZIP_URL) throw new Error("需要 E2E_HOME、E2E_URL、E2E_ZIP_URL,请用 run.sh 运行");
@@ -176,7 +178,8 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
   await d.locator(".file-row", { hasText: "SKILL.md" }).click();
   await btn(d, "查看源码").click();
   await d.locator("pre.code", { hasText: "name: alpha" }).waitFor();
-  assert((await d.locator(".meta", { hasText: "从未检查" }).count()) === 1, "更新检查应为从未检查");
+  assert((await d.locator(".meta dt", { hasText: "检查更新" }).count()) === 0, "本地目录来源不检查更新");
+  assert((await btn(d, "重新读取").count()) === 1, "本地目录来源只有重新读取");
   assert((await d.locator(".versions li").count()) === 1, "应有 1 个版本");
 });
 
@@ -265,7 +268,9 @@ await step("详情：安装到 Claude Code 全局，并落盘", async () => {
   await toast("已安装「alpha」");
   await settle();
   assert((await d.locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).count()) === 1, "安装表应有该行");
-  claudeGlobal = (await d.locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).locator(".mono").textContent()).replace(/^~/, HOME);
+  // 安装表里显示的是技能文件夹，它的上一级是 Agent 目录。
+  const folder = (await d.locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).locator(".mono").textContent()).replace(/^~/, HOME);
+  claudeGlobal = path.dirname(folder);
   assert(fs.existsSync(path.join(claudeGlobal, "alpha", "SKILL.md")), `磁盘上应有 ${claudeGlobal}/alpha`);
   assert(fs.statSync(path.join(claudeGlobal, "alpha", "scripts", "run.sh")).mode & 0o100, "run.sh 应保持可执行");
 });
@@ -341,7 +346,7 @@ await step("未记录的外来文件夹：安装计划发现后询问覆盖", as
 });
 
 // ============ 重新安装 ============
-await step("刷新发现被手动改过的文件夹 → 全部重新安装 → 询问覆盖", async () => {
+await step("刷新发现被手动改过的文件夹 → 全部重新安装 → 逐处勾选覆盖", async () => {
   const dir = await scopeDir();
   fs.writeFileSync(path.join(dir, "gamma", "SKILL.md"), "edited by hand\n");
   await page.locator(".titlebar button[title^='刷新']").click();
@@ -349,8 +354,9 @@ await step("刷新发现被手动改过的文件夹 → 全部重新安装 → �
   await page.locator(".a-scope-sum .stat.warn", { hasText: "1" }).waitFor();
   assert((await card("gamma").locator(".status", { hasText: "被手动改过" }).count()) === 1, "gamma 应标被手动改过");
   await btn(page.locator(".a-scope-sum"), "全部重新安装").click();
-  await modal().locator("h3", { hasText: "有技能文件夹被手动改过" }).waitFor();
-  await btn(modal(), "覆盖这些改动").click();
+  await modal().locator("h3", { hasText: "有技能文件夹被改过" }).waitFor();
+  await modal().locator(".list-row", { hasText: "gamma" }).locator("input[type=checkbox]").check();
+  await btn(modal(), "重新安装并覆盖 1 处").click();
   await toast("已重新安装");
   await settle();
   assert(fs.readFileSync(path.join(dir, "gamma", "SKILL.md"), "utf8").includes("name: gamma"), "文件应恢复");
@@ -372,41 +378,124 @@ await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单�
 });
 
 // ============ 更新 ============
-await step("检查更新 → 有可用更新 → 全部更新", async () => {
+// URL 来源的更新：改写 zip 里的 delta,检查更新 → 更新列表 → 按默认勾选更新，装出去的地方一起换成新版。
+const updatesNav = () => page.locator(".a-left .nav-item").filter({ has: page.locator("span.grow", { hasText: /^更新$/ }) });
+function rewriteZip(description) {
+  fs.writeFileSync(`${ZIP_DIR}/delta/SKILL.md`, `---\nname: delta\ndescription: "${description}"\n---\n\n# ${description}\n`);
+  fs.rmSync(`${ZIP_DIR}/delta.zip`);
+  execFileSync("zip", ["-qr", "delta.zip", "delta"], { cwd: ZIP_DIR });
+}
+const projSkill = (name) => {
+  const projDir = `${HOME}/code/proj-a`;
+  const found = fs.readdirSync(projDir, { recursive: true }).find((f) => String(f).endsWith(`${name}/SKILL.md`));
+  return found ? fs.readFileSync(path.join(projDir, String(found)), "utf8") : "";
+};
+
+await step("检查更新 → 更新列表 → 更新(连同装出去的地方)", async () => {
   await clearScope();
-  fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v2"\n---\n\n# gamma v2\n');
+  await openDrawer("delta");
+  await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-a" });
+  await drawer().locator(".install-to select").nth(1).selectOption("claude-code");
+  await btn(drawer(), "安装").click();
+  await toast("已安装「delta」");
+  await settle();
+  await closeDrawer();
+  rewriteZip("delta v2");
   await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
-  await toast("1 个技能有可用更新");
+  await toast("1 个技能有新版本");
   await settle();
-  await page.locator(".a-left .nav-item", { hasText: "有可用更新" }).click();
-  assert((await card("gamma").locator(".badge.warn", { hasText: "可更新" }).count()) === 1, "gamma 应标可更新");
-  await btn(page.locator(".a-scope-sum"), "全部更新").click();
-  await toast("已更新 1 个技能");
+  await updatesNav().click();
+  assert((await card("delta").locator(".badge.warn", { hasText: "可更新" }).count()) === 1, "delta 应标可更新");
+  const row = page.locator(".a-scope-sum .a-sum-row", { hasText: "delta" });
+  assert((await row.getByText("来自 delta.zip").count()) === 1, "只有一个技能的集合直接显示技能名");
+  await btn(row, "更新").click();
+  await toast("已更新 delta · 1 个技能有新版本 · 换到了 1 个地方");
   await settle();
-  await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+  assert(projSkill("delta").includes("delta v2"), "项目里的 delta 应换成 v2");
+  assert((await updatesNav().count()) === 0, "没有更新后左栏不再显示更新");
 });
 
 await step("版本历史：两个版本、与当前比较、查看旧版文件", async () => {
-  await openDrawer("gamma");
+  await openDrawer("delta");
   const d = drawer();
   assert((await d.locator(".versions li").count()) === 2, "应有 2 个版本");
   await btn(d, "与当前比较").click();
   await d.locator(".diff-changed", { hasText: "SKILL.md" }).waitFor();
   await btn(d.locator(".versions li").nth(1), "查看文件").click();
-  await d.locator("pre.code", { hasText: "does gamma things" }).waitFor();
+  await d.locator("pre.code", { hasText: "delta skill from a zip" }).waitFor();
   assert((await d.locator(".meta", { hasText: "已是最新" }).count()) === 1, "更新后检查状态应为已是最新");
+  await closeDrawer();
 });
 
-await step("详情：重新读取来源 → 询问重新安装 → 重新安装", async () => {
-  fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v3"\n---\n\n# gamma v3\n');
-  await btn(drawer(), "重新读取来源").click();
-  await modal().locator("h3", { hasText: "重新安装到新版本" }).waitFor();
-  await btn(modal(), "重新安装").click();
-  await toast("已重新安装");
+await step("详情：本地目录来源重新读取 → 改过的地方默认不勾", async () => {
+  await openDrawer("gamma");
+  assert((await btn(drawer(), "检查更新").count()) === 0, "单个技能不提供检查更新");
+  await drawer().locator(".install-to select").nth(0).selectOption("0");
+  await drawer().locator(".install-to select").nth(1).selectOption("codex");
+  await btn(drawer(), "安装").click();
+  await toast("已安装「gamma」");
   await settle();
-  const projDir = `${HOME}/code/proj-a`;
-  const found = fs.readdirSync(projDir, { recursive: true }).find((f) => String(f).endsWith("gamma/SKILL.md"));
-  assert(found && fs.readFileSync(path.join(projDir, String(found)), "utf8").includes("gamma v3"), "项目里的 gamma 应为 v3");
+  const codexGlobal = (await drawer().locator(".scope-table tbody tr", { hasText: "Codex · 全局" }).locator(".mono").textContent()).replace(/^~/, HOME);
+  const edited = projSkill("gamma").replace("does gamma things", "edited by hand");
+  const projGamma = fs.readdirSync(`${HOME}/code/proj-a`, { recursive: true }).find((f) => String(f).endsWith("gamma/SKILL.md"));
+  fs.writeFileSync(path.join(`${HOME}/code/proj-a`, String(projGamma)), edited);
+  fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v3"\n---\n\n# gamma v3\n');
+  await btn(drawer(), "重新读取").click();
+  await modal().locator("h3", { hasText: "重新读取「gamma」" }).waitFor();
+  const projRow = modal().locator(".list-row", { hasText: "Claude Code · proj-a" });
+  await projRow.locator(".status", { hasText: "你在这里改过" }).waitFor();
+  assert(!(await projRow.locator("input[type=checkbox]").isChecked()), "改过的地方默认不勾");
+  assert(await modal().locator(".list-row", { hasText: "Codex · 全局" }).locator("input[type=checkbox]").isChecked(), "没改过的地方默认勾上");
+  await btn(modal(), "重新读取").click();
+  await toast("已重新读取「gamma」 · 1 个技能有新版本 · 换到了 1 个地方 · 1 个地方你改过，没动");
+  await settle();
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "Codex 全局的 gamma 应为 v3");
+  assert(projSkill("gamma").includes("edited by hand"), "改过的地方保持原样");
+  await closeDrawer();
+});
+
+await step("从技能发起更新：只勾这一个、其余折叠;之后更新集合重新对齐", async () => {
+  const pairURL = ZIP_URL.replace(/delta\.zip$/, "pair.zip");
+  await openFetch();
+  await btn(modal(), "URL 压缩包").click();
+  await modal().locator("input.input").first().fill(pairURL);
+  await btn(modal(), "入库预览").click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  await btn(modal(), "入库所选").click();
+  await toast("已入库 2 个技能");
+  await settle();
+  for (const name of ["eta", "theta"]) {
+    fs.writeFileSync(`${ZIP_DIR}/pair/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name} v2"\n---\n\n# ${name} v2\n`);
+  }
+  fs.rmSync(`${ZIP_DIR}/pair.zip`);
+  execFileSync("zip", ["-qr", "../pair.zip", "eta", "theta"], { cwd: `${ZIP_DIR}/pair` });
+  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
+  await toast("2 个技能有新版本");
+  await settle();
+
+  await openDrawer("eta");
+  await btn(drawer(), "更新").click();
+  await modal().locator("h3", { hasText: "更新 pair.zip" }).waitFor();
+  assert(await modal().locator(".list-row", { hasText: "eta" }).locator("input[type=checkbox]").isChecked(), "eta 应勾上");
+  await modal().locator(".list-row", { hasText: "同一来源还有 1 个技能有新版本(theta)" }).waitFor();
+  await modal().locator(".notice.warn", { hasText: "不在同一个来源版本上" }).waitFor();
+  await btn(modal(), "更新 1 个").click();
+  await toast("已更新 pair.zip · 1 个技能有新版本");
+  await settle();
+  const relation = drawer().locator(".meta dd").filter({ hasText: "有新版本" });
+  assert((await relation.filter({ hasText: " 在 " }).count()) === 1, "eta 与 theta 应不在同一个来源版本上，且 theta 仍有新版本");
+  await closeDrawer();
+
+  await updatesNav().click();
+  const row = page.locator(".a-scope-sum .a-sum-row", { hasText: "pair.zip" });
+  assert((await row.getByText("theta 有新版本", { exact: false }).count()) === 1, "更新列表应列出 theta");
+  await btn(row, "查看").click();
+  await modal().locator(".list-row.compact", { hasText: "没变化:eta" }).waitFor();
+  await btn(modal(), "更新 1 个").click();
+  await toast("已更新 pair.zip · 1 个技能有新版本");
+  await settle();
+  await openDrawer("eta");
+  await drawer().locator(".meta dd", { hasText: "和其他 1 个技能在同一个来源版本上" }).waitFor();
   await closeDrawer();
 });
 
@@ -469,9 +558,14 @@ await step("搜索与 ⌘K、列表视图、侧栏开关", async () => {
   await page.locator(".titlebar button[title='显示/隐藏侧栏']").click();
 });
 
-await step("集合筛选", async () => {
-  await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).click();
-  assert((await page.locator(".a-card").count()) === 1, "zip 集合应只有 delta");
+await step("集合筛选 → 看来源里的其他技能", async () => {
+  assert((await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).count()) === 0, "只有一个技能的集合不列出");
+  await page.locator(".a-left .nav-item", { hasText: "my-skills" }).click();
+  assert((await page.locator(".a-card").count()) === 3, "my-skills 集合应有 3 个技能");
+  await btn(page.locator(".a-scope-sum"), "看来源里的其他技能").click();
+  await modal().locator("h3", { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  assert((await modal().locator(".list-row .badge", { hasText: "已入库" }).count()) === 3, "已入库的候选应标出来");
+  await page.keyboard.press("Escape");
   await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
 });
 
@@ -479,9 +573,9 @@ await step("集合筛选", async () => {
 await step("左栏分节折叠与展开", async () => {
   const toggle = page.locator(".a-left .sec-toggle", { hasText: "集合" });
   await toggle.click();
-  assert((await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).isVisible()) === false, "折叠后集合条目应隐藏");
+  assert((await page.locator(".a-left .nav-item", { hasText: "my-skills" }).isVisible()) === false, "折叠后集合条目应隐藏");
   await toggle.click();
-  assert(await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).isVisible(), "展开后集合条目应可见");
+  assert(await page.locator(".a-left .nav-item", { hasText: "my-skills" }).isVisible(), "展开后集合条目应可见");
 });
 
 await step("同步：未配置时同步计划报错", async () => {
@@ -489,7 +583,7 @@ await step("同步：未配置时同步计划报错", async () => {
   assert((await modal().locator(".notice.warn", { hasText: "SKILLS_S3_BUCKET" }).count()) === 1, "应提示未配置");
   await btn(modal(), "推送到 S3…").click();
   await toast("缺少所需配置", "error");
-  await btn(modal(), "从 S3 拉取…").click();
+  await btn(modal(), "从 S3 拉回…").click();
   await toast("缺少所需配置", "error");
   await page.keyboard.press("Escape");
 });
@@ -516,7 +610,7 @@ await step("占用冲突：同名技能已在该作用域，安装被拦下并�
   await toast("已安装「gamma」");
   await settle();
   await cards.nth(1).locator(".switch").click();
-  await toast("已被「gamma」占用", "error");
+  await toast("来自 ~/code/my-skills 的同名技能已装在", "error");
   await clearScope();
 });
 
@@ -538,17 +632,16 @@ await step("组安装遇到外来文件夹：选择跳过，结果列出被跳�
   await clearScope();
 });
 
-await step("检查更新失败：来源目录里的技能不见了，列出失败原因", async () => {
-  // 移出来源目录：留在目录里改个名，仍会按 SKILL.md 里的名字被重新找到。
-  fs.renameSync(`${SK}/beta`, `${HOME}/beta.bak`);
+await step("检查更新失败：来源读不到，列出没读成的来源", async () => {
+  fs.renameSync(`${ZIP_DIR}/delta.zip`, `${ZIP_DIR}/delta.zip.bak`);
   try {
     await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
     await modal().locator("h3", { hasText: "检查更新" }).waitFor();
-    assert((await modal().locator(".list-row", { hasText: "beta" }).locator(".status", { hasText: "检查失败" }).count()) === 1, "beta 应检查失败");
+    assert((await modal().locator(".list-row", { hasText: "delta.zip" }).locator(".status", { hasText: "检查失败" }).count()) === 1, "delta.zip 应检查失败");
     await btn(modal(), "知道了").click();
     await settle();
   } finally {
-    fs.renameSync(`${HOME}/beta.bak`, `${SK}/beta`);
+    fs.renameSync(`${ZIP_DIR}/delta.zip.bak`, `${ZIP_DIR}/delta.zip`);
   }
 });
 
@@ -574,15 +667,35 @@ await step("移除技能(同时删除已安装的文件夹)", async () => {
   assert(!fs.existsSync(path.join(claudeGlobal, "alpha")), "磁盘上的 alpha 应被删除");
 });
 
+await step("项目目录被移走 → 标记不在这台机器上 → 改项目位置", async () => {
+  fs.renameSync(`${HOME}/code/proj-b`, `${HOME}/code/proj-b-moved`);
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+  const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
+  await row.locator(".badge", { hasText: "不在这台机器上" }).waitFor();
+  await row.hover();
+  await row.locator(".row-actions button[title='改项目位置']").click();
+  await modal().locator("input.input").fill(`${HOME}/code/proj-b-moved`);
+  await btn(modal(), "改位置").click();
+  await toast("已把项目「proj-b-moved」指到");
+  await settle();
+  const moved = page.locator(".a-right .nav-item.proj", { hasText: "proj-b-moved" });
+  assert((await moved.count()) === 1, "项目名应随新位置变化");
+  assert((await moved.locator(".badge", { hasText: "不在这台机器上" }).count()) === 0, "改位置后不应再标不在这台机器上");
+});
+
 await step("注销项目(删除项目里已安装的文件夹)", async () => {
   const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-a" });
   await row.hover();
-  await row.locator(".row-actions button").click();
+  await row.locator(".row-actions button[title='注销项目']").click();
   await btn(modal(), "注销").click();
   await toast("已注销项目");
   await settle();
   assert((await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).count()) === 0, "项目应消失");
-  const left = fs.readdirSync(`${HOME}/code/proj-a`, { recursive: true }).filter((f) => String(f).endsWith("SKILL.md"));
+  // delta 已经"移除技能(保留已安装的文件夹)",库不再管它的文件夹，注销项目时也不删。
+  const left = fs
+    .readdirSync(`${HOME}/code/proj-a`, { recursive: true })
+    .filter((f) => String(f).endsWith("SKILL.md") && !String(f).includes("delta/"));
   assert(left.length === 0, `项目里已安装的文件夹应被删除，剩余:${left}`);
 });
 

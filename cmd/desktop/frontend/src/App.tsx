@@ -18,6 +18,7 @@ import {
   parseScope,
   placeOf,
   resolveFilter,
+  sameFilter,
   visibleSkills,
   type Place,
   type ScopeKey,
@@ -62,6 +63,11 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const current = s ? resolveFilter(s, filter) : filter;
   const skills = s ? visibleSkills(s, { filter: current, search, installedOnlyIn: installedOnly ? scope : null }) : [];
   const drawerSkill = s && drawer !== null ? s.skills.find((x) => x.id === drawer) : undefined;
+
+  // 筛选指向的集合、组已不存在或已没有更新时退回"所有技能",并记下来:之后又有了更新也不会自己跳回去。
+  useEffect(() => {
+    if (!sameFilter(current, filter)) setFilter(current);
+  }, [current, filter]);
 
   // 作用域或项目被移除(注销项目、拉取了别的库)后，界面上的选择退回。
   useEffect(() => {

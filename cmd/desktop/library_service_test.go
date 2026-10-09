@@ -36,9 +36,9 @@ func TestLibraryServiceCreatesLibraryInMissingDirectory(t *testing.T) {
 	if err != nil || len(collections) != 0 {
 		t.Fatalf("ListCollections = %v, %v; want empty", collections, err)
 	}
-	groups, err := service.ListGroupsWithMembers(t.Context())
+	groups, err := service.ListGroups(t.Context())
 	if err != nil || len(groups) != 0 {
-		t.Fatalf("ListGroupsWithMembers = %v, %v; want empty", groups, err)
+		t.Fatalf("ListGroups = %v, %v; want empty", groups, err)
 	}
 	skillScopes, err := service.InspectSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 0 {
@@ -82,8 +82,8 @@ func TestLibraryServiceSwallowsErrorsOfCancelledCalls(t *testing.T) {
 		t.Fatalf("ListSkills on a cancelled call = %v; want nil so Wails discards the result", err)
 	}
 	// 未取消的调用照常返回错误。
-	if _, err := service.Resolve(t.Context(), library.Scope{Kind: "bogus"}); err == nil {
-		t.Fatal("Resolve with an invalid scope succeeded")
+	if _, err := service.ScopeDirectory(t.Context(), library.Scope{Kind: "bogus"}); err == nil {
+		t.Fatal("ScopeDirectory with an invalid scope succeeded")
 	}
 }
 

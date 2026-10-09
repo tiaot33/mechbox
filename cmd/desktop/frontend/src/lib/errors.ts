@@ -1,5 +1,5 @@
 // 把技能库的错误码翻成界面文案。技能库的 message 是英文、面向开发者，界面契约是码 + Details
-// (见 internal/library/api.go 的 ErrorCode 注释);message 只作为次要信息附在文案后面。
+// (见 internal/library/errors.go 的 ErrorCode 注释);message 只作为次要信息附在文案后面。
 import { ErrorCode } from "@bindings/internal/library";
 import type { LibraryError } from "./library";
 

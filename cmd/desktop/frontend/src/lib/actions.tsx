@@ -1,34 +1,50 @@
 // 写操作的公共流程：卡片开关、详情抽屉、整组开关与拖放都走这里，冲突处理只写一份。
-// 规则来自技能库的契约(internal/library/api.go):
-// - 安装前先看安装计划：未记录的外来文件夹可选覆盖;被另一个技能占用或作用域根目录不存在时只能说明原因。
+// 规则来自技能库的契约(go doc ./internal/library):
+// - 安装前先看安装计划：不是从库里装的同名文件夹可选覆盖;被另一个技能占用或作用域根目录不存在时只能说明原因。
+// - 重新安装先现查各处状态，只换不是当前版本的几处;被改过的逐处由用户勾选是否覆盖。
 // - 组安装 / 加入组 / 重新安装逐条返回结果，被跳过或失败的条目列出原因。
+import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
-  ConflictPolicy,
   ErrorCode,
   FolderPolicy,
   GroupMemberOutcome,
   InstallPlanStatus,
   MemberRemovalPolicy,
   ReinstallOutcome,
+  SkillScopeStatus,
+  type CollectionID,
   type GroupID,
   type GroupMemberResult,
   type RegisteredProject,
+  type ReinstallRequest,
   type ReinstallResult,
   type Scope,
   type SkillID,
   type SkillScopeFilter,
-  type SkillSummary,
+  type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { describeError } from "./errors";
 import type { Snapshot } from "./library";
-import { projectName, scopeLabel, shortPath, skillScopesOf } from "./model";
+import { FetchReview } from "@/components/app/fetch-review";
+import { UpdateDialog } from "@/components/app/update-dialog";
+import {
+  deletedInSource,
+  needsReinstall,
+  projectName,
+  scopeKey,
+  scopeLabel,
+  shortPath,
+  skillScopesOf,
+  sourceLabel,
+  updateAvailable,
+} from "./model";
 import { Modal, type useUI } from "./ui";
 
 type UI = ReturnType<typeof useUI>;
 
 const skillName = (s: Snapshot, id: SkillID) => s.skills.find((x) => x.id === id)?.name ?? `#${id}`;
-const groupName = (s: Snapshot, id: GroupID) => s.groups.find((g) => g.group.id === id)?.group.name ?? `#${id}`;
+const groupName = (s: Snapshot, id: GroupID) => s.groups.find((g) => g.id === id)?.name ?? `#${id}`;
 
 // ---------- 结果列表 ----------
 
@@ -98,31 +114,37 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
   const plan = await ui.run(() => LibraryService.PlanInstall(id, scope), { reload: false });
   if (!plan) return;
   const where = scopeLabel(s, scope);
-  let policy = ConflictPolicy.Fail;
+  let overwrite = false;
   switch (plan.status) {
-    case InstallPlanStatus.InstallOccupied:
-      ui.toast(
-        `无法安装：目标文件夹已被「${plan.occupier_name || skillName(s, plan.occupier_skill_id ?? 0)}」占用\n${shortPath(s, plan.target)}\n先卸载占用者，再安装`,
-        "error",
-      );
+    case InstallPlanStatus.InstallOccupied: {
+      // 占用者与本技能同名;用来源区分是哪一个。
+      const occupier = s.skills.find((x) => x.id === plan.occupier_skill_id);
+      const who =
+        occupier?.id === id
+          ? "这个技能的另一个作用域"
+          : occupier
+            ? `来自 ${sourceLabel(s, occupier.source)} 的同名技能`
+            : "另一个同名技能";
+      ui.toast(`无法安装:${who}已装在\n${shortPath(s, plan.folder)}\n先卸载它，再安装`, "error");
       return;
+    }
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
         title: "目标已有同名文件夹",
         body: (
           <div className="notice warn">
-            {shortPath(s, plan.target)} 已存在，但不是技能库写入的。覆盖会用「{plan.name}」替换它。
+            {shortPath(s, plan.folder)} 已存在，但不是从技能库装的。覆盖会用「{plan.name}」替换它。
           </div>
         ),
         confirm: "覆盖并安装",
         danger: true,
       });
       if (!ok) return;
-      policy = ConflictPolicy.Overwrite;
+      overwrite = true;
       break;
     }
   }
-  await ui.run(() => LibraryService.Install(id, scope, { on_conflict: policy }), {
+  await ui.run(() => LibraryService.Install(id, scope, { overwrite }), {
     success: `已安装「${plan.name}」到 ${where}`,
   });
 }
@@ -148,13 +170,13 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
   const blocked = members.filter(
     (m) => m.status === InstallPlanStatus.InstallOccupied || m.status === InstallPlanStatus.InstallDuplicate,
   );
-  let policy = ConflictPolicy.Fail;
+  let overwrite = false;
   if (untracked.length) {
     const choice = await ui.confirm({
       title: `把「${groupName(s, groupID)}」组安装到 ${scopeLabel(s, scope)}`,
       body: (
         <div className="notice warn">
-          {untracked.length} 个成员的目标位置已有不是技能库写入的同名文件夹:
+          {untracked.length} 个成员的目标位置已有不是从技能库装的同名文件夹:
           {untracked.map((m) => m.name).join("、")}
         </div>
       ),
@@ -165,9 +187,9 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
       confirm: "安装",
     });
     if (!choice) return;
-    if (choice === "overwrite") policy = ConflictPolicy.Overwrite;
+    overwrite = choice === "overwrite";
   }
-  const results = await ui.run(() => LibraryService.InstallGroup(groupID, scope, { on_conflict: policy }));
+  const results = await ui.run(() => LibraryService.InstallGroup(groupID, scope, { overwrite }));
   if (!results) return;
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   if (skipped.length || blocked.length) {
@@ -263,44 +285,103 @@ export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
 
 // ---------- 重新安装 ----------
 
+const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
+
+// reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
+// 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
 export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, what: string) {
-  const results = await ui.run(() => LibraryService.Reinstall(filter, { on_conflict: ConflictPolicy.Fail }));
-  if (!results) return;
-  const failed = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
-  const modified = failed.filter((r) => r.error?.code === ErrorCode.FailedPrecondition && r.error?.details?.path);
-  const rows = (list: ReinstallResult[]) => list.map((r) => failedRow(s, r));
-  if (!failed.length) {
-    const done = results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled).length;
-    ui.toast(done ? `已重新安装 ${done} 处(${what})` : `${what}已安装的都是当前版本`);
+  const inspected = await ui.run(() => LibraryService.InspectSkillScopes(filter), { reload: false });
+  if (inspected === undefined) return;
+  const targets = (inspected ?? []).filter(needsReinstall);
+  if (!targets.length) {
+    ui.toast(`${what}已安装的都是当前版本`);
     return;
   }
+  const modified = targets.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
+  let overwrite = new Set<string>();
   if (modified.length) {
-    const ok = await ui.confirm({
-      title: "有技能文件夹被手动改过",
-      body: (
-        <>
-          <div className="notice warn">下面这些技能文件夹与任何版本都不一致(可能被手动编辑过)。覆盖会丢掉这些改动。</div>
-          <div className="list-box">
-            {rows(modified).map((r, i) => (
-              <div key={i} className="list-row">
-                {r.label}
-              </div>
-            ))}
-          </div>
-        </>
-      ),
-      confirm: "覆盖这些改动",
-      danger: true,
-    });
-    if (ok) {
-      const again = await ui.run(() => LibraryService.Reinstall(filter, { on_conflict: ConflictPolicy.Overwrite }));
-      const stillFailed = (again ?? []).filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
-      if (stillFailed.length) await showResults(ui, "部分未能重新安装", rows(stillFailed));
-      else if (again) ui.toast(`已重新安装(${what})`);
-      return;
-    }
+    const chosen = await ui.open<Set<string>>((close) => <OverwriteDialog s={s} places={modified} close={close} />);
+    if (!chosen) return;
+    overwrite = chosen;
   }
-  await showResults(ui, "部分未能重新安装", rows(failed));
+  const requests: ReinstallRequest[] = targets
+    .filter((p) => p.status !== SkillScopeStatus.SkillScopeModified || overwrite.has(placeKey(p)))
+    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: overwrite.has(placeKey(p)) }));
+  const kept = targets.length - requests.length;
+  const keptNote = kept ? `;${kept} 处改过的保持原样` : "";
+  if (!requests.length) {
+    ui.toast(`没有重新安装(${what})${keptNote}`);
+    return;
+  }
+  const results = await ui.run(() => LibraryService.Reinstall(requests));
+  if (!results) return;
+  const failed = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
+  if (failed.length) {
+    await showResults(ui, "部分未能重新安装", failed.map((r) => failedRow(s, r)), keptNote.slice(1) || undefined);
+    return;
+  }
+  const done = results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled).length;
+  ui.toast(`已重新安装 ${done} 处(${what})${keptNote}`);
+}
+
+// OverwriteDialog 列出被改过的各处，默认都不覆盖;勾选的才用库里的当前版本覆盖。
+function OverwriteDialog({
+  s,
+  places,
+  close,
+}: {
+  s: Snapshot;
+  places: SkillScopeInspection[];
+  close: (value?: Set<string>) => void;
+}) {
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  return (
+    <Modal
+      title="有技能文件夹被改过"
+      onClose={() => close()}
+      footer={
+        <>
+          <button type="button" className="pill-btn" onClick={() => close()}>
+            取消
+          </button>
+          <button
+            type="button"
+            className={`pill-btn ${chosen.size ? "danger" : "accent"}`}
+            onClick={() => close(chosen)}
+            autoFocus
+          >
+            {chosen.size ? `重新安装并覆盖 ${chosen.size} 处` : "重新安装"}
+          </button>
+        </>
+      }
+    >
+      <div className="notice warn">
+        下面这些地方和库里任何版本都对不上，可能被手动改过。勾选的会被库里的当前版本覆盖，改动会丢掉;没勾选的保持原样。
+      </div>
+      <div className="list-box">
+        {places.map((p) => {
+          const key = placeKey(p);
+          return (
+            <label key={key} className={`list-row compact clickable ${chosen.has(key) ? "on" : ""}`}>
+              <input type="checkbox" checked={chosen.has(key)} onChange={() => toggle(key)} />
+              <div className="grow">
+                <div>
+                  {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+                </div>
+                <div className="mono tiny muted">{shortPath(s, p.folder)}</div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </Modal>
+  );
 }
 
 // failedRow 只用于重新安装失败的条目;成功的只汇总计数。
@@ -315,58 +396,61 @@ function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {
 
 // ---------- 更新 ----------
 
-export async function checkUpdates(ui: UI, s: Snapshot, ids: SkillID[]) {
-  const checks = await ui.run(() => LibraryService.CheckUpdates(ids));
+// checkUpdates 按集合检查更新(只读);没读成来源的集合列出原因。
+export async function checkUpdates(ui: UI, s: Snapshot, collections: CollectionID[]) {
+  const checks = await ui.run(() => LibraryService.CheckUpdates(collections));
   if (!checks) return;
-  const available = checks.filter((c) => !c.error && c.available).length;
+  const skills = checks.flatMap((c) => c.skills ?? []);
+  const available = skills.filter(updateAvailable).length;
+  const deleted = skills.filter(deletedInSource).length;
+  const summary = [
+    `检查了 ${checks.length} 个来源`,
+    available ? `${available} 个技能有新版本` : "",
+    deleted ? `${deleted} 个技能来源里已删除` : "",
+  ].filter(Boolean);
   const failed = checks.filter((c) => c.error);
   if (failed.length) {
     await showResults(
       ui,
       "检查更新",
       failed.map((c) => ({
-        label: skillName(s, c.skill_id),
+        label: c.source?.label ? sourceLabel(s, c.source) : `集合 #${c.collection_id}`,
         outcome: "检查失败",
         tone: "bad" as const,
         reason: describeError(c.error!),
       })),
-      `检查了 ${checks.length} 个技能:${available} 个有更新，${failed.length} 个失败`,
+      [...summary, `${failed.length} 个来源没读成，可以稍后重试`].join(","),
     );
   } else {
-    ui.toast(available ? `${available} 个技能有可用更新` : `检查了 ${checks.length} 个技能，都是最新`);
+    ui.toast(available || deleted ? summary.join(",") : `检查了 ${checks.length} 个来源，都是最新`);
   }
 }
 
-// updateSkill 更新技能库里的版本;已安装的文件夹不会自动跟随，更新后询问是否重新安装。
-export async function updateSkill(ui: UI, s: Snapshot, id: SkillID, ask = true) {
-  const result = await ui.run(() => LibraryService.Update(id), {
-    success: (r) => (r.changed ? `「${r.skill.name}」已更新到新版本` : `「${r.skill.name}」没有变化`),
-  });
-  if (!result?.changed || !ask) return result;
-  const installed = skillScopesOf(s, id).length;
-  if (!installed) return result;
-  const ok = await ui.confirm({
-    title: `把「${result.skill.name}」重新安装到新版本?`,
-    body: <p className="hint">它安装在 {installed} 个作用域。更新只改了技能库，那里的文件夹还是旧版本。</p>,
-    confirm: "重新安装",
-  });
-  if (ok) await reinstall(ui, s, { skill_id: id }, `「${result.skill.name}」`);
-  return result;
+// openUpdate 打开集合的更新确认框;从技能发起时传 focus,默认只勾这一个。
+export function openUpdate(ui: UI, s: Snapshot, collectionID: CollectionID, focus?: SkillID) {
+  const collection = s.collections.find((c) => c.id === collectionID);
+  if (!collection) return;
+  return ui.open((close) => <UpdateDialog s={s} collection={collection} focus={focus} onClose={() => close()} />);
 }
 
-export async function updateAll(ui: UI, s: Snapshot, skills: SkillSummary[]) {
-  let changed = 0;
-  for (const skill of skills) {
-    const r = await updateSkill(ui, s, skill.id, false);
-    if (r?.changed) changed++;
-  }
-  ui.toast(`已更新 ${changed} 个技能;已安装的文件夹不会自动跟随，可在作用域摘要里"全部重新安装"`);
+// previewCollection 对库里已有的集合再做一次入库预览，看作者又发布了哪些技能;已入库的候选标出来、不能再选。
+export async function previewCollection(ui: UI, collectionID: CollectionID) {
+  const preview = await ui.run(() => LibraryService.PreviewFetch({ collection: collectionID }), { reload: false });
+  if (!preview) return;
+  await ui.open((close) => <FetchReview preview={preview} audits={false} onClose={() => close()} onBack={() => close()} />);
 }
 
 // ---------- 移除技能 ----------
 
+// lostEdits 说明删除这些文件夹时哪几处的改动会丢掉(状态取自快照里的巡检)。
+const lostEdits = (places: SkillScopeInspection[]) => {
+  const n = places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).length;
+  return n ? `;其中 ${n} 处被改过，改动会丢掉` : "";
+};
+
 export async function removeSkill(ui: UI, s: Snapshot, id: SkillID) {
-  const installed = skillScopesOf(s, id).length;
+  const places = skillScopesOf(s, id);
+  const installed = places.length;
   const choice = await ui.confirm({
     title: `移除「${skillName(s, id)}」`,
     body: <p className="hint">从技能库删除它和全部历史版本，也会退出所有组。</p>,
@@ -375,7 +459,7 @@ export async function removeSkill(ui: UI, s: Snapshot, id: SkillID) {
           {
             value: FolderPolicy.Remove,
             label: "同时删除已安装的文件夹",
-            desc: `从 ${installed} 个作用域的目录里移除文件夹`,
+            desc: `从 ${installed} 个作用域的目录里移除文件夹${lostEdits(places)}`,
           },
           { value: FolderPolicy.Keep, label: "保留已安装的文件夹", desc: "只删除技能库里的记录，文件夹留在原处" },
         ]
@@ -400,8 +484,16 @@ export async function registerProject(ui: UI, path: string): Promise<boolean> {
   return !!project;
 }
 
+export async function relocateProject(ui: UI, project: RegisteredProject, path: string): Promise<boolean> {
+  const moved = await ui.run(() => LibraryService.RelocateProject(project.id, path), {
+    success: (p) => `已把项目「${p.name}」指到 ${p.path}`,
+  });
+  return !!moved;
+}
+
 export async function unregisterProject(ui: UI, s: Snapshot, project: RegisteredProject) {
-  const installed = s.skillScopes.filter((p) => p.scope.project_id === project.id).length;
+  const places = s.skillScopes.filter((p) => p.scope.project_id === project.id);
+  const installed = places.length;
   const choice = await ui.confirm({
     title: `注销项目「${projectName(s, project.id)}」`,
     body: (
@@ -414,7 +506,7 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
           {
             value: FolderPolicy.Remove,
             label: "同时删除项目里已安装的文件夹",
-            desc: `移除 ${installed} 个技能文件夹`,
+            desc: `移除 ${installed} 个技能文件夹${lostEdits(places)}`,
           },
           { value: FolderPolicy.Keep, label: "保留项目里已安装的文件夹", desc: "文件夹留在项目目录里" },
         ]

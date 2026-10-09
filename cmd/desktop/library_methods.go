@@ -44,26 +44,18 @@ func (s *LibraryService) GetSkillAudit(ctx context.Context, id library.FetchPrev
 	return settle(s.lib.GetSkillAudit(ctx, id, name))(ctx)
 }
 
-func (s *LibraryService) Fetch(ctx context.Context, id library.FetchPreviewID, names []string) ([]library.SkillSummary, error) {
+func (s *LibraryService) Fetch(ctx context.Context, id library.FetchPreviewID, names []string) ([]library.Skill, error) {
 	return settle(s.lib.Fetch(ctx, id, names))(ctx)
 }
 
 // ---------- 库里的技能 ----------
 
-func (s *LibraryService) ListSkills(ctx context.Context) ([]library.SkillSummary, error) {
+func (s *LibraryService) ListSkills(ctx context.Context) ([]library.Skill, error) {
 	return settle(s.lib.ListSkills(ctx))(ctx)
 }
 
 func (s *LibraryService) GetSkill(ctx context.Context, id library.SkillID) (library.Skill, error) {
 	return settle(s.lib.GetSkill(ctx, id))(ctx)
-}
-
-func (s *LibraryService) ListSkillFiles(ctx context.Context, id library.SkillID) ([]library.FileMetadata, error) {
-	return settle(s.lib.ListSkillFiles(ctx, id))(ctx)
-}
-
-func (s *LibraryService) GetSkillFile(ctx context.Context, id library.SkillID, path string) (library.File, error) {
-	return settle(s.lib.GetSkillFile(ctx, id, path))(ctx)
 }
 
 func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, opts library.RemoveSkillOptions) error {
@@ -72,12 +64,12 @@ func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, op
 
 // ---------- 更新 ----------
 
-func (s *LibraryService) CheckUpdates(ctx context.Context, ids []library.SkillID) ([]library.UpdateCheck, error) {
-	return settle(s.lib.CheckUpdates(ctx, ids))(ctx)
+func (s *LibraryService) CheckUpdates(ctx context.Context, collections []library.CollectionID) ([]library.CollectionUpdateCheck, error) {
+	return settle(s.lib.CheckUpdates(ctx, collections))(ctx)
 }
 
-func (s *LibraryService) Update(ctx context.Context, id library.SkillID) (library.UpdateResult, error) {
-	return settle(s.lib.Update(ctx, id))(ctx)
+func (s *LibraryService) Update(ctx context.Context, req library.UpdateRequest) (library.UpdateResult, error) {
+	return settle(s.lib.Update(ctx, req))(ctx)
 }
 
 // ---------- 版本历史 ----------
@@ -90,8 +82,16 @@ func (s *LibraryService) GetVersion(ctx context.Context, id library.VersionID) (
 	return settle(s.lib.GetVersion(ctx, id))(ctx)
 }
 
-func (s *LibraryService) DiffVersions(ctx context.Context, oldID, newID library.VersionID) (library.VersionDiff, error) {
-	return settle(s.lib.DiffVersions(ctx, oldID, newID))(ctx)
+func (s *LibraryService) ListVersionFiles(ctx context.Context, id library.VersionID) ([]library.FileMetadata, error) {
+	return settle(s.lib.ListVersionFiles(ctx, id))(ctx)
+}
+
+func (s *LibraryService) GetVersionFile(ctx context.Context, id library.VersionID, path string) (library.File, error) {
+	return settle(s.lib.GetVersionFile(ctx, id, path))(ctx)
+}
+
+func (s *LibraryService) DiffVersions(ctx context.Context, from, to library.VersionID) (library.VersionDiff, error) {
+	return settle(s.lib.DiffVersions(ctx, from, to))(ctx)
 }
 
 // ---------- 整理:集合与分组 ----------
@@ -124,14 +124,6 @@ func (s *LibraryService) RemoveSkillFromGroup(ctx context.Context, groupID libra
 	return settleErr(ctx, s.lib.RemoveSkillFromGroup(ctx, groupID, skillID, opts))
 }
 
-func (s *LibraryService) ListGroupSkills(ctx context.Context, groupID library.GroupID) ([]library.SkillSummary, error) {
-	return settle(s.lib.ListGroupSkills(ctx, groupID))(ctx)
-}
-
-func (s *LibraryService) ListGroupsWithMembers(ctx context.Context) ([]library.GroupWithMembers, error) {
-	return settle(s.lib.ListGroupsWithMembers(ctx))(ctx)
-}
-
 // ---------- 项目与 Scope ----------
 
 func (s *LibraryService) ListAgents(ctx context.Context) ([]library.Agent, error) {
@@ -146,12 +138,16 @@ func (s *LibraryService) ListRegisteredProjects(ctx context.Context) ([]library.
 	return settle(s.lib.ListRegisteredProjects(ctx))(ctx)
 }
 
+func (s *LibraryService) RelocateProject(ctx context.Context, id library.ProjectID, path string) (library.RegisteredProject, error) {
+	return settle(s.lib.RelocateProject(ctx, id, path))(ctx)
+}
+
 func (s *LibraryService) UnregisterProject(ctx context.Context, id library.ProjectID, opts library.UnregisterProjectOptions) error {
 	return settleErr(ctx, s.lib.UnregisterProject(ctx, id, opts))
 }
 
-func (s *LibraryService) Resolve(ctx context.Context, scope library.Scope) (string, error) {
-	return settle(s.lib.Resolve(ctx, scope))(ctx)
+func (s *LibraryService) ScopeDirectory(ctx context.Context, scope library.Scope) (string, error) {
+	return settle(s.lib.ScopeDirectory(ctx, scope))(ctx)
 }
 
 // ---------- 安装、卸载与重新安装 ----------
@@ -184,32 +180,32 @@ func (s *LibraryService) ListGroupInstalls(ctx context.Context) ([]library.Group
 	return settle(s.lib.ListGroupInstalls(ctx))(ctx)
 }
 
-func (s *LibraryService) ListSkillScopes(ctx context.Context) ([]library.SkillScope, error) {
-	return settle(s.lib.ListSkillScopes(ctx))(ctx)
+func (s *LibraryService) ListSkillScopes(ctx context.Context, filter library.SkillScopeFilter) ([]library.SkillScope, error) {
+	return settle(s.lib.ListSkillScopes(ctx, filter))(ctx)
 }
 
 func (s *LibraryService) InspectSkillScopes(ctx context.Context, filter library.SkillScopeFilter) ([]library.SkillScopeInspection, error) {
 	return settle(s.lib.InspectSkillScopes(ctx, filter))(ctx)
 }
 
-func (s *LibraryService) Reinstall(ctx context.Context, filter library.SkillScopeFilter, opts library.ReinstallOptions) ([]library.ReinstallResult, error) {
-	return settle(s.lib.Reinstall(ctx, filter, opts))(ctx)
+func (s *LibraryService) Reinstall(ctx context.Context, requests []library.ReinstallRequest) ([]library.ReinstallResult, error) {
+	return settle(s.lib.Reinstall(ctx, requests))(ctx)
 }
 
 // ---------- 同步 ----------
 
-func (s *LibraryService) PlanSyncPush(ctx context.Context) (library.SyncPlan, error) {
+func (s *LibraryService) PlanSyncPush(ctx context.Context) (library.SyncPushPlan, error) {
 	return settle(s.lib.PlanSyncPush(ctx))(ctx)
 }
 
-func (s *LibraryService) PlanSyncPull(ctx context.Context) (library.SyncPlan, error) {
+func (s *LibraryService) PlanSyncPull(ctx context.Context) (library.SyncPullPlan, error) {
 	return settle(s.lib.PlanSyncPull(ctx))(ctx)
 }
 
-func (s *LibraryService) SyncPush(ctx context.Context, expected library.RemoteIdentity) (library.SyncResult, error) {
+func (s *LibraryService) SyncPush(ctx context.Context, expected library.RemoteIdentity) (library.RemoteLibrary, error) {
 	return settle(s.lib.SyncPush(ctx, expected))(ctx)
 }
 
-func (s *LibraryService) SyncPull(ctx context.Context, expected library.RemoteIdentity) (library.SyncResult, error) {
-	return settle(s.lib.SyncPull(ctx, expected))(ctx)
+func (s *LibraryService) SyncPull(ctx context.Context, expected library.RemoteIdentity) error {
+	return settleErr(ctx, s.lib.SyncPull(ctx, expected))
 }
