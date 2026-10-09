@@ -219,17 +219,7 @@ func (l *Library) ListRegisteredProjects(ctx context.Context) (projects []Regist
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		exists, err := agentdir.DirectoryExists(row.Path)
-		if err != nil {
-			return nil, fmt.Errorf("inspect registered project: %w", err)
-		}
-		projects = append(projects, registeredProject(row, !exists))
-	}
-	slices.SortFunc(projects, func(a, b RegisteredProject) int {
-		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Path, b.Path))
-	})
-	return projects, nil
+	return registeredProjects(rows)
 }
 
 // RelocateProject 把已登记项目 id 指到本机上的另一个目录:从别的机器同步过来后指到它在这台机器上的位置,
@@ -326,6 +316,21 @@ func (l *Library) scopeDirectory(ctx context.Context, row scopeRow) (root, direc
 		return "", "", err
 	}
 	return project.Path, filepath.Join(project.Path, filepath.FromSlash(agent.ProjectPath)), nil
+}
+
+func registeredProjects(rows []store.Project) ([]RegisteredProject, error) {
+	var projects []RegisteredProject
+	for _, row := range rows {
+		exists, err := agentdir.DirectoryExists(row.Path)
+		if err != nil {
+			return nil, fmt.Errorf("inspect registered project: %w", err)
+		}
+		projects = append(projects, registeredProject(row, !exists))
+	}
+	slices.SortFunc(projects, func(a, b RegisteredProject) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Path, b.Path))
+	})
+	return projects, nil
 }
 
 func registeredProject(row store.Project, missing bool) RegisteredProject {

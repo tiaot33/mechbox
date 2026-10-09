@@ -199,19 +199,15 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := lib.PlanSyncPush(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lib.SyncPush(t.Context(), plan.Remote); err != nil {
+	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
 		t.Fatal(err)
 	}
 	other := openLibraryAt(t, filepath.Join(t.TempDir(), "other.db"))
-	plan, err = other.PlanSyncPull(t.Context())
-	if err != nil {
-		t.Fatal(err)
+	plan, err := other.PlanSyncPull(t.Context())
+	if err != nil || !plan.CanPull {
+		t.Fatalf("PlanSyncPull() = %#v, %v", plan, err)
 	}
-	if _, err := other.SyncPull(t.Context(), plan.Remote); err != nil {
+	if err := other.SyncPull(t.Context(), plan.Remote.Identity); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := other.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {

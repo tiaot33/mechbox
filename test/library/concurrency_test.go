@@ -319,9 +319,8 @@ func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	stub := newS3Stub(t)
 	lib := openTestLibrary(t)
 	local := fetchNamedSkill(t, lib, "local")
-	plan, err := lib.PlanSyncPush(t.Context())
-	if err != nil {
-		t.Fatal(err)
+	if plan, err := lib.PlanSyncPush(t.Context()); err != nil || plan.Remote != nil {
+		t.Fatalf("PlanSyncPush() = %#v, %v; want no remote library", plan, err)
 	}
 
 	pushGate := newNetworkGate()
@@ -329,7 +328,7 @@ func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	stub.gate, stub.gateMethod = pushGate, http.MethodPut
 	var wg sync.WaitGroup
 	var pushErr error
-	wg.Go(func() { _, pushErr = lib.SyncPush(t.Context(), plan.Remote) })
+	wg.Go(func() { _, pushErr = lib.SyncPush(t.Context(), "") })
 	pushGate.awaitEntered(t)
 	mustFinishBeforeRelease(t, pushGate, "Fetch during push upload", func(ctx context.Context) error {
 		source := filepath.Join(t.TempDir(), "during-push")

@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -32,14 +34,22 @@ func sign(req *http.Request, payload []byte, cfg config, now time.Time) {
 	amzDate := now.Format("20060102T150405Z")
 	req.Header.Set("x-amz-content-sha256", payloadHash)
 	req.Header.Set("x-amz-date", amzDate)
-	headers := "host:" + req.URL.Host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + amzDate + "\n"
-	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
 	if cfg.sessionToken != "" {
 		req.Header.Set("x-amz-security-token", cfg.sessionToken)
-		headers += "x-amz-security-token:" + cfg.sessionToken + "\n"
-		signedHeaders += ";x-amz-security-token"
 	}
-	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n\n" + headers + "\n" + signedHeaders + "\n" + payloadHash
+	values := map[string]string{"host": req.URL.Host}
+	for name := range req.Header {
+		if name = strings.ToLower(name); strings.HasPrefix(name, "x-amz-") {
+			values[name] = strings.TrimSpace(req.Header.Get(name))
+		}
+	}
+	names := slices.Sorted(maps.Keys(values))
+	var headers strings.Builder
+	for _, name := range names {
+		headers.WriteString(name + ":" + values[name] + "\n")
+	}
+	signedHeaders := strings.Join(names, ";")
+	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n\n" + headers.String() + "\n" + signedHeaders + "\n" + payloadHash
 	canonicalSum := sha256.Sum256([]byte(canonical))
 	scope := date + "/" + cfg.region + "/s3/aws4_request"
 	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(canonicalSum[:])

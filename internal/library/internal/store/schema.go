@@ -111,8 +111,13 @@ func requireIdentity(ctx context.Context, db schemaReader) error {
 	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
 		return err
 	}
-	if actualID != applicationID || userVersion != schemaVersion {
+	switch {
+	case actualID != applicationID:
 		return fmt.Errorf("%w: unsupported database identity application_id=%d user_version=%d", ErrUnacceptable, actualID, userVersion)
+	case userVersion > schemaVersion:
+		return fmt.Errorf("%w: %w: user_version=%d", ErrUnacceptable, ErrNewerSchema, userVersion)
+	case userVersion < schemaVersion:
+		return fmt.Errorf("%w: %w: user_version=%d", ErrUnacceptable, ErrOlderSchema, userVersion)
 	}
 	return nil
 }

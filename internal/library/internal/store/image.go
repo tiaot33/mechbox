@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -16,14 +14,6 @@ import (
 type Image struct {
 	db   *sql.DB
 	path string
-}
-
-type ProjectPathConflictError struct {
-	Pending []string
-}
-
-func (e *ProjectPathConflictError) Error() string {
-	return fmt.Sprintf("project path mapping blocked: %v", e.Pending)
 }
 
 func (s *Store) Snapshot(ctx context.Context) ([]byte, error) {
@@ -111,71 +101,29 @@ func (i *Image) Close() {
 	_ = os.Remove(i.path)
 }
 
-func (i *Image) RemapProjectPaths(ctx context.Context, paths map[string]string) error {
-	return wrap(i.remapProjectPaths(ctx, paths))
+type Summary struct {
+	Skills   int
+	Groups   int
+	Projects []Project
 }
 
-func (i *Image) remapProjectPaths(ctx context.Context, paths map[string]string) error {
-	tx, err := i.db.BeginTx(ctx, nil)
+func (i *Image) Summary(ctx context.Context) (Summary, error) {
+	var summary Summary
+	if err := i.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM skills), (SELECT count(*) FROM groups)`).Scan(&summary.Skills, &summary.Groups); err != nil {
+		return Summary{}, wrap(err)
+	}
+	projects, err := queries{i.db}.ListProjects(ctx)
 	if err != nil {
-		return err
+		return Summary{}, err
 	}
-	defer tx.Rollback()
-	current := map[int64]string{}
-	pending := map[int64]string{}
-	rows, err := tx.QueryContext(ctx, `SELECT id, path FROM projects`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var id int64
-		var path string
-		if err := rows.Scan(&id, &path); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		current[id] = path
-		if newPath, ok := paths[path]; ok && newPath != path {
-			pending[id] = newPath
-		}
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return err
-	}
-	occupied := map[string]bool{}
-	for _, path := range current {
-		occupied[path] = true
-	}
-	var order []int64
-	for len(pending) > 0 {
-		progressed := false
-		for _, id := range slices.Sorted(maps.Keys(pending)) {
-			if occupied[pending[id]] {
-				continue
-			}
-			delete(occupied, current[id])
-			occupied[pending[id]] = true
-			order = append(order, id)
-			delete(pending, id)
-			progressed = true
-		}
-		if !progressed {
-			var stuck []string
-			for _, id := range slices.Sorted(maps.Keys(pending)) {
-				stuck = append(stuck, current[id]+" -> "+pending[id])
-			}
-			return &ProjectPathConflictError{Pending: stuck}
-		}
-	}
-	for _, id := range order {
-		if _, err := tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE id = ?`, paths[current[id]], id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	summary.Projects = projects
+	return summary, nil
 }
 
 func (s *Store) Replace(ctx context.Context, image *Image) error {
+	if err := writeBuiltinAgents(ctx, image.db); err != nil {
+		return wrap(err)
+	}
 	return wrap(backup(ctx, s.db, image.db))
 }
 
