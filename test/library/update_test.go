@@ -479,6 +479,119 @@ func TestUpdateIsAllOrNothing(t *testing.T) {
 	}
 }
 
+// 事务里已写下前一个技能、后一个技能才发现读取期间被改过或被移除时,整批回滚:前一个技能的版本和结论都不变。
+func TestUpdateRollsBackEarlierSkillsWhenALaterOneChangedDuringSourceRead(t *testing.T) {
+	for _, race := range []string{"update", "remove"} {
+		t.Run(race, func(t *testing.T) {
+			ctx := t.Context()
+			gate := newNetworkGate()
+			var archive atomic.Pointer[[]byte]
+			old := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
+			archive.Store(&old)
+			server := serveGatedArchive(t, gate, func() []byte { return *archive.Load() })
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL + "/skills.zip"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fetched := fetchSkills(t, lib, preview, []string{"first", "second"})
+			first, second := fetched[0], fetched[1]
+			if _, err := lib.CheckUpdates(ctx, []library.CollectionID{first.CollectionID}); err != nil {
+				t.Fatal(err)
+			}
+			before, err := lib.GetSkill(ctx, first.ID)
+			if err != nil || before.LastUpdateCheck == nil {
+				t.Fatalf("first before = %#v, %v", before, err)
+			}
+			newer := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "new"), "second/SKILL.md": skillDocument("second", "new")})
+			archive.Store(&newer)
+			gate.arm()
+			var wg sync.WaitGroup
+			var updateErr error
+			wg.Go(func() {
+				_, updateErr = lib.Update(ctx, library.UpdateRequest{CollectionID: first.CollectionID, Skills: []library.SkillID{first.ID, second.ID}})
+			})
+			gate.awaitEntered(t)
+			gate.disarm()
+			mustFinishBeforeRelease(t, gate, race, func(ctx context.Context) error {
+				if race == "remove" {
+					return lib.RemoveSkill(ctx, second.ID, library.RemoveSkillOptions{})
+				}
+				_, err := lib.Update(ctx, singleUpdate(second))
+				return err
+			})
+			gate.open()
+			wg.Wait()
+			want := library.Conflict
+			if race == "remove" {
+				want = library.NotFound
+			}
+			requireErrorDetails(t, updateErr, want, library.ErrorDetails{SkillID: second.ID})
+			if after, err := lib.GetSkill(ctx, first.ID); err != nil || !reflect.DeepEqual(after, before) {
+				t.Fatalf("first after rollback = %#v, %v; want %#v", after, err, before)
+			}
+			if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
+				t.Fatalf("first versions = %#v, %v; want only the fetched one", versions, err)
+			}
+			if race == "update" {
+				if versions, err := lib.ListVersions(ctx, second.ID); err != nil || len(versions) != 2 {
+					t.Fatalf("second versions = %#v, %v; want the racing update kept", versions, err)
+				}
+			}
+		})
+	}
+}
+
+// 同一 URL 集合里的技能记着不同的 validator:按第一个技能的 validator 得到 304 后,来源在补读整包前又发布了新内容。
+// 检查与更新都按补读到的那一份判断,不把 304 的结论套在第一个技能上,也不给旧内容记上新的来源版本。
+func TestURLCollectionIsJudgedAgainstOneArchiveWhenValidatorsDiffer(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v1"), "second/SKILL.md": skillDocument("second", "v1")}), `"v1"`)
+	skills := fetchArchive(t, lib, server.request())
+	first, second := skills[0], skills[1]
+	server.serve(zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v2"), "second/SKILL.md": skillDocument("second", "v1")}), `"v2"`)
+	if _, err := updateSkill(t, lib, ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	v3 := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v3"), "second/SKILL.md": skillDocument("second", "v3")})
+	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		if r.Header.Get("If-None-Match") == `"v2"` {
+			header.Set("ETag", `"v2"`)
+			return &http.Response{StatusCode: http.StatusNotModified, Header: header, Body: http.NoBody}, nil
+		}
+		header.Set("ETag", `"v3"`)
+		return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(bytes.NewReader(v3))}, nil
+	})
+	checks, err := lib.CheckUpdates(ctx, []library.CollectionID{first.CollectionID})
+	if err != nil || len(checks) != 1 || checks[0].Error != nil || len(checks[0].Skills) != 2 {
+		t.Fatalf("CheckUpdates = %#v, %v", checks, err)
+	}
+	for _, skill := range checks[0].Skills {
+		if skill.LastUpdateCheck.Status != library.UpdateAvailable {
+			t.Fatalf("check of %s = %+v; want available", skill.Name, skill.LastUpdateCheck)
+		}
+	}
+	result, err := lib.Update(ctx, library.UpdateRequest{CollectionID: first.CollectionID, Skills: []library.SkillID{first.ID, second.ID}})
+	if err != nil || len(result.Skills) != 2 {
+		t.Fatalf("Update = %#v, %v", result, err)
+	}
+	for _, updated := range result.Skills {
+		if !updated.Changed || string(skillFiles(t, lib, updated.Skill)[0].Content) != skillDocument(updated.Skill.Name, "v3") {
+			t.Fatalf("updated %s = %#v; want v3", updated.Skill.Name, updated)
+		}
+		if updated.Skill.Revision != result.Skills[0].Skill.Revision {
+			t.Fatalf("revisions = %q, %q; want one source revision", result.Skills[0].Skill.Revision, updated.Skill.Revision)
+		}
+	}
+	for _, skill := range []library.Skill{first, second} {
+		if status, err := checkSkillUpdate(t, lib, ctx, skill.ID); err != nil || status != library.UpdateCurrent {
+			t.Fatalf("check of %s after update = %v, %v", skill.Name, status, err)
+		}
+	}
+}
+
 func TestUpdateRejectsInvalidRequests(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)

@@ -67,7 +67,7 @@ type UpdateResult struct {
 // CheckUpdates 检查给定集合有没有新版本;整库检查就是把 ListCollections 的集合 ID 全部传入。
 // 重复的集合只检查一次,结果按传入顺序每个集合一项。没有按技能、按组检查的入口,技能详情页的「有新版本」读 Skill.LastUpdateCheck。
 //
-// 检查只读:不改技能内容和版本,不碰装出去的文件夹,可以在用户没有操作时发起。每个集合的来源只读一次,
+// 检查只读:不改技能内容和版本,不碰装出去的文件夹,可以在用户没有操作时发起。集合里的技能都按来源的同一份内容判断,
 // 结论写在集合里每个技能的 LastUpdateCheck 上,重启后仍可读到:有新版本、已是最新、来源里已删除,
 // 或没读成来源时的检查失败(原因在 CollectionUpdateCheck.Error)。不同集合互不影响,一个来源连不上不妨碍其他集合。
 //
@@ -113,18 +113,21 @@ func (l *Library) checkCollection(ctx context.Context, id CollectionID) (Collect
 	}
 	result.Source = skills[0].Source
 	statuses := make([]UpdateCheckStatus, len(skills))
-	snapshot, readErr := l.sources.Open(ctx, states[0].source.Type, states[0].source.Locator, "", states[0].snapshot)
-	for i, skill := range skills {
-		if err := ctx.Err(); err != nil {
-			return result, err
+	checked := make([]checkedSkill, len(skills))
+	if snapshot, err := l.sources.Open(ctx, states[0].source.Type, states[0].source.Locator, "", states[0].snapshot); err == nil {
+		checked = checkSkills(ctx, snapshot, haves(skills, states), false)
+	} else {
+		for i := range checked {
+			checked[i].err = err
 		}
-		itemErr := readErr
-		available := false
-		if itemErr == nil {
-			available, _, itemErr = checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: states[i].files, State: states[i].snapshot}, false)
-		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	for i := range skills {
+		itemErr := checked[i].err
 		switch {
-		case itemErr == nil && available:
+		case itemErr == nil && checked[i].changed:
 			statuses[i] = UpdateAvailable
 		case itemErr == nil:
 			statuses[i] = UpdateCurrent
@@ -136,9 +139,6 @@ func (l *Library) checkCollection(ctx context.Context, id CollectionID) (Collect
 				result.Error = ErrorOf(itemErr)
 			}
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return result, err
 	}
 	result.Skills, err = l.saveUpdateChecks(ctx, skills, states, statuses)
 	return result, err
@@ -214,7 +214,7 @@ func (l *Library) saveUpdateChecks(ctx context.Context, skills []Skill, states [
 // Update 把用户勾选的技能换成来源现在的内容。不要求先检查更新,更新自己读来源;本地目录来源也用它重新读取。
 //
 // 只改库,不重新安装:装出去的文件夹保持原样,InspectSkillScopes 会把它们标成 stale,Agent 要用上新版需对各处 Reinstall。
-// 来源只读一次,勾选的技能都换到来源的同一个来源版本上:内容有变化的写入新版本,没变化的保持当前版本。
+// 勾选的技能都按来源的同一份内容判断,换到同一个来源版本上:内容有变化的写入新版本,没变化的保持当前版本。
 // 全成或全不成:任何一个技能失败,库里什么都不变,原有的检查结论也不改。成功后勾选的每个技能的 LastUpdateCheck
 // 都是已是最新,时间为这次更新。读取来源期间不妨碍其他操作。
 //
@@ -258,14 +258,14 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	changed := make([]bool, len(ids))
-	latest := make([]source.Skill, len(ids))
+	checked := checkSkills(ctx, snapshot, haves(skills, states), true)
+	if err := ctx.Err(); err != nil {
+		return UpdateResult{}, err
+	}
 	for i, skill := range skills {
-		changed[i], latest[i], err = checkSnapshot(ctx, snapshot, source.Have{Name: skill.Name, Files: states[i].files, State: states[i].snapshot}, true)
-		if missingSkill(err) {
+		if err := checked[i].err; missingSkill(err) {
 			return UpdateResult{}, &Error{Code: NotFound, Message: "update: skill not found in source", Details: ErrorDetails{SkillID: skill.ID, Name: skill.Name}, Err: err}
-		}
-		if err != nil {
+		} else if err != nil {
 			return UpdateResult{}, err
 		}
 	}
@@ -280,11 +280,12 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 				return err
 			}
 			revision := cmp.Or(snapshot.Revision(), states[i].revision)
-			if changed[i] {
-				if _, err := tx.AddVersion(ctx, id, store.NewVersion{Description: latest[i].Description, Files: latest[i].Files, State: string(latest[i].State), Revision: revision, CreatedAt: now}); err != nil {
+			latest := checked[i].latest
+			if checked[i].changed {
+				if _, err := tx.AddVersion(ctx, id, store.NewVersion{Description: latest.Description, Files: latest.Files, State: string(latest.State), Revision: revision, CreatedAt: now}); err != nil {
 					return err
 				}
-			} else if err := tx.ConfirmVersion(ctx, id, string(latest[i].State), revision); err != nil {
+			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
 			if err := tx.SaveUpdateCheck(ctx, id, now, string(UpdateCurrent)); err != nil {
@@ -298,7 +299,7 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 			if err != nil {
 				return err
 			}
-			result.Skills[i] = UpdatedSkill{Skill: updated, PreviousVersionID: VersionID(states[i].versionID), Changed: changed[i]}
+			result.Skills[i] = UpdatedSkill{Skill: updated, PreviousVersionID: VersionID(states[i].versionID), Changed: checked[i].changed}
 		}
 		return nil
 	})
@@ -325,6 +326,37 @@ func requireCurrentVersion(ctx context.Context, tx *store.Tx, id SkillID, expect
 func missingSkill(err error) bool {
 	missing, ok := errors.AsType[*source.NotFoundError](err)
 	return ok && missing.What == source.MissingSkill
+}
+
+type checkedSkill struct {
+	changed bool
+	latest  source.Skill
+	err     error
+}
+
+func haves(skills []Skill, states []currentVersion) []source.Have {
+	result := make([]source.Have, len(skills))
+	for i, skill := range skills {
+		result[i] = source.Have{Name: skill.Name, Files: states[i].files, State: states[i].snapshot}
+	}
+	return result
+}
+
+func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.Have, needFiles bool) []checkedSkill {
+	for {
+		revision := snapshot.Revision()
+		results := make([]checkedSkill, len(haves))
+		for i, have := range haves {
+			if err := ctx.Err(); err != nil {
+				results[i].err = err
+				continue
+			}
+			results[i].changed, results[i].latest, results[i].err = checkSnapshot(ctx, snapshot, have, needFiles)
+		}
+		if snapshot.Revision() == revision {
+			return results
+		}
+	}
 }
 
 func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Have, needFiles bool) (bool, source.Skill, error) {

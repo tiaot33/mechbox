@@ -194,7 +194,7 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 	s.skills, s.diagnostics = skills, diagnostics
 	s.revision = hex.EncodeToString(sum[:])
 	s.validator = responseValidator(response.Header)
-	s.loaded = true
+	s.loaded, s.notModified = true, false
 	return nil
 }
 
