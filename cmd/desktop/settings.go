@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// settingsFileName 是应用设置文件，与技能库放在同一个目录下。
 const settingsFileName = "settings.json"
 
 // Settings 是只属于这台机器的应用设置：存在用户配置目录下的 settings.json,不进技能库，也不随同步走。
@@ -32,7 +31,6 @@ const (
 	CheckWeekly CheckInterval = "weekly" // 每周
 )
 
-// period 返回按时间检查的间隔;「只在打开时」不按时间，返回 false。
 func (i CheckInterval) period() (time.Duration, bool) {
 	switch i {
 	case CheckHourly:
@@ -54,7 +52,6 @@ func defaultSettings() Settings {
 	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
 }
 
-// loadSettings 读取设置文件;文件不存在时是默认设置。
 func loadSettings(path string) (Settings, error) {
 	settings := defaultSettings()
 	data, err := os.ReadFile(path)
@@ -73,7 +70,6 @@ func loadSettings(path string) (Settings, error) {
 	return settings, nil
 }
 
-// saveSettings 先写临时文件再改名，写到一半退出也不会留下残缺的设置文件。
 func saveSettings(path string, settings Settings) error {
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {

@@ -46,7 +46,6 @@ func run() error {
 		Name:        "技能管理器",
 		Description: "管理 coding agent 的 Agent Skills",
 		Services: []application.Service{
-			// AppService 用到已打开的技能库，排在 LibraryService 之后启动、之前关闭。
 			application.NewService(libraryService),
 			application.NewService(appService),
 		},
@@ -62,7 +61,6 @@ func run() error {
 			},
 		},
 		Mac: application.MacOptions{
-			// 关闭窗口后留在菜单栏时，窗口只是隐藏(见 AppService.windowClosing),不会因此退出。
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})

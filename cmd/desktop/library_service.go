@@ -77,12 +77,9 @@ func (s *LibraryService) Info() (AppInfo, error) {
 	return AppInfo{LibraryPath: s.path, HomeDir: home, Version: appVersion()}, nil
 }
 
-// buildConfig 是 Wails 的项目配置;应用版本只在它的 info.version 里写一份，Info.plist 也由它生成。
-//
 //go:embed build/config.yml
 var buildConfig string
 
-// appVersion 取 build/config.yml 里 info 下的 version。
 func appVersion() string {
 	inInfo := false
 	scanner := bufio.NewScanner(strings.NewReader(buildConfig))

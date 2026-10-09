@@ -27,16 +27,29 @@ export function SettingsPage({ s, config, onClose }: { s: Snapshot; config: Conf
   const [current, setCurrent] = useState<Section>(sections[0]);
   const refs = useRef<Partial<Record<Section, HTMLElement | null>>>({});
 
+  // latest 是界面上最新的设置，改动立即显示;保存排队依次进行，每次带上点击那一刻的完整设置，
+  // 连续改几项时后一次不会用旧值盖掉前一次。保存失败时退回 Go 端现在的设置。
+  const latest = useRef<Settings>(undefined);
+  const saving = useRef<Promise<void>>(Promise.resolve());
+  const show = (value: Settings) => {
+    latest.current = value;
+    setSettings(value);
+  };
+
   useEffect(() => {
     const call = AppService.Settings();
-    call.then(setSettings, () => {});
+    call.then(show, () => {});
     return () => void call.cancel();
   }, []);
 
-  const save = async (change: Partial<Settings>) => {
-    if (!settings) return;
-    const saved = await ui.run(() => AppService.SaveSettings({ ...settings, ...change }), { reload: false });
-    if (saved) setSettings(saved);
+  const save = (change: Partial<Settings>) => {
+    if (!latest.current) return;
+    const next = { ...latest.current, ...change };
+    show(next);
+    saving.current = saving.current.then(async () => {
+      const saved = await ui.run(() => AppService.SaveSettings(next), { reload: false });
+      if (!saved) await AppService.Settings().then(show, () => {});
+    });
   };
 
   const go = (section: Section) => {

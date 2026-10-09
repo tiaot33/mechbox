@@ -20,8 +20,6 @@ import (
 	"unsafe"
 )
 
-// setBadge 设 Dock 图标上的角标，0 时去掉。异步交给主线程，调用方不等它
-// (应用退出时主线程正等着后台检查结束，同步等主线程会互相卡住)。
 func setBadge(n int) {
 	if n == 0 {
 		C.setDockBadge(nil)

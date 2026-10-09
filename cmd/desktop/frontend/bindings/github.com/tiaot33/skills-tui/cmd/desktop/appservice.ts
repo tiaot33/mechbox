@@ -23,7 +23,7 @@ export function RefreshBadge(): $CancellablePromise<void> {
 }
 
 /**
- * SaveSettings 保存设置并立即生效。
+ * SaveSettings 保存设置并立即生效。前端每次传完整的设置，一次一次依次保存。
  */
 export function SaveSettings(settings: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(3784651466, settings);

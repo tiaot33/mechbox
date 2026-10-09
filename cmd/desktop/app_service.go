@@ -14,7 +14,6 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// updatesCheckedEvent 在自动检查更新完成后发给前端，前端据此重读快照。
 const updatesCheckedEvent = "updates-checked"
 
 // AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、Dock 角标、关闭窗口后留在菜单栏。
@@ -27,10 +26,12 @@ type AppService struct {
 
 	mu          sync.Mutex
 	settings    Settings
-	hidden      bool                    // 窗口已关闭、应用留在菜单栏
-	tray        *application.SystemTray // 窗口关闭期间菜单栏上的入口
-	opened      bool                    // 应用启动或窗口重新打开后，「只在打开时」还没检查
-	lastAttempt time.Time               // 上次自动检查的时间，检查失败时避免每分钟重试
+	hidden      bool
+	opened      bool
+	lastAttempt time.Time
+
+	nativeMu sync.Mutex
+	tray     *application.SystemTray
 
 	badgeMu sync.Mutex
 	wake    chan struct{}
@@ -46,7 +47,7 @@ func NewAppService(path string, lib *LibraryService) *AppService {
 // ServiceStartup 读取设置并开始后台检查;它排在 LibraryService 之后启动，技能库已经打开。
 func (a *AppService) ServiceStartup(context.Context, application.ServiceOptions) error {
 	settings, err := loadSettings(a.path)
-	if err != nil {
+	if err != nil && a.app != nil {
 		a.app.Logger.Warn("settings unreadable, using defaults", "error", err)
 	}
 	a.settings = settings
@@ -74,7 +75,7 @@ func (a *AppService) Settings() Settings {
 	return a.settings
 }
 
-// SaveSettings 保存设置并立即生效。
+// SaveSettings 保存设置并立即生效。前端每次传完整的设置，一次一次依次保存。
 func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 	if !settings.CheckInterval.valid() {
 		return Settings{}, fmt.Errorf("unknown check interval %q", settings.CheckInterval)
@@ -112,7 +113,6 @@ func (a *AppService) refreshBadge(ctx context.Context) {
 	setBadge(n)
 }
 
-// badgeCount 数有新版本的技能，本地目录来源的不计入(它们不检查更新，只在用户自己重新读取时变)。
 func badgeCount(skills []library.Skill) int {
 	n := 0
 	for _, skill := range skills {
@@ -131,15 +131,13 @@ func (a *AppService) poke() {
 	}
 }
 
-// loop 每分钟看一次是否到了检查的时间;设置改变或窗口重新打开时立刻再看。
-// 按时间检查以技能库里记下的检查时间为准，所以重启应用不会重新计时，手动检查过也算。
 func (a *AppService) loop(ctx context.Context) {
 	defer close(a.done)
 	a.refreshBadge(ctx)
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
 	for {
-		if collections := a.due(ctx); len(collections) > 0 {
+		if collections := a.due(ctx, time.Now()); len(collections) > 0 {
 			a.check(ctx, collections)
 		}
 		select {
@@ -151,8 +149,7 @@ func (a *AppService) loop(ctx context.Context) {
 	}
 }
 
-// due 返回到了该检查的集合(本地目录来源不检查更新);不到时间时为空。
-func (a *AppService) due(ctx context.Context) []library.CollectionID {
+func (a *AppService) due(ctx context.Context, now time.Time) []library.CollectionID {
 	a.mu.Lock()
 	settings, opened, last := a.settings, a.opened, a.lastAttempt
 	a.opened = false
@@ -181,18 +178,16 @@ func (a *AppService) due(ctx context.Context) []library.CollectionID {
 	if err != nil {
 		return nil
 	}
-	since := oldestConfirmed(skills, time.Now())
+	since := oldestConfirmed(skills, now)
 	if last.After(since) {
 		since = last
 	}
-	if time.Since(since) < period {
+	if now.Sub(since) < period {
 		return nil
 	}
 	return ids
 }
 
-// oldestConfirmed 返回最久没确认过来源的那个技能上次确认的时间，它决定是否到了检查的时间;
-// 从未检查过的技能从入库那一刻算起，本地目录来源的不算。没有这样的技能时是 now。
 func oldestConfirmed(skills []library.Skill, now time.Time) time.Time {
 	oldest := now
 	for _, skill := range skills {
@@ -210,10 +205,8 @@ func oldestConfirmed(skills []library.Skill, now time.Time) time.Time {
 	return oldest
 }
 
-// check 检查这些集合有没有新版本，结论随技能保存;不发系统通知，只更新角标并让前端重读。
 func (a *AppService) check(ctx context.Context, collections []library.CollectionID) {
 	a.mu.Lock()
-	// 去掉单调时钟读数，按挂钟计时：电脑睡眠的时间也算进间隔。
 	a.lastAttempt = time.Now().Round(0)
 	a.mu.Unlock()
 	if _, err := a.library.lib.CheckUpdates(ctx, collections); err != nil && ctx.Err() == nil {
@@ -223,24 +216,25 @@ func (a *AppService) check(ctx context.Context, collections []library.Collection
 		return
 	}
 	a.refreshBadge(ctx)
-	// 发事件要等主线程;不在这里等，免得应用退出时(主线程正等着这个 goroutine 结束)互相卡住。
 	go a.app.Event.Emit(updatesCheckedEvent)
 }
 
-// windowClosing 在用户关闭主窗口时调用：留在菜单栏时取消关闭、隐藏窗口，并在菜单栏放一个入口;
-// 否则照常关闭，最后一个窗口关闭后应用退出。退出应用时窗口照常关闭。
 func (a *AppService) windowClosing(event *application.WindowEvent) {
 	if a.app.Context().Err() != nil || !a.Settings().StayInMenuBar {
 		return
 	}
 	event.Cancel()
+	a.nativeMu.Lock()
 	a.window.Hide()
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.hidden = true
 	if a.tray == nil {
 		a.tray = a.newTray()
+	} else {
+		a.tray.Show()
 	}
+	a.nativeMu.Unlock()
+	a.mu.Lock()
+	a.hidden = true
+	a.mu.Unlock()
 }
 
 func (a *AppService) newTray() *application.SystemTray {
@@ -259,29 +253,29 @@ func (a *AppService) newTray() *application.SystemTray {
 	return tray
 }
 
-// showWindow 把主窗口带到前台;窗口原先关在菜单栏时去掉菜单栏入口，并算作一次打开。
 func (a *AppService) showWindow() {
+	a.nativeMu.Lock()
 	if a.window.IsMinimised() {
 		a.window.UnMinimise()
 	}
 	a.window.Show()
 	a.window.Focus()
+	if a.tray != nil {
+		a.tray.Hide()
+	}
+	a.nativeMu.Unlock()
 	a.mu.Lock()
-	reopened, tray := a.hidden, a.tray
-	a.hidden, a.tray = false, nil
+	reopened := a.hidden
+	a.hidden = false
 	if reopened {
 		a.opened = true
 	}
 	a.mu.Unlock()
-	if tray != nil {
-		tray.Destroy()
-	}
 	if reopened {
 		a.poke()
 	}
 }
 
-// attach 接上主窗口：关闭窗口按设置留在菜单栏;窗口关着时点 Dock 图标重新打开它。
 func (a *AppService) attach(app *application.App, window *application.WebviewWindow) {
 	a.app, a.window = app, window
 	window.RegisterHook(events.Common.WindowClosing, a.windowClosing)

@@ -611,9 +611,17 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
     assert((await sw(label).getAttribute("aria-checked")) === "true", `「${label}」默认应打开`);
   }
   assert(await interval("每天").evaluate((el) => el.classList.contains("on")), "间隔默认应为每天");
+  // 连着改两项、不等第一项保存完：后一次保存不能把前一次改的值盖回去。本机保存太快，这里把保存请求拖慢，让两次一定重叠
+  const slowSave = async (route) => {
+    if (route.request().postData()?.includes("check_interval")) await new Promise((r) => setTimeout(r, 600));
+    await route.continue();
+  };
+  await page.route("**/wails/runtime", slowSave);
   await sw("Dock 角标").click();
-  await settle();
   await interval("每周").click();
+  assert((await sw("Dock 角标").getAttribute("aria-checked")) === "false", "保存中界面也应显示已关掉的 Dock 角标");
+  await page.waitForTimeout(1600);
+  await page.unroute("**/wails/runtime", slowSave);
   await settle();
   const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
   assert.deepStrictEqual(saved, { auto_check: true, check_interval: "weekly", stay_in_menu_bar: true, dock_badge: false });
@@ -632,19 +640,28 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   await interval("每天").click();
   await settle();
 
-  // 项目分区：登记、注销走主界面同一套弹窗
+  // 项目分区：登记、改位置、注销走主界面同一套弹窗
   fs.mkdirSync(`${HOME}/code/proj-c`, { recursive: true });
+  fs.mkdirSync(`${HOME}/code/proj-d`, { recursive: true });
   await btn(section("项目"), "登记项目").click();
   await modal().locator("input.input").fill(`${HOME}/code/proj-c`);
   await btn(modal(), "登记").click();
   await toast("已登记项目");
   await settle();
   assert((await page.locator(".settings .set-row", { hasText: "proj-c" }).count()) === 1, "登记后应列出 proj-c");
-  await btn(page.locator(".settings .set-row", { hasText: "proj-c" }), "注销").click();
+  await btn(page.locator(".settings .set-row", { hasText: "proj-c" }), "改位置").click();
+  await modal().locator("h3", { hasText: "改项目「proj-c」的位置" }).waitFor();
+  await modal().locator("input.input").fill(`${HOME}/code/proj-d`);
+  await btn(modal(), "改位置").click();
+  // 项目名取目录名，改位置后跟着变
+  await toast("已把项目「proj-d」指到");
+  await settle();
+  assert((await page.locator(".settings .set-row", { hasText: "/code/proj-d" }).count()) === 1, "改位置后应显示新位置");
+  await btn(page.locator(".settings .set-row", { hasText: "proj-d" }), "注销").click();
   await btn(modal(), "注销").click();
   await toast("已注销项目");
   await settle();
-  assert((await page.locator(".settings .set-row", { hasText: "proj-c" }).count()) === 0, "注销后不再列出 proj-c");
+  assert((await page.locator(".settings .set-row", { hasText: "proj-d" }).count()) === 0, "注销后不再列出");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
 });
