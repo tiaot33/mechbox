@@ -18,7 +18,7 @@ import (
 func updateLocalSkill(t *testing.T, lib *library.Library, id library.SkillID, source, body string) {
 	t.Helper()
 	writeLocalSkill(t, source, body)
-	if result, err := lib.Update(t.Context(), id); err != nil || !result.Changed {
+	if result, err := updateSkill(t, lib, t.Context(), id); err != nil || !result.Changed {
 		t.Fatalf("Update(%d) = %#v, %v", id, result, err)
 	}
 }
@@ -151,7 +151,7 @@ func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 	requireInspection(t, lib, library.SkillScopeCurrent, v1)
 
 	writeLocalSkill(t, source, "# v2\n")
-	if result, err := lib.Update(ctx, skill.ID); err != nil || !result.Changed {
+	if result, err := updateSkill(t, lib, ctx, skill.ID); err != nil || !result.Changed {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
 	updated, err := lib.GetSkill(ctx, skill.ID)

@@ -59,7 +59,7 @@ func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
 	var wg sync.WaitGroup
 	var result library.UpdateResult
 	var updateErr error
-	wg.Go(func() { result, updateErr = lib.Update(t.Context(), demo.ID) })
+	wg.Go(func() { result, updateErr = lib.Update(t.Context(), singleUpdate(demo)) })
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "Install", func(ctx context.Context) error {
@@ -72,7 +72,7 @@ func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
 
 	gate.open()
 	wg.Wait()
-	if updateErr != nil || !result.Changed {
+	if updateErr != nil || len(result.Skills) != 1 || !result.Skills[0].Changed {
 		t.Fatalf("Update after release = %#v, %v; want Changed", result, updateErr)
 	}
 	if versions, err := lib.ListVersions(t.Context(), demo.ID); err != nil || len(versions) != 2 {
@@ -103,7 +103,7 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 			var wg sync.WaitGroup
 			var result library.UpdateResult
 			var updateErr error
-			wg.Go(func() { result, updateErr = lib.Update(t.Context(), demo.ID) })
+			wg.Go(func() { result, updateErr = lib.Update(t.Context(), singleUpdate(demo)) })
 			gate.awaitEntered(t)
 			mustFinishBeforeRelease(t, gate, "RemoveSkill", func(ctx context.Context) error {
 				return lib.RemoveSkill(ctx, demo.ID, library.RemoveSkillOptions{})
@@ -112,7 +112,7 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 			wg.Wait()
 
 			requireErrorDetails(t, updateErr, library.NotFound, library.ErrorDetails{SkillID: demo.ID})
-			if result.Skill.ID != 0 {
+			if len(result.Skills) != 0 {
 				t.Fatalf("Update returned a skill after NotFound: %#v", result)
 			}
 			if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
@@ -144,7 +144,7 @@ func TestUpdateReportsSkillRemovedByAnotherInstanceAsNotFound(t *testing.T) {
 	gate.arm()
 	var wg sync.WaitGroup
 	var updateErr error
-	wg.Go(func() { _, updateErr = first.Update(t.Context(), demo.ID) })
+	wg.Go(func() { _, updateErr = first.Update(t.Context(), singleUpdate(demo)) })
 	gate.awaitEntered(t)
 	if err := second.RemoveSkill(t.Context(), demo.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
@@ -168,13 +168,13 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 	gate.arm()
 	var wg sync.WaitGroup
 	var slowErr error
-	wg.Go(func() { _, slowErr = lib.Update(t.Context(), demo.ID) })
+	wg.Go(func() { _, slowErr = lib.Update(t.Context(), singleUpdate(demo)) })
 	gate.awaitEntered(t)
 	// 慢的那次卡在远端时,第二次更新不受拦截,先看到并提交同样的新内容。
 	gate.disarm()
 	mustFinishBeforeRelease(t, gate, "second Update", func(ctx context.Context) error {
-		result, err := lib.Update(ctx, demo.ID)
-		if err == nil && !result.Changed {
+		result, err := lib.Update(ctx, singleUpdate(demo))
+		if err == nil && !result.Skills[0].Changed {
 			return fmt.Errorf("second Update = %#v, want Changed", result)
 		}
 		return err
@@ -204,9 +204,9 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
 
 	gate.arm()
 	var wg sync.WaitGroup
-	var checks []library.UpdateCheck
+	var checks []library.CollectionUpdateCheck
 	var batchErr error
-	wg.Go(func() { checks, batchErr = lib.CheckUpdates(t.Context(), []library.SkillID{demo.ID}) })
+	wg.Go(func() { checks, batchErr = lib.CheckUpdates(t.Context(), []library.CollectionID{demo.CollectionID}) })
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "Install", func(ctx context.Context) error {
@@ -215,7 +215,7 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
 
 	gate.open()
 	wg.Wait()
-	if batchErr != nil || len(checks) != 1 || checks[0].Available || checks[0].Error != nil {
+	if batchErr != nil || len(checks) != 1 || checks[0].Error != nil || len(checks[0].Skills) != 1 || checks[0].Skills[0].LastUpdateCheck.Status != library.UpdateCurrent {
 		t.Fatalf("checks after release = %#v, %v; want one unchanged result", checks, batchErr)
 	}
 }

@@ -14,7 +14,7 @@
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求。
-//   - [Library.PreviewFetch] 对 GitHub、URL 或本地目录做入库预览,列出候选。
+//   - [Library.PreviewFetch] 对 GitHub、URL 或本地目录做入库预览,列出候选;对库里已有的集合再预览一次,看作者又发布了哪些技能。
 //   - [Library.GetSkillAudit] 查看候选在 skills.sh 上的审计,可选。
 //   - [Library.Fetch] 把选中的候选入库。
 //
@@ -26,8 +26,11 @@
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
 //
 // 更新(update.go):
-//   - [Library.CheckUpdates] 检查哪些技能有更新,结果随技能保存。
-//   - [Library.Update] 重新读取来源,有变化时写入新版本;不重新安装。
+//   - [Library.CheckUpdates] 按集合检查更新,结论写在集合里每个技能的 Skill.LastUpdateCheck 上,技能详情页的「有新版本」读它;
+//     只读,可以自动发起。没有按技能、按组检查的入口。
+//   - [Library.Update] 对一个集合发起,带进勾选的技能:从集合发起传有新版本的全部技能,从技能详情页发起传
+//     Skill.CollectionID 和这一个技能。不要求先检查,更新自己读来源;库里全成或全不成,结果带每个技能更新前后的版本。
+//     只改库,不重新安装。
 //
 // 分组(groups.go):
 //   - [Library.CreateGroup]、[Library.RenameGroup]、[Library.DeleteGroup] 管理分组。

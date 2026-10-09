@@ -22,14 +22,15 @@ const (
 	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法)。
 	// 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
 	InvalidArgument ErrorCode = "invalid_argument"
-	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref)。
+	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref),
+	// 或更新时来源里已经没有勾选的某个技能。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
 	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、安装目标处不是从库里装的同名文件夹),
 	// 或重新安装时这一处被改过、且没同意覆盖。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
-	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间该 skill 的当前版本已被别处改写)。
+	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间勾选的技能被另一次更新改过)。
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
@@ -76,8 +77,8 @@ type Error struct {
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字;AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
-	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能;InvalidArgument:更新时不属于该集合的技能;Conflict:更新时被另一次更新改过的技能
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
 }
 

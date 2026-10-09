@@ -279,7 +279,7 @@ func gitCommandError(output []byte) error {
 	case gitAuthFailure(detail):
 		return fmt.Errorf("git: authentication failed: %w", source.ErrPermission)
 	case gitMissingRef(detail):
-		return &source.NotFoundError{What: "git ref"}
+		return &source.NotFoundError{What: source.MissingRef}
 	case gitUnreachable(detail):
 		return fmt.Errorf("git: remote could not be reached: %w", source.ErrUnreachable)
 	default:

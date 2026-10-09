@@ -435,24 +435,62 @@ func stubGitHubCLI(t *testing.T, script string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// checkSingleUpdate 通过公开批量接口检查一个技能,校验结果数量和身份,再交给场景断言状态或逐项错误。
-func checkSingleUpdate(t *testing.T, lib *library.Library, ctx context.Context, id library.SkillID) (bool, error) {
+// checkSkillUpdate 检查一个技能所在的集合,返回这个技能存下的结论;结论为 failed 时一并返回集合的 Error。
+// 技能不在库里时返回 GetSkill 的错误。
+func checkSkillUpdate(t *testing.T, lib *library.Library, ctx context.Context, id library.SkillID) (library.UpdateCheckStatus, error) {
 	t.Helper()
-	checks, err := lib.CheckUpdates(ctx, []library.SkillID{id})
+	skill, err := lib.GetSkill(ctx, id)
 	if err != nil {
-		t.Fatalf("CheckUpdates(%d) failed: %v; want a completed item", id, err)
+		return "", err
 	}
-	if len(checks) != 1 || checks[0].SkillID != id {
-		t.Fatalf("CheckUpdates(%d) = %#v; want one matching result", id, checks)
+	checks, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID})
+	if err != nil {
+		t.Fatalf("CheckUpdates(%d) failed: %v; want a completed collection", skill.CollectionID, err)
 	}
-	if checks[0].Error != nil {
-		return false, checks[0].Error
+	if len(checks) != 1 || checks[0].CollectionID != skill.CollectionID {
+		t.Fatalf("CheckUpdates(%d) = %#v; want one matching result", skill.CollectionID, checks)
 	}
-	return checks[0].Available, nil
+	for _, checked := range checks[0].Skills {
+		if checked.ID != id {
+			continue
+		}
+		if checked.LastUpdateCheck == nil {
+			t.Fatalf("checked skill %d has no conclusion", id)
+		}
+		if checked.LastUpdateCheck.Status == library.UpdateFailed && checks[0].Error != nil {
+			return library.UpdateFailed, checks[0].Error
+		}
+		return checked.LastUpdateCheck.Status, nil
+	}
+	t.Fatalf("CheckUpdates(%d) = %#v; skill %d missing", skill.CollectionID, checks, id)
+	return "", nil
+}
+
+// updateSkill 把一个技能按「只勾一项的集合更新」更新,返回它在结果里的那一项。
+// 技能不在库里时返回 GetSkill 的错误。
+func updateSkill(t *testing.T, lib *library.Library, ctx context.Context, id library.SkillID) (library.UpdatedSkill, error) {
+	t.Helper()
+	skill, err := lib.GetSkill(ctx, id)
+	if err != nil {
+		return library.UpdatedSkill{}, err
+	}
+	result, err := lib.Update(ctx, library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{id}})
+	if err != nil {
+		return library.UpdatedSkill{}, err
+	}
+	if len(result.Skills) != 1 || result.Skills[0].Skill.ID != id {
+		t.Fatalf("Update(%d) = %#v; want one matching skill", id, result)
+	}
+	return result.Skills[0], nil
+}
+
+// singleUpdate 是只勾一项的集合更新请求。
+func singleUpdate(skill library.Skill) library.UpdateRequest {
+	return library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{skill.ID}}
 }
 
 // updateCheckState 经列表接口读取指定技能的最近检查记录。
-func updateCheckState(t *testing.T, lib *library.Library, id library.SkillID) *library.UpdateCheckState {
+func updateCheckState(t *testing.T, lib *library.Library, id library.SkillID) *library.UpdateCheck {
 	t.Helper()
 	skills, err := lib.ListSkills(t.Context())
 	if err != nil {

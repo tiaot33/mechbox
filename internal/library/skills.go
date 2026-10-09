@@ -35,16 +35,18 @@ type Source struct {
 // Skill 是库里的一个技能;列表、详情与入库结果都返回它,集合和组只给出技能 ID。不含文件内容,
 // 文件用 VersionID 经 ListVersionFiles / GetVersionFile 读取。
 type Skill struct {
-	LastUpdateCheck *UpdateCheckState `json:"last_update_check,omitempty"` // 最近一次更新检查的结论;nil 表示从未检查
-	ID              SkillID           `json:"id"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"`   // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
-	CollectionID    CollectionID      `json:"collection_id"` // 所在集合;从技能打开集合或更新时用它
-	Source          Source            `json:"source"`
-	VersionID       VersionID         `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、在版本历史里标出当前版本与比较差异
-	Revision        string            `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
-	FetchedAt       time.Time         `json:"fetched_at,omitzero"` // 入库时间
-	UpdatedAt       time.Time         `json:"updated_at,omitzero"` // 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
+	// LastUpdateCheck 是最近一次检查更新或更新的结论,技能详情页的「有新版本」读它;
+	// nil 表示入库后从未检查、也从未更新过(入库来自入库预览那一刻,不算一次检查)。
+	LastUpdateCheck *UpdateCheck `json:"last_update_check,omitempty"`
+	ID              SkillID      `json:"id"`
+	Name            string       `json:"name"`
+	Description     string       `json:"description"`   // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	CollectionID    CollectionID `json:"collection_id"` // 所在集合;从技能打开集合或更新时用它
+	Source          Source       `json:"source"`
+	VersionID       VersionID    `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、在版本历史里标出当前版本与比较差异
+	Revision        string       `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
+	FetchedAt       time.Time    `json:"fetched_at,omitzero"` // 入库时间
+	UpdatedAt       time.Time    `json:"updated_at,omitzero"` // 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
 }
 
 // FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -90,7 +92,7 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 		UpdatedAt:    row.UpdatedAt,
 	}
 	if row.CheckStatus != "" {
-		skill.LastUpdateCheck = &UpdateCheckState{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
+		skill.LastUpdateCheck = &UpdateCheck{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
 	}
 	return skill, nil
 }
@@ -142,11 +144,15 @@ func (l *Library) getCurrent(ctx context.Context, id SkillID) (Skill, currentVer
 	if err != nil {
 		return Skill{}, currentVersion{}, err
 	}
+	return l.currentOf(ctx, row)
+}
+
+func (l *Library) currentOf(ctx context.Context, row store.Skill) (Skill, currentVersion, error) {
 	skill, err := l.skillOf(row)
 	if err != nil {
 		return Skill{}, currentVersion{}, err
 	}
-	current, err := l.store.GetCurrent(ctx, int64(id))
+	current, err := l.store.GetCurrent(ctx, row.ID)
 	if err != nil {
 		return Skill{}, currentVersion{}, err
 	}

@@ -106,7 +106,7 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeLocalSkill(t, originalSource, "updated\n")
-	if _, err := lib.Update(ctx, original.ID); err != nil {
+	if _, err := updateSkill(t, lib, ctx, original.ID); err != nil {
 		t.Fatal(err)
 	}
 	group, err := lib.CreateGroup(ctx, "synced-group")

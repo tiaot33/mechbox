@@ -93,14 +93,22 @@ func (e *InputError) Error() string {
 	return e.Reason
 }
 
+type Missing string
+
+const (
+	MissingSkill   Missing = "source skill"
+	MissingRef     Missing = "git ref"
+	MissingSubpath Missing = "source subpath"
+)
+
 type NotFoundError struct {
-	What string
+	What Missing
 	Name string
 }
 
 func (e *NotFoundError) Error() string {
 	if e.Name == "" {
-		return e.What + " not found"
+		return string(e.What) + " not found"
 	}
 	return fmt.Sprintf("%s not found: %q", e.What, e.Name)
 }

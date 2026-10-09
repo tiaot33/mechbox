@@ -131,8 +131,8 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range skills {
-		if available, err := checkSingleUpdate(t, lib, t.Context(), skill.ID); err != nil || !available {
-			t.Fatalf("check = %v, %v", available, err)
+		if status, err := checkSkillUpdate(t, lib, t.Context(), skill.ID); err != nil || status != library.UpdateAvailable {
+			t.Fatalf("check = %v, %v", status, err)
 		}
 	}
 	runGit(t, repository, "branch", "feature/topic")

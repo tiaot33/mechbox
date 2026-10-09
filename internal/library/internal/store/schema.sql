@@ -16,8 +16,10 @@ CREATE TABLE IF NOT EXISTS skills (
     source_id INTEGER NOT NULL REFERENCES sources(id), -- 入库时的来源
     name TEXT NOT NULL,                                -- skill 名,取 SKILL.md frontmatter 的 name
     current_version_id INTEGER REFERENCES skill_versions(id), -- 当前版本;读取和安装都用它。入库事务内先插入 skill,再创建版本并回填,期间可为 NULL
-    update_checked_at TEXT NOT NULL DEFAULT '',        -- 最近检查或成功 Update 的确认时间,RFC3339Nano;用于防止较早发出的检查回写
-    update_check_status TEXT NOT NULL DEFAULT '' CHECK(update_check_status IN ('', 'available', 'current', 'failed')), -- 最近结论;随 skill 一并删除
+    update_checked_at TEXT NOT NULL DEFAULT '',        -- 最近一次确认来源(检查更新或更新)的时间,RFC3339Nano;同时有几次检查时,用它判断库里的结论是不是检查开始后才写下的
+    -- 最近一次确认来源的结论:available 有新版本 / current 已是最新 / deleted 来源里已删除 / failed 检查失败;
+    -- 空字符串表示入库后从未检查、也从未更新过。随 skill 一并删除
+    update_check_status TEXT NOT NULL DEFAULT '' CHECK(update_check_status IN ('', 'available', 'current', 'deleted', 'failed')),
     UNIQUE(source_id, name)
 );
 

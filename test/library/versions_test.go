@@ -34,7 +34,7 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 	if err := os.Remove(filepath.Join(source, "deleted.md")); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := lib.Update(ctx, fetched.ID)
+	updated, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestExecutableOnlyChangeShowsInDiff(t *testing.T) {
 	if err := os.Chmod(script, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := lib.Update(ctx, fetched.ID)
+	updated, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil || !updated.Changed || updated.Skill.VersionID == fetched.VersionID {
 		t.Fatalf("Update = %#v, %v; want a new version", updated, err)
 	}
@@ -161,7 +161,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 	fetchedAt := fetched.FetchedAt
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: second edition\n---\nsecond\n"), 0o644)
 	time.Sleep(time.Millisecond)
-	updated, err := lib.Update(ctx, fetched.ID)
+	updated, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil || !updated.Changed {
 		t.Fatalf("Update = %#v, %v", updated, err)
 	}
@@ -200,7 +200,7 @@ func TestDiffVersionsWhileSkillIsRemoved(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeLocalSkill(t, source, "second\n")
-		updated, err := lib.Update(ctx, fetched.ID)
+		updated, err := updateSkill(t, lib, ctx, fetched.ID)
 		if err != nil || !updated.Changed {
 			t.Fatalf("Update = %#v, %v", updated, err)
 		}
@@ -266,7 +266,7 @@ func TestSkillReportsCurrentVersionID(t *testing.T) {
 	}
 
 	writeLocalSkill(t, dir, "v2\n")
-	updated, err := lib.Update(ctx, fetched.ID)
+	updated, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil || !updated.Changed {
 		t.Fatalf("Update = %#v, %v", updated, err)
 	}
@@ -278,7 +278,7 @@ func TestSkillReportsCurrentVersionID(t *testing.T) {
 	if err != nil || current.VersionID != versions[1].ID {
 		t.Fatalf("GetSkill VersionID = %d, %v; want %d", current.VersionID, err, versions[1].ID)
 	}
-	unchanged, err := lib.Update(ctx, fetched.ID)
+	unchanged, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil || unchanged.Changed || unchanged.Skill.VersionID != versions[1].ID {
 		t.Fatalf("unchanged Update = %#v, %v", unchanged, err)
 	}

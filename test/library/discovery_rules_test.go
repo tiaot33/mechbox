@@ -178,11 +178,10 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 			if api != nil {
 				api.Swap(fx)
 			}
-			available, err := checkSingleUpdate(t, lib, t.Context(), id)
-			if err != nil || !available {
-				t.Fatalf("check = %v, %v", available, err)
+			if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateAvailable {
+				t.Fatalf("check = %v, %v", status, err)
 			}
-			updated, err := lib.Update(t.Context(), id)
+			updated, err := updateSkill(t, lib, t.Context(), id)
 			if err != nil || !updated.Changed || string(skillFiles(t, lib, updated.Skill)[0].Content) != skillDocument("same", "changed") {
 				t.Fatalf("update = %#v, %v", updated, err)
 			}
@@ -192,7 +191,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 			if api != nil {
 				api.Swap(inspectGitHubRepo(t, repo))
 			}
-			if _, err := lib.Update(t.Context(), id); !library.IsCode(err, library.NotFound) {
+			if _, err := updateSkill(t, lib, t.Context(), id); !library.IsCode(err, library.NotFound) {
 				t.Fatalf("missing update = %v", err)
 			}
 			runGit(t, repo, "rm", "-r", "skills", "examples")
@@ -201,8 +200,8 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 			if api != nil {
 				api.Swap(inspectGitHubRepo(t, repo))
 			}
-			if _, err := checkSingleUpdate(t, lib, t.Context(), id); !library.IsCode(err, library.NotFound) {
-				t.Fatalf("empty source = %v", err)
+			if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateDeleted {
+				t.Fatalf("empty source = %v, %v", status, err)
 			}
 		})
 	}
