@@ -22,6 +22,14 @@ func NewClient() *Client {
 	return &Client{memo: newGitHubMemo()}
 }
 
+func (c *Client) SetToken(token string) {
+	if old := c.auth.token.Swap(&token); old != nil && *old == token || old == nil && token == "" {
+		return
+	}
+	c.auth.useToken.Store(false)
+	c.auth.useCLI.Store(false)
+}
+
 func (c *Client) Close() {
 	c.auth.anonymousReset.Store(0)
 	c.auth.useToken.Store(false)

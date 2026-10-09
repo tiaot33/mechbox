@@ -52,10 +52,10 @@ type githubAuth struct {
 	anonymousReset atomic.Int64
 	useToken       atomic.Bool
 	useCLI         atomic.Bool
+	token          atomic.Pointer[string]
 }
 
 type githubClient struct {
-	token    string
 	useToken atomic.Bool
 	useCLI   atomic.Bool
 	auth     *githubAuth
@@ -63,7 +63,7 @@ type githubClient struct {
 }
 
 func (c *Client) session() *githubClient {
-	client := &githubClient{token: githubToken(), auth: &c.auth, memo: &c.memo}
+	client := &githubClient{auth: &c.auth, memo: &c.memo}
 	client.useToken.Store(c.auth.useToken.Load())
 	client.useCLI.Store(c.auth.useCLI.Load())
 	return client
@@ -108,7 +108,10 @@ func ownerRepo(repository string) (owner, repo string, ok bool) {
 	return owner, repo, ok && owner != "" && repo != "" && !strings.Contains(repo, "/")
 }
 
-func githubToken() string {
+func (a *githubAuth) currentToken() string {
+	if token := a.token.Load(); token != nil && *token != "" {
+		return *token
+	}
 	return cmp.Or(os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
 }
 
@@ -182,9 +185,9 @@ func (c *githubClient) request(ctx context.Context, httpGet func(string) error, 
 		anonymousDenied = githubAuthDenied(err)
 	}
 	httpDenied := anonymousDenied
-	if c.token != "" {
+	if token := c.auth.currentToken(); token != "" {
 		c.useToken.Store(true)
-		err = httpGet(c.token)
+		err = httpGet(token)
 		if err == nil {
 			if anonymousDenied {
 				c.auth.useToken.Store(true)

@@ -12,6 +12,11 @@
 //
 // 下面按用户操作的顺序列出每一步用到的方法和所在文件。
 //
+// 设置(library.go、sync.go):
+//   - [Library.SetGitHubToken] 传入访问 GitHub 用的个人访问令牌;没传入时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
+//   - [Library.SetSyncSettings] 传入同步用的 S3 设置,整组取用;没传入时读 SKILLS_S3_*、AWS_* 环境变量。
+//     两者都只在这个 Library 实例上有效,改完下一次请求就用新值。
+//
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求。
 //   - [Library.PreviewFetch] 对 GitHub、URL 或本地目录做入库预览,列出候选;对库里已有的集合再预览一次,看作者又发布了哪些技能。

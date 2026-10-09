@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
@@ -27,6 +29,8 @@ type Library struct {
 
 	github  *github.Client
 	sources source.Kinds
+
+	syncSettings atomic.Pointer[s3.Settings]
 }
 
 const (
@@ -95,6 +99,13 @@ func (l *Library) Close() (err error) {
 	l.previewMu.Unlock()
 	l.github.Close()
 	return l.store.Close()
+}
+
+// SetGitHubToken 设置访问 GitHub 用的个人访问令牌,之后的入库预览、入库、检查更新与更新立即使用。
+// 它只用在「用令牌访问」这一步:先匿名访问,不行再用令牌,再不行用 gh,顺序不变。
+// 传空字符串表示没有传入,回到读取 GITHUB_TOKEN / GH_TOKEN 环境变量。令牌只在这个 Library 实例上有效,不写进库。
+func (l *Library) SetGitHubToken(token string) {
+	l.github.SetToken(token)
 }
 
 func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {

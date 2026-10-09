@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,16 @@ type s3Stub struct {
 	// gate 若非 nil,gateMethod 方法的请求在处理前先过闸;用来把 push / plan 停在网络上。
 	gate       *networkGate
 	gateMethod string
+	// endpoint 是打桩服务的地址;requests 按顺序记下每个请求的 Access Key ID 与路径,形如 "test-key /test-bucket/key"。
+	endpoint string
+	requests []string
+}
+
+// takeRequests 返回并清空已记下的请求。
+func (s *s3Stub) takeRequests() []string {
+	taken := s.requests
+	s.requests = nil
+	return taken
 }
 
 func (s *s3Stub) set(data []byte) {
@@ -72,6 +83,8 @@ func newS3Stub(t *testing.T) *s3Stub {
 				return
 			}
 		}
+		credential, _, _ := strings.Cut(strings.TrimPrefix(authorization, "AWS4-HMAC-SHA256 Credential="), "/")
+		stub.requests = append(stub.requests, credential+" "+r.URL.EscapedPath())
 		if stub.gate != nil && r.Method == stub.gateMethod {
 			stub.gate.pass()
 		}
@@ -111,6 +124,7 @@ func newS3Stub(t *testing.T) *s3Stub {
 		}
 	}))
 	t.Cleanup(server.Close)
+	stub.endpoint = server.URL
 	t.Setenv("SKILLS_S3_ENDPOINT", server.URL)
 	t.Setenv("SKILLS_S3_BUCKET", "test-bucket")
 	t.Setenv("SKILLS_S3_KEY", "backups/test$file+name.db")
@@ -632,5 +646,94 @@ func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	groups, err := lib.ListGroups(ctx)
 	if err != nil || len(groups) != 1 || groups[0].Name != "local-group" {
 		t.Fatalf("local library changed: %#v, %v", groups, err)
+	}
+}
+
+// 调用方传入同步设置后,不设置任何环境变量也能推送和拉回,用的是传入的服务地址、存储桶、对象名与密钥。
+func TestSyncPushAndPullWithPassedSettings(t *testing.T) {
+	stub := newS3Stub(t)
+	for _, key := range []string{"SKILLS_S3_ENDPOINT", "SKILLS_S3_BUCKET", "SKILLS_S3_KEY", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+		t.Setenv(key, "")
+	}
+	lib := openTestLibrary(t)
+	lib.SetSyncSettings(&library.SyncSettings{
+		Endpoint:        stub.endpoint,
+		Bucket:          "settings-bucket",
+		Key:             "settings.db",
+		Region:          "settings-region",
+		AccessKeyID:     "settings-key",
+		SecretAccessKey: "settings-secret",
+		SessionToken:    "settings-session",
+	})
+	ctx := t.Context()
+	group, err := lib.CreateGroup(ctx, "pushed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushPlan, err := lib.PlanSyncPush(ctx)
+	if err != nil || pushPlan.Remote != nil {
+		t.Fatalf("push plan = %#v, %v", pushPlan, err)
+	}
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.DeleteGroup(ctx, group.ID); err != nil {
+		t.Fatal(err)
+	}
+	pullPlan, err := lib.PlanSyncPull(ctx)
+	if err != nil || !pullPlan.CanPull || pullPlan.Groups != 1 {
+		t.Fatalf("pull plan = %#v, %v", pullPlan, err)
+	}
+	if err := lib.SyncPull(ctx, pullPlan.Remote.Identity); err != nil {
+		t.Fatal(err)
+	}
+	if groups, err := lib.ListGroups(ctx); err != nil || len(groups) != 1 || groups[0].Name != "pushed" {
+		t.Fatalf("groups after pull = %#v, %v", groups, err)
+	}
+	requests := stub.takeRequests()
+	if len(requests) == 0 || slices.ContainsFunc(requests, func(r string) bool { return r != "settings-key /settings-bucket/settings.db" }) {
+		t.Fatalf("requests = %q, want passed settings only", requests)
+	}
+}
+
+// 同步设置整组取用:传入了就只用传入的那一组,缺的项不从环境变量补;在同一个 Library 上改设置,
+// 下一次同步就用新值;传 nil 回到环境变量。
+func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {
+	stub := newS3Stub(t)
+	lib := openTestLibrary(t)
+	credentials := func() []string {
+		t.Helper()
+		if _, err := lib.PlanSyncPush(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, request := range stub.takeRequests() {
+			credential, _, _ := strings.Cut(request, " ")
+			got = append(got, credential)
+		}
+		return got
+	}
+	if got := credentials(); !slices.Equal(got, []string{"test-key"}) {
+		t.Fatalf("environment credentials = %q", got)
+	}
+
+	lib.SetSyncSettings(&library.SyncSettings{Bucket: "settings-bucket"})
+	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
+		t.Fatalf("partial settings = %v, want NotConfigured without falling back to environment", err)
+	}
+	if requests := stub.takeRequests(); len(requests) != 0 {
+		t.Fatalf("partial settings sent %q", requests)
+	}
+
+	for _, key := range []string{"settings-key", "rotated-key"} {
+		lib.SetSyncSettings(&library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: key, SecretAccessKey: "settings-secret"})
+		if got := credentials(); !slices.Equal(got, []string{key}) {
+			t.Fatalf("credentials = %q, want %q", got, key)
+		}
+	}
+
+	lib.SetSyncSettings(nil)
+	if got := credentials(); !slices.Equal(got, []string{"test-key"}) {
+		t.Fatalf("credentials after clearing settings = %q, want environment", got)
 	}
 }
