@@ -39,7 +39,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 	}
 	directories := make([]string, len(scopes))
 	for i, scope := range scopes {
-		if directories[i], err = lib.Resolve(ctx, scope); err != nil {
+		if directories[i], err = lib.ScopeDirectory(ctx, scope); err != nil {
 			t.Fatal(err)
 		}
 		if err := lib.Install(ctx, first.ID, scope, library.InstallOptions{}); err != nil {

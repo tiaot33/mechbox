@@ -267,7 +267,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(t.Context(), scope)
+	directory, err := lib.ScopeDirectory(t.Context(), scope)
 	if err != nil {
 		t.Fatal(err)
 	}

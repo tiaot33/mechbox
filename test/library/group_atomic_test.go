@@ -42,7 +42,7 @@ func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 				t.Fatal(err)
 			}
 			scope := library.GlobalScope(library.AgentCodex)
-			directory, err := lib.Resolve(ctx, scope)
+			directory, err := lib.ScopeDirectory(ctx, scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,7 +161,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

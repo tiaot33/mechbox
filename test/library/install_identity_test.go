@@ -11,7 +11,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-// 用项目 Scope 安装:文件夹落在该 Registered project 根下 Resolve 出的目录;Uninstall 后
+// 用项目 Scope 安装:文件夹落在该 Registered project 根下 ScopeDirectory 给出的目录;Uninstall 后
 // 目录与记录一起消失,Library 里的 skill 仍在;再次 Uninstall 得到 NotFound。
 func TestInstallAndUninstallProjectScope(t *testing.T) {
 	ctx := t.Context()
@@ -27,12 +27,12 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if directory != filepath.Join(project.Path, ".claude", "skills") {
-		t.Fatalf("Resolve(%#v) = %q; want under registered project root", scope, directory)
+		t.Fatalf("ScopeDirectory(%#v) = %q; want under registered project root", scope, directory)
 	}
 	target := filepath.Join(directory, skill.Name)
 	if _, err := os.Stat(filepath.Join(target, "SKILL.md")); err != nil {
@@ -91,7 +91,7 @@ func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := library.ProjectScope(library.AgentCodex, project.ID)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestIdentityScopesOfOneSkillAreIndependentSkillScopes(t *testing.T) {
 		t.Fatalf("ListSkillScopes() = %#v, %v; want %d skill scopes", skillScopes, err, len(scopes))
 	}
 	for _, scope := range scopes {
-		directory, err := lib.Resolve(ctx, scope)
+		directory, err := lib.ScopeDirectory(ctx, scope)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -186,11 +186,11 @@ func TestInstallDoesNotOverwriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	}
 	global := library.GlobalScope(library.AgentCodex)
 	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
-	directory, err := lib.Resolve(ctx, global)
+	directory, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projectDirectory, err := lib.Resolve(ctx, projectScope); err != nil || projectDirectory != directory {
+	if projectDirectory, err := lib.ScopeDirectory(ctx, projectScope); err != nil || projectDirectory != directory {
 		t.Fatalf("precondition: scopes should share a directory, got %q vs %q (%v)", projectDirectory, directory, err)
 	}
 
@@ -247,7 +247,7 @@ func TestInstallSerializesSharedDirectoryClaims(t *testing.T) {
 	if len(skillScopes) != 1 {
 		t.Fatalf("ListSkillScopes() = %#v, install errors=%v; want exactly one claim", skillScopes, results)
 	}
-	directory, err := lib.Resolve(ctx, skillScopes[0].Scope)
+	directory, err := lib.ScopeDirectory(ctx, skillScopes[0].Scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestInstallRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	first := fetchSkillWithBody(t, lib, "commit", "# A\n")
 	second := fetchSkillWithBody(t, lib, "commit", "# B\n")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 	second := fetchSkillWithBody(t, lib, "commit", "# B\n")
 	bystander := fetchSkillWithBody(t, lib, "bystander", "# bystander\n")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	global := library.GlobalScope(library.AgentCodex)
 	sameDirectory := library.ProjectScope(library.AgentCodex, project.ID)
 	otherAgent := library.GlobalScope(library.AgentClaudeCode)
-	directory, err := lib.Resolve(ctx, global)
+	directory, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 	if err := lib.Install(ctx, second.ID, otherAgent, library.InstallOptions{}); err != nil {
 		t.Fatalf("Install(B) into another agent's directory = %v, want success", err)
 	}
-	otherDirectory, err := lib.Resolve(ctx, otherAgent)
+	otherDirectory, err := lib.ScopeDirectory(ctx, otherAgent)
 	if err != nil {
 		t.Fatal(err)
 	}

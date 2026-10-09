@@ -55,11 +55,8 @@ func (q queries) RegisterProject(ctx context.Context, path string) (Project, boo
 		return Project{}, false, fmt.Errorf("register project: %w", wrap(err))
 	}
 	if inserted == 0 {
-		project := Project{Path: path}
-		if err := q.q.QueryRowContext(ctx, `SELECT id FROM projects WHERE path = ?`, path).Scan(&project.ID); err != nil {
-			return Project{}, false, fmt.Errorf("read registered project: %w", wrap(err))
-		}
-		return project, false, nil
+		project, err := q.ProjectByPath(ctx, path)
+		return project, false, err
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
@@ -94,6 +91,29 @@ func (q queries) GetProject(ctx context.Context, id int64) (Project, error) {
 		return Project{}, fmt.Errorf("get registered project: %w", wrap(err))
 	}
 	return project, nil
+}
+
+func (q queries) ProjectByPath(ctx context.Context, path string) (Project, error) {
+	project := Project{Path: path}
+	if err := q.q.QueryRowContext(ctx, `SELECT id FROM projects WHERE path = ?`, path).Scan(&project.ID); err != nil {
+		return Project{}, fmt.Errorf("get registered project by path: %w", wrap(err))
+	}
+	return project, nil
+}
+
+func (t *Tx) RelocateProject(ctx context.Context, id int64, path string) error {
+	result, err := t.q.ExecContext(ctx, `UPDATE projects SET path = ? WHERE id = ?`, path, id)
+	if err != nil {
+		return fmt.Errorf("relocate project: %w", wrap(err))
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("relocate project: %w", wrap(err))
+	}
+	if updated == 0 {
+		return fmt.Errorf("relocate project: %w", ErrNotFound)
+	}
+	return nil
 }
 
 func (t *Tx) UnregisterProject(ctx context.Context, id int64) error {

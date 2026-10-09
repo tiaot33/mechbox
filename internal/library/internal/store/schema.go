@@ -11,26 +11,27 @@ import (
 )
 
 const (
-	applicationID = 1397443650
-	schemaVersion = 16
-	agentSeedSQL  = `
+	applicationID    = 1397443650
+	schemaVersion    = 16
+	builtinAgentsSQL = `
 		INSERT INTO agents(code, name, global_path, project_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
 			('codex', 'Codex', '.agents/skills', '.agents/skills')
-		ON CONFLICT(code) DO NOTHING
+		ON CONFLICT(code) DO UPDATE SET name = excluded.name, global_path = excluded.global_path, project_path = excluded.project_path
+		WHERE (name, global_path, project_path) IS NOT (excluded.name, excluded.global_path, excluded.project_path)
 	`
 )
 
 //go:embed schema.sql
 var schemaSQL string
 
-func seedAgents(ctx context.Context, db *sql.DB) error {
+func writeBuiltinAgents(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, agentSeedSQL); err != nil {
+	if _, err := tx.ExecContext(ctx, builtinAgentsSQL); err != nil {
 		return err
 	}
 	if err := validateSchema(ctx, tx); err != nil {

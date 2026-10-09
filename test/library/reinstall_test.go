@@ -53,7 +53,7 @@ func TestReinstallKeepsInstalls(t *testing.T) {
 	directOnly, directOnlySource := fetchLocalSkill(t, lib, "direct-only", "# direct-only v1\n")
 	both, bothSource := fetchLocalSkill(t, lib, "both", "# both v1\n")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestReinstallRefusesModifiedUnlessOverwrite(t *testing.T) {
 	edited, _ := fetchLocalSkill(t, lib, "edited", "# edited v1\n")
 	stale, staleSource := fetchLocalSkill(t, lib, "stale", "# stale v1\n")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestReinstallWriteFailureRestoresItemAndContinues(t *testing.T) {
 		}
 	}
 	updateLocalSkill(t, lib, skill.ID, source, "# example v2\n")
-	lockedDirectory, err := lib.Resolve(ctx, locked)
+	lockedDirectory, err := lib.ScopeDirectory(ctx, locked)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,11 +271,11 @@ func TestReinstallRecreatesMissingFolderAndDirectory(t *testing.T) {
 	skill := fetchExampleSkill(t, lib, "example")
 	codex := library.GlobalScope(library.AgentCodex)
 	claude := library.GlobalScope(library.AgentClaudeCode)
-	codexDirectory, err := lib.Resolve(ctx, codex)
+	codexDirectory, err := lib.ScopeDirectory(ctx, codex)
 	if err != nil {
 		t.Fatal(err)
 	}
-	claudeDirectory, err := lib.Resolve(ctx, claude)
+	claudeDirectory, err := lib.ScopeDirectory(ctx, claude)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	globalDirectory, err := lib.Resolve(ctx, global)
+	globalDirectory, err := lib.ScopeDirectory(ctx, global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestReinstallIgnoresMembersSkippedByGroupInstall(t *testing.T) {
 	installed, installedSource := fetchLocalSkill(t, lib, "installed", "# installed v1\n")
 	skipped := fetchNamedSkill(t, lib, "skipped")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestReinstallCancelReturnsCompletedItems(t *testing.T) {
 	first, firstSource := fetchLocalSkill(t, lib, "first", "# first v1\n")
 	second, secondSource := fetchLocalSkill(t, lib, "second", "# second v1\n")
 	scope := library.GlobalScope(library.AgentCodex)
-	directory, err := lib.Resolve(ctx, scope)
+	directory, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

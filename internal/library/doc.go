@@ -35,16 +35,17 @@
 //   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope。
 //
 // 选择安装位置(projects.go):
-//   - [Library.ListAgents]、[Library.ListRegisteredProjects] 列出可组成 Scope 的 Agent 与项目。
-//   - [Library.RegisterProject]、[Library.UnregisterProject] 登记与注销项目。
-//   - [Library.Resolve] 算出某个 Scope 对应的 Agent 目录。
+//   - [Library.ListAgents]、[Library.ListRegisteredProjects] 列出可选的 Agent 与项目;界面上的
+//     「Claude Code · 全局」「Codex · 某项目」由这两张表拼出,任何地方出现的 Scope 都按代码和项目 ID 从中查名字。
+//   - [Library.RegisterProject]、[Library.RelocateProject]、[Library.UnregisterProject] 登记项目、改项目位置与注销项目。
+//   - [Library.ScopeDirectory] 查某个作用域的目录。
 //
 // 安装(install.go):
 //   - [Library.PlanInstall] 再 [Library.Install]:先看目标状态,再直接安装;[Library.Uninstall] 撤销。
 //   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
 //   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。
 //
-// 安装与安装计划方法都只接受 Scope 身份:Agent 目录由 Resolve 算出,记录按身份落库,
+// 安装与安装计划方法都只接受 Scope 身份:Agent 目录与 [Library.ScopeDirectory] 给出的相同,记录按身份落库,
 // 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
 //
 // 巡检与重新安装(reinstall.go):

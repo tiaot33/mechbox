@@ -97,9 +97,9 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 - Agent：`agents`（稳定 `code`、展示 `name`，以及全局与项目下各自读取技能的目录规则）
 - 项目、安装记录与组安装：`projects`、`skill_scopes`、`group_installs`
 
-新数据库由 `library.Open` 自动初始化，写入应用标识和 schema 版本。发布前不迁移旧库：应用标识或 schema 版本不符时 `Open` 报错且不改文件，见 [ADR 0003](docs/adr/0003-no-migrations-before-release.md)。`Open` 只补缺失的 Agent 默认行，不覆盖已有的名称和目录规则；库没有增删改 Agent 的方法。
+新数据库由 `library.Open` 自动初始化，写入应用标识和 schema 版本。发布前不迁移旧库：应用标识或 schema 版本不符时 `Open` 报错且不改文件，见 [ADR 0003](docs/adr/0003-no-migrations-before-release.md)。应用内置的 Agent 以应用版本为准：`Open` 时补上缺失的行，并以应用为准覆盖已有行的名称和目录规则；库里有、本版应用不认识的 Agent（例如从装了更新版本应用的机器同步来的）保持原样。库没有增删改 Agent 的方法。
 
-作用域只记录身份（`GlobalScope(agent)` 或 `ProjectScope(agent, projectID)`），不含路径；目录由只读的 `Resolve` 按该 Agent 的目录规则算出，全局相对用户主目录，项目相对已登记项目的路径。Agent 换了读取目录后只认新目录，旧目录里的文件夹不搬、不删。同步拉库后只需重新对应已登记项目的本机路径，安装记录不变。见 [ADR 0005](docs/adr/0005-scope-is-agent-and-level-not-path.md)。
+作用域只记录身份（`GlobalScope(agent)` 或 `ProjectScope(agent, projectID)`），不含路径；目录由只读的 `ScopeDirectory` 按该 Agent 的目录规则算出，全局相对用户主目录，项目相对已登记项目的路径。Agent 换了读取目录后只认新目录，旧目录里的文件夹不搬、不删。同步拉库后只需重新对应已登记项目的本机路径（`RelocateProject`），安装记录不变。见 [ADR 0005](docs/adr/0005-scope-is-agent-and-level-not-path.md)。
 
 库文件以 WAL 模式运行，同一目录下会出现 `library.db-wal` 与 `library.db-shm`；最后一个连接正常关闭时 SQLite 合并并删除 `-wal`，`-shm` 可能保留，无害。**有进程打开库时不要只复制 `library.db` 来备份**，尚未合并的写入还在 `-wal` 里；请用同步推送（推送的是一致快照），或确认没有进程打开后再复制。
 

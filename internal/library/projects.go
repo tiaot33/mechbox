@@ -1,53 +1,65 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"syscall"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
-// ProjectID 是已登记项目的数据库主键。
+// ProjectID 是已登记项目的身份:登记时分配,注销前不变;同步到另一台机器、或改了项目位置后仍指同一个项目。
 type ProjectID int64
 
-// AgentCode 是 Agent 的稳定代码:跨库、跨 Sync 仍指同一个 Agent。
+// AgentCode 是 Agent 的稳定代码:跨应用版本、跨同步都不变。界面上区分 Agent(例如按代码取色)应该用它,不用名称。
 type AgentCode string
 
+// v1 内置的两个 Agent。调用方不应假定只有这两个,可选的 Agent 以 [Library.ListAgents] 为准。
 const (
 	AgentClaudeCode AgentCode = "claude-code"
 	AgentCodex      AgentCode = "codex"
 )
 
-// Agent 是 Library 持有的一个安装目标 agent。暴露稳定代码与展示名称;Agent 目录
-// 不出现在这里,由 Library 算出,调用方不自行拼路径。
+// Agent 是应用支持的一个 Agent:稳定代码和展示名称。名称可能随应用版本变化,身份以代码为准。
+// 它在各作用域读取技能的目录不在这里,用 [Library.ScopeDirectory] 查。
 type Agent struct {
 	Code AgentCode `json:"code"`
 	Name string    `json:"name"`
 }
 
-// RegisteredProject 是已注册的项目目录;注册后它与每个 Agent 组成一个 ProjectScope,
-// 各 Agent 目录在项目根下算出。
+// RegisteredProject 是一个已登记项目:登记后它与每个 Agent 组成一个项目作用域。
+// 界面上「Codex · ai-workflow-engine」这样的显示用 Agent.Name 和 Name 拼出。
 type RegisteredProject struct {
-	ID   ProjectID `json:"id"`
-	Path string    `json:"path"`
+	ID ProjectID `json:"id"`
+	// Name 是项目目录的名字,即 Path 的最后一段。两个项目同名时由界面用 Path 区分,库不改名、不加后缀。
+	Name string `json:"name"`
+	// Path 是登记或改项目位置时规范化后的绝对路径(已解析符号链接)。
+	Path string `json:"path"`
+	// Missing 表示项目目录在这台机器上不存在:从别的机器同步过来、被移动过,或在未挂载的磁盘上。
+	// 列出时现查;界面据此提示「不在这台机器上」并提供改项目位置([Library.RelocateProject])。
+	Missing bool `json:"missing,omitzero"`
 }
 
-// ScopeKind 是 Scope 的层级:某 Agent 的全局,或某 Agent 在某 Registered project 下。
+// ScopeKind 是作用域的种类:某个 Agent 的全局,或某个 Agent 加一个已登记项目。
 type ScopeKind string
 
 const (
-	ScopeGlobal  ScopeKind = "global"  // 目录相对用户主目录
-	ScopeProject ScopeKind = "project" // 目录相对 Registered project 根
+	ScopeGlobal  ScopeKind = "global"  // 全局:本机当前用户的所有项目都能用
+	ScopeProject ScopeKind = "project" // 项目:只在这个已登记项目里能用
 )
 
-// Scope 是技能安装所在的层级身份,不含路径(见 ADR 0005)。该 Agent 在此作用域的目录
-// 由 Library 算出(见 Resolve),调用方不自行拼路径,也无法传入一条目录来 Install。
+// Scope 是技能安装所在的作用域,只是身份,不含路径(见 ADR 0005):调用方不能指定目录,
+// 该 Agent 在此作用域读取技能的目录用 [Library.ScopeDirectory] 查。展示时按 Agent 代码和 ProjectID
+// 从 [Library.ListAgents]、[Library.ListRegisteredProjects] 的结果里查出名字。
 // 用 GlobalScope / ProjectScope 构造;JSON 形状 {"kind","agent","project_id"?} 双向一致,
-// ListSkillScopes 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
+// 读出的 Scope 可原样传回。每个接收 Scope 的方法在入口校验组合:
 // 未知 Kind、全局带 ProjectID、项目缺 ProjectID 均为 InvalidArgument,Details.Field 指向对应字段。
 type Scope struct {
 	Kind      ScopeKind `json:"kind"`
@@ -55,12 +67,12 @@ type Scope struct {
 	ProjectID ProjectID `json:"project_id,omitzero"` // 仅 ScopeProject;全局为零值
 }
 
-// GlobalScope 是某个 Agent 的全局 Scope。
+// GlobalScope 是某个 Agent 的全局作用域。
 func GlobalScope(agent AgentCode) Scope {
 	return Scope{Kind: ScopeGlobal, Agent: agent}
 }
 
-// ProjectScope 是某个 Agent 在某个 Registered project 下的 Scope。
+// ProjectScope 是某个 Agent 在某个已登记项目里的作用域。
 func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
 	return Scope{Kind: ScopeProject, Agent: agent, ProjectID: projectID}
 }
@@ -159,8 +171,9 @@ func scopeRowOf(scope store.Scope) scopeRow {
 	return row
 }
 
-// ListAgents 列出 Library 持有的全部 Agent(按代码排序)。只读;结果含稳定代码与展示名称,
-// 不含 Agent 目录。Agent 由建库种子写入,技能库没有增删改 Agent 的方法。
+// ListAgents 列出全部 Agent,按代码排序。Agent 随应用版本内置,用户和调用方都不能增删改;
+// 库从装了更新版本应用的机器同步来、本版应用不认识的 Agent 也在其中。结果只在应用版本变化时改变,
+// 调用方载入一次即可。
 func (l *Library) ListAgents(ctx context.Context) (agents []Agent, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -175,42 +188,29 @@ func (l *Library) ListAgents(ctx context.Context) (agents []Agent, err error) {
 	return agents, nil
 }
 
-// RegisterProject 注册一个项目目录,使它与各 Agent 组成可安装的 ProjectScope。
+// RegisterProject 登记一个项目目录,使它与每个 Agent 组成可安装的项目作用域。path 必须是本机上存在的目录,
+// 保存规范化后的绝对路径;为空、不存在或不是目录返回 InvalidArgument(Details.Field 为 "path")。
+// 已登记过返回 AlreadyExists,Details 带已登记项目的 ProjectID 和 Path,界面可直接跳到那个项目。
 func (l *Library) RegisterProject(ctx context.Context, path string) (project RegisteredProject, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	if path == "" {
-		return RegisteredProject{}, argumentError("register project", "path", "path is required")
-	}
-	absolute, err := filepath.Abs(path)
+	path, err = projectPath("register project", path)
 	if err != nil {
-		return RegisteredProject{}, fmt.Errorf("resolve project path: %w", err)
+		return RegisteredProject{}, err
 	}
-	project.Path, err = filepath.EvalSymlinks(absolute)
-	if err != nil {
-		return RegisteredProject{}, fmt.Errorf("resolve project path: %w", err)
-	}
-	info, err := os.Stat(project.Path)
-	if err != nil {
-		return RegisteredProject{}, fmt.Errorf("read project path: %w", err)
-	}
-	if !info.IsDir() {
-		return RegisteredProject{}, argumentError("register project", "path", "path is not a directory")
-	}
-	project.Path = filepath.Clean(project.Path)
-	row, created, err := l.store.RegisterProject(ctx, project.Path)
+	row, created, err := l.store.RegisterProject(ctx, path)
 	if err != nil {
 		return RegisteredProject{}, err
 	}
 	if !created {
-		return RegisteredProject{}, existsError("register project", "path already registered", ErrorDetails{ProjectID: ProjectID(row.ID), Path: project.Path})
+		return RegisteredProject{}, existsError("register project", "path already registered", ErrorDetails{ProjectID: ProjectID(row.ID), Path: path})
 	}
-	project.ID = ProjectID(row.ID)
-	return project, nil
+	return registeredProject(row, false), nil
 }
 
-// ListRegisteredProjects 按路径列出全部已登记项目。
+// ListRegisteredProjects 列出全部已登记项目,按 Name 排序,同名再按 Path。每个项目的 Missing 在列出时现查。
+// 结果只在登记、改位置、注销项目时改变(Missing 除外),调用方载入一次即可。
 func (l *Library) ListRegisteredProjects(ctx context.Context) (projects []RegisteredProject, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -220,13 +220,56 @@ func (l *Library) ListRegisteredProjects(ctx context.Context) (projects []Regist
 		return nil, err
 	}
 	for _, row := range rows {
-		projects = append(projects, RegisteredProject{ID: ProjectID(row.ID), Path: row.Path})
+		exists, err := agentdir.DirectoryExists(row.Path)
+		if err != nil {
+			return nil, fmt.Errorf("inspect registered project: %w", err)
+		}
+		projects = append(projects, registeredProject(row, !exists))
 	}
+	slices.SortFunc(projects, func(a, b RegisteredProject) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Path, b.Path))
+	})
 	return projects, nil
 }
 
-// UnregisterProject 注销项目并清掉其各 Agent 项目 Scope 下的全部安装记录与组安装;
-// opts 决定磁盘上技能文件夹的去留。
+// RelocateProject 把已登记项目 id 指到本机上的另一个目录:从别的机器同步过来后指到它在这台机器上的位置,
+// 或者项目目录在本机被移动、改名之后。path 的规则与 RegisterProject 相同;已被另一个已登记项目占用返回
+// AlreadyExists,Details 带那个项目的 ProjectID 和 Path;与原路径相同时什么都不改。未登记的 id 返回 NotFound。
+// 项目 ID、在这个项目里的直接安装与组安装都不变;不搬动、不删除任何文件夹,旧位置的技能文件夹库从此不再管。
+// 新位置里各安装的状态照常由巡检给出:整个项目目录搬过来时是正常的,新位置没有这些文件夹时显示缺失,可以重新安装。
+func (l *Library) RelocateProject(ctx context.Context, id ProjectID, path string) (project RegisteredProject, err error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	path, err = projectPath("relocate project", path)
+	if err != nil {
+		return RegisteredProject{}, err
+	}
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		if _, err := tx.GetProject(ctx, int64(id)); err != nil {
+			return err
+		}
+		other, err := tx.ProjectByPath(ctx, path)
+		switch {
+		case err == nil && other.ID != int64(id):
+			return existsError("relocate project", "path already registered", ErrorDetails{ProjectID: ProjectID(other.ID), Path: path})
+		case err == nil:
+			return nil
+		case !errors.Is(err, store.ErrNotFound):
+			return err
+		}
+		return tx.RelocateProject(ctx, int64(id), path)
+	})
+	if err != nil {
+		return RegisteredProject{}, err
+	}
+	return registeredProject(store.Project{ID: int64(id), Path: path}, false), nil
+}
+
+// UnregisterProject 注销一个已登记项目:它从项目列表里消失,在各 Agent 下的直接安装与组安装都撤掉。
+// 默认(opts.Folders 为零值或 Remove)同时删除库装进这个项目的技能文件夹;显式 Keep 时文件夹留在磁盘上,
+// 但库从此不再管理它们。项目目录本身、库没装的文件夹都不动。项目不在这台机器上时也能注销:
+// 要删的文件夹本来就不在,算成功。未登记的 id 返回 NotFound。
 func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -260,15 +303,14 @@ func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts Unre
 	})
 }
 
-// Resolve 按 agents 表算出 Scope 对应的 Agent 目录:全局相对 Open 时的用户
-// 主目录,项目相对该 Registered project 根。只读:不写 Library、不创建目录、不产生安装。
-// 未知 Agent 代码或未登记项目返回 NotFound。可选目标没有单独的列举方法:调用方用
-// ListAgents ×(全局 | ListRegisteredProjects)自行组合。
-func (l *Library) Resolve(ctx context.Context, scope Scope) (directory string, err error) {
+// ScopeDirectory 返回该 Agent 在 scope 读取技能的目录:全局作用域在用户主目录下(以 Open 时为准),
+// 项目作用域在该项目目录下。作用域里还什么都没装时也能查,用于显示目录或「在访达中显示」。
+// 只读:不写库、不创建目录;项目不在这台机器上时照样返回路径。未知 Agent 或未登记项目返回 NotFound。
+func (l *Library) ScopeDirectory(ctx context.Context, scope Scope) (directory string, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	row, err := scopeOf("resolve scope", scope)
+	row, err := scopeOf("scope directory", scope)
 	if err != nil {
 		return "", err
 	}
@@ -289,4 +331,33 @@ func (l *Library) scopeDirectory(ctx context.Context, row scopeRow) (root, direc
 		return "", "", err
 	}
 	return project.Path, filepath.Join(project.Path, filepath.FromSlash(agent.ProjectPath)), nil
+}
+
+func registeredProject(row store.Project, missing bool) RegisteredProject {
+	return RegisteredProject{ID: ProjectID(row.ID), Name: filepath.Base(row.Path), Path: row.Path, Missing: missing}
+}
+
+func projectPath(operation, path string) (string, error) {
+	if path == "" {
+		return "", argumentError(operation, "path", "path is required")
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve project path: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return "", argumentError(operation, "path", "path does not exist")
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve project path: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("read project path: %w", err)
+	}
+	if !info.IsDir() {
+		return "", argumentError(operation, "path", "path is not a directory")
+	}
+	return filepath.Clean(resolved), nil
 }

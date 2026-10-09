@@ -86,7 +86,7 @@ func initialize(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("identify library: %w", err)
 		}
 	}
-	if err := seedAgents(ctx, db); err != nil {
+	if err := writeBuiltinAgents(ctx, db); err != nil {
 		return fmt.Errorf("open library: %w", err)
 	}
 	return nil
