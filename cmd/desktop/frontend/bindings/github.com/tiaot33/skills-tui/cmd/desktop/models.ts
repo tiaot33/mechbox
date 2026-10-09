@@ -110,4 +110,10 @@ export interface Settings {
      * Dock 角标显示有新版本的技能数
      */
     "dock_badge": boolean;
+
+    /**
+     * AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
+     * 显示只影响选择安装位置的地方，已经装了技能的 Agent 装出去的地方照常列出。
+     */
+    "agents_shown"?: { [_ in library$0.AgentCode]?: boolean } | null;
 }

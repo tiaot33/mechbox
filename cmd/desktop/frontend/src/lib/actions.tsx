@@ -11,9 +11,12 @@ import {
   GroupMemberOutcome,
   InstallPlanStatus,
   MemberRemovalPolicy,
+  MigrationOutcome,
   ReinstallOutcome,
   SkillScopeStatus,
+  type Agent,
   type CollectionID,
+  type CustomAgent,
   type GroupID,
   type GroupMemberResult,
   type RegisteredProject,
@@ -25,16 +28,19 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { describeError } from "./errors";
-import type { Snapshot } from "./library";
+import type { LibraryError, Snapshot } from "./library";
 import { FetchReview } from "@/components/app/fetch-review";
 import { UpdateDialog } from "@/components/app/update-dialog";
 import {
+  agentName,
   deletedInSource,
   needsReinstall,
+  placeOf,
   projectName,
   scopeKey,
   scopeLabel,
   shortPath,
+  skillScopeIn,
   skillScopesOf,
   sourceLabel,
   updateAvailable,
@@ -150,6 +156,25 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
 }
 
 export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scope) {
+  // 共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
+  const place = skillScopeIn(s, id, scopeKey(scope));
+  const shared = place?.shared_with ?? [];
+  if (place && shared.length) {
+    const ok = await ui.confirm({
+      title: `卸载「${skillName(s, id)}」`,
+      body: (
+        <div className="notice warn">
+          {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
+          {place.groups?.length
+            ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
+            : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
+        </div>
+      ),
+      confirm: "卸载",
+      danger: true,
+    });
+    if (!ok) return;
+  }
   await ui.run(() => LibraryService.Uninstall(id, scope), {
     success: `已卸载「${skillName(s, id)}」在 ${scopeLabel(s, scope)} 的直接安装`,
     onError: (err) => {
@@ -200,6 +225,37 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
 }
 
 export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scope: Scope) {
+  // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
+  const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
+  const removed = (s.groups.find((g) => g.id === groupID)?.members ?? [])
+    .map((id) => skillScopeIn(s, id, scopeKey(scope)))
+    .filter((p): p is SkillScopeInspection => !!p?.shared_with?.length && !p.direct)
+    .filter((p) => {
+      const readers = [scope.agent, ...(p.shared_with ?? [])];
+      const others = s.groupInstalls.filter(
+        (g) =>
+          readers.includes(g.scope.agent) &&
+          placeOf(g.scope) === placeOf(scope) &&
+          !(g.group_id === groupID && g.scope.agent === scope.agent),
+      );
+      return !others.some((g) => memberOf(g.group_id, p.skill_id));
+    });
+  if (removed.length) {
+    const ok = await ui.confirm({
+      title: `卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
+      body: (
+        <>
+          <div className="notice warn">
+            下面 {removed.length} 个技能文件夹还被别的 Agent 共用，只靠这个组安装留着：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。
+          </div>
+          <SharedFolders s={s} places={removed} />
+        </>
+      ),
+      confirm: "卸载",
+      danger: true,
+    });
+    if (!ok) return;
+  }
   await ui.run(() => LibraryService.UninstallGroup(groupID, scope), {
     success: `已卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
   });
@@ -442,9 +498,9 @@ export async function previewCollection(ui: UI, collectionID: CollectionID) {
 
 // ---------- 移除技能 ----------
 
-// lostEdits 说明删除这些文件夹时哪几处的改动会丢掉(状态取自快照里的巡检)。
+// lostEdits 说明删除这些文件夹时哪几处的改动会丢掉(状态取自快照里的巡检;共用目录的几个 Agent 共用一个文件夹，只算一处)。
 const lostEdits = (places: SkillScopeInspection[]) => {
-  const n = places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).length;
+  const n = new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map((p) => p.folder)).size;
   return n ? `;其中 ${n} 处被改过，改动会丢掉` : "";
 };
 
@@ -506,7 +562,7 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
           {
             value: FolderPolicy.Remove,
             label: "同时删除项目里已安装的文件夹",
-            desc: `移除 ${installed} 个技能文件夹${lostEdits(places)}`,
+            desc: `移除 ${new Set(places.map((p) => p.folder)).size} 个技能文件夹${lostEdits(places)}`,
           },
           { value: FolderPolicy.Keep, label: "保留项目里已安装的文件夹", desc: "文件夹留在项目目录里" },
         ]
@@ -518,5 +574,147 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   await ui.run(() => LibraryService.UnregisterProject(project.id, { folders: policy }), {
     success: "已注销项目",
+  });
+}
+
+// ---------- Agent ----------
+// 只有自定义 Agent 能改、能删。它离开或删除时，旧目录里还有别的 Agent 在读的文件夹不动，确认框里逐个列出。
+
+// SharedFolders 列出还有别的 Agent 在读、因而保留的技能文件夹。
+function SharedFolders({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
+  return (
+    <div className="list-box">
+      {places.map((p) => (
+        <div key={placeKey(p)} className="list-row">
+          <div className="grow">
+            <div>
+              {skillName(s, p.skill_id)} · {p.scope.project_id ? projectName(s, p.scope.project_id) : "全局"}
+            </div>
+            <div className="mono tiny muted">{shortPath(s, p.folder)}</div>
+          </div>
+          <span className="tiny muted">{(p.shared_with ?? []).map((code) => agentName(s, code)).join("、")} 在用</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export async function addAgent(ui: UI, input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
+  const added = await ui.run(() => LibraryService.AddAgent(input), {
+    success: (a) => `已添加 Agent「${a.name}」`,
+    onError: onInvalid,
+  });
+  return !!added;
+}
+
+const cleanPath = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");
+
+// editAgent 修改自定义 Agent。某一层级的目录改了、这个 Agent 在那里已装了技能(含因共用目录而算已装的)或有组安装时，
+// 先问是否迁移(不迁移会连组安装一起去掉,空组的组安装也是);迁移后列出因新目录已有同名文件夹而没搬的。input.global_directory 是展开 ~ 后的绝对路径。
+export async function editAgent(
+  ui: UI,
+  s: Snapshot,
+  agent: Agent,
+  input: CustomAgent,
+  onInvalid: (err: LibraryError) => boolean,
+): Promise<boolean> {
+  const globalChanged = cleanPath(input.global_directory) !== cleanPath(agent.global_directory);
+  const projectChanged = cleanPath(input.project_directory) !== cleanPath(agent.project_directory);
+  const changedHere = (scope: Scope) => scope.agent === agent.code && (placeOf(scope) ? projectChanged : globalChanged);
+  const affected = s.skillScopes.filter((p) => changedHere(p.scope));
+  const groupInstalls = s.groupInstalls.filter((g) => changedHere(g.scope)).length;
+  let migrate = false;
+  if (affected.length || groupInstalls) {
+    const shared = affected.filter((p) => p.shared_with?.length);
+    const choice = await ui.confirm({
+      title: `改 Agent「${agent.name}」的目录`,
+      body: (
+        <>
+          <p className="hint">
+            这个 Agent 在旧目录里{[affected.length && `已装了 ${affected.length} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join(",")}。
+          </p>
+          {shared.length > 0 && (
+            <>
+              <div className="notice">
+                其中 {shared.length} 个文件夹还有别的 Agent 在用，留在旧目录给它们：迁移时复制一份到新目录，不迁移时不动。
+              </div>
+              <SharedFolders s={s} places={shared} />
+            </>
+          )}
+        </>
+      ),
+      choices: [
+        {
+          value: "migrate",
+          label: "迁移到新目录",
+          desc: "把已装的文件夹原样搬过去，组安装保留;新目录里已有同名文件夹的不覆盖、不搬，旧文件夹留在原处，完成后列出",
+        },
+        { value: "keep", label: "不迁移", desc: "只改目录，旧目录里的文件夹不动，去掉这个 Agent 在那里的安装记录与组安装" },
+      ],
+      confirm: "保存",
+    });
+    if (!choice) return false;
+    migrate = choice === "migrate";
+  }
+  const result = await ui.run(() => LibraryService.EditAgent(agent.code, input, { migrate }), { onError: onInvalid });
+  if (!result) return false;
+  const name = result.agent.name;
+  const migrations = result.migrations ?? [];
+  const skipped = migrations.filter((m) => m.outcome === MigrationOutcome.MigrationSkipped);
+  if (skipped.length) {
+    await showResults(
+      ui,
+      `已保存 Agent「${name}」`,
+      skipped.map((m) => ({
+        label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : "全局"}`,
+        outcome: "没有迁移",
+        tone: "warn" as const,
+        reason: `新目录里已有同名文件夹，或被库里另一个技能的安装占用:${shortPath(s, m.to)}\n旧文件夹留在原处:${shortPath(s, m.from)}`,
+      })),
+      `迁移了 ${migrations.length - skipped.length} 个文件夹;下面 ${skipped.length} 个没有迁移，这个 Agent 在那里不再算已装。`,
+    );
+  } else {
+    ui.toast(migrations.length ? `已保存 Agent「${name}」,迁移了 ${migrations.length} 个文件夹` : `已保存 Agent「${name}」`);
+  }
+  return true;
+}
+
+// deleteAgent 删除自定义 Agent,和注销项目一样让用户选文件夹的去留;还有别的 Agent 在读的文件夹不管怎么选都保留。
+export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
+  const places = s.skillScopes.filter((p) => p.scope.agent === agent.code);
+  const kept = places.filter((p) => p.shared_with?.length);
+  const own = places.filter((p) => !p.shared_with?.length);
+  const choice = await ui.confirm({
+    title: `删除 Agent「${agent.name}」`,
+    body: (
+      <>
+        <p className="hint">它从 Agent 列表里消失，在全局和各项目的直接安装与组安装记录都会删除。</p>
+        {kept.length > 0 && (
+          <>
+            <div className="notice">
+              下面 {kept.length} 个文件夹还有别的 Agent 在用，不管怎么选都保留，安装记录转给它们。
+            </div>
+            <SharedFolders s={s} places={kept} />
+          </>
+        )}
+      </>
+    ),
+    choices: own.length
+      ? [
+          {
+            value: FolderPolicy.Remove,
+            label: "同时删除已安装的文件夹",
+            desc: `移除 ${own.length} 个技能文件夹${lostEdits(own)}`,
+          },
+          { value: FolderPolicy.Keep, label: "保留已安装的文件夹", desc: "文件夹留在原处，技能库从此不再管" },
+        ]
+      : undefined,
+    confirm: "删除",
+    danger: true,
+  });
+  if (!choice) return;
+  const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
+  await ui.run(() => LibraryService.DeleteAgent(agent.code, { folders: policy }), {
+    success: `已删除 Agent「${agent.name}」`,
   });
 }

@@ -79,11 +79,12 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     if (!sameFilter(current, filter)) setFilter(current);
   }, [current, filter]);
 
-  // 作用域或项目被移除(注销项目、拉取了别的库)后，界面上的选择退回。
+  // 作用域、项目或 Agent 被移除(注销项目、删除自定义 Agent、拉取了别的库)后，界面上的选择退回。
   useEffect(() => {
     if (!s || !scope) return;
     const sc = parseScope(scope);
     if (sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) setScope(null);
+    if (!s.agents.some((a) => a.code === sc.agent)) setScope(null);
   }, [s, scope]);
 
   // 选中作用域时，右栏同步展开到那一行，否则折叠的项目或"其他 Agent"里看不到选中态。
@@ -139,7 +140,15 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   if (s && settings) {
     return (
       <div className="window">
-        <SettingsPage s={s} onClose={() => setSettings(false)} onConfigChange={loadConfig} />
+        <SettingsPage
+          s={s}
+          onClose={() => {
+            // 设置页改的 Agent 显示勾选只存进应用设置，回到主界面时重读一次。
+            setSettings(false);
+            reload();
+          }}
+          onConfigChange={loadConfig}
+        />
       </div>
     );
   }

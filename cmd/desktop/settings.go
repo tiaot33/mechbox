@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/tiaot33/skills-tui/internal/library"
 )
 
 const settingsFileName = "settings.json"
@@ -19,6 +21,9 @@ type Settings struct {
 	CheckInterval CheckInterval `json:"check_interval"`   // 自动检查的间隔
 	StayInMenuBar bool          `json:"stay_in_menu_bar"` // 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
 	DockBadge     bool          `json:"dock_badge"`       // Dock 角标显示有新版本的技能数
+	// AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
+	// 显示只影响选择安装位置的地方，已经装了技能的 Agent 装出去的地方照常列出。
+	AgentsShown map[library.AgentCode]bool `json:"agents_shown,omitempty"`
 }
 
 // CheckInterval 是自动检查更新的间隔。

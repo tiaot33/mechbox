@@ -3,7 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/tiaot33/skills-tui/internal/library"
 )
 
 func TestSettingsDefaultWhenFileMissing(t *testing.T) {
@@ -11,11 +14,11 @@ func TestSettingsDefaultWhenFileMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadSettings: %v", err)
 	}
-	if file != (settingsFile{Settings: defaultSettings()}) {
+	if !reflect.DeepEqual(file, settingsFile{Settings: defaultSettings()}) {
 		t.Fatalf("loadSettings = %+v; want defaults %+v", file, defaultSettings())
 	}
 	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
-	if file.Settings != want {
+	if !reflect.DeepEqual(file.Settings, want) {
 		t.Fatalf("defaults = %+v; want %+v", file.Settings, want)
 	}
 }
@@ -23,14 +26,17 @@ func TestSettingsDefaultWhenFileMissing(t *testing.T) {
 func TestSettingsRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", settingsFileName)
 	want := settingsFile{
-		Settings: Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false},
-		Sync:     syncFields{Endpoint: "https://s3.example.com", Bucket: "b", Key: "k.db", Region: "r", AccessKeyID: "AKID"},
+		Settings: Settings{
+			AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false,
+			AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
+		},
+		Sync: syncFields{Endpoint: "https://s3.example.com", Bucket: "b", Key: "k.db", Region: "r", AccessKeyID: "AKID"},
 	}
 	if err := saveSettings(path, want); err != nil {
 		t.Fatalf("saveSettings: %v", err)
 	}
 	got, err := loadSettings(path)
-	if err != nil || got != want {
+	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("loadSettings = %+v, %v; want %+v", got, err, want)
 	}
 	entries, _ := os.ReadDir(filepath.Dir(path))
@@ -50,7 +56,7 @@ func TestSettingsFillMissingFieldsWithDefaults(t *testing.T) {
 	}
 	want := settingsFile{Settings: defaultSettings()}
 	want.DockBadge = false
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("loadSettings = %+v; want %+v", got, want)
 	}
 }
@@ -61,7 +67,7 @@ func TestSettingsCorruptFileFallsBackToDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := loadSettings(path)
-	if err == nil || got != (settingsFile{Settings: defaultSettings()}) {
+	if err == nil || !reflect.DeepEqual(got, settingsFile{Settings: defaultSettings()}) {
 		t.Fatalf("loadSettings = %+v, %v; want defaults and an error", got, err)
 	}
 }

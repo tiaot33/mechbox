@@ -603,7 +603,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   }
   assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/skills-manager/library.db` }).count()) === 1, "关于应显示数据库位置");
   assert(/^\d+\.\d+\.\d+/.test((await section("关于").locator("dd").first().textContent()).trim()), "关于应显示应用版本");
-  assert((await section("Agent").locator(".scope-cell", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
+  assert((await section("Agent").locator(".set-row", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
   assert((await section("项目").locator(".set-row", { hasText: "proj-a" }).count()) === 1, "项目分区应列出 proj-a");
 
   // 默认：自动检查打开、每天;留在菜单栏、Dock 角标打开。改了立即保存到这台机器的设置文件，重新载入后仍是改过的值。
@@ -750,6 +750,225 @@ await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
   await sidebarSays("未配置", "清空后侧栏应回到未配置");
+});
+
+await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 编辑迁移 / 删除、共用目录卸载", async () => {
+  const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
+  const agents = () => page.locator(".settings .card", { has: page.locator(".card-h > span:first-child", { hasText: /^Agent$/ }) });
+  const row = (name) => agents().locator(".set-row", { hasText: name });
+  const shownSwitch = (name) => row(name).locator(".switch");
+  const open = async () => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await page.locator(".settings .switch").first().waitFor();
+  };
+  const back = async () => {
+    await page.locator(".titlebar button[title='返回技能库']").click();
+    await page.waitForSelector(".a-list");
+    await settle();
+  };
+  const fillAgent = async (name, global, project) => {
+    const fields = modal().locator("input.input");
+    await fields.nth(0).fill(name);
+    await fields.nth(1).fill(global);
+    await fields.nth(2).fill(project);
+  };
+  const installTo = async (skill, agentName) => {
+    await openDrawer(skill);
+    await drawer().locator(".install-to select").nth(0).selectOption("0");
+    await drawer().locator(".install-to select").nth(1).selectOption({ label: agentName });
+    await btn(drawer(), "安装").click();
+    await toast(`已安装「${skill}」`);
+    await settle();
+  };
+  // slow 把匹配的绑定调用拖慢，模拟慢请求;返回撤销函数。
+  const slow = async (match) => {
+    const handler = async (route) => {
+      if (route.request().postData()?.includes(match)) await new Promise((r) => setTimeout(r, 700));
+      await route.continue();
+    };
+    await page.route("**/wails/runtime", handler);
+    return () => page.unroute("**/wails/runtime", handler);
+  };
+  const groupChip = (name) => page.locator(".gchip", { hasText: name });
+
+  // 内置 Agent:检测到的默认勾上，不能编辑、删除。
+  await open();
+  for (const name of ["Claude Code", "Codex"]) {
+    assert((await row(name).locator(".badge", { hasText: "检测到" }).count()) === 1, `${name} 应标检测到`);
+    assert((await shownSwitch(name).getAttribute("aria-checked")) === "true", `${name} 默认应显示`);
+    assert((await row(name).getByRole("button", { name: "编辑" }).count()) === 0, `${name} 不能编辑`);
+  }
+
+  // 显示勾选：连着关掉两个、保存还没完成就返回，主界面也按最后的勾选;存进这台机器的设置文件，重新载入后仍关着。
+  let unslow = await slow("agents_shown");
+  await shownSwitch("Codex").click();
+  await shownSwitch("Claude Code").click();
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  await settle();
+  await unslow();
+  await page.locator(".scope-pill").click();
+  const projB = page.locator(".scope-menu > div", { has: page.locator(".sm-place", { hasText: "proj-b" }) });
+  for (const name of ["Codex", "Claude Code"]) {
+    assert((await projB.getByText(name).count()) === 0, `作用域弹层不应列出不显示的 ${name}`);
+  }
+  await page.locator(".menu-scrim").click();
+  await openDrawer("alpha");
+  await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
+  assert((await drawer().locator(".install-to select").nth(1).locator("option", { hasText: "Codex" }).count()) === 0, "安装到…不应列出 Codex");
+  await closeDrawer();
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsFile, "utf8")).agents_shown, { codex: false, "claude-code": false });
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await open();
+  assert((await shownSwitch("Codex").getAttribute("aria-checked")) === "false", "重新载入后 Codex 应仍不显示");
+  await shownSwitch("Codex").click();
+  await shownSwitch("Claude Code").click();
+  await settle();
+
+  // 添加：全局技能目录必须在用户主目录里面。
+  await btn(agents(), "添加 Agent").click();
+  await fillAgent("My Agent", "/opt/my-agent/skills", ".my-agent/skills");
+  await btn(modal(), "添加").click();
+  assert((await modal().locator(".field-error", { hasText: "用户主目录里面" }).count()) === 1, "主目录外的全局目录应被拦下");
+  await modal().locator("input.input").nth(1).fill("~/.my-agent/skills");
+  await btn(modal(), "添加").click();
+  await toast("已添加 Agent「My Agent」");
+  await settle();
+  assert((await row("My Agent").locator(".badge", { hasText: "自定义" }).count()) === 1, "应标自定义");
+  assert((await shownSwitch("My Agent").getAttribute("aria-checked")) === "true", "自定义 Agent 默认应显示");
+  await back();
+
+  // 装到自定义 Agent。
+  await installTo("alpha", "My Agent");
+  await installTo("gamma", "My Agent");
+  assert(fs.existsSync(`${HOME}/.my-agent/skills/alpha/SKILL.md`), "alpha 应装进自定义 Agent 的全局目录");
+  await closeDrawer();
+
+  // 改目录并迁移：新目录已有同名文件夹的 gamma 不搬、列出来，alpha 原样搬过去。
+  fs.mkdirSync(`${HOME}/.my-agent2/skills/gamma`, { recursive: true });
+  fs.writeFileSync(`${HOME}/.my-agent2/skills/gamma/note.txt`, "already here");
+  await open();
+  await btn(row("My Agent"), "编辑").click();
+  await modal().locator("input.input").nth(1).fill("~/.my-agent2/skills");
+  await btn(modal(), "保存").click();
+  await modal().locator("h3", { hasText: "改 Agent「My Agent」的目录" }).waitFor();
+  await modal().locator(".choice", { hasText: "迁移到新目录" }).click();
+  await btn(modal(), "保存").click();
+  await modal().locator("h3", { hasText: "已保存 Agent「My Agent」" }).waitFor();
+  assert((await modal().locator(".list-row", { hasText: "gamma" }).count()) === 1, "应列出没搬的 gamma");
+  assert((await modal().locator(".list-row", { hasText: "alpha" }).count()) === 0, "alpha 搬过去了，不应列出");
+  await btn(modal(), "知道了").click();
+  await settle();
+  assert(fs.existsSync(`${HOME}/.my-agent2/skills/alpha/SKILL.md`) && !fs.existsSync(`${HOME}/.my-agent/skills/alpha`), "alpha 应原样搬到新目录");
+  assert(fs.existsSync(`${HOME}/.my-agent/skills/gamma/SKILL.md`), "没搬的 gamma 留在旧目录");
+  assert((await row("My Agent").locator(".mono", { hasText: "~/.my-agent2/skills" }).count()) === 1, "应显示新目录");
+  await back();
+
+  // 只有空组的组安装时改目录，也要问是否迁移;迁移后组安装还在。
+  await page.locator(".a-left .nav-sec", { hasText: "组" }).locator(".icon-btn").click();
+  await modal().locator("input.input").fill("空组");
+  await btn(modal(), "创建").click();
+  await toast("已创建组「空组」");
+  await settle();
+  await selectScope("My Agent", "proj-b");
+  await groupChip("空组").click();
+  await toast("已把「空组」组安装到");
+  await settle();
+  await clearScope();
+  await open();
+  await btn(row("My Agent"), "编辑").click();
+  await modal().locator("input.input").nth(2).fill(".my-agent-p/skills");
+  await btn(modal(), "保存").click();
+  await modal().locator(".hint", { hasText: "有 1 个组安装" }).waitFor();
+  await modal().locator(".choice", { hasText: "迁移到新目录" }).click();
+  await btn(modal(), "保存").click();
+  await toast("已保存 Agent「My Agent」");
+  await settle();
+
+  // 添加时连按两次 Enter 只添加一个。
+  await btn(agents(), "添加 Agent").click();
+  await fillAgent("Twin", "~/.my-agent2/skills", ".twin/skills");
+  unslow = await slow('"Twin"');
+  await modal().locator("input.input").nth(2).press("Enter");
+  await modal().locator("input.input").nth(2).press("Enter");
+  await toast("已添加 Agent「Twin」");
+  await settle();
+  await unslow();
+  assert((await row("Twin").count()) === 1, "连按 Enter 只应添加一个 Twin");
+  await back();
+  await selectScope("My Agent", "proj-b");
+  assert(await groupChip("空组").evaluate((el) => el.classList.contains("on")), "迁移后空组的组安装应还在");
+  await clearScope();
+
+  // 共用目录：同一个目录的另一个 Agent 不用再装就算已装;从其中一个卸载时提示还被谁共用，确认后删除文件夹。
+  await openDrawer("alpha");
+  const tableRow = (label) => drawer().locator(".scope-table tbody tr", { hasText: label });
+  assert((await tableRow("Twin · 全局").count()) === 1, "共用目录的 Twin 应算已装");
+  await tableRow("Twin · 全局").locator(".switch").click();
+  await modal().locator(".notice", { hasText: "还被 My Agent 共用" }).waitFor();
+  await btn(modal(), "卸载").click();
+  await toast("已卸载「alpha」");
+  await settle();
+  assert(!fs.existsSync(`${HOME}/.my-agent2/skills/alpha`), "卸载后共用的文件夹应删除");
+  assert((await tableRow("My Agent · 全局").count()) === 0, "共用的 My Agent 也不再算已装");
+  await closeDrawer();
+
+  // 组卸载也一样：只靠这个组安装留着的共用文件夹，卸载前提示还被谁共用。
+  await selectScope("Twin");
+  await groupChip("空组").click();
+  await toast("已把「空组」组安装到");
+  await settle();
+  await openDrawer("beta");
+  await drawer().locator("select.chip-add").selectOption({ label: "空组" });
+  await toast("已把「beta」加入「空组」");
+  await settle();
+  await closeDrawer();
+  assert(fs.existsSync(`${HOME}/.my-agent2/skills/beta/SKILL.md`), "beta 应随组装进共用目录");
+  await groupChip("空组").click();
+  await modal().locator(".list-row", { hasText: "My Agent 在用" }).waitFor();
+  await btn(modal(), "卸载").click();
+  await toast("已卸载「空组」");
+  await settle();
+  assert(!fs.existsSync(`${HOME}/.my-agent2/skills/beta`), "组卸载后共用的文件夹应删除");
+  await clearScope();
+
+  // 不显示的 Agent 在已在用的地方选中后，换到别的地方不会仍装到它。
+  await installTo("alpha", "Twin");
+  await closeDrawer();
+  await open();
+  await shownSwitch("Twin").click();
+  await settle();
+  await back();
+  await openDrawer("beta");
+  await drawer().locator(".install-to select").nth(0).selectOption("0");
+  await drawer().locator(".install-to select").nth(1).selectOption({ label: "Twin" });
+  await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
+  await btn(drawer(), "安装").click();
+  await toast("已安装「beta」到 Claude Code · proj-b");
+  await settle();
+  await tableRow("Claude Code · proj-b").locator(".switch").click();
+  await toast("已卸载「beta」");
+  await settle();
+  await closeDrawer();
+
+  // 删除：还有别的 Agent 在读的文件夹即使选了一并删除也保留，确认框里写明。
+  await open();
+  await btn(row("My Agent"), "删除").click();
+  await modal().locator(".notice", { hasText: "还有别的 Agent 在用" }).waitFor();
+  assert((await modal().locator(".list-row", { hasText: "Twin 在用" }).count()) === 1, "确认框应写明 Twin 还在用");
+  await btn(modal(), "删除").click();
+  await toast("已删除 Agent「My Agent」");
+  await settle();
+  assert((await row("My Agent").count()) === 0, "删除后不再列出");
+  assert(fs.existsSync(`${HOME}/.my-agent2/skills/alpha/SKILL.md`), "Twin 还在用的文件夹应保留");
+  await btn(row("Twin"), "删除").click();
+  await modal().locator(".choice", { hasText: "同时删除已安装的文件夹" }).click();
+  await btn(modal(), "删除").click();
+  await toast("已删除 Agent「Twin」");
+  await settle();
+  assert(!fs.existsSync(`${HOME}/.my-agent2/skills/alpha`), "删除 Twin 时选了一并删除，文件夹应删除");
+  await back();
 });
 
 // ============ 冲突与失败路径 ============

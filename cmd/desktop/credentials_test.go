@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -147,7 +148,7 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 	if got, err := second.Credentials(); err != nil || got != want {
 		t.Fatalf("after restart = %+v, %v; want %+v", got, err, want)
 	}
-	if got := second.Settings(); got != toggled {
+	if got := second.Settings(); !reflect.DeepEqual(got, toggled) {
 		t.Fatalf("settings after restart = %+v; want %+v", got, toggled)
 	}
 	if got := restarted.Config(); !got.GitHubToken || !got.Sync {

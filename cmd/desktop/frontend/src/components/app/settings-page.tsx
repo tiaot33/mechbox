@@ -1,16 +1,16 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查更新与提示方式是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
 // GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
-// Agent 暂时只读展示内置 Agent;项目分区复用主界面右栏的登记 / 改位置 / 注销。
+// Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销。
 import { useEffect, useRef, useState } from "react";
 import { AppService, CheckInterval, type Settings } from "@bindings/cmd/desktop";
 import { unregisterProject } from "@/lib/actions";
 import type { Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
+import { AgentDialog, AgentSection } from "./agent-settings";
 import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
 import { Icon } from "./icons";
-import { AgentMark } from "./parts";
 import { ProjectPathDialog } from "./scope-panel";
 
 const sections = ["GitHub", "同步", "检查更新", "提示方式", "Agent", "项目", "关于"] as const;
@@ -76,7 +76,8 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
       <header className="titlebar" style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
         <div className="tb-left">
           <div className="tl-space" />
-          <button type="button" className="icon-btn" onClick={onClose} title="返回技能库">
+          {/* 等排队的保存都完成再返回，主界面重读时拿到的是最后保存的设置(Agent 的显示勾选)。 */}
+          <button type="button" className="icon-btn" onClick={() => void saving.current.then(onClose)} title="返回技能库">
             <Icon name="chevL" />
           </button>
           <span className="tb-crumb">
@@ -154,14 +155,15 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
               )}
               {card(
                 "Agent",
-                `由技能库内置，全局目录相对 ${shortPath(s, s.info.home_dir)}`,
-                s.agents.map((a) => (
-                  <div key={a.code} className="scope-cell" style={{ padding: "3px 0" }}>
-                    <AgentMark code={a.code} name={a.name} />
-                    {a.name}
-                    <span className="mono tiny muted">{a.code}</span>
-                  </div>
-                )),
+                <button type="button" className="pill-btn" onClick={() => ui.open((close) => <AgentDialog s={s} onClose={close} />)}>
+                  <Icon name="plus" />
+                  添加 Agent
+                </button>,
+                <AgentSection
+                  s={s}
+                  shown={settings && (settings.agents_shown ?? null)}
+                  onShown={(a, on) => save({ agents_shown: { ...latest.current?.agents_shown, [a.code]: on } })}
+                />,
               )}
               {card(
                 "项目",

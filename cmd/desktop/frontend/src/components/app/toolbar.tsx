@@ -5,6 +5,7 @@ import type { AgentCode } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
 import {
   agentName,
+  agentShown,
   agentsUsedIn,
   needsReinstall,
   parseScope,
@@ -158,7 +159,7 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope, onOpen }: MenuProp
   );
 }
 
-// ScopeMenu 是作用域弹层：按地方分组，只列装有技能的 Agent,其余 Agent 用每处一个下拉补上。
+// ScopeMenu 是作用域弹层：按地方分组，只列装有技能的 Agent,其余勾选显示的 Agent 用每处一个下拉补上。
 function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps) {
   const places: { id: Place; name: string; path: string }[] = [
     { id: 0, name: "全局", path: "~" },
@@ -174,7 +175,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps) {
       <div className="scope-menu">
         {places.map((place) => {
           const used = agentsUsedIn(s, place.id);
-          const rest = s.agents.filter((a) => !used.includes(a));
+          const rest = s.agents.filter((a) => !used.includes(a) && agentShown(s.agentsShown, a));
           const key = (code: AgentCode) => scopeKey(scopeOf(code, place.id));
           return (
             <div key={place.id}>
