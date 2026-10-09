@@ -130,6 +130,18 @@ func (s *LibraryService) ListAgents(ctx context.Context) ([]library.Agent, error
 	return settle(s.lib.ListAgents(ctx))(ctx)
 }
 
+func (s *LibraryService) AddAgent(ctx context.Context, agent library.CustomAgent) (library.Agent, error) {
+	return settle(s.lib.AddAgent(ctx, agent))(ctx)
+}
+
+func (s *LibraryService) EditAgent(ctx context.Context, code library.AgentCode, agent library.CustomAgent, opts library.EditAgentOptions) (library.EditAgentResult, error) {
+	return settle(s.lib.EditAgent(ctx, code, agent, opts))(ctx)
+}
+
+func (s *LibraryService) DeleteAgent(ctx context.Context, code library.AgentCode, opts library.DeleteAgentOptions) (library.DeleteAgentResult, error) {
+	return settle(s.lib.DeleteAgent(ctx, code, opts))(ctx)
+}
+
 func (s *LibraryService) RegisterProject(ctx context.Context, path string) (library.RegisteredProject, error) {
 	return settle(s.lib.RegisterProject(ctx, path))(ctx)
 }
@@ -192,7 +204,15 @@ func (s *LibraryService) Reinstall(ctx context.Context, requests []library.Reins
 	return settle(s.lib.Reinstall(ctx, requests))(ctx)
 }
 
-// ---------- 同步 ----------
+// ---------- GitHub 与同步 ----------
+
+func (s *LibraryService) SetGitHubToken(token string) {
+	s.lib.SetGitHubToken(token)
+}
+
+func (s *LibraryService) SetSyncSettings(settings *library.SyncSettings) {
+	s.lib.SetSyncSettings(settings)
+}
 
 func (s *LibraryService) PlanSyncPush(ctx context.Context) (library.SyncPushPlan, error) {
 	return settle(s.lib.PlanSyncPush(ctx))(ctx)

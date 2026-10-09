@@ -19,6 +19,10 @@ import * as library$0 from "../../internal/library/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function AddAgent(agent: library$0.CustomAgent): $CancellablePromise<library$0.Agent> {
+    return $Call.ByID(3992441198, agent);
+}
+
 export function AddSkillToGroup(groupID: library$0.GroupID, skillID: library$0.SkillID): $CancellablePromise<library$0.GroupMemberResult[] | null> {
     return $Call.ByID(3410498058, groupID, skillID);
 }
@@ -38,12 +42,20 @@ export function CreateGroup(name: string): $CancellablePromise<library$0.Group> 
     return $Call.ByID(3572708797, name);
 }
 
+export function DeleteAgent(code: library$0.AgentCode, opts: library$0.DeleteAgentOptions): $CancellablePromise<library$0.DeleteAgentResult> {
+    return $Call.ByID(750105618, code, opts);
+}
+
 export function DeleteGroup(id: library$0.GroupID): $CancellablePromise<void> {
     return $Call.ByID(486162608, id);
 }
 
 export function DiffVersions($from: library$0.VersionID, to: library$0.VersionID): $CancellablePromise<library$0.VersionDiff> {
     return $Call.ByID(4170673460, $from, to);
+}
+
+export function EditAgent(code: library$0.AgentCode, agent: library$0.CustomAgent, opts: library$0.EditAgentOptions): $CancellablePromise<library$0.EditAgentResult> {
+    return $Call.ByID(3668119015, code, agent, opts);
 }
 
 export function Fetch(id: library$0.FetchPreviewID, names: string[] | null): $CancellablePromise<library$0.Skill[] | null> {
@@ -171,6 +183,14 @@ export function ScopeDirectory(scope: library$0.Scope): $CancellablePromise<stri
 
 export function SearchSkills(query: string): $CancellablePromise<library$0.SearchSkill[] | null> {
     return $Call.ByID(2526005404, query);
+}
+
+export function SetGitHubToken(token: string): $CancellablePromise<void> {
+    return $Call.ByID(1235509666, token);
+}
+
+export function SetSyncSettings(settings: library$0.SyncSettings | null): $CancellablePromise<void> {
+    return $Call.ByID(1864003768, settings);
 }
 
 export function SyncPull(expected: library$0.RemoteIdentity): $CancellablePromise<void> {
