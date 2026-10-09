@@ -1,6 +1,6 @@
 // 设置页的 Agent 分区：每个 Agent 的显示勾选(存在这台机器的应用设置里),以及自定义 Agent 的添加、编辑、删除。
 // 内置 Agent 的名称和目录由应用维护，只能勾选显示。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/library";
 import { addAgent, deleteAgent, editAgent } from "@/lib/actions";
 import { describeError } from "@/lib/errors";
@@ -82,6 +82,8 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
   const [project, setProject] = useState(agent?.project_directory ?? "");
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [working, setWorking] = useState(false);
+  // 提交进行中(含等迁移确认)时不再提交：按钮禁用挡不住输入框里的 Enter。
+  const submitting = useRef(false);
 
   const validate = () => {
     const found: Partial<Record<Field, string>> = {};
@@ -102,6 +104,7 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
   };
 
   const submit = async () => {
+    if (submitting.current) return;
     const { found, global: globalPath } = validate();
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -113,10 +116,15 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
       setErrors({ [field]: describeError(err) });
       return true;
     };
+    submitting.current = true;
     setWorking(true);
-    const ok = agent ? await editAgent(ui, s, agent, input, onInvalid) : await addAgent(ui, input, onInvalid);
-    setWorking(false);
-    if (ok) onClose();
+    try {
+      const ok = agent ? await editAgent(ui, s, agent, input, onInvalid) : await addAgent(ui, input, onInvalid);
+      if (ok) onClose();
+    } finally {
+      submitting.current = false;
+      setWorking(false);
+    }
   };
 
   const error = (field: Field) => errors[field] && <div className="field-error">{errors[field]}</div>;

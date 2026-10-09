@@ -225,6 +225,37 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
 }
 
 export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scope: Scope) {
+  // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
+  const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
+  const removed = (s.groups.find((g) => g.id === groupID)?.members ?? [])
+    .map((id) => skillScopeIn(s, id, scopeKey(scope)))
+    .filter((p): p is SkillScopeInspection => !!p?.shared_with?.length && !p.direct)
+    .filter((p) => {
+      const readers = [scope.agent, ...(p.shared_with ?? [])];
+      const others = s.groupInstalls.filter(
+        (g) =>
+          readers.includes(g.scope.agent) &&
+          placeOf(g.scope) === placeOf(scope) &&
+          !(g.group_id === groupID && g.scope.agent === scope.agent),
+      );
+      return !others.some((g) => memberOf(g.group_id, p.skill_id));
+    });
+  if (removed.length) {
+    const ok = await ui.confirm({
+      title: `卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
+      body: (
+        <>
+          <div className="notice warn">
+            下面 {removed.length} 个技能文件夹还被别的 Agent 共用，只靠这个组安装留着：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。
+          </div>
+          <SharedFolders s={s} places={removed} />
+        </>
+      ),
+      confirm: "卸载",
+      danger: true,
+    });
+    if (!ok) return;
+  }
   await ui.run(() => LibraryService.UninstallGroup(groupID, scope), {
     success: `已卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
   });
@@ -578,8 +609,8 @@ export async function addAgent(ui: UI, input: CustomAgent, onInvalid: (err: Libr
 
 const cleanPath = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");
 
-// editAgent 修改自定义 Agent。某一层级的目录改了、这个 Agent 在那里已装了技能(含因共用目录而算已装的)时，
-// 先问是否迁移;迁移后列出因新目录已有同名文件夹而没搬的。input.global_directory 是展开 ~ 后的绝对路径。
+// editAgent 修改自定义 Agent。某一层级的目录改了、这个 Agent 在那里已装了技能(含因共用目录而算已装的)或有组安装时，
+// 先问是否迁移(不迁移会连组安装一起去掉,空组的组安装也是);迁移后列出因新目录已有同名文件夹而没搬的。input.global_directory 是展开 ~ 后的绝对路径。
 export async function editAgent(
   ui: UI,
   s: Snapshot,
@@ -589,17 +620,19 @@ export async function editAgent(
 ): Promise<boolean> {
   const globalChanged = cleanPath(input.global_directory) !== cleanPath(agent.global_directory);
   const projectChanged = cleanPath(input.project_directory) !== cleanPath(agent.project_directory);
-  const affected = s.skillScopes.filter(
-    (p) => p.scope.agent === agent.code && (placeOf(p.scope) ? projectChanged : globalChanged),
-  );
+  const changedHere = (scope: Scope) => scope.agent === agent.code && (placeOf(scope) ? projectChanged : globalChanged);
+  const affected = s.skillScopes.filter((p) => changedHere(p.scope));
+  const groupInstalls = s.groupInstalls.filter((g) => changedHere(g.scope)).length;
   let migrate = false;
-  if (affected.length) {
+  if (affected.length || groupInstalls) {
     const shared = affected.filter((p) => p.shared_with?.length);
     const choice = await ui.confirm({
       title: `改 Agent「${agent.name}」的目录`,
       body: (
         <>
-          <p className="hint">这个 Agent 在旧目录里已装了 {affected.length} 处技能。</p>
+          <p className="hint">
+            这个 Agent 在旧目录里{[affected.length && `已装了 ${affected.length} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join(",")}。
+          </p>
           {shared.length > 0 && (
             <>
               <div className="notice">
@@ -614,9 +647,9 @@ export async function editAgent(
         {
           value: "migrate",
           label: "迁移到新目录",
-          desc: "把已装的文件夹原样搬过去;新目录里已有同名文件夹的不覆盖、不搬，旧文件夹留在原处，完成后列出",
+          desc: "把已装的文件夹原样搬过去，组安装保留;新目录里已有同名文件夹的不覆盖、不搬，旧文件夹留在原处，完成后列出",
         },
-        { value: "keep", label: "不迁移", desc: "只改目录，旧目录里的文件夹不动，去掉这个 Agent 在那里的安装记录" },
+        { value: "keep", label: "不迁移", desc: "只改目录，旧目录里的文件夹不动，去掉这个 Agent 在那里的安装记录与组安装" },
       ],
       confirm: "保存",
     });
@@ -636,7 +669,7 @@ export async function editAgent(
         label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : "全局"}`,
         outcome: "没有迁移",
         tone: "warn" as const,
-        reason: `新目录里已有同名文件夹:${shortPath(s, m.to)}\n旧文件夹留在原处:${shortPath(s, m.from)}`,
+        reason: `新目录里已有同名文件夹，或被库里另一个技能的安装占用:${shortPath(s, m.to)}\n旧文件夹留在原处:${shortPath(s, m.from)}`,
       })),
       `迁移了 ${migrations.length - skipped.length} 个文件夹;下面 ${skipped.length} 个没有迁移，这个 Agent 在那里不再算已装。`,
     );

@@ -80,7 +80,8 @@ export function SettingsPage({ s, config, onClose }: { s: Snapshot; config: Conf
       <header className="titlebar" style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
         <div className="tb-left">
           <div className="tl-space" />
-          <button type="button" className="icon-btn" onClick={onClose} title="返回技能库">
+          {/* 等排队的保存都完成再返回，主界面重读时拿到的是最后保存的设置(Agent 的显示勾选)。 */}
+          <button type="button" className="icon-btn" onClick={() => void saving.current.then(onClose)} title="返回技能库">
             <Icon name="chevL" />
           </button>
           <span className="tb-crumb">
