@@ -97,7 +97,7 @@ Bringing the folder of a skill installed in a Scope back in line with a version 
 _Avoid_: Rewrite, refresh, restore, resync / 重写、刷新、还原、重新同步
 
 **Sync · 同步**:
-Manual, non-realtime push/pull of the whole Library to and from S3, so a full setup can be reproduced on another machine. Never automatic. After pulling on another machine, the user points each Registered project to where it lives on that machine.
+Manual, non-realtime push/pull of the whole Library to and from S3, so a full setup can be reproduced on another machine. Never automatic. After pulling on another machine, the user points each Registered project to where it lives on that machine. In Chinese, push is 推送 and pull is 拉回.
 _Avoid_: Backup, replication, upload / 备份、复制、上传
 
 **Sync plan · 同步计划**:

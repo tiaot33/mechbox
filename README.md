@@ -10,7 +10,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 - 保存技能的完整文件（含相对路径和可执行权限）与全部版本历史，可比较版本差异；相同内容的文件只存一份。
 - 按来源自动形成集合，用户可跨来源手动建组。
 - 登记项目，把单个技能或整个组安装到 Claude Code、Codex 的全局或项目作用域；可巡检已安装的技能是否被手动改过、落后于库里的版本或已缺失，并重新安装。
-- 把整个库推送到 S3，或从 S3 拉回替换本地库，并把已登记项目对应到本机路径。
+- 把整个库推送到 S3，或从 S3 拉回替换本地库；拉回后把不在这台机器上的已登记项目改到本机位置。
 - 通过稳定的 `ErrorCode` 向调用方返回可判断的错误；`library.ErrorOf(err)` 把任意 error 规范成可 JSON 编码的 `*Error`（非 `*Error` 按库内同一套规则归类，无可识别原因的记为 `internal`）。
 
 ## 仓库地图
@@ -97,7 +97,7 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 - Agent：`agents`（稳定 `code`、展示 `name`，以及全局与项目下各自读取技能的目录规则）
 - 项目、安装记录与组安装：`projects`、`skill_scopes`、`group_installs`
 
-新数据库由 `library.Open` 自动初始化，写入应用标识和 schema 版本。发布前不迁移旧库：应用标识或 schema 版本不符时 `Open` 报错且不改文件，见 [ADR 0003](docs/adr/0003-no-migrations-before-release.md)。应用内置的 Agent 以应用版本为准：`Open` 时补上缺失的行，并以应用为准覆盖已有行的名称和目录规则；库里有、本版应用不认识的 Agent（例如从装了更新版本应用的机器同步来的）保持原样。库没有增删改 Agent 的方法。
+新数据库由 `library.Open` 自动初始化，写入应用标识和 schema 版本。发布前不迁移旧库：应用标识或 schema 版本不符时 `Open` 报错且不改文件，见 [ADR 0003](docs/adr/0003-no-migrations-before-release.md)。应用内置的 Agent 以应用版本为准：`Open` 时与同步拉回后补上缺失的行，并以应用为准覆盖已有行的名称和目录规则；库里有、本版应用不认识的 Agent（例如从装了更新版本应用的机器同步来的）保持原样。库没有增删改 Agent 的方法。
 
 作用域只记录身份（`GlobalScope(agent)` 或 `ProjectScope(agent, projectID)`），不含路径；目录由只读的 `ScopeDirectory` 按该 Agent 的目录规则算出，全局相对用户主目录，项目相对已登记项目的路径。Agent 换了读取目录后只认新目录，旧目录里的文件夹不搬、不删。同步拉库后只需重新对应已登记项目的本机路径（`RelocateProject`），安装记录不变。见 [ADR 0005](docs/adr/0005-scope-is-agent-and-level-not-path.md)。
 
@@ -114,7 +114,6 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 | `AWS_ACCESS_KEY_ID` | S3 access key | 无；同步时必填 |
 | `AWS_SECRET_ACCESS_KEY` | S3 secret key | 无；同步时必填 |
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
-| `SKILLS_PROJECT_PATH_MAP` | Pull 时旧项目路径到本机路径的 JSON 对象；每个项目只按拉回库里的原路径匹配一次，不链式改写；目标路径仍被其他项目占用或映射成环时 pull 以 `InvalidArgument` 失败、本地库不变 | `{}` |
 
 GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
 

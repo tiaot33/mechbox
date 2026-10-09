@@ -17,6 +17,8 @@ var (
 	ErrAlreadyExists = errors.New("record already exists")
 	ErrBusy          = errors.New("library database is busy")
 	ErrUnacceptable  = errors.New("unacceptable library schema")
+	ErrNewerSchema   = errors.New("library from a newer schema version")
+	ErrOlderSchema   = errors.New("library from an older schema version")
 )
 
 type querier interface {

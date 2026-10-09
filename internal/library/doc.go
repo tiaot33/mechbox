@@ -58,6 +58,8 @@
 //   - [Library.Reinstall] 把用户选中的几处换成技能的当前版本;改过的那一处要单独同意覆盖。
 //
 // 同步(sync.go):
-//   - [Library.PlanSyncPush] 再 [Library.SyncPush]:把整库推送到 S3。
-//   - [Library.PlanSyncPull] 再 [Library.SyncPull]:从 S3 拉回整库替换本地。
+//   - [Library.PlanSyncPush] 再 [Library.SyncPush]:看 S3 上是哪一份库(谁、什么时候推送的),再用本机的库覆盖它。
+//   - [Library.PlanSyncPull] 再 [Library.SyncPull]:看 S3 上的库里有什么、能不能拉回,再用它替换本机的库。
+//     拉回不动 Agent 目录;之后用 [Library.RelocateProject] 把不在这台机器上的项目指到本机位置,
+//     用 [Library.InspectSkillScopes] 与 [Library.Reinstall] 把各处安装对上。
 package library

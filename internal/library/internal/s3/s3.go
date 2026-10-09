@@ -27,28 +27,43 @@ type config struct {
 	pathStyle                                                         bool
 }
 
-func Head(ctx context.Context) (string, error) {
-	_, etag, err := request(ctx, http.MethodHead, nil, nil)
-	return etag, err
+type Object struct {
+	ETag         string
+	LastModified time.Time
+	PushedFrom   string
 }
 
-func Get(ctx context.Context) ([]byte, string, error) {
+const pushedFromHeader = "x-amz-meta-pushed-from"
+
+func Head(ctx context.Context) (Object, error) {
+	_, object, err := request(ctx, http.MethodHead, nil, nil)
+	return object, err
+}
+
+func Get(ctx context.Context) ([]byte, Object, error) {
 	return request(ctx, http.MethodGet, nil, nil)
 }
 
-func Put(ctx context.Context, data []byte, expected string) (string, error) {
-	conditions := map[string]string{"If-Match": expected}
+func Put(ctx context.Context, data []byte, expected, pushedFrom string) (Object, error) {
+	headers := map[string]string{"If-Match": expected}
 	if expected == "" {
-		conditions = map[string]string{"If-None-Match": "*"}
+		headers = map[string]string{"If-None-Match": "*"}
 	}
-	_, etag, err := request(ctx, http.MethodPut, data, conditions)
-	return etag, err
+	if pushedFrom != "" {
+		headers[pushedFromHeader] = url.QueryEscape(pushedFrom)
+	}
+	_, object, err := request(ctx, http.MethodPut, data, headers)
+	if err != nil {
+		return Object{}, err
+	}
+	object.PushedFrom = pushedFrom
+	return object, nil
 }
 
-func request(ctx context.Context, method string, body []byte, conditions map[string]string) ([]byte, string, error) {
+func request(ctx context.Context, method string, body []byte, headers map[string]string) ([]byte, Object, error) {
 	cfg, err := loadConfig()
 	if err != nil {
-		return nil, "", err
+		return nil, Object{}, err
 	}
 	resource := "/" + uriEncode(cfg.key, true)
 	if cfg.pathStyle {
@@ -57,20 +72,20 @@ func request(ctx context.Context, method string, body []byte, conditions map[str
 	requestURL := strings.TrimRight(cfg.endpoint, "/") + resource
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, "", fmt.Errorf("create S3 request: %w", err)
+		return nil, Object{}, fmt.Errorf("create S3 request: %w", err)
 	}
-	sign(req, body, cfg, time.Now().UTC())
-	for name, value := range conditions {
+	for name, value := range headers {
 		req.Header.Set(name, value)
 	}
+	sign(req, body, cfg, time.Now().UTC())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("reach S3: %v: %w", err, ErrUnreachable)
+		return nil, Object{}, fmt.Errorf("reach S3: %v: %w", err, ErrUnreachable)
 	}
 	defer resp.Body.Close()
 	response, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "", fmt.Errorf("read S3 response: %v: %w", err, ErrUnreachable)
+		return nil, Object{}, fmt.Errorf("read S3 response: %v: %w", err, ErrUnreachable)
 	}
 	var s3Error struct {
 		Code string `xml:"Code"`
@@ -78,22 +93,32 @@ func request(ctx context.Context, method string, body []byte, conditions map[str
 	_ = xml.Unmarshal(response, &s3Error)
 	permissionCode := map[string]bool{"AccessDenied": true, "InvalidAccessKeyId": true, "SignatureDoesNotMatch": true, "ExpiredToken": true, "InvalidToken": true}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || permissionCode[s3Error.Code] {
-		return nil, "", ErrPermission
+		return nil, Object{}, ErrPermission
 	}
 	if resp.StatusCode == http.StatusNotFound || s3Error.Code == "NoSuchKey" {
-		return nil, "", ErrNotFound
+		return nil, Object{}, ErrNotFound
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed || s3Error.Code == "PreconditionFailed" {
-		return nil, "", ErrPreconditionFailed
+		return nil, Object{}, ErrPreconditionFailed
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("S3 returned %s: %w", resp.Status, ErrUnreachable)
+		return nil, Object{}, fmt.Errorf("S3 returned %s: %w", resp.Status, ErrUnreachable)
 	}
-	etag := resp.Header.Get("ETag")
-	if etag == "" && method != http.MethodPut {
-		return nil, "", fmt.Errorf("S3 response missing ETag: %w", ErrUnreachable)
+	object := Object{ETag: resp.Header.Get("ETag")}
+	if object.ETag == "" && method != http.MethodPut {
+		return nil, Object{}, fmt.Errorf("S3 response missing ETag: %w", ErrUnreachable)
 	}
-	return response, etag, nil
+	modified := resp.Header.Get("Last-Modified")
+	if modified == "" && method == http.MethodPut {
+		modified = resp.Header.Get("Date")
+	}
+	if at, err := http.ParseTime(modified); err == nil {
+		object.LastModified = at.UTC()
+	}
+	if pushedFrom, err := url.QueryUnescape(resp.Header.Get(pushedFromHeader)); err == nil {
+		object.PushedFrom = pushedFrom
+	}
+	return response, object, nil
 }
 
 func loadConfig() (config, error) {
