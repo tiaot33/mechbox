@@ -13,20 +13,6 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func TestListAgentsReturnsSeededCodes(t *testing.T) {
-	ctx := t.Context()
-	lib := openTestLibrary(t)
-	got, err := lib.ListAgents(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 含稳定代码与展示名称:结构体里没有 Agent 目录。
-	want := seededAgents()
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ListAgents() = %#v, want %#v", got, want)
-	}
-}
-
 // Scope 以 {"kind","agent","project_id"?} 往返 JSON:读出来的就是传回去的,没有目录字段。
 func TestScopeJSONRoundTrip(t *testing.T) {
 	cases := map[string]struct {

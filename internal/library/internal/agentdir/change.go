@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -30,18 +31,26 @@ type trashed struct {
 	trash, target string
 }
 
-func (c *Change) Stage(ctx context.Context, directory, name string, files []skillfile.File) error {
+func (c *Change) stage(ctx context.Context, directory, name string) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return fmt.Errorf("create scope: %w", err)
+		return "", fmt.Errorf("create scope: %w", err)
 	}
 	stage, err := os.MkdirTemp(directory, "."+name+"-")
 	if err != nil {
-		return fmt.Errorf("stage skill folder: %w", err)
+		return "", fmt.Errorf("stage skill folder: %w", err)
 	}
 	c.placements = append(c.placements, &placement{target: filepath.Join(directory, name), stage: stage})
+	return stage, nil
+}
+
+func (c *Change) Stage(ctx context.Context, directory, name string, files []skillfile.File) error {
+	stage, err := c.stage(ctx, directory, name)
+	if err != nil {
+		return err
+	}
 	for _, file := range files {
 		if !filepath.IsLocal(file.Path) {
 			return fmt.Errorf("invalid skill path: %s", file.Path)
@@ -56,6 +65,69 @@ func (c *Change) Stage(ctx context.Context, directory, name string, files []skil
 		}
 		if err := os.WriteFile(path, file.Content, mode); err != nil {
 			return fmt.Errorf("write skill file: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Change) Copy(ctx context.Context, from, directory, name string) error {
+	stage, err := c.stage(ctx, directory, name)
+	if err != nil {
+		return err
+	}
+	type directoryMode struct {
+		path string
+		mode fs.FileMode
+	}
+	var directories []directoryMode
+	err = filepath.WalkDir(from, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("copy skill folder: %w", walkErr)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(from, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(stage, relative)
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("copy skill folder: %w", err)
+		}
+		switch {
+		case entry.IsDir():
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return fmt.Errorf("copy skill folder: %w", err)
+			}
+			directories = append(directories, directoryMode{path: target, mode: info.Mode().Perm()})
+			return nil
+		case info.Mode()&fs.ModeSymlink != 0:
+			link, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("copy skill folder: %w", err)
+			}
+			return os.Symlink(link, target)
+		case info.Mode().IsRegular():
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("copy skill folder: %w", err)
+			}
+			if err := os.WriteFile(target, content, info.Mode().Perm()); err != nil {
+				return fmt.Errorf("copy skill folder: %w", err)
+			}
+			return os.Chmod(target, info.Mode().Perm())
+		default:
+			return fmt.Errorf("copy skill folder: %w: %s", ErrIrregularFile, path)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	for i := len(directories) - 1; i >= 0; i-- {
+		if err := os.Chmod(directories[i].path, directories[i].mode); err != nil {
+			return fmt.Errorf("copy skill folder: %w", err)
 		}
 	}
 	return nil

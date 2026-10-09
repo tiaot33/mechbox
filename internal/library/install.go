@@ -1,10 +1,12 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
@@ -23,7 +25,7 @@ type InstallPlanStatus string
 
 const (
 	InstallReady            InstallPlanStatus = "ready"             // 可以安装
-	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 已经装在这里,安装只会补记这次选择
+	InstallAlreadyInstalled InstallPlanStatus = "already_installed" // 已经装在这里(含装在共用这个目录的另一个 Agent),安装只会补记这次选择
 	InstallOccupied         InstallPlanStatus = "occupied"          // 另一个技能已经装在这里(见 OccupierSkillID),先卸载它
 	InstallUntracked        InstallPlanStatus = "untracked"         // 这里有同名文件夹但不是从库里装的,可以选择覆盖
 	InstallDuplicate        InstallPlanStatus = "duplicate"         // 仅组安装计划:组里还有同名技能,这几个都不会装;优先于 occupied / untracked / ready
@@ -47,7 +49,8 @@ type GroupInstallPlan struct {
 }
 
 // SkillScope 是某个技能装在某个 Scope:只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
-// 对照磁盘的状态由 InspectSkillScopes 给出。
+// 对照磁盘的状态由 InspectSkillScopes 给出。几个 Agent 共用一个目录时,装在其中一个,共用的每个 Agent 各列一条,
+// 它们的 Folder、Direct、Groups、CreatedAt 相同,按共用的这几处合起来算。
 type SkillScope struct {
 	SkillID   SkillID   `json:"skill_id"`
 	Scope     Scope     `json:"scope"`
@@ -55,6 +58,9 @@ type SkillScope struct {
 	Direct    bool      `json:"direct"`              // 有直接安装留着它;为 false 时只靠组安装留在这里,不能单独卸载
 	Groups    []GroupID `json:"groups,omitempty"`    // 组安装留着它的 Group:该技能是成员且组已安装到此 Scope,按 ID 升序
 	CreatedAt time.Time `json:"created_at,omitzero"` // 首次安装到此 Scope 的时间。再次安装不更新
+	// SharedWith 是同一层级与这个 Agent 共用这个文件夹的其他 Agent,按代码排序;没有共用时为空。
+	// 从其中任何一个卸载都会删除文件夹,它们都不再算已装,卸载前界面据此提示。
+	SharedWith []AgentCode `json:"shared_with,omitempty"`
 }
 
 // GroupInstall 是一个组安装:某 Group 安装到某 Scope,覆盖该组的当前和未来成员(见 ADR 0006)。
@@ -70,7 +76,7 @@ type GroupMemberOutcome string
 
 const (
 	MemberInstalled        GroupMemberOutcome = "installed"         // 装到了这里
-	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已经装在这里,只补记组安装,文件夹不动
+	MemberAlreadyInstalled GroupMemberOutcome = "already_installed" // 已经装在这里(含装在共用这个目录的另一个 Agent),只补记组安装,文件夹不动
 	MemberSkipped          GroupMemberOutcome = "skipped"           // 没装,原因见 Error;成员关系与组安装照常成立
 )
 
@@ -98,11 +104,11 @@ func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, t
 	}
 	want := agentdir.Canonical(target.directory)
 	for _, other := range claimants {
-		_, directory, err := l.scopeDirectory(ctx, scopeRowOf(other.Scope))
+		claimed, err := l.resolveRow(ctx, scopeRowOf(other.Scope))
 		if err != nil {
 			return nil, err
 		}
-		if agentdir.Canonical(directory) != want {
+		if agentdir.Canonical(claimed.directory) != want {
 			continue
 		}
 		return &claimant{skillID: SkillID(other.SkillID), name: other.Name}, nil
@@ -201,11 +207,11 @@ func memberNameCounts(members []Skill) map[string]int {
 
 func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
 	plan := InstallPlan{SkillID: id, Name: name, Folder: filepath.Join(scope.directory, name), Status: InstallReady}
-	existing, err := l.store.FindSkillScope(ctx, int64(id), scope.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), scope.record())
 	if err != nil {
 		return plan, err
 	}
-	if existing != nil {
+	if len(place) > 0 {
 		plan.Status = InstallAlreadyInstalled
 		return plan, nil
 	}
@@ -229,7 +235,7 @@ func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scop
 }
 
 // Install 把技能的当前版本装到 scope:记一个直接安装,并放入技能文件夹;成功时文件夹完整就位,失败时磁盘和库都保持原样。
-// 本技能已经装在这里时只补记这次选择,文件夹不动(文件夹丢了也不补回,放回去用 Reinstall)。
+// 本技能已经装在这里、或装在共用这个目录的另一个 Agent 时只补记这次选择,文件夹不动(文件夹丢了也不补回,放回去用 Reinstall)。
 // 目标处有不是从库里装的同名文件夹时返回 AlreadyExists(Details.Path),opts.Overwrite 同意时覆盖它;
 // 被另一个技能占用时返回 FailedPrecondition(Details.SkillID / Name / Path),需先卸载占用者。
 // 作用域根目录(全局为用户主目录,项目为已登记路径)不存在时返回 FailedPrecondition;Library 从不创建根目录,
@@ -249,12 +255,17 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	if err := target.requireRoot("install skill"); err != nil {
 		return err
 	}
-	existing, err := l.store.FindSkillScope(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
 	if err != nil {
 		return err
 	}
-	if existing != nil {
-		return l.store.MarkDirect(ctx, existing.ID)
+	if len(place) > 0 && place[0].Agent == string(target.agent) {
+		return l.store.MarkDirect(ctx, place[0].ID)
+	}
+	if len(place) > 0 {
+		return l.store.InTx(ctx, func(tx *store.Tx) error {
+			return tx.RecordSkillScope(ctx, int64(skill.ID), target.record(), true, clockNow())
+		})
 	}
 	conflict, err := l.placementConflict(ctx, "install skill", skill.ID, skill.Name, target, opts.Overwrite)
 	if err != nil {
@@ -300,6 +311,8 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 
 // Uninstall 撤销直接安装;没有组安装留着它时,技能文件夹随之删除。技能只靠组安装留在这里时返回
 // FailedPrecondition(Details.Name 为组名;界面可按 SkillScope.Direct 提前得知),没装在这里返回 NotFound。
+// 几个 Agent 共用这个文件夹时(见 SkillScope.SharedWith),从其中任何一个卸载都撤销它们各自的直接安装,
+// 文件夹随之删除,它们都不再算已装;只有组安装还留着其中某一处时文件夹才留下。
 // 不检查文件夹是否被改过:确认前用 InspectSkillScopes 查出 modified 的地方,告诉用户这些修改会丢掉。
 func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
@@ -309,15 +322,17 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 	if err != nil {
 		return err
 	}
-	existing, err := l.store.FindSkillScope(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
 	if err != nil {
 		return err
 	}
-	if existing == nil {
+	if len(place) == 0 {
 		return &Error{Code: NotFound, Message: "uninstall skill: skill is not installed in scope"}
 	}
-	if !existing.Direct {
-		name, err := l.store.CoveringGroupName(ctx, int64(id), target.record())
+	if !slices.ContainsFunc(place, func(row store.PlaceSkillScope) bool { return row.Direct }) {
+		covered := target.record()
+		covered.Agent = place[0].Agent
+		name, err := l.store.CoveringGroupName(ctx, int64(id), covered)
 		if err != nil {
 			return err
 		}
@@ -330,11 +345,15 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		removed, err := tx.Uninstall(ctx, existing.ID)
-		if err != nil {
-			return err
+		kept := false
+		for _, row := range place {
+			removed, err := tx.Uninstall(ctx, row.ID)
+			if err != nil {
+				return err
+			}
+			kept = kept || !removed
 		}
-		if removed {
+		if !kept {
 			change.Remove(filepath.Join(target.directory, skill.Name))
 		}
 		return nil
@@ -346,30 +365,50 @@ type memberPlan struct {
 	opts       InstallOptions
 	results    []GroupMemberResult
 	placements []*placement
-	planned    map[string]bool
+	records    []memberRecord
+	planned    map[string]*placement
+}
+
+type memberRecord struct {
+	skillID SkillID
+	scope   resolvedScope
 }
 
 func newMemberPlan(operation string, opts InstallOptions) *memberPlan {
-	return &memberPlan{operation: operation, opts: opts, results: []GroupMemberResult{}, planned: map[string]bool{}}
+	return &memberPlan{operation: operation, opts: opts, results: []GroupMemberResult{}, planned: map[string]*placement{}}
 }
 
 func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
-	existing, err := l.store.FindSkillScope(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
 	if err != nil {
 		return err
 	}
-	if existing != nil {
+	key := filepath.Join(agentdir.Canonical(target.directory), name)
+	planned := plan.planned[key]
+	switch {
+	case len(place) > 0:
 		result.Outcome = MemberAlreadyInstalled
-	} else if result.Error, err = l.memberBlocker(ctx, plan, id, name, target, duplicate); err != nil {
-		return err
-	} else if result.Error == nil {
+		if place[0].Agent != string(target.agent) {
+			plan.records = append(plan.records, memberRecord{skillID: id, scope: target})
+		}
+	case planned != nil && planned.skill.ID == id && planned.scope.sharesFolderWith(target):
+		result.Outcome = MemberInstalled
+		plan.records = append(plan.records, memberRecord{skillID: id, scope: target})
+	default:
+		if result.Error, err = l.memberBlocker(ctx, plan, id, name, target, duplicate); err != nil {
+			return err
+		}
+		if result.Error != nil {
+			break
+		}
 		skill, current, err := l.getCurrent(ctx, id)
 		if err != nil {
 			return err
 		}
-		plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] = true
-		plan.placements = append(plan.placements, &placement{skill: skill, files: current.files, scope: target})
+		item := &placement{skill: skill, files: current.files, scope: target}
+		plan.planned[key] = item
+		plan.placements = append(plan.placements, item)
 		result.Outcome = MemberInstalled
 	}
 	plan.results = append(plan.results, result)
@@ -384,7 +423,7 @@ func (l *Library) memberBlocker(ctx context.Context, plan *memberPlan, id SkillI
 	if duplicate {
 		return preconditionError(plan.operation, "multiple members install to the same target", ErrorDetails{Name: name, Path: path}), nil
 	}
-	if plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] {
+	if plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] != nil {
 		return preconditionError(plan.operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
 	}
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.Overwrite)
@@ -398,6 +437,11 @@ func (l *Library) applyMemberPlan(ctx context.Context, plan *memberPlan, record 
 		}
 		for _, item := range plan.placements {
 			if err := tx.RecordSkillScope(ctx, int64(item.skill.ID), item.scope.record(), false, now); err != nil {
+				return err
+			}
+		}
+		for _, item := range plan.records {
+			if err := tx.RecordSkillScope(ctx, int64(item.skillID), item.scope.record(), false, now); err != nil {
 				return err
 			}
 		}
@@ -445,6 +489,7 @@ func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope
 }
 
 // UninstallGroup 撤销该组在 scope 的组安装;不再有直接安装或别的组安装留着的成员随之卸载,失败时磁盘和库都保持原样。
+// 共用目录的另一个 Agent 还装着某个成员时,它的文件夹留着。
 // 该组没有组安装到这里返回 NotFound。和 Uninstall 一样不检查文件夹是否被改过。
 func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
@@ -479,7 +524,14 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 			if err != nil {
 				return err
 			}
-			if removed {
+			if !removed {
+				continue
+			}
+			place, err := tx.PlaceSkillScopes(ctx, member.SkillID, member.Scope)
+			if err != nil {
+				return err
+			}
+			if len(place) == 0 {
 				change.Remove(filepath.Join(target.directory, member.Name))
 			}
 		}
@@ -511,28 +563,73 @@ func (l *Library) ListSkillScopes(ctx context.Context, filter SkillScopeFilter) 
 }
 
 func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *scopeRow) ([]SkillScope, error) {
-	var filter *store.Scope
-	if scope != nil {
-		filter = new(scope.record())
-	}
-	rows, err := l.store.ListSkillScopes(ctx, int64(skillID), filter)
+	rows, err := l.store.ListSkillScopes(ctx, int64(skillID))
 	if err != nil {
 		return nil, err
 	}
-	var skillScopes []SkillScope
+	type folder struct {
+		skillID   int64
+		projectID ProjectID
+		relative  string
+	}
+	merged := map[folder]*SkillScope{}
+	sharers := map[folder][]AgentCode{}
+	var folders []folder
 	for _, row := range rows {
-		_, directory, err := l.scopeDirectory(ctx, scopeRowOf(row.Scope))
+		target, err := l.resolveRow(ctx, scopeRowOf(row.Scope))
 		if err != nil {
 			return nil, err
 		}
-		skillScope := SkillScope{
-			SkillID: SkillID(row.SkillID), Scope: scopeRowOf(row.Scope).scope(), Folder: filepath.Join(directory, row.Name),
-			Direct: row.Direct, CreatedAt: row.CreatedAt,
+		key := folder{skillID: row.SkillID, relative: target.relative}
+		if target.projectID != nil {
+			key.projectID = *target.projectID
+		}
+		entry := merged[key]
+		if entry == nil {
+			entry = &SkillScope{SkillID: SkillID(row.SkillID), Folder: filepath.Join(target.directory, row.Name), CreatedAt: row.CreatedAt}
+			merged[key] = entry
+			folders = append(folders, key)
+			codes, err := l.store.FolderSharers(ctx, row.Scope)
+			if err != nil {
+				return nil, err
+			}
+			for _, code := range codes {
+				sharers[key] = append(sharers[key], AgentCode(code))
+			}
+		}
+		entry.Direct = entry.Direct || row.Direct
+		if row.CreatedAt.Before(entry.CreatedAt) {
+			entry.CreatedAt = row.CreatedAt
 		}
 		for _, id := range row.Groups {
-			skillScope.Groups = append(skillScope.Groups, GroupID(id))
+			entry.Groups = append(entry.Groups, GroupID(id))
 		}
-		skillScopes = append(skillScopes, skillScope)
 	}
+	var skillScopes []SkillScope
+	for _, key := range folders {
+		entry := *merged[key]
+		slices.Sort(entry.Groups)
+		entry.Groups = slices.Compact(entry.Groups)
+		for _, agent := range sharers[key] {
+			row := scopeRow{agent: agent}
+			if key.projectID != 0 {
+				row.projectID = new(key.projectID)
+			}
+			if scope != nil && row.scope() != scope.scope() {
+				continue
+			}
+			skillScope := entry
+			skillScope.Scope = row.scope()
+			for _, other := range sharers[key] {
+				if other != agent {
+					skillScope.SharedWith = append(skillScope.SharedWith, other)
+				}
+			}
+			skillScopes = append(skillScopes, skillScope)
+		}
+	}
+	slices.SortFunc(skillScopes, func(a, b SkillScope) int {
+		return cmp.Or(cmp.Compare(a.SkillID, b.SkillID), cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID))
+	})
 	return skillScopes, nil
 }

@@ -210,9 +210,11 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 	}
 	directories := make([]string, len(skillScopes))
 	for i, skillScope := range skillScopes {
-		if _, directories[i], err = l.scopeDirectory(ctx, scopeRowOf(skillScope.Scope)); err != nil {
+		target, err := l.resolveRow(ctx, scopeRowOf(skillScope.Scope))
+		if err != nil {
 			return err
 		}
+		directories[i] = target.directory
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
@@ -231,7 +233,14 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 			if err != nil {
 				return err
 			}
-			if removed {
+			if !removed {
+				continue
+			}
+			place, err := tx.PlaceSkillScopes(ctx, skillScope.SkillID, skillScope.Scope)
+			if err != nil {
+				return err
+			}
+			if len(place) == 0 {
 				change.Remove(filepath.Join(directories[i], skillScope.Name))
 			}
 		}

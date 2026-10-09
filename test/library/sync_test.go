@@ -505,6 +505,8 @@ func TestSyncPullReplacesLibraryAndKeepsProjectsForRelocation(t *testing.T) {
 
 // 拉回的库里内置 Agent 缺行或名称、目录规则来自另一个版本的应用时,拉回后与 Open 一样以本机应用为准。
 func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	stub := newS3Stub(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
@@ -520,12 +522,8 @@ func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents, err := lib.ListAgents(ctx)
-	if err != nil || !reflect.DeepEqual(agents, seededAgents()) {
-		t.Fatalf("ListAgents() after pull = %#v, %v; want %#v", agents, err, seededAgents())
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !reflect.DeepEqual(agents, seededAgents(home)) {
+		t.Fatalf("ListAgents() after pull = %#v, %v; want %#v", agents, err, seededAgents(home))
 	}
 	if dir, err := lib.ScopeDirectory(ctx, library.GlobalScope(library.AgentCodex)); err != nil || dir != filepath.Join(home, ".agents", "skills") {
 		t.Fatalf("ScopeDirectory(codex global) after pull = %q, %v", dir, err)
