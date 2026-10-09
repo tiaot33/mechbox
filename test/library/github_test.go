@@ -367,6 +367,159 @@ func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
 	}
 }
 
+// 调用方传入的令牌只放进「用令牌访问」这一步:仍先匿名访问,被拒后才带令牌;传入了就不再读环境变量里的令牌。
+func TestGitHubPassedTokenReplacesEnvironmentTokenAfterAnonymous(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	api.acceptedToken = "passed-token"
+	blockGitHubClone(t)
+	t.Setenv("GITHUB_TOKEN", "environment-token")
+	lib := openTestLibrary(t)
+	lib.SetGitHubToken("passed-token")
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+	if len(skillFiles(t, lib, fetched[0])) != 1 {
+		t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
+	}
+	authorizations := api.takeAuthorizations()
+	if len(authorizations) < 2 || authorizations[0] != "" {
+		t.Fatalf("authorizations = %q, want anonymous first", authorizations)
+	}
+	for _, authorization := range authorizations[1:] {
+		if authorization != "Bearer passed-token" {
+			t.Fatalf("authorizations = %q, want passed token after anonymous", authorizations)
+		}
+	}
+}
+
+// 在同一个 Library 上改令牌,下一次访问 GitHub 就用新值:先前没有令牌、靠 gh 读到的私有仓库,传入令牌后
+// 重新按匿名 → 令牌 → gh 的顺序访问;换成另一个令牌后用新令牌;清空后回到环境变量里的令牌。
+func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	blockGitHubClone(t)
+	serveGitHubCLI(t, fx)
+	t.Setenv("GITHUB_TOKEN", "")
+	lib := openTestLibrary(t)
+	preview := func() {
+		t.Helper()
+		got, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+		if err != nil || len(got.Candidates) != 1 {
+			t.Fatalf("preview = %#v, %v", got, err)
+		}
+	}
+	preview()
+	if got := api.takeAuthorizations(); !slices.Equal(got, []string{""}) {
+		t.Fatalf("without token authorizations = %q, want anonymous then gh", got)
+	}
+
+	for _, step := range []struct {
+		name, passed, environment, want string
+	}{
+		{"passed", "first-token", "", "Bearer first-token"},
+		{"changed", "second-token", "", "Bearer second-token"},
+		{"cleared", "", "environment-token", "Bearer environment-token"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			api.mu.Lock()
+			api.acceptedToken = strings.TrimPrefix(step.want, "Bearer ")
+			api.mu.Unlock()
+			t.Setenv("GITHUB_TOKEN", step.environment)
+			lib.SetGitHubToken(step.passed)
+			preview()
+			got := api.takeAuthorizations()
+			if len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != step.want }) {
+				t.Fatalf("authorizations = %q, want anonymous then %q", got, step.want)
+			}
+		})
+	}
+}
+
+// 先靠 gh 做了入库预览,再传入令牌:对这个预览入库时也按匿名 → 令牌 → gh 重新访问,用上新令牌,不再直接走 gh。
+func TestGitHubTokenChangeAppliesToExistingPreview(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md": {content: []byte("notes"), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	blockGitHubClone(t)
+	serveGitHubCLI(t, fx)
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	api.takeAuthorizations()
+
+	api.mu.Lock()
+	api.acceptedToken = "new-token"
+	api.mu.Unlock()
+	lib.SetGitHubToken("new-token")
+	stubGitHubCLI(t, "exit 1\n")
+	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+	if len(skillFiles(t, lib, fetched[0])) != 2 {
+		t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
+	}
+	got := api.takeAuthorizations()
+	if len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != "Bearer new-token" }) {
+		t.Fatalf("authorizations = %q, want anonymous then new token", got)
+	}
+}
+
+// 换令牌前发出、换令牌后才结束的请求,不会把它自己的访问结论(旧令牌被拒、改用 gh)带到新令牌上:
+// 之后的新入库预览仍按匿名 → 新令牌访问。
+func TestGitHubRequestFinishingAfterTokenChangeDoesNotBypassNewToken(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	api.acceptedToken = "old-token"
+	blockGitHubClone(t)
+	serveGitHubCLI(t, fx)
+	gate := newNetworkGate()
+	api.gateBlob(gate, fx.blobSHA("demo/SKILL.md"))
+	lib := openTestLibrary(t)
+	lib.SetGitHubToken("old-token")
+
+	gate.arm()
+	var wg sync.WaitGroup
+	var oldErr error
+	wg.Go(func() { _, oldErr = lib.PreviewFetch(t.Context(), gitHubRequest()) })
+	gate.awaitEntered(t)
+	api.mu.Lock()
+	api.acceptedToken = "new-token"
+	api.mu.Unlock()
+	lib.SetGitHubToken("new-token")
+	gate.open()
+	wg.Wait()
+	if oldErr != nil {
+		t.Fatalf("old preview = %v, want success through gh", oldErr)
+	}
+	if got := api.takeAuthorizations(); !slices.Contains(got, "Bearer old-token") || slices.Contains(got, "Bearer new-token") {
+		t.Fatalf("old preview authorizations = %q, want old token only", got)
+	}
+
+	stubGitHubCLI(t, "exit 1\n")
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("preview after token change = %#v, %v", preview, err)
+	}
+	if got := api.takeAuthorizations(); len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != "Bearer new-token" }) {
+		t.Fatalf("authorizations = %q, want anonymous then new token", got)
+	}
+}
+
 func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 	const secret = "private-token-and-cli-output"
 	serveGitHubAPI(t, inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
@@ -592,6 +745,19 @@ type gitHubAPIMock struct {
 	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸,用来把操作停在网络阶段。
 	blobGate  *networkGate
 	gatedBlob string
+	// acceptedToken 若非空,带令牌的请求只接受这一个令牌,其余令牌返回 401。
+	acceptedToken string
+	// authorizations 按顺序记下每个 API 请求的 Authorization 头,匿名请求记为空串。
+	authorizations []string
+}
+
+// takeAuthorizations 返回并清空已记下的 Authorization 头。
+func (m *gitHubAPIMock) takeAuthorizations() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	taken := m.authorizations
+	m.authorizations = nil
+	return taken
 }
 
 func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
@@ -667,8 +833,13 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.anonymousStatus != 0 && r.Header.Get("Authorization") == "" {
+	authorization := r.Header.Get("Authorization")
+	m.authorizations = append(m.authorizations, authorization)
+	if m.anonymousStatus != 0 && authorization == "" {
 		return m.errorResponse(m.anonymousStatus), nil
+	}
+	if m.acceptedToken != "" && authorization != "" && authorization != "Bearer "+m.acceptedToken {
+		return m.errorResponse(http.StatusUnauthorized), nil
 	}
 	notFound := jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"})
 	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
