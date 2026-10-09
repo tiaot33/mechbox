@@ -178,7 +178,7 @@ func (l *Library) ListSkills(ctx context.Context) (skills []Skill, err error) {
 // opts.Folders 为 Keep 时保留这些文件夹;只从一个作用域撤掉而保留在库里用 Uninstall。不检查文件夹是否被改过:
 // 确认框用 InspectSkillScopes(SkillScopeFilter{SkillID: id}) 列出会一并删除的地方,并说明其中哪几处用户改过。
 func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	if err := validateFolderPolicy("remove skill", opts.Folders); err != nil {

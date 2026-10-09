@@ -360,3 +360,72 @@ func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 		t.Fatalf("PlanSyncPush after release: %v", planErr)
 	}
 }
+
+// installInProjects 把技能装到 n 个新登记项目的 Claude Code 作用域,返回这些项目。
+func installInProjects(t *testing.T, lib *library.Library, id library.SkillID, n int) []library.RegisteredProject {
+	t.Helper()
+	projects := make([]library.RegisteredProject, n)
+	for i := range projects {
+		project, err := lib.RegisterProject(t.Context(), t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := lib.Install(t.Context(), id, library.ProjectScope(library.AgentClaudeCode, project.ID), library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		projects[i] = project
+	}
+	return projects
+}
+
+// requireNoMissingWhile 在 run 执行期间反复巡检,断言从未看到「找不到」:删除文件夹与改库对巡检必须是一起发生的。
+func requireNoMissingWhile(t *testing.T, lib *library.Library, what string, run func() error) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- run() }()
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s: %v", what, err)
+			}
+			return
+		default:
+		}
+		inspections, err := lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{})
+		if err != nil {
+			t.Fatalf("InspectSkillScopes() during %s: %v", what, err)
+		}
+		for _, inspection := range inspections {
+			if inspection.Status == library.SkillScopeMissing {
+				<-done
+				t.Fatalf("InspectSkillScopes() during %s saw %s missing before the record was removed", what, inspection.Folder)
+			}
+		}
+	}
+}
+
+func TestRemoveSkillAndUnregisterProjectAreAtomicToInspection(t *testing.T) {
+	const rounds, projects = 20, 8
+	t.Run("RemoveSkill", func(t *testing.T) {
+		lib := openTestLibrary(t)
+		for round := range rounds {
+			skill, _ := fetchLocalSkill(t, lib, fmt.Sprintf("remove-%d", round), "# Remove\n")
+			installInProjects(t, lib, skill.ID, projects)
+			requireNoMissingWhile(t, lib, "RemoveSkill", func() error {
+				return lib.RemoveSkill(t.Context(), skill.ID, library.RemoveSkillOptions{})
+			})
+		}
+	})
+	t.Run("UnregisterProject", func(t *testing.T) {
+		lib := openTestLibrary(t)
+		skill, _ := fetchLocalSkill(t, lib, "unregister", "# Unregister\n")
+		for range rounds {
+			for _, project := range installInProjects(t, lib, skill.ID, projects) {
+				requireNoMissingWhile(t, lib, "UnregisterProject", func() error {
+					return lib.UnregisterProject(t.Context(), project.ID, library.UnregisterProjectOptions{})
+				})
+			}
+		}
+	})
+}
