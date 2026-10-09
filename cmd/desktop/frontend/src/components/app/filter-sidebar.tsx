@@ -20,7 +20,6 @@ import { useUI } from "@/lib/ui";
 import { Icon } from "./icons";
 import { MarketDialog } from "./market-dialog";
 import { Count, toggled } from "./parts";
-import { SettingsDialog } from "./settings-dialog";
 import { SyncDialog } from "./sync-dialog";
 
 interface FilterSidebarProps {
@@ -29,9 +28,10 @@ interface FilterSidebarProps {
   filter: SkillFilter;
   onFilter: (filter: SkillFilter) => void;
   onFetch: () => void;
+  onSettings: () => void;
 }
 
-export function FilterSidebar({ s, config, filter, onFilter, onFetch }: FilterSidebarProps) {
+export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings }: FilterSidebarProps) {
   const ui = useUI();
   const dnd = useDnD();
   const updates = updatableCollections(s).length;
@@ -174,11 +174,7 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch }: FilterSi
           </button>
         </li>
         <li>
-          <button
-            type="button"
-            className="nav-item"
-            onClick={() => ui.open((close) => <SettingsDialog s={s} config={config} onClose={close} />)}
-          >
+          <button type="button" className="nav-item" onClick={onSettings}>
             <Icon name="gear" />
             <span className="grow">设置</span>
           </button>

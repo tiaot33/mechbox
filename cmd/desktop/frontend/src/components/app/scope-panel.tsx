@@ -196,7 +196,8 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
 }
 
 // ProjectPathDialog 登记一个项目目录，或给出 project 时改它的位置:可直接输入路径，也可用系统目录选择框。
-function ProjectPathDialog({
+// 设置页的项目分区也用它。
+export function ProjectPathDialog({
   home,
   project,
   onClose,

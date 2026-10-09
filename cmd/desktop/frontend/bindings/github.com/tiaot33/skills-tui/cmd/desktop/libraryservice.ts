@@ -67,7 +67,7 @@ export function GetVersionFile(id: library$0.VersionID, path: string): $Cancella
 }
 
 /**
- * Info 返回技能库路径与用户主目录。
+ * Info 返回技能库路径、用户主目录与应用版本。
  */
 export function Info(): $CancellablePromise<$models.AppInfo> {
     return $Call.ByID(170646414);

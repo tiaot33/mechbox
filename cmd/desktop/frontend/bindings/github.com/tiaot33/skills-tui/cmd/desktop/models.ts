@@ -14,7 +14,42 @@ export interface AppInfo {
      * 用户主目录，界面据此把路径缩写成 ~
      */
     "home_dir": string;
+
+    /**
+     * 应用版本
+     */
+    "version": string;
 }
+
+/**
+ * CheckInterval 是自动检查更新的间隔。
+ */
+export enum CheckInterval {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 只在打开时：启动应用、从菜单栏或 Dock 重新打开窗口时
+     */
+    CheckOnOpen = "open",
+
+    /**
+     * 每小时
+     */
+    CheckHourly = "hourly",
+
+    /**
+     * 每天
+     */
+    CheckDaily = "daily",
+
+    /**
+     * 每周
+     */
+    CheckWeekly = "weekly",
+};
 
 /**
  * ConfigStatus 报告技能库依赖的外部配置是否就绪。这些配置目前只能来自环境变量;
@@ -30,4 +65,30 @@ export interface ConfigStatus {
      * GitHub API 令牌:GITHUB_TOKEN / GH_TOKEN(未设置时匿名访问，易被限流)
      */
     "github_token": boolean;
+}
+
+/**
+ * Settings 是只属于这台机器的应用设置：存在用户配置目录下的 settings.json,不进技能库，也不随同步走。
+ * 加设置项就是加字段;文件里没有的字段取 defaultSettings 的值。
+ */
+export interface Settings {
+    /**
+     * 自动检查更新
+     */
+    "auto_check": boolean;
+
+    /**
+     * 自动检查的间隔
+     */
+    "check_interval": CheckInterval;
+
+    /**
+     * 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
+     */
+    "stay_in_menu_bar": boolean;
+
+    /**
+     * Dock 角标显示有新版本的技能数
+     */
+    "dock_badge": boolean;
 }

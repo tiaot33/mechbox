@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -24,7 +25,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// mainWindowName 是主窗口的名字，第二个实例启动时按名字找回它。
+// mainWindowName 是主窗口的名字。
 const mainWindowName = "main"
 
 func main() {
@@ -39,12 +40,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	var app *application.App
-	app = application.New(application.Options{
+	libraryService := NewLibraryService(path)
+	appService := NewAppService(filepath.Join(filepath.Dir(path), settingsFileName), libraryService)
+	app := application.New(application.Options{
 		Name:        "技能管理器",
 		Description: "管理 coding agent 的 Agent Skills",
 		Services: []application.Service{
-			application.NewService(NewLibraryService(path)),
+			// AppService 用到已打开的技能库，排在 LibraryService 之后启动、之前关闭。
+			application.NewService(libraryService),
+			application.NewService(appService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -54,19 +58,16 @@ func run() error {
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.tiaot33.skills-manager",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-				if window, ok := app.Window.GetByName(mainWindowName); ok {
-					window.Restore()
-					window.Show()
-					window.Focus()
-				}
+				appService.showWindow()
 			},
 		},
 		Mac: application.MacOptions{
+			// 关闭窗口后留在菜单栏时，窗口只是隐藏(见 AppService.windowClosing),不会因此退出。
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      mainWindowName,
 		Title:     "技能管理器",
 		Width:     1400,
@@ -84,6 +85,7 @@ func run() error {
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL:              "/",
 	})
+	appService.attach(app, window)
 
 	return app.Run()
 }

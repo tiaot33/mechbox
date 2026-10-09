@@ -1,10 +1,12 @@
 // 主界面：从技能出发的三栏布局(UI 原型变体 A)——左栏筛选、中间技能卡片、右栏作用域，顶部统一工具栏;
-// 点卡片打开右侧详情抽屉。写操作经 lib/actions 与 lib/ui 的 run 执行，完成后重读快照。
+// 点卡片打开右侧详情抽屉;左栏"设置"把三栏换成设置页。写操作经 lib/actions 与 lib/ui 的 run 执行，完成后重读快照。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
+import { Events } from "@wailsio/runtime";
+import { AppService, LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
 import { FetchDialog } from "@/components/app/fetch-dialog";
 import { FilterSidebar } from "@/components/app/filter-sidebar";
 import { ScopePanel } from "@/components/app/scope-panel";
+import { SettingsPage } from "@/components/app/settings-page";
 import { SkillDrawer } from "@/components/app/skill-drawer";
 import { toggled } from "@/components/app/parts";
 import { SkillList } from "@/components/app/skill-list";
@@ -50,6 +52,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const [drawer, setDrawer] = useState<number | null>(null);
   const [drag, setDrag] = useState<DragItem | null>(null);
   const [config, setConfig] = useState<ConfigStatus>({ sync: false, github_token: false });
+  const [settings, setSettings] = useState(false);
   const ghost = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,7 +61,16 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     return () => void call.cancel();
   }, []);
 
+  // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
+  useEffect(() => Events.On("updates-checked", reload), [reload]);
+
   const s: Snapshot | undefined = state.status === "ready" ? state.snapshot : undefined;
+
+  // 快照变了(写操作、手动检查更新之后),Dock 角标跟着重算。
+  useEffect(() => {
+    if (s) void AppService.RefreshBadge();
+  }, [s]);
+
   const scopeDirectory = useScopeDirectory(scope);
   const current = s ? resolveFilter(s, filter) : filter;
   const skills = s ? visibleSkills(s, { filter: current, search, installedOnlyIn: installedOnly ? scope : null }) : [];
@@ -126,6 +138,14 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     [drag, s, ui],
   );
 
+  if (s && settings) {
+    return (
+      <div className="window">
+        <SettingsPage s={s} config={config} onClose={() => setSettings(false)} />
+      </div>
+    );
+  }
+
   return (
     <DnDContext.Provider value={dnd}>
       <div className="window">
@@ -154,7 +174,16 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
           {state.status === "error" && <LoadError error={state.error} onRetry={reload} />}
           {s && (
             <>
-              {left && <FilterSidebar s={s} config={config} filter={current} onFilter={setFilter} onFetch={openFetch} />}
+              {left && (
+                <FilterSidebar
+                  s={s}
+                  config={config}
+                  filter={current}
+                  onFilter={setFilter}
+                  onFetch={openFetch}
+                  onSettings={() => setSettings(true)}
+                />
+              )}
               <SkillList
                 s={s}
                 skills={skills}

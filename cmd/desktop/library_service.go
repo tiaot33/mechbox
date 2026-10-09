@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -62,15 +65,39 @@ func (s *LibraryService) ServiceShutdown() error {
 type AppInfo struct {
 	LibraryPath string `json:"library_path"` // 当前打开的技能库文件
 	HomeDir     string `json:"home_dir"`     // 用户主目录，界面据此把路径缩写成 ~
+	Version     string `json:"version"`      // 应用版本
 }
 
-// Info 返回技能库路径与用户主目录。
+// Info 返回技能库路径、用户主目录与应用版本。
 func (s *LibraryService) Info() (AppInfo, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return AppInfo{}, fmt.Errorf("find home directory: %w", err)
 	}
-	return AppInfo{LibraryPath: s.path, HomeDir: home}, nil
+	return AppInfo{LibraryPath: s.path, HomeDir: home, Version: appVersion()}, nil
+}
+
+// buildConfig 是 Wails 的项目配置;应用版本只在它的 info.version 里写一份，Info.plist 也由它生成。
+//
+//go:embed build/config.yml
+var buildConfig string
+
+// appVersion 取 build/config.yml 里 info 下的 version。
+func appVersion() string {
+	inInfo := false
+	scanner := bufio.NewScanner(strings.NewReader(buildConfig))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, " ") {
+			inInfo = strings.HasPrefix(line, "info:")
+			continue
+		}
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok && inInfo {
+			value, _, _ = strings.Cut(value, "#")
+			return strings.Trim(strings.TrimSpace(value), `"'`)
+		}
+	}
+	return ""
 }
 
 // ConfigStatus 报告技能库依赖的外部配置是否就绪。这些配置目前只能来自环境变量;
