@@ -25,18 +25,18 @@ const (
 	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
-	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、无记录但目录已存在的安装目标)。
+	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、安装目标处不是从库里装的同名文件夹),
+	// 或重新安装时这一处被改过、且没同意覆盖。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间该 skill 的当前版本已被别处改写)。
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-	// (安装目标被占用见 ConflictPolicy;作用域根目录不存在;对只由组安装留着的技能单独卸载;同一入库预览句柄的入库正在进行;
-	// 重新安装被手动改过的文件夹而未选 Overwrite;Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;
-	// 同步拉回的远端库不可接受)。
+	// (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;同一入库预览句柄的入库正在进行;
+	// Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回的远端库不可接受)。
 	// 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
-	// 加入成员时根目录不存在也是如此。重新安装时逐条的这类失败放进 ReinstallResult.Error。
+	// 加入成员时根目录不存在也是如此。重新安装时根目录不存在放进那一处的 ReinstallResult.Error。
 	// 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
 	FailedPrecondition ErrorCode = "failed_precondition"
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
@@ -187,14 +187,5 @@ func validateMemberRemoval(operation string, policy MemberRemovalPolicy) error {
 		return nil
 	default:
 		return argumentError(operation, "if_no_other_install", "invalid if_no_other_install option")
-	}
-}
-
-func validateConflictPolicy(operation string, policy ConflictPolicy) error {
-	switch policy {
-	case "", Fail, Overwrite:
-		return nil
-	default:
-		return argumentError(operation, "on_conflict", "invalid on_conflict option")
 	}
 }

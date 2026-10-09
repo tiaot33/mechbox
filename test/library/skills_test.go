@@ -244,7 +244,7 @@ func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {
 	if len(skills) != 0 {
 		t.Fatalf("ListSkills() after removals = %#v", skills)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	before, err := lib.ListSkillScopes(ctx)
+	before, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(skillIDs(skills), []library.SkillID{missing.ID, present.ID}) {
 		t.Fatalf("failed Remove changed skills: %#v, %v", skills, err)
 	}
-	after, err := lib.ListSkillScopes(ctx)
+	after, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(after, before) {
 		t.Fatalf("failed Remove changed skill scopes: %#v, %v; want %#v", after, err, before)
 	}
@@ -318,7 +318,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills() after removals = %#v, %v", skills, err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 0 {
 		t.Fatalf("ListSkillScopes() after removals = %#v, %v", skillScopes, err)
 	}

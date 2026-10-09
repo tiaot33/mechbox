@@ -46,7 +46,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestCheckUpdatesAndUpdateAreSkillSpecificAndLibraryOnly(t *testing.T) {
 			t.Fatalf("skill scope changed: %q, %v", content, err)
 		}
 	}
-	after, err := lib.ListSkillScopes(ctx)
+	after, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(after, skillScopes) {
 		t.Fatalf("skill scope records changed: %v, %v", after, err)
 	}

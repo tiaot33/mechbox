@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -144,7 +145,7 @@ func (l *Library) DeleteGroup(ctx context.Context, id GroupID) (err error) {
 // AddSkillToGroup 把技能加入组:组已经装到哪些作用域,就把它装到哪些作用域,按 ListGroupInstalls 的顺序
 // 每个作用域返回一条结果。技能已经装在那里时只补记组安装,不写盘;目标被占用、有未记录文件夹、与组内
 // 尚未安装的成员同名或作用域根目录不存在时跳过该作用域,成员关系照常成立。不提供覆盖开关(见 ADR 0006):
-// 要覆盖某个作用域的未记录文件夹,先 PlanGroupInstall 再对该作用域调 InstallGroup(Overwrite)。
+// 要覆盖某个作用域里不是从库里装的同名文件夹,先 PlanGroupInstall 再对该作用域调 InstallGroup 并同意覆盖。
 // 已是成员返回 AlreadyExists。中途失败或取消时整次复原,连同成员关系。
 func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID SkillID) (_ []GroupMemberResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
@@ -231,7 +232,7 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 				return err
 			}
 			if removed {
-				change.Remove(directories[i], skillScope.Name)
+				change.Remove(filepath.Join(directories[i], skillScope.Name))
 			}
 		}
 		return nil

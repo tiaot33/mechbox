@@ -277,7 +277,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	if err := lib.RemoveSkill(t.Context(), fetched[0].ID, library.RemoveSkillOptions{Folders: library.Keep}); err != nil {
 		t.Fatal(err)
 	}
-	skillScopes, err := lib.ListSkillScopes(t.Context())
+	skillScopes, err := lib.ListSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 0 {
 		t.Fatalf("skill scopes after remote removal = %#v, %v; want none", skillScopes, err)
 	}

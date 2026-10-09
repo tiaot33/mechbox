@@ -10,32 +10,37 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 )
 
-// SkillScopeFilter 按技能、作用域缩小 SkillScope 范围,两个条件都可选、可组合;供 Reinstall 与
-// InspectSkillScopes 共用。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选。
-// 未知技能、未知 Agent 或未登记项目返回 NotFound,Scope 组合不合法返回 InvalidArgument;
-// 已知但没有安装时是空结果。结果顺序与 ListSkillScopes 一致。
+// SkillScopeFilter 按技能、作用域缩小 SkillScope 范围,两个条件都可选、可组合;供 ListSkillScopes 与
+// InspectSkillScopes 共用,两者只差读不读磁盘。SkillID 为零值表示不按技能筛选,Scope 为 nil 表示不按作用域筛选,
+// 都不给时是全库。未知技能、未知 Agent 或未登记项目返回 NotFound,Scope 组合不合法返回 InvalidArgument;
+// 已知但没有安装时是空结果。结果按技能 ID、Agent 排序,全局排在同一 Agent 的项目 Scope 之前。
 type SkillScopeFilter struct {
 	SkillID SkillID `json:"skill_id,omitzero"`
 	Scope   *Scope  `json:"scope,omitempty"`
 }
 
-// ReinstallOptions 控制重新安装。OnConflict 决定被手动改过(modified)的文件夹:默认 Fail 该条失败,Overwrite 覆盖。
-type ReinstallOptions struct {
-	OnConflict ConflictPolicy `json:"on_conflict"`
+// ReinstallRequest 是要重新安装的一处:某个技能装在某个 Scope。SkillID 与 Scope 可直接取自巡检结果。
+type ReinstallRequest struct {
+	SkillID SkillID `json:"skill_id"`
+	Scope   Scope   `json:"scope"`
+	// Overwrite 只对这一处有效:这里被改过(modified)时,同意用库里的当前版本覆盖。默认不覆盖。
+	Overwrite bool `json:"overwrite"`
 }
 
-// ReinstallOutcome 是重新安装时一个 SkillScope 的结果。
+// ReinstallOutcome 是重新安装时一处的结果。
 type ReinstallOutcome string
 
 const (
-	Reinstalled      ReinstallOutcome = "reinstalled" // 已按当前版本重新安装(含重新创建丢失的文件夹)
-	ReinstallCurrent ReinstallOutcome = "current"     // 已是当前版本,不写盘
-	ReinstallFailed  ReinstallOutcome = "failed"      // 未重新安装,原因见 Error;磁盘保持原样
+	Reinstalled      ReinstallOutcome = "reinstalled" // 换成了当前版本,包括把不在了的文件夹放回去
+	ReinstallCurrent ReinstallOutcome = "current"     // 本来就是当前版本,没动
+	ReinstallFailed  ReinstallOutcome = "failed"      // 没换上,原因见 Error;这一处保持原样
 )
 
-// ReinstallResult 是一个 SkillScope 的重新安装结果,形状与 GroupMemberResult 对齐。Error 仅在 ReinstallFailed 时非空:
-// FailedPrecondition 为被手动改过且未选 Overwrite(Details.Path 为技能文件夹路径),或作用域根目录不存在
-// (Details.Path 为根目录,项目带 ProjectID);NotFound 为执行到该条时该技能已不在此 Scope;其余为 I/O 等故障。
+// ReinstallResult 是一处的重新安装结果。Error 仅在 ReinstallFailed 时非空:
+//   - AlreadyExists:这里被改过,且没同意覆盖(Details.Path 为技能文件夹);
+//   - FailedPrecondition:作用域根目录不存在,即项目不在这台机器上(Details.Path 为根目录,项目带 ProjectID);
+//   - NotFound:执行到这一处时技能已不装在这里,或技能、Agent、项目已不在库里;
+//   - 其他为权限或 I/O 故障。
 type ReinstallResult struct {
 	SkillID SkillID          `json:"skill_id"`
 	Scope   Scope            `json:"scope"`
@@ -43,24 +48,25 @@ type ReinstallResult struct {
 	Error   *Error           `json:"error,omitempty"`
 }
 
-// SkillScopeStatus 是一个 SkillScope 对照磁盘后的状态。判定按此顺序,前一条命中即停:
-// Scope 目录不存在 → directory_missing;目标文件夹不存在 → missing;
-// 磁盘文件集 == 当前版本 → current;磁盘文件集 == 某个非当前版本(按 id 倒序) → stale;
-// 否则 modified(含非常规文件或空目录以外的异常)。
+// SkillScopeStatus 是一处安装现在的状态,每种状态对应界面上的一个动作。判定按下列顺序,前一条命中即停:
+// root_missing、missing,然后与库里的版本比对。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
 type SkillScopeStatus string
 
 const (
-	SkillScopeCurrent          SkillScopeStatus = "current"           // 磁盘文件集 == 当前版本
-	SkillScopeStale            SkillScopeStatus = "stale"             // 磁盘文件集 == 某个非当前版本
-	SkillScopeModified         SkillScopeStatus = "modified"          // 目标文件夹存在,但与任何版本都不一致
-	SkillScopeMissing          SkillScopeStatus = "missing"           // Scope 目录存在,目标文件夹不存在
-	SkillScopeDirectoryMissing SkillScopeStatus = "directory_missing" // Scope 目录本身不存在
+	SkillScopeRootMissing SkillScopeStatus = "root_missing" // 作用域根目录不存在,即项目不在这台机器上;重新安装也装不上,先把已登记项目指到本机路径
+	SkillScopeMissing     SkillScopeStatus = "missing"      // 技能文件夹不在了(包括整个 Agent 目录不在了);重新安装会把它放回去
+	SkillScopeCurrent     SkillScopeStatus = "current"      // 和库里的当前版本完全一致
+	SkillScopeStale       SkillScopeStatus = "stale"        // 和库里某个旧版本完全一致;重新安装不用额外确认
+	SkillScopeModified    SkillScopeStatus = "modified"     // 和库里任何版本都对不上(包括多了、少了文件,或有不是普通文件的东西),即用户在这里改过;重新安装要明确同意覆盖
 )
 
-// SkillScopeInspection 是一个 SkillScope 及其对照磁盘后的状态。
+// SkillScopeInspection 是一处安装及其现在的状态。
 type SkillScopeInspection struct {
 	SkillScope
 	Status SkillScopeStatus `json:"status"`
+	// VersionID 是和磁盘上一致的库内版本:current 时是当前版本,stale 时是那个旧版本,其他状态为零值。
+	// 可用 GetVersion 查它对应的来源版本。
+	VersionID VersionID `json:"version_id,omitzero"`
 }
 
 func (l *Library) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
@@ -82,109 +88,119 @@ func (l *Library) filteredSkillScopes(ctx context.Context, operation string, fil
 	return l.listSkillScopes(ctx, filter.SkillID, scope)
 }
 
-// InspectSkillScopes 对照磁盘给出 filter 范围内每个 SkillScope 的状态;不给条件时巡检整库。只读:不改库、
-// 不改磁盘、不创建目录。结果顺序与 ListSkillScopes 相同,每条内嵌完整 SkillScope,是整库巡检结果的
-// 子集且逐条一致。判定规则见 SkillScopeStatus,筛选规则见 SkillScopeFilter。
+// InspectSkillScopes 对照磁盘给出 filter 范围内每一处安装现在的状态;零值 filter 巡检全库。只读:不改库、
+// 不改磁盘、不创建目录。结果与同一 filter 的 ListSkillScopes 逐条对应。技能详情页、项目页据此显示各处状态;
+// 移除技能、卸载前的确认框据此说明哪几处用户改过、会丢掉这些修改。状态见 SkillScopeStatus,筛选规则见 SkillScopeFilter。
 func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilter) (inspections []SkillScopeInspection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	skillScopes, err := l.filteredSkillScopes(ctx, "inspect skill scopes", filter)
+	const operation = "inspect skill scopes"
+	skillScopes, err := l.filteredSkillScopes(ctx, operation, filter)
 	if err != nil {
 		return nil, err
 	}
 	inspections = []SkillScopeInspection{}
 	for _, skillScope := range skillScopes {
-		status, err := l.inspectSkillScope(ctx, skillScope)
+		target, err := l.resolveScope(ctx, operation, skillScope.Scope)
 		if err != nil {
 			return nil, err
 		}
-		inspections = append(inspections, SkillScopeInspection{SkillScope: skillScope, Status: status})
+		status, versionID, err := l.inspectSkillScope(ctx, skillScope.SkillID, target)
+		if err != nil {
+			return nil, err
+		}
+		inspections = append(inspections, SkillScopeInspection{SkillScope: skillScope, Status: status, VersionID: versionID})
 	}
 	return inspections, nil
 }
 
-func (l *Library) inspectSkillScope(ctx context.Context, skillScope SkillScope) (SkillScopeStatus, error) {
-	name, currentVersionID, err := l.store.SkillHead(ctx, int64(skillScope.SkillID))
+func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target resolvedScope) (SkillScopeStatus, VersionID, error) {
+	name, currentVersionID, err := l.store.SkillHead(ctx, int64(id))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	if exists, err := agentdir.Exists(skillScope.Directory); err != nil {
-		return "", fmt.Errorf("inspect agent directory: %w", err)
+	if missing, err := target.rootMissing("inspect skill scope"); err != nil {
+		return "", 0, err
+	} else if missing != nil {
+		return SkillScopeRootMissing, 0, nil
+	}
+
+	folder := filepath.Join(target.directory, name)
+	if exists, err := agentdir.Exists(folder); err != nil {
+		return "", 0, fmt.Errorf("inspect target folder: %w", err)
 	} else if !exists {
-		return SkillScopeDirectoryMissing, nil
+		return SkillScopeMissing, 0, nil
 	}
 
-	target := filepath.Join(skillScope.Directory, name)
-	if exists, err := agentdir.Exists(target); err != nil {
-		return "", fmt.Errorf("inspect target folder: %w", err)
-	} else if !exists {
-		return SkillScopeMissing, nil
-	}
-
-	disk, err := agentdir.Read(ctx, target)
+	disk, err := agentdir.Read(ctx, folder)
 	if err != nil {
 		if errors.Is(err, agentdir.ErrIrregularFile) {
-			return SkillScopeModified, nil
+			return SkillScopeModified, 0, nil
 		}
-		return "", err
+		return "", 0, err
 	}
 
 	current, err := l.store.VersionDigests(ctx, currentVersionID)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if maps.Equal(disk, current) {
-		return SkillScopeCurrent, nil
+		return SkillScopeCurrent, VersionID(currentVersionID), nil
 	}
 
-	versionIDs, err := l.store.OlderVersionIDs(ctx, int64(skillScope.SkillID), currentVersionID)
+	versionIDs, err := l.store.OlderVersionIDs(ctx, int64(id), currentVersionID)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	for _, versionID := range versionIDs {
 		files, err := l.store.VersionDigests(ctx, versionID)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		if maps.Equal(disk, files) {
-			return SkillScopeStale, nil
+			return SkillScopeStale, VersionID(versionID), nil
 		}
 	}
-	return SkillScopeModified, nil
+	return SkillScopeModified, 0, nil
 }
 
-// Reinstall 把 filter 范围内已有记录的技能文件夹改回技能的当前版本,不改变留着它们的直接安装与组安装,
-// SkillScope.CreatedAt 不变。两个条件都不给返回 InvalidArgument,避免误重新安装整库。
-// 逐条执行、逐条返回结果(顺序同 ListSkillScopes):已是当前版本的不写盘;stale 原子替换;missing /
-// directory_missing 重新创建(可建 Agent 目录,作用域根目录不存在时该条失败且不创建任何目录);
-// 被手动改过的默认该条失败,opts.OnConflict 为 Overwrite 时覆盖。每条各自原子、单独持独占锁,
-// 一条失败不影响其他条。组安装时被跳过的成员没有安装记录,不在结果里(补齐用 InstallGroup)。
-// 整体取消时返回已完成的各条与 Canceled 错误,未执行的不出现在结果里。
-func (l *Library) Reinstall(ctx context.Context, filter SkillScopeFilter, opts ReinstallOptions) (results []ReinstallResult, err error) {
+// Reinstall 把列出的每一处换成技能在库里的当前版本,不改变留着它们的直接安装与组安装,SkillScope.CreatedAt 不变。
+// 只换列出的几处:巡检之后才多出来的安装不会被一起换掉。逐处执行,结果与 requests 一一对应、顺序相同;
+// 每一处各自要么换成功、要么保持原样,一处失败不影响其他处。本来就是当前版本的不动;落后的、文件夹不在了的
+// (可重建 Agent 目录)换成当前版本;被改过的只在这一处的 Overwrite 同意时覆盖。
+// 状态问题记在这一处的结果里(见 ReinstallResult),不让整次调用失败;只有请求本身不合法(Scope 组合非法、
+// 同一处列了两次)才整次返回 InvalidArgument,且一处都不动。空列表返回空结果。
+// 整体取消时返回已完成的几处与 Canceled 错误,未执行的不出现在结果里。
+func (l *Library) Reinstall(ctx context.Context, requests []ReinstallRequest) (results []ReinstallResult, err error) {
 	defer func() { err = typedError(err) }()
 	const operation = "reinstall"
-	if err := validateConflictPolicy(operation, opts.OnConflict); err != nil {
-		return nil, err
+	type place struct {
+		skillID SkillID
+		scope   Scope
 	}
-	if filter.SkillID == 0 && filter.Scope == nil {
-		return nil, argumentError(operation, "filter", "reinstall requires a skill or a scope")
+	seen := make(map[place]bool, len(requests))
+	for _, request := range requests {
+		if _, err := scopeOf(operation, request.Scope); err != nil {
+			return nil, err
+		}
+		key := place{skillID: request.SkillID, scope: request.Scope}
+		if seen[key] {
+			return nil, argumentError(operation, "requests", "the same skill scope is listed more than once")
+		}
+		seen[key] = true
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	skillScopes, err := l.filteredSkillScopes(ctx, operation, filter)
-	if err != nil {
-		return nil, err
-	}
 	results = []ReinstallResult{}
-	for _, skillScope := range skillScopes {
+	for _, request := range requests {
 		if err := ctx.Err(); err != nil {
 			return results, err
 		}
-		result := ReinstallResult{SkillID: skillScope.SkillID, Scope: skillScope.Scope}
-		outcome, itemErr := l.reinstallOne(ctx, operation, skillScope, opts.OnConflict)
+		result := ReinstallResult{SkillID: request.SkillID, Scope: request.Scope}
+		outcome, itemErr := l.reinstallOne(ctx, operation, request)
 		if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
 			return results, ctx.Err()
 		}
@@ -198,28 +214,28 @@ func (l *Library) Reinstall(ctx context.Context, filter SkillScopeFilter, opts R
 	return results, nil
 }
 
-func (l *Library) reinstallOne(ctx context.Context, operation string, skillScope SkillScope, policy ConflictPolicy) (ReinstallOutcome, error) {
+func (l *Library) reinstallOne(ctx context.Context, operation string, request ReinstallRequest) (ReinstallOutcome, error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	target, err := l.resolveScope(ctx, operation, skillScope.Scope)
+	target, err := l.resolveScope(ctx, operation, request.Scope)
 	if err != nil {
 		return "", err
 	}
-	existing, err := l.store.FindSkillScope(ctx, int64(skillScope.SkillID), target.record())
+	existing, err := l.store.FindSkillScope(ctx, int64(request.SkillID), target.record())
 	if err != nil {
 		return "", err
 	}
 	if existing == nil {
-		return "", &Error{Code: NotFound, Message: operation + ": skill scope no longer exists"}
+		return "", &Error{Code: NotFound, Message: operation + ": skill is not installed in scope"}
 	}
-	skill, current, err := l.getCurrent(ctx, skillScope.SkillID)
+	skill, current, err := l.getCurrent(ctx, request.SkillID)
 	if err != nil {
 		return "", err
 	}
 	if err := target.requireRoot(operation); err != nil {
 		return "", err
 	}
-	status, err := l.inspectSkillScope(ctx, SkillScope{SkillID: skill.ID, Directory: target.directory})
+	status, _, err := l.inspectSkillScope(ctx, skill.ID, target)
 	if err != nil {
 		return "", err
 	}
@@ -227,8 +243,8 @@ func (l *Library) reinstallOne(ctx context.Context, operation string, skillScope
 	case SkillScopeCurrent:
 		return ReinstallCurrent, nil
 	case SkillScopeModified:
-		if policy != Overwrite {
-			return "", preconditionError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
+		if !request.Overwrite {
+			return "", existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
 		}
 	}
 	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target}}, nil); err != nil {

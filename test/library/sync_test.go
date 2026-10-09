@@ -225,20 +225,20 @@ func TestSyncPlanAndPushPullRoundTrip(t *testing.T) {
 	}
 	// SkillScope 只记 Scope 身份:拉库后全局按本机 $HOME、项目按映射后的根重新派生目录,
 	// 不携带上一台机器的绝对路径。
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantSkillScopes := []library.SkillScope{
-		{SkillID: original.ID, Scope: globalScope, Directory: filepath.Join(newHome, ".agents", "skills"), Direct: true},
-		{SkillID: original.ID, Scope: projectScope, Directory: filepath.Join(newProjectPath, ".agents", "skills"), Groups: []library.GroupID{group.ID}},
+		{SkillID: original.ID, Scope: globalScope, Folder: filepath.Join(newHome, ".agents", "skills", original.Name), Direct: true},
+		{SkillID: original.ID, Scope: projectScope, Folder: filepath.Join(newProjectPath, ".agents", "skills", original.Name), Groups: []library.GroupID{group.ID}},
 	}
 	if !reflect.DeepEqual(withoutCreatedAt(skillScopes), wantSkillScopes) {
 		t.Fatalf("skill scopes after pull = %#v, want %#v", skillScopes, wantSkillScopes)
 	}
 	for _, want := range wantSkillScopes {
-		if dir, err := lib.ScopeDirectory(ctx, want.Scope); err != nil || dir != want.Directory {
-			t.Fatalf("ScopeDirectory(%#v) after pull = %q, %v; want %q", want.Scope, dir, err, want.Directory)
+		if dir, err := lib.ScopeDirectory(ctx, want.Scope); err != nil || dir != filepath.Dir(want.Folder) {
+			t.Fatalf("ScopeDirectory(%#v) after pull = %q, %v; want %q", want.Scope, dir, err, filepath.Dir(want.Folder))
 		}
 	}
 }

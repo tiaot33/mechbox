@@ -51,9 +51,9 @@ func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
 		UPDATE agents SET name = 'Old Claude', global_path = '.old/global', project_path = '.old/project' WHERE code = 'claude-code';
 	`)
 	want := []library.SkillScope{
-		{SkillID: skill.ID, Scope: scopes[0], Directory: filepath.Join(home, ".claude", "skills"), Direct: true},
-		{SkillID: skill.ID, Scope: scopes[2], Directory: filepath.Join(project.Path, ".claude", "skills"), Direct: true},
-		{SkillID: skill.ID, Scope: scopes[1], Directory: filepath.Join(home, ".agents", "skills"), Direct: true},
+		{SkillID: skill.ID, Scope: scopes[0], Folder: filepath.Join(home, ".claude", "skills", skill.Name), Direct: true},
+		{SkillID: skill.ID, Scope: scopes[2], Folder: filepath.Join(project.Path, ".claude", "skills", skill.Name), Direct: true},
+		{SkillID: skill.ID, Scope: scopes[1], Folder: filepath.Join(home, ".agents", "skills", skill.Name), Direct: true},
 	}
 	for range 2 {
 		reopened, err := library.Open(path)
@@ -65,7 +65,7 @@ func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(agents, seededAgents()) {
 			t.Fatalf("ListAgents after Open = %#v, %v; want %#v", agents, err, seededAgents())
 		}
-		got, err := reopened.ListSkillScopes(ctx)
+		got, err := reopened.ListSkillScopes(ctx, library.SkillScopeFilter{})
 		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
 			t.Fatalf("ListSkillScopes after Open = %#v, %v; want %#v", got, err, want)
 		}

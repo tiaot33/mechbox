@@ -47,7 +47,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	skillScope, err := lib.ListSkillScopes(t.Context())
+	skillScope, err := lib.ListSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestCheckUpdatesReusesSourceAndReturnsIndependentOrderedResults(t *testing.
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("mutated Library = %#v, %v", after, err)
 	}
-	afterSkillScopes, err := lib.ListSkillScopes(t.Context())
+	afterSkillScopes, err := lib.ListSkillScopes(t.Context(), library.SkillScopeFilter{})
 	if err != nil || !reflect.DeepEqual(skillScope, afterSkillScopes) {
 		t.Fatalf("mutated skill scopes = %#v, %v", afterSkillScopes, err)
 	}

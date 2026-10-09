@@ -85,7 +85,7 @@ func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 				// 首个成员覆盖未记录的文件夹,第二个成员原本没有安装;shared 已安装,不写盘。
 				writeFile(t, firstPath, []byte("original local content"), 0o644)
 			}
-			before, err := lib.ListSkillScopes(ctx)
+			before, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,12 +111,12 @@ func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 			if uninstall {
 				err = lib.UninstallGroup(fault, group.ID, scope)
 			} else {
-				_, err = lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
+				_, err = lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{Overwrite: true})
 			}
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("mid-batch error = %v, want cancellation", err)
 			}
-			after, err := lib.ListSkillScopes(ctx)
+			after, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 			if err != nil || !reflect.DeepEqual(before, after) {
 				t.Fatalf("skill scopes changed: before=%#v after=%#v err=%v", before, after, err)
 			}
@@ -173,12 +173,12 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err := os.Symlink(missing, target); err != nil {
 		t.Fatal(err)
 	}
-	results, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{OnConflict: library.Fail})
+	results, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{skippedMember(skill.ID, scope, library.AlreadyExists, library.ErrorDetails{Path: target})})
 	if got, err := os.Readlink(target); err != nil || got != missing {
 		t.Fatalf("conflict changed: %q, %v", got, err)
 	}
-	if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{OnConflict: library.Overwrite}); err != nil {
+	if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{Overwrite: true}); err != nil {
 		t.Fatal(err)
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(content) != skillDocument("example", "example") {
@@ -196,7 +196,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("uninstall left dangling skill scope: %v", err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil || len(skillScopes) != 0 {
 		t.Fatalf("skill scopes = %#v, %v", skillScopes, err)
 	}
@@ -248,7 +248,7 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 	}}
 	groupDone := make(chan error, 1)
 	go func() {
-		_, err := lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
+		_, err := lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{Overwrite: true})
 		groupDone <- err
 	}()
 	select {
@@ -258,7 +258,7 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 	}
 	directDone := make(chan error, 1)
 	go func() {
-		directDone <- lib.Install(ctx, first.ID, scope, library.InstallOptions{OnConflict: library.Overwrite})
+		directDone <- lib.Install(ctx, first.ID, scope, library.InstallOptions{Overwrite: true})
 	}()
 	// 旧实现允许直接安装在回滚前提交;串行实现则等分组回滚后再完成。
 	var directErr error
@@ -281,8 +281,8 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 	if content, err := os.ReadFile(target); err != nil || string(content) != skillDocument("first", "first") {
 		t.Fatalf("successful direct install skill scope lost: %q, %v", content, err)
 	}
-	skillScopes, err := lib.ListSkillScopes(ctx)
-	want := []library.SkillScope{{SkillID: first.ID, Scope: scope, Directory: directory, Direct: true}}
+	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
+	want := []library.SkillScope{{SkillID: first.ID, Scope: scope, Folder: filepath.Join(directory, first.Name), Direct: true}}
 	if err != nil || !reflect.DeepEqual(withoutCreatedAt(skillScopes), want) {
 		t.Fatalf("skill scopes = %#v, %v; want %#v", skillScopes, err, want)
 	}

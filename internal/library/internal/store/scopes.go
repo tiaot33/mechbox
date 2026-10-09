@@ -20,6 +20,7 @@ type SkillScopeRef struct {
 
 type SkillScope struct {
 	SkillID   int64
+	Name      string
 	Scope     Scope
 	Direct    bool
 	CreatedAt time.Time
@@ -74,9 +75,10 @@ func (q queries) ListSkillScopes(ctx context.Context, skillID int64, filter *Sco
 	if filter != nil {
 		agent, projectID = filter.Agent, filter.ProjectID
 	}
-	rows, err := q.q.QueryContext(ctx, `SELECT skill_id, agent, project_id, direct, created_at FROM skill_scopes
-		WHERE (? = 0 OR skill_id = ?) AND (? = '' OR (agent = ? AND project_id IS ?))
-		ORDER BY skill_id, agent, project_id`,
+	rows, err := q.q.QueryContext(ctx, `SELECT p.skill_id, s.name, p.agent, p.project_id, p.direct, p.created_at
+		FROM skill_scopes p JOIN skills s ON s.id = p.skill_id
+		WHERE (? = 0 OR p.skill_id = ?) AND (? = '' OR (p.agent = ? AND p.project_id IS ?))
+		ORDER BY p.skill_id, p.agent, p.project_id`,
 		skillID, skillID, agent, agent, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list skill scopes: %w", wrap(err))
@@ -85,7 +87,7 @@ func (q queries) ListSkillScopes(ctx context.Context, skillID int64, filter *Sco
 	for rows.Next() {
 		var skillScope SkillScope
 		var createdAt string
-		if err := rows.Scan(&skillScope.SkillID, &skillScope.Scope.Agent, &skillScope.Scope.ProjectID, &skillScope.Direct, &createdAt); err != nil {
+		if err := rows.Scan(&skillScope.SkillID, &skillScope.Name, &skillScope.Scope.Agent, &skillScope.Scope.ProjectID, &skillScope.Direct, &createdAt); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("read skill scope: %w", wrap(err))
 		}
