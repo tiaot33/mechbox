@@ -21,36 +21,47 @@ type Change struct {
 }
 
 type placement struct {
-	target string
-	stage  string
-	backup string
-	moved  bool
+	target    string
+	stage     string
+	backup    string
+	moved     bool
+	exclusive bool
+}
+
+type TargetExistsError struct {
+	Path string
+}
+
+func (e *TargetExistsError) Error() string {
+	return "target already exists: " + e.Path
 }
 
 type trashed struct {
 	trash, target string
 }
 
-func (c *Change) stage(ctx context.Context, directory, name string) (string, error) {
+func (c *Change) stage(ctx context.Context, directory, name string) (*placement, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return "", fmt.Errorf("create scope: %w", err)
+		return nil, fmt.Errorf("create scope: %w", err)
 	}
 	stage, err := os.MkdirTemp(directory, "."+name+"-")
 	if err != nil {
-		return "", fmt.Errorf("stage skill folder: %w", err)
+		return nil, fmt.Errorf("stage skill folder: %w", err)
 	}
-	c.placements = append(c.placements, &placement{target: filepath.Join(directory, name), stage: stage})
-	return stage, nil
+	item := &placement{target: filepath.Join(directory, name), stage: stage}
+	c.placements = append(c.placements, item)
+	return item, nil
 }
 
 func (c *Change) Stage(ctx context.Context, directory, name string, files []skillfile.File) error {
-	stage, err := c.stage(ctx, directory, name)
+	item, err := c.stage(ctx, directory, name)
 	if err != nil {
 		return err
 	}
+	stage := item.stage
 	for _, file := range files {
 		if !filepath.IsLocal(file.Path) {
 			return fmt.Errorf("invalid skill path: %s", file.Path)
@@ -71,10 +82,12 @@ func (c *Change) Stage(ctx context.Context, directory, name string, files []skil
 }
 
 func (c *Change) Copy(ctx context.Context, from, directory, name string) error {
-	stage, err := c.stage(ctx, directory, name)
+	item, err := c.stage(ctx, directory, name)
 	if err != nil {
 		return err
 	}
+	item.exclusive = true
+	stage := item.stage
 	type directoryMode struct {
 		path string
 		mode fs.FileMode
@@ -165,7 +178,9 @@ func (c *Change) Commit(ctx context.Context) error {
 }
 
 func (p *placement) moveIntoPlace() error {
-	if _, err := os.Lstat(p.target); err == nil {
+	if _, err := os.Lstat(p.target); err == nil && p.exclusive {
+		return &TargetExistsError{Path: p.target}
+	} else if err == nil {
 		p.backup = p.stage + ".old"
 		if err := os.Rename(p.target, p.backup); err != nil {
 			p.backup = ""
@@ -198,14 +213,14 @@ func (c *Change) Rollback() error {
 	for i := len(c.placements) - 1; i >= 0; i-- {
 		item := c.placements[i]
 		if item.moved {
-			if err := os.RemoveAll(item.target); err != nil {
+			if err := removeTree(item.target); err != nil {
 				restoreErr = errors.Join(restoreErr, err)
 			} else if item.backup != "" {
 				restoreErr = errors.Join(restoreErr, os.Rename(item.backup, item.target))
 			}
 		}
 		if item.stage != "" {
-			restoreErr = errors.Join(restoreErr, os.RemoveAll(item.stage))
+			restoreErr = errors.Join(restoreErr, removeTree(item.stage))
 		}
 	}
 	return restoreErr
@@ -218,12 +233,25 @@ func (c *Change) Done() {
 	c.done = true
 	for _, item := range c.placements {
 		if item.backup != "" {
-			_ = os.RemoveAll(item.backup)
+			_ = removeTree(item.backup)
 		}
 	}
 	for _, entry := range c.trashed {
-		_ = os.RemoveAll(entry.trash)
+		_ = removeTree(entry.trash)
 	}
+}
+
+func removeTree(path string) error {
+	_ = filepath.WalkDir(path, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil || !entry.IsDir() {
+			return nil
+		}
+		if info, err := entry.Info(); err == nil && info.Mode().Perm()&0o700 != 0o700 {
+			_ = os.Chmod(current, info.Mode().Perm()|0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(path)
 }
 
 func randomName(prefix string) (string, error) {

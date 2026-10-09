@@ -59,7 +59,8 @@ type SkillScope struct {
 	Groups    []GroupID `json:"groups,omitempty"`    // 组安装留着它的 Group:该技能是成员且组已安装到此 Scope,按 ID 升序
 	CreatedAt time.Time `json:"created_at,omitzero"` // 首次安装到此 Scope 的时间。再次安装不更新
 	// SharedWith 是同一层级与这个 Agent 共用这个文件夹的其他 Agent,按代码排序;没有共用时为空。
-	// 从其中任何一个卸载都会删除文件夹,它们都不再算已装,卸载前界面据此提示。
+	// 从其中任何一个卸载都撤销各处的直接安装;没有组安装还留着其中某一处时文件夹随之删除,它们都不再算已装。
+	// 卸载前界面据此提示。
 	SharedWith []AgentCode `json:"shared_with,omitempty"`
 }
 

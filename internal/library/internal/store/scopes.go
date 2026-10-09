@@ -359,3 +359,14 @@ func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent s
 	}
 	return nil
 }
+
+func (t *Tx) ClaimSkillScope(ctx context.Context, skillID int64, scope Scope, createdAt time.Time) error {
+	if err := t.RecordSkillScope(ctx, skillID, scope, false, createdAt); err != nil {
+		return err
+	}
+	if _, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = 1 WHERE skill_id = ? AND agent = ? AND project_id IS ? AND direct = 0 AND NOT `+groupCoverageSQL,
+		skillID, scope.Agent, scope.ProjectID); err != nil {
+		return fmt.Errorf("claim skill scope: %w", wrap(err))
+	}
+	return nil
+}

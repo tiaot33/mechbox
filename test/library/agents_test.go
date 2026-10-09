@@ -155,10 +155,12 @@ func TestBuiltinAgentsCannotBeEditedOrDeleted(t *testing.T) {
 	settings := library.CustomAgent{Name: "Codex", GlobalDirectory: filepath.Join(home, ".other", "skills"), ProjectDirectory: ".other/skills"}
 	_, err := lib.EditAgent(ctx, library.AgentCodex, settings, library.EditAgentOptions{})
 	requireLibraryError(t, err, library.FailedPrecondition)
-	requireLibraryError(t, lib.DeleteAgent(ctx, library.AgentCodex, library.DeleteAgentOptions{}), library.FailedPrecondition)
+	_, err = lib.DeleteAgent(ctx, library.AgentCodex, library.DeleteAgentOptions{})
+	requireLibraryError(t, err, library.FailedPrecondition)
 	_, err = lib.EditAgent(ctx, "custom-missing", settings, library.EditAgentOptions{})
 	requireLibraryError(t, err, library.NotFound)
-	requireLibraryError(t, lib.DeleteAgent(ctx, "custom-missing", library.DeleteAgentOptions{}), library.NotFound)
+	_, err = lib.DeleteAgent(ctx, "custom-missing", library.DeleteAgentOptions{})
+	requireLibraryError(t, err, library.NotFound)
 	if got := listAgents(t, lib); !reflect.DeepEqual(got, seededAgents(home)) {
 		t.Fatalf("ListAgents() = %#v, want built-in agents unchanged", got)
 	}
@@ -317,8 +319,9 @@ func TestDeleteAgentRemovesOrKeepsFolders(t *testing.T) {
 			if _, err := lib.InstallGroup(ctx, group.ID, global, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
-			if err := lib.DeleteAgent(ctx, agent.Code, library.DeleteAgentOptions{Folders: policy}); err != nil {
-				t.Fatal(err)
+			result, err := lib.DeleteAgent(ctx, agent.Code, library.DeleteAgentOptions{Folders: policy})
+			if err != nil || len(result.Kept) != 0 {
+				t.Fatalf("DeleteAgent() = %#v, %v; want nothing kept for other agents", result, err)
 			}
 			if got := listAgents(t, lib); !reflect.DeepEqual(got, seededAgents(home)) {
 				t.Fatalf("ListAgents() = %#v, want the custom agent gone", got)
@@ -590,23 +593,252 @@ func TestEditAgentLeavingASharedDirectoryKeepsItForTheOthers(t *testing.T) {
 	}
 }
 
-// 删除共用目录的自定义 Agent:Codex 还在读的文件夹不删,安装记录转给 Codex。
+// 删除共用目录的自定义 Agent:即使选了一并删除,Codex 还在读的文件夹也保留,安装记录转给 Codex,结果里列出保留了哪些、
+// 还有哪些 Agent 在读;只因共用而算已装的也列出。没有别的 Agent 在读的照常删除。
 func TestDeleteAgentKeepsFoldersStillReadByAnotherAgent(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agent/skills")
-	skill := fetchNamedSkill(t, lib, "example")
-	if err := lib.Install(ctx, skill.ID, library.GlobalScope(agent.Code), library.InstallOptions{}); err != nil {
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.DeleteAgent(ctx, agent.Code, library.DeleteAgentOptions{}); err != nil {
-		t.Fatal(err)
+	explicit := fetchNamedSkill(t, lib, "explicit")
+	inferred := fetchNamedSkill(t, lib, "inferred")
+	alone := fetchNamedSkill(t, lib, "alone")
+	shared := library.GlobalScope(agent.Code)
+	codex := library.GlobalScope(library.AgentCodex)
+	for _, install := range []struct {
+		skill library.Skill
+		scope library.Scope
+	}{{explicit, shared}, {inferred, codex}, {alone, library.ProjectScope(agent.Code, project.ID)}} {
+		if err := lib.Install(ctx, install.skill.ID, install.scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	directory := filepath.Join(home, ".agents", "skills")
-	requireInstalledFolder(t, directory, "example", "# example\n")
-	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: library.GlobalScope(library.AgentCodex), Folder: filepath.Join(directory, "example"), Direct: true}})
+	before, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{Scope: &shared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := lib.DeleteAgent(ctx, agent.Code, library.DeleteAgentOptions{Folders: library.Remove})
+	if err != nil || !reflect.DeepEqual(withoutCreatedAt(result.Kept), withoutCreatedAt(before)) {
+		t.Fatalf("DeleteAgent() = %#v, %v; want kept %#v", result, err, before)
+	}
+	for _, kept := range result.Kept {
+		if !reflect.DeepEqual(kept.SharedWith, []library.AgentCode{library.AgentCodex}) {
+			t.Fatalf("kept folder %#v, want it still read by codex", kept)
+		}
+	}
+	requireInstalledFolder(t, directory, "explicit", "# explicit\n")
+	requireInstalledFolder(t, directory, "inferred", "# inferred\n")
+	requireNoInstalledFolder(t, filepath.Join(project.Path, ".agent", "skills"), "alone")
+	requireSkillScopes(t, lib, []library.SkillScope{
+		{SkillID: explicit.ID, Scope: codex, Folder: filepath.Join(directory, "explicit"), Direct: true},
+		{SkillID: inferred.ID, Scope: codex, Folder: filepath.Join(directory, "inferred"), Direct: true},
+	})
+}
+
+// 只因共用目录而算已装的技能,改目录迁移时也原样复制到新目录,之后这个 Agent 在新目录照常算已装;旧文件夹留给 Codex。
+func TestEditAgentMigratesSkillsCountedThroughASharedDirectory(t *testing.T) {
+	for _, level := range []string{"global", "project"} {
+		t.Run(level, func(t *testing.T) {
+			ctx := t.Context()
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			lib := openTestLibrary(t)
+			agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agents/skills")
+			project, err := lib.RegisterProject(ctx, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			skill := fetchNamedSkill(t, lib, "example")
+			codex, scope := library.GlobalScope(library.AgentCodex), library.GlobalScope(agent.Code)
+			root, settings := home, library.CustomAgent{Name: "Agent", GlobalDirectory: filepath.Join(home, ".new", "skills"), ProjectDirectory: agent.ProjectDirectory}
+			if level == "project" {
+				codex, scope = library.ProjectScope(library.AgentCodex, project.ID), library.ProjectScope(agent.Code, project.ID)
+				root, settings = project.Path, library.CustomAgent{Name: "Agent", GlobalDirectory: agent.GlobalDirectory, ProjectDirectory: ".new/skills"}
+			}
+			if err := lib.Install(ctx, skill.ID, codex, library.InstallOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			oldDir, newDir := filepath.Join(root, ".agents", "skills"), filepath.Join(root, ".new", "skills")
+			writeFile(t, filepath.Join(oldDir, "example", "notes.md"), []byte("user edits\n"), 0o644)
+			result, err := lib.EditAgent(ctx, agent.Code, settings, library.EditAgentOptions{Migrate: true})
+			want := []library.AgentMigration{{
+				SkillID: skill.ID, Scope: scope, Outcome: library.MigrationCopied, From: filepath.Join(oldDir, "example"), To: filepath.Join(newDir, "example"),
+			}}
+			if err != nil || !reflect.DeepEqual(result.Migrations, want) {
+				t.Fatalf("EditAgent() = %#v, %v; want migrations %#v", result, err, want)
+			}
+			for _, directory := range []string{oldDir, newDir} {
+				if content, err := os.ReadFile(filepath.Join(directory, "example", "notes.md")); err != nil || string(content) != "user edits\n" {
+					t.Fatalf("%s/example/notes.md = %q, %v; want the user edits", directory, content, err)
+				}
+			}
+			wantScopes := []library.SkillScope{
+				{SkillID: skill.ID, Scope: codex, Folder: filepath.Join(oldDir, "example"), Direct: true},
+				{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(newDir, "example"), Direct: true},
+			}
+			if agent.Code < library.AgentCodex {
+				wantScopes[0], wantScopes[1] = wantScopes[1], wantScopes[0]
+			}
+			requireSkillScopes(t, lib, wantScopes)
+		})
+	}
+}
+
+// 迁移不光看磁盘,也看库里的安装:新目录里另一个同名技能的文件夹不在了、但它的安装还在时,不搬过去,
+// 之后卸载那个技能也不会删掉这个 Agent 的文件夹。
+func TestEditAgentMigrationRespectsAnotherSkillsInstall(t *testing.T) {
+	ctx := t.Context()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
+	first := fetchSkillWithBody(t, lib, "example", "# first\n")
+	second := fetchSkillWithBody(t, lib, "example", "# second\n")
+	codex, scope := library.GlobalScope(library.AgentCodex), library.GlobalScope(agent.Code)
+	if err := lib.Install(ctx, first.ID, codex, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Install(ctx, second.ID, scope, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	newDir, oldDir := filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".old", "skills")
+	if err := os.RemoveAll(filepath.Join(newDir, "example")); err != nil {
+		t.Fatal(err)
+	}
+	result, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
+	want := []library.AgentMigration{{
+		SkillID: second.ID, Scope: scope, Outcome: library.MigrationSkipped, From: filepath.Join(oldDir, "example"), To: filepath.Join(newDir, "example"),
+	}}
+	if err != nil || !reflect.DeepEqual(result.Migrations, want) {
+		t.Fatalf("EditAgent() = %#v, %v; want migrations %#v", result, err, want)
+	}
+	requireNoInstalledFolder(t, newDir, "example")
+	requireInstalledFolder(t, oldDir, "example", "# second\n")
+	if scopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{SkillID: second.ID}); err != nil || len(scopes) != 0 {
+		t.Fatalf("ListSkillScopes(second) = %#v, %v; want none", scopes, err)
+	}
+	if err := lib.Uninstall(ctx, first.ID, codex); err != nil {
+		t.Fatal(err)
+	}
+	requireInstalledFolder(t, oldDir, "example", "# second\n")
+}
+
+// 复制期间新目录里冒出同名文件夹(用户或别的程序建的)时不覆盖它:整次返回 AlreadyExists 并指出路径,什么都不改。
+func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testing.T) {
+	ctx := t.Context()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
+	skill := fetchNamedSkill(t, lib, "example")
+	scope := library.GlobalScope(agent.Code)
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	oldDir, newDir := filepath.Join(home, ".old", "skills"), filepath.Join(home, ".new", "skills")
+	appeared := false
+	injectDuringCopy := cancelWhen{Context: ctx, cond: func() bool {
+		entries, _ := os.ReadDir(newDir)
+		for _, entry := range entries {
+			if !appeared && strings.HasPrefix(entry.Name(), ".example-") {
+				writeFile(t, filepath.Join(newDir, "example", "SKILL.md"), []byte("created during the copy\n"), 0o644)
+				appeared = true
+			}
+		}
+		return false
+	}}
+	_, err := lib.EditAgent(injectDuringCopy, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
+	if !appeared {
+		t.Fatal("the folder was never injected")
+	}
+	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(newDir, "example")})
+	requireSkillFile(t, newDir, "example", "created during the copy\n")
+	requireInstalledFolder(t, oldDir, "example", "# example\n")
+	requireNoStagedEntries(t, newDir)
+	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(oldDir, "example"), Direct: true}})
+	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
+	}
+}
+
+// 新目录填在要迁移的技能文件夹里面时拒绝,什么都不改,也不在源文件夹里建出目录。
+func TestEditAgentRejectsDirectoryInsideAnInstalledSkill(t *testing.T) {
+	ctx := t.Context()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
+	for _, name := range []string{"aaa", "example"} {
+		skill := fetchNamedSkill(t, lib, name)
+		if err := lib.Install(ctx, skill.ID, library.GlobalScope(agent.Code), library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source := filepath.Join(home, ".old", "skills", "example")
+	before := snapshotTree(t, filepath.Join(home, ".old"))
+	_, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: filepath.Join(source, "nested"), ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "global_directory"})
+	if after := snapshotTree(t, filepath.Join(home, ".old")); !reflect.DeepEqual(after, before) {
+		t.Fatalf("source tree changed: %#v, want %#v", after, before)
+	}
+	requireNoInstalledFolder(t, source, "nested")
+	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
+	}
+}
+
+// 迁移在提交阶段失败(旧项目目录不让删)时整次复原:新目录里的副本(哪怕复制成只读)撤掉,已挪走的旧全局文件夹放回,
+// 安装记录和 Agent 的目录都不变。
+func TestEditAgentMigrationFailureWhileCommittingRestoresEverything(t *testing.T) {
+	ctx := t.Context()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".old/skills")
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := fetchNamedSkill(t, lib, "example")
+	global, projectScope := library.GlobalScope(agent.Code), library.ProjectScope(agent.Code, project.ID)
+	for _, scope := range []library.Scope{global, projectScope} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldGlobal, oldProject := filepath.Join(home, ".old", "skills"), filepath.Join(project.Path, ".old", "skills")
+	newGlobal, newProject := filepath.Join(home, ".new", "skills"), filepath.Join(project.Path, ".new", "skills")
+	writeFile(t, filepath.Join(oldGlobal, "example", "notes.md"), []byte("user edits\n"), 0o644)
+	readOnlyFolder := filepath.Join(oldProject, "example")
+	if err := os.Chmod(readOnlyFolder, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyFolder, 0o755) })
+	makeScopeReadOnly(t, oldProject)
+	before := snapshotTree(t, oldGlobal, oldProject)
+	_, err = lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newGlobal, ProjectDirectory: ".new/skills"}, library.EditAgentOptions{Migrate: true})
+	requireLibraryError(t, err, library.Permission)
+	if after := snapshotTree(t, oldGlobal, oldProject); !reflect.DeepEqual(after, before) {
+		t.Fatalf("old folders = %#v, want %#v", after, before)
+	}
+	for _, directory := range []string{newGlobal, newProject} {
+		requireNoInstalledFolder(t, directory, "example")
+		requireNoStagedEntries(t, directory)
+	}
+	requireNoStagedEntries(t, oldGlobal)
+	requireSkillScopes(t, lib, []library.SkillScope{
+		{SkillID: skill.ID, Scope: global, Folder: filepath.Join(oldGlobal, "example"), Direct: true},
+		{SkillID: skill.ID, Scope: projectScope, Folder: filepath.Join(oldProject, "example"), Direct: true},
+	})
+	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
+	}
 }
 
 // 改目录迁移中途失败时整次复原:磁盘、安装记录和 Agent 的目录都保持原样。

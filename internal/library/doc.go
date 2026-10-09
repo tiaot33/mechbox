@@ -45,9 +45,11 @@
 // 设置 Agent(agents.go):
 //   - [Library.ListAgents] 列出 Agent,带是否在这台机器上检测到、是否自定义,以及它读取技能的目录。
 //   - [Library.AddAgent]、[Library.EditAgent]、[Library.DeleteAgent] 添加、修改、删除自定义 Agent;改目录时选择是否迁移,
-//     删除时选择是否一并删除文件夹。内置 Agent 不能改。
-//   - 几个 Agent 的目录相同时共用技能文件夹:装到其中一个,共用的 Agent 也算已装;从其中一个卸载,它们都不再算已装。
-//     列表与巡检里每个共用的 Agent 各列一处,[SkillScope].SharedWith 给出共用的 Agent,卸载前界面据此提示。
+//     删除时选择是否一并删除文件夹。内置 Agent 不能改。改目录或删除都不动其他 Agent 还在读的文件夹:迁移时复制过去,
+//     删除时即使选了一并删除也保留,安装记录转给还在读的 Agent。
+//   - 几个 Agent 的目录相同时共用技能文件夹:装到其中一个,共用的 Agent 也算已装;从其中一个卸载,没有组安装留着时
+//     文件夹随之删除,它们都不再算已装。列表与巡检里每个共用的 Agent 各列一处,[SkillScope].SharedWith 给出共用的 Agent,
+//     卸载前界面据此提示。
 //
 // 选择安装位置(projects.go):
 //   - [Library.ListAgents]、[Library.ListRegisteredProjects] 列出可选的 Agent 与项目;界面上的
