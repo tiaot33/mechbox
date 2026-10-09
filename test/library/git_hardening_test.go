@@ -14,15 +14,6 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-func hangingGitServer(t *testing.T) string {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
-	}))
-	t.Cleanup(server.Close)
-	return server.URL
-}
-
 func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T) {
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -69,65 +60,6 @@ func TestPreviewRejectsExtGitProtocol(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("PreviewFetch accepted ext protocol")
-	}
-}
-
-func TestPreviewGitTimesOutWithoutCallerDeadline(t *testing.T) {
-	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
-	lib := openTestLibrary(t)
-	start := time.Now()
-	serveGitHubRemoteOnly(t, hangingGitServer(t))
-	_, err := lib.PreviewFetch(context.Background(), gitHubRequest())
-	elapsed := time.Since(start)
-	if elapsed > 10*time.Second {
-		t.Fatalf("PreviewFetch hung for %v without independent git timeout", elapsed)
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		t.Fatalf("timeout leaked caller context error: %v", err)
-	}
-	if !library.IsCode(err, library.SourceUnreachable) || !strings.Contains(strings.ToLower(err.Error()), "timed out") {
-		t.Fatalf("timeout error = %v", err)
-	}
-}
-
-func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
-	repository, _ := githubRemote(t)
-	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
-	lib := openTestLibrary(t)
-	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
-	if err != nil {
-		t.Fatal(err)
-	}
-	remote := hangingGitServer(t)
-	config := os.Getenv("GIT_CONFIG_GLOBAL")
-	runGit(t, repository, "config", "--file", config, "--unset-all", "url.file://"+repository+".insteadOf")
-	runGit(t, repository, "config", "--file", config, "url."+remote+"/.insteadOf", "https://github.com/")
-	runGit(t, repository, "config", "--file", config, "--add", "url."+remote+"/.insteadOf", "git@github.com:")
-
-	for _, name := range []string{"CheckUpdates", "Update"} {
-		t.Run(name, func(t *testing.T) {
-			start := time.Now()
-			var err error
-			if name == "CheckUpdates" {
-				_, err = checkSkillUpdate(t, lib, t.Context(), fetched[0].ID)
-			} else {
-				_, err = updateSkill(t, lib, t.Context(), fetched[0].ID)
-			}
-			elapsed := time.Since(start)
-			if elapsed > 10*time.Second {
-				t.Fatalf("%s hung for %v without independent git timeout", name, elapsed)
-			}
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-				t.Fatalf("timeout leaked caller context error: %v", err)
-			}
-			if !library.IsCode(err, library.SourceUnreachable) || !strings.Contains(strings.ToLower(err.Error()), "timed out") {
-				t.Fatalf("timeout error = %v", err)
-			}
-		})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
@@ -91,6 +92,17 @@ type InputError struct {
 
 func (e *InputError) Error() string {
 	return e.Reason
+}
+
+type RateLimitError struct {
+	RetryAt time.Time
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAt.IsZero() {
+		return "source rate limit exceeded"
+	}
+	return "source rate limit exceeded until " + e.RetryAt.UTC().Format(time.RFC3339)
 }
 
 type Missing string

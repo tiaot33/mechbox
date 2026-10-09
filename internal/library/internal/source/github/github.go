@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
@@ -14,18 +15,18 @@ import (
 const Type = "github"
 
 type Client struct {
-	auth githubAuth
+	auth atomic.Pointer[authState]
 	memo githubObjectMemo
 }
 
 func NewClient() *Client {
-	return &Client{memo: newGitHubMemo()}
+	c := &Client{memo: newGitHubMemo()}
+	c.SetSettings(Settings{})
+	return c
 }
 
 func (c *Client) Close() {
-	c.auth.anonymousReset.Store(0)
-	c.auth.useToken.Store(false)
-	c.auth.useCLI.Store(false)
+	c.SetSettings(Settings{})
 	c.memo.release()
 }
 

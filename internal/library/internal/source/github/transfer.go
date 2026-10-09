@@ -5,16 +5,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -58,8 +54,7 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		reset, _ := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64)
-		return &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response), reset: reset}
+		return newGitHubHTTPError(response)
 	}
 	n, err := io.Copy(dest, io.LimitReader(contextReader{ctx, response.Body}, maxFetchSize+1))
 	if ctx.Err() != nil {
@@ -177,7 +172,7 @@ func (c *githubClient) rawBlobs(ctx context.Context, owner, repo, commit string,
 			return err
 		}
 		for _, err := range errs {
-			if isGitHubAuthRetry(err) {
+			if githubTokenRejected(err) {
 				return err
 			}
 		}
@@ -187,7 +182,7 @@ func (c *githubClient) rawBlobs(ctx context.Context, owner, repo, commit string,
 			}
 		}
 		return nil
-	}, func() error { return c.graphqlBlobs(ctx, owner, repo, todo, results) })
+	})
 	got := map[string][]byte{}
 	for i, blob := range todo {
 		if results[i] != nil {
@@ -223,10 +218,6 @@ func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, 
 			location = githubAPIURL("/repos/%s/%s/tarball/%s", owner, repo, commit)
 		}
 		return githubDownload(ctx, location, token, &archive)
-	}, func() error {
-		archive.Reset()
-		endpoint := "/repos/" + owner + "/" + repo + "/tarball/" + commit
-		return githubCLIOutput(ctx, &archive, "api", endpoint, "--method", "GET", "--hostname", "github.com")
 	})
 	if err != nil {
 		return nil
@@ -264,66 +255,11 @@ func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, 
 	return found
 }
 
-const githubGraphQLBatchSize = 100
-
-func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blobs []githubBlob, contents [][]byte) error {
-	var missing []int
-	for i := range blobs {
-		if contents[i] == nil {
-			missing = append(missing, i)
-		}
-	}
-	for batch := range slices.Chunk(missing, githubGraphQLBatchSize) {
-		var query strings.Builder
-		fmt.Fprintf(&query, "query { repository(owner:%q, name:%q) {", owner, repo)
-		for _, i := range batch {
-			fmt.Fprintf(&query, " b%d: object(oid:%q) { ... on Blob { text } }", i, blobs[i].sha)
-		}
-		query.WriteString(" } }")
-		var body bytes.Buffer
-		err := githubCLIOutput(ctx, &body, "api", "graphql", "--hostname", "github.com", "-f", "query="+query.String())
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		var payload struct {
-			Data struct {
-				Repository map[string]*struct {
-					Text *string `json:"text"`
-				} `json:"repository"`
-			} `json:"data"`
-		}
-		if json.Unmarshal(body.Bytes(), &payload) != nil || payload.Data.Repository == nil {
-			if err != nil {
-				return err
-			}
-			return errGitHubContentsFallback
-		}
-		for _, i := range batch {
-			blob := payload.Data.Repository[fmt.Sprintf("b%d", i)]
-			if blob == nil || blob.Text == nil {
-				continue
-			}
-			content := []byte(*blob.Text)
-			if gitBlobSHA(content) != blobs[i].sha {
-				continue
-			}
-			contents[i] = content
-			memoPut(c.memo, &c.memo.blobs, memoKey(memoBlob, owner, repo, blobs[i].sha), content)
-		}
-	}
-	for _, i := range missing {
-		if contents[i] == nil {
-			return errGitHubContentsFallback
-		}
-	}
-	return nil
-}
-
-func githubCLIOutput(ctx context.Context, dest io.Writer, args ...string) error {
+func githubCLIOutput(ctx context.Context, gh string, dest io.Writer, args ...string) error {
 	commandCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
-	command := exec.CommandContext(commandCtx, "gh", args...)
-	command.Env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
+	command := exec.CommandContext(commandCtx, gh, args...)
+	command.Env = ghEnvironment()
 	command.WaitDelay = time.Second
 	cancelGitProcess(command)
 	command.Stdout = &githubLimitedWriter{dest: dest, remaining: maxFetchSize, cancel: cancel}

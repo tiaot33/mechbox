@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library"
 )
@@ -119,7 +120,7 @@ func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
 	codes := []library.ErrorCode{
 		library.InvalidArgument, library.NotFound, library.AlreadyExists, library.Conflict,
 		library.FailedPrecondition, library.Canceled, library.SourceUnreachable, library.SourceInvalid,
-		library.Busy, library.Permission, library.NotConfigured, library.Internal,
+		library.Busy, library.RateLimited, library.Permission, library.NotConfigured, library.Internal,
 	}
 	cause := errors.New("hidden cause")
 	for _, code := range codes {
@@ -127,7 +128,7 @@ func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
 			original := &library.Error{
 				Code:    code,
 				Message: "operation: reason",
-				Details: library.ErrorDetails{Field: "name", Path: "/p", Name: "demo", SkillID: 3, ProjectID: 4},
+				Details: library.ErrorDetails{Field: "name", Path: "/p", Name: "demo", SkillID: 3, ProjectID: 4, RetryAt: time.Date(2026, 10, 9, 13, 0, 0, 0, time.UTC)},
 				Err:     cause,
 			}
 			got := library.ErrorOf(fmt.Errorf("wrapped: %w", original))
@@ -141,7 +142,7 @@ func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := `{"code":"` + string(code) + `","message":"operation: reason","details":{"field":"name","path":"/p","name":"demo","skill_id":3,"project_id":4}}`
+			want := `{"code":"` + string(code) + `","message":"operation: reason","details":{"field":"name","path":"/p","name":"demo","skill_id":3,"project_id":4,"retry_at":"2026-10-09T13:00:00Z"}}`
 			if string(encoded) != want {
 				t.Fatalf("JSON = %s, want %s", encoded, want)
 			}

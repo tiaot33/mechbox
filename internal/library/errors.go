@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
@@ -52,7 +53,11 @@ const (
 	// 可重试;与 SourceUnreachable 无关,是本机库冲突而非网络故障。UI:提示"另一个进程正在写库,稍后重试",不当 bug。
 	// Library 只报码,是否自动重试由调用方决定。Error.Err 保留底层 SQLite 错误。
 	Busy ErrorCode = "busy"
-	// Permission 鉴权失败(文件系统或远端拒认凭证)。
+	// RateLimited 远端因为当前身份本小时的请求次数用完而拒绝(目前只有 GitHub),且 git 浅克隆也没能读到。
+	// Details.RetryAt 是次数恢复的时间(远端没给出时为零值)。到恢复时间后可重试。
+	// UI:写明什么时候恢复;匿名访问时建议去设置页填个人访问令牌或允许 gh 登录,提供「去设置」。
+	RateLimited ErrorCode = "rate_limited"
+	// Permission 鉴权失败(文件系统或远端拒认凭证;GitHub 设置里的令牌被拒且没有别的身份能读到也是它)。
 	// 不可靠地靠重试恢复。UI:提示权限问题。
 	Permission ErrorCode = "permission"
 	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证)。
@@ -79,6 +84,7 @@ type ErrorDetails struct {
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能;InvalidArgument:更新时不属于该集合的技能;Conflict:更新时被另一次更新改过的技能
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
+	RetryAt   time.Time `json:"retry_at,omitzero"`   // RateLimited:请求次数恢复的时间
 }
 
 // Error 返回 Message。
@@ -115,6 +121,9 @@ func typedError(err error) error {
 	}
 	if missing, ok := errors.AsType[*source.NotFoundError](err); ok {
 		return &Error{Code: NotFound, Message: err.Error(), Details: ErrorDetails{Name: missing.Name}, Err: err}
+	}
+	if limited, ok := errors.AsType[*source.RateLimitError](err); ok {
+		return &Error{Code: RateLimited, Message: err.Error(), Details: ErrorDetails{RetryAt: limited.RetryAt}, Err: err}
 	}
 	if _, ok := errors.AsType[*source.InputError](err); ok {
 		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}

@@ -28,6 +28,12 @@ func run(ctx context.Context) (err error) {
 	// 保留业务调用与关闭资源两处可能产生的错误。
 	defer func() { err = errors.Join(err, lib.Close()) }()
 
+	// 桌面端在启动时和用户改了设置页之后，把 GitHub 设置交给技能库；技能库只在内存里用，不保存。
+	// 这里不填个人访问令牌，允许使用 gh 命令登录，gh 的位置留空由技能库自己找。
+	if err := lib.SetGitHubSettings(library.GitHubSettings{AllowGH: true}); err != nil {
+		return fmt.Errorf("set github settings: %w", err)
+	}
+
 	// 通过技能库(Library)的公开方法调用后端，context 随调用传入。
 	agents, err := lib.ListAgents(ctx)
 	if err != nil {

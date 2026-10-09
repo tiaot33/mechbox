@@ -20,17 +20,9 @@ import (
 )
 
 const sourceTimeout = 30 * time.Second
-const defaultGitTimeout = 5 * time.Minute
+const gitTimeout = 5 * time.Minute
 
 var errGitTimeout = errors.New("operation timed out")
-
-func gitTimeout() time.Duration {
-	parsed, err := time.ParseDuration(os.Getenv("SKILLS_GIT_TIMEOUT"))
-	if err != nil || parsed <= 0 {
-		return defaultGitTimeout
-	}
-	return parsed
-}
 
 var githubOwner = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
 var githubRepo = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
@@ -234,7 +226,7 @@ func runSourceGit(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, gitTimeout())
+	commandCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	command := exec.CommandContext(commandCtx, "git", append([]string{
 		"-c", "core.askPass=",

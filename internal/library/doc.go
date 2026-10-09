@@ -57,6 +57,12 @@
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。
 //   - [Library.Reinstall] 把用户选中的几处换成技能的当前版本;改过的那一处要单独同意覆盖。
 //
+// 设置(settings.go):
+//   - [Library.SetGitHubSettings] 在启动时和用户改了设置页「GitHub」分区之后交入个人访问令牌、是否允许使用 gh、gh 的位置;
+//     技能库只在内存里用,不保存,改完立即生效。
+//   - [Library.CheckGitHubAccess] 给出设置页显示的访问状态:当前身份与账号、本小时还剩多少次请求、令牌是否有效、gh 的状态。
+//     读 GitHub 时请求次数用完返回 RateLimited,Details.RetryAt 是恢复时间。
+//
 // 同步(sync.go):
 //   - [Library.PlanSyncPush] 再 [Library.SyncPush]:看 S3 上是哪一份库(谁、什么时候推送的),再用本机的库覆盖它。
 //   - [Library.PlanSyncPull] 再 [Library.SyncPull]:看 S3 上的库里有什么、能不能拉回,再用它替换本机的库。

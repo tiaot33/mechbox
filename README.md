@@ -115,7 +115,9 @@ err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), li
 | `AWS_SECRET_ACCESS_KEY` | S3 secret key | 无；同步时必填 |
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
 
-GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
+GitHub 的访问方式不读环境变量，由调用方用 `SetGitHubSettings` 交入：个人访问令牌、是否允许使用 gh 命令登录、gh 的位置（为空时在 `PATH` 与 Homebrew 等常见安装位置找）。身份顺序是令牌 → gh 登录 → 匿名；`CheckGitHubAccess` 报告当前身份、账号与本小时剩余请求次数，次数用完时操作返回 `RateLimited` 并带恢复时间。
+
+GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆（只用用户自己的 git 凭证，git 命令超时固定为 5 分钟）；URL Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
 
 ## 尚未实现
 

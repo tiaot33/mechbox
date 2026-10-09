@@ -336,37 +336,6 @@ func TestGitHubFetchFailureLeavesLibraryUnchangedAndKeepsHandle(t *testing.T) {
 	}
 }
 
-func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
-	repo := writeGitHubRepo(t, map[string]repoFile{
-		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
-		"demo/scripts/run": {content: []byte{0, 255, 1}, mode: 0o755},
-	})
-	fx := inspectGitHubRepo(t, repo)
-	for _, credential := range []string{"environment token", "gh CLI"} {
-		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusTooManyRequests} {
-			t.Run(credential+"/"+http.StatusText(status), func(t *testing.T) {
-				api := serveGitHubAPI(t, fx)
-				api.anonymousStatus = status
-				blockGitHubClone(t)
-				if credential == "gh CLI" {
-					serveGitHubCLI(t, fx)
-				} else {
-					t.Setenv("GITHUB_TOKEN", "test-github-token")
-				}
-				lib := openTestLibrary(t)
-				preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
-				if err != nil || len(preview.Candidates) != 1 {
-					t.Fatalf("preview = %#v, %v", preview, err)
-				}
-				fetched := fetchSkills(t, lib, preview, candidateNames(preview))
-				if len(skillFiles(t, lib, fetched[0])) != 2 {
-					t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
-				}
-			})
-		}
-	}
-}
-
 func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 	const secret = "private-token-and-cli-output"
 	serveGitHubAPI(t, inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
@@ -384,11 +353,13 @@ func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 	}
 	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
 
-	stubGitHubCLI(t, "echo '"+secret+"'\necho '"+secret+"' >&2\nexit 1\n")
-	t.Setenv("GITHUB_TOKEN", secret)
+	stubGitHubCLI(t, "echo '"+secret+"'\necho '"+secret+"' >&2\n")
+	if err := lib.SetGitHubSettings(library.GitHubSettings{Token: secret, AllowGH: true}); err != nil {
+		t.Fatal(err)
+	}
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusForbidden, map[string]string{"message": secret}), nil
+		return jsonResponse(http.StatusUnauthorized, map[string]string{"message": secret}), nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
 	for _, operation := range []struct {
@@ -409,8 +380,7 @@ func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 }
 
 func TestGitHubCancellationStopsChildProcesses(t *testing.T) {
-	api := serveGitHubAPI(t, gitHubFixture{})
-	api.anonymousStatus = http.StatusTooManyRequests
+	serveGitHubAPI(t, gitHubFixture{})
 	blockGitHubClone(t)
 	ready := filepath.Join(t.TempDir(), "ready")
 	escaped := filepath.Join(t.TempDir(), "escaped")
@@ -420,6 +390,9 @@ func TestGitHubCancellationStopsChildProcesses(t *testing.T) {
 wait
 `)
 	lib := openTestLibrary(t)
+	if err := lib.SetGitHubSettings(library.GitHubSettings{AllowGH: true}); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
@@ -548,10 +521,9 @@ func redirectGitHubClone(t *testing.T, repo string) {
 	redirectGitHubRemote(t, "file://"+repo)
 }
 
-// redirectGitHubRemote 把 owner/repo 的 HTTPS 与 SSH 远端都改写到 remote,并隔离本机 gh 登录态。
+// redirectGitHubRemote 把 owner/repo 的 HTTPS 与 SSH 远端都改写到 remote。
 func redirectGitHubRemote(t *testing.T, remote string) {
 	t.Helper()
-	stubGitHubCLI(t, "exit 1\n")
 	config := filepath.Join(t.TempDir(), "gitconfig")
 	t.Setenv("GIT_CONFIG_GLOBAL", config)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -580,15 +552,19 @@ func gitHubCloneRequest(t *testing.T, repository string) library.PreviewFetchReq
 }
 
 // gitHubAPIMock 按 gitHubFixture 回答 GitHub REST API;Swap 后旧 commit 及其 tree 仍可按 SHA 取到。
+// 带令牌的请求只认 accounts 里的令牌(令牌 → 账号名),其余回 401;credentials 按顺序记下每个请求用的令牌,匿名记为空串。
 type gitHubAPIMock struct {
 	mu                 sync.Mutex
 	fx                 gitHubFixture
 	history            []gitHubFixture
+	accounts           map[string]string
+	credentials        []string
 	anonymousStatus    int
 	failBlobs          bool
 	blobStatus         int
 	rateLimitRemaining string
 	rateLimitReset     string
+	retryAfter         string
 	// blobGate 若非 nil,对 gatedBlob 这个 SHA 的 blob 请求先过闸,用来把操作停在网络阶段。
 	blobGate  *networkGate
 	gatedBlob string
@@ -596,10 +572,7 @@ type gitHubAPIMock struct {
 
 func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
 	t.Helper()
-	stubGitHubCLI(t, "exit 1\n")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
-	mock := &gitHubAPIMock{fx: cloneGitHubFixture(fx)}
+	mock := &gitHubAPIMock{fx: cloneGitHubFixture(fx), accounts: map[string]string{}}
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(mock.roundTrip)}
 	t.Cleanup(func() { http.DefaultClient = client })
@@ -667,8 +640,27 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.anonymousStatus != 0 && r.Header.Get("Authorization") == "" {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	m.credentials = append(m.credentials, token)
+	login, known := m.accounts[token]
+	if token != "" && !known {
+		return jsonResponse(http.StatusUnauthorized, map[string]string{"message": "Bad credentials"}), nil
+	}
+	if r.URL.Path == "/rate_limit" {
+		return jsonResponse(http.StatusOK, map[string]any{"resources": map[string]any{"core": map[string]any{"limit": 60, "remaining": 42, "reset": gitHubRateReset.Unix()}}}), nil
+	}
+	if m.anonymousStatus != 0 && token == "" {
 		return m.errorResponse(m.anonymousStatus), nil
+	}
+	if r.URL.Path == "/user" {
+		if token == "" {
+			return jsonResponse(http.StatusUnauthorized, map[string]string{"message": "Requires authentication"}), nil
+		}
+		response := jsonResponse(http.StatusOK, map[string]string{"login": login})
+		response.Header.Set("X-RateLimit-Limit", "5000")
+		response.Header.Set("X-RateLimit-Remaining", "4987")
+		response.Header.Set("X-RateLimit-Reset", strconv.FormatInt(gitHubRateReset.Unix(), 10))
+		return response, nil
 	}
 	notFound := jsonResponse(http.StatusNotFound, map[string]string{"message": "Not Found"})
 	if ref, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/commits/"); ok {
@@ -708,7 +700,36 @@ func (m *gitHubAPIMock) errorResponse(status int) *http.Response {
 	response := jsonResponse(status, map[string]string{"message": "unavailable"})
 	response.Header.Set("X-RateLimit-Remaining", m.rateLimitRemaining)
 	response.Header.Set("X-RateLimit-Reset", m.rateLimitReset)
+	if m.retryAfter != "" {
+		response.Header.Set("Retry-After", m.retryAfter)
+	}
 	return response
+}
+
+// gitHubRateReset 是 mock 报告的请求次数恢复时间。
+var gitHubRateReset = time.Date(2026, 10, 9, 13, 0, 0, 0, time.UTC)
+
+// addAccount 让 mock 认 token 这个令牌,账号名为 login。
+func (m *gitHubAPIMock) addAccount(token, login string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.accounts[token] = login
+}
+
+// limitAnonymous 让匿名请求得到 status 的限流响应,带上剩余次数、恢复时间与 Retry-After 头(空串表示不带)。
+func (m *gitHubAPIMock) limitAnonymous(status int, remaining, reset, retryAfter string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.anonymousStatus, m.rateLimitRemaining, m.rateLimitReset, m.retryAfter = status, remaining, reset, retryAfter
+}
+
+// takeCredentials 取出并清空迄今记下的每个请求用的令牌。
+func (m *gitHubAPIMock) takeCredentials() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	taken := m.credentials
+	m.credentials = nil
+	return taken
 }
 
 func jsonResponse(status int, body any) *http.Response {
@@ -719,27 +740,4 @@ func jsonResponse(status int, body any) *http.Response {
 	header := make(http.Header)
 	header.Set("Content-Type", "application/json")
 	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(string(payload))), Header: header}
-}
-
-// serveGitHubCLI 用一个只回答 fx 的 gh 脚本模拟已登录的 GitHub CLI。
-func serveGitHubCLI(t *testing.T, fx gitHubFixture) {
-	t.Helper()
-	var script strings.Builder
-	script.WriteString(`[ "$1" = api ] || exit 1
-case "$2" in
-`)
-	respond := func(endpoint string, payload any) {
-		body, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fmt.Fprintf(&script, "'%s') cat <<'JSON'\n%s\nJSON\n;;\n", endpoint, body)
-	}
-	respond("/repos/owner/repo/commits/main", map[string]any{"sha": fx.commit, "commit": map[string]any{"tree": map[string]string{"sha": fx.rootTree}}})
-	respond("/repos/owner/repo/git/trees/"+fx.rootTree+"?recursive=1", map[string]any{"tree": fx.entries, "truncated": fx.truncated})
-	for sha, content := range fx.blobs {
-		respond("/repos/owner/repo/git/blobs/"+sha, map[string]any{"encoding": "base64", "content": base64.StdEncoding.EncodeToString(content), "size": len(content)})
-	}
-	script.WriteString("*) exit 1 ;;\nesac\n")
-	stubGitHubCLI(t, script.String())
 }

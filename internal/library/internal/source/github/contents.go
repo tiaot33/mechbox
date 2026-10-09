@@ -13,9 +13,9 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -41,32 +41,33 @@ type githubBlob struct {
 type githubHTTPError struct {
 	status      int
 	rateLimited bool
-	reset       int64
+	retryAt     time.Time
 }
 
 func (e *githubHTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.status)
 }
 
-type githubAuth struct {
-	anonymousReset atomic.Int64
-	useToken       atomic.Bool
-	useCLI         atomic.Bool
+func newGitHubHTTPError(response *http.Response) *githubHTTPError {
+	httpErr := &githubHTTPError{status: response.StatusCode, rateLimited: githubRateLimited(response)}
+	if !httpErr.rateLimited {
+		return httpErr
+	}
+	if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds >= 0 {
+		httpErr.retryAt = time.Now().Add(time.Duration(seconds) * time.Second).Truncate(time.Second).UTC()
+	} else {
+		httpErr.retryAt = rateLimitFromHeader(response.Header).ResetAt
+	}
+	return httpErr
 }
 
 type githubClient struct {
-	token    string
-	useToken atomic.Bool
-	useCLI   atomic.Bool
-	auth     *githubAuth
-	memo     *githubObjectMemo
+	auth *atomic.Pointer[authState]
+	memo *githubObjectMemo
 }
 
 func (c *Client) session() *githubClient {
-	client := &githubClient{token: githubToken(), auth: &c.auth, memo: &c.memo}
-	client.useToken.Store(c.auth.useToken.Load())
-	client.useCLI.Store(c.auth.useCLI.Load())
-	return client
+	return &githubClient{auth: &c.auth, memo: &c.memo}
 }
 
 type githubCommitResponse struct {
@@ -106,10 +107,6 @@ func ownerRepo(repository string) (owner, repo string, ok bool) {
 	rest = strings.TrimSuffix(rest, ".git")
 	owner, repo, ok = strings.Cut(rest, "/")
 	return owner, repo, ok && owner != "" && repo != "" && !strings.Contains(repo, "/")
-}
-
-func githubToken() string {
-	return cmp.Or(os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
 }
 
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
@@ -162,71 +159,22 @@ func githubAPIURL(pattern string, owner, repo, object string) string {
 }
 
 func (c *githubClient) get(ctx context.Context, location string, dest any) error {
-	return c.request(ctx, func(token string) error { return githubAPIGetOnce(ctx, location, token, dest) }, func() error { return githubCLIGet(ctx, location, dest) })
+	return c.request(ctx, func(token string) error { return githubAPIGetOnce(ctx, location, token, dest) })
 }
 
-func (c *githubClient) request(ctx context.Context, httpGet func(string) error, cliGet func() error) error {
-	if c.useCLI.Load() {
-		return cliGet()
-	}
-	err := errGitHubContentsFallback
-	anonymousDenied := false
-	if !c.useToken.Load() && time.Now().Unix() >= c.auth.anonymousReset.Load() {
-		err = httpGet("")
-		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
-			c.auth.anonymousReset.Store(httpErr.reset)
-		}
-		if err == nil || ctx.Err() != nil || !isGitHubAuthRetry(err) {
+func (c *githubClient) request(ctx context.Context, httpGet func(string) error) error {
+	state := c.auth.Load()
+	for {
+		credential, err := state.credential(ctx)
+		if err != nil {
 			return err
 		}
-		anonymousDenied = githubAuthDenied(err)
-	}
-	httpDenied := anonymousDenied
-	if c.token != "" {
-		c.useToken.Store(true)
-		err = httpGet(c.token)
-		if err == nil {
-			if anonymousDenied {
-				c.auth.useToken.Store(true)
-			}
-			return nil
-		}
-		if ctx.Err() != nil || !isGitHubAuthRetry(err) {
+		err = httpGet(credential.token)
+		if credential.identity == Anonymous || ctx.Err() != nil || !githubTokenRejected(err) {
 			return err
 		}
-		httpDenied = githubAuthDenied(err)
+		state.reject(credential.identity)
 	}
-	if cliErr := cliGet(); cliErr != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return err
-	}
-	c.useCLI.Store(true)
-	if anonymousDenied {
-		c.auth.useToken.Store(true)
-	}
-	if httpDenied {
-		c.auth.useCLI.Store(true)
-	}
-	return nil
-}
-
-func githubAuthDenied(err error) bool {
-	httpErr, ok := errors.AsType[*githubHTTPError](err)
-	return ok && !httpErr.rateLimited && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusNotFound)
-}
-
-func githubCLIGet(ctx context.Context, location string, dest any) error {
-	endpoint := strings.TrimPrefix(location, "https://"+githubAPIHost)
-	var body bytes.Buffer
-	if err := githubCLIOutput(ctx, &body, "api", endpoint, "--method", "GET", "--hostname", "github.com"); err != nil {
-		return err
-	}
-	if json.Unmarshal(body.Bytes(), dest) != nil {
-		return errGitHubContentsFallback
-	}
-	return nil
 }
 
 func githubContentsUnavailable(err error) bool {
@@ -244,11 +192,6 @@ func githubMaterializeError(err error) error {
 	return fmt.Errorf("fetch source: %w", source.ErrUnreachable)
 }
 
-func isGitHubAuthRetry(err error) bool {
-	httpErr, ok := errors.AsType[*githubHTTPError](err)
-	return ok && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden || httpErr.status == http.StatusNotFound || httpErr.rateLimited)
-}
-
 func githubAPIGetOnce(ctx context.Context, location, token string, dest any) error {
 	var body bytes.Buffer
 	if err := githubDownload(ctx, location, token, &body); err != nil {
@@ -264,7 +207,7 @@ func githubRateLimited(response *http.Response) bool {
 	if response.StatusCode == http.StatusTooManyRequests {
 		return true
 	}
-	return response.StatusCode == http.StatusForbidden && response.Header.Get("X-RateLimit-Remaining") == "0"
+	return response.StatusCode == http.StatusForbidden && (response.Header.Get("X-RateLimit-Remaining") == "0" || response.Header.Get("Retry-After") != "")
 }
 
 func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, error) {
@@ -706,6 +649,9 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 func githubCloneError(ctx context.Context, apiErr, cloneErr error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if httpErr, ok := errors.AsType[*githubHTTPError](apiErr); ok && httpErr.rateLimited && (errors.Is(cloneErr, source.ErrUnreachable) || errors.Is(cloneErr, source.ErrPermission)) {
+		return &source.RateLimitError{RetryAt: httpErr.retryAt}
 	}
 	if errors.Is(cloneErr, source.ErrUnreachable) && errors.Is(githubMaterializeError(apiErr), source.ErrPermission) {
 		return githubMaterializeError(apiErr)
