@@ -588,11 +588,82 @@ await step("同步：未配置时同步计划报错", async () => {
   await page.keyboard.press("Escape");
 });
 
-await step("设置：库路径、Agent、配置状态", async () => {
-  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
-  assert((await modal().locator(".kv", { hasText: `${HOME}/Library/Application Support/skills-manager/library.db` }).count()) === 1, "应显示库路径");
-  assert((await modal().locator(".scope-cell", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
-  await page.keyboard.press("Escape");
+await step("设置页：分区、应用设置写进这台机器的设置文件、项目、关于", async () => {
+  const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
+  const section = (name) => page.locator(".settings .card", { has: page.locator(".card-h > span:first-child", { hasText: new RegExp(`^${name}$`) }) });
+  const sw = (label) => page.locator(".settings .set-row", { hasText: label }).locator(".switch");
+  const interval = (label) => btn(section("检查更新"), label);
+  const open = async () => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await page.locator(".settings .switch").first().waitFor();
+  };
+  await open();
+  for (const name of ["GitHub", "同步", "检查更新", "提示方式", "Agent", "项目", "关于"]) {
+    assert((await section(name).count()) === 1, `应有分区「${name}」`);
+  }
+  assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/skills-manager/library.db` }).count()) === 1, "关于应显示数据库位置");
+  assert(/^\d+\.\d+\.\d+/.test((await section("关于").locator("dd").first().textContent()).trim()), "关于应显示应用版本");
+  assert((await section("Agent").locator(".scope-cell", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
+  assert((await section("项目").locator(".set-row", { hasText: "proj-a" }).count()) === 1, "项目分区应列出 proj-a");
+
+  // 默认：自动检查打开、每天;留在菜单栏、Dock 角标打开。改了立即保存到这台机器的设置文件，重新载入后仍是改过的值。
+  for (const label of ["自动检查更新", "关闭窗口后留在菜单栏", "Dock 角标"]) {
+    assert((await sw(label).getAttribute("aria-checked")) === "true", `「${label}」默认应打开`);
+  }
+  assert(await interval("每天").evaluate((el) => el.classList.contains("on")), "间隔默认应为每天");
+  // 连着改两项、不等第一项保存完：后一次保存不能把前一次改的值盖回去。本机保存太快，这里把保存请求拖慢，让两次一定重叠
+  const slowSave = async (route) => {
+    if (route.request().postData()?.includes("check_interval")) await new Promise((r) => setTimeout(r, 600));
+    await route.continue();
+  };
+  await page.route("**/wails/runtime", slowSave);
+  await sw("Dock 角标").click();
+  await interval("每周").click();
+  assert((await sw("Dock 角标").getAttribute("aria-checked")) === "false", "保存中界面也应显示已关掉的 Dock 角标");
+  await page.waitForTimeout(1600);
+  await page.unroute("**/wails/runtime", slowSave);
+  await settle();
+  const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+  assert.deepStrictEqual(saved, { auto_check: true, check_interval: "weekly", stay_in_menu_bar: true, dock_badge: false });
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await open();
+  assert((await sw("Dock 角标").getAttribute("aria-checked")) === "false", "重新载入后 Dock 角标应仍关闭");
+  assert(await interval("每周").evaluate((el) => el.classList.contains("on")), "重新载入后间隔应仍为每周");
+  await sw("自动检查更新").click();
+  await settle();
+  assert(await interval("每周").isDisabled(), "关闭自动检查后间隔不可选");
+  await sw("自动检查更新").click();
+  await settle();
+  await sw("Dock 角标").click();
+  await settle();
+  await interval("每天").click();
+  await settle();
+
+  // 项目分区：登记、改位置、注销走主界面同一套弹窗
+  fs.mkdirSync(`${HOME}/code/proj-c`, { recursive: true });
+  fs.mkdirSync(`${HOME}/code/proj-d`, { recursive: true });
+  await btn(section("项目"), "登记项目").click();
+  await modal().locator("input.input").fill(`${HOME}/code/proj-c`);
+  await btn(modal(), "登记").click();
+  await toast("已登记项目");
+  await settle();
+  assert((await page.locator(".settings .set-row", { hasText: "proj-c" }).count()) === 1, "登记后应列出 proj-c");
+  await btn(page.locator(".settings .set-row", { hasText: "proj-c" }), "改位置").click();
+  await modal().locator("h3", { hasText: "改项目「proj-c」的位置" }).waitFor();
+  await modal().locator("input.input").fill(`${HOME}/code/proj-d`);
+  await btn(modal(), "改位置").click();
+  // 项目名取目录名，改位置后跟着变
+  await toast("已把项目「proj-d」指到");
+  await settle();
+  assert((await page.locator(".settings .set-row", { hasText: "/code/proj-d" }).count()) === 1, "改位置后应显示新位置");
+  await btn(page.locator(".settings .set-row", { hasText: "proj-d" }), "注销").click();
+  await btn(modal(), "注销").click();
+  await toast("已注销项目");
+  await settle();
+  assert((await page.locator(".settings .set-row", { hasText: "proj-d" }).count()) === 0, "注销后不再列出");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
 });
 
 // ============ 冲突与失败路径 ============

@@ -399,3 +399,10 @@ body { background: transparent; font-family: var(--ui-font); font-size: 13px; li
 .field-error { font-size: 11.5px; color: var(--ui-bad); }
 .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 12px; }
 .kv dt { color: var(--ui-muted); }
+/* 设置页：右边按分区排开的卡片;一行一个设置，开关靠右 */
+.settings { max-width: 680px; margin: 0 auto; padding: 16px 20px 60px; display: flex; flex-direction: column; gap: 12px; }
+.settings .card { scroll-margin-top: 16px; }
+.set-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 12.5px; border-top: 1px solid var(--ui-border-subtle); }
+.card-h + .set-row { border-top: 0; padding-top: 0; }
+.set-row .hint { margin-top: 2px; }
+.set-row.disabled { color: var(--ui-muted); }
