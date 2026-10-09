@@ -12,13 +12,13 @@ import (
 
 const (
 	applicationID    = 1397443650
-	schemaVersion    = 17
+	schemaVersion    = 18
 	builtinAgentsSQL = `
-		INSERT INTO agents(code, name, global_path, project_path) VALUES
-			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills'),
-			('codex', 'Codex', '.agents/skills', '.agents/skills')
-		ON CONFLICT(code) DO UPDATE SET name = excluded.name, global_path = excluded.global_path, project_path = excluded.project_path
-		WHERE (name, global_path, project_path) IS NOT (excluded.name, excluded.global_path, excluded.project_path)
+		INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES
+			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills', '.claude'),
+			('codex', 'Codex', '.agents/skills', '.agents/skills', '.codex')
+		ON CONFLICT(code) DO UPDATE SET name = excluded.name, global_path = excluded.global_path, project_path = excluded.project_path, detect_path = excluded.detect_path
+		WHERE custom = 0 AND (name, global_path, project_path, detect_path) IS NOT (excluded.name, excluded.global_path, excluded.project_path, excluded.detect_path)
 	`
 )
 

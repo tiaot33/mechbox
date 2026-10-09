@@ -74,13 +74,18 @@ CREATE TABLE IF NOT EXISTS projects (
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
--- Agent 的稳定代码、展示名称与 Agent 目录;目录分别相对用户主目录和已注册项目根,技能库不提供修改方法。
--- 应用内置的 Agent 每次打开库时按本版应用写入,已有的行以应用为准覆盖名称和目录;本版应用不认识的行保持原样。
+-- Agent 的稳定代码、展示名称、Agent 目录与检测依据;目录分别相对用户主目录和已注册项目根。
+-- 内置 Agent 每次打开库时按本版应用写入,已有的行以应用为准覆盖名称、目录和检测依据;本版应用不认识的行与自定义 Agent 保持原样。
+-- 自定义 Agent 由用户经技能库添加、修改、删除;内置 Agent 不能修改或删除。
+-- 几个 Agent 在同一层级的目录相同(全局比 global_path,项目比 project_path)时共用文件夹:技能装在其中一个的作用域,
+-- 共用这个目录的作用域也算已装;这由目录推算,不另存记录。
 CREATE TABLE IF NOT EXISTS agents (
-    code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,如 claude-code / codex;Scope 和 SkillScope 以此标识 Agent
+    code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,内置如 claude-code / codex,自定义为 custom- 加随机后缀;Scope 和 SkillScope 以此标识 Agent
     name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Codex;不参与 Scope 身份判定
     global_path TEXT NOT NULL,      -- 全局 skills 目录相对用户主目录的路径,斜杠分隔,如 .claude/skills
-    project_path TEXT NOT NULL      -- 项目 skills 目录相对已注册项目根的路径,斜杠分隔,如 .agents/skills
+    project_path TEXT NOT NULL,     -- 项目 skills 目录相对已注册项目根的路径,斜杠分隔,如 .agents/skills
+    custom INTEGER NOT NULL DEFAULT 0 CHECK(custom IN (0, 1)), -- 1 = 用户添加的自定义 Agent;0 = 应用内置(含本版应用不认识的)
+    detect_path TEXT NOT NULL DEFAULT '' -- 检测这台机器上是否装了该 Agent 时看的目录,相对用户主目录,如 .claude;空 = 不检测(自定义 Agent)
 );
 
 -- SkillScope:某 skill 安装在某个 Scope。Scope 只以身份记录——Agent 代码 + 可选的已注册项目,

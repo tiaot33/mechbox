@@ -12,8 +12,9 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `update.go` — 按集合检查更新(结论随技能保存)与「集合 + 勾选的技能」的更新(库里全成或全不成)。
   - `versions.go` — 版本历史与差异,以及文件的公开类型与按版本 ID 读取文件(技能详情页看当前文件也走这里)。
   - `groups.go` — Group(带成员的技能 ID)与成员管理。
-  - `projects.go` — Agent、项目登记 / 改位置 / 注销、Scope 与 `ScopeDirectory`。
-  - `install.go` — 安装计划、直接安装与组安装、卸载、安装记录列表(按 `SkillScopeFilter` 筛选)。
+  - `agents.go` — Agent 的公开类型与列出(含是否检测到)、自定义 Agent 的添加 / 修改(改目录时迁移或去掉安装记录)/ 删除;按 Agent 实际算已装的各处(含共用目录推算的)处理,其他 Agent 还在读的文件夹不动、安装记录转给它们。
+  - `projects.go` — 项目登记 / 改位置 / 注销、Scope 与 `ScopeDirectory`。
+  - `install.go` — 安装计划、直接安装与组安装、卸载、安装记录列表(按 `SkillScopeFilter` 筛选;共用目录的各 Agent 各列一处)。
   - `reinstall.go` — `SkillScopeFilter`、SkillScope 巡检(每一处的状态与和磁盘一致的版本)与按处重新安装(`ReinstallRequest` 逐处列出、逐处同意覆盖)。
   - `sync.go` — 整库与 S3 的推拉同步:调用方传入的同步设置(`SetSyncSettings`,整组取用,没传入才读环境变量)、远端身份比对、同步计划里 S3 上那份库的信息(推送时间与机器、拉回前的摘要与不能拉回的原因);快照、拉回库校验与替换由 `store` 完成。
 - `internal/library/internal/skillfile` — 技能文件 `File` / `Mode`(`library` 另有同形的公开类型 `File` / `FileMode`,由 `versions.go` 在出口转换)、文件集合比较、内容指纹,以及巡检与版本差异共用的 `Digest`。

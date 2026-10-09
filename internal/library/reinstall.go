@@ -221,11 +221,11 @@ func (l *Library) reinstallOne(ctx context.Context, operation string, request Re
 	if err != nil {
 		return "", err
 	}
-	existing, err := l.store.FindSkillScope(ctx, int64(request.SkillID), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(request.SkillID), target.record())
 	if err != nil {
 		return "", err
 	}
-	if existing == nil {
+	if len(place) == 0 {
 		return "", &Error{Code: NotFound, Message: operation + ": skill is not installed in scope"}
 	}
 	skill, current, err := l.getCurrent(ctx, request.SkillID)
