@@ -97,7 +97,7 @@ func (s *snapshot) Candidates(context.Context) ([]discovery.Candidate, []discove
 func (s *snapshot) Fetch(_ context.Context, names []string) ([]source.Skill, error) {
 	for _, name := range names {
 		if !slices.ContainsFunc(s.skills, func(skill discovery.Skill) bool { return skill.Name == name }) {
-			return nil, &source.NotFoundError{What: "source skill", Name: name}
+			return nil, &source.NotFoundError{What: source.MissingSkill, Name: name}
 		}
 	}
 	var result []source.Skill

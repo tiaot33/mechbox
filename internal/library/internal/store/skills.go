@@ -74,6 +74,21 @@ func (q queries) ListGroupSkills(ctx context.Context, groupID int64) ([]Skill, e
 	return q.listSkills(ctx, "list group skills", `JOIN skill_groups ON skill_groups.skill_id = skills.id WHERE skill_groups.group_id = ? ORDER BY skills.id`, groupID)
 }
 
+func (q queries) ListCollectionSkills(ctx context.Context, sourceID int64) ([]Skill, error) {
+	return q.listSkills(ctx, "list collection skills", `WHERE skills.source_id = ? ORDER BY skills.id`, sourceID)
+}
+
+func (q queries) GetCollectionSource(ctx context.Context, sourceID int64) (Source, error) {
+	source := Source{ID: sourceID}
+	if err := q.q.QueryRowContext(ctx, `
+		SELECT type, locator FROM sources
+		WHERE id = ? AND EXISTS (SELECT 1 FROM skills WHERE skills.source_id = sources.id)
+	`, sourceID).Scan(&source.Type, &source.Locator); err != nil {
+		return Source{}, fmt.Errorf("get collection source: %w", wrap(err))
+	}
+	return source, nil
+}
+
 func (q queries) listSkills(ctx context.Context, operation, clause string, args ...any) ([]Skill, error) {
 	rows, err := q.q.QueryContext(ctx, skillQuery+clause, args...)
 	if err != nil {
@@ -262,14 +277,6 @@ func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision 
 		WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
 	`, state, revision, skillID); err != nil {
 		return fmt.Errorf("confirm current version: %w", wrap(err))
-	}
-	return nil
-}
-
-func (t *Tx) ConfirmUpdateCheck(ctx context.Context, skillID int64, at time.Time, status string) error {
-	if _, err := t.q.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = CASE WHEN update_check_status = '' THEN '' ELSE ? END WHERE id = ?`,
-		formatTime(at), status, skillID); err != nil {
-		return fmt.Errorf("confirm update check: %w", wrap(err))
 	}
 	return nil
 }

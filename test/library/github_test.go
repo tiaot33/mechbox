@@ -183,16 +183,12 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 				t.Fatal(err)
 			}
 			skills := fetchSkills(t, lib, preview, []string{"first", "second"})
-			ids := skillIDs(skills)
 			requireAvailable := func(want ...bool) {
 				t.Helper()
-				checks, err := lib.CheckUpdates(t.Context(), ids)
-				if err != nil {
-					t.Fatal(err)
-				}
-				for i, check := range checks {
-					if check.Error != nil || check.Available != want[i] {
-						t.Fatalf("check %s = %#v, want available %v", skills[i].Name, check, want[i])
+				for i, skill := range skills {
+					status, err := checkSkillUpdate(t, lib, t.Context(), skill.ID)
+					if err != nil || (status == library.UpdateAvailable) != want[i] || (status != library.UpdateAvailable && status != library.UpdateCurrent) {
+						t.Fatalf("check %s = %v, %v; want available %v", skill.Name, status, err, want[i])
 					}
 				}
 			}
@@ -208,7 +204,7 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 			advance()
 			requireAvailable(true, false)
 
-			updated, err := lib.Update(t.Context(), skills[0].ID)
+			updated, err := updateSkill(t, lib, t.Context(), skills[0].ID)
 			if err != nil || !updated.Changed {
 				t.Fatalf("Update(first) = %#v, %v", updated, err)
 			}
@@ -220,7 +216,7 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 			if second, err := lib.GetSkill(t.Context(), skills[1].ID); err != nil || second.Revision != preview.Revision {
 				t.Fatalf("second before its own update = %#v, %v; want revision %s", second, err, preview.Revision)
 			}
-			unchanged, err := lib.Update(t.Context(), skills[1].ID)
+			unchanged, err := updateSkill(t, lib, t.Context(), skills[1].ID)
 			if err != nil || unchanged.Changed || unchanged.Skill.Revision != gitRevParse(t, repo, "HEAD") || !unchanged.Skill.UpdatedAt.IsZero() {
 				t.Fatalf("Update(second) = %#v, %v; want confirmed at HEAD without a new version", unchanged, err)
 			}
@@ -400,8 +396,8 @@ func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 		run  func() error
 	}{
 		{"PreviewFetch", func() error { _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); return err }},
-		{"CheckUpdates", func() error { _, err := checkSingleUpdate(t, lib, t.Context(), fetched[0].ID); return err }},
-		{"Update", func() error { _, err := lib.Update(t.Context(), fetched[0].ID); return err }},
+		{"CheckUpdates", func() error { _, err := checkSkillUpdate(t, lib, t.Context(), fetched[0].ID); return err }},
+		{"Update", func() error { _, err := updateSkill(t, lib, t.Context(), fetched[0].ID); return err }},
 	} {
 		t.Run(operation.name, func(t *testing.T) {
 			err := operation.run()

@@ -111,7 +111,7 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 	}
 	for _, name := range names {
 		if !slices.ContainsFunc(s.skills, func(skill discovery.Skill) bool { return skill.Name == name }) {
-			return nil, &source.NotFoundError{What: "source skill", Name: name}
+			return nil, &source.NotFoundError{What: source.MissingSkill, Name: name}
 		}
 	}
 	encoded := encodeState(s.validator)
@@ -194,7 +194,7 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 	s.skills, s.diagnostics = skills, diagnostics
 	s.revision = hex.EncodeToString(sum[:])
 	s.validator = responseValidator(response.Header)
-	s.loaded = true
+	s.loaded, s.notModified = true, false
 	return nil
 }
 

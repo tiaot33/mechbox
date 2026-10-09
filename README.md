@@ -26,7 +26,7 @@ Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。�
 | [`internal/library/errors.go`](internal/library/errors.go) | 公开错误类型与错误码，以及把各子包错误翻译成错误码的唯一入口 |
 | [`internal/library/fetch.go`](internal/library/fetch.go) | 市场搜索、入库预览、审计与入库 |
 | [`internal/library/skills.go`](internal/library/skills.go)、[`collections.go`](internal/library/collections.go)、[`versions.go`](internal/library/versions.go) | 技能查询/移除、Collection、版本历史与差异 |
-| [`internal/library/update.go`](internal/library/update.go) | 批量检查与更新 |
+| [`internal/library/update.go`](internal/library/update.go) | 按集合检查更新与更新 |
 | [`internal/library/groups.go`](internal/library/groups.go)、[`projects.go`](internal/library/projects.go) | Group 成员、Agent、项目注册与 Scope |
 | [`internal/library/install.go`](internal/library/install.go)、[`reinstall.go`](internal/library/reinstall.go) | 直接安装与组安装、安装记录；巡检与重新安装 |
 | [`internal/library/sync.go`](internal/library/sync.go) | 整库推拉同步与项目路径对应 |

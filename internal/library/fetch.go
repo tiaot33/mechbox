@@ -29,11 +29,14 @@ type SearchSkill struct {
 	Preview   PreviewFetchRequest `json:"preview"`            // 原样传给 PreviewFetch,入库预览只列这一个技能
 }
 
-// PreviewFetchRequest 是入库预览的输入:GitHub / URL / Local 恰好给一个。
+// PreviewFetchRequest 是入库预览的输入:GitHub / URL / Local / Collection 恰好给一个。
 type PreviewFetchRequest struct {
 	GitHub *GitHubInput `json:"github,omitempty"`
 	URL    string       `json:"url,omitempty"`   // zip 压缩包地址
 	Local  string       `json:"local,omitempty"` // 本地目录;相对路径按当前工作目录解析为绝对路径
+	// Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时的仓库与分支、URL 或目录重新读取,
+	// 候选上的 Fetched 标出哪些已经入库。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
+	Collection CollectionID `json:"collection,omitzero"`
 }
 
 // GitHubInput 是用户输入的 GitHub 地址,由 PreviewFetch 解析。
@@ -148,8 +151,8 @@ type previewState struct {
 }
 
 // PreviewFetch 发起一次入库预览:发现来源中的候选 skill,返回句柄与候选清单,此时尚无内容进入 Library。
-// req 的 GitHub / URL / Local 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空;
-// 所给的输入本身无效时 Details.Field 为该字段(github / url / local)。
+// req 的 GitHub / URL / Local / Collection 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空;
+// 所给的输入本身无效时 Details.Field 为该字段(github / url / local / collection);集合不存在返回 NotFound。
 // GitHub 输入在这里解析:输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
 // 路径不一致返回 InvalidArgument;省略 ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main;
 // @name 时入库预览只列该技能,不存在返回 NotFound。URL 与本地目录总是列出全部候选。
@@ -167,7 +170,7 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	if closed {
 		return FetchPreview{}, fmt.Errorf("preview fetch: library is closed")
 	}
-	target, field, err := previewTarget(ctx, req)
+	target, field, err := l.previewTarget(ctx, req)
 	if err != nil {
 		return FetchPreview{}, inputField(err, field)
 	}
@@ -219,7 +222,7 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	return FetchPreview{ID: id, Ref: description.Ref, Revision: snapshot.Revision(), Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}, nil
 }
 
-func previewTarget(ctx context.Context, req PreviewFetchRequest) (target source.Target, field string, err error) {
+func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (target source.Target, field string, err error) {
 	var given []string
 	if req.GitHub != nil {
 		given = append(given, "github")
@@ -230,22 +233,43 @@ func previewTarget(ctx context.Context, req PreviewFetchRequest) (target source.
 	if req.Local != "" {
 		given = append(given, "local")
 	}
+	if req.Collection != 0 {
+		given = append(given, "collection")
+	}
 	switch len(given) {
 	case 0:
-		return source.Target{}, "", argumentError("preview fetch", "", "one of github, url or local is required")
+		return source.Target{}, "", argumentError("preview fetch", "", "one of github, url, local or collection is required")
 	case 1:
 	default:
-		return source.Target{}, "", argumentError("preview fetch", given[1], "only one of github, url or local may be given")
+		return source.Target{}, "", argumentError("preview fetch", given[1], "only one of github, url, local or collection may be given")
 	}
 	switch {
 	case req.GitHub != nil:
 		target, err = github.Locate(ctx, github.Input{Input: req.GitHub.Input, Ref: req.GitHub.Ref, Subpath: req.GitHub.Subpath})
 	case req.URL != "":
 		target, err = download.Locate(req.URL)
-	default:
+	case req.Local != "":
 		target, err = local.Locate(req.Local)
+	default:
+		target, err = l.collectionTarget(ctx, req.Collection)
 	}
 	return target, given[0], err
+}
+
+func (l *Library) collectionTarget(ctx context.Context, id CollectionID) (source.Target, error) {
+	if id < 0 {
+		return source.Target{}, argumentError("preview fetch", "collection", "collection ID must be positive")
+	}
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	row, err := l.store.GetCollectionSource(ctx, int64(id))
+	if errors.Is(err, store.ErrNotFound) {
+		return source.Target{}, &Error{Code: NotFound, Message: "preview fetch: collection not found", Err: err}
+	}
+	if err != nil {
+		return source.Target{}, err
+	}
+	return source.Target{Type: row.Type, Locator: row.Locator}, nil
 }
 
 func inputField(err error, field string) error {

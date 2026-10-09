@@ -37,10 +37,10 @@ func TestURLNotModifiedMeansNoUpdate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if available, err := checkSingleUpdate(t, lib, t.Context(), id); err != nil || available {
-				t.Fatalf("CheckUpdates = %v, %v", available, err)
+			if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateCurrent {
+				t.Fatalf("CheckUpdates = %v, %v", status, err)
 			}
-			result, err := lib.Update(t.Context(), id)
+			result, err := updateSkill(t, lib, t.Context(), id)
 			if err != nil || result.Changed {
 				t.Fatalf("Update = %#v, %v", result, err)
 			}
@@ -60,18 +60,18 @@ func TestURLUpdateWritesChangedArchive(t *testing.T) {
 	id := fetchArchive(t, lib, server.request())[0].ID
 
 	server.serve(zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")}), `"v2"`)
-	if available, err := checkSingleUpdate(t, lib, t.Context(), id); err != nil || !available {
-		t.Fatalf("CheckUpdates after remote change = %v, %v", available, err)
+	if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateAvailable {
+		t.Fatalf("CheckUpdates after remote change = %v, %v", status, err)
 	}
-	result, err := lib.Update(t.Context(), id)
+	result, err := updateSkill(t, lib, t.Context(), id)
 	if err != nil || !result.Changed || string(skillFiles(t, lib, result.Skill)[0].Content) != skillDocument("demo", "new") {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
 	if versions, err := lib.ListVersions(t.Context(), id); err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %#v, %v", versions, err)
 	}
-	if available, err := checkSingleUpdate(t, lib, t.Context(), id); err != nil || available {
-		t.Fatalf("CheckUpdates after Update = %v, %v", available, err)
+	if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateCurrent {
+		t.Fatalf("CheckUpdates after Update = %v, %v", status, err)
 	}
 }
 
@@ -85,13 +85,10 @@ func TestURLSkillsFromOneArchiveAreCheckedIndependently(t *testing.T) {
 	ids := skillIDs(fetchArchive(t, lib, server.request()))
 	requireAvailable := func(want ...bool) {
 		t.Helper()
-		results, err := lib.CheckUpdates(t.Context(), ids)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i, result := range results {
-			if result.Error != nil || result.Available != want[i] {
-				t.Fatalf("CheckUpdates = %#v, want %v", results, want)
+		for i, id := range ids {
+			status, err := checkSkillUpdate(t, lib, t.Context(), id)
+			if err != nil || (status == library.UpdateAvailable) != want[i] || (status != library.UpdateAvailable && status != library.UpdateCurrent) {
+				t.Fatalf("CheckUpdates(%d) = %v, %v; want available %v", id, status, err, want[i])
 			}
 		}
 	}
@@ -107,7 +104,7 @@ func TestURLSkillsFromOneArchiveAreCheckedIndependently(t *testing.T) {
 		"first/SKILL.md":  skillDocument("first", "new"),
 		"second/SKILL.md": skillDocument("second", "new"),
 	}), `"v3"`)
-	if result, err := lib.Update(t.Context(), ids[0]); err != nil || !result.Changed {
+	if result, err := updateSkill(t, lib, t.Context(), ids[0]); err != nil || !result.Changed {
 		t.Fatalf("Update first = %#v, %v", result, err)
 	}
 	requireAvailable(false, true)
@@ -123,7 +120,7 @@ func TestURLUnexpectedNotModifiedIsAnError(t *testing.T) {
 	if preview, err := lib.PreviewFetch(t.Context(), server.request()); !library.IsCode(err, library.SourceUnreachable) || preview.ID != "" {
 		t.Fatalf("PreviewFetch = %#v, %v, want SourceUnreachable", preview, err)
 	}
-	if available, err := checkSingleUpdate(t, lib, t.Context(), id); !library.IsCode(err, library.SourceUnreachable) || available {
-		t.Fatalf("CheckUpdates = %v, %v, want SourceUnreachable", available, err)
+	if status, err := checkSkillUpdate(t, lib, t.Context(), id); !library.IsCode(err, library.SourceUnreachable) || status != library.UpdateFailed {
+		t.Fatalf("CheckUpdates = %v, %v, want SourceUnreachable", status, err)
 	}
 }

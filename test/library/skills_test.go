@@ -97,7 +97,7 @@ func TestListsAndDetailReturnTheSameSkill(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example")
-	if _, err := lib.CheckUpdates(ctx, []library.SkillID{skill.ID}); err != nil {
+	if _, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID}); err != nil {
 		t.Fatal(err)
 	}
 	detail, err := lib.GetSkill(ctx, skill.ID)
@@ -135,7 +135,7 @@ func TestUpdateTimeAndVersionFilesAcrossUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unchanged, err := lib.Update(ctx, fetched.ID)
+	unchanged, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil || unchanged.Changed || !unchanged.Skill.UpdatedAt.IsZero() || unchanged.Skill.VersionID != fetched.VersionID {
 		t.Fatalf("Update without changes = %#v, %v; want no update time and the same version", unchanged, err)
 	}
@@ -145,7 +145,7 @@ func TestUpdateTimeAndVersionFilesAcrossUpdate(t *testing.T) {
 	if err := os.Remove(filepath.Join(source, "removed.txt")); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := lib.Update(ctx, fetched.ID)
+	updated, err := updateSkill(t, lib, ctx, fetched.ID)
 	if err != nil || !updated.Changed {
 		t.Fatalf("Update = %#v, %v", updated, err)
 	}

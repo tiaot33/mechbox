@@ -6,10 +6,10 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/library.go` — `Library` 结构体与实例生命周期:Open、Close、共享状态与操作锁;`Open` 里登记各来源(`source.Kinds`)与读取上限;`applyChange` 把 `store.InTx` 与 `agentdir.Change` 合成一次提交:暂存 → 开事务写记录 → `Commit` 移到位 → 提交事务 → `Done`,失败时 defer 倒序撤销。
 - `internal/library/errors.go` — 公开错误类型 `Error` / `ErrorCode` / `ErrorDetails`,以及唯一的翻译点 `typedError` 和参数校验。
 - 以下每个文件按用户流程放一步的公开类型、公开方法与其私有辅助函数:
-  - `fetch.go` — 搜索、入库预览、审计、入库;`previewTarget` 把入库预览请求里给出的那个字段交给对应来源的 `Locate`,入库预览、入库、更新与批量检查都只经 `source.Kinds` 打开的 `Snapshot`。
+  - `fetch.go` — 搜索、入库预览、审计、入库;`previewTarget` 把入库预览请求里给出的那个字段交给对应来源的 `Locate`(`Collection` 不是一种来源,从库里取该集合入库时的定位信息),入库预览、入库、更新与检查更新都只经 `source.Kinds` 打开的 `Snapshot`。
   - `skills.go` — 来源与技能的公开类型、技能查询 / 移除,以及 store 记录到公开类型的转换(来源的展示字段由各来源的 `Describe` 生成)。
   - `collections.go` — 按来源聚合的 Collection 与集合的身份 `CollectionID`(值就是来源那一行的主键)。
-  - `update.go` — 批量检查与单项更新。
+  - `update.go` — 按集合检查更新(结论随技能保存)与「集合 + 勾选的技能」的更新(库里全成或全不成)。
   - `versions.go` — 版本历史与差异,以及文件的公开类型与按版本 ID 读取文件(技能详情页看当前文件也走这里)。
   - `groups.go` — Group(带成员的技能 ID)与成员管理。
   - `projects.go` — Agent、项目登记 / 改位置 / 注销、Scope 与 `ScopeDirectory`。
@@ -17,7 +17,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `reinstall.go` — `SkillScopeFilter`、SkillScope 巡检(每一处的状态与和磁盘一致的版本)与按处重新安装(`ReinstallRequest` 逐处列出、逐处同意覆盖)。
   - `sync.go` — 整库与 S3 的推拉同步:远端身份比对、`SKILLS_PROJECT_PATH_MAP` 解析;快照、拉回库校验与替换由 `store` 完成。
 - `internal/library/internal/skillfile` — 技能文件 `File` / `Mode`(`library` 另有同形的公开类型 `File` / `FileMode`,由 `versions.go` 在出口转换)、文件集合比较、内容指纹,以及巡检与版本差异共用的 `Digest`。
-- `internal/library/internal/source` — 每种来源实现的 `Kind`(按定位信息打开 `Snapshot`、生成展示名称 / Ref / 查看链接)与按来源类型分派的 `Kinds`;`Snapshot` 是钉住的一份来源内容:候选、按名取文件、检查更新。定位信息 `Locator` 对 Library 不透明,由各来源的 `Locate` 从用户输入生成。`Check` 返回变了 / 没变 / 未知三态,未知时由 `update.go` 的 `checkSnapshot` 取文件比较;各来源自己的读取状态 `State` 存在 `skill_versions.source_state`,Library 只存取不解析。子包共用的错误也在这里:哨兵错误 `ErrUnreachable` / `ErrPermission` / `ErrInvalid` / `ErrUnsupported`,以及输入不合法的 `InputError`、ref / 子路径 / 技能不存在的 `NotFoundError`;各来源不另定义错误。
+- `internal/library/internal/source` — 每种来源实现的 `Kind`(按定位信息打开 `Snapshot`、生成展示名称 / Ref / 查看链接)与按来源类型分派的 `Kinds`;`Snapshot` 是钉住的一份来源内容:候选、按名取文件、检查更新。定位信息 `Locator` 对 Library 不透明,由各来源的 `Locate` 从用户输入生成。`Check` 返回变了 / 没变 / 未知三态,未知时由 `update.go` 的 `checkSnapshot` 取文件比较;各来源自己的读取状态 `State` 存在 `skill_versions.source_state`,Library 只存取不解析。子包共用的错误也在这里:哨兵错误 `ErrUnreachable` / `ErrPermission` / `ErrInvalid` / `ErrUnsupported`,以及输入不合法的 `InputError`、ref / 子路径 / 技能不存在的 `NotFoundError`(按 `What` 区分,检查更新据此把「来源里没有这个技能」记为来源里已删除);各来源不另定义错误。
 - `internal/library/internal/source/local` — 本地目录来源。
 - `internal/library/internal/source/download` — URL 来源:下载 zip 压缩包,按 HTTP validator 发条件请求;validator 作为 `State` 记在各 Skill 的版本上。
 - `internal/library/internal/source/github` — GitHub 来源:`input.go` 解析 GitHub 输入并跑 git 命令,`contents.go` 是 `Snapshot` 实现(commit / tree / blob、目录 tree SHA 与确认 commit 作为 `State`),`transfer.go` / `memo.go` 负责下载与对象缓存,`clone.go` 是 API 不可用时的浅克隆回退。`Client` 持有跨操作共享的认证降级状态与缓存,由 Library 持有、`Close` 时清空。
@@ -29,7 +29,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `test/library/` — 技能库的集成测试(`package library_test`),按行为组织,只经公开 API 断言,用真实的 SQLite 文件、git 仓库与 `httptest` 服务;共享辅助函数在 `test_helpers_test.go`。运行 `go test ./test/library`;统计 Library 的覆盖率加 `-coverpkg=./internal/library/...`。文件名不按流程一一对应,找某个方法的测试按方法名 grep(如 `lib.Install(`)或用 `go test -run`;整理某个流程的 API 时,顺手把该流程的测试按流程合并、改名。
 - `cmd/demo/main.go` — 可运行的入口示例,用内存数据库演示 Library 的导入、调用和关闭;运行 `go run ./cmd/demo`。
 
-用户流程的编排留在 `package library`,公开方法与其私有辅助函数按用户流程放在同一文件;每个外部系统(SQLite、Agent 目录、各来源、skills.sh、S3)一个子包,放在 `internal/library/internal/` 下,只有 `library` 能导入。子包不知道公开错误码,只返回自己的哨兵错误或错误类型。新增一种来源时,在 `source` 下加子包(导出 `Type`、`Locate` 和实现 `source.Kind` 的类型),在 `library.go` 的 `Open` 里登记,并在 `PreviewFetchRequest` 加一个输入字段、在 `fetch.go` 的 `previewTarget` 里接上;更新、批量检查、展示与错误翻译都不用改。
+用户流程的编排留在 `package library`,公开方法与其私有辅助函数按用户流程放在同一文件;每个外部系统(SQLite、Agent 目录、各来源、skills.sh、S3)一个子包,放在 `internal/library/internal/` 下,只有 `library` 能导入。子包不知道公开错误码,只返回自己的哨兵错误或错误类型。新增一种来源时,在 `source` 下加子包(导出 `Type`、`Locate` 和实现 `source.Kind` 的类型),在 `library.go` 的 `Open` 里登记,并在 `PreviewFetchRequest` 加一个输入字段、在 `fetch.go` 的 `previewTarget` 里接上;更新、检查更新、展示与错误翻译都不用改。
 
 测试放置:只经公开 API 的集成测试放在顶层 `test/` 下按被测对象分目录(如 `test/library/`);针对某个文件内部实现的单元测试放在该文件旁边。
 

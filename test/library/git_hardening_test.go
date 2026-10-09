@@ -113,9 +113,9 @@ func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 			start := time.Now()
 			var err error
 			if name == "CheckUpdates" {
-				_, err = checkSingleUpdate(t, lib, t.Context(), fetched[0].ID)
+				_, err = checkSkillUpdate(t, lib, t.Context(), fetched[0].ID)
 			} else {
-				_, err = lib.Update(t.Context(), fetched[0].ID)
+				_, err = updateSkill(t, lib, t.Context(), fetched[0].ID)
 			}
 			elapsed := time.Since(start)
 			if elapsed > 10*time.Second {

@@ -127,15 +127,14 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, "moved", "SKILL.md"), []byte(skillDocument("first", "v2")), 0o644)
-	checks, err := lib.CheckUpdates(ctx, []library.SkillID{first.ID, second.ID})
-	if err != nil {
-		t.Fatal(err)
+	checks, err := lib.CheckUpdates(ctx, []library.CollectionID{first.CollectionID})
+	if err != nil || len(checks) != 1 || checks[0].Error != nil || len(checks[0].Skills) != 2 {
+		t.Fatalf("CheckUpdates = %#v, %v", checks, err)
 	}
-	want := []library.UpdateCheck{{SkillID: first.ID, Available: true}, {SkillID: second.ID}}
-	if !reflect.DeepEqual(checks, want) {
-		t.Fatalf("CheckUpdates = %#v; want %#v", checks, want)
+	if got := []library.UpdateCheckStatus{checks[0].Skills[0].LastUpdateCheck.Status, checks[0].Skills[1].LastUpdateCheck.Status}; !reflect.DeepEqual(got, []library.UpdateCheckStatus{library.UpdateAvailable, library.UpdateCurrent}) {
+		t.Fatalf("CheckUpdates statuses = %v; want available, current", got)
 	}
-	updated, err := lib.Update(ctx, first.ID)
+	updated, err := updateSkill(t, lib, ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,13 +145,15 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 		t.Fatalf("updated skill = %#v; want an update time and no revision for a local source", updated.Skill)
 	}
 
-	// 名字从目录里消失时,更新报 NotFound。
+	// 名字从目录里消失时,检查记为来源里已删除,更新报 NotFound。
 	if err := os.RemoveAll(filepath.Join(root, "b")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.Update(ctx, second.ID); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("Update of vanished skill = %v; want NotFound", err)
+	if status, err := checkSkillUpdate(t, lib, ctx, second.ID); err != nil || status != library.UpdateDeleted {
+		t.Fatalf("check of vanished skill = %v, %v; want deleted", status, err)
 	}
+	_, err = lib.Update(ctx, singleUpdate(second))
+	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{SkillID: second.ID, Name: second.Name})
 }
 
 func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {

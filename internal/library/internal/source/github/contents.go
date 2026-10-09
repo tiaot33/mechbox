@@ -276,7 +276,7 @@ func resolveGitHubSubpath(entries []githubTreeEntry, subpath string) (string, er
 		current = path.Join(current, component)
 		index := slices.IndexFunc(entries, func(entry githubTreeEntry) bool { return entry.Path == current })
 		if index < 0 {
-			return "", &source.NotFoundError{What: "source subpath"}
+			return "", &source.NotFoundError{What: source.MissingSubpath}
 		}
 		if entries[index].Type != "tree" {
 			return "", invalidInput("source subpath must contain only real directories")
@@ -738,7 +738,7 @@ func selectSkills(skills []discoveredSkill, selected []string) ([]discoveredSkil
 	}
 	for _, name := range selected {
 		if wanted[name] {
-			return nil, &source.NotFoundError{What: "source skill", Name: name}
+			return nil, &source.NotFoundError{What: source.MissingSkill, Name: name}
 		}
 	}
 	return result, nil

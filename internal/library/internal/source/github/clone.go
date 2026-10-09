@@ -109,7 +109,7 @@ func fetchGitHubClone(ctx context.Context, locator repoLocator, subpath string) 
 			}
 			index := slices.IndexFunc(entries, func(entry fs.DirEntry) bool { return entry.Name() == component })
 			if index < 0 {
-				return result, &source.NotFoundError{What: "source subpath"}
+				return result, &source.NotFoundError{What: source.MissingSubpath}
 			}
 			if !entries[index].IsDir() {
 				return result, invalidInput("source subpath must contain only real directories")
