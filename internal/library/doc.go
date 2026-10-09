@@ -20,8 +20,9 @@
 //
 // 查看库里的技能(skills.go、collections.go、versions.go):
 //   - [Library.ListSkills] 列出技能;[Library.ListCollections] 列出集合:每个来源一个,带集合里的技能 ID。
-//   - [Library.GetSkill] 读取一个技能;[Library.ListVersionFiles]、[Library.GetVersionFile] 按技能的当前版本 ID 列出和读取文件。
-//   - [Library.ListVersions]、[Library.GetVersion]、[Library.DiffVersions] 查看版本历史与差异。
+//   - [Library.GetSkill] 读取一个技能。
+//   - [Library.ListVersions]、[Library.GetVersion] 列出和读取版本;[Library.ListVersionFiles]、[Library.GetVersionFile] 按版本 ID
+//     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
 //
 // 更新(update.go):

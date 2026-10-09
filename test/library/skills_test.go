@@ -1,13 +1,11 @@
 package library_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"testing"
 	"time"
 
@@ -173,46 +171,6 @@ func TestUpdateTimeAndVersionFilesAcrossUpdate(t *testing.T) {
 		{Path: "SKILL.md", Content: []byte(skillDocument("changing", "old")), Mode: library.ModeRegular},
 		{Path: "removed.txt", Content: []byte("removed"), Mode: library.ModeRegular},
 	})
-}
-
-func TestVersionFilesReportMissingAndCanceled(t *testing.T) {
-	ctx := t.Context()
-	lib := openTestLibrary(t)
-	skill := fetchNamedSkill(t, lib, "present")
-	// 路径按原样精确匹配,不做归一化。
-	for _, path := range []string{"missing.txt", "", "../SKILL.md", "./SKILL.md", "/SKILL.md"} {
-		_, err := lib.GetVersionFile(ctx, skill.VersionID, path)
-		requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Path: path})
-	}
-	_, err := lib.ListVersionFiles(ctx, 99999)
-	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{})
-	_, err = lib.GetVersionFile(ctx, 99999, "SKILL.md")
-	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{})
-	canceled, cancel := context.WithCancel(ctx)
-	cancel()
-	if _, err := lib.ListVersionFiles(canceled, skill.VersionID); !library.IsCode(err, library.Canceled) {
-		t.Fatalf("canceled list error = %v", err)
-	}
-	if _, err := lib.GetVersionFile(canceled, skill.VersionID, "SKILL.md"); !library.IsCode(err, library.Canceled) {
-		t.Fatalf("canceled read error = %v", err)
-	}
-}
-
-// requireVersionFiles 核对版本的文件列表与逐个读取:元数据按路径排序、大小等于内容字节数,单文件读取与 want 完全相同。
-func requireVersionFiles(t *testing.T, lib *library.Library, id library.VersionID, want []library.File) {
-	t.Helper()
-	var wantMetadata []library.FileMetadata
-	for _, file := range want {
-		wantMetadata = append(wantMetadata, library.FileMetadata{Path: file.Path, Size: int64(len(file.Content)), Mode: file.Mode})
-		got, err := lib.GetVersionFile(t.Context(), id, file.Path)
-		if err != nil || !reflect.DeepEqual(got, file) {
-			t.Fatalf("GetVersionFile(%q) = %#v, %v; want %#v", file.Path, got, err, file)
-		}
-	}
-	metadata, err := lib.ListVersionFiles(t.Context(), id)
-	if err != nil || !slices.Equal(metadata, wantMetadata) {
-		t.Fatalf("ListVersionFiles = %#v, %v; want %#v", metadata, err, wantMetadata)
-	}
 }
 
 func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {

@@ -37,12 +37,6 @@ type Current struct {
 	Files     []skillfile.File
 }
 
-type FileInfo struct {
-	Path string
-	Size int64
-	Mode skillfile.Mode
-}
-
 type NewVersion struct {
 	Description string
 	Files       []skillfile.File
@@ -166,62 +160,6 @@ func (q queries) versionFiles(ctx context.Context, versionID int64, operation st
 		return nil, fmt.Errorf("%s: %w", operation, wrap(err))
 	}
 	return files, nil
-}
-
-func (q queries) ListVersionFiles(ctx context.Context, versionID int64) ([]FileInfo, error) {
-	rows, err := q.q.QueryContext(ctx, `
-		SELECT version_files.path, length(blobs.content), version_files.mode
-		FROM skill_versions
-		LEFT JOIN version_files ON version_files.version_id = skill_versions.id
-		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skill_versions.id = ?
-		ORDER BY version_files.path
-	`, versionID)
-	if err != nil {
-		return nil, fmt.Errorf("list version files: %w", wrap(err))
-	}
-	defer rows.Close()
-	versionExists := false
-	var files []FileInfo
-	for rows.Next() {
-		versionExists = true
-		var path, mode sql.NullString
-		var size sql.NullInt64
-		if err := rows.Scan(&path, &size, &mode); err != nil {
-			return nil, fmt.Errorf("read version file metadata: %w", wrap(err))
-		}
-		if path.Valid {
-			files = append(files, FileInfo{Path: path.String, Size: size.Int64, Mode: skillfile.Mode(mode.String)})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list version files: %w", wrap(err))
-	}
-	if !versionExists {
-		return nil, fmt.Errorf("list version files: %w", ErrNotFound)
-	}
-	return files, nil
-}
-
-func (q queries) GetVersionFile(ctx context.Context, versionID int64, path string) (skillfile.File, bool, error) {
-	var fileExists bool
-	var mode sql.NullString
-	file := skillfile.File{Path: path}
-	err := q.q.QueryRowContext(ctx, `
-		SELECT version_files.path IS NOT NULL, blobs.content, version_files.mode
-		FROM skill_versions
-		LEFT JOIN version_files ON version_files.version_id = skill_versions.id AND version_files.path = ?
-		LEFT JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE skill_versions.id = ?
-	`, path, versionID).Scan(&fileExists, &file.Content, &mode)
-	if err != nil {
-		return skillfile.File{}, false, fmt.Errorf("get version file: %w", wrap(err))
-	}
-	if !fileExists {
-		return skillfile.File{}, false, nil
-	}
-	file.Mode = skillfile.Mode(mode.String)
-	return file, true, nil
 }
 
 func (q queries) RequireSkill(ctx context.Context, id int64) error {

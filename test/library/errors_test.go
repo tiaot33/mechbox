@@ -37,6 +37,10 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			_, err := lib.ListVersions(t.Context(), 1)
 			return err
 		}},
+		{name: "list versions of missing skill", want: library.NotFound, call: func(lib *library.Library) error {
+			_, err := lib.ListVersions(t.Context(), 9999)
+			return err
+		}},
 		{name: "get version", want: library.NotFound, call: func(lib *library.Library) error {
 			_, err := lib.GetVersion(t.Context(), 9999)
 			return err

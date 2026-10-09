@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
 type Scope struct {
@@ -261,27 +259,6 @@ func (q queries) OlderVersionIDs(ctx context.Context, skillID, currentVersionID 
 		return nil, fmt.Errorf("read skill versions: %w", wrap(err))
 	}
 	return versionIDs, nil
-}
-
-func (q queries) VersionDigests(ctx context.Context, versionID int64) (map[string]skillfile.Digest, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT path, fingerprint, mode FROM version_files WHERE version_id = ?`, versionID)
-	if err != nil {
-		return nil, fmt.Errorf("list version fingerprints: %w", wrap(err))
-	}
-	defer rows.Close()
-	files := make(map[string]skillfile.Digest)
-	for rows.Next() {
-		var path string
-		var digest skillfile.Digest
-		if err := rows.Scan(&path, &digest.Fingerprint, &digest.Mode); err != nil {
-			return nil, fmt.Errorf("read version fingerprint: %w", wrap(err))
-		}
-		files[path] = digest
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read version fingerprints: %w", wrap(err))
-	}
-	return files, nil
 }
 
 func (t *Tx) RecordSkillScope(ctx context.Context, skillID int64, scope Scope, direct bool, createdAt time.Time) error {
