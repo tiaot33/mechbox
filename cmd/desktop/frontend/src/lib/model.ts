@@ -4,6 +4,7 @@ import {
   SkillScopeStatus,
   SourceType,
   UpdateCheckStatus,
+  type Agent,
   type AgentCode,
   type Collection,
   type CollectionID,
@@ -58,6 +59,12 @@ export function scopeLabel(s: Snapshot, scope: Scope): string {
 export function shortPath(s: Snapshot, path: string): string {
   const home = s.info.home_dir;
   return home && (path === home || path.startsWith(home + "/")) ? "~" + path.slice(home.length) : path;
+}
+
+// agentShown 是 Agent 的显示勾选：用户勾选过的按勾选，没勾选过的检测到的和自定义的显示。
+// 显示只影响选择安装位置的地方(右栏与胶囊弹层的"其他 Agent"、"安装到…");已经装了技能的 Agent 照常列出。
+export function agentShown(shown: Partial<Record<string, boolean>> | null | undefined, agent: Agent): boolean {
+  return shown?.[agent.code] ?? (agent.detected || agent.custom);
 }
 
 // agentsUsedIn 是某个地方实际装有技能的 Agent,按 Agent 列表顺序。

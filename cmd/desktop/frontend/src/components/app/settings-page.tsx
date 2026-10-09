@@ -1,14 +1,14 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查更新与提示方式是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
-// GitHub、同步、Agent 暂时只读展示外部配置状态与内置 Agent;项目分区复用主界面右栏的登记 / 改位置 / 注销。
+// GitHub、同步暂时只读展示外部配置状态;Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销。
 import { useEffect, useRef, useState } from "react";
 import { AppService, CheckInterval, type ConfigStatus, type Settings } from "@bindings/cmd/desktop";
 import { unregisterProject } from "@/lib/actions";
 import type { Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
+import { AgentDialog, AgentSection } from "./agent-settings";
 import { Icon } from "./icons";
-import { AgentMark } from "./parts";
 import { ProjectPathDialog } from "./scope-panel";
 
 const sections = ["GitHub", "同步", "检查更新", "提示方式", "Agent", "项目", "关于"] as const;
@@ -178,14 +178,15 @@ export function SettingsPage({ s, config, onClose }: { s: Snapshot; config: Conf
               )}
               {card(
                 "Agent",
-                `由技能库内置，全局目录相对 ${shortPath(s, s.info.home_dir)}`,
-                s.agents.map((a) => (
-                  <div key={a.code} className="scope-cell" style={{ padding: "3px 0" }}>
-                    <AgentMark code={a.code} name={a.name} />
-                    {a.name}
-                    <span className="mono tiny muted">{a.code}</span>
-                  </div>
-                )),
+                <button type="button" className="pill-btn" onClick={() => ui.open((close) => <AgentDialog s={s} onClose={close} />)}>
+                  <Icon name="plus" />
+                  添加 Agent
+                </button>,
+                <AgentSection
+                  s={s}
+                  shown={settings && (settings.agents_shown ?? null)}
+                  onShown={(a, on) => save({ agents_shown: { ...latest.current?.agents_shown, [a.code]: on } })}
+                />,
               )}
               {card(
                 "项目",

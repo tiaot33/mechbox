@@ -27,6 +27,7 @@ import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/con
 import type { Snapshot } from "@/lib/library";
 import {
   agentName,
+  agentShown,
   agentsUsedIn,
   collectionSkills,
   deletedInSource,
@@ -339,12 +340,12 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
   );
 }
 
-// InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面。
+// InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面，其余只列勾选显示的。
 function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   const ui = useUI();
   const [place, setPlace] = useState<Place>(0);
   const used = agentsUsedIn(s, place);
-  const rest = s.agents.filter((a) => !used.includes(a));
+  const rest = s.agents.filter((a) => !used.includes(a) && agentShown(s.agentsShown, a));
   const available = (code: AgentCode) => !skillScopeIn(s, skillID, scopeKey(scopeOf(code, place)));
   const first = [...used, ...rest].find((a) => available(a.code));
   const [agent, setAgent] = useState<AgentCode | "">("");
@@ -370,7 +371,7 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
             ))}
           </optgroup>
         )}
-        <optgroup label={used.length ? "其他 Agent" : "全部 Agent"}>
+        <optgroup label={used.length ? "其他 Agent" : "Agent"}>
           {rest.map((a) => (
             <option key={a.code} value={a.code} disabled={!available(a.code)}>
               {a.name}

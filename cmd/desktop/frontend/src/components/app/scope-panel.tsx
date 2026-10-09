@@ -1,4 +1,4 @@
-// 右栏：作用域——全局与每个已登记项目下，只展开装有技能的 Agent,其余折进"其他 N 个 Agent";
+// 右栏：作用域——全局与每个已登记项目下，只展开装有技能的 Agent,其余勾选显示的折进"其他 N 个 Agent";
 // 项目行折叠时用小图标显示在用的 Agent。点选一行即选中该作用域(与顶栏胶囊同步)。
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖到折叠的项目或"其他 Agent"上停 0.5 秒自动展开。
 import { useRef, useState } from "react";
@@ -7,6 +7,7 @@ import { registerProject, relocateProject, unregisterProject } from "@/lib/actio
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
 import type { Snapshot } from "@/lib/library";
 import {
+  agentShown,
   agentsUsedIn,
   needsReinstall,
   parseScope,
@@ -79,13 +80,13 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
     );
   };
 
-  // 每个地方只展开"用到的 Agent"(装有技能，或正被选中);其余折进"其他 N 个 Agent",展开后淡色显示在开关之上。
+  // 每个地方只展开"用到的 Agent"(装有技能，或正被选中);其余勾选显示的折进"其他 N 个 Agent",展开后淡色显示在开关之上。
   const agentRows = (place: Place) => {
     const used = agentsUsedIn(s, place);
     const shown = s.agents.filter(
       (a) => used.includes(a) || (selected?.agent === a.code && placeOf(selected) === place),
     );
-    const rest = s.agents.filter((a) => !shown.includes(a));
+    const rest = s.agents.filter((a) => !shown.includes(a) && agentShown(s.agentsShown, a));
     const more = moreAgents.has(place);
     return (
       <>

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -81,10 +82,10 @@ func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 	if err := first.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup: %v", err)
 	}
-	if got := first.Settings(); got != defaultSettings() {
+	if got := first.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
 		t.Fatalf("first start = %+v; want defaults", got)
 	}
-	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false}
+	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
 	if _, err := first.SaveSettings(want); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 		t.Fatalf("ServiceStartup after restart: %v", err)
 	}
 	t.Cleanup(func() { _ = second.ServiceShutdown() })
-	if got := second.Settings(); got != want {
+	if got := second.Settings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("after restart = %+v; want %+v", got, want)
 	}
 }

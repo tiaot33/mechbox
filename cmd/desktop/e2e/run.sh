@@ -23,6 +23,8 @@ echo "构建前端与 server 模式二进制…"
 # 测试数据：一个目录里的三个本地技能(alpha 带一个可执行脚本)、两个项目目录、供 URL 入库的两个 zip。
 home="$work/home"
 mkdir -p "$home/code/proj-a" "$home/code/proj-b"
+# 内置 Agent 的配置目录：有它们才算检测到，默认显示在选择安装位置的地方。
+mkdir -p "$home/.claude" "$home/.codex"
 for name in alpha beta gamma; do
 	mkdir -p "$home/code/my-skills/$name"
 	printf -- '---\nname: %s\ndescription: "%s skill: does %s things."\n---\n\n# %s\n\n- step one\n- step `two`\n' \

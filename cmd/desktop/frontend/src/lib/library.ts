@@ -1,7 +1,7 @@
 // 桌面端读取技能库的入口：经 Wails 绑定调用 Go 侧的 LibraryService。
 import { useCallback, useEffect, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
-import { LibraryService, type AppInfo } from "@bindings/cmd/desktop";
+import { AppService, LibraryService, type AppInfo } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
   type Error as LibraryErrorModel,
@@ -27,10 +27,11 @@ export function toLibraryError(err: unknown): LibraryError {
   return { code: ErrorCode.Internal, message: err instanceof Error ? err.message : String(err) };
 }
 
-// Snapshot 是主界面一次读出的全部只读数据。
+// Snapshot 是主界面一次读出的全部只读数据;agentsShown 来自这台机器的应用设置，其余来自技能库。
 export interface Snapshot {
   info: AppInfo;
   agents: Agent[];
+  agentsShown: Partial<Record<string, boolean>>;
   projects: RegisteredProject[];
   skills: Skill[];
   collections: Collection[];
@@ -71,12 +72,14 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
       list(track(LibraryService.ListGroups())),
       list(track(LibraryService.ListGroupInstalls())),
       list(track(LibraryService.InspectSkillScopes({}))),
+      track(AppService.Settings()),
     ]).then(
-      ([info, agents, projects, skills, collections, groups, groupInstalls, skillScopes]) => {
+      ([info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, settings]) => {
         if (cancelled) return;
+        const agentsShown = settings.agents_shown ?? {};
         setState({
           status: "ready",
-          snapshot: { info, agents, projects, skills, collections, groups, groupInstalls, skillScopes },
+          snapshot: { info, agents, agentsShown, projects, skills, collections, groups, groupInstalls, skillScopes },
         });
       },
       (err: unknown) => {
