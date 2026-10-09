@@ -1,18 +1,50 @@
 // 设置页的 GitHub 与同步分区：令牌与密钥存在系统钥匙串里，其余几项存在这台机器的应用设置里，都不进技能库。
 // 填完点保存才存入并交给技能库;留空时技能库照旧读环境变量。同步设置整组取用：填了任意一项就整组用这里的。
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppService, type Credentials } from "@bindings/cmd/desktop";
 import type { SyncSettings } from "@bindings/internal/library";
 import { useUI } from "@/lib/ui";
 
-export function useCredentials() {
+type Form = (saved: Credentials, onSaved: (c: Credentials) => void) => ReactNode;
+
+// useCredentials 读取设置页填过的内容，返回按分区渲染表单的函数。钥匙串读不到(例如拒绝了授权)时不给表单，
+// 免得把没读到当成没填、保存时盖掉钥匙串里的内容。读到或保存后调用 onChange,让主界面重读配置状态。
+export function useCredentials(onChange: () => void): (form: Form) => ReactNode {
   const [credentials, setCredentials] = useState<Credentials>();
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let live = true;
+    setFailed(false);
     const call = AppService.Credentials();
-    call.then(setCredentials, () => {});
-    return () => void call.cancel();
-  }, []);
-  return [credentials, setCredentials] as const;
+    call.then(
+      (c) => {
+        if (!live) return;
+        setCredentials(c);
+        onChange();
+      },
+      () => live && setFailed(true),
+    );
+    return () => {
+      live = false;
+      call.cancel();
+    };
+  }, [attempt]);
+  const saved = (c: Credentials) => {
+    setCredentials(c);
+    onChange();
+  };
+  return (form) =>
+    failed ? (
+      <div className="row">
+        <p className="hint grow">没能读取系统钥匙串，令牌和密钥暂时不能查看或修改。</p>
+        <button type="button" className="pill-btn" onClick={() => setAttempt((n) => n + 1)}>
+          重试
+        </button>
+      </div>
+    ) : (
+      credentials && form(credentials, saved)
+    );
 }
 
 type SyncField = keyof SyncSettings;
@@ -108,7 +140,9 @@ function SaveForm({
   };
   return (
     <form className="cred-form" onSubmit={submit}>
-      {children}
+      <fieldset className="cred-form" disabled={saving}>
+        {children}
+      </fieldset>
       <div className="row">
         <p className="hint grow">{hint}</p>
         <button type="submit" className="pill-btn accent" disabled={!dirty || saving}>

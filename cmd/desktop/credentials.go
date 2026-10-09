@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,12 @@ import (
 )
 
 const keychainService = "com.tiaot33.skills-manager"
+
+type secretStore interface {
+	get() ([]byte, bool, error)
+	set(value []byte) error
+	delete() error
+}
 
 type keychain struct {
 	service string
@@ -32,11 +39,18 @@ type Credentials struct {
 	Sync        library.SyncSettings `json:"sync"`         // 全部留空时技能库读 SKILLS_S3_*、AWS_*;填了任意一项就整组用这里的
 }
 
-// Credentials 返回设置页里填的 GitHub 令牌与同步设置。
-func (a *AppService) Credentials() Credentials {
+// Credentials 返回设置页里填的 GitHub 令牌与同步设置。启动时没能读取钥匙串(例如用户拒绝了授权)时，
+// 这里再读一次并交给技能库;仍读不到就返回错误，设置页不让保存，免得用空值盖掉钥匙串里的内容。
+func (a *AppService) Credentials() (Credentials, error) {
 	a.credMu.Lock()
 	defer a.credMu.Unlock()
-	return a.credentials()
+	if !a.secretsRead {
+		if err := a.readSecrets(); err != nil {
+			return Credentials{}, err
+		}
+		a.applyCredentials(a.credentials())
+	}
+	return a.credentials(), nil
 }
 
 // SaveGitHubToken 保存 GitHub 令牌并立即交给技能库;传空字符串即清掉，技能库回到读环境变量。
@@ -96,7 +110,11 @@ func (a *AppService) saveCredentials(change func(*Credentials)) (Credentials, er
 	a.mu.Unlock()
 	if err != nil {
 		if stored != previous {
-			_ = writeSecrets(a.keychain, previous)
+			if restoreErr := writeSecrets(a.keychain, previous); restoreErr != nil {
+				a.secrets = stored
+				a.applyCredentials(a.credentials())
+				return Credentials{}, errors.Join(err, fmt.Errorf("restore keychain item: %w", restoreErr))
+			}
 		}
 		return Credentials{}, err
 	}
@@ -123,7 +141,7 @@ func (a *AppService) readSecrets() error {
 	return nil
 }
 
-func writeSecrets(k keychain, stored secrets) error {
+func writeSecrets(k secretStore, stored secrets) error {
 	if stored == (secrets{}) {
 		return k.delete()
 	}

@@ -32,7 +32,7 @@ type AppService struct {
 	lastAttempt time.Time
 
 	credMu      sync.Mutex
-	keychain    keychain
+	keychain    secretStore
 	secrets     secrets
 	secretsRead bool
 

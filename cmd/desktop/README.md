@@ -72,7 +72,7 @@ open bin/skills-manager.app
 
 - **技能库位置**：`<用户配置目录>/skills-manager/library.db`，macOS 上是 `~/Library/Application Support/skills-manager/library.db`。首次启动时创建目录，由 Library 初始化空库。它只依赖 `HOME`，所以从 Finder / Dock 启动也能找到。
 - **应用设置**：检查更新与提示方式只属于这台机器，存在技能库旁边的 `settings.json`（macOS 上是 `~/Library/Application Support/skills-manager/settings.json`），不进技能库、不随同步走；文件里没有的字段取默认值，加设置项就是给 `Settings` 加字段。
-- **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 存在 macOS 系统钥匙串(一个条目，服务名 `com.tiaot33.skills-manager`),其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许。
+- **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 存在 macOS 系统钥匙串(一个条目，服务名 `com.tiaot33.skills-manager`),其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许;拒绝后打开设置页会再读一次，仍读不到时这两个分区只显示「重试」,不能修改。
 - **自动检查更新**：默认打开、每天。Go 端每分钟看一次是否到了间隔（以技能库里记下的检查时间为准，从未检查过的技能从入库时算起，手动检查也算）；“只在打开时”是启动应用、从菜单栏或 Dock 重新打开窗口时各检查一次。只检查非本地目录来源的集合，不发系统通知；检查完更新 Dock 角标，并发 `updates-checked` 事件让前端重读。
 - **Dock 角标**：有新版本的技能数，本地目录来源的不计入；前端每次重读快照后经 `AppService.RefreshBadge` 重算。只在 macOS 上显示。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。

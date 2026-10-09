@@ -702,9 +702,23 @@ await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部
   await field("同步", "服务地址").fill(endpoint);
   await field("同步", "Access Key ID").fill("AKIDE2E");
   await field("同步", "Secret Access Key").fill("e2e-secret");
+  // 保存拖慢、没等它完成就回到主界面：保存期间输入框不可改，保存完成后侧栏仍要跟上
+  let sent;
+  const slowSent = new Promise((r) => (sent = r));
+  const slowSave = async (route) => {
+    if (!route.request().postData()?.includes("AKIDE2E")) return route.continue();
+    await new Promise((r) => setTimeout(r, 1000));
+    await route.continue();
+    sent();
+  };
+  await page.route("**/wails/runtime", slowSave);
   await btn(section("同步"), "保存").click();
-  await toast("已保存同步设置");
-  await settle();
+  assert(await field("同步", "存储桶").isDisabled(), "保存期间输入框应不可改");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  await slowSent;
+  await page.unroute("**/wails/runtime", slowSave);
+  await sidebarSays("手动", "保存晚于回到主界面完成时，侧栏也应显示手动");
   const raw = fs.readFileSync(settingsFile, "utf8");
   assert.deepStrictEqual(JSON.parse(raw).sync, { endpoint, bucket: "e2e-bucket", access_key_id: "AKIDE2E" });
   for (const secret of ["ghp_e2e_token", "e2e-secret"]) assert(!raw.includes(secret), `settings.json 里不应有 ${secret}`);

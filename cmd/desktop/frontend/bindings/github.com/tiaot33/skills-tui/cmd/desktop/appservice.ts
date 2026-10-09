@@ -20,7 +20,8 @@ import * as library$0 from "../../internal/library/models.js";
 import * as $models from "./models.js";
 
 /**
- * Credentials 返回设置页里填的 GitHub 令牌与同步设置。
+ * Credentials 返回设置页里填的 GitHub 令牌与同步设置。启动时没能读取钥匙串(例如用户拒绝了授权)时，
+ * 这里再读一次并交给技能库;仍读不到就返回错误，设置页不让保存，免得用空值盖掉钥匙串里的内容。
  */
 export function Credentials(): $CancellablePromise<$models.Credentials> {
     return $Call.ByID(287997836);

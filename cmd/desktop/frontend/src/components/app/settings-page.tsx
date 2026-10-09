@@ -23,10 +23,10 @@ const intervals: { value: CheckInterval; label: string }[] = [
   { value: CheckInterval.CheckWeekly, label: "每周" },
 ];
 
-export function SettingsPage({ s, onClose }: { s: Snapshot; onClose: () => void }) {
+export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onClose: () => void; onConfigChange: () => void }) {
   const ui = useUI();
   const [settings, setSettings] = useState<Settings>();
-  const [credentials, setCredentials] = useCredentials();
+  const credentials = useCredentials(onConfigChange);
   const [current, setCurrent] = useState<Section>(sections[0]);
   const refs = useRef<Partial<Record<Section, HTMLElement | null>>>({});
 
@@ -100,8 +100,8 @@ export function SettingsPage({ s, onClose }: { s: Snapshot; onClose: () => void 
         <main className="a-center tile">
           <div className="a-scroll">
             <div className="settings">
-              {card("GitHub", "令牌存在系统钥匙串里", credentials && <GitHubForm saved={credentials} onSaved={setCredentials} />)}
-              {card("同步", "密钥存在系统钥匙串里", credentials && <SyncForm saved={credentials} onSaved={setCredentials} />)}
+              {card("GitHub", "令牌存在系统钥匙串里", credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
+              {card("同步", "密钥存在系统钥匙串里", credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
               {card(
                 "检查更新",
                 null,
