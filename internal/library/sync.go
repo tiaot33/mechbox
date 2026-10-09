@@ -52,7 +52,8 @@ const (
 type SyncPullPlan struct {
 	// Remote 是 S3 上现在的库;nil 表示 S3 上没有库,此时 CannotPull 为 CannotPullNoRemote。
 	Remote *RemoteLibrary `json:"remote,omitempty"`
-	// CanPull 为 false 时 CannotPull 给出原因,[Library.SyncPull] 会返回 FailedPrecondition。
+	// CanPull 为 false 时 CannotPull 给出原因。S3 上的库不能拉回时 [Library.SyncPull] 返回 FailedPrecondition;
+	// S3 上没有库(CannotPullNoRemote)时带着空标识拉回返回 NotFound。
 	CanPull    bool             `json:"can_pull"`
 	CannotPull CannotPullReason `json:"cannot_pull,omitempty"`
 	// Skills、Groups 是那份库里的技能数与组数;仅 CanPull 时填写。
@@ -141,8 +142,9 @@ func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote
 }
 
 // SyncPull 用 S3 上的库替换本机的整个库;expected 传拉回的同步计划里的 Remote.Identity。
-// S3 上的库自计划后被改写或删除返回 Conflict;那份库不能拉回(计划里 CanPull 为 false)返回 FailedPrecondition;
-// S3 上没有库返回 NotFound。这些情况下本机的库都不变。
+// S3 上的库自计划后被改写或删除返回 Conflict;S3 上有库但不能拉回(计划里 CannotPull 为 CannotPullNotALibrary、
+// CannotPullNewerApp 或 CannotPullOlderApp)返回 FailedPrecondition;计划时就没有库(CannotPullNoRemote)、
+// 带着空标识拉回而 S3 上仍没有库返回 NotFound。这些情况下本机的库都不变。
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 //
 // 拉回后:
