@@ -444,6 +444,82 @@ func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 	}
 }
 
+// 先靠 gh 做了入库预览,再传入令牌:对这个预览入库时也按匿名 → 令牌 → gh 重新访问,用上新令牌,不再直接走 gh。
+func TestGitHubTokenChangeAppliesToExistingPreview(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+		"demo/notes.md": {content: []byte("notes"), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	blockGitHubClone(t)
+	serveGitHubCLI(t, fx)
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	api.takeAuthorizations()
+
+	api.mu.Lock()
+	api.acceptedToken = "new-token"
+	api.mu.Unlock()
+	lib.SetGitHubToken("new-token")
+	stubGitHubCLI(t, "exit 1\n")
+	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
+	if len(skillFiles(t, lib, fetched[0])) != 2 {
+		t.Fatalf("files = %#v", skillFiles(t, lib, fetched[0]))
+	}
+	got := api.takeAuthorizations()
+	if len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != "Bearer new-token" }) {
+		t.Fatalf("authorizations = %q, want anonymous then new token", got)
+	}
+}
+
+// 换令牌前发出、换令牌后才结束的请求,不会把它自己的访问结论(旧令牌被拒、改用 gh)带到新令牌上:
+// 之后的新入库预览仍按匿名 → 新令牌访问。
+func TestGitHubRequestFinishingAfterTokenChangeDoesNotBypassNewToken(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	api.acceptedToken = "old-token"
+	blockGitHubClone(t)
+	serveGitHubCLI(t, fx)
+	gate := newNetworkGate()
+	api.gateBlob(gate, fx.blobSHA("demo/SKILL.md"))
+	lib := openTestLibrary(t)
+	lib.SetGitHubToken("old-token")
+
+	gate.arm()
+	var wg sync.WaitGroup
+	var oldErr error
+	wg.Go(func() { _, oldErr = lib.PreviewFetch(t.Context(), gitHubRequest()) })
+	gate.awaitEntered(t)
+	api.mu.Lock()
+	api.acceptedToken = "new-token"
+	api.mu.Unlock()
+	lib.SetGitHubToken("new-token")
+	gate.open()
+	wg.Wait()
+	if oldErr != nil {
+		t.Fatalf("old preview = %v, want success through gh", oldErr)
+	}
+	if got := api.takeAuthorizations(); !slices.Contains(got, "Bearer old-token") || slices.Contains(got, "Bearer new-token") {
+		t.Fatalf("old preview authorizations = %q, want old token only", got)
+	}
+
+	stubGitHubCLI(t, "exit 1\n")
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("preview after token change = %#v, %v", preview, err)
+	}
+	if got := api.takeAuthorizations(); len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != "Bearer new-token" }) {
+		t.Fatalf("authorizations = %q, want anonymous then new token", got)
+	}
+}
+
 func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 	const secret = "private-token-and-cli-output"
 	serveGitHubAPI(t, inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{

@@ -19,21 +19,20 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	return &Client{memo: newGitHubMemo()}
+	client := &Client{memo: newGitHubMemo()}
+	client.auth.current.Store(&githubCredentials{})
+	return client
 }
 
 func (c *Client) SetToken(token string) {
-	if old := c.auth.token.Swap(&token); old != nil && *old == token || old == nil && token == "" {
-		return
+	if c.auth.current.Load().token != token {
+		c.auth.current.Store(&githubCredentials{token: token})
 	}
-	c.auth.useToken.Store(false)
-	c.auth.useCLI.Store(false)
 }
 
 func (c *Client) Close() {
 	c.auth.anonymousReset.Store(0)
-	c.auth.useToken.Store(false)
-	c.auth.useCLI.Store(false)
+	c.auth.current.Store(&githubCredentials{token: c.auth.current.Load().token})
 	c.memo.release()
 }
 

@@ -50,23 +50,54 @@ func (e *githubHTTPError) Error() string {
 
 type githubAuth struct {
 	anonymousReset atomic.Int64
-	useToken       atomic.Bool
-	useCLI         atomic.Bool
-	token          atomic.Pointer[string]
+	current        atomic.Pointer[githubCredentials]
+}
+
+type githubCredentials struct {
+	token    string
+	useToken atomic.Bool
+	useCLI   atomic.Bool
+}
+
+type githubSessionAuth struct {
+	shared   *githubCredentials
+	useToken atomic.Bool
+	useCLI   atomic.Bool
+}
+
+func newGitHubSessionAuth(shared *githubCredentials) *githubSessionAuth {
+	session := &githubSessionAuth{shared: shared}
+	session.useToken.Store(shared.useToken.Load())
+	session.useCLI.Store(shared.useCLI.Load())
+	return session
+}
+
+func (c *githubCredentials) currentToken() string {
+	return cmp.Or(c.token, os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
 }
 
 type githubClient struct {
-	useToken atomic.Bool
-	useCLI   atomic.Bool
-	auth     *githubAuth
-	memo     *githubObjectMemo
+	session atomic.Pointer[githubSessionAuth]
+	auth    *githubAuth
+	memo    *githubObjectMemo
 }
 
 func (c *Client) session() *githubClient {
 	client := &githubClient{auth: &c.auth, memo: &c.memo}
-	client.useToken.Store(c.auth.useToken.Load())
-	client.useCLI.Store(c.auth.useCLI.Load())
+	client.session.Store(newGitHubSessionAuth(c.auth.current.Load()))
 	return client
+}
+
+func (c *githubClient) credentials() *githubSessionAuth {
+	shared := c.auth.current.Load()
+	session := c.session.Load()
+	if session.shared == shared {
+		return session
+	}
+	if fresh := newGitHubSessionAuth(shared); c.session.CompareAndSwap(session, fresh) {
+		return fresh
+	}
+	return c.session.Load()
 }
 
 type githubCommitResponse struct {
@@ -106,13 +137,6 @@ func ownerRepo(repository string) (owner, repo string, ok bool) {
 	rest = strings.TrimSuffix(rest, ".git")
 	owner, repo, ok = strings.Cut(rest, "/")
 	return owner, repo, ok && owner != "" && repo != "" && !strings.Contains(repo, "/")
-}
-
-func (a *githubAuth) currentToken() string {
-	if token := a.token.Load(); token != nil && *token != "" {
-		return *token
-	}
-	return cmp.Or(os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
 }
 
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
@@ -169,12 +193,13 @@ func (c *githubClient) get(ctx context.Context, location string, dest any) error
 }
 
 func (c *githubClient) request(ctx context.Context, httpGet func(string) error, cliGet func() error) error {
-	if c.useCLI.Load() {
+	auth := c.credentials()
+	if auth.useCLI.Load() {
 		return cliGet()
 	}
 	err := errGitHubContentsFallback
 	anonymousDenied := false
-	if !c.useToken.Load() && time.Now().Unix() >= c.auth.anonymousReset.Load() {
+	if !auth.useToken.Load() && time.Now().Unix() >= c.auth.anonymousReset.Load() {
 		err = httpGet("")
 		if httpErr, ok := errors.AsType[*githubHTTPError](err); ok && httpErr.rateLimited {
 			c.auth.anonymousReset.Store(httpErr.reset)
@@ -185,12 +210,12 @@ func (c *githubClient) request(ctx context.Context, httpGet func(string) error, 
 		anonymousDenied = githubAuthDenied(err)
 	}
 	httpDenied := anonymousDenied
-	if token := c.auth.currentToken(); token != "" {
-		c.useToken.Store(true)
+	if token := auth.shared.currentToken(); token != "" {
+		auth.useToken.Store(true)
 		err = httpGet(token)
 		if err == nil {
 			if anonymousDenied {
-				c.auth.useToken.Store(true)
+				auth.shared.useToken.Store(true)
 			}
 			return nil
 		}
@@ -205,12 +230,12 @@ func (c *githubClient) request(ctx context.Context, httpGet func(string) error, 
 		}
 		return err
 	}
-	c.useCLI.Store(true)
+	auth.useCLI.Store(true)
 	if anonymousDenied {
-		c.auth.useToken.Store(true)
+		auth.shared.useToken.Store(true)
 	}
 	if httpDenied {
-		c.auth.useCLI.Store(true)
+		auth.shared.useCLI.Store(true)
 	}
 	return nil
 }
