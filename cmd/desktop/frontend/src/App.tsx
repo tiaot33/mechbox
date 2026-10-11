@@ -15,7 +15,7 @@ import { addSkillToGroup, installGroup, installSkill } from "@/lib/actions";
 import { DnDContext, type DnD, type DragItem } from "@/lib/dnd";
 import { useLibrarySnapshot, useScopeDirectory, type LibraryError, type Snapshot } from "@/lib/library";
 import {
-  agentsUsedIn,
+  agentsIn,
   filterTitle,
   parseScope,
   placeOf,
@@ -27,7 +27,10 @@ import {
   type SkillFilter,
 } from "@/lib/model";
 import { UIProvider, useUI } from "@/lib/ui";
-import "./app.css";
+import { bodyClass, centerClass } from "@/components/app/layout";
+import { ResizablePane } from "@/components/app/resizable";
+import { Button } from "@/components/ui/button";
+import "./index.css";
 
 export default function App() {
   const [state, reload] = useLibrarySnapshot();
@@ -97,7 +100,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     const sc = parseScope(key);
     const place = placeOf(sc);
     if (place) setExpanded((set) => new Set(set).add(place));
-    if (s && !agentsUsedIn(s, place).some((a) => a.code === sc.agent)) setMoreAgents((set) => new Set(set).add(place));
+    if (s && !agentsIn(s, place).open.some((a) => a.code === sc.agent)) setMoreAgents((set) => new Set(set).add(place));
   };
 
   const home = s?.info.home_dir ?? "";
@@ -139,7 +142,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
 
   if (s && settings) {
     return (
-      <div className="window">
+      <div className="window-backdrop flex h-screen flex-col overflow-hidden">
         <SettingsPage
           s={s}
           onClose={() => {
@@ -155,7 +158,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
 
   return (
     <DnDContext.Provider value={dnd}>
-      <div className="window">
+      <div className="window-backdrop relative flex h-screen flex-col overflow-hidden">
         <Toolbar
           snapshot={s}
           title={s ? filterTitle(s, current) : "技能管理器"}
@@ -176,20 +179,22 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
           onRight={() => setRight(!right)}
           onRefresh={reload}
         />
-        <div className={`a-body ${drag ? `dragging drag-${drag.kind}` : ""}`}>
-          {state.status === "loading" && <main className="a-center tile" />}
+        <div className={bodyClass} data-dragging={drag?.kind}>
+          {state.status === "loading" && <main className={centerClass} />}
           {state.status === "error" && <LoadError error={state.error} onRetry={reload} />}
           {s && (
             <>
               {left && (
-                <FilterSidebar
-                  s={s}
-                  config={config}
-                  filter={current}
-                  onFilter={setFilter}
-                  onFetch={openFetch}
-                  onSettings={() => setSettings(true)}
-                />
+                <ResizablePane side="left" storageKey="skills-manager.left-width" defaultWidth={210} min={180} max={360}>
+                  <FilterSidebar
+                    s={s}
+                    config={config}
+                    filter={current}
+                    onFilter={setFilter}
+                    onFetch={openFetch}
+                    onSettings={() => setSettings(true)}
+                  />
+                </ResizablePane>
               )}
               <SkillList
                 s={s}
@@ -203,6 +208,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
                 onFetch={openFetch}
               />
               {right && (
+                <ResizablePane side="right" storageKey="skills-manager.right-width" defaultWidth={270} min={220} max={440}>
                 <ScopePanel
                   s={s}
                   scope={scope}
@@ -216,12 +222,16 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
                   onToggleProject={(id) => setExpanded((set) => toggled(set, id))}
                   onToggleMore={(place) => setMoreAgents((set) => toggled(set, place))}
                 />
+                </ResizablePane>
               )}
               {drawerSkill && <SkillDrawer s={s} skill={drawerSkill} onClose={() => setDrawer(null)} />}
             </>
           )}
         </div>
-        <div ref={ghost} className="drag-ghost" />
+        <div
+          ref={ghost}
+          className="fixed -top-[200px] left-0 rounded-full bg-primary px-3 py-[5px] text-xs font-semibold whitespace-nowrap text-white shadow-[0_4px_12px_rgba(0,113,227,0.35)]"
+        />
       </div>
     </DnDContext.Provider>
   );
@@ -229,13 +239,13 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
 
 function LoadError({ error, onRetry }: { error: LibraryError; onRetry: () => void }) {
   return (
-    <main className="a-center tile">
-      <div className="list-empty">
-        <b>读取技能库失败</b>
-        <span style={{ userSelect: "text" }}>{error.message}</span>
-        <button type="button" className="pill-btn" onClick={onRetry}>
+    <main className={centerClass}>
+      <div className="flex flex-col items-center gap-1.5 pt-[22vh] text-muted-foreground">
+        <b className="text-sm text-foreground">读取技能库失败</b>
+        <span className="select-text">{error.message}</span>
+        <Button className="mt-1.5" onClick={onRetry}>
           重试
-        </button>
+        </Button>
       </div>
     </main>
   );

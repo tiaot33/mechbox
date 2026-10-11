@@ -48,13 +48,22 @@ import {
   type Place,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
+import { cn } from "@/lib/utils";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Hint } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Notice } from "@/components/ui/notice";
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { Icon, SourceIcon } from "./icons";
-import { AgentMark } from "./parts";
+import { AgentMark, Chip } from "./parts";
 
-const checkStatus: Record<UpdateCheckStatus, { label: string; tone: string }> = {
+const checkStatus: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
   [UpdateCheckStatus.UpdateAvailable]: { label: "有新版本", tone: "warn" },
   [UpdateCheckStatus.UpdateCurrent]: { label: "已是最新", tone: "ok" },
-  [UpdateCheckStatus.UpdateDeleted]: { label: "来源里已删除", tone: "" },
+  [UpdateCheckStatus.UpdateDeleted]: { label: "来源里已删除", tone: "neutral" },
   [UpdateCheckStatus.UpdateFailed]: { label: "检查失败", tone: "bad" },
   [UpdateCheckStatus.$zero]: { label: "已是最新", tone: "ok" },
 };
@@ -112,235 +121,230 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
   const collection = c ? collectionSkills(s, c) : [];
 
   return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <aside className="drawer">
-        <div className="drawer-head">
-          <span className="muted">技能详情</span>
-          <span className="grow" />
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">
-            <Icon name="close" />
-          </button>
-        </div>
-        <div className="detail">
-          <div className="detail-title">
-            <h2>{skill.name}</h2>
-            {updateAvailable(skill) && (
-              <button type="button" className="pill-btn accent" onClick={() => openUpdate(ui, s, skill.collection_id, id)}>
-                <Icon name="up" />
-                更新
-              </button>
-            )}
-          </div>
-          {skill.description && <p className="detail-desc">{skill.description}</p>}
-          {deletedInSource(skill) && (
-            <div className="notice" style={{ marginBottom: 10 }}>
-              作者已从 {sourceLabel(s, skill.source)} 删掉了「{skill.name}」(也可能是改了名)。你的副本还在，可以继续用。
-            </div>
-          )}
-          <div className="detail-actions">
-            {isLocal(skill.source) && (
-              <button
-                type="button"
-                className="pill-btn sm"
-                onClick={() => openUpdate(ui, s, skill.collection_id, id)}
-                title="从目录读出当前内容成为新版本，并换到装过它的地方"
-              >
-                <Icon name="up" />
-                重新读取
-              </button>
-            )}
-            {installed.length > 0 && (
-              <button type="button" className="pill-btn sm" onClick={() => reinstall(ui, s, { skill_id: id }, `「${skill.name}」`)}>
-                <Icon name="refresh" />
-                全部重新安装
-              </button>
-            )}
-            <span className="grow" />
-            <button
-              type="button"
-              className="pill-btn sm danger"
-              onClick={async () => (await removeSkill(ui, s, id)) && onClose()}
-            >
-              移除技能
-            </button>
-          </div>
-
-          <section className="card">
-            <div className="card-h">
-              <span>元数据</span>
-            </div>
-            <dl className="meta">
-              <dt>集合</dt>
-              <dd>
-                <span className="src-chip">
-                  <SourceIcon type={skill.source.type} />
-                  {sourceLabel(s, skill.source)}
-                </span>{" "}
-                <span className="muted">{sourceKindLabel[skill.source.type]}</span>
-              </dd>
-              {collection.length > 1 && (
-                <>
-                  <dt>同一来源</dt>
-                  <dd>{collectionRelation(skill, collection)}</dd>
-                </>
+    <Sheet open onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        className="top-0 right-2.5 bottom-2.5 w-[540px]"
+        {...(!skill.description && { "aria-describedby": undefined })}
+      >
+        <SheetHeader className="h-11 pr-3 pl-3.5 text-[11px] font-semibold text-muted-foreground">
+          <span className="grow">技能详情</span>
+          <SheetClose asChild>
+            <Button variant="ghost" size="icon" aria-label="关闭">
+              <Icon name="close" />
+            </Button>
+          </SheetClose>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-2 px-2.5 pt-3.5 pb-4">
+            <div className="flex items-center gap-2.5 px-2">
+              <SheetTitle className="flex-1 text-[18px] font-bold tracking-[-0.01em]">{skill.name}</SheetTitle>
+              {updateAvailable(skill) && (
+                <Button variant="primary" onClick={() => openUpdate(ui, s, skill.collection_id, id)}>
+                  <Icon name="up" />
+                  更新
+                </Button>
               )}
-              <dt>来源版本</dt>
-              <dd>
-                <span className="mono">{sourceRef(skill)}</span>
-                {skill.source.view_url && (
+            </div>
+            {skill.description && (
+              <SheetDescription className="-mt-1 px-2 text-[12.5px] leading-[1.45] text-foreground-secondary">
+                {skill.description}
+              </SheetDescription>
+            )}
+            {deletedInSource(skill) && (
+              <Notice className="mb-2.5">
+                作者已从 {sourceLabel(s, skill.source)} 删掉了「{skill.name}」(也可能是改了名)。你的副本还在，可以继续用。
+              </Notice>
+            )}
+            {(isLocal(skill.source) || installed.length > 0) && (
+              <div className="flex flex-wrap gap-1.5 px-2">
+                {isLocal(skill.source) && (
+                  <Button
+                    size="sm"
+                    onClick={() => openUpdate(ui, s, skill.collection_id, id)}
+                    title="从目录读出当前内容成为新版本，并换到装过它的地方"
+                  >
+                    <Icon name="up" />
+                    重新读取
+                  </Button>
+                )}
+                {installed.length > 0 && (
+                  <Button size="sm" onClick={() => reinstall(ui, s, { skill_id: id }, `「${skill.name}」`)}>
+                    <Icon name="refresh" />
+                    全部重新安装
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <Card>
+              <CardHeader title="元数据" />
+              <dl className="meta grid grid-cols-[72px_1fr] items-center gap-x-3.5 gap-y-2.5 [&_dt]:font-medium [&_dt]:text-muted-foreground">
+                <dt>集合</dt>
+                <dd>
+                  <span className="inline-flex items-center gap-[5px]">
+                    <SourceIcon type={skill.source.type} className="size-3 text-muted-foreground" />
+                    {sourceLabel(s, skill.source)}
+                  </span>{" "}
+                  <span className="text-muted-foreground">{sourceKindLabel[skill.source.type]}</span>
+                </dd>
+                {collection.length > 1 && (
                   <>
-                    {" "}
-                    <button type="button" className="link" onClick={() => void Browser.OpenURL(skill.source.view_url!)}>
-                      在 GitHub 查看
-                    </button>
+                    <dt>同一来源</dt>
+                    <dd>{collectionRelation(skill, collection)}</dd>
                   </>
                 )}
-              </dd>
-              <dt>入库于</dt>
-              <dd>{formatDate(skill.fetched_at)}</dd>
-              <dt>当前版本</dt>
-              <dd>
-                {formatDate(versions.find((v) => v.id === skill.version_id)?.created_at)} · 共 {versions.length} 个版本
-              </dd>
-              {/* 本地目录来源不检查更新，只有"重新读取"。 */}
-              {!isLocal(skill.source) && (
-                <>
-                  <dt>检查更新</dt>
-                  <dd>
-                    {check ? (
-                      <>
-                        <span className={`status ${checkStatus[check.status].tone}`}>{checkStatus[check.status].label}</span>{" "}
-                        <span className="muted tiny">{formatDate(check.checked_at)}</span>
-                      </>
-                    ) : (
-                      <span className="muted">从未检查</span>
-                    )}
-                  </dd>
-                </>
-              )}
-              <dt>组</dt>
-              <dd className="chips">
-                {groups.map((g) => (
-                  <span key={g.id} className="chip">
-                    {g.name}
-                    <button type="button" onClick={() => removeSkillFromGroup(ui, s, g.id, id)} title="移出分组">
-                      ×
-                    </button>
-                  </span>
-                ))}
-                <select
-                  className="chip-add"
-                  value=""
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === "new") void createGroup(ui, id);
-                    else if (v) void addSkillToGroup(ui, s, Number(v), id);
-                  }}
-                >
-                  <option value="">+ 加入分组</option>
-                  {notIn.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                  <option value="new">新建组…</option>
-                </select>
-              </dd>
-            </dl>
-          </section>
-
-          <section className="card">
-            <div className="card-h">
-              <span>安装</span>
-              <span className="muted">
-                {installed.length} 个作用域{stale ? ` · ${stale} 个需重新安装` : ""}
-              </span>
-            </div>
-            <table className="scope-table">
-              <thead>
-                <tr>
-                  <th />
-                  <th>作用域</th>
-                  <th>来源</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {installed.map((p) => {
-                  const st = skillScopeStatus[p.status];
-                  const toggle = () => (p.direct ? uninstallSkill(ui, s, id, p.scope) : installSkill(ui, s, id, p.scope));
-                  return (
-                    <tr key={scopeKey(p.scope)}>
-                      <td>
-                        <button
-                          type="button"
-                          className={`switch ${p.direct ? "on" : "group-held"}`}
-                          role="switch"
-                          aria-checked={p.direct}
-                          onClick={toggle}
-                          title={p.direct ? "卸载直接安装" : "只随组安装;点击追加直接安装"}
-                        >
-                          <i />
-                        </button>
-                      </td>
-                      <td>
-                        <div className="scope-cell">
-                          <AgentMark code={p.scope.agent} name={agentName(s, p.scope.agent)} />
-                          {scopeLabel(s, p.scope)}
-                        </div>
-                        <div className="mono tiny muted">{shortPath(s, p.folder)}</div>
-                      </td>
-                      <td>
-                        {p.direct && <span className="prov prov-ind">直接</span>}
-                        {(p.groups ?? []).map((g) => (
-                          <span key={g} className="prov prov-grp">
-                            随「{s.groups.find((x) => x.id === g)?.name}」
-                          </span>
-                        ))}
-                      </td>
-                      <td>
-                        <span className={`status ${st.tone}`}>{st.label}</span>
-                        {needsReinstall(p) && (
-                          <>
-                            {" "}
-                            <button
-                              type="button"
-                              className="link"
-                              onClick={() => reinstall(ui, s, { skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
-                            >
-                              重新安装
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {installed.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="muted">
-                      还没有安装到任何作用域
-                    </td>
-                  </tr>
+                <dt>来源版本</dt>
+                <dd>
+                  <span className="font-mono">{sourceRef(skill)}</span>
+                  {skill.source.view_url && (
+                    <>
+                      {" "}
+                      <Button variant="link" onClick={() => void Browser.OpenURL(skill.source.view_url!)}>
+                        在 GitHub 查看
+                      </Button>
+                    </>
+                  )}
+                </dd>
+                <dt>入库于</dt>
+                <dd>{formatDate(skill.fetched_at)}</dd>
+                <dt>当前版本</dt>
+                <dd>
+                  {formatDate(versions.find((v) => v.id === skill.version_id)?.created_at)} · 共 {versions.length} 个版本
+                </dd>
+                {/* 本地目录来源不检查更新，只有"重新读取"。 */}
+                {!isLocal(skill.source) && (
+                  <>
+                    <dt>检查更新</dt>
+                    <dd>
+                      {check ? (
+                        <>
+                          <Badge tone={checkStatus[check.status].tone}>{checkStatus[check.status].label}</Badge>{" "}
+                          <span className="text-[11px] text-muted-foreground">{formatDate(check.checked_at)}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">从未检查</span>
+                      )}
+                    </dd>
+                  </>
                 )}
-              </tbody>
-            </table>
-            <InstallTo s={s} skillID={id} />
-            <p className="hint">
-              开关只控制<b>直接安装</b>;随组安装的需在组上卸载。直接安装和组安装都撤掉时，文件夹会从该目录移除。
-            </p>
-          </section>
+                <dt>组</dt>
+                <dd className="flex flex-wrap items-center gap-1.5">
+                  {groups.map((g) => (
+                    <Chip key={g.id} removeTitle="移出分组" onRemove={() => removeSkillFromGroup(ui, s, g.id, id)}>
+                      {g.name}
+                    </Chip>
+                  ))}
+                  <NativeSelect
+                    className="chip-add h-6 rounded-full px-2 text-[11.5px] text-muted-foreground"
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "new") void createGroup(ui, id);
+                      else if (v) void addSkillToGroup(ui, s, Number(v), id);
+                    }}
+                  >
+                    <option value="">+ 加入分组</option>
+                    {notIn.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                    <option value="new">新建组…</option>
+                  </NativeSelect>
+                </dd>
+              </dl>
+            </Card>
 
-          <FilesCard versionID={skill.version_id} files={files} />
-          <VersionsCard versions={versions} currentID={skill.version_id} />
+            <Card>
+              <CardHeader title="安装" note={`${installed.length} 个作用域${stale ? ` · ${stale} 个需重新安装` : ""}`} />
+              {installed.length > 0 && (
+                <table className="scope-table w-full border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
+                  <thead>
+                    <tr className="[&_th]:border-b [&_th]:border-border-subtle [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-[11px] [&_th]:font-medium [&_th]:text-muted-foreground">
+                      <th />
+                      <th>作用域</th>
+                      <th>来源</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {installed.map((p) => {
+                      const st = skillScopeStatus[p.status];
+                      const toggle = () => (p.direct ? uninstallSkill(ui, s, id, p.scope) : installSkill(ui, s, id, p.scope));
+                      return (
+                        <tr key={scopeKey(p.scope)}>
+                          <td>
+                            <Switch
+                              checked={p.direct}
+                              held={!p.direct}
+                              onCheckedChange={toggle}
+                              title={p.direct ? "卸载直接安装" : "只随组安装;点击追加直接安装"}
+                            />
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-1.5">
+                              <AgentMark code={p.scope.agent} name={agentName(s, p.scope.agent)} />
+                              {scopeLabel(s, p.scope)}
+                            </div>
+                            <div className="max-w-[250px] truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                          </td>
+                          <td>
+                            <span className="inline-flex flex-wrap gap-1">
+                              {p.direct && <Badge tone="accent">直接</Badge>}
+                              {(p.groups ?? []).map((g) => (
+                                <Badge key={g} tone="group">
+                                  随「{s.groups.find((x) => x.id === g)?.name}」
+                                </Badge>
+                              ))}
+                            </span>
+                          </td>
+                          <td>
+                            <Badge tone={st.tone}>{st.label}</Badge>
+                            {needsReinstall(p) && (
+                              <>
+                                {" "}
+                                <Button
+                                  variant="link"
+                                  onClick={() => reinstall(ui, s, { skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
+                                >
+                                  重新安装
+                                </Button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+              {installed.length === 0 && <p className="text-muted-foreground">还没有安装到任何作用域。</p>}
+              <InstallTo s={s} skillID={id} />
+              {installed.length > 0 && (
+                <Hint className="mt-2">
+                  开关只控制<b>直接安装</b>;随组安装的需在组上卸载。直接安装和组安装都撤掉时，文件夹会从该目录移除。
+                </Hint>
+              )}
+            </Card>
+
+            <FilesCard versionID={skill.version_id} files={files} />
+            <VersionsCard versions={versions} currentID={skill.version_id} />
+
+            {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
+            <div className="flex justify-end px-2 pt-2">
+              <Button size="sm" variant="danger" onClick={async () => (await removeSkill(ui, s, id)) && onClose()}>
+                移除技能
+              </Button>
+            </div>
+          </div>
         </div>
-      </aside>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }
 
 // InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面，其余只列勾选显示的。
+// 这个地方能选的 Agent 都装上了时，不摆一个选不了的下拉框，直接说明。
 function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   const ui = useUI();
   const [place, setPlace] = useState<Place>(0);
@@ -352,44 +356,48 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   const [agent, setAgent] = useState<AgentCode | "">("");
   // 换了地方后，之前选的 Agent 可能不在这里的选项里(不显示且这里没在用),退回第一个可选的。
   const chosen = agent && options.some((a) => a.code === agent) && available(agent) ? agent : (first?.code ?? "");
+  const placeName = place ? projectName(s, place) : "全局";
   return (
-    <div className="install-to">
-      <span className="tiny muted">安装到</span>
-      <select value={place} onChange={(e) => setPlace(Number(e.target.value))}>
+    <div className="install-to mt-2.5 flex items-center gap-1.5">
+      <span className="text-[11px] text-muted-foreground">安装到</span>
+      <NativeSelect value={place} onChange={(e) => setPlace(Number(e.target.value))}>
         <option value={0}>全局</option>
         {s.projects.map((p) => (
           <option key={p.id} value={p.id}>
             {projectName(s, p.id)}
           </option>
         ))}
-      </select>
-      <select value={chosen} onChange={(e) => setAgent(e.target.value as AgentCode)}>
-        {used.length > 0 && (
-          <optgroup label="此处已在用">
-            {used.map((a) => (
-              <option key={a.code} value={a.code} disabled={!available(a.code)}>
-                {a.name}
-              </option>
-            ))}
-          </optgroup>
-        )}
-        <optgroup label={used.length ? "其他 Agent" : "Agent"}>
-          {rest.map((a) => (
-            <option key={a.code} value={a.code} disabled={!available(a.code)}>
-              {a.name}
-            </option>
-          ))}
-        </optgroup>
-      </select>
-      <button
-        type="button"
-        className="pill-btn accent sm"
-        disabled={!chosen}
-        onClick={() => chosen && installSkill(ui, s, skillID, scopeOf(chosen, place))}
-      >
-        <Icon name="plus" />
-        安装
-      </button>
+      </NativeSelect>
+      {chosen ? (
+        <>
+          <NativeSelect value={chosen} onChange={(e) => setAgent(e.target.value as AgentCode)}>
+            {used.length > 0 && (
+              <optgroup label="此处已在用">
+                {used.map((a) => (
+                  <option key={a.code} value={a.code} disabled={!available(a.code)}>
+                    {a.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label={used.length ? "其他 Agent" : "Agent"}>
+              {rest.map((a) => (
+                <option key={a.code} value={a.code} disabled={!available(a.code)}>
+                  {a.name}
+                </option>
+              ))}
+            </optgroup>
+          </NativeSelect>
+          <Button size="sm" variant="primary" onClick={() => installSkill(ui, s, skillID, scopeOf(chosen, place))}>
+            <Icon name="plus" />
+            安装
+          </Button>
+        </>
+      ) : (
+        <span className="text-[11px] text-muted-foreground">
+          {options.length ? `${placeName}能选的 Agent 都已安装` : `${placeName}没有可选的 Agent,可在设置页勾选显示`}
+        </span>
+      )}
     </div>
   );
 }
@@ -408,48 +416,64 @@ function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMeta
   }, [versionID, path, files]);
   const markdown = path.toLowerCase().endsWith(".md") && !raw;
   return (
-    <section className="card">
-      <div className="card-h">
-        <span>文件</span>
-        <span className="muted tiny">
-          {files.length} 个 · 只读，内容来自技能库
-        </span>
-      </div>
-      <div className="files" style={{ flexDirection: "column", gap: 0, marginBottom: 8 }}>
+    <Card>
+      <CardHeader title="文件" note={`${files.length} 个 · 只读，内容来自技能库`} />
+      <div className="mb-2 flex flex-col">
         {files.map((f) => (
-          <button key={f.path} type="button" className={`file-row ${f.path === path ? "on" : ""}`} onClick={() => setPath(f.path)}>
-            <span className="mono grow ellipsis">{f.path}</span>
-            {f.mode === FileMode.ModeExecutable && <span className="badge">可执行</span>}
-            <span className="tiny muted">{formatSize(f.size)}</span>
+          <button
+            key={f.path}
+            type="button"
+            className={cn(
+              "file-row flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-black/[0.04]",
+              f.path === path && "bg-primary-soft text-primary hover:bg-primary-soft",
+            )}
+            onClick={() => setPath(f.path)}
+          >
+            <span className="grow truncate font-mono text-[11.5px]">{f.path}</span>
+            {f.mode === FileMode.ModeExecutable && <Badge>可执行</Badge>}
+            <span className="text-[11px] text-muted-foreground">{formatSize(f.size)}</span>
           </button>
         ))}
       </div>
       {content === undefined ? null : content === null ? (
-        <div className="notice">二进制文件，不显示内容。</div>
+        <Notice>二进制文件，不显示内容。</Notice>
       ) : markdown ? (
         <>
           <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
-          <button type="button" className="link" onClick={() => setRaw(true)}>
+          <Button variant="link" onClick={() => setRaw(true)}>
             查看源码
-          </button>
+          </Button>
         </>
       ) : (
         <>
-          <pre className="code">{content}</pre>
+          <Code>{content}</Code>
           {path.toLowerCase().endsWith(".md") && (
-            <button type="button" className="link" onClick={() => setRaw(false)}>
+            <Button variant="link" onClick={() => setRaw(false)}>
               查看渲染
-            </button>
+            </Button>
           )}
         </>
       )}
-    </section>
+    </Card>
+  );
+}
+
+function Code({ children }: { children: string }) {
+  return (
+    <pre
+      data-slot="code"
+      className="max-h-[360px] overflow-auto rounded-lg border border-border-subtle bg-[#f8f9fb] px-3 py-2.5 font-mono text-[11.5px] leading-[1.55] break-words whitespace-pre-wrap select-text"
+    >
+      {children}
+    </pre>
   );
 }
 
 // VersionsCard 列出版本历史(最新在前);可查看某个版本的文件，或与当前版本比较。
+// 版本按这个技能入库以来的先后编号(版本 1 是入库时的那一份),不用库里全局的版本 ID。
 function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; currentID: VersionID }) {
   const ui = useUI();
+  const number = new Map(versions.map((v, i) => [v.id, i + 1]));
   const list = [...versions].reverse();
   const [diff, setDiff] = useState<{ id: number; diff: VersionDiff } | null>(null);
   const [viewing, setViewing] = useState<{ id: VersionID; files: FileMetadata[] } | null>(null);
@@ -476,75 +500,73 @@ function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; curre
     }
   };
 
+  const changes = diff
+    ? [
+        ...(diff.diff.added ?? []).map((p) => ["added", "新增", p] as const),
+        ...(diff.diff.changed ?? []).map((p) => ["changed", "修改", p] as const),
+        ...(diff.diff.deleted ?? []).map((p) => ["deleted", "删除", p] as const),
+      ]
+    : [];
+  const diffColor = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
+
   return (
-    <section className="card">
-      <div className="card-h">
-        <span>版本历史</span>
-        <span className="muted tiny">{versions.length} 个版本</span>
-      </div>
-      <ol className="versions">
+    <Card>
+      <CardHeader title="版本历史" note={`${versions.length} 个版本`} />
+      <ol className="versions flex flex-col gap-1.5">
         {list.map((v) => (
-          <li key={v.id}>
-            <span className="mono">#{v.id}</span>
+          <li key={v.id} className="flex items-center gap-3 text-xs">
+            <span className="font-medium">版本 {number.get(v.id)}</span>
             <span>{formatDate(v.created_at)}</span>
-            {v.revision && <span className="mono tiny muted">{v.revision.slice(0, 12)}</span>}
+            {v.revision && <span className="font-mono text-[11px] text-muted-foreground">{v.revision.slice(0, 12)}</span>}
             {v.id === currentID ? (
-              <span className="status ok">当前</span>
+              <Badge tone="ok">当前</Badge>
             ) : (
-              <button type="button" className="link" onClick={() => compare(v)}>
+              <Button variant="link" onClick={() => compare(v)}>
                 与当前比较
-              </button>
+              </Button>
             )}
-            <button type="button" className="link" onClick={() => view(v)}>
+            <Button variant="link" onClick={() => view(v)}>
               查看文件
-            </button>
+            </Button>
           </li>
         ))}
       </ol>
       {diff && (
-        <div className="notice" style={{ marginTop: 8 }}>
-          <div className="row">
-            <b>#{diff.id} → 当前</b>
+        <Notice className="mt-2">
+          <div className="flex items-center gap-2">
+            <b>版本 {number.get(diff.id)} → 当前</b>
             <span className="grow" />
-            <button type="button" className="link" onClick={() => setDiff(null)}>
+            <Button variant="link" onClick={() => setDiff(null)}>
               收起
-            </button>
+            </Button>
           </div>
-          {[...(diff.diff.added ?? []).map((p) => ["added", "新增", p]), ...(diff.diff.changed ?? []).map((p) => ["changed", "修改", p]), ...(diff.diff.deleted ?? []).map((p) => ["deleted", "删除", p])].map(
-            ([kind, label, p]) => (
-              <div key={kind + p} className={`mono tiny diff-${kind}`}>
-                {label} {p}
-              </div>
-            ),
-          )}
-          {!diff.diff.added?.length && !diff.diff.changed?.length && !diff.diff.deleted?.length && (
-            <div className="tiny">文件内容相同</div>
-          )}
-        </div>
+          {changes.map(([kind, label, p]) => (
+            <div key={kind + p} data-diff={kind} className={cn("font-mono text-[11px]", diffColor[kind])}>
+              {label} {p}
+            </div>
+          ))}
+          {changes.length === 0 && <div className="text-[11px]">文件内容相同</div>}
+        </Notice>
       )}
       {viewing && (
-        <div style={{ marginTop: 8 }}>
-          <div className="row">
-            <b className="tiny">版本 #{viewing.id} 的文件</b>
-            <select value={viewPath} onChange={(e) => setViewPath(e.target.value)}>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <b className="text-[11px]">版本 {number.get(viewing.id)} 的文件</b>
+            <NativeSelect value={viewPath} onChange={(e) => setViewPath(e.target.value)}>
               {viewing.files.map((f) => (
                 <option key={f.path} value={f.path}>
                   {f.path}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             <span className="grow" />
-            <button type="button" className="link" onClick={() => setViewing(null)}>
+            <Button variant="link" onClick={() => setViewing(null)}>
               收起
-            </button>
+            </Button>
           </div>
-          {viewedText === null ? (
-            <div className="notice">二进制文件，不显示内容。</div>
-          ) : viewedText !== undefined ? (
-            <pre className="code">{viewedText}</pre>
-          ) : null}
+          {viewedText === null ? <Notice>二进制文件，不显示内容。</Notice> : viewedText !== undefined ? <Code>{viewedText}</Code> : null}
         </div>
       )}
-    </section>
+    </Card>
   );
 }

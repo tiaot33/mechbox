@@ -43,8 +43,13 @@ import {
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { updateWithDefaults } from "@/lib/update";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Icon, SourceIcon } from "./icons";
-import { AgentIcon, AgentMark } from "./parts";
+import { centerClass } from "./layout";
+import { AgentMark, Chip } from "./parts";
 import type { ListView } from "./toolbar";
 
 interface SkillListProps {
@@ -59,25 +64,41 @@ interface SkillListProps {
   onFetch: () => void;
 }
 
+// 列表顶部的摘要条(作用域摘要、更新列表、集合标题条)共用的外观。
+const barClass = "a-scope-sum mx-3.5 mt-3 flex flex-col gap-2 rounded-[10px] border border-hairline bg-glass-card px-3 py-2.5 shadow-tile";
+const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
+
 export function SkillList(props: SkillListProps) {
   const { s, skills, filter, scope, view } = props;
   const group = filter.kind === "group" ? s.groups.find((g) => g.id === filter.groupID) : undefined;
   const collection = filter.kind === "collection" ? s.collections.find((c) => c.id === filter.collectionID) : undefined;
+  // 列出的技能都来自同一个来源时，卡片上不再逐张写来源。
+  const showSource = new Set(skills.map((x) => x.collection_id)).size > 1;
   return (
-    <main className="a-center tile">
+    <main className={centerClass}>
       {scope && <ScopeSummary s={s} scope={scope} directory={props.scopeDirectory} />}
       {group && <GroupHead s={s} group={group} scope={scope} />}
       {collection && <CollectionHead s={s} collection={collection} />}
       {filter.kind === "updates" && updatableCollections(s).length > 0 && <UpdatesHead s={s} />}
-      {/* 网格放在单独的滚动容器里：网格高度随内容，grid-auto-rows: 1fr 才等于最高那一行，而不是平分可视高度 */}
-      <div className="a-scroll">
-        <div className={`a-list is-${view}`}>
+      {/* 网格放在单独的滚动容器里：网格高度随内容,auto-rows-fr 才等于最高那一行，而不是平分可视高度 */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            "a-list grid content-start",
+            view === "card"
+              ? "auto-rows-fr grid-cols-[repeat(auto-fill,minmax(236px,1fr))] gap-2.5 px-3.5 pt-3 pb-15"
+              : "grid-cols-1 px-2.5 pt-1.5 pb-3.5",
+          )}
+          data-view={view}
+        >
           {skills.map((skill) => (
             <SkillCard
               key={skill.id}
               s={s}
               skill={skill}
               scope={scope}
+              view={view}
+              showSource={showSource}
               selected={props.selected === skill.id}
               hideGroup={group?.id}
               onOpen={() => props.onOpen(skill.id)}
@@ -85,16 +106,16 @@ export function SkillList(props: SkillListProps) {
           ))}
           {skills.length === 0 &&
             (s.skills.length === 0 ? (
-              <div className="list-empty">
-                <b>技能库还是空的</b>
+              <ListEmpty>
+                <b className="text-sm text-foreground">技能库还是空的</b>
                 <span>从本地目录、GitHub 或技能市场把技能入库。</span>
-                <button type="button" className="pill-btn accent" onClick={props.onFetch}>
+                <Button variant="primary" className="mt-1.5" onClick={props.onFetch}>
                   <Icon name="plus" />
                   入库技能
-                </button>
-              </div>
+                </Button>
+              </ListEmpty>
             ) : (
-              <div className="list-empty">没有匹配的技能</div>
+              <ListEmpty>没有匹配的技能</ListEmpty>
             ))}
         </div>
       </div>
@@ -102,15 +123,22 @@ export function SkillList(props: SkillListProps) {
   );
 }
 
+// 空状态放在列表区的视觉中部;列表是 content-start 的网格,h-full 不生效，用上边距定位。
+function ListEmpty({ children }: { children: React.ReactNode }) {
+  return <div className="col-span-full flex flex-col items-center justify-center gap-1.5 pt-[22vh] text-muted-foreground">{children}</div>;
+}
+
 function SkillCard(props: {
   s: Snapshot;
   skill: Skill;
   scope: ScopeKey | null;
+  view: ListView;
+  showSource: boolean;
   selected: boolean;
   hideGroup?: number; // 正在筛选的组：每张卡都属于它，不再重复显示
   onOpen: () => void;
 }) {
-  const { s, skill, scope } = props;
+  const { s, skill, scope, view } = props;
   const ui = useUI();
   const dnd = useDnD();
   const installed = skillScopesOf(s, skill.id);
@@ -120,9 +148,9 @@ function SkillCard(props: {
   const here = scope ? skillScopeIn(s, skill.id, scope) : undefined;
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const via = (here?.groups ?? []).map((id) => s.groups.find((g) => g.id === id)?.name ?? "");
+  const list = view === "list";
 
-  const toggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggle = () => {
     if (!scope) return;
     const sc = parseScope(scope);
     void (here?.direct ? uninstallSkill(ui, s, skill.id, sc) : installSkill(ui, s, skill.id, sc));
@@ -130,72 +158,109 @@ function SkillCard(props: {
 
   return (
     <article
-      className={`a-card ${props.selected ? "selected" : ""}`}
+      className={cn(
+        "a-card group/card flex cursor-grab gap-2 border transition-[background-color,border-color,box-shadow,transform] duration-100 active:cursor-grabbing",
+        list
+          ? "min-h-10 flex-row items-center gap-5 rounded-[7px] border-transparent px-3 shadow-[inset_0_-1px_0_rgba(17,24,39,0.06)] hover:border-hairline hover:bg-white hover:shadow-[0_1px_2px_rgba(17,24,39,0.04)]"
+          : "min-h-28 flex-col rounded-[10px] border-hairline bg-glass-card px-3 pt-3 pb-2.5 shadow-tile hover:-translate-y-px hover:border-border-strong hover:bg-white hover:shadow-raised",
+        props.selected &&
+          "border-primary bg-white shadow-[0_0_0_1px_var(--color-primary)] hover:border-primary hover:shadow-[0_0_0_1px_var(--color-primary)]",
+      )}
+      data-selected={props.selected || undefined}
       onClick={props.onOpen}
       draggable
       onDragStart={(e) => dnd.start(e, { kind: "skill", id: skill.id }, skill.name)}
       onDragEnd={dnd.end}
     >
-      <div className="a-card-top">
-        <span className="a-card-name">{skill.name}</span>
+      <div className={cn("flex min-w-0 items-center gap-1.5", list && "w-[260px] shrink-0")}>
+        {/* 名字优先：放不下时先截右边的来源，再截名字。 */}
+        <span className={cn("a-card-name min-w-0 truncate font-semibold", list ? "text-[13px]" : "text-[12.5px]")}>{skill.name}</span>
         {updateAvailable(skill) && (
-          <span className="badge warn" title="来源有新版本">
+          <Badge tone="warn" className="px-[5px] py-0 text-[9.5px]" title="来源有新版本">
             可更新
-          </span>
+          </Badge>
         )}
         {deletedInSource(skill) && (
-          <span className="badge" title="作者已从来源删掉它(也可能是改了名);你的副本还在，可以继续用">
-            来源里已删除
-          </span>
+          <Badge title="作者已从来源删掉它(也可能是改了名);你的副本还在，可以继续用">来源里已删除</Badge>
         )}
         {/* 右上角：所属组(灰色小标签，多个时显示 +N),其后是淡色的来源。 */}
         {groups.length > 0 && (
-          <span className="a-card-tag" title={`组:${groups.map((g) => g.name).join("、")}`}>
+          <span
+            className={cn(
+              "max-w-24 shrink-0 truncate rounded bg-black/5 px-[5px] py-px font-mono text-[9.5px] font-medium text-muted-foreground",
+              props.selected && "bg-[#dbe4ee] text-slate-800",
+            )}
+            title={`组:${groups.map((g) => g.name).join("、")}`}
+          >
             {groups[0].name}
             {groups.length > 1 && ` +${groups.length - 1}`}
           </span>
         )}
-        <span className="a-card-src" title={`${sourceKindLabel[skill.source.type]} · ${sourceLabel(s, skill.source)}`}>
-          {sourceShort(s, skill.source)}
-        </span>
+        {props.showSource && (
+          <span
+            className="ml-auto max-w-20 min-w-0 shrink-[100] truncate text-[10px] text-subtle"
+            title={`${sourceKindLabel[skill.source.type]} · ${sourceLabel(s, skill.source)}`}
+          >
+            {sourceShort(s, skill.source)}
+          </span>
+        )}
       </div>
-      <p className="a-card-desc">{skill.description}</p>
-      <div className="a-card-foot">
+      <p
+        className={cn(
+          list
+            ? "min-w-0 flex-1 truncate text-[11.5px] text-foreground-secondary"
+            : "line-clamp-2 min-h-[2.9em] text-[11px] leading-[1.45] text-muted-foreground",
+        )}
+      >
+        {skill.description}
+      </p>
+      <div
+        className={cn(
+          "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
+          list ? "w-[220px] shrink-0" : "mt-auto",
+        )}
+      >
         {scope ? (
           <>
-            <button
-              type="button"
-              className={`switch ${here?.direct ? "on" : ""} ${here && !here.direct ? "group-held" : ""}`}
-              role="switch"
-              aria-checked={!!here?.direct}
-              onClick={toggle}
+            <Switch
+              checked={!!here?.direct}
+              held={!!here && !here.direct}
+              onClick={(e) => e.stopPropagation()}
+              onCheckedChange={toggle}
               title={here?.direct ? "卸载直接安装" : "直接安装到这个作用域"}
-            >
-              <i />
-            </button>
-            <span className="tiny">
+            />
+            <span className="min-w-0 truncate">
               {here
                 ? [here.direct ? "直接安装" : "", via.length ? `随「${via.join("」「")}」安装` : ""].filter(Boolean).join(" + ")
                 : "未安装"}
             </span>
             {here && needsReinstall(here) && (
-              <span className={`status ${skillScopeStatus[here.status].tone}`}>{skillScopeStatus[here.status].label}</span>
+              <Badge tone={skillScopeStatus[here.status].tone} className="font-sans">
+                {skillScopeStatus[here.status].label}
+              </Badge>
             )}
           </>
         ) : (
           <>
-            <span className={`dot ${installed.length ? (bad ? "warn" : "on") : ""}`} />
-            <span className="tiny">{globals.length ? "全局" : "未全局安装"}</span>
+            <span className={cn("size-1.5 shrink-0 rounded-full bg-slate-300", installed.length && (bad ? "bg-warn" : "bg-ok"))} />
+            {installed.length === 0 && <span>未安装</span>}
             {globals.length > 0 && (
-              <span className="marks" title={globals.map((code) => agentName(s, code)).join("、")}>
-                {globals.slice(0, 4).map((code) => (
-                  <AgentIcon key={code} code={code} name={agentName(s, code)} />
-                ))}
-                {globals.length > 4 && <span className="tiny muted">+{globals.length - 4}</span>}
-              </span>
+              <>
+                <span>全局</span>
+                <span className="inline-flex items-center gap-[3px]" title={globals.map((code) => agentName(s, code)).join("、")}>
+                  {globals.slice(0, 4).map((code) => (
+                    <AgentMark key={code} code={code} name={agentName(s, code)} className="size-3 text-[8px]" />
+                  ))}
+                  {globals.length > 4 && <span>+{globals.length - 4}</span>}
+                </span>
+              </>
             )}
-            <span className="grow" />
-            <span className="tiny muted">{projects} 个项目</span>
+            {projects > 0 && (
+              <>
+                <span className="grow" />
+                <span>{projects} 个项目</span>
+              </>
+            )}
           </>
         )}
       </div>
@@ -210,44 +275,42 @@ function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; d
   const issues = installed.filter(needsReinstall).length;
   const sc = parseScope(scope);
   return (
-    <div className="a-scope-sum">
-      <div className="a-sum-row">
-        <span className="tiny muted">Agent 目录</span>
-        <span className="mono tiny ellipsis" style={{ userSelect: "text" }}>
-          {directory ? shortPath(s, directory) : "…"}
-        </span>
+    <div className={barClass}>
+      <div className={barRowClass}>
+        <span className="text-[11px] text-muted-foreground">Agent 目录</span>
+        <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{directory ? shortPath(s, directory) : "…"}</span>
         <span className="grow" />
-        <span className="stat">
-          <b>{installed.length}</b> 已安装
-        </span>
-        <span className={`stat ${issues ? "warn" : ""}`}>
-          <b>{issues}</b> 需重新安装
-        </span>
+        <Stat value={installed.length} label="已安装" />
+        <Stat value={issues} label="需重新安装" warn={issues > 0} />
         {issues > 0 && (
-          <button type="button" className="pill-btn sm" onClick={() => reinstall(ui, s, { scope: sc }, scopeLabel(s, sc))}>
+          <Button size="sm" onClick={() => reinstall(ui, s, { scope: sc }, scopeLabel(s, sc))}>
             <Icon name="refresh" />
             全部重新安装
-          </button>
+          </Button>
         )}
       </div>
       {s.groups.length > 0 && (
-        <div className="a-sum-groups">
-          <span className="tiny muted">组</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-muted-foreground">组</span>
           {s.groups.map((g) => {
             const state = groupStateIn(s, g, scope);
+            const on = state === "on";
             return (
               <button
                 type="button"
                 key={g.id}
-                className={`gchip ${state}`}
-                onClick={() =>
-                  state === "on" ? uninstallGroup(ui, s, g.id, sc) : installGroup(ui, s, g.id, sc)
-                }
-                title={`「${g.name}」${state === "on" ? "已组安装，点击卸载(只撤回本组的组安装)" : "未组安装，点击组安装"}`}
+                data-state={state}
+                aria-pressed={on}
+                className={cn(
+                  "gchip inline-flex h-6 items-center gap-1.5 rounded-md border border-border px-[9px] text-[11.5px] text-foreground-secondary transition-colors hover:border-border-strong hover:bg-white/70",
+                  on && "border-group-border bg-group-soft font-medium text-[#5b21b6] hover:border-group hover:bg-group-soft",
+                )}
+                onClick={() => (on ? uninstallGroup(ui, s, g.id, sc) : installGroup(ui, s, g.id, sc))}
+                title={`「${g.name}」${on ? "已组安装，点击卸载(只撤回本组的组安装)" : "未组安装，点击组安装"}`}
               >
-                <i />
+                <i className={cn("size-[7px] rounded-full border-[1.5px] border-subtle", on && "border-group bg-group")} />
                 {g.name}
-                <span className="tiny">
+                <span className={cn("font-mono text-[11px] text-subtle", on && "text-[#7c3aed]")}>
                   {viaGroupCount(s, g, scope)}/{g.members?.length ?? 0}
                 </span>
               </button>
@@ -259,6 +322,14 @@ function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; d
   );
 }
 
+function Stat({ value, label, warn = false }: { value: number; label: string; warn?: boolean }) {
+  return (
+    <span className="stat text-xs text-foreground-secondary" data-tone={warn ? "warn" : undefined}>
+      <b className={cn("mr-0.5 text-sm", warn && "text-amber-600")}>{value}</b> {label}
+    </span>
+  );
+}
+
 // GroupHead 是筛选某个组时列表顶部的组标题条：整组的拖动把手，附带重命名、删除与组安装到当前作用域。
 function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: ScopeKey | null }) {
   const ui = useUI();
@@ -267,57 +338,47 @@ function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: Scop
   const count = group.members?.length ?? 0;
   return (
     <div
-      className="a-group-head"
+      className="a-group-head mx-3.5 mt-3 flex min-w-0 cursor-grab items-center gap-2 rounded-[10px] border border-group-border bg-group-soft px-3 py-2.5 text-[#4c1d95] hover:border-group hover:shadow-[0_2px_8px_rgba(139,92,246,0.15)] active:cursor-grabbing"
       draggable
       onDragStart={(e) => dnd.start(e, { kind: "group", id: group.id }, `组「${group.name}」· ${count} 个技能`)}
       onDragEnd={dnd.end}
       title={`拖到右侧作用域 = 组安装(${count} 个技能)`}
     >
-      <span className="grip">
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
+      <span className="mr-0.5 grid grid-cols-[repeat(2,3px)] gap-0.5">
+        {Array.from({ length: 6 }, (_, i) => (
+          <i key={i} className="size-[3px] rounded-full bg-[#a78bfa]" />
+        ))}
       </span>
-      <Icon name="layers" />
+      <Icon name="layers" className="text-group" />
       <b>{group.name}</b>
-      <span className="tiny muted">{count} 个技能</span>
-      <span className="a-group-on">
+      <span className="text-[11px] text-muted-foreground">{count} 个技能</span>
+      <span className="ml-1.5 inline-flex min-w-0 items-center gap-1 overflow-hidden text-[11.5px] whitespace-nowrap text-foreground-secondary">
         {scopes.length ? (
           <>
             组安装于
             {scopes.map((sc) => (
-              <span key={scopeKey(sc)} className="chip sm">
+              <Chip key={scopeKey(sc)} small removeTitle="卸载这个作用域的组安装" onRemove={() => uninstallGroup(ui, s, group.id, sc)}>
                 <AgentMark code={sc.agent} name={agentName(s, sc.agent)} />
                 {sc.project_id ? projectName(s, sc.project_id) : "全局"}
-                <button
-                  type="button"
-                  title="卸载这个作用域的组安装"
-                  onClick={() => uninstallGroup(ui, s, group.id, sc)}
-                >
-                  ×
-                </button>
-              </span>
+              </Chip>
             ))}
           </>
         ) : (
-          <span className="tiny muted">尚未组安装到任何作用域</span>
+          <span className="text-[11px] text-muted-foreground">尚未组安装到任何作用域</span>
         )}
       </span>
-      <span className="card-actions">
+      <span className="ml-auto flex items-center gap-1.5">
         {scope && !scopes.some((sc) => scopeKey(sc) === scope) && (
-          <button type="button" className="pill-btn sm" onClick={() => installGroup(ui, s, group.id, parseScope(scope))}>
+          <Button size="sm" onClick={() => installGroup(ui, s, group.id, parseScope(scope))}>
             组安装到 {scopeLabel(s, parseScope(scope))}
-          </button>
+          </Button>
         )}
-        <button type="button" className="pill-btn sm" onClick={() => renameGroup(ui, s, group.id)}>
+        <Button size="sm" onClick={() => renameGroup(ui, s, group.id)}>
           重命名
-        </button>
-        <button type="button" className="pill-btn sm danger" onClick={() => deleteGroup(ui, s, group.id)}>
+        </Button>
+        <Button size="sm" variant="danger" onClick={() => deleteGroup(ui, s, group.id)}>
           删除组
-        </button>
+        </Button>
       </span>
     </div>
   );
@@ -329,7 +390,7 @@ function UpdatesHead({ s }: { s: Snapshot }) {
   const ui = useUI();
   const collections = updatableCollections(s);
   return (
-    <div className="a-scope-sum">
+    <div className={barClass}>
       {collections.map((c) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
@@ -341,26 +402,26 @@ function UpdatesHead({ s }: { s: Snapshot }) {
           deleted.length ? `${deleted.map((x) => x.name).join("、")} 来源里已删除` : "",
         ].filter(Boolean);
         return (
-          <div key={c.id} className="a-sum-row">
-            <b className="ellipsis">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
-            <span className="tiny muted ellipsis grow">{facts.join(" · ")}</span>
-            <button type="button" className="pill-btn sm" onClick={() => openUpdate(ui, s, c.id)}>
+          <div key={c.id} className={barRowClass}>
+            <b className="truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+            <span className="grow truncate text-[11px] text-muted-foreground">{facts.join(" · ")}</span>
+            <Button size="sm" onClick={() => openUpdate(ui, s, c.id)}>
               查看
-            </button>
-            <button type="button" className="pill-btn sm accent" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, [c])}>
+            </Button>
+            <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, [c])}>
               <Icon name="up" />
               更新
-            </button>
+            </Button>
           </div>
         );
       })}
-      <div className="a-sum-row">
-        <span className="tiny muted grow">更新时，装出去的地方一起换成新版;你改过的地方不动。</span>
+      <div className={barRowClass}>
+        <span className="grow text-[11px] text-muted-foreground">更新时，装出去的地方一起换成新版;你改过的地方不动。</span>
         {collections.length > 1 && (
-          <button type="button" className="pill-btn sm accent" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, collections)}>
+          <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, collections)}>
             <Icon name="up" />
             全部更新
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -375,26 +436,21 @@ function CollectionHead({ s, collection }: { s: Snapshot; collection: Collection
   const local = isLocal(collection.source);
   const facts = [revisionSummary(skills), pending ? `${pending} 个有新版本` : ""].filter(Boolean);
   return (
-    <div className="a-scope-sum">
-      <div className="a-sum-row">
-        <span className="src-chip">
-          <SourceIcon type={collection.source.type} />
+    <div className={barClass}>
+      <div className={barRowClass}>
+        <span className="inline-flex items-center gap-[5px]">
+          <SourceIcon type={collection.source.type} className="size-3 text-muted-foreground" />
           {sourceLabel(s, collection.source)}
         </span>
-        <span className="tiny muted ellipsis grow">{facts.join(" · ")}</span>
-        <button
-          type="button"
-          className="pill-btn sm"
-          onClick={() => previewCollection(ui, collection.id)}
-          title="按入库时的来源重新读取，看看作者又发布了哪些技能"
-        >
+        <span className="grow truncate text-[11px] text-muted-foreground">{facts.join(" · ")}</span>
+        <Button size="sm" onClick={() => previewCollection(ui, collection.id)} title="按入库时的来源重新读取，看看作者又发布了哪些技能">
           看来源里的其他技能
-        </button>
+        </Button>
         {!local && pending > 0 && (
-          <button type="button" className="pill-btn sm accent" onClick={() => openUpdate(ui, s, collection.id)}>
+          <Button size="sm" variant="primary" onClick={() => openUpdate(ui, s, collection.id)}>
             <Icon name="up" />
             更新
-          </button>
+          </Button>
         )}
       </div>
     </div>

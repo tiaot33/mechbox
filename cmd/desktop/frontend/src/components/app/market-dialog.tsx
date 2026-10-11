@@ -4,6 +4,11 @@ import { Browser } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { FetchPreview, SearchSkill } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/field";
+import { SearchInput } from "@/components/ui/input";
+import { ListBox, ListRow } from "@/components/ui/list";
+import { Notice } from "@/components/ui/notice";
 import { FetchReview } from "./fetch-review";
 import { Icon } from "./icons";
 
@@ -18,7 +23,7 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
   if (preview) return <FetchReview preview={preview} audits onClose={onClose} onBack={() => setPreview(null)} />;
 
   const search = async () => {
-    if (!query.trim()) return;
+    if (!query.trim() || searching) return;
     setSearching(true);
     const r = await ui.run(() => LibraryService.SearchSkills(query.trim()), { reload: false });
     setSearching(false);
@@ -35,57 +40,49 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
   const skills = result ?? [];
   return (
     <Modal title="技能市场" wide onClose={onClose}>
-      <div className="row">
-        <label className="search grow" style={{ width: "auto" }}>
-          <Icon name="search" />
-          <input
-            autoFocus
-            placeholder="在 skills.sh 上搜索技能"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && search()}
-          />
-        </label>
-        <button type="button" className="pill-btn accent" onClick={search} disabled={!query.trim() || searching}>
-          {searching ? <span className="spin" /> : null}
+      <div className="flex min-w-0 items-center gap-2">
+        <SearchInput
+          className="grow"
+          icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
+          autoFocus
+          placeholder="在 skills.sh 上搜索技能"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+        />
+        <Button variant="primary" onClick={search} disabled={!query.trim()} loading={searching}>
           搜索
-        </button>
+        </Button>
       </div>
       {result &&
         (skills.length ? (
-          <div className="list-box">
+          <ListBox>
             {skills.map((s) => (
-              <div key={s.id} className="list-row">
-                <div className="grow">
-                  <div className="row">
+              <ListRow key={s.id}>
+                <div className="min-w-0 grow">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="link name-link"
+                      className="text-[13px] font-semibold text-foreground hover:text-primary"
                       title={`在 skills.sh 查看「${s.name}」`}
                       onClick={() => void Browser.OpenURL(s.detail_url)}
                     >
                       {s.name}
                     </button>
-                    {s.installs != null && <span className="tiny muted">{s.installs.toLocaleString()} 次安装</span>}
+                    {s.installs != null && <span className="text-[11px] text-muted-foreground">{s.installs.toLocaleString()} 次安装</span>}
                   </div>
-                  <div className="mono tiny muted">{s.preview.github?.input}</div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">{s.preview.github?.input}</div>
                 </div>
-                <button
-                  type="button"
-                  className="pill-btn sm accent"
-                  disabled={fetching !== null}
-                  onClick={() => pick(s)}
-                >
-                  {fetching === s.id ? <span className="spin" /> : null}
+                <Button size="sm" variant="primary" disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
                   入库
-                </button>
-              </div>
+                </Button>
+              </ListRow>
             ))}
-          </div>
+          </ListBox>
         ) : (
-          <div className="notice">没有搜到技能。</div>
+          <Notice>没有搜到技能。</Notice>
         ))}
-      <p className="hint">搜索结果来自 skills.sh,入库前会先从 GitHub 做入库预览，可查看候选与审计信息。</p>
+      <Hint>搜索结果来自 skills.sh,入库前会先从 GitHub 做入库预览，可查看候选与审计信息。</Hint>
     </Modal>
   );
 }

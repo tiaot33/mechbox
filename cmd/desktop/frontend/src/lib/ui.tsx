@@ -1,8 +1,13 @@
 // 全局界面服务：toast、弹窗(确认 / 输入 / 自定义)与写操作执行器 run。
 // 写操作统一经 run:显示忙碌、失败时按错误码提示、成功后重读快照(前端在自己的写操作之后重读，见 ADR 0008)。
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorCode } from "@bindings/internal/library";
 import { Icon } from "@/components/app/icons";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { cn } from "./utils";
 import { describeError } from "./errors";
 import { toLibraryError, type LibraryError } from "./library";
 
@@ -124,14 +129,23 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
       {dialogs.map((d) => (
         <div key={d.id}>{d.node}</div>
       ))}
-      <div className={`toast ${toastState.show ? "show" : ""} ${toastState.tone}`} role="status">
+      <div
+        data-slot="toast"
+        data-state={toastState.show ? "open" : "closed"}
+        data-tone={toastState.tone}
+        role="status"
+        className={cn(
+          "pointer-events-none fixed bottom-[66px] left-1/2 z-[101] max-w-[640px] -translate-x-1/2 translate-y-2.5 rounded-[14px] border border-border bg-white px-4 py-2 text-center text-[12.5px] break-words whitespace-pre-line opacity-0 shadow-toast transition-all duration-200",
+          "data-[state=open]:translate-y-0 data-[state=open]:opacity-100 data-[tone=error]:border-bad-border data-[tone=error]:text-bad-strong",
+        )}
+      >
         {toastState.message}
       </div>
     </UIContext.Provider>
   );
 }
 
-// Modal 是弹窗外壳：点遮罩或按 Esc 关闭。
+// Modal 是弹窗外壳：标题、关闭按钮、可滚动的主体与底部按钮行;点遮罩或按 Esc 关闭，叠了几层时只关最上面一层。
 export function Modal({
   title,
   onClose,
@@ -145,24 +159,21 @@ export function Modal({
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   return (
-    <div className="modal-scrim window-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true">
-        <div className="modal-head">
-          <h3>{title}</h3>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">
-            <Icon name="close" />
-          </button>
-        </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
-      </div>
-    </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent wide={wide}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon" aria-label="关闭">
+              <Icon name="close" />
+            </Button>
+          </DialogClose>
+        </DialogHeader>
+        <DialogBody>{children}</DialogBody>
+        {footer && <DialogFooter>{footer}</DialogFooter>}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -174,27 +185,27 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
       onClose={() => close()}
       footer={
         <>
-          <button type="button" className="pill-btn" onClick={() => close()}>
-            取消
-          </button>
-          <button
-            type="button"
-            className={`pill-btn ${opts.danger ? "danger" : "accent"}`}
-            onClick={() => close(choice)}
-            autoFocus
-          >
+          <Button onClick={() => close()}>取消</Button>
+          <Button variant={opts.danger ? "danger" : "primary"} onClick={() => close(choice)} autoFocus>
             {opts.confirm ?? "确定"}
-          </button>
+          </Button>
         </>
       }
     >
       {opts.body}
       {opts.choices?.map((c) => (
-        <label key={c.value} className={`choice ${choice === c.value ? "on" : ""}`}>
-          <input type="radio" checked={choice === c.value} onChange={() => setChoice(c.value)} />
+        <label
+          key={c.value}
+          data-slot="choice"
+          className={cn(
+            "flex cursor-pointer items-start gap-2 rounded-[9px] border border-border-subtle bg-white px-2.5 py-2",
+            choice === c.value && "border-primary-border bg-primary-soft",
+          )}
+        >
+          <input type="radio" className="mt-[3px] accent-primary" checked={choice === c.value} onChange={() => setChoice(c.value)} />
           <div>
-            <b>{c.label}</b>
-            {c.desc && <span>{c.desc}</span>}
+            <b className="block font-semibold">{c.label}</b>
+            {c.desc && <span className="text-xs text-muted-foreground">{c.desc}</span>}
           </div>
         </label>
       ))}
@@ -211,25 +222,21 @@ function PromptDialog({ opts, close }: { opts: PromptOptions; close: (value?: st
       onClose={() => close()}
       footer={
         <>
-          <button type="button" className="pill-btn" onClick={() => close()}>
-            取消
-          </button>
-          <button type="button" className="pill-btn accent" onClick={submit} disabled={!value.trim()}>
+          <Button onClick={() => close()}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={!value.trim()}>
             {opts.confirm ?? "确定"}
-          </button>
+          </Button>
         </>
       }
     >
-      <label className="field">
-        {opts.label && <span>{opts.label}</span>}
-        <input
-          className="input"
+      <Field label={opts.label}>
+        <Input
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
-      </label>
+      </Field>
     </Modal>
   );
 }

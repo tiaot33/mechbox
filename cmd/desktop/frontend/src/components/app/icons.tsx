@@ -1,5 +1,7 @@
-// 图标沿用 UI 原型的内联 SVG(与设计稿一致的笔画粗细)。尺寸由 app.css 的 .window svg 统一控制。
+// 图标沿用 UI 原型的内联 SVG(与设计稿一致的笔画粗细)。默认 14px,按场合用 className 改尺寸;
+// 按钮等组件用 [&_[data-slot=icon]] 统一定尺寸。
 import { SourceType } from "@bindings/internal/library";
+import { cn } from "@/lib/utils";
 
 const icons = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
@@ -34,11 +36,21 @@ const sourceIcons: Record<SourceType, string> = {
 
 export type IconName = keyof typeof icons;
 
-// 用 <i> 包一层以承载 innerHTML;display: contents 让 SVG 直接参与父级布局，与原型的 DOM 等价。
-export function Icon({ name }: { name: IconName }) {
-  return <i style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: icons[name] }} />;
+export function Icon({ name, className }: { name: IconName; className?: string }) {
+  return <Glyph svg={icons[name]} className={className} />;
 }
 
-export function SourceIcon({ type }: { type: SourceType }) {
-  return <i style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: sourceIcons[type] }} />;
+export function SourceIcon({ type, className }: { type: SourceType; className?: string }) {
+  return <Glyph svg={sourceIcons[type]} className={className} />;
+}
+
+function Glyph({ svg, className }: { svg: string; className?: string }) {
+  return (
+    <span
+      data-slot="icon"
+      aria-hidden
+      className={cn("inline-flex size-3.5 shrink-0 *:size-full", className)}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
 }

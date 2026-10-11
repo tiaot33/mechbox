@@ -8,6 +8,12 @@ import type { Snapshot } from "@/lib/library";
 import { revisionSummary, scopeLabel, type ScopeKey } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { collectionUpdate, defaultScopeOn, reportUpdates, runUpdate, scopeRows, type ScopeRow } from "@/lib/update";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/field";
+import { ListBox, ListRow } from "@/components/ui/list";
+import { Notice } from "@/components/ui/notice";
+import { Spinner } from "@/components/ui/spinner";
 import { toggled } from "./parts";
 
 export function UpdateDialog({
@@ -63,95 +69,100 @@ export function UpdateDialog({
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="pill-btn" onClick={onClose}>
-            取消
-          </button>
-          <button type="button" className="pill-btn accent" disabled={!count || working || !inspections} onClick={run}>
-            {working ? <span className="spin" /> : null}
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!count || !inspections} loading={working} onClick={run}>
             {local ? "重新读取" : `更新 ${count} 个`}
-          </button>
+          </Button>
         </>
       }
     >
       {local ? (
-        <p className="hint">从目录读出「{label}」现在的内容成为新版本，并换到下面勾选的地方。</p>
+        <Hint>从目录读出「{label}」现在的内容成为新版本，并换到下面勾选的地方。</Hint>
       ) : (
         <>
-          {revisions && <p className="hint">现在{revisions}。更新会换到来源的最新状态。</p>}
-          <div className="list-box">
+          {revisions && <Hint>现在{revisions}。更新会换到来源的最新状态。</Hint>}
+          <ListBox>
             {shown.map((x) => (
-              <label key={x.id} className={`list-row compact clickable ${checked.has(x.id) ? "on" : ""}`}>
-                <input type="checkbox" checked={checked.has(x.id)} onChange={() => setChecked((set) => toggled(set, x.id))} />
-                <b className="name">{x.name}</b>
-                <span className="status warn">有新版本</span>
-              </label>
+              <ListRow key={x.id} asChild compact clickable selected={checked.has(x.id)}>
+                <label>
+                  <input
+                    type="checkbox"
+                    className="shrink-0 accent-primary"
+                    checked={checked.has(x.id)}
+                    onChange={() => setChecked((set) => toggled(set, x.id))}
+                  />
+                  <b className="font-semibold whitespace-nowrap">{x.name}</b>
+                  <Badge tone="warn">有新版本</Badge>
+                </label>
+              </ListRow>
             ))}
             {folded.length > 0 && (
-              <div className="list-row compact">
-                <span className="grow muted">
+              <ListRow compact>
+                <span className="grow text-muted-foreground">
                   同一来源还有 {folded.length} 个技能有新版本({folded.map((x) => x.name).join("、")})
                 </span>
-                <button type="button" className="link" onClick={() => setExpanded(true)}>
+                <Button variant="link" onClick={() => setExpanded(true)}>
                   展开
-                </button>
-              </div>
+                </Button>
+              </ListRow>
             )}
             {deleted.map((x) => (
-              <div key={x.id} className="list-row compact">
-                <b className="name">{x.name}</b>
-                <span className="status">来源里已删除</span>
-                <span className="grow muted tiny">你的副本还在，可以继续用;要移除请在技能详情里操作</span>
-              </div>
+              <ListRow key={x.id} compact>
+                <b className="font-semibold whitespace-nowrap">{x.name}</b>
+                <Badge>来源里已删除</Badge>
+                <span className="grow text-[11px] text-muted-foreground">你的副本还在，可以继续用;要移除请在技能详情里操作</span>
+              </ListRow>
             ))}
             {unchanged.length > 0 && (
-              <div className="list-row compact muted">没变化:{unchanged.map((x) => x.name).join("、")}</div>
+              <ListRow compact className="text-muted-foreground">
+                没变化:{unchanged.map((x) => x.name).join("、")}
+              </ListRow>
             )}
-          </div>
-          {splitting && (
-            <div className="notice warn" style={{ marginTop: 8 }}>
-              只更新勾选的技能后,{label} 里的技能会不在同一个来源版本上。
-            </div>
-          )}
+          </ListBox>
+          {splitting && <Notice tone="warn">只更新勾选的技能后,{label} 里的技能会不在同一个来源版本上。</Notice>}
         </>
       )}
 
-      <div className="card-h" style={{ marginTop: 12 }}>
-        <span>装在这些地方，一起换成新版</span>
-      </div>
+      <div className="mt-1 text-[13.5px] font-semibold">装在这些地方，一起换成新版</div>
       {!inspections ? (
-        <p className="hint">
-          <span className="spin" /> 正在查看各处的状态…
-        </p>
+        <Hint className="flex items-center gap-1.5">
+          <Spinner /> 正在查看各处的状态…
+        </Hint>
       ) : rows.length === 0 ? (
-        <p className="hint">勾选的技能还没有装到任何地方，只更新技能库。</p>
+        <Hint>勾选的技能还没有装到任何地方，只更新技能库。</Hint>
       ) : (
-        <div className="list-box">
+        <ListBox>
           {rows.map((r) => {
             const on = scopeOn(r);
             return (
-              <label key={r.key} className={`list-row compact ${r.rootMissing ? "" : "clickable"} ${on ? "on" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={on}
-                  disabled={r.rootMissing}
-                  onChange={() => setScopeChoice((m) => new Map(m).set(r.key, !on))}
-                />
-                <span className="name">{scopeLabel(s, r.places[0].scope)}</span>
-                <span className="grow muted tiny">{r.places.map((p) => name(p.skill_id)).join("、")}</span>
-                {r.rootMissing ? (
-                  <span className="status bad">项目不在这台机器上，装不上</span>
-                ) : r.modified.length > 0 ? (
-                  <span className="status warn">
-                    你在这里改过{r.modified.length < r.places.length ? ` ${r.modified.map((p) => name(p.skill_id)).join("、")}` : ""}
-                    ,换新版会覆盖你的修改
+              <ListRow key={r.key} asChild compact clickable={!r.rootMissing} selected={on}>
+                <label>
+                  <input
+                    type="checkbox"
+                    className="shrink-0 accent-primary"
+                    checked={on}
+                    disabled={r.rootMissing}
+                    onChange={() => setScopeChoice((m) => new Map(m).set(r.key, !on))}
+                  />
+                  <span className="whitespace-nowrap">{scopeLabel(s, r.places[0].scope)}</span>
+                  <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">
+                    {r.places.map((p) => name(p.skill_id)).join("、")}
                   </span>
-                ) : null}
-              </label>
+                  {r.rootMissing ? (
+                    <Badge tone="bad">项目不在这台机器上，装不上</Badge>
+                  ) : r.modified.length > 0 ? (
+                    <Badge tone="warn">
+                      你在这里改过{r.modified.length < r.places.length ? ` ${r.modified.map((p) => name(p.skill_id)).join("、")}` : ""}
+                      ,换新版会覆盖你的修改
+                    </Badge>
+                  ) : null}
+                </label>
+              </ListRow>
             );
           })}
-        </div>
+        </ListBox>
       )}
-      <p className="hint">没勾的地方保持原样，之后可以在那里单独重新安装。</p>
+      <Hint>没勾的地方保持原样，之后可以在那里单独重新安装。</Hint>
     </Modal>
   );
 }

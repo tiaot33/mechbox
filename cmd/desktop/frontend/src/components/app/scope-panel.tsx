@@ -1,4 +1,4 @@
-// 右栏：作用域——全局与每个已登记项目下，只展开装有技能的 Agent,其余勾选显示的折进"其他 N 个 Agent";
+// 右栏：作用域——全局与每个已登记项目下，直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent";
 // 项目行折叠时用小图标显示在用的 Agent。点选一行即选中该作用域(与顶栏胶囊同步)。
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖到折叠的项目或"其他 Agent"上停 0.5 秒自动展开。
 import { useRef, useState } from "react";
@@ -7,7 +7,7 @@ import { registerProject, relocateProject, unregisterProject } from "@/lib/actio
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
 import type { Snapshot } from "@/lib/library";
 import {
-  agentShown,
+  agentsIn,
   agentsUsedIn,
   needsReinstall,
   parseScope,
@@ -22,9 +22,16 @@ import {
 } from "@/lib/model";
 import { resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FieldError, Hint } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { Icon } from "./icons";
 import { pickDirectory } from "./fetch-dialog";
-import { AgentIcon, Count } from "./parts";
+import { rightClass } from "./layout";
+import { NavCount, navItem } from "./nav";
+import { AgentMark } from "./parts";
 
 interface ScopePanelProps {
   s: Snapshot;
@@ -64,29 +71,30 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
       <li key={key}>
         <button
           type="button"
-          className={`nav-item sub ${scope === key ? "active" : ""} ${already ? "already" : ""}`}
+          className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub")}
+          data-active={scope === key}
+          data-already={already || undefined}
           onClick={() => onScope(scope === key ? null : key)}
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
-          <AgentIcon code={agent.code} name={agent.name} />
-          <span className="grow ellipsis">
-            {agent.name}
-            {issues > 0 && <i className="issue-dot" title={`${issues} 个技能文件夹与当前版本不一致，需要重新安装`} />}
-          </span>
-          <Count value={installed.length} />
+          <AgentMark code={agent.code} name={agent.name} />
+          <span className="grow truncate">{agent.name}</span>
+          {issues > 0 && (
+            <i className="size-1.5 shrink-0 rounded-full bg-warn" title={`${issues} 个技能文件夹与当前版本不一致，需要重新安装`} />
+          )}
+          <NavCount value={installed.length} accent />
         </button>
       </li>
     );
   };
 
-  // 每个地方只展开"用到的 Agent"(装有技能，或正被选中);其余勾选显示的折进"其他 N 个 Agent",展开后淡色显示在开关之上。
+  // 正被选中的作用域即使折在"其他"里也直接列出，否则看不到选中态。
   const agentRows = (place: Place) => {
-    const used = agentsUsedIn(s, place);
-    const shown = s.agents.filter(
-      (a) => used.includes(a) || (selected?.agent === a.code && placeOf(selected) === place),
-    );
-    const rest = s.agents.filter((a) => !shown.includes(a) && agentShown(s.agentsShown, a));
+    const { open, folded } = agentsIn(s, place);
+    const isSelected = (a: Agent) => selected?.agent === a.code && placeOf(selected) === place;
+    const shown = [...open, ...folded.filter(isSelected)];
+    const rest = folded.filter((a) => !isSelected(a));
     const more = moreAgents.has(place);
     return (
       <>
@@ -96,14 +104,17 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
           <li>
             <button
               type="button"
-              className={`nav-item sub more ${more ? "open" : ""}`}
+              className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub more text-xs text-muted-foreground")}
               onClick={() => onToggleMore(place)}
               {...springProps(!more, () => onToggleMore(place))}
             >
-              <Icon name="down" />
+              <Icon name="chev" className={cn("size-2.5 transition-transform", more ? "-rotate-90" : "rotate-90")} />
               <span className="grow">{more ? "收起" : `其他 ${rest.length} 个 Agent`}</span>
             </button>
           </li>
+        )}
+        {shown.length === 0 && rest.length === 0 && (
+          <li className="px-2 py-1 text-[11.5px] text-muted-foreground">没有可选的 Agent,可在设置页勾选显示</li>
         )}
       </>
     );
@@ -114,53 +125,55 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
     ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={project} onClose={close} />);
 
   return (
-    <aside className="a-right">
-      <div className="nav-sec rail-head">
-        <span>
-          <Icon name="globe" /> 全局
-        </span>
-      </div>
-      <ul className="nav tree">{agentRows(0)}</ul>
-      <div className="nav-sec rail-head">
-        <span>
-          <Icon name="folder" /> 已登记项目
-        </span>
-        <button type="button" className="icon-btn sm sec-add" title="登记项目" onClick={register}>
+    <aside className={rightClass}>
+      <RailHead icon="globe" label="全局" />
+      <ul className={listClass}>{agentRows(0)}</ul>
+      <RailHead icon="folder" label="已登记项目">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100"
+          title="登记项目"
+          onClick={register}
+        >
           <Icon name="plus" />
-        </button>
-      </div>
-      <ul className="nav tree">
+        </Button>
+      </RailHead>
+      <ul className={listClass}>
         {s.projects.map((p) => {
           const open = expanded.has(p.id);
           const count = s.skillScopes.filter((x) => placeOf(x.scope) === p.id).length;
+          const current = !!selected && placeOf(selected) === p.id;
           return (
             <li key={p.id}>
               <div
                 role="button"
                 tabIndex={0}
-                className={`nav-item proj ${open ? "open" : ""} ${selected && placeOf(selected) === p.id ? "current" : ""}`}
+                aria-expanded={open}
+                className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
                 onClick={() => onToggleProject(p.id)}
                 title={p.missing ? `${shortPath(s, p.path)}\n不在这台机器上` : shortPath(s, p.path)}
                 {...springProps(!open, () => onToggleProject(p.id))}
               >
-                <Icon name="folder" />
-                <span className="grow ellipsis">{projectName(s, p.id)}</span>
+                <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
+                <Icon name="folder" className="size-[13px]" />
+                <span className="grow truncate">{projectName(s, p.id)}</span>
                 {p.missing && (
-                  <span className="badge warn" title="项目目录在这台机器上不存在;可以改项目位置">
+                  <Badge tone="warn" title="项目目录在这台机器上不存在;可以改项目位置">
                     不在这台机器上
-                  </span>
+                  </Badge>
                 )}
                 {!open && (
-                  <span className="marks">
+                  <span className="inline-flex items-center gap-[3px] group-hover:hidden">
                     {agentsUsedIn(s, p.id).map((a) => (
-                      <AgentIcon key={a.code} code={a.code} name={a.name} />
+                      <AgentMark key={a.code} code={a.code} name={a.name} className="size-3 text-[8px]" />
                     ))}
                   </span>
                 )}
-                <span className="row-actions">
-                  <button
-                    type="button"
-                    className="icon-btn sm"
+                <span className="row-actions hidden gap-0.5 group-hover:inline-flex">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     title="改项目位置"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -168,10 +181,10 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                     }}
                   >
                     <Icon name="edit" />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn sm"
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     title="注销项目"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -179,20 +192,34 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                     }}
                   >
                     <Icon name="close" />
-                  </button>
+                  </Button>
                 </span>
-                <Count value={count} />
-                <span className="chev">
-                  <Icon name="chev" />
+                <span className="group-hover:hidden">
+                  <NavCount value={count} />
                 </span>
               </div>
-              {open && <ul className="nav tree">{agentRows(p.id)}</ul>}
+              {open && <ul className="mt-0.5 flex flex-col gap-0.5 pl-[18px]">{agentRows(p.id)}</ul>}
             </li>
           );
         })}
       </ul>
-      {s.projects.length === 0 && <p className="hint pad">还没有登记项目。登记后可以把技能安装到项目级目录。</p>}
+      {s.projects.length === 0 && <Hint className="mt-1 px-6">还没有登记项目。登记后可以把技能安装到项目级目录。</Hint>}
     </aside>
+  );
+}
+
+// 行的左缘对齐分节标题的文字：标题是 图标 + 名称，行从名称下方开始。
+const listClass = "mt-0.5 flex flex-col gap-0.5 pl-4";
+
+function RailHead({ icon, label, children }: { icon: "globe" | "folder"; label: string; children?: React.ReactNode }) {
+  return (
+    <div className="nav-sec group/sec flex h-[26px] items-center justify-between pr-0.5 pl-2 text-[11px] font-semibold text-muted-foreground not-first:mt-2.5 first:mt-1">
+      <span className="inline-flex items-center gap-[5px]">
+        <Icon name={icon} className="size-[11px]" />
+        {label}
+      </span>
+      {children}
+    </div>
   );
 }
 
@@ -212,7 +239,7 @@ export function ProjectPathDialog({
   const [working, setWorking] = useState(false);
   const resolved = resolveLocalPath(path, home);
   const submit = async () => {
-    if (!resolved?.path) return;
+    if (!resolved?.path || working) return;
     setWorking(true);
     const ok = project ? await relocateProject(ui, project, resolved.path) : await registerProject(ui, resolved.path);
     setWorking(false);
@@ -224,42 +251,37 @@ export function ProjectPathDialog({
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="pill-btn" onClick={onClose}>
-            取消
-          </button>
-          <button type="button" className="pill-btn accent" disabled={!resolved?.path || working} onClick={submit}>
-            {working ? <span className="spin" /> : null}
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!resolved?.path} loading={working} onClick={submit}>
             {project ? "改位置" : "登记"}
-          </button>
+          </Button>
         </>
       }
     >
-      <p className="hint">
+      <Hint>
         {project
           ? "把项目指到本机上的目录(从别的机器同步过来，或项目目录被移动、改名之后)。直接安装与组安装都保留;旧位置的技能文件夹不搬动，技能库从此不再管。"
           : "登记后，这个项目与每个 Agent 组成项目级作用域，技能可以安装到项目里的 Agent 目录。"}
-      </p>
-      <div className="row">
-        <input
-          className="input grow"
+      </Hint>
+      <div className="flex min-w-0 items-center gap-2">
+        <Input
+          className="grow"
           autoFocus
           placeholder="/path/to/project 或 ~/path/to/project"
           value={path}
           onChange={(e) => setPath(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
-        <button
-          type="button"
-          className="pill-btn"
+        <Button
           onClick={async () => {
             const dir = await pickDirectory(project ? "选择项目在这台机器上的目录" : "选择要登记的项目目录");
             if (dir) setPath(dir);
           }}
         >
           选择…
-        </button>
+        </Button>
       </div>
-      {resolved?.error && <span className="field-error">{resolved.error}</span>}
+      {resolved?.error && <FieldError>{resolved.error}</FieldError>}
     </Modal>
   );
 }

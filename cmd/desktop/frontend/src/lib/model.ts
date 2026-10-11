@@ -67,6 +67,15 @@ export function agentShown(shown: Partial<Record<string, boolean>> | null | unde
   return shown?.[agent.code] ?? (agent.detected || agent.custom);
 }
 
+// agentsIn 把某个地方的 Agent 分成直接列出的和折进"其他 N 个 Agent"的(右栏与作用域弹层):
+// 在这里装有技能的、以及检测到且勾选显示的直接列出;勾选了显示但没检测到的折起来;没勾选显示、也没装技能的不列出。
+export function agentsIn(s: Snapshot, place: Place): { open: Agent[]; folded: Agent[] } {
+  const used = agentsUsedIn(s, place);
+  const open = s.agents.filter((a) => used.includes(a) || (a.detected && agentShown(s.agentsShown, a)));
+  const folded = s.agents.filter((a) => !open.includes(a) && agentShown(s.agentsShown, a));
+  return { open, folded };
+}
+
 // agentsUsedIn 是某个地方实际装有技能的 Agent,按 Agent 列表顺序。
 export function agentsUsedIn(s: Snapshot, place: Place) {
   return s.agents.filter((a) => s.skillScopes.some((p) => p.scope.agent === a.code && placeOf(p.scope) === place));

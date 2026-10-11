@@ -4,6 +4,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AppService, type Credentials } from "@bindings/cmd/desktop";
 import type { SyncSettings } from "@bindings/internal/library";
 import { useUI } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
+import { Field, Hint } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type Form = (saved: Credentials, onSaved: (c: Credentials) => void) => ReactNode;
 
@@ -36,11 +39,9 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
   };
   return (form) =>
     failed ? (
-      <div className="row">
-        <p className="hint grow">没能读取系统钥匙串，令牌和密钥暂时不能查看或修改。</p>
-        <button type="button" className="pill-btn" onClick={() => setAttempt((n) => n + 1)}>
-          重试
-        </button>
+      <div className="flex items-center gap-2">
+        <Hint className="grow">没能读取系统钥匙串，令牌和密钥暂时不能查看或修改。</Hint>
+        <Button onClick={() => setAttempt((n) => n + 1)}>重试</Button>
       </div>
     ) : (
       credentials && form(credentials, saved)
@@ -76,10 +77,9 @@ export function GitHubForm({ saved, onSaved }: { saved: Credentials; onSaved: (c
       }}
       hint="留空时从环境变量 GITHUB_TOKEN 或 GH_TOKEN 读取。"
     >
-      <label className="field">
-        <span>个人访问令牌</span>
+      <Field label="个人访问令牌">
         <TextInput secret value={token} onChange={setToken} />
-      </label>
+      </Field>
     </SaveForm>
   );
 }
@@ -100,12 +100,11 @@ export function SyncForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: 
       hint="全部留空时从环境变量 SKILLS_S3_*、AWS_* 读取;填了任意一项就整组用这里的。"
     >
       {syncFields.map((row) => (
-        <div key={row[0].key} className="row">
+        <div key={row[0].key} className="flex min-w-0 items-start gap-2">
           {row.map((f) => (
-            <label key={f.key} className="field grow">
-              <span>{f.label}</span>
+            <Field key={f.key} label={f.label} className="flex-1">
               <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
-            </label>
+            </Field>
           ))}
         </div>
       ))}
@@ -139,16 +138,15 @@ function SaveForm({
     if (next) onSaved(next);
   };
   return (
-    <form className="cred-form" onSubmit={submit}>
-      <fieldset className="cred-form" disabled={saving}>
+    <form className="flex flex-col gap-2.5" onSubmit={submit}>
+      <fieldset className="flex min-w-0 flex-col gap-2.5" disabled={saving}>
         {children}
       </fieldset>
-      <div className="row">
-        <p className="hint grow">{hint}</p>
-        <button type="submit" className="pill-btn accent" disabled={!dirty || saving}>
-          {saving && <span className="spin" />}
+      <div className="flex items-center gap-2">
+        <Hint className="grow">{hint}</Hint>
+        <Button type="submit" variant="primary" disabled={!dirty} loading={saving}>
           保存
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -156,8 +154,8 @@ function SaveForm({
 
 function TextInput({ value, onChange, secret }: { value: string; onChange: (v: string) => void; secret?: boolean }) {
   return (
-    <input
-      className="input mono"
+    <Input
+      className="font-mono"
       type={secret ? "password" : "text"}
       autoComplete="off"
       spellCheck={false}

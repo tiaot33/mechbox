@@ -8,8 +8,14 @@ import type { LibraryError, Snapshot } from "@/lib/library";
 import { agentShown, shortPath } from "@/lib/model";
 import { resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, Hint } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { pickDirectory } from "./fetch-dialog";
 import { AgentMark } from "./parts";
+import { SetRow } from "./set-row";
 
 export function AgentSection({
   s,
@@ -24,54 +30,40 @@ export function AgentSection({
   const edit = (agent: Agent) => ui.open((close) => <AgentDialog s={s} agent={agent} onClose={close} />);
   return (
     <>
-      <p className="hint">
+      <Hint className="mb-1">
         勾选的 Agent 出现在选择安装位置的地方。已经装了技能的 Agent 不管勾没勾，装出去的地方在技能详情、更新和巡检里照常列出。
-      </p>
+      </Hint>
       {s.agents.map((a) => {
         const on = agentShown(shown, a);
         return (
-          <div key={a.code} className="set-row">
+          <SetRow key={a.code}>
             <AgentMark code={a.code} name={a.name} />
-            <div className="grow">
-              <div>
-                {a.name}{" "}
-                {a.custom ? <span className="badge">自定义</span> : <span className="badge">{a.detected ? "检测到" : "未检测到"}</span>}
+            <div className="min-w-0 grow">
+              <div className="flex items-center gap-1.5">
+                {a.name}
+                {a.custom ? <Badge>自定义</Badge> : <Badge>{a.detected ? "检测到" : "未检测到"}</Badge>}
               </div>
-              <div className="mono tiny muted ellipsis" style={{ userSelect: "text" }}>
+              <div className="truncate font-mono text-[11px] text-muted-foreground select-text">
                 {shortPath(s, a.global_directory)} · 项目里 {a.project_directory}
               </div>
             </div>
             {a.custom && (
               <>
-                <button type="button" className="pill-btn" onClick={() => void edit(a)}>
-                  编辑
-                </button>
-                <button type="button" className="pill-btn" onClick={() => void deleteAgent(ui, s, a)}>
-                  删除
-                </button>
+                <Button onClick={() => void edit(a)}>编辑</Button>
+                <Button onClick={() => void deleteAgent(ui, s, a)}>删除</Button>
               </>
             )}
             {shown !== undefined && (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={on}
-                aria-label={`显示 ${a.name}`}
-                title={on ? "显示" : "不显示"}
-                className={`switch ${on ? "on" : ""}`}
-                onClick={() => onShown(a, !on)}
-              >
-                <i />
-              </button>
+              <Switch checked={on} aria-label={`显示 ${a.name}`} title={on ? "显示" : "不显示"} onCheckedChange={(v) => onShown(a, v)} />
             )}
-          </div>
+          </SetRow>
         );
       })}
     </>
   );
 }
 
-type Field = keyof CustomAgent;
+type AgentField = keyof CustomAgent;
 
 // AgentDialog 添加一个自定义 Agent,或给出 agent 时编辑它。全局技能目录必须在用户主目录里面。
 export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent; onClose: () => void }) {
@@ -80,13 +72,13 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
   const [name, setName] = useState(agent?.name ?? "");
   const [global, setGlobal] = useState(agent ? shortPath(s, agent.global_directory) : "");
   const [project, setProject] = useState(agent?.project_directory ?? "");
-  const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<AgentField, string>>>({});
   const [working, setWorking] = useState(false);
   // 提交进行中(含等迁移确认)时不再提交：按钮禁用挡不住输入框里的 Enter。
   const submitting = useRef(false);
 
   const validate = () => {
-    const found: Partial<Record<Field, string>> = {};
+    const found: Partial<Record<AgentField, string>> = {};
     if (!name.trim()) found.name = "填写名称";
     const resolved = resolveLocalPath(global, home);
     if (!resolved) found.global_directory = "填写全局技能目录";
@@ -111,7 +103,7 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
     const input: CustomAgent = { name: name.trim(), global_directory: globalPath, project_directory: project.trim() };
     // 技能库按字段报的不合法，显示在对应输入框下面。
     const onInvalid = (err: LibraryError) => {
-      const field = err.details?.field as Field | undefined;
+      const field = err.details?.field as AgentField | undefined;
       if (err.code !== ErrorCode.InvalidArgument || !field || !(field in input)) return false;
       setErrors({ [field]: describeError(err) });
       return true;
@@ -127,61 +119,47 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
     }
   };
 
-  const error = (field: Field) => errors[field] && <div className="field-error">{errors[field]}</div>;
+  const error = (field: AgentField) => errors[field] && <FieldError>{errors[field]}</FieldError>;
   return (
     <Modal
       title={agent ? `编辑 Agent「${agent.name}」` : "添加 Agent"}
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="pill-btn" onClick={onClose}>
-            取消
-          </button>
-          <button type="button" className="pill-btn accent" disabled={working} onClick={submit}>
-            {working ? <span className="spin" /> : null}
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" loading={working} onClick={submit}>
             {agent ? "保存" : "添加"}
-          </button>
+          </Button>
         </>
       }
     >
-      <label className="field">
-        <span>名称</span>
-        <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+      <Field label="名称">
+        <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         {error("name")}
-      </label>
-      <label className="field">
-        <span>全局技能目录(在用户主目录里面)</span>
-        <div className="row">
-          <input
-            className="input grow"
-            placeholder="~/.my-agent/skills"
-            value={global}
-            onChange={(e) => setGlobal(e.target.value)}
-          />
-          <button
-            type="button"
-            className="pill-btn"
+      </Field>
+      <Field label="全局技能目录(在用户主目录里面)">
+        <div className="flex min-w-0 items-center gap-2">
+          <Input className="grow" placeholder="~/.my-agent/skills" value={global} onChange={(e) => setGlobal(e.target.value)} />
+          <Button
             onClick={async () => {
               const dir = await pickDirectory("选择全局技能目录");
               if (dir) setGlobal(shortPath(s, dir));
             }}
           >
             选择…
-          </button>
+          </Button>
         </div>
         {error("global_directory")}
-      </label>
-      <label className="field">
-        <span>项目里的技能目录(相对项目根目录)</span>
-        <input
-          className="input"
+      </Field>
+      <Field label="项目里的技能目录(相对项目根目录)">
+        <Input
           placeholder=".my-agent/skills"
           value={project}
           onChange={(e) => setProject(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
         {error("project_directory")}
-      </label>
+      </Field>
     </Modal>
   );
 }

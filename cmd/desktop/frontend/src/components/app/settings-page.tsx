@@ -8,12 +8,23 @@ import { unregisterProject } from "@/lib/actions";
 import type { Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Hint } from "@/components/ui/field";
+import { Segmented } from "@/components/ui/segmented";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { AgentDialog, AgentSection } from "./agent-settings";
 import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
 import { Icon } from "./icons";
+import { bodyClass, centerClass, leftClass, titlebarClass } from "./layout";
+import { navItem } from "./nav";
 import { ProjectPathDialog } from "./scope-panel";
+import { SetRow } from "./set-row";
 
-const sections = ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于"] as const;
+const sections = ["通用", "Agent", "项目", "检查更新", "GitHub", "同步", "关于"] as const;
 type Section = (typeof sections)[number];
 
 const intervals: { value: CheckInterval; label: string }[] = [
@@ -61,78 +72,43 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
   };
 
   const card = (section: Section, note: React.ReactNode, children: React.ReactNode) => (
-    <section key={section} className="card" ref={(el) => void (refs.current[section] = el)}>
-      <div className="card-h">
-        <span>{section}</span>
-        {note && <span className="muted tiny">{note}</span>}
-      </div>
+    <Card key={section} className="scroll-mt-4" ref={(el) => void (refs.current[section] = el)}>
+      <CardHeader title={section} note={note} />
       {children}
-    </section>
+    </Card>
   );
   const register = () => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} onClose={close} />);
 
   return (
     <>
-      <header className="titlebar" style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
-        <div className="tb-left">
-          <div className="tl-space" />
+      <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="w-16" />
           {/* 等排队的保存都完成再返回，主界面重读时拿到的是最后保存的设置(Agent 的显示勾选)。 */}
-          <button type="button" className="icon-btn" onClick={() => void saving.current.then(onClose)} title="返回技能库">
+          <Button variant="ghost" size="icon" onClick={() => void saving.current.then(onClose)} title="返回技能库">
             <Icon name="chevL" />
-          </button>
-          <span className="tb-crumb">
+          </Button>
+          <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b>设置</b>
-            {ui.busy && <span className="spin muted" title="正在处理…" />}
+            {ui.busy && <Spinner className="text-muted-foreground" title="正在处理…" />}
           </span>
         </div>
       </header>
-      <div className="a-body">
-        <aside className="a-left">
-          <ul className="nav">
+      <div className={bodyClass}>
+        <aside className={cn(leftClass, "w-[210px] flex-none")}>
+          <ul className="flex flex-col gap-0.5">
             {sections.map((section) => (
               <li key={section}>
-                <button type="button" className={`nav-item ${current === section ? "active" : ""}`} onClick={() => go(section)}>
+                <button type="button" className={navItem()} data-active={current === section} onClick={() => go(section)}>
                   <span className="grow">{section}</span>
                 </button>
               </li>
             ))}
           </ul>
         </aside>
-        <main className="a-center tile">
-          <div className="a-scroll">
-            <div className="settings">
-              {card("GitHub", "令牌存在系统钥匙串里", credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
-              {card("同步", "密钥存在系统钥匙串里", credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
-              {card(
-                "检查更新",
-                null,
-                settings && (
-                  <>
-                    <SettingRow
-                      label="自动检查更新"
-                      desc="按间隔检查所有来源有没有新版本(本地目录来源不检查)。"
-                      on={settings.auto_check}
-                      onChange={(on) => save({ auto_check: on })}
-                    />
-                    <div className={`set-row ${settings.auto_check ? "" : "disabled"}`}>
-                      <div className="grow">间隔</div>
-                      <div className="seg">
-                        {intervals.map((i) => (
-                          <button
-                            key={i.value}
-                            type="button"
-                            className={settings.check_interval === i.value ? "on" : ""}
-                            disabled={!settings.auto_check}
-                            onClick={() => save({ check_interval: i.value })}
-                          >
-                            {i.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                ),
-              )}
+        <main className={centerClass}>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="settings mx-auto flex max-w-[680px] flex-col gap-3 px-5 pt-4 pb-15">
               {card(
                 "通用",
                 null,
@@ -155,10 +131,10 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
               )}
               {card(
                 "Agent",
-                <button type="button" className="pill-btn" onClick={() => ui.open((close) => <AgentDialog s={s} onClose={close} />)}>
+                <Button onClick={() => ui.open((close) => <AgentDialog s={s} onClose={close} />)}>
                   <Icon name="plus" />
                   添加 Agent
-                </button>,
+                </Button>,
                 <AgentSection
                   s={s}
                   shown={settings && (settings.agents_shown ?? null)}
@@ -167,52 +143,67 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
               )}
               {card(
                 "项目",
-                <button type="button" className="pill-btn" onClick={register}>
+                <Button onClick={register}>
                   <Icon name="plus" />
                   登记项目
-                </button>,
+                </Button>,
                 <>
                   {s.projects.map((p) => (
-                    <div key={p.id} className="set-row">
+                    <SetRow key={p.id}>
                       <Icon name="folder" />
-                      <div className="grow">
-                        <div className="ellipsis">{projectName(s, p.id)}</div>
-                        <div className="mono tiny muted ellipsis" title={p.path} style={{ userSelect: "text" }}>
+                      <div className="min-w-0 grow">
+                        <div className="truncate">{projectName(s, p.id)}</div>
+                        <div className="truncate font-mono text-[11px] text-muted-foreground select-text" title={p.path}>
                           {shortPath(s, p.path)}
                         </div>
                       </div>
                       {p.missing && (
-                        <span className="badge warn" title="项目目录在这台机器上不存在;可以改项目位置">
+                        <Badge tone="warn" title="项目目录在这台机器上不存在;可以改项目位置">
                           不在这台机器上
-                        </span>
+                        </Badge>
                       )}
-                      <button
-                        type="button"
-                        className="pill-btn"
-                        onClick={() => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={p} onClose={close} />)}
-                      >
+                      <Button onClick={() => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={p} onClose={close} />)}>
                         改位置
-                      </button>
-                      <button type="button" className="pill-btn" onClick={() => void unregisterProject(ui, s, p)}>
-                        注销
-                      </button>
-                    </div>
+                      </Button>
+                      <Button onClick={() => void unregisterProject(ui, s, p)}>注销</Button>
+                    </SetRow>
                   ))}
-                  {s.projects.length === 0 && <p className="hint">还没有登记项目。登记后可以把技能安装到项目级目录。</p>}
+                  {s.projects.length === 0 && <Hint>还没有登记项目。登记后可以把技能安装到项目级目录。</Hint>}
                 </>,
               )}
               {card(
+                "检查更新",
+                null,
+                settings && (
+                  <>
+                    <SettingRow
+                      label="自动检查更新"
+                      desc="按间隔检查所有来源有没有新版本(本地目录来源不检查)。"
+                      on={settings.auto_check}
+                      onChange={(on) => save({ auto_check: on })}
+                    />
+                    <SetRow className={cn(!settings.auto_check && "text-muted-foreground")}>
+                      <div className="grow">间隔</div>
+                      <Segmented
+                        value={settings.check_interval}
+                        disabled={!settings.auto_check}
+                        onChange={(v) => save({ check_interval: v })}
+                        options={intervals}
+                      />
+                    </SetRow>
+                  </>
+                ),
+              )}
+              {card("GitHub", "令牌存在系统钥匙串里", credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
+              {card("同步", "密钥存在系统钥匙串里", credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
+              {card(
                 "关于",
                 null,
-                <dl className="kv">
+                <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-xs [&_dt]:text-muted-foreground">
                   <dt>应用版本</dt>
-                  <dd className="mono" style={{ userSelect: "text" }}>
-                    {s.info.version}
-                  </dd>
+                  <dd className="font-mono select-text">{s.info.version}</dd>
                   <dt>数据库位置</dt>
-                  <dd className="mono tiny" style={{ userSelect: "text", wordBreak: "break-all" }}>
-                    {s.info.library_path}
-                  </dd>
+                  <dd className="font-mono text-[11px] break-all select-text">{s.info.library_path}</dd>
                 </dl>,
               )}
             </div>
@@ -225,14 +216,12 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
 
 function SettingRow({ label, desc, on, onChange }: { label: string; desc: string; on: boolean; onChange: (on: boolean) => void }) {
   return (
-    <div className="set-row">
+    <SetRow>
       <div className="grow">
         <div>{label}</div>
-        <div className="hint">{desc}</div>
+        <Hint className="mt-0.5">{desc}</Hint>
       </div>
-      <button type="button" role="switch" aria-checked={on} className={`switch ${on ? "on" : ""}`} onClick={() => onChange(!on)}>
-        <i />
-      </button>
-    </div>
+      <Switch checked={on} onCheckedChange={onChange} />
+    </SetRow>
   );
 }

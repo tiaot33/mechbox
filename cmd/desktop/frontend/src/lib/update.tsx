@@ -17,6 +17,10 @@ import { describeError } from "./errors";
 import type { Snapshot } from "./library";
 import { collectionSkills, deletedInSource, isLocal, scopeKey, scopeLabel, sourceLabel, updateAvailable, type ScopeKey } from "./model";
 import { Modal, type useUI } from "./ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ListBox, ListRow } from "@/components/ui/list";
+import { Notice } from "@/components/ui/notice";
 
 type UI = ReturnType<typeof useUI>;
 
@@ -141,28 +145,28 @@ export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome
       title="有地方没换上"
       onClose={() => close()}
       footer={
-        <button type="button" className="pill-btn accent" onClick={() => close()}>
+        <Button variant="primary" onClick={() => close()}>
           知道了
-        </button>
+        </Button>
       }
     >
-      <div className="notice" style={{ whiteSpace: "pre-line" }}>
+      <Notice className="whitespace-pre-line">
         {lines.join("\n")}
         {"\n"}下面这些地方没换上，保持原样，可以在那里单独重新安装。
-      </div>
-      <div className="list-box">
+      </Notice>
+      <ListBox>
         {failed.map((r, i) => (
-          <div key={i} className="list-row">
-            <div className="grow">
+          <ListRow key={i}>
+            <div className="min-w-0 grow">
               <div>
                 {name(r.skill_id)} · {scopeLabel(s, r.scope)}
               </div>
-              {r.error && <div className="desc" style={{ whiteSpace: "pre-line" }}>{describeError(r.error)}</div>}
+              {r.error && <div className="text-xs whitespace-pre-line text-muted-foreground">{describeError(r.error)}</div>}
             </div>
-            <span className="status bad">没换上</span>
-          </div>
+            <Badge tone="bad">没换上</Badge>
+          </ListRow>
         ))}
-      </div>
+      </ListBox>
     </Modal>
   ));
 }

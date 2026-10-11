@@ -11,6 +11,9 @@ import {
 } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
 import { Modal, useUI } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
 
 type Plan = { direction: "push"; plan: SyncPushPlan } | { direction: "pull"; plan: SyncPullPlan };
 
@@ -84,52 +87,47 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
       footer={
         plan ? (
           <>
-            <button type="button" className="pill-btn" onClick={() => setPlan(null)}>
-              返回
-            </button>
+            <Button onClick={() => setPlan(null)}>返回</Button>
             <span className="grow" />
-            <button
-              type="button"
-              className={`pill-btn ${pull ? "danger" : "accent"}`}
-              disabled={(pull ? !pull.can_pull : false) || working !== null}
+            <Button
+              variant={pull ? "danger" : "primary"}
+              disabled={(pull ? !pull.can_pull : false) || (working !== null && working !== "run")}
+              loading={working === "run"}
               onClick={execute}
             >
-              {working === "run" ? <span className="spin" /> : null}
               {pull ? "拉回并替换本机的库" : remote ? "推送并覆盖 S3 上的库" : "推送"}
-            </button>
+            </Button>
           </>
         ) : undefined
       }
     >
-      <p className="hint">手动把整个技能库推送到 S3,或从 S3 拉回，在另一台机器上还原同样的配置。不会自动进行。</p>
+      <Hint>手动把整个技能库推送到 S3,或从 S3 拉回，在另一台机器上还原同样的配置。不会自动进行。</Hint>
       {!config.sync && (
-        <div className="notice warn">
+        <Notice tone="warn">
           未配置 S3:在设置页的同步分区填写存储桶、Access Key ID 和 Secret Access Key,或设置环境变量
           SKILLS_S3_BUCKET、AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY(可选 SKILLS_S3_ENDPOINT、SKILLS_S3_KEY、
           AWS_REGION、AWS_SESSION_TOKEN)。
-        </div>
+        </Notice>
       )}
       {!plan && (
-        <div className="row">
-          <button type="button" className="pill-btn grow" disabled={working !== null} onClick={() => load("push")}>
-            {working === "push" ? <span className="spin" /> : null}
+        <div className="flex items-center gap-2">
+          <Button className="grow" disabled={working !== null && working !== "push"} loading={working === "push"} onClick={() => load("push")}>
             推送到 S3…
-          </button>
-          <button type="button" className="pill-btn grow" disabled={working !== null} onClick={() => load("pull")}>
-            {working === "pull" ? <span className="spin" /> : null}
+          </Button>
+          <Button className="grow" disabled={working !== null && working !== "pull"} loading={working === "pull"} onClick={() => load("pull")}>
             从 S3 拉回…
-          </button>
+          </Button>
         </div>
       )}
       {pulled && (
-        <div className="notice ok">
+        <Notice tone="ok">
           已换成 S3 上的库。Agent 目录里的文件夹没有动：右栏里标着"不在这台机器上"的项目，先改项目位置指到本机;
           再在各作用域查看状态，按需"全部重新安装"。
-        </div>
+        </Notice>
       )}
       {plan && (
         <>
-          <dl className="kv">
+          <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-xs [&_dt]:text-muted-foreground">
             <dt>方向</dt>
             <dd>{pull ? "S3 → 本机" : "本机 → S3"}</dd>
             <dt>S3 上的库</dt>
@@ -143,17 +141,15 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
               </>
             )}
           </dl>
-          {!pull && remote && <div className="notice warn">推送会用本机的库覆盖 S3 上的这一份。</div>}
-          {pull && !pull.can_pull && <div className="notice bad">{cannotPull[pull.cannot_pull ?? ""] ?? "S3 上的库不能拉回。"}</div>}
+          {!pull && remote && <Notice tone="warn">推送会用本机的库覆盖 S3 上的这一份。</Notice>}
+          {pull && !pull.can_pull && <Notice tone="bad">{cannotPull[pull.cannot_pull ?? ""] ?? "S3 上的库不能拉回。"}</Notice>}
           {pull?.can_pull && (
-            <div className="notice warn">
+            <Notice tone="warn">
               拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失。Agent 目录里的文件夹不会改动。
-            </div>
+            </Notice>
           )}
           {missing.length > 0 && (
-            <div className="notice">
-              这些项目不在这台机器上，拉回后在右栏改项目位置指到本机:{missing.map((p) => p.name).join("、")}
-            </div>
+            <Notice>这些项目不在这台机器上，拉回后在右栏改项目位置指到本机:{missing.map((p) => p.name).join("、")}</Notice>
           )}
         </>
       )}

@@ -5,6 +5,11 @@ import { LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
 import type { FetchPreview, PreviewFetchRequest } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
 import { resolveLocalPath } from "@/lib/paths";
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, Hint } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Notice } from "@/components/ui/notice";
+import { Segmented } from "@/components/ui/segmented";
 import { FetchReview } from "./fetch-review";
 
 type Tab = "local" | "github" | "url";
@@ -56,6 +61,7 @@ export function FetchDialog({ config, home, onClose }: { config: ConfigStatus; h
   };
 
   const previewFetch = async () => {
+    if (working) return;
     setWorking(true);
     const req = request();
     const result = await ui.run(() => LibraryService.PreviewFetch(req), { reload: false });
@@ -71,84 +77,62 @@ export function FetchDialog({ config, home, onClose }: { config: ConfigStatus; h
       onClose={onClose}
       footer={
         <>
-          <span className="grow" />
-          <button type="button" className="pill-btn" onClick={onClose}>
-            取消
-          </button>
-          <button
-            type="button"
-            className="pill-btn accent"
-            disabled={!ready || working}
-            aria-busy={working}
-            onClick={previewFetch}
-          >
-            {working ? <span className="spin" /> : null}
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!ready} loading={working} onClick={previewFetch}>
             入库预览
-          </button>
+          </Button>
         </>
       }
     >
-      <div className="seg" style={{ alignSelf: "flex-start" }}>
-        {tabs.map((t) => (
-          <button key={t.key} type="button" className={tab === t.key ? "on" : ""} onClick={() => setTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Segmented className="self-start" value={tab} onChange={setTab} options={tabs.map((t) => ({ value: t.key, label: t.label }))} />
 
       {tab === "local" && (
         <>
-          <p className="hint">选择一个目录，列出其中的技能(含 SKILL.md 的文件夹)。入库时复制的是预览这一刻的内容，之后可用"更新"重新读取。</p>
-          <div className="row">
-            <input
-              className="input grow"
+          <Hint>选择一个目录，列出其中的技能(含 SKILL.md 的文件夹)。入库时复制的是预览这一刻的内容，之后可用"更新"重新读取。</Hint>
+          <div className="flex min-w-0 items-center gap-2">
+            <Input
+              className="grow"
               placeholder="/path/to/skills 或 ~/path/to/skills"
               value={path}
               onChange={(e) => setPath(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && ready && previewFetch()}
             />
-            <button
-              type="button"
-              className="pill-btn"
+            <Button
               onClick={async () => {
                 const dir = await pickDirectory("选择技能目录");
                 if (dir) setPath(dir);
               }}
             >
               选择…
-            </button>
+            </Button>
           </div>
-          {local?.error && <span className="field-error">{local.error}</span>}
+          {local?.error && <FieldError>{local.error}</FieldError>}
         </>
       )}
 
       {tab === "github" && (
         <>
-          <label className="field">
-            <span>仓库(owner/repo、owner/repo@技能名，或 github.com 链接，可含 /tree/分支/路径)</span>
-            <input className="input" placeholder="anthropics/skills" value={github} onChange={(e) => setGithub(e.target.value)} />
-          </label>
-          <div className="row">
-            <label className="field grow">
-              <span>分支 / tag(可选，默认分支)</span>
-              <input className="input" value={ref} onChange={(e) => setRef(e.target.value)} />
-            </label>
-            <label className="field grow">
-              <span>仓库内路径(可选)</span>
-              <input className="input" value={subpath} onChange={(e) => setSubpath(e.target.value)} />
-            </label>
+          <Field label="仓库(owner/repo、owner/repo@技能名，或 github.com 链接，可含 /tree/分支/路径)">
+            <Input placeholder="anthropics/skills" value={github} onChange={(e) => setGithub(e.target.value)} />
+          </Field>
+          <div className="flex min-w-0 items-start gap-2">
+            <Field label="分支 / tag(可选，默认分支)" className="grow">
+              <Input value={ref} onChange={(e) => setRef(e.target.value)} />
+            </Field>
+            <Field label="仓库内路径(可选)" className="grow">
+              <Input value={subpath} onChange={(e) => setSubpath(e.target.value)} />
+            </Field>
           </div>
           {!config.github_token && (
-            <div className="notice warn">设置页没有填 GitHub 令牌，也没有设置 GITHUB_TOKEN / GH_TOKEN,匿名访问 GitHub API 容易被限流。</div>
+            <Notice tone="warn">设置页没有填 GitHub 令牌，也没有设置 GITHUB_TOKEN / GH_TOKEN,匿名访问 GitHub API 容易被限流。</Notice>
           )}
         </>
       )}
 
       {tab === "url" && (
-        <label className="field">
-          <span>zip 压缩包地址</span>
-          <input className="input" placeholder="https://example.com/skills.zip" value={url} onChange={(e) => setURL(e.target.value)} />
-        </label>
+        <Field label="zip 压缩包地址">
+          <Input placeholder="https://example.com/skills.zip" value={url} onChange={(e) => setURL(e.target.value)} />
+        </Field>
       )}
     </Modal>
   );

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import wails from "@wailsio/runtime/plugins/vite";
 
 export default defineConfig({
@@ -16,5 +17,5 @@ export default defineConfig({
       "@bindings": path.resolve(import.meta.dirname, "bindings/github.com/tiaot33/skills-tui"),
     },
   },
-  plugins: [react(), wails("./bindings")],
+  plugins: [react(), tailwindcss(), wails("./bindings")],
 });

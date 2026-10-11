@@ -46,6 +46,11 @@ import {
   updateAvailable,
 } from "./model";
 import { Modal, type useUI } from "./ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/field";
+import { ListBox, ListRow } from "@/components/ui/list";
+import { Notice } from "@/components/ui/notice";
 
 type UI = ReturnType<typeof useUI>;
 
@@ -67,23 +72,23 @@ function showResults(ui: UI, title: string, rows: ResultRow[], note?: string) {
       title={title}
       onClose={() => close()}
       footer={
-        <button type="button" className="pill-btn accent" onClick={() => close()}>
+        <Button variant="primary" onClick={() => close()}>
           知道了
-        </button>
+        </Button>
       }
     >
-      {note && <div className="notice">{note}</div>}
-      <div className="list-box">
+      {note && <Notice>{note}</Notice>}
+      <ListBox>
         {rows.map((r, i) => (
-          <div key={i} className="list-row">
-            <div className="grow">
+          <ListRow key={i}>
+            <div className="min-w-0 grow">
               <div>{r.label}</div>
-              {r.reason && <div className="desc" style={{ whiteSpace: "pre-line" }}>{r.reason}</div>}
+              {r.reason && <div className="text-xs whitespace-pre-line text-muted-foreground">{r.reason}</div>}
             </div>
-            <span className={`status ${r.tone}`}>{r.outcome}</span>
-          </div>
+            <Badge tone={r.tone}>{r.outcome}</Badge>
+          </ListRow>
         ))}
-      </div>
+      </ListBox>
     </Modal>
   ));
 }
@@ -138,9 +143,9 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
       const ok = await ui.confirm({
         title: "目标已有同名文件夹",
         body: (
-          <div className="notice warn">
+          <Notice tone="warn">
             {shortPath(s, plan.folder)} 已存在，但不是从技能库装的。覆盖会用「{plan.name}」替换它。
-          </div>
+          </Notice>
         ),
         confirm: "覆盖并安装",
         danger: true,
@@ -163,12 +168,12 @@ export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Sc
     const ok = await ui.confirm({
       title: `卸载「${skillName(s, id)}」`,
       body: (
-        <div className="notice warn">
+        <Notice tone="warn">
           {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
           {place.groups?.length
             ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
             : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
-        </div>
+        </Notice>
       ),
       confirm: "卸载",
       danger: true,
@@ -200,10 +205,10 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
     const choice = await ui.confirm({
       title: `把「${groupName(s, groupID)}」组安装到 ${scopeLabel(s, scope)}`,
       body: (
-        <div className="notice warn">
+        <Notice tone="warn">
           {untracked.length} 个成员的目标位置已有不是从技能库装的同名文件夹:
           {untracked.map((m) => m.name).join("、")}
-        </div>
+        </Notice>
       ),
       choices: [
         { value: "skip", label: "跳过这些成员", desc: "其余成员照常安装，之后可再次组安装补齐" },
@@ -245,9 +250,9 @@ export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scop
       title: `卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
       body: (
         <>
-          <div className="notice warn">
+          <Notice tone="warn">
             下面 {removed.length} 个技能文件夹还被别的 Agent 共用，只靠这个组安装留着：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。
-          </div>
+          </Notice>
           <SharedFolders s={s} places={removed} />
         </>
       ),
@@ -287,7 +292,7 @@ export async function removeSkillFromGroup(ui: UI, s: Snapshot, groupID: GroupID
   if (installed.length) {
     const choice = await ui.confirm({
       title: `把「${skillName(s, id)}」移出「${groupName(s, groupID)}」`,
-      body: <p className="hint">该组已组安装到 {installed.length} 个作用域。只随本组安装的技能如何处理?</p>,
+      body: <Hint>该组已组安装到 {installed.length} 个作用域。只随本组安装的技能如何处理?</Hint>,
       choices: [
         { value: MemberRemovalPolicy.KeepAsDirectInstall, label: "保留", desc: "改为直接安装，磁盘不动" },
         { value: MemberRemovalPolicy.UninstallMember, label: "一并卸载", desc: "从这些作用域的目录里移除文件夹" },
@@ -327,10 +332,10 @@ export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
   const ok = await ui.confirm({
     title: `删除组「${groupName(s, groupID)}」`,
     body: (
-      <p className="hint">
+      <Hint>
         成员技能不会被删除。{installs ? `该组的 ${installs} 个组安装会一并删除;` : ""}
         只随本组安装的技能会转为直接安装，磁盘上的文件夹不动。
-      </p>
+      </Hint>
     ),
     confirm: "删除组",
     danger: true,
@@ -403,39 +408,34 @@ function OverwriteDialog({
       onClose={() => close()}
       footer={
         <>
-          <button type="button" className="pill-btn" onClick={() => close()}>
-            取消
-          </button>
-          <button
-            type="button"
-            className={`pill-btn ${chosen.size ? "danger" : "accent"}`}
-            onClick={() => close(chosen)}
-            autoFocus
-          >
+          <Button onClick={() => close()}>取消</Button>
+          <Button variant={chosen.size ? "danger" : "primary"} onClick={() => close(chosen)} autoFocus>
             {chosen.size ? `重新安装并覆盖 ${chosen.size} 处` : "重新安装"}
-          </button>
+          </Button>
         </>
       }
     >
-      <div className="notice warn">
+      <Notice tone="warn">
         下面这些地方和库里任何版本都对不上，可能被手动改过。勾选的会被库里的当前版本覆盖，改动会丢掉;没勾选的保持原样。
-      </div>
-      <div className="list-box">
+      </Notice>
+      <ListBox>
         {places.map((p) => {
           const key = placeKey(p);
           return (
-            <label key={key} className={`list-row compact clickable ${chosen.has(key) ? "on" : ""}`}>
-              <input type="checkbox" checked={chosen.has(key)} onChange={() => toggle(key)} />
-              <div className="grow">
-                <div>
-                  {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+            <ListRow key={key} asChild compact clickable selected={chosen.has(key)}>
+              <label>
+                <input type="checkbox" className="shrink-0 accent-primary" checked={chosen.has(key)} onChange={() => toggle(key)} />
+                <div className="min-w-0 grow">
+                  <div>
+                    {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+                  </div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
                 </div>
-                <div className="mono tiny muted">{shortPath(s, p.folder)}</div>
-              </div>
-            </label>
+              </label>
+            </ListRow>
           );
         })}
-      </div>
+      </ListBox>
     </Modal>
   );
 }
@@ -509,7 +509,7 @@ export async function removeSkill(ui: UI, s: Snapshot, id: SkillID) {
   const installed = places.length;
   const choice = await ui.confirm({
     title: `移除「${skillName(s, id)}」`,
-    body: <p className="hint">从技能库删除它和全部历史版本，也会退出所有组。</p>,
+    body: <Hint>从技能库删除它和全部历史版本，也会退出所有组。</Hint>,
     choices: installed
       ? [
           {
@@ -553,9 +553,9 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
   const choice = await ui.confirm({
     title: `注销项目「${projectName(s, project.id)}」`,
     body: (
-      <p className="hint">
+      <Hint>
         {shortPath(s, project.path)} 不再由技能管理器管理，它在各 Agent 下的直接安装与组安装记录都会删除。
-      </p>
+      </Hint>
     ),
     choices: installed
       ? [
@@ -583,19 +583,19 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
 // SharedFolders 列出还有别的 Agent 在读、因而保留的技能文件夹。
 function SharedFolders({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
   return (
-    <div className="list-box">
+    <ListBox>
       {places.map((p) => (
-        <div key={placeKey(p)} className="list-row">
-          <div className="grow">
+        <ListRow key={placeKey(p)}>
+          <div className="min-w-0 grow">
             <div>
               {skillName(s, p.skill_id)} · {p.scope.project_id ? projectName(s, p.scope.project_id) : "全局"}
             </div>
-            <div className="mono tiny muted">{shortPath(s, p.folder)}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
           </div>
-          <span className="tiny muted">{(p.shared_with ?? []).map((code) => agentName(s, code)).join("、")} 在用</span>
-        </div>
+          <span className="text-[11px] text-muted-foreground">{(p.shared_with ?? []).map((code) => agentName(s, code)).join("、")} 在用</span>
+        </ListRow>
       ))}
-    </div>
+    </ListBox>
   );
 }
 
@@ -630,14 +630,14 @@ export async function editAgent(
       title: `改 Agent「${agent.name}」的目录`,
       body: (
         <>
-          <p className="hint">
+          <Hint>
             这个 Agent 在旧目录里{[affected.length && `已装了 ${affected.length} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join(",")}。
-          </p>
+          </Hint>
           {shared.length > 0 && (
             <>
-              <div className="notice">
+              <Notice>
                 其中 {shared.length} 个文件夹还有别的 Agent 在用，留在旧目录给它们：迁移时复制一份到新目录，不迁移时不动。
-              </div>
+              </Notice>
               <SharedFolders s={s} places={shared} />
             </>
           )}
@@ -688,12 +688,12 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
     title: `删除 Agent「${agent.name}」`,
     body: (
       <>
-        <p className="hint">它从 Agent 列表里消失，在全局和各项目的直接安装与组安装记录都会删除。</p>
+        <Hint>它从 Agent 列表里消失，在全局和各项目的直接安装与组安装记录都会删除。</Hint>
         {kept.length > 0 && (
           <>
-            <div className="notice">
+            <Notice>
               下面 {kept.length} 个文件夹还有别的 Agent 在用，不管怎么选都保留，安装记录转给它们。
-            </div>
+            </Notice>
             <SharedFolders s={s} places={kept} />
           </>
         )}
