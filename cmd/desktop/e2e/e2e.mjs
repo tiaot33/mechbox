@@ -598,7 +598,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
     await page.locator(".settings .switch").first().waitFor();
   };
   await open();
-  for (const name of ["GitHub", "同步", "检查更新", "提示方式", "Agent", "项目", "关于"]) {
+  for (const name of ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于"]) {
     assert((await section(name).count()) === 1, `应有分区「${name}」`);
   }
   assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/skills-manager/library.db` }).count()) === 1, "关于应显示数据库位置");

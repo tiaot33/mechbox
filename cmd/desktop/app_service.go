@@ -233,17 +233,20 @@ func (a *AppService) check(ctx context.Context, collections []library.Collection
 }
 
 func (a *AppService) windowClosing(event *application.WindowEvent) {
-	if a.app.Context().Err() != nil || !a.Settings().StayInMenuBar {
+	if a.app.Context().Err() != nil {
 		return
 	}
 	event.Cancel()
+	if !a.Settings().StayInMenuBar {
+		a.app.Quit()
+		return
+	}
 	a.nativeMu.Lock()
 	a.window.Hide()
 	if a.tray == nil {
 		a.tray = a.newTray()
-	} else {
-		a.tray.Show()
 	}
+	a.tray.Show()
 	a.nativeMu.Unlock()
 	a.mu.Lock()
 	a.hidden = true

@@ -60,8 +60,9 @@ func run() error {
 				appService.showWindow()
 			},
 		},
+		// 不让 macOS 在最后一个窗口关闭时退出：留在菜单栏时窗口只是隐藏，退出与否由 AppService 按设置决定。
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
 

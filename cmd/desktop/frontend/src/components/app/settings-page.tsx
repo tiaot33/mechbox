@@ -1,5 +1,5 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
-// 检查更新与提示方式是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
+// 检查更新与通用是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
 // GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销。
 import { useEffect, useRef, useState } from "react";
@@ -13,7 +13,7 @@ import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
 import { Icon } from "./icons";
 import { ProjectPathDialog } from "./scope-panel";
 
-const sections = ["GitHub", "同步", "检查更新", "提示方式", "Agent", "项目", "关于"] as const;
+const sections = ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于"] as const;
 type Section = (typeof sections)[number];
 
 const intervals: { value: CheckInterval; label: string }[] = [
@@ -134,7 +134,7 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                 ),
               )}
               {card(
-                "提示方式",
+                "通用",
                 null,
                 settings && (
                   <>

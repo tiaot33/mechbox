@@ -3,7 +3,7 @@
 从访达或 Dock 启动的桌面端读不到 shell 里的环境变量（[ADR 0008](0008-desktop-is-wails-v3-in-process.md) 的后果），所以设置页可以填 GitHub 个人访问令牌和同步用的 S3 设置。这些凭证只存在这台机器上：
 
 - **GitHub 令牌、Secret Access Key、Session Token** 存在 macOS 系统钥匙串里。
-- **服务地址、存储桶、对象名、区域、Access Key ID** 和检查更新、提示方式这些设置一样，存在数据库旁边的应用设置文件 `settings.json` 里。
+- **服务地址、存储桶、对象名、区域、Access Key ID** 和检查更新、通用这些设置一样，存在数据库旁边的应用设置文件 `settings.json` 里。
 
 应用启动时和用户保存后，桌面端把它们交给库。库只在这次运行里持有，不写进数据库。
 
