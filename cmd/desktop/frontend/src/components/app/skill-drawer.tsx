@@ -59,6 +59,7 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTi
 import { Switch } from "@/components/ui/switch";
 import { Icon, SourceIcon } from "./icons";
 import { AgentMark, Chip } from "./parts";
+import { ResizeHandle, useStoredWidth } from "./resizable";
 
 const checkStatus: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
   [UpdateCheckStatus.UpdateAvailable]: { label: "有新版本", tone: "warn" },
@@ -97,6 +98,9 @@ function sourceRef(skill: Skill): string {
   }
 }
 
+// 抽屉宽度：拖左边缘调整，记在这台机器上。
+const drawerWidth = { storageKey: "skills-manager.drawer-width", defaultWidth: 540, min: 420, max: 960 };
+
 export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; onClose: () => void }) {
   const ui = useUI();
   const [files, setFiles] = useState<FileMetadata[]>([]);
@@ -119,13 +123,16 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
   const check = skill.last_update_check;
   const c = s.collections.find((x) => x.id === skill.collection_id);
   const collection = c ? collectionSkills(s, c) : [];
+  const [width, setWidth] = useStoredWidth(drawerWidth);
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
-        className="top-0 right-2.5 bottom-2.5 w-[540px]"
+        className="top-0 right-2.5 bottom-2.5 max-w-[calc(100%-20px)]"
+        style={{ width }}
         {...(!skill.description && { "aria-describedby": undefined })}
       >
+        <ResizeHandle {...drawerWidth} edge="left" width={width} onWidth={setWidth} label="调整详情宽度" className="left-0" />
         <SheetHeader className="h-11 pr-3 pl-3.5 text-[11px] font-semibold text-muted-foreground">
           <span className="grow">技能详情</span>
           <SheetClose asChild>

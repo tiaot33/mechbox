@@ -163,8 +163,9 @@ function SkillCard(props: {
         list
           ? "min-h-10 flex-row items-center gap-5 rounded-[7px] border-transparent px-3 shadow-[inset_0_-1px_0_rgba(17,24,39,0.06)] hover:border-hairline hover:bg-white hover:shadow-[0_1px_2px_rgba(17,24,39,0.04)]"
           : "min-h-28 flex-col rounded-[10px] border-hairline bg-glass-card px-3 pt-3 pb-2.5 shadow-tile hover:-translate-y-px hover:border-border-strong hover:bg-white hover:shadow-raised",
+        // 选中时不走过渡：点开抽屉的同时遮罩盖住卡片、悬停态消失，过渡会让边框闪一下。
         props.selected &&
-          "border-primary bg-white shadow-[0_0_0_1px_var(--color-primary)] hover:border-primary hover:shadow-[0_0_0_1px_var(--color-primary)]",
+          "translate-y-0 border-primary bg-white shadow-[0_0_0_1px_var(--color-primary)] transition-none hover:translate-y-0 hover:border-primary hover:shadow-[0_0_0_1px_var(--color-primary)]",
       )}
       data-selected={props.selected || undefined}
       onClick={props.onOpen}

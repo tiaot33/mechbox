@@ -48,13 +48,12 @@ async function step(name, fn) {
     await page.screenshot({ path: path.join(SHOTS, `fail-${String(n).padStart(2, "0")}.png`) });
     // 关掉可能残留的弹窗 / 抽屉，免得影响后续步骤
     for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
-    if (await overlay().count()) await overlay().click({ force: true });
+    if (await drawer().count()) await drawer().locator('[data-slot="sheet-close"]').click();
   }
 }
 const modal = () => page.locator('[data-slot="dialog-content"]').last();
 const card = (name) => page.locator(".a-card", { has: page.locator(".a-card-name", { hasText: new RegExp(`^${name}$`) }) });
 const drawer = () => page.locator('[data-slot="sheet-content"]');
-const overlay = () => page.locator('[data-slot="sheet-overlay"]');
 async function toast(text, tone) {
   await page.waitForFunction(
     ([t, tone]) => {
@@ -88,7 +87,8 @@ async function fetchLocal(dir) {
   await btn(modal(), "入库所选").click();
 }
 async function openDrawer(name) {
-  if (await drawer().count()) await overlay().click({ force: true });
+  // 抽屉没有遮罩，开着时点卡片会切换;先关掉，免得点到正打开的那张反而关上。
+  await closeDrawer();
   await card(name).click();
   await drawer().waitFor();
   await page.waitForTimeout(300);

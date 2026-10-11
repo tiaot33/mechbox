@@ -1,7 +1,7 @@
 // shadcn/ui 的 Sheet,按本应用改过：
 // - 在原地渲染、绝对定位在主体区域里(不经 Portal 铺满窗口),顶栏不被遮罩盖住;
-// - 非模态：模态会把整页设成不可点，顶栏的搜索、视图切换在抽屉开着时就用不了。
-//   遮罩由 SheetOverlay 自己画，点遮罩或按 Esc 关闭，点抽屉外的其他地方(顶栏、弹窗)不关闭;
+// - 非模态、没有遮罩：抽屉开着时其他地方照常可用(点别的卡片切换、拖动卡片、用顶栏);
+//   按 Esc 或关闭按钮关闭，点抽屉外的地方不关闭;
 // - 表面是半透明白色加 backdrop-blur,底下的内容糊掉而不是透出文字。
 import type { ComponentProps } from "react";
 import { Dialog as SheetPrimitive } from "radix-ui";
@@ -15,14 +15,6 @@ function SheetClose(props: ComponentProps<typeof SheetPrimitive.Close>) {
   return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
-function SheetOverlay({ className, ...props }: ComponentProps<"div">) {
-  return (
-    <SheetPrimitive.Close asChild>
-      <div data-slot="sheet-overlay" aria-hidden className={cn("absolute inset-0 z-5 bg-scrim", className)} {...props} />
-    </SheetPrimitive.Close>
-  );
-}
-
 function SheetContent({
   className,
   children,
@@ -31,29 +23,26 @@ function SheetContent({
   ...props
 }: ComponentProps<typeof SheetPrimitive.Content>) {
   return (
-    <>
-      <SheetOverlay />
-      <SheetPrimitive.Content
-        data-slot="sheet-content"
-        className={cn(
-          "absolute z-6 flex animate-sheet-in flex-col overflow-hidden rounded-tile border border-hairline bg-glass-overlay shadow-sheet outline-none backdrop-blur-xl backdrop-saturate-150",
-          className,
-        )}
-        onInteractOutside={(e) => {
-          e.preventDefault();
-          onInteractOutside?.(e);
-        }}
-        onOpenAutoFocus={(e) => {
-          // 焦点交给抽屉本身而不是第一个按钮，打开时不出现按钮的焦点框。
-          e.preventDefault();
-          (e.currentTarget as HTMLElement).focus();
-          onOpenAutoFocus?.(e);
-        }}
-        {...props}
-      >
-        {children}
-      </SheetPrimitive.Content>
-    </>
+    <SheetPrimitive.Content
+      data-slot="sheet-content"
+      className={cn(
+        "absolute z-6 flex animate-sheet-in flex-col overflow-hidden rounded-tile border border-hairline bg-glass-overlay shadow-sheet outline-none backdrop-blur-xl backdrop-saturate-150",
+        className,
+      )}
+      onInteractOutside={(e) => {
+        e.preventDefault();
+        onInteractOutside?.(e);
+      }}
+      onOpenAutoFocus={(e) => {
+        // 焦点交给抽屉本身而不是第一个按钮，打开时不出现按钮的焦点框。
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).focus();
+        onOpenAutoFocus?.(e);
+      }}
+      {...props}
+    >
+      {children}
+    </SheetPrimitive.Content>
   );
 }
 

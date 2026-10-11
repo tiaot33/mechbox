@@ -80,10 +80,10 @@
       transform: translateY(-4px);
     }
   }
+  /* 抽屉只滑入不淡入：淡入时表面半透明，底下选中卡片的蓝框会透出来，像盖在抽屉上。 */
   @keyframes sheet-in {
     from {
       transform: translateX(24px);
-      opacity: 0;
     }
   }
 }
