@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS skills (
     update_check_status TEXT NOT NULL DEFAULT '' CHECK(update_check_status IN ('', 'available', 'current', 'deleted', 'failed')),
     update_check_revision TEXT NOT NULL DEFAULT '',    -- 最近一次确认来源时看到的来源版本:GitHub 为 commit,URL 为压缩包内容哈希;本地目录与检查失败为空
     update_check_content TEXT NOT NULL DEFAULT '',     -- 结论为 available 时,来源里这个技能内容的指纹(各文件路径、模式与内容指纹合成);据此和 skipped_changes 比对是否跳过了这次改动。其他结论为空
+    update_check_renamed_to TEXT NOT NULL DEFAULT '', -- 结论为 deleted 时,推测这个技能在来源里改名成的新名字:同一来源里它消失了,同时出现了内容大部分相同的技能;没有推测为空
     kept_serial INTEGER NOT NULL DEFAULT 0,            -- 来源里已删除,用户选了继续保留时为当时的 update_check_serial(大于 0);0 = 没有这个标记。之后开始的检查更新、更新计划或更新确认来源里又有这个技能时清回 0
     update_check_serial INTEGER NOT NULL DEFAULT 0,    -- 每写一次结论或继续保留标记加 1;检查更新写回前据此发现期间别处已写过,不拿较旧的结论覆盖
     UNIQUE(source_id, name)
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS skill_scopes (
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
     direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接安装;0 = 无直接安装,由覆盖它的组安装留着
+    folder TEXT NOT NULL DEFAULT '',        -- 装出去的文件夹名;空 = 和技能现在的名字相同。确认改名后没跟着重新安装的地方记下旧名字,巡检、重新安装、卸载、回滚都按它找到文件夹;重新安装换成新名字后清回空
     created_at TEXT NOT NULL DEFAULT ''     -- 首次安装到此 Scope 的时间,RFC3339Nano。再次安装不更新
 );
 
@@ -161,7 +163,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS update_history_rolls_back ON update_history(ro
 CREATE TABLE IF NOT EXISTS history_skills (
     record_id INTEGER NOT NULL REFERENCES update_history(id), -- 哪一条记录
     skill_id INTEGER NOT NULL,                               -- 技能 ID;技能移除后仍保留
-    name TEXT NOT NULL,                                      -- 当时的技能名,技能移除后用于展示
+    name TEXT NOT NULL,                                      -- 当时的技能名,技能移除后用于展示;改名的更新记新名字,回滚的记换回的名字
+    from_name TEXT NOT NULL DEFAULT '',                      -- 这次换了名字时之前的名字(确认改名的更新、回滚这样的更新);没换名字为空
     from_version_id INTEGER NOT NULL,                        -- 之前的版本 ID
     to_version_id INTEGER NOT NULL,                          -- 之后的版本 ID
     PRIMARY KEY(record_id, skill_id)
@@ -191,3 +194,12 @@ CREATE TABLE IF NOT EXISTS skipped_changes (
 );
 
 CREATE INDEX IF NOT EXISTS skipped_changes_skill ON skipped_changes(skill_id, content);
+
+-- 用户对改名推测回答了「不是」:这个技能不是改名成了来源里那份内容的新名字。来源里那个新名字的内容又变了,指纹不同,才会再推测;
+-- 随技能一并删除。
+CREATE TABLE IF NOT EXISTS rejected_renames (
+    skill_id INTEGER NOT NULL REFERENCES skills(id), -- 来源里已删除的那个技能
+    name TEXT NOT NULL,                              -- 推测的新名字
+    content TEXT NOT NULL,                           -- 回答时来源里那个新名字的内容指纹,与 skills.update_check_content 同算法
+    PRIMARY KEY(skill_id, name, content)
+);

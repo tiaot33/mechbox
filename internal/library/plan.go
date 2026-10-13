@@ -62,6 +62,9 @@ type PlannedSkill struct {
 	Change PlannedChange `json:"change"`
 	// Skipped 为 true 表示有变化,但来源里这份内容用户之前跳过了;照样列出,用户可以勾上更新。
 	Skipped bool `json:"skipped,omitzero"`
+	// RenamedTo 是来源里已删除时,推测这个技能改名成的新名字,含义同 UpdateCheck.RenamedTo。勾上更新即确认「是」:技能改用新名字,
+	// 内容换成那个新名字的;RejectRename 回答「不是」。有推测时 Risks、Diff 按那个新名字的内容给出,装出去的各处也列在 Installs 里。
+	RenamedTo string `json:"renamed_to,omitempty"`
 	// Risks 是有变化的技能里需要先看一眼的文件:新增或改动的脚本、新增的可执行文件,按路径排序。没有时为空。
 	Risks []UpdateRisk `json:"risks,omitempty"`
 	// Diff 是有变化时从库里的当前版本到来源里的内容改了哪些文件;其他情况为 nil。库里一侧用 GetVersionFile(Skill.VersionID, path) 读,
@@ -98,6 +101,7 @@ type planState struct {
 
 type plannedState struct {
 	name      string
+	renameTo  string
 	change    PlannedChange
 	versionID int64
 	latest    source.Skill
@@ -145,7 +149,14 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 		planned := PlannedSkill{Skill: skill}
 		checked := read.checked[i]
 		item := &plannedState{name: skill.Name, versionID: read.states[i].versionID, latest: checked.latest}
+		guess, renamed := read.renames[i]
 		switch {
+		case checked.err != nil && renamed:
+			planned.Change, planned.RenamedTo = PlannedDeleted, guess.latest.Name
+			item.latest, item.content, item.renameTo = guess.latest, guess.content, guess.latest.Name
+			diff := diffDigests(digests(read.states[i].files), digests(item.latest.Files))
+			planned.Diff = &diff
+			planned.Risks = updateRisks(read.states[i].files, item.latest.Files)
 		case checked.err != nil:
 			planned.Change = PlannedDeleted
 		case checked.changed:
@@ -202,14 +213,16 @@ func (l *Library) describePlan(ctx context.Context, plan *UpdatePlan, state *pla
 	defer unlock()
 	const operation = "plan update"
 	for i, planned := range plan.Skills {
-		if planned.Change != PlannedChanged {
+		if planned.Change != PlannedChanged && planned.RenamedTo == "" {
 			continue
 		}
-		skipped, err := l.store.Skipped(ctx, int64(planned.Skill.ID), state.skills[planned.Skill.ID].content)
-		if err != nil {
-			return err
+		if planned.Change == PlannedChanged {
+			skipped, err := l.store.Skipped(ctx, int64(planned.Skill.ID), state.skills[planned.Skill.ID].content)
+			if err != nil {
+				return err
+			}
+			plan.Skills[i].Skipped = skipped
 		}
-		plan.Skills[i].Skipped = skipped
 		skillScopes, err := l.listSkillScopes(ctx, planned.Skill.ID, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
@@ -258,7 +271,8 @@ func (l *Library) lookupPlan(operation string, id UpdatePlanID) (*planState, err
 	return state, nil
 }
 
-// GetUpdatePlanFile 按技能内的相对路径读取更新计划里来源一侧的一个文件,即这个技能更新后会是的内容,和库里的版本对照着看差异。
+// GetUpdatePlanFile 按技能内的相对路径读取更新计划里来源一侧的一个文件,即这个技能更新后会是的内容,和库里的版本对照着看差异;
+// 推测改了名的技能读那个新名字的内容。
 // 句柄未知或已失效返回 NotFound;技能不在这份计划里、或在来源里已删除返回 NotFound(Details.SkillID);路径不存在返回 NotFound(Details.Path)。
 func (l *Library) GetUpdatePlanFile(ctx context.Context, plan UpdatePlanID, skill SkillID, path string) (file File, err error) {
 	defer func() { err = typedError(err) }()
@@ -271,7 +285,7 @@ func (l *Library) GetUpdatePlanFile(ctx context.Context, plan UpdatePlanID, skil
 		return File{}, err
 	}
 	item := state.skills[skill]
-	if item == nil || item.change == PlannedDeleted {
+	if item == nil || item.change == PlannedDeleted && item.renameTo == "" {
 		return File{}, &Error{Code: NotFound, Message: operation + ": skill is not in the source", Details: ErrorDetails{SkillID: skill}}
 	}
 	index := slices.IndexFunc(item.latest.Files, func(file skillfile.File) bool { return file.Path == path })
@@ -409,4 +423,39 @@ func updateRisks(from, to []skillfile.File) []UpdateRisk {
 	}
 	slices.SortFunc(risks, func(a, b UpdateRisk) int { return cmp.Compare(a.Path, b.Path) })
 	return risks
+}
+
+// RejectRename 对更新计划里的改名推测回答「不是」:这个技能不是改名成了那个新名字。按一删一增处理:这个技能照旧算来源里已删除
+// (继续保留或移除由用户决定),那个新名字算来源里的新技能(Collection.NewSkills)。记下来,来源里那个新名字的内容又变了才会再推测这一条。
+// 句柄未知或已失效返回 NotFound;技能在计划里没有改名推测返回 InvalidArgument(Details.Field 为 skill,带 Details.SkillID);
+// 技能在计划生成后被移除返回 NotFound(Details.SkillID);计划生成后整个库被同步拉回替换返回 Conflict。
+func (l *Library) RejectRename(ctx context.Context, plan UpdatePlanID, skill SkillID) (err error) {
+	defer func() { err = typedError(err) }()
+	const operation = "reject rename"
+	state, err := l.lookupPlan(operation, plan)
+	if err != nil {
+		return err
+	}
+	item := state.skills[skill]
+	if item == nil || item.renameTo == "" {
+		return &Error{Code: InvalidArgument, Message: operation + ": no rename was guessed for the skill", Details: ErrorDetails{Field: "skill", SkillID: skill}}
+	}
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	return l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := tx.RequireReplica(ctx, state.replica); err != nil {
+			return err
+		}
+		row, err := tx.GetSkill(ctx, int64(skill))
+		if errors.Is(err, store.ErrNotFound) || err == nil && row.Name != item.name {
+			return &Error{Code: NotFound, Message: operation + ": skill was removed", Details: ErrorDetails{SkillID: skill}, Err: err}
+		}
+		if err != nil {
+			return err
+		}
+		if err := tx.RejectRename(ctx, int64(skill), item.renameTo, item.content); err != nil {
+			return err
+		}
+		return tx.AddNewSkill(ctx, state.sourceID, item.renameTo)
+	})
 }

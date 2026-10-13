@@ -99,11 +99,12 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 	if row.CheckStatus != "" {
 		status := UpdateCheckStatus(row.CheckStatus)
 		skipped := status == UpdateAvailable && row.Skipped
-		pending := status == UpdateAvailable && !skipped || status == UpdateDeleted && !row.KeptDeleted
+		pending := status == UpdateAvailable && !skipped || status == UpdateDeleted && (!row.KeptDeleted || row.RenamedTo != "")
 		skill.LastUpdateCheck = &UpdateCheck{
 			CheckedAt: row.CheckedAt,
 			Status:    status,
 			Revision:  row.CheckRevision,
+			RenamedTo: row.RenamedTo,
 			Skipped:   skipped,
 			Pending:   pending && row.Source.Type != local.Type,
 		}

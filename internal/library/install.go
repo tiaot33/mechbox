@@ -54,7 +54,7 @@ type GroupInstallPlan struct {
 type SkillScope struct {
 	SkillID   SkillID   `json:"skill_id"`
 	Scope     Scope     `json:"scope"`
-	Folder    string    `json:"folder"`              // 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出
+	Folder    string    `json:"folder"`              // 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
 	Direct    bool      `json:"direct"`              // 有直接安装留着它;为 false 时只靠组安装留在这里,不能单独卸载
 	Groups    []GroupID `json:"groups,omitempty"`    // 组安装留着它的 Group:该技能是成员且组已安装到此 Scope,按 ID 升序
 	CreatedAt time.Time `json:"created_at,omitzero"` // 首次安装到此 Scope 的时间。再次安装不更新
@@ -282,9 +282,10 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 }
 
 type placement struct {
-	skill Skill
-	files []skillfile.File
-	scope resolvedScope
+	skill    Skill
+	files    []skillfile.File
+	scope    resolvedScope
+	replaces string
 }
 
 func (l *Library) place(ctx context.Context, placements []*placement, record func(*store.Tx) error) (err error) {
@@ -298,6 +299,9 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 	for _, item := range placements {
 		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, item.files); err != nil {
 			return err
+		}
+		if item.replaces != "" && item.replaces != item.skill.Name {
+			change.Remove(filepath.Join(item.scope.directory, item.replaces))
 		}
 	}
 	if record != nil {
@@ -339,10 +343,6 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 		}
 		return preconditionError("uninstall skill", "skill is only installed here by a group install", ErrorDetails{Name: name})
 	}
-	skill, err := l.GetSkill(ctx, id)
-	if err != nil {
-		return err
-	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
@@ -355,7 +355,7 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 			kept = kept || !removed
 		}
 		if !kept {
-			change.Remove(filepath.Join(target.directory, skill.Name))
+			change.Remove(filepath.Join(target.directory, place[0].Folder))
 		}
 		return nil
 	})

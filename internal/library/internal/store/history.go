@@ -14,10 +14,11 @@ type SkippedChange struct {
 }
 
 type RecordSkill struct {
-	SkillID int64
-	Name    string
-	From    int64
-	To      int64
+	SkillID  int64
+	Name     string
+	FromName string
+	From     int64
+	To       int64
 }
 
 type RecordInstall struct {
@@ -58,7 +59,7 @@ func (t *Tx) AddRecord(ctx context.Context, record Record) (int64, error) {
 		return 0, fmt.Errorf("read record id: %w", wrap(err))
 	}
 	for _, skill := range record.Skills {
-		if _, err := t.q.ExecContext(ctx, `INSERT INTO history_skills(record_id, skill_id, name, from_version_id, to_version_id) VALUES (?, ?, ?, ?, ?)`, id, skill.SkillID, skill.Name, skill.From, skill.To); err != nil {
+		if _, err := t.q.ExecContext(ctx, `INSERT INTO history_skills(record_id, skill_id, name, from_name, from_version_id, to_version_id) VALUES (?, ?, ?, ?, ?, ?)`, id, skill.SkillID, skill.Name, skill.FromName, skill.From, skill.To); err != nil {
 			return 0, fmt.Errorf("record skill: %w", wrap(err))
 		}
 	}
@@ -165,7 +166,7 @@ func (q queries) listRecords(ctx context.Context, clause string, args ...any) ([
 }
 
 func (q queries) recordSkills(ctx context.Context, id int64) ([]RecordSkill, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT skill_id, name, from_version_id, to_version_id FROM history_skills WHERE record_id = ? ORDER BY skill_id`, id)
+	rows, err := q.q.QueryContext(ctx, `SELECT skill_id, name, from_name, from_version_id, to_version_id FROM history_skills WHERE record_id = ? ORDER BY skill_id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("list record skills: %w", wrap(err))
 	}
@@ -173,7 +174,7 @@ func (q queries) recordSkills(ctx context.Context, id int64) ([]RecordSkill, err
 	var skills []RecordSkill
 	for rows.Next() {
 		var skill RecordSkill
-		if err := rows.Scan(&skill.SkillID, &skill.Name, &skill.From, &skill.To); err != nil {
+		if err := rows.Scan(&skill.SkillID, &skill.Name, &skill.FromName, &skill.From, &skill.To); err != nil {
 			return nil, fmt.Errorf("read record skill: %w", wrap(err))
 		}
 		skills = append(skills, skill)
