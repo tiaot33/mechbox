@@ -289,11 +289,20 @@ func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed 
 	if err != nil || exists {
 		return exists, err
 	}
+	want := agentdir.Canonical(destination.directory)
+	installed, err := l.listSkillScopes(ctx, id, nil)
+	if err != nil {
+		return false, err
+	}
+	for _, other := range installed {
+		if agentdir.Canonical(filepath.Dir(other.Folder)) == want && filepath.Base(other.Folder) != name {
+			return true, nil
+		}
+	}
 	claimants, err := l.store.Claimants(ctx, name, int64(id))
 	if err != nil {
 		return false, err
 	}
-	want := agentdir.Canonical(destination.directory)
 	for _, other := range claimants {
 		if other.Scope.Agent == string(code) && changed[other.Scope.ProjectID != nil] {
 			continue

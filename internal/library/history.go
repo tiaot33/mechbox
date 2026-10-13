@@ -185,8 +185,8 @@ type RollbackResult struct {
 // Rollback 回滚一次更新:那次更新换了版本的技能,库里一律换回那次之前的版本,之后又被更新过也一样,不要求先回滚之后那次。
 // 那次更新装过的地方(含单独重试换上的)按磁盘上的文件内容核对:还是那次换上的版本就装回旧版;之后又被重新安装过、用户改过、
 // 文件夹不在了、项目不在这台机器上或还没对应到本机路径、技能已不装在那里或已从库里移除的,都不动,结果里写明原因,不中断整个回滚。
-// 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;回滚的是确认过的改名时,改名推测记为「不是」、
-// 旧名字的技能记为继续保留,来源里那个新名字的内容又变了才再推测。回滚本身在集合的历史里记一条,
+// 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;换回了名字时,跳过的是改成那个名字的改名推测。
+// 回滚本身在集合的历史里记一条,
 // 那次更新的 RolledBackBy 指向它。
 //
 // 错误:记录不存在返回 NotFound;不是更新记录返回 InvalidArgument(Details.Field 为 record);那次更新已被回滚、各处也都核对过了
@@ -281,28 +281,21 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				name, fromName = targetName, row.Name
 			}
 			rollback.Skills = append(rollback.Skills, store.RecordSkill{SkillID: skill.SkillID, Name: name, FromName: fromName, From: row.VersionID, To: skill.From})
-			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
 			conclusion := store.UpdateCheck{At: now, Status: string(UpdateAvailable), Revision: record.Revision, Content: content, Found: true, Since: math.MaxInt64}
-			if renamedBack {
-				conclusion = store.UpdateCheck{At: now, Status: string(UpdateDeleted), Revision: record.Revision, Since: math.MaxInt64}
-			}
-			if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
-				return err
-			}
 			if renamedBack {
 				renamed, err := tx.VersionFiles(ctx, row.VersionID)
 				if err != nil {
 					return err
 				}
-				if err := tx.RejectRename(ctx, skill.SkillID, row.Name, skillfile.Sum(renamed)); err != nil {
+				content = skillfile.Sum(renamed)
+				conclusion = store.UpdateCheck{At: now, Status: string(UpdateDeleted), Revision: record.Revision, Renamed: row.Name, Content: content, Since: math.MaxInt64}
+				if err := tx.MarkNew(ctx, record.SourceID, row.Name); err != nil {
 					return err
 				}
-				if err := tx.KeepDeleted(ctx, skill.SkillID); err != nil {
-					return err
-				}
-				if err := tx.MarkSeen(ctx, record.SourceID, []string{row.Name}); err != nil {
-					return err
-				}
+			}
+			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
+			if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
+				return err
 			}
 			result.Skills = append(result.Skills, RecordedSkill{SkillID: id, Name: name, FromName: fromName, FromVersionID: VersionID(row.VersionID), ToVersionID: VersionID(skill.From)})
 		}

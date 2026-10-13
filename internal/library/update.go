@@ -163,6 +163,7 @@ type collectionRead struct {
 	revision string
 	listed   []string
 	rejected []map[string][]string
+	seen     map[string]bool
 	renames  map[int]renameGuess
 }
 
@@ -259,6 +260,11 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 	if read.listedAt, err = l.store.Listed(ctx, read.states[0].source.ID); err != nil {
 		return nil, err
 	}
+	known, err := l.store.SourceSkills(ctx, read.states[0].source.Type, read.states[0].source.Locator)
+	if err != nil {
+		return nil, err
+	}
+	read.seen = known.Seen
 	return read, nil
 }
 
@@ -713,7 +719,7 @@ func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess
 	}
 	var candidates []string
 	for _, name := range names {
-		if !slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name }) && !slices.Contains(candidates, name) {
+		if !read.seen[name] && !slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name }) && !slices.Contains(candidates, name) {
 			candidates = append(candidates, name)
 		}
 	}
@@ -782,15 +788,21 @@ func similarity(old, latest []skillfile.File) float64 {
 }
 
 func withoutName(content []byte) []byte {
-	var kept [][]byte
-	for line := range bytes.SplitSeq(content, []byte("\n")) {
-		trimmed := bytes.TrimSpace(line)
-		if bytes.HasPrefix(trimmed, []byte("name:")) || bytes.Equal(trimmed, []byte("---")) {
-			continue
-		}
-		kept = append(kept, line)
+	rest, ok := bytes.CutPrefix(content, []byte("---\n"))
+	if !ok {
+		return content
 	}
-	return bytes.Join(kept, []byte("\n"))
+	frontmatter, body, ok := bytes.Cut(rest, []byte("\n---\n"))
+	if !ok {
+		return content
+	}
+	var kept [][]byte
+	for line := range bytes.SplitSeq(frontmatter, []byte("\n")) {
+		if !bytes.HasPrefix(line, []byte("name:")) {
+			kept = append(kept, line)
+		}
+	}
+	return append(append(bytes.Join(kept, []byte("\n")), '\n'), body...)
 }
 
 func lineOverlap(a, b []byte) float64 {

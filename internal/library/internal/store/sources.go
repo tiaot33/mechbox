@@ -154,3 +154,13 @@ func (t *Tx) AddNewSkill(ctx context.Context, sourceID int64, name string) error
 	}
 	return nil
 }
+
+func (t *Tx) MarkNew(ctx context.Context, sourceID int64, name string) error {
+	if _, err := t.q.ExecContext(ctx, `
+		INSERT INTO source_skills(source_id, name, new) VALUES (?, ?, 1)
+		ON CONFLICT(source_id, name) DO UPDATE SET new = 1
+	`, sourceID, name); err != nil {
+		return fmt.Errorf("record new skill: %w", wrap(err))
+	}
+	return nil
+}

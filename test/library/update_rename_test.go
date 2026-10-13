@@ -202,9 +202,14 @@ func TestRollbackOfARenameRestoresNameAndFolders(t *testing.T) {
 			t.Fatalf("inspection after rollback = %#v", inspection)
 		}
 	}
-	// 回滚掉的改名不再计入角标。
-	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.Status != library.UpdateDeleted || check.RenamedTo != "" || check.Pending {
+	// 回滚掉的改名算作跳过:不再计入角标,改主意了在更新计划里照样能勾上。
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.Status != library.UpdateDeleted || check.RenamedTo != "pdf-kit" || !check.Skipped || check.Pending {
 		t.Fatalf("check after rolling back the rename = %#v", check)
+	}
+	requireNewSkills(t, fx.lib, fx.skill.CollectionID, nil)
+	again, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil || again.Skills[0].Skill.Name != "pdf-kit" {
+		t.Fatalf("renaming again after the rollback = %#v, %v", again, err)
 	}
 }
 
