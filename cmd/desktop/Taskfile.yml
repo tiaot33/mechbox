@@ -1,0 +1,44 @@
+version: '3'
+
+vars:
+  APP_NAME: "skills-manager"
+  BIN_DIR: "bin"
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # private_mac_apis:macOS 上让 WebView 透明、透出原生毛玻璃所需(Wails v3 默认不开);
+  # 用了私有 API,不能上 Mac App Store。其他平台上这个标签不起作用。
+  EXTRA_TAGS: '{{.EXTRA_TAGS | default "private_mac_apis"}}'
+  # 构建 / 打包 / 运行的目标系统，默认为本机;可用 `wails3 build GOOS=...` 覆盖以交叉编译。
+  GOOS: '{{.GOOS | default OS}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Packages a production build of the application
+    cmds:
+      - task: "{{.GOOS}}:package"
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  setup:docker:
+    summary: Builds Docker image for cross-compilation (~800MB download)
+    cmds:
+      - task: common:setup:docker

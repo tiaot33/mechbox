@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.0.1"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.0.1",
+			"CompanyName": "tiaot33",
+			"FileDescription": "管理 coding agent 的 Agent Skills",
+			"LegalCopyright": "(c) 2026, tiaot33",
+			"ProductName": "技能管理器",
+			"Comments": "This is a comment"
+		}
+	}
+}
