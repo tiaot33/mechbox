@@ -163,6 +163,7 @@ type collectionRead struct {
 	revision string
 	listed   []string
 	rejected []map[string][]string
+	linked   []string
 	seen     map[string]bool
 	renames  map[int]renameGuess
 }
@@ -247,6 +248,11 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 		if err != nil {
 			return nil, err
 		}
+		linked, err := l.store.RolledBackRename(ctx, int64(skill.ID))
+		if err != nil {
+			return nil, err
+		}
+		read.linked = append(read.linked, linked)
 		read.skills = append(read.skills, skill)
 		read.states = append(read.states, state)
 		read.rejected = append(read.rejected, rejected)
@@ -717,9 +723,13 @@ func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess
 			return nil
 		}
 	}
+	inLibrary := func(name string) bool {
+		return slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name })
+	}
 	var candidates []string
 	for _, name := range names {
-		if !read.seen[name] && !slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name }) && !slices.Contains(candidates, name) {
+		linked := slices.ContainsFunc(missing, func(i int) bool { return read.linked[i] == name })
+		if (linked || !read.seen[name]) && !inLibrary(name) && !slices.Contains(candidates, name) {
 			candidates = append(candidates, name)
 		}
 	}
@@ -745,7 +755,9 @@ func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess
 			if slices.Contains(read.rejected[i][candidate.Name], contents[j]) {
 				continue
 			}
-			if score := similarity(read.states[i].files, candidate.Files); score >= renameSimilarity {
+			if read.linked[i] == candidate.Name {
+				pairs = append(pairs, pair{i, j, 2})
+			} else if score := similarity(read.states[i].files, candidate.Files); score >= renameSimilarity && !read.seen[candidate.Name] {
 				pairs = append(pairs, pair{i, j, score})
 			}
 		}

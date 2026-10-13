@@ -235,6 +235,7 @@ func (t *Tx) RemoveSkill(ctx context.Context, id int64) error {
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
 		`DELETE FROM skipped_changes WHERE skill_id = ?`,
 		`DELETE FROM rejected_renames WHERE skill_id = ?`,
+		`DELETE FROM rolled_back_renames WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
 		`DELETE FROM skill_versions WHERE skill_id = ?`,
@@ -321,7 +322,29 @@ func (t *Tx) RejectRename(ctx context.Context, skillID int64, name, content stri
 	if _, err := t.q.ExecContext(ctx, `UPDATE skills SET update_check_renamed_to = '', update_check_serial = update_check_serial + 1 WHERE id = ? AND update_check_renamed_to = ?`, skillID, name); err != nil {
 		return fmt.Errorf("reject rename: %w", wrap(err))
 	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE skill_id = ? AND name = ?`, skillID, name); err != nil {
+		return fmt.Errorf("reject rename: %w", wrap(err))
+	}
 	return nil
+}
+
+func (t *Tx) RememberRename(ctx context.Context, skillID int64, name string) error {
+	if _, err := t.q.ExecContext(ctx, `INSERT INTO rolled_back_renames(skill_id, name) VALUES (?, ?) ON CONFLICT(skill_id) DO UPDATE SET name = excluded.name`, skillID, name); err != nil {
+		return fmt.Errorf("remember rolled back rename: %w", wrap(err))
+	}
+	return nil
+}
+
+func (q queries) RolledBackRename(ctx context.Context, skillID int64) (string, error) {
+	var name string
+	err := q.q.QueryRowContext(ctx, `SELECT name FROM rolled_back_renames WHERE skill_id = ?`, skillID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read rolled back rename: %w", wrap(err))
+	}
+	return name, nil
 }
 
 func (q queries) RejectedRenames(ctx context.Context, skillID int64) (map[string][]string, error) {

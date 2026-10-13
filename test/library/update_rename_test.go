@@ -263,3 +263,33 @@ func TestRollingBackAnEarlierUpdateRestoresTheNameItHad(t *testing.T) {
 		requireInstalledFolder(t, fx.dirs[scope], "pdf-tools", renamedBody)
 	}
 }
+
+func TestRolledBackRenameIsStillOfferedAfterAnotherFetch(t *testing.T) {
+	fx := newRenameFixture(t)
+	ctx := t.Context()
+	result, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.lib.Rollback(ctx, result.Record); err != nil {
+		t.Fatal(err)
+	}
+	// 之后从同一来源再入库一个技能:入库会把来源里的 pdf-kit 记为见过,回滚掉的改名照样给出。
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody),
+		"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":         skillDocument("notes", "v1"),
+		"extra/SKILL.md":         skillDocument("extra", "v1"),
+	}), "")
+	preview, err := fx.lib.PreviewFetch(ctx, library.PreviewFetchRequest{Collection: fx.skill.CollectionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetchSkills(t, fx.lib, preview, []string{"extra"})
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || !check.Skipped || check.Pending {
+		t.Fatalf("check = %#v; want the rolled back rename, skipped", check)
+	}
+	if again, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID)); err != nil || again.Skills[0].Skill.Name != "pdf-kit" {
+		t.Fatalf("renaming again = %#v, %v", again, err)
+	}
+}

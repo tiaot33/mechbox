@@ -199,6 +199,19 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 		if !opts.Migrate {
 			continue
 		}
+		destination := migrationDestination(item, row)
+		name := filepath.Base(item.Folder)
+		renamed, err := l.installedUnderAnotherName(ctx, item.SkillID, name, destination)
+		if err != nil {
+			return EditAgentResult{}, err
+		}
+		if renamed {
+			if item.own != nil {
+				dropped = append(dropped, item.own.ID)
+			}
+			result.Migrations = append(result.Migrations, AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: filepath.Join(destination.directory, name), Outcome: MigrationSkipped})
+			continue
+		}
 		exists, err := agentdir.Exists(item.Folder)
 		if err != nil {
 			return EditAgentResult{}, fmt.Errorf("inspect installed folder: %w", err)
@@ -206,8 +219,6 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 		if !exists {
 			continue
 		}
-		destination := migrationDestination(item, row)
-		name := filepath.Base(item.Folder)
 		migration := AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: filepath.Join(destination.directory, name)}
 		occupied, err := l.migrationBlocked(ctx, code, changed, item.SkillID, name, destination, planned)
 		if err != nil {
@@ -280,15 +291,7 @@ func isInside(root, path string) bool {
 	return inside
 }
 
-func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed map[bool]bool, id SkillID, name string, destination resolvedScope, planned map[string]bool) (bool, error) {
-	folder := filepath.Join(destination.directory, name)
-	if planned[agentdir.Canonical(folder)] {
-		return true, nil
-	}
-	exists, err := agentdir.Exists(folder)
-	if err != nil || exists {
-		return exists, err
-	}
+func (l *Library) installedUnderAnotherName(ctx context.Context, id SkillID, name string, destination resolvedScope) (bool, error) {
 	want := agentdir.Canonical(destination.directory)
 	installed, err := l.listSkillScopes(ctx, id, nil)
 	if err != nil {
@@ -299,6 +302,19 @@ func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed 
 			return true, nil
 		}
 	}
+	return false, nil
+}
+
+func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed map[bool]bool, id SkillID, name string, destination resolvedScope, planned map[string]bool) (bool, error) {
+	folder := filepath.Join(destination.directory, name)
+	if planned[agentdir.Canonical(folder)] {
+		return true, nil
+	}
+	exists, err := agentdir.Exists(folder)
+	if err != nil || exists {
+		return exists, err
+	}
+	want := agentdir.Canonical(destination.directory)
 	claimants, err := l.store.Claimants(ctx, name, int64(id))
 	if err != nil {
 		return false, err

@@ -292,6 +292,9 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				if err := tx.MarkNew(ctx, record.SourceID, row.Name); err != nil {
 					return err
 				}
+				if err := tx.RememberRename(ctx, skill.SkillID, row.Name); err != nil {
+					return err
+				}
 			}
 			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
 			if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
