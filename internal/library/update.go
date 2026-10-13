@@ -528,6 +528,9 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 					if err := tx.MarkSeen(ctx, read.states[i].source.ID, []string{latest.Name}); err != nil {
 						return err
 					}
+					if err := tx.ForgetRename(ctx, id); err != nil {
+						return err
+					}
 					recorded.Name, recorded.FromName = latest.Name, skill.Name
 				}
 				record.Skills = append(record.Skills, recorded)

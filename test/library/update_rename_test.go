@@ -293,3 +293,29 @@ func TestRolledBackRenameIsStillOfferedAfterAnotherFetch(t *testing.T) {
 		t.Fatalf("renaming again = %#v, %v", again, err)
 	}
 }
+
+func TestRollingBackChainedRenamesOutOfOrderKeepsTheSourceName(t *testing.T) {
+	fx := newRenameFixture(t)
+	ctx := t.Context()
+	first, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-suite/SKILL.md":       skillDocument("pdf-suite", renamedBody),
+		"pdf-suite/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":           skillDocument("notes", "v1"),
+	}), "")
+	second, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil || second.Skills[0].Skill.Name != "pdf-suite" {
+		t.Fatalf("second rename = %#v, %v", second, err)
+	}
+	for _, record := range []library.UpdateRecordID{first.Record, second.Record} {
+		if _, err := fx.lib.Rollback(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-suite" || check.Pending {
+		t.Fatalf("check = %#v; want the source's name, skipped", check)
+	}
+}

@@ -329,8 +329,15 @@ func (t *Tx) RejectRename(ctx context.Context, skillID int64, name, content stri
 }
 
 func (t *Tx) RememberRename(ctx context.Context, skillID int64, name string) error {
-	if _, err := t.q.ExecContext(ctx, `INSERT INTO rolled_back_renames(skill_id, name) VALUES (?, ?) ON CONFLICT(skill_id) DO UPDATE SET name = excluded.name`, skillID, name); err != nil {
+	if _, err := t.q.ExecContext(ctx, `INSERT INTO rolled_back_renames(skill_id, name) VALUES (?, ?) ON CONFLICT(skill_id) DO NOTHING`, skillID, name); err != nil {
 		return fmt.Errorf("remember rolled back rename: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) ForgetRename(ctx context.Context, skillID int64) error {
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE skill_id = ?`, skillID); err != nil {
+		return fmt.Errorf("forget rolled back rename: %w", wrap(err))
 	}
 	return nil
 }
