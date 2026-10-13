@@ -322,6 +322,11 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
 					return err
 				}
+				if conclusion.Found {
+					if err := tx.ForgetRename(ctx, id); err != nil {
+						return err
+					}
+				}
 			}
 			row, err := tx.GetSkill(ctx, id)
 			if err != nil {
@@ -538,6 +543,9 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 				return err
 			}
 			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}); err != nil {
+				return err
+			}
+			if err := tx.ForgetRename(ctx, id); err != nil {
 				return err
 			}
 			if selected < 0 {

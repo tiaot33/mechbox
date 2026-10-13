@@ -205,7 +205,8 @@ CREATE TABLE IF NOT EXISTS rejected_renames (
 );
 
 -- 确认过、后来又被回滚掉的改名:技能换回了旧名字,来源里还是新名字。检查更新据此直接推测这个改名(不再看内容是否相似),
--- 用户照样可以在更新计划里勾上再改名。连着回滚几次改名时只记第一次回滚时来源那一侧的名字;再确认改名或回答「不是」时删掉。
+-- 用户照样可以在更新计划里勾上再改名。连着回滚几次改名时只记第一次回滚时来源那一侧的名字;再确认改名、回答「不是」,
+-- 或检查更新、更新计划、更新确认来源里就是这个技能现在的名字时删掉。
 -- 随技能一并删除。
 CREATE TABLE IF NOT EXISTS rolled_back_renames (
     skill_id INTEGER PRIMARY KEY REFERENCES skills(id), -- 换回了旧名字的技能

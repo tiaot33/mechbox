@@ -319,3 +319,40 @@ func TestRollingBackChainedRenamesOutOfOrderKeepsTheSourceName(t *testing.T) {
 		t.Fatalf("check = %#v; want the source's name, skipped", check)
 	}
 }
+
+func TestRenameWithdrawnBySourceClearsTheRememberedName(t *testing.T) {
+	fx := newRenameFixture(t)
+	ctx := t.Context()
+	first, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdfKit := map[string]string{
+		"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody),
+		"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":         skillDocument("notes", "v1"),
+	}
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-suite/SKILL.md":       skillDocument("pdf-suite", renamedBody),
+		"pdf-suite/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":           skillDocument("notes", "v1"),
+	}), "")
+	second, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.lib.Rollback(ctx, second.Record); err != nil {
+		t.Fatal(err)
+	}
+	// 作者撤回了第二次改名:来源里又是 pdf-kit,检查确认后记下的 pdf-suite 作废。
+	fx.server.serve(zipArchive(t, pdfKit), "")
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.Status != library.UpdateCurrent {
+		t.Fatalf("check = %#v; want current", check)
+	}
+	if _, err := fx.lib.Rollback(ctx, first.Record); err != nil {
+		t.Fatal(err)
+	}
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || check.Pending {
+		t.Fatalf("check after rolling back the first rename = %#v; want pdf-kit, skipped", check)
+	}
+}
