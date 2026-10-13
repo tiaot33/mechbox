@@ -76,10 +76,13 @@ func (t *Tx) AddRecord(ctx context.Context, record Record) (int64, error) {
 }
 
 func (t *Tx) RecordInstall(ctx context.Context, recordID int64, install RecordInstall) error {
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM history_installs WHERE record_id = ? AND skill_id = ? AND agent = ? AND project_id IS ?`, recordID, install.SkillID, install.Scope.Agent, install.Scope.ProjectID); err != nil {
+	if _, err := t.q.ExecContext(ctx, `
+		DELETE FROM history_installs WHERE record_id = ? AND skill_id = ? AND agent = ? AND project_id IS ?
+			AND NOT (? = 'failed' AND outcome IN ('reinstalled', 'current'))
+	`, recordID, install.SkillID, install.Scope.Agent, install.Scope.ProjectID, install.Outcome); err != nil {
 		return fmt.Errorf("record install: %w", wrap(err))
 	}
-	if _, err := t.q.ExecContext(ctx, `INSERT INTO history_installs(record_id, skill_id, agent, project_id, outcome, error) VALUES (?, ?, ?, ?, ?, ?)`, recordID, install.SkillID, install.Scope.Agent, install.Scope.ProjectID, install.Outcome, install.Error); err != nil {
+	if _, err := t.q.ExecContext(ctx, `INSERT INTO history_installs(record_id, skill_id, agent, project_id, outcome, error) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`, recordID, install.SkillID, install.Scope.Agent, install.Scope.ProjectID, install.Outcome, install.Error); err != nil {
 		return fmt.Errorf("record install: %w", wrap(err))
 	}
 	return nil
@@ -205,18 +208,18 @@ func (q queries) recordInstalls(ctx context.Context, id int64) ([]RecordInstall,
 	return installs, nil
 }
 
-func (t *Tx) RestoreVersion(ctx context.Context, skillID, versionID int64) error {
+func (t *Tx) SetCurrentVersion(ctx context.Context, skillID, versionID int64) error {
 	result, err := t.q.ExecContext(ctx, `
 		UPDATE skills SET current_version_id = ?
 		WHERE id = ? AND EXISTS (SELECT 1 FROM skill_versions WHERE id = ? AND skill_id = ?)
 	`, versionID, skillID, versionID, skillID)
 	if err != nil {
-		return fmt.Errorf("restore skill version: %w", wrap(err))
+		return fmt.Errorf("set current version: %w", wrap(err))
 	}
 	if changed, err := result.RowsAffected(); err != nil {
-		return fmt.Errorf("restore skill version: %w", wrap(err))
+		return fmt.Errorf("set current version: %w", wrap(err))
 	} else if changed == 0 {
-		return fmt.Errorf("restore skill version: %w", ErrNotFound)
+		return fmt.Errorf("set current version: %w", ErrNotFound)
 	}
 	return nil
 }

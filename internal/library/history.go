@@ -180,8 +180,9 @@ type RollbackResult struct {
 // 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新。回滚本身在集合的历史里记一条,
 // 那次更新的 RolledBackBy 指向它。
 //
-// 错误:记录不存在返回 NotFound;不是更新记录返回 InvalidArgument(Details.Field 为 record);那次更新已被回滚返回 FailedPrecondition。
-// 库换回之后被取消时,返回已核对完的几处与 Canceled。
+// 错误:记录不存在返回 NotFound;不是更新记录返回 InvalidArgument(Details.Field 为 record);那次更新已被回滚、各处也都核对过了
+// 返回 FailedPrecondition。库换回之后被取消时,返回已核对完的几处与 Canceled;再对同一次更新调用 Rollback 接着核对剩下的地方,
+// 库不再动。
 func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result RollbackResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -194,21 +195,57 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 	if record.Kind != recordUpdate {
 		return RollbackResult{}, argumentError(operation, "record", "only an update can be rolled back")
 	}
-	if record.RolledBackBy != 0 {
-		return RollbackResult{}, preconditionError(operation, "the update was already rolled back", ErrorDetails{})
-	}
 	result = RollbackResult{Skills: []RecordedSkill{}, Installs: []RollbackInstall{}}
 	updated := map[SkillID]store.RecordSkill{}
 	removed := map[SkillID]bool{}
+	for _, skill := range record.Skills {
+		updated[SkillID(skill.SkillID)] = skill
+	}
+	done := map[placeKey]bool{}
+	if record.RolledBackBy != 0 {
+		previous, err := l.store.GetRecord(ctx, record.RolledBackBy)
+		if err != nil {
+			return RollbackResult{}, err
+		}
+		result.Record = UpdateRecordID(previous.ID)
+		rolledBack := map[SkillID]bool{}
+		for _, skill := range previous.Skills {
+			rolledBack[SkillID(skill.SkillID)] = true
+			result.Skills = append(result.Skills, RecordedSkill{SkillID: SkillID(skill.SkillID), Name: skill.Name, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
+		}
+		for _, skill := range record.Skills {
+			if id := SkillID(skill.SkillID); !rolledBack[id] {
+				removed[id] = true
+				result.Removed = append(result.Removed, RecordedSkill{SkillID: id, Name: skill.Name, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
+			}
+		}
+		for _, install := range previous.Installs {
+			done[placeOf(install)] = true
+			item := RollbackInstall{SkillID: SkillID(install.SkillID), Scope: scopeRowOf(install.Scope).scope(), Outcome: RollbackOutcome(install.Outcome)}
+			if install.Error != "" {
+				item.Error = &Error{Code: ErrorCode(install.Error), Message: operation + ": " + install.Error}
+			}
+			result.Installs = append(result.Installs, item)
+		}
+		pending := false
+		for _, install := range record.Installs {
+			if rolledBackPlace(install) && !done[placeOf(install)] {
+				pending = true
+			}
+		}
+		if !pending {
+			return RollbackResult{}, preconditionError(operation, "the update was already rolled back", ErrorDetails{})
+		}
+		return l.rollbackPlaces(ctx, operation, record, result, updated, removed, done)
+	}
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		rollback := store.Record{SourceID: record.SourceID, Kind: recordRollback, Revision: record.Revision, RollsBack: record.ID, At: now}
 		for _, skill := range record.Skills {
 			id := SkillID(skill.SkillID)
-			updated[id] = skill
 			row, err := tx.GetSkill(ctx, skill.SkillID)
 			if err == nil {
-				err = tx.RestoreVersion(ctx, skill.SkillID, skill.From)
+				err = tx.SetCurrentVersion(ctx, skill.SkillID, skill.From)
 			}
 			if errors.Is(err, store.ErrNotFound) {
 				removed[id] = true
@@ -238,8 +275,30 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 	if err != nil {
 		return RollbackResult{}, err
 	}
+	return l.rollbackPlaces(ctx, operation, record, result, updated, removed, done)
+}
+
+type placeKey struct {
+	skillID int64
+	agent   string
+	project int64
+}
+
+func placeOf(install store.RecordInstall) placeKey {
+	key := placeKey{skillID: install.SkillID, agent: install.Scope.Agent}
+	if install.Scope.ProjectID != nil {
+		key.project = *install.Scope.ProjectID
+	}
+	return key
+}
+
+func rolledBackPlace(install store.RecordInstall) bool {
+	return install.Outcome == string(Reinstalled) || install.Outcome == string(ReinstallCurrent)
+}
+
+func (l *Library) rollbackPlaces(ctx context.Context, operation string, record store.Record, result RollbackResult, updated map[SkillID]store.RecordSkill, removed map[SkillID]bool, done map[placeKey]bool) (RollbackResult, error) {
 	for _, install := range record.Installs {
-		if install.Outcome != string(Reinstalled) && install.Outcome != string(ReinstallCurrent) {
+		if !rolledBackPlace(install) || done[placeOf(install)] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -273,7 +332,7 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 
 func (l *Library) rollbackInstall(ctx context.Context, operation string, id SkillID, scope Scope, updatedVersion int64) (RollbackOutcome, error) {
 	target, err := l.resolveScope(ctx, operation, scope)
-	if IsCode(err, NotFound) {
+	if err != nil && ErrorOf(err).Code == NotFound {
 		return RollbackUninstalled, nil
 	}
 	if err != nil {

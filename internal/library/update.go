@@ -391,7 +391,7 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 		delete(l.plans, req.Plan)
 	}
 	l.previewMu.Unlock()
-	result.Installs, err = l.reinstallForRecord(ctx, operation, result.Record, versions, req.Installs)
+	result.Installs, err = l.reinstallForRecord(ctx, operation, result.Record, read.replica, versions, req.Installs)
 	return result, err
 }
 
@@ -516,46 +516,28 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 	return result, versions, nil
 }
 
-func (l *Library) reinstallForRecord(ctx context.Context, operation string, record UpdateRecordID, versions map[SkillID]int64, requests []ReinstallRequest) ([]ReinstallResult, error) {
+func (l *Library) reinstallForRecord(ctx context.Context, operation string, record UpdateRecordID, replica string, versions map[SkillID]int64, requests []ReinstallRequest) ([]ReinstallResult, error) {
 	results := []ReinstallResult{}
 	for _, request := range requests {
 		if err := ctx.Err(); err != nil {
 			return results, err
 		}
 		result := ReinstallResult{SkillID: request.SkillID, Scope: request.Scope}
-		outcome, itemErr := l.reinstallOne(ctx, operation, request, versions[request.SkillID])
+		outcome, itemErr := l.reinstallOne(ctx, operation, request, &updateInstall{record: record, replica: replica, version: versions[request.SkillID]})
 		if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
 			return results, ctx.Err()
+		}
+		if errors.Is(itemErr, store.ErrReplaced) {
+			return results, itemErr
 		}
 		if itemErr != nil {
 			result.Outcome, result.Error = ReinstallFailed, ErrorOf(itemErr)
 		} else {
 			result.Outcome = outcome
 		}
-		if record != 0 {
-			if err := l.recordInstall(ctx, record, result); err != nil {
-				return results, err
-			}
-		}
 		results = append(results, result)
 	}
 	return results, nil
-}
-
-func (l *Library) recordInstall(ctx context.Context, record UpdateRecordID, result ReinstallResult) error {
-	ctx, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	row, err := scopeOf("record install", result.Scope)
-	if err != nil {
-		return err
-	}
-	install := store.RecordInstall{SkillID: int64(result.SkillID), Scope: row.record(), Outcome: string(result.Outcome)}
-	if result.Error != nil {
-		install.Error = string(result.Error.Code)
-	}
-	return l.store.InTx(ctx, func(tx *store.Tx) error {
-		return tx.RecordInstall(ctx, int64(record), install)
-	})
 }
 
 // RetryUpdateInstalls 单独重试一次更新里没换上的地方,结果算进那次更新:之后回滚那次更新时,重试换上的地方也一起装回去。
@@ -585,7 +567,13 @@ func (l *Library) RetryUpdateInstalls(ctx context.Context, id UpdateRecordID, in
 	if err := validateInstalls(operation, ids, installs); err != nil {
 		return nil, err
 	}
-	return l.reinstallForRecord(ctx, operation, id, versions, installs)
+	ctx, unlock := l.sharedOperation(ctx)
+	replica, err := l.store.Replica(ctx)
+	unlock()
+	if err != nil {
+		return nil, err
+	}
+	return l.reinstallForRecord(ctx, operation, id, replica, versions, installs)
 }
 
 // KeepDeletedSkill 记下用户对来源里已删除的这个技能选了继续保留:之后不计入角标,技能上 Skill.KeptDeleted 为 true,重启后仍在。

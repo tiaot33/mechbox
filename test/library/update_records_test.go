@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/internal/library"
@@ -377,4 +378,125 @@ func TestUpdateHistoryByTheSkillShowsCommitMessages(t *testing.T) {
 			}
 		})
 	}
+}
+
+// 审查补充
+
+func TestCanceledRollbackContinuesOnTheNextCall(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	codex := library.GlobalScope(library.AgentCodex)
+	for _, scope := range []library.Scope{claude, codex} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claudeDir, _ := lib.ScopeDirectory(ctx, claude)
+	codexDir, _ := lib.ScopeDirectory(ctx, codex)
+	writeLocalSkill(t, source, "v2")
+	request := mustPlanUpdate(t, lib, skill.ID)
+	request.Installs = []library.ReinstallRequest{{SkillID: skill.ID, Scope: claude}, {SkillID: skill.ID, Scope: codex}}
+	result, err := lib.Update(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelAfterFirst := cancelWhen{Context: ctx, cond: func() bool {
+		content, err := os.ReadFile(filepath.Join(claudeDir, "pdf", "SKILL.md"))
+		if err != nil || string(content) != skillDocument("pdf", "v1") {
+			return false
+		}
+		entries, err := os.ReadDir(claudeDir)
+		return err == nil && !slices.ContainsFunc(entries, func(entry os.DirEntry) bool { return strings.HasPrefix(entry.Name(), ".") })
+	}}
+	partial, err := lib.Rollback(cancelAfterFirst, result.Record)
+	if !library.IsCode(err, library.Canceled) || len(partial.Installs) != 1 {
+		t.Fatalf("canceled rollback = %#v, %v", partial, err)
+	}
+	requireInstalledFolder(t, codexDir, "pdf", "v2")
+	rest, err := lib.Rollback(ctx, result.Record)
+	if err != nil || rest.Record != partial.Record || len(rest.Installs) != 2 || rest.Installs[1].Outcome != library.RollbackReinstalled {
+		t.Fatalf("continued rollback = %#v, %v", rest, err)
+	}
+	requireInstalledFolder(t, codexDir, "pdf", "v1")
+	if _, err := lib.Rollback(ctx, result.Record); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("rollback after finishing = %v; want FailedPrecondition", err)
+	}
+	if versions, err := lib.ListVersions(ctx, skill.ID); err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %#v, %v", versions, err)
+	}
+}
+
+func TestFailedRetryKeepsAnEarlierSuccessForRollback(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
+	global := library.GlobalScope(library.AgentCodex)
+	if err := lib.Install(ctx, skill.ID, global, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	directory, _ := lib.ScopeDirectory(ctx, global)
+	writeLocalSkill(t, source, "v2")
+	request := mustPlanUpdate(t, lib, skill.ID)
+	request.Installs = []library.ReinstallRequest{{SkillID: skill.ID, Scope: global}}
+	first, err := lib.Update(ctx, request)
+	if err != nil || first.Installs[0].Outcome != library.Reinstalled {
+		t.Fatalf("first update = %#v, %v", first, err)
+	}
+	// 之后的更新不动这一处,再重试第一次更新:技能已换了版本,这一处 Conflict,但「第一次更新装过这里」不丢。
+	writeLocalSkill(t, source, "v3")
+	if _, err := updateSkill(t, lib, ctx, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := lib.RetryUpdateInstalls(ctx, first.Record, request.Installs)
+	if err != nil || retried[0].Outcome != library.ReinstallFailed || retried[0].Error.Code != library.Conflict {
+		t.Fatalf("retry = %#v, %v", retried, err)
+	}
+	rollback, err := lib.Rollback(ctx, first.Record)
+	if err != nil || len(rollback.Installs) != 1 || rollback.Installs[0].Outcome != library.RollbackReinstalled {
+		t.Fatalf("rollback = %#v, %v", rollback, err)
+	}
+	requireInstalledFolder(t, directory, "pdf", "v1")
+}
+
+func TestRollbackLeavesAProjectRegisteredAfterTheUpdate(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
+	old, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := library.ProjectScope(library.AgentCodex, old.ID)
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalSkill(t, source, "v2")
+	request := mustPlanUpdate(t, lib, skill.ID)
+	request.Installs = []library.ReinstallRequest{{SkillID: skill.ID, Scope: scope}}
+	result, err := lib.Update(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.UnregisterProject(ctx, old.ID, library.UnregisterProjectOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil || fresh.ID == old.ID {
+		t.Fatalf("new project = %#v, %v; must not reuse ID %d", fresh, err, old.ID)
+	}
+	freshScope := library.ProjectScope(library.AgentCodex, fresh.ID)
+	if err := lib.Install(ctx, skill.ID, freshScope, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	directory, _ := lib.ScopeDirectory(ctx, freshScope)
+	rollback, err := lib.Rollback(ctx, result.Record)
+	if err != nil || len(rollback.Installs) != 1 || rollback.Installs[0].Outcome != library.RollbackUninstalled {
+		t.Fatalf("rollback = %#v, %v", rollback, err)
+	}
+	requireInstalledFolder(t, directory, "pdf", "v2")
 }

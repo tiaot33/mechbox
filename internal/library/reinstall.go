@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
 // SkillScopeFilter 按技能、作用域缩小 SkillScope 范围,两个条件都可选、可组合;供 ListSkillScopes 与
@@ -204,7 +205,7 @@ func (l *Library) Reinstall(ctx context.Context, requests []ReinstallRequest) (r
 			return results, err
 		}
 		result := ReinstallResult{SkillID: request.SkillID, Scope: request.Scope}
-		outcome, itemErr := l.reinstallOne(ctx, operation, request, 0)
+		outcome, itemErr := l.reinstallOne(ctx, operation, request, nil)
 		if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
 			return results, ctx.Err()
 		}
@@ -218,44 +219,101 @@ func (l *Library) Reinstall(ctx context.Context, requests []ReinstallRequest) (r
 	return results, nil
 }
 
-func (l *Library) reinstallOne(ctx context.Context, operation string, request ReinstallRequest, expected int64) (ReinstallOutcome, error) {
+type updateInstall struct {
+	record  UpdateRecordID
+	replica string
+	version int64
+}
+
+func (l *Library) reinstallOne(ctx context.Context, operation string, request ReinstallRequest, update *updateInstall) (ReinstallOutcome, error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
+	if update == nil {
+		outcome, _, err := l.reinstallLocked(ctx, operation, request, nil)
+		return outcome, err
+	}
+	if replica, err := l.store.Replica(ctx); err != nil {
+		return "", err
+	} else if replica != update.replica {
+		return "", store.ErrReplaced
+	}
+	recordAs := func(outcome ReinstallOutcome, code ErrorCode) func(*store.Tx) error {
+		return func(tx *store.Tx) error {
+			if err := tx.RequireReplica(ctx, update.replica); err != nil {
+				return err
+			}
+			if update.record == 0 {
+				return nil
+			}
+			row, err := scopeOf(operation, request.Scope)
+			if err != nil {
+				return err
+			}
+			return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: row.record(), Outcome: string(outcome), Error: string(code)})
+		}
+	}
+	outcome, recorded, err := l.reinstallLocked(ctx, operation, request, update)
+	if recorded || errors.Is(err, store.ErrReplaced) || err != nil && ctx.Err() != nil {
+		return outcome, err
+	}
+	record := recordAs(outcome, "")
+	if err != nil {
+		record = recordAs(ReinstallFailed, ErrorOf(err).Code)
+	}
+	if recordErr := l.store.InTx(ctx, record); recordErr != nil {
+		return "", recordErr
+	}
+	return outcome, err
+}
+
+func (l *Library) reinstallLocked(ctx context.Context, operation string, request ReinstallRequest, update *updateInstall) (ReinstallOutcome, bool, error) {
 	target, err := l.resolveScope(ctx, operation, request.Scope)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	place, err := l.store.PlaceSkillScopes(ctx, int64(request.SkillID), target.record())
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(place) == 0 {
-		return "", &Error{Code: NotFound, Message: operation + ": skill is not installed in scope"}
+		return "", false, &Error{Code: NotFound, Message: operation + ": skill is not installed in scope"}
 	}
 	skill, current, err := l.getCurrent(ctx, request.SkillID)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	if expected != 0 && current.versionID != expected {
-		return "", &Error{Code: Conflict, Message: operation + ": skill version changed since the update", Details: ErrorDetails{SkillID: request.SkillID}}
+	if update != nil && current.versionID != update.version {
+		return "", false, &Error{Code: Conflict, Message: operation + ": skill version changed since the update", Details: ErrorDetails{SkillID: request.SkillID}}
 	}
 	if err := target.requireRoot(operation); err != nil {
-		return "", err
+		return "", false, err
 	}
 	status, _, err := l.inspectSkillScope(ctx, skill.ID, target)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	switch status {
 	case SkillScopeCurrent:
-		return ReinstallCurrent, nil
+		return ReinstallCurrent, false, nil
 	case SkillScopeModified:
 		if !request.Overwrite {
-			return "", existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
+			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
 		}
 	}
-	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target}}, nil); err != nil {
-		return "", err
+	var record func(*store.Tx) error
+	if update != nil {
+		record = func(tx *store.Tx) error {
+			if err := tx.RequireReplica(ctx, update.replica); err != nil {
+				return err
+			}
+			if update.record == 0 {
+				return nil
+			}
+			return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: target.record(), Outcome: string(Reinstalled)})
+		}
 	}
-	return Reinstalled, nil
+	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target}}, record); err != nil {
+		return "", false, err
+	}
+	return Reinstalled, update != nil, nil
 }

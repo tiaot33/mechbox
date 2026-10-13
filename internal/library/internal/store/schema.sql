@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS skill_groups (
 -- 已注册的项目目录;注册后与每个 Agent 组成项目 Scope,目录由 agents.project_path 算出。
 -- 改项目位置只改写 path,id 不变,引用它的安装记录与组安装随之指向新位置。
 CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY,  -- 已注册项目主键,由 SQLite 分配;用作 ProjectScope 的项目身份
+    id INTEGER PRIMARY KEY AUTOINCREMENT, -- 已注册项目主键,由 SQLite 分配;用作 ProjectScope 的项目身份;注销后不复用,历史里记的项目 ID 不会指到别的项目
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS history_installs (
     skill_id INTEGER NOT NULL,                               -- 技能 ID
     agent TEXT NOT NULL,                                     -- Agent 的稳定代码
     project_id INTEGER,                                      -- NULL 为全局;非 NULL 为已登记项目的 ID
-    outcome TEXT NOT NULL,                                   -- 更新:reinstalled / current / failed(library.ReinstallOutcome);回滚:library.RollbackOutcome 的值
+    outcome TEXT NOT NULL,                                   -- 更新:reinstalled / current / failed(library.ReinstallOutcome);回滚:library.RollbackOutcome 的值。已记为换上了的,之后重试失败不覆盖
     error TEXT NOT NULL DEFAULT ''                           -- 没换上时的错误码(library.ErrorCode);其他为空
 );
 
