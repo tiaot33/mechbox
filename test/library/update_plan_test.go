@@ -4,10 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/internal/library"
@@ -102,10 +105,14 @@ func TestUpdatePlanShowsRisksCommitsDiffAndSourceContent(t *testing.T) {
 			if _, err := lib.GetUpdatePlanFile(ctx, "unknown", pdf.ID, "SKILL.md"); !library.IsCode(err, library.NotFound) {
 				t.Fatalf("unknown plan = %v", err)
 			}
-			// 更新计划只读:库里的版本与检查结论都不变。
+			// 更新计划只读:库里的版本不变,只和检查更新一样写下结论。
 			after, err := lib.GetSkill(ctx, pdf.ID)
-			if err != nil || !reflect.DeepEqual(after, pdf) {
-				t.Fatalf("plan changed skill: %#v, %v", after, err)
+			if err != nil || after.LastUpdateCheck == nil || after.LastUpdateCheck.Status != library.UpdateAvailable || !after.LastUpdateCheck.Pending || after.LastUpdateCheck.Revision != head {
+				t.Fatalf("conclusion after plan = %#v, %v", after.LastUpdateCheck, err)
+			}
+			after.LastUpdateCheck = nil
+			if !reflect.DeepEqual(after, pdf) {
+				t.Fatalf("plan changed skill: %#v", after)
 			}
 		})
 	}
@@ -456,5 +463,152 @@ func requireCandidateFlags(t *testing.T, lib *library.Library, id library.Collec
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidates new = %v; want %v", got, want)
+	}
+}
+
+// 审查补充:计划之后的写回要认得出技能和库已经换了。
+
+func TestSkipRejectsReusedSkillIDsAndReplacedLibrary(t *testing.T) {
+	ctx := t.Context()
+	newS3Stub(t)
+	lib := openTestLibrary(t)
+	a, aSource := fetchLocalSkill(t, lib, "a", "v1")
+	writeLocalSkill(t, aSource, "v2")
+	plan, err := lib.PlanUpdate(ctx, a.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.RemoveSkill(ctx, a.ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	b, bSource := fetchLocalSkill(t, lib, "b", "v1")
+	if b.ID != a.ID {
+		t.Fatalf("b got ID %d; this test needs SQLite to reuse a's ID %d", b.ID, a.ID)
+	}
+	if err := lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, Skills: []library.SkillID{a.ID}}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("skip for a removed skill whose ID was reused = %v; want NotFound", err)
+	}
+	writeLocalSkill(t, bSource, "v2")
+	plan, err = lib.PlanUpdate(ctx, b.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	push, err := lib.PlanSyncPush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected library.RemoteIdentity
+	if push.Remote != nil {
+		expected = push.Remote.Identity
+	}
+	if _, err := lib.SyncPush(ctx, expected); err != nil {
+		t.Fatal(err)
+	}
+	pull, err := lib.PlanSyncPull(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.SyncPull(ctx, pull.Remote.Identity); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, Skills: []library.SkillID{b.ID}}); !library.IsCode(err, library.Conflict) {
+		t.Fatalf("skip after the library was replaced = %v; want Conflict", err)
+	}
+}
+
+func TestLateCheckKeepsNewerConclusionSkipAndNewSkills(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	gate := newNetworkGate()
+	var mu sync.Mutex
+	archive := zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1")})
+	serve := func(files map[string]string) {
+		mu.Lock()
+		defer mu.Unlock()
+		archive = zipArchive(t, files)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		snapshot := archive
+		mu.Unlock()
+		gate.pass()
+		_, _ = w.Write(snapshot)
+	}))
+	t.Cleanup(server.Close)
+	a := fetchURLSkill(t, lib, server.URL, "a")
+	serve(map[string]string{"a/SKILL.md": skillDocument("a", "v2")})
+	gate.arm()
+	var wg sync.WaitGroup
+	var slowErr error
+	wg.Go(func() { _, slowErr = lib.CheckUpdates(ctx, []library.CollectionID{a.CollectionID}) })
+	gate.awaitEntered(t)
+	gate.disarm()
+	serve(map[string]string{"a/SKILL.md": skillDocument("a", "v3"), "c/SKILL.md": skillDocument("c", "v1")})
+	plan, err := lib.PlanUpdate(ctx, a.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, Skills: []library.SkillID{a.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	requireNewSkills(t, lib, a.CollectionID, []string{"c"})
+	gate.open()
+	wg.Wait()
+	if slowErr != nil {
+		t.Fatal(slowErr)
+	}
+	if skill, err := lib.GetSkill(ctx, a.ID); err != nil || !skill.LastUpdateCheck.Skipped || skill.LastUpdateCheck.Pending {
+		t.Fatalf("after the late check = %#v, %v; want the newer skipped conclusion", skill.LastUpdateCheck, err)
+	}
+	requireNewSkills(t, lib, a.CollectionID, []string{"c"})
+}
+
+func TestKeepDeletedSkillFoundByUpdatePlan(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	root := t.TempDir()
+	writeLocalSkill(t, filepath.Join(root, "a"), "v1")
+	writeLocalSkill(t, filepath.Join(root, "b"), "v1")
+	preview, err := lib.PreviewFetch(ctx, localRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := fetchSkills(t, lib, preview, []string{"a", "b"})[0]
+	if err := os.RemoveAll(filepath.Join(root, "a")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := lib.PlanUpdate(ctx, a.CollectionID)
+	if err != nil || plan.Skills[0].Change != library.PlannedDeleted {
+		t.Fatalf("plan = %#v, %v; want a deleted", plan.Skills, err)
+	}
+	if kept, err := lib.KeepDeletedSkill(ctx, a.ID); err != nil || !kept.KeptDeleted {
+		t.Fatalf("KeepDeletedSkill after the plan = %#v, %v", kept, err)
+	}
+}
+
+func TestUpdatePlanReadsEveryPageOfCommits(t *testing.T) {
+	repo := writeGitHubRepo(t, map[string]repoFile{"a/SKILL.md": {content: []byte(skillDocument("a", "v1")), mode: 0o644}})
+	fx := inspectGitHubRepo(t, repo)
+	api := serveGitHubAPI(t, fx)
+	blockGitHubClone(t)
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := fetchSkills(t, lib, preview, []string{"a"})[0]
+	const count = 230
+	for i := range count {
+		next := fx
+		next.commit = fmt.Sprintf("%040x", i+1)
+		next.message = fmt.Sprintf("commit %d", i+1)
+		api.Swap(next)
+	}
+	plan, err := lib.PlanUpdate(t.Context(), a.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Commits) != count || plan.Commits[0].Message != fmt.Sprintf("commit %d", count) || plan.Commits[count-1].Message != "commit 1" {
+		t.Fatalf("commits = %d, first %#v; want all %d newest first", len(plan.Commits), plan.Commits[0], count)
 	}
 }

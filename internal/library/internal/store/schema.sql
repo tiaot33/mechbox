@@ -2,6 +2,14 @@
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
 -- 产品尚未发布,不迁移旧版本库:Open 只接受当前 user_version 的库。
 
+-- 这个库文件里这一份数据的标识,只有一行。同步拉回用另一份库整个替换本机的库后换成新的随机值;
+-- 先读库、再联网读来源、最后写回的操作(检查更新、更新计划之后的跳过)据此发现中途被替换,放弃写回,
+-- 以免写到新库里 ID 恰好相同的技能上。
+CREATE TABLE IF NOT EXISTS replica (
+    id INTEGER PRIMARY KEY CHECK(id = 1), -- 固定为 1
+    token TEXT NOT NULL                   -- 随机值,十六进制
+);
+
 -- skill 的来源。一个来源就是一个集合,id 也是集合的身份(library.CollectionID)。
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,                -- 来源主键,由 SQLite 分配;同一来源可包含多个 skill

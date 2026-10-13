@@ -114,103 +114,138 @@ func (l *Library) checkCollection(ctx context.Context, id CollectionID) (Collect
 		result.Error = argumentError("check updates", "collections", "collection ID must be positive")
 		return result, nil
 	}
-	skills, states, err := l.collectionCurrent(ctx, id)
+	read, err := l.readCollection(ctx, id)
 	if err != nil {
 		return result, err
 	}
-	if len(skills) == 0 {
+	if read == nil {
 		result.Error = &Error{Code: NotFound, Message: "check updates: collection not found"}
 		return result, nil
 	}
-	result.Source = skills[0].Source
-	conclusions := make([]store.UpdateCheck, len(skills))
-	checked := make([]checkedSkill, len(skills))
-	var revision string
-	var listed []string
-	snapshot, err := l.sources.Open(ctx, states[0].source.Type, states[0].source.Locator, "", states[0].snapshot)
-	if err == nil {
-		revision = snapshot.Revision()
-		checked = checkSkills(ctx, snapshot, haves(skills, states), true)
-		listed = l.listSourceSkills(ctx, snapshot, states[0].source.ID, revision)
-	} else {
-		for i := range checked {
-			checked[i].err = err
-		}
+	result.Source = read.skills[0].Source
+	conclusions, failure := read.conclusions()
+	result.Error = failure
+	result.Skills, err = l.saveCollectionRead(ctx, read, conclusions)
+	if errors.Is(err, store.ErrReplaced) {
+		result.Skills, result.Error = nil, ErrorOf(err)
+		return result, nil
 	}
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	for i := range skills {
-		itemErr := checked[i].err
-		switch {
-		case itemErr == nil && checked[i].changed:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateAvailable), Revision: revision, Content: skillfile.Sum(checked[i].latest.Files), Found: true}
-		case itemErr == nil:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: revision, Found: true}
-		case missingSkill(itemErr):
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: revision}
-		default:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateFailed)}
-			if result.Error == nil {
-				result.Error = ErrorOf(itemErr)
-			}
-		}
-	}
-	result.Skills, err = l.saveUpdateChecks(ctx, skills, states, conclusions, listed, revision)
 	return result, err
 }
 
-func (l *Library) listSourceSkills(ctx context.Context, snapshot source.Snapshot, sourceID int64, revision string) []string {
-	if revision != "" {
-		listedCtx, unlock := l.sharedOperation(ctx)
-		listed, err := l.store.ListedRevision(listedCtx, sourceID)
-		unlock()
-		if err != nil || listed == revision {
-			return nil
-		}
-	}
-	names, err := snapshot.Names(ctx)
-	if err != nil {
-		return nil
-	}
-	return names
+type collectionRead struct {
+	skills   []Skill
+	states   []currentVersion
+	replica  string
+	listedAt string
+	snapshot source.Snapshot
+	openErr  error
+	checked  []checkedSkill
+	revision string
+	listed   []string
 }
 
-func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) ([]Skill, []currentVersion, error) {
+func (l *Library) readCollection(ctx context.Context, id CollectionID) (*collectionRead, error) {
+	read, err := l.collectionCurrent(ctx, id)
+	if err != nil || read == nil {
+		return nil, err
+	}
+	read.checked = make([]checkedSkill, len(read.skills))
+	first := read.states[0]
+	read.snapshot, read.openErr = l.sources.Open(ctx, first.source.Type, first.source.Locator, "", first.snapshot)
+	if read.openErr != nil {
+		for i := range read.checked {
+			read.checked[i].err = read.openErr
+		}
+	} else {
+		read.checked = checkSkills(ctx, read.snapshot, haves(read.skills, read.states), true)
+		read.revision = read.snapshot.Revision()
+		if read.revision == "" || read.revision != read.listedAt {
+			if names, err := read.snapshot.Names(ctx); err == nil {
+				read.listed = names
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return read, nil
+}
+
+func (r *collectionRead) conclusions() ([]store.UpdateCheck, *Error) {
+	conclusions := make([]store.UpdateCheck, len(r.skills))
+	var failure *Error
+	for i, checked := range r.checked {
+		switch {
+		case checked.err == nil && checked.changed:
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateAvailable), Revision: r.revision, Content: skillfile.Sum(checked.latest.Files), Found: true}
+		case checked.err == nil:
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Found: true}
+		case missingSkill(checked.err):
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision}
+		default:
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateFailed)}
+			if failure == nil {
+				failure = ErrorOf(checked.err)
+			}
+		}
+	}
+	return conclusions, failure
+}
+
+func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*collectionRead, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	rows, err := l.store.ListCollectionSkills(ctx, int64(id))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	var skills []Skill
-	var states []currentVersion
+	read := &collectionRead{}
 	for _, row := range rows {
 		skill, state, err := l.currentOf(ctx, row)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		skills = append(skills, skill)
-		states = append(states, state)
+		read.skills = append(read.skills, skill)
+		read.states = append(read.states, state)
 	}
-	return skills, states, nil
+	if len(read.skills) == 0 {
+		return nil, nil
+	}
+	if read.replica, err = l.store.Replica(ctx); err != nil {
+		return nil, err
+	}
+	if read.listedAt, err = l.store.ListedRevision(ctx, read.states[0].source.ID); err != nil {
+		return nil, err
+	}
+	return read, nil
 }
 
-func (l *Library) saveUpdateChecks(ctx context.Context, skills []Skill, states []currentVersion, conclusions []store.UpdateCheck, listed []string, revision string) ([]Skill, error) {
+func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, conclusions []store.UpdateCheck) ([]Skill, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	saved := []Skill{}
 	err := l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := tx.RequireReplica(ctx, read.replica); err != nil {
+			return err
+		}
 		now := clockNow()
-		if listed != nil {
-			if err := tx.ListSourceSkills(ctx, states[0].source.ID, listed, revision, false); err != nil {
+		if read.listed != nil {
+			sourceID := read.states[0].source.ID
+			listedAt, err := tx.ListedRevision(ctx, sourceID)
+			if err != nil {
 				return err
 			}
+			if listedAt == read.listedAt {
+				if err := tx.ListSourceSkills(ctx, sourceID, read.listed, read.revision, false); err != nil {
+					return err
+				}
+			}
 		}
-		for i, skill := range skills {
+		for i, skill := range read.skills {
 			id := int64(skill.ID)
 			versionID, err := tx.CurrentVersionID(ctx, id)
 			if errors.Is(err, store.ErrNotFound) {
@@ -219,13 +254,13 @@ func (l *Library) saveUpdateChecks(ctx context.Context, skills []Skill, states [
 			if err != nil {
 				return err
 			}
-			storedAt, storedStatus, err := tx.UpdateCheck(ctx, id)
+			stored, err := tx.UpdateCheck(ctx, id)
 			if err != nil {
 				return err
 			}
-			stored := UpdateCheckStatus(storedStatus)
 			conclusion := conclusions[i]
-			newer := versionID != states[i].versionID || !storedAt.Equal(states[i].checkedAt) && stored != UpdateCheckStatus(conclusion.Status) && stored != UpdateFailed
+			differs := stored.Status != conclusion.Status || stored.Revision != conclusion.Revision || stored.Content != conclusion.Content
+			newer := versionID != read.states[i].versionID || !stored.At.Equal(read.states[i].checkedAt) && differs && UpdateCheckStatus(stored.Status) != UpdateFailed
 			if !newer {
 				conclusion.At = now
 				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
@@ -356,11 +391,11 @@ func (l *Library) KeepDeletedSkill(ctx context.Context, id SkillID) (skill Skill
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
-		_, status, err := tx.UpdateCheck(ctx, int64(id))
+		stored, err := tx.UpdateCheck(ctx, int64(id))
 		if err != nil {
 			return err
 		}
-		if UpdateCheckStatus(status) != UpdateDeleted {
+		if UpdateCheckStatus(stored.Status) != UpdateDeleted {
 			return preconditionError("keep deleted skill", "skill is not deleted from its source", ErrorDetails{SkillID: id})
 		}
 		if err := tx.KeepDeleted(ctx, int64(id)); err != nil {

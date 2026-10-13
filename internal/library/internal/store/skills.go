@@ -268,16 +268,17 @@ func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision 
 	return nil
 }
 
-func (t *Tx) UpdateCheck(ctx context.Context, skillID int64) (time.Time, string, error) {
-	var checkedAt, status string
-	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &status); err != nil {
-		return time.Time{}, "", fmt.Errorf("read update check time: %w", wrap(err))
+func (t *Tx) UpdateCheck(ctx context.Context, skillID int64) (UpdateCheck, error) {
+	var check UpdateCheck
+	var checkedAt string
+	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status, update_check_revision, update_check_content FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &check.Status, &check.Revision, &check.Content); err != nil {
+		return UpdateCheck{}, fmt.Errorf("read update check: %w", wrap(err))
 	}
-	at, err := parseTime(checkedAt)
-	if err != nil {
-		return time.Time{}, "", fmt.Errorf("decode update checked at: %w", err)
+	var err error
+	if check.At, err = parseTime(checkedAt); err != nil {
+		return UpdateCheck{}, fmt.Errorf("decode update checked at: %w", err)
 	}
-	return at, status, nil
+	return check, nil
 }
 
 type UpdateCheck struct {

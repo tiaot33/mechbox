@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,8 +12,11 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 )
 
+const comparePageSize = 100
+
 type githubCompareResponse struct {
-	Commits []struct {
+	TotalCommits int `json:"total_commits"`
+	Commits      []struct {
 		SHA    string `json:"sha"`
 		Commit struct {
 			Message string `json:"message"`
@@ -52,13 +56,19 @@ func (s *githubSnapshot) Commits(ctx context.Context, since string) ([]source.Co
 	if s.client == nil {
 		return gitCommits(ctx, s.locator, since, s.ref)
 	}
-	var payload githubCompareResponse
-	if err := s.client.get(ctx, githubAPIURL("/repos/%s/%s/compare/%s", s.owner, s.repo, since+"..."+s.ref), &payload); err != nil {
-		return nil, err
-	}
-	commits := make([]source.Commit, len(payload.Commits))
-	for i, commit := range payload.Commits {
-		commits[i] = source.Commit{SHA: commit.SHA, Message: commit.Commit.Message, Author: commit.Commit.Author.Name, Time: commit.Commit.Author.Date}
+	var commits []source.Commit
+	for page := 1; ; page++ {
+		var payload githubCompareResponse
+		location := githubAPIURL("/repos/%s/%s/compare/%s", s.owner, s.repo, since+"..."+s.ref) + fmt.Sprintf("?per_page=%d&page=%d", comparePageSize, page)
+		if err := s.client.get(ctx, location, &payload); err != nil {
+			return nil, err
+		}
+		for _, commit := range payload.Commits {
+			commits = append(commits, source.Commit{SHA: commit.SHA, Message: commit.Commit.Message, Author: commit.Commit.Author.Name, Time: commit.Commit.Author.Date})
+		}
+		if len(payload.Commits) < comparePageSize || len(commits) >= payload.TotalCommits {
+			break
+		}
 	}
 	slices.Reverse(commits)
 	return commits, nil

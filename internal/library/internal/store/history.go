@@ -43,3 +43,22 @@ func (q queries) Skipped(ctx context.Context, skillID int64, content string) (bo
 	}
 	return skipped, nil
 }
+
+func (q queries) Replica(ctx context.Context) (string, error) {
+	var token string
+	if err := q.q.QueryRowContext(ctx, `SELECT token FROM replica`).Scan(&token); err != nil {
+		return "", fmt.Errorf("read replica: %w", wrap(err))
+	}
+	return token, nil
+}
+
+func (t *Tx) RequireReplica(ctx context.Context, token string) error {
+	current, err := t.Replica(ctx)
+	if err != nil {
+		return err
+	}
+	if current != token {
+		return ErrReplaced
+	}
+	return nil
+}

@@ -30,7 +30,8 @@ const (
 	// 或重新安装时这一处被改过、且没同意覆盖,或改 Agent 目录迁移时新目录里在复制期间出现了同名文件夹(整次不改)。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
-	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间勾选的技能被另一次更新改过)。
+	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间勾选的技能被另一次更新改过;
+	// 检查更新、跳过期间整个库被同步拉回替换)。
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
@@ -137,7 +138,7 @@ func typedError(err error) error {
 		code = Permission
 	case errors.Is(err, s3.ErrNotConfigured):
 		code = NotConfigured
-	case errors.Is(err, s3.ErrPreconditionFailed):
+	case errors.Is(err, s3.ErrPreconditionFailed), errors.Is(err, store.ErrReplaced):
 		code = Conflict
 	case errors.Is(err, store.ErrUnacceptable):
 		code = FailedPrecondition

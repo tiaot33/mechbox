@@ -20,7 +20,7 @@ import (
 type UpdatePlanID string
 
 // UpdatePlan 是更新前的只读报告:一个集合里的技能在库里和来源现在之间有什么不同,以及有变化的技能装在哪些地方、
-// 各处现在是什么状态。生成它不改库、不碰装出去的文件夹,也不改检查更新的结论。
+// 各处现在是什么状态。
 type UpdatePlan struct {
 	ID           UpdatePlanID `json:"id"`
 	CollectionID CollectionID `json:"collection_id"`
@@ -90,61 +90,69 @@ const planTTL = 30 * time.Minute
 type planState struct {
 	collection CollectionID
 	sourceID   int64
+	replica    string
 	revision   string
-	createdAt  time.Time
 	skills     map[SkillID]*plannedState
 	timer      *time.Timer
 }
 
 type plannedState struct {
+	name      string
 	change    PlannedChange
 	versionID int64
 	latest    source.Skill
 	content   string
 }
 
-// PlanUpdate 对一个集合生成更新计划:读一次来源,集合里的技能都按来源的同一份内容判断。只读,可以反复生成;
-// 返回的句柄供 GetUpdatePlanFile 读来源里的新内容、SkipUpdate 跳过这次的改动。
+// PlanUpdate 对一个集合生成更新计划:读一次来源,集合里的技能都按来源的同一份内容判断,返回的句柄供 GetUpdatePlanFile
+// 读来源里的新内容、SkipUpdate 跳过这次的改动。和 CheckUpdates 一样只读:不改技能的内容和版本,也不碰装出去的文件夹;
+// 读到的结论同样写进各技能的 LastUpdateCheck 与集合的新技能,所以计划里看到来源里已删除的技能可以直接 KeepDeletedSkill。
+// 可以反复生成。
 //
 // 错误:集合 ID 不是正数返回 InvalidArgument(Details.Field 为 collection_id),集合不存在返回 NotFound;
-// 读不了来源按来源错误返回(SourceUnreachable / Permission / SourceInvalid 等)。
+// 读不了来源按来源错误返回(SourceUnreachable / Permission / SourceInvalid 等);读来源期间整个库被同步拉回替换返回 Conflict。
 func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdatePlan, err error) {
 	defer func() { err = typedError(err) }()
 	if id <= 0 {
 		return UpdatePlan{}, argumentError("plan update", "collection_id", "collection ID must be positive")
 	}
-	skills, states, err := l.collectionCurrent(ctx, id)
+	read, err := l.readCollection(ctx, id)
 	if err != nil {
 		return UpdatePlan{}, err
 	}
-	if len(skills) == 0 {
+	if read == nil {
 		return UpdatePlan{}, &Error{Code: NotFound, Message: "plan update: collection not found"}
 	}
-	createdAt := clockNow()
-	snapshot, err := l.sources.Open(ctx, states[0].source.Type, states[0].source.Locator, "", states[0].snapshot)
+	if read.openErr != nil {
+		return UpdatePlan{}, read.openErr
+	}
+	for _, checked := range read.checked {
+		if checked.err != nil && !missingSkill(checked.err) {
+			return UpdatePlan{}, checked.err
+		}
+	}
+	commits, err := l.planCommits(ctx, read.snapshot, read.states)
 	if err != nil {
 		return UpdatePlan{}, err
 	}
-	checked := checkSkills(ctx, snapshot, haves(skills, states), true)
-	if err := ctx.Err(); err != nil {
+	conclusions, _ := read.conclusions()
+	if _, err := l.saveCollectionRead(ctx, read, conclusions); err != nil {
 		return UpdatePlan{}, err
 	}
-	revision := snapshot.Revision()
-	plan = UpdatePlan{CollectionID: id, Source: skills[0].Source, Revision: revision, Skills: make([]PlannedSkill, len(skills)), Installs: []SkillScopeInspection{}}
-	state := &planState{collection: id, sourceID: states[0].source.ID, revision: revision, createdAt: createdAt, skills: map[SkillID]*plannedState{}}
-	for i, skill := range skills {
+	plan = UpdatePlan{CollectionID: id, Source: read.skills[0].Source, Revision: read.revision, Commits: commits, Skills: make([]PlannedSkill, len(read.skills)), Installs: []SkillScopeInspection{}}
+	state := &planState{collection: id, sourceID: read.states[0].source.ID, replica: read.replica, revision: read.revision, skills: map[SkillID]*plannedState{}}
+	for i, skill := range read.skills {
 		planned := PlannedSkill{Skill: skill}
-		item := &plannedState{versionID: states[i].versionID, latest: checked[i].latest}
-		switch err := checked[i].err; {
-		case missingSkill(err):
+		checked := read.checked[i]
+		item := &plannedState{name: skill.Name, versionID: read.states[i].versionID, latest: checked.latest}
+		switch {
+		case checked.err != nil:
 			planned.Change = PlannedDeleted
-		case err != nil:
-			return UpdatePlan{}, err
-		case checked[i].changed:
+		case checked.changed:
 			planned.Change = PlannedChanged
-			diff := diffDigests(digests(states[i].files), digests(item.latest.Files))
+			diff := diffDigests(digests(read.states[i].files), digests(item.latest.Files))
 			planned.Diff = &diff
-			planned.Risks = updateRisks(states[i].files, item.latest.Files)
+			planned.Risks = updateRisks(read.states[i].files, item.latest.Files)
 			item.content = skillfile.Sum(item.latest.Files)
 		default:
 			planned.Change = PlannedUnchanged
@@ -153,8 +161,10 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 		state.skills[skill.ID] = item
 		plan.Skills[i] = planned
 	}
-	plan.Commits = l.planCommits(ctx, snapshot, states)
 	if err := l.describePlan(ctx, &plan, state); err != nil {
+		return UpdatePlan{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return UpdatePlan{}, err
 	}
 	plan.ID, err = l.registerPlan(state)
@@ -164,7 +174,7 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 	return plan, nil
 }
 
-func (l *Library) planCommits(ctx context.Context, snapshot source.Snapshot, states []currentVersion) []Commit {
+func (l *Library) planCommits(ctx context.Context, snapshot source.Snapshot, states []currentVersion) ([]Commit, error) {
 	var longest []source.Commit
 	var tried []string
 	for _, state := range states {
@@ -173,6 +183,9 @@ func (l *Library) planCommits(ctx context.Context, snapshot source.Snapshot, sta
 		}
 		tried = append(tried, state.revision)
 		commits, err := snapshot.Commits(ctx, state.revision)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if err == nil && len(commits) > len(longest) {
 			longest = commits
 		}
@@ -181,7 +194,7 @@ func (l *Library) planCommits(ctx context.Context, snapshot source.Snapshot, sta
 	for _, commit := range longest {
 		result = append(result, Commit{SHA: commit.SHA, Message: commit.Message, Author: commit.Author, Time: commit.Time})
 	}
-	return result
+	return result, nil
 }
 
 func (l *Library) describePlan(ctx context.Context, plan *UpdatePlan, state *planState) error {
@@ -280,12 +293,11 @@ type SkipRequest struct {
 // SkipUpdate 记下用户明确不要这次的改动:按技能在计划里的来源内容记录,之后检查更新看到来源里还是这份内容时
 // 不计入角标(UpdateCheck.Skipped);来源里这个技能的内容又变了才重新计入,同一来源里别的技能变了不影响。
 // 跳过不改库里的技能,也不碰装出去的文件夹;想要时在更新计划里照样能勾上更新。跳过的时间和来源版本记在集合的历史里。
-// 计划生成时间晚于技能上次检查更新、且技能在库里还是计划里的版本时,技能的检查结论随之换成计划看到的,
-// 跳过后马上不计入角标。计划句柄不因跳过失效。
+// 生成计划时已写下了检查结论,所以跳过后马上不计入角标。计划句柄不因跳过失效。
 //
 // 错误:句柄未知或已失效返回 NotFound;Skills 与 WholeRevision 都给或都不给、Skills 含不在计划里或没有变化的技能
 // 返回 InvalidArgument(Details.Field 为 skills,技能带 Details.SkillID);计划里没有有变化的技能时跳过整个来源版本返回 FailedPrecondition;
-// 技能在计划生成后被移除返回 NotFound(Details.SkillID)。
+// 技能在计划生成后被移除返回 NotFound(Details.SkillID);计划生成后整个库被同步拉回替换返回 Conflict。
 func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 	defer func() { err = typedError(err) }()
 	const operation = "skip update"
@@ -322,27 +334,20 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := tx.RequireReplica(ctx, state.replica); err != nil {
+			return err
+		}
 		skip := store.Skip{SourceID: state.sourceID, Revision: state.revision, WholeRevision: req.WholeRevision, At: clockNow()}
 		for _, id := range ids {
 			item := state.skills[id]
-			versionID, err := tx.CurrentVersionID(ctx, int64(id))
-			if errors.Is(err, store.ErrNotFound) {
+			row, err := tx.GetSkill(ctx, int64(id))
+			if errors.Is(err, store.ErrNotFound) || err == nil && (row.Source.ID != state.sourceID || row.Name != item.name) {
 				return &Error{Code: NotFound, Message: operation + ": skill was removed", Details: ErrorDetails{SkillID: id}, Err: err}
 			}
 			if err != nil {
 				return err
 			}
 			skip.Changes = append(skip.Changes, store.SkippedChange{SkillID: int64(id), Content: item.content})
-			checkedAt, _, err := tx.UpdateCheck(ctx, int64(id))
-			if err != nil {
-				return err
-			}
-			if versionID == item.versionID && checkedAt.Before(state.createdAt) {
-				conclusion := store.UpdateCheck{At: state.createdAt, Status: string(UpdateAvailable), Revision: state.revision, Content: item.content, Found: true}
-				if err := tx.SaveUpdateCheck(ctx, int64(id), conclusion); err != nil {
-					return err
-				}
-			}
 		}
 		_, err := tx.RecordSkip(ctx, skip)
 		return err

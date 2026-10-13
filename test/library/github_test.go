@@ -876,7 +876,13 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 		for _, h := range heads[from+1 : to+1] {
 			commits = append(commits, map[string]any{"sha": h.commit, "commit": map[string]any{"message": h.message, "author": map[string]any{"name": "Test", "date": "2026-10-01T00:00:00Z"}}})
 		}
-		return jsonResponse(http.StatusOK, map[string]any{"status": "ahead", "commits": commits}), nil
+		total := len(commits)
+		perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		if perPage > 0 && page > 0 {
+			commits = commits[min((page-1)*perPage, total):min(page*perPage, total)]
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"status": "ahead", "total_commits": total, "commits": commits}), nil
 	}
 	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"); ok {
 		head, found := m.head(func(h gitHubFixture) bool { return sha == h.rootTree || sha == h.commit })

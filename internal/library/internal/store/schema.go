@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
@@ -22,6 +23,10 @@ const (
 	`
 )
 
+func newToken() string {
+	return rand.Text()
+}
+
 //go:embed schema.sql
 var schemaSQL string
 
@@ -32,6 +37,9 @@ func writeBuiltinAgents(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, builtinAgentsSQL); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO replica(id, token) VALUES (1, ?) ON CONFLICT(id) DO NOTHING`, newToken()); err != nil {
 		return err
 	}
 	if err := validateSchema(ctx, tx); err != nil {
