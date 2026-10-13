@@ -139,3 +139,10 @@ func (t *Tx) ListSourceSkills(ctx context.Context, sourceID int64, names []strin
 	}
 	return nil
 }
+
+func (t *Tx) ConfirmListed(ctx context.Context, sourceID int64) error {
+	if _, err := t.q.ExecContext(ctx, `UPDATE sources SET listed_serial = listed_serial + 1 WHERE id = ?`, sourceID); err != nil {
+		return fmt.Errorf("confirm listed source skills: %w", wrap(err))
+	}
+	return nil
+}

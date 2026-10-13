@@ -468,7 +468,7 @@ func requireCandidateFlags(t *testing.T, lib *library.Library, id library.Collec
 
 // 审查补充:计划之后的写回要认得出技能和库已经换了。
 
-func TestSkipRejectsReusedSkillIDsAndReplacedLibrary(t *testing.T) {
+func TestSkipRejectsRemovedSkillAndReplacedLibrary(t *testing.T) {
 	ctx := t.Context()
 	newS3Stub(t)
 	lib := openTestLibrary(t)
@@ -482,11 +482,11 @@ func TestSkipRejectsReusedSkillIDsAndReplacedLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, bSource := fetchLocalSkill(t, lib, "b", "v1")
-	if b.ID != a.ID {
-		t.Fatalf("b got ID %d; this test needs SQLite to reuse a's ID %d", b.ID, a.ID)
+	if b.ID == a.ID {
+		t.Fatalf("b reused the ID %d of a removed skill", b.ID)
 	}
 	if err := lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, Skills: []library.SkillID{a.ID}}); !library.IsCode(err, library.NotFound) {
-		t.Fatalf("skip for a removed skill whose ID was reused = %v; want NotFound", err)
+		t.Fatalf("skip for a removed skill = %v; want NotFound", err)
 	}
 	writeLocalSkill(t, bSource, "v2")
 	plan, err = lib.PlanUpdate(ctx, b.CollectionID)
@@ -613,14 +613,21 @@ func TestUpdatePlanReadsEveryPageOfCommits(t *testing.T) {
 	}
 }
 
-func TestLateCheckDoesNotWriteToSkillThatReusedTheID(t *testing.T) {
+func TestLateCheckDoesNotWriteToTheSameSkillFetchedAgain(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	gate := newNetworkGate()
+	var mu sync.Mutex
+	body := "v1"
 	server := serveGatedArchive(t, gate, func() []byte {
-		return zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1")})
+		mu.Lock()
+		defer mu.Unlock()
+		return zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", body)})
 	})
 	a := fetchURLSkill(t, lib, server.URL, "a")
+	mu.Lock()
+	body = "v2"
+	mu.Unlock()
 	gate.arm()
 	var wg sync.WaitGroup
 	wg.Go(func() { _, _ = lib.CheckUpdates(ctx, []library.CollectionID{a.CollectionID}) })
@@ -629,13 +636,50 @@ func TestLateCheckDoesNotWriteToSkillThatReusedTheID(t *testing.T) {
 	if err := lib.RemoveSkill(ctx, a.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	b := fetchNamedSkill(t, lib, "b")
-	if b.ID != a.ID {
-		t.Fatalf("b got ID %d; this test needs SQLite to reuse a's ID %d", b.ID, a.ID)
+	again := fetchURLSkill(t, lib, server.URL, "a")
+	if again.ID == a.ID {
+		t.Fatalf("fetched again with the removed skill's ID %d", a.ID)
 	}
 	gate.open()
 	wg.Wait()
-	if skill, err := lib.GetSkill(ctx, b.ID); err != nil || skill.LastUpdateCheck != nil {
-		t.Fatalf("b after a's late check = %#v, %v; want no conclusion", skill.LastUpdateCheck, err)
+	if skill, err := lib.GetSkill(ctx, again.ID); err != nil || skill.LastUpdateCheck != nil {
+		t.Fatalf("skill fetched again after the late check = %#v, %v; want no conclusion", skill.LastUpdateCheck, err)
+	}
+}
+
+func TestCheckStartedBeforeKeepDoesNotUndoIt(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	gate := newNetworkGate()
+	var mu sync.Mutex
+	files := map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}
+	server := serveGatedArchive(t, gate, func() []byte {
+		mu.Lock()
+		defer mu.Unlock()
+		return zipArchive(t, files)
+	})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := fetchSkills(t, lib, preview, []string{"a", "b"})[0]
+	gate.arm()
+	var wg sync.WaitGroup
+	wg.Go(func() { _, _ = lib.CheckUpdates(ctx, []library.CollectionID{a.CollectionID}) })
+	gate.awaitEntered(t)
+	gate.disarm()
+	mu.Lock()
+	files = map[string]string{"b/SKILL.md": skillDocument("b", "v1")}
+	mu.Unlock()
+	if _, err := lib.PlanUpdate(ctx, a.CollectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.KeepDeletedSkill(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	gate.open()
+	wg.Wait()
+	if skill, err := lib.GetSkill(ctx, a.ID); err != nil || !skill.KeptDeleted || skill.LastUpdateCheck.Status != library.UpdateDeleted || skill.LastUpdateCheck.Pending {
+		t.Fatalf("after a check that started before keeping = %#v, %v", skill, err)
 	}
 }

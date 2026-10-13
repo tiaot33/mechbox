@@ -143,12 +143,12 @@ func (l *Library) GetSkill(ctx context.Context, id SkillID) (skill Skill, err er
 }
 
 type currentVersion struct {
-	source    store.Source
-	checkedAt time.Time
-	versionID int64
-	snapshot  source.State
-	revision  string
-	files     []skillfile.File
+	source      store.Source
+	checkSerial int64
+	versionID   int64
+	snapshot    source.State
+	revision    string
+	files       []skillfile.File
 }
 
 func (l *Library) getCurrent(ctx context.Context, id SkillID) (Skill, currentVersion, error) {
@@ -171,12 +171,12 @@ func (l *Library) currentOf(ctx context.Context, row store.Skill) (Skill, curren
 		return Skill{}, currentVersion{}, err
 	}
 	return skill, currentVersion{
-		source:    row.Source,
-		checkedAt: current.CheckedAt,
-		versionID: current.VersionID,
-		snapshot:  source.State(current.State),
-		revision:  current.Revision,
-		files:     current.Files,
+		source:      row.Source,
+		checkSerial: current.CheckSerial,
+		versionID:   current.VersionID,
+		snapshot:    source.State(current.State),
+		revision:    current.Revision,
+		files:       current.Files,
 	}, nil
 }
 

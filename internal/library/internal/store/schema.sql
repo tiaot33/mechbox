@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS source_skills (
 
 -- 库中的 skill;同一来源下名字唯一。
 CREATE TABLE IF NOT EXISTS skills (
-    id INTEGER PRIMARY KEY,                           -- skill 主键,由 SQLite 分配;跨版本保持不变
+    id INTEGER PRIMARY KEY AUTOINCREMENT,             -- skill 主键,由 SQLite 分配;跨版本保持不变,移除后也不复用,先读库、联网、再写回的操作据此认出技能
     source_id INTEGER NOT NULL REFERENCES sources(id), -- 入库时的来源
     name TEXT NOT NULL,                                -- skill 名,取 SKILL.md frontmatter 的 name
     current_version_id INTEGER REFERENCES skill_versions(id), -- 当前版本;读取和安装都用它。入库事务内先插入 skill,再创建版本并回填,期间可为 NULL
@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS skills (
     update_check_revision TEXT NOT NULL DEFAULT '',    -- 最近一次确认来源时看到的来源版本:GitHub 为 commit,URL 为压缩包内容哈希;本地目录与检查失败为空
     update_check_content TEXT NOT NULL DEFAULT '',     -- 结论为 available 时,来源里这个技能内容的指纹(各文件路径、模式与内容指纹合成);据此和 skipped_changes 比对是否跳过了这次改动。其他结论为空
     kept_deleted INTEGER NOT NULL DEFAULT 0 CHECK(kept_deleted IN (0, 1)), -- 1 = 来源里已删除,用户选了继续保留;之后确认来源里又有这个技能时清回 0
+    update_check_serial INTEGER NOT NULL DEFAULT 0,    -- 每写一次结论或继续保留标记加 1;检查更新写回前据此发现期间别处已写过,不拿较旧的结论覆盖
     UNIQUE(source_id, name)
 );
 
@@ -53,7 +54,7 @@ CREATE TABLE IF NOT EXISTS skills (
 -- revision 是该版本内容在来源上对应的标识,供展示与按来源比较各 skill 是否在同一版本。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
-    id INTEGER PRIMARY KEY,                          -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序
+    id INTEGER PRIMARY KEY AUTOINCREMENT,            -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序;不复用
     skill_id INTEGER NOT NULL REFERENCES skills(id), -- 此版本所属的 skill,关联 skills.id
     source_state TEXT NOT NULL DEFAULT '',           -- 来源自己记录的该版本读取状态,JSON;由来源子包定义和解释,Library 只存取不解析。空 = 无状态,检查更新时比较内容
     revision TEXT NOT NULL DEFAULT '',               -- 最近一次确认此版本内容时来源的标识:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空;更新确认无变化时刷新

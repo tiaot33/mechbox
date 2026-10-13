@@ -82,7 +82,7 @@ type UpdateResult struct {
 // 以及是否计入角标(见 UpdateCheck)。来源换了来源版本时,同时按整个来源记下新技能,列在 Collection.NewSkills 上。
 // 不同集合互不影响,一个来源连不上不妨碍其他集合。
 //
-// 同时有几次检查、或检查期间技能被更新时,结论以较新的为准,不报错:检查开始后别处写下了不同的结论(包括更新写下的已是最新)时
+// 同时有几次检查、或检查期间技能被更新时,结论以较新的为准,不报错:检查开始后别处写下了结论(检查、更新计划、更新、继续保留)时
 // 不覆盖它,结果里直接给出它;只有别处写下的检查失败会被这次的结论覆盖。
 //
 // 集合不存在或 ID 不是正数只放进该集合的 Error。取消时返回已检查完的集合和 Canceled,没检查完的集合保留原来的结论;
@@ -239,16 +239,21 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 			return err
 		}
 		now := clockNow()
-		if read.listed != nil {
+		if read.openErr == nil {
 			sourceID := read.states[0].source.ID
 			listedAt, err := tx.Listed(ctx, sourceID)
 			if err != nil {
 				return err
 			}
-			if listedAt.Serial == read.listedAt.Serial {
-				if err := tx.ListSourceSkills(ctx, sourceID, read.listed, read.revision, false); err != nil {
-					return err
-				}
+			switch {
+			case listedAt.Serial != read.listedAt.Serial:
+			case read.listed != nil:
+				err = tx.ListSourceSkills(ctx, sourceID, read.listed, read.revision, false)
+			case read.revision == read.listedAt.Revision:
+				err = tx.ConfirmListed(ctx, sourceID)
+			}
+			if err != nil {
+				return err
 			}
 		}
 		for i, skill := range read.skills {
@@ -266,9 +271,11 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 				return err
 			}
 			conclusion := conclusions[i]
-			differs := stored.Status != conclusion.Status || stored.Revision != conclusion.Revision || stored.Content != conclusion.Content
-			newer := versionID != read.states[i].versionID || !stored.At.Equal(read.states[i].checkedAt) && differs && UpdateCheckStatus(stored.Status) != UpdateFailed
-			if !newer {
+			written := stored.Serial != read.states[i].checkSerial
+			if written {
+				conclusion.Found = false
+			}
+			if versionID == read.states[i].versionID && (!written || UpdateCheckStatus(stored.Status) == UpdateFailed) {
 				conclusion.At = now
 				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
 					return err

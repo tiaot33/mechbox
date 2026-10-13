@@ -33,11 +33,11 @@ type Skill struct {
 }
 
 type Current struct {
-	VersionID int64
-	State     string
-	Revision  string
-	CheckedAt time.Time
-	Files     []skillfile.File
+	VersionID   int64
+	State       string
+	Revision    string
+	CheckSerial int64
+	Files       []skillfile.File
 }
 
 type NewVersion struct {
@@ -139,19 +139,15 @@ func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 
 func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error) {
 	var current Current
-	var checkedAt string
 	if err := q.q.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_checked_at
+		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_check_serial
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &checkedAt); err != nil {
+	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &current.CheckSerial); err != nil {
 		return Current{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error
-	if current.CheckedAt, err = parseTime(checkedAt); err != nil {
-		return Current{}, fmt.Errorf("decode update checked at: %w", err)
-	}
 	if current.Files, err = q.versionFiles(ctx, current.VersionID, "get skill files"); err != nil {
 		return Current{}, err
 	}
@@ -271,7 +267,7 @@ func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision 
 func (t *Tx) UpdateCheck(ctx context.Context, skillID int64) (UpdateCheck, error) {
 	var check UpdateCheck
 	var checkedAt string
-	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status, update_check_revision, update_check_content FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &check.Status, &check.Revision, &check.Content); err != nil {
+	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status, update_check_revision, update_check_content, update_check_serial FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &check.Status, &check.Revision, &check.Content, &check.Serial); err != nil {
 		return UpdateCheck{}, fmt.Errorf("read update check: %w", wrap(err))
 	}
 	var err error
@@ -287,12 +283,13 @@ type UpdateCheck struct {
 	Revision string
 	Content  string
 	Found    bool
+	Serial   int64
 }
 
 func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, check UpdateCheck) error {
 	if _, err := t.q.ExecContext(ctx, `
 		UPDATE skills SET update_checked_at = ?, update_check_status = ?, update_check_revision = ?, update_check_content = ?,
-			kept_deleted = CASE WHEN ? THEN 0 ELSE kept_deleted END
+			kept_deleted = CASE WHEN ? THEN 0 ELSE kept_deleted END, update_check_serial = update_check_serial + 1
 		WHERE id = ?
 	`, formatTime(check.At), check.Status, check.Revision, check.Content, check.Found, skillID); err != nil {
 		return fmt.Errorf("save update check: %w", wrap(err))
@@ -301,7 +298,7 @@ func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, check UpdateChe
 }
 
 func (t *Tx) KeepDeleted(ctx context.Context, skillID int64) error {
-	result, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_deleted = 1 WHERE id = ?`, skillID)
+	result, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_deleted = 1, update_check_serial = update_check_serial + 1 WHERE id = ?`, skillID)
 	if err != nil {
 		return fmt.Errorf("keep deleted skill: %w", wrap(err))
 	}
