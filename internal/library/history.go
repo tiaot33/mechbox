@@ -133,10 +133,15 @@ func recordOf(row store.Record) (UpdateRecord, error) {
 	return record, nil
 }
 
-func (l *Library) getRecord(ctx context.Context, id UpdateRecordID) (store.Record, error) {
+func (l *Library) recordWithReplica(ctx context.Context, id UpdateRecordID) (store.Record, string, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	return l.store.GetRecord(ctx, int64(id))
+	record, err := l.store.GetRecord(ctx, int64(id))
+	if err != nil {
+		return store.Record{}, "", err
+	}
+	replica, err := l.store.Replica(ctx)
+	return record, replica, err
 }
 
 // RollbackOutcome 是回滚时一处的结果。值以后可能增加,调用方遇到不认识的值按「没装回、需要用户查看」处理。
@@ -309,7 +314,7 @@ func (l *Library) rollbackPlaces(ctx context.Context, operation string, record s
 		if removed[skillID] {
 			item.Outcome = RollbackRemoved
 		} else {
-			outcome, itemErr := l.rollbackInstall(ctx, operation, skillID, item.Scope, updated[skillID].To)
+			outcome, itemErr := l.rollbackInstall(ctx, operation, skillID, item.Scope, updated[skillID])
 			if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
 				return result, ctx.Err()
 			}
@@ -330,7 +335,7 @@ func (l *Library) rollbackPlaces(ctx context.Context, operation string, record s
 	return result, nil
 }
 
-func (l *Library) rollbackInstall(ctx context.Context, operation string, id SkillID, scope Scope, updatedVersion int64) (RollbackOutcome, error) {
+func (l *Library) rollbackInstall(ctx context.Context, operation string, id SkillID, scope Scope, update store.RecordSkill) (RollbackOutcome, error) {
 	target, err := l.resolveScope(ctx, operation, scope)
 	if err != nil && ErrorOf(err).Code == NotFound {
 		return RollbackUninstalled, nil
@@ -354,6 +359,9 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
+	if current.versionID != update.From {
+		return "", &Error{Code: Conflict, Message: operation + ": skill version changed since the rollback", Details: ErrorDetails{SkillID: id}}
+	}
 	folder := filepath.Join(target.directory, skill.Name)
 	if exists, err := agentdir.Exists(folder); err != nil {
 		return "", fmt.Errorf("inspect target folder: %w", err)
@@ -370,7 +378,7 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if maps.Equal(disk, digests(current.files)) {
 		return RollbackCurrent, nil
 	}
-	updatedFiles, err := l.store.VersionDigests(ctx, updatedVersion)
+	updatedFiles, err := l.store.VersionDigests(ctx, update.To)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}

@@ -548,7 +548,7 @@ func (l *Library) reinstallForRecord(ctx context.Context, operation string, reco
 func (l *Library) RetryUpdateInstalls(ctx context.Context, id UpdateRecordID, installs []ReinstallRequest) (results []ReinstallResult, err error) {
 	defer func() { err = typedError(err) }()
 	const operation = "retry update installs"
-	record, err := l.getRecord(ctx, id)
+	record, replica, err := l.recordWithReplica(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -565,12 +565,6 @@ func (l *Library) RetryUpdateInstalls(ctx context.Context, id UpdateRecordID, in
 		ids = append(ids, SkillID(skill.SkillID))
 	}
 	if err := validateInstalls(operation, ids, installs); err != nil {
-		return nil, err
-	}
-	ctx, unlock := l.sharedOperation(ctx)
-	replica, err := l.store.Replica(ctx)
-	unlock()
-	if err != nil {
 		return nil, err
 	}
 	return l.reinstallForRecord(ctx, operation, id, replica, versions, installs)
