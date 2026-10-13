@@ -68,6 +68,22 @@ func (s *LibraryService) CheckUpdates(ctx context.Context, collections []library
 	return settle(s.lib.CheckUpdates(ctx, collections))(ctx)
 }
 
+func (s *LibraryService) PlanUpdate(ctx context.Context, id library.CollectionID) (library.UpdatePlan, error) {
+	return settle(s.lib.PlanUpdate(ctx, id))(ctx)
+}
+
+func (s *LibraryService) GetUpdatePlanFile(ctx context.Context, plan library.UpdatePlanID, skill library.SkillID, path string) (library.File, error) {
+	return settle(s.lib.GetUpdatePlanFile(ctx, plan, skill, path))(ctx)
+}
+
+func (s *LibraryService) SkipUpdate(ctx context.Context, req library.SkipRequest) error {
+	return settleErr(ctx, s.lib.SkipUpdate(ctx, req))
+}
+
+func (s *LibraryService) KeepDeletedSkill(ctx context.Context, id library.SkillID) (library.Skill, error) {
+	return settle(s.lib.KeepDeletedSkill(ctx, id))(ctx)
+}
+
 func (s *LibraryService) Update(ctx context.Context, req library.UpdateRequest) (library.UpdateResult, error) {
 	return settle(s.lib.Update(ctx, req))(ctx)
 }
@@ -95,6 +111,10 @@ func (s *LibraryService) DiffVersions(ctx context.Context, from, to library.Vers
 }
 
 // ---------- 整理:集合与分组 ----------
+
+func (s *LibraryService) MarkNotInterested(ctx context.Context, id library.CollectionID, names []string) error {
+	return settleErr(ctx, s.lib.MarkNotInterested(ctx, id, names))
+}
 
 func (s *LibraryService) ListCollections(ctx context.Context) ([]library.Collection, error) {
 	return settle(s.lib.ListCollections(ctx))(ctx)

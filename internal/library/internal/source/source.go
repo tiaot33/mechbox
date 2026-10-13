@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
@@ -24,8 +25,17 @@ const (
 type Snapshot interface {
 	Revision() string
 	Candidates(ctx context.Context) ([]discovery.Candidate, []discovery.Diagnostic, error)
+	Names(ctx context.Context) ([]string, error)
 	Fetch(ctx context.Context, names []string) ([]Skill, error)
 	Check(ctx context.Context, have Have) (Status, State, error)
+	Commits(ctx context.Context, since string) ([]Commit, error)
+}
+
+type Commit struct {
+	SHA     string
+	Message string
+	Author  string
+	Time    time.Time
 }
 
 type Target struct {

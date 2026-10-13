@@ -17,24 +17,27 @@ type Source struct {
 }
 
 type Skill struct {
-	ID          int64
-	Name        string
-	Description string
-	Source      Source
-	VersionID   int64
-	Revision    string
-	FetchedAt   time.Time
-	UpdatedAt   time.Time
-	CheckedAt   time.Time
-	CheckStatus string
+	ID            int64
+	Name          string
+	Description   string
+	Source        Source
+	VersionID     int64
+	Revision      string
+	FetchedAt     time.Time
+	UpdatedAt     time.Time
+	CheckedAt     time.Time
+	CheckStatus   string
+	CheckRevision string
+	Skipped       bool
+	KeptDeleted   bool
 }
 
 type Current struct {
-	VersionID int64
-	State     string
-	Revision  string
-	CheckedAt time.Time
-	Files     []skillfile.File
+	VersionID   int64
+	State       string
+	Revision    string
+	CheckSerial int64
+	Files       []skillfile.File
 }
 
 type NewVersion struct {
@@ -49,7 +52,11 @@ const skillQuery = `
 	SELECT skills.id, skills.name, current_version.description,
 		sources.id, sources.type, sources.locator, current_version.id, current_version.revision,
 		first_version.created_at, CASE WHEN current_version.id = first_version.id THEN '' ELSE current_version.created_at END,
-		skills.update_checked_at, skills.update_check_status
+		skills.update_checked_at, skills.update_check_status, skills.update_check_revision,
+		skills.update_check_content != '' AND EXISTS (
+			SELECT 1 FROM skipped_changes WHERE skipped_changes.skill_id = skills.id AND skipped_changes.content = skills.update_check_content
+		),
+		skills.kept_serial > 0
 	FROM skills
 	JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -112,7 +119,7 @@ func (q queries) listSkills(ctx context.Context, operation, clause string, args 
 func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 	var skill Skill
 	var fetchedAt, updatedAt, checkedAt string
-	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus)
+	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckRevision, &skill.Skipped, &skill.KeptDeleted)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -132,19 +139,15 @@ func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 
 func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error) {
 	var current Current
-	var checkedAt string
 	if err := q.q.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_checked_at
+		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_check_serial
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &checkedAt); err != nil {
+	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &current.CheckSerial); err != nil {
 		return Current{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error
-	if current.CheckedAt, err = parseTime(checkedAt); err != nil {
-		return Current{}, fmt.Errorf("decode update checked at: %w", err)
-	}
 	if current.Files, err = q.versionFiles(ctx, current.VersionID, "get skill files"); err != nil {
 		return Current{}, err
 	}
@@ -183,27 +186,6 @@ func (q queries) RequireSkill(ctx context.Context, id int64) error {
 		return fmt.Errorf("get skill: %w", wrap(err))
 	}
 	return nil
-}
-
-func (q queries) SkillsFromSource(ctx context.Context, sourceType string, locator []byte) (map[string]int64, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT s.name, s.id FROM skills s JOIN sources src ON src.id = s.source_id WHERE src.type = ? AND src.locator = ?`, sourceType, locator)
-	if err != nil {
-		return nil, fmt.Errorf("list fetched candidates: %w", wrap(err))
-	}
-	defer rows.Close()
-	fetched := make(map[string]int64)
-	for rows.Next() {
-		var name string
-		var id int64
-		if err := rows.Scan(&name, &id); err != nil {
-			return nil, fmt.Errorf("read fetched candidate: %w", wrap(err))
-		}
-		fetched[name] = id
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read fetched candidates: %w", wrap(err))
-	}
-	return fetched, nil
 }
 
 func (t *Tx) UpsertSource(ctx context.Context, source Source) (int64, error) {
@@ -250,6 +232,7 @@ func (t *Tx) RemoveSkill(ctx context.Context, id int64) error {
 	statements := []string{
 		`DELETE FROM skill_scopes WHERE skill_id = ?`,
 		`DELETE FROM skill_groups WHERE skill_id = ?`,
+		`DELETE FROM skipped_changes WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
 		`DELETE FROM skill_versions WHERE skill_id = ?`,
@@ -281,21 +264,49 @@ func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision 
 	return nil
 }
 
-func (t *Tx) UpdateCheck(ctx context.Context, skillID int64) (time.Time, string, error) {
-	var checkedAt, status string
-	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &status); err != nil {
-		return time.Time{}, "", fmt.Errorf("read update check time: %w", wrap(err))
+func (t *Tx) UpdateCheck(ctx context.Context, skillID int64) (UpdateCheck, error) {
+	var check UpdateCheck
+	var checkedAt string
+	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status, update_check_revision, update_check_content, update_check_serial FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &check.Status, &check.Revision, &check.Content, &check.Serial); err != nil {
+		return UpdateCheck{}, fmt.Errorf("read update check: %w", wrap(err))
 	}
-	at, err := parseTime(checkedAt)
-	if err != nil {
-		return time.Time{}, "", fmt.Errorf("decode update checked at: %w", err)
+	var err error
+	if check.At, err = parseTime(checkedAt); err != nil {
+		return UpdateCheck{}, fmt.Errorf("decode update checked at: %w", err)
 	}
-	return at, status, nil
+	return check, nil
 }
 
-func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, at time.Time, status string) error {
-	if _, err := t.q.ExecContext(ctx, `UPDATE skills SET update_checked_at = ?, update_check_status = ? WHERE id = ?`, formatTime(at), status, skillID); err != nil {
+type UpdateCheck struct {
+	At       time.Time
+	Status   string
+	Revision string
+	Content  string
+	Found    bool
+	Since    int64
+	Serial   int64
+}
+
+func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, check UpdateCheck) error {
+	if _, err := t.q.ExecContext(ctx, `
+		UPDATE skills SET update_checked_at = ?, update_check_status = ?, update_check_revision = ?, update_check_content = ?,
+			kept_serial = CASE WHEN ? AND kept_serial <= ? THEN 0 ELSE kept_serial END, update_check_serial = update_check_serial + 1
+		WHERE id = ?
+	`, formatTime(check.At), check.Status, check.Revision, check.Content, check.Found, check.Since, skillID); err != nil {
 		return fmt.Errorf("save update check: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) KeepDeleted(ctx context.Context, skillID int64) error {
+	result, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_serial = update_check_serial + 1, update_check_serial = update_check_serial + 1 WHERE id = ?`, skillID)
+	if err != nil {
+		return fmt.Errorf("keep deleted skill: %w", wrap(err))
+	}
+	if changed, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("keep deleted skill: %w", wrap(err))
+	} else if changed == 0 {
+		return fmt.Errorf("keep deleted skill: %w", ErrNotFound)
 	}
 	return nil
 }

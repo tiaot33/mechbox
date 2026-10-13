@@ -124,6 +124,9 @@ func (s *Store) Replace(ctx context.Context, image *Image) error {
 	if err := writeBuiltinAgents(ctx, image.db); err != nil {
 		return wrap(err)
 	}
+	if _, err := image.db.ExecContext(ctx, `UPDATE replica SET token = ?`, newToken()); err != nil {
+		return wrap(err)
+	}
 	return wrap(backup(ctx, s.db, image.db))
 }
 

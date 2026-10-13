@@ -19,6 +19,7 @@ var (
 	ErrUnacceptable  = errors.New("unacceptable library schema")
 	ErrNewerSchema   = errors.New("library from a newer schema version")
 	ErrOlderSchema   = errors.New("library from an older schema version")
+	ErrReplaced      = errors.New("library was replaced by a sync pull")
 )
 
 type querier interface {

@@ -35,7 +35,7 @@ type PreviewFetchRequest struct {
 	URL    string       `json:"url,omitempty"`   // zip 压缩包地址
 	Local  string       `json:"local,omitempty"` // 本地目录;相对路径按当前工作目录解析为绝对路径
 	// Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时的仓库与分支、URL 或目录重新读取,
-	// 候选上的 Fetched 标出哪些已经入库。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
+	// 候选上的 Fetched 标出哪些已经入库,New 标出新技能。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
 	Collection CollectionID `json:"collection,omitzero"`
 }
 
@@ -98,11 +98,14 @@ type FetchPreview struct {
 
 // Candidate 是入库预览中可挑选入库的候选;skills.sh 审计不随候选返回,见 GetSkillAudit。
 type Candidate struct {
-	Fetched     SkillID `json:"fetched,omitzero"`      // 同一来源同名的库内技能 ID;入库预览时查询,零值表示未入库
-	PluginName  string  `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅在入库预览中展示
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	Path        string  `json:"path"` // 相对来源根目录
+	Fetched SkillID `json:"fetched,omitzero"` // 同一来源同名的库内技能 ID;入库预览时查询,零值表示未入库
+	// New 为 true 表示这是来源里的新技能:库里已有这个来源的集合,而这个技能是用户上次从这个来源入库之后才出现的,
+	// 用户也没对它点过「不感兴趣」。新出现的技能默认勾上由界面决定。
+	New         bool   `json:"new,omitzero"`
+	PluginName  string `json:"plugin_name,omitempty"` // 清单显式声明的插件分组名,仅在入库预览中展示
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Path        string `json:"path"` // 相对来源根目录
 }
 
 // PreviewDiagnostic 说明一个路径为何未成为候选。
@@ -280,13 +283,15 @@ func inputField(err error, field string) error {
 }
 
 func (l *Library) listCandidates(ctx context.Context, state *previewState) ([]Candidate, error) {
-	fetched, err := l.store.SkillsFromSource(ctx, state.source.Type, state.source.Locator)
+	known, err := l.store.SourceSkills(ctx, state.source.Type, state.source.Locator)
 	if err != nil {
 		return nil, err
 	}
 	candidates := make([]Candidate, len(state.candidates))
 	for i, c := range state.candidates {
-		candidates[i] = Candidate{Fetched: SkillID(fetched[c.Name]), PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
+		fetched := known.Fetched[c.Name]
+		isNew := len(known.Fetched) > 0 && fetched == 0 && !known.Seen[c.Name]
+		candidates[i] = Candidate{Fetched: SkillID(fetched), New: isNew, PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
 	}
 	return candidates, nil
 }
@@ -302,7 +307,9 @@ func previewDiagnostics(diagnostics []discovery.Diagnostic) []PreviewDiagnostic 
 	return result
 }
 
-// Fetch 从一次入库预览中选取候选原子提交入库,返回入库的技能。
+// Fetch 从一次入库预览中选取候选原子提交入库,返回入库的技能。入库同时按整个来源(不限入库预览的子目录,
+// 也不限从 skills.sh 搜到的那一个)记下来源里当时有哪些技能,都算用户见过:以后只有来源里新出现的才算新技能。
+// 子目录入库时为此要多读一次整个来源,读不成时入库失败、可重试。
 // names 为空返回 InvalidArgument;"全部入库"由调用方把 Fetched 为零的候选名收集起来传入。
 // 所选技能中有已入库的,整批返回 AlreadyExists。
 // GitHub 来源可在入库预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
@@ -324,9 +331,13 @@ func (l *Library) Fetch(ctx context.Context, id FetchPreviewID, names []string) 
 	if err != nil {
 		return nil, err
 	}
+	seen, err := state.snapshot.Names(ctx)
+	if err != nil {
+		return nil, err
+	}
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	return l.fetchAll(ctx, state.source, state.snapshot.Revision(), skills)
+	return l.fetchAll(ctx, state.source, state.snapshot.Revision(), skills, append(seen, names...))
 }
 
 func (l *Library) claimPreview(id FetchPreviewID, names []string) (*previewState, error) {
@@ -495,11 +506,14 @@ func skillDescription(files []skillfile.File) string {
 	return ""
 }
 
-func (l *Library) fetchAll(ctx context.Context, record store.Source, revision string, skills []source.Skill) ([]Skill, error) {
+func (l *Library) fetchAll(ctx context.Context, record store.Source, revision string, skills []source.Skill, seen []string) ([]Skill, error) {
 	fetched := make([]Skill, 0, len(skills))
 	err := l.store.InTx(ctx, func(tx *store.Tx) error {
 		sourceID, err := tx.UpsertSource(ctx, record)
 		if err != nil {
+			return err
+		}
+		if err := tx.ListSourceSkills(ctx, sourceID, seen, revision, true); err != nil {
 			return err
 		}
 		saved := record

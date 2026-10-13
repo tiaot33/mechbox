@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
@@ -12,7 +13,7 @@ import (
 
 const (
 	applicationID    = 1397443650
-	schemaVersion    = 18
+	schemaVersion    = 19
 	builtinAgentsSQL = `
 		INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills', '.claude'),
@@ -21,6 +22,10 @@ const (
 		WHERE custom = 0 AND (name, global_path, project_path, detect_path) IS NOT (excluded.name, excluded.global_path, excluded.project_path, excluded.detect_path)
 	`
 )
+
+func newToken() string {
+	return rand.Text()
+}
 
 //go:embed schema.sql
 var schemaSQL string
@@ -35,6 +40,9 @@ func writeBuiltinAgents(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := validateSchema(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO replica(id, token) VALUES (1, ?) ON CONFLICT(id) DO NOTHING`, newToken()); err != nil {
 		return err
 	}
 	return tx.Commit()
