@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS skills (
     update_check_status TEXT NOT NULL DEFAULT '' CHECK(update_check_status IN ('', 'available', 'current', 'deleted', 'failed')),
     update_check_revision TEXT NOT NULL DEFAULT '',    -- 最近一次确认来源时看到的来源版本:GitHub 为 commit,URL 为压缩包内容哈希;本地目录与检查失败为空
     update_check_content TEXT NOT NULL DEFAULT '',     -- 结论为 available 时,来源里这个技能内容的指纹(各文件路径、模式与内容指纹合成);据此和 skipped_changes 比对是否跳过了这次改动。其他结论为空
-    kept_deleted INTEGER NOT NULL DEFAULT 0 CHECK(kept_deleted IN (0, 1)), -- 1 = 来源里已删除,用户选了继续保留;之后确认来源里又有这个技能时清回 0
+    kept_serial INTEGER NOT NULL DEFAULT 0,            -- 来源里已删除,用户选了继续保留时为当时的 update_check_serial(大于 0);0 = 没有这个标记。之后开始的检查更新、更新计划或更新确认来源里又有这个技能时清回 0
     update_check_serial INTEGER NOT NULL DEFAULT 0,    -- 每写一次结论或继续保留标记加 1;检查更新写回前据此发现期间别处已写过,不拿较旧的结论覆盖
     UNIQUE(source_id, name)
 );

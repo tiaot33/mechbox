@@ -683,3 +683,56 @@ func TestCheckStartedBeforeKeepDoesNotUndoIt(t *testing.T) {
 		t.Fatalf("after a check that started before keeping = %#v, %v", skill, err)
 	}
 }
+
+func TestCheckOverwritingAFailureStillClearsAnEarlierKeep(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	gate := newNetworkGate()
+	var mu sync.Mutex
+	files := map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}
+	failing := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		snapshot, fail := zipArchive(t, files), failing
+		mu.Unlock()
+		if fail {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		gate.pass()
+		_, _ = w.Write(snapshot)
+	}))
+	t.Cleanup(server.Close)
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := fetchSkills(t, lib, preview, []string{"a", "b"})[0]
+	mu.Lock()
+	files = map[string]string{"b/SKILL.md": skillDocument("b", "v1")}
+	mu.Unlock()
+	checkedSkill(t, lib, a.ID)
+	if _, err := lib.KeepDeletedSkill(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	// 来源里又有了 a:之后开始的检查即使覆盖的是一次检查失败,也清掉之前设下的标记。
+	mu.Lock()
+	files = map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}
+	mu.Unlock()
+	gate.arm()
+	var wg sync.WaitGroup
+	wg.Go(func() { _, _ = lib.CheckUpdates(ctx, []library.CollectionID{a.CollectionID}) })
+	gate.awaitEntered(t)
+	gate.disarm()
+	mu.Lock()
+	failing = true
+	mu.Unlock()
+	if status, err := checkSkillUpdate(t, lib, ctx, a.ID); status != library.UpdateFailed || err == nil {
+		t.Fatalf("failing check = %v, %v", status, err)
+	}
+	gate.open()
+	wg.Wait()
+	if skill, err := lib.GetSkill(ctx, a.ID); err != nil || skill.KeptDeleted || skill.LastUpdateCheck.Status != library.UpdateCurrent {
+		t.Fatalf("after the source restored a = %#v, %v; want the keep mark cleared", skill, err)
+	}
+}

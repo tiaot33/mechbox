@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"time"
 
@@ -271,10 +272,8 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 				return err
 			}
 			conclusion := conclusions[i]
+			conclusion.Since = read.states[i].checkSerial
 			written := stored.Serial != read.states[i].checkSerial
-			if written {
-				conclusion.Found = false
-			}
 			if versionID == read.states[i].versionID && (!written || UpdateCheckStatus(stored.Status) == UpdateFailed) {
 				conclusion.At = now
 				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
@@ -376,7 +375,7 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: snapshot.Revision(), Found: true}); err != nil {
+			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: snapshot.Revision(), Found: true, Since: math.MaxInt64}); err != nil {
 				return err
 			}
 			row, err := tx.GetSkill(ctx, id)

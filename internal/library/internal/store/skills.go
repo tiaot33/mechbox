@@ -56,7 +56,7 @@ const skillQuery = `
 		skills.update_check_content != '' AND EXISTS (
 			SELECT 1 FROM skipped_changes WHERE skipped_changes.skill_id = skills.id AND skipped_changes.content = skills.update_check_content
 		),
-		skills.kept_deleted
+		skills.kept_serial > 0
 	FROM skills
 	JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -283,22 +283,23 @@ type UpdateCheck struct {
 	Revision string
 	Content  string
 	Found    bool
+	Since    int64
 	Serial   int64
 }
 
 func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, check UpdateCheck) error {
 	if _, err := t.q.ExecContext(ctx, `
 		UPDATE skills SET update_checked_at = ?, update_check_status = ?, update_check_revision = ?, update_check_content = ?,
-			kept_deleted = CASE WHEN ? THEN 0 ELSE kept_deleted END, update_check_serial = update_check_serial + 1
+			kept_serial = CASE WHEN ? AND kept_serial <= ? THEN 0 ELSE kept_serial END, update_check_serial = update_check_serial + 1
 		WHERE id = ?
-	`, formatTime(check.At), check.Status, check.Revision, check.Content, check.Found, skillID); err != nil {
+	`, formatTime(check.At), check.Status, check.Revision, check.Content, check.Found, check.Since, skillID); err != nil {
 		return fmt.Errorf("save update check: %w", wrap(err))
 	}
 	return nil
 }
 
 func (t *Tx) KeepDeleted(ctx context.Context, skillID int64) error {
-	result, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_deleted = 1, update_check_serial = update_check_serial + 1 WHERE id = ?`, skillID)
+	result, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_serial = update_check_serial + 1, update_check_serial = update_check_serial + 1 WHERE id = ?`, skillID)
 	if err != nil {
 		return fmt.Errorf("keep deleted skill: %w", wrap(err))
 	}
