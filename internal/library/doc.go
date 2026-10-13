@@ -30,9 +30,14 @@
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
 //
-// 更新(update.go):
+// 更新(update.go、plan.go):
 //   - [Library.CheckUpdates] 按集合检查更新,结论写在集合里每个技能的 Skill.LastUpdateCheck 上,技能详情页的「有新版本」读它;
-//     只读,可以自动发起。没有按技能、按组检查的入口。
+//     只读,可以自动发起。没有按技能、按组检查的入口。侧边栏的更新计数与 Dock 角标都按结论上的 Pending 算;
+//     检查同时记下来源里的新技能,列在 [Collection].NewSkills 上。
+//   - [Library.PlanUpdate] 对一个集合生成更新计划(只读):每个技能有变化、没变化还是来源里已删除,风险、提交说明与文件差异,
+//     以及有变化的技能装出去的各处现在的状态;[Library.GetUpdatePlanFile] 读来源里的新内容。
+//   - [Library.SkipUpdate] 在更新计划里跳过几个技能的这次改动,或跳过整个来源版本;[Library.KeepDeletedSkill] 对来源里已删除的技能
+//     选继续保留。两者之后都不计入角标。[Library.MarkNotInterested] 对新技能点「不感兴趣」,集合上不再提。
 //   - [Library.Update] 对一个集合发起,带进勾选的技能:从集合发起传有新版本的全部技能,从技能详情页发起传
 //     Skill.CollectionID 和这一个技能。不要求先检查,更新自己读来源;库里全成或全不成,结果带每个技能更新前后的版本。
 //     只改库,不重新安装。

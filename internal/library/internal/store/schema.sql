@@ -7,7 +7,19 @@ CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,                -- 来源主键,由 SQLite 分配;同一来源可包含多个 skill
     type TEXT NOT NULL,                     -- 来源类型:github / url / local
     locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 本地路径)
+    listed_revision TEXT NOT NULL DEFAULT '', -- 最近一次按整个来源记下 source_skills 时的来源版本;检查更新看到同一个来源版本时不再重记。本地目录来源为空,每次都重记
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
+);
+
+-- 来源里出现过的技能名,用来判断哪些是新技能。入库时按整个来源记下当时有哪些技能(不限入库时的子目录,
+-- 也不限从 skills.sh 搜到的那一个),都算用户见过;之后检查更新在来源里看到的、没见过的名字记为新技能。
+-- 用户对新技能点「不感兴趣」,或之后从这个来源入库时它在来源里,它也变成见过。见过的名字一直留着;
+-- 新技能在来源里又没有了就删掉这一行。随来源一并保留,技能从库里移除不影响。
+CREATE TABLE IF NOT EXISTS source_skills (
+    source_id INTEGER NOT NULL REFERENCES sources(id), -- 所在来源
+    name TEXT NOT NULL,                                -- 技能名
+    new INTEGER NOT NULL CHECK(new IN (0, 1)),         -- 1 = 入库之后检查更新时才出现的新技能;0 = 用户见过
+    PRIMARY KEY(source_id, name)
 );
 
 -- 库中的 skill;同一来源下名字唯一。
@@ -20,6 +32,9 @@ CREATE TABLE IF NOT EXISTS skills (
     -- 最近一次确认来源的结论:available 有新版本 / current 已是最新 / deleted 来源里已删除 / failed 检查失败;
     -- 空字符串表示入库后从未检查、也从未更新过。随 skill 一并删除
     update_check_status TEXT NOT NULL DEFAULT '' CHECK(update_check_status IN ('', 'available', 'current', 'deleted', 'failed')),
+    update_check_revision TEXT NOT NULL DEFAULT '',    -- 最近一次确认来源时看到的来源版本:GitHub 为 commit,URL 为压缩包内容哈希;本地目录与检查失败为空
+    update_check_content TEXT NOT NULL DEFAULT '',     -- 结论为 available 时,来源里这个技能内容的指纹(各文件路径、模式与内容指纹合成);据此和 skipped_changes 比对是否跳过了这次改动。其他结论为空
+    kept_deleted INTEGER NOT NULL DEFAULT 0 CHECK(kept_deleted IN (0, 1)), -- 1 = 来源里已删除,用户选了继续保留;之后确认来源里又有这个技能时清回 0
     UNIQUE(source_id, name)
 );
 
@@ -116,3 +131,24 @@ CREATE TABLE IF NOT EXISTS group_installs (
 
 CREATE UNIQUE INDEX IF NOT EXISTS group_installs_global_scope ON group_installs(group_id, agent) WHERE project_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS group_installs_project_scope ON group_installs(group_id, agent, project_id) WHERE project_id IS NOT NULL;
+
+-- 集合的历史:跳过一条一行。
+CREATE TABLE IF NOT EXISTS update_history (
+    id INTEGER PRIMARY KEY,                             -- 记录主键,由 SQLite 分配;按 id 升序即先后顺序
+    source_id INTEGER NOT NULL REFERENCES sources(id),  -- 所在集合(来源)
+    kind TEXT NOT NULL CHECK(kind IN ('skip')),         -- skip = 跳过
+    revision TEXT NOT NULL DEFAULT '',                  -- 当时来源的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
+    whole_revision INTEGER NOT NULL DEFAULT 0 CHECK(whole_revision IN (0, 1)), -- 跳过时:1 = 跳过整个来源版本(更新计划里有变化的技能全部跳过),0 = 跳过选中的几个技能
+    created_at TEXT NOT NULL DEFAULT ''                 -- 记录时间,RFC3339Nano
+);
+
+-- 跳过的改动:哪个技能的哪份来源内容。按内容记录:来源里这个技能的内容又变了,指纹不同,就重新算待办;
+-- 同一来源里别的技能变了不影响。随技能一并删除。
+CREATE TABLE IF NOT EXISTS skipped_changes (
+    record_id INTEGER NOT NULL REFERENCES update_history(id), -- 哪一次跳过
+    skill_id INTEGER NOT NULL REFERENCES skills(id),          -- 跳过的技能
+    content TEXT NOT NULL,                                     -- 跳过的那份来源内容的指纹,与 skills.update_check_content 同算法
+    PRIMARY KEY(record_id, skill_id)
+);
+
+CREATE INDEX IF NOT EXISTS skipped_changes_skill ON skipped_changes(skill_id, content);

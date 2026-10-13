@@ -8,6 +8,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -47,6 +48,9 @@ type Skill struct {
 	Revision        string       `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
 	FetchedAt       time.Time    `json:"fetched_at,omitzero"` // 入库时间
 	UpdatedAt       time.Time    `json:"updated_at,omitzero"` // 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
+	// KeptDeleted 为 true 表示来源里已删除这个技能,用户选了继续保留(KeepDeletedSkill):不再计入角标,技能上留一个淡色标记。
+	// 之后检查更新或更新确认来源里又有这个技能时自动变回 false。
+	KeptDeleted bool `json:"kept_deleted,omitzero"`
 }
 
 // FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -90,9 +94,19 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 		Revision:     row.Revision,
 		FetchedAt:    row.FetchedAt,
 		UpdatedAt:    row.UpdatedAt,
+		KeptDeleted:  row.KeptDeleted,
 	}
 	if row.CheckStatus != "" {
-		skill.LastUpdateCheck = &UpdateCheck{CheckedAt: row.CheckedAt, Status: UpdateCheckStatus(row.CheckStatus)}
+		status := UpdateCheckStatus(row.CheckStatus)
+		skipped := status == UpdateAvailable && row.Skipped
+		pending := status == UpdateAvailable && !skipped || status == UpdateDeleted && !row.KeptDeleted
+		skill.LastUpdateCheck = &UpdateCheck{
+			CheckedAt: row.CheckedAt,
+			Status:    status,
+			Revision:  row.CheckRevision,
+			Skipped:   skipped,
+			Pending:   pending && row.Source.Type != local.Type,
+		}
 	}
 	return skill, nil
 }

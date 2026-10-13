@@ -100,7 +100,11 @@ func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilte
 	if err != nil {
 		return nil, err
 	}
-	inspections = []SkillScopeInspection{}
+	return l.inspectSkillScopes(ctx, operation, skillScopes)
+}
+
+func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skillScopes []SkillScope) ([]SkillScopeInspection, error) {
+	inspections := []SkillScopeInspection{}
 	for _, skillScope := range skillScopes {
 		target, err := l.resolveScope(ctx, operation, skillScope.Scope)
 		if err != nil {

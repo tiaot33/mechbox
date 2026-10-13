@@ -94,6 +94,18 @@ func (s *snapshot) Candidates(context.Context) ([]discovery.Candidate, []discove
 	return candidates, s.diagnostics, nil
 }
 
+func (s *snapshot) Names(context.Context) ([]string, error) {
+	names := make([]string, len(s.skills))
+	for i, skill := range s.skills {
+		names[i] = skill.Name
+	}
+	return names, nil
+}
+
+func (s *snapshot) Commits(context.Context, string) ([]source.Commit, error) {
+	return nil, nil
+}
+
 func (s *snapshot) Fetch(_ context.Context, names []string) ([]source.Skill, error) {
 	for _, name := range names {
 		if !slices.ContainsFunc(s.skills, func(skill discovery.Skill) bool { return skill.Name == name }) {

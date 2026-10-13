@@ -613,6 +613,7 @@ type repoFile struct {
 // gitHubFixture 是某个 commit 上仓库的 GitHub API 视图:commit、根 tree、全部条目与 blob 内容。
 type gitHubFixture struct {
 	commit         string
+	message        string
 	rootTree       string
 	entries        []gitHubTreeEntry
 	blobs          map[string][]byte
@@ -658,10 +659,21 @@ func gitRevParse(t *testing.T, repository, spec string) string {
 	return strings.TrimSpace(string(output))
 }
 
+// gitLog 返回 git log 的输出,去掉首尾空白。
+func gitLog(t *testing.T, repository string, args ...string) string {
+	t.Helper()
+	output, err := exec.Command("git", append([]string{"-C", repository, "log"}, args...)...).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
 func inspectGitHubRepo(t *testing.T, repo string) gitHubFixture {
 	t.Helper()
 	fx := gitHubFixture{
 		commit:   gitRevParse(t, repo, "HEAD"),
+		message:  gitLog(t, repo, "--format=%B", "-1"),
 		rootTree: gitRevParse(t, repo, "HEAD^{tree}"),
 		blobs:    map[string][]byte{},
 		paths:    map[string]gitHubTreeEntry{},
@@ -851,6 +863,20 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 			return notFound, nil
 		}
 		return jsonResponse(http.StatusOK, map[string]any{"sha": head.commit, "commit": map[string]any{"tree": map[string]string{"sha": head.rootTree}}}), nil
+	}
+	if span, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/compare/"); ok {
+		base, head, _ := strings.Cut(span, "...")
+		heads := append(slices.Clone(m.history), m.fx)
+		from := slices.IndexFunc(heads, func(h gitHubFixture) bool { return h.commit == base })
+		to := slices.IndexFunc(heads, func(h gitHubFixture) bool { return h.commit == head })
+		if from < 0 || to < from {
+			return notFound, nil
+		}
+		var commits []any
+		for _, h := range heads[from+1 : to+1] {
+			commits = append(commits, map[string]any{"sha": h.commit, "commit": map[string]any{"message": h.message, "author": map[string]any{"name": "Test", "date": "2026-10-01T00:00:00Z"}}})
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"status": "ahead", "commits": commits}), nil
 	}
 	if sha, ok := strings.CutPrefix(r.URL.Path, "/repos/owner/repo/git/trees/"); ok {
 		head, found := m.head(func(h gitHubFixture) bool { return sha == h.rootTree || sha == h.commit })

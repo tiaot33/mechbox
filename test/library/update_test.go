@@ -847,7 +847,7 @@ func TestPreviewFetchCollectionListsNewSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []library.Candidate{{Fetched: first.ID, Name: "first", Path: "first"}, {Name: "second", Path: "second"}}
+	want := []library.Candidate{{Fetched: first.ID, Name: "first", Path: "first"}, {New: true, Name: "second", Path: "second"}}
 	if !reflect.DeepEqual(again.Candidates, want) {
 		t.Fatalf("candidates = %#v; want %#v", again.Candidates, want)
 	}

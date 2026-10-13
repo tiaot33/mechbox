@@ -2,7 +2,6 @@ package library
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
@@ -142,22 +141,6 @@ func (l *Library) DiffVersions(ctx context.Context, from, to VersionID) (diff Ve
 	if err != nil {
 		return VersionDiff{}, err
 	}
-	diff = VersionDiff{Changed: []string{}, Added: []string{}, Deleted: []string{}}
-	for path, fromDigest := range fromFiles {
-		toDigest, ok := toFiles[path]
-		if !ok {
-			diff.Deleted = append(diff.Deleted, path)
-		} else if toDigest != fromDigest {
-			diff.Changed = append(diff.Changed, path)
-		}
-	}
-	for path := range toFiles {
-		if _, ok := fromFiles[path]; !ok {
-			diff.Added = append(diff.Added, path)
-		}
-	}
-	for _, paths := range [][]string{diff.Changed, diff.Added, diff.Deleted} {
-		slices.Sort(paths)
-	}
+	diff = diffDigests(fromFiles, toFiles)
 	return diff, nil
 }

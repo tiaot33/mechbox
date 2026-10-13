@@ -30,6 +30,7 @@ type locator struct {
 
 type state struct {
 	Validator string `json:"validator,omitempty"`
+	Revision  string `json:"revision,omitempty"`
 }
 
 type snapshot struct {
@@ -79,6 +80,9 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, hint sourc
 	if err := s.read(ctx, decodeState(hint)); err != nil {
 		return nil, err
 	}
+	if s.notModified {
+		s.revision = decodeRevision(hint)
+	}
 	return s, nil
 }
 
@@ -105,6 +109,21 @@ func (s *snapshot) Candidates(ctx context.Context) ([]discovery.Candidate, []dis
 	return candidates, s.diagnostics, nil
 }
 
+func (s *snapshot) Names(ctx context.Context) ([]string, error) {
+	if err := s.load(ctx); err != nil {
+		return nil, err
+	}
+	names := make([]string, len(s.skills))
+	for i, skill := range s.skills {
+		names[i] = skill.Name
+	}
+	return names, nil
+}
+
+func (s *snapshot) Commits(context.Context, string) ([]source.Commit, error) {
+	return nil, nil
+}
+
 func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, error) {
 	if err := s.load(ctx); err != nil {
 		return nil, err
@@ -114,7 +133,7 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 			return nil, &source.NotFoundError{What: source.MissingSkill, Name: name}
 		}
 	}
-	encoded := encodeState(s.validator)
+	encoded := encodeState(s.validator, s.revision)
 	var result []source.Skill
 	for _, skill := range s.skills {
 		if slices.Contains(names, skill.Name) {
@@ -249,18 +268,26 @@ func applyValidator(req *http.Request, validator string) {
 }
 
 func decodeState(raw source.State) string {
-	var decoded state
-	if len(raw) == 0 || json.Unmarshal(raw, &decoded) != nil {
-		return ""
-	}
-	return decoded.Validator
+	return decodeFull(raw).Validator
 }
 
-func encodeState(validator string) source.State {
+func decodeRevision(raw source.State) string {
+	return decodeFull(raw).Revision
+}
+
+func decodeFull(raw source.State) state {
+	var decoded state
+	if len(raw) == 0 || json.Unmarshal(raw, &decoded) != nil {
+		return state{}
+	}
+	return decoded
+}
+
+func encodeState(validator, revision string) source.State {
 	if validator == "" {
 		return nil
 	}
-	encoded, _ := json.Marshal(state{Validator: validator})
+	encoded, _ := json.Marshal(state{Validator: validator, Revision: revision})
 	return encoded
 }
 

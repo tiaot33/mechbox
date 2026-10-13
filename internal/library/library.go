@@ -25,6 +25,7 @@ type Library struct {
 
 	previewMu sync.Mutex
 	previews  map[FetchPreviewID]*previewState
+	plans     map[UpdatePlanID]*planState
 	closed    bool
 
 	github  *github.Client
@@ -76,6 +77,7 @@ func Open(path string) (lib *Library, err error) {
 		store:    db,
 		home:     home,
 		previews: map[FetchPreviewID]*previewState{},
+		plans:    map[UpdatePlanID]*planState{},
 		github:   client,
 		sources: source.Kinds{
 			github.Type:   client,
@@ -85,7 +87,7 @@ func Open(path string) (lib *Library, err error) {
 	}, nil
 }
 
-// Close 关闭 Library:丢弃全部入库预览句柄,清空 GitHub 缓存并关闭数据库。
+// Close 关闭 Library:丢弃全部入库预览与更新计划句柄,清空 GitHub 缓存并关闭数据库。
 func (l *Library) Close() (err error) {
 	defer func() { err = typedError(err) }()
 	l.mu.Lock()
@@ -96,6 +98,10 @@ func (l *Library) Close() (err error) {
 		state.timer.Stop()
 	}
 	clear(l.previews)
+	for _, state := range l.plans {
+		state.timer.Stop()
+	}
+	clear(l.plans)
 	l.previewMu.Unlock()
 	l.github.Close()
 	return l.store.Close()
