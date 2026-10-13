@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS skill_groups (
 -- 已注册的项目目录;注册后与每个 Agent 组成项目 Scope,目录由 agents.project_path 算出。
 -- 改项目位置只改写 path,id 不变,引用它的安装记录与组安装随之指向新位置。
 CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY,  -- 已注册项目主键,由 SQLite 分配;用作 ProjectScope 的项目身份
+    id INTEGER PRIMARY KEY AUTOINCREMENT, -- 已注册项目主键,由 SQLite 分配;用作 ProjectScope 的项目身份;注销后不复用,历史里记的项目 ID 不会指到别的项目
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
@@ -142,20 +142,49 @@ CREATE TABLE IF NOT EXISTS group_installs (
 CREATE UNIQUE INDEX IF NOT EXISTS group_installs_global_scope ON group_installs(group_id, agent) WHERE project_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS group_installs_project_scope ON group_installs(group_id, agent, project_id) WHERE project_id IS NOT NULL;
 
--- 集合的历史:跳过一条一行。
+-- 集合的历史:每次更新、跳过、回滚各一条。记录里的技能、版本、地方都只记 ID 与身份,不引用 skills / skill_versions / projects / agents:
+-- 技能移除、项目注销后记录仍在;地方只记 Agent 与全局还是哪个项目,不记磁盘路径,同步到别的机器也对得上。
 CREATE TABLE IF NOT EXISTS update_history (
     id INTEGER PRIMARY KEY,                             -- 记录主键,由 SQLite 分配;按 id 升序即先后顺序
     source_id INTEGER NOT NULL REFERENCES sources(id),  -- 所在集合(来源)
-    kind TEXT NOT NULL CHECK(kind IN ('skip')),         -- skip = 跳过
-    revision TEXT NOT NULL DEFAULT '',                  -- 当时来源的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
+    kind TEXT NOT NULL CHECK(kind IN ('update', 'skip', 'rollback')), -- update = 更新,skip = 跳过,rollback = 回滚
+    revision TEXT NOT NULL DEFAULT '',                  -- 当时来源的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空;回滚记被回滚那次的
     whole_revision INTEGER NOT NULL DEFAULT 0 CHECK(whole_revision IN (0, 1)), -- 跳过时:1 = 跳过整个来源版本(更新计划里有变化的技能全部跳过),0 = 跳过选中的几个技能
+    commits TEXT NOT NULL DEFAULT '',                   -- 更新时:这段时间的提交说明,JSON 数组 [{sha, message, author, time}];只有 GitHub 来源有,其他为空
+    rolls_back INTEGER REFERENCES update_history(id),   -- 回滚时:回滚的是哪一次更新;其他为 NULL
     created_at TEXT NOT NULL DEFAULT ''                 -- 记录时间,RFC3339Nano
 );
 
--- 跳过的改动:哪个技能的哪份来源内容。按内容记录:来源里这个技能的内容又变了,指纹不同,就重新算待办;
+CREATE UNIQUE INDEX IF NOT EXISTS update_history_rolls_back ON update_history(rolls_back) WHERE rolls_back IS NOT NULL;
+
+-- 记录涉及的技能。更新:从哪个版本换到哪个版本;回滚:从那次更新后的版本换回那次之前的版本;跳过:跳过时的当前版本(两列相同)。
+CREATE TABLE IF NOT EXISTS history_skills (
+    record_id INTEGER NOT NULL REFERENCES update_history(id), -- 哪一条记录
+    skill_id INTEGER NOT NULL,                               -- 技能 ID;技能移除后仍保留
+    name TEXT NOT NULL,                                      -- 当时的技能名,技能移除后用于展示
+    from_version_id INTEGER NOT NULL,                        -- 之前的版本 ID
+    to_version_id INTEGER NOT NULL,                          -- 之后的版本 ID
+    PRIMARY KEY(record_id, skill_id)
+);
+
+CREATE INDEX IF NOT EXISTS history_skills_skill ON history_skills(skill_id);
+
+-- 更新或回滚时逐处重新安装的结果;更新之后单独重试的地方也记在那次更新上,覆盖原来的结果。
+CREATE TABLE IF NOT EXISTS history_installs (
+    record_id INTEGER NOT NULL REFERENCES update_history(id), -- 哪一条记录
+    skill_id INTEGER NOT NULL,                               -- 技能 ID
+    agent TEXT NOT NULL,                                     -- Agent 的稳定代码
+    project_id INTEGER,                                      -- NULL 为全局;非 NULL 为已登记项目的 ID
+    outcome TEXT NOT NULL,                                   -- 更新:reinstalled / current / failed(library.ReinstallOutcome);回滚:library.RollbackOutcome 的值。已记为换上了的,之后重试失败不覆盖
+    error TEXT NOT NULL DEFAULT ''                           -- 没换上时的错误码(library.ErrorCode);其他为空
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS history_installs_place ON history_installs(record_id, skill_id, agent, ifnull(project_id, 0));
+
+-- 跳过的改动:哪个技能的哪份来源内容,包括用户跳过的和回滚掉的。按内容记录:来源里这个技能的内容又变了,指纹不同,就重新算待办;
 -- 同一来源里别的技能变了不影响。随技能一并删除。
 CREATE TABLE IF NOT EXISTS skipped_changes (
-    record_id INTEGER NOT NULL REFERENCES update_history(id), -- 哪一次跳过
+    record_id INTEGER NOT NULL REFERENCES update_history(id), -- 哪一次跳过或回滚
     skill_id INTEGER NOT NULL REFERENCES skills(id),          -- 跳过的技能
     content TEXT NOT NULL,                                     -- 跳过的那份来源内容的指纹,与 skills.update_check_content 同算法
     PRIMARY KEY(record_id, skill_id)

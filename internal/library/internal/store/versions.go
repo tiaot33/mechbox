@@ -174,3 +174,7 @@ func (q queries) VersionDigests(ctx context.Context, versionID int64) (map[strin
 	}
 	return files, nil
 }
+
+func (q queries) VersionFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
+	return q.versionFiles(ctx, versionID, "get version files")
+}

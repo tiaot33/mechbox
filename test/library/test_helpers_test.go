@@ -467,15 +467,15 @@ func checkSkillUpdate(t *testing.T, lib *library.Library, ctx context.Context, i
 	return "", nil
 }
 
-// updateSkill 把一个技能按「只勾一项的集合更新」更新,返回它在结果里的那一项。
-// 技能不在库里时返回 GetSkill 的错误。
+// updateSkill 把一个技能按「只勾一项的集合更新」更新:先生成更新计划,再只勾这一个技能、不勾任何地方,返回它在结果里的那一项。
+// 技能不在库里时返回 GetSkill 的错误;生成计划失败时返回它的错误。
 func updateSkill(t *testing.T, lib *library.Library, ctx context.Context, id library.SkillID) (library.UpdatedSkill, error) {
 	t.Helper()
-	skill, err := lib.GetSkill(ctx, id)
+	request, err := planSingleUpdate(ctx, lib, id)
 	if err != nil {
 		return library.UpdatedSkill{}, err
 	}
-	result, err := lib.Update(ctx, library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{id}})
+	result, err := lib.Update(ctx, request)
 	if err != nil {
 		return library.UpdatedSkill{}, err
 	}
@@ -485,9 +485,27 @@ func updateSkill(t *testing.T, lib *library.Library, ctx context.Context, id lib
 	return result.Skills[0], nil
 }
 
-// singleUpdate 是只勾一项的集合更新请求。
-func singleUpdate(skill library.Skill) library.UpdateRequest {
-	return library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{skill.ID}}
+// planSingleUpdate 为一个技能生成更新计划,返回只勾这一个技能、不勾任何地方的更新请求。
+func planSingleUpdate(ctx context.Context, lib *library.Library, ids ...library.SkillID) (library.UpdateRequest, error) {
+	skill, err := lib.GetSkill(ctx, ids[0])
+	if err != nil {
+		return library.UpdateRequest{}, err
+	}
+	plan, err := lib.PlanUpdate(ctx, skill.CollectionID)
+	if err != nil {
+		return library.UpdateRequest{}, err
+	}
+	return library.UpdateRequest{Plan: plan.ID, Skills: ids}, nil
+}
+
+// mustPlanUpdate 为技能生成只勾它们的更新请求,失败即终止测试。
+func mustPlanUpdate(t *testing.T, lib *library.Library, ids ...library.SkillID) library.UpdateRequest {
+	t.Helper()
+	request, err := planSingleUpdate(t.Context(), lib, ids...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
 }
 
 // updateCheckState 经列表接口读取指定技能的最近检查记录。

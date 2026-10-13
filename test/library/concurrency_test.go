@@ -55,11 +55,12 @@ func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
 
 	updated := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
 	archive.Store(&updated)
+	request := mustPlanUpdate(t, lib, demo.ID)
 	gate.arm()
 	var wg sync.WaitGroup
 	var result library.UpdateResult
 	var updateErr error
-	wg.Go(func() { result, updateErr = lib.Update(t.Context(), singleUpdate(demo)) })
+	wg.Go(func() { result, updateErr = lib.Update(t.Context(), request) })
 	gate.awaitEntered(t)
 
 	mustFinishBeforeRelease(t, gate, "Install", func(ctx context.Context) error {
@@ -99,11 +100,12 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 				updated := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
 				archive.Store(&updated)
 			}
+			request := mustPlanUpdate(t, lib, demo.ID)
 			gate.arm()
 			var wg sync.WaitGroup
 			var result library.UpdateResult
 			var updateErr error
-			wg.Go(func() { result, updateErr = lib.Update(t.Context(), singleUpdate(demo)) })
+			wg.Go(func() { result, updateErr = lib.Update(t.Context(), request) })
 			gate.awaitEntered(t)
 			mustFinishBeforeRelease(t, gate, "RemoveSkill", func(ctx context.Context) error {
 				return lib.RemoveSkill(ctx, demo.ID, library.RemoveSkillOptions{})
@@ -141,10 +143,11 @@ func TestUpdateReportsSkillRemovedByAnotherInstanceAsNotFound(t *testing.T) {
 	t.Cleanup(func() { _ = second.Close() })
 	demo := fetchURLSkill(t, first, server.URL+"/skills.zip", "demo")
 
+	request := mustPlanUpdate(t, first, demo.ID)
 	gate.arm()
 	var wg sync.WaitGroup
 	var updateErr error
-	wg.Go(func() { _, updateErr = first.Update(t.Context(), singleUpdate(demo)) })
+	wg.Go(func() { _, updateErr = first.Update(t.Context(), request) })
 	gate.awaitEntered(t)
 	if err := second.RemoveSkill(t.Context(), demo.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
@@ -165,15 +168,20 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 
 	updated := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "new")})
 	archive.Store(&updated)
+	slow := mustPlanUpdate(t, lib, demo.ID)
 	gate.arm()
 	var wg sync.WaitGroup
 	var slowErr error
-	wg.Go(func() { _, slowErr = lib.Update(t.Context(), singleUpdate(demo)) })
+	wg.Go(func() { _, slowErr = lib.Update(t.Context(), slow) })
 	gate.awaitEntered(t)
 	// 慢的那次卡在远端时,第二次更新不受拦截,先看到并提交同样的新内容。
 	gate.disarm()
 	mustFinishBeforeRelease(t, gate, "second Update", func(ctx context.Context) error {
-		result, err := lib.Update(ctx, singleUpdate(demo))
+		request, err := planSingleUpdate(ctx, lib, demo.ID)
+		if err != nil {
+			return err
+		}
+		result, err := lib.Update(ctx, request)
 		if err == nil && !result.Skills[0].Changed {
 			return fmt.Errorf("second Update = %#v, want Changed", result)
 		}

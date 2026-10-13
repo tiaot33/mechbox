@@ -152,7 +152,7 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 	if status, err := checkSkillUpdate(t, lib, ctx, second.ID); err != nil || status != library.UpdateDeleted {
 		t.Fatalf("check of vanished skill = %v, %v; want deleted", status, err)
 	}
-	_, err = lib.Update(ctx, singleUpdate(second))
+	_, err = lib.Update(ctx, mustPlanUpdate(t, lib, second.ID))
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{SkillID: second.ID, Name: second.Name})
 }
 

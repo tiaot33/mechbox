@@ -50,7 +50,7 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 			return err
 		}},
 		{name: "source update", want: library.NotFound, call: func(lib *library.Library) error {
-			_, err := lib.Update(t.Context(), library.UpdateRequest{CollectionID: 1, Skills: []library.SkillID{9999}})
+			_, err := lib.Update(t.Context(), library.UpdateRequest{Plan: "unknown", Skills: []library.SkillID{9999}})
 			return err
 		}},
 		{name: "list registered projects", closeFirst: true, want: library.Internal, call: func(lib *library.Library) error {
@@ -240,7 +240,7 @@ func TestCanceledOperationsStillMatchContext(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"update", func() error { _, err := lib.Update(ctx, singleUpdate(skill)); return err }},
+		{"update", func() error { _, err := lib.Update(ctx, mustPlanUpdate(t, lib, skill.ID)); return err }},
 		{"check updates", func() error { _, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID}); return err }},
 		{"preview", func() error {
 			_, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})

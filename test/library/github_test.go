@@ -212,9 +212,9 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 			if !slices.ContainsFunc(skillFiles(t, lib, updated.Skill), func(file library.File) bool { return reflect.DeepEqual(file, want) }) || updated.Skill.Revision != gitRevParse(t, repo, "HEAD") {
 				t.Fatalf("updated skill = %#v", updated.Skill)
 			}
-			// 同一来源的另一个技能没有更新,仍停在入库时的 commit。
-			if second, err := lib.GetSkill(t.Context(), skills[1].ID); err != nil || second.Revision != preview.Revision {
-				t.Fatalf("second before its own update = %#v, %v; want revision %s", second, err, preview.Revision)
+			// 同一来源里没变化的技能,随这次更新一起确认到新的来源版本,不产生新版本。
+			if second, err := lib.GetSkill(t.Context(), skills[1].ID); err != nil || second.Revision != gitRevParse(t, repo, "HEAD") || second.VersionID != skills[1].VersionID {
+				t.Fatalf("second after updating first = %#v, %v; want confirmed at HEAD", second, err)
 			}
 			unchanged, err := updateSkill(t, lib, t.Context(), skills[1].ID)
 			if err != nil || unchanged.Changed || unchanged.Skill.Revision != gitRevParse(t, repo, "HEAD") || !unchanged.Skill.UpdatedAt.IsZero() {
