@@ -42,11 +42,11 @@ export function dropProps(canDrop: boolean, onDrop: () => void) {
       if (!canDrop) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
-      (e.currentTarget as HTMLElement).classList.add("drop-hover");
+      (e.currentTarget as HTMLElement).dataset.dropHover = "";
     },
-    onDragLeave: (e: React.DragEvent) => (e.currentTarget as HTMLElement).classList.remove("drop-hover"),
+    onDragLeave: (e: React.DragEvent) => delete (e.currentTarget as HTMLElement).dataset.dropHover,
     onDrop: (e: React.DragEvent) => {
-      (e.currentTarget as HTMLElement).classList.remove("drop-hover");
+      delete (e.currentTarget as HTMLElement).dataset.dropHover;
       if (!canDrop) return;
       e.preventDefault();
       onDrop();

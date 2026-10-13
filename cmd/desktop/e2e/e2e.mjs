@@ -514,6 +514,40 @@ await step("拖放：卡片 → 右栏作用域(安装)", async () => {
   assert(fs.existsSync(path.join(claudeGlobal, "delta", "SKILL.md")), "磁盘上应有 delta");
 });
 
+await step("拖放：按指针轨迹预判，朝哪个折叠的项目移就提前展开哪个，拖完收回", async () => {
+  const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
+  assert((await proj.getAttribute("aria-expanded")) === "false", "proj-b 应是折叠的");
+  const rail = await page.locator(".a-right").boundingBox();
+  const stopX = rail.x - 60;
+  // 以约 1.5px/ms 的速度横向移到右栏左边 60px 处停下，指针始终没进右栏。
+  const sweep = async (y) => {
+    await page.mouse.move(stopX - 360, y);
+    await page.waitForTimeout(150);
+    for (let x = stopX - 360; x <= stopX; x += 24) {
+      await page.mouse.move(x, y);
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(150);
+  };
+  await card("delta").hover();
+  await page.mouse.down();
+  await page.mouse.move(stopX - 360, rail.y + rail.height / 2, { steps: 5 });
+
+  const global = await page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).first().boundingBox();
+  await sweep(global.y + global.height / 2);
+  const notAimed = await proj.getAttribute("aria-expanded");
+
+  const row = await proj.boundingBox();
+  await sweep(row.y + row.height / 2);
+  const aimed = await proj.getAttribute("aria-expanded");
+
+  await page.mouse.move(stopX, 5, { steps: 5 });
+  await page.mouse.up();
+  assert(notAimed === "false", "朝全局那一行移动时 proj-b 不应展开");
+  assert(aimed === "true", "朝 proj-b 移动、还没进右栏时 proj-b 就应展开");
+  await page.locator('.a-right .nav-item.proj[aria-expanded="false"]', { hasText: "proj-b" }).waitFor({ timeout: 2000 });
+});
+
 await step("拖放：组 → 右栏作用域(组安装)", async () => {
   await page.locator(".a-left .nav-item", { hasText: "前端调试" }).dragTo(page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).first());
   await toast("已把「前端调试」组安装到");

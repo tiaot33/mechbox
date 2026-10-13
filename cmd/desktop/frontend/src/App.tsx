@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService, LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
+import type { Scope } from "@bindings/internal/library";
 import { FetchDialog } from "@/components/app/fetch-dialog";
 import { FilterSidebar } from "@/components/app/filter-sidebar";
 import { ScopePanel } from "@/components/app/scope-panel";
@@ -90,17 +91,21 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     if (!s.agents.some((a) => a.code === sc.agent)) setScope(null);
   }, [s, scope]);
 
-  // 选中作用域时，右栏同步展开到那一行，否则折叠的项目或"其他 Agent"里看不到选中态。
+  // reveal 把右栏展开到作用域那一行，否则折叠的项目或"其他 Agent"里看不到它。
+  const reveal = (sc: Scope) => {
+    const place = placeOf(sc);
+    if (place) setExpanded((set) => new Set(set).add(place));
+    if (s && !agentsIn(s, place).open.some((a) => a.code === sc.agent)) setMoreAgents((set) => new Set(set).add(place));
+  };
+
+  // 选中作用域时，右栏同步展开到那一行。
   const selectScope = (key: ScopeKey | null) => {
     setScope(key);
     if (!key) {
       setInstalledOnly(false);
       return;
     }
-    const sc = parseScope(key);
-    const place = placeOf(sc);
-    if (place) setExpanded((set) => new Set(set).add(place));
-    if (s && !agentsIn(s, place).open.some((a) => a.code === sc.agent)) setMoreAgents((set) => new Set(set).add(place));
+    reveal(parseScope(key));
   };
 
   const home = s?.info.home_dir ?? "";
@@ -129,6 +134,8 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
         if (!s || !drag) return;
         const sc = parseScope(key);
         setDrag(null);
+        // 拖动中临时展开的地方拖完会收回，放下的那一行保持展开，好看到装上的结果。
+        reveal(sc);
         void (drag.kind === "skill" ? installSkill(ui, s, drag.id, sc) : installGroup(ui, s, drag.id, sc));
       },
       dropOnGroup: (id) => {
