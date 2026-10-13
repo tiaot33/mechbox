@@ -516,6 +516,14 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			if err != nil {
 				return err
 			}
+			stored, err := tx.UpdateCheck(ctx, id)
+			if err != nil {
+				return err
+			}
+			fresh := stored.Serial == read.states[i].checkSerial
+			if selected < 0 && !fresh {
+				continue
+			}
 			revision := cmp.Or(read.revision, read.states[i].revision)
 			latest := checked.latest
 			if checked.changed {
@@ -545,8 +553,10 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}); err != nil {
 				return err
 			}
-			if err := tx.ForgetRename(ctx, id); err != nil {
-				return err
+			if fresh {
+				if err := tx.ForgetRename(ctx, id); err != nil {
+					return err
+				}
 			}
 			if selected < 0 {
 				continue
