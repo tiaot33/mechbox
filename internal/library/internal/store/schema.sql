@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS rejected_renames (
 -- 或检查更新、更新计划、更新确认来源里就是这个技能现在的名字时删掉(只删它们开始读取时就有的那一条)。
 -- 随技能一并删除。
 CREATE TABLE IF NOT EXISTS rolled_back_renames (
-    skill_id INTEGER PRIMARY KEY REFERENCES skills(id), -- 换回了旧名字的技能
-    name TEXT NOT NULL                                  -- 回滚掉的那个新名字
+    id INTEGER PRIMARY KEY AUTOINCREMENT,                    -- 这一条记录的身份,不复用;先读后写的操作按它只删开始读取时就有的那一条
+    skill_id INTEGER NOT NULL UNIQUE REFERENCES skills(id),  -- 换回了旧名字的技能
+    name TEXT NOT NULL                                       -- 回滚掉的那个新名字
 );

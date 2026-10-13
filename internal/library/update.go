@@ -163,7 +163,7 @@ type collectionRead struct {
 	revision string
 	listed   []string
 	rejected []map[string][]string
-	linked   []string
+	linked   []store.RolledBackRename
 	seen     map[string]bool
 	renames  map[int]renameGuess
 }
@@ -248,11 +248,11 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 		if err != nil {
 			return nil, err
 		}
-		linked, err := l.store.RolledBackRename(ctx, int64(skill.ID))
+		link, err := l.store.RolledBackRename(ctx, int64(skill.ID))
 		if err != nil {
 			return nil, err
 		}
-		read.linked = append(read.linked, linked)
+		read.linked = append(read.linked, link)
 		read.skills = append(read.skills, skill)
 		read.states = append(read.states, state)
 		read.rejected = append(read.rejected, rejected)
@@ -322,8 +322,8 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
 					return err
 				}
-				if conclusion.Found {
-					if err := tx.ForgetRename(ctx, id, read.linked[i]); err != nil {
+				if conclusion.Found && read.linked[i].ID != 0 {
+					if err := tx.ForgetRename(ctx, read.linked[i].ID); err != nil {
 						return err
 					}
 				}
@@ -533,7 +533,7 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 					if err := tx.MarkSeen(ctx, read.states[i].source.ID, []string{latest.Name}); err != nil {
 						return err
 					}
-					if err := tx.ForgetRename(ctx, id, read.linked[i]); err != nil {
+					if err := tx.ForgetRenames(ctx, id); err != nil {
 						return err
 					}
 					recorded.Name, recorded.FromName = latest.Name, skill.Name
@@ -542,11 +542,23 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}); err != nil {
+			stored, err := tx.UpdateCheck(ctx, id)
+			if err != nil {
 				return err
 			}
-			if err := tx.ForgetRename(ctx, id, read.linked[i]); err != nil {
-				return err
+			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}
+			if selected < 0 {
+				conclusion.Since = read.states[i].checkSerial
+			}
+			if selected >= 0 || stored.Serial == read.states[i].checkSerial {
+				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
+					return err
+				}
+			}
+			if link := read.linked[i]; link.ID != 0 {
+				if err := tx.ForgetRename(ctx, link.ID); err != nil {
+					return err
+				}
 			}
 			if selected < 0 {
 				continue
@@ -739,7 +751,7 @@ func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess
 	}
 	var candidates []string
 	for _, name := range names {
-		linked := slices.ContainsFunc(missing, func(i int) bool { return read.linked[i] == name })
+		linked := slices.ContainsFunc(missing, func(i int) bool { return read.linked[i].Name == name })
 		if (linked || !read.seen[name]) && !inLibrary(name) && !slices.Contains(candidates, name) {
 			candidates = append(candidates, name)
 		}
@@ -766,7 +778,7 @@ func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess
 			if slices.Contains(read.rejected[i][candidate.Name], contents[j]) {
 				continue
 			}
-			if read.linked[i] == candidate.Name {
+			if read.linked[i].Name == candidate.Name {
 				pairs = append(pairs, pair{i, j, 2})
 			} else if score := similarity(read.states[i].files, candidate.Files); score >= renameSimilarity && !read.seen[candidate.Name] {
 				pairs = append(pairs, pair{i, j, score})

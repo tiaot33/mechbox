@@ -335,26 +335,35 @@ func (t *Tx) RememberRename(ctx context.Context, skillID int64, name string) err
 	return nil
 }
 
-func (t *Tx) ForgetRename(ctx context.Context, skillID int64, name string) error {
-	if name == "" {
-		return nil
-	}
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE skill_id = ? AND name = ?`, skillID, name); err != nil {
+func (t *Tx) ForgetRename(ctx context.Context, id int64) error {
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("forget rolled back rename: %w", wrap(err))
 	}
 	return nil
 }
 
-func (q queries) RolledBackRename(ctx context.Context, skillID int64) (string, error) {
-	var name string
-	err := q.q.QueryRowContext(ctx, `SELECT name FROM rolled_back_renames WHERE skill_id = ?`, skillID).Scan(&name)
+func (t *Tx) ForgetRenames(ctx context.Context, skillID int64) error {
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE skill_id = ?`, skillID); err != nil {
+		return fmt.Errorf("forget rolled back rename: %w", wrap(err))
+	}
+	return nil
+}
+
+type RolledBackRename struct {
+	ID   int64
+	Name string
+}
+
+func (q queries) RolledBackRename(ctx context.Context, skillID int64) (RolledBackRename, error) {
+	var link RolledBackRename
+	err := q.q.QueryRowContext(ctx, `SELECT id, name FROM rolled_back_renames WHERE skill_id = ?`, skillID).Scan(&link.ID, &link.Name)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return RolledBackRename{}, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("read rolled back rename: %w", wrap(err))
+		return RolledBackRename{}, fmt.Errorf("read rolled back rename: %w", wrap(err))
 	}
-	return name, nil
+	return link, nil
 }
 
 func (q queries) RejectedRenames(ctx context.Context, skillID int64) (map[string][]string, error) {
