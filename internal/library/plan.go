@@ -337,7 +337,7 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 		if err := tx.RequireReplica(ctx, state.replica); err != nil {
 			return err
 		}
-		skip := store.Skip{SourceID: state.sourceID, Revision: state.revision, WholeRevision: req.WholeRevision, At: clockNow()}
+		skip := store.Record{SourceID: state.sourceID, Kind: recordSkip, Revision: state.revision, WholeRevision: req.WholeRevision, At: clockNow()}
 		for _, id := range ids {
 			item := state.skills[id]
 			row, err := tx.GetSkill(ctx, int64(id))
@@ -347,9 +347,10 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 			if err != nil {
 				return err
 			}
-			skip.Changes = append(skip.Changes, store.SkippedChange{SkillID: int64(id), Content: item.content})
+			skip.Skipped = append(skip.Skipped, store.SkippedChange{SkillID: int64(id), Content: item.content})
+			skip.Skills = append(skip.Skills, store.RecordSkill{SkillID: int64(id), Name: row.Name, From: row.VersionID, To: row.VersionID})
 		}
-		_, err := tx.RecordSkip(ctx, skip)
+		_, err := tx.AddRecord(ctx, skip)
 		return err
 	})
 }

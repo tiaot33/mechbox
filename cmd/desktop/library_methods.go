@@ -88,6 +88,18 @@ func (s *LibraryService) Update(ctx context.Context, req library.UpdateRequest) 
 	return settle(s.lib.Update(ctx, req))(ctx)
 }
 
+func (s *LibraryService) RetryUpdateInstalls(ctx context.Context, id library.UpdateRecordID, installs []library.ReinstallRequest) ([]library.ReinstallResult, error) {
+	return settle(s.lib.RetryUpdateInstalls(ctx, id, installs))(ctx)
+}
+
+func (s *LibraryService) ListUpdateHistory(ctx context.Context, filter library.UpdateHistoryFilter) ([]library.UpdateRecord, error) {
+	return settle(s.lib.ListUpdateHistory(ctx, filter))(ctx)
+}
+
+func (s *LibraryService) Rollback(ctx context.Context, id library.UpdateRecordID) (library.RollbackResult, error) {
+	return settle(s.lib.Rollback(ctx, id))(ctx)
+}
+
 // ---------- 版本历史 ----------
 
 func (s *LibraryService) ListVersions(ctx context.Context, id library.SkillID) ([]library.SkillVersion, error) {

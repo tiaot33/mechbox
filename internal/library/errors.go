@@ -30,8 +30,8 @@ const (
 	// 或重新安装时这一处被改过、且没同意覆盖,或改 Agent 目录迁移时新目录里在复制期间出现了同名文件夹(整次不改)。
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
-	// Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间勾选的技能被另一次更新改过;
-	// 检查更新、跳过期间整个库被同步拉回替换)。
+	// Conflict 计划到执行之间状态已变(Sync 的远端身份;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
+	// 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本)。
 	// 可重新生成同步计划 / 重新发起后再执行。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
@@ -79,7 +79,7 @@ type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
-	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不属于该集合的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新时被另一次更新改过的技能
+	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
 }
 

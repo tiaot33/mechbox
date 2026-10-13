@@ -3,6 +3,7 @@ package library
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"slices"
@@ -27,7 +28,7 @@ const (
 
 // UpdateCheck 是随技能保存的检查更新结论,重启后仍可读到。
 type UpdateCheck struct {
-	CheckedAt time.Time         `json:"checked_at"` // 最近一次确认来源的时间:检查更新、更新或跳过
+	CheckedAt time.Time         `json:"checked_at"` // 最近一次确认来源的时间:检查更新、更新计划、更新或回滚
 	Status    UpdateCheckStatus `json:"status"`
 	// Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希;
 	// 本地目录来源与检查失败时为空。
@@ -52,11 +53,16 @@ type CollectionUpdateCheck struct {
 	Error *Error `json:"error,omitempty"`
 }
 
-// UpdateRequest 是一次更新:对一个集合发起,带进用户勾选的技能。从哪里发起只决定勾哪些:从集合发起传有新版本的全部技能,
-// 从技能详情页发起传 Skill.CollectionID 和这一个技能;单个技能更新就是只勾一项的集合更新。
+// UpdateRequest 是一次更新:按一份更新计划,带上用户勾选的技能和勾选的地方。从哪里发起只决定默认勾哪些:从集合发起勾计划里
+// 有变化的全部技能,从技能详情页发起只勾这一个;单个技能更新就是只勾一项的集合更新。本地目录来源的「重新读取」也是它。
 type UpdateRequest struct {
-	CollectionID CollectionID `json:"collection_id"`
-	Skills       []SkillID    `json:"skills"` // 勾选的技能,都必须属于这个集合;重复的只算一次。没勾的技能完全不动,检查结论也不变
+	Plan UpdatePlanID `json:"plan"`
+	// Skills 是勾选的技能,都必须在计划里有变化或没变化(来源里已删除的不能勾);重复的只算一次。
+	// 有变化而没勾的技能完全不动。
+	Skills []SkillID `json:"skills"`
+	// Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方,
+	// Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。
+	Installs []ReinstallRequest `json:"installs,omitempty"`
 }
 
 // UpdatedSkill 是更新结果里的一个技能:从哪个版本换到了哪个版本。
@@ -68,10 +74,16 @@ type UpdatedSkill struct {
 	Changed           bool      `json:"changed"` // 这次更新给技能写入了新版本;为 false 时 PreviousVersionID 等于 Skill.VersionID
 }
 
-// UpdateResult 是一次更新的结果:这个集合换成了什么样。
+// UpdateResult 是一次更新的结果:库换成了什么样,以及勾选的地方各自换上没有。
 type UpdateResult struct {
-	Source Source         `json:"source"` // 集合来自哪里
-	Skills []UpdatedSkill `json:"skills"` // 勾选的技能,按请求里的顺序
+	// Record 是这次更新的记录,回滚(Rollback)、单独重试没换上的地方(RetryUpdateInstalls)都用它;
+	// 勾选的技能都没变化、库里没有新版本时不留记录,为零值。
+	Record   UpdateRecordID `json:"record,omitzero"`
+	Source   Source         `json:"source"`             // 集合来自哪里
+	Revision string         `json:"revision,omitempty"` // 集合换到的来源版本,和 UpdatePlan.Revision 同义;本地目录来源为空
+	Skills   []UpdatedSkill `json:"skills"`             // 勾选的技能,按请求里的顺序
+	// Installs 是勾选的每一处的结果,与 UpdateRequest.Installs 一一对应、顺序相同;结果的含义同 Reinstall。
+	Installs []ReinstallResult `json:"installs"`
 }
 
 // CheckUpdates 检查给定集合有没有新版本;整库检查就是把 ListCollections 的集合 ID 全部传入。
@@ -298,85 +310,180 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 	return saved, nil
 }
 
-// Update 把用户勾选的技能换成来源现在的内容。不要求先检查更新,更新自己读来源;本地目录来源也用它重新读取。
+// Update 按更新计划把勾选的技能换成来源现在的内容,再把勾选的地方逐处重新安装成新版,一次确认同时完成。
 //
-// 只改库,不重新安装:装出去的文件夹保持原样,InspectSkillScopes 会把它们标成 stale,Agent 要用上新版需对各处 Reinstall。
-// 勾选的技能都按来源的同一份内容判断,换到同一个来源版本上:内容有变化的写入新版本,没变化的保持当前版本。
-// 全成或全不成:任何一个技能失败,库里什么都不变,原有的检查结论也不改。成功后勾选的每个技能的 LastUpdateCheck
-// 都是已是最新,时间为这次更新。读取来源期间不妨碍其他操作。
+// 确认时重新读来源:勾选的技能在来源里的内容和计划里一样,就换到来源现在的来源版本(同一来源里只有别的技能有新提交不算变化);
+// 不一样,或者库里这些技能在计划生成后被改过,返回 Conflict(Details.SkillID),让用户重新看计划。集合里在来源里没变化的技能
+// 每次都一起确认到这次的来源版本(不产生新版本),所以整个集合更新完显示在同一个来源版本上;有变化而没勾的技能不动。
 //
-// 错误:CollectionID 不是正数、Skills 为空或含不是正数的 ID 返回 InvalidArgument(Details.Field 为 collection_id / skills);
-// 勾选的技能不在库里返回 NotFound,不属于这个集合返回 InvalidArgument,都带 Details.SkillID;
-// 来源里已没有某个勾选的技能返回 NotFound,带 Details.SkillID 与 Name;读不了来源按来源错误返回
-// (SourceUnreachable / Permission / SourceInvalid 等);读取来源期间勾选的技能被移除返回 NotFound,
-// 被另一次更新改过返回 Conflict,都带 Details.SkillID。
+// 先换库:新版本、确认没变化的技能和更新记录一次写入,全成或全不成;之后勾选技能的 LastUpdateCheck 都是已是最新。
+// 再逐处重新安装勾选的地方:某一处失败不影响库和其他地方,结果里写明每一处换上没有、没换上的原因(含义同 Reinstall),
+// 也记在更新记录上;没换上的地方之后可以用 RetryUpdateInstalls 单独重试。成功后计划句柄失效。
+// 读来源期间不妨碍其他操作;期间整个库被同步拉回替换时放弃写回,返回 Conflict。
+//
+// 错误:句柄未知或已失效返回 NotFound;Skills 为空、含不在计划里的技能,Installs 的技能不在 Skills 里、作用域不合法或同一处列了两次,
+// 返回 InvalidArgument(Details.Field 为 skills / installs,技能带 Details.SkillID);勾选的技能在来源里已删除返回 NotFound
+// (Details.SkillID 与 Name);读取来源期间勾选的技能被移除返回 NotFound(Details.SkillID);读不了来源按来源错误返回。
+// 写库之后被取消时库已换好,返回已完成的几处与 Canceled。
 func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateResult, err error) {
 	defer func() { err = typedError(err) }()
-	if req.CollectionID <= 0 {
-		return UpdateResult{}, argumentError("update", "collection_id", "collection ID must be positive")
+	const operation = "update"
+	state, err := l.lookupPlan(operation, req.Plan)
+	if err != nil {
+		return UpdateResult{}, err
 	}
-	if len(req.Skills) == 0 {
-		return UpdateResult{}, argumentError("update", "skills", "at least one skill is required")
+	ids, err := selectedSkills(operation, state, req.Skills)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	if err := validateInstalls(operation, ids, req.Installs); err != nil {
+		return UpdateResult{}, err
+	}
+	read, err := l.readCollection(ctx, state.collection)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	if read == nil {
+		return UpdateResult{}, &Error{Code: NotFound, Message: operation + ": skill was removed while fetching", Details: ErrorDetails{SkillID: ids[0]}}
+	}
+	if read.replica != state.replica {
+		return UpdateResult{}, store.ErrReplaced
+	}
+	if read.openErr != nil {
+		return UpdateResult{}, read.openErr
+	}
+	index := make(map[SkillID]int, len(read.skills))
+	for i, skill := range read.skills {
+		index[skill.ID] = i
+	}
+	for _, id := range ids {
+		item := state.skills[id]
+		i, ok := index[id]
+		if !ok || read.skills[i].Name != item.name {
+			return UpdateResult{}, &Error{Code: NotFound, Message: operation + ": skill was removed while fetching", Details: ErrorDetails{SkillID: id}}
+		}
+		checked := read.checked[i]
+		if missingSkill(checked.err) {
+			return UpdateResult{}, &Error{Code: NotFound, Message: operation + ": skill not found in source", Details: ErrorDetails{SkillID: id, Name: item.name}, Err: checked.err}
+		}
+		if checked.err != nil {
+			return UpdateResult{}, checked.err
+		}
+		same := !checked.changed
+		if item.change == PlannedChanged {
+			same = checked.changed && skillfile.Sum(checked.latest.Files) == item.content
+		}
+		if read.states[i].versionID != item.versionID || !same {
+			return UpdateResult{}, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
+		}
+	}
+	commits, err := l.planCommits(ctx, read.snapshot, read.states)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	result, versions, err := l.applyUpdate(ctx, read, ids, commits)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	l.previewMu.Lock()
+	if l.plans[req.Plan] == state {
+		state.timer.Stop()
+		delete(l.plans, req.Plan)
+	}
+	l.previewMu.Unlock()
+	result.Installs, err = l.reinstallForRecord(ctx, operation, result.Record, versions, req.Installs)
+	return result, err
+}
+
+func selectedSkills(operation string, state *planState, requested []SkillID) ([]SkillID, error) {
+	if len(requested) == 0 {
+		return nil, argumentError(operation, "skills", "at least one skill is required")
 	}
 	var ids []SkillID
-	for _, id := range req.Skills {
-		if id <= 0 {
-			return UpdateResult{}, argumentError("update", "skills", "skill ID must be positive")
+	for _, id := range requested {
+		item := state.skills[id]
+		if item == nil {
+			return nil, &Error{Code: InvalidArgument, Message: operation + ": skill is not in this update plan", Details: ErrorDetails{Field: "skills", SkillID: id}}
+		}
+		if item.change == PlannedDeleted {
+			return nil, &Error{Code: NotFound, Message: operation + ": skill not found in source", Details: ErrorDetails{SkillID: id, Name: item.name}}
 		}
 		if !slices.Contains(ids, id) {
 			ids = append(ids, id)
 		}
 	}
-	skills := make([]Skill, len(ids))
-	states := make([]currentVersion, len(ids))
-	for i, id := range ids {
-		skills[i], states[i], err = l.getCurrent(ctx, id)
-		if errors.Is(err, store.ErrNotFound) {
-			return UpdateResult{}, &Error{Code: NotFound, Message: "update: skill not found", Details: ErrorDetails{SkillID: id}, Err: err}
-		}
-		if err != nil {
-			return UpdateResult{}, err
-		}
-		if skills[i].CollectionID != req.CollectionID {
-			return UpdateResult{}, &Error{Code: InvalidArgument, Message: "update: skill is not in this collection", Details: ErrorDetails{Field: "skills", SkillID: id}}
-		}
+	return ids, nil
+}
+
+func validateInstalls(operation string, ids []SkillID, installs []ReinstallRequest) error {
+	type place struct {
+		skillID SkillID
+		scope   Scope
 	}
-	snapshot, err := l.sources.Open(ctx, states[0].source.Type, states[0].source.Locator, "", states[0].snapshot)
-	if err != nil {
-		return UpdateResult{}, err
-	}
-	checked := checkSkills(ctx, snapshot, haves(skills, states), true)
-	if err := ctx.Err(); err != nil {
-		return UpdateResult{}, err
-	}
-	for i, skill := range skills {
-		if err := checked[i].err; missingSkill(err) {
-			return UpdateResult{}, &Error{Code: NotFound, Message: "update: skill not found in source", Details: ErrorDetails{SkillID: skill.ID, Name: skill.Name}, Err: err}
-		} else if err != nil {
-			return UpdateResult{}, err
+	seen := make(map[place]bool, len(installs))
+	for _, install := range installs {
+		if _, err := scopeOf(operation, install.Scope); err != nil {
+			return err
 		}
+		if !slices.Contains(ids, install.SkillID) {
+			return &Error{Code: InvalidArgument, Message: operation + ": install of a skill this update does not take", Details: ErrorDetails{Field: "installs", SkillID: install.SkillID}}
+		}
+		key := place{install.SkillID, install.Scope}
+		if seen[key] {
+			return argumentError(operation, "installs", "the same skill scope is listed more than once")
+		}
+		seen[key] = true
 	}
+	return nil
+}
+
+func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []SkillID, commits []Commit) (UpdateResult, map[SkillID]int64, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	result = UpdateResult{Source: skills[0].Source, Skills: make([]UpdatedSkill, len(ids))}
-	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+	result := UpdateResult{Source: read.skills[0].Source, Revision: read.revision, Skills: make([]UpdatedSkill, len(ids))}
+	versions := map[SkillID]int64{}
+	err := l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := tx.RequireReplica(ctx, read.replica); err != nil {
+			return err
+		}
 		now := clockNow()
-		for i, skill := range skills {
+		record := store.Record{SourceID: read.states[0].source.ID, Kind: recordUpdate, Revision: read.revision, At: now}
+		for i, skill := range read.skills {
+			checked := read.checked[i]
+			selected := slices.Index(ids, skill.ID)
+			if checked.err != nil || selected < 0 && checked.changed {
+				continue
+			}
 			id := int64(skill.ID)
-			if err := requireCurrentVersion(ctx, tx, skill.ID, states[i].versionID); err != nil {
+			current, err := tx.GetSkill(ctx, id)
+			if errors.Is(err, store.ErrNotFound) || err == nil && (current.Name != skill.Name || current.VersionID != read.states[i].versionID) {
+				if selected < 0 {
+					continue
+				}
+				if errors.Is(err, store.ErrNotFound) {
+					return &Error{Code: NotFound, Message: "skill was removed while fetching", Details: ErrorDetails{SkillID: skill.ID}, Err: err}
+				}
+				return &Error{Code: Conflict, Message: "skill changed while fetching", Details: ErrorDetails{SkillID: skill.ID}}
+			}
+			if err != nil {
 				return err
 			}
-			revision := cmp.Or(snapshot.Revision(), states[i].revision)
-			latest := checked[i].latest
-			if checked[i].changed {
-				if _, err := tx.AddVersion(ctx, id, store.NewVersion{Description: latest.Description, Files: latest.Files, State: string(latest.State), Revision: revision, CreatedAt: now}); err != nil {
+			revision := cmp.Or(read.revision, read.states[i].revision)
+			latest := checked.latest
+			if checked.changed {
+				versionID, err := tx.AddVersion(ctx, id, store.NewVersion{Description: latest.Description, Files: latest.Files, State: string(latest.State), Revision: revision, CreatedAt: now})
+				if err != nil {
 					return err
 				}
+				record.Skills = append(record.Skills, store.RecordSkill{SkillID: id, Name: skill.Name, From: read.states[i].versionID, To: versionID})
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: snapshot.Revision(), Found: true, Since: math.MaxInt64}); err != nil {
+			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}); err != nil {
 				return err
+			}
+			if selected < 0 {
+				continue
 			}
 			row, err := tx.GetSkill(ctx, id)
 			if err != nil {
@@ -386,14 +493,99 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 			if err != nil {
 				return err
 			}
-			result.Skills[i] = UpdatedSkill{Skill: updated, PreviousVersionID: VersionID(states[i].versionID), Changed: checked[i].changed}
+			versions[skill.ID] = row.VersionID
+			result.Skills[selected] = UpdatedSkill{Skill: updated, PreviousVersionID: VersionID(read.states[i].versionID), Changed: checked.changed}
 		}
-		return nil
+		if len(record.Skills) == 0 {
+			return nil
+		}
+		if len(commits) > 0 {
+			encoded, err := json.Marshal(commits)
+			if err != nil {
+				return err
+			}
+			record.Commits = string(encoded)
+		}
+		id, err := tx.AddRecord(ctx, record)
+		result.Record = UpdateRecordID(id)
+		return err
 	})
 	if err != nil {
-		return UpdateResult{}, err
+		return UpdateResult{}, nil, err
 	}
-	return result, nil
+	return result, versions, nil
+}
+
+func (l *Library) reinstallForRecord(ctx context.Context, operation string, record UpdateRecordID, versions map[SkillID]int64, requests []ReinstallRequest) ([]ReinstallResult, error) {
+	results := []ReinstallResult{}
+	for _, request := range requests {
+		if err := ctx.Err(); err != nil {
+			return results, err
+		}
+		result := ReinstallResult{SkillID: request.SkillID, Scope: request.Scope}
+		outcome, itemErr := l.reinstallOne(ctx, operation, request, versions[request.SkillID])
+		if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
+			return results, ctx.Err()
+		}
+		if itemErr != nil {
+			result.Outcome, result.Error = ReinstallFailed, ErrorOf(itemErr)
+		} else {
+			result.Outcome = outcome
+		}
+		if record != 0 {
+			if err := l.recordInstall(ctx, record, result); err != nil {
+				return results, err
+			}
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (l *Library) recordInstall(ctx context.Context, record UpdateRecordID, result ReinstallResult) error {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	row, err := scopeOf("record install", result.Scope)
+	if err != nil {
+		return err
+	}
+	install := store.RecordInstall{SkillID: int64(result.SkillID), Scope: row.record(), Outcome: string(result.Outcome)}
+	if result.Error != nil {
+		install.Error = string(result.Error.Code)
+	}
+	return l.store.InTx(ctx, func(tx *store.Tx) error {
+		return tx.RecordInstall(ctx, int64(record), install)
+	})
+}
+
+// RetryUpdateInstalls 单独重试一次更新里没换上的地方,结果算进那次更新:之后回滚那次更新时,重试换上的地方也一起装回去。
+// 每一处换成那次更新带来的版本,结果的含义同 Reinstall,与 installs 一一对应、顺序相同;技能在那次更新之后又换了版本
+// (又被更新或回滚过)时这一处返回 Conflict,不动。
+// 记录不存在返回 NotFound;不是更新记录、installs 里的技能不是那次更新换了版本的、作用域不合法或同一处列了两次,返回 InvalidArgument;
+// 那次更新已被回滚返回 FailedPrecondition。
+func (l *Library) RetryUpdateInstalls(ctx context.Context, id UpdateRecordID, installs []ReinstallRequest) (results []ReinstallResult, err error) {
+	defer func() { err = typedError(err) }()
+	const operation = "retry update installs"
+	record, err := l.getRecord(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if record.Kind != recordUpdate {
+		return nil, argumentError(operation, "record", "not an update record")
+	}
+	if record.RolledBackBy != 0 {
+		return nil, preconditionError(operation, "the update was rolled back", ErrorDetails{})
+	}
+	versions := map[SkillID]int64{}
+	var ids []SkillID
+	for _, skill := range record.Skills {
+		versions[SkillID(skill.SkillID)] = skill.To
+		ids = append(ids, SkillID(skill.SkillID))
+	}
+	if err := validateInstalls(operation, ids, installs); err != nil {
+		return nil, err
+	}
+	return l.reinstallForRecord(ctx, operation, id, versions, installs)
 }
 
 // KeepDeletedSkill 记下用户对来源里已删除的这个技能选了继续保留:之后不计入角标,技能上 Skill.KeptDeleted 为 true,重启后仍在。
@@ -418,20 +610,6 @@ func (l *Library) KeepDeletedSkill(ctx context.Context, id SkillID) (skill Skill
 		return Skill{}, err
 	}
 	return skill, nil
-}
-
-func requireCurrentVersion(ctx context.Context, tx *store.Tx, id SkillID, expected int64) error {
-	actual, err := tx.CurrentVersionID(ctx, int64(id))
-	if errors.Is(err, store.ErrNotFound) {
-		return &Error{Code: NotFound, Message: "skill was removed while fetching", Details: ErrorDetails{SkillID: id}, Err: err}
-	}
-	if err != nil {
-		return err
-	}
-	if actual != expected {
-		return &Error{Code: Conflict, Message: "skill changed while fetching", Details: ErrorDetails{SkillID: id}}
-	}
-	return nil
 }
 
 func missingSkill(err error) bool {

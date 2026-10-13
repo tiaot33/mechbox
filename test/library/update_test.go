@@ -116,7 +116,7 @@ func TestCheckUpdatesIsReadOnlyAndUpdateIsLibraryOnly(t *testing.T) {
 	}
 	commitGit(t, repository, "remove first")
 	check(first.ID, library.UpdateDeleted)
-	_, err = lib.Update(ctx, singleUpdate(first))
+	_, err = lib.Update(ctx, mustPlanUpdate(t, lib, first.ID))
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{SkillID: first.ID, Name: first.Name})
 	// 来源整个读不到:检查失败,不算来源里已删除。
 	if err := os.RemoveAll(repository); err != nil {
@@ -404,8 +404,9 @@ func TestUpdateCarriesSelectedSkillsToOneSourceRevision(t *testing.T) {
 		"second/SKILL.md": skillDocument("second", "new"),
 		"third/SKILL.md":  skillDocument("third", "new"),
 	}), "")
+	request := mustPlanUpdate(t, lib, second.ID, first.ID, second.ID)
 	requests.Store(0)
-	result, err := lib.Update(ctx, library.UpdateRequest{CollectionID: first.CollectionID, Skills: []library.SkillID{second.ID, first.ID, second.ID}})
+	result, err := lib.Update(ctx, request)
 	if err != nil || len(result.Skills) != 2 || result.Skills[0].Skill.ID != second.ID || result.Skills[1].Skill.ID != first.ID {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -436,9 +437,14 @@ func TestUpdateCarriesSelectedSkillsToOneSourceRevision(t *testing.T) {
 			t.Fatalf("previous version of %s = %#v, %v", before.Name, previous, err)
 		}
 	}
-	// 没勾的技能完全不动。
-	if got, err := lib.GetSkill(ctx, third.ID); err != nil || !reflect.DeepEqual(got, third) {
-		t.Fatalf("unselected skill = %#v, %v; want %#v", got, err, third)
+	// 有变化而没勾的技能不动,只留着更新计划写下的结论。
+	got, err := lib.GetSkill(ctx, third.ID)
+	if err != nil || got.LastUpdateCheck == nil || got.LastUpdateCheck.Status != library.UpdateAvailable {
+		t.Fatalf("unselected skill = %#v, %v", got, err)
+	}
+	got.LastUpdateCheck = nil
+	if !reflect.DeepEqual(got, third) {
+		t.Fatalf("unselected skill = %#v; want %#v", got, third)
 	}
 }
 
@@ -457,18 +463,16 @@ func TestUpdateIsAllOrNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, second := fetched[0], fetched[1]
-	if _, err := lib.CheckUpdates(ctx, []library.CollectionID{first.CollectionID}); err != nil {
-		t.Fatal(err)
-	}
-	before, err := lib.ListSkills(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 	writeFile(t, filepath.Join(root, "a", "SKILL.md"), []byte(skillDocument("first", "v2")), 0o644)
 	if err := os.RemoveAll(filepath.Join(root, "b")); err != nil {
 		t.Fatal(err)
 	}
-	_, err = lib.Update(ctx, library.UpdateRequest{CollectionID: first.CollectionID, Skills: []library.SkillID{first.ID, second.ID}})
+	request := mustPlanUpdate(t, lib, first.ID, second.ID)
+	before, err := lib.ListSkills(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.Update(ctx, request)
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{SkillID: second.ID, Name: second.Name})
 	after, err := lib.ListSkills(ctx)
 	if err != nil || !reflect.DeepEqual(after, before) {
@@ -505,19 +509,26 @@ func TestUpdateRollsBackEarlierSkillsWhenALaterOneChangedDuringSourceRead(t *tes
 			}
 			newer := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "new"), "second/SKILL.md": skillDocument("second", "new")})
 			archive.Store(&newer)
+			request := mustPlanUpdate(t, lib, first.ID, second.ID)
+			before, err = lib.GetSkill(ctx, first.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
 			gate.arm()
 			var wg sync.WaitGroup
 			var updateErr error
-			wg.Go(func() {
-				_, updateErr = lib.Update(ctx, library.UpdateRequest{CollectionID: first.CollectionID, Skills: []library.SkillID{first.ID, second.ID}})
-			})
+			wg.Go(func() { _, updateErr = lib.Update(ctx, request) })
 			gate.awaitEntered(t)
 			gate.disarm()
 			mustFinishBeforeRelease(t, gate, race, func(ctx context.Context) error {
 				if race == "remove" {
 					return lib.RemoveSkill(ctx, second.ID, library.RemoveSkillOptions{})
 				}
-				_, err := lib.Update(ctx, singleUpdate(second))
+				request, err := planSingleUpdate(ctx, lib, second.ID)
+				if err != nil {
+					return err
+				}
+				_, err = lib.Update(ctx, request)
 				return err
 			})
 			gate.open()
@@ -527,7 +538,7 @@ func TestUpdateRollsBackEarlierSkillsWhenALaterOneChangedDuringSourceRead(t *tes
 				want = library.NotFound
 			}
 			requireErrorDetails(t, updateErr, want, library.ErrorDetails{SkillID: second.ID})
-			if after, err := lib.GetSkill(ctx, first.ID); err != nil || !reflect.DeepEqual(after, before) {
+			if after, err := lib.GetSkill(ctx, first.ID); err != nil || after.VersionID != before.VersionID || after.Revision != before.Revision {
 				t.Fatalf("first after rollback = %#v, %v; want %#v", after, err, before)
 			}
 			if versions, err := lib.ListVersions(ctx, first.ID); err != nil || len(versions) != 1 {
@@ -550,7 +561,8 @@ func TestURLCollectionIsJudgedAgainstOneArchiveWhenValidatorsDiffer(t *testing.T
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v1"), "second/SKILL.md": skillDocument("second", "v1")}), `"v1"`)
 	skills := fetchArchive(t, lib, server.request())
 	first, second := skills[0], skills[1]
-	server.serve(zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v2"), "second/SKILL.md": skillDocument("second", "v1")}), `"v2"`)
+	// 两个都变了、只更新 first:second 仍记着 v1 的 validator。
+	server.serve(zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v2"), "second/SKILL.md": skillDocument("second", "v2")}), `"v2"`)
 	if _, err := updateSkill(t, lib, ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +585,7 @@ func TestURLCollectionIsJudgedAgainstOneArchiveWhenValidatorsDiffer(t *testing.T
 			t.Fatalf("check of %s = %+v; want available", skill.Name, skill.LastUpdateCheck)
 		}
 	}
-	result, err := lib.Update(ctx, library.UpdateRequest{CollectionID: first.CollectionID, Skills: []library.SkillID{first.ID, second.ID}})
+	result, err := lib.Update(ctx, mustPlanUpdate(t, lib, first.ID, second.ID))
 	if err != nil || len(result.Skills) != 2 {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
@@ -597,21 +609,27 @@ func TestUpdateRejectsInvalidRequests(t *testing.T) {
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "one")
 	other := fetchNamedSkill(t, lib, "other")
+	plan := mustPlanUpdate(t, lib, skill.ID).Plan
+	global := library.GlobalScope(library.AgentCodex)
 	for _, tc := range []struct {
 		name string
 		req  library.UpdateRequest
 		code library.ErrorCode
 		want library.ErrorDetails
 	}{
-		{"no collection", library.UpdateRequest{Skills: []library.SkillID{skill.ID}}, library.InvalidArgument, library.ErrorDetails{Field: "collection_id"}},
-		{"no skills", library.UpdateRequest{CollectionID: skill.CollectionID}, library.InvalidArgument, library.ErrorDetails{Field: "skills"}},
-		{"invalid skill ID", library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{0}}, library.InvalidArgument, library.ErrorDetails{Field: "skills"}},
-		{"missing skill", library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{skill.ID, 9999}}, library.NotFound, library.ErrorDetails{SkillID: 9999}},
-		{"skill from another collection", library.UpdateRequest{CollectionID: skill.CollectionID, Skills: []library.SkillID{skill.ID, other.ID}}, library.InvalidArgument, library.ErrorDetails{Field: "skills", SkillID: other.ID}},
+		{"unknown plan", library.UpdateRequest{Plan: "unknown", Skills: []library.SkillID{skill.ID}}, library.NotFound, library.ErrorDetails{}},
+		{"no skills", library.UpdateRequest{Plan: plan}, library.InvalidArgument, library.ErrorDetails{Field: "skills"}},
+		{"missing skill", library.UpdateRequest{Plan: plan, Skills: []library.SkillID{skill.ID, 9999}}, library.InvalidArgument, library.ErrorDetails{Field: "skills", SkillID: 9999}},
+		{"skill from another collection", library.UpdateRequest{Plan: plan, Skills: []library.SkillID{skill.ID, other.ID}}, library.InvalidArgument, library.ErrorDetails{Field: "skills", SkillID: other.ID}},
+		{"install of an unselected skill", library.UpdateRequest{Plan: plan, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: other.ID, Scope: global}}}, library.InvalidArgument, library.ErrorDetails{Field: "installs", SkillID: other.ID}},
+		{"install listed twice", library.UpdateRequest{Plan: plan, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: global}, {SkillID: skill.ID, Scope: global}}}, library.InvalidArgument, library.ErrorDetails{Field: "installs"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := lib.Update(ctx, tc.req)
-			requireErrorDetails(t, err, tc.code, tc.want)
+			typed := requireLibraryError(t, err, tc.code)
+			if tc.code != library.NotFound && typed.Details != tc.want {
+				t.Fatalf("details = %#v; want %#v", typed.Details, tc.want)
+			}
 		})
 	}
 }
@@ -775,7 +793,7 @@ func TestCheckDuringUpdateGivesTheUpdatedConclusion(t *testing.T) {
 			if !changed {
 				archive.Store(&old)
 			}
-			_, err := lib.Update(t.Context(), singleUpdate(skill))
+			_, err := lib.Update(t.Context(), mustPlanUpdate(t, lib, skill.ID))
 			gate.open()
 			wg.Wait()
 			if err != nil {

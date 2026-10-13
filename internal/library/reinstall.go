@@ -204,7 +204,7 @@ func (l *Library) Reinstall(ctx context.Context, requests []ReinstallRequest) (r
 			return results, err
 		}
 		result := ReinstallResult{SkillID: request.SkillID, Scope: request.Scope}
-		outcome, itemErr := l.reinstallOne(ctx, operation, request)
+		outcome, itemErr := l.reinstallOne(ctx, operation, request, 0)
 		if itemErr != nil && ctx.Err() != nil && errors.Is(itemErr, ctx.Err()) {
 			return results, ctx.Err()
 		}
@@ -218,7 +218,7 @@ func (l *Library) Reinstall(ctx context.Context, requests []ReinstallRequest) (r
 	return results, nil
 }
 
-func (l *Library) reinstallOne(ctx context.Context, operation string, request ReinstallRequest) (ReinstallOutcome, error) {
+func (l *Library) reinstallOne(ctx context.Context, operation string, request ReinstallRequest, expected int64) (ReinstallOutcome, error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	target, err := l.resolveScope(ctx, operation, request.Scope)
@@ -235,6 +235,9 @@ func (l *Library) reinstallOne(ctx context.Context, operation string, request Re
 	skill, current, err := l.getCurrent(ctx, request.SkillID)
 	if err != nil {
 		return "", err
+	}
+	if expected != 0 && current.versionID != expected {
+		return "", &Error{Code: Conflict, Message: operation + ": skill version changed since the update", Details: ErrorDetails{SkillID: request.SkillID}}
 	}
 	if err := target.requireRoot(operation); err != nil {
 		return "", err
