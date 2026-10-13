@@ -60,7 +60,7 @@ const (
 type PlannedSkill struct {
 	Skill  Skill         `json:"skill"` // 库里现在的技能
 	Change PlannedChange `json:"change"`
-	// Skipped 为 true 表示有变化,但来源里这份内容用户之前跳过了;照样列出,用户可以勾上更新。
+	// Skipped 为 true 表示有变化(或推测出了改名),但来源里这份内容用户之前跳过了;照样列出,用户可以勾上更新。
 	Skipped bool `json:"skipped,omitzero"`
 	// RenamedTo 是来源里已删除时,推测这个技能改名成的新名字,含义同 UpdateCheck.RenamedTo。勾上更新即确认「是」:技能改用新名字,
 	// 内容换成那个新名字的;RejectRename 回答「不是」。有推测时 Risks、Diff 按那个新名字的内容给出,装出去的各处也列在 Installs 里。
@@ -216,13 +216,11 @@ func (l *Library) describePlan(ctx context.Context, plan *UpdatePlan, state *pla
 		if planned.Change != PlannedChanged && planned.RenamedTo == "" {
 			continue
 		}
-		if planned.Change == PlannedChanged {
-			skipped, err := l.store.Skipped(ctx, int64(planned.Skill.ID), state.skills[planned.Skill.ID].content)
-			if err != nil {
-				return err
-			}
-			plan.Skills[i].Skipped = skipped
+		skipped, err := l.store.Skipped(ctx, int64(planned.Skill.ID), state.skills[planned.Skill.ID].content)
+		if err != nil {
+			return err
 		}
+		plan.Skills[i].Skipped = skipped
 		skillScopes, err := l.listSkillScopes(ctx, planned.Skill.ID, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
@@ -296,11 +294,11 @@ func (l *Library) GetUpdatePlanFile(ctx context.Context, plan UpdatePlanID, skil
 	return File{Path: found.Path, Content: slices.Clone(found.Content), Mode: FileMode(found.Mode)}, nil
 }
 
-// SkipRequest 是一次跳过:在一份更新计划里,对有变化的技能跳过这次的改动。Skills 与 WholeRevision 恰好给一个。
+// SkipRequest 是一次跳过:在一份更新计划里,对有变化或推测出改名的技能跳过这次的改动。Skills 与 WholeRevision 恰好给一个。
 type SkipRequest struct {
 	Plan   UpdatePlanID `json:"plan"`
-	Skills []SkillID    `json:"skills,omitempty"` // 跳过这几个技能的这次改动;都必须在计划里有变化,重复的只算一次
-	// WholeRevision 为 true 时跳过整个来源版本:计划里有变化的技能全部跳过,在集合的历史里记成一次。
+	Skills []SkillID    `json:"skills,omitempty"` // 跳过这几个技能的这次改动;都必须在计划里有变化或推测出了改名,重复的只算一次
+	// WholeRevision 为 true 时跳过整个来源版本:计划里有变化和推测出改名的技能全部跳过,在集合的历史里记成一次。
 	WholeRevision bool `json:"whole_revision,omitzero"`
 }
 
@@ -325,7 +323,7 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 		return argumentError(operation, "skills", "skills must be empty when skipping the whole revision")
 	case req.WholeRevision:
 		for id, item := range state.skills {
-			if item.change == PlannedChanged {
+			if item.change == PlannedChanged || item.renameTo != "" {
 				ids = append(ids, id)
 			}
 		}
@@ -337,7 +335,7 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 		return argumentError(operation, "skills", "at least one skill is required")
 	default:
 		for _, id := range req.Skills {
-			if item := state.skills[id]; item == nil || item.change != PlannedChanged {
+			if item := state.skills[id]; item == nil || item.change != PlannedChanged && item.renameTo == "" {
 				return &Error{Code: InvalidArgument, Message: operation + ": skill has no change in this update plan", Details: ErrorDetails{Field: "skills", SkillID: id}}
 			}
 			if !slices.Contains(ids, id) {

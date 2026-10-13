@@ -207,3 +207,54 @@ func TestRollbackOfARenameRestoresNameAndFolders(t *testing.T) {
 		t.Fatalf("check after rolling back the rename = %#v", check)
 	}
 }
+
+func TestGuessedRenameCanBeSkipped(t *testing.T) {
+	fx := newRenameFixture(t)
+	ctx := t.Context()
+	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, WholeRevision: true}); err != nil {
+		t.Fatal(err)
+	}
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || !check.Skipped || check.Pending {
+		t.Fatalf("skipped rename = %#v", check)
+	}
+}
+
+func TestRollingBackAnEarlierUpdateRestoresTheNameItHad(t *testing.T) {
+	fx := newRenameFixture(t)
+	ctx := t.Context()
+	// 先回到改名前的来源,更新一次内容,再改名并确认。
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-tools/SKILL.md":       skillDocument("pdf-tools", renamedBody+"One more line.\n"),
+		"pdf-tools/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":           skillDocument("notes", "v1"),
+	}), "")
+	first, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody+"One more line.\n"),
+		"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":         skillDocument("notes", "v1"),
+	}), "")
+	if _, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if skill, err := fx.lib.GetSkill(ctx, fx.skill.ID); err != nil || skill.Name != "pdf-kit" {
+		t.Fatalf("after confirming the rename = %#v, %v", skill, err)
+	}
+	if _, err := fx.lib.Rollback(ctx, first.Record); err != nil {
+		t.Fatal(err)
+	}
+	skill, err := fx.lib.GetSkill(ctx, fx.skill.ID)
+	if err != nil || skill.Name != "pdf-tools" || skill.VersionID != fx.skill.VersionID {
+		t.Fatalf("after rolling back the earlier update = %#v, %v; want pdf-tools at the first version", skill, err)
+	}
+	for _, scope := range []library.Scope{fx.claude, fx.codex} {
+		requireInstalledFolder(t, fx.dirs[scope], "pdf-tools", renamedBody)
+	}
+}

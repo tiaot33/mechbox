@@ -311,10 +311,8 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	}
 	folder := place[0].Folder
 	if folder != skill.Name {
-		if exists, err := agentdir.Exists(filepath.Join(target.directory, skill.Name)); err != nil {
+		if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
 			return "", false, err
-		} else if exists {
-			return "", false, existsError(operation, "a folder with the skill's new name is in the way", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
 		}
 	}
 	ids := make([]int64, len(place))
@@ -340,4 +338,19 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 		return "", false, err
 	}
 	return Reinstalled, update != nil, nil
+}
+
+func (l *Library) requireFreeFolder(ctx context.Context, operation string, skill Skill, target resolvedScope) error {
+	path := filepath.Join(target.directory, skill.Name)
+	if other, err := l.targetClaimant(ctx, skill.ID, skill.Name, target); err != nil {
+		return err
+	} else if other != nil && other.skillID != skill.ID {
+		return preconditionError(operation, "another skill is installed in the folder with the skill's name", ErrorDetails{Path: path, Name: other.name, SkillID: other.skillID})
+	}
+	if exists, err := agentdir.Exists(path); err != nil {
+		return err
+	} else if exists {
+		return existsError(operation, "a folder with the skill's name is in the way", ErrorDetails{Path: path})
+	}
+	return nil
 }

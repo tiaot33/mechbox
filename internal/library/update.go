@@ -35,14 +35,14 @@ type UpdateCheck struct {
 	// Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希;
 	// 本地目录来源与检查失败时为空。
 	Revision string `json:"revision,omitempty"`
-	// Skipped 为 true 表示有新版本,但来源里这个技能现在的内容,用户之前跳过了(SkipUpdate)。来源里这个技能的内容又变了,
+	// Skipped 为 true 表示有新版本(或推测出了改名),但来源里这份内容用户之前跳过了(SkipUpdate)。来源里这个技能的内容又变了,
 	// 下次检查更新后它回到 false;同一来源里别的技能变了不影响。
 	Skipped bool `json:"skipped,omitzero"`
 	// RenamedTo 是结论为来源里已删除时,推测这个技能在来源里改名成的新名字:同一来源里它消失了,同时出现了一个用户没见过、
-	// 内容大部分相同的技能。用户在更新计划里确认(勾上更新)或否认(RejectRename);没有推测时为空。
+	// 内容大部分相同的技能。用户在更新计划里确认(勾上更新)、否认(RejectRename)或跳过(SkipUpdate);没有推测时为空。
 	RenamedTo string `json:"renamed_to,omitempty"`
 	// Pending 为 true 表示这个技能计入角标,侧边栏的更新计数与 Dock 角标都按它算:有新版本且没跳过,
-	// 或来源里已删除且用户没选继续保留(Skill.KeptDeleted),或推测出了改名(RenamedTo)。本地目录来源的技能、跳过的改动、
+	// 或来源里已删除且用户没选继续保留(Skill.KeptDeleted),或推测出了改名(RenamedTo)且没跳过。本地目录来源的技能、跳过的改动、
 	// 来源里的新技能都不计入。
 	Pending bool `json:"pending,omitzero"`
 }
@@ -163,7 +163,6 @@ type collectionRead struct {
 	revision string
 	listed   []string
 	rejected []map[string][]string
-	seen     map[string]bool
 	renames  map[int]renameGuess
 }
 
@@ -216,7 +215,7 @@ func (r *collectionRead) conclusions() ([]store.UpdateCheck, *Error) {
 		case checked.err == nil:
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Found: true}
 		case missingSkill(checked.err):
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision, Renamed: r.renames[i].latest.Name}
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision, Renamed: r.renames[i].latest.Name, Content: r.renames[i].content}
 		default:
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateFailed)}
 			if failure == nil {
@@ -260,11 +259,6 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 	if read.listedAt, err = l.store.Listed(ctx, read.states[0].source.ID); err != nil {
 		return nil, err
 	}
-	known, err := l.store.SourceSkills(ctx, read.states[0].source.Type, read.states[0].source.Locator)
-	if err != nil {
-		return nil, err
-	}
-	read.seen = known.Seen
 	return read, nil
 }
 
@@ -719,7 +713,7 @@ func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess
 	}
 	var candidates []string
 	for _, name := range names {
-		if !read.seen[name] && !slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name }) && !slices.Contains(candidates, name) {
+		if !slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name }) && !slices.Contains(candidates, name) {
 			candidates = append(candidates, name)
 		}
 	}
@@ -776,7 +770,7 @@ func similarity(old, latest []skillfile.File) float64 {
 		}
 		a, b := file.Content, other.Content
 		if file.Path == "SKILL.md" {
-			a, b = skillBody(a), skillBody(b)
+			a, b = withoutName(a), withoutName(b)
 		}
 		if bytes.Equal(a, b) {
 			matched++
@@ -787,15 +781,16 @@ func similarity(old, latest []skillfile.File) float64 {
 	return matched / float64(max(len(old), len(latest)))
 }
 
-func skillBody(content []byte) []byte {
-	rest, ok := bytes.CutPrefix(content, []byte("---\n"))
-	if !ok {
-		return content
+func withoutName(content []byte) []byte {
+	var kept [][]byte
+	for line := range bytes.SplitSeq(content, []byte("\n")) {
+		trimmed := bytes.TrimSpace(line)
+		if bytes.HasPrefix(trimmed, []byte("name:")) || bytes.Equal(trimmed, []byte("---")) {
+			continue
+		}
+		kept = append(kept, line)
 	}
-	if _, body, ok := bytes.Cut(rest, []byte("\n---\n")); ok {
-		return body
-	}
-	return content
+	return bytes.Join(kept, []byte("\n"))
 }
 
 func lineOverlap(a, b []byte) float64 {

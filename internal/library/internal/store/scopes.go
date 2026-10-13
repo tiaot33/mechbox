@@ -277,9 +277,15 @@ func (q queries) OlderVersionIDs(ctx context.Context, skillID, currentVersionID 
 	return versionIDs, nil
 }
 
+const sharedFolderSQL = `coalesce((
+	SELECT p.folder FROM skill_scopes p JOIN agents a ON a.code = p.agent JOIN agents t ON t.code = ?
+	WHERE p.skill_id = ? AND p.project_id IS ?
+		AND CASE WHEN p.project_id IS NULL THEN a.global_path = t.global_path ELSE a.project_path = t.project_path END
+	LIMIT 1), '')`
+
 func (t *Tx) RecordSkillScope(ctx context.Context, skillID int64, scope Scope, direct bool, createdAt time.Time) error {
-	if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
-		skillID, scope.Agent, scope.ProjectID, direct, formatTime(createdAt)); err != nil {
+	if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at, folder) VALUES (?, ?, ?, ?, ?, `+sharedFolderSQL+`)`,
+		skillID, scope.Agent, scope.ProjectID, direct, formatTime(createdAt), scope.Agent, skillID, scope.ProjectID); err != nil {
 		return fmt.Errorf("record skill scope: %w", wrap(err))
 	}
 	return nil
@@ -337,9 +343,9 @@ func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent s
 	var skillID int64
 	var projectID *int64
 	var direct bool
-	var createdAt string
-	if err := t.q.QueryRowContext(ctx, `SELECT skill_id, project_id, direct, created_at FROM skill_scopes WHERE id = ?`, skillScopeID).
-		Scan(&skillID, &projectID, &direct, &createdAt); err != nil {
+	var createdAt, folder string
+	if err := t.q.QueryRowContext(ctx, `SELECT skill_id, project_id, direct, created_at, folder FROM skill_scopes WHERE id = ?`, skillScopeID).
+		Scan(&skillID, &projectID, &direct, &createdAt, &folder); err != nil {
 		return fmt.Errorf("read skill scope to hand over: %w", wrap(err))
 	}
 	result, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = max(direct, ?) WHERE skill_id = ? AND agent = ? AND project_id IS ?`,
@@ -352,8 +358,8 @@ func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent s
 		return fmt.Errorf("hand over skill scope: %w", wrap(err))
 	}
 	if updated == 0 {
-		if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at) VALUES (?, ?, ?, ?, ?)`,
-			skillID, agent, projectID, direct, createdAt); err != nil {
+		if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at, folder) VALUES (?, ?, ?, ?, ?, ?)`,
+			skillID, agent, projectID, direct, createdAt, folder); err != nil {
 			return fmt.Errorf("hand over skill scope: %w", wrap(err))
 		}
 	}

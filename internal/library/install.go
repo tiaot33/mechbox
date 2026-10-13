@@ -355,7 +355,13 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 			kept = kept || !removed
 		}
 		if !kept {
-			change.Remove(filepath.Join(target.directory, place[0].Folder))
+			var folders []string
+			for _, row := range place {
+				if !slices.Contains(folders, row.Folder) {
+					folders = append(folders, row.Folder)
+					change.Remove(filepath.Join(target.directory, row.Folder))
+				}
+			}
 		}
 		return nil
 	})

@@ -256,9 +256,11 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 			if err == nil {
 				err = tx.SetCurrentVersion(ctx, skill.SkillID, skill.From)
 			}
-			if err == nil && skill.FromName != "" && skill.FromName != row.Name {
-				if err = tx.RenameSkill(ctx, skill.SkillID, skill.FromName); errors.Is(err, store.ErrAlreadyExists) {
-					return &Error{Code: Conflict, Message: operation + ": another skill in the collection already has the old name", Details: ErrorDetails{SkillID: id, Name: skill.FromName}, Err: err}
+			targetName := cmp.Or(skill.FromName, skill.Name)
+			renamedBack := err == nil && targetName != row.Name
+			if renamedBack {
+				if err = tx.RenameSkill(ctx, skill.SkillID, targetName); errors.Is(err, store.ErrAlreadyExists) {
+					return &Error{Code: Conflict, Message: operation + ": another skill in the collection already has the old name", Details: ErrorDetails{SkillID: id, Name: targetName}, Err: err}
 				}
 			}
 			if errors.Is(err, store.ErrNotFound) {
@@ -274,25 +276,31 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				return err
 			}
 			content := skillfile.Sum(files)
-			name := cmp.Or(skill.FromName, row.Name)
-			fromName := ""
-			if name != row.Name {
-				fromName = row.Name
+			name, fromName := row.Name, ""
+			if renamedBack {
+				name, fromName = targetName, row.Name
 			}
 			rollback.Skills = append(rollback.Skills, store.RecordSkill{SkillID: skill.SkillID, Name: name, FromName: fromName, From: row.VersionID, To: skill.From})
 			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
 			conclusion := store.UpdateCheck{At: now, Status: string(UpdateAvailable), Revision: record.Revision, Content: content, Found: true, Since: math.MaxInt64}
-			if skill.FromName != "" {
+			if renamedBack {
 				conclusion = store.UpdateCheck{At: now, Status: string(UpdateDeleted), Revision: record.Revision, Since: math.MaxInt64}
 			}
 			if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
 				return err
 			}
-			if skill.FromName != "" {
-				if err := tx.RejectRename(ctx, skill.SkillID, skill.Name, content); err != nil {
+			if renamedBack {
+				renamed, err := tx.VersionFiles(ctx, row.VersionID)
+				if err != nil {
+					return err
+				}
+				if err := tx.RejectRename(ctx, skill.SkillID, row.Name, skillfile.Sum(renamed)); err != nil {
 					return err
 				}
 				if err := tx.KeepDeleted(ctx, skill.SkillID); err != nil {
+					return err
+				}
+				if err := tx.MarkSeen(ctx, record.SourceID, []string{row.Name}); err != nil {
 					return err
 				}
 			}
@@ -410,10 +418,8 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	}
 	if err == nil && maps.Equal(disk, updatedFiles) || maps.Equal(disk, digests(current.files)) {
 		if folderName != skill.Name {
-			if exists, err := agentdir.Exists(filepath.Join(target.directory, skill.Name)); err != nil {
+			if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
 				return "", err
-			} else if exists {
-				return "", existsError(operation, "a folder with the skill's name is in the way", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
 			}
 		}
 		ids := make([]int64, len(place))
