@@ -335,8 +335,11 @@ func (t *Tx) RememberRename(ctx context.Context, skillID int64, name string) err
 	return nil
 }
 
-func (t *Tx) ForgetRename(ctx context.Context, skillID int64) error {
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE skill_id = ?`, skillID); err != nil {
+func (t *Tx) ForgetRename(ctx context.Context, skillID int64, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM rolled_back_renames WHERE skill_id = ? AND name = ?`, skillID, name); err != nil {
 		return fmt.Errorf("forget rolled back rename: %w", wrap(err))
 	}
 	return nil
