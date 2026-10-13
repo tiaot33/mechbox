@@ -125,6 +125,13 @@ func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target reso
 	if err != nil {
 		return "", 0, err
 	}
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	if err != nil {
+		return "", 0, err
+	}
+	if len(place) > 0 {
+		name = place[0].Folder
+	}
 
 	if missing, err := target.rootMissing("inspect skill scope"); err != nil {
 		return "", 0, err
@@ -294,26 +301,56 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	}
 	switch status {
 	case SkillScopeCurrent:
-		return ReinstallCurrent, false, nil
+		if place[0].Folder == skill.Name {
+			return ReinstallCurrent, false, nil
+		}
 	case SkillScopeModified:
 		if !request.Overwrite {
-			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, skill.Name)})
+			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)})
 		}
 	}
-	var record func(*store.Tx) error
-	if update != nil {
-		record = func(tx *store.Tx) error {
-			if err := tx.RequireReplica(ctx, update.replica); err != nil {
-				return err
-			}
-			if update.record == 0 {
-				return nil
-			}
-			return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: target.record(), Outcome: string(Reinstalled)})
+	folder := place[0].Folder
+	if folder != skill.Name {
+		if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
+			return "", false, err
 		}
 	}
-	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target}}, record); err != nil {
+	ids := make([]int64, len(place))
+	for i, row := range place {
+		ids[i] = row.ID
+	}
+	record := func(tx *store.Tx) error {
+		if err := tx.ResetFolders(ctx, ids); err != nil {
+			return err
+		}
+		if update == nil {
+			return nil
+		}
+		if err := tx.RequireReplica(ctx, update.replica); err != nil {
+			return err
+		}
+		if update.record == 0 {
+			return nil
+		}
+		return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: target.record(), Outcome: string(Reinstalled)})
+	}
+	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target, replaces: folder}}, record); err != nil {
 		return "", false, err
 	}
 	return Reinstalled, update != nil, nil
+}
+
+func (l *Library) requireFreeFolder(ctx context.Context, operation string, skill Skill, target resolvedScope) error {
+	path := filepath.Join(target.directory, skill.Name)
+	if other, err := l.targetClaimant(ctx, skill.ID, skill.Name, target); err != nil {
+		return err
+	} else if other != nil && other.skillID != skill.ID {
+		return preconditionError(operation, "another skill is installed in the folder with the skill's name", ErrorDetails{Path: path, Name: other.name, SkillID: other.skillID})
+	}
+	if exists, err := agentdir.Exists(path); err != nil {
+		return err
+	} else if exists {
+		return existsError(operation, "a folder with the skill's name is in the way", ErrorDetails{Path: path})
+	}
+	return nil
 }

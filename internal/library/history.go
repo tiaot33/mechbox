@@ -1,6 +1,7 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,8 +59,10 @@ type UpdateRecord struct {
 
 // RecordedSkill 是一条记录里的一个技能:从哪个版本换到了哪个版本。技能已从库里移除时版本也不在了,Name 仍可展示。
 type RecordedSkill struct {
-	SkillID       SkillID   `json:"skill_id"`
-	Name          string    `json:"name"`            // 当时的技能名
+	SkillID SkillID `json:"skill_id"`
+	Name    string  `json:"name"` // 当时的技能名;换了名字时是之后的名字
+	// FromName 是这次换了名字时之前的名字:确认改名的更新、回滚这样的更新;没换名字为空。
+	FromName      string    `json:"from_name,omitempty"`
 	FromVersionID VersionID `json:"from_version_id"` // 之前的版本
 	ToVersionID   VersionID `json:"to_version_id"`   // 之后的版本
 }
@@ -125,7 +128,7 @@ func recordOf(row store.Record) (UpdateRecord, error) {
 		}
 	}
 	for _, skill := range row.Skills {
-		record.Skills = append(record.Skills, RecordedSkill{SkillID: SkillID(skill.SkillID), Name: skill.Name, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
+		record.Skills = append(record.Skills, RecordedSkill{SkillID: SkillID(skill.SkillID), Name: skill.Name, FromName: skill.FromName, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
 	}
 	for _, install := range row.Installs {
 		record.Installs = append(record.Installs, RecordedInstall{SkillID: SkillID(install.SkillID), Scope: scopeRowOf(install.Scope).scope(), Outcome: install.Outcome, Error: ErrorCode(install.Error)})
@@ -182,7 +185,8 @@ type RollbackResult struct {
 // Rollback 回滚一次更新:那次更新换了版本的技能,库里一律换回那次之前的版本,之后又被更新过也一样,不要求先回滚之后那次。
 // 那次更新装过的地方(含单独重试换上的)按磁盘上的文件内容核对:还是那次换上的版本就装回旧版;之后又被重新安装过、用户改过、
 // 文件夹不在了、项目不在这台机器上或还没对应到本机路径、技能已不装在那里或已从库里移除的,都不动,结果里写明原因,不中断整个回滚。
-// 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新。回滚本身在集合的历史里记一条,
+// 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;换回了名字时,跳过的是改成那个名字的改名推测。
+// 回滚本身在集合的历史里记一条,
 // 那次更新的 RolledBackBy 指向它。
 //
 // 错误:记录不存在返回 NotFound;不是更新记录返回 InvalidArgument(Details.Field 为 record);那次更新已被回滚、各处也都核对过了
@@ -216,7 +220,7 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 		rolledBack := map[SkillID]bool{}
 		for _, skill := range previous.Skills {
 			rolledBack[SkillID(skill.SkillID)] = true
-			result.Skills = append(result.Skills, RecordedSkill{SkillID: SkillID(skill.SkillID), Name: skill.Name, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
+			result.Skills = append(result.Skills, RecordedSkill{SkillID: SkillID(skill.SkillID), Name: skill.Name, FromName: skill.FromName, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
 		}
 		for _, skill := range record.Skills {
 			if id := SkillID(skill.SkillID); !rolledBack[id] {
@@ -252,6 +256,13 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 			if err == nil {
 				err = tx.SetCurrentVersion(ctx, skill.SkillID, skill.From)
 			}
+			targetName := cmp.Or(skill.FromName, skill.Name)
+			renamedBack := err == nil && targetName != row.Name
+			if renamedBack {
+				if err = tx.RenameSkill(ctx, skill.SkillID, targetName); errors.Is(err, store.ErrAlreadyExists) {
+					return &Error{Code: Conflict, Message: operation + ": another skill in the collection already has the old name", Details: ErrorDetails{SkillID: id, Name: targetName}, Err: err}
+				}
+			}
 			if errors.Is(err, store.ErrNotFound) {
 				removed[id] = true
 				result.Removed = append(result.Removed, RecordedSkill{SkillID: id, Name: skill.Name, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
@@ -265,13 +276,31 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				return err
 			}
 			content := skillfile.Sum(files)
-			rollback.Skills = append(rollback.Skills, store.RecordSkill{SkillID: skill.SkillID, Name: row.Name, From: row.VersionID, To: skill.From})
-			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
+			name, fromName := row.Name, ""
+			if renamedBack {
+				name, fromName = targetName, row.Name
+			}
+			rollback.Skills = append(rollback.Skills, store.RecordSkill{SkillID: skill.SkillID, Name: name, FromName: fromName, From: row.VersionID, To: skill.From})
 			conclusion := store.UpdateCheck{At: now, Status: string(UpdateAvailable), Revision: record.Revision, Content: content, Found: true, Since: math.MaxInt64}
+			if renamedBack {
+				renamed, err := tx.VersionFiles(ctx, row.VersionID)
+				if err != nil {
+					return err
+				}
+				content = skillfile.Sum(renamed)
+				conclusion = store.UpdateCheck{At: now, Status: string(UpdateDeleted), Revision: record.Revision, Renamed: row.Name, Content: content, Since: math.MaxInt64}
+				if err := tx.MarkNew(ctx, record.SourceID, row.Name); err != nil {
+					return err
+				}
+				if err := tx.RememberRename(ctx, skill.SkillID, row.Name); err != nil {
+					return err
+				}
+			}
+			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
 			if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
 				return err
 			}
-			result.Skills = append(result.Skills, RecordedSkill{SkillID: id, Name: row.Name, FromVersionID: VersionID(row.VersionID), ToVersionID: VersionID(skill.From)})
+			result.Skills = append(result.Skills, RecordedSkill{SkillID: id, Name: name, FromName: fromName, FromVersionID: VersionID(row.VersionID), ToVersionID: VersionID(skill.From)})
 		}
 		recordID, err := tx.AddRecord(ctx, rollback)
 		result.Record = UpdateRecordID(recordID)
@@ -362,7 +391,8 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if current.versionID != update.From {
 		return "", &Error{Code: Conflict, Message: operation + ": skill version changed since the rollback", Details: ErrorDetails{SkillID: id}}
 	}
-	folder := filepath.Join(target.directory, skill.Name)
+	folderName := place[0].Folder
+	folder := filepath.Join(target.directory, folderName)
 	if exists, err := agentdir.Exists(folder); err != nil {
 		return "", fmt.Errorf("inspect target folder: %w", err)
 	} else if !exists {
@@ -375,15 +405,25 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
-	if maps.Equal(disk, digests(current.files)) {
+	if maps.Equal(disk, digests(current.files)) && folderName == skill.Name {
 		return RollbackCurrent, nil
 	}
 	updatedFiles, err := l.store.VersionDigests(ctx, update.To)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	if err == nil && maps.Equal(disk, updatedFiles) {
-		if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target}}, nil); err != nil {
+	if err == nil && maps.Equal(disk, updatedFiles) || maps.Equal(disk, digests(current.files)) {
+		if folderName != skill.Name {
+			if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
+				return "", err
+			}
+		}
+		ids := make([]int64, len(place))
+		for i, row := range place {
+			ids[i] = row.ID
+		}
+		record := func(tx *store.Tx) error { return tx.ResetFolders(ctx, ids) }
+		if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target, replaces: folderName}}, record); err != nil {
 			return "", err
 		}
 		return RollbackReinstalled, nil

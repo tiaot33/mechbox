@@ -1,12 +1,14 @@
 package library
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
@@ -33,11 +35,15 @@ type UpdateCheck struct {
 	// Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希;
 	// 本地目录来源与检查失败时为空。
 	Revision string `json:"revision,omitempty"`
-	// Skipped 为 true 表示有新版本,但来源里这个技能现在的内容,用户之前跳过了(SkipUpdate)。来源里这个技能的内容又变了,
+	// Skipped 为 true 表示有新版本(或推测出了改名),但来源里这份内容用户之前跳过了(SkipUpdate)。来源里这个技能的内容又变了,
 	// 下次检查更新后它回到 false;同一来源里别的技能变了不影响。
 	Skipped bool `json:"skipped,omitzero"`
+	// RenamedTo 是结论为来源里已删除时,推测这个技能在来源里改名成的新名字:同一来源里它消失了,同时出现了一个用户没见过、
+	// 内容大部分相同的技能。用户在更新计划里确认(勾上更新)、否认(RejectRename)或跳过(SkipUpdate);没有推测时为空。
+	RenamedTo string `json:"renamed_to,omitempty"`
 	// Pending 为 true 表示这个技能计入角标,侧边栏的更新计数与 Dock 角标都按它算:有新版本且没跳过,
-	// 或来源里已删除且用户没选继续保留(Skill.KeptDeleted)。本地目录来源的技能、跳过的改动、来源里的新技能都不计入。
+	// 或来源里已删除且用户没选继续保留(Skill.KeptDeleted),或推测出了改名(RenamedTo)且没跳过。本地目录来源的技能、跳过的改动、
+	// 来源里的新技能都不计入。
 	Pending bool `json:"pending,omitzero"`
 }
 
@@ -156,6 +162,15 @@ type collectionRead struct {
 	checked  []checkedSkill
 	revision string
 	listed   []string
+	rejected []map[string][]string
+	linked   []store.RolledBackRename
+	seen     map[string]bool
+	renames  map[int]renameGuess
+}
+
+type renameGuess struct {
+	latest  source.Skill
+	content string
 }
 
 func (l *Library) readCollection(ctx context.Context, id CollectionID) (*collectionRead, error) {
@@ -180,6 +195,7 @@ func (l *Library) readCollection(ctx context.Context, id CollectionID) (*collect
 					read.listed = names
 				}
 			}
+			read.renames = guessRenames(ctx, read)
 			if read.snapshot.Revision() == read.revision {
 				break
 			}
@@ -201,7 +217,7 @@ func (r *collectionRead) conclusions() ([]store.UpdateCheck, *Error) {
 		case checked.err == nil:
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Found: true}
 		case missingSkill(checked.err):
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision}
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision, Renamed: r.renames[i].latest.Name, Content: r.renames[i].content}
 		default:
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateFailed)}
 			if failure == nil {
@@ -228,8 +244,18 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 		if err != nil {
 			return nil, err
 		}
+		rejected, err := l.store.RejectedRenames(ctx, int64(skill.ID))
+		if err != nil {
+			return nil, err
+		}
+		link, err := l.store.RolledBackRename(ctx, int64(skill.ID))
+		if err != nil {
+			return nil, err
+		}
+		read.linked = append(read.linked, link)
 		read.skills = append(read.skills, skill)
 		read.states = append(read.states, state)
+		read.rejected = append(read.rejected, rejected)
 	}
 	if len(read.skills) == 0 {
 		return nil, nil
@@ -240,6 +266,11 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 	if read.listedAt, err = l.store.Listed(ctx, read.states[0].source.ID); err != nil {
 		return nil, err
 	}
+	known, err := l.store.SourceSkills(ctx, read.states[0].source.Type, read.states[0].source.Locator)
+	if err != nil {
+		return nil, err
+	}
+	read.seen = known.Seen
 	return read, nil
 }
 
@@ -290,6 +321,11 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 				conclusion.At = now
 				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
 					return err
+				}
+				if conclusion.Found && read.linked[i].ID != 0 {
+					if err := tx.ForgetRename(ctx, read.linked[i].ID); err != nil {
+						return err
+					}
 				}
 			}
 			row, err := tx.GetSkill(ctx, id)
@@ -363,6 +399,13 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 			return UpdateResult{}, &Error{Code: NotFound, Message: operation + ": skill was removed while fetching", Details: ErrorDetails{SkillID: id}}
 		}
 		checked := read.checked[i]
+		if item.renameTo != "" {
+			guess, renamed := read.renames[i]
+			if !missingSkill(checked.err) || !renamed || guess.latest.Name != item.renameTo || guess.content != item.content || read.states[i].versionID != item.versionID {
+				return UpdateResult{}, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
+			}
+			continue
+		}
 		if missingSkill(checked.err) {
 			return UpdateResult{}, &Error{Code: NotFound, Message: operation + ": skill not found in source", Details: ErrorDetails{SkillID: id, Name: item.name}, Err: checked.err}
 		}
@@ -405,7 +448,7 @@ func selectedSkills(operation string, state *planState, requested []SkillID) ([]
 		if item == nil {
 			return nil, &Error{Code: InvalidArgument, Message: operation + ": skill is not in this update plan", Details: ErrorDetails{Field: "skills", SkillID: id}}
 		}
-		if item.change == PlannedDeleted {
+		if item.change == PlannedDeleted && item.renameTo == "" {
 			return nil, &Error{Code: NotFound, Message: operation + ": skill not found in source", Details: ErrorDetails{SkillID: id, Name: item.name}}
 		}
 		if !slices.Contains(ids, id) {
@@ -451,6 +494,11 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 		for i, skill := range read.skills {
 			checked := read.checked[i]
 			selected := slices.Index(ids, skill.ID)
+			guess, renamed := read.renames[i]
+			renamed = renamed && selected >= 0
+			if renamed {
+				checked = checkedSkill{changed: true, latest: guess.latest}
+			}
 			if checked.err != nil || selected < 0 && checked.changed {
 				continue
 			}
@@ -475,12 +523,42 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 				if err != nil {
 					return err
 				}
-				record.Skills = append(record.Skills, store.RecordSkill{SkillID: id, Name: skill.Name, From: read.states[i].versionID, To: versionID})
+				recorded := store.RecordSkill{SkillID: id, Name: skill.Name, From: read.states[i].versionID, To: versionID}
+				if renamed {
+					if err := tx.RenameSkill(ctx, id, latest.Name); errors.Is(err, store.ErrAlreadyExists) {
+						return &Error{Code: Conflict, Message: "another skill in the collection already has the new name", Details: ErrorDetails{SkillID: skill.ID, Name: latest.Name}, Err: err}
+					} else if err != nil {
+						return err
+					}
+					if err := tx.MarkSeen(ctx, read.states[i].source.ID, []string{latest.Name}); err != nil {
+						return err
+					}
+					if err := tx.ForgetRenames(ctx, id); err != nil {
+						return err
+					}
+					recorded.Name, recorded.FromName = latest.Name, skill.Name
+				}
+				record.Skills = append(record.Skills, recorded)
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			if err := tx.SaveUpdateCheck(ctx, id, store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}); err != nil {
+			stored, err := tx.UpdateCheck(ctx, id)
+			if err != nil {
 				return err
+			}
+			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}
+			if selected < 0 {
+				conclusion.Since = read.states[i].checkSerial
+			}
+			if selected >= 0 || stored.Serial == read.states[i].checkSerial {
+				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
+					return err
+				}
+			}
+			if link := read.linked[i]; link.ID != 0 {
+				if err := tx.ForgetRename(ctx, link.ID); err != nil {
+					return err
+				}
 			}
 			if selected < 0 {
 				continue
@@ -647,4 +725,143 @@ func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Ha
 	}
 	latest := fetched[0]
 	return status == source.Changed || !skillfile.Equal(have.Files, latest.Files), latest, nil
+}
+
+const renameSimilarity = 0.6
+
+func guessRenames(ctx context.Context, read *collectionRead) map[int]renameGuess {
+	var missing []int
+	for i, checked := range read.checked {
+		if missingSkill(checked.err) {
+			missing = append(missing, i)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	names := read.listed
+	if names == nil {
+		var err error
+		if names, err = read.snapshot.Names(ctx); err != nil {
+			return nil
+		}
+	}
+	inLibrary := func(name string) bool {
+		return slices.ContainsFunc(read.skills, func(skill Skill) bool { return skill.Name == name })
+	}
+	var candidates []string
+	for _, name := range names {
+		linked := slices.ContainsFunc(missing, func(i int) bool { return read.linked[i].Name == name })
+		if (linked || !read.seen[name]) && !inLibrary(name) && !slices.Contains(candidates, name) {
+			candidates = append(candidates, name)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	fetched, err := read.snapshot.Fetch(ctx, candidates)
+	if err != nil {
+		return nil
+	}
+	type pair struct {
+		skill     int
+		candidate int
+		score     float64
+	}
+	var pairs []pair
+	contents := make([]string, len(fetched))
+	for j, candidate := range fetched {
+		contents[j] = skillfile.Sum(candidate.Files)
+	}
+	for _, i := range missing {
+		for j, candidate := range fetched {
+			if slices.Contains(read.rejected[i][candidate.Name], contents[j]) {
+				continue
+			}
+			if read.linked[i].Name == candidate.Name {
+				pairs = append(pairs, pair{i, j, 2})
+			} else if score := similarity(read.states[i].files, candidate.Files); score >= renameSimilarity && !read.seen[candidate.Name] {
+				pairs = append(pairs, pair{i, j, score})
+			}
+		}
+	}
+	slices.SortStableFunc(pairs, func(a, b pair) int { return cmp.Compare(b.score, a.score) })
+	guesses := map[int]renameGuess{}
+	used := map[int]bool{}
+	for _, p := range pairs {
+		if _, done := guesses[p.skill]; done || used[p.candidate] {
+			continue
+		}
+		used[p.candidate] = true
+		guesses[p.skill] = renameGuess{latest: fetched[p.candidate], content: contents[p.candidate]}
+	}
+	return guesses
+}
+
+func similarity(old, latest []skillfile.File) float64 {
+	byPath := make(map[string]skillfile.File, len(latest))
+	for _, file := range latest {
+		byPath[file.Path] = file
+	}
+	var matched float64
+	for _, file := range old {
+		other, ok := byPath[file.Path]
+		if !ok {
+			continue
+		}
+		a, b := file.Content, other.Content
+		if file.Path == "SKILL.md" {
+			a, b = withoutName(a), withoutName(b)
+		}
+		if bytes.Equal(a, b) {
+			matched++
+			continue
+		}
+		matched += lineOverlap(a, b)
+	}
+	return matched / float64(max(len(old), len(latest)))
+}
+
+func withoutName(content []byte) []byte {
+	rest, ok := bytes.CutPrefix(content, []byte("---\n"))
+	if !ok {
+		return content
+	}
+	frontmatter, body, ok := bytes.Cut(rest, []byte("\n---\n"))
+	if !ok {
+		return content
+	}
+	var kept [][]byte
+	for line := range bytes.SplitSeq(frontmatter, []byte("\n")) {
+		if !bytes.HasPrefix(line, []byte("name:")) {
+			kept = append(kept, line)
+		}
+	}
+	return append(append(bytes.Join(kept, []byte("\n")), '\n'), body...)
+}
+
+func lineOverlap(a, b []byte) float64 {
+	counts := map[string]int{}
+	var total, common int
+	for line := range strings.SplitSeq(string(a), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			counts[line]++
+			total++
+		}
+	}
+	lines := 0
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		lines++
+		if counts[line] > 0 {
+			counts[line]--
+			common++
+		}
+	}
+	if total == 0 || lines == 0 {
+		return 0
+	}
+	return float64(common) / float64(max(total, lines))
 }

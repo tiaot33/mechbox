@@ -64,7 +64,8 @@ func (q queries) NewSkills(ctx context.Context) (map[int64][]string, error) {
 	rows, err := q.q.QueryContext(ctx, `
 		SELECT source_skills.source_id, source_skills.name FROM source_skills
 		WHERE source_skills.new = 1 AND NOT EXISTS (
-			SELECT 1 FROM skills WHERE skills.source_id = source_skills.source_id AND skills.name = source_skills.name
+			SELECT 1 FROM skills WHERE skills.source_id = source_skills.source_id
+				AND (skills.name = source_skills.name OR skills.update_check_status = 'deleted' AND skills.update_check_renamed_to = source_skills.name)
 		)
 		ORDER BY source_skills.source_id, source_skills.name
 	`)
@@ -143,6 +144,23 @@ func (t *Tx) ListSourceSkills(ctx context.Context, sourceID int64, names []strin
 func (t *Tx) ConfirmListed(ctx context.Context, sourceID int64) error {
 	if _, err := t.q.ExecContext(ctx, `UPDATE sources SET listed_serial = listed_serial + 1 WHERE id = ?`, sourceID); err != nil {
 		return fmt.Errorf("confirm listed source skills: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) AddNewSkill(ctx context.Context, sourceID int64, name string) error {
+	if _, err := t.q.ExecContext(ctx, `INSERT INTO source_skills(source_id, name, new) VALUES (?, ?, 1) ON CONFLICT(source_id, name) DO NOTHING`, sourceID, name); err != nil {
+		return fmt.Errorf("record new skill: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) MarkNew(ctx context.Context, sourceID int64, name string) error {
+	if _, err := t.q.ExecContext(ctx, `
+		INSERT INTO source_skills(source_id, name, new) VALUES (?, ?, 1)
+		ON CONFLICT(source_id, name) DO UPDATE SET new = 1
+	`, sourceID, name); err != nil {
+		return fmt.Errorf("record new skill: %w", wrap(err))
 	}
 	return nil
 }

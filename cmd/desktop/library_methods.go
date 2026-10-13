@@ -80,6 +80,10 @@ func (s *LibraryService) SkipUpdate(ctx context.Context, req library.SkipRequest
 	return settleErr(ctx, s.lib.SkipUpdate(ctx, req))
 }
 
+func (s *LibraryService) RejectRename(ctx context.Context, plan library.UpdatePlanID, skill library.SkillID) error {
+	return settleErr(ctx, s.lib.RejectRename(ctx, plan, skill))
+}
+
 func (s *LibraryService) KeepDeletedSkill(ctx context.Context, id library.SkillID) (library.Skill, error) {
 	return settle(s.lib.KeepDeletedSkill(ctx, id))(ctx)
 }

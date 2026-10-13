@@ -38,6 +38,9 @@
 //     以及有变化的技能装出去的各处现在的状态;[Library.GetUpdatePlanFile] 读来源里的新内容。
 //   - [Library.SkipUpdate] 在更新计划里跳过几个技能的这次改动,或跳过整个来源版本;[Library.KeepDeletedSkill] 对来源里已删除的技能
 //     选继续保留。两者之后都不计入角标。[Library.MarkNotInterested] 对新技能点「不感兴趣」,集合上不再提。
+//   - 来源里改名的技能:检查更新与更新计划给出推测的新名字(UpdateCheck.RenamedTo、PlannedSkill.RenamedTo),计入角标;
+//     勾上更新即确认,[Library.RejectRename] 回答「不是」。确认后装出去而没跟着重新安装的地方保留旧文件夹名,巡检、重新安装、
+//     卸载、回滚都按它找到文件夹([SkillScope].Folder)。
 //   - [Library.Update] 按更新计划带上勾选的技能和勾选的地方,一次确认:先换库(全成或全不成),再逐处重新安装;从集合发起勾计划里
 //     有变化的全部技能,从技能详情页发起只勾这一个。本地目录来源的「重新读取」也是它。没换上的地方用 [Library.RetryUpdateInstalls] 单独重试。
 //   - [Library.ListUpdateHistory] 按集合或技能列出历史:每次更新、跳过、回滚各一条;[Library.Rollback] 回滚一次更新,库与那次装过的地方
