@@ -39,10 +39,10 @@ func writeBuiltinAgents(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, builtinAgentsSQL); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO replica(id, token) VALUES (1, ?) ON CONFLICT(id) DO NOTHING`, newToken()); err != nil {
+	if err := validateSchema(ctx, tx); err != nil {
 		return err
 	}
-	if err := validateSchema(ctx, tx); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO replica(id, token) VALUES (1, ?) ON CONFLICT(id) DO NOTHING`, newToken()); err != nil {
 		return err
 	}
 	return tx.Commit()

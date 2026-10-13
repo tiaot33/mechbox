@@ -140,6 +140,32 @@ func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
 	}
 }
 
+// 同一 schema 版本下少了表的库同样按表结构不符拒绝,文件保持不变。
+func TestOpenRejectsLibraryMissingATable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	editLibraryFixture(t, path, `DROP TABLE replica`)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid, err := library.Open(path)
+	if err == nil {
+		_ = invalid.Close()
+	}
+	requireLibraryError(t, err, library.FailedPrecondition)
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("rejected Open changed the library file: %v", err)
+	}
+}
+
 // 产品尚未发布,不迁移旧版本库:user_version 不是当前版本的库被拒绝,文件保持不变。
 func TestOpenRejectsOtherSchemaVersionsWithoutChangingTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")

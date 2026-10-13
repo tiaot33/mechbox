@@ -137,7 +137,7 @@ type collectionRead struct {
 	skills   []Skill
 	states   []currentVersion
 	replica  string
-	listedAt string
+	listedAt store.Listed
 	snapshot source.Snapshot
 	openErr  error
 	checked  []checkedSkill
@@ -158,11 +158,17 @@ func (l *Library) readCollection(ctx context.Context, id CollectionID) (*collect
 			read.checked[i].err = read.openErr
 		}
 	} else {
-		read.checked = checkSkills(ctx, read.snapshot, haves(read.skills, read.states), true)
-		read.revision = read.snapshot.Revision()
-		if read.revision == "" || read.revision != read.listedAt {
-			if names, err := read.snapshot.Names(ctx); err == nil {
-				read.listed = names
+		for {
+			read.checked = checkSkills(ctx, read.snapshot, haves(read.skills, read.states), true)
+			read.revision = read.snapshot.Revision()
+			read.listed = nil
+			if read.revision == "" || read.revision != read.listedAt.Revision {
+				if names, err := read.snapshot.Names(ctx); err == nil {
+					read.listed = names
+				}
+			}
+			if read.snapshot.Revision() == read.revision {
+				break
 			}
 		}
 	}
@@ -218,7 +224,7 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 	if read.replica, err = l.store.Replica(ctx); err != nil {
 		return nil, err
 	}
-	if read.listedAt, err = l.store.ListedRevision(ctx, read.states[0].source.ID); err != nil {
+	if read.listedAt, err = l.store.Listed(ctx, read.states[0].source.ID); err != nil {
 		return nil, err
 	}
 	return read, nil
@@ -235,11 +241,11 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 		now := clockNow()
 		if read.listed != nil {
 			sourceID := read.states[0].source.ID
-			listedAt, err := tx.ListedRevision(ctx, sourceID)
+			listedAt, err := tx.Listed(ctx, sourceID)
 			if err != nil {
 				return err
 			}
-			if listedAt == read.listedAt {
+			if listedAt.Serial == read.listedAt.Serial {
 				if err := tx.ListSourceSkills(ctx, sourceID, read.listed, read.revision, false); err != nil {
 					return err
 				}
@@ -247,13 +253,14 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 		}
 		for i, skill := range read.skills {
 			id := int64(skill.ID)
-			versionID, err := tx.CurrentVersionID(ctx, id)
-			if errors.Is(err, store.ErrNotFound) {
+			current, err := tx.GetSkill(ctx, id)
+			if errors.Is(err, store.ErrNotFound) || err == nil && (current.Source.ID != read.states[i].source.ID || current.Name != skill.Name) {
 				continue
 			}
 			if err != nil {
 				return err
 			}
+			versionID := current.VersionID
 			stored, err := tx.UpdateCheck(ctx, id)
 			if err != nil {
 				return err
@@ -384,20 +391,13 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 }
 
 // KeepDeletedSkill 记下用户对来源里已删除的这个技能选了继续保留:之后不计入角标,技能上 Skill.KeptDeleted 为 true,重启后仍在。
-// 库里的技能和装出去的文件夹都不动;之后检查更新或更新确认来源里又有这个技能时,标记自动失效。返回记下后的技能。
-// 技能不存在返回 NotFound;技能最近一次检查更新的结论不是来源里已删除返回 FailedPrecondition。
+// 在检查更新的结论或更新计划显示来源里已删除时调用;标记只在结论为来源里已删除时起作用。库里的技能和装出去的文件夹都不动;
+// 之后检查更新、更新计划或更新确认来源里又有这个技能时,标记自动失效。返回记下后的技能。技能不存在返回 NotFound。
 func (l *Library) KeepDeletedSkill(ctx context.Context, id SkillID) (skill Skill, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
-		stored, err := tx.UpdateCheck(ctx, int64(id))
-		if err != nil {
-			return err
-		}
-		if UpdateCheckStatus(stored.Status) != UpdateDeleted {
-			return preconditionError("keep deleted skill", "skill is not deleted from its source", ErrorDetails{SkillID: id})
-		}
 		if err := tx.KeepDeleted(ctx, int64(id)); err != nil {
 			return err
 		}

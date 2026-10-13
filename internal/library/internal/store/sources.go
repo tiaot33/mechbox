@@ -47,12 +47,17 @@ func (q queries) SourceSkills(ctx context.Context, sourceType string, locator []
 	return result, nil
 }
 
-func (q queries) ListedRevision(ctx context.Context, sourceID int64) (string, error) {
-	var revision string
-	if err := q.q.QueryRowContext(ctx, `SELECT listed_revision FROM sources WHERE id = ?`, sourceID).Scan(&revision); err != nil {
-		return "", fmt.Errorf("read listed revision: %w", wrap(err))
+type Listed struct {
+	Revision string
+	Serial   int64
+}
+
+func (q queries) Listed(ctx context.Context, sourceID int64) (Listed, error) {
+	var listed Listed
+	if err := q.q.QueryRowContext(ctx, `SELECT listed_revision, listed_serial FROM sources WHERE id = ?`, sourceID).Scan(&listed.Revision, &listed.Serial); err != nil {
+		return Listed{}, fmt.Errorf("read listed source skills: %w", wrap(err))
 	}
-	return revision, nil
+	return listed, nil
 }
 
 func (q queries) NewSkills(ctx context.Context) (map[int64][]string, error) {
@@ -129,7 +134,7 @@ func (t *Tx) ListSourceSkills(ctx context.Context, sourceID int64, names []strin
 			return fmt.Errorf("forget new skill: %w", wrap(err))
 		}
 	}
-	if _, err := t.q.ExecContext(ctx, `UPDATE sources SET listed_revision = ? WHERE id = ?`, revision, sourceID); err != nil {
+	if _, err := t.q.ExecContext(ctx, `UPDATE sources SET listed_revision = ?, listed_serial = listed_serial + 1 WHERE id = ?`, revision, sourceID); err != nil {
 		return fmt.Errorf("record listed revision: %w", wrap(err))
 	}
 	return nil

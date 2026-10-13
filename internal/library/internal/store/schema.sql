@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS sources (
     type TEXT NOT NULL,                     -- 来源类型:github / url / local
     locator TEXT NOT NULL,                  -- 定位信息,JSON(仓库+Git ref / URL / 本地路径)
     listed_revision TEXT NOT NULL DEFAULT '', -- 最近一次按整个来源记下 source_skills 时的来源版本;检查更新看到同一个来源版本时不再重记。本地目录来源为空,每次都重记
+    listed_serial INTEGER NOT NULL DEFAULT 0,  -- 每重记一次 source_skills 加 1;检查更新写回前据此发现期间别处已重记过,不拿较旧的名单覆盖
     UNIQUE(type, locator)                   -- 同一个来源只记录一行
 );
 

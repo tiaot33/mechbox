@@ -301,8 +301,14 @@ func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, check UpdateChe
 }
 
 func (t *Tx) KeepDeleted(ctx context.Context, skillID int64) error {
-	if _, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_deleted = 1 WHERE id = ?`, skillID); err != nil {
+	result, err := t.q.ExecContext(ctx, `UPDATE skills SET kept_deleted = 1 WHERE id = ?`, skillID)
+	if err != nil {
 		return fmt.Errorf("keep deleted skill: %w", wrap(err))
+	}
+	if changed, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("keep deleted skill: %w", wrap(err))
+	} else if changed == 0 {
+		return fmt.Errorf("keep deleted skill: %w", ErrNotFound)
 	}
 	return nil
 }
