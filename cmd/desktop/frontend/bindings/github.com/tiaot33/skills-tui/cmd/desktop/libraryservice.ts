@@ -70,6 +70,10 @@ export function GetSkillAudit(id: library$0.FetchPreviewID, name: string): $Canc
     return $Call.ByID(3835043506, id, name);
 }
 
+export function GetUpdatePlanFile(plan: library$0.UpdatePlanID, skill: library$0.SkillID, path: string): $CancellablePromise<library$0.File> {
+    return $Call.ByID(369638650, plan, skill, path);
+}
+
 export function GetVersion(id: library$0.VersionID): $CancellablePromise<library$0.SkillVersion> {
     return $Call.ByID(3362310406, id);
 }
@@ -95,6 +99,10 @@ export function Install(id: library$0.SkillID, scope: library$0.Scope, opts: lib
 
 export function InstallGroup(groupID: library$0.GroupID, scope: library$0.Scope, opts: library$0.InstallOptions): $CancellablePromise<library$0.GroupMemberResult[] | null> {
     return $Call.ByID(1741483516, groupID, scope, opts);
+}
+
+export function KeepDeletedSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
+    return $Call.ByID(2236391569, id);
 }
 
 export function ListAgents(): $CancellablePromise<library$0.Agent[] | null> {
@@ -125,12 +133,20 @@ export function ListSkills(): $CancellablePromise<library$0.Skill[] | null> {
     return $Call.ByID(1925462024);
 }
 
+export function ListUpdateHistory(filter: library$0.UpdateHistoryFilter): $CancellablePromise<library$0.UpdateRecord[] | null> {
+    return $Call.ByID(4158790541, filter);
+}
+
 export function ListVersionFiles(id: library$0.VersionID): $CancellablePromise<library$0.FileMetadata[] | null> {
     return $Call.ByID(2063296617, id);
 }
 
 export function ListVersions(id: library$0.SkillID): $CancellablePromise<library$0.SkillVersion[] | null> {
     return $Call.ByID(2258615823, id);
+}
+
+export function MarkNotInterested(id: library$0.CollectionID, names: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(139540539, id, names);
 }
 
 export function PlanGroupInstall(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<library$0.GroupInstallPlan> {
@@ -149,6 +165,10 @@ export function PlanSyncPush(): $CancellablePromise<library$0.SyncPushPlan> {
     return $Call.ByID(1020557754);
 }
 
+export function PlanUpdate(id: library$0.CollectionID): $CancellablePromise<library$0.UpdatePlan> {
+    return $Call.ByID(1782392708, id);
+}
+
 export function PreviewFetch(req: library$0.PreviewFetchRequest): $CancellablePromise<library$0.FetchPreview> {
     return $Call.ByID(2817557670, req);
 }
@@ -159,6 +179,10 @@ export function RegisterProject(path: string): $CancellablePromise<library$0.Reg
 
 export function Reinstall(requests: library$0.ReinstallRequest[] | null): $CancellablePromise<library$0.ReinstallResult[] | null> {
     return $Call.ByID(3254091762, requests);
+}
+
+export function RejectRename(plan: library$0.UpdatePlanID, skill: library$0.SkillID): $CancellablePromise<void> {
+    return $Call.ByID(2572107739, plan, skill);
 }
 
 export function RelocateProject(id: library$0.ProjectID, path: string): $CancellablePromise<library$0.RegisteredProject> {
@@ -177,6 +201,14 @@ export function RenameGroup(id: library$0.GroupID, name: string): $CancellablePr
     return $Call.ByID(1994858443, id, name);
 }
 
+export function RetryUpdateInstalls(id: library$0.UpdateRecordID, installs: library$0.ReinstallRequest[] | null): $CancellablePromise<library$0.ReinstallResult[] | null> {
+    return $Call.ByID(1004827641, id, installs);
+}
+
+export function Rollback(id: library$0.UpdateRecordID): $CancellablePromise<library$0.RollbackResult> {
+    return $Call.ByID(3945990446, id);
+}
+
 export function ScopeDirectory(scope: library$0.Scope): $CancellablePromise<string> {
     return $Call.ByID(111257673, scope);
 }
@@ -191,6 +223,10 @@ export function SetGitHubToken(token: string): $CancellablePromise<void> {
 
 export function SetSyncSettings(settings: library$0.SyncSettings | null): $CancellablePromise<void> {
     return $Call.ByID(1864003768, settings);
+}
+
+export function SkipUpdate(req: library$0.SkipRequest): $CancellablePromise<void> {
+    return $Call.ByID(3169157428, req);
 }
 
 export function SyncPull(expected: library$0.RemoteIdentity): $CancellablePromise<void> {

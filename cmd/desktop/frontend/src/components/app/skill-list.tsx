@@ -1,11 +1,12 @@
 // 中间：作用域摘要(选中作用域时)、组 / 集合标题条(筛选组 / 集合时)、更新列表(筛选"更新"时)与技能卡片 / 列表。
 // 卡片点开详情抽屉、可拖到左栏组或右栏作用域;选中作用域时卡片上的开关控制直接安装。
-import type { Collection, Group, Skill } from "@bindings/internal/library";
+import { useEffect, useState } from "react";
+import { LibraryService } from "@bindings/cmd/desktop";
+import { PlannedChange, type Collection, type CollectionID, type Group, type Skill } from "@bindings/internal/library";
 import {
   deleteGroup,
   installGroup,
   installSkill,
-  openUpdate,
   previewCollection,
   reinstall,
   renameGroup,
@@ -19,15 +20,19 @@ import {
   collectionSkills,
   deletedInSource,
   groupStateIn,
+  hasUpdate,
   isLocal,
   needsReinstall,
   parseScope,
+  pending,
   placeOf,
   projectName,
+  renamedTo,
   revisionSummary,
   scopeKey,
   scopeLabel,
   shortPath,
+  shortRevision,
   skillScopeIn,
   skillScopeStatus,
   skillScopesIn,
@@ -42,7 +47,7 @@ import {
   type SkillFilter,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
-import { updateWithDefaults } from "@/lib/update";
+import { notInterested, openHistory, openUpdate, previewNewSkills, riskSummary, updateWithDefaults } from "@/lib/update";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -176,14 +181,29 @@ function SkillCard(props: {
       <div className={cn("flex min-w-0 items-center gap-1.5", list && "w-[260px] shrink-0")}>
         {/* 名字优先：放不下时先截右边的来源，再截名字。 */}
         <span className={cn("a-card-name min-w-0 truncate font-semibold", list ? "text-[13px]" : "text-[12.5px]")}>{skill.name}</span>
-        {updateAvailable(skill) && (
-          <Badge tone="warn" className="px-[5px] py-0 text-[9.5px]" title="来源有新版本">
-            可更新
+        {/* 计入角标的才标出来;点标签直接打开所在集合的更新计划(组页面不提供批量更新，就从这里进)。 */}
+        {pending(skill) && hasUpdate(skill) && (
+          <Badge asChild tone="warn" className="px-[5px] py-0 text-[9.5px]">
+            <button
+              type="button"
+              title={renamedTo(skill) ? `来源里可能改名为 ${renamedTo(skill)};点击查看更新计划` : "来源有新版本;点击查看更新计划"}
+              onClick={(e) => {
+                e.stopPropagation();
+                void openUpdate(ui, s, skill.collection_id, { focus: skill.id });
+              }}
+            >
+              {renamedTo(skill) ? "可能改名" : "可更新"}
+            </button>
           </Badge>
         )}
-        {deletedInSource(skill) && (
-          <Badge title="作者已从来源删掉它(也可能是改了名);你的副本还在，可以继续用">来源里已删除</Badge>
-        )}
+        {deletedInSource(skill) &&
+          (skill.kept_deleted ? (
+            <span className="shrink-0 text-[10px] text-subtle" title="作者已从来源删掉它，你选了继续保留">
+              来源已删除
+            </span>
+          ) : (
+            <Badge title="作者已从来源删掉它;你的副本还在，可以继续用">来源里已删除</Badge>
+          ))}
         {/* 右上角：所属组(灰色小标签，多个时显示 +N),其后是淡色的来源。 */}
         {groups.length > 0 && (
           <span
@@ -385,41 +405,58 @@ function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: Scop
   );
 }
 
-// UpdatesHead 是筛选"更新"时的更新列表：每个有新版本的集合一行。信得过的直接"更新"(按默认勾选),
-// 不放心的"查看"打开更新确认框调整勾选。集合里只有一个技能时直接显示技能名。
+// UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
+// 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
 function UpdatesHead({ s }: { s: Snapshot }) {
   const ui = useUI();
   const collections = updatableCollections(s);
+  const risks = usePlanRisks(s, collections);
+  const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x)));
   return (
     <div className={barClass}>
       {collections.map((c) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
-        const pending = skills.filter(updateAvailable);
-        const deleted = skills.filter(deletedInSource);
+        const todo = skills.filter(pending);
+        const available = todo.filter(updateAvailable);
+        const to = todo.map((x) => x.last_update_check?.revision).find(Boolean);
+        const risk = risks.get(c.id);
         const facts = [
-          single ? `来自 ${sourceLabel(s, c.source)}` : revisionSummary(skills),
-          single ? "有新版本" : `${pending.map((x) => x.name).join("、")} 有新版本`,
-          deleted.length ? `${deleted.map((x) => x.name).join("、")} 来源里已删除` : "",
+          single ? `来自 ${sourceLabel(s, c.source)}` : "",
+          revisionMove(skills, to),
+          available.length ? (single ? "有新版本" : `${available.map((x) => x.name).join("、")} 有变化`) : "",
+          ...todo.filter(renamedTo).map((x) => `${x.name} 可能改名为 ${renamedTo(x)}`),
+          todo.some(deletedInSource) ? `${todo.filter(deletedInSource).map((x) => x.name).join("、")} 来源里已删除` : "",
         ].filter(Boolean);
         return (
-          <div key={c.id} className={barRowClass}>
+          <div key={c.id} className={cn(barRowClass, "update-row")}>
             <b className="truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
-            <span className="grow truncate text-[11px] text-muted-foreground">{facts.join(" · ")}</span>
+            <span className="min-w-0 grow truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
+              {facts.join(" · ")}
+            </span>
+            {risk && (
+              <span className="shrink-0 text-[11px] text-warn-strong" title="新增或改动的脚本、新增的可执行文件;打开更新计划看是哪几个">
+                ⚠ {risk}
+              </span>
+            )}
             <Button size="sm" onClick={() => openUpdate(ui, s, c.id)}>
               查看
             </Button>
-            <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, [c])}>
-              <Icon name="up" />
-              更新
-            </Button>
+            {available.length > 0 && (
+              <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, [c.id])}>
+                <Icon name="up" />
+                更新
+              </Button>
+            )}
           </div>
         );
       })}
       <div className={barRowClass}>
-        <span className="grow text-[11px] text-muted-foreground">更新时，装出去的地方一起换成新版;你改过的地方不动。</span>
-        {collections.length > 1 && (
-          <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, collections)}>
+        <span className="grow text-[11px] text-muted-foreground">
+          更新时，装出去的地方一起换成新版;你改过的地方不动。改名和删除请在"查看"里确认。
+        </span>
+        {direct.length > 1 && (
+          <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, direct.map((c) => c.id))}>
             <Icon name="up" />
             全部更新
           </Button>
@@ -429,31 +466,89 @@ function UpdatesHead({ s }: { s: Snapshot }) {
   );
 }
 
-// CollectionHead 是筛选某个集合时的标题条：来源、集合里的技能在哪个来源版本上、更新，以及看来源里还有哪些技能。
+// revisionMove 是"a1b2c3 → d4e5f6";集合里的技能不在同一个来源版本上时如实写出各在哪里。
+function revisionMove(skills: Skill[], to: string | undefined): string {
+  const from = revisionSummary(skills);
+  if (!from || !to) return from;
+  return from.startsWith("在 ") ? `${from.slice(2)} → ${shortRevision(to)}` : `${from} · 最新 ${shortRevision(to)}`;
+}
+
+// 更新列表上的风险提示要读一次更新计划(要连来源);按"集合 + 来源最新版本"记下来，同一份内容只读一次。
+const riskCache = new Map<string, string>();
+
+function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID, string> {
+  const keys = collections.map((c) => {
+    const to = collectionSkills(s, c)
+      .map((x) => x.last_update_check?.revision)
+      .find(Boolean);
+    return [c.id, `${c.id}:${to ?? ""}`] as const;
+  });
+  const [, setVersion] = useState(0);
+  const missing = keys.filter(([, key]) => !riskCache.has(key));
+  const wanted = missing.map(([, key]) => key).join(",");
+  useEffect(() => {
+    if (!missing.length) return;
+    let cancelled = false;
+    void (async () => {
+      for (const [id, key] of missing) {
+        const plan = await LibraryService.PlanUpdate(id).catch(() => null);
+        if (cancelled) return;
+        const movable = (plan?.skills ?? []).filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
+        riskCache.set(key, riskSummary(movable.flatMap((p) => p.risks ?? [])));
+        setVersion((n) => n + 1);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 只在缺的那几个集合变了时重读。
+  }, [wanted]);
+  return new Map(keys.map(([id, key]) => [id, riskCache.get(key) ?? ""]));
+}
+
+// CollectionHead 是筛选某个集合时的标题条：来源、集合里的技能在哪个来源版本上、更新、历史，以及来源里的新技能。
 function CollectionHead({ s, collection }: { s: Snapshot; collection: Collection }) {
   const ui = useUI();
   const skills = collectionSkills(s, collection);
-  const pending = skills.filter(updateAvailable).length;
+  const todo = skills.filter(pending).length;
   const local = isLocal(collection.source);
-  const facts = [revisionSummary(skills), pending ? `${pending} 个有新版本` : ""].filter(Boolean);
+  const label = sourceLabel(s, collection.source);
+  const facts = [revisionSummary(skills), todo ? `${todo} 个有变化` : ""].filter(Boolean);
+  const fresh = collection.new_skills ?? [];
   return (
     <div className={barClass}>
       <div className={barRowClass}>
         <span className="inline-flex items-center gap-[5px]">
           <SourceIcon type={collection.source.type} className="size-3 text-muted-foreground" />
-          {sourceLabel(s, collection.source)}
+          {label}
         </span>
         <span className="grow truncate text-[11px] text-muted-foreground">{facts.join(" · ")}</span>
         <Button size="sm" onClick={() => previewCollection(ui, collection.id)} title="按入库时的来源重新读取，看看作者又发布了哪些技能">
           看来源里的其他技能
         </Button>
-        {!local && pending > 0 && (
-          <Button size="sm" variant="primary" onClick={() => openUpdate(ui, s, collection.id)}>
+        <Button size="sm" onClick={() => openHistory(ui, s, { collection_id: collection.id }, `${label} 的历史`)}>
+          历史
+        </Button>
+        {!local && skills.some(hasUpdate) && (
+          <Button size="sm" variant={todo ? "primary" : "default"} onClick={() => openUpdate(ui, s, collection.id)}>
             <Icon name="up" />
             更新
           </Button>
         )}
       </div>
+      {fresh.length > 0 && (
+        <div className={cn(barRowClass, "collection-new")}>
+          <span className="grow truncate text-[11px] text-muted-foreground">
+            {label} 新发布了 {fresh.length} 个技能({fresh.join("、")})
+          </span>
+          <Button variant="link" onClick={() => previewNewSkills(ui, collection.id)}>
+            去入库
+          </Button>
+          <Button variant="link" onClick={() => notInterested(ui, collection.id, fresh)}>
+            不感兴趣
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

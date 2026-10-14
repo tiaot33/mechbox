@@ -129,8 +129,7 @@ func (a *AppService) refreshBadge(ctx context.Context) {
 func badgeCount(skills []library.Skill) int {
 	n := 0
 	for _, skill := range skills {
-		if skill.Source.Type != library.SourceLocal && skill.LastUpdateCheck != nil &&
-			skill.LastUpdateCheck.Status == library.UpdateAvailable {
+		if skill.LastUpdateCheck != nil && skill.LastUpdateCheck.Pending {
 			n++
 		}
 	}

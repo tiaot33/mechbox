@@ -379,20 +379,33 @@ await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单�
 });
 
 // ============ 更新 ============
-// URL 来源的更新：改写 zip 里的 delta,检查更新 → 更新列表 → 按默认勾选更新，装出去的地方一起换成新版。
+// URL 来源的更新：改写 zip 里的 delta(带一个新脚本),检查更新 → 更新列表(风险提示)→ 按默认勾选更新，装出去的地方一起换成新版;
+// 之后在历史里回滚、从更新计划里把回滚掉的改动找回来。
 const updatesNav = () => page.locator(".a-left .nav-item").filter({ has: page.locator("span", { hasText: /^更新$/ }) });
 function rewriteZip(description) {
   fs.writeFileSync(`${ZIP_DIR}/delta/SKILL.md`, `---\nname: delta\ndescription: "${description}"\n---\n\n# ${description}\n`);
+  fs.mkdirSync(`${ZIP_DIR}/delta/scripts`, { recursive: true });
+  fs.writeFileSync(`${ZIP_DIR}/delta/scripts/setup.sh`, "echo setup\n");
   fs.rmSync(`${ZIP_DIR}/delta.zip`);
   execFileSync("zip", ["-qr", "delta.zip", "delta"], { cwd: ZIP_DIR });
 }
+const rezip = (name, dirs) => {
+  fs.rmSync(`${ZIP_DIR}/${name}.zip`);
+  execFileSync("zip", ["-qr", `../${name}.zip`, ...dirs], { cwd: `${ZIP_DIR}/${name}` });
+};
 const projSkill = (name) => {
   const projDir = `${HOME}/code/proj-a`;
   const found = fs.readdirSync(projDir, { recursive: true }).find((f) => String(f).endsWith(`${name}/SKILL.md`));
   return found ? fs.readFileSync(path.join(projDir, String(found)), "utf8") : "";
 };
+const checkUpdates = async (text) => {
+  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
+  await toast(text);
+  await settle();
+};
+const planRow = (cls, name) => modal().locator(`.${cls}`, { has: page.locator("b", { hasText: new RegExp(`^${name}$`) }) });
 
-await step("检查更新 → 更新列表 → 更新(连同装出去的地方)", async () => {
+await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出去的地方)", async () => {
   await clearScope();
   await openDrawer("delta");
   await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-a" });
@@ -402,15 +415,16 @@ await step("检查更新 → 更新列表 → 更新(连同装出去的地方)",
   await settle();
   await closeDrawer();
   rewriteZip("delta v2");
-  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
-  await toast("1 个技能有新版本");
-  await settle();
+  await checkUpdates("1 个技能有新版本");
+  assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
   assert((await card("delta").locator('[data-slot="badge"][data-tone="warn"]', { hasText: "可更新" }).count()) === 1, "delta 应标可更新");
-  const row = page.locator(".a-scope-sum .a-sum-row", { hasText: "delta" });
-  assert((await row.getByText("来自 delta.zip").count()) === 1, "只有一个技能的集合直接显示技能名");
+  const row = page.locator(".update-row", { hasText: "delta" });
+  assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
+  await row.getByText("⚠ 新增 1 个脚本").waitFor({ timeout: 15000 });
   await btn(row, "更新").click();
-  await toast("已更新 delta · 1 个技能有新版本 · 换到了 1 个地方");
+  await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
+  assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
   await settle();
   assert(projSkill("delta").includes("delta v2"), "项目里的 delta 应换成 v2");
   assert((await updatesNav().count()) === 0, "没有更新后左栏不再显示更新");
@@ -428,7 +442,36 @@ await step("版本历史：两个版本、与当前比较、查看旧版文件",
   await closeDrawer();
 });
 
-await step("详情：本地目录来源重新读取 → 改过的地方默认不勾", async () => {
+await step("历史与回滚：库和装过的地方回到旧版，回滚掉的改动不计入角标，之后能在更新计划里找回来", async () => {
+  await openDrawer("delta");
+  await btn(drawer(), "更新历史").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "「delta」的更新历史" }).waitFor();
+  const record = modal().locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "更新" }) });
+  await btn(record.first(), "改了什么").click();
+  await record.first().locator('[data-diff="added"]', { hasText: "scripts/setup.sh" }).waitFor();
+  await btn(record.first(), "回滚").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
+  await btn(modal(), "回滚").click();
+  await toast("装回了 1 个地方");
+  await settle();
+  assert(projSkill("delta").includes("delta skill from a zip"), "项目里的 delta 应回到 v1");
+  await page.locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "回滚" }) }).first().waitFor();
+  assert((await page.locator(".update-record").getByText("已回滚", { exact: true }).count()) === 1, "那次更新应标已回滚");
+  await page.keyboard.press("Escape");
+  assert((await updatesNav().count()) === 0, "回滚掉的改动不计入角标");
+  // 从技能发起时就是要更新这一个：跳过的改动照样标出来，但默认勾上。
+  await btn(drawer(), "更新").click();
+  const delta = planRow("update-skill", "delta");
+  await delta.locator('[data-slot="badge"]', { hasText: "已跳过" }).waitFor({ timeout: 15000 });
+  assert(await delta.locator("input[type=checkbox]").isChecked(), "从技能发起时默认勾上这一个");
+  await btn(modal(), "更新 1 个").click();
+  await toast("已更新 delta");
+  await settle();
+  assert(projSkill("delta").includes("delta v2"), "找回来再更新后项目里的 delta 又是 v2");
+  await closeDrawer();
+});
+
+await step("详情：本地目录来源重新读取，一个操作完成，改过的地方不动", async () => {
   await openDrawer("gamma");
   assert((await btn(drawer(), "检查更新").count()) === 0, "单个技能不提供检查更新");
   await drawer().locator(".install-to select").nth(0).selectOption("0");
@@ -442,13 +485,7 @@ await step("详情：本地目录来源重新读取 → 改过的地方默认不
   fs.writeFileSync(path.join(`${HOME}/code/proj-a`, String(projGamma)), edited);
   fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v3"\n---\n\n# gamma v3\n');
   await btn(drawer(), "重新读取").click();
-  await modal().locator('[data-slot="dialog-title"]', { hasText: "重新读取「gamma」" }).waitFor();
-  const projRow = modal().locator('[data-slot="list-row"]', { hasText: "Claude Code · proj-a" });
-  await projRow.locator('[data-slot="badge"]', { hasText: "你在这里改过" }).waitFor();
-  assert(!(await projRow.locator("input[type=checkbox]").isChecked()), "改过的地方默认不勾");
-  assert(await modal().locator('[data-slot="list-row"]', { hasText: "Codex · 全局" }).locator("input[type=checkbox]").isChecked(), "没改过的地方默认勾上");
-  await btn(modal(), "重新读取").click();
-  await toast("已重新读取「gamma」 · 1 个技能有新版本 · 换到了 1 个地方 · 1 个地方你改过，没动");
+  await toast("已重新读取「gamma」 · 1 个技能换了新版本 · 换到了 1 个地方 · 1 个地方你改过，没动");
   await settle();
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "Codex 全局的 gamma 应为 v3");
   assert(projSkill("gamma").includes("edited by hand"), "改过的地方保持原样");
@@ -468,36 +505,109 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   for (const name of ["eta", "theta"]) {
     fs.writeFileSync(`${ZIP_DIR}/pair/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name} v2"\n---\n\n# ${name} v2\n`);
   }
-  fs.rmSync(`${ZIP_DIR}/pair.zip`);
-  execFileSync("zip", ["-qr", "../pair.zip", "eta", "theta"], { cwd: `${ZIP_DIR}/pair` });
-  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
-  await toast("2 个技能有新版本");
-  await settle();
+  rezip("pair", ["eta", "theta"]);
+  await checkUpdates("2 个技能有新版本");
 
   await openDrawer("eta");
   await btn(drawer(), "更新").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新 pair.zip" }).waitFor();
-  assert(await modal().locator('[data-slot="list-row"]', { hasText: "eta" }).locator("input[type=checkbox]").isChecked(), "eta 应勾上");
-  await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有新版本(theta)" }).waitFor();
+  assert(await planRow("update-skill", "eta").locator("input[type=checkbox]").isChecked(), "eta 应勾上");
+  await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化(theta)" }).waitFor();
   await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "不在同一个来源版本上" }).waitFor();
   await btn(modal(), "更新 1 个").click();
-  await toast("已更新 pair.zip · 1 个技能有新版本");
+  await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
-  const relation = drawer().locator(".meta dd").filter({ hasText: "有新版本" });
-  assert((await relation.filter({ hasText: " 在 " }).count()) === 1, "eta 与 theta 应不在同一个来源版本上，且 theta 仍有新版本");
+  const relation = drawer().locator(".meta dd").filter({ hasText: "有变化" });
+  assert((await relation.filter({ hasText: " 在 " }).count()) === 1, "eta 与 theta 应不在同一个来源版本上，且 theta 仍有变化");
   await closeDrawer();
 
   await updatesNav().click();
-  const row = page.locator(".a-scope-sum .a-sum-row", { hasText: "pair.zip" });
-  assert((await row.getByText("theta 有新版本", { exact: false }).count()) === 1, "更新列表应列出 theta");
+  const row = page.locator(".update-row", { hasText: "pair.zip" });
+  assert((await row.getByText("theta 有变化", { exact: false }).count()) === 1, "更新列表应列出 theta");
   await btn(row, "查看").click();
-  await modal().locator('[data-slot="list-row"]', { hasText: "没变化:eta" }).waitFor();
+  await modal().locator('[data-slot="list-row"]', { hasText: "没变化:eta" }).waitFor({ timeout: 15000 });
   await btn(modal(), "更新 1 个").click();
-  await toast("已更新 pair.zip · 1 个技能有新版本");
+  await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
   await openDrawer("eta");
   await drawer().locator(".meta dd", { hasText: "和其他 1 个技能在同一个来源版本上" }).waitFor();
   await closeDrawer();
+});
+
+await step("更新计划：风险与差异、确认改名、继续保留已删除的、新技能不感兴趣、跳过", async () => {
+  const trioURL = ZIP_URL.replace(/delta\.zip$/, "trio.zip");
+  await openFetch();
+  await btn(modal(), "URL 压缩包").click();
+  await modal().locator('[data-slot="input"]').first().fill(trioURL);
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  await btn(modal(), "入库所选").click();
+  await toast("已入库 3 个技能");
+  await settle();
+  await openDrawer("lambda");
+  await drawer().locator(".install-to select").nth(0).selectOption("0");
+  await drawer().locator(".install-to select").nth(1).selectOption("claude-code");
+  await btn(drawer(), "安装").click();
+  await toast("已安装「lambda」");
+  await settle();
+  const claudeSkills = path.dirname((await drawer().locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).locator(".font-mono").textContent()).replace(/^~/, HOME));
+  await closeDrawer();
+
+  // kappa 改了并新增一个脚本;lambda 改名为 lambda-kit(内容不变);mu 删掉;新增 nu。
+  const trio = `${ZIP_DIR}/trio`;
+  fs.appendFileSync(`${trio}/kappa/SKILL.md`, "\nNow with a script.\n");
+  fs.mkdirSync(`${trio}/kappa/scripts`);
+  fs.writeFileSync(`${trio}/kappa/scripts/x.sh`, "echo kappa\n");
+  fs.mkdirSync(`${trio}/lambda-kit`);
+  fs.writeFileSync(`${trio}/lambda-kit/SKILL.md`, fs.readFileSync(`${trio}/lambda/SKILL.md`, "utf8").replace("name: lambda", "name: lambda-kit"));
+  fs.rmSync(`${trio}/lambda`, { recursive: true });
+  fs.rmSync(`${trio}/mu`, { recursive: true });
+  fs.mkdirSync(`${trio}/nu`);
+  fs.writeFileSync(`${trio}/nu/SKILL.md`, '---\nname: nu\ndescription: "nu v1"\n---\n\n# nu\n');
+  rezip("trio", ["kappa", "lambda-kit", "nu"]);
+  await checkUpdates("1 个技能可能改了名");
+  assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "3", "侧边栏计数应为 3(有新版本、可能改名、来源里已删除)");
+
+  await updatesNav().click();
+  const row = page.locator(".update-row", { hasText: "trio.zip" });
+  await row.getByText("lambda 可能改名为 lambda-kit", { exact: false }).waitFor();
+  await row.getByText("⚠ 新增 1 个脚本").waitFor({ timeout: 15000 });
+  await btn(row, "查看").click();
+  await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
+  await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
+  await btn(planRow("update-skill", "kappa"), "收起差异").click();
+  await btn(planRow("update-skill", "kappa"), "看差异").click();
+  await modal().locator(".update-diff button", { hasText: "SKILL.md" }).click();
+  await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "Now with a script." }).waitFor();
+
+  await btn(planRow("update-rename", "lambda"), "是").click();
+  await planRow("update-rename", "lambda").locator('[data-slot="badge"]', { hasText: "是同一个" }).waitFor();
+  await modal().locator(".update-place", { hasText: "Claude Code · 全局" }).getByText("lambda → lambda-kit").waitFor();
+  await btn(planRow("update-deleted", "mu"), "继续保留").click();
+  await toast("已继续保留「mu」");
+  await planRow("update-deleted", "mu").locator('[data-slot="badge"]', { hasText: "已继续保留" }).waitFor();
+  await modal().locator(".update-new", { hasText: "nu" }).waitFor();
+  await btn(modal().locator(".update-new"), "不感兴趣").click();
+  await toast("不再提示这几个新技能");
+  assert((await modal().locator(".update-new").count()) === 0, "点了不感兴趣后不再提新技能");
+  await btn(planRow("update-skill", "kappa"), "跳过").click();
+  await toast("已跳过「kappa」这次的改动");
+  assert(!(await planRow("update-skill", "kappa").locator("input[type=checkbox]").isChecked()), "跳过后不再勾选");
+  await btn(modal(), "更新 1 个").click();
+  await toast("已更新 trio.zip · 1 个技能换了新版本 · 换到了 1 个地方");
+  await settle();
+
+  assert(fs.existsSync(path.join(claudeSkills, "lambda-kit", "SKILL.md")), "确认改名后装出去的文件夹换成新名字");
+  assert(!fs.existsSync(path.join(claudeSkills, "lambda")), "旧文件夹清掉");
+  assert((await card("lambda-kit").count()) === 1 && (await card("lambda").count()) === 0, "技能改用新名字");
+  assert((await updatesNav().count()) === 0, "跳过的、继续保留的不计入角标");
+  assert((await card("mu").getByText("来源已删除").count()) === 1, "继续保留的技能留一个淡色标记");
+  await page.locator(".a-left .nav-item", { hasText: "trio.zip" }).click();
+  assert((await page.locator(".collection-new").count()) === 0, "不感兴趣的新技能不再在集合上提");
+  await btn(page.locator(".a-scope-sum"), "看来源里的其他技能").click();
+  await modal().locator('[data-slot="list-row"]', { hasText: "nu" }).waitFor({ timeout: 20000 });
+  await page.keyboard.press("Escape");
+  await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
 });
 
 // ============ 拖放 ============

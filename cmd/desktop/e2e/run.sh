@@ -42,6 +42,12 @@ for name in eta theta; do
 	printf -- '---\nname: %s\ndescription: "%s v1"\n---\n\n# %s\n' "$name" "$name" "$name" >"$work/zips/pair/$name/SKILL.md"
 done
 (cd "$work/zips/pair" && zip -qr ../pair.zip eta theta)
+# 三个技能的 zip:测更新计划里的风险、跳过、改名、来源里已删除与新技能。
+for name in kappa lambda mu; do
+	mkdir -p "$work/zips/trio/$name"
+	printf -- '---\nname: %s\ndescription: "%s v1"\n---\n\n# %s\n\nUse it well.\n' "$name" "$name" "$name" >"$work/zips/trio/$name/SKILL.md"
+done
+(cd "$work/zips/trio" && zip -qr ../trio.zip kappa lambda mu)
 
 port=${E2E_PORT:-18080}
 zip_port=$((port + 1))

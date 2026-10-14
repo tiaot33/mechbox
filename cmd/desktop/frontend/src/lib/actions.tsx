@@ -30,11 +30,11 @@ import {
 import { describeError } from "./errors";
 import type { LibraryError, Snapshot } from "./library";
 import { FetchReview } from "@/components/app/fetch-review";
-import { UpdateDialog } from "@/components/app/update-dialog";
 import {
   agentName,
   deletedInSource,
   needsReinstall,
+  pending,
   placeOf,
   projectName,
   scopeKey,
@@ -42,6 +42,7 @@ import {
   shortPath,
   skillScopeIn,
   skillScopesOf,
+  renamedTo,
   sourceLabel,
   updateAvailable,
 } from "./model";
@@ -452,16 +453,18 @@ function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {
 
 // ---------- 更新 ----------
 
-// checkUpdates 按集合检查更新(只读);没读成来源的集合列出原因。
+// checkUpdates 按集合检查更新(只读);没读成来源的集合列出原因。汇报的数目只算计入角标的(跳过的、选了继续保留的不算)。
 export async function checkUpdates(ui: UI, s: Snapshot, collections: CollectionID[]) {
   const checks = await ui.run(() => LibraryService.CheckUpdates(collections));
   if (!checks) return;
-  const skills = checks.flatMap((c) => c.skills ?? []);
+  const skills = checks.flatMap((c) => c.skills ?? []).filter(pending);
   const available = skills.filter(updateAvailable).length;
+  const renamed = skills.filter(renamedTo).length;
   const deleted = skills.filter(deletedInSource).length;
   const summary = [
     `检查了 ${checks.length} 个来源`,
     available ? `${available} 个技能有新版本` : "",
+    renamed ? `${renamed} 个技能可能改了名` : "",
     deleted ? `${deleted} 个技能来源里已删除` : "",
   ].filter(Boolean);
   const failed = checks.filter((c) => c.error);
@@ -478,15 +481,8 @@ export async function checkUpdates(ui: UI, s: Snapshot, collections: CollectionI
       [...summary, `${failed.length} 个来源没读成，可以稍后重试`].join(","),
     );
   } else {
-    ui.toast(available || deleted ? summary.join(",") : `检查了 ${checks.length} 个来源，都是最新`);
+    ui.toast(skills.length ? summary.join(",") : `检查了 ${checks.length} 个来源，没有要处理的更新`);
   }
-}
-
-// openUpdate 打开集合的更新确认框;从技能发起时传 focus,默认只勾这一个。
-export function openUpdate(ui: UI, s: Snapshot, collectionID: CollectionID, focus?: SkillID) {
-  const collection = s.collections.find((c) => c.id === collectionID);
-  if (!collection) return;
-  return ui.open((close) => <UpdateDialog s={s} collection={collection} focus={focus} onClose={() => close()} />);
 }
 
 // previewCollection 对库里已有的集合再做一次入库预览，看作者又发布了哪些技能;已入库的候选标出来、不能再选。
