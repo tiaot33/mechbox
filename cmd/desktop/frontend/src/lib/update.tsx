@@ -66,6 +66,8 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
 }
 
 export const installKey = (p: { skill_id: SkillID; scope: SkillScopeInspection["scope"] }) => `${p.skill_id}|${scopeKey(p.scope)}`;
+// folderKey 是装出去的实际文件夹:几个 Agent 共用一个目录时，它们的这一处是同一个文件夹，只能一起换。
+export const folderKey = (p: SkillScopeInspection) => `${p.skill_id}|${p.folder}`;
 export const canInstall = (p: SkillScopeInspection) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
 export const defaultInstallOn = (p: SkillScopeInspection) => canInstall(p) && p.status !== SkillScopeStatus.SkillScopeModified;
 
@@ -109,10 +111,10 @@ export interface UpdateOutcome {
   requests: ReinstallRequest[];
 }
 
-// stalePlan 是更新计划用不了了：生成之后来源或库变了(Conflict),或句柄已失效(没指明技能的 NotFound)。
+// stalePlan 是更新计划用不了了：生成之后来源或库变了(Conflict),句柄已失效，或勾选的技能在来源里没了、在库里被移除了(NotFound)。
 // 这时让用户重新生成更新计划，而不是报错。
 export function stalePlan(err: LibraryError): boolean {
-  return err.code === ErrorCode.Conflict || (err.code === ErrorCode.NotFound && !err.details?.skill_id);
+  return err.code === ErrorCode.Conflict || err.code === ErrorCode.NotFound;
 }
 
 // runUpdate 按更新计划执行一次更新：库先换(全成或全不成),勾选的地方再逐处换。
@@ -141,7 +143,7 @@ export async function runUpdate(
     record: result.record ?? 0,
     changed: (result.skills ?? []).filter((x) => x.changed).length,
     placed: installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
-    keptEdited: places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && !installOn(p)).length,
+    keptEdited: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && !installOn(p)).map(folderKey)).size,
     failed: installs.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed),
     requests,
   };
@@ -392,10 +394,11 @@ export async function previewNewSkills(ui: UI, collectionID: CollectionID) {
 }
 
 // notInterested 是对新技能点"不感兴趣":集合上不再提，入库预览里仍能找到。
-export function notInterested(ui: UI, collectionID: CollectionID, names: string[]) {
-  return ui.run(() => LibraryService.MarkNotInterested(collectionID, names), {
+export async function notInterested(ui: UI, collectionID: CollectionID, names: string[]): Promise<boolean> {
+  const done = await ui.run(() => LibraryService.MarkNotInterested(collectionID, names).then(() => true), {
     success: "不再提示这几个新技能;想要时在「看来源里的其他技能」里仍能找到",
   });
+  return !!done;
 }
 
 // keepDeleted 是对来源里已删除的技能选"继续保留":不再提醒，只在技能上留一个淡色标记。

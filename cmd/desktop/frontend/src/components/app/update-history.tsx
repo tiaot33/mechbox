@@ -5,14 +5,17 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ReinstallOutcome,
   UpdateRecordKind,
+  type RecordedInstall,
   type RecordedSkill,
+  type SkillVersion,
   type UpdateHistoryFilter,
   type UpdateRecord,
   type VersionDiff,
 } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
+import { describeError } from "@/lib/errors";
 import type { Snapshot } from "@/lib/library";
-import { shortRevision } from "@/lib/model";
+import { scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate, rollbackOutcome, rollbackUpdate } from "@/lib/update";
 import { cn } from "@/lib/utils";
@@ -119,6 +122,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
             <SkillLine key={x.skill_id} skill={x} diffable={update || rollback} />
           ))}
         </div>
+        {installs.length > 0 && <Places s={s} record={record} />}
         {(record.commits?.length ?? 0) > 0 && (
           <details>
             <summary className="cursor-pointer text-[11px] text-muted-foreground">提交说明 · {record.commits!.length} 条</summary>
@@ -164,15 +168,53 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
   );
 }
 
+const reinstallText: Record<string, { text: string; tone: Tone }> = {
+  [ReinstallOutcome.Reinstalled]: { text: "换上了", tone: "ok" },
+  [ReinstallOutcome.ReinstallCurrent]: { text: "本来就是这个版本", tone: "ok" },
+  [ReinstallOutcome.ReinstallFailed]: { text: "没换上", tone: "bad" },
+};
+
+// Places 逐处列出那次重新安装(更新)或装回(回滚)的结果，没换上、没装回的写明原因。
+function Places({ s, record }: { s: Snapshot; record: UpdateRecord }) {
+  const installs = record.installs ?? [];
+  const names = new Map((record.skills ?? []).map((x) => [x.skill_id, x.name]));
+  const name = (i: RecordedInstall) => names.get(i.skill_id) ?? s.skills.find((x) => x.id === i.skill_id)?.name ?? `#${i.skill_id}`;
+  const outcome = (i: RecordedInstall) =>
+    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText[i.outcome] ?? { text: i.outcome, tone: "warn" as Tone });
+  return (
+    <details className="update-places">
+      <summary className="cursor-pointer text-[11px] text-muted-foreground">
+        {record.kind === UpdateRecordKind.UpdateRecordRollback ? "装回的地方" : "重新安装的地方"} · {installs.length} 处
+      </summary>
+      <div className="mt-1 flex flex-col gap-0.5">
+        {installs.map((i) => (
+          <div key={`${i.skill_id}|${i.scope.agent}|${i.scope.project_id ?? 0}`} className="flex items-center gap-2 text-[11px]">
+            <span className="min-w-0 truncate">
+              {name(i)} · {scopeLabel(s, i.scope)}
+            </span>
+            <Badge tone={outcome(i).tone}>{outcome(i).text}</Badge>
+            {i.error && <span className="truncate text-muted-foreground">{describeError({ code: i.error, message: "" })}</span>}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 // SkillLine 是记录里的一个技能;更新和回滚可以展开看从哪个版本换到哪个版本改了哪些文件(技能已移除时版本也不在了)。
 function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolean }) {
   const ui = useUI();
   const [diff, setDiff] = useState<VersionDiff | null>(null);
+  const [versions, setVersions] = useState<(SkillVersion | null)[]>([]);
   const toggle = async () => {
     if (diff) return setDiff(null);
     const d = await ui.run(() => LibraryService.DiffVersions(skill.from_version_id, skill.to_version_id), { reload: false });
-    if (d) setDiff(d);
+    if (!d) return;
+    setDiff(d);
+    const read = (id: number) => LibraryService.GetVersion(id).then((v) => v, () => null);
+    setVersions(await Promise.all([read(skill.from_version_id), read(skill.to_version_id)]));
   };
+  const describe = (v: SkillVersion | null | undefined) => (v ? [v.revision && shortRevision(v.revision), formatDate(v.created_at)].filter(Boolean).join(" · ") : "");
   const files = diff
     ? [
         ...(diff.added ?? []).map((p) => ["added", "新增", p] as const),
@@ -193,6 +235,11 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
       </div>
       {diff && (
         <div className="pl-2">
+          {versions.length > 0 && (
+            <div className="text-[11px] text-muted-foreground">
+              从 {describe(versions[0]) || "旧版本"} 换到 {describe(versions[1]) || "新版本"}
+            </div>
+          )}
           {files.map(([k, text, p]) => (
             <div key={p} data-diff={k} className={cn("font-mono text-[11px]", color[k])}>
               {text} {p}

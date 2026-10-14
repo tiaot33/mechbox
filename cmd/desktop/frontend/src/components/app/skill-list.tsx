@@ -1,6 +1,7 @@
 // 中间：作用域摘要(选中作用域时)、组 / 集合标题条(筛选组 / 集合时)、更新列表(筛选"更新"时)与技能卡片 / 列表。
 // 卡片点开详情抽屉、可拖到左栏组或右栏作用域;选中作用域时卡片上的开关控制直接安装。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { PlannedChange, type Collection, type CollectionID, type Group, type Skill } from "@bindings/internal/library";
 import {
@@ -473,36 +474,48 @@ function revisionMove(skills: Skill[], to: string | undefined): string {
   return from.startsWith("在 ") ? `${from.slice(2)} → ${shortRevision(to)}` : `${from} · 最新 ${shortRevision(to)}`;
 }
 
-// 更新列表上的风险提示要读一次更新计划(要连来源);按"集合 + 来源最新版本"记下来，同一份内容只读一次。
+// 更新列表上的风险提示要读一次更新计划(要连来源);按"集合 + 来源最新版本 + 库里各技能的当前版本"记下来，
+// 同一份差异只读一次。读失败的不记，下次再读;离开更新列表时取消还在读的。
 const riskCache = new Map<string, string>();
 
 function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID, string> {
   const keys = collections.map((c) => {
-    const to = collectionSkills(s, c)
-      .map((x) => x.last_update_check?.revision)
-      .find(Boolean);
-    return [c.id, `${c.id}:${to ?? ""}`] as const;
+    const skills = collectionSkills(s, c);
+    const to = skills.map((x) => x.last_update_check?.revision).find(Boolean);
+    return [c.id, `${c.id}:${to ?? ""}:${skills.map((x) => x.version_id).join(",")}`] as const;
   });
   const [, setVersion] = useState(0);
-  const missing = keys.filter(([, key]) => !riskCache.has(key));
-  const wanted = missing.map(([, key]) => key).join(",");
+  const calls = useRef(new Map<string, CancellablePromise<unknown>>());
+  const wanted = keys.map(([, key]) => key).join("|");
+
   useEffect(() => {
-    if (!missing.length) return;
-    let cancelled = false;
-    void (async () => {
-      for (const [id, key] of missing) {
-        const plan = await LibraryService.PlanUpdate(id).catch(() => null);
-        if (cancelled) return;
-        const movable = (plan?.skills ?? []).filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
-        riskCache.set(key, riskSummary(movable.flatMap((p) => p.risks ?? [])));
-        setVersion((n) => n + 1);
-      }
-    })();
+    const running = calls.current;
     return () => {
-      cancelled = true;
+      for (const call of running.values()) void call.cancel();
+      running.clear();
     };
-    // 只在缺的那几个集合变了时重读。
+  }, []);
+
+  useEffect(() => {
+    for (const [id, key] of keys) {
+      if (riskCache.has(key) || calls.current.has(key)) continue;
+      const call = LibraryService.PlanUpdate(id);
+      calls.current.set(key, call);
+      call
+        .then(
+          (plan) => {
+            const movable = (plan.skills ?? []).filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
+            riskCache.set(key, riskSummary(movable.flatMap((p) => p.risks ?? [])));
+          },
+          () => {},
+        )
+        .finally(() => {
+          if (calls.current.get(key) === call) calls.current.delete(key);
+          setVersion((n) => n + 1);
+        });
+    }
   }, [wanted]);
+
   return new Map(keys.map(([id, key]) => [id, riskCache.get(key) ?? ""]));
 }
 

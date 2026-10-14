@@ -449,6 +449,9 @@ await step("历史与回滚：库和装过的地方回到旧版，回滚掉的�
   const record = modal().locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "更新" }) });
   await btn(record.first(), "改了什么").click();
   await record.first().locator('[data-diff="added"]', { hasText: "scripts/setup.sh" }).waitFor();
+  await record.first().getByText("从 ", { exact: false }).waitFor();
+  await record.first().locator(".update-places summary").click();
+  await record.first().locator(".update-places", { hasText: "Claude Code · proj-a" }).locator('[data-slot="badge"]', { hasText: "换上了" }).waitFor();
   await btn(record.first(), "回滚").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
   await btn(modal(), "回滚").click();

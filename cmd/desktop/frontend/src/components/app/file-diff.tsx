@@ -16,14 +16,18 @@ export function FileDiff({ path, before, after }: { path: string; before: Read |
   const [texts, setTexts] = useState<[string | null, string | null] | "error" | undefined>(undefined);
 
   useEffect(() => {
+    let cancelled = false;
     setTexts(undefined);
     const calls = [before?.(), after?.()];
     const text = (call: CancellablePromise<File> | undefined) => (call ? call.then((f) => decodeContent(f.content)) : Promise.resolve(""));
     Promise.all([text(calls[0]), text(calls[1])]).then(
-      ([a, b]) => setTexts([a, b]),
-      () => setTexts("error"),
+      ([a, b]) => !cancelled && setTexts([a, b]),
+      () => !cancelled && setTexts("error"),
     );
-    return () => calls.forEach((c) => void c?.cancel());
+    return () => {
+      cancelled = true;
+      calls.forEach((c) => void c?.cancel());
+    };
   }, [path, before, after]);
 
   if (texts === undefined) {
@@ -41,7 +45,7 @@ export function FileDiff({ path, before, after }: { path: string; before: Read |
     <div
       data-slot="file-diff"
       className={cn(
-        "max-h-[360px] overflow-auto rounded-lg border border-border-subtle bg-[#f8f9fb] py-1.5 select-text",
+        "max-h-[360px] overflow-auto rounded-lg border border-border-subtle bg-gray-50 py-1.5 select-text",
         doc ? "text-[12px] leading-[1.6]" : "font-mono text-[11.5px] leading-[1.55]",
       )}
     >

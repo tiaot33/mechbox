@@ -17,13 +17,14 @@ import { removeSkill } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { revisionSummary, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { agentName, revisionSummary, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
   collectionName,
   defaultInstallOn,
   defaultSkills,
+  folderKey,
   installKey,
   keepDeleted,
   notInterested,
@@ -75,12 +76,21 @@ export function UpdateDialog({
   const [conflict, setConflict] = useState(false);
   const [working, setWorking] = useState(false);
 
-  // 生成更新计划要读一次来源;生成时写下的检查结论经 run 的重读带回主界面。
+  // 新技能按库里现在的集合说：生成计划、回答"不是"、入库或"不感兴趣"之后都会变，弹窗拿到的快照是打开时的。
+  const refreshNew = useCallback(() => {
+    void LibraryService.ListCollections().then(
+      (list) => setNewSkills(list?.find((c) => c.id === collectionID)?.new_skills ?? []),
+      () => {},
+    );
+  }, [collectionID]);
+
+  // 生成更新计划要读一次来源;生成时写下的检查结论经 run 的重读带回主界面。关掉弹窗时取消读取。
   useEffect(() => {
     let cancelled = false;
     setPlan(null);
     setFailed(null);
-    void ui.run(() => LibraryService.PlanUpdate(collectionID), {
+    const call = LibraryService.PlanUpdate(collectionID);
+    void ui.run(() => call, {
       onError: (err) => {
         if (!cancelled) setFailed(err);
         return true;
@@ -91,9 +101,11 @@ export function UpdateDialog({
       setChecked(defaultSkills(p, focus ? [focus] : select));
       setInstallChoice(new Map());
       setConflict(false);
+      refreshNew();
     });
     return () => {
       cancelled = true;
+      void call.cancel();
     };
     // ui 随忙碌状态变，不放进依赖，否则生成计划本身就会触发重新生成;focus / select 只决定默认勾选。
   }, [collectionID, generation]);
@@ -133,7 +145,8 @@ export function UpdateDialog({
   const splitting = skills.length > 1 && checked.size > 0 && changed.some((p) => !checked.has(p.skill.id));
   const risks = movable.flatMap((p) => (p.risks ?? []).map((r) => ({ p, r })));
   const places = plannedInstalls(plan, checked);
-  const installOn = (p: SkillScopeInspection) => canInstall(p) && (installChoice.get(installKey(p)) ?? defaultInstallOn(p));
+  // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
+  const installOn = (p: SkillScopeInspection) => canInstall(p) && (installChoice.get(folderKey(p)) ?? defaultInstallOn(p));
   const name = (id: SkillID) => {
     const p = skills.find((x) => x.skill.id === id);
     if (!p) return `#${id}`;
@@ -178,7 +191,7 @@ export function UpdateDialog({
       onError: onStale,
     });
     if (!done) return;
-    setNewSkills((list) => [...new Set([...list, p.renamed_to!])].sort());
+    refreshNew();
     setChecked((set) => new Set([...set].filter((id) => id !== p.skill.id)));
     if (viewing?.id === p.skill.id) setViewing(null);
     patch(p.skill.id, { renamed_to: undefined, diff: undefined, risks: undefined });
@@ -385,13 +398,13 @@ export function UpdateDialog({
           <span className="grow">
             {sourceLabel(s, plan.source)} 新发布了 {newSkills.length} 个技能({newSkills.join("、")})
           </span>
-          <Button variant="link" onClick={() => previewNewSkills(ui, collectionID)}>
+          <Button variant="link" onClick={() => previewNewSkills(ui, collectionID).then(refreshNew)}>
             去入库
           </Button>
           <Button
             variant="link"
             onClick={async () => {
-              if ((await notInterested(ui, collectionID, newSkills)) !== undefined) setNewSkills([]);
+              if (await notInterested(ui, collectionID, newSkills)) refreshNew();
             }}
           >
             不感兴趣
@@ -402,7 +415,7 @@ export function UpdateDialog({
       {checked.size > 0 && (
         <>
           <div className={sectionClass}>装在这些地方，一起换成新版</div>
-          <Places s={s} places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(installKey(p), !installOn(p)))} />
+          <Places s={s} places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
           <Hint>没勾的地方保持原样，之后可以在那里单独重新安装。</Hint>
         </>
       )}
@@ -512,6 +525,11 @@ function Places({
                 {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">你在这里改过，换新版会覆盖你的修改</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">项目不在这台机器上，装不上</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge>文件夹不在了</Badge>}
+                {(p.shared_with?.length ?? 0) > 0 && (
+                  <span className="text-[11px] text-muted-foreground">
+                    和 {p.shared_with!.map((code) => agentName(s, code)).join("、")} 共用一个文件夹，一起换
+                  </span>
+                )}
               </label>
             ))}
           </div>
@@ -520,4 +538,3 @@ function Places({
     </ListBox>
   );
 }
-
