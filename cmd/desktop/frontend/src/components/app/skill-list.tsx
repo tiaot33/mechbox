@@ -193,7 +193,7 @@ function SkillCard(props: {
                 void openUpdate(ui, s, skill.collection_id, { focus: skill.id });
               }}
             >
-              {renamedTo(skill) ? "可能改名" : "可更新"}
+              {renamedTo(skill) ? "可能改名" : "有新版本"}
             </button>
           </Badge>
         )}
@@ -476,16 +476,23 @@ function revisionMove(skills: Skill[], to: string | undefined): string {
 
 // 更新列表上的风险提示要读一次更新计划(要连来源);按"集合 + 来源最新版本 + 库里各技能的当前版本"记下来，
 // 同一份差异只读一次。读失败的不记，下次再读;离开更新列表时取消还在读的。
+// 生成更新计划会写下这次读到的检查结论：来源在检查更新之后又变了时，计划和快照对不上，重读快照让更新列表、计数跟上，
+// 风险只按计划实际读到的来源版本记。重读后快照仍停在旧的键上时不再反复读来源，快照换了键才重新算。
 const riskCache = new Map<string, string>();
 
+const riskKey = (id: CollectionID, revision: string | undefined, versions: number[]) =>
+  `${id}:${revision ?? ""}:${[...versions].sort((a, b) => a - b).join(",")}`;
+
 function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID, string> {
+  const ui = useUI();
   const keys = collections.map((c) => {
     const skills = collectionSkills(s, c);
     const to = skills.map((x) => x.last_update_check?.revision).find(Boolean);
-    return [c.id, `${c.id}:${to ?? ""}:${skills.map((x) => x.version_id).join(",")}`] as const;
+    return [c.id, riskKey(c.id, to, skills.map((x) => x.version_id))] as const;
   });
   const [, setVersion] = useState(0);
   const calls = useRef(new Map<string, CancellablePromise<unknown>>());
+  const settled = useRef(new Set<string>());
   const wanted = keys.map(([, key]) => key).join("|");
 
   useEffect(() => {
@@ -497,15 +504,23 @@ function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID,
   }, []);
 
   useEffect(() => {
+    const current = new Set(keys.map(([, key]) => key));
+    for (const key of settled.current) if (!current.has(key)) settled.current.delete(key);
     for (const [id, key] of keys) {
-      if (riskCache.has(key) || calls.current.has(key)) continue;
+      if (riskCache.has(key) || calls.current.has(key) || settled.current.has(key)) continue;
       const call = LibraryService.PlanUpdate(id);
       calls.current.set(key, call);
       call
         .then(
           (plan) => {
-            const movable = (plan.skills ?? []).filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
-            riskCache.set(key, riskSummary(movable.flatMap((p) => p.risks ?? [])));
+            const skills = plan.skills ?? [];
+            const movable = skills.filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
+            const risk = riskSummary(movable.flatMap((p) => p.risks ?? []));
+            const actual = riskKey(id, plan.revision, skills.map((p) => p.skill.version_id));
+            riskCache.set(actual, risk);
+            if (actual === key) return;
+            settled.current.add(key);
+            ui.reload();
           },
           () => {},
         )
@@ -524,9 +539,11 @@ function CollectionHead({ s, collection }: { s: Snapshot; collection: Collection
   const ui = useUI();
   const skills = collectionSkills(s, collection);
   const todo = skills.filter(pending).length;
+  // "有变化"只算来源里有新内容的技能(跳过了的也算);来源里已删除、推测出改名的不算。
+  const changed = skills.filter(updateAvailable).length;
   const local = isLocal(collection.source);
   const label = sourceLabel(s, collection.source);
-  const facts = [revisionSummary(skills), todo ? `${todo} 个有变化` : ""].filter(Boolean);
+  const facts = [revisionSummary(skills), changed ? `${changed} 个有变化` : ""].filter(Boolean);
   const fresh = collection.new_skills ?? [];
   return (
     <div className={barClass}>

@@ -1,9 +1,10 @@
 // 更新计划里一个文件的差异：左边是库里的当前版本，右边是来源里的新内容。
 // SKILL.md 等 Markdown 按文档展示(正文字体、自动换行),脚本等其他文件按代码展示(等宽、带 +/-)。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import type { File } from "@bindings/internal/library";
 import { decodeContent } from "@/lib/content";
+import { toLibraryError, type LibraryError } from "@/lib/library";
 import { lineDiff, type DiffLine } from "@/lib/diff";
 import { cn } from "@/lib/utils";
 import { Notice } from "@/components/ui/notice";
@@ -11,9 +12,21 @@ import { Spinner } from "@/components/ui/spinner";
 
 type Read = () => CancellablePromise<File>;
 
-// before / after 为 null 表示这一侧没有这个文件(新增 / 删除)。
-export function FileDiff({ path, before, after }: { path: string; before: Read | null; after: Read | null }) {
+// before / after 为 null 表示这一侧没有这个文件(新增 / 删除)。读取失败时先交给 onError,它返回 true 表示已处理(如更新计划已失效)。
+export function FileDiff({
+  path,
+  before,
+  after,
+  onError,
+}: {
+  path: string;
+  before: Read | null;
+  after: Read | null;
+  onError?: (err: LibraryError) => boolean;
+}) {
   const [texts, setTexts] = useState<[string | null, string | null] | "error" | undefined>(undefined);
+  const report = useRef(onError);
+  report.current = onError;
 
   useEffect(() => {
     let cancelled = false;
@@ -22,7 +35,11 @@ export function FileDiff({ path, before, after }: { path: string; before: Read |
     const text = (call: CancellablePromise<File> | undefined) => (call ? call.then((f) => decodeContent(f.content)) : Promise.resolve(""));
     Promise.all([text(calls[0]), text(calls[1])]).then(
       ([a, b]) => !cancelled && setTexts([a, b]),
-      () => !cancelled && setTexts("error"),
+      (e) => {
+        if (cancelled) return;
+        setTexts("error");
+        report.current?.(toLibraryError(e));
+      },
     );
     return () => {
       cancelled = true;

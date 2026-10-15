@@ -418,7 +418,7 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await checkUpdates("1 个技能有新版本");
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
-  assert((await card("delta").locator('[data-slot="badge"][data-tone="warn"]', { hasText: "可更新" }).count()) === 1, "delta 应标可更新");
+  assert((await card("delta").locator('[data-slot="badge"][data-tone="warn"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
   await row.getByText("⚠ 新增 1 个脚本").waitFor({ timeout: 15000 });
@@ -447,9 +447,10 @@ await step("历史与回滚：库和装过的地方回到旧版，回滚掉的�
   await btn(drawer(), "更新历史").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "「delta」的更新历史" }).waitFor();
   const record = modal().locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "更新" }) });
+  await record.first().getByText(/^从 [0-9a-f]{7} 换到 [0-9a-f]{7}$/).waitFor();
   await btn(record.first(), "改了什么").click();
   await record.first().locator('[data-diff="added"]', { hasText: "scripts/setup.sh" }).waitFor();
-  await record.first().getByText("从 ", { exact: false }).waitFor();
+  await record.first().getByText(/^从 [0-9a-f]{7} · .+ 换到 /).waitFor();
   await record.first().locator(".update-places summary").click();
   await record.first().locator(".update-places", { hasText: "Claude Code · proj-a" }).locator('[data-slot="badge"]', { hasText: "换上了" }).waitFor();
   await btn(record.first(), "回滚").click();
@@ -492,6 +493,39 @@ await step("详情：本地目录来源重新读取，一个操作完成，改�
   await settle();
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "Codex 全局的 gamma 应为 v3");
   assert(projSkill("gamma").includes("edited by hand"), "改过的地方保持原样");
+  // 目录没变、装出去的地方却没换上(这里是文件夹不在了)时，再点一次重新读取把它补上，改过的地方照样不动。
+  fs.rmSync(codexGlobal, { recursive: true });
+  await btn(drawer(), "重新读取").click();
+  await toast("已重新读取「gamma」 · 内容没有变化 · 换到了 1 个地方 · 1 个地方你改过，没动");
+  await settle();
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "Codex 全局的 gamma 应重新装回 v3");
+  assert(projSkill("gamma").includes("edited by hand"), "改过的地方仍保持原样");
+  // 上次重新读取没换上的地方，补装算进那次更新：回滚那次更新时它也一起装回旧版。
+  fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v4"\n---\n\n# gamma v4\n');
+  const codexSkills = path.dirname(codexGlobal);
+  fs.chmodSync(codexSkills, 0o555);
+  try {
+    await btn(drawer(), "重新读取").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "有地方没换上" }).waitFor();
+  } finally {
+    fs.chmodSync(codexSkills, 0o755);
+  }
+  await btn(modal(), "知道了").click();
+  await settle();
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "没换上的地方保持 v3");
+  await btn(drawer(), "重新读取").click();
+  await toast("已重新读取「gamma」 · 内容没有变化 · 换到了 1 个地方 · 1 个地方你改过，没动");
+  await settle();
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v4"), "补装后 Codex 全局的 gamma 应为 v4");
+  await btn(drawer(), "更新历史").click();
+  const latest = modal().locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "更新" }) }).first();
+  await btn(latest, "回滚").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
+  await btn(modal(), "回滚").click();
+  await toast("装回了 1 个地方");
+  await settle();
+  await page.keyboard.press("Escape");
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "回滚后补装过的地方也回到 v3");
   await closeDrawer();
 });
 
@@ -516,7 +550,7 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新 pair.zip" }).waitFor();
   assert(await planRow("update-skill", "eta").locator("input[type=checkbox]").isChecked(), "eta 应勾上");
   await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化(theta)" }).waitFor();
-  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "不在同一个来源版本上" }).waitFor();
+  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "只更新 eta 后,pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
   await btn(modal(), "更新 1 个").click();
   await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
@@ -607,6 +641,8 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   assert((await card("mu").getByText("来源已删除").count()) === 1, "继续保留的技能留一个淡色标记");
   await page.locator(".a-left .nav-item", { hasText: "trio.zip" }).click();
   assert((await page.locator(".collection-new").count()) === 0, "不感兴趣的新技能不再在集合上提");
+  // 有变化只算来源里有新内容的(跳过了的 kappa 也算),来源里已删除的 mu 不算。
+  await page.locator(".a-scope-sum").getByText("· 1 个有变化", { exact: false }).waitFor();
   await btn(page.locator(".a-scope-sum"), "看来源里的其他技能").click();
   await modal().locator('[data-slot="list-row"]', { hasText: "nu" }).waitFor({ timeout: 20000 });
   await page.keyboard.press("Escape");

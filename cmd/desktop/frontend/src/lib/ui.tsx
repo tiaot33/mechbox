@@ -53,6 +53,8 @@ interface UIService {
   confirm: (opts: ConfirmOptions) => Promise<string | undefined>;
   prompt: (opts: PromptOptions) => Promise<string | undefined>;
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
+  // reload 重读快照：不经 run 的只读调用也会写库(如生成更新计划时写下的检查结论),之后由调用方让界面跟上。
+  reload: () => void;
   busy: boolean;
 }
 
@@ -129,8 +131,8 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
   );
 
   const service = useMemo(
-    () => ({ toast, open, confirm, prompt, run, busy: pending > 0 }),
-    [toast, open, confirm, prompt, run, pending],
+    () => ({ toast, open, confirm, prompt, run, reload, busy: pending > 0 }),
+    [toast, open, confirm, prompt, run, reload, pending],
   );
 
   return (

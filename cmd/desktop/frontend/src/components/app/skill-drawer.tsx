@@ -17,6 +17,7 @@ import {
   addSkillToGroup,
   createGroup,
   installSkill,
+  previewCollection,
   reinstall,
   removeSkill,
   removeSkillFromGroup,
@@ -201,6 +202,12 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
               <Button size="sm" onClick={() => openHistory(ui, s, { skill_id: id }, `「${skill.name}」的更新历史`)} title="哪几次更新改过它，可以回滚">
                 更新历史
               </Button>
+              {/* 只有一个技能的来源没有集合这一层，从这里找回来源里的其他技能(包括点过"不感兴趣"的)。 */}
+              {collection.length === 1 && c && (
+                <Button size="sm" onClick={() => previewCollection(ui, c.id)} title="按入库时的来源重新读取，看看作者还发布了哪些技能">
+                  看来源里的其他技能
+                </Button>
+              )}
             </div>
             {collection.length === 1 && (c?.new_skills?.length ?? 0) > 0 && (
               <div className="skill-new flex items-center gap-2 px-2 text-[11px] text-muted-foreground">

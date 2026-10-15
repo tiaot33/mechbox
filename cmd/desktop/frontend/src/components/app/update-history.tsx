@@ -1,6 +1,7 @@
 // 历史：集合(或某个技能)的每次更新、跳过、回滚各一条，最新的在前。
 // 更新记录可以回滚、重试没换上的地方;跳过的记录可以找回来再更新(打开更新计划，默认勾上那几个)。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ReinstallOutcome,
@@ -14,7 +15,7 @@ import {
 } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
-import type { Snapshot } from "@/lib/library";
+import { toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
 import { scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate, rollbackOutcome, rollbackUpdate } from "@/lib/update";
@@ -23,6 +24,7 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
+import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 
 const kindText: Record<string, { text: string; tone: Tone }> = {
@@ -33,12 +35,26 @@ const kindText: Record<string, { text: string; tone: Tone }> = {
 
 export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
   const [records, setRecords] = useState<UpdateRecord[] | null>(null);
+  const [failed, setFailed] = useState<LibraryError | null>(null);
   const [generation, setGeneration] = useState(0);
 
+  // 读取失败和确实没有记录分开说：失败时给出原因和重试，不显示成"没有记录"。
   useEffect(() => {
+    let cancelled = false;
+    setFailed(null);
     const call = LibraryService.ListUpdateHistory(filter);
-    call.then((r) => setRecords(r ?? []), () => setRecords([]));
-    return () => void call.cancel();
+    call.then(
+      (r) => !cancelled && setRecords(r ?? []),
+      (e) => {
+        if (cancelled) return;
+        setRecords(null);
+        setFailed(toLibraryError(e));
+      },
+    );
+    return () => {
+      cancelled = true;
+      void call.cancel();
+    };
   }, [filter, generation]);
 
   return (
@@ -52,7 +68,17 @@ export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filt
         </Button>
       }
     >
-      {records === null ? (
+      {failed ? (
+        <>
+          <Notice tone="bad" className="whitespace-pre-line">
+            没能读取历史。{"\n"}
+            {describeError(failed)}
+          </Notice>
+          <div>
+            <Button onClick={() => setGeneration((n) => n + 1)}>重试</Button>
+          </div>
+        </>
+      ) : records === null ? (
         <Hint className="flex items-center gap-1.5">
           <Spinner /> 正在读取历史…
         </Hint>
@@ -79,10 +105,15 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
   const failed = update ? installs.filter((i) => i.outcome === ReinstallOutcome.ReinstallFailed) : [];
   const rolledBack = !!record.rolled_back_by;
   const target = rollback ? all.find((r) => r.id === record.rolls_back) : undefined;
+  const from = useFromRevisions(update ? record : undefined);
 
   const facts = [
     // 回滚记录的来源版本是被回滚那次更新换到的，不是回滚后的，所以只说回滚了哪次。
-    record.revision && !rollback && `${update ? "换到" : "来源版本"} ${shortRevision(record.revision)}`,
+    record.revision &&
+      !rollback &&
+      (update
+        ? `${from.length ? `从 ${from.join("、")} ` : ""}换到 ${shortRevision(record.revision)}`
+        : `来源版本 ${shortRevision(record.revision)}`),
     record.whole_revision && "整个来源版本",
     rollback && (target ? `回滚了 ${formatDate(target.created_at)} 的更新` : "回滚了一次更新"),
     update && installs.length > 0 && `重新安装了 ${installs.length - failed.length} 个地方${failed.length ? `,${failed.length} 个没换上` : ""}`,
@@ -168,6 +199,29 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
   );
 }
 
+// useFromRevisions 是一次更新之前各技能所在的来源版本(去重);记录只带换到的来源版本，之前的从各技能的旧版本读。
+// 技能已从库里移除时旧版本也不在了，读不到的不列。
+function useFromRevisions(record: UpdateRecord | undefined): string[] {
+  const [revisions, setRevisions] = useState<string[]>([]);
+  const id = record?.id;
+  useEffect(() => {
+    if (!record?.revision) return;
+    let cancelled = false;
+    const calls = (record.skills ?? []).filter((x) => x.from_version_id !== x.to_version_id).map((x) => LibraryService.GetVersion(x.from_version_id));
+    void Promise.allSettled(calls).then((results) => {
+      if (cancelled) return;
+      const revs = results.flatMap((r) => (r.status === "fulfilled" && r.value.revision ? [shortRevision(r.value.revision)] : []));
+      setRevisions([...new Set(revs)]);
+    });
+    return () => {
+      cancelled = true;
+      calls.forEach((c) => void c.cancel());
+    };
+    // 记录本身不会变，按 ID 读一次。
+  }, [id]);
+  return revisions;
+}
+
 const reinstallText: Record<string, { text: string; tone: Tone }> = {
   [ReinstallOutcome.Reinstalled]: { text: "换上了", tone: "ok" },
   [ReinstallOutcome.ReinstallCurrent]: { text: "本来就是这个版本", tone: "ok" },
@@ -206,13 +260,30 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
   const ui = useUI();
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [versions, setVersions] = useState<(SkillVersion | null)[]>([]);
+  const alive = useRef(true);
+  const reads = useRef(new Set<CancellablePromise<unknown>>());
+  useEffect(() => {
+    alive.current = true;
+    const pending = reads.current;
+    return () => {
+      alive.current = false;
+      for (const call of pending) void call.cancel();
+      pending.clear();
+    };
+  }, []);
+  const track = <T,>(call: CancellablePromise<T>) => {
+    reads.current.add(call);
+    void call.finally(() => reads.current.delete(call)).catch(() => {});
+    return call;
+  };
   const toggle = async () => {
     if (diff) return setDiff(null);
-    const d = await ui.run(() => LibraryService.DiffVersions(skill.from_version_id, skill.to_version_id), { reload: false });
-    if (!d) return;
+    const d = await ui.run(() => track(LibraryService.DiffVersions(skill.from_version_id, skill.to_version_id)), { reload: false });
+    if (!d || !alive.current) return;
     setDiff(d);
-    const read = (id: number) => LibraryService.GetVersion(id).then((v) => v, () => null);
-    setVersions(await Promise.all([read(skill.from_version_id), read(skill.to_version_id)]));
+    const read = (id: number) => track(LibraryService.GetVersion(id)).then((v) => v, () => null);
+    const both = await Promise.all([read(skill.from_version_id), read(skill.to_version_id)]);
+    if (alive.current) setVersions(both);
   };
   const describe = (v: SkillVersion | null | undefined) => (v ? [v.revision && shortRevision(v.revision), formatDate(v.created_at)].filter(Boolean).join(" · ") : "");
   const files = diff

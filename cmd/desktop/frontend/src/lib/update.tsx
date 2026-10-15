@@ -3,7 +3,8 @@
 // 完成后的提示带回滚入口，没换上的地方可以单独重试。
 // 默认勾选：有变化且没跳过的技能全勾(从技能发起时只勾这一个);推测出的改名要用户点"是";
 // 装出去的地方全勾，用户改过的地方不勾，项目不在这台机器上的不能勾。
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
@@ -11,6 +12,7 @@ import {
   ReinstallOutcome,
   RollbackOutcome,
   SkillScopeStatus,
+  UpdateRecordKind,
   UpdateRiskKind,
   type CollectionID,
   type PlannedSkill,
@@ -109,6 +111,7 @@ export interface UpdateOutcome {
   keptEdited: number; // 用户改过、没勾，保持原样的地方
   failed: ReinstallResult[];
   requests: ReinstallRequest[];
+  plain: Set<string>; // 不算进 record 的地方(installKey),没换上时按普通重新安装重试
 }
 
 // stalePlan 是更新计划用不了了：生成之后来源或库变了(Conflict),句柄已失效，或勾选的技能在来源里没了、在库里被移除了(NotFound)。
@@ -146,8 +149,21 @@ export async function runUpdate(
     keptEdited: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && !installOn(p)).map(folderKey)).size,
     failed: installs.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed),
     requests,
+    plain: new Set(),
   };
 }
+
+// placeAgain 把这几处换成当前版本:record 不为 0 时结果算进那次更新(回滚时一起装回去),否则是普通的重新安装。
+// 返回与 requests 一一对应的结果;调用失败(含取消)时返回 undefined。
+function placeAgain(ui: UI, record: UpdateRecordID, requests: ReinstallRequest[], track?: (call: CancellablePromise<ReinstallResult[] | null>) => void) {
+  return ui.run(() => {
+    const call = record ? LibraryService.RetryUpdateInstalls(record, requests) : LibraryService.Reinstall(requests);
+    track?.(call);
+    return call;
+  });
+}
+
+const failedOnly = (results: ReinstallResult[] | null) => (results ?? []).filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
 
 function summarize(o: UpdateOutcome): string {
   return [
@@ -166,7 +182,7 @@ export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome
   if (outcomes.every((o) => !o.failed.length)) {
     if (outcomes.length === 1) {
       const o = outcomes[0];
-      ui.toast(summarize(o), "ok", o.record ? { label: "回滚", onClick: () => void rollbackUpdate(ui, s, o.record) } : undefined);
+      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: "回滚", onClick: () => void rollbackUpdate(ui, s, o.record) } : undefined);
     } else {
       ui.toast([...outcomes.map(summarize), "要退回某一次，可以在历史里回滚"].join("\n"));
     }
@@ -176,21 +192,38 @@ export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome
 }
 
 // FailedPlaces 列出没换上的地方和原因;"重试"把它们单独再换一次，结果算进那次更新(回滚时一起装回去)。
+// 重试中途关掉弹窗时取消正在换的这一次，后面的集合不再继续。
 function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcomes: UpdateOutcome[]; close: () => void }) {
   const [failed, setFailed] = useState(() => outcomes.map((o) => o.failed));
   const [working, setWorking] = useState(false);
+  const alive = useRef(true);
+  const call = useRef<CancellablePromise<ReinstallResult[] | null> | null>(null);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      void call.current?.cancel();
+    };
+  }, []);
   const left = failed.flat().length;
   const retry = async () => {
     setWorking(true);
     const next: ReinstallResult[][] = [];
     for (const [i, o] of outcomes.entries()) {
       const again = o.requests.filter((r) => failed[i].some((f) => installKey(f) === installKey(r)));
-      if (!again.length || !o.record) {
-        next.push(failed[i]);
-        continue;
+      const viaRecord = o.record ? again.filter((r) => !o.plain.has(installKey(r))) : [];
+      const left: ReinstallResult[] = [];
+      for (const [batch, record] of [
+        [viaRecord, o.record],
+        [again.filter((r) => !viaRecord.includes(r)), 0],
+      ] as const) {
+        if (!batch.length) continue;
+        const results = await placeAgain(ui, record, batch, (c) => (call.current = c));
+        call.current = null;
+        if (!alive.current) return;
+        left.push(...(results ? failedOnly(results) : failed[i].filter((f) => batch.some((r) => installKey(r) === installKey(f)))));
       }
-      const results = await ui.run(() => LibraryService.RetryUpdateInstalls(o.record, again));
-      next.push(results ? results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed) : failed[i]);
+      next.push(left);
     }
     setWorking(false);
     setFailed(next);
@@ -199,7 +232,8 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
       close();
     }
   };
-  const single = outcomes.length === 1 && outcomes[0].record ? outcomes[0] : undefined;
+  // 只补装、没换版本的(目录没变时的重新读取)不提供回滚：这次没有可退回的改动。
+  const single = outcomes.length === 1 && outcomes[0].record && outcomes[0].changed ? outcomes[0] : undefined;
   return (
     <Modal
       title="有地方没换上"
@@ -275,12 +309,66 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
     return;
   }
   if (item.change === PlannedChange.PlannedUnchanged) {
-    ui.toast(`「${skill.name}」的内容没有变化`);
+    const o = await refreshInstalls(ui, skill);
+    if (o) await reportUpdates(ui, s, [o]);
     return;
   }
   const o = await runUpdate(ui, plan, skill.name, new Set([skill.id]), defaultInstallOn);
   if (o === "conflict") ui.toast("目录在读取期间又变了，请再重新读取一次", "error");
   else if (o) await reportUpdates(ui, s, [o]);
+}
+
+// refreshInstalls 是目录内容没变时的"重新读取":库里已是目录现在的内容，但装出去的地方可能还没换上(上次没换上、
+// 文件夹不在了),把这些换成当前版本;用户改过的地方不动，项目不在这台机器上的装不上。都已是当前版本时只提示一句。
+// 带来当前版本的那次更新里列过的地方，补装算进那次更新，回滚它时一起装回去;其余的是普通的重新安装。
+async function refreshInstalls(ui: UI, skill: Skill): Promise<UpdateOutcome | undefined> {
+  const inspected = await ui.run(() => LibraryService.InspectSkillScopes({ skill_id: skill.id }), { reload: false });
+  if (inspected === undefined) return undefined;
+  const behind = (inspected ?? []).filter((p) => p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p));
+  const keptEdited = new Set(behind.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map(folderKey)).size;
+  const requests: ReinstallRequest[] = behind
+    .filter((p) => p.status !== SkillScopeStatus.SkillScopeModified)
+    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: false }));
+  if (!requests.length) {
+    ui.toast([`「${skill.name}」的内容没有变化`, keptEdited ? `${keptEdited} 个地方你改过，没动` : ""].filter(Boolean).join(" · "));
+    return undefined;
+  }
+  const history = await ui.run(() => LibraryService.ListUpdateHistory({ skill_id: skill.id }), { reload: false });
+  if (history === undefined) return undefined;
+  const record = (history ?? []).find(
+    (r) =>
+      r.kind === UpdateRecordKind.UpdateRecordUpdate &&
+      !r.rolled_back_by &&
+      (r.skills ?? []).some((x) => x.skill_id === skill.id && x.to_version_id === skill.version_id && x.from_version_id !== x.to_version_id),
+  );
+  const listed = new Set((record?.installs ?? []).map(installKey));
+  const viaRecord = requests.filter((r) => listed.has(installKey(r)));
+  const plain = requests.filter((r) => !listed.has(installKey(r)));
+  const results: ReinstallResult[] = [];
+  if (viaRecord.length) {
+    const r = await placeAgain(ui, record!.id, viaRecord);
+    if (!r) return undefined;
+    // 那次更新之后技能又换过版本(更新后又回滚)的地方，那次更新已管不到它们，按普通重新安装换上。
+    const moved = viaRecord.filter((_, i) => r[i]?.error?.code === ErrorCode.Conflict);
+    results.push(...r.filter((_, i) => r[i]?.error?.code !== ErrorCode.Conflict));
+    plain.push(...moved);
+  }
+  if (plain.length) {
+    const r = await placeAgain(ui, 0, plain);
+    if (!r) return undefined;
+    results.push(...r);
+  }
+  return {
+    label: skill.name,
+    local: true,
+    record: record?.id ?? 0,
+    changed: 0,
+    placed: results.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
+    keptEdited,
+    failed: failedOnly(results),
+    requests,
+    plain: new Set(plain.map(installKey)),
+  };
 }
 
 // openUpdate 打开集合的更新计划。从技能发起时传 focus:默认只勾这一个，其余折叠;

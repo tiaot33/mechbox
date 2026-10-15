@@ -2,7 +2,8 @@
 // 从上到下：来源版本从哪到哪、风险(新增或改动的脚本、新增的可执行文件)、GitHub 的提交说明、技能(有变化 / 改名 / 删除 / 没变化)
 // 与文件差异、来源里的新技能、装出去的地方。可以跳过单个技能的这次改动，也可以跳过整个来源版本。
 // 从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   PlannedChange,
@@ -75,13 +76,28 @@ export function UpdateDialog({
   const [newSkills, setNewSkills] = useState<string[]>(collection?.new_skills ?? []);
   const [conflict, setConflict] = useState(false);
   const [working, setWorking] = useState(false);
+  const alive = useRef(true);
+  const reads = useRef(new Set<CancellablePromise<unknown>>());
+  useEffect(() => {
+    alive.current = true;
+    const pending = reads.current;
+    return () => {
+      alive.current = false;
+      for (const call of pending) void call.cancel();
+      pending.clear();
+    };
+  }, []);
 
   // 新技能按库里现在的集合说：生成计划、回答"不是"、入库或"不感兴趣"之后都会变，弹窗拿到的快照是打开时的。
   const refreshNew = useCallback(() => {
-    void LibraryService.ListCollections().then(
-      (list) => setNewSkills(list?.find((c) => c.id === collectionID)?.new_skills ?? []),
-      () => {},
-    );
+    const call = LibraryService.ListCollections();
+    reads.current.add(call);
+    void call
+      .then(
+        (list) => alive.current && setNewSkills(list?.find((c) => c.id === collectionID)?.new_skills ?? []),
+        () => {},
+      )
+      .finally(() => reads.current.delete(call));
   }, [collectionID]);
 
   // 生成更新计划要读一次来源;生成时写下的检查结论经 run 的重读带回主界面。关掉弹窗时取消读取。
@@ -142,7 +158,11 @@ export function UpdateDialog({
   const shown = expanded ? changed : changed.filter((p) => p.skill.id === focus || checked.has(p.skill.id));
   const folded = changed.filter((p) => !shown.includes(p));
   const movable = [...changed, ...renamed];
-  const splitting = skills.length > 1 && checked.size > 0 && changed.some((p) => !checked.has(p.skill.id));
+  // 还没勾上的有变化或推测出改名的技能会留在旧的来源版本上。
+  const splitting = skills.length > 1 && checked.size > 0 && movable.some((p) => !checked.has(p.skill.id));
+  // 一次写操作(更新、跳过、改名、移除、继续保留、不感兴趣)没结束前，其他写操作都不能点：
+  // 更新读来源期间跳过成功，随后的更新仍会把这份改动换进库里、装出去。
+  const locked = working || ui.busy;
   const risks = movable.flatMap((p) => (p.risks ?? []).map((r) => ({ p, r })));
   const places = plannedInstalls(plan, checked);
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
@@ -217,13 +237,13 @@ export function UpdateDialog({
       footer={
         <>
           {movable.some((p) => !p.skipped) && (
-            <Button onClick={() => skip()} title="明确不要来源这个版本里的改动：不再计入角标，直到来源又有新改动;之后可以在历史里找回来">
+            <Button disabled={locked} onClick={() => skip()} title="明确不要来源这个版本里的改动：不再计入角标，直到来源又有新改动;之后可以在历史里找回来">
               跳过这个来源版本
             </Button>
           )}
           <span className="grow" />
           <Button onClick={onClose}>取消</Button>
-          <Button variant="primary" disabled={!checked.size || conflict} loading={working} onClick={run}>
+          <Button variant="primary" disabled={!checked.size || conflict || (locked && !working)} loading={working} onClick={run}>
             更新 {checked.size} 个
           </Button>
         </>
@@ -288,7 +308,7 @@ export function UpdateDialog({
               {viewing?.id === p.skill.id ? "收起差异" : "看差异"}
             </Button>
             {!p.skipped && (
-              <Button variant="link" onClick={() => skip([p.skill.id])} title="明确不要这次的改动;来源里它又变了才重新提醒">
+              <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])} title="明确不要这次的改动;来源里它又变了才重新提醒">
                 跳过
               </Button>
             )}
@@ -322,16 +342,16 @@ export function UpdateDialog({
               {yes ? (
                 <>
                   <Badge tone="accent">是同一个</Badge>
-                  <Button variant="link" onClick={() => check(p.skill.id, false)}>
+                  <Button variant="link" disabled={locked} onClick={() => check(p.skill.id, false)}>
                     撤销
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button size="sm" onClick={() => check(p.skill.id, true)}>
+                  <Button size="sm" disabled={locked} onClick={() => check(p.skill.id, true)}>
                     是
                   </Button>
-                  <Button size="sm" onClick={() => reject(p)}>
+                  <Button size="sm" disabled={locked} onClick={() => reject(p)}>
                     不是
                   </Button>
                 </>
@@ -340,7 +360,7 @@ export function UpdateDialog({
                 {viewing?.id === p.skill.id ? "收起差异" : "看差异"}
               </Button>
               {!p.skipped && (
-                <Button variant="link" onClick={() => skip([p.skill.id])}>
+                <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])}>
                   跳过
                 </Button>
               )}
@@ -363,6 +383,7 @@ export function UpdateDialog({
                 <>
                   <Button
                     size="sm"
+                    disabled={locked}
                     onClick={async () => {
                       if (await removeSkill(ui, s, p.skill.id)) setRemoved((set) => new Set(set).add(p.skill.id));
                     }}
@@ -371,6 +392,7 @@ export function UpdateDialog({
                   </Button>
                   <Button
                     size="sm"
+                    disabled={locked}
                     onClick={async () => {
                       if (await keepDeleted(ui, s, p.skill.id)) setKept((set) => new Set(set).add(p.skill.id));
                     }}
@@ -389,20 +411,27 @@ export function UpdateDialog({
         )}
         {skills.length === 0 && <ListRow className="text-muted-foreground">集合里已经没有技能了。</ListRow>}
       </ListBox>
-      {splitting && <Notice tone="warn">只更新勾选的技能后,{label} 里的技能会不在同一个来源版本上。</Notice>}
+      {splitting && (
+        <Notice tone="warn">
+          只更新 {checked.size <= 3 ? [...checked].map(name).join("、") : `勾选的 ${checked.size} 个技能`} 后,{label} 里的技能会不在同一个来源版本上。
+        </Notice>
+      )}
 
-      {viewItem && viewing && <SkillDiff plan={plan} item={viewItem} path={viewing.path} onPath={(path) => setViewing({ id: viewing.id, path })} />}
+      {viewItem && viewing && (
+        <SkillDiff plan={plan} item={viewItem} path={viewing.path} onPath={(path) => setViewing({ id: viewing.id, path })} onError={onStale} />
+      )}
 
       {!focus && newSkills.length > 0 && (
         <div className="update-new flex items-center gap-2 text-[12px] text-muted-foreground">
           <span className="grow">
             {sourceLabel(s, plan.source)} 新发布了 {newSkills.length} 个技能({newSkills.join("、")})
           </span>
-          <Button variant="link" onClick={() => previewNewSkills(ui, collectionID).then(refreshNew)}>
+          <Button variant="link" disabled={locked} onClick={() => previewNewSkills(ui, collectionID).then(refreshNew)}>
             去入库
           </Button>
           <Button
             variant="link"
+            disabled={locked}
             onClick={async () => {
               if (await notInterested(ui, collectionID, newSkills)) refreshNew();
             }}
@@ -454,7 +483,20 @@ function Commits({ plan }: { plan: UpdatePlan }) {
 }
 
 // SkillDiff 是一个技能这次改了哪些文件，点文件看内容差异:库里一侧读当前版本，来源一侧读更新计划。
-function SkillDiff({ plan, item, path, onPath }: { plan: UpdatePlan; item: PlannedSkill; path: string; onPath: (path: string) => void }) {
+// 读来源一侧时计划已失效(超时或来源变了)由 onError 交回弹窗，提示重新生成。
+function SkillDiff({
+  plan,
+  item,
+  path,
+  onPath,
+  onError,
+}: {
+  plan: UpdatePlan;
+  item: PlannedSkill;
+  path: string;
+  onPath: (path: string) => void;
+  onError: (err: LibraryError) => boolean;
+}) {
   const diff = item.diff;
   const files = [
     ...(diff?.added ?? []).map((p) => ["added", "新增", p] as const),
@@ -490,7 +532,7 @@ function SkillDiff({ plan, item, path, onPath }: { plan: UpdatePlan; item: Plann
         ))}
         {files.length === 0 && <span className="text-[11px] text-muted-foreground">文件内容相同</span>}
       </div>
-      {kind && <FileDiff path={path} before={kind === "added" ? null : before} after={kind === "deleted" ? null : after} />}
+      {kind && <FileDiff path={path} before={kind === "added" ? null : before} after={kind === "deleted" ? null : after} onError={onError} />}
     </div>
   );
 }

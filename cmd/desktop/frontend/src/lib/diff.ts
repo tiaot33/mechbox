@@ -7,8 +7,12 @@ const maxCells = 4_000_000;
 const context = 3;
 
 export function lineDiff(before: string, after: string): DiffLine[] {
-  const a = before ? before.split("\n") : [];
-  const b = after ? after.split("\n") : [];
+  // 两边(没有的一侧不算)都以换行结尾时，末尾的换行只是行的结束，不显示成多出来的空行;
+  // 只有一边有时照常拆开，末尾多出的空行就是这处改动。
+  const trim = (!before || before.endsWith("\n")) && (!after || after.endsWith("\n"));
+  const split = (text: string) => (text ? (trim ? text.slice(0, -1) : text).split("\n") : []);
+  const a = split(before);
+  const b = split(after);
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) head++;
   let tail = 0;
