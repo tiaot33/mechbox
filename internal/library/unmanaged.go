@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
@@ -55,6 +56,24 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	found, err := l.unmanagedSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	skills = []UnmanagedSkill{}
+	for _, entry := range found {
+		skills = append(skills, entry.UnmanagedSkill)
+	}
+	return skills, nil
+}
+
+type unmanagedEntry struct {
+	UnmanagedSkill
+	found      scopeFolder
+	inLockFile bool
+}
+
+func (l *Library) unmanagedSkills(ctx context.Context) ([]unmanagedEntry, error) {
 	folders, err := l.scopeFolders(ctx)
 	if err != nil {
 		return nil, err
@@ -65,18 +84,19 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 	}
 	committed := map[repository]map[string]bool{}
 	records := l.sourceRecords()
-	skills = []UnmanagedSkill{}
+	var entries []unmanagedEntry
 	for _, found := range folders {
 		if found.skillID != 0 {
 			continue
 		}
 		target := found.target
-		skill := UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}
+		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
 		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
-			skill.Description = candidate.Description
+			entry.Description = candidate.Description
 		}
-		if entry, ok := records.find(target, skillName(found.Folder), found.Name); ok {
-			skill.SourceInput, skill.SourceRef, _ = entry.Input()
+		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
+			entry.SourceInput, entry.SourceRef, _ = record.Input()
+			entry.inLockFile = target.projectID != nil
 		}
 		if target.projectID != nil {
 			key := repository{projectID: *target.projectID, relative: target.relative}
@@ -85,14 +105,14 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 					return nil, err
 				}
 			}
-			skill.InRepository = committed[key][found.Name]
+			entry.InRepository = committed[key][found.Name]
 		}
-		skills = append(skills, skill)
+		entries = append(entries, entry)
 	}
-	slices.SortFunc(skills, func(a, b UnmanagedSkill) int {
+	slices.SortFunc(entries, func(a, b unmanagedEntry) int {
 		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
-	return skills, nil
+	return entries, nil
 }
 
 // SameNameFolder 是同名技能在一个作用域里的技能文件夹。
@@ -276,7 +296,7 @@ type FetchUnmanagedResult struct {
 func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest) (result FetchUnmanagedResult, err error) {
 	defer func() { err = typedError(err) }()
 	const operation = "fetch unmanaged skill"
-	if !discovery.ValidName(req.Name) || strings.HasPrefix(req.Name, ".") {
+	if !validFolderName(req.Name) {
 		return FetchUnmanagedResult{}, argumentError(operation, "name", "invalid skill folder name")
 	}
 	input := strings.TrimSpace(req.SourceInput)
@@ -290,13 +310,17 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 		if err != nil {
 			return FetchUnmanagedResult{}, err
 		}
-		return l.fetchWithoutSource(ctx, folder)
+		return l.fetchWithoutSource(ctx, []unmanagedFolder{folder})
 	}
 	before, err := l.lockedUnmanagedFolder(ctx, operation, req)
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
-	sourced, err := l.readSourceSkill(ctx, input, req.SourceRef, before.parsed.Name)
+	opened, err := l.openSource(ctx, input, req.SourceRef)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	sourced, err := opened.skill(ctx, before.parsed.Name)
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
@@ -309,7 +333,11 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 	if folder.parsed.Name != before.parsed.Name {
 		return FetchUnmanagedResult{}, preconditionError(operation, "the skill folder changed while the source was read", ErrorDetails{Path: folder.path})
 	}
-	return l.fetchWithSource(ctx, operation, folder, sourced, input, req.SourceRef)
+	return l.fetchWithSource(ctx, operation, []unmanagedFolder{folder}, sourced, input, req.SourceRef)
+}
+
+func validFolderName(name string) bool {
+	return discovery.ValidName(name) && !strings.HasPrefix(name, ".")
 }
 
 type unmanagedFolder struct {
@@ -351,28 +379,37 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: skillScope.SkillID})
 		}
 	}
-	files, err := agentdir.ReadFiles(ctx, path, maxFetchFiles, maxFetchSize)
-	switch {
-	case errors.Is(err, agentdir.ErrIrregularFile):
-		return unmanagedFolder{}, preconditionError(operation, "the folder has entries that are not regular files", ErrorDetails{Path: path})
-	case errors.Is(err, agentdir.ErrTooLarge):
-		return unmanagedFolder{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
-	case err != nil:
-		return unmanagedFolder{}, err
-	}
-	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
-	if index < 0 {
-		return unmanagedFolder{}, &Error{Code: NotFound, Message: operation + ": the folder has no SKILL.md", Details: ErrorDetails{Path: path}}
-	}
-	parsed, err := discovery.ParseSkillMD(files[index].Content, req.Name)
+	files, parsed, err := readSkillFolder(ctx, operation, path, req.Name)
 	if err != nil {
-		return unmanagedFolder{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md: " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+		return unmanagedFolder{}, err
 	}
 	return unmanagedFolder{target: target, name: req.Name, path: path, files: files, parsed: parsed}, nil
 }
 
-func (l *Library) fetchWithoutSource(ctx context.Context, folder unmanagedFolder) (FetchUnmanagedResult, error) {
-	matched, err := matchingSkill(ctx, l.store, folder.files, folder.target, 0)
+func readSkillFolder(ctx context.Context, operation, path, name string) ([]skillfile.File, discovery.Candidate, error) {
+	files, err := agentdir.ReadFiles(ctx, path, maxFetchFiles, maxFetchSize)
+	switch {
+	case errors.Is(err, agentdir.ErrIrregularFile):
+		return nil, discovery.Candidate{}, preconditionError(operation, "the folder has entries that are not regular files", ErrorDetails{Path: path})
+	case errors.Is(err, agentdir.ErrTooLarge):
+		return nil, discovery.Candidate{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+	case err != nil:
+		return nil, discovery.Candidate{}, err
+	}
+	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
+	if index < 0 {
+		return nil, discovery.Candidate{}, &Error{Code: NotFound, Message: operation + ": the folder has no SKILL.md", Details: ErrorDetails{Path: path}}
+	}
+	parsed, err := discovery.ParseSkillMD(files[index].Content, name)
+	if err != nil {
+		return nil, discovery.Candidate{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md: " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+	}
+	return files, parsed, nil
+}
+
+func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFolder) (FetchUnmanagedResult, error) {
+	folder := folders[0]
+	matched, err := matchingSkill(ctx, l.store, folder.files, folders, 0)
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
@@ -387,7 +424,7 @@ func (l *Library) fetchWithoutSource(ctx context.Context, folder unmanagedFolder
 			}
 			id = inserted
 		}
-		if err := tx.RecordFetchedSkillScope(ctx, id, folder.target.record(), folder.name, now); err != nil {
+		if err := recordFetchedFolders(ctx, tx, id, folders, now); err != nil {
 			return err
 		}
 		var err error
@@ -411,29 +448,40 @@ type sourcedSkill struct {
 	names    []string
 }
 
-func (l *Library) readSourceSkill(ctx context.Context, input, ref, name string) (sourcedSkill, error) {
+type openedSource struct {
+	target   source.Target
+	snapshot source.Snapshot
+	names    []string
+}
+
+func (l *Library) openSource(ctx context.Context, input, ref string) (*openedSource, error) {
 	target, field, err := l.previewTarget(ctx, PreviewFetchRequest{Input: input, Ref: ref})
 	if err != nil {
-		return sourcedSkill{}, sourceField(inputField(err, field))
-	}
-	if len(target.Names) > 0 && !slices.Contains(target.Names, name) {
-		return sourcedSkill{}, &source.NotFoundError{What: source.MissingSkill, Name: name}
+		return nil, sourceField(inputField(err, field))
 	}
 	snapshot := target.Snapshot
 	if snapshot == nil {
 		if snapshot, err = l.sources.Open(ctx, target.Type, target.Locator, target.Subpath, nil); err != nil {
-			return sourcedSkill{}, sourceField(inputField(err, "input"))
+			return nil, sourceField(inputField(err, "input"))
 		}
 	}
-	skills, err := snapshot.Fetch(ctx, []string{name})
+	return &openedSource{target: target, snapshot: snapshot}, nil
+}
+
+func (o *openedSource) skill(ctx context.Context, name string) (sourcedSkill, error) {
+	if len(o.target.Names) > 0 && !slices.Contains(o.target.Names, name) {
+		return sourcedSkill{}, &source.NotFoundError{What: source.MissingSkill, Name: name}
+	}
+	skills, err := o.snapshot.Fetch(ctx, []string{name})
 	if err != nil {
 		return sourcedSkill{}, err
 	}
-	names, err := snapshot.Names(ctx)
-	if err != nil {
-		return sourcedSkill{}, err
+	if o.names == nil {
+		if o.names, err = o.snapshot.Names(ctx); err != nil {
+			return sourcedSkill{}, err
+		}
 	}
-	return sourcedSkill{record: store.Source{Type: target.Type, Locator: target.Locator}, skill: skills[0], revision: snapshot.Revision(), names: names}, nil
+	return sourcedSkill{record: store.Source{Type: o.target.Type, Locator: o.target.Locator}, skill: skills[0], revision: o.snapshot.Revision(), names: o.names}, nil
 }
 
 func sourceField(err error) error {
@@ -448,11 +496,15 @@ func sourceField(err error) error {
 	return err
 }
 
-func (l *Library) fetchWithSource(ctx context.Context, operation string, folder unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
+func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
+	folder := folders[0]
 	untouched := false
-	if entry, ok := l.sourceRecords().find(folder.target, folder.parsed.Name, folder.name); ok {
-		recordedInput, recordedRef, recognized := entry.Input()
-		untouched = recognized && recordedInput == input && recordedRef == ref && entry.Matches(folder.files)
+	records := l.sourceRecords()
+	for _, each := range folders {
+		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
+			recordedInput, recordedRef, recognized := entry.Input()
+			untouched = untouched || recognized && recordedInput == input && recordedRef == ref && entry.Matches(each.files)
+		}
 	}
 	name := sourced.skill.Name
 	var row store.Skill
@@ -471,7 +523,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folder 
 			return err
 		}
 		if id != 0 {
-			found, err := matchingSkill(ctx, tx, folder.files, folder.target, id)
+			found, err := matchingSkill(ctx, tx, folder.files, folders, id)
 			if err != nil {
 				return err
 			}
@@ -490,7 +542,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folder 
 				return err
 			}
 		}
-		if err := tx.RecordFetchedSkillScope(ctx, id, folder.target.record(), folder.name, now); err != nil {
+		if err := recordFetchedFolders(ctx, tx, id, folders, now); err != nil {
 			return err
 		}
 		row, err = tx.GetSkill(ctx, id)
@@ -506,13 +558,278 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folder 
 	return FetchUnmanagedResult{Skill: skill, Matched: matched}, nil
 }
 
+// PlanFetchUnmanagedRequest 指定整批入库要看哪些作用域。
+type PlanFetchUnmanagedRequest struct {
+	// Scopes 是要看的作用域:第一次打开 app 时是各 Agent 的全局,登记一个项目之后是各 Agent 在这个项目里。重复的只算一次。
+	Scopes []Scope `json:"scopes"`
+}
+
+// PlannedUnmanagedSkill 是整批入库计划里的一个技能:这几个作用域里内容完全一致(文件路径、内容与可执行位都相同)的
+// 不是库装的技能文件夹合成一条,入库成库里的一个技能,各处都记为安装。
+type PlannedUnmanagedSkill struct {
+	// Name 是 SKILL.md 里的 name;Error 不为空时是文件夹名。
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Folders 是内容一致的各处,与 ListUnmanagedSkills 列出的条目相同,按 Agent、作用域排序;几个 Agent 共用的文件夹每个 Agent 各一条。
+	Folders []UnmanagedSkill `json:"folders"`
+	// SourceInput 与 SourceRef 是从来源记录认出的来源(见 UnmanagedSkill.SourceInput),取第一处认出的;入库确认里预填,
+	// 界面按它分组,认不出的单独一组。
+	SourceInput string `json:"source_input,omitempty"`
+	SourceRef   string `json:"source_ref,omitempty"`
+	// InRepository 表示其中有一处提交在项目仓库里;InProjectLock 表示其中有一处记在项目根目录的 skills-lock.json 里
+	// (技能是团队约定装的,文件夹本身不一定提交了)。两者都归项目仓库管,默认不勾。
+	InRepository  bool `json:"in_repository,omitzero"`
+	InProjectLock bool `json:"in_project_lock,omitzero"`
+	// ModifiedAt 是各处文件夹里最近一次修改文件的时间(文件夹是符号链接时看它指向的内容)。
+	ModifiedAt time.Time `json:"modified_at,omitzero"`
+	// Conflict 表示计划里还有同名、内容不一样的技能。同名的几条只该入库一条:默认勾最近修改的那条,其余的入库后仍是未纳管技能,
+	// 之后想要再入库。
+	Conflict bool `json:"conflict,omitzero"`
+	// Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里,同名冲突时又是最近修改的那条。
+	Selected bool `json:"selected,omitzero"`
+	// Error 是这个文件夹不能入库的原因,错误码同 FetchUnmanaged 读文件夹时的错误(文件夹里有不是普通文件的东西为
+	// FailedPrecondition,SKILL.md 不是有效的技能描述或超出读取上限为 SourceInvalid,Details.Path 为文件夹);
+	// 这时 Folders 只有这一处,不和别处合并,也不算同名冲突。
+	Error *Error `json:"error,omitempty"`
+}
+
+// PlanFetchUnmanaged 是整批入库前的确认:列出这几个作用域里不是库装的技能文件夹,内容一致的合成一条,标出同名冲突与默认勾选。
+// 第一次打开 app 时对各 Agent 的全局、登记一个项目之后对这个项目各 Agent 的作用域调用它,用户确认后交给 FetchUnmanagedSkills。
+// 技能文件夹的认法与 ListUnmanagedSkills 相同,并读出每个文件夹的全部内容比较。不记哪些作用域看过:之后什么时候调用都是现查。
+// 只读:不改库、不改磁盘。结果按 Name 排序,同名的按 ModifiedAt 从新到旧。
+// 错误:作用域不合法返回 InvalidArgument(Details.Field 指向对应字段),Agent、项目不存在返回 NotFound。
+func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanagedRequest) (plan []PlannedUnmanagedSkill, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	const operation = "plan fetch unmanaged skills"
+	wanted := map[Scope]bool{}
+	for _, scope := range req.Scopes {
+		if _, err := l.resolveScope(ctx, operation, scope); err != nil {
+			return nil, err
+		}
+		wanted[scope] = true
+	}
+	entries, err := l.unmanagedSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	plan = []PlannedUnmanagedSkill{}
+	byContent := map[string]int{}
+	for _, entry := range entries {
+		if !wanted[entry.Scope] {
+			continue
+		}
+		files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
+		if typed, ok := errors.AsType[*Error](err); ok {
+			plan = append(plan, PlannedUnmanagedSkill{Name: entry.Name, Description: entry.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill}, Error: typed})
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		modified, err := agentdir.Modified(ctx, entry.Folder)
+		if err != nil {
+			return nil, err
+		}
+		sum := skillfile.Sum(files)
+		if index, ok := byContent[sum]; ok {
+			planned := &plan[index]
+			planned.Folders = append(planned.Folders, entry.UnmanagedSkill)
+			planned.InRepository = planned.InRepository || entry.InRepository
+			planned.InProjectLock = planned.InProjectLock || entry.inLockFile
+			if modified.After(planned.ModifiedAt) {
+				planned.ModifiedAt = modified
+			}
+			if planned.SourceInput == "" {
+				planned.SourceInput, planned.SourceRef = entry.SourceInput, entry.SourceRef
+			}
+			continue
+		}
+		byContent[sum] = len(plan)
+		plan = append(plan, PlannedUnmanagedSkill{
+			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
+			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
+			InRepository: entry.InRepository, InProjectLock: entry.inLockFile, ModifiedAt: modified,
+		})
+	}
+	newest := map[string]int{}
+	for index, planned := range plan {
+		if planned.Error != nil {
+			continue
+		}
+		other, ok := newest[planned.Name]
+		if !ok {
+			newest[planned.Name] = index
+			continue
+		}
+		plan[index].Conflict, plan[other].Conflict = true, true
+		if planned.ModifiedAt.After(plan[other].ModifiedAt) {
+			newest[planned.Name] = index
+		}
+	}
+	for index := range plan {
+		planned := &plan[index]
+		planned.Selected = planned.Error == nil && !planned.InRepository && !planned.InProjectLock && newest[planned.Name] == index
+	}
+	slices.SortStableFunc(plan, func(a, b PlannedUnmanagedSkill) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), b.ModifiedAt.Compare(a.ModifiedAt))
+	})
+	return plan, nil
+}
+
+// FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
+type FolderInScope struct {
+	Scope Scope  `json:"scope"`
+	Name  string `json:"name"`
+}
+
+// UnmanagedFetchItem 是整批入库里的一个技能:内容完全一致的几处文件夹(通常取自 PlannedUnmanagedSkill.Folders)和它的来源。
+// SourceInput、SourceRef 的规则同 FetchUnmanagedRequest:预填 PlannedUnmanagedSkill 认出的来源,用户可以改链接或清空。
+type UnmanagedFetchItem struct {
+	Folders     []FolderInScope `json:"folders"`
+	SourceInput string          `json:"source_input,omitempty"`
+	SourceRef   string          `json:"source_ref,omitempty"`
+}
+
+// FetchUnmanagedSkillsRequest 是一次确认的整批入库:用户勾选的各个技能。
+type FetchUnmanagedSkillsRequest struct {
+	Skills []UnmanagedFetchItem `json:"skills"`
+}
+
+// FetchedUnmanagedSkill 是整批入库里一个技能的结果,与请求里的一项一一对应。
+type FetchedUnmanagedSkill struct {
+	// Folders 原样取自请求。
+	Folders []FolderInScope `json:"folders"`
+	// Skill 是记为装在各处的库里的技能,同 FetchUnmanagedResult.Skill;Error 不为空时为零值。
+	Skill Skill `json:"skill,omitzero"`
+	// Matched 同 FetchUnmanagedResult.Matched:内容和库里这个技能的某个版本一致,只补记了安装。
+	Matched bool `json:"matched,omitzero"`
+	// Error 是这个技能没入库的原因,错误码同 FetchUnmanaged;这时库里没有记下它的任何一处,它仍是未纳管技能。
+	// 另有:几处文件夹的内容不一样返回 FailedPrecondition(Details.Path 为对不上的那个文件夹)。
+	Error *Error `json:"error,omitempty"`
+}
+
+// FetchUnmanagedSkills 一次确认把几个不是库装的技能入库,每个技能的规则和 FetchUnmanaged 相同:磁盘上什么都不改,
+// 读出的内容成为库里的版本,记为装在各处;带来源的进这个来源的集合,
+// 不带来源时和库里某个版本完全一致只补记安装。
+// 同一个来源(SourceInput 与 SourceRef 都相同)只识别、读取一次,读来源期间不持库锁。一个技能失败不影响其余的:
+// 每个技能各自成功或失败,结果按请求顺序逐条返回,失败的写在 FetchedUnmanagedSkill.Error 里,用户可以改来源或清空后单独重试。
+// 同名不同内容的几份都勾上时照样逐个入库,规则同 FetchUnmanaged(带同一来源的后一份返回 AlreadyExists),只勾一份由调用方决定。
+// 错误:某项没有文件夹、同一个文件夹出现在几项里返回 InvalidArgument(Details.Field 为 folders),文件夹名不合法为 name,
+// 只给 SourceRef 为 source_ref;这时什么都不做。
+func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSkillsRequest) (results []FetchedUnmanagedSkill, err error) {
+	defer func() { err = typedError(err) }()
+	const operation = "fetch unmanaged skills"
+	seen := map[FolderInScope]bool{}
+	for _, item := range req.Skills {
+		if len(item.Folders) == 0 {
+			return nil, argumentError(operation, "folders", "each skill needs at least one folder")
+		}
+		for _, folder := range item.Folders {
+			if !validFolderName(folder.Name) {
+				return nil, argumentError(operation, "name", "invalid skill folder name")
+			}
+			if seen[folder] {
+				return nil, argumentError(operation, "folders", "a folder is given more than once")
+			}
+			seen[folder] = true
+		}
+		if strings.TrimSpace(item.SourceInput) == "" && item.SourceRef != "" {
+			return nil, argumentError(operation, "source_ref", "a ref needs a source input")
+		}
+	}
+	results = make([]FetchedUnmanagedSkill, len(req.Skills))
+	names := make([]string, len(req.Skills))
+	for index, item := range req.Skills {
+		results[index].Folders = item.Folders
+		if strings.TrimSpace(item.SourceInput) == "" {
+			continue
+		}
+		first := item.Folders[0]
+		folder, err := l.lockedUnmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: first.Scope, Name: first.Name})
+		if err != nil {
+			results[index].Error = ErrorOf(err)
+			continue
+		}
+		names[index] = folder.parsed.Name
+	}
+	type sourceKey struct{ input, ref string }
+	opened := map[sourceKey]*openedSource{}
+	failed := map[sourceKey]error{}
+	sourced := make([]sourcedSkill, len(req.Skills))
+	for index, item := range req.Skills {
+		input := strings.TrimSpace(item.SourceInput)
+		if input == "" || results[index].Error != nil {
+			continue
+		}
+		key := sourceKey{input, item.SourceRef}
+		if opened[key] == nil && failed[key] == nil {
+			if opened[key], err = l.openSource(ctx, input, item.SourceRef); err != nil {
+				failed[key] = err
+			}
+		}
+		if failed[key] != nil {
+			results[index].Error = ErrorOf(failed[key])
+			continue
+		}
+		if sourced[index], err = opened[key].skill(ctx, names[index]); err != nil {
+			results[index].Error = ErrorOf(err)
+		}
+	}
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	for index, item := range req.Skills {
+		if results[index].Error != nil {
+			continue
+		}
+		fetched, err := l.fetchUnmanagedItem(ctx, operation, item, names[index], sourced[index])
+		if err != nil {
+			results[index].Error = ErrorOf(err)
+			continue
+		}
+		results[index].Skill, results[index].Matched = fetched.Skill, fetched.Matched
+	}
+	return results, nil
+}
+
+func (l *Library) fetchUnmanagedItem(ctx context.Context, operation string, item UnmanagedFetchItem, name string, sourced sourcedSkill) (FetchUnmanagedResult, error) {
+	folders := make([]unmanagedFolder, 0, len(item.Folders))
+	for _, each := range item.Folders {
+		folder, err := l.unmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: each.Scope, Name: each.Name})
+		if err != nil {
+			return FetchUnmanagedResult{}, err
+		}
+		if len(folders) > 0 && !skillfile.Equal(folder.files, folders[0].files) {
+			return FetchUnmanagedResult{}, preconditionError(operation, "the folders have different content", ErrorDetails{Path: folder.path})
+		}
+		folders = append(folders, folder)
+	}
+	input := strings.TrimSpace(item.SourceInput)
+	if input == "" {
+		return l.fetchWithoutSource(ctx, folders)
+	}
+	if folders[0].parsed.Name != name {
+		return FetchUnmanagedResult{}, preconditionError(operation, "the skill folder changed while the source was read", ErrorDetails{Path: folders[0].path})
+	}
+	return l.fetchWithSource(ctx, operation, folders, sourced, input, item.SourceRef)
+}
+
 type versionReader interface {
 	VersionsWithFile(ctx context.Context, path, fingerprint string) ([]store.VersionMatch, error)
 	PlaceSkillScopes(ctx context.Context, skillID int64, scope store.Scope) ([]store.PlaceSkillScope, error)
 	VersionDigests(ctx context.Context, versionID int64) (map[string]skillfile.Digest, error)
 }
 
-func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, target resolvedScope, only int64) (int64, error) {
+func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders []unmanagedFolder, now time.Time) error {
+	for _, folder := range folders {
+		if err := tx.RecordFetchedSkillScope(ctx, id, folder.target.record(), folder.name, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, folders []unmanagedFolder, only int64) (int64, error) {
 	disk := digests(files)
 	manifest, ok := disk["SKILL.md"]
 	if !ok {
@@ -522,16 +839,19 @@ func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.
 	if err != nil {
 		return 0, err
 	}
+next:
 	for _, match := range matches {
 		if only != 0 && match.SkillID != only {
 			continue
 		}
-		place, err := reader.PlaceSkillScopes(ctx, match.SkillID, target.record())
-		if err != nil {
-			return 0, err
-		}
-		if len(place) > 0 {
-			continue
+		for _, folder := range folders {
+			place, err := reader.PlaceSkillScopes(ctx, match.SkillID, folder.target.record())
+			if err != nil {
+				return 0, err
+			}
+			if len(place) > 0 {
+				continue next
+			}
 		}
 		version, err := reader.VersionDigests(ctx, match.VersionID)
 		if err != nil {
