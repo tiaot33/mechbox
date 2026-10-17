@@ -26,8 +26,8 @@ type UpdatePlanID string
 // 各处现在是什么状态。
 type UpdatePlan struct {
 	ID           UpdatePlanID `json:"id"`
-	CollectionID CollectionID `json:"collection_id"`
-	Source       Source       `json:"source"` // 集合来自哪里
+	CollectionID CollectionID `json:"collection_id"` // 没有来源的技能用目录里的修改更新时为 0
+	Source       Source       `json:"source"`        // 集合来自哪里;没有来源的技能为零值
 	// Revision 是来源现在的来源版本:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。
 	// 各技能现在在哪个来源版本上看 Skill.Revision。
 	Revision string `json:"revision,omitempty"`

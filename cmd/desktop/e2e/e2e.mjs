@@ -840,7 +840,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     // 指向的是解析后的真实路径;临时 HOME 在 /tmp 下(macOS 上是 /private/tmp 的符号链接),所以不按 ~ 缩写比较。
     const foot = await npx.locator(".a-card-foot").textContent();
     assert(foot.startsWith("符号链接 → ") && foot.includes(`${fs.realpathSync(real)}`), `应写出符号链接指向哪里:${foot}`);
-    assert((await npx.getByRole("button").allTextContents()).join() === "在 Finder 中显示", "只有在 Finder 中显示，没有删除");
+    assert((await npx.getByRole("button").allTextContents()).join() === "在 Finder 中显示,入库", "只有在 Finder 中显示与入库，没有删除");
     assert((await page.locator(".a-scope-sum .stat", { hasText: "未纳管" }).textContent()).includes("1"), "摘要应数出 1 个未纳管");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
     await btn(npx, "在 Finder 中显示").click();
@@ -870,6 +870,67 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
   }
   assert(fs.lstatSync(link).isSymbolicLink() && fs.existsSync(path.join(projB, ".claude", "skills", "my-draft", "SKILL.md")), "磁盘上什么都没动");
+});
+
+await step("未纳管技能入库：磁盘不动，成为没有来源的技能;内容一致的只补记安装;项目仓库里的也能入库", async () => {
+  const real = path.join(HOME, ".agents", "skills", "npx-tool");
+  const link = path.join(claudeGlobal, "npx-tool");
+  const team = path.join(HOME, "code", "proj-b", ".claude", "skills", "team-skill", "SKILL.md");
+  const before = [fs.readlinkSync(link), fs.readFileSync(path.join(real, "SKILL.md"), "utf8"), fs.readFileSync(team, "utf8")];
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  try {
+    await selectScope("Claude Code");
+    await btn(unmanaged("npx-tool"), "入库").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「npx-tool」" }).waitFor();
+    const text = await modal().textContent();
+    assert(text.includes("入库就是把它交给 app 管") && text.includes("之后如果还用命令行工具更新它，app 只能把它报为被手动改过"), `确认时应写清由谁管:${text}`);
+    assert(!text.includes("项目仓库"), "不在项目仓库里的不提仓库");
+    await btn(modal(), "入库").click();
+    await toast("已入库「npx-tool」");
+    await settle();
+    await card("npx-tool").waitFor();
+    assert((await unmanaged("npx-tool").count()) === 0, "入库后不再是未纳管技能");
+    assert((await card("npx-tool").textContent()).includes("没有来源"), "卡片上应写没有来源");
+    await openDrawer("npx-tool");
+    const meta = await drawer().locator(".meta").textContent();
+    assert(meta.includes("没有来源") && !meta.includes("检查更新") && !meta.includes("来源版本"), `没有来源的技能不检查更新:${meta}`);
+    assert((await btn(drawer(), "更新").count()) === 0 && (await btn(drawer(), "重新读取").count()) === 0, "没有更新与重新读取");
+    const row = drawer().locator(".scope-table tbody tr", { hasText: "Claude Code" });
+    assert((await row.locator('[data-slot="badge"]', { hasText: "最新" }).count()) === 1, "入库的这一处巡检为最新");
+    await closeDrawer();
+
+    // Codex 全局里是链接指向的真实文件夹，内容一样:只补记安装，不新建技能。
+    await selectScope("Codex");
+    await btn(unmanaged("npx-tool"), "入库").click();
+    await btn(modal(), "入库").click();
+    await toast("「npx-tool」和库里「npx-tool」的一个版本一致，已记为装在 Codex · 全局");
+    await settle();
+    assert((await card("npx-tool").count()) === 1 && (await unmanaged("npx-tool").count()) === 0, "Codex 里应是同一个技能");
+
+    await selectScope("Claude Code", "proj-b");
+    await btn(unmanaged("team-skill"), "入库").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「team-skill」" }).waitFor();
+    assert((await modal().textContent()).includes("之后在 app 里更新它，会改动项目仓库里的文件"), "项目仓库里的应写清会改动仓库");
+    await btn(modal(), "入库").click();
+    await toast("已入库「team-skill」");
+    await settle();
+    await card("team-skill").waitFor();
+    // 移出库(保留文件夹)后又是未纳管技能;后面的步骤要求 proj-b 里没有 Claude Code 装的技能。
+    await openDrawer("team-skill");
+    await btn(drawer(), "移除技能").click();
+    await modal().locator('[data-slot="choice"]', { hasText: "保留已安装的文件夹" }).click();
+    await btn(modal(), "移除").click();
+    await toast("已移除");
+    await settle();
+    await unmanaged("team-skill").waitFor();
+  } finally {
+    await selectScope("Claude Code", "proj-a");
+    const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
+    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
+  }
+  const after = [fs.readlinkSync(link), fs.readFileSync(path.join(real, "SKILL.md"), "utf8"), fs.readFileSync(team, "utf8")];
+  assert.deepStrictEqual(after, before, "入库时磁盘上什么都没动");
+  assert(fs.lstatSync(link).isSymbolicLink(), "符号链接还是符号链接");
 });
 
 // ============ 重新安装 ============

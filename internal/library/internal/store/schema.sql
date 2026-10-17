@@ -34,9 +34,11 @@ CREATE TABLE IF NOT EXISTS source_skills (
 );
 
 -- 库中的 skill;同一来源下名字唯一。
+-- 没有来源的技能(从作用域入库的未纳管技能,作者就是用户自己)source_id 为 NULL:不在任何集合里,不检查更新,
+-- 只能用 Agent 目录里的修改更新;同名的可以有几个(NULL 不参与 UNIQUE 去重)。
 CREATE TABLE IF NOT EXISTS skills (
     id INTEGER PRIMARY KEY AUTOINCREMENT,             -- skill 主键,由 SQLite 分配;跨版本保持不变,移除后也不复用,先读库、联网、再写回的操作据此认出技能
-    source_id INTEGER NOT NULL REFERENCES sources(id), -- 入库时的来源
+    source_id INTEGER REFERENCES sources(id),         -- 入库时的来源;NULL = 没有来源
     name TEXT NOT NULL,                                -- skill 名,取 SKILL.md frontmatter 的 name
     current_version_id INTEGER REFERENCES skill_versions(id), -- 当前版本;读取和安装都用它。入库事务内先插入 skill,再创建版本并回填,期间可为 NULL
     update_checked_at TEXT NOT NULL DEFAULT '',        -- 最近一次确认来源(检查更新或更新)的时间,RFC3339Nano;同时有几次检查时,用它判断库里的结论是不是检查开始后才写下的
@@ -152,7 +154,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS group_installs_project_scope ON group_installs
 -- 技能移除、项目注销后记录仍在;地方只记 Agent 与全局还是哪个项目,不记磁盘路径,同步到别的机器也对得上。
 CREATE TABLE IF NOT EXISTS update_history (
     id INTEGER PRIMARY KEY,                             -- 记录主键,由 SQLite 分配;按 id 升序即先后顺序
-    source_id INTEGER NOT NULL REFERENCES sources(id),  -- 所在集合(来源)
+    source_id INTEGER REFERENCES sources(id),           -- 所在集合(来源);NULL = 没有来源的技能的记录(用目录里的修改更新与回滚它)
     kind TEXT NOT NULL CHECK(kind IN ('update', 'skip', 'rollback')), -- update = 更新,skip = 跳过,rollback = 回滚
     revision TEXT NOT NULL DEFAULT '',                  -- 当时来源的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录与用 Agent 目录里的修改更新时为空;回滚记被回滚那次的
     whole_revision INTEGER NOT NULL DEFAULT 0 CHECK(whole_revision IN (0, 1)), -- 跳过时:1 = 跳过整个来源版本(更新计划里有变化的技能全部跳过),0 = 跳过选中的几个技能

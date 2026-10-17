@@ -38,7 +38,7 @@ const (
 // 同步到别的机器也对得上;技能从库里移除后,记录照样留着。
 type UpdateRecord struct {
 	ID           UpdateRecordID   `json:"id"`
-	CollectionID CollectionID     `json:"collection_id"`
+	CollectionID CollectionID     `json:"collection_id"` // 没有来源的技能的记录为 0,按技能(UpdateHistoryFilter.SkillID)查
 	Kind         UpdateRecordKind `json:"kind"`
 	// Revision 是当时来源的来源版本:更新换到的、跳过时更新计划看到的;回滚记被回滚那次更新的。本地目录来源与用目录里的修改更新时为空。
 	Revision string `json:"revision,omitempty"`

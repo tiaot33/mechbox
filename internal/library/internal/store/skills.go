@@ -52,7 +52,7 @@ type NewVersion struct {
 
 const skillQuery = `
 	SELECT skills.id, skills.name, current_version.description,
-		sources.id, sources.type, sources.locator, current_version.id, current_version.revision,
+		ifnull(sources.id, 0), ifnull(sources.type, ''), ifnull(sources.locator, ''), current_version.id, current_version.revision,
 		first_version.created_at, CASE WHEN current_version.id = first_version.id THEN '' ELSE current_version.created_at END,
 		skills.update_checked_at, skills.update_check_status, skills.update_check_revision, skills.update_check_renamed_to,
 		skills.update_check_content != '' AND EXISTS (
@@ -60,7 +60,7 @@ const skillQuery = `
 		),
 		skills.kept_serial > 0
 	FROM skills
-	JOIN sources ON sources.id = skills.source_id
+	LEFT JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
 	JOIN skill_versions AS first_version ON first_version.id = (
 		SELECT id FROM skill_versions WHERE skill_id = skills.id ORDER BY id LIMIT 1
@@ -217,7 +217,7 @@ func (t *Tx) FindSkill(ctx context.Context, sourceID int64, name string) (int64,
 }
 
 func (t *Tx) InsertSkill(ctx context.Context, sourceID int64, name string, version NewVersion) (skillID, versionID int64, err error) {
-	result, err := t.q.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (?, ?)`, sourceID, name)
+	result, err := t.q.ExecContext(ctx, `INSERT INTO skills(source_id, name) VALUES (nullif(?, 0), ?)`, sourceID, name)
 	if err != nil {
 		return 0, 0, fmt.Errorf("store skill: %w", wrap(err))
 	}

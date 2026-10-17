@@ -62,6 +62,10 @@ export function Fetch(id: library$0.FetchPreviewID, names: string[] | null): $Ca
     return $Call.ByID(972130338, id, names);
 }
 
+export function FetchUnmanaged(req: library$0.FetchUnmanagedRequest): $CancellablePromise<library$0.FetchUnmanagedResult> {
+    return $Call.ByID(674260690, req);
+}
+
 export function GetSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(3591563083, id);
 }

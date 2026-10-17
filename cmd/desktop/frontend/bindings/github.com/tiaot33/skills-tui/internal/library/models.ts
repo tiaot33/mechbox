@@ -526,6 +526,33 @@ export interface FetchPreview {
 export type FetchPreviewID = string;
 
 /**
+ * FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
+ */
+export interface FetchUnmanagedRequest {
+    "scope": Scope;
+
+    /**
+     * UnmanagedSkill.Name,即技能文件夹名
+     */
+    "name": string;
+}
+
+/**
+ * FetchUnmanagedResult 是从作用域入库的结果。
+ */
+export interface FetchUnmanagedResult {
+    /**
+     * Skill 是记为装在这个作用域的库里的技能:新入库的没有来源的技能,或 Matched 时内容一致的那个技能。
+     */
+    "skill": Skill;
+
+    /**
+     * Matched 为 true 表示文件夹的内容和库里这个技能的某个版本完全一致:没有新建技能,只给它补记了这一处安装。
+     */
+    "matched"?: boolean;
+}
+
+/**
  * File 是技能某个版本里的一个文件;Path 是技能内斜杠分隔的相对路径。
  */
 export interface File {
@@ -1217,6 +1244,10 @@ export interface SearchSkill {
 /**
  * Skill 是库里的一个技能;列表、详情与入库结果都返回它,集合和组只给出技能 ID。不含文件内容,
  * 文件用 VersionID 经 ListVersionFiles / GetVersionFile 读取。
+ * 
+ * 从作用域入库的未纳管技能(FetchUnmanaged)是没有来源的技能,作者就是用户自己:CollectionID 为 0、Source 为零值(Type 为空),
+ * 不在任何集合里,不检查更新、不计入角标(LastUpdateCheck 一直为 nil),只能用 Agent 目录里的修改更新(PlanUpdateFromScope);
+ * 安装、组、版本、同步与其他技能相同。
  */
 export interface Skill {
     /**
@@ -1233,9 +1264,13 @@ export interface Skill {
     "description": string;
 
     /**
-     * 所在集合;从技能打开集合或更新时用它
+     * 所在集合;从技能打开集合或更新时用它。没有来源的技能为 0
      */
     "collection_id": CollectionID;
+
+    /**
+     * 来自哪里;没有来源的技能为零值
+     */
     "source": Source;
 
     /**
@@ -1749,10 +1784,14 @@ export interface UpdateHistoryFilter {
  */
 export interface UpdatePlan {
     "id": UpdatePlanID;
+
+    /**
+     * 没有来源的技能用目录里的修改更新时为 0
+     */
     "collection_id": CollectionID;
 
     /**
-     * 集合来自哪里
+     * 集合来自哪里;没有来源的技能为零值
      */
     "source": Source;
 
@@ -1796,6 +1835,10 @@ export type UpdatePlanID = string;
  */
 export interface UpdateRecord {
     "id": UpdateRecordID;
+
+    /**
+     * 没有来源的技能的记录为 0,按技能(UpdateHistoryFilter.SkillID)查
+     */
     "collection_id": CollectionID;
     "kind": UpdateRecordKind;
 

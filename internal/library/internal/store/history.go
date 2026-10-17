@@ -55,7 +55,7 @@ func (t *Tx) AddRecord(ctx context.Context, record Record) (int64, error) {
 		fromAgent, fromProject = record.FromScope.Agent, record.FromScope.ProjectID
 	}
 	result, err := t.q.ExecContext(ctx, `
-		INSERT INTO update_history(source_id, kind, revision, whole_revision, commits, from_agent, from_project_id, rolls_back, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO update_history(source_id, kind, revision, whole_revision, commits, from_agent, from_project_id, rolls_back, created_at) VALUES (nullif(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)
 	`, record.SourceID, record.Kind, record.Revision, record.WholeRevision, record.Commits, fromAgent, fromProject, rollsBack, formatTime(record.At))
 	if err != nil {
 		return 0, fmt.Errorf("record %s: %w", record.Kind, wrap(err))
@@ -104,7 +104,7 @@ func (q queries) Skipped(ctx context.Context, skillID int64, content string) (bo
 }
 
 const recordQuery = `
-	SELECT h.id, h.source_id, h.kind, h.revision, h.whole_revision, h.commits, h.from_agent, h.from_project_id, ifnull(h.rolls_back, 0),
+	SELECT h.id, ifnull(h.source_id, 0), h.kind, h.revision, h.whole_revision, h.commits, h.from_agent, h.from_project_id, ifnull(h.rolls_back, 0),
 		ifnull((SELECT r.id FROM update_history r WHERE r.rolls_back = h.id), 0), h.created_at
 	FROM update_history h
 `
