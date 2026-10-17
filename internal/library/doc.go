@@ -83,9 +83,12 @@
 // 安装与安装计划方法都只接受 Scope 身份:Agent 目录与 [Library.ScopeDirectory] 给出的相同,记录按身份落库,
 // 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
 //
-// 看作用域里的未纳管技能(unmanaged.go):
+// 看作用域里的未纳管技能与入库(unmanaged.go):
 //   - [Library.ListUnmanagedSkills] 列出各作用域的技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
 //     提交在项目仓库里的),和 [Library.ListSkillScopes] 放在一起,就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。
+//   - [Library.FetchUnmanaged] 把其中一个入库:磁盘上什么都不改,读出的内容成为库里的版本,记为装在这个作用域;
+//     和库里某个版本完全一致时只给那个技能补记安装。新入库的是没有来源的技能,不在集合里、不检查更新,
+//     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。
 //
 // 巡检与重新安装(reinstall.go):
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。

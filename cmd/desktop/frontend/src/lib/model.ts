@@ -133,6 +133,12 @@ export function isLocal(source: Source): boolean {
   return source.type === SourceType.SourceLocal;
 }
 
+// noSource 是没有来源的技能：从作用域入库的未纳管技能，作者就是用户自己。不在任何集合里，不检查更新，
+// 只能用目录里的修改更新(在装出去的地方改了以后，那一处会出现"用这里的修改更新")。
+export function noSource(source: Source): boolean {
+  return source.type === SourceType.$zero;
+}
+
 export function pending(skill: Skill): boolean {
   return !!skill.last_update_check?.pending;
 }
@@ -201,7 +207,7 @@ export const sourceKindLabel: Record<SourceType, string> = {
   [SourceType.SourceURL]: "URL",
   [SourceType.SourceWellKnown]: "well-known",
   [SourceType.SourceLocal]: "自研",
-  [SourceType.$zero]: "未知",
+  [SourceType.$zero]: "没有来源",
 };
 
 function lastSegment(path: string): string {
@@ -217,6 +223,8 @@ export function sourceLabel(s: Snapshot, source: Source): string {
       return lastSegment(source.label);
     case SourceType.SourceLocal:
       return shortPath(s, source.label);
+    case SourceType.$zero:
+      return "没有来源";
     default:
       return "未知来源";
   }

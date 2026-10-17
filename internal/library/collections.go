@@ -27,7 +27,7 @@ type Collection struct {
 }
 
 // ListCollections 按首次从该来源入库的先后列出全部集合;只有一个技能的集合照样列出,
-// 最后一个技能移除后集合不再出现。库里没有技能时返回空列表。
+// 最后一个技能移除后集合不再出现。没有来源的技能不在任何集合里。库里没有技能时返回空列表。
 func (l *Library) ListCollections(ctx context.Context) (collections []Collection, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -45,6 +45,9 @@ func (l *Library) ListCollections(ctx context.Context) (collections []Collection
 	})
 	collections = []Collection{}
 	for _, skill := range skills {
+		if skill.CollectionID == 0 {
+			continue
+		}
 		if len(collections) == 0 || collections[len(collections)-1].ID != skill.CollectionID {
 			collections = append(collections, Collection{ID: skill.CollectionID, Source: skill.Source, NewSkills: newSkills[int64(skill.CollectionID)]})
 		}

@@ -183,3 +183,34 @@ func (q queries) VersionDigests(ctx context.Context, versionID int64) (map[strin
 func (q queries) VersionFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
 	return q.versionFiles(ctx, versionID, "get version files")
 }
+
+type VersionMatch struct {
+	VersionID int64
+	SkillID   int64
+}
+
+func (q queries) VersionsWithFile(ctx context.Context, path, fingerprint string) ([]VersionMatch, error) {
+	rows, err := q.q.QueryContext(ctx, `
+		SELECT skill_versions.id, skill_versions.skill_id FROM version_files
+		JOIN skill_versions ON skill_versions.id = version_files.version_id
+		JOIN skills ON skills.id = skill_versions.skill_id
+		WHERE version_files.path = ? AND version_files.fingerprint = ?
+		ORDER BY skill_versions.id = skills.current_version_id DESC, skill_versions.id DESC
+	`, path, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("find versions: %w", wrap(err))
+	}
+	defer rows.Close()
+	var matches []VersionMatch
+	for rows.Next() {
+		var match VersionMatch
+		if err := rows.Scan(&match.VersionID, &match.SkillID); err != nil {
+			return nil, fmt.Errorf("read version: %w", wrap(err))
+		}
+		matches = append(matches, match)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read versions: %w", wrap(err))
+	}
+	return matches, nil
+}

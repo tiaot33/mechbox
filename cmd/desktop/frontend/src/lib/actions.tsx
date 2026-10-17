@@ -26,6 +26,7 @@ import {
   type SkillID,
   type SkillScopeFilter,
   type SkillScopeInspection,
+  type UnmanagedSkill,
 } from "@bindings/internal/library";
 import { describeError } from "./errors";
 import type { LibraryError, Snapshot } from "./library";
@@ -720,5 +721,27 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   await ui.run(() => LibraryService.DeleteAgent(agent.code, { folders: policy }), {
     success: `已删除 Agent「${agent.name}」`,
+  });
+}
+
+// fetchUnmanaged 把作用域里一个不是库装的技能(未纳管技能)入库:磁盘上什么都不改，文件夹从此由 app 管。
+// 确认时写清代价：之后还用命令行工具更新它，app 只能报为被手动改过;提交在项目仓库里的，之后在 app 里更新会改动仓库里的文件。
+// 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
+export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill) {
+  const place = scopeLabel(s, skill.scope);
+  const ok = await ui.confirm({
+    title: `入库「${skill.name}」`,
+    body: (
+      <>
+        <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
+        <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
+        {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
+      </>
+    ),
+    confirm: "入库",
+  });
+  if (!ok) return;
+  await ui.run(() => LibraryService.FetchUnmanaged({ scope: skill.scope, name: skill.name }), {
+    success: (r) => (r.matched ? `「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}` : `已入库「${r.skill.name}」`),
   });
 }

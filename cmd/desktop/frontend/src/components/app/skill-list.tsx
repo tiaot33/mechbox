@@ -7,6 +7,7 @@ import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { PlannedChange, type Collection, type CollectionID, type Group, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
 import {
   deleteGroup,
+  fetchUnmanaged,
   installGroup,
   installSkill,
   previewCollection,
@@ -298,7 +299,7 @@ function SkillCard(props: {
 }
 
 // UnmanagedCard 是作用域里一个不是库装的技能文件夹(未纳管技能):虚线边框、标"未纳管",
-// 提交在项目仓库里的再标"在项目仓库里"，符号链接写出指向哪里。不能拖动、不打开详情，只提供在 Finder 中显示。
+// 提交在项目仓库里的再标"在项目仓库里"，符号链接写出指向哪里。不能拖动、不打开详情，只提供在 Finder 中显示与入库。
 function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill; view: ListView }) {
   const ui = useUI();
   const list = view === "list";
@@ -346,6 +347,14 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
           onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
         >
           在 Finder 中显示
+        </Button>
+        <Button
+          variant="link"
+          className="fetch-unmanaged shrink-0 font-sans text-[10.5px]"
+          title="交给 app 管：文件夹原样不动，之后能装到别的地方、随同步带走"
+          onClick={() => void fetchUnmanaged(ui, s, skill)}
+        >
+          入库
         </Button>
       </div>
     </article>

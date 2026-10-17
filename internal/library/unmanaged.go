@@ -3,11 +3,16 @@ package library
 import (
 	"cmp"
 	"context"
+	"errors"
+	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
 // UnmanagedSkill 是作用域的技能目录里一个不是库装的技能文件夹:这个作用域里没有安装记录用它。它可能是命令行工具
@@ -110,4 +115,145 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
 	return skills, nil
+}
+
+// FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
+type FetchUnmanagedRequest struct {
+	Scope Scope  `json:"scope"`
+	Name  string `json:"name"` // UnmanagedSkill.Name,即技能文件夹名
+}
+
+// FetchUnmanagedResult 是从作用域入库的结果。
+type FetchUnmanagedResult struct {
+	// Skill 是记为装在这个作用域的库里的技能:新入库的没有来源的技能,或 Matched 时内容一致的那个技能。
+	Skill Skill `json:"skill"`
+	// Matched 为 true 表示文件夹的内容和库里这个技能的某个版本完全一致:没有新建技能,只给它补记了这一处安装。
+	Matched bool `json:"matched,omitzero"`
+}
+
+// FetchUnmanaged 把作用域里一个不是库装的技能入库,交给库管:磁盘上什么都不改(文件夹是符号链接时照样是符号链接),
+// 读出文件夹的内容(文件夹是符号链接时读它指向的内容,受入库的读取上限约束)成为库里的版本,并记为直接安装在这个作用域;
+// 入库后巡检这一处与库里的版本一致。
+//
+// 内容和库里某个技能的某个版本完全一致(文件路径、内容与可执行位都相同)时,不新建技能,只给那个技能补记这一处安装
+// (Matched;和它的当前版本一致的优先,其次是最新的旧版本,巡检相应为 current 或 stale);已经装在这个作用域的技能不算。
+// 否则新建一个没有来源的技能(见 Skill),名字取 SKILL.md frontmatter 的 name,描述取 description。
+// 文件夹名和技能名不同时,这一处按原来的文件夹名记录(SkillScope.Folder),之后重新安装才换成技能名。
+// 入库之后,用户在库外(如命令行工具)再改这个文件夹,巡检报为 modified;提交在项目仓库里的文件夹也能入库,
+// 之后在 app 里更新、重新安装它会改动仓库里的文件。确认框据此提醒。
+//
+// 错误:作用域不合法、Name 不是合法的文件夹名返回 InvalidArgument(Details.Field 为 scope / name);Agent、项目不存在返回 NotFound;
+// 作用域根目录不存在返回 FailedPrecondition(Details.Path 为根目录,项目带 ProjectID);技能目录里没有这个技能文件夹(不存在,
+// 或根上没有 SKILL.md)返回 NotFound(Details.Path 为文件夹);这一处已经是库装的(这个作用域或共用目录的 Agent 有安装记录用它)
+// 返回 FailedPrecondition(Details.Path 为文件夹,Details.SkillID 为装在这里的技能);文件夹里有不是普通文件的东西返回
+// FailedPrecondition(Details.Path);SKILL.md 不是有效的技能描述(缺 frontmatter、name 或 description)或超出读取上限
+// 返回 SourceInvalid(Details.Path 为文件夹)。
+func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest) (result FetchUnmanagedResult, err error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	const operation = "fetch unmanaged skill"
+	if !discovery.ValidName(req.Name) || strings.HasPrefix(req.Name, ".") {
+		return FetchUnmanagedResult{}, argumentError(operation, "name", "invalid skill folder name")
+	}
+	target, err := l.resolveScope(ctx, operation, req.Scope)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	if err := target.requireRoot(operation); err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	path := filepath.Join(target.directory, req.Name)
+	folders, err := agentdir.List(target.directory)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	if !slices.ContainsFunc(folders, func(found agentdir.Folder) bool { return found.Name == req.Name }) {
+		return FetchUnmanagedResult{}, &Error{Code: NotFound, Message: operation + ": no skill folder with this name in the scope", Details: ErrorDetails{Path: path}}
+	}
+	installed, err := l.listSkillScopes(ctx, 0, &target.scopeRow)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	for _, skillScope := range installed {
+		if filepath.Base(skillScope.Folder) == req.Name {
+			return FetchUnmanagedResult{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: skillScope.SkillID})
+		}
+	}
+	files, err := agentdir.ReadFiles(ctx, path, maxFetchFiles, maxFetchSize)
+	switch {
+	case errors.Is(err, agentdir.ErrIrregularFile):
+		return FetchUnmanagedResult{}, preconditionError(operation, "the folder has entries that are not regular files", ErrorDetails{Path: path})
+	case errors.Is(err, agentdir.ErrTooLarge):
+		return FetchUnmanagedResult{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+	case err != nil:
+		return FetchUnmanagedResult{}, err
+	}
+	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
+	if index < 0 {
+		return FetchUnmanagedResult{}, &Error{Code: NotFound, Message: operation + ": the folder has no SKILL.md", Details: ErrorDetails{Path: path}}
+	}
+	parsed, err := discovery.ParseSkillMD(files[index].Content, req.Name)
+	if err != nil {
+		return FetchUnmanagedResult{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md: " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+	}
+	matched, err := l.matchingSkill(ctx, files, target)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	var row store.Skill
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		now := clockNow()
+		id := matched
+		if id == 0 {
+			inserted, _, err := tx.InsertSkill(ctx, 0, parsed.Name, store.NewVersion{Description: parsed.Description, Files: files, CreatedAt: now})
+			if err != nil {
+				return err
+			}
+			id = inserted
+		}
+		if err := tx.RecordFetchedSkillScope(ctx, id, target.record(), req.Name, now); err != nil {
+			return err
+		}
+		var err error
+		row, err = tx.GetSkill(ctx, id)
+		return err
+	})
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	skill, err := l.skillOf(row)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
+	return FetchUnmanagedResult{Skill: skill, Matched: matched != 0}, nil
+}
+
+func (l *Library) matchingSkill(ctx context.Context, files []skillfile.File, target resolvedScope) (int64, error) {
+	disk := digests(files)
+	manifest, ok := disk["SKILL.md"]
+	if !ok {
+		return 0, nil
+	}
+	matches, err := l.store.VersionsWithFile(ctx, "SKILL.md", manifest.Fingerprint)
+	if err != nil {
+		return 0, err
+	}
+	for _, match := range matches {
+		place, err := l.store.PlaceSkillScopes(ctx, match.SkillID, target.record())
+		if err != nil {
+			return 0, err
+		}
+		if len(place) > 0 {
+			continue
+		}
+		version, err := l.store.VersionDigests(ctx, match.VersionID)
+		if err != nil {
+			return 0, err
+		}
+		if maps.Equal(disk, version) {
+			return match.SkillID, nil
+		}
+	}
+	return 0, nil
 }

@@ -248,6 +248,10 @@ func (s *LibraryService) ListUnmanagedSkills(ctx context.Context) ([]library.Unm
 	return settle(s.lib.ListUnmanagedSkills(ctx))(ctx)
 }
 
+func (s *LibraryService) FetchUnmanaged(ctx context.Context, req library.FetchUnmanagedRequest) (library.FetchUnmanagedResult, error) {
+	return settle(s.lib.FetchUnmanaged(ctx, req))(ctx)
+}
+
 func (s *LibraryService) Reinstall(ctx context.Context, requests []library.ReinstallRequest) ([]library.ReinstallResult, error) {
 	return settle(s.lib.Reinstall(ctx, requests))(ctx)
 }

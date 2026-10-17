@@ -34,6 +34,7 @@ import {
   deletedInSource,
   hasUpdate,
   isLocal,
+  noSource,
   needsReinstall,
   pending,
   projectName,
@@ -228,39 +229,49 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
               <CardHeader title="元数据" />
               <dl className="meta grid grid-cols-[72px_1fr] items-center gap-x-3.5 gap-y-2.5 [&_dt]:font-medium [&_dt]:text-muted-foreground">
                 <dt>集合</dt>
-                <dd>
-                  <span className="inline-flex items-center gap-[5px]">
-                    <SourceIcon type={skill.source.type} className="size-3 text-muted-foreground" />
-                    {sourceLabel(s, skill.source)}
-                  </span>{" "}
-                  <span className="text-muted-foreground">{sourceKindLabel[skill.source.type]}</span>
-                </dd>
+                {noSource(skill.source) ? (
+                  <dd className="text-muted-foreground" title="从作用域入库，作者就是你自己;在装出去的地方改了以后，用那里的修改更新">
+                    没有来源
+                  </dd>
+                ) : (
+                  <dd>
+                    <span className="inline-flex items-center gap-[5px]">
+                      <SourceIcon type={skill.source.type} className="size-3 text-muted-foreground" />
+                      {sourceLabel(s, skill.source)}
+                    </span>{" "}
+                    <span className="text-muted-foreground">{sourceKindLabel[skill.source.type]}</span>
+                  </dd>
+                )}
                 {collection.length > 1 && (
                   <>
                     <dt>同一来源</dt>
                     <dd>{collectionRelation(skill, collection)}</dd>
                   </>
                 )}
-                <dt>来源版本</dt>
-                <dd>
-                  <span className="font-mono">{sourceRef(skill)}</span>
-                  {skill.source.view_url && (
-                    <>
-                      {" "}
-                      <Button variant="link" onClick={() => void Browser.OpenURL(skill.source.view_url!)}>
-                        在 GitHub 查看
-                      </Button>
-                    </>
-                  )}
-                </dd>
+                {!noSource(skill.source) && (
+                  <>
+                    <dt>来源版本</dt>
+                    <dd>
+                      <span className="font-mono">{sourceRef(skill)}</span>
+                      {skill.source.view_url && (
+                        <>
+                          {" "}
+                          <Button variant="link" onClick={() => void Browser.OpenURL(skill.source.view_url!)}>
+                            在 GitHub 查看
+                          </Button>
+                        </>
+                      )}
+                    </dd>
+                  </>
+                )}
                 <dt>入库于</dt>
                 <dd>{formatDate(skill.fetched_at)}</dd>
                 <dt>当前版本</dt>
                 <dd>
                   {formatDate(versions.find((v) => v.id === skill.version_id)?.created_at)} · 共 {versions.length} 个版本
                 </dd>
-                {/* 本地目录来源不检查更新，只有"重新读取"。 */}
-                {!isLocal(skill.source) && (
+                {/* 本地目录来源不检查更新，只有"重新读取";没有来源的技能只能用目录里的修改更新。 */}
+                {!isLocal(skill.source) && !noSource(skill.source) && (
                   <>
                     <dt>检查更新</dt>
                     <dd>

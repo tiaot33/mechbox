@@ -43,6 +43,8 @@ export type {
     ErrorDetails,
     FetchPreview,
     FetchPreviewID,
+    FetchUnmanagedRequest,
+    FetchUnmanagedResult,
     File,
     FileMetadata,
     Group,

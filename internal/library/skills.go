@@ -37,15 +37,19 @@ type Source struct {
 
 // Skill 是库里的一个技能;列表、详情与入库结果都返回它,集合和组只给出技能 ID。不含文件内容,
 // 文件用 VersionID 经 ListVersionFiles / GetVersionFile 读取。
+//
+// 从作用域入库的未纳管技能(FetchUnmanaged)是没有来源的技能,作者就是用户自己:CollectionID 为 0、Source 为零值(Type 为空),
+// 不在任何集合里,不检查更新、不计入角标(LastUpdateCheck 一直为 nil),只能用 Agent 目录里的修改更新(PlanUpdateFromScope);
+// 安装、组、版本、同步与其他技能相同。
 type Skill struct {
 	// LastUpdateCheck 是最近一次检查更新或更新的结论,技能详情页的「有新版本」读它;
 	// nil 表示入库后从未检查、也从未更新过(入库来自入库预览那一刻,不算一次检查)。
 	LastUpdateCheck *UpdateCheck `json:"last_update_check,omitempty"`
 	ID              SkillID      `json:"id"`
 	Name            string       `json:"name"`
-	Description     string       `json:"description"`   // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
-	CollectionID    CollectionID `json:"collection_id"` // 所在集合;从技能打开集合或更新时用它
-	Source          Source       `json:"source"`
+	Description     string       `json:"description"`         // 当前版本 SKILL.md frontmatter 的 description;解析不到则为空
+	CollectionID    CollectionID `json:"collection_id"`       // 所在集合;从技能打开集合或更新时用它。没有来源的技能为 0
+	Source          Source       `json:"source"`              // 来自哪里;没有来源的技能为零值
 	VersionID       VersionID    `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、在版本历史里标出当前版本与比较差异
 	Revision        string       `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空
 	FetchedAt       time.Time    `json:"fetched_at,omitzero"` // 入库时间
@@ -82,21 +86,22 @@ func (l *Library) sourceOf(row store.Source) (Source, error) {
 }
 
 func (l *Library) skillOf(row store.Skill) (Skill, error) {
-	src, err := l.sourceOf(row.Source)
-	if err != nil {
-		return Skill{}, err
-	}
 	skill := Skill{
-		ID:           SkillID(row.ID),
-		Name:         row.Name,
-		Description:  row.Description,
-		CollectionID: CollectionID(row.Source.ID),
-		Source:       src,
-		VersionID:    VersionID(row.VersionID),
-		Revision:     row.Revision,
-		FetchedAt:    row.FetchedAt,
-		UpdatedAt:    row.UpdatedAt,
-		KeptDeleted:  row.KeptDeleted,
+		ID:          SkillID(row.ID),
+		Name:        row.Name,
+		Description: row.Description,
+		VersionID:   VersionID(row.VersionID),
+		Revision:    row.Revision,
+		FetchedAt:   row.FetchedAt,
+		UpdatedAt:   row.UpdatedAt,
+		KeptDeleted: row.KeptDeleted,
+	}
+	if row.Source.ID != 0 {
+		src, err := l.sourceOf(row.Source)
+		if err != nil {
+			return Skill{}, err
+		}
+		skill.CollectionID, skill.Source = CollectionID(row.Source.ID), src
 	}
 	if row.CheckStatus != "" {
 		status := UpdateCheckStatus(row.CheckStatus)
