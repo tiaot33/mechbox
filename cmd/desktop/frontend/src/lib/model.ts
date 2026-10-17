@@ -15,6 +15,7 @@ import {
   type Skill,
   type SkillScopeInspection,
   type Source,
+  type UnmanagedSkill,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 
@@ -89,6 +90,11 @@ export function skillScopesOf(s: Snapshot, skillID: number): SkillScopeInspectio
 
 export function skillScopesIn(s: Snapshot, key: ScopeKey): SkillScopeInspection[] {
   return s.skillScopes.filter((p) => scopeKey(p.scope) === key);
+}
+
+// unmanagedIn 是作用域的技能目录里不是库装的技能文件夹(未纳管技能)。
+export function unmanagedIn(s: Snapshot, key: ScopeKey): UnmanagedSkill[] {
+  return s.unmanaged.filter((u) => scopeKey(u.scope) === key);
 }
 
 export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection | undefined {
@@ -288,4 +294,11 @@ export function visibleSkills(s: Snapshot, q: ListQuery): Skill[] {
   const key = q.installedOnlyIn;
   if (key) skills = skills.filter((x) => skillScopeIn(s, x.id, key));
   return skills;
+}
+
+// visibleUnmanaged 是选中作用域、看"所有技能"时和库里的技能列在一起的未纳管技能;按组、集合、更新筛选时不列。
+export function visibleUnmanaged(s: Snapshot, filter: SkillFilter, search: string, scope: ScopeKey | null): UnmanagedSkill[] {
+  if (!scope || filter.kind !== "all") return [];
+  const text = search.trim().toLowerCase();
+  return unmanagedIn(s, scope).filter((u) => (u.name + " " + (u.description ?? "")).toLowerCase().includes(text));
 }

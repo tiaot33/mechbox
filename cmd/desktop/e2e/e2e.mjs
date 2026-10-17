@@ -35,6 +35,11 @@ const bindings = fs.readFileSync(
 const methodID = (name) => bindings.match(new RegExp(`function ${name}\\([^]*?ByID\\((\\d+)`))[1];
 const previewMethodID = methodID("PreviewFetch");
 const refsMethodID = methodID("ListSourceRefs");
+const appBindings = fs.readFileSync(
+  new globalThis.URL("../frontend/bindings/github.com/tiaot33/skills-tui/cmd/desktop/appservice.ts", import.meta.url),
+  "utf8",
+);
+const appMethodID = (name) => appBindings.match(new RegExp(`function ${name}\\([^]*?ByID\\((\\d+)`))[1];
 let previewCalls = 0;
 let refsCalls = 0;
 // previewRequests 记下每次 PreviewFetch 的请求参数;refsCallIDs 是 ListSourceRefs 调用的 call-id,cancelled 是前端取消过的 call-id。
@@ -794,6 +799,77 @@ await step("未记录的外来文件夹：安装计划发现后询问覆盖", as
   await toast("已安装「beta」");
   await settle();
   assert(fs.existsSync(path.join(dir, "beta", "SKILL.md")) && !fs.existsSync(path.join(dir, "beta", "note.txt")), "应已覆盖");
+});
+
+// ============ 未纳管技能 ============
+await step("未纳管技能：作用域里列出不是库装的技能(符号链接、项目仓库里的),只能在 Finder 中显示", async () => {
+  // npx skills 的布局：真实文件夹在 ~/.agents/skills(Codex 全局),Claude Code 全局里是指过去的符号链接。
+  const real = path.join(HOME, ".agents", "skills", "npx-tool");
+  fs.mkdirSync(real, { recursive: true });
+  fs.writeFileSync(path.join(real, "SKILL.md"), '---\nname: npx-tool\ndescription: "installed by npx skills"\n---\n');
+  const link = path.join(claudeGlobal, "npx-tool");
+  fs.symlinkSync(path.join("..", "..", ".agents", "skills", "npx-tool"), link);
+  // proj-b 是 git 仓库：team-skill 已提交，my-draft 只在工作区。
+  const projB = path.join(HOME, "code", "proj-b");
+  const git = (...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "-C", projB, ...args]);
+  for (const [name, description] of [["team-skill", "committed by the team"], ["my-draft", "not committed"]]) {
+    fs.mkdirSync(path.join(projB, ".claude", "skills", name), { recursive: true });
+    fs.writeFileSync(path.join(projB, ".claude", "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
+  }
+  git("init", "-q", "-b", "main");
+  git("add", ".claude/skills/team-skill");
+  git("commit", "-qm", "team");
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const revealArgs = [];
+  const revealID = Number(appMethodID("RevealInFinder"));
+  const onRequest = (r) => {
+    if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
+    const body = JSON.parse(r.postData() ?? "{}");
+    if (body.args?.methodID === revealID) revealArgs.push(body.args.args[0]);
+  };
+  page.on("request", onRequest);
+  try {
+    await selectScope("Claude Code");
+    const npx = unmanaged("npx-tool");
+    await npx.waitFor();
+    assert((await card("alpha").count()) === 1, "库装的 alpha 照常列出");
+    assert((await npx.locator('[data-slot="badge"]', { hasText: "未纳管" }).count()) === 1, "应标未纳管");
+    // 指向的是解析后的真实路径;临时 HOME 在 /tmp 下(macOS 上是 /private/tmp 的符号链接),所以不按 ~ 缩写比较。
+    const foot = await npx.locator(".a-card-foot").textContent();
+    assert(foot.startsWith("符号链接 → ") && foot.includes(`${fs.realpathSync(real)}`), `应写出符号链接指向哪里:${foot}`);
+    assert((await npx.getByRole("button").allTextContents()).join() === "在 Finder 中显示", "只有在 Finder 中显示，没有删除");
+    assert((await page.locator(".a-scope-sum .stat", { hasText: "未纳管" }).textContent()).includes("1"), "摘要应数出 1 个未纳管");
+    await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
+    await btn(npx, "在 Finder 中显示").click();
+    await page.waitForTimeout(300);
+    assert.deepStrictEqual(revealArgs, [link], "在 Finder 中显示的是符号链接本身");
+
+    await selectScope("Codex");
+    await unmanaged("npx-tool").waitFor();
+    assert((await unmanaged("npx-tool").locator(".a-card-foot", { hasText: "符号链接" }).count()) === 0, "真实文件夹不标符号链接");
+
+    await selectScope("Claude Code", "proj-b");
+    await unmanaged("team-skill").waitFor();
+    assert((await unmanaged("team-skill").locator('[data-slot="badge"]', { hasText: "在项目仓库里" }).count()) === 1, "已提交的应标在项目仓库里");
+    assert((await unmanaged("my-draft").locator('[data-slot="badge"]', { hasText: "在项目仓库里" }).count()) === 0, "没提交的不标");
+    await page.screenshot({ path: path.join(SHOTS, "unmanaged-project.png") });
+
+    // 只看所有技能时列出;按集合、组筛选时不列。搜索同样作用于未纳管技能。
+    await page.getByPlaceholder("搜索技能").fill("draft");
+    await page.waitForTimeout(200);
+    assert((await page.locator(".unmanaged-card").count()) === 1, "搜索应只剩 my-draft");
+    await page.getByPlaceholder("搜索技能").fill("");
+  } finally {
+    page.off("request", onRequest);
+    await selectScope("Claude Code", "proj-a");
+    // 选中 proj-b 的作用域时右栏展开了它，收回去，后面的拖放步骤要从折叠的 proj-b 开始。
+    const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
+    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
+  }
+  assert(fs.lstatSync(link).isSymbolicLink() && fs.existsSync(path.join(projB, ".claude", "skills", "my-draft", "SKILL.md")), "磁盘上什么都没动");
 });
 
 // ============ 重新安装 ============

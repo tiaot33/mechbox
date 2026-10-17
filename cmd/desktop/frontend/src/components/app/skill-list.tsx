@@ -1,9 +1,10 @@
 // 中间：作用域摘要(选中作用域时)、组 / 集合标题条(筛选组 / 集合时)、更新列表(筛选"更新"时)与技能卡片 / 列表。
 // 卡片点开详情抽屉、可拖到左栏组或右栏作用域;选中作用域时卡片上的开关控制直接安装。
+// 选中作用域时，库里的技能之后接着列出这个作用域里的未纳管技能(虚线卡片，只能在 Finder 中显示)。
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
-import { LibraryService } from "@bindings/cmd/desktop";
-import { PlannedChange, type Collection, type CollectionID, type Group, type Skill } from "@bindings/internal/library";
+import { AppService, LibraryService } from "@bindings/cmd/desktop";
+import { PlannedChange, type Collection, type CollectionID, type Group, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
 import {
   deleteGroup,
   installGroup,
@@ -42,6 +43,7 @@ import {
   sourceLabel,
   sourceShort,
   updatableCollections,
+  unmanagedIn,
   updateAvailable,
   viaGroupCount,
   type ScopeKey,
@@ -61,6 +63,7 @@ import type { ListView } from "./toolbar";
 interface SkillListProps {
   s: Snapshot;
   skills: Skill[];
+  unmanaged: UnmanagedSkill[];
   filter: SkillFilter;
   scope: ScopeKey | null;
   scopeDirectory: string | undefined;
@@ -75,7 +78,7 @@ const barClass = "a-scope-sum mx-3.5 mt-3 flex flex-col gap-2 rounded-[10px] bor
 const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
 export function SkillList(props: SkillListProps) {
-  const { s, skills, filter, scope, view } = props;
+  const { s, skills, unmanaged, filter, scope, view } = props;
   const group = filter.kind === "group" ? s.groups.find((g) => g.id === filter.groupID) : undefined;
   const collection = filter.kind === "collection" ? s.collections.find((c) => c.id === filter.collectionID) : undefined;
   // 列出的技能都来自同一个来源时，卡片上不再逐张写来源。
@@ -110,7 +113,11 @@ export function SkillList(props: SkillListProps) {
               onOpen={() => props.onOpen(skill.id)}
             />
           ))}
+          {unmanaged.map((u) => (
+            <UnmanagedCard key={u.folder} s={s} skill={u} view={view} />
+          ))}
           {skills.length === 0 &&
+            unmanaged.length === 0 &&
             (s.skills.length === 0 ? (
               <ListEmpty>
                 <b className="text-sm text-foreground">技能库还是空的</b>
@@ -290,11 +297,67 @@ function SkillCard(props: {
   );
 }
 
+// UnmanagedCard 是作用域里一个不是库装的技能文件夹(未纳管技能):虚线边框、标"未纳管",
+// 提交在项目仓库里的再标"在项目仓库里"，符号链接写出指向哪里。不能拖动、不打开详情，只提供在 Finder 中显示。
+function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill; view: ListView }) {
+  const ui = useUI();
+  const list = view === "list";
+  return (
+    <article
+      className={cn(
+        // 不挂 a-card:e2e 与拖放按 a-card 找库里的技能。
+        "unmanaged-card flex gap-2 border border-dashed",
+        list
+          ? "min-h-10 flex-row items-center gap-5 rounded-[7px] border-transparent px-3 shadow-[inset_0_-1px_0_rgba(17,24,39,0.06)] hover:border-border-strong"
+          : "min-h-28 flex-col rounded-[10px] border-border-strong bg-white/30 px-3 pt-3 pb-2.5",
+      )}
+      data-name={skill.name}
+    >
+      <div className={cn("flex min-w-0 items-center gap-1.5", list && "w-[260px] shrink-0")}>
+        <span className={cn("unmanaged-name min-w-0 truncate font-semibold text-foreground-secondary", list ? "text-[13px]" : "text-[12.5px]")}>
+          {skill.name}
+        </span>
+        <Badge title="这个文件夹不是技能库装的：可能是命令行工具装的、手动拷进来的或你自己写的。技能库只列出它，不改动、不删除。">
+          未纳管
+        </Badge>
+        {skill.in_repository && <Badge title="这个文件夹已提交在项目的 git 仓库里，由仓库管理">在项目仓库里</Badge>}
+      </div>
+      <p
+        className={cn(
+          list
+            ? "min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground"
+            : "line-clamp-2 min-h-[2.9em] text-[11px] leading-[1.45] text-muted-foreground",
+        )}
+      >
+        {skill.description}
+      </p>
+      <div
+        className={cn(
+          "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
+          list ? "w-[220px] shrink-0" : "mt-auto",
+        )}
+      >
+        <span className="min-w-0 grow truncate" title={skill.link_target ? `符号链接，指向 ${skill.link_target}` : skill.folder}>
+          {skill.link_target ? `符号链接 → ${shortPath(s, skill.link_target)}` : "不是库装的"}
+        </span>
+        <Button
+          variant="link"
+          className="reveal-in-finder shrink-0 font-sans text-[10.5px]"
+          onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
+        >
+          在 Finder 中显示
+        </Button>
+      </div>
+    </article>
+  );
+}
+
 // ScopeSummary 是选中作用域时列表顶部的摘要:Agent 目录、健康状态、全部重新安装，以及每个组的整组开关。
 function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; directory: string | undefined }) {
   const ui = useUI();
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
+  const unmanaged = unmanagedIn(s, scope).length;
   const sc = parseScope(scope);
   return (
     <div className={barClass}>
@@ -303,6 +366,7 @@ function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; d
         <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{directory ? shortPath(s, directory) : "…"}</span>
         <span className="grow" />
         <Stat value={installed.length} label="已安装" />
+        {unmanaged > 0 && <Stat value={unmanaged} label="未纳管" />}
         <Stat value={issues} label="需重新安装" warn={issues > 0} />
         {issues > 0 && (
           <Button size="sm" onClick={() => reinstall(ui, s, { scope: sc }, scopeLabel(s, sc))}>
