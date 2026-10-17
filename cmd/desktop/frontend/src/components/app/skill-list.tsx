@@ -349,6 +349,11 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
         <span className="min-w-0 grow truncate" title={skill.link_target ? `符号链接，指向 ${skill.link_target}` : skill.folder}>
           {skill.link_target ? `符号链接 → ${shortPath(s, skill.link_target)}` : "不是库装的"}
         </span>
+        {skill.source_input && (
+          <span className="unmanaged-source-label min-w-0 max-w-[45%] truncate font-sans" title={`来自 ${skill.source_input}:npx skills 记下的来源，入库后跟着它检查更新`}>
+            来自 {skill.source_input}
+          </span>
+        )}
         <Button
           variant="link"
           className="reveal-in-finder shrink-0 font-sans text-[10.5px]"

@@ -159,6 +159,7 @@ type currentVersion struct {
 	revision    string
 	files       []skillfile.File
 	base        int64
+	maybeEdited bool
 	origin      source.Have
 }
 
@@ -189,6 +190,7 @@ func (l *Library) currentOf(ctx context.Context, row store.Skill) (Skill, curren
 		revision:    current.Revision,
 		files:       current.Files,
 		base:        current.Base,
+		maybeEdited: current.MaybeEdited,
 	}, nil
 }
 

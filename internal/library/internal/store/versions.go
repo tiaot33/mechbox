@@ -15,6 +15,7 @@ type Version struct {
 	Description string
 	Revision    string
 	Base        int64
+	MaybeEdited bool
 	CreatedAt   time.Time
 }
 
@@ -29,7 +30,7 @@ func (t *Tx) AddVersion(ctx context.Context, skillID int64, version NewVersion) 
 	if version.Base != 0 {
 		base = &version.Base
 	}
-	result, err := t.q.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, source_state, revision, description, created_at, base_version_id) VALUES (?, ?, ?, ?, ?, ?)`, skillID, version.State, version.Revision, version.Description, formatTime(version.CreatedAt), base)
+	result, err := t.q.ExecContext(ctx, `INSERT INTO skill_versions(skill_id, source_state, revision, description, created_at, base_version_id, maybe_edited) VALUES (?, ?, ?, ?, ?, ?, ?)`, skillID, version.State, version.Revision, version.Description, formatTime(version.CreatedAt), base, version.MaybeEdited)
 	if err != nil {
 		return 0, fmt.Errorf("store skill version: %w", wrap(err))
 	}
@@ -53,7 +54,7 @@ func (t *Tx) AddVersion(ctx context.Context, skillID int64, version NewVersion) 
 }
 
 func (q queries) ListVersions(ctx context.Context, skillID int64) ([]Version, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT id, description, revision, ifnull(base_version_id, 0), created_at FROM skill_versions WHERE skill_id = ? ORDER BY id`, skillID)
+	rows, err := q.q.QueryContext(ctx, `SELECT id, description, revision, ifnull(base_version_id, 0), maybe_edited, created_at FROM skill_versions WHERE skill_id = ? ORDER BY id`, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("list skill versions: %w", wrap(err))
 	}
@@ -62,7 +63,7 @@ func (q queries) ListVersions(ctx context.Context, skillID int64) ([]Version, er
 	for rows.Next() {
 		var createdAt string
 		version := Version{SkillID: skillID}
-		if err := rows.Scan(&version.ID, &version.Description, &version.Revision, &version.Base, &createdAt); err != nil {
+		if err := rows.Scan(&version.ID, &version.Description, &version.Revision, &version.Base, &version.MaybeEdited, &createdAt); err != nil {
 			return nil, fmt.Errorf("read skill version: %w", wrap(err))
 		}
 		if version.CreatedAt, err = parseTime(createdAt); err != nil {
@@ -82,7 +83,7 @@ func (q queries) ListVersions(ctx context.Context, skillID int64) ([]Version, er
 func (q queries) GetVersion(ctx context.Context, id int64) (Version, error) {
 	version := Version{ID: id}
 	var createdAt string
-	if err := q.q.QueryRowContext(ctx, `SELECT skill_id, description, revision, ifnull(base_version_id, 0), created_at FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.Description, &version.Revision, &version.Base, &createdAt); err != nil {
+	if err := q.q.QueryRowContext(ctx, `SELECT skill_id, description, revision, ifnull(base_version_id, 0), maybe_edited, created_at FROM skill_versions WHERE id = ?`, id).Scan(&version.SkillID, &version.Description, &version.Revision, &version.Base, &version.MaybeEdited, &createdAt); err != nil {
 		return Version{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error

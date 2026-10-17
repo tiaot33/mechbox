@@ -17,6 +17,7 @@ import {
   type Agent,
   type CollectionID,
   type CustomAgent,
+  type FetchUnmanagedResult,
   type GroupID,
   type GroupMemberResult,
   type RegisteredProject,
@@ -47,10 +48,11 @@ import {
   sourceLabel,
   updateAvailable,
 } from "./model";
-import { Modal, type useUI } from "./ui";
+import { Modal, useUI } from "./ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Hint } from "@/components/ui/field";
+import { Field, Hint } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 
@@ -726,22 +728,100 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
 
 // fetchUnmanaged 把作用域里一个不是库装的技能(未纳管技能)入库:磁盘上什么都不改，文件夹从此由 app 管。
 // 确认时写清代价：之后还用命令行工具更新它，app 只能报为被手动改过;提交在项目仓库里的，之后在 app 里更新会改动仓库里的文件。
+// 来源链接预填 npx skills 来源记录里认出的来源，用户可以改或清空;清空就是没有来源的技能。
 // 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
 export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill) {
   const place = scopeLabel(s, skill.scope);
-  const ok = await ui.confirm({
-    title: `入库「${skill.name}」`,
-    body: (
-      <>
-        <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
-        <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
-        {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
-      </>
-    ),
-    confirm: "入库",
-  });
-  if (!ok) return;
-  await ui.run(() => LibraryService.FetchUnmanaged({ scope: skill.scope, name: skill.name }), {
-    success: (r) => (r.matched ? `「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}` : `已入库「${r.skill.name}」`),
-  });
+  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} close={close} />);
+  if (!r) return;
+  if (r.matched) ui.toast(`「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}`);
+  else if (r.skill.collection_id) ui.toast(`已入库「${r.skill.name}」，以后跟着 ${r.skill.source.label} 检查更新`);
+  else ui.toast(`已入库「${r.skill.name}」`);
+}
+
+// FetchUnmanagedDialog 是入库确认：来源链接可改可清空;读来源失败时留在框里说明原因，用户可以重试、改链接或清空后入库。
+function FetchUnmanagedDialog({
+  place,
+  skill,
+  close,
+}: {
+  place: string;
+  skill: UnmanagedSkill;
+  close: (value?: FetchUnmanagedResult) => void;
+}) {
+  const ui = useUI();
+  const [link, setLink] = useState(skill.source_input ?? "");
+  const [error, setError] = useState<LibraryError>();
+  const [busy, setBusy] = useState(false);
+  const input = link.trim();
+  // 来源记录里的分支只跟着它认出的那个来源走;用户改了链接就不再带上。
+  const ref = input && input === skill.source_input ? skill.source_ref : undefined;
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    const r = await ui.run(
+      () => LibraryService.FetchUnmanaged({ scope: skill.scope, name: skill.name, source_input: input || undefined, source_ref: ref }),
+      { onError: (err) => (setError(err), true) },
+    );
+    setBusy(false);
+    if (r) close(r);
+  };
+  return (
+    <Modal
+      title={`入库「${skill.name}」`}
+      onClose={() => close()}
+      footer={
+        <>
+          <Button onClick={() => close()}>取消</Button>
+          <Button variant="primary" onClick={() => void submit()} disabled={busy} autoFocus>
+            入库
+          </Button>
+        </>
+      }
+    >
+      <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
+      <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
+      {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
+      <Field label="来源链接">
+        <Input
+          className="unmanaged-source font-mono"
+          value={link}
+          placeholder="owner/repo、Git 地址或链接"
+          onChange={(e) => setLink(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void submit()}
+        />
+      </Field>
+      <Hint className="unmanaged-source-note">
+        {input
+          ? `以后跟着 ${input}${ref ? ` · ${ref}` : ""} 检查更新。和来源里的不一样时，作者的新版会出现在更新里。`
+          : "没有来源：不检查更新，之后在 Agent 目录里改了，用目录里的修改更新它。"}
+      </Hint>
+      {error && (
+        <Notice tone="bad" className="unmanaged-error whitespace-pre-line">
+          {unmanagedSourceError(error, skill.name)}
+        </Notice>
+      )}
+    </Modal>
+  );
+}
+
+// unmanagedSourceError 说明带来源入库为什么没成，以及用户接下来能做什么。
+function unmanagedSourceError(err: LibraryError, name: string): string {
+  const clear = "也可以清空来源链接，作为没有来源的技能入库。";
+  const field = err.details?.field;
+  switch (err.code) {
+    case ErrorCode.AlreadyExists:
+      return `库里已有这个来源的「${err.details?.name ?? name}」，这里的内容和它的哪个版本都不一样，所以不合并。可以清空来源链接，作为没有来源的技能入库，或者先不入库。`;
+    case ErrorCode.SourceUnreachable:
+      return `连不上这个来源，可以稍后重试或改链接。${clear}`;
+    case ErrorCode.NotFound:
+      // 找不到的可能是技能，也可能是分支或子目录:带上原因。
+      if (err.details?.name) return `来源里找不到「${err.details.name}」，可以改链接。${clear}\n${err.message}`;
+      break;
+    case ErrorCode.InvalidArgument:
+      if (field === "source_input" || field === "source_ref") return `认不出这个来源链接，可以改一下。${clear}\n${err.message}`;
+      break;
+  }
+  return describeError(err);
 }

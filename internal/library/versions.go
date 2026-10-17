@@ -20,6 +20,10 @@ type SkillVersion struct {
 	CreatedAt   time.Time `json:"created_at,omitzero"` // 这个版本由入库或更新写进库里的时间
 	// BasedOn 是用目录里的修改更新进来的版本(PlanUpdateFromScope)所基于的版本,即当时库里的当前版本;从来源入库或更新的为零值。
 	BasedOn VersionID `json:"based_on,omitzero"`
+	// MaybeEdited 为 true 表示这一版是从作用域连同来源入库的未纳管技能(FetchUnmanaged),入库时磁盘上的内容和来源里的不一样,
+	// 又不能确认是当初装的原样:说不清有没有用户的修改。版本历史里写「入库时和来源里的不一样，可能有你的修改」;
+	// 它是当前版本时更新计划里这个技能为 PlannedSkill.Edited。更新时确认来源里的内容和它一样(更新计划里没有变化)时清为 false。
+	MaybeEdited bool `json:"maybe_edited,omitzero"`
 }
 
 // FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
@@ -53,7 +57,7 @@ type VersionDiff struct {
 }
 
 func versionOf(row store.Version) SkillVersion {
-	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, Revision: row.Revision, CreatedAt: row.CreatedAt, BasedOn: VersionID(row.Base)}
+	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, Revision: row.Revision, CreatedAt: row.CreatedAt, BasedOn: VersionID(row.Base), MaybeEdited: row.MaybeEdited}
 }
 
 // ListVersions 按写入先后列出技能在库里的全部版本,最早的在前;哪个是当前版本看 Skill.VersionID。

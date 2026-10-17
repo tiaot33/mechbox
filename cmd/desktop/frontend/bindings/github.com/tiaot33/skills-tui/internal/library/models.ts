@@ -533,6 +533,7 @@ export type FetchPreviewID = string;
 
 /**
  * FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
+ * SourceInput 为空时作为没有来源的技能入库;给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
  */
 export interface FetchUnmanagedRequest {
     "scope": Scope;
@@ -541,6 +542,17 @@ export interface FetchUnmanagedRequest {
      * UnmanagedSkill.Name,即技能文件夹名
      */
     "name": string;
+
+    /**
+     * SourceInput 是技能的来源,格式与识别规则同 PreviewFetchRequest.Input;入库确认里预填 UnmanagedSkill.SourceInput,
+     * 用户可以改成别的来源链接,或清空。来源里按 SKILL.md 里的 name 找这个技能。
+     */
+    "source_input"?: string;
+
+    /**
+     * SourceRef 是来源的分支或 tag,同 PreviewFetchRequest.Ref,只对 Git 类来源有意义;预填 UnmanagedSkill.SourceRef。
+     */
+    "source_ref"?: string;
 }
 
 /**
@@ -548,7 +560,7 @@ export interface FetchUnmanagedRequest {
  */
 export interface FetchUnmanagedResult {
     /**
-     * Skill 是记为装在这个作用域的库里的技能:新入库的没有来源的技能,或 Matched 时内容一致的那个技能。
+     * Skill 是记为装在这个作用域的库里的技能:新入库的技能,或 Matched 时内容一致的那个技能。
      */
     "skill": Skill;
 
@@ -878,6 +890,8 @@ export interface PlannedSkill {
      * Edited 为 true 表示库里的当前版本是用目录里的修改更新进来的(SkillVersion.BasedOn 不为空)。这时有没有变化只看来源:
      * 来源里这个技能和这份修改所基于的来源版本相比有没有改过,没改过就是没变化;改过且和这份修改不同才是有变化,勾上更新会换掉这份修改
      * (之后能回滚回来),所以桌面端默认不勾。本地目录来源照旧拿目录里的内容和这份修改比较,「重新读取」就是换成目录里的内容。
+     * 当前版本是入库时说不清有没有用户修改的那一版(SkillVersion.MaybeEdited)时也为 true:它没有所基于的来源版本,
+     * 来源里的和它不一样就是有变化,同样默认不勾。
      * 用目录里的修改更新的计划(PlanUpdateFromScope)里为 false。
      */
     "edited"?: boolean;
@@ -1543,6 +1557,13 @@ export interface SkillVersion {
      * BasedOn 是用目录里的修改更新进来的版本(PlanUpdateFromScope)所基于的版本,即当时库里的当前版本;从来源入库或更新的为零值。
      */
     "based_on"?: VersionID;
+
+    /**
+     * MaybeEdited 为 true 表示这一版是从作用域连同来源入库的未纳管技能(FetchUnmanaged),入库时磁盘上的内容和来源里的不一样,
+     * 又不能确认是当初装的原样:说不清有没有用户的修改。版本历史里写「入库时和来源里的不一样，可能有你的修改」;
+     * 它是当前版本时更新计划里这个技能为 PlannedSkill.Edited。更新时确认来源里的内容和它一样(更新计划里没有变化)时清为 false。
+     */
+    "maybe_edited"?: boolean;
 }
 
 /**
@@ -1760,6 +1781,20 @@ export interface UnmanagedSkill {
      * 项目不是 git 仓库、还没有提交或本机没有 git 时为 false。
      */
     "in_repository"?: boolean;
+
+    /**
+     * SourceInput 是从 npx skills 留下的来源记录里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
+     * FetchUnmanagedRequest.SourceInput,界面写「来自 …」。认不出时为空,用户可以自己给一个来源链接。
+     * 全局作用域读 ~/.agents/.skill-lock.json(设了 XDG_STATE_HOME 时为 $XDG_STATE_HOME/skills/.skill-lock.json,只认 version 3 及以上),
+     * 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
+     * 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
+     */
+    "source_input"?: string;
+
+    /**
+     * SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
+     */
+    "source_ref"?: string;
 }
 
 /**
