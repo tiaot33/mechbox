@@ -387,7 +387,8 @@ export enum ErrorCode {
     $zero = "",
 
     /**
-     * InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法)。
+     * InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法,
+     * 入库预览的输入识别不出来源:链接既不是技能文件或压缩包,也没有 well-known 索引,也不是 Git 仓库)。
      * 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
      */
     InvalidArgument = "invalid_argument",
@@ -436,7 +437,8 @@ export enum ErrorCode {
     SourceUnreachable = "source_unreachable",
 
     /**
-     * SourceInvalid 来源可达,但其内容不可用(zip 损坏、超限、无有效候选、响应不合规、不支持的文件类型)。
+     * SourceInvalid 来源可达,但其内容不可用(压缩包损坏、超限、无有效候选、响应不合规、不支持的文件类型,
+     * 技能内容取不全:索引列出的文件不存在、与索引里的 digest 不一致、SKILL.md 缺 name / description)。
      * 重试无效。UI:展示原因,建议换来源。
      */
     SourceInvalid = "source_invalid",
@@ -476,12 +478,12 @@ export interface ErrorDetails {
     "field"?: string;
 
     /**
-     * AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径
+     * AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能里取不到的文件(相对技能目录)
      */
     "path"?: string;
 
     /**
-     * NotFound 的 ref / 名字(更新时为来源里已没有的技能名);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
+     * NotFound 的 ref / 名字(更新时为来源里已没有的技能名;入库预览时为没有技能的链接路径);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能名
      */
     "name"?: string;
 
@@ -503,12 +505,13 @@ export interface FetchPreview {
     "id": FetchPreviewID;
 
     /**
-     * Git 类来源实际使用的分支或 tag,省略时为发现的默认分支;其他来源为空
+     * Source 是识别结果:来源类型、展示名称,以及 Git 类来源实际使用的分支或 tag(省略时为发现的默认分支)。
+     * 与入库后集合和技能上的 Source 相同。
      */
-    "ref"?: string;
+    "source": Source;
 
     /**
-     * 钉住的内容:GitHub 为 commit,其他为内容哈希
+     * 钉住的内容:Git 类来源为 commit,well-known 为索引内容哈希,直接下载为文件内容哈希,本地目录为空
      */
     "revision": string;
     "candidates": Candidate[] | null;
@@ -593,26 +596,6 @@ export enum FolderPolicy {
      */
     Remove = "remove",
 };
-
-/**
- * GitHubInput 是用户输入的 GitHub 地址,由 PreviewFetch 解析。
- */
-export interface GitHubInput {
-    /**
-     * owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能
-     */
-    "input": string;
-
-    /**
-     * 显式分支或 tag;带斜杠的必须从这里传;省略时发现默认分支
-     */
-    "ref"?: string;
-
-    /**
-     * 仓库内目录
-     */
-    "subpath"?: string;
-}
 
 /**
  * Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
@@ -878,24 +861,29 @@ export interface PreviewDiagnostic {
 }
 
 /**
- * PreviewFetchRequest 是入库预览的输入:GitHub / URL / Local / Collection 恰好给一个。
+ * PreviewFetchRequest 是入库预览的输入:Input / Collection 恰好给一个。
  */
 export interface PreviewFetchRequest {
-    "github"?: GitHubInput | null;
-
     /**
-     * zip 压缩包地址
+     * Input 是用户粘贴的来源,由入库预览识别是哪一种(见 PreviewFetch):本地目录(绝对路径或以 ./、../ 开头的相对路径)、
+     * GitHub 仓库(owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能)、
+     * GitHub / GitLab 的 raw、archive、release 文件链接、GitLab 链接与 gitlab: 简写、SSH 与以 .git 结尾的 Git 地址,以及其他 http(s) 链接。
      */
-    "url"?: string;
+    "input"?: string;
 
     /**
-     * 本地目录;相对路径按当前工作目录解析为绝对路径
+     * 显式分支或 tag,只对 Git 类来源(GitHub 仓库、Git 仓库)有意义;带斜杠的必须从这里传;省略时发现默认分支
      */
-    "local"?: string;
+    "ref"?: string;
 
     /**
-     * Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时的仓库与分支、URL 或目录重新读取,
-     * 候选上的 Fetched 标出哪些已经入库,New 标出新技能。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
+     * 仓库内目录,只对 Git 类来源有意义
+     */
+    "subpath"?: string;
+
+    /**
+     * Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时识别出的来源类型与定位信息重新读取,不重新识别,
+     * 候选上的 Fetched 标出哪些已经入库,New 标出新技能。入库时指定的子目录没有记下来,Git 类来源看的是整个仓库(分支不变)。
      */
     "collection"?: CollectionID;
 }
@@ -1254,7 +1242,7 @@ export interface Skill {
     "version_id": VersionID;
 
     /**
-     * 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
+     * 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空
      */
     "revision"?: string;
 
@@ -1433,7 +1421,7 @@ export interface SkillVersion {
     "description": string;
 
     /**
-     * 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变
+     * 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变
      */
     "revision"?: string;
 
@@ -1468,17 +1456,17 @@ export interface Source {
     "type": SourceType;
 
     /**
-     * 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
+     * 展示名称:GitHub 为 owner/repo,Git 仓库为主机加仓库路径(如 gitlab.com/group/repo),直接下载为文件地址,well-known 为站点主机加路径,本地目录为绝对路径
      */
     "label": string;
 
     /**
-     * Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
+     * Git 类来源(GitHub、Git 仓库)入库时使用的分支、tag 或完整 SHA;其他来源为空
      */
     "ref"?: string;
 
     /**
-     * 在来源上查看的网页;URL 与本地目录为空
+     * 在来源上查看的网页:GitHub 与 GitLab 仓库为该分支的页面,well-known 为站点;其他 Git 仓库、直接下载与本地目录为空
      */
     "view_url"?: string;
 }
@@ -1498,9 +1486,19 @@ export enum SourceType {
     SourceGitHub = "github",
 
     /**
-     * 直接下载的 zip 压缩包
+     * 其他 Git 仓库(GitLab、GitHub Enterprise 与其他 Git 服务)+ Git ref,用这台机器已有的 git 凭据读取
+     */
+    SourceGit = "git",
+
+    /**
+     * 直接下载的单个 SKILL.md、zip、tar 或 tar.gz
      */
     SourceURL = "url",
+
+    /**
+     * 站点 .well-known 下的技能索引
+     */
+    SourceWellKnown = "well-known",
 
     /**
      * 本地目录
@@ -1611,7 +1609,7 @@ export interface UpdateCheck {
     "status": UpdateCheckStatus;
 
     /**
-     * Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希;
+     * Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希;
      * 本地目录来源与检查失败时为空。
      */
     "revision"?: string;
@@ -1690,7 +1688,7 @@ export interface UpdatePlan {
     "source": Source;
 
     /**
-     * Revision 是来源现在的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空。
+     * Revision 是来源现在的来源版本:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。
      * 各技能现在在哪个来源版本上看 Skill.Revision。
      */
     "revision"?: string;

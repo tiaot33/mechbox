@@ -27,12 +27,12 @@ func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
 	result, err := lib.SearchSkills(t.Context(), "  testing tools  ")
-	// 无法转换为可做入库预览的 GitHub 地址的条目直接过滤掉。
+	// 无法转换为入库预览输入的条目直接过滤掉。
 	if err != nil || len(result) != 2 {
 		t.Fatalf("search = %#v, %v", result, err)
 	}
 	first := result[0]
-	wantPreview := library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo@testing"}}
+	wantPreview := library.PreviewFetchRequest{Input: "owner/repo@testing"}
 	if first.ID != "owner/repo/testing" || first.Name != "testing" || !reflect.DeepEqual(first.Preview, wantPreview) || first.DetailURL != "https://skills.sh/owner/repo/testing" || first.Installs == nil || *first.Installs != 123 || result[1].Installs != nil {
 		t.Fatalf("search metadata = %#v", result)
 	}

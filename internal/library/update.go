@@ -32,7 +32,7 @@ const (
 type UpdateCheck struct {
 	CheckedAt time.Time         `json:"checked_at"` // 最近一次确认来源的时间:检查更新、更新计划、更新或回滚
 	Status    UpdateCheckStatus `json:"status"`
-	// Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希;
+	// Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希;
 	// 本地目录来源与检查失败时为空。
 	Revision string `json:"revision,omitempty"`
 	// Skipped 为 true 表示有新版本(或推测出了改名),但来源里这份内容用户之前跳过了(SkipUpdate)。来源里这个技能的内容又变了,

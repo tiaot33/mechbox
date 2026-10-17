@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
@@ -16,6 +17,12 @@ const Type = "local"
 
 type locator struct {
 	Path string `json:"path"`
+}
+
+func Matches(input string) bool {
+	return filepath.IsAbs(input) || input == "." || input == ".." ||
+		strings.HasPrefix(input, "./") || strings.HasPrefix(input, "../") ||
+		(filepath.Separator == '\\' && (strings.HasPrefix(input, ".\\") || strings.HasPrefix(input, "..\\")))
 }
 
 func Locate(path string) (source.Target, error) {

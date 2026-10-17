@@ -352,10 +352,10 @@ func TestNewSkillsAreOnlyThoseAppearingAfterFetch(t *testing.T) {
 			request func() library.PreviewFetchRequest
 		}{
 			{"skills.sh", func() library.PreviewFetchRequest {
-				return library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo@first", Ref: "main"}}
+				return library.PreviewFetchRequest{Input: "owner/repo@first", Ref: "main"}
 			}},
 			{"subpath", func() library.PreviewFetchRequest {
-				return library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "main", Subpath: "skills"}}
+				return library.PreviewFetchRequest{Input: "owner/repo", Ref: "main", Subpath: "skills"}
 			}},
 		} {
 			t.Run(mode.name+"/"+entry.name, func(t *testing.T) {
@@ -658,7 +658,7 @@ func TestCheckStartedBeforeKeepDoesNotUndoIt(t *testing.T) {
 		defer mu.Unlock()
 		return zipArchive(t, files)
 	})
-	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func TestCheckOverwritingAFailureStillClearsAnEarlierKeep(t *testing.T) {
 		_, _ = w.Write(snapshot)
 	}))
 	t.Cleanup(server.Close)
-	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

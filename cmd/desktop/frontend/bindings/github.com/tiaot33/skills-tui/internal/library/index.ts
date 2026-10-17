@@ -45,7 +45,6 @@ export type {
     FetchPreviewID,
     File,
     FileMetadata,
-    GitHubInput,
     Group,
     GroupID,
     GroupInstall,

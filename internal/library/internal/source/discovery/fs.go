@@ -25,7 +25,7 @@ func NewBudget(files int, bytes int64) *Budget {
 	return &Budget{maxFiles: files, files: files, maxBytes: bytes, bytes: bytes}
 }
 
-func (b *Budget) take(files int, size int64) error {
+func (b *Budget) Take(files int, size int64) error {
 	b.files -= files
 	b.bytes -= size
 	if b.files < 0 {
@@ -106,7 +106,7 @@ func readSkillFiles(ctx context.Context, fsys fs.FS, root string, budget *Budget
 			return err
 		}
 		if budget != nil {
-			if err := budget.take(1, info.Size()); err != nil {
+			if err := budget.Take(1, info.Size()); err != nil {
 				return err
 			}
 		}
@@ -115,7 +115,7 @@ func readSkillFiles(ctx context.Context, fsys fs.FS, root string, budget *Budget
 			return err
 		}
 		if budget != nil && int64(len(content)) > info.Size() {
-			if err := budget.take(0, int64(len(content))-info.Size()); err != nil {
+			if err := budget.Take(0, int64(len(content))-info.Size()); err != nil {
 				return err
 			}
 		}

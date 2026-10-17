@@ -200,12 +200,12 @@ func TestFacadeFailureCodes(t *testing.T) {
 			return lib.DeleteGroup(t.Context(), 1, library.DeleteGroupOptions{IfNoOtherInstall: "nope"})
 		}},
 		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib *library.Library) error {
-			_, err := lib.PreviewFetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
+			_, err := lib.PreviewFetch(t.Context(), serveArchive(t, []byte("PK\x03\x04not-a-zip")))
 			return err
 		}},
 		{name: "preview archive server error", want: library.SourceUnreachable, call: func(t *testing.T, lib *library.Library) error {
 			stubHTTPResponse(t, 500, strings.NewReader(""))
-			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
+			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/skills.zip"})
 			return err
 		}},
 		{name: "search response over size limit", want: library.SourceInvalid, call: func(t *testing.T, lib *library.Library) error {
@@ -246,7 +246,7 @@ func TestCanceledOperationsStillMatchContext(t *testing.T) {
 		{"update", func() error { _, err := lib.Update(ctx, mustPlanUpdate(t, lib, skill.ID)); return err }},
 		{"check updates", func() error { _, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID}); return err }},
 		{"preview", func() error {
-			_, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
+			_, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "https://source.example/skills.zip"})
 			return err
 		}},
 		{"search", func() error { _, err := lib.SearchSkills(ctx, "q"); return err }},

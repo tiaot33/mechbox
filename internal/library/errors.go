@@ -19,7 +19,8 @@ import (
 type ErrorCode string
 
 const (
-	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法)。
+	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法,
+	// 入库预览的输入识别不出来源:链接既不是技能文件或压缩包,也没有 well-known 索引,也不是 Git 仓库)。
 	// 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
 	InvalidArgument ErrorCode = "invalid_argument"
 	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref),
@@ -47,7 +48,8 @@ const (
 	// SourceUnreachable 可重试的远端 / 网络 / 本地路径缺失故障(DNS、连接、超时、5xx、S3 非 2xx、缺 ETag、本地来源目录不存在)。
 	// 可重试。UI:提供"重试"。
 	SourceUnreachable ErrorCode = "source_unreachable"
-	// SourceInvalid 来源可达,但其内容不可用(zip 损坏、超限、无有效候选、响应不合规、不支持的文件类型)。
+	// SourceInvalid 来源可达,但其内容不可用(压缩包损坏、超限、无有效候选、响应不合规、不支持的文件类型,
+	// 技能内容取不全:索引列出的文件不存在、与索引里的 digest 不一致、SKILL.md 缺 name / description)。
 	// 重试无效。UI:展示原因,建议换来源。
 	SourceInvalid ErrorCode = "source_invalid"
 	// Busy 另一进程(同时打开同一库的 TUI / 桌面端)正持有库的写锁,等待超过上限(5 s)。
@@ -77,8 +79,8 @@ type Error struct {
 // ErrorDetails 是类型化的错误细节,零值字段省略。读取用 errors.AsType[*Error]。
 type ErrorDetails struct {
 	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
-	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径
-	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名
+	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能里取不到的文件(相对技能目录)
+	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名;入库预览时为没有技能的链接路径);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
 }
@@ -124,6 +126,10 @@ func typedError(err error) error {
 	if _, ok := errors.AsType[*source.InputError](err); ok {
 		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}
 	}
+	var details ErrorDetails
+	if incomplete, ok := errors.AsType[*source.IncompleteError](err); ok {
+		details = ErrorDetails{Name: incomplete.Skill, Path: incomplete.File}
+	}
 	code := Internal
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
@@ -155,7 +161,7 @@ func typedError(err error) error {
 	case errors.Is(err, fs.ErrNotExist):
 		code = SourceUnreachable
 	}
-	return &Error{Code: code, Message: err.Error(), Err: err}
+	return &Error{Code: code, Message: err.Error(), Details: details, Err: err}
 }
 
 func fetchError(code ErrorCode, operation string, err error) error {

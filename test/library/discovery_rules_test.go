@@ -216,15 +216,15 @@ func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 		"area/examples/hidden/SKILL.md":   skillDocument("hidden", "body"),
 	}
 	discoverySources(t, files, func(t *testing.T, lib *library.Library, spec library.PreviewFetchRequest, api *gitHubAPIMock, fx gitHubFixture) {
-		if spec.GitHub == nil {
+		if strings.HasPrefix(spec.Input, "https://source.example/") {
 			return
 		}
-		spec.GitHub.Subpath = "area"
+		spec.Subpath = "area"
 		got, err := lib.PreviewFetch(t.Context(), spec)
 		if err != nil || len(got.Candidates) != 2 || got.Candidates[0].Path != "area/skills/demo" || got.Candidates[1].Path != "area/extras/solo" || got.Candidates[1].PluginName != "subpath" {
 			t.Fatalf("subpath = %#v, %v", got, err)
 		}
-		spec.GitHub.Subpath = "area/skills/demo"
+		spec.Subpath = "area/skills/demo"
 		got, err = lib.PreviewFetch(t.Context(), spec)
 		if err != nil || len(got.Candidates) != 1 || got.Candidates[0].Path != "area/skills/demo" {
 			t.Fatalf("subpath root = %#v, %v", got, err)

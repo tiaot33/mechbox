@@ -25,10 +25,10 @@ type UpdatePlan struct {
 	ID           UpdatePlanID `json:"id"`
 	CollectionID CollectionID `json:"collection_id"`
 	Source       Source       `json:"source"` // 集合来自哪里
-	// Revision 是来源现在的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空。
+	// Revision 是来源现在的来源版本:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。
 	// 各技能现在在哪个来源版本上看 Skill.Revision。
 	Revision string `json:"revision,omitempty"`
-	// Commits 是 GitHub 来源从集合里最旧的来源版本到来源现在之间的提交说明,最新的在前;其他来源没有,读不到时也为空。
+	// Commits 是 Git 类来源(GitHub 与 Git 仓库)从集合里最旧的来源版本到来源现在之间的提交说明,最新的在前;其他来源没有,读不到时也为空。
 	Commits []Commit `json:"commits,omitempty"`
 	// Skills 是集合里的每个技能,按 ID 升序。
 	Skills []PlannedSkill `json:"skills"`

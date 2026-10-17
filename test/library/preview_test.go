@@ -29,7 +29,7 @@ func mockPreviewArchive(t *testing.T) library.PreviewFetchRequest {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	return library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
+	return library.PreviewFetchRequest{Input: "https://source.example/skills.zip"}
 }
 
 func openLibraryAt(t *testing.T, path string) *library.Library {
@@ -53,7 +53,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 	}
 	want := []library.Candidate{{Name: "first", Path: "first"}, {Name: "second", Path: "second"}}
 	// Ref 只对 GitHub 有意义;URL 来源只有钉住内容的哈希。
-	if preview.ID == "" || preview.Ref != "" || preview.Revision == "" || !reflect.DeepEqual(preview.Candidates, want) {
+	if preview.ID == "" || preview.Source.Ref != "" || preview.Revision == "" || !reflect.DeepEqual(preview.Candidates, want) {
 		t.Fatalf("PreviewFetch = %#v; want handle, content revision and candidates %#v", preview, want)
 	}
 	abandoned, err := lib.PreviewFetch(ctx, spec)
@@ -223,20 +223,19 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 
 func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
 	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
-	gitHub := &library.GitHubInput{Input: "owner/repo", Ref: "main"}
 	for _, tc := range []struct {
 		name  string
 		req   library.PreviewFetchRequest
 		field string
 	}{
 		{name: "empty", req: library.PreviewFetchRequest{}},
-		{name: "github and url", req: library.PreviewFetchRequest{GitHub: gitHub, URL: "https://source.example/skills.zip"}, field: "url"},
-		{name: "url and local", req: library.PreviewFetchRequest{URL: "https://source.example/skills.zip", Local: t.TempDir()}, field: "local"},
-		{name: "github and local", req: library.PreviewFetchRequest{GitHub: gitHub, Local: t.TempDir()}, field: "local"},
-		{name: "empty github input", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{}}, field: "github"},
-		{name: "github without owner", req: library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "repo", Ref: "main"}}, field: "github"},
-		{name: "invalid url", req: library.PreviewFetchRequest{URL: "://bad"}, field: "url"},
-		{name: "local and collection", req: library.PreviewFetchRequest{Local: t.TempDir(), Collection: 1}, field: "collection"},
+		{name: "blank input", req: library.PreviewFetchRequest{Input: "  ", Ref: "main"}},
+		{name: "github without owner", req: library.PreviewFetchRequest{Input: "repo", Ref: "main"}, field: "input"},
+		{name: "unrecognized input", req: library.PreviewFetchRequest{Input: "://bad"}, field: "input"},
+		{name: "ref on local directory", req: library.PreviewFetchRequest{Input: t.TempDir(), Ref: "main"}, field: "ref"},
+		{name: "subpath on direct download", req: library.PreviewFetchRequest{Input: "https://raw.githubusercontent.com/owner/repo/main/SKILL.md", Subpath: "skills"}, field: "subpath"},
+		{name: "ref on collection", req: library.PreviewFetchRequest{Collection: 1, Ref: "main"}, field: "ref"},
+		{name: "local and collection", req: library.PreviewFetchRequest{Input: t.TempDir(), Collection: 1}, field: "collection"},
 		{name: "negative collection", req: library.PreviewFetchRequest{Collection: -1}, field: "collection"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -251,7 +250,7 @@ func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
 func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "body")})
 	for _, spec := range []library.PreviewFetchRequest{
-		{URL: "https://source.example/skills.zip"},
+		{Input: "https://source.example/skills.zip"},
 	} {
 		t.Run("url", func(t *testing.T) {
 			lib := openLibraryAt(t, ":memory:")
@@ -320,7 +319,7 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer lib.Close()
-			_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: server.URL})
+			_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: server.URL})
 			if !library.IsCode(err, test.code) {
 				t.Fatalf("error = %v, want code %s", err, test.code)
 			}
@@ -334,7 +333,7 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lib.Close()
-	_, err = lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: "http://127.0.0.1/skills.zip"})
+	_, err = lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "http://127.0.0.1/skills.zip"})
 	if !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want Canceled wrapping context.Canceled", err)
 	}

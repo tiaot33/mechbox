@@ -11,8 +11,10 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/wellknown"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -28,8 +30,9 @@ type Library struct {
 	plans     map[UpdatePlanID]*planState
 	closed    bool
 
-	github  *github.Client
-	sources source.Kinds
+	github   *github.Client
+	download download.Kind
+	sources  source.Kinds
 
 	syncSettings atomic.Pointer[s3.Settings]
 }
@@ -73,16 +76,20 @@ func Open(path string) (lib *Library, err error) {
 		return nil, fmt.Errorf("open library: find home directory: %w", err)
 	}
 	client := github.NewClient()
+	direct := download.New(maxFetchFiles, maxFetchSize)
 	return &Library{
 		store:    db,
 		home:     home,
 		previews: map[FetchPreviewID]*previewState{},
 		plans:    map[UpdatePlanID]*planState{},
 		github:   client,
+		download: direct,
 		sources: source.Kinds{
-			github.Type:   client,
-			download.Type: download.New(maxFetchFiles, maxFetchSize),
-			local.Type:    local.New(maxFetchFiles, maxFetchSize),
+			github.Type:    client,
+			git.Type:       git.Kind{},
+			download.Type:  direct,
+			wellknown.Type: wellknown.New(maxFetchFiles, maxFetchSize),
+			local.Type:     local.New(maxFetchFiles, maxFetchSize),
 		},
 	}, nil
 }

@@ -19,18 +19,20 @@ type SkillID int64
 type SourceType string
 
 const (
-	SourceGitHub SourceType = "github" // GitHub 仓库 + Git ref
-	SourceURL    SourceType = "url"    // 直接下载的 zip 压缩包
-	SourceLocal  SourceType = "local"  // 本地目录
+	SourceGitHub    SourceType = "github"     // GitHub 仓库 + Git ref
+	SourceGit       SourceType = "git"        // 其他 Git 仓库(GitLab、GitHub Enterprise 与其他 Git 服务)+ Git ref,用这台机器已有的 git 凭据读取
+	SourceURL       SourceType = "url"        // 直接下载的单个 SKILL.md、zip、tar 或 tar.gz
+	SourceWellKnown SourceType = "well-known" // 站点 .well-known 下的技能索引
+	SourceLocal     SourceType = "local"      // 本地目录
 )
 
 // Source 是集合与技能上的「来自哪里」,只供展示;字段由库按来源类型生成,调用方不必区分类型去拼。
 // 要引用集合本身(打开集合、更新)用 CollectionID。
 type Source struct {
 	Type    SourceType `json:"type"`
-	Label   string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,URL 为压缩包地址,本地目录为绝对路径
-	Ref     string     `json:"ref,omitempty"`      // Git 类来源入库时使用的分支、tag 或完整 SHA;其他来源为空
-	ViewURL string     `json:"view_url,omitempty"` // 在来源上查看的网页;URL 与本地目录为空
+	Label   string     `json:"label"`              // 展示名称:GitHub 为 owner/repo,Git 仓库为主机加仓库路径(如 gitlab.com/group/repo),直接下载为文件地址,well-known 为站点主机加路径,本地目录为绝对路径
+	Ref     string     `json:"ref,omitempty"`      // Git 类来源(GitHub、Git 仓库)入库时使用的分支、tag 或完整 SHA;其他来源为空
+	ViewURL string     `json:"view_url,omitempty"` // 在来源上查看的网页:GitHub 与 GitLab 仓库为该分支的页面,well-known 为站点;其他 Git 仓库、直接下载与本地目录为空
 }
 
 // Skill 是库里的一个技能;列表、详情与入库结果都返回它,集合和组只给出技能 ID。不含文件内容,
@@ -45,7 +47,7 @@ type Skill struct {
 	CollectionID    CollectionID `json:"collection_id"` // 所在集合;从技能打开集合或更新时用它
 	Source          Source       `json:"source"`
 	VersionID       VersionID    `json:"version_id"`          // 当前版本的 SkillVersion.ID,用于读取文件、在版本历史里标出当前版本与比较差异
-	Revision        string       `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空
+	Revision        string       `json:"revision,omitempty"`  // 当前版本最后一次被确认时来源所在的来源版本,即当前版本的 SkillVersion.Revision,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空
 	FetchedAt       time.Time    `json:"fetched_at,omitzero"` // 入库时间
 	UpdatedAt       time.Time    `json:"updated_at,omitzero"` // 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
 	// KeptDeleted 为 true 表示来源里已删除这个技能,用户选了继续保留(KeepDeletedSkill):不再计入角标,技能上留一个淡色标记。

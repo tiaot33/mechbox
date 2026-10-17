@@ -233,7 +233,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	lib := openTestLibrary(t)
 
 	ctx := t.Context()
-	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL + "/skills.zip"})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: server.URL + "/skills.zip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 
-	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL})
+	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

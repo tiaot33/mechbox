@@ -1,8 +1,6 @@
 package download
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +10,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -44,10 +44,46 @@ type snapshot struct {
 	diagnostics []discovery.Diagnostic
 	revision    string
 	validator   string
+	status      int
 }
 
-func Locate(url string) (source.Target, error) {
-	encoded, err := json.Marshal(locator{URL: url})
+func Hosted(input string) bool {
+	u, err := url.Parse(input)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return false
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "raw.githubusercontent.com", "codeload.github.com", "objects.githubusercontent.com":
+		return true
+	case "github.com":
+		return hostedGitHubPath.MatchString(u.Path)
+	}
+	return strings.Contains(u.Path, "/-/raw/") || strings.Contains(u.Path, "/-/archive/")
+}
+
+var hostedGitHubPath = regexp.MustCompile(`^/[^/]+/[^/]+/(?:archive|raw|releases/download|releases/latest/download)/`)
+
+func (k Kind) Probe(ctx context.Context, link string) (source.Target, bool, error) {
+	target, err := Locate(link)
+	if err != nil {
+		return source.Target{}, false, err
+	}
+	s := &snapshot{url: link, maxFiles: k.maxFiles, maxBytes: k.maxBytes}
+	err = s.read(ctx, "")
+	switch {
+	case err == nil:
+		target.Snapshot = s
+		return target, true, nil
+	case ctx.Err() != nil:
+		return source.Target{}, false, ctx.Err()
+	case errors.Is(err, ErrUnrecognized), s.status >= 400 && s.status < 500:
+		return source.Target{}, false, nil
+	}
+	return source.Target{}, false, err
+}
+
+func Locate(link string) (source.Target, error) {
+	encoded, err := json.Marshal(locator{URL: link})
 	if err != nil {
 		return source.Target{}, fmt.Errorf("encode url locator: %w", err)
 	}
@@ -182,6 +218,7 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 		return fmt.Errorf("fetch source: %w", source.ErrUnreachable)
 	}
 	defer response.Body.Close()
+	s.status = response.StatusCode
 	if validator != "" && response.StatusCode == http.StatusNotModified {
 		s.notModified, s.sent = true, validator
 		return nil
@@ -202,7 +239,14 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 	if int64(len(content)) > s.maxBytes {
 		return fmt.Errorf("read source: archive exceeds size limit: %w", source.ErrInvalid)
 	}
-	skills, diagnostics, err := s.readArchive(ctx, content)
+	fsys, err := Unpack(ctx, content, s.maxFiles, s.maxBytes)
+	if errors.Is(err, ErrUnrecognized) {
+		return fmt.Errorf("read source: %w: %w", err, source.ErrInvalid)
+	}
+	if err != nil {
+		return err
+	}
+	skills, diagnostics, err := discovery.ScanFS(ctx, fsys, ".", nil)
 	if err != nil {
 		return err
 	}
@@ -215,33 +259,6 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 	s.validator = responseValidator(response.Header)
 	s.loaded, s.notModified = true, false
 	return nil
-}
-
-func (s *snapshot) readArchive(ctx context.Context, content []byte) ([]discovery.Skill, []discovery.Diagnostic, error) {
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
-	if err != nil {
-		return nil, nil, fmt.Errorf("read source archive: %v: %w", err, source.ErrInvalid)
-	}
-	if len(reader.File) > s.maxFiles {
-		return nil, nil, fmt.Errorf("read source archive: archive exceeds file count limit: %w", source.ErrInvalid)
-	}
-	seen := make(map[string]bool)
-	remaining := uint64(s.maxBytes)
-	for _, archived := range reader.File {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
-		name := strings.TrimSuffix(archived.Name, "/")
-		if name == "" || name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, `\:`) || seen[name] {
-			return nil, nil, fmt.Errorf("read source archive: unsafe or duplicate path: %w", source.ErrInvalid)
-		}
-		seen[name] = true
-		if archived.UncompressedSize64 > remaining {
-			return nil, nil, fmt.Errorf("read source archive: expanded content exceeds size limit: %w", source.ErrInvalid)
-		}
-		remaining -= archived.UncompressedSize64
-	}
-	return discovery.ScanFS(ctx, reader, ".", nil)
 }
 
 func responseValidator(header http.Header) string {

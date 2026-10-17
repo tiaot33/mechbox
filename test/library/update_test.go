@@ -197,7 +197,7 @@ func TestCheckUpdatesReadsEachCollectionOnceAndKeepsCollectionsIndependent(t *te
 	t.Cleanup(func() { http.DefaultClient = client })
 	var skills []library.Skill
 	for _, suffix := range []string{"/good", "/broken"} {
-		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example" + suffix})
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example" + suffix})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -295,7 +295,7 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 	lib := openTestLibrary(t)
 	var skills []library.Skill
 	for _, ref := range []string{"trunk", "fixed"} {
-		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: ref}})
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: ref})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -346,7 +346,7 @@ func TestCheckUpdatesCancellationReturnsOnlyCompletedCollections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec.URL += "?second"
+	spec.Input += "?second"
 	second, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
@@ -494,7 +494,7 @@ func TestUpdateRollsBackEarlierSkillsWhenALaterOneChangedDuringSourceRead(t *tes
 			archive.Store(&old)
 			server := serveGatedArchive(t, gate, func() []byte { return *archive.Load() })
 			lib := openTestLibrary(t)
-			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{URL: server.URL + "/skills.zip"})
+			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: server.URL + "/skills.zip"})
 			if err != nil {
 				t.Fatal(err)
 			}
