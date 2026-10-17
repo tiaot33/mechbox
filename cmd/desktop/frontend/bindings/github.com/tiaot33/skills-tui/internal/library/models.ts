@@ -296,6 +296,16 @@ export interface DeleteAgentResult {
 }
 
 /**
+ * DeleteGroupOptions 是 DeleteGroup 的选项。
+ */
+export interface DeleteGroupOptions {
+    /**
+     * 只管删组后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
+     */
+    "if_no_other_install": MemberRemovalPolicy;
+}
+
+/**
  * EditAgentOptions 是 EditAgent 的选项。
  */
 export interface EditAgentOptions {
@@ -719,8 +729,8 @@ export enum InstallPlanStatus {
 };
 
 /**
- * MemberRemovalPolicy 决定把技能移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
- * 含义与默认值都不同:只影响因移出而没有直接安装或组安装留着的技能,默认保留。
+ * MemberRemovalPolicy 决定把技能移出组或删除组时,失去该组组安装的技能如何处理。与 FolderPolicy
+ * 含义与默认值都不同:只影响因此没有直接安装或组安装留着的技能,默认保留。
  */
 export enum MemberRemovalPolicy {
     /**
