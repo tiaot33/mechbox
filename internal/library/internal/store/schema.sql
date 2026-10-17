@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS replica (
 );
 
 -- skill 的来源。一个来源就是一个集合,id 也是集合的身份(library.CollectionID)。
+-- type 还可以是 git(其他 Git 仓库)与 well-known,locator 相应为仓库+Git ref 与 well-known 索引地址;url 是直接下载的单个 SKILL.md 或压缩包。
+-- 类型在入库预览时识别一次,之后检查更新与更新都按它读取。(列上的注释随建表语句存进数据库、参与表结构校验,所以补充说明写在这里。)
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,                -- 来源主键,由 SQLite 分配;同一来源可包含多个 skill
     type TEXT NOT NULL,                     -- 来源类型:github / url / local
@@ -50,8 +52,8 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 -- skill 的历史版本及快照元数据;文件清单在 version_files。
--- source_state 是该版本的来源读取记录,内容由来源定义:GitHub 记该 Skill 目录的 tree SHA 与确认它是远端最新时所在的 commit,
--- URL 记服务端给出的 HTTP validator,本地目录不记。
+-- source_state 是该版本的来源读取记录,内容由来源定义:GitHub 与其他 Git 仓库记该 Skill 目录的 tree SHA 与确认它是远端最新时所在的 commit,
+-- 直接下载记服务端给出的 HTTP validator,well-known 新格式记索引给出的 digest(旧格式不记),本地目录不记。
 -- revision 是该版本内容在来源上对应的标识,供展示与按来源比较各 skill 是否在同一版本。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (

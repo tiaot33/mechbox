@@ -109,7 +109,7 @@ func TestAutoCheckDue(t *testing.T) {
 	_ = w.Close()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive.Bytes()) }))
 	t.Cleanup(server.Close)
-	remote := fetchSkill(t, lib.lib, library.PreviewFetchRequest{URL: server.URL + "/remote.zip"}, "remote")
+	remote := fetchSkill(t, lib.lib, library.PreviewFetchRequest{Input: server.URL + "/remote.zip"}, "remote")
 	local := filepath.Join(t.TempDir(), "mine", "loc")
 	if err := os.MkdirAll(local, 0o755); err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestAutoCheckDue(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(local, "SKILL.md"), []byte("---\nname: loc\ndescription: loc\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fetchSkill(t, lib.lib, library.PreviewFetchRequest{Local: filepath.Dir(local)}, "loc")
+	fetchSkill(t, lib.lib, library.PreviewFetchRequest{Input: filepath.Dir(local)}, "loc")
 	fetched := remote.FetchedAt
 	only := []library.CollectionID{remote.CollectionID}
 

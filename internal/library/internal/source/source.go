@@ -39,10 +39,11 @@ type Commit struct {
 }
 
 type Target struct {
-	Type    string
-	Locator Locator
-	Subpath string
-	Names   []string
+	Type     string
+	Locator  Locator
+	Subpath  string
+	Names    []string
+	Snapshot Snapshot
 }
 
 type Description struct {
@@ -121,4 +122,21 @@ func (e *NotFoundError) Error() string {
 		return string(e.What) + " not found"
 	}
 	return fmt.Sprintf("%s not found: %q", e.What, e.Name)
+}
+
+type IncompleteError struct {
+	Skill string
+	File  string
+	Err   error
+}
+
+func (e *IncompleteError) Error() string {
+	if e.File == "" {
+		return fmt.Sprintf("skill %q could not be read completely: %v", e.Skill, e.Err)
+	}
+	return fmt.Sprintf("skill %q: file %q could not be read: %v", e.Skill, e.File, e.Err)
+}
+
+func (e *IncompleteError) Unwrap() error {
+	return e.Err
 }

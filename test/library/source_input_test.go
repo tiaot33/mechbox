@@ -45,7 +45,7 @@ func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *test
 	commitGit(t, repository, "link")
 	lib := openTestLibrary(t)
 	for _, subpath := range []string{"../outside", ".git", "outside", "outside/nested"} {
-		_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "trunk", Subpath: subpath}})
+		_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk", Subpath: subpath})
 		if !library.IsCode(err, library.InvalidArgument) {
 			t.Fatalf("subpath %q: %v", subpath, err)
 		}
@@ -55,7 +55,7 @@ func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *test
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { cancel(); <-r.Context().Done() }))
 	t.Cleanup(server.Close)
 	serveGitHubRemoteOnly(t, server.URL)
-	_, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "trunk"}})
+	_, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("in-flight cancel = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestPreviewUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
 			lib := openTestLibrary(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "trunk"}})
+			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk"})
 			if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "example" {
 				t.Fatalf("configured SSH = %#v, %v", preview, err)
 			}
@@ -109,8 +109,8 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 		{"https://github.com/owner/repo/tree/trunk/skills/first", "first"},
 		{"owner/repo@second", "second"},
 	} {
-		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: tc.input}})
-		if err != nil || preview.Ref != "trunk" || len(preview.Candidates) != 1 || preview.Candidates[0].Name != tc.name || preview.Candidates[0].Path != "skills/"+tc.name {
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: tc.input})
+		if err != nil || preview.Source.Ref != "trunk" || len(preview.Candidates) != 1 || preview.Candidates[0].Name != tc.name || preview.Candidates[0].Path != "skills/"+tc.name {
 			t.Fatalf("preview %q = %#v, %v", tc.input, preview, err)
 		}
 		fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
@@ -137,21 +137,21 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 	}
 	runGit(t, repository, "branch", "feature/topic")
 	tree := "https://github.com/owner/repo/tree/feature/topic/skills"
-	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: tree}}); !library.IsCode(err, library.InvalidArgument) {
+	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: tree}); !library.IsCode(err, library.InvalidArgument) {
 		t.Fatalf("slash ref without explicit ref: %v", err)
 	}
-	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: tree, Ref: "feature/topic"}})
-	if err != nil || preview.Ref != "feature/topic" || len(preview.Candidates) != 2 {
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: tree, Ref: "feature/topic"})
+	if err != nil || preview.Source.Ref != "feature/topic" || len(preview.Candidates) != 2 {
 		t.Fatalf("explicit tree preview = %#v, %v", preview, err)
 	}
 	if fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview)); err != nil || fetched[0].Source.ViewURL != "https://github.com/owner/repo/tree/feature/topic" {
 		t.Fatalf("slash ref source = %#v, %v", fetched, err)
 	}
-	for _, input := range []library.GitHubInput{
+	for _, input := range []library.PreviewFetchRequest{
 		{Input: tree, Ref: "feature/topic", Subpath: "other"},
 		{Input: "owner/repo#trunk", Ref: "feature/topic"},
 	} {
-		if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &input}); !library.IsCode(err, library.InvalidArgument) {
+		if _, err := lib.PreviewFetch(t.Context(), input); !library.IsCode(err, library.InvalidArgument) {
 			t.Fatalf("conflicting input %#v: %v", input, err)
 		}
 	}
@@ -160,19 +160,19 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 func TestPreviewFetchRejectsBadGitHubInputsAndPreservesCancellation(t *testing.T) {
 	_, _ = githubRemote(t)
 	lib := openTestLibrary(t)
-	for _, input := range []string{"", "owner", "https://gitlab.com/owner/repo", "https://token@github.com/owner/repo", "https://github.com/owner/repo/tree/trunk/../outside", "owner/repo#", "owner/repo@", "owner/repo#--upload-pack=bad", "owner/repo#bad..ref"} {
-		if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: input}}); !library.IsCode(err, library.InvalidArgument) {
+	for _, input := range []string{"", "owner", "https://github.com/owner", "https://token@github.com/owner/repo", "https://github.com/owner/repo/tree/trunk/../outside", "owner/repo#", "owner/repo@", "owner/repo#--upload-pack=bad", "owner/repo#bad..ref"} {
+		if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: input}); !library.IsCode(err, library.InvalidArgument) {
 			t.Errorf("%q: %v", input, err)
 		}
 	}
-	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo#does-not-exist"}})
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo#does-not-exist"})
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Name: "does-not-exist"})
-	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo@missing"}})
+	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo@missing"})
 	requireErrorDetails(t, err, library.NotFound, library.ErrorDetails{Name: "missing"})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	for _, input := range []library.GitHubInput{{Input: "owner/repo"}, {Input: "owner/repo", Ref: "trunk"}} {
-		if _, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{GitHub: &input}); !errors.Is(err, context.Canceled) {
+	for _, input := range []library.PreviewFetchRequest{{Input: "owner/repo"}, {Input: "owner/repo", Ref: "trunk"}} {
+		if _, err := lib.PreviewFetch(ctx, input); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancel preview %#v = %v", input, err)
 		}
 	}
@@ -183,11 +183,11 @@ func TestPreviewFetchDoesNotAssumeMainWhenDefaultBranchIsUnknown(t *testing.T) {
 	// 远端 HEAD 游离时 ls-remote 给不出默认分支。
 	runGit(t, repository, "checkout", "--quiet", "--detach")
 	lib := openTestLibrary(t)
-	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo"}})
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo"})
 	if !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("unknown default branch = %v, want SourceUnreachable", err)
 	}
-	if preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "trunk"}}); err != nil || preview.Ref != "trunk" {
+	if preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk"}); err != nil || preview.Source.Ref != "trunk" {
 		t.Fatalf("explicit ref = %#v, %v", preview, err)
 	}
 }
@@ -198,8 +198,8 @@ func TestGitHubInputsPreviewTheRequestedRefAndShareSource(t *testing.T) {
 	lib := openTestLibrary(t)
 	var fetchedID library.SkillID
 	for _, input := range []string{"owner/repo", "https://github.com/Owner/Repo.git", "git@github.com:owner/repo.git", "ssh://git@github.com/owner/repo", "owner/repo#trunk"} {
-		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: input}})
-		if err != nil || preview.Ref != "trunk" || preview.Revision != sha || len(preview.Candidates) != 1 {
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: input})
+		if err != nil || preview.Source.Ref != "trunk" || preview.Revision != sha || len(preview.Candidates) != 1 {
 			t.Fatalf("preview %q = %#v, %v", input, preview, err)
 		}
 		if fetchedID == 0 {
@@ -222,8 +222,8 @@ func TestGitHubInputsPreviewTheRequestedRefAndShareSource(t *testing.T) {
 	writeFile(t, filepath.Join(repository, "SKILL.md"), []byte(skillDocument("example", "new")), 0o644)
 	commitGit(t, repository, "advance")
 	for _, ref := range []string{"v1", sha, strings.ToUpper(sha)} {
-		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: ref}})
-		if err != nil || preview.Ref != strings.ToLower(ref) || preview.Revision != sha {
+		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: ref})
+		if err != nil || preview.Source.Ref != strings.ToLower(ref) || preview.Revision != sha {
 			t.Fatalf("ref %s: %#v, %v", ref, preview, err)
 		}
 	}
@@ -239,10 +239,10 @@ func TestGitSourceKeepsPermissionErrorWhenOtherTransportIsUnavailable(t *testing
 	runGit(t, repository, "config", "--file", config, "url.file://"+filepath.Join(t.TempDir(), "missing")+"/.insteadOf", "git@github.com:")
 	lib := openTestLibrary(t)
 	// 省略 ref 时在默认分支发现阶段失败,给出 ref 时在克隆阶段失败,都保留 HTTPS 的认证错误。
-	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo"}}); !library.IsCode(err, library.Permission) {
+	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo"}); !library.IsCode(err, library.Permission) {
 		t.Fatalf("default branch fallback error = %v", err)
 	}
-	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "trunk"}}); !library.IsCode(err, library.Permission) {
+	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk"}); !library.IsCode(err, library.Permission) {
 		t.Fatalf("preview fallback error = %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/wellknown"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -29,21 +32,17 @@ type SearchSkill struct {
 	Preview   PreviewFetchRequest `json:"preview"`            // 原样传给 PreviewFetch,入库预览只列这一个技能
 }
 
-// PreviewFetchRequest 是入库预览的输入:GitHub / URL / Local / Collection 恰好给一个。
+// PreviewFetchRequest 是入库预览的输入:Input / Collection 恰好给一个。
 type PreviewFetchRequest struct {
-	GitHub *GitHubInput `json:"github,omitempty"`
-	URL    string       `json:"url,omitempty"`   // zip 压缩包地址
-	Local  string       `json:"local,omitempty"` // 本地目录;相对路径按当前工作目录解析为绝对路径
-	// Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时的仓库与分支、URL 或目录重新读取,
-	// 候选上的 Fetched 标出哪些已经入库,New 标出新技能。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
+	// Input 是用户粘贴的来源,由入库预览识别是哪一种(见 PreviewFetch):本地目录(绝对路径或以 ./、../ 开头的相对路径)、
+	// GitHub 仓库(owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能)、
+	// GitHub / GitLab 的 raw、archive、release 文件链接、GitLab 链接与 gitlab: 简写、SSH 与以 .git 结尾的 Git 地址,以及其他 http(s) 链接。
+	Input   string `json:"input,omitempty"`
+	Ref     string `json:"ref,omitempty"`     // 显式分支或 tag,只对 Git 类来源(GitHub 仓库、Git 仓库)有意义;带斜杠的必须从这里传;省略时发现默认分支
+	Subpath string `json:"subpath,omitempty"` // 仓库内目录,只对 Git 类来源有意义
+	// Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时识别出的来源类型与定位信息重新读取,不重新识别,
+	// 候选上的 Fetched 标出哪些已经入库,New 标出新技能。入库时指定的子目录没有记下来,Git 类来源看的是整个仓库(分支不变)。
 	Collection CollectionID `json:"collection,omitzero"`
-}
-
-// GitHubInput 是用户输入的 GitHub 地址,由 PreviewFetch 解析。
-type GitHubInput struct {
-	Input   string `json:"input"`             // owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能
-	Ref     string `json:"ref,omitempty"`     // 显式分支或 tag;带斜杠的必须从这里传;省略时发现默认分支
-	Subpath string `json:"subpath,omitempty"` // 仓库内目录
 }
 
 // FetchPreviewID 是一次入库预览的不透明句柄,由 Library 签发。它不持久化、不参与
@@ -89,9 +88,11 @@ type SkillAudit struct {
 
 // FetchPreview 是一次入库预览的句柄及其候选;此时尚无内容进入 Library。
 type FetchPreview struct {
-	ID          FetchPreviewID      `json:"id"`
-	Ref         string              `json:"ref,omitempty"` // Git 类来源实际使用的分支或 tag,省略时为发现的默认分支;其他来源为空
-	Revision    string              `json:"revision"`      // 钉住的内容:GitHub 为 commit,其他为内容哈希
+	ID FetchPreviewID `json:"id"`
+	// Source 是识别结果:来源类型、展示名称,以及 Git 类来源实际使用的分支或 tag(省略时为发现的默认分支)。
+	// 与入库后集合和技能上的 Source 相同。
+	Source      Source              `json:"source"`
+	Revision    string              `json:"revision"` // 钉住的内容:Git 类来源为 commit,well-known 为索引内容哈希,直接下载为文件内容哈希,本地目录为空
 	Candidates  []Candidate         `json:"candidates"`
 	Diagnostics []PreviewDiagnostic `json:"diagnostics,omitempty"`
 }
@@ -115,7 +116,8 @@ type PreviewDiagnostic struct {
 }
 
 // SearchSkills 只读搜索 skills.sh,最多返回 20 项;服务失败与空结果分别返回。
-// 无法转换为可做入库预览的 GitHub 地址的条目直接过滤掉。
+// 来源是 GitHub 仓库的条目转成 owner/repo@name,来源是 well-known 站点的条目转成该站点 well-known 下这个技能的链接;
+// 其他无法转换为入库预览输入的条目直接过滤掉。
 func (l *Library) SearchSkills(ctx context.Context, query string) (result []SearchSkill, err error) {
 	defer func() { err = typedError(err) }()
 	if ctx.Err() != nil {
@@ -131,11 +133,17 @@ func (l *Library) SearchSkills(ctx context.Context, query string) (result []Sear
 	}
 	result = []SearchSkill{}
 	for _, skill := range skills {
-		repository, ok := github.PlainRepository(skill.Source)
-		if !ok || !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
+		if !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
 			continue
 		}
-		preview := PreviewFetchRequest{GitHub: &GitHubInput{Input: repository + "@" + skill.Name}}
+		var preview PreviewFetchRequest
+		if repository, ok := github.PlainRepository(skill.Source); ok {
+			preview.Input = repository + "@" + skill.Name
+		} else if link, ok := wellknown.SearchInput(skill.Source, skill.Name); ok {
+			preview.Input = link
+		} else {
+			continue
+		}
 		result = append(result, SearchSkill{ID: skill.ID, Name: skill.Name, DetailURL: skill.DetailURL, Installs: skill.Installs, Preview: preview})
 	}
 	return result, nil
@@ -153,16 +161,30 @@ type previewState struct {
 	audits      map[string]SkillAudit
 }
 
-// PreviewFetch 发起一次入库预览:发现来源中的候选 skill,返回句柄与候选清单,此时尚无内容进入 Library。
-// req 的 GitHub / URL / Local / Collection 恰好给一个,多给或全空返回 InvalidArgument:多给时 Details.Field 指向多出的字段,全空时为空;
-// 所给的输入本身无效时 Details.Field 为该字段(github / url / local / collection);集合不存在返回 NotFound。
-// GitHub 输入在这里解析:输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
-// 路径不一致返回 InvalidArgument;省略 ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main;
-// @name 时入库预览只列该技能,不存在返回 NotFound。URL 与本地目录总是列出全部候选。
-// 入库预览钉住来源当时的内容:GitHub 只取各候选 SKILL.md 并钉住当时的 commit;URL 一次下载完整归档;
-// 本地目录把候选文件读进内存作为快照(候选文件累计超过 1000 个或 64 MiB 返回 SourceInvalid),
-// 之后目录再被改动也不影响入库。本地来源的身份是该目录的绝对路径,同一目录下的技能归入同一 Collection。
-// 一个有效候选都没有时返回 SourceInvalid,诊断写在错误信息里。
+// PreviewFetch 发起一次入库预览:识别来源,发现其中的候选 skill,返回句柄、识别结果与候选清单,此时尚无内容进入 Library。
+// req 的 Input / Collection 恰好给一个,都给或都空返回 InvalidArgument:都给时 Details.Field 为 collection,都空时为空;
+// Ref / Subpath 用在不是 Git 类来源的输入或 Collection 上时返回 InvalidArgument,Details.Field 为 ref / subpath;
+// 输入本身无效时 Details.Field 为 input;集合不存在返回 NotFound。
+//
+// Input 按下面的顺序识别,只在入库预览时识别一次;入库后集合记住识别出的来源类型,检查更新与更新都按它读取:
+//  1. 本地路径(绝对路径,或以 ./、../ 开头的相对路径;不带前缀的 a/b 按 GitHub 简写处理):本地目录。相对路径按当前工作目录解析为绝对路径。
+//  2. GitHub / GitLab 的 raw、archive、release 文件链接(raw.githubusercontent.com、codeload.github.com、github.com/…/raw|archive|releases/download/…、
+//     …/-/raw/…、…/-/archive/…、…/-/releases/…/downloads/…):直接下载,不克隆仓库。
+//  3. GitHub 的简写和仓库链接:GitHub 仓库。输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
+//     路径不一致返回 InvalidArgument;@name 时入库预览只列该技能,不存在返回 NotFound。
+//  4. GitLab 链接(gitlab.com/group/subgroup/repo、带 /-/tree/<ref>/<path> 的自托管实例链接)、gitlab: 简写、SSH 地址(git@host:path、ssh://…)
+//     与以 .git 结尾的 http(s) 地址:Git 仓库,从链接里拆出分支和仓库内目录,用这台机器已有的 git 凭据(SSH key、credential helper)读取。
+//  5. 其他 http(s) 链接:先请求链接本身,内容是带 frontmatter 的 SKILL.md、zip、tar 或 tar.gz(按内容判断,不看扩展名)时直接下载;
+//     否则在链接所在路径下找 well-known 索引(先 .well-known/agent-skills/index.json,再旧的 .well-known/skills/index.json),
+//     链接是某个 well-known 技能的地址(…/.well-known/agent-skills/<name>)时入库预览只列这个技能;还不是时试一次 git ls-remote,
+//     能连上就当 Git 仓库。都不是时返回 InvalidArgument。链接里带用户名或密码时直接返回 InvalidArgument,不联网,以免凭据写进库里。链接带路径时只收这个路径下的技能:路径下没有索引、站点根下有时返回 NotFound,
+//     Details.Name 为这个路径,不扩大到整个站点。链接本身连不上或返回 5xx 时返回 SourceUnreachable。
+//
+// 省略 Ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main。
+// 入库预览钉住来源当时的内容:GitHub 只取各候选 SKILL.md 并钉住当时的 commit;Git 仓库浅克隆一次并钉住 commit;
+// 直接下载一次读完整个文件;well-known 钉住索引,技能文件在入库时按索引读取;本地目录把候选文件读进内存作为快照
+// (候选文件累计超过 1000 个或 64 MiB 返回 SourceInvalid),之后目录再被改动也不影响入库。本地来源的身份是该目录的绝对路径,
+// 同一目录下的技能归入同一 Collection。一个有效候选都没有时返回 SourceInvalid,诊断写在错误信息里。
 // 返回的候选元数据与诊断供调用方保存、展示,修改返回值不影响入库预览。
 // 句柄在 30 分钟后或 Close 时失效;过期、未知或其他 Library 实例的句柄在入库时返回 NotFound。
 func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (preview FetchPreview, err error) {
@@ -179,7 +201,10 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	}
 	var candidates []discovery.Candidate
 	var diagnostics []discovery.Diagnostic
-	snapshot, err := l.sources.Open(ctx, target.Type, target.Locator, target.Subpath, nil)
+	snapshot := target.Snapshot
+	if snapshot == nil {
+		snapshot, err = l.sources.Open(ctx, target.Type, target.Locator, target.Subpath, nil)
+	}
 	if err == nil {
 		candidates, diagnostics, err = snapshot.Candidates(ctx)
 	}
@@ -191,7 +216,7 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 		return FetchPreview{}, err
 	}
 	record := store.Source{Type: target.Type, Locator: target.Locator}
-	description, err := l.sources.Describe(record.Type, record.Locator)
+	src, err := l.sourceOf(record)
 	if err != nil {
 		return FetchPreview{}, err
 	}
@@ -222,41 +247,90 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 			delete(l.previews, id)
 		}
 	})
-	return FetchPreview{ID: id, Ref: description.Ref, Revision: snapshot.Revision(), Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}, nil
+	return FetchPreview{ID: id, Source: src, Revision: snapshot.Revision(), Candidates: listed, Diagnostics: previewDiagnostics(state.diagnostics)}, nil
 }
 
 func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (target source.Target, field string, err error) {
-	var given []string
-	if req.GitHub != nil {
-		given = append(given, "github")
-	}
-	if req.URL != "" {
-		given = append(given, "url")
-	}
-	if req.Local != "" {
-		given = append(given, "local")
-	}
-	if req.Collection != 0 {
-		given = append(given, "collection")
-	}
-	switch len(given) {
-	case 0:
-		return source.Target{}, "", argumentError("preview fetch", "", "one of github, url, local or collection is required")
-	case 1:
-	default:
-		return source.Target{}, "", argumentError("preview fetch", given[1], "only one of github, url, local or collection may be given")
+	input := strings.TrimSpace(req.Input)
+	switch {
+	case input == "" && req.Collection == 0:
+		return source.Target{}, "", argumentError("preview fetch", "", "one of input or collection is required")
+	case input != "" && req.Collection != 0:
+		return source.Target{}, "collection", argumentError("preview fetch", "collection", "only one of input or collection may be given")
+	case req.Collection != 0:
+		if err := gitOnly(req); err != nil {
+			return source.Target{}, "", err
+		}
+		target, err = l.collectionTarget(ctx, req.Collection)
+		return target, "collection", err
 	}
 	switch {
-	case req.GitHub != nil:
-		target, err = github.Locate(ctx, github.Input{Input: req.GitHub.Input, Ref: req.GitHub.Ref, Subpath: req.GitHub.Subpath})
-	case req.URL != "":
-		target, err = download.Locate(req.URL)
-	case req.Local != "":
-		target, err = local.Locate(req.Local)
+	case local.Matches(input):
+		if err := gitOnly(req); err != nil {
+			return source.Target{}, "", err
+		}
+		target, err = local.Locate(input)
+	case download.Hosted(input):
+		if err := gitOnly(req); err != nil {
+			return source.Target{}, "", err
+		}
+		target, err = download.Locate(input)
+	case github.Matches(input):
+		target, err = github.Locate(ctx, github.Input{Input: input, Ref: req.Ref, Subpath: req.Subpath})
+	case git.Matches(input):
+		target, err = git.Locate(ctx, git.Input{Input: input, Ref: req.Ref, Subpath: req.Subpath})
+	case webLink(input):
+		target, err = l.probeLink(ctx, input, req)
 	default:
-		target, err = l.collectionTarget(ctx, req.Collection)
+		err = &source.InputError{Reason: "unrecognized source input; expected a local path, a GitHub repository, a Git repository or an http(s) link"}
 	}
-	return target, given[0], err
+	return target, "input", err
+}
+
+func gitOnly(req PreviewFetchRequest) error {
+	switch {
+	case req.Ref != "":
+		return argumentError("preview fetch", "ref", "ref only applies to Git repositories")
+	case req.Subpath != "":
+		return argumentError("preview fetch", "subpath", "subpath only applies to Git repositories")
+	}
+	return nil
+}
+
+func webLink(input string) bool {
+	u, err := url.Parse(input)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+}
+
+func (l *Library) probeLink(ctx context.Context, link string, req PreviewFetchRequest) (source.Target, error) {
+	link, _, _ = strings.Cut(link, "#")
+	if u, err := url.Parse(link); err != nil || u.User != nil {
+		return source.Target{}, &source.InputError{Reason: "links with embedded credentials are not supported; configure Git credentials on this machine instead"}
+	}
+	target, ok, err := l.download.Probe(ctx, link)
+	if err != nil {
+		return source.Target{}, err
+	}
+	if !ok {
+		target, ok, err = wellknown.Locate(ctx, link)
+	}
+	scope, scoped := errors.AsType[*wellknown.ScopeError](err)
+	if err != nil && !scoped {
+		return source.Target{}, err
+	}
+	if ok {
+		return target, gitOnly(req)
+	}
+	target, ok, err = git.Probe(ctx, link, req.Ref, req.Subpath)
+	switch {
+	case err != nil:
+		return source.Target{}, err
+	case ok:
+		return target, nil
+	case scoped:
+		return source.Target{}, scope
+	}
+	return source.Target{}, &source.InputError{Reason: "link is neither a skill file or archive, nor a site with a well-known skills index, nor a Git repository"}
 }
 
 func (l *Library) collectionTarget(ctx context.Context, id CollectionID) (source.Target, error) {
@@ -312,9 +386,11 @@ func previewDiagnostics(diagnostics []discovery.Diagnostic) []PreviewDiagnostic 
 // 子目录入库时为此要多读一次整个来源,读不成时入库失败、可重试。
 // names 为空返回 InvalidArgument;"全部入库"由调用方把 Fetched 为零的候选名收集起来传入。
 // 所选技能中有已入库的,整批返回 AlreadyExists。
-// GitHub 来源可在入库预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,
-// 不跟随当前 HEAD。URL / 本地目录只读取入库预览时的内容,不再读取来源。要么所选 skill 全部入库,
-// 要么库保持不变。成功后该入库预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
+// GitHub 来源可在入库预览已钉住的 commit 上联网取所选 Skill 文件,不重新解析 ref,不跟随当前 HEAD;
+// Git 仓库、直接下载与本地目录只读取入库预览时的内容,不再读取来源;well-known 按入库预览钉住的索引读取所选技能的文件。
+// 内容取不全时不收残缺的版本:一个技能缺了任何一个文件、与索引里的 digest 不一致、SKILL.md 取不到或缺 name / description,
+// 整批失败,错误的 Details.Name 为这个技能,Details.Path 为取不到的文件(不是某个文件的问题时为空)。
+// 要么所选 skill 全部入库,要么库保持不变。成功后该入库预览句柄被丢弃(含未选候选),再次使用返回 NotFound;
 // 失败时保留句柄供重试,直至 Close 或过期。同一句柄的一次入库尚在进行时,再次入库返回
 // FailedPrecondition;联网期间不持库锁,其他入库预览 / 列表 / 安装不必等它。
 func (l *Library) Fetch(ctx context.Context, id FetchPreviewID, names []string) (fetched []Skill, err error) {
@@ -413,8 +489,8 @@ func selectNamed[T any](items []T, selected []string, nameOf func(T) string) ([]
 
 // GetSkillAudit 按需向 skills.sh 查询一次入库预览中某个技能的审计,供查看单个技能时懒加载。
 // 只供展示:不入库、不参与 Sync、不挡入库;查询失败降级为 AuditUnavailable,不返回错误。
-// 结果随入库预览缓存,AuditUnavailable 不缓存、再次调用会重查。URL / 本地目录与非 github.com 来源
-// 不在 skills.sh 收录范围,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
+// 结果随入库预览缓存,AuditUnavailable 不缓存、再次调用会重查。不是 GitHub 仓库的来源(Git 仓库、well-known、直接下载、本地目录)
+// 不查审计,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
 func (l *Library) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
 	if !discovery.ValidName(name) {

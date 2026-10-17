@@ -94,7 +94,7 @@ func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 	repository, _ := githubRemote(t)
 	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
 	lib := openTestLibrary(t)
-	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo"}})
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestPreviewGitDistinguishesFailureReasonsWithoutExposingCredentials(t *test
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			serveGitHubRemoteOnly(t, tc.remote)
-			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: tc.ref}})
+			_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: tc.ref})
 			if !library.IsCode(err, tc.code) || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("error = %v, want %s containing %q", err, tc.code, tc.message)
 			}

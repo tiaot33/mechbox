@@ -128,7 +128,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 	})
 	lib := openTestLibrary(t)
 	spec := gitHubRequest()
-	spec.GitHub.Input = "owner/repo@second"
+	spec.Input = "owner/repo@second"
 	preview, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)

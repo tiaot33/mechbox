@@ -125,7 +125,7 @@ export function FetchReview({ preview, audits, onlyNew = false, onClose, onBack 
     >
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span>
-          {candidates.length} 个候选{preview.ref ? ` · ${preview.ref}` : ""}
+          {candidates.length} 个候选{preview.source.ref ? ` · ${preview.source.ref}` : ""}
           {preview.revision ? ` · ${preview.revision.slice(0, 12)}` : ""}
         </span>
         <span className="grow" />

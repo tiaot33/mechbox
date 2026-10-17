@@ -66,7 +66,7 @@ func TestLocalPreviewResolvesRelativePathAndListsAllCandidates(t *testing.T) {
 	writeFile(t, filepath.Join(root, "two", "SKILL.md"), []byte(skillDocument("two", "")), 0o644)
 	t.Chdir(filepath.Dir(root))
 
-	preview, err := lib.PreviewFetch(ctx, localRequest(filepath.Base(root)))
+	preview, err := lib.PreviewFetch(ctx, localRequest("./"+filepath.Base(root)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
 		field string
 	}{
 		{name: "empty path", spec: localRequest(""), want: library.InvalidArgument},
-		{name: "file path", spec: localRequest(file), want: library.InvalidArgument, field: "local"},
+		{name: "file path", spec: localRequest(file), want: library.InvalidArgument, field: "input"},
 		{name: "missing path", spec: localRequest(filepath.Join(t.TempDir(), "missing")), want: library.SourceUnreachable},
 		{name: "no valid candidates", spec: localRequest(withoutCandidates), want: library.SourceInvalid},
 		{name: "too many files", spec: localRequest(tooMany), want: library.SourceInvalid},

@@ -266,7 +266,7 @@ func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 	mustFinishBeforeRelease(t, gate, "PreviewFetch of another Source", func(ctx context.Context) error {
 		// 同一仓库钉到 commit 是另一个 Source;它的入库预览只取各候选的 SKILL.md,不经受拦的 blob。
 		pinned := gitHubRequest()
-		pinned.GitHub.Ref = fx.commit
+		pinned.Ref = fx.commit
 		other, err := lib.PreviewFetch(ctx, pinned)
 		if err != nil {
 			return err

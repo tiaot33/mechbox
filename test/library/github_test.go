@@ -60,8 +60,8 @@ func TestGitHubPreviewAndFetch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if preview.Ref != "main" || preview.Revision != gitRevParse(t, repo, "HEAD") {
-				t.Fatalf("Ref / Revision = %q / %q", preview.Ref, preview.Revision)
+			if preview.Source.Ref != "main" || preview.Revision != gitRevParse(t, repo, "HEAD") {
+				t.Fatalf("Ref / Revision = %q / %q", preview.Source.Ref, preview.Revision)
 			}
 			want := []library.Candidate{{Name: "first", Path: "first"}, {Name: "second", Path: "other-dir"}}
 			if !reflect.DeepEqual(preview.Candidates, want) {
@@ -132,8 +132,8 @@ func TestGitHubPreviewSelectsBySubpathNameAndRoot(t *testing.T) {
 			mode.serve(t, repo)
 			lib := openTestLibrary(t)
 			request := gitHubRequest()
-			request.GitHub.Input = "owner/repo@first"
-			request.GitHub.Subpath = "skills"
+			request.Input = "owner/repo@first"
+			request.Subpath = "skills"
 			preview, err := lib.PreviewFetch(t.Context(), request)
 			if err != nil || !reflect.DeepEqual(preview.Candidates, []library.Candidate{{Name: "first", Path: "skills/first"}}) {
 				t.Fatalf("preview = %#v, %v", preview, err)
@@ -636,7 +636,7 @@ func (fx gitHubFixture) blobSHA(filePath string) string {
 
 // gitHubRequest 是对 owner/repo 的 main 分支做入库预览的请求;显式给出 ref,不发现默认分支。
 func gitHubRequest() library.PreviewFetchRequest {
-	return library.PreviewFetchRequest{GitHub: &library.GitHubInput{Input: "owner/repo", Ref: "main"}}
+	return library.PreviewFetchRequest{Input: "owner/repo", Ref: "main"}
 }
 
 func writeGitHubRepo(t *testing.T, files map[string]repoFile) string {

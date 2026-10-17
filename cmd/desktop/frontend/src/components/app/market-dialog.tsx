@@ -71,7 +71,7 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
                     </button>
                     {s.installs != null && <span className="text-[11px] text-muted-foreground">{s.installs.toLocaleString()} 次安装</span>}
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">{s.preview.github?.input}</div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">{s.preview.input}</div>
                 </div>
                 <Button size="sm" variant="primary" disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
                   入库

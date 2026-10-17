@@ -23,6 +23,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
 )
 
 const githubAPIHost = "api.github.com"
@@ -140,7 +141,7 @@ func ownerRepo(repository string) (owner, repo string, ok bool) {
 }
 
 func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (commit, tree string, err error) {
-	immutable := fullCommit.MatchString(ref)
+	immutable := git.FullCommit.MatchString(ref)
 	got, err := memoized(ctx, c.memo, &c.memo.commits, memoKey(memoCommit, owner, repo, ref), func() (githubCommitMemo, bool, error) {
 		var payload githubCommitResponse
 		if err := c.get(ctx, githubAPIURL("/repos/%s/%s/commits/%s", owner, repo, ref), &payload); err != nil {
@@ -150,7 +151,7 @@ func (c *githubClient) commit(ctx context.Context, owner, repo, ref string) (com
 			commit: strings.ToLower(strings.TrimSpace(payload.SHA)),
 			tree:   strings.ToLower(strings.TrimSpace(payload.Commit.Tree.SHA)),
 		}
-		if !fullCommit.MatchString(resolved.commit) || !fullCommit.MatchString(resolved.tree) {
+		if !git.FullCommit.MatchString(resolved.commit) || !git.FullCommit.MatchString(resolved.tree) {
 			return githubCommitMemo{}, false, errGitHubContentsFallback
 		}
 		return resolved, immutable, nil
@@ -715,7 +716,7 @@ func (s *githubSnapshot) rememberGitBlobs(files []skillfile.File) {
 
 func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (string, error) {
 	if dir == "" || dir == "." {
-		if !fullCommit.MatchString(rootTree) {
+		if !git.FullCommit.MatchString(rootTree) {
 			return "", errGitHubContentsFallback
 		}
 		return strings.ToLower(rootTree), nil
@@ -725,7 +726,7 @@ func githubDirTreeSHA(dir, rootTree string, byPath map[string]githubTreeEntry) (
 		return "", errGitHubContentsFallback
 	}
 	sha := strings.ToLower(entry.SHA)
-	if !fullCommit.MatchString(sha) {
+	if !git.FullCommit.MatchString(sha) {
 		return "", errGitHubContentsFallback
 	}
 	return sha, nil

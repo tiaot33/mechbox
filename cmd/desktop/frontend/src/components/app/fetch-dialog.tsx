@@ -52,11 +52,11 @@ export function FetchDialog({ config, home, onClose }: { config: ConfigStatus; h
   const request = (): PreviewFetchRequest => {
     switch (tab) {
       case "local":
-        return { local: local?.path };
+        return { input: local?.path };
       case "github":
-        return { github: { input: github.trim(), ref: ref.trim() || undefined, subpath: subpath.trim() || undefined } };
+        return { input: github.trim(), ref: ref.trim() || undefined, subpath: subpath.trim() || undefined };
       case "url":
-        return { url: url.trim() };
+        return { input: url.trim() };
     }
   };
 

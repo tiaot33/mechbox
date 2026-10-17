@@ -49,7 +49,7 @@ func serveArchive(t *testing.T, archive []byte) library.PreviewFetchRequest {
 }
 
 func (s *archiveServer) request() library.PreviewFetchRequest {
-	return library.PreviewFetchRequest{URL: "https://source.example/skills.zip"}
+	return library.PreviewFetchRequest{Input: "https://source.example/skills.zip"}
 }
 
 // serve 替换远端内容与 ETag;etag 为空表示不再给出任何 validator。
@@ -374,7 +374,7 @@ func (g *networkGate) open() {
 
 // localRequest 是对本地目录 path 做入库预览的请求。
 func localRequest(path string) library.PreviewFetchRequest {
-	return library.PreviewFetchRequest{Local: path}
+	return library.PreviewFetchRequest{Input: path}
 }
 
 // candidateNames 收集入库预览中全部候选的名字,供"全部入库"的用例传给 Fetch。
@@ -421,7 +421,7 @@ func writeLocalSkill(t *testing.T, dir, body string) {
 // fetchURLSkill 经 PreviewFetch + Fetch 从 URL 远端把名为 name 的 skill 入库。
 func fetchURLSkill(t *testing.T, lib *library.Library, url, name string) library.Skill {
 	t.Helper()
-	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: url})
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: url})
 	if err != nil {
 		t.Fatal(err)
 	}

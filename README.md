@@ -69,7 +69,7 @@ if err != nil {
 }
 defer lib.Close()
 
-preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Local: "/path/to/skills"})
+preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "/path/to/skills"})
 if err != nil {
 	return err
 }

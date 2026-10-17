@@ -191,7 +191,9 @@ export function revisionSummary(skills: Skill[]): string {
 
 export const sourceKindLabel: Record<SourceType, string> = {
   [SourceType.SourceGitHub]: "GitHub",
+  [SourceType.SourceGit]: "Git",
   [SourceType.SourceURL]: "URL",
+  [SourceType.SourceWellKnown]: "well-known",
   [SourceType.SourceLocal]: "自研",
   [SourceType.$zero]: "未知",
 };

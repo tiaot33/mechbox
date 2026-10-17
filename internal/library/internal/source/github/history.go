@@ -3,13 +3,12 @@ package github
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
 )
 
 const comparePageSize = 100
@@ -50,11 +49,11 @@ func (s *githubSnapshot) Names(ctx context.Context) ([]string, error) {
 
 func (s *githubSnapshot) Commits(ctx context.Context, since string) ([]source.Commit, error) {
 	since = strings.ToLower(since)
-	if !fullCommit.MatchString(since) || since == s.ref {
+	if !git.FullCommit.MatchString(since) || since == s.ref {
 		return nil, nil
 	}
 	if s.client == nil {
-		return gitCommits(ctx, s.locator, since, s.ref)
+		return git.Commits(ctx, remotes(s.locator.Repository), since, s.ref)
 	}
 	var commits []source.Commit
 	for page := 1; ; page++ {
@@ -71,44 +70,5 @@ func (s *githubSnapshot) Commits(ctx context.Context, since string) ([]source.Co
 		}
 	}
 	slices.Reverse(commits)
-	return commits, nil
-}
-
-func gitCommits(ctx context.Context, locator repoLocator, since, head string) ([]source.Commit, error) {
-	root, err := os.MkdirTemp("", "skills-git-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(root)
-	repository := filepath.Join(root, "repository")
-	if _, err := runSourceGit(ctx, "init", "--quiet", "--bare", repository); err != nil {
-		return nil, err
-	}
-	fetch := func(remote string) error {
-		_, err := runSourceGit(ctx, "-C", repository, "fetch", "--quiet", "--filter=tree:0", "--", remote, head)
-		return err
-	}
-	err = fetch(locator.Repository)
-	if err != nil && ctx.Err() == nil {
-		if remote, ok := strings.CutPrefix(locator.Repository, "https://github.com/"); ok {
-			err = fetch("git@github.com:" + remote)
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	output, err := runSourceGit(ctx, "-C", repository, "log", "--format=%H%x00%an%x00%aI%x00%B%x1e", since+"..FETCH_HEAD")
-	if err != nil {
-		return nil, err
-	}
-	var commits []source.Commit
-	for record := range strings.SplitSeq(string(output), "\x1e") {
-		fields := strings.SplitN(strings.TrimLeft(record, "\n"), "\x00", 4)
-		if len(fields) != 4 {
-			continue
-		}
-		at, _ := time.Parse(time.RFC3339, fields[2])
-		commits = append(commits, source.Commit{SHA: fields[0], Author: fields[1], Time: at, Message: strings.TrimRight(fields[3], "\n")})
-	}
 	return commits, nil
 }

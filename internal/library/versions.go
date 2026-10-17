@@ -16,7 +16,7 @@ type SkillVersion struct {
 	ID          VersionID `json:"id"`
 	SkillID     SkillID   `json:"skill_id"`            // 所属技能
 	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
-	Revision    string    `json:"revision,omitempty"`  // 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变
+	Revision    string    `json:"revision,omitempty"`  // 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变
 	CreatedAt   time.Time `json:"created_at,omitzero"` // 这个版本由入库或更新写进库里的时间
 }
 

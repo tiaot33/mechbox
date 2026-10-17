@@ -18,8 +18,10 @@
 //     两者都只在这个 Library 实例上有效,改完下一次请求就用新值。
 //
 // 搜索与入库(fetch.go):
-//   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求。
-//   - [Library.PreviewFetch] 对 GitHub、URL 或本地目录做入库预览,列出候选;对库里已有的集合再预览一次,看作者又发布了哪些技能。
+//   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求(GitHub 仓库与 well-known 站点的技能)。
+//   - [Library.PreviewFetch] 对用户粘贴的一个输入做入库预览:由技能库识别是本地目录、GitHub 仓库、其他 Git 仓库(GitLab、
+//     GitHub Enterprise 等)、直接下载的 SKILL.md 或压缩包,还是带 well-known 索引的站点,结果里给出识别出的来源类型、展示名称与分支,
+//     列出候选;对库里已有的集合再预览一次,看作者又发布了哪些技能。识别只在这里做一次,之后检查更新、更新都按入库时识别出的类型读取。
 //   - [Library.GetSkillAudit] 查看候选在 skills.sh 上的审计,可选。
 //   - [Library.Fetch] 把选中的候选入库。
 //

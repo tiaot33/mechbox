@@ -184,7 +184,7 @@ func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(io.LimitReader(infiniteZeros{}, 64<<20+1)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() { http.DefaultClient = client })
-	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://source.example/skills.zip"})
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/skills.zip"})
 	if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
 		t.Fatalf("download size = %#v, %v", preview, err)
 	}
@@ -198,11 +198,16 @@ func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })}
 	t.Cleanup(func() { http.DefaultClient = client })
-	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://user:example-secret@source.example/archive?token=example-secret"})
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/archive?token=example-secret"})
 	if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("archive error exposed credentials or wrong code: %v", err)
 	}
-	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{URL: "https://user:example-secret@source.example/%zz"})
+	// 链接里带用户名密码的,不联网就拒绝,免得凭据写进库里。
+	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://user:example-secret@source.example/archive"})
+	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {
+		t.Fatalf("credential link exposed credentials or wrong code: %v", err)
+	}
+	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://user:example-secret@source.example/%zz"})
 	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("invalid URL exposed credentials or wrong code: %v", err)
 	}
