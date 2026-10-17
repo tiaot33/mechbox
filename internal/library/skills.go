@@ -158,6 +158,8 @@ type currentVersion struct {
 	snapshot    source.State
 	revision    string
 	files       []skillfile.File
+	base        int64
+	origin      source.Have
 }
 
 func (l *Library) getCurrent(ctx context.Context, id SkillID) (Skill, currentVersion, error) {
@@ -186,6 +188,7 @@ func (l *Library) currentOf(ctx context.Context, row store.Skill) (Skill, curren
 		snapshot:    source.State(current.State),
 		revision:    current.Revision,
 		files:       current.Files,
+		base:        current.Base,
 	}, nil
 }
 

@@ -303,6 +303,11 @@ export function UpdateDialog({
               <b className="font-semibold whitespace-nowrap">{p.skill.name}</b>
               {p.skipped ? <Badge title="之前跳过了来源里的这份改动;照样可以勾上更新">已跳过</Badge> : <Badge tone="warn">有变化</Badge>}
               {(p.risks?.length ?? 0) > 0 && <Badge tone="bad">{riskSummary(p.risks ?? [])}</Badge>}
+              {p.edited && (
+                <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title="库里的这个技能是用你在目录里的修改更新的;勾上后换成来源的新版本，之后可以在历史里回滚回你的修改">
+                  更新会换掉你的修改
+                </span>
+              )}
             </label>
             <Button variant="link" onClick={() => view(p)}>
               {viewing?.id === p.skill.id ? "收起差异" : "看差异"}
@@ -337,6 +342,7 @@ export function UpdateDialog({
                   {yes
                     ? `确认后技能改用新名字，组、安装记录和版本历史都跟过去;Agent 里要改用 /${p.renamed_to} 调用。`
                     : `确认是同一个时，Agent 里的调用名会变，要改用 /${p.renamed_to}。`}
+                  {p.edited && <span className="update-edited">内容也会换成来源里的，更新会换掉你的修改。</span>}
                 </div>
               </div>
               {yes ? (

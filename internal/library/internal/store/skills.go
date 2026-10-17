@@ -38,7 +38,13 @@ type Current struct {
 	State       string
 	Revision    string
 	CheckSerial int64
+	Base        int64
 	Files       []skillfile.File
+}
+
+type Origin struct {
+	State string
+	Files []skillfile.File
 }
 
 type NewVersion struct {
@@ -142,11 +148,11 @@ func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error) {
 	var current Current
 	if err := q.q.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_check_serial
+		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_check_serial, ifnull(skill_versions.base_version_id, 0)
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &current.CheckSerial); err != nil {
+	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &current.CheckSerial, &current.Base); err != nil {
 		return Current{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error
@@ -154,6 +160,29 @@ func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error)
 		return Current{}, err
 	}
 	return current, nil
+}
+
+func (q queries) Origin(ctx context.Context, versionID int64) (Origin, error) {
+	var origin Origin
+	var id int64
+	if err := q.q.QueryRowContext(ctx, `
+		WITH RECURSIVE chain(id, base) AS (
+			SELECT id, base_version_id FROM skill_versions WHERE id = ?
+			UNION ALL
+			SELECT skill_versions.id, skill_versions.base_version_id FROM skill_versions JOIN chain ON skill_versions.id = chain.base
+		)
+		SELECT skill_versions.id, skill_versions.source_state
+		FROM chain
+		JOIN skill_versions ON skill_versions.id = chain.id
+		WHERE chain.base IS NULL
+	`, versionID).Scan(&id, &origin.State); err != nil {
+		return Origin{}, fmt.Errorf("get origin version: %w", wrap(err))
+	}
+	var err error
+	if origin.Files, err = q.versionFiles(ctx, id, "get origin files"); err != nil {
+		return Origin{}, err
+	}
+	return origin, nil
 }
 
 func (q queries) versionFiles(ctx context.Context, versionID int64, operation string) ([]skillfile.File, error) {

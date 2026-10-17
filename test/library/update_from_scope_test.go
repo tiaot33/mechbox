@@ -13,6 +13,7 @@ import (
 
 type scopeEditFixture struct {
 	lib         *library.Library
+	server      *archiveServer
 	skill       library.Skill
 	claude      library.Scope
 	codex       library.Scope
@@ -38,6 +39,7 @@ func newScopeEditFixture(t *testing.T) scopeEditFixture {
 	}
 	f := scopeEditFixture{
 		lib:         lib,
+		server:      server,
 		skill:       skill,
 		claude:      library.GlobalScope(library.AgentClaudeCode),
 		codex:       library.GlobalScope(library.AgentCodex),
