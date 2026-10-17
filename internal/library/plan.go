@@ -276,12 +276,11 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 		return scopeEdit{}, err
 	}
 	folder := filepath.Join(target.directory, place[0].Folder)
-	status, _, err := l.inspectSkillScope(ctx, id, target)
-	if err != nil {
-		return scopeEdit{}, err
-	}
-	if status != SkillScopeModified {
-		return scopeEdit{}, preconditionError(operation, "the installed folder was not modified", ErrorDetails{Path: folder})
+	unmodified := preconditionError(operation, "the installed folder was not modified", ErrorDetails{Path: folder})
+	if exists, err := agentdir.Exists(folder); err != nil {
+		return scopeEdit{}, fmt.Errorf("inspect target folder: %w", err)
+	} else if !exists {
+		return scopeEdit{}, unmodified
 	}
 	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
 	switch {
@@ -291,6 +290,11 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 		return scopeEdit{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: folder}, Err: err}
 	case err != nil:
 		return scopeEdit{}, err
+	}
+	if status, _, err := l.matchVersion(ctx, id, current.versionID, digests(files)); err != nil {
+		return scopeEdit{}, err
+	} else if status != SkillScopeModified {
+		return scopeEdit{}, unmodified
 	}
 	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
 	if index < 0 {

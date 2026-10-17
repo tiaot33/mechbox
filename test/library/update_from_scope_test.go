@@ -278,6 +278,19 @@ func TestPlanUpdateFromScopeNeedsAnEditedValidFolder(t *testing.T) {
 	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
 	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Path: codexFolder})
 
+	large, err := os.Create(filepath.Join(codexFolder, "large.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := large.Truncate(65 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := large.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
+	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Path: codexFolder})
+
 	projectFolder := filepath.Join(f.directories[f.project], "pdf")
 	if err := os.Symlink(filepath.Join(projectFolder, "SKILL.md"), filepath.Join(projectFolder, "link.md")); err != nil {
 		t.Fatal(err)
