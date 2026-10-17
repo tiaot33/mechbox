@@ -871,7 +871,8 @@ export interface PlannedSkill {
     /**
      * Edited 为 true 表示库里的当前版本是用目录里的修改更新进来的(SkillVersion.BasedOn 不为空)。这时有没有变化只看来源:
      * 来源里这个技能和这份修改所基于的来源版本相比有没有改过,没改过就是没变化;改过且和这份修改不同才是有变化,勾上更新会换掉这份修改
-     * (之后能回滚回来),所以桌面端默认不勾。用目录里的修改更新的计划(PlanUpdateFromScope)里为 false。
+     * (之后能回滚回来),所以桌面端默认不勾。本地目录来源照旧拿目录里的内容和这份修改比较,「重新读取」就是换成目录里的内容。
+     * 用目录里的修改更新的计划(PlanUpdateFromScope)里为 false。
      */
     "edited"?: boolean;
 

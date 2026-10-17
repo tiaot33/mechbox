@@ -342,6 +342,7 @@ export function UpdateDialog({
                   {yes
                     ? `确认后技能改用新名字，组、安装记录和版本历史都跟过去;Agent 里要改用 /${p.renamed_to} 调用。`
                     : `确认是同一个时，Agent 里的调用名会变，要改用 /${p.renamed_to}。`}
+                  {p.edited && <span className="update-edited">内容也会换成来源里的，更新会换掉你的修改。</span>}
                 </div>
               </div>
               {yes ? (

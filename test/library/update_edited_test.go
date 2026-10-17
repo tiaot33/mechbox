@@ -1,8 +1,10 @@
 package library_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/internal/library"
@@ -215,5 +217,57 @@ func requireSkillFiles(t *testing.T, lib *library.Library, id library.SkillID, b
 	file, err := lib.GetVersionFile(t.Context(), skill.VersionID, "SKILL.md")
 	if err != nil || string(file.Content) != skillDocument(skill.Name, body) {
 		t.Fatalf("SKILL.md = %q, %v; want %q", file.Content, err, body)
+	}
+}
+
+func TestRereadingLocalSourceReplacesTheEditsWithTheDirectory(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill, dir := fetchLocalSkill(t, lib, "notes", "from the directory")
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	if err := lib.Install(ctx, skill.ID, claude, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := lib.ScopeDirectory(ctx, claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(directory, "notes", "SKILL.md"), []byte(strings.Replace(string(original), "from the directory", "edited in claude", 1)), 0o644)
+	plan, err := lib.PlanUpdateFromScope(ctx, skill.ID, claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 本地目录来源的「重新读取」:目录没变,也照样拿目录里的内容和库里的修改比较,换回目录里的内容。
+	plan, err = lib.PlanUpdate(ctx, skill.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := plannedSkill(t, plan, skill.ID)
+	if planned.Change != library.PlannedChanged || !planned.Edited {
+		t.Fatalf("planned = %#v; want the directory's content as a change", planned)
+	}
+	result, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: claude}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skills[0].Changed || result.Skills[0].PreviousVersionID != edited.Skills[0].Skill.VersionID {
+		t.Fatalf("Update = %#v", result)
+	}
+	file, err := lib.GetVersionFile(ctx, result.Skills[0].Skill.VersionID, "SKILL.md")
+	if err != nil || string(file.Content) != string(original) {
+		t.Fatalf("SKILL.md = %q, %v; want the directory's content", file.Content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(directory, "notes", "SKILL.md")); err != nil || string(content) != string(original) {
+		t.Fatalf("installed SKILL.md = %q, %v; want the directory's content", content, err)
 	}
 }

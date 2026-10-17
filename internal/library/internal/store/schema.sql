@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS skills (
 -- 直接下载记服务端给出的 HTTP validator,well-known 新格式记索引给出的 digest(旧格式不记),本地目录不记。
 -- revision 是该版本内容在来源上对应的标识,供展示与按来源比较各 skill 是否在同一版本。
 -- 用某处 Agent 目录里的修改更新进来的版本不是从来源读到的:source_state 为空,revision 沿用修改所基于的那个版本的,base_version_id 指向那个版本。
--- 当前版本是这种版本时,检查更新顺着 base_version_id 找到最早那个从来源读到的版本,拿它的 source_state 与文件和来源比较。
+-- 当前版本是这种版本时,检查更新顺着 base_version_id 找到最早那个从来源读到的版本,拿它的 source_state 与文件和来源比较;本地目录来源除外。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,            -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序;不复用

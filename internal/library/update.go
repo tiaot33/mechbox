@@ -16,6 +16,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -105,7 +106,7 @@ type UpdateResult struct {
 // 或没读成来源时的检查失败(原因在 CollectionUpdateCheck.Error)。结论还带上看到的来源版本、这次的改动是否跳过过,
 // 以及是否计入角标(见 UpdateCheck)。来源换了来源版本时,同时按整个来源记下新技能,列在 Collection.NewSkills 上。
 // 当前版本是用目录里的修改更新进来的技能(PlannedSkill.Edited),只看来源里这个技能和这份修改所基于的来源版本相比有没有改过:
-// 没改过,或改成了和这份修改一样,都是已是最新。
+// 没改过,或改成了和这份修改一样,都是已是最新。本地目录来源的作者就是用户自己,照旧拿目录里的内容和库里的当前版本比较。
 // 不同集合互不影响,一个来源连不上不妨碍其他集合。
 //
 // 同时有几次检查、或检查期间技能被更新时,结论以较新的为准,不报错:检查开始后别处写下了结论(检查、更新计划、更新、继续保留)时
@@ -253,7 +254,7 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 			return nil, err
 		}
 		state.origin = source.Have{Name: skill.Name, Files: state.files, State: state.snapshot}
-		if state.base != 0 {
+		if state.followsAuthor() {
 			origin, err := l.store.Origin(ctx, state.versionID)
 			if err != nil {
 				return nil, err
@@ -775,9 +776,13 @@ func haves(states []currentVersion) []source.Have {
 	return result
 }
 
+func (c currentVersion) followsAuthor() bool {
+	return c.base != 0 && c.source.Type != local.Type
+}
+
 func keepEdits(checked []checkedSkill, states []currentVersion) {
 	for i := range checked {
-		if states[i].base == 0 || checked[i].err != nil {
+		if !states[i].followsAuthor() || checked[i].err != nil {
 			continue
 		}
 		if checked[i].changed && !skillfile.Equal(checked[i].latest.Files, states[i].files) {
