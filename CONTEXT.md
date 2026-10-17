@@ -37,7 +37,7 @@ A skill found in a Preview that can be chosen for Fetch. Folders that look like 
 _Avoid_: Result, match / 结果、匹配项
 
 **Fetch · 入库**:
-Bringing skills into the Library: chosen Candidates from a Preview, or External skills from a Scope. Distinct from Install: Fetch brings a skill *into* the tool; Install places it *out* into an Agent's directory. Fetching an External skill leaves its folder as it is and records it as installed in that Scope.
+Bringing skills into the Library: chosen Candidates from a Preview, or Unmanaged skills in a Scope that the Library did not install. Distinct from Install: Fetch brings a skill *into* the tool; Install places it *out* into an Agent's directory. Fetching an Unmanaged skill leaves its folder as it is and records it as installed in that Scope.
 _Avoid_: Install, download, add, import, pull, adopt / 安装、下载、添加、导入、拉取、收进库
 
 **Version · 版本**:
@@ -80,12 +80,12 @@ _Avoid_: Target, context, location, path, Installation / 目标、上下文、�
 A project directory the tool has been told to manage, kept in a list in the Library so project-level Scopes are first-class and what is installed across projects is visible in one place.
 _Avoid_: Workspace, folder, repo / 工作区、文件夹、仓库
 
-**External skill · 外部技能**:
-A skill folder in a Scope's directory that the Library did not install — placed by another tool, copied by hand, or committed in a Registered project's repository. Listed alongside installed skills; the tool never changes or removes it, and one committed in the repository cannot be Fetched.
-_Avoid_: Unmanaged skill, orphan, untracked / 不是从这里装的技能、孤儿、未跟踪
+**Unmanaged skill · 未纳管技能**:
+A skill folder in a Scope's directory that the Library does not account for: either the Library did not install it — placed by another tool, cloned, copied or written by hand, or committed in a Registered project's repository — or it is installed but edited since. The tool never changes or removes one it did not install, and Fetch brings it under management unless it is committed in the repository; an edited installed one stays installed, and an Update brings its edits in.
+_Avoid_: External skill, orphan, untracked, unhosted / 外部技能、不是从这里装的技能、孤儿、未跟踪、未托管
 
 **Install · 安装**:
-A choice to have one skill from the Library available in a Scope, which places its folder there; **Uninstall · 卸载** withdraws the choice. A skill stays installed in a Scope while a direct Install or a Group install keeps it there, and its folder is removed with the last one. Installing a skill already installed in that Scope, or Fetching an External skill there, only records the choice — it never overwrites the folder.
+A choice to have one skill from the Library available in a Scope, which places its folder there; **Uninstall · 卸载** withdraws the choice. A skill stays installed in a Scope while a direct Install or a Group install keeps it there, and its folder is removed with the last one. Installing a skill already installed in that Scope, or Fetching an Unmanaged skill there, only records the choice — it never overwrites the folder.
 _Avoid_: Activate, enable, deploy, projection / 激活、启用、部署、投影
 
 **Group install · 组安装**:
