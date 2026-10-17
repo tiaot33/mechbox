@@ -48,6 +48,10 @@ for name in kappa lambda mu; do
 	printf -- '---\nname: %s\ndescription: "%s v1"\n---\n\n# %s\n\nUse it well.\n' "$name" "$name" "$name" >"$work/zips/trio/$name/SKILL.md"
 done
 (cd "$work/zips/trio" && zip -qr ../trio.zip kappa lambda mu)
+# well-known 站点:/site/ 下放旧格式的索引，测站点链接的识别。
+mkdir -p "$work/zips/site/.well-known/skills/omega"
+printf -- '---\nname: omega\ndescription: "omega from a well-known index"\n---\n\n# omega\n' >"$work/zips/site/.well-known/skills/omega/SKILL.md"
+printf '{"skills":[{"name":"omega","description":"omega from a well-known index","files":["SKILL.md"]}]}\n' >"$work/zips/site/.well-known/skills/index.json"
 
 port=${E2E_PORT:-18080}
 zip_port=$((port + 1))

@@ -1,6 +1,6 @@
 // 入库的第二步：浏览一次入库预览的候选与诊断，勾选后 Fetch 入库。
-// 入库技能(本地目录 / GitHub / URL)与技能市场都在拿到入库预览后进入这里。
-import { useState } from "react";
+// 入库技能、技能市场与集合上的"看来源里的其他技能"都在拿到入库预览后进入这里;顶部显示技能库识别出的来源。
+import { useEffect, useState } from "react";
 import { Browser } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
@@ -10,6 +10,7 @@ import {
   type FetchPreview,
   type FetchPreviewID,
   type SkillAudit,
+  SourceType,
 } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,6 @@ import { Diagnostics, toggled } from "./parts";
 
 interface FetchReviewProps {
   preview: FetchPreview;
-  audits: boolean; // 只有 GitHub 来源在 skills.sh 收录范围内，才提供审计查询
   onlyNew?: boolean; // 从集合上的"新发布了 N 个技能"进来：只默认勾上来源里的新技能
   onClose: () => void;
   onBack: () => void;
@@ -34,8 +34,27 @@ function parentDir(path: string): string {
   return i < 0 ? "" : path.slice(0, i);
 }
 
-export function FetchReview({ preview, audits, onlyNew = false, onClose, onBack }: FetchReviewProps) {
+// sourceKindName 是识别结果里来源类型的说法。
+const sourceKindName: Record<SourceType, string> = {
+  [SourceType.SourceGitHub]: "GitHub 仓库",
+  [SourceType.SourceGit]: "Git 仓库",
+  [SourceType.SourceURL]: "直接下载",
+  [SourceType.SourceWellKnown]: "well-known 索引",
+  [SourceType.SourceLocal]: "本地目录",
+  [SourceType.$zero]: "未知来源",
+};
+
+export function FetchReview({ preview, onlyNew = false, onClose, onBack }: FetchReviewProps) {
   const ui = useUI();
+  // 只有 GitHub 仓库在 skills.sh 收录范围内，才提供审计查询，也只有它走 GitHub API、没有令牌时容易被限流。
+  const github = preview.source.type === SourceType.SourceGitHub;
+  const [tokenMissing, setTokenMissing] = useState(false);
+  useEffect(() => {
+    if (!github) return;
+    const p = LibraryService.Config();
+    p.then((c) => setTokenMissing(!c.github_token), () => {});
+    return () => void p.cancel();
+  }, [github]);
   const candidates = preview.candidates ?? [];
   const fresh = candidates.filter((c) => !c.fetched);
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
@@ -71,8 +90,8 @@ export function FetchReview({ preview, audits, onlyNew = false, onClose, onBack 
   const grouped = groups.size > 1;
 
   const row = (c: Candidate, dir: string) => {
-    // 分组时路径只写组目录以下的部分，和技能名一样就不重复写。
-    const rel = grouped && dir ? c.path.slice(dir.length + 1) : c.path || "/";
+    // 分组时路径只写组目录以下的部分，和技能名一样就不重复写;来源根目录(单个 SKILL.md 是 ".")写作 "/"。
+    const rel = grouped && dir ? c.path.slice(dir.length + 1) : c.path && c.path !== "." ? c.path : "/";
     return (
       <ListRow
         key={c.path + c.name}
@@ -99,7 +118,7 @@ export function FetchReview({ preview, audits, onlyNew = false, onClose, onBack 
           ) : null}
           <span className="min-w-0 grow truncate font-mono text-[11px] text-muted-foreground">{rel !== c.name ? rel : ""}</span>
           {c.plugin_name && <span className="shrink-0 text-[11px] text-subtle">{c.plugin_name}</span>}
-          {audits && <Audit previewID={preview.id} candidate={c} />}
+          {github && <Audit previewID={preview.id} candidate={c} />}
         </label>
       </ListRow>
     );
@@ -123,9 +142,22 @@ export function FetchReview({ preview, audits, onlyNew = false, onClose, onBack 
         </>
       }
     >
+      <div className="fetch-source flex min-w-0 items-center gap-2 text-xs">
+        <span className="shrink-0 text-muted-foreground">识别为</span>
+        <Badge tone="accent" className="shrink-0">
+          {sourceKindName[preview.source.type] ?? preview.source.type}
+        </Badge>
+        <span className="min-w-0 truncate font-mono" title={preview.source.label}>
+          {preview.source.label}
+        </span>
+        {preview.source.ref && <span className="shrink-0 text-muted-foreground">分支 {preview.source.ref}</span>}
+      </div>
+      {tokenMissing && (
+        <Notice tone="warn">设置页没有填 GitHub 令牌，也没有设置 GITHUB_TOKEN / GH_TOKEN,匿名访问 GitHub API 容易被限流。</Notice>
+      )}
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span>
-          {candidates.length} 个候选{preview.source.ref ? ` · ${preview.source.ref}` : ""}
+          {candidates.length} 个候选
           {preview.revision ? ` · ${preview.revision.slice(0, 12)}` : ""}
         </span>
         <span className="grow" />

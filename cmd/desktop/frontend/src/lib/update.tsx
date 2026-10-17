@@ -478,7 +478,7 @@ export function openHistory(ui: UI, s: Snapshot, filter: UpdateHistoryFilter, ti
 export async function previewNewSkills(ui: UI, collectionID: CollectionID) {
   const preview = await ui.run(() => LibraryService.PreviewFetch({ collection: collectionID }), { reload: false });
   if (!preview) return;
-  await ui.open((close) => <FetchReview preview={preview} audits={false} onlyNew onClose={() => close()} onBack={() => close()} />);
+  await ui.open((close) => <FetchReview preview={preview} onlyNew onClose={() => close()} onBack={() => close()} />);
 }
 
 // notInterested 是对新技能点"不感兴趣":集合上不再提，入库预览里仍能找到。

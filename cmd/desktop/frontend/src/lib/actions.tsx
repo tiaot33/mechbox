@@ -497,7 +497,7 @@ export async function checkUpdates(ui: UI, s: Snapshot, collections: CollectionI
 export async function previewCollection(ui: UI, collectionID: CollectionID) {
   const preview = await ui.run(() => LibraryService.PreviewFetch({ collection: collectionID }), { reload: false });
   if (!preview) return;
-  await ui.open((close) => <FetchReview preview={preview} audits={false} onClose={() => close()} onBack={() => close()} />);
+  await ui.open((close) => <FetchReview preview={preview} onClose={() => close()} onBack={() => close()} />);
 }
 
 // ---------- 移除技能 ----------

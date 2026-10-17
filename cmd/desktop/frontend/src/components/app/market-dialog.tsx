@@ -20,7 +20,7 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
   const [fetching, setFetching] = useState<string | null>(null);
   const [preview, setPreview] = useState<FetchPreview | null>(null);
 
-  if (preview) return <FetchReview preview={preview} audits onClose={onClose} onBack={() => setPreview(null)} />;
+  if (preview) return <FetchReview preview={preview} onClose={onClose} onBack={() => setPreview(null)} />;
 
   const search = async () => {
     if (!query.trim() || searching) return;
@@ -82,7 +82,7 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
         ) : (
           <Notice>没有搜到技能。</Notice>
         ))}
-      <Hint>搜索结果来自 skills.sh,入库前会先从 GitHub 做入库预览，可查看候选与审计信息。</Hint>
+      <Hint>搜索结果来自 skills.sh,入库前会先做入库预览，可查看候选;来自 GitHub 仓库的还能查看审计信息。</Hint>
     </Modal>
   );
 }
