@@ -115,8 +115,8 @@ func requireErrorDetails(t *testing.T, err error, code library.ErrorCode, want l
 // seededAgents 是应用内置的 Agent;home 是测试隔离的主目录,里面没有各 Agent 的配置目录,所以都未检测到。
 func seededAgents(home string) []library.Agent {
 	return []library.Agent{
-		{Code: library.AgentClaudeCode, Name: "Claude Code", GlobalDirectory: filepath.Join(home, ".claude", "skills"), ProjectDirectory: ".claude/skills"},
-		{Code: library.AgentCodex, Name: "Codex", GlobalDirectory: filepath.Join(home, ".agents", "skills"), ProjectDirectory: ".agents/skills"},
+		{Code: library.AgentClaudeCode, Name: "Claude Code", GlobalDirectory: filepath.Join(home, ".claude", "skills"), ProjectDirectory: ".claude/skills", SameName: library.SameNameGlobalWins},
+		{Code: library.AgentCodex, Name: "Codex", GlobalDirectory: filepath.Join(home, ".agents", "skills"), ProjectDirectory: ".agents/skills", SameName: library.SameNameBothShown},
 	}
 }
 

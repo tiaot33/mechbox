@@ -89,6 +89,8 @@
 //   - [Library.FetchUnmanaged] 把其中一个入库:磁盘上什么都不改,读出的内容成为库里的版本,记为装在这个作用域;
 //     和库里某个版本完全一致时只给那个技能补记安装。新入库的是没有来源的技能,不在集合里、不检查更新,
 //     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。
+//   - [Library.ListSameNameSkills] 列出同一个 Agent 的全局和某个已登记项目里同名的技能,不论是不是库装的,两处都要标出来;
+//     后果按 [Agent].SameName:Claude Code 里全局的那个生效,Codex 里两份都会出现,没有已知规则的 Agent 只标出同名。
 //
 // 巡检与重新安装(reinstall.go):
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。

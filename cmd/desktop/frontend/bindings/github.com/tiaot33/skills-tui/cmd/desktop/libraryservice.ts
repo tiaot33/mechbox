@@ -129,6 +129,10 @@ export function ListRegisteredProjects(): $CancellablePromise<library$0.Register
     return $Call.ByID(2677723792);
 }
 
+export function ListSameNameSkills(): $CancellablePromise<library$0.SameNameSkill[] | null> {
+    return $Call.ByID(3752374309);
+}
+
 export function ListSkillScopes(filter: library$0.SkillScopeFilter): $CancellablePromise<library$0.SkillScope[] | null> {
     return $Call.ByID(2812998614, filter);
 }

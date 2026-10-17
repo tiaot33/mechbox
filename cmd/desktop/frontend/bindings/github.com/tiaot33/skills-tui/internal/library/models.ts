@@ -31,6 +31,12 @@ export interface Agent {
      * ProjectDirectory 是项目作用域读取技能的目录相对已登记项目根的路径,斜杠分隔,如 .agents/skills。
      */
     "project_directory": string;
+
+    /**
+     * SameName 是全局和项目里有同名技能时这个 Agent 会怎样(见 [Library.ListSameNameSkills]):内置 Agent 随应用版本维护,
+     * 自定义 Agent 与本版应用不认识的 Agent 为 SameNameUnknown。
+     */
+    "same_name"?: SameNameRule;
 }
 
 /**
@@ -1182,6 +1188,63 @@ export interface RollbackResult {
      * Installs 是那次更新装过的每一处(含单独重试换上的)现在的结果,按技能 ID、Agent 排序。
      */
     "installs": RollbackInstall[] | null;
+}
+
+/**
+ * SameNameFolder 是同名技能在一个作用域里的技能文件夹。
+ */
+export interface SameNameFolder {
+    /**
+     * Folder 是技能文件夹的路径,与 [SkillScope].Folder、[UnmanagedSkill].Folder 相同,界面按它对上列表里的那一项。
+     */
+    "folder": string;
+
+    /**
+     * SkillID 在这个作用域里有安装记录用它(库装的)时是那个技能的 ID;未纳管技能为 0。
+     */
+    "skill_id"?: SkillID;
+}
+
+/**
+ * SameNameRule 是一个 Agent 在全局和项目里都有同名技能时会怎样,按生态里已知的规则;只看全局与项目这两层,
+ * 不推算插件是否启用、frontmatter 里关闭自动调用等其他规则。
+ */
+export enum SameNameRule {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 没有已知规则(自定义 Agent、本版应用不认识的 Agent):只标出同名
+     */
+    SameNameUnknown = "",
+
+    /**
+     * 全局的那个生效,项目里的不会被用到(Claude Code:个人 > 项目)
+     */
+    SameNameGlobalWins = "global_wins",
+
+    /**
+     * 不合并,两份都会出现(Codex)
+     */
+    SameNameBothShown = "both_shown",
+};
+
+/**
+ * SameNameSkill 是同一个 Agent 的全局和一个已登记项目里同名的两个技能文件夹,两处都要标出来。
+ * 后果按 Agent 的 [Agent].SameName 说明。
+ */
+export interface SameNameSkill {
+    "agent": AgentCode;
+    "project_id": ProjectID;
+
+    /**
+     * Name 是两处共同的文件夹名。
+     */
+    "name": string;
+    "global": SameNameFolder;
+    "project": SameNameFolder;
 }
 
 /**

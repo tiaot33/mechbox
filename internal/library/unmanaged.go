@@ -45,6 +45,111 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	folders, err := l.scopeFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type repository struct {
+		projectID ProjectID
+		relative  string
+	}
+	committed := map[repository]map[string]bool{}
+	skills = []UnmanagedSkill{}
+	for _, found := range folders {
+		if found.skillID != 0 {
+			continue
+		}
+		target := found.target
+		skill := UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}
+		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
+			skill.Description = candidate.Description
+		}
+		if target.projectID != nil {
+			key := repository{projectID: *target.projectID, relative: target.relative}
+			if _, ok := committed[key]; !ok {
+				if committed[key], err = agentdir.Committed(ctx, target.root, target.relative); err != nil {
+					return nil, err
+				}
+			}
+			skill.InRepository = committed[key][found.Name]
+		}
+		skills = append(skills, skill)
+	}
+	slices.SortFunc(skills, func(a, b UnmanagedSkill) int {
+		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
+	})
+	return skills, nil
+}
+
+// SameNameFolder 是同名技能在一个作用域里的技能文件夹。
+type SameNameFolder struct {
+	// Folder 是技能文件夹的路径,与 [SkillScope].Folder、[UnmanagedSkill].Folder 相同,界面按它对上列表里的那一项。
+	Folder string `json:"folder"`
+	// SkillID 在这个作用域里有安装记录用它(库装的)时是那个技能的 ID;未纳管技能为 0。
+	SkillID SkillID `json:"skill_id,omitzero"`
+}
+
+// SameNameSkill 是同一个 Agent 的全局和一个已登记项目里同名的两个技能文件夹,两处都要标出来。
+// 后果按 Agent 的 [Agent].SameName 说明。
+type SameNameSkill struct {
+	Agent     AgentCode `json:"agent"`
+	ProjectID ProjectID `json:"project_id"`
+	// Name 是两处共同的文件夹名。
+	Name    string         `json:"name"`
+	Global  SameNameFolder `json:"global"`
+	Project SameNameFolder `json:"project"`
+}
+
+// ListSameNameSkills 列出每个 Agent 的全局和各已登记项目里同名的技能文件夹,不论是不是库装的:库装的
+// ([Library.ListSkillScopes])和未纳管的([Library.ListUnmanagedSkills])一起比,也就是 Agent 在这两处实际能看到的技能。
+// 同名按技能目录下的文件夹名判断,技能文件夹的认法与 ListUnmanagedSkills 相同;安装记录在、文件夹不在了的不算。
+// 全局里的一个技能和几个项目里的同名时,每个项目各一条。几个 Agent 共用目录时每个 Agent 各列一条。
+// 只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那里没有结果。结果按 Agent、项目 ID、Name 排序。
+func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkill, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	folders, err := l.scopeFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type global struct {
+		agent AgentCode
+		name  string
+	}
+	globals := map[global]SameNameFolder{}
+	for _, found := range folders {
+		if found.target.projectID == nil {
+			globals[global{found.target.agent, found.Name}] = SameNameFolder{Folder: found.Path, SkillID: found.skillID}
+		}
+	}
+	skills = []SameNameSkill{}
+	for _, found := range folders {
+		if found.target.projectID == nil {
+			continue
+		}
+		other, ok := globals[global{found.target.agent, found.Name}]
+		if !ok {
+			continue
+		}
+		skills = append(skills, SameNameSkill{
+			Agent: found.target.agent, ProjectID: *found.target.projectID, Name: found.Name,
+			Global: other, Project: SameNameFolder{Folder: found.Path, SkillID: found.skillID},
+		})
+	}
+	slices.SortFunc(skills, func(a, b SameNameSkill) int {
+		return cmp.Or(cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.ProjectID, b.ProjectID), cmp.Compare(a.Name, b.Name))
+	})
+	return skills, nil
+}
+
+type scopeFolder struct {
+	agentdir.Folder
+	target  resolvedScope
+	skillID SkillID
+}
+
+func (l *Library) scopeFolders(ctx context.Context) ([]scopeFolder, error) {
 	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
 		return nil, err
@@ -61,16 +166,11 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 		scope Scope
 		name  string
 	}
-	claimed := map[folder]bool{}
+	claimed := map[folder]SkillID{}
 	for _, skillScope := range installed {
-		claimed[folder{skillScope.Scope, filepath.Base(skillScope.Folder)}] = true
+		claimed[folder{skillScope.Scope, filepath.Base(skillScope.Folder)}] = skillScope.SkillID
 	}
-	type repository struct {
-		projectID ProjectID
-		relative  string
-	}
-	committed := map[repository]map[string]bool{}
-	skills = []UnmanagedSkill{}
+	var folders []scopeFolder
 	for _, agent := range agents {
 		rows := []scopeRow{{agent: AgentCode(agent.Code)}}
 		for _, project := range projects {
@@ -81,40 +181,21 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 			if err != nil {
 				return nil, err
 			}
-			if missing, err := target.rootMissing("list unmanaged skills"); err != nil {
+			if missing, err := target.rootMissing("list skill folders"); err != nil {
 				return nil, err
 			} else if missing != nil {
 				continue
 			}
-			folders, err := agentdir.List(target.directory)
+			listed, err := agentdir.List(target.directory)
 			if err != nil {
 				return nil, err
 			}
-			for _, found := range folders {
-				if claimed[folder{row.scope(), found.Name}] {
-					continue
-				}
-				skill := UnmanagedSkill{Scope: row.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}
-				if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
-					skill.Description = candidate.Description
-				}
-				if row.projectID != nil {
-					key := repository{projectID: *row.projectID, relative: target.relative}
-					if _, ok := committed[key]; !ok {
-						if committed[key], err = agentdir.Committed(ctx, target.root, target.relative); err != nil {
-							return nil, err
-						}
-					}
-					skill.InRepository = committed[key][found.Name]
-				}
-				skills = append(skills, skill)
+			for _, found := range listed {
+				folders = append(folders, scopeFolder{Folder: found, target: target, skillID: claimed[folder{row.scope(), found.Name}]})
 			}
 		}
 	}
-	slices.SortFunc(skills, func(a, b UnmanagedSkill) int {
-		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
-	})
-	return skills, nil
+	return folders, nil
 }
 
 // FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
