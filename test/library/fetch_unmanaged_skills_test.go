@@ -258,18 +258,69 @@ func TestPlanFetchUnmanagedListsFoldersThatCannotBeFetched(t *testing.T) {
 	directory := scopeDirectory(t, lib, claude)
 	broken := filepath.Join(directory, "broken")
 	writeFile(t, filepath.Join(broken, "SKILL.md"), []byte("no frontmatter\n"), 0o644)
+	// 文件读不了、文件夹名不能用(首尾有空白)的，同样只算这一条不能入库。
+	locked := writeUnmanagedSkill(t, directory, "locked", "unreadable script")
+	writeFile(t, filepath.Join(locked, "secret.sh"), []byte("echo secret\n"), 0o644)
+	if err := os.Chmod(filepath.Join(locked, "secret.sh"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(locked, "secret.sh"), 0o644) })
+	spaced := filepath.Join(directory, " spaced")
+	writeFile(t, filepath.Join(spaced, "SKILL.md"), []byte("---\nname: spaced\ndescription: d\n---\n"), 0o644)
 	writeUnmanagedSkill(t, directory, "fine", "works")
 
 	plan := planFetchUnmanaged(t, lib, claude)
-	if len(plan) != 2 {
-		t.Fatalf("plan = %#v, want broken and fine", plan)
+	if len(plan) != 4 {
+		t.Fatalf("plan = %#v, want broken, locked, spaced and fine", plan)
 	}
-	planned := plannedNamed(t, plan, "broken")[0]
-	if planned.Selected || planned.Error == nil || planned.Error.Code != library.SourceInvalid || planned.Error.Details.Path != broken {
-		t.Fatalf("broken = %#v, want an unselected folder with the reason", planned)
+	for _, tc := range []struct {
+		name   string
+		folder string
+		code   library.ErrorCode
+	}{
+		{"broken", broken, library.SourceInvalid},
+		{"locked", locked, library.Permission},
+		{" spaced", spaced, library.InvalidArgument},
+	} {
+		planned := plannedNamed(t, plan, tc.name)[0]
+		if planned.Selected || planned.Error == nil || planned.Error.Code != tc.code || planned.Error.Details.Path != tc.folder {
+			t.Fatalf("%s = %#v (error %#v), want an unselected folder with %s", tc.name, planned, planned.Error, tc.code)
+		}
 	}
 	if fine := plannedNamed(t, plan, "fine")[0]; !fine.Selected {
 		t.Fatalf("fine = %#v, want it selected", fine)
+	}
+}
+
+func TestPlanFetchUnmanagedKeepsCopiesInOneScopeApart(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	directory := scopeDirectory(t, lib, claude)
+	// 同一个作用域里两个文件夹内容一样:一个技能在一个作用域里只记一处安装，所以是同名的两条，只选一份。
+	document := []byte("---\nname: pdf\ndescription: read pdfs\n---\n")
+	older := filepath.Join(directory, "pdf")
+	newer := filepath.Join(directory, "pdf-copy")
+	writeFile(t, filepath.Join(older, "SKILL.md"), document, 0o644)
+	writeFile(t, filepath.Join(newer, "SKILL.md"), document, 0o644)
+	now := time.Now()
+	touchTree(t, older, now.Add(-48*time.Hour))
+	touchTree(t, newer, now.Add(-time.Hour))
+
+	plan := planFetchUnmanaged(t, lib, claude)
+	if len(plan) != 2 || !plan[0].Conflict || !plan[1].Conflict || !plan[0].Selected || plan[1].Selected || plan[0].Folders[0].Folder != newer {
+		t.Fatalf("plan = %#v, want two conflicting copies with the newest selected", plan)
+	}
+	results := fetchUnmanagedSkills(t, lib, selectedItems(plan))
+	if results[0].Error != nil {
+		t.Fatalf("result = %#v, want the newest copy fetched", results[0])
+	}
+	if skillScopes := listSkillScopes(t, lib); len(skillScopes) != 1 || skillScopes[0].Folder != newer {
+		t.Fatalf("skill scopes = %#v, want only the chosen copy", skillScopes)
+	}
+	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 1 {
+		t.Fatalf("ListSkills() = %#v, %v, want one skill", skills, err)
 	}
 }
 
@@ -379,6 +430,7 @@ func TestFetchUnmanagedSkillsErrors(t *testing.T) {
 		{"no folders", library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{}}}, "folders"},
 		{"invalid name", library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{{Scope: claude, Name: "../pdf"}}}}}, "name"},
 		{"folder twice", library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{pdf}}, {Folders: []library.FolderInScope{pdf}}}}, "folders"},
+		{"one scope twice", library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{pdf, {Scope: claude, Name: "pdf-copy"}}}}}, "folders"},
 		{"ref without a source", library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{pdf}, SourceRef: "main"}}}, "source_ref"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

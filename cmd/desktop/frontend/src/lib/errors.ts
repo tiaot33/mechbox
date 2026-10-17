@@ -26,3 +26,23 @@ export function describeError(err: LibraryError): string {
   const detail = [facts.join(" · "), err.message].filter(Boolean).join("\n");
   return detail ? `${head}\n${detail}` : head;
 }
+
+// unmanagedSourceError 说明带来源入库为什么没成，以及用户接下来能做什么。
+export function unmanagedSourceError(err: LibraryError, name: string): string {
+  const clear = "也可以清空来源链接，作为没有来源的技能入库。";
+  const field = err.details?.field;
+  switch (err.code) {
+    case ErrorCode.AlreadyExists:
+      return `库里已有这个来源的「${err.details?.name ?? name}」，这里的内容和它的哪个版本都不一样，所以不合并。可以清空来源链接，作为没有来源的技能入库，或者先不入库。`;
+    case ErrorCode.SourceUnreachable:
+      return `连不上这个来源，可以稍后重试或改链接。${clear}`;
+    case ErrorCode.NotFound:
+      // 找不到的可能是技能，也可能是分支或子目录:带上原因。
+      if (err.details?.name) return `来源里找不到「${err.details.name}」，可以改链接。${clear}\n${err.message}`;
+      break;
+    case ErrorCode.InvalidArgument:
+      if (field === "source_input" || field === "source_ref") return `认不出这个来源链接，可以改一下。${clear}\n${err.message}`;
+      break;
+  }
+  return describeError(err);
+}

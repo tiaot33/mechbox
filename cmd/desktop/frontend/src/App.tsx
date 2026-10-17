@@ -12,6 +12,7 @@ import { SkillDrawer } from "@/components/app/skill-drawer";
 import { toggled } from "@/components/app/parts";
 import { SkillList } from "@/components/app/skill-list";
 import { Toolbar, type ListView } from "@/components/app/toolbar";
+import { offerFirstOpen } from "@/components/app/fetch-unmanaged-dialog";
 import { addSkillToGroup, installGroup, installSkill } from "@/lib/actions";
 import { DnDContext, type DnD, type DragItem } from "@/lib/dnd";
 import { useLibrarySnapshot, useScopeDirectory, type LibraryError, type Snapshot } from "@/lib/library";
@@ -68,6 +69,14 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   useEffect(() => Events.On("updates-checked", reload), [reload]);
 
   const s: Snapshot | undefined = state.status === "ready" ? state.snapshot : undefined;
+
+  // 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能，一次确认全部入库。
+  const firstOpen = useRef(false);
+  useEffect(() => {
+    if (!s || firstOpen.current) return;
+    firstOpen.current = true;
+    void offerFirstOpen(ui, s.agents);
+  }, [s, ui]);
 
   // 快照变了(写操作、手动检查更新之后),Dock 角标跟着重算。
   useEffect(() => {

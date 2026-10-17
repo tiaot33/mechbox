@@ -149,6 +149,94 @@ const scopeDir = async () => {
   return t.replace(/^~/, HOME);
 };
 
+// ============ 第一次打开 ============
+const FIRST_OPEN = "第一次打开：各 Agent 全局里不是库装的技能一次确认入库，磁盘不动;同名不一样的只入库较新的一份;读不成来源的清空后入库";
+if (only && !FIRST_OPEN.includes(only)) {
+  // 只跑部分步骤时，先关掉第一次打开的确认。
+  await modal().waitFor({ timeout: 5000 }).catch(() => {});
+  if (await modal().count()) await btn(modal(), "先不入库").click();
+}
+await step(FIRST_OPEN, async () => {
+  const claude = path.join(HOME, ".claude", "skills");
+  const agents = path.join(HOME, ".agents", "skills");
+  const link = path.join(claude, "first-pdf");
+  const disk = () => [
+    fs.readlinkSync(link),
+    ...["first-notes", "first-dup"].map((n) => fs.readFileSync(path.join(claude, n, "SKILL.md"), "utf8")),
+    ...["first-pdf", "first-dup"].map((n) => fs.readFileSync(path.join(agents, n, "SKILL.md"), "utf8")),
+  ];
+  const before = disk();
+  const names = ["first-notes", "first-pdf", "first-dup"];
+  try {
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "把你在用的技能交给 app 管" }).waitFor({ timeout: 15000 });
+    const lead = await modal().locator(".fetch-unmanaged-lead").textContent();
+    assert(lead.includes("在各 Agent 的全局目录里发现 4 个不是库装的技能") && lead.includes("磁盘上什么都不改，Agent 用的和现在一样"), `开头应先说磁盘不动:${lead}`);
+    const text = await modal().textContent();
+    assert(text.includes("之后如果还用命令行工具更新这些技能，app 只能把它们报为被手动改过"), `确认前写清代价:${text}`);
+    assert(text.includes("项目里的技能，登记项目时再接"), "第一次打开时说明项目里的之后再接");
+    assert((await modal().locator(".fetch-unmanaged-team").count()) === 0, "全局里没有项目仓库的提醒");
+    // 符号链接和它指向的真实文件夹内容一样，合成一条，两个 Agent 都列出。
+    const group = modal().locator(".fetch-unmanaged-group", { hasText: "没有来源" });
+    assert.deepStrictEqual((await group.locator(".fetch-unmanaged-name").allTextContents()).sort(), ["first-notes", "first-pdf"], "没有来源的一组");
+    assert((await group.locator('[data-slot="list-row"]', { hasText: "first-pdf" }).textContent()).includes("Claude Code、Codex"), "内容一样的几处合成一条");
+    // 同名但内容不一样的单列出来，默认选最近修改的那份。
+    const conflict = modal().locator(".fetch-unmanaged-conflict", { hasText: "first-dup" });
+    assert.equal(await conflict.locator('input[type="radio"]').count(), 3, "两份加上都先不入库");
+    const chosen = conflict.locator('[data-slot="list-row"]', { has: page.locator('input[type="radio"]:checked') });
+    assert((await chosen.textContent()).startsWith("Codex"), `默认选较新的 Codex 那份:${await chosen.textContent()}`);
+    await page.screenshot({ path: path.join(SHOTS, "first-open.png") });
+    // 确认前可以给认不出来源的补一个来源链接;读不成时只有它没入库，清空后不带来源入库。
+    const notes = group.locator('[data-slot="list-row"]', { hasText: "first-notes" });
+    await notes.locator(".fetch-unmanaged-edit").click();
+    const missing = path.join(HOME, "sources", "nowhere");
+    await modal().locator(".fetch-unmanaged-source").fill(missing);
+    assert.equal(await notes.locator(".fetch-unmanaged-changed").textContent(), `改为跟着 ${missing}`, "改过的来源写在这一条上");
+    await btn(modal(), "入库 3 个").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "还有几个没入库" }).waitFor({ timeout: 15000 });
+    assert((await modal().textContent()).includes("已入库 2 个技能"), "其余的照常入库");
+    const failed = modal().locator(".fetch-unmanaged-failed [data-slot='list-row']");
+    assert.equal(await failed.count(), 1, "只有 first-notes 没入库");
+    assert((await failed.locator(".fetch-unmanaged-error").textContent()).includes("清空来源链接"), "告诉用户能清空来源");
+    assert.equal(await failed.locator(".fetch-unmanaged-link").inputValue(), missing, "来源链接是改过的那个");
+    await failed.locator(".fetch-unmanaged-link").fill("");
+    await btn(failed, "不带来源入库").click();
+    await failed.first().waitFor({ state: "detached" });
+    assert((await modal().textContent()).includes("已入库 3 个技能"), "重试成功后数上它");
+    await btn(modal(), "完成").click();
+    await settle();
+    for (const n of names) await card(n).waitFor();
+    assert.deepStrictEqual(disk(), before, "入库时磁盘上什么都没动");
+    assert(fs.lstatSync(link).isSymbolicLink(), "符号链接还是符号链接");
+
+    // 没选的那份仍是未纳管技能：作用域里淡淡提一句，从这里可以再全部入库。
+    await selectScope("Claude Code");
+    const hint = page.locator(".unmanaged-hint");
+    assert((await hint.textContent()).includes("这里还有 1 个技能不是库装的"), `作用域里提一句:${await hint.textContent()}`);
+    await btn(hint, "全部入库…").click();
+    await modal().locator(".fetch-unmanaged-lead", { hasText: "在 Claude Code · 全局 里发现 1 个不是库装的技能" }).waitFor();
+    await btn(modal(), "先不入库").click();
+  } finally {
+    // 后面的步骤不认这几个技能：连同文件夹移除。
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    await clearScope();
+    await settle();
+    for (const n of names) {
+      if ((await card(n).count()) === 0) continue;
+      await openDrawer(n);
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const n of names) {
+      fs.rmSync(path.join(claude, n), { recursive: true, force: true });
+      fs.rmSync(path.join(agents, n), { recursive: true, force: true });
+    }
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+  }
+});
+
 // ============ 入库 ============
 await step("入库对话框只有一个输入框，没有来源标签", async () => {
   await openFetch();
@@ -711,6 +799,75 @@ await step("重复登记同一项目报错", async () => {
   await btn(modal(), "登记").click();
   await toast("已经存在", "error");
   await modal().getByRole("button", { name: "取消" }).click();
+});
+
+await step("登记项目后：一次确认入库项目里不是库装的技能，项目仓库里的默认不勾;确认前清空认出的来源", async () => {
+  const projC = path.join(HOME, "code", "team-proj");
+  const dir = path.join(projC, ".claude", "skills");
+  const docs = { "team-rules": "committed by the team", "proj-notes": "my project notes", "locked-tool": "installed by the lock file" };
+  for (const [name, description] of Object.entries(docs)) {
+    fs.mkdirSync(path.join(dir, name), { recursive: true });
+    fs.writeFileSync(path.join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
+  }
+  // skills-lock.json 提交在仓库里，技能文件夹本身没提交;记下的来源已经不在了。
+  fs.writeFileSync(path.join(projC, "skills-lock.json"), JSON.stringify({ version: 1, skills: { "locked-tool": { source: "./vendor/missing", sourceType: "local", computedHash: "abc" } } }));
+  const git = (...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "-C", projC, ...args]);
+  git("init", "-q", "-b", "main");
+  git("add", "-f", ".claude/skills/team-rules", "skills-lock.json");
+  git("commit", "-qm", "team");
+  const disk = () => Object.keys(docs).map((n) => fs.readFileSync(path.join(dir, n, "SKILL.md"), "utf8"));
+  const before = disk();
+  const row = (name) => modal().locator('[data-slot="list-row"]', { has: page.locator(".fetch-unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const checked = (name) => row(name).locator('input[type="checkbox"]').isChecked();
+  try {
+    await page.locator(".a-right .nav-sec", { hasText: "已登记项目" }).locator("button[title='登记项目']").click();
+    await modal().locator('[data-slot="input"]').fill(projC);
+    await btn(modal(), "登记").click();
+    await toast("已登记项目");
+    await modal().locator(".fetch-unmanaged-lead", { hasText: "在项目「team-proj」里发现 3 个不是库装的技能" }).waitFor({ timeout: 15000 });
+    assert(!(await modal().textContent()).includes("登记项目时再接"), "登记项目时不再说之后再接");
+    assert(!(await checked("team-rules")) && (await row("team-rules").textContent()).includes("在项目仓库里"), "提交在项目仓库里的默认不勾");
+    assert(!(await checked("locked-tool")) && (await row("locked-tool").textContent()).includes("记在 skills-lock.json 里"), "skills-lock.json 记的默认不勾");
+    assert(await checked("proj-notes"), "自己的默认勾上");
+    assert((await modal().locator(".fetch-unmanaged-team").count()) === 0, "没勾项目仓库里的就不提醒");
+    // 勾上归项目仓库管的，才写清之后在 app 里更新会改动项目仓库里的文件。
+    await row("locked-tool").click();
+    assert((await modal().locator(".fetch-unmanaged-team").textContent()).includes("「locked-tool」归项目仓库管。之后在 app 里更新它们，会改动项目仓库里的文件"), "勾上后提醒");
+    await page.screenshot({ path: path.join(SHOTS, "register-project-fetch.png") });
+    // 记下的来源已经不在了：确认前清空来源，作为没有来源的技能入库。
+    await row("locked-tool").locator(".fetch-unmanaged-edit").click();
+    assert.equal(await modal().locator(".fetch-unmanaged-source").inputValue(), path.join(fs.realpathSync(projC), "vendor", "missing"), "来源链接预填记下的来源");
+    await modal().locator(".fetch-unmanaged-source").fill("");
+    assert.equal(await row("locked-tool").locator(".fetch-unmanaged-changed").textContent(), "改为没有来源", "清空后写明没有来源");
+    await btn(modal(), "入库 2 个").click();
+    await toast("已入库 2 个技能");
+    await settle();
+    await card("proj-notes").waitFor();
+    await openDrawer("locked-tool");
+    assert((await drawer().locator(".meta").textContent()).includes("没有来源"), "清空来源后是没有来源的技能");
+    await closeDrawer();
+    assert((await card("team-rules").count()) === 0, "没勾的不入库");
+    assert.deepStrictEqual(disk(), before, "入库时磁盘上什么都没动");
+  } finally {
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    for (const n of ["proj-notes", "locked-tool"]) {
+      if ((await card(n).count()) === 0) continue;
+      await openDrawer(n);
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    const projRow = page.locator(".a-right .nav-item.proj", { hasText: "team-proj" });
+    if (await projRow.count()) {
+      await projRow.hover();
+      await projRow.locator(".row-actions button[title='注销项目']").click();
+      await btn(modal(), "注销").click();
+      await toast("已注销项目");
+      await settle();
+    }
+    fs.rmSync(projC, { recursive: true, force: true });
+  }
 });
 
 // ============ 安装 ============
@@ -1633,7 +1790,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
   const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
-  assert.deepStrictEqual(saved, { auto_check: true, check_interval: "weekly", stay_in_menu_bar: true, dock_badge: false });
+  assert.deepStrictEqual(saved, { auto_check: true, check_interval: "weekly", stay_in_menu_bar: true, dock_badge: false, first_open_done: true });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();

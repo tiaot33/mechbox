@@ -42,6 +42,9 @@ type UnmanagedSkill struct {
 	SourceInput string `json:"source_input,omitempty"`
 	// SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
 	SourceRef string `json:"source_ref,omitempty"`
+	// InProjectLock 表示项目根目录的 skills-lock.json 记了这个技能(认不认得出来源都算):技能是团队约定装的,文件夹本身不一定提交了,
+	// 和 InRepository 一样归项目仓库管。只出现在项目作用域。
+	InProjectLock bool `json:"in_project_lock,omitzero"`
 }
 
 // ListUnmanagedSkills 列出各作用域(每个 Agent 的全局,以及每个 Agent 在每个已登记项目里)的技能目录里
@@ -56,7 +59,7 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	found, err := l.unmanagedSkills(ctx)
+	found, err := l.unmanagedSkills(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +72,11 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 
 type unmanagedEntry struct {
 	UnmanagedSkill
-	found      scopeFolder
-	inLockFile bool
+	found scopeFolder
 }
 
-func (l *Library) unmanagedSkills(ctx context.Context) ([]unmanagedEntry, error) {
-	folders, err := l.scopeFolders(ctx)
+func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]unmanagedEntry, error) {
+	folders, err := l.scopeFolders(ctx, only)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +98,7 @@ func (l *Library) unmanagedSkills(ctx context.Context) ([]unmanagedEntry, error)
 		}
 		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
 			entry.SourceInput, entry.SourceRef, _ = record.Input()
-			entry.inLockFile = target.projectID != nil
+			entry.InProjectLock = target.projectID != nil
 		}
 		if target.projectID != nil {
 			key := repository{projectID: *target.projectID, relative: target.relative}
@@ -145,7 +147,7 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	folders, err := l.scopeFolders(ctx)
+	folders, err := l.scopeFolders(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +195,7 @@ type scopeFolder struct {
 	skillID SkillID
 }
 
-func (l *Library) scopeFolders(ctx context.Context) ([]scopeFolder, error) {
+func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scopeFolder, error) {
 	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
 		return nil, err
@@ -221,6 +223,9 @@ func (l *Library) scopeFolders(ctx context.Context) ([]scopeFolder, error) {
 			rows = append(rows, scopeRow{agent: AgentCode(agent.Code), projectID: new(ProjectID(project.ID))})
 		}
 		for _, row := range rows {
+			if only != nil && !only[row.scope()] {
+				continue
+			}
 			target, err := l.resolveRow(ctx, row)
 			if err != nil {
 				return nil, err
@@ -571,25 +576,27 @@ type PlannedUnmanagedSkill struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	// Folders 是内容一致的各处,与 ListUnmanagedSkills 列出的条目相同,按 Agent、作用域排序;几个 Agent 共用的文件夹每个 Agent 各一条。
+	// 一个技能在一个作用域里只记一处安装,所以每个作用域至多一处:同一个作用域里内容一样的另一个文件夹是另一条。
 	Folders []UnmanagedSkill `json:"folders"`
 	// SourceInput 与 SourceRef 是从来源记录认出的来源(见 UnmanagedSkill.SourceInput),取第一处认出的;入库确认里预填,
 	// 界面按它分组,认不出的单独一组。
 	SourceInput string `json:"source_input,omitempty"`
 	SourceRef   string `json:"source_ref,omitempty"`
-	// InRepository 表示其中有一处提交在项目仓库里;InProjectLock 表示其中有一处记在项目根目录的 skills-lock.json 里
-	// (技能是团队约定装的,文件夹本身不一定提交了)。两者都归项目仓库管,默认不勾。
+	// InRepository、InProjectLock 表示其中有一处提交在项目仓库里、记在项目根目录的 skills-lock.json 里
+	// (见 UnmanagedSkill 的同名字段)。两者都归项目仓库管,默认不勾。
 	InRepository  bool `json:"in_repository,omitzero"`
 	InProjectLock bool `json:"in_project_lock,omitzero"`
 	// ModifiedAt 是各处文件夹里最近一次修改文件的时间(文件夹是符号链接时看它指向的内容)。
 	ModifiedAt time.Time `json:"modified_at,omitzero"`
-	// Conflict 表示计划里还有同名、内容不一样的技能。同名的几条只该入库一条:默认勾最近修改的那条,其余的入库后仍是未纳管技能,
-	// 之后想要再入库。
+	// Conflict 表示计划里还有同名的另一条(内容不一样,或同一个作用域里内容一样的另一个文件夹)。同名的几条只该入库一条:
+	// 默认勾最近修改的那条,其余的入库后仍是未纳管技能,之后想要再入库。
 	Conflict bool `json:"conflict,omitzero"`
 	// Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里,同名冲突时又是最近修改的那条。
 	Selected bool `json:"selected,omitzero"`
-	// Error 是这个文件夹不能入库的原因,错误码同 FetchUnmanaged 读文件夹时的错误(文件夹里有不是普通文件的东西为
-	// FailedPrecondition,SKILL.md 不是有效的技能描述或超出读取上限为 SourceInvalid,Details.Path 为文件夹);
-	// 这时 Folders 只有这一处,不和别处合并,也不算同名冲突。
+	// Error 是这个文件夹不能入库的原因,错误码同 FetchUnmanaged 读文件夹时的错误(文件夹名不能用为 InvalidArgument,
+	// 文件夹里有不是普通文件的东西为 FailedPrecondition,SKILL.md 不是有效的技能描述或超出读取上限为 SourceInvalid,
+	// 读不了为 Permission 等),Details.Path 为文件夹;这时 Folders 只有这一处,不和别处合并,也不算同名冲突。
+	// 一个文件夹读不成不影响计划里的其余各条。
 	Error *Error `json:"error,omitempty"`
 }
 
@@ -610,33 +617,34 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		}
 		wanted[scope] = true
 	}
-	entries, err := l.unmanagedSkills(ctx)
+	entries, err := l.unmanagedSkills(ctx, wanted)
 	if err != nil {
 		return nil, err
 	}
 	plan = []PlannedUnmanagedSkill{}
-	byContent := map[string]int{}
+	byContent := map[string][]int{}
 	for _, entry := range entries {
-		if !wanted[entry.Scope] {
-			continue
-		}
-		files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
-		if typed, ok := errors.AsType[*Error](err); ok {
-			plan = append(plan, PlannedUnmanagedSkill{Name: entry.Name, Description: entry.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill}, Error: typed})
-			continue
-		} else if err != nil {
-			return nil, err
-		}
-		modified, err := agentdir.Modified(ctx, entry.Folder)
+		files, parsed, modified, err := readPlannedFolder(ctx, operation, entry)
 		if err != nil {
-			return nil, err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			failure := ErrorOf(err)
+			if failure.Details.Path == "" {
+				failure.Details.Path = entry.Folder
+			}
+			plan = append(plan, PlannedUnmanagedSkill{Name: entry.Name, Description: entry.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill}, Error: failure})
+			continue
 		}
 		sum := skillfile.Sum(files)
-		if index, ok := byContent[sum]; ok {
-			planned := &plan[index]
+		same := slices.IndexFunc(byContent[sum], func(index int) bool {
+			return !slices.ContainsFunc(plan[index].Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
+		})
+		if same >= 0 {
+			planned := &plan[byContent[sum][same]]
 			planned.Folders = append(planned.Folders, entry.UnmanagedSkill)
 			planned.InRepository = planned.InRepository || entry.InRepository
-			planned.InProjectLock = planned.InProjectLock || entry.inLockFile
+			planned.InProjectLock = planned.InProjectLock || entry.InProjectLock
 			if modified.After(planned.ModifiedAt) {
 				planned.ModifiedAt = modified
 			}
@@ -645,11 +653,11 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			}
 			continue
 		}
-		byContent[sum] = len(plan)
+		byContent[sum] = append(byContent[sum], len(plan))
 		plan = append(plan, PlannedUnmanagedSkill{
 			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
 			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
-			InRepository: entry.InRepository, InProjectLock: entry.inLockFile, ModifiedAt: modified,
+			InRepository: entry.InRepository, InProjectLock: entry.InProjectLock, ModifiedAt: modified,
 		})
 	}
 	newest := map[string]int{}
@@ -675,6 +683,18 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		return cmp.Or(cmp.Compare(a.Name, b.Name), b.ModifiedAt.Compare(a.ModifiedAt))
 	})
 	return plan, nil
+}
+
+func readPlannedFolder(ctx context.Context, operation string, entry unmanagedEntry) ([]skillfile.File, discovery.Candidate, time.Time, error) {
+	if !validFolderName(entry.Name) {
+		return nil, discovery.Candidate{}, time.Time{}, &Error{Code: InvalidArgument, Message: operation + ": invalid skill folder name", Details: ErrorDetails{Field: "name", Path: entry.Folder}}
+	}
+	files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
+	if err != nil {
+		return nil, discovery.Candidate{}, time.Time{}, err
+	}
+	modified, err := agentdir.Modified(ctx, entry.Folder)
+	return files, parsed, modified, err
 }
 
 // FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
@@ -715,7 +735,7 @@ type FetchedUnmanagedSkill struct {
 // 同一个来源(SourceInput 与 SourceRef 都相同)只识别、读取一次,读来源期间不持库锁。一个技能失败不影响其余的:
 // 每个技能各自成功或失败,结果按请求顺序逐条返回,失败的写在 FetchedUnmanagedSkill.Error 里,用户可以改来源或清空后单独重试。
 // 同名不同内容的几份都勾上时照样逐个入库,规则同 FetchUnmanaged(带同一来源的后一份返回 AlreadyExists),只勾一份由调用方决定。
-// 错误:某项没有文件夹、同一个文件夹出现在几项里返回 InvalidArgument(Details.Field 为 folders),文件夹名不合法为 name,
+// 错误:某项没有文件夹、同一个文件夹出现在几项里、一项里有两处在同一个作用域返回 InvalidArgument(Details.Field 为 folders),文件夹名不合法为 name,
 // 只给 SourceRef 为 source_ref;这时什么都不做。
 func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSkillsRequest) (results []FetchedUnmanagedSkill, err error) {
 	defer func() { err = typedError(err) }()
@@ -725,6 +745,7 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 		if len(item.Folders) == 0 {
 			return nil, argumentError(operation, "folders", "each skill needs at least one folder")
 		}
+		scopes := map[Scope]bool{}
 		for _, folder := range item.Folders {
 			if !validFolderName(folder.Name) {
 				return nil, argumentError(operation, "name", "invalid skill folder name")
@@ -732,7 +753,10 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 			if seen[folder] {
 				return nil, argumentError(operation, "folders", "a folder is given more than once")
 			}
-			seen[folder] = true
+			if scopes[folder.Scope] {
+				return nil, argumentError(operation, "folders", "a skill is installed once per scope")
+			}
+			seen[folder], scopes[folder.Scope] = true, true
 		}
 		if strings.TrimSpace(item.SourceInput) == "" && item.SourceRef != "" {
 			return nil, argumentError(operation, "source_ref", "a ref needs a source input")
