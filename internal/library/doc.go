@@ -94,6 +94,11 @@
 //     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。带来源时进这个来源的集合,照常检查更新、更新、回滚:
 //     和来源里的一样就是来源里的那一版;不一样时版本就是磁盘上的内容、来源版本未知,第一次检查更新就报有新版本,
 //     能用来源记录里的哈希确认是当初装的原样时是作者的旧版,否则标为 [SkillVersion].MaybeEdited,更新计划提示会换掉修改。
+//   - [Library.PlanFetchUnmanaged] 是第一次打开 app(各 Agent 的全局)、登记一个项目之后(这个项目)一次确认全部入库前的确认:
+//     内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里或记在 skills-lock.json 里的默认不勾。
+//     不记哪些作用域看过,每次都是现查。
+//   - [Library.FetchUnmanagedSkills] 按确认的勾选整批入库,每个技能的规则和 FetchUnmanaged 相同;同一个来源只读一次,
+//     一个技能失败不影响其余的,结果逐条返回。
 //   - [Library.ListSameNameSkills] 列出同一个 Agent 的全局和某个已登记项目里同名的技能,不论是不是库装的,两处都要标出来;
 //     后果按 [Agent].SameName:Claude Code 里全局的那个生效,Codex 里两份都会出现,没有已知规则的 Agent 只标出同名。
 //

@@ -252,6 +252,14 @@ func (s *LibraryService) FetchUnmanaged(ctx context.Context, req library.FetchUn
 	return settle(s.lib.FetchUnmanaged(ctx, req))(ctx)
 }
 
+func (s *LibraryService) PlanFetchUnmanaged(ctx context.Context, req library.PlanFetchUnmanagedRequest) ([]library.PlannedUnmanagedSkill, error) {
+	return settle(s.lib.PlanFetchUnmanaged(ctx, req))(ctx)
+}
+
+func (s *LibraryService) FetchUnmanagedSkills(ctx context.Context, req library.FetchUnmanagedSkillsRequest) ([]library.FetchedUnmanagedSkill, error) {
+	return settle(s.lib.FetchUnmanagedSkills(ctx, req))(ctx)
+}
+
 func (s *LibraryService) ListSameNameSkills(ctx context.Context) ([]library.SameNameSkill, error) {
 	return settle(s.lib.ListSameNameSkills(ctx))(ctx)
 }

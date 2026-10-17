@@ -55,7 +55,8 @@ func (i CheckInterval) valid() bool {
 
 type settingsFile struct {
 	Settings
-	Sync syncFields `json:"sync,omitzero"`
+	Sync          syncFields `json:"sync,omitzero"`
+	FirstOpenDone bool       `json:"first_open_done,omitzero"`
 }
 
 type syncFields struct {

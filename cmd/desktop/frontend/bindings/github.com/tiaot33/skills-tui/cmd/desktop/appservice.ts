@@ -28,6 +28,15 @@ export function Credentials(): $CancellablePromise<$models.Credentials> {
 }
 
 /**
+ * FirstOpen 在这台机器上第一次打开 app 时返回 true,并在 settings.json 里记下已经打开过,之后(含重启)都返回 false。
+ * 前端据此把用户带到各 Agent 全局目录里不是库装的技能;换到新机器也一样。记不下来时照样返回 true,下次启动会再带一次。
+ * settings.json 在却读不出时返回 false,不拿默认值把它覆盖掉。
+ */
+export function FirstOpen(): $CancellablePromise<boolean> {
+    return $Call.ByID(2244264344);
+}
+
+/**
  * RefreshBadge 按技能库现在的检查更新结论重设 Dock 角标;前端每次重读快照后调用。
  */
 export function RefreshBadge(): $CancellablePromise<void> {

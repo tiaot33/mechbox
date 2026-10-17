@@ -66,6 +66,10 @@ export function FetchUnmanaged(req: library$0.FetchUnmanagedRequest): $Cancellab
     return $Call.ByID(674260690, req);
 }
 
+export function FetchUnmanagedSkills(req: library$0.FetchUnmanagedSkillsRequest): $CancellablePromise<library$0.FetchedUnmanagedSkill[] | null> {
+    return $Call.ByID(977900320, req);
+}
+
 export function GetSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(3591563083, id);
 }
@@ -163,6 +167,10 @@ export function ListVersions(id: library$0.SkillID): $CancellablePromise<library
 
 export function MarkNotInterested(id: library$0.CollectionID, names: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(139540539, id, names);
+}
+
+export function PlanFetchUnmanaged(req: library$0.PlanFetchUnmanagedRequest): $CancellablePromise<library$0.PlannedUnmanagedSkill[] | null> {
+    return $Call.ByID(121781869, req);
 }
 
 export function PlanGroupInstall(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<library$0.GroupInstallPlan> {

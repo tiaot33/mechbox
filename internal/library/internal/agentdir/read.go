@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"syscall"
+	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
@@ -137,4 +138,15 @@ func Canonical(path string) string {
 		rest = filepath.Join(filepath.Base(current), rest)
 		current = parent
 	}
+}
+
+func Modified(ctx context.Context, root string) (time.Time, error) {
+	var latest time.Time
+	err := walk(ctx, root, func(_, _ string, info fs.FileInfo) error {
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		return nil
+	})
+	return latest, err
 }

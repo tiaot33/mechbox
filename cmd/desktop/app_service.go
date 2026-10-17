@@ -28,6 +28,7 @@ type AppService struct {
 	mu          sync.Mutex
 	settings    Settings
 	sync        syncFields
+	firstOpen   bool
 	hidden      bool
 	opened      bool
 	lastAttempt time.Time
@@ -58,7 +59,7 @@ func (a *AppService) ServiceStartup(context.Context, application.ServiceOptions)
 	if err != nil && a.app != nil {
 		a.app.Logger.Warn("settings unreadable, using defaults", "error", err)
 	}
-	a.settings, a.sync = file.Settings, file.Sync
+	a.settings, a.sync, a.firstOpen = file.Settings, file.Sync, err == nil && !file.FirstOpenDone
 	a.credMu.Lock()
 	if err := a.readSecrets(); err != nil && a.app != nil {
 		a.app.Logger.Warn("keychain unreadable", "error", err)
@@ -95,7 +96,7 @@ func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 		return Settings{}, fmt.Errorf("unknown check interval %q", settings.CheckInterval)
 	}
 	a.mu.Lock()
-	err := saveSettings(a.path, settingsFile{Settings: settings, Sync: a.sync})
+	err := saveSettings(a.path, settingsFile{Settings: settings, Sync: a.sync, FirstOpenDone: !a.firstOpen})
 	if err == nil {
 		a.settings = settings
 	}
@@ -106,6 +107,22 @@ func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 	a.poke()
 	a.refreshBadge(context.Background())
 	return settings, nil
+}
+
+// FirstOpen 在这台机器上第一次打开 app 时返回 true,并在 settings.json 里记下已经打开过,之后(含重启)都返回 false。
+// 前端据此把用户带到各 Agent 全局目录里不是库装的技能;换到新机器也一样。记不下来时照样返回 true,下次启动会再带一次。
+// settings.json 在却读不出时返回 false,不拿默认值把它覆盖掉。
+func (a *AppService) FirstOpen() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.firstOpen {
+		return false
+	}
+	a.firstOpen = false
+	if err := saveSettings(a.path, settingsFile{Settings: a.settings, Sync: a.sync, FirstOpenDone: true}); err != nil && a.app != nil {
+		a.app.Logger.Warn("settings unwritable, first open not recorded", "error", err)
+	}
+	return true
 }
 
 // RevealInFinder 在 Finder 中选中 path(作用域里的技能文件夹等);是符号链接时选中链接本身。

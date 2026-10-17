@@ -74,6 +74,17 @@ gitc add -A && gitc commit -qm v2 && gitc checkout -q main
 git clone -q --bare "$repo" "$work/git/repo.git"
 git config --file "$home/.gitconfig" "url.file://$work/git/repo.git.insteadOf" https://git.e2e.test/org/repo.git
 
+# 第一次打开：各 Agent 的全局目录里早就有不是库装的技能。first-pdf 是 npx skills 的布局(真实文件夹在 Codex 全局，
+# Claude Code 全局里是指过去的符号链接);first-dup 两处同名、内容不一样，Codex 的那份较新。
+mkdir -p "$home/.agents/skills/first-pdf" "$home/.agents/skills/first-dup" "$home/.claude/skills/first-notes" "$home/.claude/skills/first-dup"
+first() { printf -- '---\nname: %s\ndescription: "%s"\n---\n' "$1" "$2" >"$3/SKILL.md"; }
+first first-pdf "read pdfs" "$home/.agents/skills/first-pdf"
+ln -s ../../.agents/skills/first-pdf "$home/.claude/skills/first-pdf"
+first first-notes "my notes" "$home/.claude/skills/first-notes"
+first first-dup "the old copy" "$home/.claude/skills/first-dup"
+first first-dup "the new copy" "$home/.agents/skills/first-dup"
+touch -t 202401010000 "$home/.claude/skills/first-dup/SKILL.md"
+
 port=${E2E_PORT:-18080}
 zip_port=$((port + 1))
 (cd "$work/zips" && exec python3 -m http.server "$zip_port" >/dev/null 2>&1) &

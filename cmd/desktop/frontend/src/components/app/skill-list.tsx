@@ -53,6 +53,7 @@ import {
   type SkillFilter,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
+import { offerFetchUnmanaged } from "./fetch-unmanaged-dialog";
 import { notInterested, openHistory, openUpdate, previewNewSkills, riskSummary, updateWithDefaults } from "@/lib/update";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -401,6 +402,8 @@ function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; d
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
   const unmanaged = unmanagedIn(s, scope).length;
+  // 在项目仓库里的、项目 skills-lock.json 记的归项目仓库管，不算进"还没交给 app 管"的数里。
+  const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock).length;
   const sc = parseScope(scope);
   return (
     <div className={barClass}>
@@ -418,6 +421,18 @@ function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; d
           </Button>
         )}
       </div>
+      {notTaken > 0 && (
+        <div className="unmanaged-hint flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span>这里还有 {notTaken} 个技能不是库装的，Agent 照常在用。</span>
+          <Button
+            variant="link"
+            className="fetch-all-unmanaged text-[11px]"
+            onClick={() => void offerFetchUnmanaged(ui, s.agents, [sc], { kind: "scope", label: scopeLabel(s, sc) }, false)}
+          >
+            全部入库…
+          </Button>
+        </div>
+      )}
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">组</span>

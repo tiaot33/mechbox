@@ -102,7 +102,7 @@ func (a *AppService) saveCredentials(change func(*Credentials)) (Credentials, er
 	a.mu.Lock()
 	var err error
 	if sync != a.sync {
-		err = saveSettings(a.path, settingsFile{Settings: a.settings, Sync: sync})
+		err = saveSettings(a.path, settingsFile{Settings: a.settings, Sync: sync, FirstOpenDone: !a.firstOpen})
 	}
 	if err == nil {
 		a.sync = sync

@@ -163,3 +163,53 @@ func TestAutoCheckDue(t *testing.T) {
 		t.Errorf("只在打开时：打开后只查一次，再看 due = %v", got)
 	}
 }
+
+func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
+	lib := startLibrary(t)
+	path := filepath.Join(t.TempDir(), settingsFileName)
+	first := startApp(t, path, lib)
+	if !first.FirstOpen() {
+		t.Fatal("FirstOpen() on a new machine = false; want true")
+	}
+	if first.FirstOpen() {
+		t.Fatal("FirstOpen() a second time = true; want false")
+	}
+	// 之后保存设置也不会把它抹掉。
+	if _, err := first.SaveSettings(defaultSettings()); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	if err := first.ServiceShutdown(); err != nil {
+		t.Fatalf("ServiceShutdown: %v", err)
+	}
+
+	second := NewAppService(path, lib)
+	second.keychain = first.keychain
+	if err := second.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("ServiceStartup after restart: %v", err)
+	}
+	t.Cleanup(func() { _ = second.ServiceShutdown() })
+	if second.FirstOpen() {
+		t.Fatal("FirstOpen() after restart = true; want false")
+	}
+
+	// 换到新机器(没有 settings.json)又是第一次。
+	other := startApp(t, filepath.Join(t.TempDir(), settingsFileName), lib)
+	if !other.FirstOpen() {
+		t.Fatal("FirstOpen() on another machine = false; want true")
+	}
+}
+
+func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
+	lib := startLibrary(t)
+	path := filepath.Join(t.TempDir(), settingsFileName)
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, path, lib)
+	if app.FirstOpen() {
+		t.Fatal("FirstOpen() with unreadable settings = true; want false")
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "{not json" {
+		t.Fatalf("settings.json = %q, %v; want it left alone", data, err)
+	}
+}

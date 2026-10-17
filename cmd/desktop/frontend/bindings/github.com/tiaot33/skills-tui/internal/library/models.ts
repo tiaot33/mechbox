@@ -571,6 +571,39 @@ export interface FetchUnmanagedResult {
 }
 
 /**
+ * FetchUnmanagedSkillsRequest 是一次确认的整批入库:用户勾选的各个技能。
+ */
+export interface FetchUnmanagedSkillsRequest {
+    "skills": UnmanagedFetchItem[] | null;
+}
+
+/**
+ * FetchedUnmanagedSkill 是整批入库里一个技能的结果,与请求里的一项一一对应。
+ */
+export interface FetchedUnmanagedSkill {
+    /**
+     * Folders 原样取自请求。
+     */
+    "folders": FolderInScope[] | null;
+
+    /**
+     * Skill 是记为装在各处的库里的技能,同 FetchUnmanagedResult.Skill;Error 不为空时为零值。
+     */
+    "skill"?: Skill;
+
+    /**
+     * Matched 同 FetchUnmanagedResult.Matched:内容和库里这个技能的某个版本一致,只补记了安装。
+     */
+    "matched"?: boolean;
+
+    /**
+     * Error 是这个技能没入库的原因,错误码同 FetchUnmanaged;这时库里没有记下它的任何一处,它仍是未纳管技能。
+     * 另有:几处文件夹的内容不一样返回 FailedPrecondition(Details.Path 为对不上的那个文件夹)。
+     */
+    "error"?: Error | null;
+}
+
+/**
  * File 是技能某个版本里的一个文件;Path 是技能内斜杠分隔的相对路径。
  */
 export interface File {
@@ -622,6 +655,14 @@ export enum FileMode {
      */
     ModeExecutable = "executable",
 };
+
+/**
+ * FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
+ */
+export interface FolderInScope {
+    "scope": Scope;
+    "name": string;
+}
 
 /**
  * FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -840,6 +881,16 @@ export enum MigrationOutcome {
 };
 
 /**
+ * PlanFetchUnmanagedRequest 指定整批入库要看哪些作用域。
+ */
+export interface PlanFetchUnmanagedRequest {
+    /**
+     * Scopes 是要看的作用域:第一次打开 app 时是各 Agent 的全局,登记一个项目之后是各 Agent 在这个项目里。重复的只算一次。
+     */
+    "scopes": Scope[] | null;
+}
+
+/**
  * PlannedChange 是更新计划里一个技能在库里和来源现在之间的差别。
  */
 export enum PlannedChange {
@@ -906,6 +957,62 @@ export interface PlannedSkill {
      * 来源一侧用 GetUpdatePlanFile 读。
      */
     "diff"?: VersionDiff | null;
+}
+
+/**
+ * PlannedUnmanagedSkill 是整批入库计划里的一个技能:这几个作用域里内容完全一致(文件路径、内容与可执行位都相同)的
+ * 不是库装的技能文件夹合成一条,入库成库里的一个技能,各处都记为安装。
+ */
+export interface PlannedUnmanagedSkill {
+    /**
+     * Name 是 SKILL.md 里的 name;Error 不为空时是文件夹名。
+     */
+    "name": string;
+    "description"?: string;
+
+    /**
+     * Folders 是内容一致的各处,与 ListUnmanagedSkills 列出的条目相同,按 Agent、作用域排序;几个 Agent 共用的文件夹每个 Agent 各一条。
+     * 一个技能在一个作用域里只记一处安装,所以每个作用域至多一处:同一个作用域里内容一样的另一个文件夹是另一条。
+     */
+    "folders": UnmanagedSkill[] | null;
+
+    /**
+     * SourceInput 与 SourceRef 是从来源记录认出的来源(见 UnmanagedSkill.SourceInput),取第一处认出的;入库确认里预填,
+     * 界面按它分组,认不出的单独一组。
+     */
+    "source_input"?: string;
+    "source_ref"?: string;
+
+    /**
+     * InRepository、InProjectLock 表示其中有一处提交在项目仓库里、记在项目根目录的 skills-lock.json 里
+     * (见 UnmanagedSkill 的同名字段)。两者都归项目仓库管,默认不勾。
+     */
+    "in_repository"?: boolean;
+    "in_project_lock"?: boolean;
+
+    /**
+     * ModifiedAt 是各处文件夹里最近一次修改文件的时间(文件夹是符号链接时看它指向的内容)。
+     */
+    "modified_at"?: string;
+
+    /**
+     * Conflict 表示计划里还有同名的另一条(内容不一样,或同一个作用域里内容一样的另一个文件夹)。同名的几条只该入库一条:
+     * 默认勾最近修改的那条,其余的入库后仍是未纳管技能,之后想要再入库。
+     */
+    "conflict"?: boolean;
+
+    /**
+     * Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里,同名冲突时又是最近修改的那条。
+     */
+    "selected"?: boolean;
+
+    /**
+     * Error 是这个文件夹不能入库的原因,错误码同 FetchUnmanaged 读文件夹时的错误(文件夹名不能用为 InvalidArgument,
+     * 文件夹里有不是普通文件的东西为 FailedPrecondition,SKILL.md 不是有效的技能描述或超出读取上限为 SourceInvalid,
+     * 读不了为 Permission 等),Details.Path 为文件夹;这时 Folders 只有这一处,不和别处合并,也不算同名冲突。
+     * 一个文件夹读不成不影响计划里的其余各条。
+     */
+    "error"?: Error | null;
 }
 
 /**
@@ -1749,6 +1856,16 @@ export interface SyncSettings {
 }
 
 /**
+ * UnmanagedFetchItem 是整批入库里的一个技能:内容完全一致的几处文件夹(通常取自 PlannedUnmanagedSkill.Folders)和它的来源。
+ * SourceInput、SourceRef 的规则同 FetchUnmanagedRequest:预填 PlannedUnmanagedSkill 认出的来源,用户可以改链接或清空。
+ */
+export interface UnmanagedFetchItem {
+    "folders": FolderInScope[] | null;
+    "source_input"?: string;
+    "source_ref"?: string;
+}
+
+/**
  * UnmanagedSkill 是作用域的技能目录里一个不是库装的技能文件夹:这个作用域里没有安装记录用它。它可能是命令行工具
  * (如 npx skills)装的、手动拷进去的、用户自己写的,或者提交在项目仓库里的。库只列出它,不改动、不删除。
  */
@@ -1795,6 +1912,12 @@ export interface UnmanagedSkill {
      * SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
      */
     "source_ref"?: string;
+
+    /**
+     * InProjectLock 表示项目根目录的 skills-lock.json 记了这个技能(认不认得出来源都算):技能是团队约定装的,文件夹本身不一定提交了,
+     * 和 InRepository 一样归项目仓库管。只出现在项目作用域。
+     */
+    "in_project_lock"?: boolean;
 }
 
 /**
