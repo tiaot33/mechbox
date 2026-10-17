@@ -189,21 +189,72 @@ func sshCommand(ctx context.Context) (string, error) {
 }
 
 func TreeRef(ctx context.Context, remotes []string, tree string) (string, error) {
-	refs, err := Remote(ctx, remotes, []string{"ls-remote", "--heads", "--tags"})
+	output, err := Remote(ctx, remotes, []string{"ls-remote", "--heads", "--tags"})
 	if err != nil {
 		return "", err
 	}
-	var matches []string
-	for line := range strings.SplitSeq(string(refs), "\n") {
-		_, ref, ok := strings.Cut(line, "\t")
+	refs := parseRefs(output)
+	matches := treeMatches(tree, append(refs.Branches, refs.Tags...))
+	if len(matches) != 1 || strings.Contains(matches[0], "/") {
+		return "", &source.InputError{Reason: "tree ref boundary is ambiguous; provide an explicit ref"}
+	}
+	return matches[0], nil
+}
+
+type Refs struct {
+	Branches      []string
+	Tags          []string
+	DefaultBranch string
+	InputRef      string
+}
+
+func ListRefs(ctx context.Context, remotes []string, ref, tree string) (Refs, error) {
+	output, err := Remote(ctx, remotes, []string{"ls-remote", "--symref"}, "HEAD", "refs/heads/*", "refs/tags/*")
+	if err != nil {
+		return Refs{}, err
+	}
+	refs := parseRefs(output)
+	refs.DefaultBranch, _ = symref(output)
+	refs.InputRef = ref
+	if ref == "" && tree != "" {
+		if matches := treeMatches(tree, append(refs.Branches, refs.Tags...)); len(matches) == 1 {
+			refs.InputRef = matches[0]
+		}
+	}
+	if refs.InputRef != "" {
+		if err := ValidateRef(ctx, refs.InputRef); err != nil {
+			return Refs{}, err
+		}
+		if FullCommit.MatchString(refs.InputRef) {
+			refs.InputRef = strings.ToLower(refs.InputRef)
+		}
+	}
+	return refs, nil
+}
+
+func parseRefs(output []byte) Refs {
+	refs := Refs{Branches: []string{}, Tags: []string{}}
+	for line := range strings.SplitSeq(string(output), "\n") {
+		_, ref, ok := strings.Cut(strings.TrimSpace(line), "\t")
 		if !ok || strings.HasSuffix(ref, "^{}") {
 			continue
 		}
-		ref = strings.TrimPrefix(strings.TrimPrefix(ref, "refs/heads/"), "refs/tags/")
-		if tree == ref || strings.HasPrefix(tree, ref+"/") {
-			if !slices.Contains(matches, ref) {
-				matches = append(matches, ref)
-			}
+		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+			refs.Branches = append(refs.Branches, branch)
+		} else if tag, ok := strings.CutPrefix(ref, "refs/tags/"); ok {
+			refs.Tags = append(refs.Tags, tag)
+		}
+	}
+	slices.Sort(refs.Branches)
+	slices.Sort(refs.Tags)
+	return refs
+}
+
+func treeMatches(tree string, refs []string) []string {
+	var matches []string
+	for _, ref := range refs {
+		if (tree == ref || strings.HasPrefix(tree, ref+"/")) && !slices.Contains(matches, ref) {
+			matches = append(matches, ref)
 		}
 	}
 	if len(matches) == 0 {
@@ -212,10 +263,7 @@ func TreeRef(ctx context.Context, remotes []string, tree string) (string, error)
 			matches = []string{first}
 		}
 	}
-	if len(matches) != 1 || strings.Contains(matches[0], "/") {
-		return "", &source.InputError{Reason: "tree ref boundary is ambiguous; provide an explicit ref"}
-	}
-	return matches[0], nil
+	return matches
 }
 
 func DefaultBranch(ctx context.Context, remotes []string) (string, error) {

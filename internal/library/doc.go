@@ -22,6 +22,9 @@
 //   - [Library.PreviewFetch] 对用户粘贴的一个输入做入库预览:由技能库识别是本地目录、GitHub 仓库、其他 Git 仓库(GitLab、
 //     GitHub Enterprise 等)、直接下载的 SKILL.md 或压缩包,还是带 well-known 索引的站点,结果里给出识别出的来源类型、展示名称与分支,
 //     列出候选;对库里已有的集合再预览一次,看作者又发布了哪些技能。识别只在这里做一次,之后检查更新、更新都按入库时识别出的类型读取。
+//     没写协议、以域名开头的输入(github.com/owner/repo)先补上 https:// 再识别。
+//   - [Library.ListSourceRefs] 在入库预览之前列出 Git 类来源的全部分支和 tag、默认分支,以及输入本身带的分支:界面先给出分支下拉,
+//     用户选好再把分支作为 PreviewFetchRequest.Ref 做入库预览,不必先按默认分支扫描一遍。只连一次来源,不克隆、不读技能文件。
 //   - [Library.GetSkillAudit] 查看候选在 skills.sh 上的审计,可选。
 //   - [Library.Fetch] 把选中的候选入库。
 //

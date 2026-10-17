@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ type PreviewFetchRequest struct {
 	// Input 是用户粘贴的来源,由入库预览识别是哪一种(见 PreviewFetch):本地目录(绝对路径或以 ./、../ 开头的相对路径)、
 	// GitHub 仓库(owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能)、
 	// GitHub / GitLab 的 raw、archive、release 文件链接、GitLab 链接与 gitlab: 简写、SSH 与以 .git 结尾的 Git 地址,以及其他 http(s) 链接。
+	// 以域名开头、没写协议的输入(github.com/owner/repo、git.company.com/org/repo)先补上 https:// 再识别。
 	Input   string `json:"input,omitempty"`
 	Ref     string `json:"ref,omitempty"`     // 显式分支或 tag,只对 Git 类来源(GitHub 仓库、Git 仓库)有意义;带斜杠的必须从这里传;省略时发现默认分支
 	Subpath string `json:"subpath,omitempty"` // 仓库内目录,只对 Git 类来源有意义
@@ -166,7 +168,9 @@ type previewState struct {
 // Ref / Subpath 用在不是 Git 类来源的输入或 Collection 上时返回 InvalidArgument,Details.Field 为 ref / subpath;
 // 输入本身无效时 Details.Field 为 input;集合不存在返回 NotFound。
 //
-// Input 按下面的顺序识别,只在入库预览时识别一次;入库后集合记住识别出的来源类型,检查更新与更新都按它读取:
+// Input 按下面的顺序识别,只在入库预览时识别一次;入库后集合记住识别出的来源类型,检查更新与更新都按它读取。
+// 以域名开头(第一段带点,如 github.com/…、git.company.com/…)、没写协议的输入先补上 https://,再按这个顺序识别;
+// owner/repo 简写的第一段不带点,不受影响:
 //  1. 本地路径(绝对路径,或以 ./、../ 开头的相对路径;不带前缀的 a/b 按 GitHub 简写处理):本地目录。相对路径按当前工作目录解析为绝对路径。
 //  2. GitHub / GitLab 的 raw、archive、release 文件链接(raw.githubusercontent.com、codeload.github.com、github.com/…/raw|archive|releases/download/…、
 //     …/-/raw/…、…/-/archive/…、…/-/releases/…/downloads/…):直接下载,不克隆仓库。
@@ -264,6 +268,7 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 		target, err = l.collectionTarget(ctx, req.Collection)
 		return target, "collection", err
 	}
+	input = withHTTPS(input)
 	switch {
 	case local.Matches(input):
 		if err := gitOnly(req); err != nil {
@@ -285,6 +290,56 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 		err = &source.InputError{Reason: "unrecognized source input; expected a local path, a GitHub repository, a Git repository or an http(s) link"}
 	}
 	return target, "input", err
+}
+
+var bareHost = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+(?::[0-9]+)?$`)
+
+func withHTTPS(input string) string {
+	host, _, _ := strings.Cut(input, "/")
+	host, _, _ = strings.Cut(host, "#")
+	if strings.Contains(input, "://") || !bareHost.MatchString(host) {
+		return input
+	}
+	return "https://" + input
+}
+
+// SourceRefs 是入库预览之前给用户选分支用的:一个 Git 类来源的全部分支和 tag。
+type SourceRefs struct {
+	Branches      []string `json:"branches"`            // 全部分支,按名字排序;带斜杠的(如 release/v2)原样列出
+	Tags          []string `json:"tags"`                // 全部 tag,按名字排序
+	DefaultBranch string   `json:"default_branch"`      // 来源的默认分支;来源没报出默认分支(如远端 HEAD 游离)时为空
+	InputRef      string   `json:"input_ref,omitempty"` // 输入本身带的分支或 tag(tree 链接、#ref),界面据此选中;没带或 tree 链接里分不清是哪个时为空
+}
+
+// ListSourceRefs 列出用户输入指向的 Git 类来源的全部分支和 tag,供界面在入库预览之前给出分支下拉,选好再扫描。
+// 只连一次来源,不做入库预览、不读技能文件、不克隆;访问方式与入库预览解析分支时相同(git ls-remote,用这台机器已有的 git 凭据),
+// 私有仓库能不能读也与入库预览一致。
+//
+// 只接受从输入就能认出的 Git 类来源:GitHub 简写和链接、GitLab 链接与 gitlab: 简写、SSH 地址、以 .git 结尾的地址,
+// 以及补上 https:// 后属于这几类的输入(补协议的规则与 PreviewFetch 相同)。tree 链接里带斜杠的分支按分支列表认出,
+// 如 …/tree/release/v2/skills 的 InputRef 为 release/v2。
+// 其他输入(本地路径、下载链接、要先请求链接内容才能判断的 http(s) 链接)与无效输入返回 InvalidArgument,Details.Field 为 input,不联网。
+// 连不上、没有权限、仓库不存在时按与入库预览相同的错误码返回。
+func (l *Library) ListSourceRefs(ctx context.Context, input string) (refs SourceRefs, err error) {
+	defer func() { err = typedError(err) }()
+	input = withHTTPS(strings.TrimSpace(input))
+	var listed git.Refs
+	switch {
+	case input == "":
+		return SourceRefs{}, argumentError("list source refs", "input", "input is required")
+	case local.Matches(input), download.Hosted(input):
+		return SourceRefs{}, argumentError("list source refs", "input", "branches and tags are only listed for Git repositories")
+	case github.Matches(input):
+		listed, err = github.InputRefs(ctx, input)
+	case git.Matches(input):
+		listed, err = git.InputRefs(ctx, input)
+	default:
+		return SourceRefs{}, argumentError("list source refs", "input", "branches and tags are only listed for inputs recognizable as Git repositories")
+	}
+	if err != nil {
+		return SourceRefs{}, inputField(err, "input")
+	}
+	return SourceRefs{Branches: listed.Branches, Tags: listed.Tags, DefaultBranch: listed.DefaultBranch, InputRef: listed.InputRef}, nil
 }
 
 func gitOnly(req PreviewFetchRequest) error {
