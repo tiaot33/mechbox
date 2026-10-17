@@ -11,3 +11,13 @@ export function resolveLocalPath(input: string, home: string): PathInput | null 
   if (text.startsWith("/")) return { path: text };
   return { error: "请输入绝对路径(以 / 或 ~/ 开头),或点「选择…」" };
 }
+
+// resolveFetchInput 处理入库输入框的内容：以 ~ 开头的展开成主目录下的绝对路径;以 ./、../ 开头的相对路径拦下
+// (技能库按进程当前目录解析);其他输入(绝对路径、GitHub 简写、各种链接)原样交给技能库识别。
+export function resolveFetchInput(input: string, home: string): PathInput | null {
+  const text = input.trim();
+  if (!text) return null;
+  if (text === "~" || text.startsWith("~/")) return resolveLocalPath(text, home);
+  if (/^\.\.?(\/|$)/.test(text)) return { error: "本地目录请输入绝对路径(以 / 或 ~/ 开头),或点「选择…」" };
+  return { path: text };
+}

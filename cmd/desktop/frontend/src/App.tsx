@@ -110,8 +110,8 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
 
   const home = s?.info.home_dir ?? "";
   const openFetch = useCallback(() => {
-    void ui.open((close) => <FetchDialog config={config} home={home} onClose={close} />);
-  }, [ui, config, home]);
+    void ui.open((close) => <FetchDialog home={home} onClose={close} />);
+  }, [ui, home]);
 
   const dnd: DnD = useMemo(
     () => ({

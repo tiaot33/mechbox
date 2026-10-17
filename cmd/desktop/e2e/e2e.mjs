@@ -114,8 +114,23 @@ const scopeDir = async () => {
 };
 
 // ============ 入库 ============
+await step("入库对话框只有一个输入框，没有来源标签", async () => {
+  await openFetch();
+  for (const tab of ["本地目录", "GitHub", "URL 压缩包"]) {
+    assert((await btn(modal(), tab).count()) === 0, `不应有「${tab}」标签`);
+  }
+  assert((await modal().locator('[data-slot="segmented"], [role="radiogroup"]').count()) === 0, "不应有来源切换");
+  assert((await btn(modal(), "选择…").count()) === 1, "应保留「选择…」按钮");
+  assert((await modal().getByText("只对 Git 仓库有效").count()) === 2, "分支与仓库内目录应标明只对 Git 仓库有效");
+  await modal().getByRole("button", { name: "取消" }).click();
+});
+
 await step("本地目录入库 alpha/beta/gamma(入库预览 → 候选 → 入库)", async () => {
   await previewLocal(SK);
+  assert((await modal().locator(".fetch-source", { hasText: "本地目录" }).count()) === 1, "应识别为本地目录");
+  assert((await modal().locator(".fetch-source", { hasText: SK }).count()) === 1, "展示名称应为目录路径");
+  assert((await modal().getByText("匿名访问 GitHub API").count()) === 0, "本地目录不应提醒 GitHub 限流");
+  assert((await modal().getByRole("button", { name: "查看审计" }).count()) === 0, "本地目录不应有审计");
   for (const n of ["alpha", "beta", "gamma"]) {
     assert((await modal().locator('[data-slot="list-row"]', { hasText: n }).count()) === 1, `候选里应有 ${n}`);
   }
@@ -133,17 +148,39 @@ await step("再次预览同一目录：候选标已入库、不能再选", async
   await page.keyboard.press("Escape");
 });
 
-await step("预览不存在的目录报错", async () => {
+await step("预览不存在的目录：在对话框里显示原因", async () => {
   await openFetch();
   await modal().locator('[data-slot="input"]').first().fill(`${SK}/nope`);
   await btn(modal(), "入库预览").click();
-  await page.waitForSelector('[data-slot="toast"][data-state="open"][data-tone="error"]');
+  await modal().locator(".fetch-failure").waitFor({ timeout: 20000 });
+  assert((await page.locator('[data-slot="toast"][data-state="open"][data-tone="error"]').count()) === 0, "原因不应只弹 toast");
+  await modal().locator('[data-slot="input"]').first().fill(`${SK}/nope2`);
+  assert((await modal().locator(".fetch-failure").count()) === 0, "改了输入应清掉原因");
   await modal().getByRole("button", { name: "取消" }).click();
 });
 
-await step("本地路径：相对路径被拦下，~ 展开为主目录", async () => {
+await step("无效链接：在对话框里显示技能库给出的原因", async () => {
   await openFetch();
-  await modal().locator('[data-slot="input"]').first().fill("code/my-skills");
+  await modal().locator('[data-slot="input"]').first().fill(ZIP_URL.replace(/delta\.zip$/, "nothing-here"));
+  await btn(modal(), "入库预览").click();
+  await modal().locator(".fetch-failure").waitFor({ timeout: 30000 });
+  assert(((await modal().locator(".fetch-failure").textContent()) ?? "").length > 0, "应写出原因");
+  assert((await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count()) === 1, "应留在入库对话框");
+  await modal().getByRole("button", { name: "取消" }).click();
+});
+
+await step("分支只对 Git 仓库有效：用在本地目录上显示原因", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill(SK);
+  await modal().locator("label", { hasText: "分支 / tag" }).locator('[data-slot="input"]').fill("main");
+  await btn(modal(), "入库预览").click();
+  await modal().locator(".fetch-failure", { hasText: "ref" }).waitFor({ timeout: 20000 });
+  await modal().getByRole("button", { name: "取消" }).click();
+});
+
+await step("本地路径：./ 相对路径被拦下，~ 展开为主目录", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill("./code/my-skills");
   assert((await modal().locator('[data-slot="field-error"]').count()) === 1, "相对路径应提示");
   assert(await btn(modal(), "入库预览").isDisabled(), "相对路径时不能提交");
   await modal().locator('[data-slot="input"]').first().fill("~/code/my-skills");
@@ -155,12 +192,24 @@ await step("本地路径：相对路径被拦下，~ 展开为主目录", async 
   await page.keyboard.press("Escape");
 });
 
-await step("URL 压缩包入库(入库预览 → 候选 → 入库)", async () => {
+await step("SKILL.md 链接识别为直接下载(只预览，不入库)", async () => {
   await openFetch();
-  await btn(modal(), "URL 压缩包").click();
+  await modal().locator('[data-slot="input"]').first().fill(ZIP_URL.replace(/delta\.zip$/, "delta/SKILL.md"));
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  assert((await modal().locator(".fetch-source", { hasText: "直接下载" }).count()) === 1, "应识别为直接下载");
+  assert((await modal().locator(".fetch-source", { hasText: "delta/SKILL.md" }).count()) === 1, "展示名称应为文件地址");
+  assert((await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).count()) === 1, "候选里应有 delta");
+  assert((await modal().getByRole("button", { name: "查看审计" }).count()) === 0, "直接下载不应有审计");
+  await page.keyboard.press("Escape");
+});
+
+await step("zip 链接入库(入库预览 → 候选 → 入库)", async () => {
+  await openFetch();
   await modal().locator('[data-slot="input"]').first().fill(ZIP_URL);
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  assert((await modal().locator(".fetch-source", { hasText: "直接下载" }).count()) === 1, "应识别为直接下载");
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).count()) === 1, "候选里应有 delta");
   await btn(modal(), "入库所选").click();
   await toast("已入库 1 个技能");
@@ -532,7 +581,6 @@ await step("详情：本地目录来源重新读取，一个操作完成，改�
 await step("从技能发起更新：只勾这一个、其余折叠;之后更新集合重新对齐", async () => {
   const pairURL = ZIP_URL.replace(/delta\.zip$/, "pair.zip");
   await openFetch();
-  await btn(modal(), "URL 压缩包").click();
   await modal().locator('[data-slot="input"]').first().fill(pairURL);
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
@@ -574,7 +622,6 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
 await step("更新计划：风险与差异、确认改名、继续保留已删除的、新技能不感兴趣、跳过", async () => {
   const trioURL = ZIP_URL.replace(/delta\.zip$/, "trio.zip");
   await openFetch();
-  await btn(modal(), "URL 压缩包").click();
   await modal().locator('[data-slot="input"]').first().fill(trioURL);
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
@@ -1274,21 +1321,27 @@ await step("[网络] 技能市场搜索 → 入库", async () => {
 
 await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await openFetch();
-  await btn(modal(), "GitHub").click();
   await modal().locator('[data-slot="input"]').first().fill("anthropics/skills@pdf");
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 90000 });
+  assert((await modal().locator(".fetch-source", { hasText: "GitHub 仓库" }).count()) === 1, "应识别为 GitHub 仓库");
+  assert((await modal().locator(".fetch-source", { hasText: "anthropics/skills" }).count()) === 1, "展示名称应为 owner/repo");
+  assert((await modal().getByRole("button", { name: "查看审计" }).count()) >= 1, "GitHub 仓库应能查看审计");
+  if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
+    await modal().getByText("匿名访问 GitHub API").waitFor({ timeout: 5000 });
+  }
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "pdf" }).count()) >= 1, "候选里应有 pdf");
   await btn(modal(), "入库所选").click();
   await toast("已入库");
   await settle();
   assert((await page.locator(".a-left .nav-item", { hasText: "anthropics/skills" }).count()) === 1, "集合名应为 owner/repo");
   await openDrawer("pdf");
-  assert((await drawer().locator(".src-chip", { hasText: "anthropics/skills" }).count()) === 1, "详情里集合应为 owner/repo");
+  assert((await drawer().locator(".meta dd", { hasText: "anthropics/skills" }).count()) === 1, "详情里集合应为 owner/repo");
   assert((await drawer().getByRole("button", { name: "在 GitHub 查看" }).count()) === 1, "GitHub 来源应有查看链接");
-  await btn(drawer(), "检查更新").click();
-  await toast("都是最新");
   await closeDrawer();
+  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
+  await toast("没有要处理的更新");
+  await settle();
 });
 
 await page.screenshot({ path: path.join(SHOTS, "final.png") });
