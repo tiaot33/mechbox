@@ -94,7 +94,7 @@ type SameNameFolder struct {
 type SameNameSkill struct {
 	Agent     AgentCode `json:"agent"`
 	ProjectID ProjectID `json:"project_id"`
-	// Name 是两处共同的文件夹名。
+	// Name 是两处共同的技能名:SKILL.md 里的 name,读不出时用文件夹名。两处的文件夹名可以不同。
 	Name    string         `json:"name"`
 	Global  SameNameFolder `json:"global"`
 	Project SameNameFolder `json:"project"`
@@ -102,9 +102,11 @@ type SameNameSkill struct {
 
 // ListSameNameSkills 列出每个 Agent 的全局和各已登记项目里同名的技能文件夹,不论是不是库装的:库装的
 // ([Library.ListSkillScopes])和未纳管的([Library.ListUnmanagedSkills])一起比,也就是 Agent 在这两处实际能看到的技能。
-// 同名按技能目录下的文件夹名判断,技能文件夹的认法与 ListUnmanagedSkills 相同;安装记录在、文件夹不在了的不算。
-// 全局里的一个技能和几个项目里的同名时,每个项目各一条。几个 Agent 共用目录时每个 Agent 各列一条。
-// 只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那里没有结果。结果按 Agent、项目 ID、Name 排序。
+// 同名按 SKILL.md 的 frontmatter 里的 name 判断(Agent 按它认技能),frontmatter 读不出或没有合法的 name 时用文件夹名;
+// 技能文件夹的认法与 ListUnmanagedSkills 相同,安装记录在、文件夹不在了的不算。
+// 每一对同名的全局文件夹和项目文件夹各一条:全局里的一个技能和几个项目里的同名时每个项目各一条,同一处有几个文件夹同名时两两各一条。
+// 几个 Agent 共用目录时每个 Agent 各列一条。只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那里没有结果。
+// 结果按 Agent、项目 ID、Name、全局文件夹、项目文件夹排序。
 func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkill, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -117,10 +119,11 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 		agent AgentCode
 		name  string
 	}
-	globals := map[global]SameNameFolder{}
+	globals := map[global][]SameNameFolder{}
 	for _, found := range folders {
 		if found.target.projectID == nil {
-			globals[global{found.target.agent, found.Name}] = SameNameFolder{Folder: found.Path, SkillID: found.skillID}
+			key := global{found.target.agent, skillName(found.Folder)}
+			globals[key] = append(globals[key], SameNameFolder{Folder: found.Path, SkillID: found.skillID})
 		}
 	}
 	skills = []SameNameSkill{}
@@ -128,19 +131,26 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 		if found.target.projectID == nil {
 			continue
 		}
-		other, ok := globals[global{found.target.agent, found.Name}]
-		if !ok {
-			continue
+		name := skillName(found.Folder)
+		for _, other := range globals[global{found.target.agent, name}] {
+			skills = append(skills, SameNameSkill{
+				Agent: found.target.agent, ProjectID: *found.target.projectID, Name: name,
+				Global: other, Project: SameNameFolder{Folder: found.Path, SkillID: found.skillID},
+			})
 		}
-		skills = append(skills, SameNameSkill{
-			Agent: found.target.agent, ProjectID: *found.target.projectID, Name: found.Name,
-			Global: other, Project: SameNameFolder{Folder: found.Path, SkillID: found.skillID},
-		})
 	}
 	slices.SortFunc(skills, func(a, b SameNameSkill) int {
-		return cmp.Or(cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.ProjectID, b.ProjectID), cmp.Compare(a.Name, b.Name))
+		return cmp.Or(
+			cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.ProjectID, b.ProjectID), cmp.Compare(a.Name, b.Name),
+			cmp.Compare(a.Global.Folder, b.Global.Folder), cmp.Compare(a.Project.Folder, b.Project.Folder),
+		)
 	})
 	return skills, nil
+}
+
+func skillName(folder agentdir.Folder) string {
+	candidate, _ := discovery.ParseSkillMD(folder.SkillMD, folder.Name)
+	return cmp.Or(candidate.Name, folder.Name)
 }
 
 type scopeFolder struct {

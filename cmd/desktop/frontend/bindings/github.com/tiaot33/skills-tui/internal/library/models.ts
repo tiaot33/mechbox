@@ -1240,7 +1240,7 @@ export interface SameNameSkill {
     "project_id": ProjectID;
 
     /**
-     * Name 是两处共同的文件夹名。
+     * Name 是两处共同的技能名:SKILL.md 里的 name,读不出时用文件夹名。两处的文件夹名可以不同。
      */
     "name": string;
     "global": SameNameFolder;

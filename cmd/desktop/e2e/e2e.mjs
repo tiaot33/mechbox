@@ -936,12 +936,12 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
 // ============ 同名技能 ============
 await step("同名技能：全局和项目里同名的两处都标出来，并说明在这个 Agent 里会怎样", async () => {
   // 全局手动拷了一个 gamma(库把 gamma 装在了 proj-a);proj-a 里有一个自己写的 alpha(库把 alpha 装在了全局);
-  // Codex 的全局和 proj-a 里都有 npx-tool。
+  // Codex 全局里有上一步入库的 npx-tool,proj-a 里有一个文件夹名不同、SKILL.md 里 name 也是 npx-tool 的(Agent 按 name 认同名)。
   const projA = fs.realpathSync(path.join(HOME, "code", "proj-a"));
   const made = [
     [path.join(claudeGlobal, "gamma"), "gamma", "hand copied"],
     [path.join(projA, ".claude", "skills", "alpha"), "alpha", "my alpha"],
-    [path.join(projA, ".agents", "skills", "npx-tool"), "npx-tool", "vendored"],
+    [path.join(projA, ".agents", "skills", "vendored-npx"), "npx-tool", "vendored"],
   ];
   for (const [folder, name, description] of made) {
     assert(!fs.existsSync(folder), `${folder} 不应已存在`);
@@ -969,14 +969,14 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     await card("alpha").locator(".same-name-note").waitFor();
     assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
     assert.equal(await note(unmanaged("gamma")), "项目「proj-a」里也有 gamma，Claude Code 在那里用全局的这个");
-    assert((await unmanaged("npx-tool").locator(".same-name-badge").count()) === 0, "Claude Code 的项目里没有 npx-tool,不标");
+    assert((await card("npx-tool").locator(".same-name-badge").count()) === 0, "Claude Code 的项目里没有 npx-tool,不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-global.png") });
 
     await selectScope("Codex", "proj-a");
-    await unmanaged("npx-tool").locator(".same-name-note").waitFor();
-    assert.equal(await note(unmanaged("npx-tool")), "全局也有 npx-tool(未纳管)，Codex 里两份都会出现");
+    await unmanaged("vendored-npx").locator(".same-name-note").waitFor();
+    assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool(库装的)，Codex 里两份都会出现");
     await selectScope("Codex");
-    assert.equal(await note(unmanaged("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
+    assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
   } finally {
     for (const [folder] of made) fs.rmSync(folder, { recursive: true, force: true });
     await page.locator(".titlebar button[title^='刷新']").click();

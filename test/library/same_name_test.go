@@ -159,3 +159,47 @@ func TestSameNameRuleComesWithTheAgent(t *testing.T) {
 	}
 	requireSameNameSkills(t, lib, []library.SameNameSkill{pair(library.AgentCodex), pair(custom.Code)})
 }
+
+func TestListSameNameSkillsMatchesTheNameInSkillMD(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := scopeDirectory(t, lib, library.GlobalScope(library.AgentCodex))
+	local := scopeDirectory(t, lib, library.ProjectScope(library.AgentCodex, project.ID))
+	write := func(directory, folder, name string) string {
+		path := filepath.Join(directory, folder)
+		writeFile(t, filepath.Join(path, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: d\n---\n"), 0o644)
+		return path
+	}
+	// 文件夹名不同、SKILL.md 里的 name 相同:Agent 认作同名。全局里有两个 name 相同的文件夹时各一条。
+	pdf := write(global, "pdf", "pdf")
+	pdfCopy := write(global, "pdf-copy", "pdf")
+	pdfTools := write(local, "pdf-tools", "pdf")
+	// 文件夹名相同、name 不同:不同名。
+	write(global, "notes", "notes")
+	write(local, "notes", "team-notes")
+	// frontmatter 读不出时按文件夹名。
+	broken := filepath.Join(global, "broken")
+	writeFile(t, filepath.Join(broken, "SKILL.md"), []byte("no frontmatter\n"), 0o644)
+	brokenHere := filepath.Join(local, "broken")
+	writeFile(t, filepath.Join(brokenHere, "SKILL.md"), []byte("no frontmatter\n"), 0o644)
+
+	requireSameNameSkills(t, lib, []library.SameNameSkill{
+		{
+			Agent: library.AgentCodex, ProjectID: project.ID, Name: "broken",
+			Global: library.SameNameFolder{Folder: broken}, Project: library.SameNameFolder{Folder: brokenHere},
+		},
+		{
+			Agent: library.AgentCodex, ProjectID: project.ID, Name: "pdf",
+			Global: library.SameNameFolder{Folder: pdf}, Project: library.SameNameFolder{Folder: pdfTools},
+		},
+		{
+			Agent: library.AgentCodex, ProjectID: project.ID, Name: "pdf",
+			Global: library.SameNameFolder{Folder: pdfCopy}, Project: library.SameNameFolder{Folder: pdfTools},
+		},
+	})
+}
