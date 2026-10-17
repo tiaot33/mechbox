@@ -215,10 +215,23 @@ const refItems = (group) =>
     .locator('[data-slot="command-group"]', { has: page.locator("[cmdk-group-heading]", { hasText: new RegExp(`^${group}$`) }) })
     .locator('[data-slot="command-item"] .font-mono')
     .allTextContents();
+const exactly = (text) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 // waitRefs 等下拉读完，触发按钮显示选中的分支或 tag。
 async function waitRefs(selected) {
-  await refsTrigger().filter({ hasText: new RegExp(`^${selected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }).waitFor({ timeout: 20000 });
+  await refsTrigger().filter({ hasText: exactly(selected) }).waitFor({ timeout: 20000 });
 }
+// chooseRef 在下拉里点选一个分支或 tag,等触发按钮显示它。
+async function chooseRef(name) {
+  await refsTrigger().click();
+  await refsMenu().locator('[data-slot="command-item"]', { has: page.locator(".font-mono", { hasText: exactly(name) }) }).click();
+  await waitRefs(name);
+}
+// previewRefs 点入库预览，等到结果页出现。
+async function previewRefs() {
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
+}
+const GIT_TREE = "https://git.e2e.test/org/repo/-/tree";
 // denyGit 起一个 HTTP 服务，等 delay 毫秒后对一切请求回 403,像一个读不了的私有 Git 仓库。
 async function denyGit(delay = 0) {
   const server = http.createServer((_, res) => setTimeout(() => res.writeHead(403).end(), delay));
@@ -289,30 +302,97 @@ await step("选一个 tag 后入库预览：结果页的分支是这个 tag(键�
   await page.keyboard.press("Escape");
 });
 
-await step("tree 链接：列表没取回就入库预览，按链接里带斜杠的分支扫描，只列链接里目录下的技能", async () => {
+await step("tree 链接：列表没取回就入库预览，按链接里带斜杠的分支扫描;改选 main 后按 main 扫描链接里的目录", async () => {
   await openFetch();
-  await modal().locator('[data-slot="input"]').first().fill("https://git.e2e.test/org/repo/-/tree/release/v2/skills");
-  await btn(modal(), "入库预览").click();
-  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
+  const input = modal().locator('[data-slot="input"]').first();
+  const link = `${GIT_TREE}/release/v2/skills`;
+  await input.fill(link);
+  await previewRefs();
   assert.equal(await modal().locator(".fetch-source").getByText("分支 release/v2").count(), 1, "结果页应显示分支 release/v2");
   assert.deepEqual(await candidateNames(), ["git-main", "git-tagged", "git-v2"], "只应列 skills 目录下的技能");
-  assert.equal(previewRequests.at(-1).ref, "release/v2", "应把列表里认出的分支显式传给技能库");
+  assert.deepEqual(previewRequests.at(-1), { input: link, ref: "release/v2" }, "应把列表里认出的分支显式传给技能库，输入照原样发");
   await btn(modal(), "返回").click();
   await waitRefs("release/v2");
-  assert.notEqual(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉锁定");
-  assert.equal(await modal().locator(".refs-locked", { hasText: "release/v2" }).count(), 1, "应说明分支由输入决定");
+  assert.equal(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉也可选");
+  assert.equal(await modal().locator(".refs-locked").count(), 0, "能换分支时不应说明分支由输入决定");
+  await chooseRef("main");
+  await previewRefs();
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 main").count(), 1, "结果页应显示分支 main");
+  assert.deepEqual(await candidateNames(), ["git-main", "git-tagged"], "应按 main 扫描 skills 目录");
+  assert.deepEqual(previewRequests.at(-1), { input: `${GIT_TREE}/main/skills`, ref: "main" }, "带斜杠的分支应整段换成 main");
+  await btn(modal(), "返回").click();
+  await waitRefs("main");
+  assert.equal(await input.inputValue(), link, "输入框里的文字不应改变");
+  await chooseRef("release/v2");
+  await previewRefs();
+  assert.deepEqual(previewRequests.at(-1), { input: link, ref: "release/v2" }, "选回输入里的分支时输入照原样发");
   await page.keyboard.press("Escape");
 });
 
-await step("#ref 输入：下拉选中并锁定输入里的 tag,入库预览按它扫描", async () => {
+await step("GitLab tree 链接：初始选中链接里的分支，改选后只在请求里换掉分支，只列链接里目录下的技能", async () => {
   await openFetch();
-  await modal().locator('[data-slot="input"]').first().fill(`${GIT_REPO}#v1.0`);
-  await waitRefs("v1.0");
-  assert.notEqual(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉锁定");
-  await btn(modal(), "入库预览").click();
-  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
+  const input = modal().locator('[data-slot="input"]').first();
+  const link = `${GIT_TREE}/main/skills`;
+  await input.fill(link);
+  await waitRefs("main");
+  assert.equal(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉也可选");
+  await chooseRef("release/v2");
+  assert.equal(await input.inputValue(), link, "改选后输入框里的文字不应改变");
+  await previewRefs();
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 release/v2").count(), 1, "结果页应显示分支 release/v2");
+  assert.deepEqual(await candidateNames(), ["git-main", "git-tagged", "git-v2"], "只应列 skills 目录下的技能");
+  assert.deepEqual(previewRequests.at(-1), { input: `${GIT_TREE}/release/v2/skills`, ref: "release/v2" }, "应把 /-/tree/main/ 换成 /-/tree/release/v2/");
+  await btn(modal(), "返回").click();
+  await waitRefs("release/v2");
+  assert.equal(await input.inputValue(), link, "返回后输入框里仍是原来的链接");
+  await page.keyboard.press("Escape");
+});
+
+await step("tree 链接在分支处结束：改选 tag 后按 tag 扫描整个仓库", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill(`${GIT_TREE}/main`);
+  await waitRefs("main");
+  await chooseRef("v1.0");
+  await previewRefs();
   assert.equal(await modal().locator(".fetch-source").getByText("分支 v1.0").count(), 1, "结果页应显示 tag v1.0");
   assert.deepEqual(await candidateNames(), ["git-tagged"], "应按 tag 的内容列候选");
+  assert.deepEqual(previewRequests.at(-1), { input: `${GIT_TREE}/v1.0`, ref: "v1.0" }, "应把 /-/tree/main 换成 /-/tree/v1.0");
+  await page.keyboard.press("Escape");
+});
+
+await step("tree 链接改选的分支里没有这个目录：显示技能库给出的错误", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill(`${GIT_TREE}/main/.claude/skills`);
+  await waitRefs("main");
+  await chooseRef("v1.0");
+  await btn(modal(), "入库预览").click();
+  await modal().locator(".fetch-failure").waitFor({ timeout: 30000 });
+  assert.deepEqual(previewRequests.at(-1), { input: `${GIT_TREE}/v1.0/.claude/skills`, ref: "v1.0" }, "应按改选的 tag 发请求");
+  const reason = await modal().locator(".fetch-failure").textContent();
+  assert(reason.includes("目标不存在") && reason.includes("source subpath not found"), `应写出技能库给出的错误，实际：${reason}`);
+  assert((await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count()) === 1, "应留在入库对话框");
+  await modal().getByRole("button", { name: "取消" }).click();
+});
+
+await step("#ref 输入：下拉选中输入里的 tag;改选默认分支后按默认分支扫描", async () => {
+  await openFetch();
+  const input = modal().locator('[data-slot="input"]').first();
+  await input.fill(`${GIT_REPO}#v1.0`);
+  await waitRefs("v1.0");
+  assert.equal(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉也可选");
+  await previewRefs();
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 v1.0").count(), 1, "结果页应显示 tag v1.0");
+  assert.deepEqual(await candidateNames(), ["git-tagged"], "应按 tag 的内容列候选");
+  assert.deepEqual(previewRequests.at(-1), { input: `${GIT_REPO}#v1.0`, ref: "v1.0" }, "没改选时输入照原样发");
+  await btn(modal(), "返回").click();
+  await chooseRef("main");
+  await previewRefs();
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 main").count(), 1, "结果页应显示默认分支 main");
+  assert.deepEqual(await candidateNames(), ["git-main", "git-other", "git-tagged"], "应按默认分支扫描整个仓库");
+  assert.deepEqual(previewRequests.at(-1), { input: GIT_REPO, ref: "main" }, "应去掉 #v1.0 并带上默认分支");
+  await btn(modal(), "返回").click();
+  await waitRefs("main");
+  assert.equal(await input.inputValue(), `${GIT_REPO}#v1.0`, "输入框里的文字不应改变");
   await page.keyboard.press("Escape");
 });
 
@@ -1681,6 +1761,42 @@ await step("[网络] GitHub tree 链接：下拉选中链接里的分支，目�
   await expectSource("GitHub 仓库", "anthropics/skills", "main");
   assert.deepEqual(await candidateNames(), ["pdf"], "只应列仓库内目录下的技能");
   await page.keyboard.press("Escape");
+});
+
+// switchTreeRef 在 tree 链接上改选一个带斜杠的其他分支(分支随仓库变化，运行时从列表里挑),核对请求里只换掉了分支、
+// 输入框里的文字没变;那个分支里可能没有链接里的目录，所以结果页与技能库给出的错误都算入库预览走通。
+async function switchTreeRef(link, from) {
+  await openFetch();
+  const input = modal().locator('[data-slot="input"]').first();
+  await input.fill(link);
+  await waitRefs(from);
+  assert.equal(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉也可选");
+  await refsTrigger().click();
+  const branches = await refItems("分支");
+  await page.keyboard.press("Escape");
+  const to = branches.find((b) => b !== from && b.includes("/")) ?? branches.find((b) => b !== from);
+  assert(to, "仓库里应有别的分支");
+  await chooseRef(to);
+  await btn(modal(), "入库预览").click();
+  const review = modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" });
+  const failure = modal().locator(".fetch-failure");
+  await review.or(failure).waitFor({ timeout: 90000 });
+  assert.deepEqual(previewRequests.at(-1), { input: link.replace(`/tree/${from}/`, `/tree/${to}/`), ref: to }, `应把链接里的 ${from} 换成 ${to}`);
+  if (await failure.count()) {
+    console.log(`    ${to} 里没有链接里的目录：`, await failure.textContent());
+  } else {
+    assert.equal(await modal().locator(".fetch-source").getByText(`分支 ${to}`).count(), 1, `结果页应显示分支 ${to}`);
+    await btn(modal(), "返回").click();
+  }
+  await waitRefs(to);
+  assert.equal(await input.inputValue(), link, "输入框里的文字不应改变");
+  await page.keyboard.press("Escape");
+}
+await step("[网络] GitHub tree 链接：改选别的分支，只在请求里换掉链接里的分支", async () => {
+  await switchTreeRef("github.com/anthropics/skills/tree/main/skills/pdf", "main");
+});
+await step("[网络] GitLab tree 链接：改选别的分支，只在请求里换掉链接里的分支", async () => {
+  await switchTreeRef("https://gitlab.com/gitlab-org/ai/skills/-/tree/main/skills/adr-create", "main");
 });
 
 await step("[网络] GitHub raw SKILL.md 链接识别为直接下载", async () => {

@@ -33,7 +33,7 @@ export async function pickDirectory(title: string): Promise<string> {
 export function FetchDialog({ home, onClose }: { home: string; onClose: () => void }) {
   const ui = useUI();
   const [text, setText] = useState("");
-  // chosen 是用户在下拉里选的分支或 tag;没选时为 null,下拉选中默认分支。
+  // chosen 是用户在下拉里选的分支或 tag;没选时为 null,下拉选中输入里带的分支，没带时选中默认分支。
   const [chosen, setChosen] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   // failure 是技能库给出的识别 / 入库预览失败原因，改了输入就清掉。
@@ -75,7 +75,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     // 列表还没取回时先等它(还在防抖就马上取):tree 链接里带斜杠的分支要从列表里认出来，显式交给技能库。
     const listed = await settleRefs();
     if (pending.current !== op) return;
-    const req: PreviewFetchRequest = { input: input.path, ref: refToSend(listed, chosen) };
+    const req = fetchRequest(input.path, listed, chosen);
     const call = LibraryService.PreviewFetch(req);
     op.call = call;
     const result = await ui.run(() => call, {
@@ -131,6 +131,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
       <RefPicker
         refs={refs}
         chosen={chosen}
+        locked={refs.status === "ready" && !!refs.refs.input_ref && !switchRef(input?.path ?? "", refs.refs.input_ref, refs.refs.input_ref)}
         onChoose={(ref) => {
           setChosen(ref);
           restart();
@@ -212,31 +213,68 @@ function useSourceRefs(source: string): [RefsState, () => Promise<SourceRefs | n
   return [state, settleRefs];
 }
 
-// refToSend 是入库预览要传给技能库的分支或 tag。输入里带了分支(tree 链接、#ref)时传它：
-// tree 链接里带斜杠的分支，技能库要显式给出才能和目录分开;这时下拉锁定，不会选到别的。
-// 否则传下拉选中的，选的是默认分支或没取到列表时不传。
-function refToSend(refs: SourceRefs | null, chosen: string | null): string | undefined {
-  if (!refs) return undefined;
-  if (refs.input_ref) return refs.input_ref;
+// fetchRequest 是入库预览发给技能库的请求。输入里带了分支(tree 链接、#ref)时显式传分支:
+// tree 链接里带斜杠的分支，技能库要显式给出才能和目录分开。下拉改选了别的分支时，只在请求里把输入里的分支换掉，
+// 输入框里的文字不变;选回输入里的分支时输入照原样发。
+// 输入里没带分支时传下拉选中的，选的是默认分支或没取到列表时不传。
+function fetchRequest(input: string, refs: SourceRefs | null, chosen: string | null): PreviewFetchRequest {
+  if (!refs) return { input };
+  if (refs.input_ref) {
+    const switched = chosen && chosen !== refs.input_ref ? switchRef(input, refs.input_ref, chosen) : null;
+    if (chosen && switched) return { input: switched, ref: chosen };
+    return { input, ref: refs.input_ref };
+  }
   const selected = chosen ?? refs.default_branch;
-  return selected && selected !== refs.default_branch ? selected : undefined;
+  return { input, ref: selected && selected !== refs.default_branch ? selected : undefined };
 }
 
-// selectedRef 是下拉当前选中的分支或 tag:输入里带的，否则用户选过的，否则默认分支。
+// switchRef 把输入里带的分支 from 换成 to:去掉结尾的 #from;tree 链接(GitHub 的 /tree/、GitLab 的 /-/tree/)里
+// 紧跟着的 from 整段换成 to,后面的目录保留。from 是技能库给出的分支，带斜杠的也整段替换;完整 commit 技能库会转成小写，
+// 这里比较时不分大小写。输入里认不出 from 时返回 null。
+function switchRef(input: string, from: string, to: string): string | null {
+  const fold = /^[0-9a-f]{40}$/.test(from) ? (v: string) => v.toLowerCase() : (v: string) => v;
+  let rest = input;
+  let found = false;
+  if (fold(rest.slice(-from.length - 1)) === "#" + from) {
+    rest = rest.slice(0, -from.length - 1);
+    found = true;
+  }
+  for (const marker of ["/-/tree/", "/tree/"]) {
+    for (let at = rest.indexOf(marker); at >= 0; at = rest.indexOf(marker, at + 1)) {
+      const start = at + marker.length;
+      const after = rest.slice(start + from.length);
+      if (fold(rest.slice(start, start + from.length)) === from && (after === "" || after.startsWith("/"))) {
+        return rest.slice(0, start) + to + after;
+      }
+    }
+  }
+  return found ? rest : null;
+}
+
+// selectedRef 是下拉当前选中的分支或 tag:用户选过的，否则输入里带的，否则默认分支。
 function selectedRef(refs: SourceRefs, chosen: string | null): string {
-  return refs.input_ref || (chosen ?? refs.default_branch);
+  return chosen ?? (refs.input_ref || refs.default_branch);
 }
 
-// RefPicker 是分支 / tag 下拉：分支和 tag 分组列出，可输入文字筛选，默认选中默认分支。
-// 输入里带了分支时选中它并锁定：要换分支得改输入，否则和输入里的分支冲突，技能库会拒绝。
-function RefPicker({ refs, chosen, onChoose }: { refs: RefsState; chosen: string | null; onChoose: (ref: string) => void }) {
+// RefPicker 是分支 / tag 下拉：分支和 tag 分组列出，可输入文字筛选，默认选中输入里带的分支，没带时选中默认分支。
+// locked 时(输入里带了分支，但认不出它在输入里的位置，换不掉)只显示输入里的分支，要换分支得改输入。
+function RefPicker({
+  refs,
+  chosen,
+  locked,
+  onChoose,
+}: {
+  refs: RefsState;
+  chosen: string | null;
+  locked: boolean;
+  onChoose: (ref: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const labelId = useId();
   const triggerId = useId();
   if (refs.status === "hidden") return null;
   const ready = refs.status === "ready" ? refs.refs : null;
   const selected = ready ? selectedRef(ready, chosen) : "";
-  const locked = !!ready?.input_ref;
   const item = (kind: "b" | "t", name: string) => (
     <CommandItem
       key={kind + name}
@@ -291,7 +329,7 @@ function RefPicker({ refs, chosen, onChoose }: { refs: RefsState; chosen: string
           )}
         </Popover>
       )}
-      {locked && <Hint className="refs-locked">分支由输入里的 {ready.input_ref} 决定，要换分支请修改输入。</Hint>}
+      {locked && <Hint className="refs-locked">分支由输入里的 {ready?.input_ref} 决定，要换分支请修改输入。</Hint>}
     </div>
   );
 }
