@@ -37,10 +37,12 @@ func DirectoryExists(path string) (bool, error) {
 }
 
 func Read(ctx context.Context, root string) (map[string]skillfile.Digest, error) {
-	resolved, err := filepath.EvalSymlinks(root)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) {
 		return nil, ErrIrregularFile
+	} else if err != nil {
+		return nil, fmt.Errorf("hash installed files: %w", err)
 	}
+	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, fmt.Errorf("hash installed files: %w", err)
 	}

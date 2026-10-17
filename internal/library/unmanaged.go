@@ -31,7 +31,8 @@ type UnmanagedSkill struct {
 // ListUnmanagedSkills 列出各作用域(每个 Agent 的全局,以及每个 Agent 在每个已登记项目里)的技能目录里
 // 不是库装的技能文件夹,和 ListSkillScopes 列出的库装的技能放在一起,就是 Agent 在这个作用域能看到的技能。
 // 技能文件夹是技能目录下直接的子文件夹,或指向文件夹的符号链接,根上有 SKILL.md;以点开头的(如 Codex 的 .system)不算。
-// 这个作用域里有安装记录用它的(含共用目录的 Agent 装的)是库装的,不列出;库装出去后被改过的也不在这里,巡检报为 modified。
+// 这个作用域里有安装记录用它的(含共用目录的 Agent 装的,共用按 Agent 的目录设置判断,不跟随符号链接)是库装的,不列出;
+// 库装出去后被改过的也不在这里,巡检报为 modified。
 // 插件里的技能、企业托管目录、Codex 的 ADMIN / SYSTEM 技能和没有登记的项目都不在范围内。
 // 只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那个作用域没有结果;几个 Agent 共用一个目录时,
 // 每个 Agent 各列一条。结果按 Agent、作用域(全局在前,项目按 ID)、Name 排序。
@@ -51,10 +52,13 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 	if err != nil {
 		return nil, err
 	}
-	type folder struct{ directory, name string }
+	type folder struct {
+		scope Scope
+		name  string
+	}
 	claimed := map[folder]bool{}
 	for _, skillScope := range installed {
-		claimed[folder{agentdir.Canonical(filepath.Dir(skillScope.Folder)), filepath.Base(skillScope.Folder)}] = true
+		claimed[folder{skillScope.Scope, filepath.Base(skillScope.Folder)}] = true
 	}
 	type repository struct {
 		projectID ProjectID
@@ -81,9 +85,8 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 			if err != nil {
 				return nil, err
 			}
-			directory := agentdir.Canonical(target.directory)
 			for _, found := range folders {
-				if claimed[folder{directory, found.Name}] {
+				if claimed[folder{row.scope(), found.Name}] {
 					continue
 				}
 				skill := UnmanagedSkill{Scope: row.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}

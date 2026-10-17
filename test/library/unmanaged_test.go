@@ -224,4 +224,44 @@ func TestInspectSkillScopesFollowsSymlinkedInstalledFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireInspection(t, lib, library.SkillScopeModified, 0)
+
+	// 链接指向自己(循环)时也只是 modified,巡检照常返回,可以确认覆盖后重新安装。
+	if err := os.Remove(folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(folder, folder); err != nil {
+		t.Fatal(err)
+	}
+	requireInspection(t, lib, library.SkillScopeModified, 0)
+	requireReinstallResults(t, reinstall(t, lib, library.ReinstallRequest{SkillID: skill.ID, Scope: scope, Overwrite: true}), []library.ReinstallResult{reinstalledResult(skill.ID, scope)})
+	requireInspection(t, lib, library.SkillScopeCurrent, skill.VersionID)
+}
+
+func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T) {
+	ctx := t.Context()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	codex := library.GlobalScope(library.AgentCodex)
+	codexDirectory := scopeDirectory(t, lib, codex)
+	if err := os.MkdirAll(codexDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Claude Code 的全局目录整个是指向 Codex 全局目录的符号链接:共用只按目录设置判断,不跟随符号链接,
+	// 所以只装到 Codex 的技能在 Claude Code 里没有安装记录,是未纳管技能。
+	claudeDirectory := scopeDirectory(t, lib, claude)
+	if err := os.MkdirAll(filepath.Dir(claudeDirectory), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(codexDirectory, claudeDirectory); err != nil {
+		t.Fatal(err)
+	}
+	skill := fetchNamedSkill(t, lib, "pdf")
+	if err := lib.Install(ctx, skill.ID, codex, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
+		{Scope: claude, Name: "pdf", Folder: filepath.Join(claudeDirectory, "pdf")},
+	})
 }
