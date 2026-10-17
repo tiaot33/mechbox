@@ -39,6 +39,24 @@ type Agent struct {
 	GlobalDirectory string `json:"global_directory"`
 	// ProjectDirectory 是项目作用域读取技能的目录相对已登记项目根的路径,斜杠分隔,如 .agents/skills。
 	ProjectDirectory string `json:"project_directory"`
+	// SameName 是全局和项目里有同名技能时这个 Agent 会怎样(见 [Library.ListSameNameSkills]):内置 Agent 随应用版本维护,
+	// 自定义 Agent 与本版应用不认识的 Agent 为 SameNameUnknown。
+	SameName SameNameRule `json:"same_name,omitempty"`
+}
+
+// SameNameRule 是一个 Agent 在全局和项目里都有同名技能时会怎样,按生态里已知的规则;只看全局与项目这两层,
+// 不推算插件是否启用、frontmatter 里关闭自动调用等其他规则。
+type SameNameRule string
+
+const (
+	SameNameUnknown    SameNameRule = ""            // 没有已知规则(自定义 Agent、本版应用不认识的 Agent):只标出同名
+	SameNameGlobalWins SameNameRule = "global_wins" // 全局的那个生效,项目里的不会被用到(Claude Code:个人 > 项目)
+	SameNameBothShown  SameNameRule = "both_shown"  // 不合并,两份都会出现(Codex)
+)
+
+var sameNameRules = map[AgentCode]SameNameRule{
+	AgentClaudeCode: SameNameGlobalWins,
+	AgentCodex:      SameNameBothShown,
 }
 
 // CustomAgent 是添加或修改自定义 Agent 时用户填写的内容。不合法时返回 InvalidArgument,Details.Field 为对应的 JSON 字段名。
@@ -442,6 +460,9 @@ func (l *Library) agentOf(row store.Agent) (Agent, error) {
 	agent := Agent{
 		Code: AgentCode(row.Code), Name: row.Name, Custom: row.Custom,
 		GlobalDirectory: filepath.Join(l.home, filepath.FromSlash(row.GlobalPath)), ProjectDirectory: row.ProjectPath,
+	}
+	if !row.Custom {
+		agent.SameName = sameNameRules[agent.Code]
 	}
 	if row.DetectPath != "" {
 		detected, err := agentdir.DirectoryExists(filepath.Join(l.home, filepath.FromSlash(row.DetectPath)))

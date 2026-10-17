@@ -1,5 +1,6 @@
 // 主界面的领域辅助：作用域身份、来源展示、安装状态与筛选，都从只读快照派生。
 import {
+  SameNameRule,
   ScopeKind,
   SkillScopeStatus,
   SourceType,
@@ -95,6 +96,39 @@ export function skillScopesIn(s: Snapshot, key: ScopeKey): SkillScopeInspection[
 // unmanagedIn 是作用域的技能目录里不是库装的技能文件夹(未纳管技能)。
 export function unmanagedIn(s: Snapshot, key: ScopeKey): UnmanagedSkill[] {
   return s.unmanaged.filter((u) => scopeKey(u.scope) === key);
+}
+
+// sameNameNote 说明作用域里的一个技能文件夹和同一个 Agent 全局 / 某个已登记项目里的文件夹同名时会怎样:
+// 按 Agent 已知的规则说出后果(Claude Code 里全局的生效，Codex 里两份都会出现),没有已知规则的只说同名。
+// 同名按 SKILL.md 里的 name,两处的文件夹名可以不同。folder 是这个作用域里那个技能文件夹;没有同名时返回 undefined。
+// title 列出另一处的文件夹。
+export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
+  const scope = parseScope(key);
+  const agent = s.agents.find((a) => a.code === scope.agent);
+  const rule = agent?.same_name ?? SameNameRule.SameNameUnknown;
+  const who = agent?.name ?? scope.agent;
+  if (scope.project_id) {
+    const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.project_id === scope.project_id && p.project.folder === folder);
+    if (pairs.length === 0) return undefined;
+    const kinds = [...new Set(pairs.map((p) => (p.global.skill_id ? "库装的" : "未纳管")))];
+    const other = `${pairs[0].name}(${kinds.join("、")})`;
+    const text = {
+      [SameNameRule.SameNameGlobalWins]: `全局也有 ${other}，${who} 用全局的那个，这里的不会生效`,
+      [SameNameRule.SameNameBothShown]: `全局也有 ${other}，${who} 里两份都会出现`,
+      [SameNameRule.SameNameUnknown]: `全局也有同名的 ${other}`,
+    }[rule];
+    return { text, title: pairs.map((p) => `全局的文件夹:${shortPath(s, p.global.folder)}`).join("\n") };
+  }
+  const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.global.folder === folder);
+  if (pairs.length === 0) return undefined;
+  const name = pairs[0].name;
+  const projects = `项目「${[...new Set(pairs.map((p) => projectName(s, p.project_id)))].join("」「")}」`;
+  const text = {
+    [SameNameRule.SameNameGlobalWins]: `${projects}里也有 ${name}，${who} 在那里用全局的这个`,
+    [SameNameRule.SameNameBothShown]: `${projects}里也有 ${name}，${who} 在那里两份都会出现`,
+    [SameNameRule.SameNameUnknown]: `${projects}里也有同名的 ${name}`,
+  }[rule];
+  return { text, title: pairs.map((p) => `「${projectName(s, p.project_id)}」的文件夹:${shortPath(s, p.project.folder)}`).join("\n") };
 }
 
 export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection | undefined {

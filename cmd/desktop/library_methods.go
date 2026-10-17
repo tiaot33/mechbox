@@ -252,6 +252,10 @@ func (s *LibraryService) FetchUnmanaged(ctx context.Context, req library.FetchUn
 	return settle(s.lib.FetchUnmanaged(ctx, req))(ctx)
 }
 
+func (s *LibraryService) ListSameNameSkills(ctx context.Context) ([]library.SameNameSkill, error) {
+	return settle(s.lib.ListSameNameSkills(ctx))(ctx)
+}
+
 func (s *LibraryService) Reinstall(ctx context.Context, requests []library.ReinstallRequest) ([]library.ReinstallResult, error) {
 	return settle(s.lib.Reinstall(ctx, requests))(ctx)
 }

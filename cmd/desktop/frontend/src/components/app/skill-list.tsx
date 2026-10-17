@@ -1,6 +1,7 @@
 // 中间：作用域摘要(选中作用域时)、组 / 集合标题条(筛选组 / 集合时)、更新列表(筛选"更新"时)与技能卡片 / 列表。
 // 卡片点开详情抽屉、可拖到左栏组或右栏作用域;选中作用域时卡片上的开关控制直接安装。
 // 选中作用域时，库里的技能之后接着列出这个作用域里的未纳管技能(虚线卡片，只能在 Finder 中显示)。
+// 和同一个 Agent 另一层级(全局 / 项目)同名的技能，卡片上标"同名"并写出后果。
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
@@ -32,6 +33,7 @@ import {
   projectName,
   renamedTo,
   revisionSummary,
+  sameNameNote,
   scopeKey,
   scopeLabel,
   shortPath,
@@ -160,6 +162,7 @@ function SkillCard(props: {
   const projects = new Set(installed.filter((p) => placeOf(p.scope) !== 0).map((p) => placeOf(p.scope))).size;
   const bad = installed.some(needsReinstall);
   const here = scope ? skillScopeIn(s, skill.id, scope) : undefined;
+  const same = scope && here ? sameNameNote(s, scope, here.folder) : undefined;
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const via = (here?.groups ?? []).map((id) => s.groups.find((g) => g.id === id)?.name ?? "");
   const list = view === "list";
@@ -190,6 +193,7 @@ function SkillCard(props: {
       <div className={cn("flex min-w-0 items-center gap-1.5", list && "w-[260px] shrink-0")}>
         {/* 名字优先：放不下时先截右边的来源，再截名字。 */}
         <span className={cn("a-card-name min-w-0 truncate font-semibold", list ? "text-[13px]" : "text-[12.5px]")}>{skill.name}</span>
+        {same && <SameNameBadge note={same} />}
         {/* 计入角标的才标出来;点标签直接打开所在集合的更新计划(组页面不提供批量更新，就从这里进)。 */}
         {pending(skill) && hasUpdate(skill) && (
           <Badge asChild tone="warn" className="px-[5px] py-0 text-[9.5px]">
@@ -244,6 +248,7 @@ function SkillCard(props: {
       >
         {skill.description}
       </p>
+      {same && <SameNameLine note={same} list={list} />}
       <div
         className={cn(
           "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
@@ -303,6 +308,7 @@ function SkillCard(props: {
 function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill; view: ListView }) {
   const ui = useUI();
   const list = view === "list";
+  const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
   return (
     <article
       className={cn(
@@ -322,6 +328,7 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
           未纳管
         </Badge>
         {skill.in_repository && <Badge title="这个文件夹已提交在项目的 git 仓库里，由仓库管理">在项目仓库里</Badge>}
+        {same && <SameNameBadge note={same} />}
       </div>
       <p
         className={cn(
@@ -332,6 +339,7 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
       >
         {skill.description}
       </p>
+      {same && <SameNameLine note={same} list={list} />}
       <div
         className={cn(
           "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
@@ -358,6 +366,27 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
         </Button>
       </div>
     </article>
+  );
+}
+
+// SameNameBadge 与 SameNameLine 标出作用域里和同一个 Agent 另一层级同名的技能：标签之外直接写出后果，
+// 用户排查"这个项目里用的是不是我装的那个"时不用再点开。
+function SameNameBadge({ note }: { note: { title: string } }) {
+  return (
+    <Badge tone="warn" className="same-name-badge" title={note.title}>
+      同名
+    </Badge>
+  );
+}
+
+function SameNameLine({ note, list }: { note: { text: string; title: string }; list: boolean }) {
+  return (
+    <p
+      className={cn("same-name-note min-w-0 text-[10.5px] leading-[1.4] text-warn-strong", list ? "w-[300px] shrink-0 truncate" : "-mt-1")}
+      title={note.title}
+    >
+      {note.text}
+    </p>
   );
 }
 

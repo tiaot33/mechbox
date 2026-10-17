@@ -933,6 +933,58 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
   assert(fs.lstatSync(link).isSymbolicLink(), "符号链接还是符号链接");
 });
 
+// ============ 同名技能 ============
+await step("同名技能：全局和项目里同名的两处都标出来，并说明在这个 Agent 里会怎样", async () => {
+  // 全局手动拷了一个 gamma(库把 gamma 装在了 proj-a);proj-a 里有一个自己写的 alpha(库把 alpha 装在了全局);
+  // Codex 全局里有上一步入库的 npx-tool,proj-a 里有一个文件夹名不同、SKILL.md 里 name 也是 npx-tool 的(Agent 按 name 认同名)。
+  const projA = fs.realpathSync(path.join(HOME, "code", "proj-a"));
+  const made = [
+    [path.join(claudeGlobal, "gamma"), "gamma", "hand copied"],
+    [path.join(projA, ".claude", "skills", "alpha"), "alpha", "my alpha"],
+    [path.join(projA, ".agents", "skills", "vendored-npx"), "npx-tool", "vendored"],
+  ];
+  for (const [folder, name, description] of made) {
+    assert(!fs.existsSync(folder), `${folder} 不应已存在`);
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
+  }
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const note = async (item) => {
+    assert((await item.locator(".same-name-badge").count()) === 1, "应标同名");
+    return (await item.locator(".same-name-note").textContent()).trim();
+  };
+  try {
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+
+    // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
+    await selectScope("Claude Code", "proj-a");
+    await card("gamma").locator(".same-name-note").waitFor();
+    assert.equal(await note(card("gamma")), "全局也有 gamma(未纳管)，Claude Code 用全局的那个，这里的不会生效");
+    assert.equal(await note(unmanaged("alpha")), "全局也有 alpha(库装的)，Claude Code 用全局的那个，这里的不会生效");
+    assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
+    await page.screenshot({ path: path.join(SHOTS, "same-name-claude-project.png") });
+
+    await selectScope("Claude Code");
+    await card("alpha").locator(".same-name-note").waitFor();
+    assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
+    assert.equal(await note(unmanaged("gamma")), "项目「proj-a」里也有 gamma，Claude Code 在那里用全局的这个");
+    assert((await card("npx-tool").locator(".same-name-badge").count()) === 0, "Claude Code 的项目里没有 npx-tool,不标");
+    await page.screenshot({ path: path.join(SHOTS, "same-name-claude-global.png") });
+
+    await selectScope("Codex", "proj-a");
+    await unmanaged("vendored-npx").locator(".same-name-note").waitFor();
+    assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool(库装的)，Codex 里两份都会出现");
+    await selectScope("Codex");
+    assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
+  } finally {
+    for (const [folder] of made) fs.rmSync(folder, { recursive: true, force: true });
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+    await selectScope("Claude Code", "proj-a");
+  }
+});
+
 // ============ 重新安装 ============
 await step("刷新发现被手动改过的文件夹 → 全部重新安装 → 逐处勾选覆盖", async () => {
   const dir = await scopeDir();
