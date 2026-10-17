@@ -55,9 +55,9 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 Issues live in this repo's GitHub Issues (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
 
-### Triage labels
+### Issue labels
 
-The five canonical triage roles, each label string equal to its role name. See `docs/agents/triage-labels.md`.
+Creating or labelling an issue: one type, one or more areas, one triage state (the five canonical roles, each label string equal to its role name). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
