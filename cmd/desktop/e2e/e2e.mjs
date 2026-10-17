@@ -37,11 +37,24 @@ const previewMethodID = methodID("PreviewFetch");
 const refsMethodID = methodID("ListSourceRefs");
 let previewCalls = 0;
 let refsCalls = 0;
+// previewRequests 记下每次 PreviewFetch 的请求参数;refsCallIDs 是 ListSourceRefs 调用的 call-id,cancelled 是前端取消过的 call-id。
+const previewRequests = [];
+const refsCallIDs = [];
+const cancelled = new Set();
+const isCall = (r, id) => r.method() === "POST" && r.url().includes("/wails/runtime") && (r.postData() ?? "").includes(`"methodID":${id}`);
 page.on("request", (r) => {
   if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
-  const body = r.postData() ?? "";
-  if (body.includes(`"methodID":${previewMethodID}`)) previewCalls++;
-  if (body.includes(`"methodID":${refsMethodID}`)) refsCalls++;
+  const body = JSON.parse(r.postData() ?? "{}");
+  // Wails 的取消请求:object 10(CancelCall),args 里是被取消调用的 call-id
+  if (body.object === 10) cancelled.add(body.args?.["call-id"]);
+  if (body.args?.methodID === Number(previewMethodID)) {
+    previewCalls++;
+    previewRequests.push(body.args.args[0]);
+  }
+  if (body.args?.methodID === Number(refsMethodID)) {
+    refsCalls++;
+    refsCallIDs.push(body.args["call-id"]);
+  }
 });
 await page.goto(URL);
 await page.waitForSelector(".a-list");
@@ -249,17 +262,53 @@ await step("Git 仓库：下拉分组列出分支和 tag,默认分支已选中�
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
   assert.equal(await modal().locator(".fetch-source").getByText("分支 main").count(), 1, "按默认分支扫描");
+  assert.equal(previewRequests.at(-1).ref, undefined, "选的是默认分支时不另外传 ref");
   assert.deepEqual(await candidateNames(), ["git-main", "git-other", "git-tagged"], "应列出整个仓库的候选");
   await page.keyboard.press("Escape");
 });
 
-await step("选一个 tag 后入库预览：结果页的分支是这个 tag", async () => {
+await step("选一个 tag 后入库预览：结果页的分支是这个 tag(键盘筛选、回车选中)", async () => {
   await openFetch();
   await modal().locator('[data-slot="input"]').first().fill(GIT_REPO);
   await waitRefs("main");
+  assert.equal(await refsTrigger().getAttribute("disabled"), null, "输入里没带分支时下拉可选");
   await refsTrigger().click();
-  await refsMenu().locator('[data-slot="command-item"]', { hasText: "v1.0" }).click();
+  const filter = refsMenu().getByRole("combobox", { name: "筛选分支和 tag" });
+  assert.equal(await filter.count(), 1, "筛选框应有可访问名称");
+  await filter.fill("v1");
+  await page.keyboard.press("Enter");
   await waitRefs("v1.0");
+  await refsMenu().waitFor({ state: "detached", timeout: 2000 });
+  assert(await refsTrigger().evaluate((el) => el === document.activeElement), "选中后焦点应回到下拉按钮");
+  assert.equal(await modal().getByRole("button", { name: "分支 / tag v1.0" }).count(), 1, "下拉按钮的可访问名称应带字段名和选中的值");
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 v1.0").count(), 1, "结果页应显示 tag v1.0");
+  assert.equal(previewRequests.at(-1).ref, "v1.0", "应把选中的 tag 传给技能库");
+  assert.deepEqual(await candidateNames(), ["git-tagged"], "应按 tag 的内容列候选");
+  await page.keyboard.press("Escape");
+});
+
+await step("tree 链接：列表没取回就入库预览，按链接里带斜杠的分支扫描，只列链接里目录下的技能", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill("https://git.e2e.test/org/repo/-/tree/release/v2/skills");
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 release/v2").count(), 1, "结果页应显示分支 release/v2");
+  assert.deepEqual(await candidateNames(), ["git-main", "git-tagged", "git-v2"], "只应列 skills 目录下的技能");
+  assert.equal(previewRequests.at(-1).ref, "release/v2", "应把列表里认出的分支显式传给技能库");
+  await btn(modal(), "返回").click();
+  await waitRefs("release/v2");
+  assert.notEqual(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉锁定");
+  assert.equal(await modal().locator(".refs-locked", { hasText: "release/v2" }).count(), 1, "应说明分支由输入决定");
+  await page.keyboard.press("Escape");
+});
+
+await step("#ref 输入：下拉选中并锁定输入里的 tag,入库预览按它扫描", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill(`${GIT_REPO}#v1.0`);
+  await waitRefs("v1.0");
+  assert.notEqual(await refsTrigger().getAttribute("disabled"), null, "输入里带了分支时下拉锁定");
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
   assert.equal(await modal().locator(".fetch-source").getByText("分支 v1.0").count(), 1, "结果页应显示 tag v1.0");
@@ -267,15 +316,62 @@ await step("选一个 tag 后入库预览：结果页的分支是这个 tag", as
   await page.keyboard.press("Escape");
 });
 
-await step("tree 链接：下拉选中链接里带斜杠的分支，入库预览只列链接里目录下的技能", async () => {
-  await openFetch();
-  await modal().locator('[data-slot="input"]').first().fill("https://git.e2e.test/org/repo/-/tree/release/v2/skills");
-  await waitRefs("release/v2");
+await step("预览还没返回时改选分支：旧分支的结果不采用", async () => {
+  // PreviewFetch 的响应压后 2 秒，好在它返回前改选
+  const hold = async (route) => {
+    if (!isCall(route.request(), previewMethodID)) return route.continue();
+    const response = await route.fetch();
+    await page.waitForTimeout(2000);
+    await route.fulfill({ response }).catch(() => {});
+  };
+  await page.route("**/wails/runtime*", hold);
+  try {
+    await openFetch();
+    await modal().locator('[data-slot="input"]').first().fill(GIT_REPO);
+    await waitRefs("main");
+    await refsTrigger().click();
+    await refsMenu().locator('[data-slot="command-item"]', { hasText: "v1.0" }).click();
+    await btn(modal(), "入库预览").click();
+    const busy = modal().locator('[data-slot="button"][aria-busy="true"]');
+    await busy.waitFor({ timeout: 2000 });
+    await refsTrigger().click();
+    await refsMenu().locator('[data-slot="command-item"]', { hasText: "main" }).click();
+    await waitRefs("main");
+    assert.equal(await busy.count(), 0, "改选后按钮不应再忙");
+    await page.waitForTimeout(3000);
+    assert.equal(await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count(), 1, "旧分支的预览结果不应采用");
+  } finally {
+    await page.unroute("**/wails/runtime*", hold);
+  }
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
-  assert.equal(await modal().locator(".fetch-source").getByText("分支 release/v2").count(), 1, "结果页应显示分支 release/v2");
-  assert.deepEqual(await candidateNames(), ["git-main", "git-tagged", "git-v2"], "只应列 skills 目录下的技能");
+  assert.equal(await modal().locator(".fetch-source").getByText("分支 main").count(), 1, "结果页应是改选后的分支");
+  assert.equal(previewRequests.at(-1).ref, undefined, "改选回默认分支时不另外传 ref");
   await page.keyboard.press("Escape");
+});
+
+await step("列表请求刚发出就关掉对话框：请求被取消，晚到的错误不报成未处理", async () => {
+  // ListSourceRefs 的响应压后 1 秒;zip 链接不是 Git 类来源，技能库马上返回错误，压住的错误会在取消之后才到
+  const hold = async (route) => {
+    if (!isCall(route.request(), refsMethodID)) return route.continue();
+    const response = await route.fetch();
+    await page.waitForTimeout(1000);
+    await route.fulfill({ response }).catch(() => {});
+  };
+  await page.route("**/wails/runtime*", hold);
+  const errors = problems.filter((p) => p.startsWith("pageerror")).length;
+  try {
+    await openFetch();
+    const before = refsCalls;
+    await modal().locator('[data-slot="input"]').first().fill(ZIP_URL);
+    while (refsCalls === before) await page.waitForTimeout(20);
+    await modal().getByRole("button", { name: "取消" }).click();
+    await page.waitForTimeout(1500);
+    assert(cancelled.has(refsCallIDs.at(-1)), "关掉对话框应取消还没返回的列表请求");
+    assert.equal(problems.filter((p) => p.startsWith("pageerror")).length, errors, "取消后晚到的错误不应报成未处理");
+  } finally {
+    await page.unroute("**/wails/runtime*", hold);
+  }
 });
 
 await step("快速改输入：分支下拉只显示最后一次输入的列表", async () => {
