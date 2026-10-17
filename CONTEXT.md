@@ -81,7 +81,7 @@ A project directory the tool has been told to manage, kept in a list in the Libr
 _Avoid_: Workspace, folder, repo / 工作区、文件夹、仓库
 
 **Unmanaged skill · 未纳管技能**:
-A skill folder in a Scope's directory that the Library does not account for: either the Library did not install it — placed by another tool, cloned, copied or written by hand, or committed in a Registered project's repository — or it is installed but edited since. The tool never changes or removes one it did not install, and Fetch brings it under management unless it is committed in the repository; an edited installed one stays installed, and an Update brings its edits in.
+A skill folder in a Scope's directory that the Library does not account for: either the Library did not install it — placed by another tool, cloned, copied or written by hand, or committed in a Registered project's repository — or it is installed but edited since. The tool never changes or removes one it did not install, and Fetch brings it under management; an edited installed one stays installed, and an Update brings its edits in.
 _Avoid_: External skill, orphan, untracked, unhosted / 外部技能、不是从这里装的技能、孤儿、未跟踪、未托管
 
 **Install · 安装**:
