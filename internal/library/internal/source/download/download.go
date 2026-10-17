@@ -58,7 +58,8 @@ func Hosted(input string) bool {
 	case "github.com":
 		return hostedGitHubPath.MatchString(u.Path)
 	}
-	return strings.Contains(u.Path, "/-/raw/") || strings.Contains(u.Path, "/-/archive/")
+	return strings.Contains(u.Path, "/-/raw/") || strings.Contains(u.Path, "/-/archive/") ||
+		(strings.Contains(u.Path, "/-/releases/") && strings.Contains(u.Path, "/downloads/"))
 }
 
 var hostedGitHubPath = regexp.MustCompile(`^/[^/]+/[^/]+/(?:archive|raw|releases/download|releases/latest/download)/`)

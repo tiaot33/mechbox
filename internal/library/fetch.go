@@ -169,7 +169,7 @@ type previewState struct {
 // Input 按下面的顺序识别,只在入库预览时识别一次;入库后集合记住识别出的来源类型,检查更新与更新都按它读取:
 //  1. 本地路径(绝对路径,或以 ./、../ 开头的相对路径;不带前缀的 a/b 按 GitHub 简写处理):本地目录。相对路径按当前工作目录解析为绝对路径。
 //  2. GitHub / GitLab 的 raw、archive、release 文件链接(raw.githubusercontent.com、codeload.github.com、github.com/…/raw|archive|releases/download/…、
-//     …/-/raw/…、…/-/archive/…):直接下载,不克隆仓库。
+//     …/-/raw/…、…/-/archive/…、…/-/releases/…/downloads/…):直接下载,不克隆仓库。
 //  3. GitHub 的简写和仓库链接:GitHub 仓库。输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
 //     路径不一致返回 InvalidArgument;@name 时入库预览只列该技能,不存在返回 NotFound。
 //  4. GitLab 链接(gitlab.com/group/subgroup/repo、带 /-/tree/<ref>/<path> 的自托管实例链接)、gitlab: 简写、SSH 地址(git@host:path、ssh://…)
@@ -177,7 +177,7 @@ type previewState struct {
 //  5. 其他 http(s) 链接:先请求链接本身,内容是带 frontmatter 的 SKILL.md、zip、tar 或 tar.gz(按内容判断,不看扩展名)时直接下载;
 //     否则在链接所在路径下找 well-known 索引(先 .well-known/agent-skills/index.json,再旧的 .well-known/skills/index.json),
 //     链接是某个 well-known 技能的地址(…/.well-known/agent-skills/<name>)时入库预览只列这个技能;还不是时试一次 git ls-remote,
-//     能连上就当 Git 仓库。都不是时返回 InvalidArgument。链接带路径时只收这个路径下的技能:路径下没有索引、站点根下有时返回 NotFound,
+//     能连上就当 Git 仓库。都不是时返回 InvalidArgument。链接里带用户名或密码时直接返回 InvalidArgument,不联网,以免凭据写进库里。链接带路径时只收这个路径下的技能:路径下没有索引、站点根下有时返回 NotFound,
 //     Details.Name 为这个路径,不扩大到整个站点。链接本身连不上或返回 5xx 时返回 SourceUnreachable。
 //
 // 省略 Ref 时发现默认分支,失败返回 SourceUnreachable,不假定 main。
@@ -304,6 +304,9 @@ func webLink(input string) bool {
 
 func (l *Library) probeLink(ctx context.Context, link string, req PreviewFetchRequest) (source.Target, error) {
 	link, _, _ = strings.Cut(link, "#")
+	if u, err := url.Parse(link); err != nil || u.User != nil {
+		return source.Target{}, &source.InputError{Reason: "links with embedded credentials are not supported; configure Git credentials on this machine instead"}
+	}
 	target, ok, err := l.download.Probe(ctx, link)
 	if err != nil {
 		return source.Target{}, err

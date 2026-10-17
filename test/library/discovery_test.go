@@ -198,9 +198,14 @@ func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })}
 	t.Cleanup(func() { http.DefaultClient = client })
-	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://user:example-secret@source.example/archive?token=example-secret"})
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/archive?token=example-secret"})
 	if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("archive error exposed credentials or wrong code: %v", err)
+	}
+	// 链接里带用户名密码的,不联网就拒绝,免得凭据写进库里。
+	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://user:example-secret@source.example/archive"})
+	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {
+		t.Fatalf("credential link exposed credentials or wrong code: %v", err)
 	}
 	_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://user:example-secret@source.example/%zz"})
 	if !library.IsCode(err, library.InvalidArgument) || strings.Contains(err.Error(), "example-secret") {

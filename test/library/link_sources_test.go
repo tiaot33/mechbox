@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,15 +22,16 @@ import (
 
 // site 接管 http.DefaultClient,按完整 URL 回答固定内容,其余一律 404,并记下每个 URL 被请求的次数。
 type site struct {
-	mu    sync.Mutex
-	pages map[string][]byte
-	etags map[string]string
-	hits  map[string]int
+	mu       sync.Mutex
+	pages    map[string][]byte
+	etags    map[string]string
+	statuses map[string]int
+	hits     map[string]int
 }
 
 func serveSite(t *testing.T) *site {
 	t.Helper()
-	s := &site{pages: map[string][]byte{}, etags: map[string]string{}, hits: map[string]int{}}
+	s := &site{pages: map[string][]byte{}, etags: map[string]string{}, statuses: map[string]int{}, hits: map[string]int{}}
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(s.roundTrip)}
 	t.Cleanup(func() { http.DefaultClient = client })
@@ -46,6 +48,13 @@ func (s *site) putWithETag(url string, body []byte, etag string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pages[url], s.etags[url] = body, etag
+}
+
+// fail 让 url 一律回 status。
+func (s *site) fail(url string, status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statuses[url] = status
 }
 
 func (s *site) remove(url string) {
@@ -65,6 +74,9 @@ func (s *site) roundTrip(r *http.Request) (*http.Response, error) {
 	defer s.mu.Unlock()
 	url := r.URL.String()
 	s.hits[url]++
+	if status := s.statuses[url]; status != 0 {
+		return textResponse(status, "failure"), nil
+	}
 	body, ok := s.pages[url]
 	if !ok {
 		return textResponse(http.StatusNotFound, "<html>not found</html>"), nil
@@ -441,4 +453,101 @@ func TestSearchResultFromWellKnownSiteCanBePreviewed(t *testing.T) {
 	if got := candidateNames(preview); !reflect.DeepEqual(got, []string{"alpha"}) || preview.Source.Type != library.SourceWellKnown || preview.Source.Label != "docs.example" {
 		t.Fatalf("preview = %v, %#v", got, preview.Source)
 	}
+}
+
+func TestGitLabReleaseDownloadLinkIsDirectDownload(t *testing.T) {
+	marker := forbidGit(t)
+	s := serveSite(t)
+	link := "https://gitlab.com/group/repo/-/releases/v1/downloads/skills.zip"
+	s.put(link, zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "body")}))
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: link})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Source.Type != library.SourceURL || !reflect.DeepEqual(candidateNames(preview), []string{"demo"}) {
+		t.Fatalf("preview = %#v", preview)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("release link ran git: %v", err)
+	}
+}
+
+func TestLinkWithCredentialsIsRejectedBeforeContactingIt(t *testing.T) {
+	isolateGit(t)
+	s := serveSite(t)
+	link := "https://user:secret@corp.example/org/repo"
+	lib := openTestLibrary(t)
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: link})
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "input"})
+	if len(s.hits) != 0 {
+		t.Fatalf("requests = %v; want none", s.hits)
+	}
+}
+
+func TestWellKnownIndexFailureIsNotTreatedAsMissingIndex(t *testing.T) {
+	isolateGit(t)
+	s := serveSite(t)
+	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{"root-skill": {"SKILL.md": describedSkill("root-skill", "Root", "r")}})
+	s.fail("https://docs.example/guides/.well-known/agent-skills/index.json", http.StatusInternalServerError)
+	lib := openTestLibrary(t)
+	// 路径下的索引读取失败不能当成「这个路径下没有技能」,也不能转而用旧路径或站点根的索引。
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://docs.example/guides"})
+	requireLibraryError(t, err, library.SourceUnreachable)
+}
+
+func TestWellKnownBrokenIndexEntryIsUnreadableNotDeleted(t *testing.T) {
+	isolateGit(t)
+	s := serveSite(t)
+	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{
+		"alpha": {"SKILL.md": describedSkill("alpha", "Alpha", "a")},
+		"beta":  {"SKILL.md": describedSkill("beta", "Beta", "b")},
+	})
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://docs.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"alpha"})
+	// 索引还列着 alpha,但这一条坏了(没列 SKILL.md):这次读不到,不是来源里已删除。
+	s.put("https://docs.example/.well-known/skills/index.json", []byte(`{"skills":[{"name":"alpha","description":"Alpha","files":["notes.md"]},{"name":"beta","description":"Beta","files":["SKILL.md"]}]}`))
+	status, err := checkSkillUpdate(t, lib, t.Context(), fetched[0].ID)
+	if status != library.UpdateFailed {
+		t.Fatalf("check with broken entry = %s; want failed", status)
+	}
+	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Name: "alpha"})
+	again, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://docs.example"})
+	if err != nil || !reflect.DeepEqual(candidateNames(again), []string{"beta"}) || len(again.Diagnostics) != 1 || again.Diagnostics[0].Path != "alpha" {
+		t.Fatalf("preview with broken entry = %#v, %v", again, err)
+	}
+}
+
+func TestWellKnownArchivesShareOneExtractionBudget(t *testing.T) {
+	isolateGit(t)
+	s := serveSite(t)
+	many := func(name string) []byte {
+		files := map[string]string{"SKILL.md": describedSkill(name, name, "body")}
+		for i := range 600 {
+			files["assets/"+strings.Repeat("x", 3)+string(rune('a'+i%26))+"/"+itoa(i)] = "x"
+		}
+		return tarGz(t, files, true)
+	}
+	artifactIndex(t, s, "https://docs.example", []artifact{{name: "first", kind: "archive", content: many("first")}, {name: "second", kind: "archive", content: many("second")}})
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://docs.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 两个包各 601 个文件,合起来超过一次入库 1000 个文件的上限;重试时已读过的包同样计入。
+	for range 2 {
+		_, err = lib.Fetch(t.Context(), preview.ID, []string{"first", "second"})
+		requireLibraryError(t, err, library.SourceInvalid)
+	}
+	if fetched := fetchSkills(t, lib, preview, []string{"first"}); len(skillFiles(t, lib, fetched[0])) != 601 {
+		t.Fatalf("single archive was not fetched completely")
+	}
+}
+
+func itoa(i int) string {
+	return strconv.Itoa(i)
 }

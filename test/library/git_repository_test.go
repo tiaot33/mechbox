@@ -172,3 +172,72 @@ func TestGitRepositoryCheckUsesLsRemoteAndPlanListsCommits(t *testing.T) {
 		t.Fatalf("plan commits = %#v", plan.Commits)
 	}
 }
+
+func TestGitSkillWithBrokenSkillFileIsUnreadableNotDeleted(t *testing.T) {
+	config := isolateGit(t)
+	repository := skillRepository(t)
+	runGit(t, repository, "rm", "--quiet", "SKILL.md")
+	commitGit(t, repository, "Move every skill under skills")
+	redirectRemote(t, config, repository, "https://gitlab.com/group/repo.git")
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://gitlab.com/group/repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"alpha", "beta"})
+	// alpha 的 SKILL.md 丢了 description:这个技能这次没取到,不算来源里已删除。
+	writeFile(t, filepath.Join(repository, "skills", "alpha", "SKILL.md"), []byte("---\nname: alpha\n---\nbody"), 0o644)
+	commitGit(t, repository, "Break alpha")
+	status, err := checkSkillUpdate(t, lib, t.Context(), fetched[0].ID)
+	if status != library.UpdateFailed {
+		t.Fatalf("check with broken SKILL.md = %s; want failed", status)
+	}
+	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Name: "alpha"})
+	if status, err := checkSkillUpdate(t, lib, t.Context(), fetched[1].ID); err != nil || status != library.UpdateCurrent {
+		t.Fatalf("beta = %s, %v", status, err)
+	}
+}
+
+func TestDownloadedSkillWithBrokenSkillFileIsUnreadableNotDeleted(t *testing.T) {
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"alpha/SKILL.md": skillDocument("alpha", "a"), "beta/SKILL.md": skillDocument("beta", "b")}), "")
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), server.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"alpha"})
+	server.serve(zipArchive(t, map[string]string{"alpha/SKILL.md": "---\nname: alpha\n---\nbody", "beta/SKILL.md": skillDocument("beta", "b")}), "")
+	status, err := checkSkillUpdate(t, lib, t.Context(), fetched[0].ID)
+	if status != library.UpdateFailed {
+		t.Fatalf("check with broken SKILL.md = %s; want failed", status)
+	}
+	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Name: "alpha"})
+}
+
+func TestAnnotatedTagWithoutNewCommitDoesNotClone(t *testing.T) {
+	config := isolateGit(t)
+	repository := skillRepository(t)
+	runGit(t, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "v1", "-m", "release v1")
+	redirectRemote(t, config, repository, "https://gitlab.com/group/repo.git")
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://gitlab.com/group/repo", Ref: "v1"})
+	if err != nil || preview.Source.Ref != "v1" {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"root"})
+	// 换上一个记下克隆的 git 包装脚本:tag 没动时检查更新只该 ls-remote。
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "cloned")
+	writeFile(t, filepath.Join(dir, "git"), []byte("#!/bin/sh\ncase \" $* \" in *' clone '*) touch '"+marker+"' ;; esac\nexec '"+real+"' \"$@\"\n"), 0o755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if status, err := checkSkillUpdate(t, lib, t.Context(), fetched[0].ID); err != nil || status != library.UpdateCurrent {
+		t.Fatalf("check on unchanged annotated tag = %s, %v", status, err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("check on unchanged annotated tag cloned the repository: %v", err)
+	}
+}

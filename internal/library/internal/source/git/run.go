@@ -240,7 +240,7 @@ func Head(ctx context.Context, remotes []string, ref string) (string, error) {
 	if FullCommit.MatchString(ref) {
 		return strings.ToLower(ref), nil
 	}
-	output, err := Remote(ctx, remotes, []string{"ls-remote"}, "refs/heads/"+ref, "refs/tags/"+ref)
+	output, err := Remote(ctx, remotes, []string{"ls-remote"}, "refs/heads/"+ref, "refs/tags/"+ref, "refs/tags/"+ref+"^{}")
 	if err != nil {
 		return "", err
 	}

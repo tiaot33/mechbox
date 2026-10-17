@@ -25,6 +25,10 @@ func NewBudget(files int, bytes int64) *Budget {
 	return &Budget{maxFiles: files, files: files, maxBytes: bytes, bytes: bytes}
 }
 
+func (b *Budget) Remaining() (int, int64) {
+	return b.files, b.bytes
+}
+
 func (b *Budget) Take(files int, size int64) error {
 	b.files -= files
 	b.bytes -= size

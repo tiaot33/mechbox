@@ -47,12 +47,24 @@ func Abort(err error) error {
 	return abortError{err}
 }
 
-func NoCandidates(diagnostics []Diagnostic) error {
-	reasons := make([]string, len(diagnostics))
-	for i, d := range diagnostics {
+type NoCandidatesError struct {
+	Diagnostics []Diagnostic
+}
+
+func (e *NoCandidatesError) Error() string {
+	reasons := make([]string, len(e.Diagnostics))
+	for i, d := range e.Diagnostics {
 		reasons[i] = d.Path + ": " + d.Reason
 	}
-	return fmt.Errorf("%w: %s", ErrNoCandidates, strings.Join(reasons, "; "))
+	return fmt.Sprintf("%v: %s", ErrNoCandidates, strings.Join(reasons, "; "))
+}
+
+func (e *NoCandidatesError) Unwrap() error {
+	return ErrNoCandidates
+}
+
+func NoCandidates(diagnostics []Diagnostic) error {
+	return &NoCandidatesError{Diagnostics: diagnostics}
 }
 
 var excludedDirs = []string{".git", "node_modules", "dist", "build", "__pycache__"}

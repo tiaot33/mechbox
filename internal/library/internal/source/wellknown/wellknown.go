@@ -170,13 +170,15 @@ type index struct {
 	location    string
 	revision    string
 	entries     []entry
+	broken      map[string]string
 	diagnostics []discovery.Diagnostic
 }
 
 func fetchIndex(ctx context.Context, location string) (*index, error) {
 	content, status, err := get(ctx, location, maxIndex)
 	if err != nil {
-		if status != 0 {
+		switch status {
+		case http.StatusNotFound, http.StatusGone, http.StatusUnauthorized, http.StatusForbidden:
 			return nil, nil
 		}
 		return nil, err
@@ -192,7 +194,7 @@ func fetchIndex(ctx context.Context, location string) (*index, error) {
 		return nil, nil
 	}
 	sum := sha256.Sum256(content)
-	result := &index{location: location, revision: hex.EncodeToString(sum[:])}
+	result := &index{location: location, revision: hex.EncodeToString(sum[:]), broken: map[string]string{}}
 	for i, item := range raw.Skills {
 		parsed, reason := parseEntry(item, raw.Schema != nil, location)
 		label := parsed.name
@@ -204,8 +206,12 @@ func fetchIndex(ctx context.Context, location string) (*index, error) {
 		}
 		if reason != "" {
 			result.diagnostics = append(result.diagnostics, discovery.Diagnostic{Path: label, Reason: reason})
+			if parsed.name != "" && !slices.ContainsFunc(result.entries, func(e entry) bool { return e.name == parsed.name }) {
+				result.broken[parsed.name] = reason
+			}
 			continue
 		}
+		delete(result.broken, parsed.name)
 		result.entries = append(result.entries, parsed)
 	}
 	return result, nil
@@ -356,10 +362,14 @@ func (s *snapshot) Candidates(context.Context) ([]discovery.Candidate, []discove
 }
 
 func (s *snapshot) Names(context.Context) ([]string, error) {
-	names := make([]string, len(s.index.entries))
-	for i, e := range s.index.entries {
-		names[i] = e.name
+	names := make([]string, 0, len(s.index.entries)+len(s.index.broken))
+	for _, e := range s.index.entries {
+		names = append(names, e.name)
 	}
+	for name := range s.index.broken {
+		names = append(names, name)
+	}
+	slices.Sort(names[len(s.index.entries):])
 	return names, nil
 }
 
@@ -372,6 +382,9 @@ func (s *snapshot) find(name string) (entry, error) {
 		if e.name == name {
 			return e, nil
 		}
+	}
+	if reason, ok := s.index.broken[name]; ok {
+		return entry{}, &source.IncompleteError{Skill: name, Err: fmt.Errorf("index entry is invalid: %s: %w", reason, source.ErrInvalid)}
 	}
 	return entry{}, &source.NotFoundError{What: source.MissingSkill, Name: name}
 }
@@ -395,6 +408,13 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 				return nil, err
 			}
 			s.fetched[e.name] = skill
+		}
+		size := int64(0)
+		for _, file := range skill.Files {
+			size += int64(len(file.Content))
+		}
+		if err := budget.Take(len(skill.Files), size); err != nil {
+			return nil, err
 		}
 		result[i] = skill
 	}
@@ -431,17 +451,22 @@ func (s *snapshot) fetch(ctx context.Context, e entry, budget *discovery.Budget)
 	}
 	var files []skillfile.File
 	var skillState source.State
+	maxFiles, maxBytes := budget.Remaining()
 	if e.digest == "" {
+		if len(e.files) > maxFiles {
+			return fail("", fmt.Errorf("%w: more than %d files", discovery.ErrTooLarge, s.kind.maxFiles))
+		}
 		skillBase := strings.TrimSuffix(s.index.location, indexFile) + url.PathEscape(e.name) + "/"
 		for _, file := range e.files {
-			content, err := s.download(ctx, skillBase+escapePath(file), budget)
+			content, err := s.download(ctx, skillBase+escapePath(file), maxBytes)
 			if err != nil {
 				return fail(file, err)
 			}
+			maxBytes -= int64(len(content))
 			files = append(files, skillfile.File{Path: file, Content: content, Mode: skillfile.ModeRegular})
 		}
 	} else {
-		content, err := s.download(ctx, e.url, budget)
+		content, err := s.download(ctx, e.url, maxBytes)
 		if err != nil {
 			return fail("", err)
 		}
@@ -451,7 +476,7 @@ func (s *snapshot) fetch(ctx context.Context, e entry, budget *discovery.Budget)
 		}
 		if e.kind == "skill-md" {
 			files = []skillfile.File{{Path: "SKILL.md", Content: content, Mode: skillfile.ModeRegular}}
-		} else if files, err = unpack(ctx, content, s.kind.maxFiles, s.kind.maxBytes); err != nil {
+		} else if files, err = unpack(ctx, content, maxFiles, maxBytes); err != nil {
 			return fail("", err)
 		}
 		skillState, _ = json.Marshal(state{Digest: e.digest})
@@ -468,15 +493,12 @@ func (s *snapshot) fetch(ctx context.Context, e entry, budget *discovery.Budget)
 	return source.Skill{Name: e.name, Description: meta.Description, Files: files, State: skillState}, nil
 }
 
-func (s *snapshot) download(ctx context.Context, location string, budget *discovery.Budget) ([]byte, error) {
-	content, _, err := get(ctx, location, s.kind.maxBytes)
-	if err != nil {
-		return nil, err
+func (s *snapshot) download(ctx context.Context, location string, limit int64) ([]byte, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("%w: more than %d bytes", discovery.ErrTooLarge, s.kind.maxBytes)
 	}
-	if err := budget.Take(1, int64(len(content))); err != nil {
-		return nil, err
-	}
-	return content, nil
+	content, _, err := get(ctx, location, limit)
+	return content, err
 }
 
 func escapePath(file string) string {

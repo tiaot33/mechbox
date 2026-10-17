@@ -6,13 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"path"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -23,7 +26,8 @@ const (
 	UpdateAvailable UpdateCheckStatus = "available" // 有新版本
 	UpdateCurrent   UpdateCheckStatus = "current"   // 已是最新;更新成功后也是它
 	// UpdateDeleted 是「来源里已删除」:来源读到了,但里面已经没有这个名字的技能(作者删掉或改了名)。
-	// 库里的技能和装出去的文件夹都不动,要不要移除由用户决定。来源整个读不到时不算这种,算 UpdateFailed。
+	// 库里的技能和装出去的文件夹都不动,要不要移除由用户决定。来源整个读不到时不算这种,算 UpdateFailed;
+	// 来源里还有这个技能但读不全(文件取不到、digest 不一致、SKILL.md 缺 name / description、索引里这一条坏了)也算 UpdateFailed。
 	UpdateDeleted UpdateCheckStatus = "deleted"
 	UpdateFailed  UpdateCheckStatus = "failed" // 检查失败:这次没读成来源,可重试;原因只在当场的 CollectionUpdateCheck.Error 里,不保存
 )
@@ -711,7 +715,7 @@ func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.H
 func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Have, needFiles bool) (bool, source.Skill, error) {
 	status, state, err := snapshot.Check(ctx, have)
 	if err != nil {
-		return false, source.Skill{}, err
+		return false, source.Skill{}, unreadableSkill(ctx, snapshot, have.Name, err)
 	}
 	switch {
 	case status == source.Unchanged:
@@ -721,10 +725,28 @@ func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Ha
 	}
 	fetched, err := snapshot.Fetch(ctx, []string{have.Name})
 	if err != nil {
-		return false, source.Skill{}, err
+		return false, source.Skill{}, unreadableSkill(ctx, snapshot, have.Name, err)
 	}
 	latest := fetched[0]
 	return status == source.Changed || !skillfile.Equal(have.Files, latest.Files), latest, nil
+}
+
+func unreadableSkill(ctx context.Context, snapshot source.Snapshot, name string, err error) error {
+	if !missingSkill(err) {
+		return err
+	}
+	_, diagnostics, candidatesErr := snapshot.Candidates(ctx)
+	if none, ok := errors.AsType[*discovery.NoCandidatesError](candidatesErr); ok {
+		diagnostics = none.Diagnostics
+	} else if candidatesErr != nil {
+		return err
+	}
+	for _, diagnostic := range diagnostics {
+		if path.Base(diagnostic.Path) == name {
+			return &source.IncompleteError{Skill: name, Err: fmt.Errorf("%s: %s: %w", diagnostic.Path, diagnostic.Reason, source.ErrInvalid)}
+		}
+	}
+	return err
 }
 
 const renameSimilarity = 0.6
