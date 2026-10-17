@@ -107,7 +107,7 @@ export interface Settings {
     "stay_in_menu_bar": boolean;
 
     /**
-     * Dock 角标显示有新版本的技能数
+     * Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
      */
     "dock_badge": boolean;
 

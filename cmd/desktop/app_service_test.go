@@ -21,18 +21,17 @@ func skillFrom(source library.SourceType, check *library.UpdateCheck, fetched ti
 	return library.Skill{Source: library.Source{Type: source}, LastUpdateCheck: check, FetchedAt: fetched}
 }
 
-func TestBadgeCountSkipsLocalSources(t *testing.T) {
-	available := &library.UpdateCheck{Status: library.UpdateAvailable}
+func TestBadgeCountFollowsPending(t *testing.T) {
 	skills := []library.Skill{
-		skillFrom(library.SourceGitHub, available, time.Time{}),
-		skillFrom(library.SourceURL, available, time.Time{}),
-		skillFrom(library.SourceLocal, available, time.Time{}),
+		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateAvailable, Pending: true}, time.Time{}),
+		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateDeleted, RenamedTo: "pdf-kit", Pending: true}, time.Time{}),
+		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateAvailable, Skipped: true}, time.Time{}),
+		skillFrom(library.SourceLocal, &library.UpdateCheck{Status: library.UpdateAvailable}, time.Time{}),
 		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateCurrent}, time.Time{}),
-		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateDeleted}, time.Time{}),
 		skillFrom(library.SourceURL, nil, time.Time{}),
 	}
 	if got := badgeCount(skills); got != 2 {
-		t.Fatalf("badgeCount = %d; want 2 (local-directory skills and skills without a new version not counted)", got)
+		t.Fatalf("badgeCount = %d; want 2 (only skills the library marks pending)", got)
 	}
 }
 

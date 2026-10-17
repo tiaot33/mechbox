@@ -163,6 +163,12 @@ export interface Candidate {
     "fetched"?: SkillID;
 
     /**
+     * New 为 true 表示这是来源里的新技能:库里已有这个来源的集合,而这个技能是用户上次从这个来源入库之后才出现的,
+     * 用户也没对它点过「不感兴趣」。新出现的技能默认勾上由界面决定。
+     */
+    "new"?: boolean;
+
+    /**
      * 清单显式声明的插件分组名,仅在入库预览中展示
      */
     "plugin_name"?: string;
@@ -221,6 +227,13 @@ export interface Collection {
      * 集合里的技能,按 ID 升序
      */
     "skills": SkillID[] | null;
+
+    /**
+     * NewSkills 是来源里的新技能名,按名字排序:用户上次从这个来源入库之后,检查更新才在来源里看到的技能。
+     * 不计入角标,也不出现在更新里;入库走对这个集合的入库预览(PreviewFetchRequest.Collection),候选上 New 标出它们。
+     * 用户点了「不感兴趣」(MarkNotInterested)的不再列出;来源里又没有了的也不再列出。
+     */
+    "new_skills"?: string[] | null;
 }
 
 /**
@@ -251,6 +264,28 @@ export interface CollectionUpdateCheck {
      * 集合不存在时只有它(NotFound),集合 ID 不是正数时为 InvalidArgument。
      */
     "error"?: Error | null;
+}
+
+/**
+ * Commit 是来源里的一次提交,只供展示。
+ */
+export interface Commit {
+    "sha": string;
+
+    /**
+     * 完整的提交说明
+     */
+    "message": string;
+
+    /**
+     * 作者名
+     */
+    "author"?: string;
+
+    /**
+     * 作者提交的时间
+     */
+    "time"?: string;
 }
 
 /**
@@ -372,7 +407,8 @@ export enum ErrorCode {
     AlreadyExists = "already_exists",
 
     /**
-     * Conflict 计划到执行之间状态已变(Sync 的远端身份;Update 读取来源期间勾选的技能被另一次更新改过)。
+     * Conflict 计划到执行之间状态已变(Sync 的远端身份;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
+     * 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本)。
      * 可重新生成同步计划 / 重新发起后再执行。
      */
     Conflict = "conflict",
@@ -450,7 +486,7 @@ export interface ErrorDetails {
     "name"?: string;
 
     /**
-     * AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能;InvalidArgument:更新时不属于该集合的技能;Conflict:更新时被另一次更新改过的技能
+     * AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
      */
     "skill_id"?: SkillID;
 
@@ -775,6 +811,65 @@ export enum MigrationOutcome {
 };
 
 /**
+ * PlannedChange 是更新计划里一个技能在库里和来源现在之间的差别。
+ */
+export enum PlannedChange {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 有变化:来源里这个技能的文件和库里的当前版本不同
+     */
+    PlannedChanged = "changed",
+
+    /**
+     * 没变化
+     */
+    PlannedUnchanged = "unchanged",
+
+    /**
+     * PlannedDeleted 是来源里已删除:来源读到了,但里面已经没有这个名字的技能。库里的技能和装出去的文件夹都不动,
+     * 要不要移除(RemoveSkill)或继续保留(KeepDeletedSkill)由用户决定。
+     */
+    PlannedDeleted = "deleted",
+};
+
+/**
+ * PlannedSkill 是更新计划里的一个技能。
+ */
+export interface PlannedSkill {
+    /**
+     * 库里现在的技能
+     */
+    "skill": Skill;
+    "change": PlannedChange;
+
+    /**
+     * Skipped 为 true 表示有变化(或推测出了改名),但来源里这份内容用户之前跳过了;照样列出,用户可以勾上更新。
+     */
+    "skipped"?: boolean;
+
+    /**
+     * RenamedTo 是来源里已删除时,推测这个技能改名成的新名字,含义同 UpdateCheck.RenamedTo。勾上更新即确认「是」:技能改用新名字,
+     * 内容换成那个新名字的;RejectRename 回答「不是」。有推测时 Risks、Diff 按那个新名字的内容给出,装出去的各处也列在 Installs 里。
+     */
+    "renamed_to"?: string;
+
+    /**
+     * Risks 是有变化的技能里需要先看一眼的文件:新增或改动的脚本、新增的可执行文件,按路径排序。没有时为空。
+     */
+    "risks"?: UpdateRisk[] | null;
+
+    /**
+     * Diff 是有变化时从库里的当前版本到来源里的内容改了哪些文件;其他情况为 nil。库里一侧用 GetVersionFile(Skill.VersionID, path) 读,
+     * 来源一侧用 GetUpdatePlanFile 读。
+     */
+    "diff"?: VersionDiff | null;
+}
+
+/**
  * PreviewDiagnostic 说明一个路径为何未成为候选。
  */
 export interface PreviewDiagnostic {
@@ -800,7 +895,7 @@ export interface PreviewFetchRequest {
 
     /**
      * Collection 对库里已有的集合再做一次入库预览,用于看作者又发布了哪些技能:按入库时的仓库与分支、URL 或目录重新读取,
-     * 候选上的 Fetched 标出哪些已经入库。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
+     * 候选上的 Fetched 标出哪些已经入库,New 标出新技能。入库时指定的子目录没有记下来,GitHub 来源看的是整个仓库(分支不变)。
      */
     "collection"?: CollectionID;
 }
@@ -809,6 +904,51 @@ export interface PreviewFetchRequest {
  * ProjectID 是已登记项目的身份:登记时分配,注销前不变;同步到另一台机器、或改了项目位置后仍指同一个项目。
  */
 export type ProjectID = number;
+
+/**
+ * RecordedInstall 是一条记录里一处重新安装的结果。
+ */
+export interface RecordedInstall {
+    "skill_id": SkillID;
+    "scope": Scope;
+
+    /**
+     * Outcome 在更新记录里是 ReinstallOutcome 的值,在回滚记录里是 RollbackOutcome 的值。
+     */
+    "outcome": string;
+
+    /**
+     * Error 是没换上(failed)时的错误码。
+     */
+    "error"?: ErrorCode;
+}
+
+/**
+ * RecordedSkill 是一条记录里的一个技能:从哪个版本换到了哪个版本。技能已从库里移除时版本也不在了,Name 仍可展示。
+ */
+export interface RecordedSkill {
+    "skill_id": SkillID;
+
+    /**
+     * 当时的技能名;换了名字时是之后的名字
+     */
+    "name": string;
+
+    /**
+     * FromName 是这次换了名字时之前的名字:确认改名的更新、回滚这样的更新;没换名字为空。
+     */
+    "from_name"?: string;
+
+    /**
+     * 之前的版本
+     */
+    "from_version_id": VersionID;
+
+    /**
+     * 之后的版本
+     */
+    "to_version_id": VersionID;
+}
 
 /**
  * RegisteredProject 是一个已登记项目:登记后它与每个 Agent 组成一个项目作用域。
@@ -934,6 +1074,100 @@ export interface RemoveSkillOptions {
 }
 
 /**
+ * RollbackInstall 是回滚时一处的结果。
+ */
+export interface RollbackInstall {
+    "skill_id": SkillID;
+    "scope": Scope;
+    "outcome": RollbackOutcome;
+
+    /**
+     * 仅 RollbackFailed 时非空
+     */
+    "error"?: Error | null;
+}
+
+/**
+ * RollbackOutcome 是回滚时一处的结果。值以后可能增加,调用方遇到不认识的值按「没装回、需要用户查看」处理。
+ */
+export enum RollbackOutcome {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 还是那次换上的版本,装回了那次更新之前的版本
+     */
+    RollbackReinstalled = "reinstalled",
+
+    /**
+     * 本来就是那次更新之前的版本,没动
+     */
+    RollbackCurrent = "current",
+
+    /**
+     * RollbackReinstalledSince 是之后又被重新安装成了库里的别的版本,不动。
+     */
+    RollbackReinstalledSince = "reinstalled_since",
+
+    /**
+     * 用户改过,不动
+     */
+    RollbackModified = "modified",
+
+    /**
+     * 文件夹不在了,不动
+     */
+    RollbackMissing = "missing",
+
+    /**
+     * 项目不在这台机器上,或还没对应到本机路径,不动
+     */
+    RollbackRootMissing = "root_missing",
+
+    /**
+     * 技能已不装在这里(包括 Agent 或项目已不在库里),不动
+     */
+    RollbackUninstalled = "uninstalled",
+
+    /**
+     * 技能已从库里移除,不动
+     */
+    RollbackRemoved = "removed",
+
+    /**
+     * 没装回,原因见 Error:权限或 I/O 故障;这一处保持原样
+     */
+    RollbackFailed = "failed",
+};
+
+/**
+ * RollbackResult 是一次回滚的结果。
+ */
+export interface RollbackResult {
+    /**
+     * 这次回滚的记录
+     */
+    "record": UpdateRecordID;
+
+    /**
+     * Skills 是库里换回的技能:FromVersionID 是回滚前的当前版本,ToVersionID 是那次更新之前的版本。
+     */
+    "skills": RecordedSkill[] | null;
+
+    /**
+     * Removed 是那次更新涉及、但已从库里移除的技能,取自那次更新的记录;库里没有可换回的。
+     */
+    "removed"?: RecordedSkill[] | null;
+
+    /**
+     * Installs 是那次更新装过的每一处(含单独重试换上的)现在的结果,按技能 ID、Agent 排序。
+     */
+    "installs": RollbackInstall[] | null;
+}
+
+/**
  * Scope 是技能安装所在的作用域,只是身份,不含路径(见 ADR 0005):调用方不能指定目录,
  * 该 Agent 在此作用域读取技能的目录用 [Library.ScopeDirectory] 查。展示时按 Agent 代码和 ProjectID
  * 从 [Library.ListAgents]、[Library.ListRegisteredProjects] 的结果里查出名字。
@@ -1033,6 +1267,12 @@ export interface Skill {
      * 最近一次更新带来新版本的时间;从未因更新产生新版本时为零值
      */
     "updated_at"?: string;
+
+    /**
+     * KeptDeleted 为 true 表示来源里已删除这个技能,用户选了继续保留(KeepDeletedSkill):不再计入角标,技能上留一个淡色标记。
+     * 之后检查更新或更新确认来源里又有这个技能时自动变回 false。
+     */
+    "kept_deleted"?: boolean;
 }
 
 /**
@@ -1059,7 +1299,7 @@ export interface SkillScope {
     "scope": Scope;
 
     /**
-     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出
+     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
      */
     "folder": string;
 
@@ -1105,7 +1345,7 @@ export interface SkillScopeInspection {
     "scope": Scope;
 
     /**
-     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出
+     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
      */
     "folder": string;
 
@@ -1201,6 +1441,23 @@ export interface SkillVersion {
      * 这个版本由入库或更新写进库里的时间
      */
     "created_at"?: string;
+}
+
+/**
+ * SkipRequest 是一次跳过:在一份更新计划里,对有变化或推测出改名的技能跳过这次的改动。Skills 与 WholeRevision 恰好给一个。
+ */
+export interface SkipRequest {
+    "plan": UpdatePlanID;
+
+    /**
+     * 跳过这几个技能的这次改动;都必须在计划里有变化或推测出了改名,重复的只算一次
+     */
+    "skills"?: SkillID[] | null;
+
+    /**
+     * WholeRevision 为 true 时跳过整个来源版本:计划里有变化和推测出改名的技能全部跳过,在集合的历史里记成一次。
+     */
+    "whole_revision"?: boolean;
 }
 
 /**
@@ -1348,10 +1605,35 @@ export interface UnregisterProjectOptions {
  */
 export interface UpdateCheck {
     /**
-     * 最近一次确认来源的时间:检查更新或更新
+     * 最近一次确认来源的时间:检查更新、更新计划、更新或回滚
      */
     "checked_at": string;
     "status": UpdateCheckStatus;
+
+    /**
+     * Revision 是这次确认来源时看到的来源版本,与入库预览的 Revision 同义:GitHub 为 commit,URL 为压缩包内容哈希;
+     * 本地目录来源与检查失败时为空。
+     */
+    "revision"?: string;
+
+    /**
+     * Skipped 为 true 表示有新版本(或推测出了改名),但来源里这份内容用户之前跳过了(SkipUpdate)。来源里这个技能的内容又变了,
+     * 下次检查更新后它回到 false;同一来源里别的技能变了不影响。
+     */
+    "skipped"?: boolean;
+
+    /**
+     * RenamedTo 是结论为来源里已删除时,推测这个技能在来源里改名成的新名字:同一来源里它消失了,同时出现了一个用户没见过、
+     * 内容大部分相同的技能。用户在更新计划里确认(勾上更新)、否认(RejectRename)或跳过(SkipUpdate);没有推测时为空。
+     */
+    "renamed_to"?: string;
+
+    /**
+     * Pending 为 true 表示这个技能计入角标,侧边栏的更新计数与 Dock 角标都按它算:有新版本且没跳过,
+     * 或来源里已删除且用户没选继续保留(Skill.KeptDeleted),或推测出了改名(RenamedTo)且没跳过。本地目录来源的技能、跳过的改动、
+     * 来源里的新技能都不计入。
+     */
+    "pending"?: boolean;
 }
 
 /**
@@ -1386,32 +1668,220 @@ export enum UpdateCheckStatus {
 };
 
 /**
- * UpdateRequest 是一次更新:对一个集合发起,带进用户勾选的技能。从哪里发起只决定勾哪些:从集合发起传有新版本的全部技能,
- * 从技能详情页发起传 Skill.CollectionID 和这一个技能;单个技能更新就是只勾一项的集合更新。
+ * UpdateHistoryFilter 缩小集合历史的范围,两个条件都可选、可组合:CollectionID 只看这个集合的,SkillID 只看涉及这个技能的
+ * (哪几次更新改过它、跳过或回滚过它)。都不给时是全库的历史。
  */
-export interface UpdateRequest {
-    "collection_id": CollectionID;
-
-    /**
-     * 勾选的技能,都必须属于这个集合;重复的只算一次。没勾的技能完全不动,检查结论也不变
-     */
-    "skills": SkillID[] | null;
+export interface UpdateHistoryFilter {
+    "collection_id"?: CollectionID;
+    "skill_id"?: SkillID;
 }
 
 /**
- * UpdateResult 是一次更新的结果:这个集合换成了什么样。
+ * UpdatePlan 是更新前的只读报告:一个集合里的技能在库里和来源现在之间有什么不同,以及有变化的技能装在哪些地方、
+ * 各处现在是什么状态。
  */
-export interface UpdateResult {
+export interface UpdatePlan {
+    "id": UpdatePlanID;
+    "collection_id": CollectionID;
+
     /**
      * 集合来自哪里
      */
     "source": Source;
 
     /**
+     * Revision 是来源现在的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空。
+     * 各技能现在在哪个来源版本上看 Skill.Revision。
+     */
+    "revision"?: string;
+
+    /**
+     * Commits 是 GitHub 来源从集合里最旧的来源版本到来源现在之间的提交说明,最新的在前;其他来源没有,读不到时也为空。
+     */
+    "commits"?: Commit[] | null;
+
+    /**
+     * Skills 是集合里的每个技能,按 ID 升序。
+     */
+    "skills": PlannedSkill[] | null;
+
+    /**
+     * Installs 是有变化的技能装出去的每一处及其现在的状态,按「技能 × 地方」逐条给出,与 InspectSkillScopes 的结果同形、同序;
+     * 同一处装了几个有变化的技能时各自一条。没有时为空数组。
+     */
+    "installs": SkillScopeInspection[] | null;
+}
+
+/**
+ * UpdatePlanID 是一份更新计划的不透明句柄,由 Library 签发。和入库预览句柄一样不持久化、不参与 Sync、
+ * 不跨 Library 实例共享;Close 或 30 分钟后失效。
+ */
+export type UpdatePlanID = string;
+
+/**
+ * UpdateRecord 是集合历史里的一条记录。记录里的地方只记是哪个 Agent、全局还是哪个项目,不记磁盘路径,
+ * 同步到别的机器也对得上;技能从库里移除后,记录照样留着。
+ */
+export interface UpdateRecord {
+    "id": UpdateRecordID;
+    "collection_id": CollectionID;
+    "kind": UpdateRecordKind;
+
+    /**
+     * Revision 是当时来源的来源版本:更新换到的、跳过时更新计划看到的;回滚记被回滚那次更新的。本地目录来源为空。
+     */
+    "revision"?: string;
+    "created_at": string;
+
+    /**
+     * Commits 是更新时这段时间的提交说明,最新的在前;只有 GitHub 来源有。
+     */
+    "commits"?: Commit[] | null;
+
+    /**
+     * WholeRevision 为 true 表示这次跳过的是整个来源版本。
+     */
+    "whole_revision"?: boolean;
+
+    /**
+     * Skills 是这条记录涉及的技能,按 ID 升序:更新是换了版本的技能,回滚是换回的技能,跳过是跳过了改动的技能(两个版本相同)。
+     */
+    "skills": RecordedSkill[] | null;
+
+    /**
+     * Installs 是更新或回滚时逐处重新安装的结果;更新之后单独重试的地方也记在那次更新上,覆盖原来的结果。
+     */
+    "installs"?: RecordedInstall[] | null;
+
+    /**
+     * RolledBackBy 是回滚了这次更新的那条记录;没被回滚为零值。
+     */
+    "rolled_back_by"?: UpdateRecordID;
+
+    /**
+     * RollsBack 是这次回滚回滚的那次更新;其他记录为零值。
+     */
+    "rolls_back"?: UpdateRecordID;
+}
+
+/**
+ * UpdateRecordID 是集合历史里一条记录的身份:一次更新、跳过或回滚。回滚、单独重试没换上的地方都按它引用那次更新。
+ */
+export type UpdateRecordID = number;
+
+/**
+ * UpdateRecordKind 是集合历史里一条记录的种类。
+ */
+export enum UpdateRecordKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 一次更新(Update)
+     */
+    UpdateRecordUpdate = "update",
+
+    /**
+     * 一次跳过(SkipUpdate)
+     */
+    UpdateRecordSkip = "skip",
+
+    /**
+     * 一次回滚(Rollback)
+     */
+    UpdateRecordRollback = "rollback",
+};
+
+/**
+ * UpdateRequest 是一次更新:按一份更新计划,带上用户勾选的技能和勾选的地方。从哪里发起只决定默认勾哪些:从集合发起勾计划里
+ * 有变化的全部技能,从技能详情页发起只勾这一个;单个技能更新就是只勾一项的集合更新。本地目录来源的「重新读取」也是它。
+ */
+export interface UpdateRequest {
+    "plan": UpdatePlanID;
+
+    /**
+     * Skills 是勾选的技能,都必须在计划里有变化或没变化(来源里已删除的不能勾);重复的只算一次。
+     * 有变化而没勾的技能完全不动。
+     */
+    "skills": SkillID[] | null;
+
+    /**
+     * Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方,
+     * Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。
+     */
+    "installs"?: ReinstallRequest[] | null;
+}
+
+/**
+ * UpdateResult 是一次更新的结果:库换成了什么样,以及勾选的地方各自换上没有。
+ */
+export interface UpdateResult {
+    /**
+     * Record 是这次更新的记录,回滚(Rollback)、单独重试没换上的地方(RetryUpdateInstalls)都用它;
+     * 勾选的技能都没变化、库里没有新版本时不留记录,为零值。
+     */
+    "record"?: UpdateRecordID;
+
+    /**
+     * 集合来自哪里
+     */
+    "source": Source;
+
+    /**
+     * 集合换到的来源版本,和 UpdatePlan.Revision 同义;本地目录来源为空
+     */
+    "revision"?: string;
+
+    /**
      * 勾选的技能,按请求里的顺序
      */
     "skills": UpdatedSkill[] | null;
+
+    /**
+     * Installs 是勾选的每一处的结果,与 UpdateRequest.Installs 一一对应、顺序相同;结果的含义同 Reinstall。
+     */
+    "installs": ReinstallResult[] | null;
 }
+
+/**
+ * UpdateRisk 是一个有变化的技能里的一个风险文件。
+ */
+export interface UpdateRisk {
+    "kind": UpdateRiskKind;
+
+    /**
+     * 技能内斜杠分隔的相对路径
+     */
+    "path": string;
+}
+
+/**
+ * UpdateRiskKind 是更新计划标出的风险种类。脚本指可执行文件、带 #! 开头的文件,以及常见脚本扩展名
+ * (.sh、.py、.js、.ts、.rb、.pl、.ps1 等)的文件。种类以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+ */
+export enum UpdateRiskKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 新增的可执行文件,包括原来不可执行、这次变成可执行的文件
+     */
+    RiskExecutableAdded = "executable_added",
+
+    /**
+     * 新增的脚本(不可执行)
+     */
+    RiskScriptAdded = "script_added",
+
+    /**
+     * 改动的脚本
+     */
+    RiskScriptChanged = "script_changed",
+};
 
 /**
  * UpdatedSkill 是更新结果里的一个技能:从哪个版本换到了哪个版本。

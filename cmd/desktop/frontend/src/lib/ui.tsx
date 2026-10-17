@@ -40,13 +40,21 @@ export interface RunOptions<T> {
   onError?: (err: LibraryError) => boolean;
 }
 
+// ToastAction 是 toast 上的一个按钮(如更新完成后的"回滚");带按钮的 toast 停留得久一些。
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface UIService {
-  toast: (message: string, tone?: "ok" | "error") => void;
+  toast: (message: string, tone?: "ok" | "error", action?: ToastAction) => void;
   // open 打开一个自定义弹窗;render 拿到 close,close(value) 关闭并 resolve。
   open: <T>(render: (close: (value?: T) => void) => ReactNode) => Promise<T | undefined>;
   confirm: (opts: ConfirmOptions) => Promise<string | undefined>;
   prompt: (opts: PromptOptions) => Promise<string | undefined>;
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
+  // reload 重读快照：不经 run 的只读调用也会写库(如生成更新计划时写下的检查结论),之后由调用方让界面跟上。
+  reload: () => void;
   busy: boolean;
 }
 
@@ -59,7 +67,7 @@ export function useUI(): UIService {
 }
 
 export function UIProvider({ reload, children }: { reload: () => void; children: ReactNode }) {
-  const [toastState, setToast] = useState<{ message: string; tone: "ok" | "error"; show: boolean }>({
+  const [toastState, setToast] = useState<{ message: string; tone: "ok" | "error"; show: boolean; action?: ToastAction }>({
     message: "",
     tone: "ok",
     show: false,
@@ -69,11 +77,15 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
   const nextID = useRef(1);
   const [pending, setPending] = useState(0);
 
-  const toast = useCallback((message: string, tone: "ok" | "error" = "ok") => {
+  const toast = useCallback((message: string, tone: "ok" | "error" = "ok", action?: ToastAction) => {
     window.clearTimeout(timer.current);
-    setToast({ message, tone, show: true });
-    timer.current = window.setTimeout(() => setToast((t) => ({ ...t, show: false })), tone === "error" ? 5200 : 2400);
+    setToast({ message, tone, show: true, action });
+    timer.current = window.setTimeout(() => setToast((t) => ({ ...t, show: false })), action ? 6000 : tone === "error" ? 5200 : 2400);
   }, []);
+  const hideToast = () => {
+    window.clearTimeout(timer.current);
+    setToast((t) => ({ ...t, show: false }));
+  };
 
   const open = useCallback(<T,>(render: (close: (value?: T) => void) => ReactNode) => {
     return new Promise<T | undefined>((resolve) => {
@@ -119,8 +131,8 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
   );
 
   const service = useMemo(
-    () => ({ toast, open, confirm, prompt, run, busy: pending > 0 }),
-    [toast, open, confirm, prompt, run, pending],
+    () => ({ toast, open, confirm, prompt, run, reload, busy: pending > 0 }),
+    [toast, open, confirm, prompt, run, reload, pending],
   );
 
   return (
@@ -140,6 +152,18 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
         )}
       >
         {toastState.message}
+        {toastState.action && (
+          <Button
+            variant="link"
+            className={cn("ml-2", toastState.show && "pointer-events-auto")}
+            onClick={() => {
+              hideToast();
+              toastState.action?.onClick();
+            }}
+          >
+            {toastState.action.label}
+          </Button>
+        )}
       </div>
     </UIContext.Provider>
   );

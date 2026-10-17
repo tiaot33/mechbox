@@ -1,5 +1,5 @@
 // 左栏：入库 / 市场入口;筛选——所有技能 / 更新 / 集合(按来源)/ 组;底部同步与设置。
-// "更新"的计数是有新版本的集合数(本地目录来源不计);只有一个技能的集合不列出，集合这一层只在有两个以上技能时出现。
+// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);只有一个技能的集合不列出，集合这一层只在有两个以上技能时出现。
 // 组行可拖到右栏作用域(组安装),也接受技能卡片(加入该组)。
 import { useState } from "react";
 import type { ConfigStatus } from "@bindings/cmd/desktop";
@@ -9,11 +9,11 @@ import { alreadyInGroup, dropProps, useDnD } from "@/lib/dnd";
 import type { Snapshot } from "@/lib/library";
 import {
   checkableCollections,
+  pending,
   sameFilter,
   shortPath,
   sourceKindLabel,
   sourceLabel,
-  updatableCollections,
   type SkillFilter,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
@@ -39,7 +39,7 @@ interface FilterSidebarProps {
 export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings }: FilterSidebarProps) {
   const ui = useUI();
   const dnd = useDnD();
-  const updates = updatableCollections(s).length;
+  const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
   const collections = s.collections.filter((c) => (c.skills?.length ?? 0) > 1);
   // 收起的分节("集合" / "组")。
@@ -75,7 +75,7 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings
       </SideButton>
       <ul className="flex flex-col gap-0.5">
         {row({ kind: "all" }, <Icon name="bolt" />, "所有技能", s.skills.length)}
-        {updates > 0 && row({ kind: "updates" }, <Icon name="up" />, "更新", updates, "有新版本的来源")}
+        {updates > 0 && row({ kind: "updates" }, <Icon name="up" />, "更新", updates, "要处理的更新：有新版本、来源里已删除或可能改了名的技能;和 Dock 角标一致")}
         <li>
           <button
             type="button"

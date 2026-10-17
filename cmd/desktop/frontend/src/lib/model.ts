@@ -119,18 +119,36 @@ export function viaGroupCount(s: Snapshot, group: Group, key: ScopeKey): number 
 }
 
 // ---------- 更新 ----------
-// 本地目录来源的作者就是用户自己：不进更新列表、不计入计数，技能上只有"重新读取"。
+// 计入角标的规则由技能库给出(UpdateCheck.pending):有新版本且没跳过、来源里已删除且没选继续保留、推测出改名且没跳过;
+// 本地目录来源、跳过的改动、来源里的新技能都不计入。侧边栏的更新计数、更新列表和 Dock 角标都按它算。
+// 本地目录来源的作者就是用户自己：不进更新列表，技能上只有"重新读取"。
 
 export function isLocal(source: Source): boolean {
   return source.type === SourceType.SourceLocal;
 }
 
+export function pending(skill: Skill): boolean {
+  return !!skill.last_update_check?.pending;
+}
+
+// updateAvailable 是来源里这个技能有新版本，跳过了的也算(更新计划里照样能勾上)。
 export function updateAvailable(skill: Skill): boolean {
   return !isLocal(skill.source) && skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable;
 }
 
+// renamedTo 是推测这个技能在来源里改成的新名字;没有推测时为空。
+export function renamedTo(skill: Skill): string {
+  return skill.last_update_check?.renamed_to ?? "";
+}
+
+// deletedInSource 是来源里已删除、也没推测出改名。
 export function deletedInSource(skill: Skill): boolean {
-  return skill.last_update_check?.status === UpdateCheckStatus.UpdateDeleted;
+  return skill.last_update_check?.status === UpdateCheckStatus.UpdateDeleted && !renamedTo(skill);
+}
+
+// hasUpdate 是能从这个技能打开更新计划：有新版本或推测出改名，跳过了的也算。
+export function hasUpdate(skill: Skill): boolean {
+  return updateAvailable(skill) || !!renamedTo(skill);
 }
 
 export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
@@ -138,9 +156,9 @@ export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
   return s.skills.filter((x) => ids.has(x.id));
 }
 
-// updatableCollections 是有新版本的集合(不含本地目录来源),按集合列表顺序。
+// updatableCollections 是有计入角标的技能的集合，按集合列表顺序。
 export function updatableCollections(s: Snapshot): Collection[] {
-  return s.collections.filter((c) => !isLocal(c.source) && collectionSkills(s, c).some(updateAvailable));
+  return s.collections.filter((c) => collectionSkills(s, c).some(pending));
 }
 
 // checkableCollections 是检查更新的范围：本地目录来源不检查。
@@ -262,7 +280,7 @@ export function visibleSkills(s: Snapshot, q: ListQuery): Skill[] {
     const ids = new Set(s.groups.find((g) => g.id === f.groupID)?.members ?? []);
     skills = skills.filter((x) => ids.has(x.id));
   }
-  if (f.kind === "updates") skills = skills.filter(updateAvailable);
+  if (f.kind === "updates") skills = skills.filter(pending);
   const text = q.search.trim().toLowerCase();
   if (text) skills = skills.filter((x) => (x.name + " " + x.description).toLowerCase().includes(text));
   const key = q.installedOnlyIn;

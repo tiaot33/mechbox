@@ -23,6 +23,7 @@ import { Diagnostics, toggled } from "./parts";
 interface FetchReviewProps {
   preview: FetchPreview;
   audits: boolean; // 只有 GitHub 来源在 skills.sh 收录范围内，才提供审计查询
+  onlyNew?: boolean; // 从集合上的"新发布了 N 个技能"进来：只默认勾上来源里的新技能
   onClose: () => void;
   onBack: () => void;
 }
@@ -33,12 +34,12 @@ function parentDir(path: string): string {
   return i < 0 ? "" : path.slice(0, i);
 }
 
-export function FetchReview({ preview, audits, onClose, onBack }: FetchReviewProps) {
+export function FetchReview({ preview, audits, onlyNew = false, onClose, onBack }: FetchReviewProps) {
   const ui = useUI();
   const candidates = preview.candidates ?? [];
   const fresh = candidates.filter((c) => !c.fetched);
-  // 默认勾选尚未入库的候选;已入库的不能再选(整批会因 AlreadyExists 失败)。
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(fresh.map((c) => c.name)));
+  // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(fresh.filter((c) => !onlyNew || c.new).map((c) => c.name)));
   const [fetching, setFetching] = useState(false);
 
   const toggle = (name: string) => setSelected((set) => toggled(set, name));
@@ -93,6 +94,8 @@ export function FetchReview({ preview, audits, onClose, onBack }: FetchReviewPro
           <b className="shrink-0 font-semibold whitespace-nowrap">{c.name}</b>
           {c.fetched ? (
             <Badge title="同一来源的同名技能已在库中;要取新内容请在技能详情里点「更新」">已入库</Badge>
+          ) : c.new ? (
+            <Badge tone="accent" title="上次从这个来源入库之后才出现的技能">新技能</Badge>
           ) : null}
           <span className="min-w-0 grow truncate font-mono text-[11px] text-muted-foreground">{rel !== c.name ? rel : ""}</span>
           {c.plugin_name && <span className="shrink-0 text-[11px] text-subtle">{c.plugin_name}</span>}

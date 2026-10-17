@@ -17,10 +17,10 @@ import {
   addSkillToGroup,
   createGroup,
   installSkill,
+  previewCollection,
   reinstall,
   removeSkill,
   removeSkillFromGroup,
-  openUpdate,
   uninstallSkill,
 } from "@/lib/actions";
 import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/content";
@@ -31,9 +31,12 @@ import {
   agentsUsedIn,
   collectionSkills,
   deletedInSource,
+  hasUpdate,
   isLocal,
   needsReinstall,
+  pending,
   projectName,
+  renamedTo,
   revisionSummary,
   scopeKey,
   scopeLabel,
@@ -44,10 +47,10 @@ import {
   skillScopesOf,
   sourceKindLabel,
   sourceLabel,
-  updateAvailable,
   type Place,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
+import { keepDeleted, notInterested, openHistory, openUpdate, previewNewSkills, rereadSkill } from "@/lib/update";
 import { cn } from "@/lib/utils";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,14 +72,14 @@ const checkStatus: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
   [UpdateCheckStatus.$zero]: { label: "已是最新", tone: "ok" },
 };
 
-// collectionRelation 说明技能和集合里其他技能的关系：是否在同一个来源版本上，以及其他技能有没有新版本。
+// collectionRelation 说明技能和集合里其他技能的关系：是否在同一个来源版本上，以及其他技能有没有要处理的更新。
 function collectionRelation(skill: Skill, collection: Skill[]): string {
   const others = collection.filter((x) => x.id !== skill.id);
-  const pending = others.filter(updateAvailable).length;
+  const todo = others.filter(pending).length;
   const aligned = new Set(collection.map((x) => x.revision).filter(Boolean)).size <= 1;
   return [
     aligned ? `和其他 ${others.length} 个技能在同一个来源版本上` : revisionSummary(collection),
-    pending ? `${pending} 个有新版本` : "",
+    todo ? `${todo} 个有变化` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -145,8 +148,8 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
           <div className="flex flex-col gap-2 px-2.5 pt-3.5 pb-4">
             <div className="flex items-center gap-2.5 px-2">
               <SheetTitle className="flex-1 text-[18px] font-bold tracking-[-0.01em]">{skill.name}</SheetTitle>
-              {updateAvailable(skill) && (
-                <Button variant="primary" onClick={() => openUpdate(ui, s, skill.collection_id, id)}>
+              {hasUpdate(skill) && (
+                <Button variant={pending(skill) ? "primary" : "default"} onClick={() => openUpdate(ui, s, skill.collection_id, { focus: id })}>
                   <Icon name="up" />
                   更新
                 </Button>
@@ -157,29 +160,66 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                 {skill.description}
               </SheetDescription>
             )}
-            {deletedInSource(skill) && (
-              <Notice className="mb-2.5">
-                作者已从 {sourceLabel(s, skill.source)} 删掉了「{skill.name}」(也可能是改了名)。你的副本还在，可以继续用。
+            {renamedTo(skill) && (
+              <Notice tone="warn" className="mb-2.5 flex items-center gap-2">
+                <span className="grow">
+                  「{skill.name}」在 {sourceLabel(s, skill.source)} 里可能改名成了「{renamedTo(skill)}」。确认是同一个后，组、安装记录和版本历史都会跟过去。
+                </span>
+                <Button size="sm" onClick={() => openUpdate(ui, s, skill.collection_id, { focus: id })}>
+                  查看
+                </Button>
               </Notice>
             )}
-            {(isLocal(skill.source) || installed.length > 0) && (
-              <div className="flex flex-wrap gap-1.5 px-2">
-                {isLocal(skill.source) && (
-                  <Button
-                    size="sm"
-                    onClick={() => openUpdate(ui, s, skill.collection_id, id)}
-                    title="从目录读出当前内容成为新版本，并换到装过它的地方"
-                  >
-                    <Icon name="up" />
-                    重新读取
+            {deletedInSource(skill) &&
+              (skill.kept_deleted ? (
+                <Hint className="px-2">作者已从 {sourceLabel(s, skill.source)} 删掉了它，你选了继续保留。</Hint>
+              ) : (
+                <Notice className="mb-2.5 flex items-center gap-2">
+                  <span className="grow">
+                    作者已从 {sourceLabel(s, skill.source)} 删掉了「{skill.name}」。你的副本还在，可以继续用。
+                  </span>
+                  <Button size="sm" onClick={async () => (await removeSkill(ui, s, id)) && onClose()}>
+                    移除
                   </Button>
-                )}
-                {installed.length > 0 && (
-                  <Button size="sm" onClick={() => reinstall(ui, s, { skill_id: id }, `「${skill.name}」`)}>
-                    <Icon name="refresh" />
-                    全部重新安装
+                  <Button size="sm" onClick={() => keepDeleted(ui, s, id)}>
+                    继续保留
                   </Button>
-                )}
+                </Notice>
+              ))}
+            <div className="flex flex-wrap gap-1.5 px-2">
+              {isLocal(skill.source) && (
+                <Button size="sm" onClick={() => rereadSkill(ui, s, skill)} title="从目录读出当前内容成为新版本，并换到装过它的地方(你改过的地方不动)">
+                  <Icon name="up" />
+                  重新读取
+                </Button>
+              )}
+              {installed.length > 0 && (
+                <Button size="sm" onClick={() => reinstall(ui, s, { skill_id: id }, `「${skill.name}」`)}>
+                  <Icon name="refresh" />
+                  全部重新安装
+                </Button>
+              )}
+              <Button size="sm" onClick={() => openHistory(ui, s, { skill_id: id }, `「${skill.name}」的更新历史`)} title="哪几次更新改过它，可以回滚">
+                更新历史
+              </Button>
+              {/* 只有一个技能的来源没有集合这一层，从这里找回来源里的其他技能(包括点过"不感兴趣"的)。 */}
+              {collection.length === 1 && c && (
+                <Button size="sm" onClick={() => previewCollection(ui, c.id)} title="按入库时的来源重新读取，看看作者还发布了哪些技能">
+                  看来源里的其他技能
+                </Button>
+              )}
+            </div>
+            {collection.length === 1 && (c?.new_skills?.length ?? 0) > 0 && (
+              <div className="skill-new flex items-center gap-2 px-2 text-[11px] text-muted-foreground">
+                <span className="grow">
+                  {sourceLabel(s, skill.source)} 新发布了 {c!.new_skills!.length} 个技能({c!.new_skills!.join("、")})
+                </span>
+                <Button variant="link" onClick={() => previewNewSkills(ui, c!.id)}>
+                  去入库
+                </Button>
+                <Button variant="link" onClick={() => notInterested(ui, c!.id, c!.new_skills!)}>
+                  不感兴趣
+                </Button>
               </div>
             )}
 
@@ -225,7 +265,10 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                     <dd>
                       {check ? (
                         <>
-                          <Badge tone={checkStatus[check.status].tone}>{checkStatus[check.status].label}</Badge>{" "}
+                          <Badge tone={checkStatus[check.status].tone}>
+                            {check.renamed_to ? `可能改名为 ${check.renamed_to}` : checkStatus[check.status].label}
+                          </Badge>{" "}
+                          {check.skipped && <span className="text-[11px] text-muted-foreground">已跳过这次的改动 · </span>}
                           <span className="text-[11px] text-muted-foreground">{formatDate(check.checked_at)}</span>
                         </>
                       ) : (

@@ -1,6 +1,6 @@
 // 桌面端读取技能库的入口：经 Wails 绑定调用 Go 侧的 LibraryService。
 import { useCallback, useEffect, useState } from "react";
-import type { CancellablePromise } from "@wailsio/runtime";
+import { CancelError, type CancellablePromise } from "@wailsio/runtime";
 import { AppService, LibraryService, type AppInfo } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
@@ -19,7 +19,9 @@ import { parseScope, type ScopeKey } from "./model";
 // Wails 运行时放在被拒绝的 Error 的 cause 上。
 export type LibraryError = LibraryErrorModel;
 
+// 前端自己取消的调用(关掉弹窗等)由 Wails 运行时以 CancelError 拒绝，和技能库的 Canceled 一样算正常取消。
 export function toLibraryError(err: unknown): LibraryError {
+  if (err instanceof CancelError) return { code: ErrorCode.Canceled, message: err.message };
   const cause = err instanceof Error ? err.cause : undefined;
   if (cause && typeof cause === "object" && "code" in cause && "message" in cause) {
     return cause as LibraryError;
