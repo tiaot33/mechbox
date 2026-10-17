@@ -4,6 +4,7 @@ import assert from "node:assert";
 import { chromium } from "playwright-core";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 
 const HOME = process.env.E2E_HOME;
@@ -25,6 +26,14 @@ page.on("response", async (r) => {
   if (r.status() < 400) return;
   const body = await r.text().catch(() => "");
   problems.push(`http ${r.status()} ${r.url()} ${body.slice(0, 160)}`);
+});
+// previewCalls 数前端发出的 PreviewFetch 调用(Wails 按绑定里的 methodID 发 POST)。
+const previewMethodID = fs
+  .readFileSync(new globalThis.URL("../frontend/bindings/github.com/tiaot33/skills-tui/cmd/desktop/libraryservice.ts", import.meta.url), "utf8")
+  .match(/function PreviewFetch\([^]*?ByID\((\d+)/)[1];
+let previewCalls = 0;
+page.on("request", (r) => {
+  if (r.method() === "POST" && r.url().includes("/wails/runtime") && (r.postData() ?? "").includes(`"methodID":${previewMethodID}`)) previewCalls++;
 });
 await page.goto(URL);
 await page.waitForSelector(".a-list");
@@ -153,6 +162,8 @@ await step("预览不存在的目录：在对话框里显示原因", async () =>
   await modal().locator('[data-slot="input"]').first().fill(`${SK}/nope`);
   await btn(modal(), "入库预览").click();
   await modal().locator(".fetch-failure").waitFor({ timeout: 20000 });
+  const reason = await modal().locator(".fetch-failure").textContent();
+  assert(reason.includes("no such file or directory"), `应写出技能库给出的原因，实际：${reason}`);
   assert((await page.locator('[data-slot="toast"][data-state="open"][data-tone="error"]').count()) === 0, "原因不应只弹 toast");
   await modal().locator('[data-slot="input"]').first().fill(`${SK}/nope2`);
   assert((await modal().locator(".fetch-failure").count()) === 0, "改了输入应清掉原因");
@@ -164,7 +175,9 @@ await step("无效链接：在对话框里显示技能库给出的原因", async
   await modal().locator('[data-slot="input"]').first().fill(ZIP_URL.replace(/delta\.zip$/, "nothing-here"));
   await btn(modal(), "入库预览").click();
   await modal().locator(".fetch-failure").waitFor({ timeout: 30000 });
-  assert(((await modal().locator(".fetch-failure").textContent()) ?? "").length > 0, "应写出原因");
+  const reason = await modal().locator(".fetch-failure").textContent();
+  assert(reason.includes("输入无效"), `应按错误码写出主文案，实际：${reason}`);
+  assert(reason.includes("neither a skill file or archive, nor a site with a well-known skills index, nor a Git repository"), `应写出技能库给出的原因，实际：${reason}`);
   assert((await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count()) === 1, "应留在入库对话框");
   await modal().getByRole("button", { name: "取消" }).click();
 });
@@ -174,8 +187,80 @@ await step("分支只对 Git 仓库有效：用在本地目录上显示原因", 
   await modal().locator('[data-slot="input"]').first().fill(SK);
   await modal().locator("label", { hasText: "分支 / tag" }).locator('[data-slot="input"]').fill("main");
   await btn(modal(), "入库预览").click();
-  await modal().locator(".fetch-failure", { hasText: "ref" }).waitFor({ timeout: 20000 });
+  await modal().locator(".fetch-failure", { hasText: "ref only applies to Git repositories" }).waitFor({ timeout: 20000 });
   await modal().getByRole("button", { name: "取消" }).click();
+});
+
+await step("预览还没返回时改了输入：旧请求的结果和原因都不采用", async () => {
+  // 每个请求都等 1 秒再回 404:链接本身、四个 well-known 索引与 git ls-remote 走完，旧请求大约 6 秒后才失败。
+  const slow = http.createServer((_, res) => setTimeout(() => res.writeHead(404).end(), 1000));
+  await new Promise((resolve) => slow.listen(0, "127.0.0.1", resolve));
+  try {
+    await openFetch();
+    const input = modal().locator('[data-slot="input"]').first();
+    await input.fill(`http://127.0.0.1:${slow.address().port}/slow`);
+    await btn(modal(), "入库预览").click();
+    // 忙碌时按钮文字不可见，按钮不再以「入库预览」为名，按 aria-busy 找。
+    const busy = modal().locator('[data-slot="button"][aria-busy="true"]');
+    await busy.waitFor({ timeout: 2000 });
+    await input.fill(SK);
+    assert.equal(await busy.count(), 0, "改了输入后按钮不应再忙");
+    assert(!(await btn(modal(), "入库预览").isDisabled()), "改了输入后应能马上再预览");
+    await page.waitForTimeout(9000);
+    assert((await modal().locator(".fetch-failure").count()) === 0, "旧请求的失败原因不应显示在新输入下面");
+    assert((await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count()) === 1, "应留在入库对话框");
+    await btn(modal(), "入库预览").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+    assert((await modal().locator(".fetch-source", { hasText: SK }).count()) === 1, "结果页应是新输入的入库预览");
+    await page.keyboard.press("Escape");
+  } finally {
+    slow.closeAllConnections();
+    slow.close();
+  }
+});
+
+await step("空白输入回车不发请求，连按两次只发一次，返回后改输入再预览", async () => {
+  await openFetch();
+  const input = modal().locator('[data-slot="input"]').first();
+  const before = previewCalls;
+  await input.fill("   ");
+  await input.press("Enter");
+  await page.waitForTimeout(500);
+  assert.equal(previewCalls, before, "空白输入不应发请求");
+  assert(await btn(modal(), "入库预览").isDisabled(), "空白输入时不能提交");
+  assert((await modal().locator(".fetch-failure, [data-slot=\"field-error\"]").count()) === 0, "空白输入不提示错误");
+
+  await input.fill(ZIP_URL);
+  // 两次回车在同一轮事件里连着到达(界面还没来得及重新渲染),只应发一次请求。
+  await input.evaluate((el) => {
+    for (let i = 0; i < 2; i++) el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  assert.equal(previewCalls, before + 1, "连按两次回车只应发一次请求");
+  assert((await modal().locator(".fetch-source", { hasText: "直接下载" }).count()) === 1, "应识别为直接下载");
+
+  await btn(modal(), "返回").click();
+  assert.equal(await modal().locator('[data-slot="input"]').first().inputValue(), ZIP_URL, "返回后输入应保留");
+  await modal().locator('[data-slot="input"]').first().fill(SK);
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  assert.equal(previewCalls, before + 2, "返回后再预览应发新请求");
+  assert((await modal().locator(".fetch-source", { hasText: "本地目录" }).count()) === 1, "结果页应是新输入的识别结果");
+  assert((await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).count()) === 0, "不应留着上一次的候选");
+  await page.keyboard.press("Escape");
+});
+
+await step("well-known 站点链接：识别为 well-known 索引，只列链接路径下的技能", async () => {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill(ZIP_URL.replace(/delta\.zip$/, "site/"));
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
+  assert((await modal().locator(".fetch-source", { hasText: "well-known 索引" }).count()) === 1, "应识别为 well-known 索引");
+  assert((await modal().locator(".fetch-source", { hasText: "/site" }).count()) === 1, "展示名称应带站点路径");
+  assert((await modal().locator('[data-slot="list-row"]', { hasText: "omega" }).count()) === 1, "候选里应有 omega");
+  assert((await modal().getByText("匿名访问 GitHub API").count()) === 0, "well-known 不应提醒 GitHub 限流");
+  assert((await modal().getByRole("button", { name: "查看审计" }).count()) === 0, "well-known 不应有审计");
+  await page.keyboard.press("Escape");
 });
 
 await step("本地路径：./ 相对路径被拦下，~ 展开为主目录", async () => {
@@ -1317,6 +1402,65 @@ await step("[网络] 技能市场搜索 → 入库", async () => {
   await btn(modal(), "入库所选").click();
   await toast("已入库", undefined);
   await settle();
+});
+
+// previewSource 在入库对话框里填来源(以及可选的分支、仓库内目录)做入库预览，等到结果页出现。
+async function previewSource(input, { ref = "", subpath = "" } = {}) {
+  await openFetch();
+  await modal().locator('[data-slot="input"]').first().fill(input);
+  if (ref) await modal().locator("label", { hasText: "分支 / tag" }).locator('[data-slot="input"]').fill(ref);
+  if (subpath) await modal().locator("label", { hasText: "仓库内目录" }).locator('[data-slot="input"]').fill(subpath);
+  await btn(modal(), "入库预览").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 90000 });
+}
+// expectSource 核对结果页的识别结果，以及限流提醒与 skills.sh 审计只在 GitHub 仓库出现。
+async function expectSource(kind, label, ref) {
+  const source = modal().locator(".fetch-source");
+  assert((await source.locator('[data-slot="badge"]', { hasText: new RegExp(`^${kind}$`) }).count()) === 1, `应识别为${kind}`);
+  assert((await source.getByText(label, { exact: true }).count()) === 1, `展示名称应为 ${label}`);
+  if (ref) assert((await source.getByText(`分支 ${ref}`).count()) === 1, `应显示分支 ${ref}`);
+  const github = kind === "GitHub 仓库";
+  const tokenless = !process.env.GITHUB_TOKEN && !process.env.GH_TOKEN;
+  assert.equal((await modal().getByText("匿名访问 GitHub API").count()) === 1, github && tokenless, "限流提醒只在没有令牌的 GitHub 仓库显示");
+  assert.equal((await modal().getByRole("button", { name: "查看审计" }).count()) > 0, github, "只有 GitHub 仓库能查看审计");
+}
+const candidateNames = async () => (await modal().locator('[data-slot="list-row"] b').allTextContents()).sort();
+
+await step("[网络] GitHub 仓库：分支与仓库内目录传给技能库，结果页显示分支", async () => {
+  await previewSource("anthropics/skills", { ref: "main", subpath: "skills/pdf" });
+  await expectSource("GitHub 仓库", "anthropics/skills", "main");
+  assert.deepEqual(await candidateNames(), ["pdf"], "只应列仓库内目录下的技能");
+  await page.keyboard.press("Escape");
+});
+
+await step("[网络] GitHub raw SKILL.md 链接识别为直接下载", async () => {
+  const link = "https://raw.githubusercontent.com/anthropics/skills/main/skills/pdf/SKILL.md";
+  await previewSource(link);
+  await expectSource("直接下载", link);
+  assert.deepEqual(await candidateNames(), ["pdf"], "候选应为 pdf");
+  await page.keyboard.press("Escape");
+});
+
+await step("[网络] GitLab 仓库：识别为 Git 仓库，分支与仓库内目录生效", async () => {
+  await previewSource("https://gitlab.com/gitlab-org/ai/skills", { ref: "main", subpath: "skills/adr-create" });
+  await expectSource("Git 仓库", "gitlab.com/gitlab-org/ai/skills", "main");
+  assert.deepEqual(await candidateNames(), ["adr-create"], "只应列仓库内目录下的技能");
+  await page.keyboard.press("Escape");
+});
+
+await step("[网络] GitLab tree 链接：从链接里拆出分支和仓库内目录", async () => {
+  await previewSource("https://gitlab.com/gitlab-org/ai/skills/-/tree/main/skills/adr-create");
+  await expectSource("Git 仓库", "gitlab.com/gitlab-org/ai/skills", "main");
+  assert.deepEqual(await candidateNames(), ["adr-create"], "只应列链接里目录下的技能");
+  await page.keyboard.press("Escape");
+});
+
+await step("[网络] GitLab raw SKILL.md 链接识别为直接下载", async () => {
+  const link = "https://gitlab.com/gitlab-org/ai/skills/-/raw/main/skills/adr-create/SKILL.md";
+  await previewSource(link);
+  await expectSource("直接下载", link);
+  assert.deepEqual(await candidateNames(), ["adr-create"], "候选应为 adr-create");
+  await page.keyboard.press("Escape");
 });
 
 await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {

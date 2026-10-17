@@ -1,7 +1,7 @@
 // 入库技能：给出一个来源输入(本地路径、GitHub、Git 仓库、下载链接或站点链接),由技能库识别来源并做入库预览，
 // 再在 FetchReview 里挑选候选入库。
-import { useState } from "react";
-import { Dialogs } from "@wailsio/runtime";
+import { useEffect, useRef, useState } from "react";
+import { Dialogs, type CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { FetchPreview, PreviewFetchRequest } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
@@ -33,6 +33,13 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
   // failure 是技能库给出的识别 / 入库预览失败原因，改了输入就清掉。
   const [failure, setFailure] = useState<string | null>(null);
   const [preview, setPreview] = useState<FetchPreview | null>(null);
+  // pending 是还没返回的入库预览;改了输入或关掉对话框就取消它，返回的结果与失败原因也不再采用。
+  const pending = useRef<CancellablePromise<FetchPreview> | null>(null);
+  const discard = () => {
+    pending.current?.cancel();
+    pending.current = null;
+  };
+  useEffect(() => discard, []);
 
   if (preview) {
     return <FetchReview preview={preview} onClose={onClose} onBack={() => setPreview(null)} />;
@@ -42,21 +49,27 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
   const ready = !!input?.path;
   const edit = (set: (v: string) => void) => (v: string) => {
     set(v);
+    discard();
+    setWorking(false);
     setFailure(null);
   };
 
   const previewFetch = async () => {
-    if (working || !input?.path) return;
+    if (pending.current || !input?.path) return;
     setWorking(true);
     setFailure(null);
     const req: PreviewFetchRequest = { input: input.path, ref: ref.trim() || undefined, subpath: subpath.trim() || undefined };
-    const result = await ui.run(() => LibraryService.PreviewFetch(req), {
+    const call = LibraryService.PreviewFetch(req);
+    pending.current = call;
+    const result = await ui.run(() => call, {
       reload: false,
       onError: (err) => {
-        setFailure(describeError(err));
+        if (pending.current === call) setFailure(describeError(err));
         return true;
       },
     });
+    if (pending.current !== call) return;
+    pending.current = null;
     setWorking(false);
     if (result) setPreview(result);
   };
