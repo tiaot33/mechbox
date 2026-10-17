@@ -142,9 +142,11 @@ func TestListSourceRefsForGitHubUsesOnlyLsRemote(t *testing.T) {
 		"owner/repo":            "",
 		"owner/repo@example":    "",
 		"github.com/owner/repo": "",
-		"https://github.com/owner/repo/tree/release/v2/skills": "release/v2",
-		"https://github.com/owner/repo/tree/trunk":             "trunk",
-		"git@github.com:owner/repo.git#v1":                     "v1",
+		"https://github.com/owner/repo/tree/release/v2/skills":            "release/v2",
+		"https://github.com/owner/repo/tree/trunk":                        "trunk",
+		"git@github.com:owner/repo.git#v1":                                "v1",
+		"https://github.com/owner/repo/tree/trunk/skills#trunk":           "trunk",
+		"https://github.com/owner/repo/tree/release/v2/skills#release/v2": "release/v2",
 	} {
 		got, err := lib.ListSourceRefs(t.Context(), input)
 		want.InputRef = ref
@@ -225,6 +227,34 @@ func TestListSourceRefsRejectsInputsThatAreNotGitRepositoriesWithoutNetwork(t *t
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("git was called; want no network access")
+	}
+}
+
+func TestListSourceRefsRejectsBadRefsBeforeContactingRemote(t *testing.T) {
+	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	t.Cleanup(forbidden.Close)
+	redirectGitHubRemote(t, forbidden.URL+"/owner/repo.git")
+	config := os.Getenv("GIT_CONFIG_GLOBAL")
+	runGit(t, t.TempDir(), "config", "--file", config, "url."+forbidden.URL+"/.insteadOf", "https://")
+	recordHTTP(t)
+	calls := recordGit(t)
+	lib := openTestLibrary(t)
+	for _, input := range []string{
+		"owner/repo#bad..ref",
+		"https://git.example.com/org/repo.git#bad..ref",
+		// tree 链接与 #ref 指向不同的分支,入库预览无论选哪个都会报错。
+		"https://github.com/owner/repo/tree/main/skills#v1",
+		"https://gitlab.com/group/repo/-/tree/main/skills#v1",
+	} {
+		_, err := lib.ListSourceRefs(t.Context(), input)
+		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "input"})
+		_, err = lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: input})
+		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "input"})
+	}
+	for _, call := range calls() {
+		if strings.Contains(call, "ls-remote") {
+			t.Fatalf("git %s; want the remote untouched", call)
+		}
 	}
 }
 

@@ -209,6 +209,14 @@ type Refs struct {
 }
 
 func ListRefs(ctx context.Context, remotes []string, ref, tree string) (Refs, error) {
+	if ref != "" {
+		if tree != "" && tree != ref && !strings.HasPrefix(tree, ref+"/") {
+			return Refs{}, &source.InputError{Reason: "tree URL does not match explicit ref"}
+		}
+		if err := ValidateRef(ctx, ref); err != nil {
+			return Refs{}, err
+		}
+	}
 	output, err := Remote(ctx, remotes, []string{"ls-remote", "--symref"}, "HEAD", "refs/heads/*", "refs/tags/*")
 	if err != nil {
 		return Refs{}, err
@@ -218,16 +226,14 @@ func ListRefs(ctx context.Context, remotes []string, ref, tree string) (Refs, er
 	refs.InputRef = ref
 	if ref == "" && tree != "" {
 		if matches := treeMatches(tree, append(refs.Branches, refs.Tags...)); len(matches) == 1 {
+			if err := ValidateRef(ctx, matches[0]); err != nil {
+				return Refs{}, err
+			}
 			refs.InputRef = matches[0]
 		}
 	}
-	if refs.InputRef != "" {
-		if err := ValidateRef(ctx, refs.InputRef); err != nil {
-			return Refs{}, err
-		}
-		if FullCommit.MatchString(refs.InputRef) {
-			refs.InputRef = strings.ToLower(refs.InputRef)
-		}
+	if FullCommit.MatchString(refs.InputRef) {
+		refs.InputRef = strings.ToLower(refs.InputRef)
 	}
 	return refs, nil
 }

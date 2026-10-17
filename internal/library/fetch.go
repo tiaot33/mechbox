@@ -318,7 +318,8 @@ type SourceRefs struct {
 // 只接受从输入就能认出的 Git 类来源:GitHub 简写和链接、GitLab 链接与 gitlab: 简写、SSH 地址、以 .git 结尾的地址,
 // 以及补上 https:// 后属于这几类的输入(补协议的规则与 PreviewFetch 相同)。tree 链接里带斜杠的分支按分支列表认出,
 // 如 …/tree/release/v2/skills 的 InputRef 为 release/v2。
-// 其他输入(本地路径、下载链接、要先请求链接内容才能判断的 http(s) 链接)与无效输入返回 InvalidArgument,Details.Field 为 input,不联网。
+// 其他输入(本地路径、下载链接、要先请求链接内容才能判断的 http(s) 链接)与无效输入(含无效的 #ref、tree 链接与 #ref 不一致,规则与 PreviewFetch 相同)
+// 返回 InvalidArgument,Details.Field 为 input,不联网。
 // 连不上、没有权限、仓库不存在时按与入库预览相同的错误码返回。
 func (l *Library) ListSourceRefs(ctx context.Context, input string) (refs SourceRefs, err error) {
 	defer func() { err = typedError(err) }()
