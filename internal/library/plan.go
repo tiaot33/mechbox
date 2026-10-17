@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -33,8 +36,10 @@ type UpdatePlan struct {
 	// Skills 是集合里的每个技能,按 ID 升序。
 	Skills []PlannedSkill `json:"skills"`
 	// Installs 是有变化的技能装出去的每一处及其现在的状态,按「技能 × 地方」逐条给出,与 InspectSkillScopes 的结果同形、同序;
-	// 同一处装了几个有变化的技能时各自一条。没有时为空数组。
+	// 同一处装了几个有变化的技能时各自一条。没有时为空数组。用目录里的修改更新时不含取内容的那个文件夹(共用它的 Agent 也不列)。
 	Installs []SkillScopeInspection `json:"installs"`
+	// FromScope 是用目录里的修改更新(PlanUpdateFromScope)时取内容的那一处;从来源更新时为 nil。
+	FromScope *Scope `json:"from_scope,omitempty"`
 }
 
 // Commit 是来源里的一次提交,只供展示。
@@ -96,6 +101,7 @@ type planState struct {
 	replica    string
 	revision   string
 	skills     map[SkillID]*plannedState
+	from       *Scope
 	timer      *time.Timer
 }
 
@@ -183,6 +189,125 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 		return UpdatePlan{}, err
 	}
 	return plan, nil
+}
+
+// PlanUpdateFromScope 对巡检为用户改过(modified)的那一处生成更新计划:用那里文件夹的内容更新库里的这个技能,成为它的新版本。
+// 这是一次普通的更新,计划同样交给 Update 执行(确认时一并把勾选的其他地方换成这份修改)、用 GetUpdatePlanFile 读那里的文件,
+// 留下的更新记录(UpdateRecord.FromScope 为这一处)同样能回滚、单独重试没换上的地方;不能跳过(SkipUpdate)。
+// 计划里只有这一个技能:Change 为 changed,Risks 与 Diff 从库里的当前版本到那里的内容;Revision 与 Commits 为空。
+// Installs 列出这个技能装出去的其他各处及其状态,默认勾选的规则和从来源更新相同:用户改过的地方不勾,勾上才覆盖。
+// 更新之后,取内容的那一处和新的当前版本一致,巡检为 current。新版本的 SkillVersion.BasedOn 是当时库里的当前版本,
+// 来源版本沿用它的;检查更新的判断不变。
+// 只读:不改库,也不碰装出去的文件夹;可以反复生成。
+//
+// 错误:作用域不合法返回 InvalidArgument;技能、Agent、项目不存在,或技能不装在这里返回 NotFound;作用域根目录不存在返回
+// FailedPrecondition(Details.Path 为根目录,项目带 ProjectID);这一处没有被改过(和库里某个版本一致、文件夹不在了),或里面有
+// 不是普通文件的东西,返回 FailedPrecondition(Details.Path 为文件夹);内容不是有效技能(没有 SKILL.md,或缺 name / description)、
+// SKILL.md 的 name 和技能名不同,或超出读取上限,返回 SourceInvalid(Details.Path 为文件夹,名字不同时 Details.Name 为那里写的名字)。
+func (l *Library) PlanUpdateFromScope(ctx context.Context, skill SkillID, scope Scope) (plan UpdatePlan, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	const operation = "plan update from scope"
+	edit, err := l.readScopeEdit(ctx, operation, skill, scope)
+	if err != nil {
+		return UpdatePlan{}, err
+	}
+	replica, err := l.store.Replica(ctx)
+	if err != nil {
+		return UpdatePlan{}, err
+	}
+	from := edit.target.scope()
+	diff := diffDigests(digests(edit.current.files), digests(edit.latest.Files))
+	plan = UpdatePlan{
+		CollectionID: edit.skill.CollectionID,
+		Source:       edit.skill.Source,
+		Skills:       []PlannedSkill{{Skill: edit.skill, Change: PlannedChanged, Risks: updateRisks(edit.current.files, edit.latest.Files), Diff: &diff}},
+		Installs:     []SkillScopeInspection{},
+		FromScope:    &from,
+	}
+	skillScopes, err := l.listSkillScopes(ctx, skill, nil)
+	if err != nil {
+		return UpdatePlan{}, err
+	}
+	inspections, err := l.inspectSkillScopes(ctx, operation, skillScopes)
+	if err != nil {
+		return UpdatePlan{}, err
+	}
+	for _, inspection := range inspections {
+		if inspection.Folder != edit.folder {
+			plan.Installs = append(plan.Installs, inspection)
+		}
+	}
+	item := &plannedState{name: edit.skill.Name, change: PlannedChanged, versionID: edit.current.versionID, latest: edit.latest, content: skillfile.Sum(edit.latest.Files)}
+	state := &planState{collection: edit.skill.CollectionID, sourceID: edit.current.source.ID, replica: replica, skills: map[SkillID]*plannedState{skill: item}, from: &from}
+	plan.ID, err = l.registerPlan(state)
+	if err != nil {
+		return UpdatePlan{}, err
+	}
+	return plan, nil
+}
+
+type scopeEdit struct {
+	skill   Skill
+	current currentVersion
+	target  resolvedScope
+	folder  string
+	latest  source.Skill
+}
+
+func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillID, scope Scope) (scopeEdit, error) {
+	target, err := l.resolveScope(ctx, operation, scope)
+	if err != nil {
+		return scopeEdit{}, err
+	}
+	skill, current, err := l.getCurrent(ctx, id)
+	if err != nil {
+		return scopeEdit{}, err
+	}
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	if err != nil {
+		return scopeEdit{}, err
+	}
+	if len(place) == 0 {
+		return scopeEdit{}, &Error{Code: NotFound, Message: operation + ": skill is not installed in scope", Details: ErrorDetails{SkillID: id}}
+	}
+	if err := target.requireRoot(operation); err != nil {
+		return scopeEdit{}, err
+	}
+	folder := filepath.Join(target.directory, place[0].Folder)
+	unmodified := preconditionError(operation, "the installed folder was not modified", ErrorDetails{Path: folder})
+	if exists, err := agentdir.Exists(folder); err != nil {
+		return scopeEdit{}, fmt.Errorf("inspect target folder: %w", err)
+	} else if !exists {
+		return scopeEdit{}, unmodified
+	}
+	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
+	switch {
+	case errors.Is(err, agentdir.ErrIrregularFile):
+		return scopeEdit{}, preconditionError(operation, "the installed folder has entries that are not regular files", ErrorDetails{Path: folder})
+	case errors.Is(err, agentdir.ErrTooLarge):
+		return scopeEdit{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: folder}, Err: err}
+	case err != nil:
+		return scopeEdit{}, err
+	}
+	if status, _, err := l.matchVersion(ctx, id, current.versionID, digests(files)); err != nil {
+		return scopeEdit{}, err
+	} else if status != SkillScopeModified {
+		return scopeEdit{}, unmodified
+	}
+	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
+	if index < 0 {
+		return scopeEdit{}, &Error{Code: SourceInvalid, Message: operation + ": the installed folder has no SKILL.md", Details: ErrorDetails{Path: folder}}
+	}
+	parsed, err := discovery.ParseSkillMD(files[index].Content, ".")
+	if err != nil {
+		return scopeEdit{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md: " + err.Error(), Details: ErrorDetails{Path: folder}, Err: err}
+	}
+	if parsed.Name != skill.Name {
+		return scopeEdit{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md names another skill", Details: ErrorDetails{Path: folder, Name: parsed.Name}}
+	}
+	return scopeEdit{skill: skill, current: current, target: target, folder: folder, latest: source.Skill{Name: skill.Name, Description: parsed.Description, Files: files}}, nil
 }
 
 func (l *Library) planCommits(ctx context.Context, snapshot source.Snapshot, states []currentVersion) ([]Commit, error) {
@@ -307,7 +432,8 @@ type SkipRequest struct {
 // 跳过不改库里的技能,也不碰装出去的文件夹;想要时在更新计划里照样能勾上更新。跳过的时间和来源版本记在集合的历史里。
 // 生成计划时已写下了检查结论,所以跳过后马上不计入角标。计划句柄不因跳过失效。
 //
-// 错误:句柄未知或已失效返回 NotFound;Skills 与 WholeRevision 都给或都不给、Skills 含不在计划里或没有变化的技能
+// 错误:句柄未知或已失效返回 NotFound;计划是用目录里的修改更新的(PlanUpdateFromScope)返回 InvalidArgument(Details.Field 为 plan);
+// Skills 与 WholeRevision 都给或都不给、Skills 含不在计划里或没有变化的技能
 // 返回 InvalidArgument(Details.Field 为 skills,技能带 Details.SkillID);计划里没有有变化的技能时跳过整个来源版本返回 FailedPrecondition;
 // 技能在计划生成后被移除返回 NotFound(Details.SkillID);计划生成后整个库被同步拉回替换返回 Conflict。
 func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
@@ -316,6 +442,9 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 	state, err := l.lookupPlan(operation, req.Plan)
 	if err != nil {
 		return err
+	}
+	if state.from != nil {
+		return argumentError(operation, "plan", "an update from a scope has no source change to skip")
 	}
 	var ids []SkillID
 	switch {

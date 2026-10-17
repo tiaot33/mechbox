@@ -1,5 +1,6 @@
 // 更新的公共流程(issue #131):对一个集合生成更新计划(PlanUpdate),按勾选一次完成更新和重新安装(Update)。
-// 更新计划弹窗、更新列表里的"更新"(按默认勾选直接执行)、"全部更新"与本地目录来源的"重新读取"都走这里;
+// 更新计划弹窗、更新列表里的"更新"(按默认勾选直接执行)、"全部更新"、本地目录来源的"重新读取"
+// 与用目录里的修改更新(PlanUpdateFromScope,issue #185)都走这里;
 // 完成后的提示带回滚入口，没换上的地方可以单独重试。
 // 默认勾选：有变化且没跳过的技能全勾(从技能发起时只勾这一个);推测出的改名要用户点"是";
 // 装出去的地方全勾，用户改过的地方不勾，项目不在这台机器上的不能勾。
@@ -19,6 +20,7 @@ import {
   type ReinstallRequest,
   type ReinstallResult,
   type RollbackInstall,
+  type Scope,
   type Skill,
   type SkillID,
   type SkillScopeInspection,
@@ -32,6 +34,7 @@ import type { LibraryError, Snapshot } from "./library";
 import { collectionSkills, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
 import { Modal, type useUI } from "./ui";
 import { FetchReview } from "@/components/app/fetch-review";
+import { ScopeUpdateDialog } from "@/components/app/scope-update-dialog";
 import { UpdateDialog } from "@/components/app/update-dialog";
 import { UpdateHistory } from "@/components/app/update-history";
 import { Badge, type Tone } from "@/components/ui/badge";
@@ -105,6 +108,7 @@ export function riskSummary(risks: UpdateRisk[]): string {
 export interface UpdateOutcome {
   label: string;
   local: boolean;
+  from?: string; // 用目录里的修改更新时取内容的那一处，如"Claude Code · 全局"
   record: UpdateRecordID; // 这次更新的记录;库里没有新版本时为 0,没有可回滚的
   changed: number; // 换了新版本的技能数
   placed: number; // 换成新版的地方
@@ -128,6 +132,7 @@ export async function runUpdate(
   label: string,
   checked: Set<SkillID>,
   installOn: (p: SkillScopeInspection) => boolean,
+  from?: string,
 ): Promise<UpdateOutcome | "conflict" | undefined> {
   const places = plannedInstalls(plan, checked);
   const requests: ReinstallRequest[] = places
@@ -143,6 +148,7 @@ export async function runUpdate(
   return {
     label,
     local: isLocal(plan.source),
+    from,
     record: result.record ?? 0,
     changed: (result.skills ?? []).filter((x) => x.changed).length,
     placed: installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
@@ -166,6 +172,11 @@ function placeAgain(ui: UI, record: UpdateRecordID, requests: ReinstallRequest[]
 const failedOnly = (results: ReinstallResult[] | null) => (results ?? []).filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
 
 function summarize(o: UpdateOutcome): string {
+  if (o.from) {
+    return [`已用 ${o.from} 里的修改更新「${o.label}」`, o.placed ? `换到了 ${o.placed} 个地方` : "", o.keptEdited ? `${o.keptEdited} 个地方你改过，没动` : ""]
+      .filter(Boolean)
+      .join(" · ");
+  }
   return [
     o.local ? `已重新读取「${o.label}」` : `已更新 ${o.label}`,
     o.changed ? `${o.changed} 个技能换了新版本` : "内容没有变化",
@@ -369,6 +380,11 @@ async function refreshInstalls(ui: UI, skill: Skill): Promise<UpdateOutcome | un
     requests,
     plain: new Set(plain.map(installKey)),
   };
+}
+
+// updateFromScope 打开"用这里的修改更新":把巡检为被手动改过的那一处的内容作为技能的新版本，并换到勾选的其他地方。
+export function updateFromScope(ui: UI, s: Snapshot, skill: Skill, scope: Scope) {
+  return ui.open((close) => <ScopeUpdateDialog s={s} skill={skill} scope={scope} onClose={() => close()} />);
 }
 
 // openUpdate 打开集合的更新计划。从技能发起时传 focus:默认只勾这一个，其余折叠;

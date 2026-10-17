@@ -76,6 +76,10 @@ func (s *LibraryService) PlanUpdate(ctx context.Context, id library.CollectionID
 	return settle(s.lib.PlanUpdate(ctx, id))(ctx)
 }
 
+func (s *LibraryService) PlanUpdateFromScope(ctx context.Context, skill library.SkillID, scope library.Scope) (library.UpdatePlan, error) {
+	return settle(s.lib.PlanUpdateFromScope(ctx, skill, scope))(ctx)
+}
+
 func (s *LibraryService) GetUpdatePlanFile(ctx context.Context, plan library.UpdatePlanID, skill library.SkillID, path string) (library.File, error) {
 	return settle(s.lib.GetUpdatePlanFile(ctx, plan, skill, path))(ctx)
 }

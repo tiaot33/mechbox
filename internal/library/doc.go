@@ -1,6 +1,6 @@
 // Package library 用 SQLite 数据库统一管理 Agent Skills:先对来源做入库预览再入库,然后把 skill 安装到
 // 各 Agent(内置的 Claude Code、Codex 与用户添加的自定义 Agent)在各作用域读取的 skills 目录。数据库是唯一权威数据源:
-// Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改不会进库,巡检只拿它们与库里的版本比对。
+// Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改只有用户用它更新([Library.PlanUpdateFromScope])时才进库,巡检拿它们与库里的版本比对。
 //
 // 单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,入库预览里的是 Candidate,
 // 装出去的是 SkillScope。集合(Collection)与组(Group)只给出技能 ID,技能信息统一从 [Library.ListSkills] 取。
@@ -48,6 +48,8 @@
 //     卸载、回滚都按它找到文件夹([SkillScope].Folder)。
 //   - [Library.Update] 按更新计划带上勾选的技能和勾选的地方,一次确认:先换库(全成或全不成),再逐处重新安装;从集合发起勾计划里
 //     有变化的全部技能,从技能详情页发起只勾这一个。本地目录来源的「重新读取」也是它。没换上的地方用 [Library.RetryUpdateInstalls] 单独重试。
+//   - [Library.PlanUpdateFromScope] 对巡检为用户改过的那一处生成更新计划:用那里的内容更新库里的这个技能,成为新版本;
+//     同样交给 [Library.Update] 执行,一次确认把勾选的其他地方一起换成这份修改,同样留记录、能回滚。
 //   - [Library.ListUpdateHistory] 按集合或技能列出历史:每次更新、跳过、回滚各一条;[Library.Rollback] 回滚一次更新,库与那次装过的地方
 //     一起换回旧版,回滚掉的改动自动算作跳过。
 //
@@ -88,6 +90,7 @@
 // 巡检与重新安装(reinstall.go):
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。
 //   - [Library.Reinstall] 把用户选中的几处换成技能的当前版本;改过的那一处要单独同意覆盖。
+//     想留下改过的那一处的修改,用 [Library.PlanUpdateFromScope] 再 [Library.Update]。
 //
 // 同步(sync.go):
 //   - [Library.PlanSyncPush] 再 [Library.SyncPush]:看 S3 上是哪一份库(谁、什么时候推送的),再用本机的库覆盖它。

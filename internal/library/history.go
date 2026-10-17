@@ -40,8 +40,10 @@ type UpdateRecord struct {
 	ID           UpdateRecordID   `json:"id"`
 	CollectionID CollectionID     `json:"collection_id"`
 	Kind         UpdateRecordKind `json:"kind"`
-	// Revision 是当时来源的来源版本:更新换到的、跳过时更新计划看到的;回滚记被回滚那次更新的。本地目录来源为空。
-	Revision  string    `json:"revision,omitempty"`
+	// Revision 是当时来源的来源版本:更新换到的、跳过时更新计划看到的;回滚记被回滚那次更新的。本地目录来源与用目录里的修改更新时为空。
+	Revision string `json:"revision,omitempty"`
+	// FromScope 是用目录里的修改更新(PlanUpdateFromScope)时取内容的那一处;从来源更新与其他记录为 nil。
+	FromScope *Scope    `json:"from_scope,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	// Commits 是更新时这段时间的提交说明,最新的在前;只有 GitHub 来源有。
 	Commits []Commit `json:"commits,omitempty"`
@@ -122,6 +124,9 @@ func recordOf(row store.Record) (UpdateRecord, error) {
 		RolledBackBy:  UpdateRecordID(row.RolledBackBy),
 		RollsBack:     UpdateRecordID(row.RollsBack),
 	}
+	if row.FromScope != nil {
+		record.FromScope = new(scopeRowOf(*row.FromScope).scope())
+	}
 	if row.Commits != "" {
 		if err := json.Unmarshal([]byte(row.Commits), &record.Commits); err != nil {
 			return UpdateRecord{}, fmt.Errorf("decode commits: %w", err)
@@ -186,7 +191,8 @@ type RollbackResult struct {
 // 那次更新装过的地方(含单独重试换上的)按磁盘上的文件内容核对:还是那次换上的版本就装回旧版;之后又被重新安装过、用户改过、
 // 文件夹不在了、项目不在这台机器上或还没对应到本机路径、技能已不装在那里或已从库里移除的,都不动,结果里写明原因,不中断整个回滚。
 // 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;换回了名字时,跳过的是改成那个名字的改名推测。
-// 回滚本身在集合的历史里记一条,
+// 用目录里的修改更新(UpdateRecord.FromScope)不是来源里的改动,回滚它不记跳过、不动检查更新的结论;取内容的那一处那次没有重新安装,
+// 也不动,和库里回滚掉的那个版本一致。回滚本身在集合的历史里记一条,
 // 那次更新的 RolledBackBy 指向它。
 //
 // 错误:记录不存在返回 NotFound;不是更新记录返回 InvalidArgument(Details.Field 为 record);那次更新已被回滚、各处也都核对过了
@@ -296,9 +302,11 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 					return err
 				}
 			}
-			rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
-			if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
-				return err
+			if record.FromScope == nil {
+				rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: content})
+				if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
+					return err
+				}
 			}
 			result.Skills = append(result.Skills, RecordedSkill{SkillID: id, Name: name, FromName: fromName, FromVersionID: VersionID(row.VersionID), ToVersionID: VersionID(skill.From)})
 		}

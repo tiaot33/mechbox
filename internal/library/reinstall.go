@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -155,6 +156,10 @@ func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target reso
 		return "", 0, err
 	}
 
+	return l.matchVersion(ctx, id, currentVersionID, disk)
+}
+
+func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk map[string]skillfile.Digest) (SkillScopeStatus, VersionID, error) {
 	current, err := l.store.VersionDigests(ctx, currentVersionID)
 	if err != nil {
 		return "", 0, err

@@ -13,7 +13,7 @@ import (
 
 const (
 	applicationID    = 1397443650
-	schemaVersion    = 21
+	schemaVersion    = 22
 	builtinAgentsSQL = `
 		INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills', '.claude'),

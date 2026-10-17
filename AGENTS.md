@@ -11,7 +11,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `collections.go` — 按来源聚合的 Collection 与集合的身份 `CollectionID`(值就是来源那一行的主键)、集合上的新技能与「不感兴趣」。
   - `update.go` — 按集合检查更新(结论随技能保存,带来源版本、是否跳过、是否计入角标;同时记下来源里的新技能)、推测来源里改名的技能、继续保留来源里已删除的技能,与按更新计划的更新(含确认改名)(先换库、全成或全不成,再逐处重新安装,留下更新记录)及单独重试没换上的地方。
   - `history.go` — 集合的历史(更新、跳过、回滚各一条,地方只记身份不记路径)与回滚(库换回旧版本,那次装过的地方按磁盘内容核对后装回,回滚掉的改动记为跳过)。
-  - `plan.go` — 更新计划(只读:各技能的变化、风险、提交说明、差异与装出去的各处状态,句柄存在内存里)、读计划里来源一侧的文件,以及按计划跳过这次的改动(按技能内容记录)、否认改名推测。
+  - `plan.go` — 更新计划(只读:各技能的变化、风险、提交说明、差异与装出去的各处状态,句柄存在内存里)、用目录里的修改更新的计划(`PlanUpdateFromScope`:读巡检为被改过的那一处,同样交给 `Update` 执行)、读计划里来源一侧的文件,以及按计划跳过这次的改动(按技能内容记录)、否认改名推测。
   - `versions.go` — 版本历史与差异,以及文件的公开类型与按版本 ID 读取文件(技能详情页看当前文件也走这里)。
   - `groups.go` — Group(带成员的技能 ID)与成员管理。
   - `agents.go` — Agent 的公开类型与列出(含是否检测到)、自定义 Agent 的添加 / 修改(改目录时迁移或去掉安装记录)/ 删除;按 Agent 实际算已装的各处(含共用目录推算的)处理,其他 Agent 还在读的文件夹不动、安装记录转给它们。
@@ -29,7 +29,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/internal/source/github` — GitHub 来源:`input.go` 解析 GitHub 输入(git 命令用 `source/git`),`contents.go` 是 `Snapshot` 实现(commit / tree / blob、目录 tree SHA 与确认 commit 作为 `State`),`history.go` 是整个仓库的技能名与提交说明(compare API,克隆时用 git log),`transfer.go` / `memo.go` 负责下载与对象缓存,`clone.go` 是 API 不可用时的浅克隆回退。`Client` 持有跨操作共享的认证降级状态、调用方传入的令牌(只用在匿名之后、gh 之前的令牌那一步,没传入才读环境变量;降级状态随令牌换新,换令牌前发出的请求和已有的入库预览都不再沿用旧结论)与缓存,由 Library 持有、`Close` 时清空。
 - `internal/library/internal/source/discovery` — 各来源共用的候选发现:目录扫描规则、插件清单、SKILL.md frontmatter 解析、读取上限。子包只返回自己的哨兵错误,由 `errors.go` 的 `typedError` 翻译成公开错误码。
 - `internal/library/internal/store` — SQLite,Library 的全部数据库操作都在这里:打开库(建表、身份与 schema 校验、补 Agent 默认行)、`InTx` 事务、同步用的快照 / 拉回库(`Image`)/ 整库替换;`schema.go` + 嵌入的 `schema.sql` 是唯一 DDL 来源。方法按「一次有意义的数据改动」划分,读方法写在 `queries` 上、`*Store` 与 `*Tx` 共用,多语句写入只在 `*Tx` 上;组卸载等写在 SQL 里的规则随方法留在这里。用自己的记录类型(ID 为 `int64`、时间为 `time.Time`),由 Library 转换成公开类型;返回自己的哨兵错误 `ErrNotFound` / `ErrAlreadyExists` / `ErrBusy` / `ErrUnacceptable`,由 `typedError` 翻译。
-- `internal/library/internal/agentdir` — Agent 目录里的技能文件夹:`Change` 负责暂存(`Stage`)、登记删除(`Remove`)、移到位(`Commit`)、撤销(`Rollback`)与事务提交后清理备份(`Done`);另有存在性检查、读取已安装文件夹的指纹(文件夹本身是符号链接时读它指向的内容)、规范化目录路径,以及列出技能目录里的技能文件夹、用 `git ls-tree HEAD` 查哪些已提交在项目仓库里。
+- `internal/library/internal/agentdir` — Agent 目录里的技能文件夹:`Change` 负责暂存(`Stage`)、登记删除(`Remove`)、移到位(`Commit`)、撤销(`Rollback`)与事务提交后清理备份(`Done`);另有存在性检查、读取已安装文件夹的指纹与内容(文件夹本身是符号链接时读它指向的内容)、规范化目录路径,以及列出技能目录里的技能文件夹、用 `git ls-tree HEAD` 查哪些已提交在项目仓库里。
 - `internal/library/internal/market` — skills.sh 的搜索与审计接口:发请求、限制响应大小、解析结果;返回自己的哨兵错误 `ErrUnreachable` / `ErrPermission` / `ErrInvalidResponse`。哪些结果能转成入库预览、审计查不到时算哪种状态,由 Library 决定。
 - `internal/library/internal/s3` — 同步用的 S3 对象读写:用 Library 传入的设置,没有时从环境变量读配置、SigV4 签名、`Head` / `Get` / 条件 `Put`;返回自己的哨兵错误,由 `typedError` 翻译。
 - `test/library/` — 技能库的集成测试(`package library_test`),按行为组织,只经公开 API 断言,用真实的 SQLite 文件、git 仓库与 `httptest` 服务;共享辅助函数在 `test_helpers_test.go`。运行 `go test ./test/library`;统计 Library 的覆盖率加 `-coverpkg=./internal/library/...`。文件名不按流程一一对应,找某个方法的测试按方法名 grep(如 `lib.Install(`)或用 `go test -run`;整理某个流程的 API 时,顺手把该流程的测试按流程合并、改名。

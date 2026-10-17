@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS skills (
 -- source_state 是该版本的来源读取记录,内容由来源定义:GitHub 与其他 Git 仓库记该 Skill 目录的 tree SHA 与确认它是远端最新时所在的 commit,
 -- 直接下载记服务端给出的 HTTP validator,well-known 新格式记索引给出的 digest(旧格式不记),本地目录不记。
 -- revision 是该版本内容在来源上对应的标识,供展示与按来源比较各 skill 是否在同一版本。
+-- 用某处 Agent 目录里的修改更新进来的版本不是从来源读到的:source_state 为空,revision 沿用修改所基于的那个版本的,base_version_id 指向那个版本。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,            -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序;不复用
@@ -62,7 +63,8 @@ CREATE TABLE IF NOT EXISTS skill_versions (
     source_state TEXT NOT NULL DEFAULT '',           -- 来源自己记录的该版本读取状态,JSON;由来源子包定义和解释,Library 只存取不解析。空 = 无状态,检查更新时比较内容
     revision TEXT NOT NULL DEFAULT '',               -- 最近一次确认此版本内容时来源的标识:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空;更新确认无变化时刷新
     description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
-    created_at TEXT NOT NULL DEFAULT ''              -- 版本写入时间,RFC3339Nano
+    created_at TEXT NOT NULL DEFAULT '',             -- 版本写入时间,RFC3339Nano
+    base_version_id INTEGER                          -- 用某处 Agent 目录里的修改更新进来时,修改所基于的版本(当时库里的当前版本);从来源入库或更新的为 NULL
 );
 
 -- 内容寻址的文件内容存储:指纹是内容的 sha256,相同内容跨版本、跨 skill 只存一份。
@@ -152,10 +154,12 @@ CREATE TABLE IF NOT EXISTS update_history (
     id INTEGER PRIMARY KEY,                             -- 记录主键,由 SQLite 分配;按 id 升序即先后顺序
     source_id INTEGER NOT NULL REFERENCES sources(id),  -- 所在集合(来源)
     kind TEXT NOT NULL CHECK(kind IN ('update', 'skip', 'rollback')), -- update = 更新,skip = 跳过,rollback = 回滚
-    revision TEXT NOT NULL DEFAULT '',                  -- 当时来源的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空;回滚记被回滚那次的
+    revision TEXT NOT NULL DEFAULT '',                  -- 当时来源的来源版本:GitHub 为 commit,URL 为压缩包内容哈希,本地目录与用 Agent 目录里的修改更新时为空;回滚记被回滚那次的
     whole_revision INTEGER NOT NULL DEFAULT 0 CHECK(whole_revision IN (0, 1)), -- 跳过时:1 = 跳过整个来源版本(更新计划里有变化的技能全部跳过),0 = 跳过选中的几个技能
     commits TEXT NOT NULL DEFAULT '',                   -- 更新时:这段时间的提交说明,JSON 数组 [{sha, message, author, time}];只有 GitHub 来源有,其他为空
     rolls_back INTEGER REFERENCES update_history(id),   -- 回滚时:回滚的是哪一次更新;其他为 NULL
+    from_agent TEXT NOT NULL DEFAULT '',                -- 用 Agent 目录里的修改更新时:取内容的那一处的 Agent 代码;从来源更新与其他记录为空
+    from_project_id INTEGER,                            -- 用 Agent 目录里的修改更新时:取内容的那一处的项目 ID,NULL 为全局
     created_at TEXT NOT NULL DEFAULT ''                 -- 记录时间,RFC3339Nano
 );
 

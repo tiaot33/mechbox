@@ -108,6 +108,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
   const from = useFromRevisions(update ? record : undefined);
 
   const facts = [
+    record.from_scope && `用 ${scopeLabel(s, record.from_scope)} 里的修改更新`,
     // 回滚记录的来源版本是被回滚那次更新换到的，不是回滚后的，所以只说回滚了哪次。
     record.revision &&
       !rollback &&
