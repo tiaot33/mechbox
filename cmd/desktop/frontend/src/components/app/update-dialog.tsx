@@ -304,7 +304,7 @@ export function UpdateDialog({
               {p.skipped ? <Badge title="之前跳过了来源里的这份改动;照样可以勾上更新">已跳过</Badge> : <Badge tone="warn">有变化</Badge>}
               {(p.risks?.length ?? 0) > 0 && <Badge tone="bad">{riskSummary(p.risks ?? [])}</Badge>}
               {p.edited && (
-                <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title="库里的这个技能是用你在目录里的修改更新的;勾上后换成来源的新版本，之后可以在历史里回滚回你的修改">
+                <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title="库里的这个技能用你在目录里的修改更新过，或入库时和来源里的不一样、可能有你的修改;勾上后换成来源的新版本，之后可以在历史里回滚回来">
                   更新会换掉你的修改
                 </span>
               )}

@@ -662,6 +662,7 @@ function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; curre
             <span>{formatDate(v.created_at)}</span>
             {v.revision && <span className="font-mono text-[11px] text-muted-foreground">{v.revision.slice(0, 12)}</span>}
             {v.based_on ? <span className="text-[11px] text-muted-foreground">基于版本 {number.get(v.based_on)} 的修改</span> : null}
+            {v.maybe_edited && <span className="text-[11px] text-muted-foreground">入库时和来源里的不一样，可能有你的修改</span>}
             {v.id === currentID ? (
               <Badge tone="ok">当前</Badge>
             ) : (

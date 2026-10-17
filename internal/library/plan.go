@@ -73,6 +73,8 @@ type PlannedSkill struct {
 	// Edited 为 true 表示库里的当前版本是用目录里的修改更新进来的(SkillVersion.BasedOn 不为空)。这时有没有变化只看来源:
 	// 来源里这个技能和这份修改所基于的来源版本相比有没有改过,没改过就是没变化;改过且和这份修改不同才是有变化,勾上更新会换掉这份修改
 	// (之后能回滚回来),所以桌面端默认不勾。本地目录来源照旧拿目录里的内容和这份修改比较,「重新读取」就是换成目录里的内容。
+	// 当前版本是入库时说不清有没有用户修改的那一版(SkillVersion.MaybeEdited)时也为 true:它没有所基于的来源版本,
+	// 来源里的和它不一样就是有变化,同样默认不勾。
 	// 用目录里的修改更新的计划(PlanUpdateFromScope)里为 false。
 	Edited bool `json:"edited,omitzero"`
 	// Risks 是有变化的技能里需要先看一眼的文件:新增或改动的脚本、新增的可执行文件,按路径排序。没有时为空。
@@ -157,7 +159,7 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 	plan = UpdatePlan{CollectionID: id, Source: read.skills[0].Source, Revision: read.revision, Commits: commits, Skills: make([]PlannedSkill, len(read.skills)), Installs: []SkillScopeInspection{}}
 	state := &planState{collection: id, sourceID: read.states[0].source.ID, replica: read.replica, revision: read.revision, skills: map[SkillID]*plannedState{}}
 	for i, skill := range read.skills {
-		planned := PlannedSkill{Skill: skill, Edited: read.states[i].base != 0}
+		planned := PlannedSkill{Skill: skill, Edited: read.states[i].base != 0 || read.states[i].maybeEdited}
 		checked := read.checked[i]
 		item := &plannedState{name: skill.Name, versionID: read.states[i].versionID, latest: checked.latest}
 		guess, renamed := read.renames[i]

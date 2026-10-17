@@ -933,6 +933,80 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
   assert(fs.lstatSync(link).isSymbolicLink(), "符号链接还是符号链接");
 });
 
+await step("未纳管技能认出来源：npx skills 锁文件里的来源预填可改，入库进集合;和来源不一样的标出可能有你的修改;读不成时留在框里", async () => {
+  // npx skills 从本地目录 team-kit 装了 lock-a(和来源一样)与 lock-b(装完被改过);lock-c 没有记录。
+  const kit = path.join(HOME, "sources", "team-kit");
+  const doc = (name, body) => `---\nname: ${name}\ndescription: "${name} from team-kit"\n---\n${body}\n`;
+  for (const name of ["lock-a", "lock-b"]) {
+    fs.mkdirSync(path.join(kit, name), { recursive: true });
+    fs.writeFileSync(path.join(kit, name, "SKILL.md"), doc(name, "v1"));
+  }
+  const folders = { "lock-a": doc("lock-a", "v1"), "lock-b": doc("lock-b", "edited"), "lock-c": doc("lock-c", "mine") };
+  for (const [name, content] of Object.entries(folders)) {
+    fs.mkdirSync(path.join(claudeGlobal, name), { recursive: true });
+    fs.writeFileSync(path.join(claudeGlobal, name, "SKILL.md"), content);
+  }
+  const lock = { version: 3, skills: Object.fromEntries(["lock-a", "lock-b"].map((name) => [name, { source: kit, sourceType: "local", sourceUrl: kit, skillFolderHash: "" }])) };
+  fs.writeFileSync(path.join(HOME, ".agents", ".skill-lock.json"), JSON.stringify(lock));
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  try {
+    await selectScope("Claude Code");
+    await unmanaged("lock-a").waitFor();
+    assert.equal(await unmanaged("lock-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
+    assert((await unmanaged("lock-c").locator(".unmanaged-source-label").count()) === 0, "认不出的不写来源");
+
+    await btn(unmanaged("lock-a"), "入库").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「lock-a」" }).waitFor();
+    assert.equal(await modal().locator(".unmanaged-source").inputValue(), kit, "来源链接预填锁文件里的来源");
+    assert((await modal().locator(".unmanaged-source-note").textContent()).startsWith(`以后跟着 ${kit} 检查更新`), "确认时写清以后跟着谁");
+    await btn(modal(), "入库").click();
+    await toast(`已入库「lock-a」，以后跟着 ${kit} 检查更新`);
+    await settle();
+    await card("lock-a").waitFor();
+    assert(!(await card("lock-a").textContent()).includes("没有来源"), "进了来源的集合");
+
+    // 和来源里的不一样，又说不清是不是改过:照样进集合，版本历史里标出可能有你的修改。
+    await btn(unmanaged("lock-b"), "入库").click();
+    await btn(modal(), "入库").click();
+    await toast(`已入库「lock-b」，以后跟着 ${kit} 检查更新`);
+    await settle();
+    await openDrawer("lock-b");
+    assert((await drawer().locator(".versions").textContent()).includes("入库时和来源里的不一样，可能有你的修改"), "版本历史标出可能有你的修改");
+    await closeDrawer();
+
+    // 用户给的来源读不成：留在框里说明原因;清空来源链接后作为没有来源的技能入库。
+    await btn(unmanaged("lock-c"), "入库").click();
+    await modal().locator(".unmanaged-source").fill(path.join(HOME, "sources", "missing"));
+    await btn(modal(), "入库").click();
+    await modal().locator(".unmanaged-error").waitFor();
+    assert((await modal().locator(".unmanaged-error").textContent()).includes("清空来源链接"), "读不成时告诉用户能清空来源");
+    await modal().locator(".unmanaged-source").fill("");
+    assert((await modal().locator(".unmanaged-source-note").textContent()).startsWith("没有来源"), "清空后写明没有来源");
+    await btn(modal(), "入库").click();
+    await toast("已入库「lock-c」");
+    await settle();
+    assert((await card("lock-c").textContent()).includes("没有来源"), "清空来源后是没有来源的技能");
+    assert.equal(fs.readFileSync(path.join(claudeGlobal, "lock-b", "SKILL.md"), "utf8"), folders["lock-b"], "入库时磁盘上什么都没动");
+  } finally {
+    // 后面的步骤不认这几个技能：连同文件夹移除，锁文件也删掉。
+    for (const name of ["lock-a", "lock-b", "lock-c"]) {
+      if ((await card(name).count()) === 0) continue;
+      await openDrawer(name);
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const name of ["lock-a", "lock-b", "lock-c"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
+    fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+    await selectScope("Claude Code", "proj-a");
+  }
+});
+
 // ============ 同名技能 ============
 await step("同名技能：全局和项目里同名的两处都标出来，并说明在这个 Agent 里会怎样", async () => {
   // 全局手动拷了一个 gamma(库把 gamma 装在了 proj-a);proj-a 里有一个自己写的 alpha(库把 alpha 装在了全局);

@@ -39,6 +39,7 @@ type Current struct {
 	Revision    string
 	CheckSerial int64
 	Base        int64
+	MaybeEdited bool
 	Files       []skillfile.File
 }
 
@@ -53,6 +54,7 @@ type NewVersion struct {
 	State       string
 	Revision    string
 	Base        int64
+	MaybeEdited bool
 	CreatedAt   time.Time
 }
 
@@ -148,11 +150,11 @@ func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error) {
 	var current Current
 	if err := q.q.QueryRowContext(ctx, `
-		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_check_serial, ifnull(skill_versions.base_version_id, 0)
+		SELECT skill_versions.id, skill_versions.source_state, skill_versions.revision, skills.update_check_serial, ifnull(skill_versions.base_version_id, 0), skill_versions.maybe_edited
 		FROM skills
 		JOIN skill_versions ON skill_versions.id = skills.current_version_id
 		WHERE skills.id = ?
-	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &current.CheckSerial, &current.Base); err != nil {
+	`, skillID).Scan(&current.VersionID, &current.State, &current.Revision, &current.CheckSerial, &current.Base, &current.MaybeEdited); err != nil {
 		return Current{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error
@@ -289,7 +291,7 @@ func (t *Tx) CurrentVersionID(ctx context.Context, skillID int64) (int64, error)
 
 func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision string) error {
 	if _, err := t.q.ExecContext(ctx, `
-		UPDATE skill_versions SET source_state = ?, revision = ?
+		UPDATE skill_versions SET source_state = ?, revision = ?, maybe_edited = 0
 		WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
 	`, state, revision, skillID); err != nil {
 		return fmt.Errorf("confirm current version: %w", wrap(err))

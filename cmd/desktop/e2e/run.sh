@@ -78,7 +78,7 @@ port=${E2E_PORT:-18080}
 zip_port=$((port + 1))
 (cd "$work/zips" && exec python3 -m http.server "$zip_port" >/dev/null 2>&1) &
 zip_pid=$!
-HOME="$home" WAILS_SERVER_PORT="$port" "$work/server" >"$work/server.log" 2>&1 &
+HOME="$home" XDG_STATE_HOME="" WAILS_SERVER_PORT="$port" "$work/server" >"$work/server.log" 2>&1 &
 server_pid=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
 	curl -sf -o /dev/null "http://localhost:$port/" && break

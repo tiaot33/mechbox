@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS skills (
 -- revision 是该版本内容在来源上对应的标识,供展示与按来源比较各 skill 是否在同一版本。
 -- 用某处 Agent 目录里的修改更新进来的版本不是从来源读到的:source_state 为空,revision 沿用修改所基于的那个版本的,base_version_id 指向那个版本。
 -- 当前版本是这种版本时,检查更新顺着 base_version_id 找到最早那个从来源读到的版本,拿它的 source_state 与文件和来源比较;本地目录来源除外。
+-- 从作用域把未纳管技能连同来源入库、而磁盘内容和来源里的不一样时,版本就是磁盘上的内容:source_state 与 revision 为空(来源版本未知),
+-- 检查更新按内容和来源比较。能确认磁盘是当初装的原样(npx skills 锁文件里的哈希对得上)时 maybe_edited 为 0,否则为 1。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,            -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序;不复用
@@ -67,7 +69,8 @@ CREATE TABLE IF NOT EXISTS skill_versions (
     revision TEXT NOT NULL DEFAULT '',               -- 最近一次确认此版本内容时来源的标识:GitHub 为 commit,URL 为压缩包内容哈希,本地目录为空;更新确认无变化时刷新
     description TEXT NOT NULL DEFAULT '',            -- 该版本 SKILL.md frontmatter 的 description;解析不到为空
     created_at TEXT NOT NULL DEFAULT '',             -- 版本写入时间,RFC3339Nano
-    base_version_id INTEGER                          -- 用某处 Agent 目录里的修改更新进来时,修改所基于的版本(当时库里的当前版本);从来源入库或更新的为 NULL
+    base_version_id INTEGER,                         -- 用某处 Agent 目录里的修改更新进来时,修改所基于的版本(当时库里的当前版本);从来源入库或更新的为 NULL
+    maybe_edited INTEGER NOT NULL DEFAULT 0 CHECK(maybe_edited IN (0, 1)) -- 1 = 从作用域入库时和来源里的不一样、说不清有没有用户的修改;更新计划据此提示会换掉修改。更新时确认来源里的内容和它一样时清回 0
 );
 
 -- 内容寻址的文件内容存储:指纹是内容的 sha256,相同内容跨版本、跨 skill 只存一份。

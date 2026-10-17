@@ -88,9 +88,12 @@
 // 看作用域里的未纳管技能与入库(unmanaged.go):
 //   - [Library.ListUnmanagedSkills] 列出各作用域的技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
 //     提交在项目仓库里的),和 [Library.ListSkillScopes] 放在一起,就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。
+//     npx skills 的锁文件里记了来源的,带出认出的来源([UnmanagedSkill].SourceInput),入库确认里预填。
 //   - [Library.FetchUnmanaged] 把其中一个入库:磁盘上什么都不改,读出的内容成为库里的版本,记为装在这个作用域;
-//     和库里某个版本完全一致时只给那个技能补记安装。新入库的是没有来源的技能,不在集合里、不检查更新,
-//     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。
+//     不带来源时,和库里某个版本完全一致只给那个技能补记安装,否则是没有来源的技能,不在集合里、不检查更新,
+//     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。带来源时进这个来源的集合,照常检查更新、更新、回滚:
+//     和来源里的一样就是来源里的那一版;不一样时版本就是磁盘上的内容、来源版本未知,第一次检查更新就报有新版本,
+//     能用锁文件里的哈希确认是当初装的原样时是作者的旧版,否则标为 [SkillVersion].MaybeEdited,更新计划提示会换掉修改。
 //   - [Library.ListSameNameSkills] 列出同一个 Agent 的全局和某个已登记项目里同名的技能,不论是不是库装的,两处都要标出来;
 //     后果按 [Agent].SameName:Claude Code 里全局的那个生效,Codex 里两份都会出现,没有已知规则的 Agent 只标出同名。
 //
