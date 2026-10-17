@@ -137,6 +137,10 @@ export function ListSourceRefs(input: string): $CancellablePromise<library$0.Sou
     return $Call.ByID(1561609025, input);
 }
 
+export function ListUnmanagedSkills(): $CancellablePromise<library$0.UnmanagedSkill[] | null> {
+    return $Call.ByID(3323820920);
+}
+
 export function ListUpdateHistory(filter: library$0.UpdateHistoryFilter): $CancellablePromise<library$0.UpdateRecord[] | null> {
     return $Call.ByID(4158790541, filter);
 }

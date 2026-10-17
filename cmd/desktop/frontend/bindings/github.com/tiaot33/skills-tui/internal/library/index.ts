@@ -82,6 +82,7 @@ export type {
     SyncPullPlan,
     SyncPushPlan,
     SyncSettings,
+    UnmanagedSkill,
     UnregisterProjectOptions,
     UpdateCheck,
     UpdateHistoryFilter,

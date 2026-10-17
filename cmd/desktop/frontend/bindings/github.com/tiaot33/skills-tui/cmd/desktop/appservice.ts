@@ -35,6 +35,14 @@ export function RefreshBadge(): $CancellablePromise<void> {
 }
 
 /**
+ * RevealInFinder 在 Finder 中选中 path(作用域里的技能文件夹等);是符号链接时选中链接本身。
+ * server 模式与 macOS 以外的平台什么都不做。
+ */
+export function RevealInFinder(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2957269020, path);
+}
+
+/**
  * SaveGitHubToken 保存 GitHub 令牌并立即交给技能库;传空字符串即清掉，技能库回到读环境变量。
  */
 export function SaveGitHubToken(token: string): $CancellablePromise<$models.Credentials> {

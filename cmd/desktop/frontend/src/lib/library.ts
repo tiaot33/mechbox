@@ -12,6 +12,7 @@ import {
   type RegisteredProject,
   type Skill,
   type SkillScopeInspection,
+  type UnmanagedSkill,
 } from "@bindings/internal/library";
 import { parseScope, type ScopeKey } from "./model";
 
@@ -40,6 +41,7 @@ export interface Snapshot {
   groups: Group[];
   groupInstalls: GroupInstall[];
   skillScopes: SkillScopeInspection[];
+  unmanaged: UnmanagedSkill[];
 }
 
 export type SnapshotState =
@@ -74,14 +76,15 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
       list(track(LibraryService.ListGroups())),
       list(track(LibraryService.ListGroupInstalls())),
       list(track(LibraryService.InspectSkillScopes({}))),
+      list(track(LibraryService.ListUnmanagedSkills())),
       track(AppService.Settings()),
     ]).then(
-      ([info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, settings]) => {
+      ([info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, settings]) => {
         if (cancelled) return;
         const agentsShown = settings.agents_shown ?? {};
         setState({
           status: "ready",
-          snapshot: { info, agents, agentsShown, projects, skills, collections, groups, groupInstalls, skillScopes },
+          snapshot: { info, agents, agentsShown, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged },
         });
       },
       (err: unknown) => {

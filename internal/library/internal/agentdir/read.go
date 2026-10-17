@@ -37,8 +37,16 @@ func DirectoryExists(path string) (bool, error) {
 }
 
 func Read(ctx context.Context, root string) (map[string]skillfile.Digest, error) {
+	resolved, err := filepath.EvalSymlinks(root)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return nil, ErrIrregularFile
+	}
+	if err != nil {
+		return nil, fmt.Errorf("hash installed files: %w", err)
+	}
+	root = resolved
 	files := make(map[string]skillfile.Digest)
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

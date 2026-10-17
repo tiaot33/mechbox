@@ -240,6 +240,10 @@ func (s *LibraryService) InspectSkillScopes(ctx context.Context, filter library.
 	return settle(s.lib.InspectSkillScopes(ctx, filter))(ctx)
 }
 
+func (s *LibraryService) ListUnmanagedSkills(ctx context.Context) ([]library.UnmanagedSkill, error) {
+	return settle(s.lib.ListUnmanagedSkills(ctx))(ctx)
+}
+
 func (s *LibraryService) Reinstall(ctx context.Context, requests []library.ReinstallRequest) ([]library.ReinstallResult, error) {
 	return settle(s.lib.Reinstall(ctx, requests))(ctx)
 }

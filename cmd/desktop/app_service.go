@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -105,6 +106,15 @@ func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 	a.poke()
 	a.refreshBadge(context.Background())
 	return settings, nil
+}
+
+// RevealInFinder 在 Finder 中选中 path(作用域里的技能文件夹等);是符号链接时选中链接本身。
+// server 模式与 macOS 以外的平台什么都不做。
+func (a *AppService) RevealInFinder(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("reveal in finder: path must be absolute: %q", path)
+	}
+	return reveal(path)
 }
 
 // RefreshBadge 按技能库现在的检查更新结论重设 Dock 角标;前端每次重读快照后调用。

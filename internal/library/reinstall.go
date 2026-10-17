@@ -50,7 +50,8 @@ type ReinstallResult struct {
 }
 
 // SkillScopeStatus 是一处安装现在的状态,每种状态对应界面上的一个动作。判定按下列顺序,前一条命中即停:
-// root_missing、missing,然后与库里的版本比对。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+// root_missing、missing,然后与库里的版本比对。技能文件夹本身是符号链接时(如 npx skills 的布局),比对它指向的文件夹里的内容,
+// 链接指向不存在之处算 modified。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
 type SkillScopeStatus string
 
 const (

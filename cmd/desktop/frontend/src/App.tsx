@@ -23,6 +23,7 @@ import {
   resolveFilter,
   sameFilter,
   visibleSkills,
+  visibleUnmanaged,
   type Place,
   type ScopeKey,
   type SkillFilter,
@@ -76,6 +77,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
   const scopeDirectory = useScopeDirectory(scope);
   const current = s ? resolveFilter(s, filter) : filter;
   const skills = s ? visibleSkills(s, { filter: current, search, installedOnlyIn: installedOnly ? scope : null }) : [];
+  const unmanaged = s ? visibleUnmanaged(s, current, search, scope) : [];
   const drawerSkill = s && drawer !== null ? s.skills.find((x) => x.id === drawer) : undefined;
 
   // 筛选指向的集合、组已不存在或已没有更新时退回"所有技能",并记下来:之后又有了更新也不会自己跳回去。
@@ -169,7 +171,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
         <Toolbar
           snapshot={s}
           title={s ? filterTitle(s, current) : "技能管理器"}
-          count={s ? skills.length : undefined}
+          count={s ? skills.length + unmanaged.length : undefined}
           busy={ui.busy}
           scope={scope}
           scopeDirectory={scopeDirectory}
@@ -206,6 +208,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
               <SkillList
                 s={s}
                 skills={skills}
+                unmanaged={unmanaged}
                 filter={current}
                 scope={scope}
                 scopeDirectory={scopeDirectory}

@@ -1370,7 +1370,8 @@ export interface SkillScopeInspection {
 
 /**
  * SkillScopeStatus 是一处安装现在的状态,每种状态对应界面上的一个动作。判定按下列顺序,前一条命中即停:
- * root_missing、missing,然后与库里的版本比对。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+ * root_missing、missing,然后与库里的版本比对。技能文件夹本身是符号链接时(如 npx skills 的布局),比对它指向的文件夹里的内容,
+ * 链接指向不存在之处算 modified。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
  */
 export enum SkillScopeStatus {
     /**
@@ -1612,6 +1613,41 @@ export interface SyncSettings {
      * SessionToken 对应 AWS_SESSION_TOKEN。
      */
     "session_token"?: string;
+}
+
+/**
+ * UnmanagedSkill 是作用域的技能目录里一个不是库装的技能文件夹:这个作用域里没有安装记录用它。它可能是命令行工具
+ * (如 npx skills)装的、手动拷进去的、用户自己写的,或者提交在项目仓库里的。库只列出它,不改动、不删除。
+ */
+export interface UnmanagedSkill {
+    "scope": Scope;
+
+    /**
+     * Name 是文件夹名。
+     */
+    "name": string;
+
+    /**
+     * Description 取自 SKILL.md 的 frontmatter;frontmatter 读不出时为空。
+     */
+    "description"?: string;
+
+    /**
+     * Folder 是技能文件夹在作用域目录里的路径;文件夹是符号链接时就是链接本身,「在 Finder 中显示」用它。
+     */
+    "folder": string;
+
+    /**
+     * LinkTarget 在文件夹是符号链接时给出它最终指向的目录(已解析各级符号链接),否则为空。
+     * 例如 npx skills 把真实文件夹放在 ~/.agents/skills/<name>,再从其他 Agent 的目录用符号链接指过去。
+     */
+    "link_target"?: string;
+
+    /**
+     * InRepository 表示文件夹已提交在项目的 git 仓库里(在 HEAD 里),界面标明「在项目仓库里」。只出现在项目作用域;
+     * 项目不是 git 仓库、还没有提交或本机没有 git 时为 false。
+     */
+    "in_repository"?: boolean;
 }
 
 /**
