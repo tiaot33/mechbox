@@ -133,6 +133,10 @@ export function ListSkills(): $CancellablePromise<library$0.Skill[] | null> {
     return $Call.ByID(1925462024);
 }
 
+export function ListSourceRefs(input: string): $CancellablePromise<library$0.SourceRefs> {
+    return $Call.ByID(1561609025, input);
+}
+
 export function ListUpdateHistory(filter: library$0.UpdateHistoryFilter): $CancellablePromise<library$0.UpdateRecord[] | null> {
     return $Call.ByID(4158790541, filter);
 }

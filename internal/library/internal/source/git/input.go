@@ -142,6 +142,15 @@ func Locate(ctx context.Context, in Input) (source.Target, error) {
 	return target(loc, parsed.subpath)
 }
 
+func InputRefs(ctx context.Context, input string) (Refs, error) {
+	parsed, err := parse(Input{Input: input})
+	if err != nil {
+		return Refs{}, err
+	}
+	loc := locator{Repository: parsed.repository, GitLab: parsed.gitlab}
+	return ListRefs(ctx, loc.remotes(), parsed.ref, parsed.tree)
+}
+
 func Probe(ctx context.Context, link, ref, subpath string) (source.Target, bool, error) {
 	if !ValidSubpath(subpath) {
 		return source.Target{}, false, invalid()

@@ -78,6 +78,7 @@ export type {
     SkillVersion,
     SkipRequest,
     Source,
+    SourceRefs,
     SyncPullPlan,
     SyncPushPlan,
     SyncSettings,

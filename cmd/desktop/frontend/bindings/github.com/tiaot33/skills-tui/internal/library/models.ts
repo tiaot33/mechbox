@@ -868,6 +868,7 @@ export interface PreviewFetchRequest {
      * Input 是用户粘贴的来源,由入库预览识别是哪一种(见 PreviewFetch):本地目录(绝对路径或以 ./、../ 开头的相对路径)、
      * GitHub 仓库(owner/repo、owner/repo@name、HTTPS / SSH 仓库地址、tree URL,可带 #ref;@name 时入库预览只列该技能)、
      * GitHub / GitLab 的 raw、archive、release 文件链接、GitLab 链接与 gitlab: 简写、SSH 与以 .git 结尾的 Git 地址,以及其他 http(s) 链接。
+     * 以域名开头、没写协议的输入(github.com/owner/repo、git.company.com/org/repo)先补上 https:// 再识别。
      */
     "input"?: string;
 
@@ -1472,6 +1473,31 @@ export interface Source {
 }
 
 /**
+ * SourceRefs 是入库预览之前给用户选分支用的:一个 Git 类来源的全部分支和 tag。
+ */
+export interface SourceRefs {
+    /**
+     * 全部分支,按名字排序;带斜杠的(如 release/v2)原样列出
+     */
+    "branches": string[] | null;
+
+    /**
+     * 全部 tag,按名字排序
+     */
+    "tags": string[] | null;
+
+    /**
+     * 来源的默认分支;来源没报出默认分支(如远端 HEAD 游离)时为空
+     */
+    "default_branch": string;
+
+    /**
+     * 输入本身带的分支或 tag(tree 链接、#ref),界面据此选中;没带或 tree 链接里分不清是哪个时为空
+     */
+    "input_ref"?: string;
+}
+
+/**
  * SourceType 是 skill 来源的类型(见 ADR 0004)。
  */
 export enum SourceType {
@@ -1655,7 +1681,8 @@ export enum UpdateCheckStatus {
 
     /**
      * UpdateDeleted 是「来源里已删除」:来源读到了,但里面已经没有这个名字的技能(作者删掉或改了名)。
-     * 库里的技能和装出去的文件夹都不动,要不要移除由用户决定。来源整个读不到时不算这种,算 UpdateFailed。
+     * 库里的技能和装出去的文件夹都不动,要不要移除由用户决定。来源整个读不到时不算这种,算 UpdateFailed;
+     * 来源里还有这个技能但读不全(文件取不到、digest 不一致、SKILL.md 缺 name / description、索引里这一条坏了)也算 UpdateFailed。
      */
     UpdateDeleted = "deleted",
 
@@ -1694,7 +1721,7 @@ export interface UpdatePlan {
     "revision"?: string;
 
     /**
-     * Commits 是 GitHub 来源从集合里最旧的来源版本到来源现在之间的提交说明,最新的在前;其他来源没有,读不到时也为空。
+     * Commits 是 Git 类来源(GitHub 与 Git 仓库)从集合里最旧的来源版本到来源现在之间的提交说明,最新的在前;其他来源没有,读不到时也为空。
      */
     "commits"?: Commit[] | null;
 

@@ -133,6 +133,16 @@ func resolveGitHubInput(ctx context.Context, github Input) (locator repoLocator,
 	return repoLocator{Repository: parsed.repository, Branch: parsed.ref}, parsed.subpath, parsed.name, nil
 }
 
+func InputRefs(ctx context.Context, input string) (git.Refs, error) {
+	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+	defer cancel()
+	parsed, err := parseGitHubInput(Input{Input: input})
+	if err != nil {
+		return git.Refs{}, err
+	}
+	return git.ListRefs(ctx, remotes(parsed.repository), parsed.ref, parsed.tree)
+}
+
 func remotes(repository string) []string {
 	if repo, ok := strings.CutPrefix(repository, "https://github.com/"); ok {
 		return []string{repository, "git@github.com:" + repo}

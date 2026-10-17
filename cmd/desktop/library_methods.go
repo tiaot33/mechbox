@@ -40,6 +40,10 @@ func (s *LibraryService) PreviewFetch(ctx context.Context, req library.PreviewFe
 	return settle(s.lib.PreviewFetch(ctx, req))(ctx)
 }
 
+func (s *LibraryService) ListSourceRefs(ctx context.Context, input string) (library.SourceRefs, error) {
+	return settle(s.lib.ListSourceRefs(ctx, input))(ctx)
+}
+
 func (s *LibraryService) GetSkillAudit(ctx context.Context, id library.FetchPreviewID, name string) (*library.SkillAudit, error) {
 	return settle(s.lib.GetSkillAudit(ctx, id, name))(ctx)
 }
