@@ -196,6 +196,9 @@ func TestFacadeFailureCodes(t *testing.T) {
 		{name: "remove skill from group invalid if_no_other_install", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
 			return lib.RemoveSkillFromGroup(t.Context(), 1, 1, library.RemoveFromGroupOptions{IfNoOtherInstall: "nope"})
 		}},
+		{name: "delete group invalid if_no_other_install", want: library.InvalidArgument, call: func(t *testing.T, lib *library.Library) error {
+			return lib.DeleteGroup(t.Context(), 1, library.DeleteGroupOptions{IfNoOtherInstall: "nope"})
+		}},
 		{name: "preview unreadable archive", want: library.SourceInvalid, call: func(t *testing.T, lib *library.Library) error {
 			_, err := lib.PreviewFetch(t.Context(), serveArchive(t, []byte("not-a-zip")))
 			return err

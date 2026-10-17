@@ -91,7 +91,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 			_, err := lib.RenameGroup(ctx, unknownGroup, "missing")
 			return err
 		}()},
-		{"delete group", lib.DeleteGroup(ctx, unknownGroup)},
+		{"delete group", lib.DeleteGroup(ctx, unknownGroup, library.DeleteGroupOptions{})},
 		{"add to unknown group", func() error {
 			_, err := lib.AddSkillToGroup(ctx, unknownGroup, skill.ID)
 			return err
@@ -163,7 +163,7 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 	if _, err := lib.InstallGroup(ctx, second.ID, scope, library.InstallOptions{Overwrite: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.DeleteGroup(ctx, first.ID); err != nil {
+	if err := lib.DeleteGroup(ctx, first.ID, library.DeleteGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, skill.Name, "SKILL.md")); err != nil {
@@ -198,7 +198,7 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(groups, []library.Group{second}) {
 		t.Fatalf("groups after DeleteGroup = %#v, %v", groups, err)
 	}
-	if err := lib.DeleteGroup(ctx, first.ID); !library.IsCode(err, library.NotFound) {
+	if err := lib.DeleteGroup(ctx, first.ID, library.DeleteGroupOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("second DeleteGroup error = %v, want NotFound", err)
 	}
 	if err := lib.RemoveSkillFromGroup(ctx, second.ID, skill.ID, library.RemoveFromGroupOptions{}); err != nil {
@@ -237,7 +237,7 @@ func TestCreateGroupMakesOccupiedNamesUniqueAndRecordsCreatedAt(t *testing.T) {
 			t.Fatalf("CreateGroup Members = %#v, want empty list", group.Members)
 		}
 	}
-	if err := lib.DeleteGroup(ctx, second.ID); err != nil {
+	if err := lib.DeleteGroup(ctx, second.ID, library.DeleteGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	reused, err := lib.CreateGroup(ctx, "a")
@@ -335,7 +335,7 @@ func TestListGroupsReflectsMembershipChanges(t *testing.T) {
 	if err := lib.RemoveSkill(ctx, f.first.ID, library.RemoveSkillOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.DeleteGroup(ctx, f.single.ID); err != nil {
+	if err := lib.DeleteGroup(ctx, f.single.ID, library.DeleteGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireGroups(t, lib, []library.Group{
@@ -635,6 +635,103 @@ func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
 	}
 }
 
+// 删组选一并卸载:只因为这个组才装上的技能从各作用域卸载、移除文件夹;同一作用域里有直接安装或别的组安装的照常保留,
+// 不补直接安装。某个文件夹移不走时整次复原,组、组安装与文件夹都还在。
+func TestDeleteGroupUninstallingMembers(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	only := fetchNamedSkill(t, lib, "only")
+	direct := fetchNamedSkill(t, lib, "direct")
+	shared := fetchNamedSkill(t, lib, "shared")
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := library.GlobalScope(library.AgentCodex)
+	projectScope := library.ProjectScope(library.AgentCodex, project.ID)
+	globalDir, err := lib.ScopeDirectory(ctx, global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectDir, err := lib.ScopeDirectory(ctx, projectScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Install(ctx, direct.ID, global, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := lib.CreateGroup(ctx, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := lib.CreateGroup(ctx, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []library.Skill{only, direct, shared} {
+		if _, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := lib.AddSkillToGroup(ctx, other.ID, shared.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []library.Scope{global, projectScope} {
+		if _, err := lib.InstallGroup(ctx, g.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := lib.InstallGroup(ctx, other.ID, global, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	opts := library.DeleteGroupOptions{IfNoOtherInstall: library.UninstallMember}
+
+	makeScopeReadOnly(t, projectDir)
+	if err := lib.DeleteGroup(ctx, g.ID, opts); err == nil {
+		t.Fatal("DeleteGroup(uninstall) succeeded despite a read-only scope")
+	}
+	if err := os.Chmod(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"only", "direct", "shared"} {
+		requireInstalledFolder(t, globalDir, name, "# "+name+"\n")
+		requireInstalledFolder(t, projectDir, name, "# "+name+"\n")
+	}
+	requireNoStagedEntries(t, globalDir)
+	if got := groupMembers(t, lib, g.ID); !reflect.DeepEqual(got, []library.SkillID{only.ID, direct.ID, shared.ID}) {
+		t.Fatalf("group members after failed delete = %v", got)
+	}
+	installs, err := lib.ListGroupInstalls(ctx)
+	if err != nil || len(installs) != 3 {
+		t.Fatalf("ListGroupInstalls() after failed delete = %#v, %v; want 3", installs, err)
+	}
+
+	if err := lib.DeleteGroup(ctx, g.ID, opts); err != nil {
+		t.Fatal(err)
+	}
+	requireNoInstalledFolder(t, globalDir, "only")
+	requireInstalledFolder(t, globalDir, "direct", "# direct\n")
+	requireInstalledFolder(t, globalDir, "shared", "# shared\n")
+	for _, name := range []string{"only", "direct", "shared"} {
+		requireNoInstalledFolder(t, projectDir, name)
+	}
+	requireNoStagedEntries(t, globalDir)
+	requireNoStagedEntries(t, projectDir)
+	requireSkillScopes(t, lib, []library.SkillScope{
+		{SkillID: direct.ID, Scope: global, Folder: filepath.Join(globalDir, direct.Name), Direct: true},
+		{SkillID: shared.ID, Scope: global, Folder: filepath.Join(globalDir, shared.Name), Groups: []library.GroupID{other.ID}},
+	})
+	installs, err = lib.ListGroupInstalls(ctx)
+	if err != nil || len(installs) != 1 || installs[0].GroupID != other.ID {
+		t.Fatalf("ListGroupInstalls() after delete = %#v, %v; want only %d", installs, err, other.ID)
+	}
+	groups, err := lib.ListGroups(ctx)
+	if err != nil || len(groups) != 1 || groups[0].ID != other.ID {
+		t.Fatalf("ListGroups() after delete = %#v, %v; want only %d", groups, err, other.ID)
+	}
+}
+
 // 加入已安装的组时:已安装的(即使文件夹被手动改过)只补组安装、不写盘;有未记录文件夹或与组内成员同名的跳过,
 // 成员关系照常成立,之后同意覆盖再次 InstallGroup 补齐未记录文件夹那一项。
 func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
@@ -778,7 +875,7 @@ func TestUnregisterProjectAndDeleteGroupClearGroupInstalls(t *testing.T) {
 		t.Fatalf("ListGroupInstalls() after UnregisterProject = %#v, %v; want %#v", installs, err, want)
 	}
 
-	if err := lib.DeleteGroup(ctx, first.ID); err != nil {
+	if err := lib.DeleteGroup(ctx, first.ID, library.DeleteGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if installs, err := lib.ListGroupInstalls(ctx); err != nil || len(installs) != 0 {

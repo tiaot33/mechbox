@@ -31,6 +31,7 @@ export type {
     CustomAgent,
     DeleteAgentOptions,
     DeleteAgentResult,
+    DeleteGroupOptions,
     EditAgentOptions,
     EditAgentResult,
     Error,

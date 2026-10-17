@@ -46,8 +46,8 @@ export function DeleteAgent(code: library$0.AgentCode, opts: library$0.DeleteAge
     return $Call.ByID(750105618, code, opts);
 }
 
-export function DeleteGroup(id: library$0.GroupID): $CancellablePromise<void> {
-    return $Call.ByID(486162608, id);
+export function DeleteGroup(id: library$0.GroupID, opts: library$0.DeleteGroupOptions): $CancellablePromise<void> {
+    return $Call.ByID(486162608, id, opts);
 }
 
 export function DiffVersions($from: library$0.VersionID, to: library$0.VersionID): $CancellablePromise<library$0.VersionDiff> {

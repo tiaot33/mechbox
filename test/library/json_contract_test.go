@@ -26,6 +26,7 @@ func TestJSONFieldNamesAndValuesFollowTerminology(t *testing.T) {
 		{"remove skill folders", library.RemoveSkillOptions{Folders: library.Keep}, `{"folders":"keep"}`},
 		{"unregister project folders", library.UnregisterProjectOptions{Folders: library.Remove}, `{"folders":"remove"}`},
 		{"remove from group if_no_other_install", library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember}, `{"if_no_other_install":"uninstall"}`},
+		{"delete group if_no_other_install", library.DeleteGroupOptions{IfNoOtherInstall: library.KeepAsDirectInstall}, `{"if_no_other_install":"keep"}`},
 		{"install plan already installed", library.InstallAlreadyInstalled, `"already_installed"`},
 		{"member installed", library.MemberInstalled, `"installed"`},
 		{"member already installed", library.MemberAlreadyInstalled, `"already_installed"`},

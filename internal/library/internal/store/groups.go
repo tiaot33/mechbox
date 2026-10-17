@@ -172,20 +172,11 @@ func (t *Tx) RemoveMember(ctx context.Context, groupID, skillID int64) error {
 }
 
 func (t *Tx) DeleteGroup(ctx context.Context, id int64) error {
-	covered, err := t.MemberSkillScopes(ctx, id, 0, nil)
-	if err != nil {
-		return err
-	}
 	if _, err := t.q.ExecContext(ctx, `DELETE FROM group_installs WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group installs: %w", wrap(err))
 	}
 	if _, err := t.q.ExecContext(ctx, `DELETE FROM skill_groups WHERE group_id = ?`, id); err != nil {
 		return fmt.Errorf("delete group members: %w", wrap(err))
-	}
-	for _, member := range covered {
-		if err := t.KeepAsDirectInstall(ctx, member.ID); err != nil {
-			return err
-		}
 	}
 	result, err := t.q.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, id)
 	if err != nil {

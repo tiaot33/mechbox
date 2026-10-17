@@ -328,20 +328,28 @@ export async function renameGroup(ui: UI, s: Snapshot, groupID: GroupID) {
 }
 
 export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
+  // 有组安装时，只随本组安装的技能由用户决定去留，与移出成员一致。
   const installs = s.groupInstalls.filter((a) => a.group_id === groupID).length;
-  const ok = await ui.confirm({
+  const choice = await ui.confirm({
     title: `删除组「${groupName(s, groupID)}」`,
     body: (
       <Hint>
-        成员技能不会被删除。{installs ? `该组的 ${installs} 个组安装会一并删除;` : ""}
-        只随本组安装的技能会转为直接安装，磁盘上的文件夹不动。
+        成员技能不会被删除。
+        {installs ? `该组的 ${installs} 个组安装会一并删除。只随本组安装的技能如何处理?` : ""}
       </Hint>
     ),
+    choices: installs
+      ? [
+          { value: MemberRemovalPolicy.KeepAsDirectInstall, label: "保留", desc: "改为直接安装，磁盘不动" },
+          { value: MemberRemovalPolicy.UninstallMember, label: "一并卸载", desc: "从这些作用域的目录里移除文件夹" },
+        ]
+      : undefined,
     confirm: "删除组",
     danger: true,
   });
-  if (!ok) return;
-  await ui.run(() => LibraryService.DeleteGroup(groupID), { success: "已删除组" });
+  if (!choice) return;
+  const policy = installs ? (choice as MemberRemovalPolicy) : MemberRemovalPolicy.KeepAsDirectInstall;
+  await ui.run(() => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy }), { success: "已删除组" });
 }
 
 // ---------- 重新安装 ----------

@@ -148,8 +148,8 @@ func (s *LibraryService) RenameGroup(ctx context.Context, id library.GroupID, na
 	return settle(s.lib.RenameGroup(ctx, id, name))(ctx)
 }
 
-func (s *LibraryService) DeleteGroup(ctx context.Context, id library.GroupID) error {
-	return settleErr(ctx, s.lib.DeleteGroup(ctx, id))
+func (s *LibraryService) DeleteGroup(ctx context.Context, id library.GroupID, opts library.DeleteGroupOptions) error {
+	return settleErr(ctx, s.lib.DeleteGroup(ctx, id, opts))
 }
 
 func (s *LibraryService) AddSkillToGroup(ctx context.Context, groupID library.GroupID, skillID library.SkillID) ([]library.GroupMemberResult, error) {

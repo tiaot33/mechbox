@@ -735,7 +735,7 @@ func TestSyncPushAndPullWithPassedSettings(t *testing.T) {
 	if _, err := lib.SyncPush(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.DeleteGroup(ctx, group.ID); err != nil {
+	if err := lib.DeleteGroup(ctx, group.ID, library.DeleteGroupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	pullPlan, err := lib.PlanSyncPull(ctx)

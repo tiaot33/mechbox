@@ -24,8 +24,8 @@ type Group struct {
 	Members   []SkillID `json:"members"`             // 成员的技能 ID,按 ID 升序;空组为空列表
 }
 
-// MemberRemovalPolicy 决定把技能移出组时,失去该组组安装的技能如何处理。与 FolderPolicy
-// 含义与默认值都不同:只影响因移出而没有直接安装或组安装留着的技能,默认保留。
+// MemberRemovalPolicy 决定把技能移出组或删除组时,失去该组组安装的技能如何处理。与 FolderPolicy
+// 含义与默认值都不同:只影响因此没有直接安装或组安装留着的技能,默认保留。
 type MemberRemovalPolicy string
 
 const (
@@ -36,6 +36,11 @@ const (
 // RemoveFromGroupOptions 是 RemoveSkillFromGroup 的选项。
 type RemoveFromGroupOptions struct {
 	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管移出后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
+}
+
+// DeleteGroupOptions 是 DeleteGroup 的选项。
+type DeleteGroupOptions struct {
+	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管删组后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
 }
 
 func groupOf(row store.Group) Group {
@@ -131,14 +136,30 @@ func uniqueGroupName(name string, taken map[string]int64) string {
 	}
 }
 
-// DeleteGroup 删除组,连同它在各作用域的组安装。只因为这个组才装上的技能改为直接安装,
-// 磁盘上的技能文件夹不动。组不存在返回 NotFound。
-func (l *Library) DeleteGroup(ctx context.Context, id GroupID) (err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+// DeleteGroup 删除组,连同它在各作用域的组安装。只因为这个组才装上的技能按 opts 处理:保留(改为直接安装、
+// 磁盘不动,默认)或一并卸载;在同一作用域里有直接安装或别的组安装的照常保留。组不存在返回 NotFound。
+// 一并卸载时某个文件夹移不走则整次复原。
+func (l *Library) DeleteGroup(ctx context.Context, id GroupID, opts DeleteGroupOptions) (err error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	return l.store.InTx(ctx, func(tx *store.Tx) error {
-		return tx.DeleteGroup(ctx, int64(id))
+	if err := validateMemberRemoval("delete group", opts.IfNoOtherInstall); err != nil {
+		return err
+	}
+	if err := l.requireGroup(ctx, id); err != nil {
+		return err
+	}
+	released, err := l.releasedMemberScopes(ctx, int64(id), 0)
+	if err != nil {
+		return err
+	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
+	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		if err := tx.DeleteGroup(ctx, int64(id)); err != nil {
+			return err
+		}
+		return releaseMemberScopes(ctx, tx, &change, released, opts.IfNoOtherInstall)
 	})
 }
 
@@ -204,17 +225,9 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 	if !member {
 		return &Error{Code: NotFound, Message: "remove skill from group: skill is not a member"}
 	}
-	skillScopes, err := l.store.MemberSkillScopes(ctx, int64(groupID), int64(skillID), nil)
+	released, err := l.releasedMemberScopes(ctx, int64(groupID), int64(skillID))
 	if err != nil {
 		return err
-	}
-	directories := make([]string, len(skillScopes))
-	for i, skillScope := range skillScopes {
-		target, err := l.resolveRow(ctx, scopeRowOf(skillScope.Scope))
-		if err != nil {
-			return err
-		}
-		directories[i] = target.directory
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
@@ -222,30 +235,55 @@ func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, ski
 		if err := tx.RemoveMember(ctx, int64(groupID), int64(skillID)); err != nil {
 			return err
 		}
-		for i, skillScope := range skillScopes {
-			if opts.IfNoOtherInstall != UninstallMember {
-				if err := tx.KeepAsDirectInstall(ctx, skillScope.ID); err != nil {
-					return err
-				}
-				continue
-			}
-			removed, err := tx.UninstallMember(ctx, skillScope.ID)
-			if err != nil {
-				return err
-			}
-			if !removed {
-				continue
-			}
-			place, err := tx.PlaceSkillScopes(ctx, skillScope.SkillID, skillScope.Scope)
-			if err != nil {
-				return err
-			}
-			if len(place) == 0 {
-				change.Remove(filepath.Join(directories[i], skillScope.Name))
-			}
-		}
-		return nil
+		return releaseMemberScopes(ctx, tx, &change, released, opts.IfNoOtherInstall)
 	})
+}
+
+type releasedMemberScope struct {
+	store.MemberScope
+	directory string
+}
+
+func (l *Library) releasedMemberScopes(ctx context.Context, groupID, skillID int64) ([]releasedMemberScope, error) {
+	skillScopes, err := l.store.MemberSkillScopes(ctx, groupID, skillID, nil)
+	if err != nil {
+		return nil, err
+	}
+	released := make([]releasedMemberScope, len(skillScopes))
+	for i, skillScope := range skillScopes {
+		target, err := l.resolveRow(ctx, scopeRowOf(skillScope.Scope))
+		if err != nil {
+			return nil, err
+		}
+		released[i] = releasedMemberScope{MemberScope: skillScope, directory: target.directory}
+	}
+	return released, nil
+}
+
+func releaseMemberScopes(ctx context.Context, tx *store.Tx, change *agentdir.Change, released []releasedMemberScope, policy MemberRemovalPolicy) error {
+	for _, skillScope := range released {
+		if policy != UninstallMember {
+			if err := tx.KeepAsDirectInstall(ctx, skillScope.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		removed, err := tx.UninstallMember(ctx, skillScope.ID)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			continue
+		}
+		place, err := tx.PlaceSkillScopes(ctx, skillScope.SkillID, skillScope.Scope)
+		if err != nil {
+			return err
+		}
+		if len(place) == 0 {
+			change.Remove(filepath.Join(skillScope.directory, skillScope.Name))
+		}
+	}
+	return nil
 }
 
 func (l *Library) requireGroup(ctx context.Context, id GroupID) error {
