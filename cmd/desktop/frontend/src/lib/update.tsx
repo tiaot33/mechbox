@@ -3,6 +3,7 @@
 // 与用目录里的修改更新(PlanUpdateFromScope,issue #185)都走这里;
 // 完成后的提示带回滚入口，没换上的地方可以单独重试。
 // 默认勾选：有变化且没跳过的技能全勾(从技能发起时只勾这一个);推测出的改名要用户点"是";
+// 用目录里的修改更新过的技能(issue #188),更新会换掉用户的修改，不默认勾;
 // 装出去的地方全勾，用户改过的地方不勾，项目不在这台机器上的不能勾。
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
@@ -61,9 +62,9 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
 export const movable = (p: PlannedSkill) => p.change === PlannedChange.PlannedChanged || !!p.renamed_to;
 
 // defaultSkills 是默认勾选：有变化且没跳过的全勾;给了 select(从技能发起、从跳过记录找回)时只勾这几个。
-// 改名推测都不默认勾，等用户回答"是"。
+// 改名推测都不默认勾，等用户回答"是";用户改过的技能(edited)有变化时也不默认勾，用户自己勾上才算同意换掉修改。
 export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID> {
-  const skills = plan.skills ?? [];
+  const skills = (plan.skills ?? []).filter((p) => !(p.edited && p.change === PlannedChange.PlannedChanged));
   if (select) {
     return new Set(skills.filter((p) => select.includes(p.skill.id) && !p.renamed_to && p.change !== PlannedChange.PlannedDeleted).map((p) => p.skill.id));
   }
@@ -290,7 +291,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
   );
 }
 
-// updateWithDefaults 不打开更新计划，按默认勾选更新这些集合，最后一起汇报。改名和删除要在更新计划里由用户回答，这里不动。
+// updateWithDefaults 不打开更新计划，按默认勾选更新这些集合，最后一起汇报。改名、删除和会换掉用户修改的更新要在更新计划里由用户回答，这里不动。
 export async function updateWithDefaults(ui: UI, s: Snapshot, collectionIDs: CollectionID[]) {
   const outcomes: UpdateOutcome[] = [];
   for (const id of collectionIDs) {
@@ -299,7 +300,7 @@ export async function updateWithDefaults(ui: UI, s: Snapshot, collectionIDs: Col
     if (!plan) continue;
     const checked = defaultSkills(plan);
     if (!checked.size) {
-      ui.toast(`${name} 没有能直接更新的改动;改名和删除请在更新计划里确认`);
+      ui.toast(`${name} 没有能直接更新的改动;改名、删除和会换掉你的修改的更新请在更新计划里确认`);
       continue;
     }
     const o = await runUpdate(ui, plan, name, checked, defaultInstallOn);

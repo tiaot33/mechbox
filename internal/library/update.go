@@ -104,6 +104,8 @@ type UpdateResult struct {
 // 结论写在集合里每个技能的 LastUpdateCheck 上,重启后仍可读到:有新版本、已是最新、来源里已删除,
 // 或没读成来源时的检查失败(原因在 CollectionUpdateCheck.Error)。结论还带上看到的来源版本、这次的改动是否跳过过,
 // 以及是否计入角标(见 UpdateCheck)。来源换了来源版本时,同时按整个来源记下新技能,列在 Collection.NewSkills 上。
+// 当前版本是用目录里的修改更新进来的技能(PlannedSkill.Edited),只看来源里这个技能和这份修改所基于的来源版本相比有没有改过:
+// 没改过,或改成了和这份修改一样,都是已是最新。
 // 不同集合互不影响,一个来源连不上不妨碍其他集合。
 //
 // 同时有几次检查、或检查期间技能被更新时,结论以较新的为准,不报错:检查开始后别处写下了结论(检查、更新计划、更新、继续保留)时
@@ -185,14 +187,15 @@ func (l *Library) readCollection(ctx context.Context, id CollectionID) (*collect
 	}
 	read.checked = make([]checkedSkill, len(read.skills))
 	first := read.states[0]
-	read.snapshot, read.openErr = l.sources.Open(ctx, first.source.Type, first.source.Locator, "", first.snapshot)
+	read.snapshot, read.openErr = l.sources.Open(ctx, first.source.Type, first.source.Locator, "", first.origin.State)
 	if read.openErr != nil {
 		for i := range read.checked {
 			read.checked[i].err = read.openErr
 		}
 	} else {
 		for {
-			read.checked = checkSkills(ctx, read.snapshot, haves(read.skills, read.states), true)
+			read.checked = checkSkills(ctx, read.snapshot, haves(read.states), true)
+			keepEdits(read.checked, read.states)
 			read.revision = read.snapshot.Revision()
 			read.listed = nil
 			if read.revision == "" || read.revision != read.listedAt.Revision {
@@ -248,6 +251,14 @@ func (l *Library) collectionCurrent(ctx context.Context, id CollectionID) (*coll
 		}
 		if err != nil {
 			return nil, err
+		}
+		state.origin = source.Have{Name: skill.Name, Files: state.files, State: state.snapshot}
+		if state.base != 0 {
+			origin, err := l.store.Origin(ctx, state.versionID)
+			if err != nil {
+				return nil, err
+			}
+			state.origin.Files, state.origin.State = origin.Files, source.State(origin.State)
 		}
 		rejected, err := l.store.RejectedRenames(ctx, int64(skill.ID))
 		if err != nil {
@@ -756,12 +767,24 @@ type checkedSkill struct {
 	err     error
 }
 
-func haves(skills []Skill, states []currentVersion) []source.Have {
-	result := make([]source.Have, len(skills))
-	for i, skill := range skills {
-		result[i] = source.Have{Name: skill.Name, Files: states[i].files, State: states[i].snapshot}
+func haves(states []currentVersion) []source.Have {
+	result := make([]source.Have, len(states))
+	for i, state := range states {
+		result[i] = state.origin
 	}
 	return result
+}
+
+func keepEdits(checked []checkedSkill, states []currentVersion) {
+	for i := range checked {
+		if states[i].base == 0 || checked[i].err != nil {
+			continue
+		}
+		if checked[i].changed && !skillfile.Equal(checked[i].latest.Files, states[i].files) {
+			continue
+		}
+		checked[i] = checkedSkill{latest: source.Skill{Name: states[i].origin.Name, Files: states[i].files}}
+	}
 }
 
 func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.Have, needFiles bool) []checkedSkill {

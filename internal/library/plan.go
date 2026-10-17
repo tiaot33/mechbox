@@ -70,6 +70,10 @@ type PlannedSkill struct {
 	// RenamedTo 是来源里已删除时,推测这个技能改名成的新名字,含义同 UpdateCheck.RenamedTo。勾上更新即确认「是」:技能改用新名字,
 	// 内容换成那个新名字的;RejectRename 回答「不是」。有推测时 Risks、Diff 按那个新名字的内容给出,装出去的各处也列在 Installs 里。
 	RenamedTo string `json:"renamed_to,omitempty"`
+	// Edited 为 true 表示库里的当前版本是用目录里的修改更新进来的(SkillVersion.BasedOn 不为空)。这时有没有变化只看来源:
+	// 来源里这个技能和这份修改所基于的来源版本相比有没有改过,没改过就是没变化;改过且和这份修改不同才是有变化,勾上更新会换掉这份修改
+	// (之后能回滚回来),所以桌面端默认不勾。用目录里的修改更新的计划(PlanUpdateFromScope)里为 false。
+	Edited bool `json:"edited,omitzero"`
 	// Risks 是有变化的技能里需要先看一眼的文件:新增或改动的脚本、新增的可执行文件,按路径排序。没有时为空。
 	Risks []UpdateRisk `json:"risks,omitempty"`
 	// Diff 是有变化时从库里的当前版本到来源里的内容改了哪些文件;其他情况为 nil。库里一侧用 GetVersionFile(Skill.VersionID, path) 读,
@@ -152,7 +156,7 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 	plan = UpdatePlan{CollectionID: id, Source: read.skills[0].Source, Revision: read.revision, Commits: commits, Skills: make([]PlannedSkill, len(read.skills)), Installs: []SkillScopeInspection{}}
 	state := &planState{collection: id, sourceID: read.states[0].source.ID, replica: read.replica, revision: read.revision, skills: map[SkillID]*plannedState{}}
 	for i, skill := range read.skills {
-		planned := PlannedSkill{Skill: skill}
+		planned := PlannedSkill{Skill: skill, Edited: read.states[i].base != 0}
 		checked := read.checked[i]
 		item := &plannedState{name: skill.Name, versionID: read.states[i].versionID, latest: checked.latest}
 		guess, renamed := read.renames[i]
@@ -197,7 +201,7 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 // 计划里只有这一个技能:Change 为 changed,Risks 与 Diff 从库里的当前版本到那里的内容;Revision 与 Commits 为空。
 // Installs 列出这个技能装出去的其他各处及其状态,默认勾选的规则和从来源更新相同:用户改过的地方不勾,勾上才覆盖。
 // 更新之后,取内容的那一处和新的当前版本一致,巡检为 current。新版本的 SkillVersion.BasedOn 是当时库里的当前版本,
-// 来源版本沿用它的;检查更新的判断不变。
+// 来源版本沿用它的;之后检查更新只看来源从这份修改所基于的来源版本之后有没有改过(见 PlannedSkill.Edited)。
 // 只读:不改库,也不碰装出去的文件夹;可以反复生成。
 //
 // 错误:作用域不合法返回 InvalidArgument;技能、Agent、项目不存在,或技能不装在这里返回 NotFound;作用域根目录不存在返回

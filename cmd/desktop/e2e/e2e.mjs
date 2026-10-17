@@ -1155,6 +1155,81 @@ await step("详情：用这里的修改更新，连带换到其他地方，能�
   await closeDrawer();
 });
 
+// 改了作者的技能，照样跟着作者走：用 proj-a 里的修改更新库里的 delta 后，作者没再改时检查更新不报有更新;作者发了新版时照常计入角标，
+// 更新计划里标明会换掉修改、默认不勾;勾上更新后能回滚回这份修改，也可以跳过，直到作者再改。
+await step("改了作者的技能：只看作者那边有没有新版，更新会换掉修改、默认不勾，能回滚、能跳过", async () => {
+  const projDelta = path.join(`${HOME}/code/proj-a`, String(fs.readdirSync(`${HOME}/code/proj-a`, { recursive: true }).find((f) => String(f).endsWith("delta/SKILL.md"))));
+  fs.writeFileSync(projDelta, projSkill("delta").replace("# delta v2", "# delta edited by hand"));
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+  await openDrawer("delta");
+  await btn(drawer().locator(".scope-table tbody tr", { hasText: "proj-a" }), "用这里的修改更新").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "用 Claude Code · proj-a 里的修改更新「delta」" }).waitFor();
+  await modal().locator('[data-diff="changed"]', { hasText: "SKILL.md" }).waitFor({ timeout: 15000 });
+  await btn(modal(), "更新").click();
+  await toast("已用 Claude Code · proj-a 里的修改更新「delta」");
+  await settle();
+  await closeDrawer();
+
+  await checkUpdates("没有要处理的更新");
+  assert((await updatesNav().count()) === 0, "作者没再改时不显示有更新");
+
+  rewriteZip("delta v3");
+  await checkUpdates("1 个技能有新版本");
+  assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "作者发了新版时计入角标");
+  await updatesNav().click();
+  const row = page.locator(".update-row", { hasText: "delta" });
+  await btn(row, "更新").click();
+  await toast("没有能直接更新的改动;改名、删除和会换掉你的修改的更新请在更新计划里确认");
+  await settle();
+  assert(projSkill("delta").includes("delta edited by hand"), "按默认勾选更新时不换掉修改");
+  await btn(row, "查看").click();
+  const delta = planRow("update-skill", "delta");
+  await delta.locator(".update-edited", { hasText: "更新会换掉你的修改" }).waitFor({ timeout: 15000 });
+  assert(!(await delta.locator("input[type=checkbox]").isChecked()), "会换掉修改的技能默认不勾");
+  assert(await btn(modal(), "更新 0 个").isDisabled(), "没勾时不能更新");
+  await delta.locator("input[type=checkbox]").check();
+  await btn(modal(), "更新 1 个").click();
+  await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
+  await settle();
+  assert(projSkill("delta").includes("delta v3"), "勾上更新后项目里的 delta 换成来源的新版本");
+
+  await openDrawer("delta");
+  await btn(drawer(), "更新历史").click();
+  const record = modal().locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "更新" }) }).first();
+  await btn(record, "回滚").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
+  await btn(modal(), "回滚").click();
+  await toast("装回了 1 个地方");
+  await settle();
+  await page.keyboard.press("Escape");
+  assert(projSkill("delta").includes("delta edited by hand"), "回滚回这份修改");
+  assert((await updatesNav().count()) === 0, "回滚掉的改动不计入角标");
+  await closeDrawer();
+
+  rewriteZip("delta v4");
+  await checkUpdates("1 个技能有新版本");
+  await updatesNav().click();
+  await btn(page.locator(".update-row", { hasText: "delta" }), "查看").click();
+  await planRow("update-skill", "delta").locator(".update-edited").waitFor({ timeout: 15000 });
+  await btn(planRow("update-skill", "delta"), "跳过").click();
+  await toast("已跳过「delta」这次的改动");
+  await page.keyboard.press("Escape");
+  await settle();
+  assert((await updatesNav().count()) === 0, "跳过后角标消失");
+  await checkUpdates("没有要处理的更新");
+  assert(projSkill("delta").includes("delta edited by hand"), "跳过后修改还在");
+  rewriteZip("delta v5");
+  await checkUpdates("1 个技能有新版本");
+  // 后面的步骤按角标计数，这次的改动也跳过。
+  await updatesNav().click();
+  await btn(page.locator(".update-row", { hasText: "delta" }), "查看").click();
+  await btn(planRow("update-skill", "delta"), "跳过").click();
+  await toast("已跳过「delta」这次的改动");
+  await page.keyboard.press("Escape");
+  await settle();
+});
+
 await step("从技能发起更新：只勾这一个、其余折叠;之后更新集合重新对齐", async () => {
   const pairURL = ZIP_URL.replace(/delta\.zip$/, "pair.zip");
   await openFetch();
