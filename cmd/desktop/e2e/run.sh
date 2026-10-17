@@ -53,6 +53,27 @@ mkdir -p "$work/zips/site/.well-known/skills/omega"
 printf -- '---\nname: omega\ndescription: "omega from a well-known index"\n---\n\n# omega\n' >"$work/zips/site/.well-known/skills/omega/SKILL.md"
 printf '{"skills":[{"name":"omega","description":"omega from a well-known index","files":["SKILL.md"]}]}\n' >"$work/zips/site/.well-known/skills/index.json"
 
+# Git 仓库：tag v1.0 只有 git-tagged;main(默认分支)再加 skills/git-main 与 .claude/skills/git-other;release/v2 再加 skills/git-v2。
+# 临时 HOME 的 .gitconfig 用 insteadOf 把 https://git.e2e.test/org/repo.git 指到本地裸仓库，测分支下拉与入库预览。
+repo="$work/git/src"
+mkdir -p "$repo"
+gitc() { git -C "$repo" -c user.name=e2e -c user.email=e2e@example.com -c commit.gpgsign=false "$@"; }
+skill() {
+	mkdir -p "$repo/$1/$2"
+	printf -- '---\nname: %s\ndescription: "%s from git"\n---\n\n# %s\n' "$2" "$2" "$2" >"$repo/$1/$2/SKILL.md"
+}
+gitc init -q -b main
+skill skills git-tagged
+gitc add -A && gitc commit -qm v1 && gitc tag v1.0
+skill skills git-main
+skill .claude/skills git-other
+gitc add -A && gitc commit -qm main
+gitc checkout -qb release/v2
+skill skills git-v2
+gitc add -A && gitc commit -qm v2 && gitc checkout -q main
+git clone -q --bare "$repo" "$work/git/repo.git"
+git config --file "$home/.gitconfig" "url.file://$work/git/repo.git.insteadOf" https://git.e2e.test/org/repo.git
+
 port=${E2E_PORT:-18080}
 zip_port=$((port + 1))
 (cd "$work/zips" && exec python3 -m http.server "$zip_port" >/dev/null 2>&1) &

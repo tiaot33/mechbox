@@ -1,17 +1,23 @@
 // 入库技能：给出一个来源输入(本地路径、GitHub、Git 仓库、下载链接或站点链接),由技能库识别来源并做入库预览，
-// 再在 FetchReview 里挑选候选入库。
-import { useEffect, useRef, useState } from "react";
+// 再在 FetchReview 里挑选候选入库。Git 类来源在扫描前从下拉里选分支或 tag。
+import { useEffect, useId, useRef, useState } from "react";
 import { Dialogs, type CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
-import type { FetchPreview, PreviewFetchRequest } from "@bindings/internal/library";
+import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
+import { toLibraryError } from "@/lib/library";
 import { resolveFetchInput } from "@/lib/paths";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, Hint } from "@/components/ui/field";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { FieldError, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
 import { FetchReview } from "./fetch-review";
+import { Icon } from "./icons";
 
 // pickDirectory 打开系统目录选择框;取消时返回空串。
 export async function pickDirectory(title: string): Promise<string> {
@@ -27,48 +33,59 @@ export async function pickDirectory(title: string): Promise<string> {
 export function FetchDialog({ home, onClose }: { home: string; onClose: () => void }) {
   const ui = useUI();
   const [text, setText] = useState("");
-  const [ref, setRef] = useState("");
-  const [subpath, setSubpath] = useState("");
+  // chosen 是用户在下拉里选的分支或 tag;没选时为 null,下拉选中默认分支。
+  const [chosen, setChosen] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   // failure 是技能库给出的识别 / 入库预览失败原因，改了输入就清掉。
   const [failure, setFailure] = useState<string | null>(null);
   const [preview, setPreview] = useState<FetchPreview | null>(null);
-  // pending 是还没返回的入库预览;改了输入或关掉对话框就取消它，返回的结果与失败原因也不再采用。
-  const pending = useRef<CancellablePromise<FetchPreview> | null>(null);
+  // pending 是还没完成的一次入库预览(先等分支列表，再调 PreviewFetch);改了输入、改选分支或关掉对话框就作废它，
+  // 已发出的调用取消，返回的结果与失败原因也不再采用。
+  const pending = useRef<{ call?: CancellablePromise<FetchPreview> } | null>(null);
   const discard = () => {
-    pending.current?.cancel();
+    void pending.current?.call?.cancel();
     pending.current = null;
   };
   useEffect(() => discard, []);
+  const input = resolveFetchInput(text, home);
+  const [refs, settleRefs] = useSourceRefs(input?.path ?? "");
 
   if (preview) {
     return <FetchReview preview={preview} onClose={onClose} onBack={() => setPreview(null)} />;
   }
 
-  const input = resolveFetchInput(text, home);
   const ready = !!input?.path;
-  const edit = (set: (v: string) => void) => (v: string) => {
-    set(v);
+  const restart = () => {
     discard();
     setWorking(false);
     setFailure(null);
   };
+  const edit = (v: string) => {
+    setText(v);
+    setChosen(null);
+    restart();
+  };
 
   const previewFetch = async () => {
     if (pending.current || !input?.path) return;
+    const op: { call?: CancellablePromise<FetchPreview> } = {};
+    pending.current = op;
     setWorking(true);
     setFailure(null);
-    const req: PreviewFetchRequest = { input: input.path, ref: ref.trim() || undefined, subpath: subpath.trim() || undefined };
+    // 列表还没取回时先等它(还在防抖就马上取):tree 链接里带斜杠的分支要从列表里认出来，显式交给技能库。
+    const listed = await settleRefs();
+    if (pending.current !== op) return;
+    const req: PreviewFetchRequest = { input: input.path, ref: refToSend(listed, chosen) };
     const call = LibraryService.PreviewFetch(req);
-    pending.current = call;
+    op.call = call;
     const result = await ui.run(() => call, {
       reload: false,
       onError: (err) => {
-        if (pending.current === call) setFailure(describeError(err));
+        if (pending.current === op) setFailure(describeError(err));
         return true;
       },
     });
-    if (pending.current !== call) return;
+    if (pending.current !== op) return;
     pending.current = null;
     setWorking(false);
     if (result) setPreview(result);
@@ -98,32 +115,183 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
           autoFocus
           placeholder="anthropics/skills、https://gitlab.com/team/skills、~/skills"
           value={text}
-          onChange={(e) => edit(setText)(e.target.value)}
+          onChange={(e) => edit(e.target.value)}
           onKeyDown={submitOnEnter}
         />
         <Button
           onClick={async () => {
             const dir = await pickDirectory("选择技能目录");
-            if (dir) edit(setText)(dir);
+            if (dir) edit(dir);
           }}
         >
           选择…
         </Button>
       </div>
       {input?.error && <FieldError>{input.error}</FieldError>}
-      <div className="flex min-w-0 items-start gap-2">
-        <Field label="分支 / tag(可选，只对 Git 仓库有效)" className="grow">
-          <Input placeholder="默认分支" value={ref} onChange={(e) => edit(setRef)(e.target.value)} onKeyDown={submitOnEnter} />
-        </Field>
-        <Field label="仓库内目录(可选，只对 Git 仓库有效)" className="grow">
-          <Input placeholder="整个仓库" value={subpath} onChange={(e) => edit(setSubpath)(e.target.value)} onKeyDown={submitOnEnter} />
-        </Field>
-      </div>
+      <RefPicker
+        refs={refs}
+        chosen={chosen}
+        onChoose={(ref) => {
+          setChosen(ref);
+          restart();
+        }}
+      />
       {failure && (
         <Notice tone="bad" className="fetch-failure whitespace-pre-line">
           {failure}
         </Notice>
       )}
     </Modal>
+  );
+}
+
+// RefsState 是分支下拉的状态:hidden 不显示(本地路径、技能库认不出是 Git 类来源),loading 正在读取，
+// failed 取不到列表(显示原因，入库预览照常可用)。
+type RefsState =
+  | { status: "hidden" }
+  | { status: "loading" }
+  | { status: "ready"; refs: SourceRefs }
+  | { status: "failed"; reason: string };
+
+// useSourceRefs 在输入停下约半秒后向技能库取分支和 tag 列表;输入变了或对话框关了，旧请求取消、结果不再采用。
+// 本地路径不取;技能库认不出是 Git 类来源时报 InvalidArgument,下拉不显示。
+// 第二个返回值等这次输入的列表取回(还在防抖就马上取),取不到或不是 Git 类来源时为 null。
+function useSourceRefs(source: string): [RefsState, () => Promise<SourceRefs | null>] {
+  const [state, setState] = useState<RefsState>({ status: "hidden" });
+  const request = useRef<{ start: () => void; result: Promise<SourceRefs | null> } | null>(null);
+  useEffect(() => {
+    if (!source || source.startsWith("/")) {
+      setState({ status: "hidden" });
+      request.current = null;
+      return;
+    }
+    // 下拉已经显示着(从一个 Git 类输入改成另一个)时直接换成正在读取，旧列表不留在新输入下面;
+    // 没显示时等请求慢于 150ms 再显示，认不出的输入不会闪一下下拉。
+    setState((cur) => (cur.status === "hidden" ? cur : { status: "loading" }));
+    let live = true;
+    let call: CancellablePromise<SourceRefs> | undefined;
+    let slow: number | undefined;
+    let settle: (refs: SourceRefs | null) => void = () => {};
+    const result = new Promise<SourceRefs | null>((resolve) => (settle = resolve));
+    const start = () => {
+      if (call) return;
+      window.clearTimeout(timer);
+      call = LibraryService.ListSourceRefs(source);
+      slow = window.setTimeout(() => setState({ status: "loading" }), 150);
+      call
+        .then(
+          (refs) => {
+            settle(refs);
+            if (live) setState({ status: "ready", refs });
+          },
+          (err) => {
+            settle(null);
+            const e = toLibraryError(err);
+            if (!live || e.code === ErrorCode.Canceled) return;
+            setState(e.code === ErrorCode.InvalidArgument ? { status: "hidden" } : { status: "failed", reason: describeError(e) });
+          },
+        )
+        .finally(() => window.clearTimeout(slow));
+    };
+    const timer = window.setTimeout(start, 500);
+    request.current = { start, result };
+    return () => {
+      live = false;
+      settle(null);
+      window.clearTimeout(timer);
+      window.clearTimeout(slow);
+      void call?.cancel();
+    };
+  }, [source]);
+  const settleRefs = () => {
+    const current = request.current;
+    if (!current) return Promise.resolve(null);
+    current.start();
+    return current.result;
+  };
+  return [state, settleRefs];
+}
+
+// refToSend 是入库预览要传给技能库的分支或 tag。输入里带了分支(tree 链接、#ref)时传它：
+// tree 链接里带斜杠的分支，技能库要显式给出才能和目录分开;这时下拉锁定，不会选到别的。
+// 否则传下拉选中的，选的是默认分支或没取到列表时不传。
+function refToSend(refs: SourceRefs | null, chosen: string | null): string | undefined {
+  if (!refs) return undefined;
+  if (refs.input_ref) return refs.input_ref;
+  const selected = chosen ?? refs.default_branch;
+  return selected && selected !== refs.default_branch ? selected : undefined;
+}
+
+// selectedRef 是下拉当前选中的分支或 tag:输入里带的，否则用户选过的，否则默认分支。
+function selectedRef(refs: SourceRefs, chosen: string | null): string {
+  return refs.input_ref || (chosen ?? refs.default_branch);
+}
+
+// RefPicker 是分支 / tag 下拉：分支和 tag 分组列出，可输入文字筛选，默认选中默认分支。
+// 输入里带了分支时选中它并锁定：要换分支得改输入，否则和输入里的分支冲突，技能库会拒绝。
+function RefPicker({ refs, chosen, onChoose }: { refs: RefsState; chosen: string | null; onChoose: (ref: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const labelId = useId();
+  const triggerId = useId();
+  if (refs.status === "hidden") return null;
+  const ready = refs.status === "ready" ? refs.refs : null;
+  const selected = ready ? selectedRef(ready, chosen) : "";
+  const locked = !!ready?.input_ref;
+  const item = (kind: "b" | "t", name: string) => (
+    <CommandItem
+      key={kind + name}
+      value={`${kind}:${name}`}
+      onSelect={() => {
+        onChoose(name);
+        setOpen(false);
+      }}
+    >
+      <span className={cn("w-3 shrink-0 text-primary", name !== selected && "invisible")}>
+        <Icon name="check" className="size-3" />
+      </span>
+      <span className="grow truncate font-mono">{name}</span>
+      {kind === "b" && name === ready?.default_branch && <span className="text-[11px] text-muted-foreground">默认分支</span>}
+    </CommandItem>
+  );
+  return (
+    <div className="fetch-refs flex min-w-0 flex-col gap-1">
+      <span id={labelId} className="text-xs text-muted-foreground">
+        分支 / tag
+      </span>
+      {refs.status === "failed" ? (
+        <Notice tone="warn" className="refs-failure whitespace-pre-line">
+          {`取不到分支和 tag 列表，仍可入库预览。\n${refs.reason}`}
+        </Notice>
+      ) : (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild disabled={!ready || locked}>
+            <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger h-[30px] w-72 max-w-full justify-between rounded-lg px-2.5 font-normal">
+              {ready ? (
+                <span className="truncate font-mono">{selected || "默认分支"}</span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner />
+                  正在读取分支和 tag…
+                </span>
+              )}
+              <Icon name="down" className="size-3 shrink-0 text-muted-foreground" />
+            </Button>
+          </PopoverTrigger>
+          {ready && (
+            <PopoverContent align="start" className="refs-menu z-[60] w-72">
+              <Command label="筛选分支和 tag" filter={(value, search) => (value.slice(2).toLowerCase().includes(search.trim().toLowerCase()) ? 1 : 0)}>
+                <CommandInput placeholder="筛选分支和 tag" />
+                <CommandList>
+                  <CommandEmpty>没有匹配的分支或 tag</CommandEmpty>
+                  {!!ready.branches?.length && <CommandGroup heading="分支">{ready.branches.map((name) => item("b", name))}</CommandGroup>}
+                  {!!ready.tags?.length && <CommandGroup heading="Tag">{ready.tags.map((name) => item("t", name))}</CommandGroup>}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          )}
+        </Popover>
+      )}
+      {locked && <Hint className="refs-locked">分支由输入里的 {ready.input_ref} 决定，要换分支请修改输入。</Hint>}
+    </div>
   );
 }
