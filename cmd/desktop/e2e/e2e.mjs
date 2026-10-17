@@ -307,8 +307,8 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
   await openDrawer("alpha");
   const d = drawer();
   await d.locator(".md h3", { hasText: "alpha" }).waitFor();
-  assert((await d.locator(".file-row", { hasText: "scripts/run.sh" }).locator('[data-slot="badge"]', { hasText: "可执行" }).count()) === 1, "run.sh 应标可执行");
-  await d.locator(".file-row", { hasText: "scripts/run.sh" }).click();
+  assert((await d.locator(".file-row", { hasText: "run.sh" }).locator('[data-slot="badge"]', { hasText: "可执行" }).count()) === 1, "run.sh 应标可执行");
+  await d.locator(".file-row", { hasText: "run.sh" }).click();
   await d.locator('[data-slot="code"]', { hasText: "echo hi" }).waitFor();
   await d.locator(".file-row", { hasText: "SKILL.md" }).click();
   await btn(d, "查看源码").click();
