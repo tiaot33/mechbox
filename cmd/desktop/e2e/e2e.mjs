@@ -1055,6 +1055,45 @@ await step("详情：本地目录来源重新读取，一个操作完成，改�
   await closeDrawer();
 });
 
+// 用目录里的修改更新：上一步在 proj-a 里改过 gamma,用它更新库里的 gamma,连带换到 Codex 全局;之后回滚，库和 Codex 全局回到 v3,
+// 取内容的 proj-a 不动。
+await step("详情：用这里的修改更新，连带换到其他地方，能回滚", async () => {
+  await openDrawer("gamma");
+  const codexGlobal = (await drawer().locator(".scope-table tbody tr", { hasText: "Codex · 全局" }).locator(".font-mono").textContent()).replace(/^~/, HOME);
+  const versions = await drawer().locator(".versions li").count();
+  const row = drawer().locator(".scope-table tbody tr", { hasText: "proj-a" });
+  assert((await row.locator('[data-slot="badge"]', { hasText: "被手动改过" }).count()) === 1, "proj-a 里的 gamma 应标被手动改过");
+  assert((await btn(drawer().locator(".scope-table tbody tr", { hasText: "Codex · 全局" }), "用这里的修改更新").count()) === 0, "没改过的地方不提供");
+  await btn(row, "用这里的修改更新").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "用 Claude Code · proj-a 里的修改更新「gamma」" }).waitFor();
+  await modal().locator('[data-diff="changed"]', { hasText: "SKILL.md" }).waitFor({ timeout: 15000 });
+  await modal().locator('[data-slot="file-diff"] [data-diff="add"]', { hasText: "edited by hand" }).waitFor();
+  const place = modal().locator(".update-place", { hasText: "Codex · 全局" });
+  assert(await place.locator("input[type=checkbox]").isChecked(), "其他地方默认勾上");
+  assert((await modal().locator(".update-place", { hasText: "proj-a" }).count()) === 0, "取内容的那一处不列");
+  await btn(modal(), "更新").click();
+  await toast("已用 Claude Code · proj-a 里的修改更新「gamma」 · 换到了 1 个地方");
+  assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
+  await settle();
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("edited by hand"), "Codex 全局的 gamma 应换成这份修改");
+  assert(projSkill("gamma").includes("edited by hand"), "取内容的地方不动");
+  await row.locator('[data-slot="badge"]', { hasText: "最新" }).waitFor();
+  assert((await drawer().locator(".versions li").count()) === versions + 1, "应多一个版本");
+  await drawer().locator(".versions li").first().getByText(/^基于版本 \d+ 的修改$/).waitFor();
+  await btn(drawer(), "更新历史").click();
+  const record = modal().locator(".update-record", { hasText: "用 Claude Code · proj-a 里的修改更新" }).first();
+  await record.waitFor();
+  await btn(record, "回滚").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
+  await btn(modal(), "回滚").click();
+  await toast("装回了 1 个地方");
+  await settle();
+  await page.keyboard.press("Escape");
+  assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "回滚后 Codex 全局回到 v3");
+  assert(projSkill("gamma").includes("edited by hand"), "回滚不动取内容的地方");
+  await closeDrawer();
+});
+
 await step("从技能发起更新：只勾这一个、其余折叠;之后更新集合重新对齐", async () => {
   const pairURL = ZIP_URL.replace(/delta\.zip$/, "pair.zip");
   await openFetch();

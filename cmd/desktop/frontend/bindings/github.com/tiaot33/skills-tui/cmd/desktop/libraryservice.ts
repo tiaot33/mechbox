@@ -177,6 +177,10 @@ export function PlanUpdate(id: library$0.CollectionID): $CancellablePromise<libr
     return $Call.ByID(1782392708, id);
 }
 
+export function PlanUpdateFromScope(skill: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<library$0.UpdatePlan> {
+    return $Call.ByID(2165325000, skill, scope);
+}
+
 export function PreviewFetch(req: library$0.PreviewFetchRequest): $CancellablePromise<library$0.FetchPreview> {
     return $Call.ByID(2817557670, req);
 }

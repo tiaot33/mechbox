@@ -1,18 +1,23 @@
 package agentdir
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
 
-var ErrIrregularFile = errors.New("irregular file")
+var (
+	ErrIrregularFile = errors.New("irregular file")
+	ErrTooLarge      = errors.New("installed folder is too large")
+)
 
 func Exists(path string) (bool, error) {
 	_, err := os.Lstat(path)
@@ -37,17 +42,56 @@ func DirectoryExists(path string) (bool, error) {
 }
 
 func Read(ctx context.Context, root string) (map[string]skillfile.Digest, error) {
-	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) {
-		return nil, ErrIrregularFile
-	} else if err != nil {
-		return nil, fmt.Errorf("hash installed files: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, fmt.Errorf("hash installed files: %w", err)
-	}
-	root = resolved
 	files := make(map[string]skillfile.Digest)
+	err := walk(ctx, root, func(path, relative string, info fs.FileInfo) error {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[relative] = skillfile.Digest{Fingerprint: skillfile.Fingerprint(content), Mode: skillfile.ModeOf(info.Mode())}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func ReadFiles(ctx context.Context, root string, maxFiles int, maxBytes int64) ([]skillfile.File, error) {
+	var files []skillfile.File
+	var size int64
+	err := walk(ctx, root, func(path, relative string, info fs.FileInfo) error {
+		size += info.Size()
+		if len(files) >= maxFiles || size > maxBytes {
+			return ErrTooLarge
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if size += int64(len(content)) - info.Size(); size > maxBytes {
+			return ErrTooLarge
+		}
+		files = append(files, skillfile.File{Path: relative, Content: content, Mode: skillfile.ModeOf(info.Mode())})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(files, func(a, b skillfile.File) int { return cmp.Compare(a.Path, b.Path) })
+	return files, nil
+}
+
+func walk(ctx context.Context, root string, visit func(path, relative string, info fs.FileInfo) error) error {
+	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) {
+		return ErrIrregularFile
+	} else if err != nil {
+		return fmt.Errorf("hash installed files: %w", err)
+	}
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("hash installed files: %w", err)
+	}
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -65,24 +109,19 @@ func Read(ctx context.Context, root string) (map[string]skillfile.Digest, error)
 		if !info.Mode().IsRegular() {
 			return ErrIrregularFile
 		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		files[filepath.ToSlash(relative)] = skillfile.Digest{Fingerprint: skillfile.Fingerprint(content), Mode: skillfile.ModeOf(info.Mode())}
-		return nil
+		return visit(path, filepath.ToSlash(relative), info)
 	})
 	if err != nil {
-		if errors.Is(err, ErrIrregularFile) {
-			return nil, err
+		if errors.Is(err, ErrIrregularFile) || errors.Is(err, ErrTooLarge) {
+			return err
 		}
-		return nil, fmt.Errorf("hash installed files: %w", err)
+		return fmt.Errorf("hash installed files: %w", err)
 	}
-	return files, nil
+	return nil
 }
 
 func Canonical(path string) string {

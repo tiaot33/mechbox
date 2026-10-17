@@ -49,7 +49,8 @@ const (
 	// 可重试。UI:提供"重试"。
 	SourceUnreachable ErrorCode = "source_unreachable"
 	// SourceInvalid 来源可达,但其内容不可用(压缩包损坏、超限、无有效候选、响应不合规、不支持的文件类型,
-	// 技能内容取不全:索引列出的文件不存在、与索引里的 digest 不一致、SKILL.md 缺 name / description)。
+	// 技能内容取不全:索引列出的文件不存在、与索引里的 digest 不一致、SKILL.md 缺 name / description;
+	// 用目录里的修改更新时,那里的内容不是有效技能、SKILL.md 的 name 和技能名不同或超限)。
 	// 重试无效。UI:展示原因,建议换来源。
 	SourceInvalid ErrorCode = "source_invalid"
 	// Busy 另一进程(同时打开同一库的 TUI / 桌面端)正持有库的写锁,等待超过上限(5 s)。

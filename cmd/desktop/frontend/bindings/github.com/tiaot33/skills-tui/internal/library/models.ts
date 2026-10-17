@@ -438,7 +438,8 @@ export enum ErrorCode {
 
     /**
      * SourceInvalid 来源可达,但其内容不可用(压缩包损坏、超限、无有效候选、响应不合规、不支持的文件类型,
-     * 技能内容取不全:索引列出的文件不存在、与索引里的 digest 不一致、SKILL.md 缺 name / description)。
+     * 技能内容取不全:索引列出的文件不存在、与索引里的 digest 不一致、SKILL.md 缺 name / description;
+     * 用目录里的修改更新时,那里的内容不是有效技能、SKILL.md 的 name 和技能名不同或超限)。
      * 重试无效。UI:展示原因,建议换来源。
      */
     SourceInvalid = "source_invalid",
@@ -1406,7 +1407,7 @@ export enum SkillScopeStatus {
 };
 
 /**
- * SkillVersion 是库里存着的技能的一个版本,由入库或更新写进库里;版本列表与按 ID 读取返回同一个值。
+ * SkillVersion 是库里存着的技能的一个版本,由入库或更新(含用目录里的修改更新)写进库里;版本列表与按 ID 读取返回同一个值。
  * 不含文件,文件用 ID 经 ListVersionFiles / GetVersionFile 读取。
  */
 export interface SkillVersion {
@@ -1423,7 +1424,7 @@ export interface SkillVersion {
     "description": string;
 
     /**
-     * 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变
+     * 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变。用目录里的修改更新进来的版本沿用 BasedOn 那个版本的来源版本
      */
     "revision"?: string;
 
@@ -1431,6 +1432,11 @@ export interface SkillVersion {
      * 这个版本由入库或更新写进库里的时间
      */
     "created_at"?: string;
+
+    /**
+     * BasedOn 是用目录里的修改更新进来的版本(PlanUpdateFromScope)所基于的版本,即当时库里的当前版本;从来源入库或更新的为零值。
+     */
+    "based_on"?: VersionID;
 }
 
 /**
@@ -1768,9 +1774,14 @@ export interface UpdatePlan {
 
     /**
      * Installs 是有变化的技能装出去的每一处及其现在的状态,按「技能 × 地方」逐条给出,与 InspectSkillScopes 的结果同形、同序;
-     * 同一处装了几个有变化的技能时各自一条。没有时为空数组。
+     * 同一处装了几个有变化的技能时各自一条。没有时为空数组。用目录里的修改更新时不含取内容的那个文件夹(共用它的 Agent 也不列)。
      */
     "installs": SkillScopeInspection[] | null;
+
+    /**
+     * FromScope 是用目录里的修改更新(PlanUpdateFromScope)时取内容的那一处;从来源更新时为 nil。
+     */
+    "from_scope"?: Scope | null;
 }
 
 /**
@@ -1789,9 +1800,14 @@ export interface UpdateRecord {
     "kind": UpdateRecordKind;
 
     /**
-     * Revision 是当时来源的来源版本:更新换到的、跳过时更新计划看到的;回滚记被回滚那次更新的。本地目录来源为空。
+     * Revision 是当时来源的来源版本:更新换到的、跳过时更新计划看到的;回滚记被回滚那次更新的。本地目录来源与用目录里的修改更新时为空。
      */
     "revision"?: string;
+
+    /**
+     * FromScope 是用目录里的修改更新(PlanUpdateFromScope)时取内容的那一处;从来源更新与其他记录为 nil。
+     */
+    "from_scope"?: Scope | null;
     "created_at": string;
 
     /**
@@ -1857,7 +1873,8 @@ export enum UpdateRecordKind {
 
 /**
  * UpdateRequest 是一次更新:按一份更新计划,带上用户勾选的技能和勾选的地方。从哪里发起只决定默认勾哪些:从集合发起勾计划里
- * 有变化的全部技能,从技能详情页发起只勾这一个;单个技能更新就是只勾一项的集合更新。本地目录来源的「重新读取」也是它。
+ * 有变化的全部技能,从技能详情页发起只勾这一个;单个技能更新就是只勾一项的集合更新。本地目录来源的「重新读取」、
+ * 用目录里的修改更新(计划来自 PlanUpdateFromScope)也是它。
  */
 export interface UpdateRequest {
     "plan": UpdatePlanID;
@@ -1870,7 +1887,7 @@ export interface UpdateRequest {
 
     /**
      * Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方,
-     * Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。
+     * Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。用目录里的修改更新时不能列取内容的那个文件夹。
      */
     "installs"?: ReinstallRequest[] | null;
 }

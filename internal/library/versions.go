@@ -10,14 +10,16 @@ import (
 // VersionID 是技能版本的数据库主键:全库唯一,同一技能内写入越晚越大。哪个是技能的当前版本看 Skill.VersionID。
 type VersionID int64
 
-// SkillVersion 是库里存着的技能的一个版本,由入库或更新写进库里;版本列表与按 ID 读取返回同一个值。
+// SkillVersion 是库里存着的技能的一个版本,由入库或更新(含用目录里的修改更新)写进库里;版本列表与按 ID 读取返回同一个值。
 // 不含文件,文件用 ID 经 ListVersionFiles / GetVersionFile 读取。
 type SkillVersion struct {
 	ID          VersionID `json:"id"`
 	SkillID     SkillID   `json:"skill_id"`            // 所属技能
 	Description string    `json:"description"`         // 该版本 SKILL.md frontmatter 的 description;解析不到则为空
-	Revision    string    `json:"revision,omitempty"`  // 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变
+	Revision    string    `json:"revision,omitempty"`  // 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变。用目录里的修改更新进来的版本沿用 BasedOn 那个版本的来源版本
 	CreatedAt   time.Time `json:"created_at,omitzero"` // 这个版本由入库或更新写进库里的时间
+	// BasedOn 是用目录里的修改更新进来的版本(PlanUpdateFromScope)所基于的版本,即当时库里的当前版本;从来源入库或更新的为零值。
+	BasedOn VersionID `json:"based_on,omitzero"`
 }
 
 // FileMode 记录文件是否可执行,安装到磁盘时据此设置权限位。
@@ -51,7 +53,7 @@ type VersionDiff struct {
 }
 
 func versionOf(row store.Version) SkillVersion {
-	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, Revision: row.Revision, CreatedAt: row.CreatedAt}
+	return SkillVersion{ID: VersionID(row.ID), SkillID: SkillID(row.SkillID), Description: row.Description, Revision: row.Revision, CreatedAt: row.CreatedAt, BasedOn: VersionID(row.Base)}
 }
 
 // ListVersions 按写入先后列出技能在库里的全部版本,最早的在前;哪个是当前版本看 Skill.VersionID。

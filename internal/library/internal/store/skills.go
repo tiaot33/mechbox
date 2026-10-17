@@ -46,6 +46,7 @@ type NewVersion struct {
 	Files       []skillfile.File
 	State       string
 	Revision    string
+	Base        int64
 	CreatedAt   time.Time
 }
 

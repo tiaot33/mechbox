@@ -484,7 +484,7 @@ function Commits({ plan }: { plan: UpdatePlan }) {
 
 // SkillDiff 是一个技能这次改了哪些文件，点文件看内容差异:库里一侧读当前版本，来源一侧读更新计划。
 // 读来源一侧时计划已失效(超时或来源变了)由 onError 交回弹窗，提示重新生成。
-function SkillDiff({
+export function SkillDiff({
   plan,
   item,
   path,
@@ -538,18 +538,20 @@ function SkillDiff({
 }
 
 // Places 按地方列出勾选的技能装在哪里;同一处装了几个技能时各自一个勾选框，状态分开给。
-function Places({
+export function Places({
   s,
   places,
   name,
   on,
   onToggle,
+  modified = "你在这里改过，换新版会覆盖你的修改",
 }: {
   s: Snapshot;
   places: SkillScopeInspection[];
   name: (id: SkillID) => string;
   on: (p: SkillScopeInspection) => boolean;
   onToggle: (p: SkillScopeInspection) => void;
+  modified?: string; // 用户改过的地方旁边的说明
 }) {
   if (!places.length) return <Hint>勾选的技能还没有装到任何地方，只更新技能库。</Hint>;
   const rows = new Map<string, SkillScopeInspection[]>();
@@ -564,7 +566,7 @@ function Places({
               <label key={installKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
                 <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
-                {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">你在这里改过，换新版会覆盖你的修改</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">项目不在这台机器上，装不上</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge>文件夹不在了</Badge>}
                 {(p.shared_with?.length ?? 0) > 0 && (

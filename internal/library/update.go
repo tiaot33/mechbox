@@ -64,14 +64,15 @@ type CollectionUpdateCheck struct {
 }
 
 // UpdateRequest 是一次更新:按一份更新计划,带上用户勾选的技能和勾选的地方。从哪里发起只决定默认勾哪些:从集合发起勾计划里
-// 有变化的全部技能,从技能详情页发起只勾这一个;单个技能更新就是只勾一项的集合更新。本地目录来源的「重新读取」也是它。
+// 有变化的全部技能,从技能详情页发起只勾这一个;单个技能更新就是只勾一项的集合更新。本地目录来源的「重新读取」、
+// 用目录里的修改更新(计划来自 PlanUpdateFromScope)也是它。
 type UpdateRequest struct {
 	Plan UpdatePlanID `json:"plan"`
 	// Skills 是勾选的技能,都必须在计划里有变化或没变化(来源里已删除的不能勾);重复的只算一次。
 	// 有变化而没勾的技能完全不动。
 	Skills []SkillID `json:"skills"`
 	// Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方,
-	// Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。
+	// Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。用目录里的修改更新时不能列取内容的那个文件夹。
 	Installs []ReinstallRequest `json:"installs,omitempty"`
 }
 
@@ -361,6 +362,11 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 // 也记在更新记录上;没换上的地方之后可以用 RetryUpdateInstalls 单独重试。成功后计划句柄失效。
 // 读来源期间不妨碍其他操作;期间整个库被同步拉回替换时放弃写回,返回 Conflict。
 //
+// 计划来自 PlanUpdateFromScope 时,确认时重新读那一处的文件夹:内容和计划里一样,就把它作为技能的新版本写进库(沿用当时当前版本的
+// 来源版本,SkillVersion.BasedOn 指向它),在集合的历史里记一次更新(UpdateRecord.FromScope 为那一处),再逐处重新安装勾选的地方;
+// 不改检查更新的结论。那里的内容或库里的当前版本在计划生成后变了返回 Conflict(Details.SkillID);那一处已不再是被改过的,
+// 或读不了,错误同 PlanUpdateFromScope;Installs 列了取内容的那个文件夹(含共用它的 Agent)返回 InvalidArgument(Details.Field 为 installs)。
+//
 // 错误:句柄未知或已失效返回 NotFound;Skills 为空、含不在计划里的技能,Installs 的技能不在 Skills 里、作用域不合法或同一处列了两次,
 // 返回 InvalidArgument(Details.Field 为 skills / installs,技能带 Details.SkillID);勾选的技能在来源里已删除返回 NotFound
 // (Details.SkillID 与 Name);读取来源期间勾选的技能被移除返回 NotFound(Details.SkillID);读不了来源按来源错误返回。
@@ -378,6 +384,13 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 	}
 	if err := validateInstalls(operation, ids, req.Installs); err != nil {
 		return UpdateResult{}, err
+	}
+	if state.from != nil {
+		result, versions, err := l.applyScopeUpdate(ctx, operation, state, ids[0], req.Installs)
+		if err != nil {
+			return UpdateResult{}, err
+		}
+		return l.finishUpdate(ctx, operation, req, state, result, versions)
 	}
 	read, err := l.readCollection(ctx, state.collection)
 	if err != nil {
@@ -432,14 +445,70 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	return l.finishUpdate(ctx, operation, req, state, result, versions)
+}
+
+func (l *Library) finishUpdate(ctx context.Context, operation string, req UpdateRequest, state *planState, result UpdateResult, versions map[SkillID]int64) (UpdateResult, error) {
 	l.previewMu.Lock()
 	if l.plans[req.Plan] == state {
 		state.timer.Stop()
 		delete(l.plans, req.Plan)
 	}
 	l.previewMu.Unlock()
-	result.Installs, err = l.reinstallForRecord(ctx, operation, result.Record, read.replica, versions, req.Installs)
+	var err error
+	result.Installs, err = l.reinstallForRecord(ctx, operation, result.Record, state.replica, versions, req.Installs)
 	return result, err
+}
+
+func (l *Library) applyScopeUpdate(ctx context.Context, operation string, state *planState, id SkillID, installs []ReinstallRequest) (UpdateResult, map[SkillID]int64, error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	item := state.skills[id]
+	edit, err := l.readScopeEdit(ctx, operation, id, *state.from)
+	if err != nil {
+		return UpdateResult{}, nil, err
+	}
+	if edit.current.versionID != item.versionID || skillfile.Sum(edit.latest.Files) != item.content {
+		return UpdateResult{}, nil, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
+	}
+	for _, install := range installs {
+		if target, err := l.resolveScope(ctx, operation, install.Scope); err == nil && target.sharesFolderWith(edit.target) {
+			return UpdateResult{}, nil, &Error{Code: InvalidArgument, Message: operation + ": the update takes its content from this folder", Details: ErrorDetails{Field: "installs", SkillID: id}}
+		}
+	}
+	result := UpdateResult{Source: edit.skill.Source, Skills: make([]UpdatedSkill, 1)}
+	versions := map[SkillID]int64{}
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		if err := tx.RequireReplica(ctx, state.replica); err != nil {
+			return err
+		}
+		now := clockNow()
+		versionID, err := tx.AddVersion(ctx, int64(id), store.NewVersion{Description: edit.latest.Description, Files: edit.latest.Files, Revision: edit.current.revision, Base: edit.current.versionID, CreatedAt: now})
+		if err != nil {
+			return err
+		}
+		from := edit.target.record()
+		recordID, err := tx.AddRecord(ctx, store.Record{SourceID: state.sourceID, Kind: recordUpdate, FromScope: &from, At: now, Skills: []store.RecordSkill{{SkillID: int64(id), Name: edit.skill.Name, From: edit.current.versionID, To: versionID}}})
+		if err != nil {
+			return err
+		}
+		row, err := tx.GetSkill(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		updated, err := l.skillOf(row)
+		if err != nil {
+			return err
+		}
+		result.Record = UpdateRecordID(recordID)
+		result.Skills[0] = UpdatedSkill{Skill: updated, PreviousVersionID: VersionID(edit.current.versionID), Changed: true}
+		versions[id] = versionID
+		return nil
+	})
+	if err != nil {
+		return UpdateResult{}, nil, err
+	}
+	return result, versions, nil
 }
 
 func selectedSkills(operation string, state *planState, requested []SkillID) ([]SkillID, error) {

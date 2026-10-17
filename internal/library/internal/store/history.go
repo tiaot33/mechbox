@@ -35,6 +35,7 @@ type Record struct {
 	Revision      string
 	WholeRevision bool
 	Commits       string
+	FromScope     *Scope
 	RollsBack     int64
 	RolledBackBy  int64
 	At            time.Time
@@ -48,9 +49,14 @@ func (t *Tx) AddRecord(ctx context.Context, record Record) (int64, error) {
 	if record.RollsBack != 0 {
 		rollsBack = sql.NullInt64{Int64: record.RollsBack, Valid: true}
 	}
+	var fromAgent string
+	var fromProject *int64
+	if record.FromScope != nil {
+		fromAgent, fromProject = record.FromScope.Agent, record.FromScope.ProjectID
+	}
 	result, err := t.q.ExecContext(ctx, `
-		INSERT INTO update_history(source_id, kind, revision, whole_revision, commits, rolls_back, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, record.SourceID, record.Kind, record.Revision, record.WholeRevision, record.Commits, rollsBack, formatTime(record.At))
+		INSERT INTO update_history(source_id, kind, revision, whole_revision, commits, from_agent, from_project_id, rolls_back, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, record.SourceID, record.Kind, record.Revision, record.WholeRevision, record.Commits, fromAgent, fromProject, rollsBack, formatTime(record.At))
 	if err != nil {
 		return 0, fmt.Errorf("record %s: %w", record.Kind, wrap(err))
 	}
@@ -98,7 +104,7 @@ func (q queries) Skipped(ctx context.Context, skillID int64, content string) (bo
 }
 
 const recordQuery = `
-	SELECT h.id, h.source_id, h.kind, h.revision, h.whole_revision, h.commits, ifnull(h.rolls_back, 0),
+	SELECT h.id, h.source_id, h.kind, h.revision, h.whole_revision, h.commits, h.from_agent, h.from_project_id, ifnull(h.rolls_back, 0),
 		ifnull((SELECT r.id FROM update_history r WHERE r.rolls_back = h.id), 0), h.created_at
 	FROM update_history h
 `
@@ -140,14 +146,21 @@ func (q queries) listRecords(ctx context.Context, clause string, args ...any) ([
 	var records []Record
 	for rows.Next() {
 		var record Record
-		var at string
-		if err := rows.Scan(&record.ID, &record.SourceID, &record.Kind, &record.Revision, &record.WholeRevision, &record.Commits, &record.RollsBack, &record.RolledBackBy, &at); err != nil {
+		var at, fromAgent string
+		var fromProject sql.NullInt64
+		if err := rows.Scan(&record.ID, &record.SourceID, &record.Kind, &record.Revision, &record.WholeRevision, &record.Commits, &fromAgent, &fromProject, &record.RollsBack, &record.RolledBackBy, &at); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read update record: %w", wrap(err))
 		}
 		if record.At, err = parseTime(at); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("decode update record time: %w", err)
+		}
+		if fromAgent != "" {
+			record.FromScope = &Scope{Agent: fromAgent}
+			if fromProject.Valid {
+				record.FromScope.ProjectID = &fromProject.Int64
+			}
 		}
 		records = append(records, record)
 	}

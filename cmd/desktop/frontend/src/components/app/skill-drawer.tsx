@@ -5,6 +5,7 @@ import { Browser } from "@wailsio/runtime";
 import {
   FileMode,
   type AgentCode,
+  SkillScopeStatus,
   SourceType,
   UpdateCheckStatus,
   type FileMetadata,
@@ -50,7 +51,7 @@ import {
   type Place,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
-import { keepDeleted, notInterested, openHistory, openUpdate, previewNewSkills, rereadSkill } from "@/lib/update";
+import { keepDeleted, notInterested, openHistory, openUpdate, previewNewSkills, rereadSkill, updateFromScope } from "@/lib/update";
 import { cn } from "@/lib/utils";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -361,6 +362,18 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                                 </Button>
                               </>
                             )}
+                            {p.status === SkillScopeStatus.SkillScopeModified && (
+                              <>
+                                {" "}
+                                <Button
+                                  variant="link"
+                                  onClick={() => updateFromScope(ui, s, skill, p.scope)}
+                                  title="把这里的内容作为库里的新版本，并换到装着它的其他地方"
+                                >
+                                  用这里的修改更新
+                                </Button>
+                              </>
+                            )}
                           </td>
                         </tr>
                       );
@@ -637,6 +650,7 @@ function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; curre
             <span className="font-medium">版本 {number.get(v.id)}</span>
             <span>{formatDate(v.created_at)}</span>
             {v.revision && <span className="font-mono text-[11px] text-muted-foreground">{v.revision.slice(0, 12)}</span>}
+            {v.based_on ? <span className="text-[11px] text-muted-foreground">基于版本 {number.get(v.based_on)} 的修改</span> : null}
             {v.id === currentID ? (
               <Badge tone="ok">当前</Badge>
             ) : (
