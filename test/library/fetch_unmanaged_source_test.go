@@ -15,8 +15,8 @@ import (
 
 // 入库时认出技能的真实来源
 
-// writeSkillsLock 写一份 npx skills 的锁文件:skills 按技能名列出记录。
-func writeSkillsLock(t *testing.T, path string, version int, skills map[string]map[string]string) {
+// writeSourceRecords 写一份 npx skills 的来源记录:skills 按技能名列出记录。
+func writeSourceRecords(t *testing.T, path string, version int, skills map[string]map[string]string) {
 	t.Helper()
 	content, err := json.Marshal(map[string]any{"version": version, "skills": skills})
 	if err != nil {
@@ -25,15 +25,15 @@ func writeSkillsLock(t *testing.T, path string, version int, skills map[string]m
 	writeFile(t, path, content, 0o644)
 }
 
-// globalLockPath 让全局锁文件落在临时的 XDG_STATE_HOME 下,返回它的路径。
-func globalLockPath(t *testing.T) string {
+// globalRecordsPath 让全局的来源记录落在临时的 XDG_STATE_HOME 下,返回它的路径。
+func globalRecordsPath(t *testing.T) string {
 	t.Helper()
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	return filepath.Join(state, "skills", ".skill-lock.json")
 }
 
-// computedHash 按 npx skills 项目锁的算法算技能文件夹的哈希:按相对路径排序,依次把路径和内容送进 SHA-256。
+// computedHash 按 npx skills 项目里来源记录的算法算技能文件夹的哈希:按相对路径排序,依次把路径和内容送进 SHA-256。
 func computedHash(files map[string]string) string {
 	hash := sha256.New()
 	for _, path := range slices.Sorted(func(yield func(string) bool) {
@@ -143,11 +143,11 @@ func (f sourcedSkillFixture) planned(t *testing.T, skill library.Skill) (library
 	return plan, plannedSkill(t, plan, skill.ID)
 }
 
-func TestListUnmanagedSkillsReadsSourcesFromSkillsLockFiles(t *testing.T) {
+func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	lockPath := globalLockPath(t)
+	recordsPath := globalRecordsPath(t)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	claudeDirectory := scopeDirectory(t, lib, claude)
@@ -157,7 +157,7 @@ func TestListUnmanagedSkillsReadsSourcesFromSkillsLockFiles(t *testing.T) {
 	writeUnmanagedSkill(t, claudeDirectory, "mine", "hand written")
 	// 文件夹名和技能名不同:记录按 SKILL.md 里的 name 对上。
 	writeFile(t, filepath.Join(claudeDirectory, "Lab-Notes", "SKILL.md"), []byte("---\nname: lab-notes\ndescription: notes\n---\n"), 0o644)
-	writeSkillsLock(t, lockPath, 3, map[string]map[string]string{
+	writeSourceRecords(t, recordsPath, 3, map[string]map[string]string{
 		"pdf":       {"source": "owner/repo", "sourceType": "github", "sourceUrl": "https://github.com/owner/repo.git", "ref": "main", "skillPath": "skills/pdf/SKILL.md"},
 		"site":      {"source": "example.com", "sourceType": "well-known", "sourceUrl": "https://example.com/docs"},
 		"packaged":  {"source": "some-package", "sourceType": "node_modules"},
@@ -172,7 +172,7 @@ func TestListUnmanagedSkillsReadsSourcesFromSkillsLockFiles(t *testing.T) {
 	projectScope := library.ProjectScope(library.AgentClaudeCode, registered.ID)
 	projectDirectory := scopeDirectory(t, lib, projectScope)
 	writeUnmanagedSkill(t, projectDirectory, "lint", "lint rules")
-	writeSkillsLock(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
+	writeSourceRecords(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
 		"lint": {"source": "./vendor/skills", "sourceType": "local", "computedHash": "abc"},
 	})
 
@@ -192,11 +192,11 @@ func TestListUnmanagedSkillsReadsSourcesFromSkillsLockFiles(t *testing.T) {
 		t.Fatalf("sources = %v, want %v", sources, want)
 	}
 
-	// 旧版本的全局锁文件 npx skills 自己也不认,这里同样不认。
-	writeSkillsLock(t, lockPath, 2, map[string]map[string]string{"pdf": {"source": "owner/repo", "sourceType": "github"}})
+	// 旧版本的全局来源记录 npx skills 自己也不认,这里同样不认。
+	writeSourceRecords(t, recordsPath, 2, map[string]map[string]string{"pdf": {"source": "owner/repo", "sourceType": "github"}})
 	for _, skill := range listUnmanagedSkills(t, lib) {
 		if skill.Name == "pdf" && skill.SourceInput != "" {
-			t.Fatalf("pdf = %#v, want no source from a version 2 lock file", skill)
+			t.Fatalf("pdf = %#v, want no source from version 2 records", skill)
 		}
 	}
 }
@@ -252,14 +252,14 @@ func TestFetchUnmanagedOnlyFromSourceCountsSeenSkills(t *testing.T) {
 }
 
 func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
-	for _, lock := range []string{"global", "project"} {
-		t.Run(lock, func(t *testing.T) {
+	for _, records := range []string{"global", "project"} {
+		t.Run(records, func(t *testing.T) {
 			ctx := t.Context()
 			f := newSourcedSkillFixture(t)
 			scope := f.claude
 			folder := f.folder
-			if lock == "global" {
-				writeSkillsLock(t, filepath.Join(f.home, ".agents", ".skill-lock.json"), 3, map[string]map[string]string{
+			if records == "global" {
+				writeSourceRecords(t, filepath.Join(f.home, ".agents", ".skill-lock.json"), 3, map[string]map[string]string{
 					"pdf": {"source": "owner/repo", "sourceType": "github", "sourceUrl": "https://github.com/owner/repo.git", "ref": "main", "skillFolderHash": f.v1Tree},
 				})
 			} else {
@@ -270,7 +270,7 @@ func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
 				}
 				scope = library.ProjectScope(library.AgentClaudeCode, registered.ID)
 				folder = filepath.Join(scopeDirectory(t, f.lib, scope), "pdf")
-				writeSkillsLock(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
+				writeSourceRecords(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
 					"pdf": {"source": "owner/repo", "sourceType": "github", "ref": "main", "computedHash": computedHash(f.v1Files)},
 				})
 			}
@@ -307,24 +307,24 @@ func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
 
 func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		lock map[string]string
+		name   string
+		record map[string]string
 	}{
-		{"no lock entry", nil},
+		{"no source record", nil},
 		{"hash does not match", map[string]string{"source": "owner/repo", "sourceType": "github", "ref": "main", "skillFolderHash": "0123456789abcdef0123456789abcdef01234567"}},
-		{"lock names another source", map[string]string{"source": "other/repo", "sourceType": "github", "ref": "main"}},
+		{"record names another source", map[string]string{"source": "other/repo", "sourceType": "github", "ref": "main"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			f := newSourcedSkillFixture(t)
-			if tc.lock != nil {
-				lock := tc.lock
-				if lock["source"] == "other/repo" {
-					lock["skillFolderHash"] = gitRevParse(t, f.repo, "HEAD:skills/pdf")
+			if tc.record != nil {
+				record := tc.record
+				if record["source"] == "other/repo" {
+					record["skillFolderHash"] = gitRevParse(t, f.repo, "HEAD:skills/pdf")
 				}
-				writeSkillsLock(t, filepath.Join(f.home, ".agents", ".skill-lock.json"), 3, map[string]map[string]string{"pdf": lock})
+				writeSourceRecords(t, filepath.Join(f.home, ".agents", ".skill-lock.json"), 3, map[string]map[string]string{"pdf": record})
 			}
-			if tc.name == "lock names another source" {
+			if tc.name == "record names another source" {
 				f.writeDisk(t, "v1")
 				f.publish(t, "v2")
 			} else {

@@ -728,7 +728,7 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
 
 // fetchUnmanaged 把作用域里一个不是库装的技能(未纳管技能)入库:磁盘上什么都不改，文件夹从此由 app 管。
 // 确认时写清代价：之后还用命令行工具更新它，app 只能报为被手动改过;提交在项目仓库里的，之后在 app 里更新会改动仓库里的文件。
-// 来源链接预填 npx skills 锁文件里认出的来源，用户可以改或清空;清空就是没有来源的技能。
+// 来源链接预填 npx skills 来源记录里认出的来源，用户可以改或清空;清空就是没有来源的技能。
 // 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
 export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill) {
   const place = scopeLabel(s, skill.scope);
@@ -754,7 +754,7 @@ function FetchUnmanagedDialog({
   const [error, setError] = useState<LibraryError>();
   const [busy, setBusy] = useState(false);
   const input = link.trim();
-  // 锁文件里的分支只跟着它认出的那个来源走;用户改了链接就不再带上。
+  // 来源记录里的分支只跟着它认出的那个来源走;用户改了链接就不再带上。
   const ref = input && input === skill.source_input ? skill.source_ref : undefined;
   const submit = async () => {
     if (busy) return;

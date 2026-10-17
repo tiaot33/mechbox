@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS skills (
 -- 用某处 Agent 目录里的修改更新进来的版本不是从来源读到的:source_state 为空,revision 沿用修改所基于的那个版本的,base_version_id 指向那个版本。
 -- 当前版本是这种版本时,检查更新顺着 base_version_id 找到最早那个从来源读到的版本,拿它的 source_state 与文件和来源比较;本地目录来源除外。
 -- 从作用域把未纳管技能连同来源入库、而磁盘内容和来源里的不一样时,版本就是磁盘上的内容:source_state 与 revision 为空(来源版本未知),
--- 检查更新按内容和来源比较。能确认磁盘是当初装的原样(npx skills 锁文件里的哈希对得上)时 maybe_edited 为 0,否则为 1。
+-- 检查更新按内容和来源比较。能确认磁盘是当初装的原样(npx skills 来源记录里的哈希对得上)时 maybe_edited 为 0,否则为 1。
 -- description 与 created_at 属版本内容:描述随 SKILL.md 变化,时间是该快照写入 Library 的时刻。
 CREATE TABLE IF NOT EXISTS skill_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,            -- 版本主键,由 SQLite 分配;同一 skill 内按 id 升序即版本先后顺序;不复用

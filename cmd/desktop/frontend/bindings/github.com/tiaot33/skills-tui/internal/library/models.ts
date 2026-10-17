@@ -1783,16 +1783,16 @@ export interface UnmanagedSkill {
     "in_repository"?: boolean;
 
     /**
-     * SourceInput 是从 npx skills 留下的锁文件里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
+     * SourceInput 是从 npx skills 留下的来源记录里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
      * FetchUnmanagedRequest.SourceInput,界面写「来自 …」。认不出时为空,用户可以自己给一个来源链接。
      * 全局作用域读 ~/.agents/.skill-lock.json(设了 XDG_STATE_HOME 时为 $XDG_STATE_HOME/skills/.skill-lock.json,只认 version 3 及以上),
      * 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
-     * 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目锁里的相对路径按项目根解析)时认得出,其他的认不出。
+     * 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
      */
     "source_input"?: string;
 
     /**
-     * SourceRef 是锁文件里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
+     * SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
      */
     "source_ref"?: string;
 }

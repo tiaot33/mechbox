@@ -33,13 +33,13 @@ type UnmanagedSkill struct {
 	// InRepository 表示文件夹已提交在项目的 git 仓库里(在 HEAD 里),界面标明「在项目仓库里」。只出现在项目作用域;
 	// 项目不是 git 仓库、还没有提交或本机没有 git 时为 false。
 	InRepository bool `json:"in_repository,omitzero"`
-	// SourceInput 是从 npx skills 留下的锁文件里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
+	// SourceInput 是从 npx skills 留下的来源记录里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
 	// FetchUnmanagedRequest.SourceInput,界面写「来自 …」。认不出时为空,用户可以自己给一个来源链接。
 	// 全局作用域读 ~/.agents/.skill-lock.json(设了 XDG_STATE_HOME 时为 $XDG_STATE_HOME/skills/.skill-lock.json,只认 version 3 及以上),
 	// 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
-	// 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目锁里的相对路径按项目根解析)时认得出,其他的认不出。
+	// 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
 	SourceInput string `json:"source_input,omitempty"`
-	// SourceRef 是锁文件里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
+	// SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
 	SourceRef string `json:"source_ref,omitempty"`
 }
 
@@ -64,7 +64,7 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 		relative  string
 	}
 	committed := map[repository]map[string]bool{}
-	locks := l.lockFiles()
+	records := l.sourceRecords()
 	skills = []UnmanagedSkill{}
 	for _, found := range folders {
 		if found.skillID != 0 {
@@ -75,7 +75,7 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
 			skill.Description = candidate.Description
 		}
-		if entry, ok := locks.find(target, skillName(found.Folder), found.Name); ok {
+		if entry, ok := records.find(target, skillName(found.Folder), found.Name); ok {
 			skill.SourceInput, skill.SourceRef, _ = entry.Input()
 		}
 		if target.projectID != nil {
@@ -259,7 +259,7 @@ type FetchUnmanagedResult struct {
 //     这里只在这个技能里找内容一致的版本,不跨到别的集合或没有来源的技能。
 //   - 内容和来源里的一致:新技能的版本就是来源里的那一版,带来源版本(Skill.Revision),检查更新照常。
 //   - 内容和来源里的不一样:新技能的版本就是磁盘上的内容,来源版本未知(Revision 为空),第一次检查更新就按内容报为有新版本。
-//     npx skills 的锁文件(见 UnmanagedSkill.SourceInput)里记的哈希和磁盘内容对得上、且请求里的来源就是锁文件认出的来源时,
+//     npx skills 的来源记录(见 UnmanagedSkill.SourceInput)里记的哈希和磁盘内容对得上、且请求里的来源就是来源记录认出的来源时,
 //     能确认这是当初装的原样、只是落后于作者,作为作者的旧版;否则说不清有没有用户的修改,版本标为 SkillVersion.MaybeEdited,
 //     更新计划里这个技能为 PlannedSkill.Edited,更新会换掉这份修改。
 //
@@ -450,9 +450,9 @@ func sourceField(err error) error {
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folder unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
 	untouched := false
-	if entry, ok := l.lockFiles().find(folder.target, folder.parsed.Name, folder.name); ok {
-		lockInput, lockRef, recognized := entry.Input()
-		untouched = recognized && lockInput == input && lockRef == ref && entry.Matches(folder.files)
+	if entry, ok := l.sourceRecords().find(folder.target, folder.parsed.Name, folder.name); ok {
+		recordedInput, recordedRef, recognized := entry.Input()
+		untouched = recognized && recordedInput == input && recordedRef == ref && entry.Matches(folder.files)
 	}
 	name := sourced.skill.Name
 	var row store.Skill
@@ -544,28 +544,28 @@ func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.
 	return 0, nil
 }
 
-type lockFiles struct {
-	home  string
-	locks map[string]local.Lockfile
+type sourceRecords struct {
+	home string
+	read map[string]local.Records
 }
 
-func (l *Library) lockFiles() *lockFiles {
-	return &lockFiles{home: l.home, locks: map[string]local.Lockfile{}}
+func (l *Library) sourceRecords() *sourceRecords {
+	return &sourceRecords{home: l.home, read: map[string]local.Records{}}
 }
 
-func (f *lockFiles) find(target resolvedScope, names ...string) (local.LockEntry, bool) {
+func (f *sourceRecords) find(target resolvedScope, names ...string) (local.Record, bool) {
 	root := ""
 	if target.projectID != nil {
 		root = target.root
 	}
-	lock, ok := f.locks[root]
+	records, ok := f.read[root]
 	if !ok {
 		if root == "" {
-			lock = local.GlobalLockfile(f.home)
+			records = local.GlobalRecords(f.home)
 		} else {
-			lock = local.ProjectLockfile(root)
+			records = local.ProjectRecords(root)
 		}
-		f.locks[root] = lock
+		f.read[root] = records
 	}
-	return lock.Find(names...)
+	return records.Find(names...)
 }

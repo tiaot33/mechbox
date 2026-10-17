@@ -16,11 +16,11 @@ import (
 )
 
 const (
-	globalLockVersion = 3
-	projectLockFile   = "skills-lock.json"
+	globalRecordsVersion = 3
+	projectRecordsFile   = "skills-lock.json"
 )
 
-type LockEntry struct {
+type Record struct {
 	Source       string `json:"source"`
 	SourceType   string `json:"sourceType"`
 	SourceURL    string `json:"sourceUrl"`
@@ -30,50 +30,50 @@ type LockEntry struct {
 	root         string
 }
 
-type Lockfile map[string]LockEntry
+type Records map[string]Record
 
-func GlobalLockfile(home string) Lockfile {
+func GlobalRecords(home string) Records {
 	path := filepath.Join(home, ".agents", ".skill-lock.json")
 	if state := os.Getenv("XDG_STATE_HOME"); state != "" {
 		path = filepath.Join(state, "skills", ".skill-lock.json")
 	}
-	return readLockfile(path, "", globalLockVersion)
+	return readRecords(path, "", globalRecordsVersion)
 }
 
-func ProjectLockfile(root string) Lockfile {
-	return readLockfile(filepath.Join(root, projectLockFile), root, 0)
+func ProjectRecords(root string) Records {
+	return readRecords(filepath.Join(root, projectRecordsFile), root, 0)
 }
 
-func readLockfile(path, root string, minVersion int) Lockfile {
+func readRecords(path, root string, minVersion int) Records {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
 	var file struct {
-		Version *int                 `json:"version"`
-		Skills  map[string]LockEntry `json:"skills"`
+		Version *int              `json:"version"`
+		Skills  map[string]Record `json:"skills"`
 	}
 	if json.Unmarshal(content, &file) != nil || file.Version == nil || *file.Version < minVersion {
 		return nil
 	}
-	lock := Lockfile{}
+	records := Records{}
 	for name, entry := range file.Skills {
 		entry.root = root
-		lock[name] = entry
+		records[name] = entry
 	}
-	return lock
+	return records
 }
 
-func (l Lockfile) Find(names ...string) (LockEntry, bool) {
+func (l Records) Find(names ...string) (Record, bool) {
 	for _, name := range names {
 		if entry, ok := l[name]; ok {
 			return entry, true
 		}
 	}
-	return LockEntry{}, false
+	return Record{}, false
 }
 
-func (e LockEntry) Input() (input, ref string, ok bool) {
+func (e Record) Input() (input, ref string, ok bool) {
 	switch e.SourceType {
 	case "github":
 		input, ref = cmp.Or(e.Source, e.SourceURL), e.Ref
@@ -92,7 +92,7 @@ func (e LockEntry) Input() (input, ref string, ok bool) {
 	return input, ref, input != ""
 }
 
-func (e LockEntry) Matches(files []skillfile.File) bool {
+func (e Record) Matches(files []skillfile.File) bool {
 	want := strings.ToLower(cmp.Or(e.ComputedHash, e.FolderHash))
 	return want != "" && (want == contentHash(files) || want == hex.EncodeToString(treeHash(files)))
 }
