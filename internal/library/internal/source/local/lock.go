@@ -1,4 +1,4 @@
-package skillslock
+package local
 
 import (
 	"cmp"
@@ -16,11 +16,11 @@ import (
 )
 
 const (
-	globalVersion = 3
-	projectFile   = "skills-lock.json"
+	globalLockVersion = 3
+	projectLockFile   = "skills-lock.json"
 )
 
-type Entry struct {
+type LockEntry struct {
 	Source       string `json:"source"`
 	SourceType   string `json:"sourceType"`
 	SourceURL    string `json:"sourceUrl"`
@@ -30,33 +30,33 @@ type Entry struct {
 	root         string
 }
 
-type Lock map[string]Entry
+type Lockfile map[string]LockEntry
 
-func Global(home string) Lock {
+func GlobalLockfile(home string) Lockfile {
 	path := filepath.Join(home, ".agents", ".skill-lock.json")
 	if state := os.Getenv("XDG_STATE_HOME"); state != "" {
 		path = filepath.Join(state, "skills", ".skill-lock.json")
 	}
-	return read(path, "", globalVersion)
+	return readLockfile(path, "", globalLockVersion)
 }
 
-func Project(root string) Lock {
-	return read(filepath.Join(root, projectFile), root, 0)
+func ProjectLockfile(root string) Lockfile {
+	return readLockfile(filepath.Join(root, projectLockFile), root, 0)
 }
 
-func read(path, root string, minVersion int) Lock {
+func readLockfile(path, root string, minVersion int) Lockfile {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
 	var file struct {
-		Version *int             `json:"version"`
-		Skills  map[string]Entry `json:"skills"`
+		Version *int                 `json:"version"`
+		Skills  map[string]LockEntry `json:"skills"`
 	}
 	if json.Unmarshal(content, &file) != nil || file.Version == nil || *file.Version < minVersion {
 		return nil
 	}
-	lock := Lock{}
+	lock := Lockfile{}
 	for name, entry := range file.Skills {
 		entry.root = root
 		lock[name] = entry
@@ -64,16 +64,16 @@ func read(path, root string, minVersion int) Lock {
 	return lock
 }
 
-func (l Lock) Find(names ...string) (Entry, bool) {
+func (l Lockfile) Find(names ...string) (LockEntry, bool) {
 	for _, name := range names {
 		if entry, ok := l[name]; ok {
 			return entry, true
 		}
 	}
-	return Entry{}, false
+	return LockEntry{}, false
 }
 
-func (e Entry) Input() (input, ref string, ok bool) {
+func (e LockEntry) Input() (input, ref string, ok bool) {
 	switch e.SourceType {
 	case "github":
 		input, ref = cmp.Or(e.Source, e.SourceURL), e.Ref
@@ -92,7 +92,7 @@ func (e Entry) Input() (input, ref string, ok bool) {
 	return input, ref, input != ""
 }
 
-func (e Entry) Matches(files []skillfile.File) bool {
+func (e LockEntry) Matches(files []skillfile.File) bool {
 	want := strings.ToLower(cmp.Or(e.ComputedHash, e.FolderHash))
 	return want != "" && (want == contentHash(files) || want == hex.EncodeToString(treeHash(files)))
 }

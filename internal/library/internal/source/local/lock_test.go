@@ -1,4 +1,4 @@
-package skillslock
+package local
 
 import (
 	"encoding/hex"
@@ -49,7 +49,7 @@ func TestTreeHashMatchesGit(t *testing.T) {
 	if got := hex.EncodeToString(treeHash(files)); got != want {
 		t.Fatalf("treeHash() = %s, want %s", got, want)
 	}
-	if !(Entry{FolderHash: strings.ToUpper(want)}).Matches(files) {
+	if !(LockEntry{FolderHash: strings.ToUpper(want)}).Matches(files) {
 		t.Fatal("Matches() = false for the folder's tree SHA")
 	}
 }

@@ -11,9 +11,9 @@ import (
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillslock"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -546,14 +546,14 @@ func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.
 
 type lockFiles struct {
 	home  string
-	locks map[string]skillslock.Lock
+	locks map[string]local.Lockfile
 }
 
 func (l *Library) lockFiles() *lockFiles {
-	return &lockFiles{home: l.home, locks: map[string]skillslock.Lock{}}
+	return &lockFiles{home: l.home, locks: map[string]local.Lockfile{}}
 }
 
-func (f *lockFiles) find(target resolvedScope, names ...string) (skillslock.Entry, bool) {
+func (f *lockFiles) find(target resolvedScope, names ...string) (local.LockEntry, bool) {
 	root := ""
 	if target.projectID != nil {
 		root = target.root
@@ -561,9 +561,9 @@ func (f *lockFiles) find(target resolvedScope, names ...string) (skillslock.Entr
 	lock, ok := f.locks[root]
 	if !ok {
 		if root == "" {
-			lock = skillslock.Global(f.home)
+			lock = local.GlobalLockfile(f.home)
 		} else {
-			lock = skillslock.Project(root)
+			lock = local.ProjectLockfile(root)
 		}
 		f.locks[root] = lock
 	}
