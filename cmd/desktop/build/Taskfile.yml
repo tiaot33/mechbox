@@ -85,6 +85,9 @@ tasks:
     sources:
       - "**/*"
       - exclude: node_modules/**/*
+      # workspace 根的依赖配置与解析结果变了也要重新构建。
+      - ../pnpm-workspace.yaml
+      - ../pnpm-lock.yaml
     generates:
       - dist/**/*
     deps:
