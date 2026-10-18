@@ -1,0 +1,163 @@
+# 推送 v* tag 时构建三个平台的安装包并发布到 GitHub Release;手动运行只构建，安装包留在这次运行的 Artifacts 里。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-universal
+            runner: macos-latest
+          - name: windows-amd64
+            runner: windows-latest
+          - name: linux-amd64
+            runner: ubuntu-24.04
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      # nfpm.yaml 里的维护者取自这两个变量。
+      GIT_COMMITTER_NAME: ${{ github.repository_owner }}
+      GIT_COMMITTER_EMAIL: ${{ github.repository_owner }}@users.noreply.github.com
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            .github/scripts/set-version.sh "$version"
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: cmd/desktop/pnpm-lock.yaml
+
+      - name: Install wails3
+        run: |
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: |
+          if ! command -v makensis >/dev/null; then
+            choco install nsis -y --no-progress
+            echo "C:\\Program Files (x86)\\NSIS" >> "$GITHUB_PATH"
+          fi
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        working-directory: cmd/desktop
+        run: |
+          wails3 task darwin:package:universal
+          wails3 task darwin:create:dmg
+          mkdir -p dist
+          mv bin/mechbox.dmg "dist/Mechbox-${{ steps.version.outputs.version }}-macos-universal.dmg"
+
+      # go-sqlite3 依赖 cgo;Windows 的任务默认 CGO_ENABLED=0,编出来的程序打不开数据库。
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        working-directory: cmd/desktop
+        run: |
+          wails3 task windows:package CGO_ENABLED=1
+          mkdir -p dist
+          mv bin/mechbox-amd64-installer.exe "dist/Mechbox-${{ steps.version.outputs.version }}-windows-amd64-setup.exe"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        working-directory: cmd/desktop
+        run: |
+          GOARCH="$(go env GOARCH)"
+          export GOARCH
+          wails3 task linux:package
+          name="Mechbox-${{ steps.version.outputs.version }}-${{ matrix.name }}"
+          mkdir -p dist
+          mv bin/mechbox-*.AppImage "dist/$name.AppImage"
+          mv bin/mechbox.deb "dist/$name.deb"
+          mv bin/mechbox.rpm "dist/$name.rpm"
+          mv bin/mechbox.pkg.tar.zst "dist/$name.pkg.tar.zst"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.name }}
+          path: cmd/desktop/dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * > ../SHA256SUMS.txt && mv ../SHA256SUMS.txt .
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## 安装
+
+          - **macOS**(Apple 芯片与 Intel 通用):下载 `.dmg`,把 Mechbox 拖进「应用程序」。安装包只做了 ad-hoc 签名、没有经过 Apple 公证，第一次打开前在终端执行 `xattr -dr com.apple.quarantine /Applications/mechbox.app`。
+          - **Windows**:运行 `-setup.exe`。安装程序没有代码签名，SmartScreen 提示时点「更多信息 → 仍要运行」。
+          - **Linux**:`.deb`(Ubuntu 24.04+ / Debian 13+)、`.rpm`(Fedora)、`.pkg.tar.zst`(Arch),或直接运行 `.AppImage`(`chmod +x` 后运行)。
+
+          `SHA256SUMS.txt` 是各安装包的校验和。
+          EOF
+          flags=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Mechbox ${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            --generate-notes \
+            "${flags[@]}"
