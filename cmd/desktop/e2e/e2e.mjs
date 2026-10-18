@@ -72,6 +72,10 @@ async function step(name, fn) {
     console.log("SKIP", name, "(E2E_NETWORK=1 时运行)");
     return;
   }
+  if (name.startsWith("[离线]") && NETWORK) {
+    console.log("SKIP", name, "(要用本地模拟的 skills.sh,E2E_NETWORK=1 时不运行)");
+    return;
+  }
   n++;
   try {
     await fn();
@@ -1187,6 +1191,62 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     }
     for (const name of ["kit-a", "kit-b", "kit-c"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
     fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+    await selectScope("Claude Code", "proj-a");
+  }
+});
+
+await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源的按名字搜，内容大部分相同的写出来源、入库确认里预填", async () => {
+  // run.sh 把 skills.sh 与 skills.e2e.test 指到本地：搜索结果里的 found-a、found-b 都来自 skills.e2e.test。
+  // found-a 和站点里的一样;found-b 只是同名，内容是自己写的。
+  const site = "https://skills.e2e.test";
+  const folders = {
+    "found-a": `---\nname: found-a\ndescription: "found-a from skills.e2e.test"\n---\n\n# found-a\n\n- one\n- two\n- three\n`,
+    "found-b": `---\nname: found-b\ndescription: "my own found-b"\n---\n\n# mine\n\n- a\n- b\n- c\n- d\n`,
+  };
+  for (const [name, content] of Object.entries(folders)) {
+    fs.mkdirSync(path.join(claudeGlobal, name), { recursive: true });
+    fs.writeFileSync(path.join(claudeGlobal, name, "SKILL.md"), content);
+  }
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  try {
+    await selectScope("Claude Code");
+    const label = unmanaged("found-a").locator(".unmanaged-source-label", { hasText: `来自 ${site}` });
+    await label.waitFor({ timeout: 20000 });
+    assert((await label.getAttribute("title")).includes("在 skills.sh 上找到的同名技能"), "悬停提示写明是在 skills.sh 上找到的");
+    await unmanaged("found-b").waitFor();
+    assert((await unmanaged("found-b").locator(".unmanaged-source-label").count()) === 0, "只是同名、内容不同的不写来源");
+
+    await btn(unmanaged("found-b"), "入库").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「found-b」" }).waitFor();
+    assert.equal(await modal().locator(".unmanaged-source").inputValue(), "", "没找到来源的不预填");
+    await page.keyboard.press("Escape");
+
+    await btn(unmanaged("found-a"), "入库").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「found-a」" }).waitFor();
+    assert.equal(await modal().locator(".unmanaged-source").inputValue(), site, "来源链接预填找到的来源");
+    assert((await modal().locator(".unmanaged-source-note").textContent()).startsWith("在 skills.sh 上找到的同名技能"), "确认时写明来源是在 skills.sh 上找到的");
+    await btn(modal(), "入库").click();
+    await toast("已入库「found-a」，以后跟着 skills.e2e.test 检查更新");
+    await settle();
+    await card("found-a").waitFor();
+    assert(!(await card("found-a").textContent()).includes("没有来源"), "进了找到的来源的集合");
+    await openDrawer("found-a");
+    assert(!(await drawer().locator(".versions").textContent()).includes("可能有你的修改"), "和来源里一致，是来源里的那一版");
+    await closeDrawer();
+    assert.equal(fs.readFileSync(path.join(claudeGlobal, "found-a", "SKILL.md"), "utf8"), folders["found-a"], "入库时磁盘上什么都没动");
+  } finally {
+    if ((await card("found-a").count()) > 0) {
+      await openDrawer("found-a");
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const name of Object.keys(folders)) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
     await page.locator(".titlebar button[title^='刷新']").click();
     await settle();
     await selectScope("Claude Code", "proj-a");
