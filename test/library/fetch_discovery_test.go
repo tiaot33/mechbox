@@ -1,8 +1,10 @@
 package library_test
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -539,4 +541,117 @@ func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestPreviewTarArchiveMadeByGitArchive(t *testing.T) {
+	isolateGit(t)
+	repository := t.TempDir()
+	runGit(t, repository, "init", "-b", "main")
+	writeFile(t, filepath.Join(repository, "skills", "pdf", "SKILL.md"), []byte(skillDocument("pdf", "body")), 0o644)
+	writeFile(t, filepath.Join(repository, "skills", "pdf", "scripts", "run.sh"), []byte("echo"), 0o755)
+	commitGit(t, repository, "initial")
+	// git archive 打出的包带 pax 全局头(记录提交)和目录条目,托管平台的源码包也是这样。
+	archive := filepath.Join(t.TempDir(), "skills.tar.gz")
+	runGit(t, repository, "archive", "--format=tar.gz", "--prefix=repo-main/", "-o", archive, "HEAD")
+	content, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := serveSite(t)
+	s.put("https://downloads.example/skills.tar.gz", content)
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://downloads.example/skills.tar.gz"})
+	if err != nil || !reflect.DeepEqual(candidateNames(preview), []string{"pdf"}) {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"pdf"})
+	want := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("pdf", "body")), Mode: library.ModeRegular},
+		{Path: "scripts/run.sh", Content: []byte("echo"), Mode: library.ModeExecutable},
+	}
+	if got := skillFiles(t, lib, fetched[0]); !reflect.DeepEqual(got, want) {
+		t.Fatalf("files = %#v", got)
+	}
+}
+
+func TestPreviewRejectsUnsafeOrBrokenTarArchives(t *testing.T) {
+	skill := skillDocument("pdf", "body")
+	// entries 打一个含 pdf/SKILL.md 的 tar,再追加 extra 里的条目;普通文件按 Size 填零。
+	entries := func(compress bool, extra ...*tar.Header) []byte {
+		var buffer bytes.Buffer
+		var out io.Writer = &buffer
+		zipped := gzip.NewWriter(&buffer)
+		if compress {
+			out = zipped
+		}
+		writer := tar.NewWriter(out)
+		if err := writer.WriteHeader(&tar.Header{Name: "pdf/SKILL.md", Mode: 0o644, Size: int64(len(skill)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(writer, skill); err != nil {
+			t.Fatal(err)
+		}
+		for _, header := range extra {
+			if err := writer.WriteHeader(header); err != nil {
+				t.Fatal(err)
+			}
+			if header.Typeflag == tar.TypeReg {
+				if _, err := io.CopyN(writer, infiniteZeros{}, header.Size); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if compress {
+			if err := zipped.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return buffer.Bytes()
+	}
+	valid := entries(true)
+	for _, tc := range []struct {
+		name    string
+		content []byte
+	}{
+		{"symlink entry", entries(false, &tar.Header{Name: "pdf/link", Linkname: "/etc/passwd", Typeflag: tar.TypeSymlink})},
+		{"hard link entry", entries(true, &tar.Header{Name: "pdf/link", Linkname: "pdf/SKILL.md", Typeflag: tar.TypeLink})},
+		{"device entry", entries(false, &tar.Header{Name: "pdf/null", Typeflag: tar.TypeChar, Devmajor: 1, Devminor: 3})},
+		{"unsafe path", entries(true, &tar.Header{Name: "../escape", Mode: 0o644, Typeflag: tar.TypeReg})},
+		{"expands beyond size limit", entries(true, &tar.Header{Name: "pdf/zeros", Mode: 0o644, Size: 64 << 20, Typeflag: tar.TypeReg})},
+		{"truncated in file content", entries(false)[:530]},
+		{"corrupt entry header", append(entries(false)[:1024], bytes.Repeat([]byte("x"), 512)...)},
+		{"truncated gzip", valid[:len(valid)/2]},
+		{"corrupt gzip header", append([]byte{0x1f, 0x8b, 0xff}, valid[3:]...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateGit(t)
+			s := serveSite(t)
+			s.put("https://downloads.example/skills.tar.gz", tc.content)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://downloads.example/skills.tar.gz"})
+			if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
+				t.Fatalf("preview = %#v, %v", preview, err)
+			}
+		})
+	}
+}
+
+func TestPreviewGzipThatIsNotTarIsNotTreatedAsArchive(t *testing.T) {
+	isolateGit(t)
+	var buffer bytes.Buffer
+	zipped := gzip.NewWriter(&buffer)
+	if _, err := io.WriteString(zipped, skillDocument("pdf", "body")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zipped.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := serveSite(t)
+	s.put("https://downloads.example/SKILL.md.gz", buffer.Bytes())
+	lib := openTestLibrary(t)
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://downloads.example/SKILL.md.gz"})
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "input"})
 }
