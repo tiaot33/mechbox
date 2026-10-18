@@ -43,7 +43,7 @@ func holdDirectTransaction(t *testing.T, path, begin string) func() {
 	return release
 }
 
-// 另一进程正在长读(TUI 遍历一个大 skill 的文件)时,本进程的写事务照常提交,而不是在提交阶段等它读完。
+// 另一进程正在长读(如遍历一个大 skill 的文件)时,本进程的写事务照常提交,而不是在提交阶段等它读完。
 // rollback journal 下这会等满 busy_timeout 后失败;WAL 下读者永不阻塞写者。
 func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
@@ -131,7 +131,7 @@ func TestOpenReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	}
 }
 
-// 两个 Library 实例(等价于 TUI 与桌面端两个进程——SQLite 的文件锁按连接生效)并发混合读写若干轮,
+// 两个 Library 实例(等价于两个进程——SQLite 的文件锁按连接生效)并发混合读写若干轮,
 // 全部成功、无任何错误码;结束后两边看到的 skill 列表一致。
 func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")

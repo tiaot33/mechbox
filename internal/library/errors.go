@@ -13,7 +13,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
-// ErrorCode 是稳定的错误类别,调用方(TUI / 桌面端)据此决定界面表现。
+// ErrorCode 是稳定的错误类别,调用方(如桌面端)据此决定界面表现。
 // 码按 UI 动作划分:改输入 / 改状态 / 重试 / 收起 / 报 bug。每个码的注释写明
 // 适用场景、是否可重试、建议动作。
 type ErrorCode string
@@ -53,7 +53,7 @@ const (
 	// 用目录里的修改更新时,那里的内容不是有效技能、SKILL.md 的 name 和技能名不同或超限)。
 	// 重试无效。UI:展示原因,建议换来源。
 	SourceInvalid ErrorCode = "source_invalid"
-	// Busy 另一进程(同时打开同一库的 TUI / 桌面端)正持有库的写锁,等待超过上限(5 s)。
+	// Busy 另一进程(同时打开同一数据库的另一个 Library 实例)正持有库的写锁,等待超过上限(5 s)。
 	// 可重试;与 SourceUnreachable 无关,是本机库冲突而非网络故障。UI:提示"另一个进程正在写库,稍后重试",不当 bug。
 	// Library 只报码,是否自动重试由调用方决定。Error.Err 保留底层 SQLite 错误。
 	Busy ErrorCode = "busy"
