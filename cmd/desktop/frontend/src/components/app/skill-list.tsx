@@ -351,6 +351,9 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
         {!skill.in_repository && skill.in_project_lock && (
           <Badge title="项目的 skills-lock.json 记了它，是团队约定装的，由项目仓库管理">记在 skills-lock.json 里</Badge>
         )}
+        {skill.link_outside && (
+          <Badge title={`符号链接，指向 ${skill.link_target}:不在任何 Agent 的技能目录里，默认不入库`}>指向 Agent 目录以外</Badge>
+        )}
         {same && <SameNameBadge note={same} />}
       </div>
       <p
@@ -434,8 +437,8 @@ function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; d
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
   const unmanaged = unmanagedIn(s, scope).length;
-  // 在项目仓库里的、项目 skills-lock.json 记的归项目仓库管，不算进"还没交给 app 管"的数里。
-  const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock).length;
+  // 在项目仓库里的、项目 skills-lock.json 记的归项目仓库管，指向 Agent 目录以外的是作者有意留在自己目录里的，都不算进"还没交给 app 管"的数里。
+  const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock && !u.link_outside).length;
   const sc = parseScope(scope);
   return (
     <div className={barClass}>

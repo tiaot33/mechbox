@@ -125,6 +125,73 @@ func walk(ctx context.Context, root string, visit func(path, relative string, in
 	return nil
 }
 
+func LinkTarget(path string) string {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	link, err := os.Readlink(path)
+	if err != nil {
+		return ""
+	}
+	if !filepath.IsAbs(link) {
+		link = filepath.Join(filepath.Dir(path), link)
+	}
+	return filepath.Clean(link)
+}
+
+func LinkChain(path string) []string {
+	var hops []string
+	for range 40 {
+		link, err := os.Readlink(path)
+		if err != nil {
+			break
+		}
+		if !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(path), link)
+		}
+		path = filepath.Clean(link)
+		hops = append(hops, path)
+	}
+	return hops
+}
+
+func Resolves(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func SameEntry(a, b string) bool {
+	aInfo, aErr := os.Lstat(a)
+	bInfo, bErr := os.Lstat(b)
+	if aErr == nil && bErr == nil {
+		return os.SameFile(aInfo, bInfo)
+	}
+	return filepath.Base(a) == filepath.Base(b) && Canonical(filepath.Dir(a)) == Canonical(filepath.Dir(b))
+}
+
+func Within(path, directory string) bool {
+	info, err := os.Stat(directory)
+	if err != nil {
+		relative, err := filepath.Rel(Canonical(directory), Canonical(path))
+		return err == nil && relative != "." && filepath.IsLocal(relative)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	for current := filepath.Dir(path); ; current = filepath.Dir(current) {
+		if parent, err := os.Stat(current); err == nil && os.SameFile(parent, info) {
+			return true
+		}
+		if filepath.Dir(current) == current {
+			return false
+		}
+	}
+}
+
 func SameFolder(a, b string) bool {
 	aInfo, aErr := os.Stat(a)
 	bInfo, bErr := os.Stat(b)

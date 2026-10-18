@@ -37,6 +37,8 @@ import {
   agentName,
   deletedInSource,
   installedWhere,
+  linkNote,
+  outsideLinkNote,
   needsReinstall,
   noSource,
   pending,
@@ -170,18 +172,25 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
 
 export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scope) {
   // 共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
+  // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   const place = skillScopeIn(s, id, scopeKey(scope));
   const shared = place?.shared_with ?? [];
-  if (place && shared.length) {
+  const detached = detachedBy(place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : []);
+  if (place && (shared.length || detached.length)) {
     const ok = await ui.confirm({
       title: `卸载「${skillName(s, id)}」`,
       body: (
-        <Notice tone="warn">
-          {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
-          {place.groups?.length
-            ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
-            : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
-        </Notice>
+        <>
+          {shared.length > 0 && (
+            <Notice tone="warn">
+              {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
+              {place.groups?.length
+                ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
+                : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
+            </Notice>
+          )}
+          <DetachNotice s={s} items={detached} when="删这个文件夹前" />
+        </>
       ),
       confirm: "卸载",
       danger: true,
@@ -240,9 +249,10 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
 export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scope: Scope) {
   // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
   const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
-  const removed = (s.groups.find((g) => g.id === groupID)?.members ?? [])
+  // 别处的符号链接指着要删的文件夹时，删之前库先给那几处换上独立的一份，也先说明。
+  const gone = (s.groups.find((g) => g.id === groupID)?.members ?? [])
     .map((id) => skillScopeIn(s, id, scopeKey(scope)))
-    .filter((p): p is SkillScopeInspection => !!p?.shared_with?.length && !p.direct)
+    .filter((p): p is SkillScopeInspection => !!p && !p.direct)
     .filter((p) => {
       const readers = [scope.agent, ...(p.shared_with ?? [])];
       const others = s.groupInstalls.filter(
@@ -253,15 +263,22 @@ export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scop
       );
       return !others.some((g) => memberOf(g.group_id, p.skill_id));
     });
-  if (removed.length) {
+  const removed = gone.filter((p) => p.shared_with?.length);
+  const detached = detachedBy(folderPlaces(s, gone));
+  if (removed.length || detached.length) {
     const ok = await ui.confirm({
       title: `卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
       body: (
         <>
-          <Notice tone="warn">
-            下面 {removed.length} 个技能文件夹还被别的 Agent 共用，只靠这个组安装留着：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。
-          </Notice>
-          <SharedFolders s={s} places={removed} />
+          {removed.length > 0 && (
+            <>
+              <Notice tone="warn">
+                下面 {removed.length} 个技能文件夹还被别的 Agent 共用，只靠这个组安装留着：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。
+              </Notice>
+              <SharedFolders s={s} places={removed} />
+            </>
+          )}
+          <DetachNotice s={s} items={detached} when="删这个文件夹前" />
         </>
       ),
       confirm: "卸载",
@@ -300,7 +317,12 @@ export async function removeSkillFromGroup(ui: UI, s: Snapshot, groupID: GroupID
   if (installed.length) {
     const choice = await ui.confirm({
       title: `把「${skillName(s, id)}」移出「${groupName(s, groupID)}」`,
-      body: <Hint>该组已组安装到 {installed.length} 个作用域。只随本组安装的技能如何处理?</Hint>,
+      body: (
+        <>
+          <Hint>该组已组安装到 {installed.length} 个作用域。只随本组安装的技能如何处理?</Hint>
+          <DetachNotice s={s} items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="删这个文件夹前" prefix="选「一并卸载」时:" />
+        </>
+      ),
       choices: [
         { value: MemberRemovalPolicy.KeepAsDirectInstall, label: "保留", desc: "改为直接安装，磁盘不动" },
         { value: MemberRemovalPolicy.UninstallMember, label: "一并卸载", desc: "从这些作用域的目录里移除文件夹" },
@@ -341,10 +363,18 @@ export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
   const choice = await ui.confirm({
     title: `删除组「${groupName(s, groupID)}」`,
     body: (
-      <Hint>
-        成员技能不会被删除。
-        {installs ? `该组的 ${installs} 个组安装会一并删除。只随本组安装的技能如何处理?` : ""}
-      </Hint>
+      <>
+        <Hint>
+          成员技能不会被删除。
+          {installs ? `该组的 ${installs} 个组安装会一并删除。只随本组安装的技能如何处理?` : ""}
+        </Hint>
+        <DetachNotice
+          s={s}
+          items={detachedBy(folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? [])))}
+          when="删这个文件夹前"
+          prefix="选「一并卸载」时:"
+        />
+      </>
     ),
     choices: installs
       ? [
@@ -390,6 +420,10 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
     ui.toast(`没有重新安装(${what})${keptNote}`);
     return;
   }
+  const requested = new Set(requests.map(placeKey));
+  const written = (p: SkillScopeInspection) => requested.has(placeKey(p));
+  const explained = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified;
+  if (!(await confirmLinkWrites(ui, s, inspected ?? [], written, `重新安装(${what})`, "重新安装", explained))) return;
   const results = await ui.run(() => LibraryService.Reinstall(requests));
   if (!results) return;
   const failed = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
@@ -446,6 +480,7 @@ function OverwriteDialog({
                     {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
                   </div>
                   <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                  {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
                 </div>
               </label>
             </ListRow>
@@ -453,6 +488,126 @@ function OverwriteDialog({
         })}
       </ListBox>
     </Modal>
+  );
+}
+
+// ---------- 符号链接 ----------
+// 库写到是符号链接的那一处时写成独立的一份;覆盖或删除一处时，别处没一起动的链接若指着它，先给那一处换上独立的一份、
+// 保持它现在读到的内容。写之前、删之前都在确认里说出来。
+
+type Detached = { place: SkillScopeInspection; by: Scope[] };
+
+// folderPlaces 是和 places 同一个文件夹的各处(含共用这个目录的 Agent),删文件夹时它们一起没了。
+export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): SkillScopeInspection[] {
+  const folders = new Set(places.map((p) => `${p.skill_id}|${p.folder}`));
+  return s.skillScopes.filter((p) => folders.has(`${p.skill_id}|${p.folder}`));
+}
+
+// groupOnly 是这个组在它装到的各作用域里，只靠它留着的成员(没有直接安装、也没有别的组安装):选了一并卸载时这些文件夹会删。
+function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScopeInspection[] {
+  const scopes = new Set(s.groupInstalls.filter((g) => g.group_id === groupID).map((g) => scopeKey(g.scope)));
+  return s.skillScopes.filter(
+    (p) => members.includes(p.skill_id) && scopes.has(scopeKey(p.scope)) && !p.direct && (p.groups ?? []).every((g) => g === groupID),
+  );
+}
+
+// detachedBy 是 touched 这几处(要覆盖或删除的)被别处的链接指着、而那一处不在 touched 里的:库会先给那一处换上独立的一份。
+// 共用一个文件夹的几处只算一次。
+export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
+  const keys = new Set(touched.map(placeKey));
+  const folders = new Set<string>();
+  return touched.flatMap((place) => {
+    const folder = `${place.skill_id}|${place.folder}`;
+    if (folders.has(folder)) return [];
+    folders.add(folder);
+    const by = (place.linked_by ?? []).filter((scope) => !keys.has(placeKey({ skill_id: place.skill_id, scope })));
+    return by.length ? [{ place, by }] : [];
+  });
+}
+
+// DetachNotice 说明 detachedBy 找出的那几处会先换上独立的一份;when 是"删这个文件夹前"这类说法,prefix 用在只和某个选项有关时。
+export function DetachNotice({ s, items, when, prefix = "" }: { s: Snapshot; items: Detached[]; when: string; prefix?: string }) {
+  if (!items.length) return null;
+  return (
+    <Notice className="detach-linked">
+      {prefix}
+      {items.map(({ place, by }) => {
+        const them = by.length > 1 ? "它们" : "它";
+        return (
+          <span key={placeKey(place)} className="block">
+            {by.map((scope) => scopeLabel(s, scope)).join("、")} 里的「{skillName(s, place.skill_id)}」是指向 {shortPath(s, place.folder)} 的符号链接。
+            {when}，先给{them}换上独立的一份({them}现在读到的内容),{them}照常装着。
+          </span>
+        );
+      })}
+    </Notice>
+  );
+}
+
+// linkWrites 是写这几处(written)时和符号链接有关的两种情况:links 是写的就是链接(会换成独立的一份),
+// kept 是别处没一起写的链接指着要写的地方(先换成独立的一份，保持原来的内容)。
+export function linkWrites(places: SkillScopeInspection[], written: (p: SkillScopeInspection) => boolean) {
+  const chosen = places.filter(written);
+  return { links: chosen.filter((p) => p.link_target), kept: detachedBy(chosen) };
+}
+
+export function LinkWriteNotes({ s, links, kept }: { s: Snapshot } & ReturnType<typeof linkWrites>) {
+  return (
+    <>
+      {links.length > 0 && (
+        <>
+          <Notice className="write-linked">
+            下面 {links.length} 处现在是符号链接，这次会换成独立的一份，链接指向的文件夹不动;之后在那里改，这几处不再跟着变。
+          </Notice>
+          <LinkedPlaces s={s} places={links} />
+        </>
+      )}
+      <DetachNotice s={s} items={kept} when="换这个文件夹前" />
+    </>
+  );
+}
+
+// confirmLinkWrites 在写这几处之前说明 linkWrites 找出的情况;都没有时不打扰用户。explained 是前一个弹窗里已经逐行说过的链接。
+export async function confirmLinkWrites(
+  ui: UI,
+  s: Snapshot,
+  places: SkillScopeInspection[],
+  written: (p: SkillScopeInspection) => boolean,
+  title: string,
+  confirm: string,
+  explained: (p: SkillScopeInspection) => boolean = () => false,
+): Promise<boolean> {
+  const { links, kept } = linkWrites(places, written);
+  const unexplained = links.filter((p) => !explained(p));
+  if (!unexplained.length && !kept.length) return true;
+  return !!(await ui.confirm({ title, body: <LinkWriteNotes s={s} links={unexplained} kept={kept} />, confirm }));
+}
+
+// confirmLinkedRequests 是 confirmLinkWrites 的现查版：只知道要写哪几处时，先巡检一次再说明。
+export async function confirmLinkedRequests(ui: UI, s: Snapshot, requests: { skill_id: SkillID; scope: Scope }[], title: string, confirm: string) {
+  const wanted = new Set(requests.map(placeKey));
+  const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false });
+  if (inspected === undefined) return false;
+  return confirmLinkWrites(ui, s, inspected ?? [], (p) => wanted.has(placeKey(p)), title, confirm);
+}
+
+// LinkedPlaces 列出是符号链接的各处与它们指向哪里。
+export function LinkedPlaces({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
+  return (
+    <ListBox>
+      {places.map((p) => (
+        <ListRow key={placeKey(p)} compact className="linked-place">
+          <div className="min-w-0 grow">
+            <div>
+              {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+            </div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground" title={p.link_target}>
+              {shortPath(s, p.folder)} → {shortPath(s, p.link_target!)}
+            </div>
+          </div>
+        </ListRow>
+      ))}
+    </ListBox>
   );
 }
 
@@ -566,9 +721,12 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
   const choice = await ui.confirm({
     title: `注销项目「${projectName(s, project.id)}」`,
     body: (
-      <Hint>
-        {shortPath(s, project.path)} 不再由技能管理器管理，它在各 Agent 下的直接安装与组安装记录都会删除。
-      </Hint>
+      <>
+        <Hint>
+          {shortPath(s, project.path)} 不再由技能管理器管理，它在各 Agent 下的直接安装与组安装记录都会删除。
+        </Hint>
+        <DetachNotice s={s} items={detachedBy(places)} when="删这个文件夹前" prefix="选「同时删除」时:" />
+      </>
     ),
     choices: installed
       ? [
@@ -654,6 +812,12 @@ export async function editAgent(
               <SharedFolders s={s} places={shared} />
             </>
           )}
+          <DetachNotice
+            s={s}
+            items={detachedBy(folderPlaces(s, affected.filter((p) => !p.shared_with?.length)))}
+            when="把这个文件夹搬走前"
+            prefix="选「迁移」时:"
+          />
         </>
       ),
       choices: [
@@ -710,6 +874,7 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
             <SharedFolders s={s} places={kept} />
           </>
         )}
+        <DetachNotice s={s} items={detachedBy(folderPlaces(s, own))} when="删这个文件夹前" prefix="选「同时删除」时:" />
       </>
     ),
     choices: own.length
@@ -742,7 +907,8 @@ export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill)
   const twins = s.skills
     .filter((x) => x.name === skill.name)
     .map((x) => `${noSource(x.source) ? "没有来源" : sourceLabel(s, x.source)}，${installedWhere(s, x.id)}`);
-  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} close={close} />);
+  const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
+  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} outside={outside} close={close} />);
   if (!r) return;
   if (r.matched) ui.toast(`「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}`);
   else if (r.skill.collection_id) ui.toast(`已入库「${r.skill.name}」，以后跟着 ${r.skill.source.label} 检查更新`);
@@ -754,11 +920,13 @@ function FetchUnmanagedDialog({
   place,
   skill,
   twins,
+  outside,
   close,
 }: {
   place: string;
   skill: UnmanagedSkill;
   twins: string[];
+  outside?: string; // 指向 Agent 目录以外的符号链接时的说明
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
@@ -795,6 +963,11 @@ function FetchUnmanagedDialog({
       <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
       <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
       {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
+      {outside && (
+        <Notice tone="warn" className="unmanaged-link-outside">
+          {outside}
+        </Notice>
+      )}
       {twins.length > 0 && (
         <Notice tone="warn" className="unmanaged-same-name">
           {`库里已经有叫「${skill.name}」的技能(${twins.join(";")})。${sameNameFetchNote(skill.name, !!input)}`}

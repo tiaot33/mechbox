@@ -164,7 +164,7 @@ func TestListUnmanagedSkillsMarksFoldersCommittedInTheProjectRepository(t *testi
 	}
 
 	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: scope, Name: "linked", Description: "committed as a symlink", Folder: filepath.Join(directory, "linked"), LinkTarget: resolved, InRepository: true},
+		{Scope: scope, Name: "linked", Description: "committed as a symlink", Folder: filepath.Join(directory, "linked"), LinkTarget: resolved, LinkOutside: true, InRepository: true},
 		{Scope: scope, Name: "mine", Description: "not committed", Folder: mine},
 		{Scope: scope, Name: "team", Description: "shared by the team", Folder: team, InRepository: true},
 	})

@@ -156,8 +156,8 @@ func (l *Library) recordWithReplica(ctx context.Context, id UpdateRecordID) (sto
 type RollbackOutcome string
 
 const (
-	RollbackReinstalled RollbackOutcome = "reinstalled" // 还是那次换上的版本,装回了那次更新之前的版本
-	RollbackCurrent     RollbackOutcome = "current"     // 本来就是那次更新之前的版本,没动
+	RollbackReinstalled RollbackOutcome = "reinstalled" // 还是那次换上的版本,装回了那次更新之前的版本;包括符号链接那一处换成独立的文件夹
+	RollbackCurrent     RollbackOutcome = "current"     // 本来就是那次更新之前的版本,没动;符号链接那一处不算,照样写成独立的文件夹
 	// RollbackReinstalledSince 是之后又被重新安装成了库里的别的版本,不动。
 	RollbackReinstalledSince RollbackOutcome = "reinstalled_since"
 	RollbackModified         RollbackOutcome = "modified"     // 用户改过,不动
@@ -190,6 +190,8 @@ type RollbackResult struct {
 // Rollback 回滚一次更新:那次更新换了版本的技能,库里一律换回那次之前的版本,之后又被更新过也一样,不要求先回滚之后那次。
 // 那次更新装过的地方(含单独重试换上的)按磁盘上的文件内容核对:还是那次换上的版本就装回旧版;之后又被重新安装过、用户改过、
 // 文件夹不在了、项目不在这台机器上或还没对应到本机路径、技能已不装在那里或已从库里移除的,都不动,结果里写明原因,不中断整个回滚。
+// 装回的地方是符号链接时(见 SkillScopeInspection.LinkTarget),写成独立的文件夹,不写进链接指向的地方;链接读到的已是旧版本时也一样。
+// 别处的链接指着装回的地方、而那一处不在那次更新里时,先给它换上独立的一份,保持它现在读到的内容。
 // 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;换回了名字时,跳过的是改成那个名字的改名推测。
 // 用目录里的修改更新(UpdateRecord.FromScope)不是来源里的改动,回滚它不记跳过、不动检查更新的结论;取内容的那一处那次没有重新安装,
 // 也不动,和库里回滚掉的那个版本一致。回滚本身在集合的历史里记一条,
@@ -413,7 +415,7 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
-	if maps.Equal(disk, digests(current.files)) && folderName == skill.Name {
+	if maps.Equal(disk, digests(current.files)) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
 		return RollbackCurrent, nil
 	}
 	updatedFiles, err := l.store.VersionDigests(ctx, update.To)

@@ -14,7 +14,7 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { toLibraryError, type LibraryError } from "@/lib/library";
-import { sameNameFetchNote, scopeOf } from "@/lib/model";
+import { homePath, outsideLinkNote, sameNameFetchNote, scopeOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,9 +64,11 @@ export async function offerFetchUnmanaged(
 ) {
   let plan: PlannedUnmanagedSkill[];
   let library: string[];
+  let home: string;
   try {
     plan = (await LibraryService.PlanFetchUnmanaged({ scopes })) ?? [];
     library = ((await LibraryService.ListSkills()) ?? []).map((x) => x.name);
+    home = (await LibraryService.Info()).home_dir;
   } catch (err) {
     const e = toLibraryError(err);
     if (e.code !== ErrorCode.Canceled && !quiet)
@@ -82,6 +84,7 @@ export async function offerFetchUnmanaged(
       agents={agents}
       plan={plan}
       library={new Set(library)}
+      home={home}
       where={where}
       close={close}
     />
@@ -97,6 +100,19 @@ function sourceKey(input?: string, ref?: string): string {
 
 function foldersOf(planned: PlannedUnmanagedSkill) {
   return planned.folders ?? [];
+}
+
+// outsideTarget 是指向 Agent 目录以外的那一处链接指向的地方。
+function outsideTarget(planned: PlannedUnmanagedSkill) {
+  return foldersOf(planned).find((f) => f.link_outside)?.link_target ?? "";
+}
+
+function OutsideBadge({ planned, home }: { planned: PlannedUnmanagedSkill; home: string }) {
+  return (
+    <Badge tone="warn" title={`符号链接，指向 ${homePath(home, outsideTarget(planned))}`}>
+      指向 Agent 目录以外
+    </Badge>
+  );
 }
 
 // keyOf 是计划里一条的稳定身份：第一处文件夹。
@@ -144,12 +160,14 @@ function FetchUnmanagedDialog({
   agents,
   plan,
   library,
+  home,
   where,
   close,
 }: {
   agents: Agent[];
   plan: PlannedUnmanagedSkill[];
   library: Set<string>; // 库里已有的技能名：同名的标出来，内容不同时入库后会有两个同名的
+  home: string;
   where: Where;
   close: () => void;
 }) {
@@ -213,6 +231,7 @@ function FetchUnmanagedDialog({
   const team = chosen
     .map((i) => plan[i])
     .filter((p) => p.in_repository || p.in_project_lock);
+  const outside = chosen.map((i) => plan[i]).filter((p) => p.link_outside);
 
   const submit = async () => {
     // 按最终用的来源分批：同一个来源只读一次，读的时候告诉用户在等什么;没有来源的最后一批。
@@ -409,6 +428,7 @@ function FetchUnmanagedDialog({
                 记在 skills-lock.json 里
               </Badge>
             )}
+            {p.link_outside && <OutsideBadge planned={p} home={home} />}
             {library.has(p.name) && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, links.get(i)).input} />}
             <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">
               {agentNames(p)}
@@ -544,6 +564,7 @@ function FetchUnmanagedDialog({
                           {!p.in_repository && p.in_project_lock && (
                             <Badge tone="warn">记在 skills-lock.json 里</Badge>
                           )}
+                          {p.link_outside && <OutsideBadge planned={p} home={home} />}
                           <span className="grow" />
                           <span className="shrink-0 text-[11px] text-muted-foreground">
                             {p.modified_at
@@ -588,6 +609,11 @@ function FetchUnmanagedDialog({
           {`之后在 app 里更新${team.length === 1 ? "它" : "它们"}，会改动项目仓库里的文件。`}
         </Notice>
       )}
+      {outside.map((p) => (
+        <Notice key={p.name} tone="warn" className="fetch-unmanaged-link-outside">
+          {`勾上的「${p.name}」:${outsideLinkNote(homePath(home, outsideTarget(p)))}`}
+        </Notice>
+      ))}
       {unusable.length > 0 && (
         <Diagnostics
           summary={`${unusable.length} 个不能入库`}

@@ -375,6 +375,8 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 // 先换库:新版本、确认没变化的技能和更新记录一次写入,全成或全不成;之后勾选技能的 LastUpdateCheck 都是已是最新。
 // 再逐处重新安装勾选的地方:某一处失败不影响库和其他地方,结果里写明每一处换上没有、没换上的原因(含义同 Reinstall),
 // 也记在更新记录上;没换上的地方之后可以用 RetryUpdateInstalls 单独重试。成功后计划句柄失效。
+// 是符号链接的地方写成独立的文件夹;没勾的地方链着勾选的地方时,先换上独立的一份、保持原来的内容,不跟着换新版,
+// 也不记进更新记录(见 SkillScopeInspection.LinkTarget、LinkedBy)。
 // 读来源期间不妨碍其他操作;期间整个库被同步拉回替换时放弃写回,返回 Conflict。
 //
 // 计划来自 PlanUpdateFromScope 时,确认时重新读那一处的文件夹:内容和计划里一样,就把它作为技能的新版本写进库(沿用当时当前版本的

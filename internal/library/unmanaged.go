@@ -31,6 +31,10 @@ type UnmanagedSkill struct {
 	// LinkTarget 在文件夹是符号链接时给出它最终指向的目录(已解析各级符号链接),否则为空。
 	// 例如 npx skills 把真实文件夹放在 ~/.agents/skills/<name>,再从其他 Agent 的目录用符号链接指过去。
 	LinkTarget string `json:"link_target,omitempty"`
+	// LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各 Agent 的全局目录与在各已登记项目里的技能目录),
+	// 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
+	// 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,界面写明它指向哪里。
+	LinkOutside bool `json:"link_outside,omitzero"`
 	// InRepository 表示文件夹已提交在项目的 git 仓库里(在 HEAD 里),界面标明「在项目仓库里」。只出现在项目作用域;
 	// 项目不是 git 仓库、还没有提交或本机没有 git 时为 false。
 	InRepository bool `json:"in_repository,omitzero"`
@@ -85,6 +89,10 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		relative  string
 	}
 	committed := map[repository]map[string]bool{}
+	directories, err := l.agentDirectories(ctx)
+	if err != nil {
+		return nil, err
+	}
 	records := l.sourceRecords()
 	var entries []unmanagedEntry
 	for _, found := range folders {
@@ -93,6 +101,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		}
 		target := found.target
 		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
+		entry.LinkOutside = found.Target != "" && !slices.ContainsFunc(directories, func(directory string) bool { return agentdir.Within(found.Target, directory) })
 		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
 			entry.Description = candidate.Description
 		}
@@ -115,6 +124,32 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
 	return entries, nil
+}
+
+func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
+	agents, err := l.store.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projects, err := l.store.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var directories []string
+	for _, agent := range agents {
+		rows := []scopeRow{{agent: AgentCode(agent.Code)}}
+		for _, project := range projects {
+			rows = append(rows, scopeRow{agent: AgentCode(agent.Code), projectID: new(ProjectID(project.ID))})
+		}
+		for _, row := range rows {
+			target, err := l.resolveRow(ctx, row)
+			if err != nil {
+				return nil, err
+			}
+			directories = append(directories, target.directory)
+		}
+	}
+	return directories, nil
 }
 
 // SameNameFolder 是同名技能在一个作用域里的技能文件夹。
@@ -621,12 +656,15 @@ type PlannedUnmanagedSkill struct {
 	// (见 UnmanagedSkill 的同名字段)。两者都归项目仓库管,默认不勾。
 	InRepository  bool `json:"in_repository,omitzero"`
 	InProjectLock bool `json:"in_project_lock,omitzero"`
+	// LinkOutside 表示其中有一处是指向 Agent 目录以外的符号链接(见 UnmanagedSkill.LinkOutside),默认不勾。
+	LinkOutside bool `json:"link_outside,omitzero"`
 	// ModifiedAt 是各处文件夹里最近一次修改文件的时间(文件夹是符号链接时看它指向的内容)。
 	ModifiedAt time.Time `json:"modified_at,omitzero"`
 	// Conflict 表示计划里还有同名的另一条(内容不一样,或同一个作用域里内容一样的另一个文件夹)。同名的几条只该入库一条:
 	// 默认勾最近修改的那条,其余的入库后仍是未纳管技能,之后想要再入库。
 	Conflict bool `json:"conflict,omitzero"`
-	// Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里,同名冲突时又是最近修改的那条。
+	// Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里、不是指向 Agent 目录以外的符号链接,
+	// 同名冲突时又是最近修改的那条。
 	Selected bool `json:"selected,omitzero"`
 	// Error 是这个文件夹不能入库的原因,错误码同 FetchUnmanaged 读文件夹时的错误(文件夹名不能用为 InvalidArgument,
 	// 文件夹里有不是普通文件的东西为 FailedPrecondition,SKILL.md 不是有效的技能描述或超出读取上限为 SourceInvalid,
@@ -680,6 +718,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			planned.Folders = append(planned.Folders, entry.UnmanagedSkill)
 			planned.InRepository = planned.InRepository || entry.InRepository
 			planned.InProjectLock = planned.InProjectLock || entry.InProjectLock
+			planned.LinkOutside = planned.LinkOutside || entry.LinkOutside
 			if modified.After(planned.ModifiedAt) {
 				planned.ModifiedAt = modified
 			}
@@ -692,7 +731,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		plan = append(plan, PlannedUnmanagedSkill{
 			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
 			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
-			InRepository: entry.InRepository, InProjectLock: entry.InProjectLock, ModifiedAt: modified,
+			InRepository: entry.InRepository, InProjectLock: entry.InProjectLock, LinkOutside: entry.LinkOutside, ModifiedAt: modified,
 		})
 	}
 	newest := map[string]int{}
@@ -712,7 +751,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	}
 	for index := range plan {
 		planned := &plan[index]
-		planned.Selected = planned.Error == nil && !planned.InRepository && !planned.InProjectLock && newest[planned.Name] == index
+		planned.Selected = planned.Error == nil && !planned.InRepository && !planned.InProjectLock && !planned.LinkOutside && newest[planned.Name] == index
 	}
 	slices.SortStableFunc(plan, func(a, b PlannedUnmanagedSkill) int {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), b.ModifiedAt.Compare(a.ModifiedAt))
