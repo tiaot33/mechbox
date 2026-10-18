@@ -248,6 +248,9 @@ func parseEntry(item json.RawMessage, v2 bool, location string) (entry, string) 
 			if !ok || !fs.ValidPath(file) || file == "." || strings.ContainsAny(file, `\:`) || slices.Contains(result.files, file) {
 				return result, "index entry lists an unsafe or duplicate file path"
 			}
+			if skillfile.Ignored(file) {
+				continue
+			}
 			result.files = append(result.files, file)
 		}
 		if !slices.Contains(result.files, "SKILL.md") {
@@ -519,8 +522,17 @@ func unpack(ctx context.Context, content []byte, maxFiles int, maxBytes int64) (
 	}
 	var files []skillfile.File
 	err = fs.WalkDir(fsys, ".", func(current string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		if skillfile.Ignored(current) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {

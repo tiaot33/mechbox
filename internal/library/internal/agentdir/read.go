@@ -100,6 +100,12 @@ func walk(ctx context.Context, root string, visit func(path, relative string, in
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if path != root && skillfile.Ignored(entry.Name()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			return nil
 		}

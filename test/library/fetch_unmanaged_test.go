@@ -42,6 +42,9 @@ func TestFetchUnmanagedSkillLeavesDiskAsItIsAndHasNoSource(t *testing.T) {
 	directory := scopeDirectory(t, lib, claude)
 	folder := writeUnmanagedSkill(t, directory, "notes", "my notes")
 	writeFile(t, filepath.Join(folder, "scripts", "run.sh"), []byte("#!/bin/sh\necho notes\n"), 0o755)
+	// 系统和缓存文件不进技能库,也不让文件夹算作改过。
+	writeFile(t, filepath.Join(folder, ".DS_Store"), []byte("finder"), 0o644)
+	writeFile(t, filepath.Join(folder, "scripts", "__pycache__", "run.cpython-312.pyc"), []byte("cache"), 0o644)
 	before := snapshotTree(t, home)
 
 	result := fetchUnmanaged(t, lib, claude, "notes")

@@ -166,7 +166,9 @@ func TestRawSkillFileLinkPreviewsOneSkillWithoutCloning(t *testing.T) {
 
 func TestDirectDownloadRecognizesArchivesByContent(t *testing.T) {
 	isolateGit(t)
-	files := map[string]string{"pack/alpha/SKILL.md": skillDocument("alpha", "a"), "pack/beta/SKILL.md": skillDocument("beta", "b"), "pack/beta/notes.txt": "notes"}
+	files := map[string]string{"pack/alpha/SKILL.md": skillDocument("alpha", "a"), "pack/beta/SKILL.md": skillDocument("beta", "b"), "pack/beta/notes.txt": "notes",
+		// 系统和缓存文件不进技能库。
+		"pack/beta/.DS_Store": "finder", "pack/beta/._notes.txt": "resource fork", "__MACOSX/pack/beta/._SKILL.md": "resource fork"}
 	for _, tc := range []struct {
 		name    string
 		link    string
