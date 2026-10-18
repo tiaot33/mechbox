@@ -100,3 +100,18 @@ func requireCollections(t *testing.T, lib *library.Library, want []library.Colle
 		t.Fatalf("ListCollections() = %#v, %v; want %#v", got, err, want)
 	}
 }
+
+func TestMarkNotInterestedValidatesInput(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	skill := fetchNamedSkill(t, lib, "demo")
+	if err := lib.MarkNotInterested(ctx, 9999, []string{"x"}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("missing collection = %v", err)
+	}
+	if err := lib.MarkNotInterested(ctx, skill.CollectionID, nil); !library.IsCode(err, library.InvalidArgument) {
+		t.Fatalf("no names = %v", err)
+	}
+	if err := lib.MarkNotInterested(ctx, skill.CollectionID, []string{"../bad"}); !library.IsCode(err, library.InvalidArgument) {
+		t.Fatalf("invalid name = %v", err)
+	}
+}

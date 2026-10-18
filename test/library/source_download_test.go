@@ -1,16 +1,10 @@
 package library_test
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/internal/library"
@@ -135,87 +129,6 @@ func TestURLUnexpectedNotModifiedIsAnError(t *testing.T) {
 	}
 }
 
-// site 接管 http.DefaultClient,按完整 URL 回答固定内容,其余一律 404,并记下每个 URL 被请求的次数。
-type site struct {
-	mu       sync.Mutex
-	pages    map[string][]byte
-	etags    map[string]string
-	statuses map[string]int
-	hits     map[string]int
-}
-
-func serveSite(t *testing.T) *site {
-	t.Helper()
-	s := &site{pages: map[string][]byte{}, etags: map[string]string{}, statuses: map[string]int{}, hits: map[string]int{}}
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(s.roundTrip)}
-	t.Cleanup(func() { http.DefaultClient = client })
-	return s
-}
-
-func (s *site) put(url string, body []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pages[url] = body
-}
-
-func (s *site) putWithETag(url string, body []byte, etag string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pages[url], s.etags[url] = body, etag
-}
-
-// fail 让 url 一律回 status。
-func (s *site) fail(url string, status int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.statuses[url] = status
-}
-
-func (s *site) remove(url string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.pages, url)
-}
-
-func (s *site) count(url string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.hits[url]
-}
-
-func (s *site) roundTrip(r *http.Request) (*http.Response, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	url := r.URL.String()
-	s.hits[url]++
-	if status := s.statuses[url]; status != 0 {
-		return textResponse(status, "failure"), nil
-	}
-	body, ok := s.pages[url]
-	if !ok {
-		return textResponse(http.StatusNotFound, "<html>not found</html>"), nil
-	}
-	header := make(http.Header)
-	if etag := s.etags[url]; etag != "" {
-		header.Set("ETag", etag)
-		if r.Header.Get("If-None-Match") == etag {
-			return &http.Response{StatusCode: http.StatusNotModified, Header: header, Body: http.NoBody}, nil
-		}
-	}
-	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(bytes.NewReader(body))}, nil
-}
-
-// isolateGit 让测试里的 git 不读本机配置,并把所有 https 远端改写到不存在的本地路径,git ls-remote 因此必然失败且不联网。
-func isolateGit(t *testing.T) string {
-	t.Helper()
-	config := filepath.Join(t.TempDir(), "gitconfig")
-	t.Setenv("GIT_CONFIG_GLOBAL", config)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	runGit(t, t.TempDir(), "config", "--file", config, "url.file://"+filepath.Join(t.TempDir(), "missing")+"/.insteadOf", "https://")
-	return config
-}
-
 // forbidGit 把 PATH 里的 git 换成一个只记下被调用过、然后失败的脚本。
 func forbidGit(t *testing.T) string {
 	t.Helper()
@@ -224,39 +137,6 @@ func forbidGit(t *testing.T) string {
 	writeFile(t, filepath.Join(dir, "git"), []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o755)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return marker
-}
-
-func tarGz(t *testing.T, files map[string]string, compress bool) []byte {
-	t.Helper()
-	var buffer bytes.Buffer
-	var out io.Writer = &buffer
-	var zipped *gzip.Writer
-	if compress {
-		zipped = gzip.NewWriter(&buffer)
-		out = zipped
-	}
-	writer := tar.NewWriter(out)
-	for name, content := range files {
-		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := writer.Write([]byte(content)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if zipped != nil {
-		if err := zipped.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return buffer.Bytes()
-}
-
-func describedSkill(name, description, body string) string {
-	return "---\nname: " + name + "\ndescription: " + description + "\n---\n" + body
 }
 
 func TestRawSkillFileLinkPreviewsOneSkillWithoutCloning(t *testing.T) {

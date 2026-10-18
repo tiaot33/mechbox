@@ -437,3 +437,73 @@ func TestUpdateRefusesToWriteIntoAPulledLibrary(t *testing.T) {
 		t.Fatalf("versions = %#v, %v; want nothing written", versions, err)
 	}
 }
+
+// 继续保留
+
+func TestKeptDeletedSkillStopsCountingAndSurvivesRestart(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib, err := library.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}), "")
+	preview, err := lib.PreviewFetch(ctx, server.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills := fetchSkills(t, lib, preview, []string{"a", "b"})
+	a := skills[0]
+	if _, err := lib.KeepDeletedSkill(ctx, 9999); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("keep a missing skill = %v; want NotFound", err)
+	}
+	server.serve(zipArchive(t, map[string]string{"b/SKILL.md": skillDocument("b", "v1")}), "")
+	if check := checkedSkill(t, lib, a.ID); check.Status != library.UpdateDeleted || !check.Pending {
+		t.Fatalf("deleted = %#v; want pending", check)
+	}
+	kept, err := lib.KeepDeletedSkill(ctx, a.ID)
+	if err != nil || !kept.KeptDeleted || kept.LastUpdateCheck.Pending {
+		t.Fatalf("KeepDeletedSkill = %#v, %v", kept, err)
+	}
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lib = openTestLibraryAt(t, path)
+	if skill, err := lib.GetSkill(ctx, a.ID); err != nil || !skill.KeptDeleted || skill.LastUpdateCheck.Pending {
+		t.Fatalf("after restart = %#v, %v", skill, err)
+	}
+	if check := checkedSkill(t, lib, a.ID); check.Status != library.UpdateDeleted || check.Pending {
+		t.Fatalf("rechecked kept skill = %#v; want deleted, not pending", check)
+	}
+	// 来源里又有了这个技能,标记自动失效。
+	server.serve(zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v2"), "b/SKILL.md": skillDocument("b", "v1")}), "")
+	if check := checkedSkill(t, lib, a.ID); check.Status != library.UpdateAvailable || !check.Pending {
+		t.Fatalf("restored = %#v; want pending", check)
+	}
+	if skill, err := lib.GetSkill(ctx, a.ID); err != nil || skill.KeptDeleted {
+		t.Fatalf("mark after restore = %#v, %v; want cleared", skill, err)
+	}
+}
+
+func TestKeepDeletedSkillFoundByUpdatePlan(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	root := t.TempDir()
+	writeLocalSkill(t, filepath.Join(root, "a"), "v1")
+	writeLocalSkill(t, filepath.Join(root, "b"), "v1")
+	preview, err := lib.PreviewFetch(ctx, localRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := fetchSkills(t, lib, preview, []string{"a", "b"})[0]
+	if err := os.RemoveAll(filepath.Join(root, "a")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := lib.PlanUpdate(ctx, a.CollectionID)
+	if err != nil || plan.Skills[0].Change != library.PlannedDeleted {
+		t.Fatalf("plan = %#v, %v; want a deleted", plan.Skills, err)
+	}
+	if kept, err := lib.KeepDeletedSkill(ctx, a.ID); err != nil || !kept.KeptDeleted {
+		t.Fatalf("KeepDeletedSkill after the plan = %#v, %v", kept, err)
+	}
+}

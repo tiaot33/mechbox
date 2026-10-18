@@ -439,68 +439,6 @@ func TestPreviewDiscoveryPluginManifests(t *testing.T) {
 	})
 }
 
-func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
-	for _, source := range []string{"github", "clone"} {
-		t.Run(source, func(t *testing.T) {
-			repo := writeGitHubRepo(t, map[string]repoFile{
-				"skills/first/SKILL.md":  {content: []byte(skillDocument("same", "old")), mode: 0o644},
-				"skills/second/SKILL.md": {content: []byte(skillDocument("same", "second")), mode: 0o644},
-				"skills/keeper/SKILL.md": {content: []byte(skillDocument("keeper", "keep")), mode: 0o644},
-			})
-			fx := inspectGitHubRepo(t, repo)
-			spec := gitHubRequest()
-			var api *gitHubAPIMock
-			if source == "github" {
-				api = serveGitHubAPI(t, fx)
-				blockGitHubClone(t)
-			} else {
-				serveGitHubCloneOnly(t, repo)
-			}
-			lib := openTestLibrary(t)
-			preview, err := lib.PreviewFetch(t.Context(), spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fetched, err := lib.Fetch(t.Context(), preview.ID, []string{"same"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			id := fetched[0].ID
-			writeFile(t, filepath.Join(repo, "skills/first/SKILL.md"), []byte(skillDocument("same", "changed")), 0o644)
-			commitGit(t, repo, "change first")
-			fx = inspectGitHubRepo(t, repo)
-			if api != nil {
-				api.Swap(fx)
-			}
-			if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateAvailable {
-				t.Fatalf("check = %v, %v", status, err)
-			}
-			updated, err := updateSkill(t, lib, t.Context(), id)
-			if err != nil || !updated.Changed || string(skillFiles(t, lib, updated.Skill)[0].Content) != skillDocument("same", "changed") {
-				t.Fatalf("update = %#v, %v", updated, err)
-			}
-			runGit(t, repo, "mv", "skills", "examples")
-			writeFile(t, filepath.Join(repo, "skills/other/SKILL.md"), []byte(skillDocument("other", "keep conventional")), 0o644)
-			commitGit(t, repo, "move out of discovery")
-			if api != nil {
-				api.Swap(inspectGitHubRepo(t, repo))
-			}
-			if _, err := updateSkill(t, lib, t.Context(), id); !library.IsCode(err, library.NotFound) {
-				t.Fatalf("missing update = %v", err)
-			}
-			runGit(t, repo, "rm", "-r", "skills", "examples")
-			writeFile(t, filepath.Join(repo, "README.md"), []byte("no skills"), 0o644)
-			commitGit(t, repo, "remove candidates")
-			if api != nil {
-				api.Swap(inspectGitHubRepo(t, repo))
-			}
-			if status, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || status != library.UpdateDeleted {
-				t.Fatalf("empty source = %v, %v", status, err)
-			}
-		})
-	}
-}
-
 func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 	files := map[string]string{
 		".claude-plugin/plugin.json":      `{"name":"wrong-root","skills":["./area/extras/solo"]}`,

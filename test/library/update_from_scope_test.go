@@ -11,67 +11,6 @@ import (
 
 // 用目录里的修改更新
 
-type scopeEditFixture struct {
-	lib         *library.Library
-	server      *archiveServer
-	skill       library.Skill
-	claude      library.Scope
-	codex       library.Scope
-	project     library.Scope
-	directories map[library.Scope]string
-}
-
-// newScopeEditFixture 从压缩包入库 pdf,装到 Claude Code 全局、Codex 全局与 Claude Code 的一个项目,
-// 然后在 Claude Code 全局里改 SKILL.md、加一个脚本。
-func newScopeEditFixture(t *testing.T) scopeEditFixture {
-	t.Helper()
-	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
-	lib := openTestLibrary(t)
-	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
-	skill := fetchArchive(t, lib, server.request())[0]
-	if _, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID}); err != nil {
-		t.Fatal(err)
-	}
-	project, err := lib.RegisterProject(ctx, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := scopeEditFixture{
-		lib:         lib,
-		server:      server,
-		skill:       skill,
-		claude:      library.GlobalScope(library.AgentClaudeCode),
-		codex:       library.GlobalScope(library.AgentCodex),
-		project:     library.ProjectScope(library.AgentClaudeCode, project.ID),
-		directories: map[library.Scope]string{},
-	}
-	for _, scope := range []library.Scope{f.claude, f.codex, f.project} {
-		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
-			t.Fatal(err)
-		}
-		if f.directories[scope], err = lib.ScopeDirectory(ctx, scope); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeFile(t, filepath.Join(f.directories[f.claude], "pdf", "SKILL.md"), []byte(skillDocument("pdf", "edited in claude")), 0o644)
-	writeFile(t, filepath.Join(f.directories[f.claude], "pdf", "scripts", "run.sh"), []byte("echo hi\n"), 0o644)
-	return f
-}
-
-func (f scopeEditFixture) statuses(t *testing.T) map[library.Scope]library.SkillScopeStatus {
-	t.Helper()
-	inspections, err := f.lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{SkillID: f.skill.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	statuses := map[library.Scope]library.SkillScopeStatus{}
-	for _, inspection := range inspections {
-		statuses[inspection.Scope] = inspection.Status
-	}
-	return statuses
-}
-
 func TestUpdateFromScopeTakesTheEditsAndReinstallsCheckedPlaces(t *testing.T) {
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
@@ -251,54 +190,6 @@ func TestUpdateFromScopeWithLocalSource(t *testing.T) {
 	if len(files) != 1 || string(files[0].Content) != skillDocument("pdf", "edited") {
 		t.Fatalf("library files = %#v", files)
 	}
-}
-
-func TestPlanUpdateFromScopeNeedsAnEditedValidFolder(t *testing.T) {
-	ctx := t.Context()
-	f := newScopeEditFixture(t)
-	lib, skill := f.lib, f.skill
-	codexFolder := filepath.Join(f.directories[f.codex], "pdf")
-	_, err := lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
-	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: codexFolder})
-
-	other := fetchSkillWithBody(t, lib, "other", "v1")
-	_, err = lib.PlanUpdateFromScope(ctx, other.ID, f.claude)
-	requireLibraryError(t, err, library.NotFound)
-
-	writeFile(t, filepath.Join(codexFolder, "SKILL.md"), []byte(skillDocument("pdf-kit", "renamed by hand")), 0o644)
-	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
-	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Path: codexFolder, Name: "pdf-kit"})
-
-	writeFile(t, filepath.Join(codexFolder, "SKILL.md"), []byte("no frontmatter"), 0o644)
-	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
-	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Path: codexFolder})
-
-	if err := os.Remove(filepath.Join(codexFolder, "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(codexFolder, "notes.md"), []byte("notes"), 0o644)
-	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
-	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Path: codexFolder})
-
-	large, err := os.Create(filepath.Join(codexFolder, "large.bin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := large.Truncate(65 << 20); err != nil {
-		t.Fatal(err)
-	}
-	if err := large.Close(); err != nil {
-		t.Fatal(err)
-	}
-	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.codex)
-	requireErrorDetails(t, err, library.SourceInvalid, library.ErrorDetails{Path: codexFolder})
-
-	projectFolder := filepath.Join(f.directories[f.project], "pdf")
-	if err := os.Symlink(filepath.Join(projectFolder, "SKILL.md"), filepath.Join(projectFolder, "link.md")); err != nil {
-		t.Fatal(err)
-	}
-	_, err = lib.PlanUpdateFromScope(ctx, skill.ID, f.project)
-	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: projectFolder})
 }
 
 func TestUpdateFromScopeRechecksTheFolderAndTheRequest(t *testing.T) {

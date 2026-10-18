@@ -1,8 +1,10 @@
 package library_test
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"errors"
@@ -13,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -588,4 +591,326 @@ func skillFiles(t *testing.T, lib *library.Library, skill library.Skill) []libra
 		files = append(files, file)
 	}
 	return files
+}
+
+// checkedSkill 检查技能所在的集合,返回它存下的结论。
+func checkedSkill(t *testing.T, lib *library.Library, id library.SkillID) library.UpdateCheck {
+	t.Helper()
+	if _, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	skill, err := lib.GetSkill(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *skill.LastUpdateCheck
+}
+
+// requireNewSkills 断言集合上给出的新技能名。
+func requireNewSkills(t *testing.T, lib *library.Library, id library.CollectionID, want []string) {
+	t.Helper()
+	collections, err := lib.ListCollections(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, collection := range collections {
+		if collection.ID == id {
+			if !reflect.DeepEqual(collection.NewSkills, want) {
+				t.Fatalf("new skills = %#v; want %#v", collection.NewSkills, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("collection %d missing", id)
+}
+
+const renamedBody = "Render PDF pages.\nUse the script in scripts/run.sh.\nKeep the page order.\nAsk before overwriting files.\n"
+
+// renameFixture 从 URL 来源入库 pdf-tools,装到 Claude Code 与 Codex 的全局,加进一个组,然后作者把它改名成 pdf-kit。
+type renameFixture struct {
+	lib      *library.Library
+	server   *archiveServer
+	skill    library.Skill
+	group    library.GroupID
+	claude   library.Scope
+	codex    library.Scope
+	dirs     map[library.Scope]string
+	versions int
+}
+
+func newRenameFixture(t *testing.T) *renameFixture {
+	t.Helper()
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	fx := &renameFixture{lib: openTestLibrary(t), claude: library.GlobalScope(library.AgentClaudeCode), codex: library.GlobalScope(library.AgentCodex), dirs: map[library.Scope]string{}}
+	fx.server = newArchiveServer(t, zipArchive(t, map[string]string{
+		"pdf-tools/SKILL.md":       skillDocument("pdf-tools", renamedBody),
+		"pdf-tools/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":           skillDocument("notes", "v1"),
+	}), "")
+	preview, err := fx.lib.PreviewFetch(ctx, fx.server.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills := fetchSkills(t, fx.lib, preview, []string{"pdf-tools", "notes"})
+	fx.skill = skills[slices.IndexFunc(skills, func(s library.Skill) bool { return s.Name == "pdf-tools" })]
+	group, err := fx.lib.CreateGroup(ctx, "docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.group = group.ID
+	if _, err := fx.lib.AddSkillToGroup(ctx, group.ID, fx.skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []library.Scope{fx.claude, fx.codex} {
+		if err := fx.lib.Install(ctx, fx.skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if fx.dirs[scope], err = fx.lib.ScopeDirectory(ctx, scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody),
+		"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":         skillDocument("notes", "v1"),
+	}), "")
+	return fx
+}
+
+// site 接管 http.DefaultClient,按完整 URL 回答固定内容,其余一律 404,并记下每个 URL 被请求的次数。
+type site struct {
+	mu       sync.Mutex
+	pages    map[string][]byte
+	etags    map[string]string
+	statuses map[string]int
+	hits     map[string]int
+}
+
+func serveSite(t *testing.T) *site {
+	t.Helper()
+	s := &site{pages: map[string][]byte{}, etags: map[string]string{}, statuses: map[string]int{}, hits: map[string]int{}}
+	client := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: fetchTransport(s.roundTrip)}
+	t.Cleanup(func() { http.DefaultClient = client })
+	return s
+}
+
+func (s *site) put(url string, body []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pages[url] = body
+}
+
+func (s *site) putWithETag(url string, body []byte, etag string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pages[url], s.etags[url] = body, etag
+}
+
+// fail 让 url 一律回 status。
+func (s *site) fail(url string, status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statuses[url] = status
+}
+
+func (s *site) remove(url string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.pages, url)
+}
+
+func (s *site) count(url string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hits[url]
+}
+
+func (s *site) roundTrip(r *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	url := r.URL.String()
+	s.hits[url]++
+	if status := s.statuses[url]; status != 0 {
+		return textResponse(status, "failure"), nil
+	}
+	body, ok := s.pages[url]
+	if !ok {
+		return textResponse(http.StatusNotFound, "<html>not found</html>"), nil
+	}
+	header := make(http.Header)
+	if etag := s.etags[url]; etag != "" {
+		header.Set("ETag", etag)
+		if r.Header.Get("If-None-Match") == etag {
+			return &http.Response{StatusCode: http.StatusNotModified, Header: header, Body: http.NoBody}, nil
+		}
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(bytes.NewReader(body))}, nil
+}
+
+// isolateGit 让测试里的 git 不读本机配置,并把所有 https 远端改写到不存在的本地路径,git ls-remote 因此必然失败且不联网。
+func isolateGit(t *testing.T) string {
+	t.Helper()
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	runGit(t, t.TempDir(), "config", "--file", config, "url.file://"+filepath.Join(t.TempDir(), "missing")+"/.insteadOf", "https://")
+	return config
+}
+
+func tarGz(t *testing.T, files map[string]string, compress bool) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	var out io.Writer = &buffer
+	var zipped *gzip.Writer
+	if compress {
+		zipped = gzip.NewWriter(&buffer)
+		out = zipped
+	}
+	writer := tar.NewWriter(out)
+	for name, content := range files {
+		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if zipped != nil {
+		if err := zipped.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return buffer.Bytes()
+}
+
+func describedSkill(name, description, body string) string {
+	return "---\nname: " + name + "\ndescription: " + description + "\n---\n" + body
+}
+
+type scopeEditFixture struct {
+	lib         *library.Library
+	server      *archiveServer
+	skill       library.Skill
+	claude      library.Scope
+	codex       library.Scope
+	project     library.Scope
+	directories map[library.Scope]string
+}
+
+// newScopeEditFixture 从压缩包入库 pdf,装到 Claude Code 全局、Codex 全局与 Claude Code 的一个项目,
+// 然后在 Claude Code 全局里改 SKILL.md、加一个脚本。
+func newScopeEditFixture(t *testing.T) scopeEditFixture {
+	t.Helper()
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	skill := fetchArchive(t, lib, server.request())[0]
+	if _, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := lib.RegisterProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := scopeEditFixture{
+		lib:         lib,
+		server:      server,
+		skill:       skill,
+		claude:      library.GlobalScope(library.AgentClaudeCode),
+		codex:       library.GlobalScope(library.AgentCodex),
+		project:     library.ProjectScope(library.AgentClaudeCode, project.ID),
+		directories: map[library.Scope]string{},
+	}
+	for _, scope := range []library.Scope{f.claude, f.codex, f.project} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if f.directories[scope], err = lib.ScopeDirectory(ctx, scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(f.directories[f.claude], "pdf", "SKILL.md"), []byte(skillDocument("pdf", "edited in claude")), 0o644)
+	writeFile(t, filepath.Join(f.directories[f.claude], "pdf", "scripts", "run.sh"), []byte("echo hi\n"), 0o644)
+	return f
+}
+
+func (f scopeEditFixture) statuses(t *testing.T) map[library.Scope]library.SkillScopeStatus {
+	t.Helper()
+	inspections, err := f.lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{SkillID: f.skill.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses := map[library.Scope]library.SkillScopeStatus{}
+	for _, inspection := range inspections {
+		statuses[inspection.Scope] = inspection.Status
+	}
+	return statuses
+}
+
+// takeClaudeEdits 用 Claude Code 全局里的修改更新库里的 pdf,不换别的地方,返回更新后的技能。
+func (f scopeEditFixture) takeClaudeEdits(t *testing.T) library.Skill {
+	t.Helper()
+	plan, err := f.lib.PlanUpdateFromScope(t.Context(), f.skill.ID, f.claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Skills[0].Edited {
+		t.Fatalf("plan from scope = %#v; want Edited false", plan.Skills[0])
+	}
+	if f.skill.Edited {
+		t.Fatalf("skill = %#v; want Edited false before the edits are taken", f.skill)
+	}
+	result, err := f.lib.Update(t.Context(), library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{f.skill.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skills[0].Skill.Edited {
+		t.Fatalf("skill = %#v; want Edited after taking the edits", result.Skills[0].Skill)
+	}
+	return result.Skills[0].Skill
+}
+
+func (f scopeEditFixture) publish(t *testing.T, files map[string]string) {
+	t.Helper()
+	f.server.serve(zipArchive(t, files), "")
+}
+
+func plannedSkill(t *testing.T, plan library.UpdatePlan, id library.SkillID) library.PlannedSkill {
+	t.Helper()
+	for _, planned := range plan.Skills {
+		if planned.Skill.ID == id {
+			return planned
+		}
+	}
+	t.Fatalf("plan = %#v; skill %d missing", plan, id)
+	return library.PlannedSkill{}
+}
+
+func requireCheck(t *testing.T, lib *library.Library, id library.SkillID, status library.UpdateCheckStatus, skipped, pending bool) {
+	t.Helper()
+	if got, err := checkSkillUpdate(t, lib, t.Context(), id); err != nil || got != status {
+		t.Fatalf("check = %q, %v; want %q", got, err, status)
+	}
+	check := updateCheckState(t, lib, id)
+	if check.Skipped != skipped || check.Pending != pending {
+		t.Fatalf("check = %#v; want skipped %v, pending %v", check, skipped, pending)
+	}
+}
+
+func requireSkillFiles(t *testing.T, lib *library.Library, id library.SkillID, body string) {
+	t.Helper()
+	skill, err := lib.GetSkill(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := lib.GetVersionFile(t.Context(), skill.VersionID, "SKILL.md")
+	if err != nil || string(file.Content) != skillDocument(skill.Name, body) {
+		t.Fatalf("SKILL.md = %q, %v; want %q", file.Content, err, body)
+	}
 }

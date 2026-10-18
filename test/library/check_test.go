@@ -566,3 +566,37 @@ func TestOverlappingCheckSuccessReplacesConcurrentFailure(t *testing.T) {
 		t.Fatalf("state = %+v", got)
 	}
 }
+
+func TestLateCheckDoesNotWriteToTheSameSkillFetchedAgain(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	gate := newNetworkGate()
+	var mu sync.Mutex
+	body := "v1"
+	server := serveGatedArchive(t, gate, func() []byte {
+		mu.Lock()
+		defer mu.Unlock()
+		return zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", body)})
+	})
+	a := fetchURLSkill(t, lib, server.URL, "a")
+	mu.Lock()
+	body = "v2"
+	mu.Unlock()
+	gate.arm()
+	var wg sync.WaitGroup
+	wg.Go(func() { _, _ = lib.CheckUpdates(ctx, []library.CollectionID{a.CollectionID}) })
+	gate.awaitEntered(t)
+	gate.disarm()
+	if err := lib.RemoveSkill(ctx, a.ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	again := fetchURLSkill(t, lib, server.URL, "a")
+	if again.ID == a.ID {
+		t.Fatalf("fetched again with the removed skill's ID %d", a.ID)
+	}
+	gate.open()
+	wg.Wait()
+	if skill, err := lib.GetSkill(ctx, again.ID); err != nil || skill.LastUpdateCheck != nil {
+		t.Fatalf("skill fetched again after the late check = %#v, %v; want no conclusion", skill.LastUpdateCheck, err)
+	}
+}
