@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -91,54 +90,6 @@ type GroupMemberResult struct {
 	Scope   Scope              `json:"scope"`
 	Outcome GroupMemberOutcome `json:"outcome"`
 	Error   *Error             `json:"error,omitempty"`
-}
-
-type claimant struct {
-	skillID SkillID
-	name    string
-}
-
-func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, target resolvedScope) (*claimant, error) {
-	claimants, err := l.store.Claimants(ctx, name, int64(id))
-	if err != nil {
-		return nil, err
-	}
-	want := agentdir.Canonical(target.directory)
-	for _, other := range claimants {
-		claimed, err := l.resolveRow(ctx, scopeRowOf(other.Scope))
-		if err != nil {
-			return nil, err
-		}
-		if agentdir.Canonical(claimed.directory) != want {
-			continue
-		}
-		return &claimant{skillID: SkillID(other.SkillID), name: other.Name}, nil
-	}
-	return nil, nil
-}
-
-func (l *Library) placementConflict(ctx context.Context, operation string, id SkillID, name string, target resolvedScope, overwrite bool) (*Error, error) {
-	other, err := l.targetClaimant(ctx, id, name, target)
-	if err != nil {
-		return nil, err
-	}
-	if other != nil && other.skillID == id {
-		return preconditionError(operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
-	}
-	if other != nil {
-		return preconditionError(operation, "another skill already installs this name into the same directory", ErrorDetails{
-			Path: filepath.Join(target.directory, other.name), Name: other.name, SkillID: other.skillID,
-		}), nil
-	}
-	path := filepath.Join(target.directory, name)
-	exists, err := agentdir.Exists(path)
-	if err != nil {
-		return nil, fmt.Errorf("inspect target folder: %w", err)
-	}
-	if exists && !overwrite {
-		return existsError(operation, "target already exists", ErrorDetails{Path: path}), nil
-	}
-	return nil, nil
 }
 
 // PlanInstall 给出技能装到 scope 会怎样:装到哪个文件夹、那里现在是什么情况。只读,不创建目录。
@@ -279,32 +230,6 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	return l.place(ctx, placements, func(tx *store.Tx) error {
 		return tx.RecordSkillScope(ctx, int64(skill.ID), target.record(), true, clockNow())
 	})
-}
-
-type placement struct {
-	skill    Skill
-	files    []skillfile.File
-	scope    resolvedScope
-	replaces string
-}
-
-func (l *Library) place(ctx context.Context, placements []*placement, record func(*store.Tx) error) (err error) {
-	for _, item := range placements {
-		if err := item.scope.requireRoot("place skill folder"); err != nil {
-			return err
-		}
-	}
-	var change agentdir.Change
-	defer func() { err = errors.Join(err, change.Rollback()) }()
-	for _, item := range placements {
-		if err := change.Stage(ctx, item.scope.directory, item.skill.Name, item.files); err != nil {
-			return err
-		}
-		if item.replaces != "" && item.replaces != item.skill.Name {
-			change.Remove(filepath.Join(item.scope.directory, item.replaces))
-		}
-	}
-	return l.applyChange(ctx, &change, record)
 }
 
 // Uninstall 撤销直接安装;没有组安装留着它时,技能文件夹随之删除。技能只靠组安装留在这里时返回
