@@ -21,7 +21,7 @@ import (
 func startApp(t *testing.T, path string, lib *LibraryService) *AppService {
 	t.Helper()
 	a := NewAppService(path, lib)
-	a.keychain = keychain{service: keychainService + ".test", account: t.Name()}
+	a.keychain = keychain{service: bundleID + ".test", account: t.Name()}
 	t.Cleanup(func() { _ = a.keychain.delete() })
 	if err := a.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup: %v", err)

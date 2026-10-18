@@ -1,7 +1,7 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查更新与通用是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
 // GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
-// Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销。
+// Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载技能管理器见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
 import { AppService, CheckInterval, type Settings } from "@bindings/cmd/desktop";
 import { unregisterProject } from "@/lib/actions";
@@ -23,8 +23,9 @@ import { bodyClass, centerClass, leftClass, titlebarClass } from "./layout";
 import { navItem } from "./nav";
 import { ProjectPathDialog } from "./scope-panel";
 import { SetRow } from "./set-row";
+import { UninstallDialog } from "./uninstall-dialog";
 
-const sections = ["通用", "Agent", "项目", "检查更新", "GitHub", "同步", "关于"] as const;
+const sections = ["通用", "Agent", "项目", "检查更新", "GitHub", "同步", "关于", "卸载技能管理器"] as const;
 type Section = (typeof sections)[number];
 
 const intervals: { value: CheckInterval; label: string }[] = [
@@ -205,6 +206,18 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                   <dt>数据库位置</dt>
                   <dd className="font-mono text-[11px] break-all select-text">{s.info.library_path}</dd>
                 </dl>,
+              )}
+              {card(
+                "卸载技能管理器",
+                null,
+                <SetRow>
+                  <Hint className="grow">
+                    删除技能库、设置页里的设置和系统钥匙串里的令牌与密钥，退出后把应用移到废纸篓;已安装的技能文件夹默认保留，Agent 照常使用。
+                  </Hint>
+                  <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog s={s} onClose={close} />)}>
+                    卸载技能管理器…
+                  </Button>
+                </SetRow>,
               )}
             </div>
           </div>

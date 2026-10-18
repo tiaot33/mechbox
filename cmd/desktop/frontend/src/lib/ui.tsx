@@ -217,24 +217,29 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
       }
     >
       {opts.body}
-      {opts.choices?.map((c) => (
-        <label
-          key={c.value}
-          data-slot="choice"
-          className={cn(
-            "flex cursor-pointer items-start gap-2 rounded-[9px] border border-border-subtle bg-white px-2.5 py-2",
-            choice === c.value && "border-primary-border bg-primary-soft",
-          )}
-        >
-          <input type="radio" className="mt-[3px] accent-primary" checked={choice === c.value} onChange={() => setChoice(c.value)} />
-          <div>
-            <b className="block font-semibold">{c.label}</b>
-            {c.desc && <span className="text-xs text-muted-foreground">{c.desc}</span>}
-          </div>
-        </label>
-      ))}
+      {opts.choices && <ChoiceList choices={opts.choices} value={choice} onChange={setChoice} />}
     </Modal>
   );
+}
+
+// ChoiceList 是弹窗里的单选项，确认框与自己画的弹窗(如卸载技能管理器)共用。
+export function ChoiceList({ choices, value, onChange }: { choices: Choice[]; value: string; onChange: (value: string) => void }) {
+  return choices.map((c) => (
+    <label
+      key={c.value}
+      data-slot="choice"
+      className={cn(
+        "flex cursor-pointer items-start gap-2 rounded-[9px] border border-border-subtle bg-white px-2.5 py-2",
+        value === c.value && "border-primary-border bg-primary-soft",
+      )}
+    >
+      <input type="radio" className="mt-[3px] accent-primary" checked={value === c.value} onChange={() => onChange(c.value)} />
+      <div>
+        <b className="block font-semibold">{c.label}</b>
+        {c.desc && <span className="text-xs text-muted-foreground">{c.desc}</span>}
+      </div>
+    </label>
+  ));
 }
 
 function PromptDialog({ opts, close }: { opts: PromptOptions; close: (value?: string) => void }) {

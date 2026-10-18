@@ -111,6 +111,8 @@ async function settle() {
   await page.waitForFunction(() => !document.querySelector('.tb-crumb [data-slot="spinner"]'), null, { timeout: 30000 });
 }
 const btn = (scope, name) => scope.getByRole("button", { name, exact: true });
+// section 是设置页里标题为 name 的分区。
+const section = (name) => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${name}$`) }) });
 async function openFetch() {
   await page.locator(".side-btn", { hasText: "入库技能" }).click();
 }
@@ -2169,7 +2171,6 @@ await step("同步：未配置时同步计划报错", async () => {
 
 await step("设置页：分区、应用设置写进这台机器的设置文件、项目、关于", async () => {
   const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
-  const section = (name) => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${name}$`) }) });
   const sw = (label) => page.locator(".settings .set-row", { hasText: label }).locator('[role="switch"]');
   const interval = (label) => btn(section("检查更新"), label);
   const open = async () => {
@@ -2177,7 +2178,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
     await page.locator('.settings [role="switch"]').first().waitFor();
   };
   await open();
-  for (const name of ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于"]) {
+  for (const name of ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于", "卸载技能管理器"]) {
     assert((await section(name).count()) === 1, `应有分区「${name}」`);
   }
   assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/skills-manager/library.db` }).count()) === 1, "关于应显示数据库位置");
@@ -2248,7 +2249,6 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
 await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部留空时回到环境变量", async () => {
   const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
   const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
-  const section = (name) => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${name}$`) }) });
   const field = (name, label) => section(name).locator('[data-slot="field"]', { hasText: label }).locator("input");
   const sidebarSync = () => page.locator(".a-left .nav-item", { hasText: "同步" });
   // 回到主界面后侧栏重读配置状态，等它变成预期的文字
@@ -2794,6 +2794,54 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
   await toast("没有要处理的更新");
   await settle();
+});
+
+// ============ 卸载技能管理器(最后一步：卸载后 server 退出) ============
+await step("卸载技能管理器：现查被改过的几处，移走其余的，退出后删除数据库与设置文件", async () => {
+  const appDir = `${HOME}/Library/Application Support/skills-manager`;
+  for (const name of ["omicron", "sigma"]) {
+    fs.mkdirSync(`${HOME}/code/last/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/last/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await fetchLocal(`${HOME}/code/last`);
+  await toast("已入库 2 个技能");
+  await settle();
+  await selectScope("Claude Code");
+  for (const name of ["omicron", "sigma"]) {
+    await card(name).locator('[role="switch"]').click();
+    await toast(`已安装「${name}」`);
+    await settle();
+  }
+  await clearScope();
+  const skillsDir = `${HOME}/.claude/skills`;
+  // 装好之后才手动改，快照里还是没改过：弹窗打开时要现查出来。
+  fs.appendFileSync(`${skillsDir}/sigma/SKILL.md`, "\nedited by hand\n");
+  // 不是库装的技能文件夹，卸载不碰它。
+  fs.mkdirSync(`${skillsDir}/hand-made`, { recursive: true });
+  fs.writeFileSync(`${skillsDir}/hand-made/SKILL.md`, '---\nname: hand-made\ndescription: "mine"\n---\n');
+
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  await btn(section("卸载技能管理器"), "卸载技能管理器…").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "卸载技能管理器" }).waitFor();
+  await modal().locator('[data-slot="choice"]', { hasText: "保留已安装的文件夹" }).waitFor();
+  assert((await modal().locator('[data-slot="list-row"]', { hasText: "sigma · Claude Code · 全局" }).count()) === 1, "被改过的 sigma 应列出来");
+  assert((await modal().locator('[data-slot="list-row"]', { hasText: "omicron" }).count()) === 0, "没改过的 omicron 不应列为被改过");
+  await modal().locator('[data-slot="choice"]', { hasText: "移到废纸篓，但保留被改过的" }).click();
+  await btn(modal(), "卸载并退出").click();
+  // server 关掉以后才删数据库与设置文件。
+  const gone = async () => {
+    for (let i = 0; i < 40; i++) {
+      const up = await new Promise((resolve) => http.get(URL, (r) => (r.resume(), resolve(true))).on("error", () => resolve(false)));
+      if (!up && !fs.existsSync(appDir)) return true;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
+  };
+  assert(await gone(), "卸载后 server 应退出，应用目录应被删除");
+  // server 模式没有废纸篓，移走即删除。
+  assert(!fs.existsSync(`${skillsDir}/omicron`), "没改过的 omicron 应被移走");
+  assert(fs.readFileSync(`${skillsDir}/sigma/SKILL.md`, "utf8").includes("edited by hand"), "被改过的 sigma 应原样保留");
+  assert(fs.existsSync(`${skillsDir}/hand-made/SKILL.md`), "不是库装的 hand-made 不应受影响");
 });
 
 await page.screenshot({ path: path.join(SHOTS, "final.png") });

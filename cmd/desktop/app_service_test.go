@@ -74,6 +74,19 @@ func fetchSkill(t *testing.T, lib *library.Library, req library.PreviewFetchRequ
 	return skills[0]
 }
 
+// fetchLocalSkill 在临时目录里写一个只有 SKILL.md 的本地技能并入库。
+func fetchLocalSkill(t *testing.T, lib *library.Library, name string) library.Skill {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), "mine", name)
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: "+name+"\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return fetchSkill(t, lib, library.PreviewFetchRequest{Input: filepath.Dir(src)}, name)
+}
+
 func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 	lib := startLibrary(t)
 	path := filepath.Join(t.TempDir(), settingsFileName)
@@ -110,14 +123,7 @@ func TestAutoCheckDue(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive.Bytes()) }))
 	t.Cleanup(server.Close)
 	remote := fetchSkill(t, lib.lib, library.PreviewFetchRequest{Input: server.URL + "/remote.zip"}, "remote")
-	local := filepath.Join(t.TempDir(), "mine", "loc")
-	if err := os.MkdirAll(local, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(local, "SKILL.md"), []byte("---\nname: loc\ndescription: loc\n---\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	fetchSkill(t, lib.lib, library.PreviewFetchRequest{Input: filepath.Dir(local)}, "loc")
+	fetchLocalSkill(t, lib.lib, "loc")
 	fetched := remote.FetchedAt
 	only := []library.CollectionID{remote.CollectionID}
 
