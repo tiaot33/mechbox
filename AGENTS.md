@@ -41,7 +41,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 - 只经公开 API 的集成测试放在顶层 `test/` 下按被测对象分目录(如 `test/library/`,`package library_test`,共享辅助函数在 `test_helpers_test.go`),用真实的 SQLite 文件、git 仓库与 `httptest` 服务。运行 `go test ./test/library`;统计 Library 的覆盖率加 `-coverpkg=./internal/library/...`。
 - 针对某个文件内部实现的单元测试放在该文件旁边。
-- 测试文件名不按流程一一对应,找某个方法的测试按方法名 grep(如 `lib.Install(`)或用 `go test -run`;整理某个流程的 API 时,顺手把该流程的测试按流程合并、改名。
+- `test/library/` 的测试文件按被测方法所在的源文件命名:文件名前缀就是那个源文件,后面可加方面(`PreviewFetch` 在 `fetch.go`,它的测试在 `fetch_preview_test.go`);某种来源特有的行为放 `source_<来源>_test.go`(如 `source_github_test.go`);Library 整体的性质(并发、多进程、建表、错误、JSON 契约)放 `library_<方面>_test.go`。一个测试用到几个方法时按它主要验证的那个归属。找某个方法的测试也可以按方法名 grep(如 `lib.Install(`)或用 `go test -run`。
 
 ### 注释
 

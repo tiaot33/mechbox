@@ -383,3 +383,33 @@ func TestCandidateFetchedIsQueriedWhenPreviewing(t *testing.T) {
 		t.Fatalf("zero fetched JSON = %s, %v", data, err)
 	}
 }
+
+// 再预览一次集合,看作者又发布了哪些技能
+
+func TestPreviewFetchCollectionListsNewSkills(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	root := t.TempDir()
+	writeLocalSkill(t, filepath.Join(root, "first"), "v1")
+	preview, err := lib.PreviewFetch(ctx, localRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := fetchSkills(t, lib, preview, []string{"first"})[0]
+	writeLocalSkill(t, filepath.Join(root, "second"), "v1")
+	again, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Collection: first.CollectionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []library.Candidate{{Fetched: first.ID, Name: "first", Path: "first"}, {New: true, Name: "second", Path: "second"}}
+	if !reflect.DeepEqual(again.Candidates, want) {
+		t.Fatalf("candidates = %#v; want %#v", again.Candidates, want)
+	}
+	second := fetchSkills(t, lib, again, []string{"second"})[0]
+	if second.CollectionID != first.CollectionID {
+		t.Fatalf("new skill joined collection %d; want %d", second.CollectionID, first.CollectionID)
+	}
+	if _, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Collection: 9999}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("missing collection = %v; want NotFound", err)
+	}
+}
