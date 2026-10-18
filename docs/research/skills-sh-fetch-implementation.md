@@ -8,7 +8,7 @@
 - 背景：延续「对比 skills.sh 工具与现有 Skill 拉取」对话的源码调查，重新核对实现；旧对话中本项目的接口描述不作为当前规格。
 - 验证范围：静态阅读源码，未运行对方测试、真实远端下载或 Agent 目录安装。
 
-Skill 格式与客户端发现规则见 [Agent Skills 背景](agent-skills-background.md)；本项目领域边界见 [CONTEXT.md](../../CONTEXT.md) 和 [ADR 0004](../adr/0004-sources-are-typed.md)。本文记录外部实现，不引入本项目的新架构决策。
+Skill 格式与客户端发现规则见 [Agent Skills 背景](../agents/agent-skills-background.md)；本项目领域边界见 [CONTEXT.md](../../CONTEXT.md) 和 [ADR 0004](../adr/0004-sources-are-typed.md)。本文记录外部实现，不引入本项目的新架构决策。
 
 ## 1. 总体调用链
 
@@ -198,7 +198,7 @@ ZIP 由自有 `readZipArchive` 解析，支持 ZIP64、stored/deflate，验证�
 
 ## 10. 附加网络请求与本项目使用边界
 
-主 GitHub `add` 在解析来源后并行查询仓库公开性。只有明确为公开仓库时，才启动所选技能的安全审计查询；该快照中的 CLI 使用 `https://add-skill.vercel.sh/audit`，默认超时 3 秒，失败不阻止安装。该接口与本项目另行调研的 skills.sh v1 审计 API 分开看待。[`src/add.ts:1544`][add]、[`src/telemetry.ts:110`][telemetry]；另见 [skills.sh 安全审计接口](../research/skills-sh-audit.md)。
+主 GitHub `add` 在解析来源后并行查询仓库公开性。只有明确为公开仓库时，才启动所选技能的安全审计查询；该快照中的 CLI 使用 `https://add-skill.vercel.sh/audit`，默认超时 3 秒，失败不阻止安装。该接口与本项目另行调研的 skills.sh v1 审计 API 分开看待。[`src/add.ts:1544`][add]、[`src/telemetry.ts:110`][telemetry]；另见 [skills.sh 安全审计接口](skills-sh-audit.md)。
 
 借鉴此实现时，优先取其来源解析、候选优先扫描、下载分流、source + ref 分组和认证回退机制。具体适配仍遵循本项目 `PreviewFetch → Fetch → Install`、SQLite 权威和独立安装边界；调用整个 `skills add` 会同时带入目录写入、Agent 选择和 lock 管理。快照是否适用，还需单独解决 commit 绑定、完整文件、二进制与 mode 的语义，不能仅以下载成功判定与 Git 路径等价。
 

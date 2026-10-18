@@ -18,6 +18,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/wellknown"
@@ -335,7 +336,7 @@ type SourceRefs struct {
 func (l *Library) ListSourceRefs(ctx context.Context, input string) (refs SourceRefs, err error) {
 	defer func() { err = typedError(err) }()
 	input = withHTTPS(strings.TrimSpace(input))
-	var listed git.Refs
+	var listed gitcmd.Refs
 	switch {
 	case input == "":
 		return SourceRefs{}, argumentError("list source refs", "input", "input is required")

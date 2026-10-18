@@ -1,6 +1,6 @@
 //go:build !unix && !windows
 
-package git
+package gitcmd
 
 import "os/exec"
 

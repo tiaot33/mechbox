@@ -1,4 +1,4 @@
-package local
+package skilllock
 
 import (
 	"encoding/hex"

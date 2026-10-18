@@ -9,6 +9,7 @@ import (
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 )
 
 const Type = "git"
@@ -82,7 +83,7 @@ func (Kind) Open(ctx context.Context, loc source.Locator, subpath string, _ sour
 	if err != nil {
 		return nil, err
 	}
-	head, err := Head(ctx, decoded.remotes(), decoded.Branch)
+	head, err := gitcmd.Head(ctx, decoded.remotes(), decoded.Branch)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +96,7 @@ type snapshot struct {
 	head        string
 	cloned      bool
 	cloneErr    error
-	skills      []Skill
+	skills      []gitcmd.Skill
 	diagnostics []discovery.Diagnostic
 }
 
@@ -125,7 +126,7 @@ func (s *snapshot) clone(ctx context.Context) error {
 	if s.cloned {
 		return s.cloneErr
 	}
-	checkout, err := Clone(ctx, s.locator.remotes(), s.locator.Branch, s.subpath)
+	checkout, err := gitcmd.Clone(ctx, s.locator.remotes(), s.locator.Branch, s.subpath)
 	if err != nil {
 		if ctx.Err() == nil {
 			s.cloned, s.cloneErr = true, err
@@ -156,7 +157,7 @@ func (s *snapshot) Names(ctx context.Context) ([]string, error) {
 	}
 	skills := s.skills
 	if s.subpath != "" && s.subpath != "." {
-		whole, err := Clone(ctx, s.locator.remotes(), s.head, "")
+		whole, err := gitcmd.Clone(ctx, s.locator.remotes(), s.head, "")
 		if err != nil {
 			return nil, err
 		}
@@ -169,13 +170,13 @@ func (s *snapshot) Names(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-func (s *snapshot) find(name string) (Skill, error) {
+func (s *snapshot) find(name string) (gitcmd.Skill, error) {
 	for _, skill := range s.skills {
 		if skill.Name == name {
 			return skill, nil
 		}
 	}
-	return Skill{}, &source.NotFoundError{What: source.MissingSkill, Name: name}
+	return gitcmd.Skill{}, &source.NotFoundError{What: source.MissingSkill, Name: name}
 }
 
 func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, error) {
@@ -217,8 +218,8 @@ func (s *snapshot) Check(ctx context.Context, have source.Have) (source.Status, 
 
 func (s *snapshot) Commits(ctx context.Context, since string) ([]source.Commit, error) {
 	since = strings.ToLower(since)
-	if !FullCommit.MatchString(since) || since == s.head {
+	if !gitcmd.FullCommit.MatchString(since) || since == s.head {
 		return nil, nil
 	}
-	return Commits(ctx, s.locator.remotes(), since, s.head)
+	return gitcmd.Commits(ctx, s.locator.remotes(), since, s.head)
 }

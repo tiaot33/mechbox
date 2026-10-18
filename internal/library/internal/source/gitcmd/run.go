@@ -1,9 +1,10 @@
-package git
+package gitcmd
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"regexp"
@@ -106,6 +107,10 @@ func ValidateRef(ctx context.Context, ref string) error {
 		return &source.InputError{Reason: "invalid Git ref"}
 	}
 	return nil
+}
+
+func ValidSubpath(value string) bool {
+	return value == "" || (fs.ValidPath(value) && !strings.ContainsAny(value, "\\:\x00") && !strings.Contains("/"+value+"/", "/.git/"))
 }
 
 func MissingRef(err error, ref string) error {
@@ -222,7 +227,7 @@ func ListRefs(ctx context.Context, remotes []string, ref, tree string) (Refs, er
 		return Refs{}, err
 	}
 	refs := parseRefs(output)
-	refs.DefaultBranch, _ = symref(output)
+	refs.DefaultBranch, _ = Symref(output)
 	refs.InputRef = ref
 	if ref == "" && tree != "" {
 		if matches := treeMatches(tree, append(refs.Branches, refs.Tags...)); len(matches) == 1 {
@@ -277,10 +282,10 @@ func DefaultBranch(ctx context.Context, remotes []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return symref(output)
+	return Symref(output)
 }
 
-func symref(output []byte) (string, error) {
+func Symref(output []byte) (string, error) {
 	for line := range strings.SplitSeq(string(output), "\n") {
 		if ref, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
 			ref, _, _ = strings.Cut(ref, "\t")

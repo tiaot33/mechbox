@@ -1,6 +1,6 @@
 //go:build unix
 
-package git
+package gitcmd
 
 import (
 	"errors"

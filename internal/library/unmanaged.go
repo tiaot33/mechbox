@@ -14,9 +14,9 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/skills-tui/internal/library/internal/skilllock"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
 
@@ -966,14 +966,14 @@ next:
 
 type sourceRecords struct {
 	home string
-	read map[string]local.Records
+	read map[string]skilllock.Records
 }
 
 func (l *Library) sourceRecords() *sourceRecords {
-	return &sourceRecords{home: l.home, read: map[string]local.Records{}}
+	return &sourceRecords{home: l.home, read: map[string]skilllock.Records{}}
 }
 
-func (f *sourceRecords) find(target resolvedScope, names ...string) (local.Record, bool) {
+func (f *sourceRecords) find(target resolvedScope, names ...string) (skilllock.Record, bool) {
 	root := ""
 	if target.projectID != nil {
 		root = target.root
@@ -981,9 +981,9 @@ func (f *sourceRecords) find(target resolvedScope, names ...string) (local.Recor
 	records, ok := f.read[root]
 	if !ok {
 		if root == "" {
-			records = local.GlobalRecords(f.home)
+			records = skilllock.GlobalRecords(f.home)
 		} else {
-			records = local.ProjectRecords(root)
+			records = skilllock.ProjectRecords(root)
 		}
 		f.read[root] = records
 	}
