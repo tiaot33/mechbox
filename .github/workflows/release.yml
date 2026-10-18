@@ -56,7 +56,7 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 12
 
@@ -66,16 +66,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: cmd/desktop/pnpm-lock.yaml
 
-      - name: Install wails3
-        run: |
-          go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Install wails3
+        run: |
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install NSIS
         if: runner.os == 'Windows'
@@ -117,7 +117,7 @@ jobs:
           mv bin/mechbox.rpm "dist/$name.rpm"
           mv bin/mechbox.pkg.tar.zst "dist/$name.pkg.tar.zst"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: cmd/desktop/dist/*
