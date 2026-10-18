@@ -30,6 +30,7 @@ import {
   type UpdateRecordID,
   type UpdateRisk,
 } from "@bindings/internal/library";
+import { LinkedPlaces } from "./actions";
 import { describeError } from "./errors";
 import type { LibraryError, Snapshot } from "./library";
 import { collectionSkills, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
@@ -194,7 +195,7 @@ export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome
   if (outcomes.every((o) => !o.failed.length)) {
     if (outcomes.length === 1) {
       const o = outcomes[0];
-      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: "回滚", onClick: () => void rollbackUpdate(ui, s, o.record) } : undefined);
+      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: "回滚", onClick: () => void rollbackUpdate(ui, s, o.record, o.requests) } : undefined);
     } else {
       ui.toast([...outcomes.map(summarize), "要退回某一次，可以在历史里回滚"].join("\n"));
     }
@@ -256,7 +257,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
             <Button
               onClick={() => {
                 close();
-                void rollbackUpdate(ui, s, single.record);
+                void rollbackUpdate(ui, s, single.record, single.requests);
               }}
             >
               回滚
@@ -413,15 +414,30 @@ export const rollbackOutcome = (outcome: string) => rollbackText[outcome] ?? { t
 
 const putBack = (r: RollbackInstall) => r.outcome === RollbackOutcome.RollbackReinstalled || r.outcome === RollbackOutcome.RollbackCurrent;
 
-// rollbackUpdate 回滚一次更新：库换回那次更新之前的版本，那次装过的地方按磁盘内容核对后装回;没装回的列出原因。
-export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID) {
+// rollbackUpdate 回滚一次更新：库换回那次更新之前的版本，那次装过的地方(places)按磁盘内容核对后装回;没装回的列出原因。
+// 那次装过的地方现在是符号链接的，装回时换成独立的一份，确认前现查一次说出来。
+export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID, places: { skill_id: SkillID; scope: Scope }[]) {
+  const wanted = new Set(places.map(installKey));
+  const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false });
+  if (inspected === undefined) return;
+  const links = (inspected ?? []).filter((p) => p.link_target && wanted.has(installKey(p)));
   const ok = await ui.confirm({
     title: "回滚这次更新",
     body: (
-      <Hint>
-        库里的技能换回这次更新之前的版本，这次换过的地方也装回旧版;之后又重新安装过、你改过或不在这台机器上的地方不动。
-        回滚掉的改动记为跳过，不再计入角标;想要时可以在更新计划里再勾上。
-      </Hint>
+      <>
+        <Hint>
+          库里的技能换回这次更新之前的版本，这次换过的地方也装回旧版;之后又重新安装过、你改过或不在这台机器上的地方不动。
+          回滚掉的改动记为跳过，不再计入角标;想要时可以在更新计划里再勾上。
+        </Hint>
+        {links.length > 0 && (
+          <>
+            <Notice className="rollback-linked">
+              下面 {links.length} 处现在是符号链接。装回旧版时会把这几处换成独立的一份，链接指向的文件夹不动。
+            </Notice>
+            <LinkedPlaces s={s} places={links} />
+          </>
+        )}
+      </>
     ),
     confirm: "回滚",
   });

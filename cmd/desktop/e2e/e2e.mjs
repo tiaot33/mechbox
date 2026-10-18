@@ -1467,6 +1467,153 @@ await step("详情：用这里的修改更新，连带换到其他地方，能�
   await closeDrawer();
 });
 
+// 符号链接:npx skills 的布局(真实文件夹在 Codex 全局,Claude Code 全局里是指过去的链接)入库后，库第一次写链接那一处时
+// 换成独立的一份，确认里先说出来;删被链着的真实文件夹前，先给链着它的那一处换上独立的一份。指向 Agent 目录以外的默认不入库。
+await step("符号链接：用这里的修改更新、回滚、重新安装前说明会换成独立的一份;卸载被链着的文件夹前先给链着它的换上一份;指向 Agent 目录以外的默认不入库", async () => {
+  const real = path.join(HOME, ".agents", "skills", "link-tdd");
+  const link = path.join(claudeGlobal, "link-tdd");
+  const authored = path.join(HOME, "code", "authoring", "link-own");
+  const own = path.join(claudeGlobal, "link-own");
+  const doc = (name, body) => `---\nname: ${name}\ndescription: "${name} skill"\n---\n${body}\n`;
+  const relink = () => {
+    fs.rmSync(link, { recursive: true, force: true });
+    fs.symlinkSync(path.join("..", "..", ".agents", "skills", "link-tdd"), link);
+  };
+  const content = (folder) => fs.readFileSync(path.join(folder, "SKILL.md"), "utf8");
+  const isLink = (folder) => fs.lstatSync(folder).isSymbolicLink();
+  fs.mkdirSync(real, { recursive: true });
+  fs.writeFileSync(path.join(real, "SKILL.md"), doc("link-tdd", "v1"));
+  fs.mkdirSync(authored, { recursive: true });
+  fs.writeFileSync(path.join(authored, "SKILL.md"), doc("link-own", "mine"));
+  relink();
+  fs.symlinkSync(authored, own);
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const outsideBadge = '[data-slot="badge"]:text-is("指向 Agent 目录以外")';
+  const refresh = async () => {
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+  };
+  try {
+    await refresh();
+    await selectScope("Claude Code");
+    await unmanaged("link-own").waitFor();
+    assert.equal(await unmanaged("link-own").locator(outsideBadge).count(), 1, "指向 Agent 目录以外的标出来");
+    assert.equal(await unmanaged("link-tdd").locator(outsideBadge).count(), 0, "指向另一个 Agent 目录的不标");
+    const cards = await page.locator(".unmanaged-card").count();
+    const hint = await page.locator(".unmanaged-hint").textContent();
+    assert(hint.includes(`这里还有 ${cards - 1} 个技能不是库装的`), `还有几个没入库不算指向 Agent 目录以外的:${hint}`);
+
+    // 一次确认入库：默认不勾，勾上才写清之后在 app 里更新会换掉链接。
+    await btn(page.locator(".unmanaged-hint"), "全部入库…").click();
+    const ownRow = modal().locator('[data-slot="list-row"]', { hasText: "link-own" });
+    await ownRow.waitFor();
+    assert(!(await ownRow.locator("input[type=checkbox]").isChecked()), "指向 Agent 目录以外的默认不勾");
+    assert.equal(await ownRow.locator(outsideBadge).count(), 1, "确认里也标出来");
+    assert(await modal().locator('[data-slot="list-row"]', { hasText: "link-tdd" }).locator("input[type=checkbox]").isChecked(), "指向 Agent 目录里的照常勾上");
+    assert.equal(await modal().locator(".fetch-unmanaged-link-outside").count(), 0, "没勾时不说");
+    await ownRow.locator("input[type=checkbox]").check();
+    const note = await modal().locator(".fetch-unmanaged-link-outside").textContent();
+    assert(note.includes(fs.realpathSync(authored)) && note.includes("之后在 app 里更新它，会把链接换成独立的一份"), `勾上时写清后果:${note}`);
+    await page.screenshot({ path: path.join(SHOTS, "fetch-unmanaged-link-outside.png") });
+    await btn(modal(), "先不入库").click();
+    await btn(unmanaged("link-own"), "入库").click();
+    await modal().locator(".unmanaged-link-outside").waitFor();
+    await btn(modal(), "取消").click();
+
+    await btn(unmanaged("link-tdd"), "入库").click();
+    await btn(modal(), "入库").click();
+    await toast("已入库「link-tdd」");
+    await settle();
+    await selectScope("Codex");
+    await btn(unmanaged("link-tdd"), "入库").click();
+    await btn(modal(), "入库").click();
+    await toast("已记为装在 Codex · 全局");
+    await settle();
+    await clearScope();
+    await openDrawer("link-tdd");
+    await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-a" });
+    await drawer().locator(".install-to select").nth(1).selectOption("claude-code");
+    await btn(drawer(), "安装").click();
+    await toast("已安装「link-tdd」");
+    await settle();
+    assert(isLink(link), "入库、安装到别处都不动链接");
+    const row = (label) => drawer().locator(".scope-table tbody tr", { hasText: label });
+
+    // 用 proj-a 里的修改更新：Claude Code 全局那一处写明原来指向哪里、这次会换成独立的一份。
+    const projFolder = path.dirname(path.join(`${HOME}/code/proj-a`, String(fs.readdirSync(`${HOME}/code/proj-a`, { recursive: true }).find((f) => String(f).endsWith("link-tdd/SKILL.md")))));
+    fs.writeFileSync(path.join(projFolder, "SKILL.md"), doc("link-tdd", "edited in proj-a"));
+    await refresh();
+    await btn(row("proj-a"), "用这里的修改更新").click();
+    const linked = modal().locator(".update-place", { hasText: "Claude Code · 全局" }).locator(".update-place-link");
+    await linked.waitFor({ timeout: 15000 });
+    assert.equal(await linked.textContent(), `这次会换成独立的一份(现在是指向 ${fs.realpathSync(real)} 的符号链接)`, "写明原来指向哪里");
+    assert.equal(await modal().locator(".update-place", { hasText: "Codex · 全局" }).locator(".update-place-link").count(), 0, "真实文件夹不说");
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, "update-linked-place.png") });
+    await btn(modal(), "更新").click();
+    await toast("已用 Claude Code · proj-a 里的修改更新「link-tdd」");
+    await settle();
+    assert(!isLink(link) && content(link).includes("edited in proj-a"), "Claude Code 全局换成了独立的一份");
+    assert(content(real).includes("edited in proj-a"), "Codex 全局也换上了");
+
+    // 用户又链回去;回滚的确认里说这一处会换成独立的一份。
+    relink();
+    await refresh();
+    await btn(drawer(), "更新历史").click();
+    await btn(modal().locator(".update-record", { hasText: "用 Claude Code · proj-a 里的修改更新" }).first(), "回滚").click();
+    await modal().locator(".rollback-linked").waitFor();
+    assert((await modal().locator(".linked-place").textContent()).includes("Claude Code · 全局"), "列出是符号链接的那一处");
+    await btn(modal(), "回滚").click();
+    await toast("装回了 2 个地方");
+    await settle();
+    await page.keyboard.press("Escape");
+    assert(!isLink(link) && content(link).includes("v1") && content(real).includes("v1"), "回滚后两处都是旧版，链接那一处是独立的一份");
+
+    // 重新安装：链接那一处被改过(改的是链接指向的文件夹),覆盖时写成独立的一份，Codex 里的修改不动。
+    relink();
+    fs.writeFileSync(path.join(real, "SKILL.md"), doc("link-tdd", "edited in codex"));
+    await refresh();
+    await btn(row("Claude Code · 全局"), "重新安装").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "有技能文件夹被改过" }).waitFor();
+    assert((await modal().textContent()).includes("这次会换成独立的一份(现在是指向"), "覆盖前说明是符号链接");
+    await modal().locator('[data-slot="list-row"] input[type=checkbox]').check();
+    await btn(modal(), "重新安装并覆盖 1 处").click();
+    await toast("已重新安装 1 处");
+    await settle();
+    assert(!isLink(link) && content(link).includes("v1"), "Claude Code 全局换成独立的一份");
+    assert(content(real).includes("edited in codex"), "链接指向的文件夹不动");
+
+    // 从 Codex 卸载：Claude Code 全局链着这个文件夹，先给它换上独立的一份(现在的内容),再删。
+    relink();
+    await refresh();
+    await row("Codex · 全局").locator('[role="switch"]').click();
+    const linkedNote = modal().locator(".uninstall-linked");
+    await linkedNote.waitFor();
+    assert((await linkedNote.textContent()).includes("Claude Code · 全局 里的「link-tdd」是指向"), `卸载前说明:${await linkedNote.textContent()}`);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, "uninstall-linked-folder.png") });
+    await btn(modal(), "卸载").click();
+    await toast("已卸载「link-tdd」");
+    await settle();
+    assert(!fs.existsSync(real), "Codex 全局的文件夹删了");
+    assert(!isLink(link) && content(link).includes("edited in codex"), "Claude Code 全局成了独立的一份，内容是卸载前看到的");
+    await row("Claude Code · 全局").waitFor();
+  } finally {
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    await clearScope();
+    await settle();
+    if (await card("link-tdd").count()) {
+      await openDrawer("link-tdd");
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const folder of [link, real, own, authored]) fs.rmSync(folder, { recursive: true, force: true });
+    await refresh();
+  }
+});
+
 // 改了作者的技能，照样跟着作者走：用 proj-a 里的修改更新库里的 delta 后，作者没再改时检查更新不报有更新;作者发了新版时照常计入角标，
 // 更新计划里标明会换掉修改、默认不勾;勾上更新后能回滚回这份修改，也可以跳过，直到作者再改。
 await step("改了作者的技能：只看作者那边有没有新版，更新会换掉修改、默认不勾，能回滚、能跳过", async () => {

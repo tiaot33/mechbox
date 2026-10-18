@@ -37,6 +37,8 @@ import {
   agentName,
   deletedInSource,
   installedWhere,
+  linkNote,
+  outsideLinkNote,
   needsReinstall,
   noSource,
   pending,
@@ -170,18 +172,31 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
 
 export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scope) {
   // 共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
+  // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   const place = skillScopeIn(s, id, scopeKey(scope));
   const shared = place?.shared_with ?? [];
-  if (place && shared.length) {
+  const linkedBy = place?.direct && !place.groups?.length ? (place.linked_by ?? []) : [];
+  if (place && (shared.length || linkedBy.length)) {
+    const them = linkedBy.length > 1 ? "它们" : "它";
     const ok = await ui.confirm({
       title: `卸载「${skillName(s, id)}」`,
       body: (
-        <Notice tone="warn">
-          {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
-          {place.groups?.length
-            ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
-            : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
-        </Notice>
+        <>
+          {shared.length > 0 && (
+            <Notice tone="warn">
+              {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
+              {place.groups?.length
+                ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
+                : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
+            </Notice>
+          )}
+          {linkedBy.length > 0 && (
+            <Notice className="uninstall-linked">
+              {linkedBy.map((scope) => scopeLabel(s, scope)).join("、")} 里的「{skillName(s, id)}」是指向 {shortPath(s, place.folder)} 的符号链接。
+              删这个文件夹前，先给{them}换上独立的一份(现在的内容),{them}照常装着。
+            </Notice>
+          )}
+        </>
       ),
       confirm: "卸载",
       danger: true,
@@ -390,6 +405,23 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
     ui.toast(`没有重新安装(${what})${keptNote}`);
     return;
   }
+  // 改过的那几处在上一个弹窗里已经说过是符号链接;其余要重新安装的符号链接在这里说一次。
+  const links = targets.filter((p) => p.link_target && p.status !== SkillScopeStatus.SkillScopeModified);
+  if (links.length) {
+    const ok = await ui.confirm({
+      title: `重新安装(${what})`,
+      body: (
+        <>
+          <Notice>
+            下面 {links.length} 处现在是符号链接。重新安装会把这几处换成独立的一份，链接指向的文件夹不动;之后在那里改，这几处不再跟着变。
+          </Notice>
+          <LinkedPlaces s={s} places={links} />
+        </>
+      ),
+      confirm: "重新安装",
+    });
+    if (!ok) return;
+  }
   const results = await ui.run(() => LibraryService.Reinstall(requests));
   if (!results) return;
   const failed = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
@@ -446,6 +478,7 @@ function OverwriteDialog({
                     {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
                   </div>
                   <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                  {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
                 </div>
               </label>
             </ListRow>
@@ -453,6 +486,26 @@ function OverwriteDialog({
         })}
       </ListBox>
     </Modal>
+  );
+}
+
+// LinkedPlaces 列出是符号链接的各处与它们指向哪里。
+export function LinkedPlaces({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
+  return (
+    <ListBox>
+      {places.map((p) => (
+        <ListRow key={placeKey(p)} compact className="linked-place">
+          <div className="min-w-0 grow">
+            <div>
+              {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+            </div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground" title={p.link_target}>
+              {shortPath(s, p.folder)} → {shortPath(s, p.link_target!)}
+            </div>
+          </div>
+        </ListRow>
+      ))}
+    </ListBox>
   );
 }
 
@@ -742,7 +795,8 @@ export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill)
   const twins = s.skills
     .filter((x) => x.name === skill.name)
     .map((x) => `${noSource(x.source) ? "没有来源" : sourceLabel(s, x.source)}，${installedWhere(s, x.id)}`);
-  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} close={close} />);
+  const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
+  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} outside={outside} close={close} />);
   if (!r) return;
   if (r.matched) ui.toast(`「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}`);
   else if (r.skill.collection_id) ui.toast(`已入库「${r.skill.name}」，以后跟着 ${r.skill.source.label} 检查更新`);
@@ -754,11 +808,13 @@ function FetchUnmanagedDialog({
   place,
   skill,
   twins,
+  outside,
   close,
 }: {
   place: string;
   skill: UnmanagedSkill;
   twins: string[];
+  outside?: string; // 指向 Agent 目录以外的符号链接时的说明
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
@@ -795,6 +851,11 @@ function FetchUnmanagedDialog({
       <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
       <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
       {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
+      {outside && (
+        <Notice tone="warn" className="unmanaged-link-outside">
+          {outside}
+        </Notice>
+      )}
       {twins.length > 0 && (
         <Notice tone="warn" className="unmanaged-same-name">
           {`库里已经有叫「${skill.name}」的技能(${twins.join(";")})。${sameNameFetchNote(skill.name, !!input)}`}

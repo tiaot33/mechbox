@@ -18,7 +18,7 @@ import { removeSkill } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentName, revisionSummary, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { agentName, linkNote, revisionSummary, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
@@ -579,6 +579,11 @@ export function Places({
                 {(p.shared_with?.length ?? 0) > 0 && (
                   <span className="text-[11px] text-muted-foreground">
                     和 {p.shared_with!.map((code) => agentName(s, code)).join("、")} 共用一个文件夹，一起换
+                  </span>
+                )}
+                {p.link_target && on(p) && (
+                  <span className="update-place-link min-w-0 text-[11px] break-all text-muted-foreground" title={p.link_target}>
+                    {linkNote(s, p.link_target)}
                   </span>
                 )}
               </label>

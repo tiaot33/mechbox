@@ -179,7 +179,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
           <Button
             size="sm"
             onClick={async () => {
-              await rollbackUpdate(ui, s, record.id);
+              await rollbackUpdate(ui, s, record.id, record.installs ?? []);
               onChange();
             }}
           >

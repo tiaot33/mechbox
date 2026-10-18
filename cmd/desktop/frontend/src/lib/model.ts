@@ -59,9 +59,19 @@ export function scopeLabel(s: Snapshot, scope: Scope): string {
 
 // shortPath 把用户主目录缩写成 ~。
 export function shortPath(s: Snapshot, path: string): string {
-  const home = s.info.home_dir;
+  return homePath(s.info.home_dir, path);
+}
+
+export function homePath(home: string | undefined, path: string): string {
   return home && (path === home || path.startsWith(home + "/")) ? "~" + path.slice(home.length) : path;
 }
+
+// outsideLinkNote 是指向 Agent 目录以外的符号链接入库时的说明:之后在 app 里更新会换掉链接。
+export const outsideLinkNote = (target: string) =>
+  `它是指向 ${target} 的符号链接。之后在 app 里更新它，会把链接换成独立的一份;在 ${target} 里改就不再影响这里。`;
+
+// linkNote 是库要写一处符号链接时的说明:写成独立的文件夹，不再写进链接指向的地方。
+export const linkNote = (s: Snapshot, target: string) => `这次会换成独立的一份(现在是指向 ${shortPath(s, target)} 的符号链接)`;
 
 // agentShown 是 Agent 的显示勾选：用户勾选过的按勾选，没勾选过的检测到的和自定义的显示。
 // 显示只影响选择安装位置的地方(右栏与胶囊弹层的"其他 Agent"、"安装到…");已经装了技能的 Agent 照常列出。
