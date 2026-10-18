@@ -25,6 +25,7 @@ import {
   deletedInSource,
   groupStateIn,
   hasUpdate,
+  installedWhere,
   isLocal,
   needsReinstall,
   parseScope,
@@ -33,6 +34,7 @@ import {
   projectName,
   renamedTo,
   revisionSummary,
+  sameNameInLibrary,
   sameNameNote,
   scopeKey,
   scopeLabel,
@@ -166,6 +168,7 @@ function SkillCard(props: {
   const same = scope && here ? sameNameNote(s, scope, here.folder) : undefined;
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const via = (here?.groups ?? []).map((id) => s.groups.find((g) => g.id === id)?.name ?? "");
+  const twins = sameNameInLibrary(s, skill);
   const list = view === "list";
 
   const toggle = () => {
@@ -250,6 +253,21 @@ function SkillCard(props: {
         {skill.description}
       </p>
       {same && <SameNameLine note={same} list={list} />}
+      {/* 有新版本、但更新会换掉用户的修改：卡片上直接写出来，点"有新版本"打开的更新计划里它默认不勾。 */}
+      {pending(skill) && updateAvailable(skill) && skill.edited && (
+        <p
+          className={cn("update-edited-note min-w-0 text-[10.5px] leading-[1.4] text-warn-strong", list ? "w-[160px] shrink-0 truncate" : "-mt-1")}
+          title="库里的这个技能有你的修改;更新会换成来源的新版本，之后可以在历史里回滚回来"
+        >
+          更新会换掉你的修改
+        </p>
+      )}
+      {/* 库里同名的几个技能(内容不同，不合并)写出各装在哪里，免得只能靠描述分辨。 */}
+      {twins.length > 0 && (
+        <p className={cn("dup-name-note min-w-0 text-[10.5px] leading-[1.4] text-muted-foreground", list ? "w-[220px] shrink-0 truncate" : "-mt-1")} title={`库里有 ${twins.length + 1} 个「${skill.name}」;这个${installedWhere(s, skill.id)}`}>
+          库里有 {twins.length + 1} 个「{skill.name}」;这个{installedWhere(s, skill.id)}
+        </p>
+      )}
       <div
         className={cn(
           "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
@@ -321,7 +339,8 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
       )}
       data-name={skill.name}
     >
-      <div className={cn("flex min-w-0 items-center gap-1.5", list && "w-[260px] shrink-0")}>
+      {/* 卡片上标签多时折到下一行，名字不被挤掉。 */}
+      <div className={cn("flex min-w-0 items-center gap-1.5", list ? "w-[260px] shrink-0" : "flex-wrap gap-y-1")}>
         <span className={cn("unmanaged-name min-w-0 truncate font-semibold text-foreground-secondary", list ? "text-[13px]" : "text-[12.5px]")}>
           {skill.name}
         </span>
@@ -329,6 +348,9 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
           未纳管
         </Badge>
         {skill.in_repository && <Badge title="这个文件夹已提交在项目的 git 仓库里，由仓库管理">在项目仓库里</Badge>}
+        {!skill.in_repository && skill.in_project_lock && (
+          <Badge title="项目的 skills-lock.json 记了它，是团队约定装的，由项目仓库管理">记在 skills-lock.json 里</Badge>
+        )}
         {same && <SameNameBadge note={same} />}
       </div>
       <p
@@ -341,20 +363,30 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
         {skill.description}
       </p>
       {same && <SameNameLine note={same} list={list} />}
+      {/* 卡片上来源单独一行、长的折行，和底部的按钮抢不到位置;列表视图只有一行，放不下时截断、悬停看全。 */}
+      {skill.source_input && (
+        <p
+          className={cn(
+            "unmanaged-source-label min-w-0 text-[10.5px] leading-[1.4] text-muted-foreground",
+            list ? "w-[220px] shrink-0 truncate" : "-mt-1 break-all",
+          )}
+          title={`来自 ${skill.source_input}:npx skills 记下的来源，入库后跟着它检查更新`}
+        >
+          来自 {skill.source_input}
+        </p>
+      )}
       <div
         className={cn(
           "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
           list ? "w-[220px] shrink-0" : "mt-auto",
         )}
       >
-        <span className="min-w-0 grow truncate" title={skill.link_target ? `符号链接，指向 ${skill.link_target}` : skill.folder}>
+        <span
+          className={cn("unmanaged-status min-w-0 grow", skill.link_target ? "truncate" : "whitespace-nowrap")}
+          title={skill.link_target ? `符号链接，指向 ${skill.link_target}` : skill.folder}
+        >
           {skill.link_target ? `符号链接 → ${shortPath(s, skill.link_target)}` : "不是库装的"}
         </span>
-        {skill.source_input && (
-          <span className="unmanaged-source-label min-w-0 max-w-[45%] truncate font-sans" title={`来自 ${skill.source_input}:npx skills 记下的来源，入库后跟着它检查更新`}>
-            来自 {skill.source_input}
-          </span>
-        )}
         <Button
           variant="link"
           className="reveal-in-finder shrink-0 font-sans text-[10.5px]"
@@ -530,11 +562,12 @@ function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: Scop
 
 // UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
+// 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 function UpdatesHead({ s }: { s: Snapshot }) {
   const ui = useUI();
   const collections = updatableCollections(s);
   const risks = usePlanRisks(s, collections);
-  const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x)));
+  const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
   return (
     <div className={barClass}>
       {collections.map((c) => {
@@ -542,12 +575,16 @@ function UpdatesHead({ s }: { s: Snapshot }) {
         const single = skills.length === 1;
         const todo = skills.filter(pending);
         const available = todo.filter(updateAvailable);
+        const plain = available.filter((x) => !x.edited);
+        const edited = available.filter((x) => x.edited);
         const to = todo.map((x) => x.last_update_check?.revision).find(Boolean);
         const risk = risks.get(c.id);
+        const names = (list: Skill[]) => list.map((x) => x.name).join("、");
         const facts = [
           single ? `来自 ${sourceLabel(s, c.source)}` : "",
           revisionMove(skills, to),
-          available.length ? (single ? "有新版本" : `${available.map((x) => x.name).join("、")} 有变化`) : "",
+          plain.length ? (single ? "有新版本" : `${names(plain)} 有变化`) : "",
+          edited.length ? (single ? "有新版本，更新会换掉你的修改" : `${names(edited)} 有变化，更新会换掉你的修改`) : "",
           ...todo.filter(renamedTo).map((x) => `${x.name} 可能改名为 ${renamedTo(x)}`),
           todo.some(deletedInSource) ? `${todo.filter(deletedInSource).map((x) => x.name).join("、")} 来源里已删除` : "",
         ].filter(Boolean);
@@ -562,10 +599,17 @@ function UpdatesHead({ s }: { s: Snapshot }) {
                 ⚠ {risk}
               </span>
             )}
-            <Button size="sm" onClick={() => openUpdate(ui, s, c.id)}>
-              查看
-            </Button>
-            {available.length > 0 && (
+            {plain.length === 0 && edited.length > 0 ? (
+              <Button size="sm" onClick={() => openUpdate(ui, s, c.id)} title="更新会换掉你的修改，打开更新计划勾选确认">
+                <Icon name="up" />
+                更新…
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => openUpdate(ui, s, c.id)}>
+                查看
+              </Button>
+            )}
+            {plain.length > 0 && (
               <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, [c.id])}>
                 <Icon name="up" />
                 更新
@@ -576,7 +620,7 @@ function UpdatesHead({ s }: { s: Snapshot }) {
       })}
       <div className={barRowClass}>
         <span className="grow text-[11px] text-muted-foreground">
-          更新时，装出去的地方一起换成新版;你改过的地方不动。改名和删除请在"查看"里确认。
+          更新时，装出去的地方一起换成新版;你改过的地方不动。改名、删除和会换掉你的修改的更新，请在更新计划里确认。
         </span>
         {direct.length > 1 && (
           <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, direct.map((c) => c.id))}>

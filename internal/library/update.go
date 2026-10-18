@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"math"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
@@ -378,7 +380,7 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 // 计划来自 PlanUpdateFromScope 时,确认时重新读那一处的文件夹:内容和计划里一样,就把它作为技能的新版本写进库(沿用当时当前版本的
 // 来源版本,SkillVersion.BasedOn 指向它),在集合的历史里记一次更新(UpdateRecord.FromScope 为那一处),再逐处重新安装勾选的地方;
 // 不改检查更新的结论。那里的内容或库里的当前版本在计划生成后变了返回 Conflict(Details.SkillID);那一处已不再是被改过的,
-// 或读不了,错误同 PlanUpdateFromScope;Installs 列了取内容的那个文件夹(含共用它的 Agent)返回 InvalidArgument(Details.Field 为 installs)。
+// 或读不了,错误同 PlanUpdateFromScope;Installs 列了取内容的那个文件夹(含共用它的 Agent,以及解析符号链接后是同一个真实文件夹的地方)返回 InvalidArgument(Details.Field 为 installs)。
 //
 // 错误:句柄未知或已失效返回 NotFound;Skills 为空、含不在计划里的技能,Installs 的技能不在 Skills 里、作用域不合法或同一处列了两次,
 // 返回 InvalidArgument(Details.Field 为 skills / installs,技能带 Details.SkillID);勾选的技能在来源里已删除返回 NotFound
@@ -485,7 +487,7 @@ func (l *Library) applyScopeUpdate(ctx context.Context, operation string, state 
 		return UpdateResult{}, nil, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
 	}
 	for _, install := range installs {
-		if target, err := l.resolveScope(ctx, operation, install.Scope); err == nil && target.sharesFolderWith(edit.target) {
+		if l.sameFolder(ctx, operation, id, install.Scope, edit) {
 			return UpdateResult{}, nil, &Error{Code: InvalidArgument, Message: operation + ": the update takes its content from this folder", Details: ErrorDetails{Field: "installs", SkillID: id}}
 		}
 	}
@@ -522,6 +524,21 @@ func (l *Library) applyScopeUpdate(ctx context.Context, operation string, state 
 		return UpdateResult{}, nil, err
 	}
 	return result, versions, nil
+}
+
+func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, scope Scope, edit scopeEdit) bool {
+	target, err := l.resolveScope(ctx, operation, scope)
+	if err != nil {
+		return false
+	}
+	if target.sharesFolderWith(edit.target) {
+		return true
+	}
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	if err != nil || len(place) == 0 {
+		return false
+	}
+	return agentdir.SameFolder(filepath.Join(target.directory, place[0].Folder), edit.folder)
 }
 
 func selectedSkills(operation string, state *planState, requested []SkillID) ([]SkillID, error) {

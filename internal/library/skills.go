@@ -57,6 +57,10 @@ type Skill struct {
 	// KeptDeleted 为 true 表示来源里已删除这个技能,用户选了继续保留(KeepDeletedSkill):不再计入角标,技能上留一个淡色标记。
 	// 之后检查更新或更新确认来源里又有这个技能时自动变回 false。
 	KeptDeleted bool `json:"kept_deleted,omitzero"`
+	// Edited 为 true 表示当前版本里有用户的修改,含义同更新计划里的 PlannedSkill.Edited:用目录里的修改更新进来的
+	// (SkillVersion.BasedOn 不为零),或入库时说不清有没有用户修改的那一版(SkillVersion.MaybeEdited)。来源有新版本时,
+	// 更新会换掉这份修改,桌面端在更新列表和卡片上写明、不直接更新。没有来源的技能为 false。
+	Edited bool `json:"edited,omitzero"`
 }
 
 // FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -101,7 +105,7 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 		if err != nil {
 			return Skill{}, err
 		}
-		skill.CollectionID, skill.Source = CollectionID(row.Source.ID), src
+		skill.CollectionID, skill.Source, skill.Edited = CollectionID(row.Source.ID), src, row.Edited
 	}
 	if row.CheckStatus != "" {
 		status := UpdateCheckStatus(row.CheckStatus)

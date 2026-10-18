@@ -1490,6 +1490,13 @@ export interface Skill {
      * 之后检查更新或更新确认来源里又有这个技能时自动变回 false。
      */
     "kept_deleted"?: boolean;
+
+    /**
+     * Edited 为 true 表示当前版本里有用户的修改,含义同更新计划里的 PlannedSkill.Edited:用目录里的修改更新进来的
+     * (SkillVersion.BasedOn 不为零),或入库时说不清有没有用户修改的那一版(SkillVersion.MaybeEdited)。来源有新版本时,
+     * 更新会换掉这份修改,桌面端在更新列表和卡片上写明、不直接更新。没有来源的技能为 false。
+     */
+    "edited"?: boolean;
 }
 
 /**
@@ -1662,6 +1669,7 @@ export interface SkillVersion {
 
     /**
      * BasedOn 是用目录里的修改更新进来的版本(PlanUpdateFromScope)所基于的版本,即当时库里的当前版本;从来源入库或更新的为零值。
+     * 从作用域连同来源入库、能确认磁盘是在来源现在这一版上改出来的(见 FetchUnmanaged)时,是入库时一并记下的来源里的那一版。
      */
     "based_on"?: VersionID;
 
@@ -2042,7 +2050,8 @@ export interface UpdatePlan {
 
     /**
      * Installs 是有变化的技能装出去的每一处及其现在的状态,按「技能 × 地方」逐条给出,与 InspectSkillScopes 的结果同形、同序;
-     * 同一处装了几个有变化的技能时各自一条。没有时为空数组。用目录里的修改更新时不含取内容的那个文件夹(共用它的 Agent 也不列)。
+     * 同一处装了几个有变化的技能时各自一条。没有时为空数组。用目录里的修改更新时不含取内容的那个文件夹(共用它的 Agent、
+     * 以及解析符号链接后是同一个真实文件夹的地方也不列)。
      */
     "installs": SkillScopeInspection[] | null;
 

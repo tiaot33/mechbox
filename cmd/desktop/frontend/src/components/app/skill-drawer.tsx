@@ -33,6 +33,7 @@ import {
   collectionSkills,
   deletedInSource,
   hasUpdate,
+  installedWhere,
   isLocal,
   noSource,
   needsReinstall,
@@ -40,6 +41,7 @@ import {
   projectName,
   renamedTo,
   revisionSummary,
+  sameNameInLibrary,
   scopeKey,
   scopeLabel,
   scopeOf,
@@ -49,6 +51,7 @@ import {
   skillScopesOf,
   sourceKindLabel,
   sourceLabel,
+  updateAvailable,
   type Place,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
@@ -78,30 +81,41 @@ const checkStatus: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
 function collectionRelation(skill: Skill, collection: Skill[]): string {
   const others = collection.filter((x) => x.id !== skill.id);
   const todo = others.filter(pending).length;
-  const aligned = new Set(collection.map((x) => x.revision).filter(Boolean)).size <= 1;
+  const summary = revisionSummary(collection);
   return [
-    aligned ? `和其他 ${others.length} 个技能在同一个来源版本上` : revisionSummary(collection),
+    !summary || summary.startsWith("在 ") ? `和其他 ${others.length} 个技能在同一个来源版本上` : summary,
     todo ? `${todo} 个有变化` : "",
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
+// sourceRef 是详情里的来源版本:Git 类来源写分支与 commit,来源版本未知(入库时和来源里的不一样)时如实写出。
 function sourceRef(skill: Skill): string {
   const source = skill.source;
   switch (source.type) {
     case SourceType.SourceGitHub:
-      return [source.ref || "默认分支", skill.revision?.slice(0, 12)].filter(Boolean).join(" · ");
+    case SourceType.SourceGit:
+      return [source.ref || "默认分支", skill.revision ? skill.revision.slice(0, 12) : "来源版本未知"].join(" · ");
     case SourceType.SourceURL:
       try {
         return new URL(source.label).host;
       } catch {
         return source.label || "—";
       }
+    case SourceType.SourceWellKnown:
+      return source.label.split("/")[0];
     default:
       return "本地目录";
   }
 }
+
+// viewLabel 是"在来源上查看"按钮的文字：只有 GitHub、GitLab 仓库与 well-known 站点有网页。
+const viewLabel: Partial<Record<SourceType, string>> = {
+  [SourceType.SourceGitHub]: "在 GitHub 查看",
+  [SourceType.SourceGit]: "在 GitLab 查看",
+  [SourceType.SourceWellKnown]: "打开站点",
+};
 
 // 抽屉宽度：拖左边缘调整，记在这台机器上。
 const drawerWidth = { storageKey: "skills-manager.drawer-width", defaultWidth: 540, min: 420, max: 960 };
@@ -128,6 +142,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
   const check = skill.last_update_check;
   const c = s.collections.find((x) => x.id === skill.collection_id);
   const collection = c ? collectionSkills(s, c) : [];
+  const sameName = sameNameInLibrary(s, skill);
   const [width, setWidth] = useStoredWidth(drawerWidth);
 
   return (
@@ -257,10 +272,19 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                         <>
                           {" "}
                           <Button variant="link" onClick={() => void Browser.OpenURL(skill.source.view_url!)}>
-                            在 GitHub 查看
+                            {viewLabel[skill.source.type] ?? "打开网页"}
                           </Button>
                         </>
                       )}
+                    </dd>
+                  </>
+                )}
+                {sameName.length > 0 && (
+                  <>
+                    <dt>同名技能</dt>
+                    <dd className="same-name-in-library">
+                      库里还有 {sameName.length} 个「{skill.name}」:
+                      {sameName.map((x) => `${noSource(x.source) ? "没有来源" : sourceLabel(s, x.source)}，${installedWhere(s, x.id)}`).join(";")}
                     </dd>
                   </>
                 )}
@@ -281,6 +305,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                             {check.renamed_to ? `可能改名为 ${check.renamed_to}` : checkStatus[check.status].label}
                           </Badge>{" "}
                           {check.skipped && <span className="text-[11px] text-muted-foreground">已跳过这次的改动 · </span>}
+                          {updateAvailable(skill) && skill.edited && <span className="text-[11px] text-muted-foreground">更新会换掉你的修改 · </span>}
                           <span className="text-[11px] text-muted-foreground">{formatDate(check.checked_at)}</span>
                         </>
                       ) : (

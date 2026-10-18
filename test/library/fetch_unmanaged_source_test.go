@@ -287,7 +287,7 @@ func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
 				t.Fatal(err)
 			}
 			skill := result.Skill
-			if skill.Revision != "" || skill.CollectionID == 0 {
+			if skill.Revision != "" || skill.CollectionID == 0 || skill.Edited {
 				t.Fatalf("FetchUnmanaged() = %#v, want a skill in the collection with an unknown source version", result)
 			}
 			if version := f.currentVersion(t, skill); version.MaybeEdited {
@@ -333,7 +333,7 @@ func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
 
 			skill := f.fetch(t).Skill
 			version := f.currentVersion(t, skill)
-			if !version.MaybeEdited || skill.Revision != "" {
+			if !version.MaybeEdited || skill.Revision != "" || !skill.Edited {
 				t.Fatalf("version = %#v, skill = %#v, want a possible edit with an unknown source version", version, skill)
 			}
 			requireScopeStatus(t, f.lib, skill.ID, f.claude, library.SkillScopeCurrent)
@@ -357,8 +357,8 @@ func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if version := f.currentVersion(t, updated.Skill); version.MaybeEdited {
-				t.Fatalf("version after update = %#v, want the source's version", version)
+			if version := f.currentVersion(t, updated.Skill); version.MaybeEdited || updated.Skill.Edited {
+				t.Fatalf("version after update = %#v, skill = %#v, want the source's version", version, updated.Skill)
 			}
 			requireCheck(t, f.lib, skill.ID, library.UpdateCurrent, false, false)
 			history, err := f.lib.ListUpdateHistory(ctx, library.UpdateHistoryFilter{SkillID: skill.ID})
@@ -496,4 +496,123 @@ func TestFetchUnmanagedSourceErrorsLeaveEverythingUnchanged(t *testing.T) {
 	if err := os.RemoveAll(local); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// 来源记录里的哈希对不上磁盘,却等于来源现在的那份:装的就是来源现在这一版,磁盘不一样是用户改过,作者之后没动过。
+// 入库的版本是基于来源这一版的修改,和用目录里的修改更新之后一样:作者没再改时没有更新,作者再改才报、写明会换掉修改。
+func TestFetchUnmanagedEditedAfterInstallingTheLatestFollowsOnlyTheAuthor(t *testing.T) {
+	for _, records := range []string{"global", "project"} {
+		t.Run(records, func(t *testing.T) {
+			ctx := t.Context()
+			f := newSourcedSkillFixture(t)
+			scope := f.claude
+			folder := f.folder
+			if records == "global" {
+				writeSourceRecords(t, filepath.Join(f.home, ".agents", ".skill-lock.json"), 3, map[string]map[string]string{
+					"pdf": {"source": "owner/repo", "sourceType": "github", "sourceUrl": "https://github.com/owner/repo.git", "ref": "main", "skillFolderHash": f.v1Tree},
+				})
+			} else {
+				project := t.TempDir()
+				registered, err := f.lib.RegisterProject(ctx, project)
+				if err != nil {
+					t.Fatal(err)
+				}
+				scope = library.ProjectScope(library.AgentClaudeCode, registered.ID)
+				folder = filepath.Join(scopeDirectory(t, f.lib, scope), "pdf")
+				writeSourceRecords(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
+					"pdf": {"source": "owner/repo", "sourceType": "github", "ref": "main", "computedHash": computedHash(f.v1Files)},
+				})
+			}
+			writePDFFolder(t, folder, "edited")
+
+			result, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: scope, Name: "pdf", SourceInput: "owner/repo", SourceRef: "main"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			skill := result.Skill
+			head := gitRevParse(t, f.repo, "HEAD")
+			if skill.Revision != head || !skill.UpdatedAt.IsZero() || !skill.Edited {
+				t.Fatalf("FetchUnmanaged() = %#v, want the source version the edits are based on (%s) and no update yet", skill, head)
+			}
+			version := f.currentVersion(t, skill)
+			if version.MaybeEdited || version.BasedOn == 0 || version.Revision != head {
+				t.Fatalf("version = %#v, want an edit based on the source's version", version)
+			}
+			base, err := f.lib.GetVersion(ctx, version.BasedOn)
+			if err != nil || base.Revision != head || base.BasedOn != 0 {
+				t.Fatalf("base version = %#v, %v, want the source's version at %s", base, err, head)
+			}
+			if files := skillFiles(t, f.lib, skill); string(files[0].Content) != skillDocument("pdf", "edited") {
+				t.Fatalf("files = %#v, want what is on disk", files)
+			}
+			requireScopeStatus(t, f.lib, skill.ID, scope, library.SkillScopeCurrent)
+
+			// 作者没再改:第一次检查更新没有更新。
+			requireCheck(t, f.lib, skill.ID, library.UpdateCurrent, false, false)
+			if _, planned := f.planned(t, skill); !planned.Edited || planned.Change != library.PlannedUnchanged {
+				t.Fatalf("planned = %#v, want no change on an edited skill", planned)
+			}
+			// 作者再改:报有新版本,更新会换掉修改。
+			f.publish(t, "v2")
+			requireCheck(t, f.lib, skill.ID, library.UpdateAvailable, false, true)
+			if _, planned := f.planned(t, skill); !planned.Edited || planned.Change != library.PlannedChanged {
+				t.Fatalf("planned = %#v, want a change marked as edited", planned)
+			}
+			// 勾上更新换成作者的新版,能回滚回这份修改,回滚后照旧是基于来源那一版的修改。
+			updated, err := updateSkill(t, f.lib, ctx, skill.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if updated.Skill.Edited || string(skillFiles(t, f.lib, updated.Skill)[0].Content) != skillDocument("pdf", "v2") {
+				t.Fatalf("updated = %#v, want the author's new version", updated.Skill)
+			}
+			history, err := f.lib.ListUpdateHistory(ctx, library.UpdateHistoryFilter{SkillID: skill.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.lib.Rollback(ctx, history[0].ID); err != nil {
+				t.Fatal(err)
+			}
+			rolledBack, err := f.lib.GetSkill(ctx, skill.ID)
+			if err != nil || rolledBack.VersionID != skill.VersionID || !rolledBack.Edited || rolledBack.Revision != head {
+				t.Fatalf("GetSkill() after rollback = %#v, %v, want the edits based on %s back", rolledBack, err, head)
+			}
+			if _, planned := f.planned(t, rolledBack); !planned.Edited || planned.Change != library.PlannedChanged {
+				t.Fatalf("planned after rollback = %#v, want the author's change still marked as edited", planned)
+			}
+		})
+	}
+}
+
+// 项目记录里的内容哈希不算可执行位:作者只改了脚本的可执行位时,记录照样等于来源现在的那份,却不能断定装的就是这一版。
+// 磁盘上的文件模式和来源里的不一样时,保守地当作说不清有没有修改:第一次检查更新就报有新版本,作者的权限改动不被漏掉。
+func TestFetchUnmanagedDoesNotTakeAModeOnlyChangeAsTheVersionTheEditsAreBasedOn(t *testing.T) {
+	ctx := t.Context()
+	f := newSourcedSkillFixture(t)
+	project := t.TempDir()
+	registered, err := f.lib.RegisterProject(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := library.ProjectScope(library.AgentClaudeCode, registered.ID)
+	folder := filepath.Join(scopeDirectory(t, f.lib, scope), "pdf")
+	writeSourceRecords(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
+		"pdf": {"source": "owner/repo", "sourceType": "github", "ref": "main", "computedHash": computedHash(f.v1Files)},
+	})
+	writePDFFolder(t, folder, "edited")
+	if err := os.Chmod(filepath.Join(f.repo, "skills", "pdf", "scripts", "run.sh"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitGit(t, f.repo, "run.sh is no longer executable")
+	f.api.Swap(inspectGitHubRepo(t, f.repo))
+
+	result, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: scope, Name: "pdf", SourceInput: "owner/repo", SourceRef: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := result.Skill
+	if version := f.currentVersion(t, skill); !version.MaybeEdited || version.BasedOn != 0 || skill.Revision != "" {
+		t.Fatalf("version = %#v, skill = %#v, want a possible edit with an unknown source version", version, skill)
+	}
+	requireCheck(t, f.lib, skill.ID, library.UpdateAvailable, false, true)
 }

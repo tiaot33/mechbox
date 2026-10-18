@@ -19,6 +19,7 @@ type SkillVersion struct {
 	Revision    string    `json:"revision,omitempty"`  // 这份内容最后一次被确认时来源所在的来源版本,与入库预览的 Revision 同义:Git 类来源为 commit,直接下载为文件内容哈希,well-known 为索引内容哈希,本地目录为空。当前版本在更新时确认来源没有变化,会前移到来源的最新来源版本;一旦不再是当前版本就不再变。用目录里的修改更新进来的版本沿用 BasedOn 那个版本的来源版本
 	CreatedAt   time.Time `json:"created_at,omitzero"` // 这个版本由入库或更新写进库里的时间
 	// BasedOn 是用目录里的修改更新进来的版本(PlanUpdateFromScope)所基于的版本,即当时库里的当前版本;从来源入库或更新的为零值。
+	// 从作用域连同来源入库、能确认磁盘是在来源现在这一版上改出来的(见 FetchUnmanaged)时,是入库时一并记下的来源里的那一版。
 	BasedOn VersionID `json:"based_on,omitzero"`
 	// MaybeEdited 为 true 表示这一版是从作用域连同来源入库的未纳管技能(FetchUnmanaged),入库时磁盘上的内容和来源里的不一样,
 	// 又不能确认是当初装的原样:说不清有没有用户的修改。版本历史里写「入库时和来源里的不一样，可能有你的修改」;

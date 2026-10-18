@@ -6,7 +6,7 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { scopeLabel } from "@/lib/model";
+import { scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { canInstall, defaultInstallOn, folderKey, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,10 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
 
   const item = plan.skills![0];
   const places = plan.installs ?? [];
+  // 计划里不列的其他地方和取内容的这一处是同一个文件夹(共用目录，或符号链接指向同一个文件夹):内容已经是这份修改。
+  const same = skillScopesOf(s, skill.id).filter(
+    (p) => scopeKey(p.scope) !== scopeKey(scope) && !places.some((x) => scopeKey(x.scope) === scopeKey(p.scope)),
+  );
   const risks = item.risks ?? [];
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
   const installOn = (p: SkillScopeInspection) => canInstall(p) && (installChoice.get(folderKey(p)) ?? defaultInstallOn(p));
@@ -141,6 +145,11 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
       )}
       <SkillDiff plan={plan} item={item} path={path} onPath={setPath} onError={onStale} />
 
+      {same.length > 0 && (
+        <Hint className="scope-update-same">
+          {same.map((p) => scopeLabel(s, p.scope)).join("、")} 和这里是同一个文件夹，已经是这份修改。
+        </Hint>
+      )}
       {places.length > 0 ? (
         <>
           <div className={sectionClass}>还装在这些地方，一起换成这份修改</div>
@@ -155,7 +164,7 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
           <Hint>没勾的地方保持原样，之后可以在那里单独重新安装。</Hint>
         </>
       ) : (
-        <Hint>「{skill.name}」没有装在别的地方，只更新技能库。</Hint>
+        same.length === 0 && <Hint>「{skill.name}」没有装在别的地方，只更新技能库。</Hint>
       )}
     </Modal>
   );

@@ -14,7 +14,7 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { toLibraryError, type LibraryError } from "@/lib/library";
-import { scopeOf } from "@/lib/model";
+import { sameNameFetchNote, scopeOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,8 +63,10 @@ export async function offerFetchUnmanaged(
   quiet = true,
 ) {
   let plan: PlannedUnmanagedSkill[];
+  let library: string[];
   try {
     plan = (await LibraryService.PlanFetchUnmanaged({ scopes })) ?? [];
+    library = ((await LibraryService.ListSkills()) ?? []).map((x) => x.name);
   } catch (err) {
     const e = toLibraryError(err);
     if (e.code !== ErrorCode.Canceled && !quiet)
@@ -79,6 +81,7 @@ export async function offerFetchUnmanaged(
     <FetchUnmanagedDialog
       agents={agents}
       plan={plan}
+      library={new Set(library)}
       where={where}
       close={close}
     />
@@ -140,11 +143,13 @@ interface Failed {
 function FetchUnmanagedDialog({
   agents,
   plan,
+  library,
   where,
   close,
 }: {
   agents: Agent[];
   plan: PlannedUnmanagedSkill[];
+  library: Set<string>; // 库里已有的技能名：同名的标出来，内容不同时入库后会有两个同名的
   where: Where;
   close: () => void;
 }) {
@@ -404,6 +409,7 @@ function FetchUnmanagedDialog({
                 记在 skills-lock.json 里
               </Badge>
             )}
+            {library.has(p.name) && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, links.get(i)).input} />}
             <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">
               {agentNames(p)}
             </span>
@@ -506,8 +512,9 @@ function FetchUnmanagedDialog({
           <ListBox>
             {[...conflicts].map(([name, members]) => (
               <div key={name} className="fetch-unmanaged-conflict">
-                <div className="border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+                <div className="flex items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
                   {name}
+                  {library.has(name) && <SameNameInLibrary name={name} sourced={members.some((i) => !!sourceOf(plan[i], links.get(i)).input)} />}
                 </div>
                 {members.map((i) => {
                   const p = plan[i];
@@ -578,7 +585,7 @@ function FetchUnmanagedDialog({
       {team.length > 0 && (
         <Notice tone="warn" className="fetch-unmanaged-team">
           {`勾上的${team.map((p) => `「${p.name}」`).join("")}归项目仓库管。`}
-          之后在 app 里更新它们，会改动项目仓库里的文件。
+          {`之后在 app 里更新${team.length === 1 ? "它" : "它们"}，会改动项目仓库里的文件。`}
         </Notice>
       )}
       {unusable.length > 0 && (
@@ -591,6 +598,14 @@ function FetchUnmanagedDialog({
         />
       )}
     </Modal>
+  );
+}
+
+function SameNameInLibrary({ name, sourced }: { name: string; sourced: boolean }) {
+  return (
+    <Badge className="fetch-unmanaged-same-name" title={`库里已经有叫「${name}」的技能。${sameNameFetchNote(name, sourced)}`}>
+      库里已有同名
+    </Badge>
   );
 }
 

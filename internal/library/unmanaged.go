@@ -283,10 +283,16 @@ type FetchUnmanagedResult struct {
 //   - 集合里已有同名技能:内容和它的某个版本完全一致时只补记这一处安装(Matched),否则返回 AlreadyExists。
 //     这里只在这个技能里找内容一致的版本,不跨到别的集合或没有来源的技能。
 //   - 内容和来源里的一致:新技能的版本就是来源里的那一版,带来源版本(Skill.Revision),检查更新照常。
-//   - 内容和来源里的不一样:新技能的版本就是磁盘上的内容,来源版本未知(Revision 为空),第一次检查更新就按内容报为有新版本。
-//     npx skills 的来源记录(见 UnmanagedSkill.SourceInput)里记的哈希和磁盘内容对得上、且请求里的来源就是来源记录认出的来源时,
-//     能确认这是当初装的原样、只是落后于作者,作为作者的旧版;否则说不清有没有用户的修改,版本标为 SkillVersion.MaybeEdited,
-//     更新计划里这个技能为 PlannedSkill.Edited,更新会换掉这份修改。
+//   - 内容和来源里的不一样:新技能的版本就是磁盘上的内容。下面说的来源记录是 npx skills 的来源记录(见 UnmanagedSkill.SourceInput),
+//     只在请求里的来源就是来源记录认出的来源时用它:
+//   - 来源记录里记的哈希和磁盘内容对得上:能确认这是当初装的原样、只是落后于作者,作为作者的旧版,来源版本未知(Revision 为空),
+//     第一次检查更新就按内容报为有新版本。
+//   - 来源记录里记的哈希对不上磁盘内容,却和来源里现在的这个技能对得上,两边共有的文件可执行位也都一样:装的就是来源现在这一版,
+//     磁盘不一样是用户之后改的(项目记录里的哈希不算可执行位,可执行位不一样时说不清,归到下面的其余情况)。
+//     先记下来源里的那一版,再把磁盘上的内容记为基于它的修改(SkillVersion.BasedOn,来源版本沿用它的),
+//     和用目录里的修改更新之后一样:检查更新只看来源从那一版之后有没有改过,更新计划里这个技能为 PlannedSkill.Edited。
+//   - 其余情况(没有来源记录、记录里没有哈希、哈希哪一份都对不上):说不清有没有用户的修改,来源版本未知,版本标为
+//     SkillVersion.MaybeEdited,第一次检查更新就按内容报为有新版本,更新计划里这个技能为 PlannedSkill.Edited,更新会换掉这份修改。
 //
 // 错误:作用域不合法、Name 不是合法的文件夹名返回 InvalidArgument(Details.Field 为 scope / name);Agent、项目不存在返回 NotFound;
 // 作用域根目录不存在返回 FailedPrecondition(Details.Path 为根目录,项目带 ProjectID);技能目录里没有这个技能文件夹(不存在,
@@ -339,6 +345,19 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 		return FetchUnmanagedResult{}, preconditionError(operation, "the skill folder changed while the source was read", ErrorDetails{Path: folder.path})
 	}
 	return l.fetchWithSource(ctx, operation, []unmanagedFolder{folder}, sourced, input, req.SourceRef)
+}
+
+func sameModes(files, others []skillfile.File) bool {
+	modes := make(map[string]skillfile.Mode, len(others))
+	for _, file := range others {
+		modes[file.Path] = file.Mode
+	}
+	for _, file := range files {
+		if mode, ok := modes[file.Path]; ok && mode != file.Mode {
+			return false
+		}
+	}
+	return true
 }
 
 func validFolderName(name string) bool {
@@ -503,12 +522,17 @@ func sourceField(err error) error {
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
 	folder := folders[0]
-	untouched := false
+	untouched, editedLatest := false, false
 	records := l.sourceRecords()
 	for _, each := range folders {
 		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
 			recordedInput, recordedRef, recognized := entry.Input()
-			untouched = untouched || recognized && recordedInput == input && recordedRef == ref && entry.Matches(each.files)
+			if !recognized || recordedInput != input || recordedRef != ref {
+				continue
+			}
+			matches := entry.Matches(each.files)
+			untouched = untouched || matches
+			editedLatest = editedLatest || !matches && entry.Matches(sourced.skill.Files) && sameModes(each.files, sourced.skill.Files)
 		}
 	}
 	name := sourced.skill.Name
@@ -538,12 +562,23 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 			matched = true
 		} else {
 			version := store.NewVersion{Description: folder.parsed.Description, Files: folder.files, CreatedAt: now}
-			if skillfile.Equal(folder.files, sourced.skill.Files) {
+			switch {
+			case skillfile.Equal(folder.files, sourced.skill.Files):
 				version.State, version.Revision = string(sourced.skill.State), sourced.revision
-			} else {
+			case editedLatest && !untouched:
+				base := store.NewVersion{Description: sourced.skill.Description, Files: sourced.skill.Files, State: string(sourced.skill.State), Revision: sourced.revision, CreatedAt: now}
+				if id, version.Base, err = tx.InsertSkill(ctx, sourceID, name, base); err != nil {
+					return err
+				}
+				version.Revision = sourced.revision
+			default:
 				version.MaybeEdited = !untouched
 			}
-			if id, _, err = tx.InsertSkill(ctx, sourceID, name, version); err != nil {
+			if id == 0 {
+				if id, _, err = tx.InsertSkill(ctx, sourceID, name, version); err != nil {
+					return err
+				}
+			} else if _, err = tx.AddVersion(ctx, id, version); err != nil {
 				return err
 			}
 		}
