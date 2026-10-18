@@ -45,6 +45,7 @@ var sourceKinds = []struct {
 		}
 	}},
 	{"github api", func(t *testing.T) sourceFixture {
+		blockGitHubClone(t)
 		repo := t.TempDir()
 		runGit(t, repo, "init", "-b", "main")
 		var api *gitHubAPIMock
@@ -55,7 +56,6 @@ var sourceKinds = []struct {
 				commitGit(t, repo, "publish")
 				if api == nil {
 					api = serveGitHubAPI(t, inspectGitHubRepo(t, repo))
-					blockGitHubClone(t)
 					return
 				}
 				api.Swap(inspectGitHubRepo(t, repo))
@@ -64,9 +64,10 @@ var sourceKinds = []struct {
 	}},
 	{"github clone", func(t *testing.T) sourceFixture {
 		repo := t.TempDir()
+		request := gitHubCloneRequest(t, repo)
 		runGit(t, repo, "init", "-b", "main")
 		return sourceFixture{
-			request: gitHubCloneRequest(t, repo),
+			request: request,
 			publish: func(skills map[string]string) {
 				writeSkillTree(t, repo, skills)
 				commitGit(t, repo, "publish")

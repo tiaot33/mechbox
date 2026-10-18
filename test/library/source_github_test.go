@@ -1020,8 +1020,19 @@ func (m *gitHubAPIMock) download(r *http.Request) (*http.Response, error) {
 		var buffer bytes.Buffer
 		zipped := gzip.NewWriter(&buffer)
 		writer := tar.NewWriter(zipped)
+		// 和 git archive 打的包一样:先是记着 commit 的 pax 全局头,再是顶层目录,每个目录各有一个条目。
+		prefix := "repo-" + commit + "/"
+		if err := writer.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": commit}}); err != nil {
+			return nil, err
+		}
+		if err := writer.WriteHeader(&tar.Header{Name: prefix, Mode: 0o775, Typeflag: tar.TypeDir}); err != nil {
+			return nil, err
+		}
 		for _, entry := range fx.entries {
-			if entry.Type != "blob" {
+			if entry.Type == "tree" {
+				if err := writer.WriteHeader(&tar.Header{Name: prefix + entry.Path + "/", Mode: 0o775, Typeflag: tar.TypeDir}); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			mode, err := strconv.ParseInt(entry.Mode, 8, 64)
@@ -1029,7 +1040,7 @@ func (m *gitHubAPIMock) download(r *http.Request) (*http.Response, error) {
 				return nil, err
 			}
 			blob := content(fx.blobs[entry.SHA])
-			if err := writer.WriteHeader(&tar.Header{Name: "owner-repo-" + commit[:7] + "/" + entry.Path, Mode: mode & 0o777, Size: int64(len(blob)), Typeflag: tar.TypeReg}); err != nil {
+			if err := writer.WriteHeader(&tar.Header{Name: prefix + entry.Path, Mode: mode & 0o777, Size: int64(len(blob)), Typeflag: tar.TypeReg}); err != nil {
 				return nil, err
 			}
 			if _, err := writer.Write(blob); err != nil {

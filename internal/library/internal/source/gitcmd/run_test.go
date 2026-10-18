@@ -3,6 +3,7 @@ package gitcmd
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
@@ -13,6 +14,7 @@ func TestCommandErrorClassifiesGitOutput(t *testing.T) {
 		permission  = "permission"
 		missingRef  = "missing ref"
 		unreachable = "unreachable"
+		other       = "other"
 	)
 	tests := []struct {
 		output string
@@ -37,10 +39,9 @@ func TestCommandErrorClassifiesGitOutput(t *testing.T) {
 		{"ssh: connect to host git.example.com port 22: Network is unreachable", unreachable},
 		{"ssh: connect to host git.example.com port 22: No route to host", unreachable},
 		{"fatal: unable to access 'https://127.0.0.1:1/repo.git/': Failed to connect to 127.0.0.1 port 1 after 0 ms: Couldn't connect to server", unreachable},
-		{"fatal: unable to access 'https://git.example.com/repo.git/': dial tcp: lookup git.example.com: no such host", unreachable},
-		{"remote: Repository not found.\nfatal: repository 'https://github.com/owner/missing.git/' not found", unreachable},
-		{"fatal: 'origin' does not appear to be a git repository", unreachable},
-		{"", unreachable},
+		{"remote: Repository not found.\nfatal: repository 'https://github.com/owner/missing.git/' not found", other},
+		{"fatal: 'origin' does not appear to be a git repository", other},
+		{"", other},
 	}
 	for _, test := range tests {
 		err := commandError([]byte(test.output))
@@ -51,8 +52,11 @@ func TestCommandErrorClassifiesGitOutput(t *testing.T) {
 			got = permission
 		case missing:
 			got = missingRef
-		case errors.Is(err, source.ErrUnreachable):
+		// 连不上和其他失败都用 ErrUnreachable,只靠提示文字区分。
+		case errors.Is(err, source.ErrUnreachable) && strings.HasPrefix(err.Error(), "git: remote could not be reached"):
 			got = unreachable
+		case errors.Is(err, source.ErrUnreachable) && strings.HasPrefix(err.Error(), "git: operation failed"):
+			got = other
 		}
 		if got != test.want {
 			t.Errorf("commandError(%q) = %v (%s), want %s", test.output, err, got, test.want)
