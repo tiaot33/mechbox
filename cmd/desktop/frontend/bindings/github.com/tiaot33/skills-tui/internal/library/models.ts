@@ -657,6 +657,17 @@ export enum FileMode {
 };
 
 /**
+ * FindUnmanagedSourcesRequest 指定要去 skills.sh 找来源的未纳管技能。
+ */
+export interface FindUnmanagedSourcesRequest {
+    /**
+     * Folders 是 ListUnmanagedSkills 列出的条目,按作用域与文件夹名指定,重复的只算一次。
+     * 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的,和已经不是未纳管技能、不在了的一样,不找也不报错。
+     */
+    "folders": FolderInScope[] | null;
+}
+
+/**
  * FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
  */
 export interface FolderInScope {
@@ -683,6 +694,25 @@ export enum FolderPolicy {
      */
     Remove = "remove",
 };
+
+/**
+ * FoundUnmanagedSource 是在 skills.sh 上给一个未纳管技能找到的来源。
+ */
+export interface FoundUnmanagedSource {
+    "scope": Scope;
+
+    /**
+     * UnmanagedSkill.Name,即技能文件夹名
+     */
+    "name": string;
+
+    /**
+     * SourceInput 是找到的来源,和来源记录认出的 UnmanagedSkill.SourceInput 一样用:界面写「来自 …」,入库确认里预填给
+     * FetchUnmanagedRequest.SourceInput 与 UnmanagedFetchItem.SourceInput,整批确认按它分组。格式同 PreviewFetchRequest.Input:
+     * GitHub 仓库为 owner/repo,well-known 站点为 https://<站点>;不带分支,SourceRef 留空。
+     */
+    "source_input": string;
+}
 
 /**
  * Group 是手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。

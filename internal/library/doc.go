@@ -89,6 +89,8 @@
 //   - [Library.ListUnmanagedSkills] 列出各作用域的技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
 //     提交在项目仓库里的),和 [Library.ListSkillScopes] 放在一起,就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。
 //     npx skills 的来源记录里记了来源的,带出认出的来源([UnmanagedSkill].SourceInput),入库确认里预填。
+//   - [Library.FindUnmanagedSources] 给来源记录认不出来源的去 skills.sh 按名字搜,内容大部分相同的当作认出的来源,
+//     和来源记录认出的一样预填、整批确认按它分组。它要联网,列出与整批计划都不等它:界面列出之后在后台调用,结果到了再补上。
 //   - [Library.FetchUnmanaged] 把其中一个入库:磁盘上什么都不改,读出的内容成为库里的版本,记为装在这个作用域;
 //     不带来源时,和库里某个版本完全一致只给那个技能补记安装,否则是没有来源的技能,不在集合里、不检查更新,
 //     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。带来源时进这个来源的集合,照常检查更新、更新、回滚:

@@ -135,20 +135,31 @@ func (l *Library) SearchSkills(ctx context.Context, query string) (result []Sear
 	}
 	result = []SearchSkill{}
 	for _, skill := range skills {
-		if !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
+		input, _, ok := searchInputs(skill)
+		if !ok {
 			continue
 		}
-		var preview PreviewFetchRequest
-		if repository, ok := github.PlainRepository(skill.Source); ok {
-			preview.Input = repository + "@" + skill.Name
-		} else if link, ok := wellknown.SearchInput(skill.Source, skill.Name); ok {
-			preview.Input = link
-		} else {
-			continue
-		}
-		result = append(result, SearchSkill{ID: skill.ID, Name: skill.Name, DetailURL: skill.DetailURL, Installs: skill.Installs, Preview: preview})
+		result = append(result, SearchSkill{ID: skill.ID, Name: skill.Name, DetailURL: skill.DetailURL, Installs: skill.Installs, Preview: PreviewFetchRequest{Input: input}})
 	}
 	return result, nil
+}
+
+func searchInputs(skill market.Skill) (skillInput, sourceInput string, ok bool) {
+	if !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
+		return "", "", false
+	}
+	if repository, ok := github.PlainRepository(skill.Source); ok {
+		return repository + "@" + skill.Name, repository, true
+	}
+	link, ok := wellknown.SearchInput(skill.Source, skill.Name)
+	if !ok {
+		return "", "", false
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		return "", "", false
+	}
+	return link, u.Scheme + "://" + u.Host, true
 }
 
 const previewTTL = 30 * time.Minute

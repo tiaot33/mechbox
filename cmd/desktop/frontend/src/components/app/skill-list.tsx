@@ -18,7 +18,7 @@ import {
   uninstallSkill,
 } from "@/lib/actions";
 import { useDnD } from "@/lib/dnd";
-import type { Snapshot } from "@/lib/library";
+import { foundSource, useFoundSources, type Snapshot } from "@/lib/library";
 import {
   agentName,
   collectionSkills,
@@ -328,6 +328,9 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
   const ui = useUI();
   const list = view === "list";
   const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
+  // 来源记录认不出来源的，在 skills.sh 上找到来源后补上。
+  const found = foundSource(useFoundSources(), skill);
+  const source = skill.source_input || found;
   return (
     <article
       className={cn(
@@ -367,15 +370,19 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
       </p>
       {same && <SameNameLine note={same} list={list} />}
       {/* 卡片上来源单独一行、长的折行，和底部的按钮抢不到位置;列表视图只有一行，放不下时截断、悬停看全。 */}
-      {skill.source_input && (
+      {source && (
         <p
           className={cn(
             "unmanaged-source-label min-w-0 text-[10.5px] leading-[1.4] text-muted-foreground",
             list ? "w-[220px] shrink-0 truncate" : "-mt-1 break-all",
           )}
-          title={`来自 ${skill.source_input}:npx skills 记下的来源，入库后跟着它检查更新`}
+          title={
+            found
+              ? `来自 ${found}:在 skills.sh 上找到的同名技能，内容和这里的大部分相同，入库后跟着它检查更新`
+              : `来自 ${source}:npx skills 记下的来源，入库后跟着它检查更新`
+          }
         >
-          来自 {skill.source_input}
+          来自 {source}
         </p>
       )}
       <div

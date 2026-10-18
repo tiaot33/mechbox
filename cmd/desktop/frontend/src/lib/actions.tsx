@@ -30,7 +30,7 @@ import {
   type UnmanagedSkill,
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "./errors";
-import type { LibraryError, Snapshot } from "./library";
+import { foundSource, useFoundSources, type LibraryError, type Snapshot } from "./library";
 import { FetchReview } from "@/components/app/fetch-review";
 import { offerProject } from "@/components/app/fetch-unmanaged-dialog";
 import {
@@ -899,7 +899,7 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
 
 // fetchUnmanaged 把作用域里一个不是库装的技能(未纳管技能)入库:磁盘上什么都不改，文件夹从此由 app 管。
 // 确认时写清代价：之后还用命令行工具更新它，app 只能报为被手动改过;提交在项目仓库里的，之后在 app 里更新会改动仓库里的文件。
-// 来源链接预填 npx skills 来源记录里认出的来源，用户可以改或清空;清空就是没有来源的技能。
+// 来源链接预填 npx skills 来源记录里认出的来源，认不出时预填在 skills.sh 上找到的来源，用户可以改或清空;清空就是没有来源的技能。
 // 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
 export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill) {
   const place = scopeLabel(s, skill.scope);
@@ -930,7 +930,10 @@ function FetchUnmanagedDialog({
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
-  const [link, setLink] = useState(skill.source_input ?? "");
+  // 确认框开着时才在 skills.sh 上找到来源的，用户还没动过链接就补上。
+  const found = foundSource(useFoundSources(), skill);
+  const [edited, setLink] = useState<string>();
+  const link = edited ?? skill.source_input ?? found ?? "";
   const [error, setError] = useState<LibraryError>();
   const [busy, setBusy] = useState(false);
   const input = link.trim();
@@ -984,7 +987,7 @@ function FetchUnmanagedDialog({
       </Field>
       <Hint className="unmanaged-source-note">
         {input
-          ? `以后跟着 ${input}${ref ? ` · ${ref}` : ""} 检查更新。和来源里的不一样时，作者的新版会出现在更新里。`
+          ? `${input === found ? "在 skills.sh 上找到的同名技能，内容和这里的大部分相同。" : ""}以后跟着 ${input}${ref ? ` · ${ref}` : ""} 检查更新。和来源里的不一样时，作者的新版会出现在更新里。`
           : "没有来源：不检查更新，之后在 Agent 目录里改了，用目录里的修改更新它。"}
       </Hint>
       {error && (
