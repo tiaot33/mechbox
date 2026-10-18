@@ -991,6 +991,11 @@ export interface PlannedUnmanagedSkill {
     "in_project_lock"?: boolean;
 
     /**
+     * LinkOutside 表示其中有一处是指向 Agent 目录以外的符号链接(见 UnmanagedSkill.LinkOutside),默认不勾。
+     */
+    "link_outside"?: boolean;
+
+    /**
      * ModifiedAt 是各处文件夹里最近一次修改文件的时间(文件夹是符号链接时看它指向的内容)。
      */
     "modified_at"?: string;
@@ -1002,7 +1007,8 @@ export interface PlannedUnmanagedSkill {
     "conflict"?: boolean;
 
     /**
-     * Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里,同名冲突时又是最近修改的那条。
+     * Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里、不是指向 Agent 目录以外的符号链接,
+     * 同名冲突时又是最近修改的那条。
      */
     "selected"?: boolean;
 
@@ -1136,12 +1142,12 @@ export enum ReinstallOutcome {
     $zero = "",
 
     /**
-     * 换成了当前版本,包括把不在了的文件夹放回去
+     * 换成了当前版本,包括把不在了的文件夹放回去、把符号链接换成独立的文件夹
      */
     Reinstalled = "reinstalled",
 
     /**
-     * 本来就是当前版本,没动
+     * 本来就是当前版本,没动;符号链接那一处不算,照样写成独立的文件夹
      */
     ReinstallCurrent = "current",
 
@@ -1249,12 +1255,12 @@ export enum RollbackOutcome {
     $zero = "",
 
     /**
-     * 还是那次换上的版本,装回了那次更新之前的版本
+     * 还是那次换上的版本,装回了那次更新之前的版本;包括符号链接那一处换成独立的文件夹
      */
     RollbackReinstalled = "reinstalled",
 
     /**
-     * 本来就是那次更新之前的版本,没动
+     * 本来就是那次更新之前的版本,没动;符号链接那一处不算,照样写成独立的文件夹
      */
     RollbackCurrent = "current",
 
@@ -1601,12 +1607,27 @@ export interface SkillScopeInspection {
      * 可用 GetVersion 查它对应的来源版本。
      */
     "version_id"?: VersionID;
+
+    /**
+     * LinkTarget 在技能文件夹本身是符号链接时(如 npx skills 的布局)给出它指向的地方:解析了各级符号链接的真实文件夹,
+     * 链接指向不存在之处时是链接里写的路径(相对路径按链接所在的目录展开);不是符号链接时为空。
+     * 库第一次写这一处时(更新、重新安装、回滚)照常写成独立的文件夹,不写进链接指向的地方,之后这一处是独立的一份;
+     * 这几处的确认里据此写明它原来指向哪里。
+     */
+    "link_target"?: string;
+
+    /**
+     * LinkedBy 是这个技能装出去的其他地方里,符号链接指向这一处文件夹的那几处(它们的 LinkTarget 就是这里),按 Agent、作用域排序;
+     * 不受 SkillScopeFilter 限制。库要删这个文件夹时(卸载、移除技能、自定义 Agent 改目录或删除),先给这几处换上独立的一份
+     * (当时文件夹里的内容),它们照常装着;卸载前的确认据此说明。没有时为空。
+     */
+    "linked_by"?: Scope[] | null;
 }
 
 /**
  * SkillScopeStatus 是一处安装现在的状态,每种状态对应界面上的一个动作。判定按下列顺序,前一条命中即停:
  * root_missing、missing,然后与库里的版本比对。技能文件夹本身是符号链接时(如 npx skills 的布局),比对它指向的文件夹里的内容,
- * 链接指向不存在之处算 modified。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+ * 链接指向不存在之处算 modified;链接本身见 SkillScopeInspection.LinkTarget。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
  */
 export enum SkillScopeStatus {
     /**
@@ -1900,6 +1921,13 @@ export interface UnmanagedSkill {
      * 例如 npx skills 把真实文件夹放在 ~/.agents/skills/<name>,再从其他 Agent 的目录用符号链接指过去。
      */
     "link_target"?: string;
+
+    /**
+     * LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各 Agent 的全局目录与在各已登记项目里的技能目录),
+     * 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
+     * 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,界面写明它指向哪里。
+     */
+    "link_outside"?: boolean;
 
     /**
      * InRepository 表示文件夹已提交在项目的 git 仓库里(在 HEAD 里),界面标明「在项目仓库里」。只出现在项目作用域;

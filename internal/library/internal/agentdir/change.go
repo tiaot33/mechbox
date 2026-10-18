@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 )
@@ -87,13 +88,45 @@ func (c *Change) Copy(ctx context.Context, from, directory, name string) error {
 		return err
 	}
 	item.exclusive = true
-	stage := item.stage
+	return copyTree(ctx, from, item.stage)
+}
+
+func (c *Change) Detach(ctx context.Context, link string) error {
+	from, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return fmt.Errorf("copy linked folder: %w", err)
+	}
+	item, err := c.stage(ctx, filepath.Dir(link), filepath.Base(link))
+	if err != nil {
+		return err
+	}
+	return copyTree(ctx, from, item.stage)
+}
+
+func (c *Change) Removals() []string {
+	return c.removals
+}
+
+func (c *Change) Places(path string) bool {
+	for _, item := range c.placements {
+		if samePlace(item.target, path) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(c.removals, func(removal string) bool { return samePlace(removal, path) })
+}
+
+func samePlace(a, b string) bool {
+	return filepath.Base(a) == filepath.Base(b) && Canonical(filepath.Dir(a)) == Canonical(filepath.Dir(b))
+}
+
+func copyTree(ctx context.Context, from, stage string) error {
 	type directoryMode struct {
 		path string
 		mode fs.FileMode
 	}
 	var directories []directoryMode
-	err = filepath.WalkDir(from, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(from, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return fmt.Errorf("copy skill folder: %w", walkErr)
 		}

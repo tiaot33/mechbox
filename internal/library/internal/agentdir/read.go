@@ -125,6 +125,29 @@ func walk(ctx context.Context, root string, visit func(path, relative string, in
 	return nil
 }
 
+func LinkTarget(path string) string {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	link, err := os.Readlink(path)
+	if err != nil {
+		return ""
+	}
+	if !filepath.IsAbs(link) {
+		link = filepath.Join(filepath.Dir(path), link)
+	}
+	return filepath.Clean(link)
+}
+
+func IsFolder(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir()
+}
+
 func SameFolder(a, b string) bool {
 	aInfo, aErr := os.Stat(a)
 	bInfo, bErr := os.Stat(b)

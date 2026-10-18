@@ -97,7 +97,8 @@
 //     装的就是来源现在这一版,入库成基于它的修改(和用目录里的修改更新之后一样,作者再改才报有新版本);
 //     其余标为 [SkillVersion].MaybeEdited,更新计划提示会换掉修改。
 //   - [Library.PlanFetchUnmanaged] 是第一次打开 app(各 Agent 的全局)、登记一个项目之后(这个项目)一次确认全部入库前的确认:
-//     内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里或记在 skills-lock.json 里的默认不勾。
+//     内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里、记在 skills-lock.json 里
+//     或是指向 Agent 目录以外的符号链接([UnmanagedSkill].LinkOutside)的默认不勾。
 //     不记哪些作用域看过,每次都是现查。
 //   - [Library.FetchUnmanagedSkills] 按确认的勾选整批入库,每个技能的规则和 FetchUnmanaged 相同;同一个来源只读一次,
 //     一个技能失败不影响其余的,结果逐条返回。
@@ -108,6 +109,10 @@
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。
 //   - [Library.Reinstall] 把用户选中的几处换成技能的当前版本;改过的那一处要单独同意覆盖。
 //     想留下改过的那一处的修改,用 [Library.PlanUpdateFromScope] 再 [Library.Update]。
+//   - 技能文件夹是符号链接的那一处(如 npx skills 的布局),入库、巡检、列出都不动它,读它指向的内容;库第一次写这一处时
+//     (更新、重新安装、回滚)写成独立的文件夹,不写进链接指向的地方。库要删一个被其他安装处的链接指着的真实文件夹时
+//     (卸载、移除技能、组卸载、自定义 Agent 改目录或删除),先给那几处换上独立的一份。巡检里的
+//     [SkillScopeInspection].LinkTarget、LinkedBy 给出这两种情况,确认前界面据此说明。
 //
 // 同步(sync.go):
 //   - [Library.PlanSyncPush] 再 [Library.SyncPush]:看 S3 上是哪一份库(谁、什么时候推送的),再用本机的库覆盖它。

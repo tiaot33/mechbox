@@ -304,14 +304,7 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 			change.Remove(filepath.Join(item.scope.directory, item.replaces))
 		}
 	}
-	if record != nil {
-		return l.applyChange(ctx, &change, record)
-	}
-	if err := change.Commit(ctx); err != nil {
-		return err
-	}
-	change.Done()
-	return nil
+	return l.applyChange(ctx, &change, record)
 }
 
 // Uninstall 撤销直接安装;没有组安装留着它时,技能文件夹随之删除。技能只靠组安装留在这里时返回
@@ -319,6 +312,8 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 // 几个 Agent 共用这个文件夹时(见 SkillScope.SharedWith),从其中任何一个卸载都撤销它们各自的直接安装,
 // 文件夹随之删除,它们都不再算已装;只有组安装还留着其中某一处时文件夹才留下。
 // 不检查文件夹是否被改过:确认前用 InspectSkillScopes 查出 modified 的地方,告诉用户这些修改会丢掉。
+// 要删的文件夹被这个技能装出去的其他地方用符号链接指着时(SkillScopeInspection.LinkedBy),先给那几处换上独立的一份
+// (当时文件夹里的内容),它们照常装着,再删;确认前据此说明。
 func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()

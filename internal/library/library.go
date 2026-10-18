@@ -122,8 +122,15 @@ func (l *Library) SetGitHubToken(token string) {
 }
 
 func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
+	linked, err := l.linkedPlaces(ctx, 0)
+	if err != nil {
+		return err
+	}
 	if err := l.store.InTx(ctx, func(tx *store.Tx) error {
 		if err := record(tx); err != nil {
+			return err
+		}
+		if err := l.detachLinkedPlaces(ctx, change, linked); err != nil {
 			return err
 		}
 		return change.Commit(ctx)
