@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 )
 
 const comparePageSize = 100
@@ -49,11 +49,11 @@ func (s *githubSnapshot) Names(ctx context.Context) ([]string, error) {
 
 func (s *githubSnapshot) Commits(ctx context.Context, since string) ([]source.Commit, error) {
 	since = strings.ToLower(since)
-	if !git.FullCommit.MatchString(since) || since == s.ref {
+	if !gitcmd.FullCommit.MatchString(since) || since == s.ref {
 		return nil, nil
 	}
 	if s.client == nil {
-		return git.Commits(ctx, remotes(s.locator.Repository), since, s.ref)
+		return gitcmd.Commits(ctx, remotes(s.locator.Repository), since, s.ref)
 	}
 	var commits []source.Commit
 	for page := 1; ; page++ {

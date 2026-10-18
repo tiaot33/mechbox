@@ -12,7 +12,7 @@ import (
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 )
 
 const sourceTimeout = 30 * time.Second
@@ -81,11 +81,11 @@ func parseGitHubInput(github Input) (result githubInput, err error) {
 			return invalid()
 		}
 		result.tree = strings.Join(parts[3:], "/")
-		if !git.ValidSubpath(result.tree) {
+		if !gitcmd.ValidSubpath(result.tree) {
 			return invalid()
 		}
 	}
-	if !git.ValidSubpath(result.subpath) {
+	if !gitcmd.ValidSubpath(result.subpath) {
 		return invalid()
 	}
 	result.repository = "https://github.com/" + strings.ToLower(parts[0]+"/"+parts[1]) + ".git"
@@ -126,21 +126,21 @@ func resolveGitHubInput(ctx context.Context, github Input) (locator repoLocator,
 	if err != nil {
 		return locator, "", "", err
 	}
-	parsed.ref, parsed.subpath, err = git.Resolve(ctx, remotes(parsed.repository), parsed.ref, parsed.tree, parsed.subpath)
+	parsed.ref, parsed.subpath, err = gitcmd.Resolve(ctx, remotes(parsed.repository), parsed.ref, parsed.tree, parsed.subpath)
 	if err != nil {
 		return locator, "", "", err
 	}
 	return repoLocator{Repository: parsed.repository, Branch: parsed.ref}, parsed.subpath, parsed.name, nil
 }
 
-func InputRefs(ctx context.Context, input string) (git.Refs, error) {
+func InputRefs(ctx context.Context, input string) (gitcmd.Refs, error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	parsed, err := parseGitHubInput(Input{Input: input})
 	if err != nil {
-		return git.Refs{}, err
+		return gitcmd.Refs{}, err
 	}
-	return git.ListRefs(ctx, remotes(parsed.repository), parsed.ref, parsed.tree)
+	return gitcmd.ListRefs(ctx, remotes(parsed.repository), parsed.ref, parsed.tree)
 }
 
 func remotes(repository string) []string {

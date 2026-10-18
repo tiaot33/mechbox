@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 )
 
 const githubMemoTreeLimit = 16
@@ -135,7 +135,7 @@ func (m *lruMemo[V]) touch(key githubMemoKey) {
 
 func memoKey(kind githubMemoKind, owner, repo, id string) githubMemoKey {
 	id = strings.TrimSpace(id)
-	if git.FullCommit.MatchString(id) {
+	if gitcmd.FullCommit.MatchString(id) {
 		id = strings.ToLower(id)
 	}
 	return githubMemoKey{kind: kind, owner: strings.ToLower(owner), repo: strings.ToLower(repo), id: id}
