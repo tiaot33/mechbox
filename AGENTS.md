@@ -16,7 +16,6 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `skilllock` — 读 `npx skills` 留下的来源记录,给未纳管技能认出来源(不是一种来源)。
   - `skillfile` — 技能文件、文件集合比较与内容指纹,`library` 与各子包共用。
 - `test/library/` — 技能库的集成测试。
-- `cmd/demo/` — 可运行的入口示例(`go run ./cmd/demo`)。
 - `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0008):绑定服务开放 Library 的全部方法,`frontend/` 是 React + TS 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建、端到端验证与约定见 `cmd/desktop/README.md`。
 
 ### 依赖方向
