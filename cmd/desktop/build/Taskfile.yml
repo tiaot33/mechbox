@@ -43,13 +43,16 @@ tasks:
     cmds:
       - bun install
 
+  # frontend 与 e2e 是同一个 pnpm workspace(根在 cmd/desktop,共用一份 pnpm-lock.yaml),在 workspace 根一次装好。
   install:frontend:deps:pnpm:
-    dir: frontend
     sources:
-      - package.json
+      - pnpm-workspace.yaml
       - pnpm-lock.yaml
+      - frontend/package.json
+      - e2e/package.json
     generates:
       - node_modules
+      - frontend/node_modules
     preconditions:
       - sh: pnpm --version
         msg: "pnpm not found"
@@ -82,6 +85,9 @@ tasks:
     sources:
       - "**/*"
       - exclude: node_modules/**/*
+      # workspace 根的依赖配置与解析结果变了也要重新构建。
+      - ../pnpm-workspace.yaml
+      - ../pnpm-lock.yaml
     generates:
       - dist/**/*
     deps:

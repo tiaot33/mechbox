@@ -1,6 +1,6 @@
 .task
 bin
-frontend/node_modules
+node_modules
 # 前端产物不入库，只保留占位文件(根 .gitignore 忽略了所有 dist,这里先取消再细分)。
 !frontend/dist/
 frontend/dist/*
