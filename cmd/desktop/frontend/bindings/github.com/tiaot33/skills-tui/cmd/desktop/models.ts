@@ -117,3 +117,56 @@ export interface Settings {
      */
     "agents_shown"?: { [_ in library$0.AgentCode]?: boolean } | null;
 }
+
+/**
+ * UninstallFolders 是卸载技能管理器时，库装到各作用域的技能文件夹怎么处理。
+ */
+export enum UninstallFolders {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 全部留在原处,Agent 照常使用，之后算作 Agent 目录里不是库装的技能(默认，空字符串同义)
+     */
+    FoldersKeep = "keep",
+
+    /**
+     * 移到废纸篓，但用户改过的那几处留在原处
+     */
+    FoldersKeepModified = "keep_modified",
+
+    /**
+     * 全部移到废纸篓
+     */
+    FoldersTrash = "trash",
+};
+
+/**
+ * UninstallOptions 是卸载技能管理器的选项。
+ */
+export interface UninstallOptions {
+    "folders": UninstallFolders;
+
+    /**
+     * SkipKeychain 为 true 时删不掉系统钥匙串里的条目也继续卸载(用户看了上一次的结果后选了跳过)。
+     */
+    "skip_keychain": boolean;
+}
+
+/**
+ * UninstallResult 是卸载技能管理器的结果。
+ */
+export interface UninstallResult {
+    /**
+     * Uninstalled 为 true 时卸载已经确认，应用随即退出。
+     */
+    "uninstalled": boolean;
+
+    /**
+     * KeychainError 非空时没能删除系统钥匙串里的条目(如用户拒绝了授权),什么都没动;
+     * 界面说明原因，用户可以重试，或带 SkipKeychain 再调一次。
+     */
+    "keychain_error"?: string;
+}

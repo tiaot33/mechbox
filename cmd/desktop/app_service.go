@@ -25,13 +25,18 @@ type AppService struct {
 	app     *application.App
 	window  *application.WebviewWindow
 
-	mu          sync.Mutex
-	settings    Settings
-	sync        syncFields
-	firstOpen   bool
-	hidden      bool
-	opened      bool
-	lastAttempt time.Time
+	mu           sync.Mutex
+	settings     Settings
+	sync         syncFields
+	firstOpen    bool
+	hidden       bool
+	opened       bool
+	uninstalling bool
+	uninstalled  bool
+	lastAttempt  time.Time
+
+	removeOnce sync.Once
+	discard    func(path string) error
 
 	credMu      sync.Mutex
 	keychain    secretStore
@@ -49,7 +54,7 @@ type AppService struct {
 
 // NewAppService 创建应用设置服务;app 与 window 在 main 里创建窗口后填入。
 func NewAppService(path string, lib *LibraryService) *AppService {
-	return &AppService{path: path, library: lib, keychain: defaultKeychain(), wake: make(chan struct{}, 1)}
+	return &AppService{path: path, library: lib, keychain: defaultKeychain(), discard: discard, wake: make(chan struct{}, 1)}
 }
 
 // ServiceStartup 读取设置，把设置页里填的 GitHub 令牌与同步设置交给技能库，并开始后台检查;

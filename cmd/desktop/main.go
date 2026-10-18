@@ -28,6 +28,9 @@ var assets embed.FS
 // mainWindowName 是主窗口的名字。
 const mainWindowName = "main"
 
+// bundleID 是应用的标识，与 build/config.yml 的 productIdentifier 相同;也用作单实例锁的 ID 和系统钥匙串条目的服务名。
+const bundleID = "com.tiaot33.skills-manager"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -55,7 +58,7 @@ func run() error {
 		MarshalError: marshalError,
 		// 单实例锁在 application.New 里检查：第二个实例在这里就退出，不会打开技能库。
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.tiaot33.skills-manager",
+			UniqueID: bundleID,
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				appService.showWindow()
 			},
@@ -64,6 +67,9 @@ func run() error {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
+		// 卸载时等各服务关闭、技能库关上以后才删数据库与设置。macOS 上 Run 不返回，只能放在 PostShutdown;
+		// server 模式下 PostShutdown 在 Quit 的 goroutine 里跑,Run 可能先返回、进程随即退出，所以 Run 之后再调一次(只做一遍)。
+		PostShutdown: appService.afterShutdown,
 	})
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -86,7 +92,9 @@ func run() error {
 	})
 	appService.attach(app, window)
 
-	return app.Run()
+	err = app.Run()
+	appService.afterShutdown()
+	return err
 }
 
 // marshalError 把绑定方法返回的任意 error 规范成 *library.Error 再编码，

@@ -9,12 +9,15 @@ export {
 };
 
 export {
-    CheckInterval
+    CheckInterval,
+    UninstallFolders
 } from "./models.js";
 
 export type {
     AppInfo,
     ConfigStatus,
     Credentials,
-    Settings
+    Settings,
+    UninstallOptions,
+    UninstallResult
 } from "./models.js";

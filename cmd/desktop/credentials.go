@@ -9,8 +9,6 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library"
 )
 
-const keychainService = "com.tiaot33.skills-manager"
-
 type secretStore interface {
 	get() ([]byte, bool, error)
 	set(value []byte) error
@@ -23,7 +21,7 @@ type keychain struct {
 }
 
 func defaultKeychain() keychain {
-	return keychain{service: keychainService, account: "credentials"}
+	return keychain{service: bundleID, account: "credentials"}
 }
 
 type secrets struct {
@@ -84,6 +82,12 @@ func (a *AppService) credentials() Credentials {
 func (a *AppService) saveCredentials(change func(*Credentials)) (Credentials, error) {
 	a.credMu.Lock()
 	defer a.credMu.Unlock()
+	a.mu.Lock()
+	uninstalling := a.uninstalling
+	a.mu.Unlock()
+	if uninstalling {
+		return Credentials{}, errors.New("uninstalling: credentials not saved")
+	}
 	if err := a.readSecrets(); err != nil {
 		return Credentials{}, err
 	}
