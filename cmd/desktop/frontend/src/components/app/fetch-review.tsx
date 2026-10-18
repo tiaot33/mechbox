@@ -1,11 +1,8 @@
 // 入库的第二步：浏览一次入库预览的候选与诊断，勾选后 Fetch 入库。
 // 入库技能、技能市场与集合上的"看来源里的其他技能"都在拿到入库预览后进入这里;顶部显示技能库识别出的来源。
 import { useEffect, useState } from "react";
-import { Browser } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
-  AuditAvailability,
-  AuditStatus,
   type Candidate,
   type FetchPreview,
   type FetchPreviewID,
@@ -19,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
+import { AuditBadge } from "./audit";
 import { Diagnostics, toggled } from "./parts";
 
 interface FetchReviewProps {
@@ -230,7 +228,7 @@ function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate:
   const load = (e: React.MouseEvent) => {
     e.preventDefault();
     setAudit("loading");
-    LibraryService.GetSkillAudit(previewID, candidate.name).then(
+    LibraryService.GetCandidateAudit(previewID, candidate.name).then(
       (a) => setAudit(a),
       () => setAudit(undefined),
     );
@@ -243,35 +241,5 @@ function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate:
     );
   }
   if (audit === "loading") return <Spinner className="text-muted-foreground" />;
-  if (!audit || audit.availability === AuditAvailability.AuditNone) return <Badge>无审计</Badge>;
-  if (audit.availability === AuditAvailability.AuditUnavailable) {
-    return (
-      <Badge asChild>
-        <button type="button" title="点击重试" onClick={load}>
-          审计不可用
-        </button>
-      </Badge>
-    );
-  }
-  const entries = audit.entries ?? [];
-  const fail = entries.filter((e) => e.status === AuditStatus.AuditFail).length;
-  const warn = entries.filter((e) => e.status === AuditStatus.AuditWarn).length;
-  const tone = fail ? "bad" : warn ? "warn" : "ok";
-  const text = fail ? `审计 ${fail} 项未通过` : warn ? `审计 ${warn} 项警告` : `审计通过 ${entries.length}`;
-  const title = entries.map((e) => `${e.provider}:${e.status} ${e.summary}`).join("\n");
-  const url = entries[0]?.detail_url;
-  return (
-    <Badge tone={tone} asChild>
-      <button
-        type="button"
-        title={title}
-        onClick={(e) => {
-          e.preventDefault();
-          if (url) void Browser.OpenURL(url);
-        }}
-      >
-        {text}
-      </button>
-    </Badge>
-  );
+  return <AuditBadge audit={audit} onRetry={load} />;
 }

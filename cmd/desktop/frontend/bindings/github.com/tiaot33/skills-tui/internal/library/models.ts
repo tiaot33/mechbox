@@ -160,7 +160,7 @@ export enum AuditStatus {
 };
 
 /**
- * Candidate 是入库预览中可挑选入库的候选;skills.sh 审计不随候选返回,见 GetSkillAudit。
+ * Candidate 是入库预览中可挑选入库的候选;skills.sh 审计不随候选返回,见 GetCandidateAudit。
  */
 export interface Candidate {
     /**
@@ -1536,7 +1536,7 @@ export interface Skill {
 }
 
 /**
- * SkillAudit 是一个入库预览候选在 skills.sh 上的审计概览:查看候选时经 GetSkillAudit 按需查询,随入库预览缓存,
+ * SkillAudit 是一个技能在 skills.sh 上的审计概览:入库预览里查看候选时经 GetCandidateAudit、技能详情里经 GetSkillAudit 按需查询,
  * 只供展示。不入库、不参与 Sync、不影响入库。Entries 仅在 Availability 为 AuditAvailable 时非空。
  */
 export interface SkillAudit {

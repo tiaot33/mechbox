@@ -65,6 +65,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { AuditCard } from "./audit";
 import { Icon, SourceIcon } from "./icons";
 import { AgentMark, Chip } from "./parts";
 import { ResizeHandle, useStoredWidth } from "./resizable";
@@ -341,6 +342,8 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                 </dd>
               </dl>
             </Card>
+
+            {skill.source.type === SourceType.SourceGitHub && <AuditCard skillID={id} />}
 
             <Card>
               <CardHeader title="安装" note={`${installed.length} 个作用域${stale ? ` · ${stale} 个需重新安装` : ""}`} />

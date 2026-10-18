@@ -25,12 +25,12 @@
 //     没写协议、以域名开头的输入(github.com/owner/repo)先补上 https:// 再识别。
 //   - [Library.ListSourceRefs] 在入库预览之前列出 Git 类来源的全部分支和 tag、默认分支,以及输入本身带的分支:界面先给出分支下拉,
 //     用户选好再把分支作为 PreviewFetchRequest.Ref 做入库预览,不必先按默认分支扫描一遍。只连一次来源,不克隆、不读技能文件。
-//   - [Library.GetSkillAudit] 查看候选在 skills.sh 上的审计,可选。
+//   - [Library.GetCandidateAudit] 查看候选在 skills.sh 上的审计,可选。
 //   - [Library.Fetch] 把选中的候选入库。
 //
 // 查看库里的技能(skills.go、collections.go、versions.go):
 //   - [Library.ListSkills] 列出技能;[Library.ListCollections] 列出集合:每个来源一个,带集合里的技能 ID。
-//   - [Library.GetSkill] 读取一个技能。
+//   - [Library.GetSkill] 读取一个技能;[Library.GetSkillAudit] 查看它在 skills.sh 上的审计,可选。
 //   - [Library.ListVersions]、[Library.GetVersion] 列出和读取版本;[Library.ListVersionFiles]、[Library.GetVersionFile] 按版本 ID
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
