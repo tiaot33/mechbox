@@ -1,136 +1,90 @@
-# Skills Manager
+# 技能管理器 · Skills Manager
 
-管理 Claude Code 和 Codex 的 Agent Skills。当前仓库已实现后端库 `Library`；桌面端（Wails v3，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)）尚在开发，现在只有一个演示入口。
+一个 macOS 桌面应用，管理 Claude Code、Codex 等 Agent 用的 [Agent Skills](https://agentskills.io)：从各处收集技能放进自己的库，按需装到全局或某个项目里，来源有新内容时由你审阅后再更新，出了问题可以回滚。
 
-Skill 是以 `SKILL.md` 为入口、供 Agent 按需加载的完整文件夹。用户先对一个来源做入库预览，挑选候选入库；再把库里的技能安装到某个作用域，也就是某个 Agent 的全局，或某个 Agent 加一个已登记项目，库会把技能文件夹写进该 Agent 在这里读取的目录。术语见 [CONTEXT.md](CONTEXT.md)，Agent 如何发现、加载技能见 [生态背景](docs/agents/agent-skills-background.md)。
+技能是以 `SKILL.md` 为入口的文件夹，Agent 从磁盘上的特定目录发现并按需加载。技能管理器把库当作唯一权威：Agent 目录里的技能文件夹都由库写出，库不会在你不知情时改动它们。术语见 [CONTEXT.md](CONTEXT.md)。
 
-## 当前能力
+## 什么时候用
 
-- 对本地目录、GitHub 仓库或 ZIP URL 做入库预览，挑选候选入库，之后更新。
-- 保存技能的完整文件（含相对路径和可执行权限）与全部版本历史，可比较版本差异；相同内容的文件只存一份。
-- 按来源自动形成集合，用户可跨来源手动建组。
-- 登记项目，把单个技能或整个组安装到 Claude Code、Codex 的全局或项目作用域；可巡检已安装的技能是否被手动改过、落后于库里的版本或已缺失，并重新安装。
-- 把整个库推送到 S3，或从 S3 拉回替换本地库；拉回后把不在这台机器上的已登记项目改到本机位置。
-- 通过稳定的 `ErrorCode` 向调用方返回可判断的错误；`library.ErrorOf(err)` 把任意 error 规范成可 JSON 编码的 `*Error`（非 `*Error` 按库内同一套规则归类，无可识别原因的记为 `internal`）。
+技能管理器是低频工具，通常在这些时候打开：
 
-## 仓库地图
+- **第一次打开**：你早就用命令行工具或手动拷贝装了一批技能，想让它接过来。
+- **要加新技能**：看到别人推荐，或在 skills.sh 上搜到。
+- **新项目、新机器**：把常用的技能装过去。
+- **Agent 表现怪了**：想知道是不是哪个技能变了，或者退回去。
+- **听说作者发了新东西**：去看看来源里有什么新变化。
 
-| 位置 | 作用 |
+## 承诺
+
+技能是 Agent 会照着执行的指令和脚本，以你的权限运行。无论哪个功能都守住这几条（[ADR 0010](docs/adr/0010-product-promises.md)）：
+
+- 你什么都没点，Agent 用的内容就不会变。检查更新可以自动进行，但只读。
+- 每次更新都能回滚。
+- 来源里删掉的技能，不会自己从库里或 Agent 里消失。
+- 你明确不要的东西，不会再作为待办出现，除非来源里又有了新变化。
+- 你在装出去的文件夹里改过的内容，不会在没有明确说明的情况下被覆盖。
+
+## 功能
+
+### 入库
+
+- 一个输入框识别来源：本地目录、GitHub（`owner/repo`、链接或某个子目录的 tree 链接）、GitLab 等 Git 仓库（含 SSH 地址）、`SKILL.md` / zip / tar 下载链接，以及提供 well-known 技能索引的站点。Git 仓库可以选分支或 tag。
+- 先做入库预览，列出来源里的候选和未成为候选的原因，勾选后入库。GitHub 仓库可以查看 skills.sh 的安全审计。
+- 在应用里搜索 skills.sh 技能市场，直接入库预览。
+
+### 接过已有的技能
+
+- 第一次打开时，认出各 Agent 全局目录里不是库装的技能（未纳管技能）；每登记一个项目，认出项目里的。入库时磁盘上什么都不改，Agent 用的和原来一样。
+- 用 `npx skills` 装的技能，从它留下的记录认出来源，入库后跟着来源检查更新；认不出来源的成为没有来源的技能。
+- 提交在项目仓库里的、同一个 Agent 的全局和项目里同名的技能都会标出来，并写明同名时在这个 Agent 里会怎样。
+
+### 组织与安装
+
+- 按来源自动形成集合；也可以按场景手动建组。
+- 把技能装到作用域：某个 Agent 的全局，或某个 Agent 加一个已登记项目。可以直接安装单个技能，也可以组安装，组里以后加入的技能自动装上。
+- 安装前先看安装计划，目标位置已有同名文件夹时询问是否覆盖。
+- 支持自定义 Agent 和它读取技能的目录；几个 Agent 共用一个目录时，装一次都算已装。
+- 巡检已装的技能是否被手动改过、落后于库里的版本或已缺失，逐处重新安装。在装出去的地方改过的技能，可以用这份修改更新库里的技能。
+
+### 检查更新、更新与回滚
+
+- 按集合检查来源有没有新的来源版本，可以按间隔自动检查（只在打开时、每小时、每天、每周）。要处理的更新数显示在 Dock 角标和左栏，不弹系统通知。
+- 更新前看更新计划：先标风险（新增或改动的脚本、新增的可执行文件），再给 GitHub 的提交说明，最后是文件差异。还会列出来源里已删除、可能改名的技能和来源里的新技能。
+- 自己选更新哪些技能、重新安装到哪些地方；改过的地方默认不勾。可以跳过某个技能这一次的改动。
+- 每次更新、跳过、回滚都留在集合的历史里；任何一次更新都能回滚，库和那次装过的地方一起退回去。
+- 每个技能保存全部版本，可以比较任意两个版本、查看旧版文件。
+
+### 同步
+
+- 手动把整个库推送到 S3（或兼容 S3 的服务），在另一台机器上拉回，再把各个已登记项目对应到这台机器上的位置。推送或拉回前先看同步计划：S3 上是哪台机器、什么时候推送的那一份。
+
+## 数据存在哪里
+
+| 内容 | 位置 |
 | --- | --- |
-| [`docs/agents/agent-skills-background.md`](docs/agents/agent-skills-background.md) | Agent Skills 格式、Claude Code/Codex 发现与调用规则、资料覆盖边界 |
-| [`CONTEXT.md`](CONTEXT.md) | 产品术语及统一语言 |
-| [`docs/adr/`](docs/adr/) | 现行的设计决策，按主题索引见其中的 README |
-| [`cmd/demo/main.go`](cmd/demo/main.go) | 可直接运行的入口示例：导入、打开、调用并关闭 Library |
-| [`cmd/desktop/`](cmd/desktop/) | 桌面端：Wails v3 应用，与 Library 同进程；前端在 `frontend/` |
-| [`internal/library/doc.go`](internal/library/doc.go) | 包说明：按用户流程列出每一步用到的方法和所在文件，阅读入口 |
-| [`internal/library/library.go`](internal/library/library.go) | `Library` 结构体、`Open` / `Close`、操作锁，以及把数据库事务和磁盘改动合成一次提交 |
-| [`internal/library/errors.go`](internal/library/errors.go) | 公开错误类型与错误码，以及把各子包错误翻译成错误码的唯一入口 |
-| [`internal/library/fetch.go`](internal/library/fetch.go) | 市场搜索、入库预览、审计与入库 |
-| [`internal/library/skills.go`](internal/library/skills.go)、[`collections.go`](internal/library/collections.go)、[`versions.go`](internal/library/versions.go) | 技能查询/移除、Collection、版本历史与差异 |
-| [`internal/library/update.go`](internal/library/update.go) | 按集合检查更新与更新 |
-| [`internal/library/groups.go`](internal/library/groups.go)、[`projects.go`](internal/library/projects.go) | Group 成员、Agent、项目注册与 Scope |
-| [`internal/library/install.go`](internal/library/install.go)、[`reinstall.go`](internal/library/reinstall.go) | 直接安装与组安装、安装记录；巡检与重新安装 |
-| [`internal/library/sync.go`](internal/library/sync.go) | 整库推拉同步与项目路径对应 |
-| [`internal/library/internal/`](internal/library/internal/) | 实现子包，只有 `library` 能导入：`store`（SQLite）、`agentdir`（Agent 目录里的技能文件夹）、`source/…`（GitHub、URL、本地目录等来源）、`market`（skills.sh）、`s3`、`skillfile` |
-| [`internal/library/internal/store/schema.go`](internal/library/internal/store/schema.go)、[`schema.sql`](internal/library/internal/store/schema.sql) | 库身份、校验及唯一 DDL 来源 |
-| [`test/library/`](test/library/) | 技能库的集成测试：按行为组织，只经公开 API 断言；共享辅助函数在 `test_helpers_test.go` |
+| 库（技能、版本、集合、组、安装记录、已登记项目） | `~/Library/Application Support/skills-manager/library.db`，一个 SQLite 数据库 |
+| 应用设置（检查更新、菜单栏、Dock 角标、显示哪些 Agent） | 同一目录下的 `settings.json`，只属于这台机器，不随同步走 |
+| GitHub 令牌、S3 密钥 | macOS 系统钥匙串，不进库、不随同步走（[ADR 0011](docs/adr/0011-credentials-stay-on-this-machine.md)） |
 
-建议依次阅读 `CONTEXT.md`、相关 ADR、`internal/library/doc.go`（方法签名与说明用 `go doc -all ./internal/library` 查看）、测试，最后再进入具体实现。
+应用开着时不要只复制 `library.db` 来备份，尚未合并的写入还在旁边的 `library.db-wal` 里；要备份就用同步推送，或退出应用后再复制。
 
-桌面端放在 `cmd/desktop/`，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。应用依赖 Library，Library 不依赖应用；默认共用根 module。
-
-## 验证和查看接口
-
-需要 Go 1.26、CGO 和本机 C 编译工具链。
-
-```sh
-go test -race ./...
-go vet ./...
-go doc ./internal/library.Library
-go test -list . ./test/library
-```
-
-可运行的入口示例见 [`cmd/demo/main.go`](cmd/demo/main.go)。在仓库根目录执行：
-
-```sh
-go run ./cmd/demo
-```
-
-示例使用内存数据库，列出默认 Agent 后关闭；需要持久化时，把 `library.Open(":memory:")` 的参数改成数据库文件路径。入口使用 `package main`，与后端共用根 `go.mod`；导入路径为 `github.com/tiaot33/skills-tui/internal/library`，代码中仍通过 `library.Open` 等名字调用。资源在 `run` 中打开并通过 `defer` 关闭，`main` 负责报告错误和设置退出码。
-
-对本地目录做入库预览、把其中的 skill 入库并安装到 Codex 全局的最小调用方式：
-
-```go
-ctx := context.Background()
-
-lib, err := library.Open("skills.db")
-if err != nil {
-	return err
-}
-defer lib.Close()
-
-preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "/path/to/skills"})
-if err != nil {
-	return err
-}
-var names []string
-for _, candidate := range preview.Candidates {
-	if candidate.Fetched == 0 { // 跳过已入库的候选
-		names = append(names, candidate.Name)
-	}
-}
-skills, err := lib.Fetch(ctx, preview.ID, names)
-if err != nil {
-	return err
-}
-err = lib.Install(ctx, skills[0].ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{})
-```
-
-`*library.Library` 是供桌面端直接调用的进程内 Go API，位于 `internal/library`，导入路径为 `github.com/tiaot33/skills-tui/internal/library`；Go 调用方的包路径须为 `github.com/tiaot33/skills-tui` 或其子路径。当前没有网络监听入口；以后若有别的进程要用库，届时再定通信方式，见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
-
-## 数据库
-
-[`internal/library/internal/store/schema.sql`](internal/library/internal/store/schema.sql) 通过 Go `embed` 直接用于新库初始化，因此代码与可查看的 DDL 不会形成两份事实来源。当前包含 11 张表：
-
-- 来源和技能：`sources`、`skills`
-- 版本和内容：`skill_versions`、`blobs`、`version_files`
-- 分组：`groups`、`skill_groups`
-- Agent：`agents`（稳定 `code`、展示 `name`，以及全局与项目下各自读取技能的目录规则）
-- 项目、安装记录与组安装：`projects`、`skill_scopes`、`group_installs`
-
-新数据库由 `library.Open` 自动初始化，写入应用标识和 schema 版本。发布前不迁移旧库：应用标识或 schema 版本不符时 `Open` 报错且不改文件，见 [ADR 0003](docs/adr/0003-no-migrations-before-release.md)。应用内置的 Agent 以应用版本为准：`Open` 时与同步拉回后补上缺失的行，并以应用为准覆盖已有行的名称和目录规则；库里有、本版应用不认识的 Agent（例如从装了更新版本应用的机器同步来的）保持原样。库没有增删改 Agent 的方法。
-
-作用域只记录身份（`GlobalScope(agent)` 或 `ProjectScope(agent, projectID)`），不含路径；目录由只读的 `ScopeDirectory` 按该 Agent 的目录规则算出，全局相对用户主目录，项目相对已登记项目的路径。Agent 换了读取目录后只认新目录，旧目录里的文件夹不搬、不删。同步拉库后只需重新对应已登记项目的本机路径（`RelocateProject`），安装记录不变。见 [ADR 0005](docs/adr/0005-scope-is-agent-and-level-not-path.md)。
-
-库文件以 WAL 模式运行，同一目录下会出现 `library.db-wal` 与 `library.db-shm`；最后一个连接正常关闭时 SQLite 合并并删除 `-wal`，`-shm` 可能保留，无害。**有进程打开库时不要只复制 `library.db` 来备份**，尚未合并的写入还在 `-wal` 里；请用同步推送（推送的是一致快照），或确认没有进程打开后再复制。
-
-## 配置
+GitHub 令牌和同步设置在设置页填写。没填时读下面的环境变量；同步设置填了任意一项，就整组用设置页的。
 
 | 环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
+| `GITHUB_TOKEN`、`GH_TOKEN` | GitHub 令牌，减少被限流 | 无；匿名访问受限时再试本机 `gh` 的登录 |
 | `SKILLS_S3_BUCKET` | S3 bucket | 无；同步时必填 |
 | `SKILLS_S3_KEY` | S3 object key | `library.db` |
 | `SKILLS_S3_ENDPOINT` | S3 兼容服务地址 | AWS S3 地址 |
 | `AWS_REGION` | S3 region | `us-east-1` |
-| `AWS_ACCESS_KEY_ID` | S3 access key | 无；同步时必填 |
-| `AWS_SECRET_ACCESS_KEY` | S3 secret key | 无；同步时必填 |
+| `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | S3 凭证 | 无；同步时必填 |
 | `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
 
-GitHub Source 优先走 GitHub API，不可用时通过本机 `git` 命令浅克隆；URL Source 返回 ZIP 文件；本地目录在入库预览时读入内存作为快照（候选文件累计上限 1000 个、64 MiB）。
+## 尚未支持
 
-## 桌面端
+- 系统通知：有更新时只显示 Dock 角标和左栏计数。
+- Windows、Linux：只保证能编译，没有一等支持。
 
-桌面端在 `cmd/desktop/`（Wails v3 + React，与 Library 同进程）。需要 wails3 CLI、pnpm 和 Xcode Command Line Tools，在该目录执行：
+## 开发
 
-```sh
-wails3 dev       # 开发模式：前端热更新，改 cmd/desktop 下的 Go 自动重启
-wails3 package   # 打包成 bin/skills-manager.app
-```
-
-环境准备、如何用隔离的库调试、构建标签、代码结构和怎样新增绑定，见 [`cmd/desktop/README.md`](cmd/desktop/README.md)。
-
-## 尚未实现
-
-- 桌面端（开发中）：外部配置（S3、Store、GitHub 令牌）只能来自环境变量。终端界面已搁置。
-- 对外的网络或进程间接口（HTTP、JSON-RPC 等）；目前没有计划。
-- 回收不再被任何版本引用的文件内容、版本回退、更新后自动重新安装（现需手动重新安装）。
+从源码构建、调试和打包见 [`cmd/desktop/README.md`](cmd/desktop/README.md)；代码结构与约定见 [AGENTS.md](AGENTS.md)，设计决策见 [`docs/adr/`](docs/adr/)。

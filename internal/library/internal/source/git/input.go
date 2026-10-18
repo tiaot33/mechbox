@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
 	"strings"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 )
 
 type Input struct {
@@ -42,10 +42,6 @@ func Matches(input string) bool {
 		return false
 	}
 	return strings.EqualFold(u.Hostname(), "gitlab.com") || strings.Contains(u.Path, "/-/tree/") || strings.HasSuffix(strings.TrimSuffix(u.Path, "/"), ".git")
-}
-
-func ValidSubpath(value string) bool {
-	return value == "" || (fs.ValidPath(value) && !strings.ContainsAny(value, "\\:\x00") && !strings.Contains("/"+value+"/", "/.git/"))
 }
 
 func invalid() error {
@@ -93,7 +89,7 @@ func parse(in Input) (parsedInput, error) {
 		repoPath := strings.Trim(u.Path, "/")
 		if before, tree, ok := strings.Cut(repoPath, "/-/tree/"); ok && u.Scheme != "ssh" {
 			repoPath, result.tree, result.gitlab = before, strings.Trim(tree, "/"), true
-			if !ValidSubpath(result.tree) || result.tree == "" {
+			if !gitcmd.ValidSubpath(result.tree) || result.tree == "" {
 				return parsedInput{}, invalid()
 			}
 		}
@@ -111,7 +107,7 @@ func parse(in Input) (parsedInput, error) {
 			result.repository = u.Scheme + "://" + u.User.String() + "@" + u.Host + "/" + repoPath
 		}
 	}
-	if !ValidSubpath(result.subpath) {
+	if !gitcmd.ValidSubpath(result.subpath) {
 		return parsedInput{}, invalid()
 	}
 	return result, nil
@@ -135,29 +131,29 @@ func Locate(ctx context.Context, in Input) (source.Target, error) {
 		return source.Target{}, err
 	}
 	loc := locator{Repository: parsed.repository, GitLab: parsed.gitlab}
-	loc.Branch, parsed.subpath, err = Resolve(ctx, loc.remotes(), parsed.ref, parsed.tree, parsed.subpath)
+	loc.Branch, parsed.subpath, err = gitcmd.Resolve(ctx, loc.remotes(), parsed.ref, parsed.tree, parsed.subpath)
 	if err != nil {
 		return source.Target{}, err
 	}
 	return target(loc, parsed.subpath)
 }
 
-func InputRefs(ctx context.Context, input string) (Refs, error) {
+func InputRefs(ctx context.Context, input string) (gitcmd.Refs, error) {
 	parsed, err := parse(Input{Input: input})
 	if err != nil {
-		return Refs{}, err
+		return gitcmd.Refs{}, err
 	}
 	loc := locator{Repository: parsed.repository, GitLab: parsed.gitlab}
-	return ListRefs(ctx, loc.remotes(), parsed.ref, parsed.tree)
+	return gitcmd.ListRefs(ctx, loc.remotes(), parsed.ref, parsed.tree)
 }
 
 func Probe(ctx context.Context, link, ref, subpath string) (source.Target, bool, error) {
-	if !ValidSubpath(subpath) {
+	if !gitcmd.ValidSubpath(subpath) {
 		return source.Target{}, false, invalid()
 	}
 	repository := strings.TrimSuffix(link, "/")
 	remotes := []string{repository}
-	output, err := Remote(ctx, remotes, []string{"ls-remote", "--symref"}, "HEAD")
+	output, err := gitcmd.Remote(ctx, remotes, []string{"ls-remote", "--symref"}, "HEAD")
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, source.ErrPermission) {
 			return source.Target{}, false, err
@@ -165,12 +161,12 @@ func Probe(ctx context.Context, link, ref, subpath string) (source.Target, bool,
 		return source.Target{}, false, nil
 	}
 	if ref == "" {
-		if ref, err = symref(output); err != nil {
+		if ref, err = gitcmd.Symref(output); err != nil {
 			return source.Target{}, false, err
 		}
 	}
 	loc := locator{Repository: repository}
-	if loc.Branch, subpath, err = Resolve(ctx, remotes, ref, "", subpath); err != nil {
+	if loc.Branch, subpath, err = gitcmd.Resolve(ctx, remotes, ref, "", subpath); err != nil {
 		return source.Target{}, false, err
 	}
 	result, err := target(loc, subpath)

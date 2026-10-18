@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
 )
 
 const (
@@ -44,7 +44,7 @@ type discoveredSource struct {
 }
 
 func fetchGitHubClone(ctx context.Context, locator repoLocator, subpath string) (discoveredSource, error) {
-	checkout, err := git.Clone(ctx, remotes(locator.Repository), locator.Branch, subpath)
+	checkout, err := gitcmd.Clone(ctx, remotes(locator.Repository), locator.Branch, subpath)
 	if err != nil {
 		return discoveredSource{}, err
 	}
