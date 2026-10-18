@@ -120,4 +120,21 @@
 //   - [Library.PlanSyncPull] 再 [Library.SyncPull]:看 S3 上的库里有什么、能不能拉回,再用它替换本机的库。
 //     拉回不动 Agent 目录;之后用 [Library.RelocateProject] 把不在这台机器上的项目指到本机位置,
 //     用 [Library.InspectSkillScopes] 与 [Library.Reinstall] 把各处安装对上。
+//
+// # 实现
+//
+// 改动数据库又改动 Agent 目录的操作(安装、卸载、更新、回滚、重新安装等)都经 library.go 的 applyChange 一次提交:
+// 先把要写的文件夹暂存好,再开事务写记录,把文件夹移到位,提交事务,最后清理备份;任何一步失败都倒序撤销,
+// 数据库与磁盘不会只改一边。
+//
+// 入库预览按固定顺序识别输入(fetch.go 的 previewTarget):本地路径 → 托管平台的 raw / archive / release 链接 →
+// GitHub → GitLab、SSH 与 .git 地址 → 其他 http(s) 链接;其他链接依次试直接下载、well-known 索引与 git ls-remote,
+// 按内容判断。识别结果是来源类型与定位信息,定位信息对 Library 不透明,由各来源自己生成和解释。
+//
+// 入库预览、入库、检查更新与更新都只经各来源打开的 Snapshot 读取,它钉住一份来源内容。
+// 来源检查更新的结论是变了 / 没变 / 未知三态,未知时 Library 取文件比较;各来源自己的读取状态随版本存进数据库,
+// Library 只存取不解析。
+//
+// 数据库、Agent 目录、各来源、skills.sh、S3 各是 internal/ 下的一个子包,只返回自己的哨兵错误或错误类型,
+// 由 errors.go 的 typedError 统一翻译成公开的 [ErrorCode]。
 package library

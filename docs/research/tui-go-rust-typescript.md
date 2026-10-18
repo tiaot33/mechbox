@@ -1,5 +1,7 @@
 # TUI language comparison: Go vs Rust vs TypeScript
 
+> **已被取代**:本调研比较的是做 TUI 用哪种语言;之后决定桌面端用 Wails v3、与库在同一个进程里，见 [ADR 0008](../adr/0008-desktop-is-wails-v3-in-process.md)。本文只作为当时的调研记录保留。
+
 **Date:** 2026-07-19  
 **Question:** 调研做 TUI（Terminal User Interface）时，Go、Rust、TypeScript 哪个更好？各自用什么框架？  
 **Method:** 以各框架官方文档、GitHub README、pkg.go.dev / crates.io / npm 等第一方来源为主；星标、下载量等为时间敏感信号，数值以调研当日可见的官方页面为准。
