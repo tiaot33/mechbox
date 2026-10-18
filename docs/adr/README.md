@@ -21,6 +21,7 @@
 
 - [0005 作用域按 Agent 和层级记录，不按路径](0005-scope-is-agent-and-level-not-path.md)
 - [0006 组安装是一个持续的选择](0006-group-install-is-a-standing-choice.md)
+- [0012 接管以后不保留符号链接：第一次写入时说明并换成独立的文件夹](0012-symlinks-become-own-folders-after-takeover.md)
 
 ## 接口与应用
 
