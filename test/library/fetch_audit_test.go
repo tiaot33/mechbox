@@ -72,7 +72,7 @@ func sampleAuditEntries(name string) []library.AuditEntry {
 	}
 }
 
-func TestGetSkillAuditLoadsOnDemandAndCaches(t *testing.T) {
+func TestGetCandidateAuditLoadsOnDemandAndCaches(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
@@ -101,9 +101,9 @@ func TestGetSkillAuditLoadsOnDemandAndCaches(t *testing.T) {
 	}
 	want := &library.SkillAudit{Availability: library.AuditAvailable, Entries: sampleAuditEntries("first")}
 	for range 2 {
-		got, err := lib.GetSkillAudit(t.Context(), preview.ID, "first")
+		got, err := lib.GetCandidateAudit(t.Context(), preview.ID, "first")
 		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Fatalf("GetSkillAudit = %#v, %v; want %#v", got, err, want)
+			t.Fatalf("GetCandidateAudit = %#v, %v; want %#v", got, err, want)
 		}
 		// 返回值是副本,改动不影响入库预览里的缓存。
 		got.Entries[0].Categories[0] = "mutated"
@@ -116,7 +116,7 @@ func TestGetSkillAuditLoadsOnDemandAndCaches(t *testing.T) {
 	}
 }
 
-func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
+func TestGetCandidateAuditValidatesHandleAndCandidate(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
@@ -142,16 +142,16 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 		{preview.ID, "first", library.NotFound}, // 被 Names 筛掉的候选不在入库预览里
 		{preview.ID, "../x", library.InvalidArgument},
 	} {
-		if _, err := lib.GetSkillAudit(t.Context(), tc.id, tc.name); !library.IsCode(err, tc.code) {
-			t.Fatalf("GetSkillAudit(%q, %q) = %v, want %s", tc.id, tc.name, err, tc.code)
+		if _, err := lib.GetCandidateAudit(t.Context(), tc.id, tc.name); !library.IsCode(err, tc.code) {
+			t.Fatalf("GetCandidateAudit(%q, %q) = %v, want %s", tc.id, tc.name, err, tc.code)
 		}
 	}
 	if urls := audits.urls(); len(urls) != 0 {
 		t.Fatalf("invalid lookups contacted skills.sh: %v", urls)
 	}
-	audit, err := lib.GetSkillAudit(t.Context(), preview.ID, "second")
+	audit, err := lib.GetCandidateAudit(t.Context(), preview.ID, "second")
 	if err != nil || audit == nil || audit.Entries[0].Status != library.AuditFail {
-		t.Fatalf("GetSkillAudit = %#v, %v", audit, err)
+		t.Fatalf("GetCandidateAudit = %#v, %v", audit, err)
 	}
 	// 审计结论只供展示:fail 也不挡入库;入库后的 Skill、列表与版本历史都没有审计的落脚点。
 	fetched, err := lib.Fetch(t.Context(), preview.ID, candidateNames(preview))
@@ -169,7 +169,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 		t.Fatalf("ListVersions = %#v, %v", versions, err)
 	}
 	// 入库成功后句柄失效。
-	if _, err := lib.GetSkillAudit(t.Context(), preview.ID, "second"); !library.IsCode(err, library.NotFound) {
+	if _, err := lib.GetCandidateAudit(t.Context(), preview.ID, "second"); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("audit after fetch = %v, want NotFound", err)
 	}
 
@@ -184,7 +184,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range preview.Candidates {
-		if audit, err := lib.GetSkillAudit(t.Context(), preview.ID, skill.Name); err != nil || audit != nil {
+		if audit, err := lib.GetCandidateAudit(t.Context(), preview.ID, skill.Name); err != nil || audit != nil {
 			t.Fatalf("URL audit = %#v, %v; want nil", audit, err)
 		}
 	}
@@ -193,7 +193,7 @@ func TestGetSkillAuditValidatesHandleAndCandidate(t *testing.T) {
 	}
 }
 
-func TestGetSkillAuditWorksOnCloneFallback(t *testing.T) {
+func TestGetCandidateAuditWorksOnCloneFallback(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	redirectGitHubClone(t, repo)
 	client := http.DefaultClient
@@ -210,12 +210,12 @@ func TestGetSkillAuditWorksOnCloneFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := &library.SkillAudit{Availability: library.AuditAvailable, Entries: sampleAuditEntries("demo")}
-	if got, err := lib.GetSkillAudit(t.Context(), preview.ID, "demo"); err != nil || !reflect.DeepEqual(got, want) {
+	if got, err := lib.GetCandidateAudit(t.Context(), preview.ID, "demo"); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("fallback audit = %#v, %v", got, err)
 	}
 }
 
-func TestGetSkillAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
+func TestGetCandidateAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	synctest.Test(t, func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestGetSkillAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 			t.Fatal(err)
 		}
 		started := time.Now()
-		got, err := lib.GetSkillAudit(t.Context(), preview.ID, "demo")
+		got, err := lib.GetCandidateAudit(t.Context(), preview.ID, "demo")
 		if err != nil || !reflect.DeepEqual(got, &library.SkillAudit{Availability: library.AuditUnavailable}) {
 			t.Fatalf("timed-out audit = %#v, %v", got, err)
 		}
@@ -240,14 +240,14 @@ func TestGetSkillAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 			t.Fatalf("slow skills.sh took %v", elapsed)
 		}
 		// 不可用不缓存:再次查看会重查。
-		if _, err := lib.GetSkillAudit(t.Context(), preview.ID, "demo"); err != nil || len(audits.urls()) != 2 {
+		if _, err := lib.GetCandidateAudit(t.Context(), preview.ID, "demo"); err != nil || len(audits.urls()) != 2 {
 			t.Fatalf("unavailable audit was cached: %v, %v", audits.urls(), err)
 		}
 
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)
 		go func() {
-			_, err := lib.GetSkillAudit(ctx, preview.ID, "demo")
+			_, err := lib.GetCandidateAudit(ctx, preview.ID, "demo")
 			done <- err
 		}()
 		synctest.Wait()
@@ -258,7 +258,7 @@ func TestGetSkillAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 	})
 }
 
-func TestGetSkillAuditFailuresDegradeToAvailability(t *testing.T) {
+func TestGetCandidateAuditFailuresDegradeToAvailability(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	for _, tc := range []struct {
@@ -310,7 +310,7 @@ func TestGetSkillAuditFailuresDegradeToAvailability(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := lib.GetSkillAudit(t.Context(), preview.ID, "demo")
+			got, err := lib.GetCandidateAudit(t.Context(), preview.ID, "demo")
 			if err != nil || !reflect.DeepEqual(got, &tc.want) {
 				t.Fatalf("audit = %#v, %v; want %#v", got, err, tc.want)
 			}

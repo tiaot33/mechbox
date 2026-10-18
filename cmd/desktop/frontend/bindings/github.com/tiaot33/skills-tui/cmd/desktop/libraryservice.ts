@@ -74,12 +74,16 @@ export function FindUnmanagedSources(req: library$0.FindUnmanagedSourcesRequest)
     return $Call.ByID(2707933367, req);
 }
 
+export function GetCandidateAudit(id: library$0.FetchPreviewID, name: string): $CancellablePromise<library$0.SkillAudit | null> {
+    return $Call.ByID(2167960578, id, name);
+}
+
 export function GetSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(3591563083, id);
 }
 
-export function GetSkillAudit(id: library$0.FetchPreviewID, name: string): $CancellablePromise<library$0.SkillAudit | null> {
-    return $Call.ByID(3835043506, id, name);
+export function GetSkillAudit(id: library$0.SkillID): $CancellablePromise<library$0.SkillAudit | null> {
+    return $Call.ByID(3835043506, id);
 }
 
 export function GetUpdatePlanFile(plan: library$0.UpdatePlanID, skill: library$0.SkillID, path: string): $CancellablePromise<library$0.File> {

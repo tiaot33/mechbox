@@ -44,8 +44,8 @@ func (s *LibraryService) ListSourceRefs(ctx context.Context, input string) (libr
 	return settle(s.lib.ListSourceRefs(ctx, input))(ctx)
 }
 
-func (s *LibraryService) GetSkillAudit(ctx context.Context, id library.FetchPreviewID, name string) (*library.SkillAudit, error) {
-	return settle(s.lib.GetSkillAudit(ctx, id, name))(ctx)
+func (s *LibraryService) GetCandidateAudit(ctx context.Context, id library.FetchPreviewID, name string) (*library.SkillAudit, error) {
+	return settle(s.lib.GetCandidateAudit(ctx, id, name))(ctx)
 }
 
 func (s *LibraryService) Fetch(ctx context.Context, id library.FetchPreviewID, names []string) ([]library.Skill, error) {
@@ -60,6 +60,10 @@ func (s *LibraryService) ListSkills(ctx context.Context) ([]library.Skill, error
 
 func (s *LibraryService) GetSkill(ctx context.Context, id library.SkillID) (library.Skill, error) {
 	return settle(s.lib.GetSkill(ctx, id))(ctx)
+}
+
+func (s *LibraryService) GetSkillAudit(ctx context.Context, id library.SkillID) (*library.SkillAudit, error) {
+	return settle(s.lib.GetSkillAudit(ctx, id))(ctx)
 }
 
 func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, opts library.RemoveSkillOptions) error {

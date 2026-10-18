@@ -8,6 +8,7 @@ import (
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
 	"github.com/tiaot33/skills-tui/internal/library/internal/store"
 )
@@ -153,6 +154,29 @@ func (l *Library) GetSkill(ctx context.Context, id SkillID) (skill Skill, err er
 		return Skill{}, err
 	}
 	return l.skillOf(row)
+}
+
+// GetSkillAudit 按需向 skills.sh 查询库里一个技能的审计,供技能详情懒加载:按入库时的 GitHub 仓库与技能名查询,
+// 和入库预览里 GetCandidateAudit 查到的是同一份。只供展示:不写库、不参与 Sync;查询失败降级为 AuditUnavailable,不返回错误。
+// 不缓存,每次调用都重查。来源不是 GitHub 仓库的技能(Git 仓库、well-known、直接下载、本地目录、没有来源)不查审计,
+// 返回 nil 且不联网。技能不存在返回 NotFound。
+func (l *Library) GetSkillAudit(ctx context.Context, id SkillID) (audit *SkillAudit, err error) {
+	defer func() { err = typedError(err) }()
+	read, unlock := l.sharedOperation(ctx)
+	row, err := l.store.GetSkill(read, int64(id))
+	unlock()
+	if err != nil {
+		return nil, err
+	}
+	owner, repo, ok := github.OwnerRepo(row.Source.Type, row.Source.Locator)
+	if !ok {
+		return nil, nil
+	}
+	got := lookupAudit(ctx, owner, repo, row.Name)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &got, nil
 }
 
 type currentVersion struct {

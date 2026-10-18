@@ -741,6 +741,7 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
   await d.locator('[data-slot="code"]', { hasText: "name: alpha" }).waitFor();
   assert((await d.locator(".meta dt", { hasText: "检查更新" }).count()) === 0, "本地目录来源不检查更新");
   assert((await btn(d, "重新读取").count()) === 1, "本地目录来源只有重新读取");
+  assert((await d.locator(".skill-audit").count()) === 0, "本地目录来源不查 skills.sh 审计");
   assert((await d.locator(".versions li").count()) === 1, "应有 1 个版本");
 });
 
@@ -2787,6 +2788,8 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await openDrawer("pdf");
   assert((await drawer().locator(".meta dd", { hasText: "anthropics/skills" }).count()) === 1, "详情里集合应为 owner/repo");
   assert((await drawer().getByRole("button", { name: "在 GitHub 查看" }).count()) === 1, "GitHub 来源应有查看链接");
+  // 打开详情就查 skills.sh 的审计;anthropics/skills 的 pdf 在 skills.sh 上有合作方的结论。
+  await drawer().locator(".skill-audit tr").first().waitFor({ timeout: 30000 });
   await closeDrawer();
   await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
   await toast("没有要处理的更新");

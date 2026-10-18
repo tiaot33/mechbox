@@ -82,7 +82,7 @@ type AuditEntry struct {
 	DetailURL  string      `json:"detail_url"`           // skills.sh 上该合作方的安全详情页
 }
 
-// SkillAudit 是一个入库预览候选在 skills.sh 上的审计概览:查看候选时经 GetSkillAudit 按需查询,随入库预览缓存,
+// SkillAudit 是一个技能在 skills.sh 上的审计概览:入库预览里查看候选时经 GetCandidateAudit、技能详情里经 GetSkillAudit 按需查询,
 // 只供展示。不入库、不参与 Sync、不影响入库。Entries 仅在 Availability 为 AuditAvailable 时非空。
 type SkillAudit struct {
 	Availability AuditAvailability `json:"availability"`
@@ -100,7 +100,7 @@ type FetchPreview struct {
 	Diagnostics []PreviewDiagnostic `json:"diagnostics,omitempty"`
 }
 
-// Candidate 是入库预览中可挑选入库的候选;skills.sh 审计不随候选返回,见 GetSkillAudit。
+// Candidate 是入库预览中可挑选入库的候选;skills.sh 审计不随候选返回,见 GetCandidateAudit。
 type Candidate struct {
 	Fetched SkillID `json:"fetched,omitzero"` // 同一来源同名的库内技能 ID;入库预览时查询,零值表示未入库
 	// New 为 true 表示这是来源里的新技能:库里已有这个来源的集合,而这个技能是用户上次从这个来源入库之后才出现的,
@@ -555,11 +555,11 @@ func selectNamed[T any](items []T, selected []string, nameOf func(T) string) ([]
 	return result, nil
 }
 
-// GetSkillAudit 按需向 skills.sh 查询一次入库预览中某个技能的审计,供查看单个技能时懒加载。
+// GetCandidateAudit 按需向 skills.sh 查询一次入库预览中某个候选的审计,供查看单个技能时懒加载。
 // 只供展示:不入库、不参与 Sync、不挡入库;查询失败降级为 AuditUnavailable,不返回错误。
 // 结果随入库预览缓存,AuditUnavailable 不缓存、再次调用会重查。不是 GitHub 仓库的来源(Git 仓库、well-known、直接下载、本地目录)
 // 不查审计,返回 nil 且不联网。未知或已失效句柄、不在候选中的名字返回 NotFound。
-func (l *Library) GetSkillAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
+func (l *Library) GetCandidateAudit(ctx context.Context, id FetchPreviewID, name string) (audit *SkillAudit, err error) {
 	defer func() { err = typedError(err) }()
 	if !discovery.ValidName(name) {
 		return nil, &Error{Code: InvalidArgument, Message: "invalid candidate name"}
