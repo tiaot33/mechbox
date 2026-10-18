@@ -48,6 +48,7 @@ import {
   skillScopeIn,
   skillScopesOf,
   renamedTo,
+  sameNameFetchNote,
   sourceLabel,
   updateAvailable,
 } from "./model";
@@ -796,7 +797,7 @@ function FetchUnmanagedDialog({
       {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
       {twins.length > 0 && (
         <Notice tone="warn" className="unmanaged-same-name">
-          {`库里已经有叫「${skill.name}」的技能(${twins.join(";")})。内容和它的某个版本一样时只记下装在这里;不一样时不合并，入库后库里会有 ${twins.length + 1} 个「${skill.name}」,卡片上写出各装在哪里。`}
+          {`库里已经有叫「${skill.name}」的技能(${twins.join(";")})。${sameNameFetchNote(skill.name, !!input)}`}
         </Notice>
       )}
       <Field label="来源链接">

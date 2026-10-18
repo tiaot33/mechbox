@@ -136,6 +136,13 @@ export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
 }
 
+// sameNameFetchNote 说明入库一个和库里技能同名的技能会怎样：不带来源时和库里所有技能比，带来源时只和这个来源里同名的比。
+export function sameNameFetchNote(name: string, sourced: boolean): string {
+  return sourced
+    ? `带来源入库时只和这个来源里同名的技能比：内容和它的某个版本一样时只记下装在这里，不一样时不能入库(可以清空来源);其他来源或没有来源的同名技能不合并，入库后库里会多一个「${name}」,卡片上写出各装在哪里。`
+    : `内容和其中一个的某个版本一样时只记下装在这里;都不一样时不合并，入库后库里会多一个「${name}」,卡片上写出各装在哪里。`;
+}
+
 // installedWhere 写出技能装在哪里，供分辨库里同名的几个技能:"Claude Code · 全局、Codex · proj-a",超过两处写"等 N 处";没装时写"没装在任何地方"。
 export function installedWhere(s: Snapshot, skillID: number): string {
   const places = skillScopesOf(s, skillID).map((p) => scopeLabel(s, p.scope));

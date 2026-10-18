@@ -380,7 +380,8 @@ func TestUpdateFromScopeTreatsPlacesLinkedToTheSameFolderAsOne(t *testing.T) {
 	_, err = lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.codex, Overwrite: true}}})
 	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "installs", SkillID: skill.ID})
 
-	if _, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.project}}}); err != nil {
+	result, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.project}}})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if want := map[library.Scope]library.SkillScopeStatus{f.claude: library.SkillScopeCurrent, f.codex: library.SkillScopeCurrent, f.project: library.SkillScopeCurrent}; !reflect.DeepEqual(f.statuses(t), want) {
@@ -389,4 +390,57 @@ func TestUpdateFromScopeTreatsPlacesLinkedToTheSameFolderAsOne(t *testing.T) {
 	if target, err := os.Readlink(claudeFolder); err != nil || target != codexFolder {
 		t.Fatalf("claude folder link = %q, %v; want it left as it was", target, err)
 	}
+	requireRollbackLeavesTheEditedFolder(t, f, result.Record, codexFolder, "edited in codex")
+}
+
+// requireRollbackLeavesTheEditedFolder 回滚一次用目录里的修改更新:只装回那次换过的项目,取内容的那个文件夹原样不动。
+func requireRollbackLeavesTheEditedFolder(t *testing.T, f scopeEditFixture, record library.UpdateRecordID, folder, body string) {
+	t.Helper()
+	rollback, err := f.lib.Rollback(t.Context(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rollback.Installs) != 1 || rollback.Installs[0].Scope != f.project || rollback.Installs[0].Outcome != library.RollbackReinstalled {
+		t.Fatalf("rollback installs = %#v; want only the project put back", rollback.Installs)
+	}
+	requireInstalledFolder(t, f.directories[f.project], "pdf", "v1")
+	if content, err := os.ReadFile(filepath.Join(folder, "SKILL.md")); err != nil || string(content) != skillDocument("pdf", body) {
+		t.Fatalf("folder the edits came from = %q, %v; want it left as it was", content, err)
+	}
+}
+
+// 符号链接的目标只是大小写不同(macOS 默认的卷不区分大小写):仍是同一个文件夹。区分大小写的文件系统上跳过。
+func TestUpdateFromScopeTreatsACaseVariantLinkAsTheSameFolder(t *testing.T) {
+	ctx := t.Context()
+	f := newScopeEditFixture(t)
+	lib, skill := f.lib, f.skill
+	claudeFolder, codexFolder := filepath.Join(f.directories[f.claude], "pdf"), filepath.Join(f.directories[f.codex], "pdf")
+	variant := filepath.Join(filepath.Dir(codexFolder), "PDF")
+	if info, err := os.Stat(variant); err != nil || !info.IsDir() {
+		t.Skip("the file system is case-sensitive")
+	}
+	if err := os.RemoveAll(claudeFolder); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(variant, claudeFolder); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(codexFolder, "SKILL.md"), []byte(skillDocument("pdf", "edited in codex")), 0o644)
+
+	plan, err := lib.PlanUpdateFromScope(ctx, skill.ID, f.claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, install := range plan.Installs {
+		if install.Scope == f.codex {
+			t.Fatalf("plan installs = %#v; want the case-variant folder left out", plan.Installs)
+		}
+	}
+	_, err = lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.codex, Overwrite: true}}})
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "installs", SkillID: skill.ID})
+	result, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.project}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireRollbackLeavesTheEditedFolder(t, f, result.Record, codexFolder, "edited in codex")
 }

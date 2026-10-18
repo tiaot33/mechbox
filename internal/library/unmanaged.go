@@ -287,7 +287,8 @@ type FetchUnmanagedResult struct {
 //     只在请求里的来源就是来源记录认出的来源时用它:
 //   - 来源记录里记的哈希和磁盘内容对得上:能确认这是当初装的原样、只是落后于作者,作为作者的旧版,来源版本未知(Revision 为空),
 //     第一次检查更新就按内容报为有新版本。
-//   - 来源记录里记的哈希对不上磁盘内容,却和来源里现在的这个技能对得上:装的就是来源现在这一版,磁盘不一样是用户之后改的。
+//   - 来源记录里记的哈希对不上磁盘内容,却和来源里现在的这个技能对得上,两边共有的文件可执行位也都一样:装的就是来源现在这一版,
+//     磁盘不一样是用户之后改的(项目记录里的哈希不算可执行位,可执行位不一样时说不清,归到下面的其余情况)。
 //     先记下来源里的那一版,再把磁盘上的内容记为基于它的修改(SkillVersion.BasedOn,来源版本沿用它的),
 //     和用目录里的修改更新之后一样:检查更新只看来源从那一版之后有没有改过,更新计划里这个技能为 PlannedSkill.Edited。
 //   - 其余情况(没有来源记录、记录里没有哈希、哈希哪一份都对不上):说不清有没有用户的修改,来源版本未知,版本标为
@@ -344,6 +345,19 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 		return FetchUnmanagedResult{}, preconditionError(operation, "the skill folder changed while the source was read", ErrorDetails{Path: folder.path})
 	}
 	return l.fetchWithSource(ctx, operation, []unmanagedFolder{folder}, sourced, input, req.SourceRef)
+}
+
+func sameModes(files, others []skillfile.File) bool {
+	modes := make(map[string]skillfile.Mode, len(others))
+	for _, file := range others {
+		modes[file.Path] = file.Mode
+	}
+	for _, file := range files {
+		if mode, ok := modes[file.Path]; ok && mode != file.Mode {
+			return false
+		}
+	}
+	return true
 }
 
 func validFolderName(name string) bool {
@@ -518,7 +532,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 			}
 			matches := entry.Matches(each.files)
 			untouched = untouched || matches
-			editedLatest = editedLatest || !matches && entry.Matches(sourced.skill.Files)
+			editedLatest = editedLatest || !matches && entry.Matches(sourced.skill.Files) && sameModes(each.files, sourced.skill.Files)
 		}
 	}
 	name := sourced.skill.Name

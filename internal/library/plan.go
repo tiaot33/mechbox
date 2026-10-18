@@ -243,7 +243,7 @@ func (l *Library) PlanUpdateFromScope(ctx context.Context, skill SkillID, scope 
 		return UpdatePlan{}, err
 	}
 	for _, inspection := range inspections {
-		if agentdir.Canonical(inspection.Folder) != agentdir.Canonical(edit.folder) {
+		if !agentdir.SameFolder(inspection.Folder, edit.folder) {
 			plan.Installs = append(plan.Installs, inspection)
 		}
 	}

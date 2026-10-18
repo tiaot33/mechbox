@@ -538,7 +538,7 @@ func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, 
 	if err != nil || len(place) == 0 {
 		return false
 	}
-	return agentdir.Canonical(filepath.Join(target.directory, place[0].Folder)) == agentdir.Canonical(edit.folder)
+	return agentdir.SameFolder(filepath.Join(target.directory, place[0].Folder), edit.folder)
 }
 
 func selectedSkills(operation string, state *planState, requested []SkillID) ([]SkillID, error) {

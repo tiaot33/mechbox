@@ -1790,7 +1790,11 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
     await selectScope("Codex");
     await btn(unmanaged, "入库").click();
     const note = await modal().locator(".unmanaged-same-name").textContent();
-    assert(note.includes("库里已经有叫「review」的技能") && note.includes("Claude Code · 全局"), `确认时说出库里已有同名的、装在哪里:${note}`);
+    assert(note.includes("库里已经有叫「review」的技能") && note.includes("Claude Code · 全局") && note.includes("都不一样时不合并"), `确认时说出库里已有同名的、装在哪里:${note}`);
+    // 带来源时只和这个来源里同名的比，说法跟着变;清空后回到不带来源的说法。
+    await modal().locator(".unmanaged-source").fill(path.join(HOME, "sources", "review-kit"));
+    assert((await modal().locator(".unmanaged-same-name").textContent()).includes("带来源入库时只和这个来源里同名的技能比"), "带来源时说清只和这个来源里的比");
+    await modal().locator(".unmanaged-source").fill("");
     await page.screenshot({ path: path.join(SHOTS, "same-name-in-library-confirm.png") });
     await btn(modal(), "入库").click();
     await toast("已入库「review」");

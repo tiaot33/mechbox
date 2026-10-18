@@ -125,6 +125,15 @@ func walk(ctx context.Context, root string, visit func(path, relative string, in
 	return nil
 }
 
+func SameFolder(a, b string) bool {
+	aInfo, aErr := os.Stat(a)
+	bInfo, bErr := os.Stat(b)
+	if aErr == nil && bErr == nil {
+		return os.SameFile(aInfo, bInfo)
+	}
+	return Canonical(a) == Canonical(b)
+}
+
 func Canonical(path string) string {
 	current, rest := filepath.Clean(path), ""
 	for {

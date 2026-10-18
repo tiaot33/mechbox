@@ -14,7 +14,7 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { toLibraryError, type LibraryError } from "@/lib/library";
-import { scopeOf } from "@/lib/model";
+import { sameNameFetchNote, scopeOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -409,7 +409,7 @@ function FetchUnmanagedDialog({
                 记在 skills-lock.json 里
               </Badge>
             )}
-            {library.has(p.name) && <SameNameInLibrary name={p.name} />}
+            {library.has(p.name) && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, links.get(i)).input} />}
             <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">
               {agentNames(p)}
             </span>
@@ -514,7 +514,7 @@ function FetchUnmanagedDialog({
               <div key={name} className="fetch-unmanaged-conflict">
                 <div className="flex items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
                   {name}
-                  {library.has(name) && <SameNameInLibrary name={name} />}
+                  {library.has(name) && <SameNameInLibrary name={name} sourced={members.some((i) => !!sourceOf(plan[i], links.get(i)).input)} />}
                 </div>
                 {members.map((i) => {
                   const p = plan[i];
@@ -601,12 +601,9 @@ function FetchUnmanagedDialog({
   );
 }
 
-function SameNameInLibrary({ name }: { name: string }) {
+function SameNameInLibrary({ name, sourced }: { name: string; sourced: boolean }) {
   return (
-    <Badge
-      className="fetch-unmanaged-same-name"
-      title={`库里已经有叫「${name}」的技能。内容和它的某个版本一样时只记下装在这里;不一样时不合并，入库后库里会有两个「${name}」,卡片上写出各装在哪里。`}
-    >
+    <Badge className="fetch-unmanaged-same-name" title={`库里已经有叫「${name}」的技能。${sameNameFetchNote(name, sourced)}`}>
       库里已有同名
     </Badge>
   );
