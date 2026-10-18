@@ -24,6 +24,16 @@ Mechbox 是低频工具，通常在这些时候打开：
 - 你明确不要的东西，不会再作为待办出现，除非来源里又有了新变化。
 - 你在装出去的文件夹里改过的内容，不会在没有明确说明的情况下被覆盖。
 
+## 安装
+
+从 [GitHub Releases](https://github.com/tiaot33/mechbox/releases) 下载最新版本。
+
+- **macOS 12 及以上**（Apple 芯片与 Intel 通用）：下载 `.dmg`，把 Mechbox 拖进「应用程序」。应用没有经过 Apple 公证，第一次打开前在终端执行 `xattr -dr com.apple.quarantine /Applications/mechbox.app`。
+- **Windows**：运行 `-setup.exe`。安装程序没有代码签名，SmartScreen 提示时点「更多信息 → 仍要运行」。
+- **Linux**：`.deb`（Ubuntu 24.04+ / Debian 13+）、`.rpm`（Fedora）、`.pkg.tar.zst`（Arch），或给 `.AppImage` 加上可执行权限后直接运行。
+
+Windows 和 Linux 版有些功能还没有，见[尚未支持](#尚未支持)。
+
 ## 功能
 
 ### 入库
@@ -83,7 +93,7 @@ GitHub 令牌和同步设置在设置页填写。没填时读下面的环境变�
 ## 尚未支持
 
 - 系统通知：有更新时只显示 Dock 角标和左栏计数。
-- Windows、Linux：只保证能编译，没有一等支持。
+- Windows、Linux：有安装包，但没有一等支持。设置页填的 GitHub 令牌与 S3 密钥不会保存，退出后要重新填写（或改用环境变量）；没有 Dock 角标；「在 Finder 中显示」不起作用；卸载 Mechbox 时技能文件夹直接删除，不进回收站。
 
 ## 开发
 

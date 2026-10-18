@@ -71,6 +71,15 @@ open bin/mechbox.app
 
 **毛玻璃需要 `private_mac_apis` 构建标签。** 窗口背后是 macOS 原生毛玻璃，但要透出来，WebView 本身必须透明；Wails v3 只有带这个标签时才会把 WebView 设成透明，否则 WebView 画白底，把毛玻璃整个挡住。`Taskfile.yml` 已默认加上（`EXTRA_TAGS`），`wails3 dev` / `build` / `package` 都会带。代价是用了私有 API，不能上架 Mac App Store。直接 `go build ./cmd/desktop` 不带这个标签，也能运行，只是没有毛玻璃。
 
+### 发布
+
+推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
+
+- 版本号以 tag 为准：构建前由 `.github/scripts/set-version.sh` 写进 `build/config.yml`(关于页显示的版本)、`Info.plist`、Windows 版本资源、NSIS 与 nfpm 配置，仓库里这几处的版本号不用手改。macOS 与 Windows 的版本字段只认数字，预发布后缀只留在 `config.yml` 与 Linux 包里。
+- 在 Actions 页面手动运行这个 workflow 只构建、不发布，安装包留在那次运行的 Artifacts 里，文件名里的版本是 `dev-<提交>`。
+- Windows 构建要开 cgo(`CGO_ENABLED=1`,技能库用的 SQLite 驱动需要),Windows 任务默认不开。
+- macOS 只做 ad-hoc 签名、没有公证，Windows 安装程序也没有代码签名;用户第一次打开时会被系统拦一下，Release 说明里写了怎么放行。
+
 ## 运行时行为
 
 - **技能库位置**：`<用户配置目录>/mechbox/library.db`，macOS 上是 `~/Library/Application Support/mechbox/library.db`。首次启动时创建目录，由 Library 初始化空库。它只依赖 `HOME`，所以从 Finder / Dock 启动也能找到。

@@ -12,7 +12,7 @@ priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
 description: "管理 coding agent 的 Agent Skills"
 vendor: "tiaot33"
-homepage: "https://wails.io"
+homepage: "https://github.com/tiaot33/mechbox"
 license: "MIT"
 release: "1"
 
