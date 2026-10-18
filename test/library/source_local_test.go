@@ -58,6 +58,29 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	}
 }
 
+func TestLocalSkillLeavesOutSystemAndCacheFiles(t *testing.T) {
+	lib := openTestLibrary(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "alpha", "SKILL.md"), []byte(skillDocument("alpha", "alpha body")), 0o644)
+	writeFile(t, filepath.Join(root, "alpha", "scripts", "run.py"), []byte("print(1)\n"), 0o644)
+	for _, junk := range []string{".DS_Store", "._SKILL.md", "Thumbs.db", "desktop.ini", "scripts/.DS_Store", "scripts/__pycache__/run.cpython-312.pyc", "__pypackages__/3.12/lib/dep.py", ".git/HEAD"} {
+		writeFile(t, filepath.Join(root, "alpha", filepath.FromSlash(junk)), []byte("junk"), 0o644)
+	}
+
+	preview, err := lib.PreviewFetch(t.Context(), localRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"alpha"})
+	want := []library.File{
+		{Path: "SKILL.md", Content: []byte(skillDocument("alpha", "alpha body")), Mode: library.ModeRegular},
+		{Path: "scripts/run.py", Content: []byte("print(1)\n"), Mode: library.ModeRegular},
+	}
+	if got := skillFiles(t, lib, fetched[0]); !reflect.DeepEqual(got, want) {
+		t.Fatalf("files = %#v; want %#v", got, want)
+	}
+}
+
 func TestLocalPreviewResolvesRelativePathAndListsAllCandidates(t *testing.T) {
 	lib := openTestLibrary(t)
 	ctx := t.Context()

@@ -52,7 +52,8 @@ func TestWellKnownSiteLinkPreviewsIndexedSkills(t *testing.T) {
 	s := serveSite(t)
 	s.put("https://docs.example/", []byte("<html>home</html>"))
 	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{
-		"alpha": {"SKILL.md": describedSkill("alpha", "Alpha", "a"), "references/guide.md": "guide"},
+		// 索引里列出的系统文件不进技能库。
+		"alpha": {"SKILL.md": describedSkill("alpha", "Alpha", "a"), "references/guide.md": "guide", "references/.DS_Store": "finder"},
 		"beta":  {"SKILL.md": describedSkill("beta", "Beta", "b")},
 	})
 	lib := openTestLibrary(t)

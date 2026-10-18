@@ -55,6 +55,9 @@ func TestGitHubPreviewAndFetch(t *testing.T) {
 				"unrelated/large.bin":  {content: []byte("not a skill"), mode: 0o644},
 				"other-dir/extra.md":   {content: []byte("other skill"), mode: 0o644},
 				"first/nested/note.md": {content: []byte("nested"), mode: 0o644},
+				// 系统和缓存文件不进技能库。
+				"first/.DS_Store":                       {content: []byte("finder"), mode: 0o644},
+				"first/__pycache__/run.cpython-312.pyc": {content: []byte("cache"), mode: 0o644},
 			})
 			mode.serve(t, repo)
 			lib := openTestLibrary(t)

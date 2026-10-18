@@ -93,7 +93,7 @@ func readSkillFiles(ctx context.Context, fsys fs.FS, root string, budget *Budget
 		if err != nil {
 			return err
 		}
-		if entry.Name() == ".git" {
+		if current != root && skillfile.Ignored(entry.Name()) {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}

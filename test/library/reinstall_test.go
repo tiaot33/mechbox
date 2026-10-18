@@ -217,6 +217,32 @@ func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testin
 	requireInspectionStatuses(t, lib, library.SkillScopeModified)
 }
 
+// Finder 留下的 .DS_Store、运行脚本生成的 __pycache__ 不算改过已装的文件夹。
+func TestInspectSkillScopesIgnoresSystemAndCacheFiles(t *testing.T) {
+	ctx := t.Context()
+	source := filepath.Join(t.TempDir(), "example-skill")
+	writeLocalSkill(t, source, "# Example\n")
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill, err := fetchLocalDir(ctx, lib, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := library.GlobalScope(library.AgentCodex)
+	directory, err := lib.ScopeDirectory(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(directory, skill.Name)
+
+	writeFile(t, filepath.Join(target, ".DS_Store"), []byte("finder"), 0o644)
+	writeFile(t, filepath.Join(target, "scripts", "__pycache__", "run.cpython-312.pyc"), []byte("cache"), 0o644)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent)
+}
+
 // 技能文件夹不在了、整个 Agent 目录不在了,对用户都是「文件夹不在了」,同为 missing。
 func TestInspectSkillScopesReportsMissingWhenFolderOrAgentDirectoryRemoved(t *testing.T) {
 	ctx := t.Context()

@@ -427,7 +427,7 @@ func githubSkillBlobs(entries []githubTreeEntry, skillPath, rootTree string, byP
 			continue
 		}
 		rel, ok := githubSkillRelative(entry.Path, skillPath)
-		if !ok || githubDotGitPath(rel) {
+		if !ok || skillfile.Ignored(rel) {
 			continue
 		}
 		if !githubRegularBlob(entry) {
@@ -452,10 +452,6 @@ func githubSkillRelative(filePath, skillPath string) (string, bool) {
 	}
 	rel, ok := strings.CutPrefix(filePath, skillPath+"/")
 	return rel, ok && rel != ""
-}
-
-func githubDotGitPath(rel string) bool {
-	return rel == ".git" || strings.HasPrefix(rel, ".git/") || strings.Contains(rel, "/.git/")
 }
 
 func githubFiles(blobs []githubBlob, contents [][]byte) []skillfile.File {

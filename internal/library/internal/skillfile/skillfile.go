@@ -28,6 +28,17 @@ type Digest struct {
 	Mode        Mode
 }
 
+var ignoredNames = []string{".git", ".DS_Store", "__MACOSX", "__pycache__", "__pypackages__", "Thumbs.db", "desktop.ini"}
+
+func Ignored(path string) bool {
+	for segment := range strings.SplitSeq(path, "/") {
+		if slices.Contains(ignoredNames, segment) || strings.HasPrefix(segment, "._") {
+			return true
+		}
+	}
+	return false
+}
+
 func Equal(first, second []File) bool {
 	return slices.EqualFunc(first, second, func(a, b File) bool {
 		return a.Path == b.Path && a.Mode == b.Mode && bytes.Equal(a.Content, b.Content)
