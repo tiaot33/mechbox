@@ -1,0 +1,6 @@
+packages:
+  - frontend
+  - e2e
+
+# 不安装发布不满 7 天(10080 分钟)的版本，减少装到刚被投毒的版本的风险。
+minimumReleaseAge: 10080

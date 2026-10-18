@@ -1,7 +1,7 @@
 #!/bin/sh
 # 桌面端端到端验证：把桌面端编译成 Wails server 模式(HTTP 服务，不开窗口),
 # 在临时 HOME 里放好测试数据，用本机 Chrome 按界面操作走遍技能库的全部功能并核对磁盘。
-# 用法(在 cmd/desktop/e2e 下):pnpm install && pnpm test [步骤名过滤]
+# 用法：先在 cmd/desktop 下 pnpm install(frontend 与 e2e 同属一个 pnpm workspace),再在 cmd/desktop/e2e 下 pnpm test [步骤名过滤]
 # 需要联网的步骤(技能市场、GitHub)默认跳过，E2E_NETWORK=1 时运行;离线时不访问真实的 skills.sh。
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
