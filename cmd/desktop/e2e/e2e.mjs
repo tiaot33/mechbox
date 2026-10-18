@@ -208,6 +208,19 @@ await step(FIRST_OPEN, async () => {
     assert.deepStrictEqual(disk(), before, "入库时磁盘上什么都没动");
     assert(fs.lstatSync(link).isSymbolicLink(), "符号链接还是符号链接");
 
+    // 在符号链接指向的真实文件夹里改一行：从 Claude Code 用这里的修改更新时，Codex 那一处是同一个文件夹，不算另一处被改过。
+    fs.appendFileSync(path.join(agents, "first-pdf", "SKILL.md"), "\none more line\n");
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+    await openDrawer("first-pdf");
+    await btn(drawer().locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }), "用这里的修改更新").click();
+    await modal().locator(".scope-update-same", { hasText: "Codex · 全局 和这里是同一个文件夹，已经是这份修改" }).waitFor({ timeout: 15000 });
+    assert.equal(await modal().locator(".update-place").count(), 0, "同一个文件夹不列为另一处");
+    assert(!(await modal().textContent()).includes("没有装在别的地方"), "不说没有装在别的地方");
+    await page.screenshot({ path: path.join(SHOTS, "update-from-linked-folder.png") });
+    await btn(modal(), "取消").click();
+    await closeDrawer();
+
     // 没选的那份仍是未纳管技能：作用域里淡淡提一句，从这里可以再全部入库。
     await selectScope("Claude Code");
     const hint = page.locator(".unmanaged-hint");

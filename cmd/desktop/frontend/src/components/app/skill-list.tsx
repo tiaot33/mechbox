@@ -264,7 +264,7 @@ function SkillCard(props: {
       )}
       {/* 库里同名的几个技能(内容不同，不合并)写出各装在哪里，免得只能靠描述分辨。 */}
       {twins.length > 0 && (
-        <p className={cn("dup-name-note min-w-0 truncate text-[10.5px] leading-[1.4] text-muted-foreground", list ? "w-[220px] shrink-0" : "-mt-1")} title={`库里有 ${twins.length + 1} 个「${skill.name}」;这个${installedWhere(s, skill.id)}`}>
+        <p className={cn("dup-name-note min-w-0 text-[10.5px] leading-[1.4] text-muted-foreground", list ? "w-[220px] shrink-0 truncate" : "-mt-1")} title={`库里有 ${twins.length + 1} 个「${skill.name}」;这个${installedWhere(s, skill.id)}`}>
           库里有 {twins.length + 1} 个「{skill.name}」;这个{installedWhere(s, skill.id)}
         </p>
       )}
@@ -339,7 +339,8 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
       )}
       data-name={skill.name}
     >
-      <div className={cn("flex min-w-0 items-center gap-1.5", list && "w-[260px] shrink-0")}>
+      {/* 卡片上标签多时折到下一行，名字不被挤掉。 */}
+      <div className={cn("flex min-w-0 items-center gap-1.5", list ? "w-[260px] shrink-0" : "flex-wrap gap-y-1")}>
         <span className={cn("unmanaged-name min-w-0 truncate font-semibold text-foreground-secondary", list ? "text-[13px]" : "text-[12.5px]")}>
           {skill.name}
         </span>
