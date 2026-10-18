@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
@@ -119,24 +118,4 @@ func (l *Library) Close() (err error) {
 // 传空字符串表示没有传入,回到读取 GITHUB_TOKEN / GH_TOKEN 环境变量。令牌只在这个 Library 实例上有效,不写进库。
 func (l *Library) SetGitHubToken(token string) {
 	l.github.SetToken(token)
-}
-
-func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {
-	linked, err := l.linkedPlaces(ctx, 0)
-	if err != nil {
-		return err
-	}
-	if err := l.store.InTx(ctx, func(tx *store.Tx) error {
-		if err := record(tx); err != nil {
-			return err
-		}
-		if err := l.detachLinkedPlaces(ctx, change, linked); err != nil {
-			return err
-		}
-		return change.Commit(ctx)
-	}); err != nil {
-		return err
-	}
-	change.Done()
-	return nil
 }

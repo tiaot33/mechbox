@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"slices"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
@@ -145,39 +144,6 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		inspections = append(inspections, inspection)
 	}
 	return inspections, nil
-}
-
-func (l *Library) linkedPlaces(ctx context.Context, id SkillID) ([]SkillScope, error) {
-	skillScopes, err := l.listSkillScopes(ctx, id, nil)
-	if err != nil {
-		return nil, err
-	}
-	var linked []SkillScope
-	for _, skillScope := range skillScopes {
-		if agentdir.LinkTarget(skillScope.Folder) != "" {
-			linked = append(linked, skillScope)
-		}
-	}
-	return linked, nil
-}
-
-func linksThrough(link string, folders []string) bool {
-	return slices.ContainsFunc(agentdir.LinkChain(link), func(hop string) bool {
-		return slices.ContainsFunc(folders, func(folder string) bool { return agentdir.SameEntry(hop, folder) })
-	})
-}
-
-func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Change, linked []SkillScope) error {
-	targets := change.Targets()
-	for _, place := range linked {
-		if change.Touches(place.Folder) || !agentdir.Resolves(place.Folder) || !linksThrough(place.Folder, targets) {
-			continue
-		}
-		if err := change.Detach(ctx, place.Folder); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target resolvedScope) (SkillScopeStatus, VersionID, error) {
@@ -404,19 +370,4 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 		return "", false, err
 	}
 	return Reinstalled, update != nil, nil
-}
-
-func (l *Library) requireFreeFolder(ctx context.Context, operation string, skill Skill, target resolvedScope) error {
-	path := filepath.Join(target.directory, skill.Name)
-	if other, err := l.targetClaimant(ctx, skill.ID, skill.Name, target); err != nil {
-		return err
-	} else if other != nil && other.skillID != skill.ID {
-		return preconditionError(operation, "another skill is installed in the folder with the skill's name", ErrorDetails{Path: path, Name: other.name, SkillID: other.skillID})
-	}
-	if exists, err := agentdir.Exists(path); err != nil {
-		return err
-	} else if exists {
-		return existsError(operation, "a folder with the skill's name is in the way", ErrorDetails{Path: path})
-	}
-	return nil
 }

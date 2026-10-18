@@ -143,64 +143,6 @@ func (f sourcedSkillFixture) planned(t *testing.T, skill library.Skill) (library
 	return plan, plannedSkill(t, plan, skill.ID)
 }
 
-func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
-	ctx := t.Context()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	recordsPath := globalRecordsPath(t)
-	lib := openTestLibrary(t)
-	claude := library.GlobalScope(library.AgentClaudeCode)
-	claudeDirectory := scopeDirectory(t, lib, claude)
-	writeUnmanagedSkill(t, claudeDirectory, "pdf", "read pdfs")
-	writeUnmanagedSkill(t, claudeDirectory, "site", "from a site")
-	writeUnmanagedSkill(t, claudeDirectory, "packaged", "from npm")
-	writeUnmanagedSkill(t, claudeDirectory, "mine", "hand written")
-	// 文件夹名和技能名不同:记录按 SKILL.md 里的 name 对上。
-	writeFile(t, filepath.Join(claudeDirectory, "Lab-Notes", "SKILL.md"), []byte("---\nname: lab-notes\ndescription: notes\n---\n"), 0o644)
-	writeSourceRecords(t, recordsPath, 3, map[string]map[string]string{
-		"pdf":       {"source": "owner/repo", "sourceType": "github", "sourceUrl": "https://github.com/owner/repo.git", "ref": "main", "skillPath": "skills/pdf/SKILL.md"},
-		"site":      {"source": "example.com", "sourceType": "well-known", "sourceUrl": "https://example.com/docs"},
-		"packaged":  {"source": "some-package", "sourceType": "node_modules"},
-		"lab-notes": {"source": "group/notes", "sourceType": "gitlab", "sourceUrl": "https://gitlab.com/group/notes.git"},
-	})
-
-	project := t.TempDir()
-	registered, err := lib.RegisterProject(ctx, project)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectScope := library.ProjectScope(library.AgentClaudeCode, registered.ID)
-	projectDirectory := scopeDirectory(t, lib, projectScope)
-	writeUnmanagedSkill(t, projectDirectory, "lint", "lint rules")
-	writeSourceRecords(t, filepath.Join(project, "skills-lock.json"), 1, map[string]map[string]string{
-		"lint": {"source": "./vendor/skills", "sourceType": "local", "computedHash": "abc"},
-	})
-
-	sources := map[string][2]string{}
-	for _, skill := range listUnmanagedSkills(t, lib) {
-		sources[skill.Folder] = [2]string{skill.SourceInput, skill.SourceRef}
-	}
-	want := map[string][2]string{
-		filepath.Join(claudeDirectory, "Lab-Notes"): {"https://gitlab.com/group/notes.git", ""},
-		filepath.Join(claudeDirectory, "mine"):      {"", ""},
-		filepath.Join(claudeDirectory, "packaged"):  {"", ""},
-		filepath.Join(claudeDirectory, "pdf"):       {"owner/repo", "main"},
-		filepath.Join(claudeDirectory, "site"):      {"https://example.com/docs", ""},
-		filepath.Join(projectDirectory, "lint"):     {filepath.Join(registered.Path, "vendor", "skills"), ""},
-	}
-	if !reflect.DeepEqual(sources, want) {
-		t.Fatalf("sources = %v, want %v", sources, want)
-	}
-
-	// 旧版本的全局来源记录 npx skills 自己也不认,这里同样不认。
-	writeSourceRecords(t, recordsPath, 2, map[string]map[string]string{"pdf": {"source": "owner/repo", "sourceType": "github"}})
-	for _, skill := range listUnmanagedSkills(t, lib) {
-		if skill.Name == "pdf" && skill.SourceInput != "" {
-			t.Fatalf("pdf = %#v, want no source from version 2 records", skill)
-		}
-	}
-}
-
 func TestFetchUnmanagedWithTheSourceContentJoinsTheCollection(t *testing.T) {
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)

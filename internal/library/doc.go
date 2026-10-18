@@ -35,7 +35,7 @@
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
 //
-// 更新(update.go、plan.go、history.go):
+// 更新(check.go、plan.go、update.go、history.go):
 //   - [Library.CheckUpdates] 按集合检查更新,结论写在集合里每个技能的 Skill.LastUpdateCheck 上,技能详情页的「有新版本」读它;
 //     只读,可以自动发起。没有按技能、按组检查的入口。侧边栏的更新计数与 Dock 角标都按结论上的 Pending 算;
 //     检查同时记下来源里的新技能,列在 [Collection].NewSkills 上。
@@ -85,7 +85,7 @@
 // 安装与安装计划方法都只接受 Scope 身份:Agent 目录与 [Library.ScopeDirectory] 给出的相同,记录按身份落库,
 // 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
 //
-// 看作用域里的未纳管技能与入库(unmanaged.go):
+// 看作用域里的未纳管技能与入库(unmanaged.go、fetch_unmanaged.go):
 //   - [Library.ListUnmanagedSkills] 列出各作用域的技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
 //     提交在项目仓库里的),和 [Library.ListSkillScopes] 放在一起,就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。
 //     npx skills 的来源记录里记了来源的,带出认出的来源([UnmanagedSkill].SourceInput),入库确认里预填。
@@ -125,7 +125,7 @@
 //
 // # 实现
 //
-// 改动数据库又改动 Agent 目录的操作(安装、卸载、更新、回滚、重新安装等)都经 library.go 的 applyChange 一次提交:
+// 改动数据库又改动 Agent 目录的操作(安装、卸载、更新、回滚、重新安装等)都经 place.go 的 applyChange 一次提交:
 // 先把要写的文件夹暂存好,再开事务写记录,把文件夹移到位,提交事务,最后清理备份;任何一步失败都倒序撤销,
 // 数据库与磁盘不会只改一边。
 //

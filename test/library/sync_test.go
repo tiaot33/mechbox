@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -599,32 +598,6 @@ func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
 	}
 	if dir, err := lib.ScopeDirectory(ctx, library.GlobalScope(library.AgentCodex)); err != nil || dir != filepath.Join(home, ".agents", "skills") {
 		t.Fatalf("ScopeDirectory(codex global) after pull = %q, %v", dir, err)
-	}
-}
-
-func TestOpenRejectsForeignDatabaseWithoutMutatingIt(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "foreign.db")
-	foreign, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := foreign.Exec(`CREATE TABLE notes (body TEXT)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := foreign.Close(); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lib, err := library.Open(path)
-	if err == nil {
-		_ = lib.Close()
-	}
-	requireLibraryError(t, err, library.FailedPrecondition)
-	if after, err := os.ReadFile(path); err != nil || !bytes.Equal(after, before) {
-		t.Fatalf("foreign database changed: %v", err)
 	}
 }
 
