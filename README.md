@@ -1,4 +1,4 @@
-# Mechbox
+![Mechbox](docs/images/social-preview.png)
 
 一个 macOS 桌面应用，管理 Claude Code、Codex 等 Agent 用的 [Agent Skills](https://agentskills.io)：从各处收集技能放进自己的库，按需装到全局或某个项目里，来源有新内容时由你审阅后再更新，出了问题可以回滚。
 
