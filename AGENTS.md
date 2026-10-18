@@ -3,7 +3,7 @@
 Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完整的进程内技能库(Library,见 ADR 0008),供本项目的 Go 调用方使用。SQLite 数据库是唯一权威数据源,磁盘上各 Agent 目录里已安装的技能文件夹由它生成。
 
 - `internal/library/doc.go` — 包说明。**阅读入口,先读这个**;方法签名用 `go doc -all ./internal/library` 查看。
-- `internal/library/library.go` — `Library` 结构体与实例生命周期:Open、Close、共享状态与操作锁;`Open` 里登记各来源(`source.Kinds`)与读取上限;`SetGitHubToken` 把调用方传入的 GitHub 令牌交给 GitHub 来源;`applyChange` 把 `store.InTx` 与 `agentdir.Change` 合成一次提交:暂存 → 开事务写记录 → `Commit` 移到位 → 提交事务 → `Done`,失败时 defer 倒序撤销;要删的真实文件夹被其他安装处的符号链接指着时，提交前先给那几处换上独立的一份(`reinstall.go` 的 `detachLinkedPlaces`)。
+- `internal/library/library.go` — `Library` 结构体与实例生命周期:Open、Close、共享状态与操作锁;`Open` 里登记各来源(`source.Kinds`)与读取上限;`SetGitHubToken` 把调用方传入的 GitHub 令牌交给 GitHub 来源;`applyChange` 把 `store.InTx` 与 `agentdir.Change` 合成一次提交:暂存 → 开事务写记录 → `Commit` 移到位 → 提交事务 → `Done`,失败时 defer 倒序撤销;要覆盖或删除的一处被其他安装处的符号链接(含多级)指着、而那几处不在这次改动里时，提交前先给它们换上独立的一份(`reinstall.go` 的 `detachLinkedPlaces`)。
 - `internal/library/errors.go` — 公开错误类型 `Error` / `ErrorCode` / `ErrorDetails`,以及唯一的翻译点 `typedError` 和参数校验。
 - 以下每个文件按用户流程放一步的公开类型、公开方法与其私有辅助函数:
   - `fetch.go` — 搜索、入库预览、审计、入库;`previewTarget` 按固定顺序识别入库预览的输入(本地路径 → 托管平台的 raw / archive / release 链接 → GitHub → GitLab、SSH 与 `.git` 地址 → 其他 http(s) 链接),交给对应来源的 `Matches` / `Locate`;其他链接由 `probeLink` 依次试直接下载(`download.Kind.Probe`,按内容判断)、well-known 索引(`wellknown.Locate`)与 `git ls-remote`(`git.Probe`)。`Collection` 不是一种来源，从库里取该集合入库时的定位信息，不重新识别。入库预览、入库、更新与检查更新都只经 `source.Kinds` 打开的 `Snapshot`(识别时已经读过内容的来源把 `Snapshot` 放在 `Target` 上，入库预览直接用它)。

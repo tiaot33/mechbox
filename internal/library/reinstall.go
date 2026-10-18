@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
@@ -75,9 +76,10 @@ type SkillScopeInspection struct {
 	// 库第一次写这一处时(更新、重新安装、回滚)照常写成独立的文件夹,不写进链接指向的地方,之后这一处是独立的一份;
 	// 这几处的确认里据此写明它原来指向哪里。
 	LinkTarget string `json:"link_target,omitempty"`
-	// LinkedBy 是这个技能装出去的其他地方里,符号链接指向这一处文件夹的那几处(它们的 LinkTarget 就是这里),按 Agent、作用域排序;
-	// 不受 SkillScopeFilter 限制。库要删这个文件夹时(卸载、移除技能、自定义 Agent 改目录或删除),先给这几处换上独立的一份
-	// (当时文件夹里的内容),它们照常装着;卸载前的确认据此说明。没有时为空。
+	// LinkedBy 是这个技能装出去的其他地方里,符号链接(包括一级级经过别的链接)指到这一处的那几处,按 Agent、作用域排序;
+	// 不受 SkillScopeFilter 限制。这一处本身是链接时也算:删掉它,链着它的那几处就断了。库要覆盖或删除这一处时
+	// (更新、重新安装、回滚这一处,卸载、组卸载、移除技能、自定义 Agent 改目录或删除),这次没一起写、也没一起删的那几处
+	// 先换上独立的一份(当时它们读到的内容),它们照常装着,Agent 在那里用的不变;确认据此说明。没有时为空。
 	LinkedBy []Scope `json:"linked_by,omitempty"`
 }
 
@@ -117,7 +119,7 @@ func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilte
 
 func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skillScopes []SkillScope) ([]SkillScopeInspection, error) {
 	inspections := []SkillScopeInspection{}
-	links := map[SkillID][]linkedPlace{}
+	links := map[SkillID][]SkillScope{}
 	for _, skillScope := range skillScopes {
 		target, err := l.resolveScope(ctx, operation, skillScope.Scope)
 		if err != nil {
@@ -128,18 +130,16 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 			return nil, err
 		}
 		inspection := SkillScopeInspection{SkillScope: skillScope, Status: status, VersionID: versionID, LinkTarget: agentdir.LinkTarget(skillScope.Folder)}
-		if inspection.LinkTarget == "" && agentdir.IsFolder(skillScope.Folder) {
-			linked, ok := links[skillScope.SkillID]
-			if !ok {
-				if linked, err = l.linkedPlaces(ctx, skillScope.SkillID); err != nil {
-					return nil, err
-				}
-				links[skillScope.SkillID] = linked
+		linked, ok := links[skillScope.SkillID]
+		if !ok {
+			if linked, err = l.linkedPlaces(ctx, skillScope.SkillID); err != nil {
+				return nil, err
 			}
-			for _, place := range linked {
-				if agentdir.SameFolder(place.Folder, skillScope.Folder) {
-					inspection.LinkedBy = append(inspection.LinkedBy, place.Scope)
-				}
+			links[skillScope.SkillID] = linked
+		}
+		for _, place := range linked {
+			if !agentdir.SameEntry(place.Folder, skillScope.Folder) && linksThrough(place.Folder, []string{skillScope.Folder}) {
+				inspection.LinkedBy = append(inspection.LinkedBy, place.Scope)
 			}
 		}
 		inspections = append(inspections, inspection)
@@ -147,37 +147,34 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 	return inspections, nil
 }
 
-type linkedPlace struct {
-	SkillScope
-	target string
-}
-
-func (l *Library) linkedPlaces(ctx context.Context, id SkillID) ([]linkedPlace, error) {
+func (l *Library) linkedPlaces(ctx context.Context, id SkillID) ([]SkillScope, error) {
 	skillScopes, err := l.listSkillScopes(ctx, id, nil)
 	if err != nil {
 		return nil, err
 	}
-	var linked []linkedPlace
+	var linked []SkillScope
 	for _, skillScope := range skillScopes {
-		if target := agentdir.LinkTarget(skillScope.Folder); target != "" {
-			linked = append(linked, linkedPlace{SkillScope: skillScope, target: target})
+		if agentdir.LinkTarget(skillScope.Folder) != "" {
+			linked = append(linked, skillScope)
 		}
 	}
 	return linked, nil
 }
 
-func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Change, linked []linkedPlace) error {
-	for _, removal := range change.Removals() {
-		if !agentdir.IsFolder(removal) {
+func linksThrough(link string, folders []string) bool {
+	return slices.ContainsFunc(agentdir.LinkChain(link), func(hop string) bool {
+		return slices.ContainsFunc(folders, func(folder string) bool { return agentdir.SameEntry(hop, folder) })
+	})
+}
+
+func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Change, linked []SkillScope) error {
+	targets := change.Targets()
+	for _, place := range linked {
+		if change.Touches(place.Folder) || !agentdir.Resolves(place.Folder) || !linksThrough(place.Folder, targets) {
 			continue
 		}
-		for _, place := range linked {
-			if change.Places(place.Folder) || !agentdir.SameFolder(place.target, removal) {
-				continue
-			}
-			if err := change.Detach(ctx, place.Folder); err != nil {
-				return err
-			}
+		if err := change.Detach(ctx, place.Folder); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -249,7 +246,8 @@ func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID
 // 只换列出的几处:巡检之后才多出来的安装不会被一起换掉。逐处执行,结果与 requests 一一对应、顺序相同;
 // 每一处各自要么换成功、要么保持原样,一处失败不影响其他处。本来就是当前版本的不动;落后的、文件夹不在了的
 // (可重建 Agent 目录)换成当前版本;被改过的只在这一处的 Overwrite 同意时覆盖。是符号链接的那一处(见 SkillScopeInspection.LinkTarget)
-// 写成独立的文件夹,不写进链接指向的地方,链接读到的已是当前版本时也一样。
+// 写成独立的文件夹,不写进链接指向的地方,链接读到的已是当前版本时也一样。别处的链接指着要写的这一处、而那一处没列出时
+// (SkillScopeInspection.LinkedBy),先给它换上独立的一份,保持它现在读到的内容。
 // 状态问题记在这一处的结果里(见 ReinstallResult),不让整次调用失败;只有请求本身不合法(Scope 组合非法、
 // 同一处列了两次)才整次返回 InvalidArgument,且一处都不动。空列表返回空结果。
 // 整体取消时返回已完成的几处与 Canceled 错误,未执行的不出现在结果里。

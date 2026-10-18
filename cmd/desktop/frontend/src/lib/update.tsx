@@ -30,7 +30,7 @@ import {
   type UpdateRecordID,
   type UpdateRisk,
 } from "@bindings/internal/library";
-import { LinkedPlaces } from "./actions";
+import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes, linkWrites } from "./actions";
 import { describeError } from "./errors";
 import type { LibraryError, Snapshot } from "./library";
 import { collectionSkills, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
@@ -135,11 +135,14 @@ export async function runUpdate(
   checked: Set<SkillID>,
   installOn: (p: SkillScopeInspection) => boolean,
   from?: string,
+  confirmLinks?: Snapshot, // 不经更新计划弹窗的快捷更新传入快照：写到符号链接相关的地方前先确认
 ): Promise<UpdateOutcome | "conflict" | undefined> {
   const places = plannedInstalls(plan, checked);
+  const written = (p: SkillScopeInspection) => canInstall(p) && installOn(p);
   const requests: ReinstallRequest[] = places
-    .filter((p) => canInstall(p) && installOn(p))
+    .filter(written)
     .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: p.status === SkillScopeStatus.SkillScopeModified }));
+  if (confirmLinks && !(await confirmLinkWrites(ui, confirmLinks, places, written, `更新 ${label}`, "更新"))) return undefined;
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
     onError: (err) => (conflict = stalePlan(err)),
@@ -220,6 +223,9 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
   }, []);
   const left = failed.flat().length;
   const retry = async () => {
+    const again = outcomes.flatMap((o, i) => o.requests.filter((r) => failed[i].some((f) => installKey(f) === installKey(r))));
+    if (!(await confirmLinkedRequests(ui, s, again, "重试没换上的地方", "重试"))) return;
+    if (!alive.current) return;
     setWorking(true);
     const next: ReinstallResult[][] = [];
     for (const [i, o] of outcomes.entries()) {
@@ -304,7 +310,7 @@ export async function updateWithDefaults(ui: UI, s: Snapshot, collectionIDs: Col
       ui.toast(`${name} 没有能直接更新的改动;改名、删除和会换掉你的修改的更新请在更新计划里确认`);
       continue;
     }
-    const o = await runUpdate(ui, plan, name, checked, defaultInstallOn);
+    const o = await runUpdate(ui, plan, name, checked, defaultInstallOn, undefined, s);
     if (o === "conflict") ui.toast(`${name} 的来源刚又变了，请打开更新计划重新看`, "error");
     else if (o) outcomes.push(o);
   }
@@ -322,11 +328,11 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
     return;
   }
   if (item.change === PlannedChange.PlannedUnchanged) {
-    const o = await refreshInstalls(ui, skill);
+    const o = await refreshInstalls(ui, s, skill);
     if (o) await reportUpdates(ui, s, [o]);
     return;
   }
-  const o = await runUpdate(ui, plan, skill.name, new Set([skill.id]), defaultInstallOn);
+  const o = await runUpdate(ui, plan, skill.name, new Set([skill.id]), defaultInstallOn, undefined, s);
   if (o === "conflict") ui.toast("目录在读取期间又变了，请再重新读取一次", "error");
   else if (o) await reportUpdates(ui, s, [o]);
 }
@@ -334,7 +340,7 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
 // refreshInstalls 是目录内容没变时的"重新读取":库里已是目录现在的内容，但装出去的地方可能还没换上(上次没换上、
 // 文件夹不在了),把这些换成当前版本;用户改过的地方不动，项目不在这台机器上的装不上。都已是当前版本时只提示一句。
 // 带来当前版本的那次更新里列过的地方，补装算进那次更新，回滚它时一起装回去;其余的是普通的重新安装。
-async function refreshInstalls(ui: UI, skill: Skill): Promise<UpdateOutcome | undefined> {
+async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<UpdateOutcome | undefined> {
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes({ skill_id: skill.id }), { reload: false });
   if (inspected === undefined) return undefined;
   const behind = (inspected ?? []).filter((p) => p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p));
@@ -346,6 +352,8 @@ async function refreshInstalls(ui: UI, skill: Skill): Promise<UpdateOutcome | un
     ui.toast([`「${skill.name}」的内容没有变化`, keptEdited ? `${keptEdited} 个地方你改过，没动` : ""].filter(Boolean).join(" · "));
     return undefined;
   }
+  const wanted = new Set(requests.map(installKey));
+  if (!(await confirmLinkWrites(ui, s, inspected ?? [], (p) => wanted.has(installKey(p)), `重新读取「${skill.name}」`, "重新安装"))) return undefined;
   const history = await ui.run(() => LibraryService.ListUpdateHistory({ skill_id: skill.id }), { reload: false });
   if (history === undefined) return undefined;
   const record = (history ?? []).find(
@@ -420,7 +428,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
   const wanted = new Set(places.map(installKey));
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false });
   if (inspected === undefined) return;
-  const links = (inspected ?? []).filter((p) => p.link_target && wanted.has(installKey(p)));
+  const writes = linkWrites(inspected ?? [], (p) => wanted.has(installKey(p)));
   const ok = await ui.confirm({
     title: "回滚这次更新",
     body: (
@@ -429,14 +437,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
           库里的技能换回这次更新之前的版本，这次换过的地方也装回旧版;之后又重新安装过、你改过或不在这台机器上的地方不动。
           回滚掉的改动记为跳过，不再计入角标;想要时可以在更新计划里再勾上。
         </Hint>
-        {links.length > 0 && (
-          <>
-            <Notice className="rollback-linked">
-              下面 {links.length} 处现在是符号链接。装回旧版时会把这几处换成独立的一份，链接指向的文件夹不动。
-            </Notice>
-            <LinkedPlaces s={s} places={links} />
-          </>
-        )}
+        <LinkWriteNotes s={s} {...writes} />
       </>
     ),
     confirm: "回滚",

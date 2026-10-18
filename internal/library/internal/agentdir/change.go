@@ -88,6 +88,9 @@ func (c *Change) Copy(ctx context.Context, from, directory, name string) error {
 		return err
 	}
 	item.exclusive = true
+	if resolved, err := filepath.EvalSymlinks(from); err == nil {
+		from = resolved
+	}
 	return copyTree(ctx, from, item.stage)
 }
 
@@ -103,21 +106,16 @@ func (c *Change) Detach(ctx context.Context, link string) error {
 	return copyTree(ctx, from, item.stage)
 }
 
-func (c *Change) Removals() []string {
-	return c.removals
-}
-
-func (c *Change) Places(path string) bool {
+func (c *Change) Targets() []string {
+	targets := slices.Clone(c.removals)
 	for _, item := range c.placements {
-		if samePlace(item.target, path) {
-			return true
-		}
+		targets = append(targets, item.target)
 	}
-	return slices.ContainsFunc(c.removals, func(removal string) bool { return samePlace(removal, path) })
+	return targets
 }
 
-func samePlace(a, b string) bool {
-	return filepath.Base(a) == filepath.Base(b) && Canonical(filepath.Dir(a)) == Canonical(filepath.Dir(b))
+func (c *Change) Touches(path string) bool {
+	return slices.ContainsFunc(c.Targets(), func(target string) bool { return SameEntry(target, path) })
 }
 
 func copyTree(ctx context.Context, from, stage string) error {

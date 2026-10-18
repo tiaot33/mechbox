@@ -1547,7 +1547,14 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     const linked = modal().locator(".update-place", { hasText: "Claude Code · 全局" }).locator(".update-place-link");
     await linked.waitFor({ timeout: 15000 });
     assert.equal(await linked.textContent(), `这次会换成独立的一份(现在是指向 ${fs.realpathSync(real)} 的符号链接)`, "写明原来指向哪里");
-    assert.equal(await modal().locator(".update-place", { hasText: "Codex · 全局" }).locator(".update-place-link").count(), 0, "真实文件夹不说");
+    const codexPlace = modal().locator(".update-place", { hasText: "Codex · 全局" });
+    assert.equal(await codexPlace.locator(".update-place-link").count(), 0, "真实文件夹不说");
+    // 去掉链着它的那一处:换 Codex 之前，Claude Code 全局先换成独立的一份、保持现在的内容，在 Codex 那一行说出来。
+    const claudeBox = modal().locator(".update-place", { has: page.locator("span", { hasText: /^Claude Code · 全局$/ }) }).locator("input[type=checkbox]");
+    await claudeBox.uncheck();
+    assert.equal(await codexPlace.locator(".update-place-kept").textContent(), "Claude Code · 全局 链着这里，没勾，会先换成独立的一份，保持现在的内容", "没勾的链接写在被链着的那一行");
+    await claudeBox.check();
+    assert.equal(await codexPlace.locator(".update-place-kept").count(), 0, "勾上后不再说");
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, "update-linked-place.png") });
     await btn(modal(), "更新").click();
@@ -1561,7 +1568,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await refresh();
     await btn(drawer(), "更新历史").click();
     await btn(modal().locator(".update-record", { hasText: "用 Claude Code · proj-a 里的修改更新" }).first(), "回滚").click();
-    await modal().locator(".rollback-linked").waitFor();
+    await modal().locator(".write-linked").waitFor();
     assert((await modal().locator(".linked-place").textContent()).includes("Claude Code · 全局"), "列出是符号链接的那一处");
     await btn(modal(), "回滚").click();
     await toast("装回了 2 个地方");
@@ -1587,7 +1594,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     relink();
     await refresh();
     await row("Codex · 全局").locator('[role="switch"]').click();
-    const linkedNote = modal().locator(".uninstall-linked");
+    const linkedNote = modal().locator(".detach-linked");
     await linkedNote.waitFor();
     assert((await linkedNote.textContent()).includes("Claude Code · 全局 里的「link-tdd」是指向"), `卸载前说明:${await linkedNote.textContent()}`);
     await page.waitForTimeout(300);

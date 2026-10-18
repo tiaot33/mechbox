@@ -101,7 +101,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		}
 		target := found.target
 		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
-		entry.LinkOutside = found.Target != "" && !slices.ContainsFunc(directories, func(directory string) bool { return isInside(directory, found.Target) })
+		entry.LinkOutside = found.Target != "" && !slices.ContainsFunc(directories, func(directory string) bool { return agentdir.Within(found.Target, directory) })
 		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
 			entry.Description = candidate.Description
 		}

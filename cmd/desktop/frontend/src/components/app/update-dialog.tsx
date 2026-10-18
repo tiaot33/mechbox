@@ -561,6 +561,12 @@ export function Places({
   modified?: string; // 用户改过的地方旁边的说明
 }) {
   if (!places.length) return <Hint>勾选的技能还没有装到任何地方，只更新技能库。</Hint>;
+  // unchecked 是链着这一处、这次没勾的地方：换这一处之前，库先给它们换上独立的一份。
+  const unchecked = (p: SkillScopeInspection) =>
+    (p.linked_by ?? []).filter((scope) => {
+      const other = places.find((x) => x.skill_id === p.skill_id && scopeKey(x.scope) === scopeKey(scope));
+      return !other || !on(other);
+    });
   const rows = new Map<string, SkillScopeInspection[]>();
   for (const p of places) rows.set(scopeKey(p.scope), [...(rows.get(scopeKey(p.scope)) ?? []), p]);
   return (
@@ -584,6 +590,11 @@ export function Places({
                 {p.link_target && on(p) && (
                   <span className="update-place-link min-w-0 text-[11px] break-all text-muted-foreground" title={p.link_target}>
                     {linkNote(s, p.link_target)}
+                  </span>
+                )}
+                {on(p) && unchecked(p).length > 0 && (
+                  <span className="update-place-kept min-w-0 text-[11px] text-muted-foreground">
+                    {unchecked(p).map((scope) => scopeLabel(s, scope)).join("、")} 链着这里，没勾，会先换成独立的一份，保持现在的内容
                   </span>
                 )}
               </label>

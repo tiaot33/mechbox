@@ -13,6 +13,7 @@ import {
   type UpdateRecord,
   type VersionDiff,
 } from "@bindings/internal/library";
+import { confirmLinkedRequests } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
@@ -124,12 +125,9 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
   ].filter(Boolean);
 
   const retry = async () => {
-    const results = await ui.run(() =>
-      LibraryService.RetryUpdateInstalls(
-        record.id,
-        failed.map((i) => ({ skill_id: i.skill_id, scope: i.scope, overwrite: false })),
-      ),
-    );
+    const requests = failed.map((i) => ({ skill_id: i.skill_id, scope: i.scope, overwrite: false }));
+    if (!(await confirmLinkedRequests(ui, s, requests, "重试没换上的地方", "重试"))) return;
+    const results = await ui.run(() => LibraryService.RetryUpdateInstalls(record.id, requests));
     if (!results) return;
     const left = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed).length;
     ui.toast(left ? `还有 ${left} 个地方没换上` : "没换上的地方都换上了", left ? "error" : "ok");
