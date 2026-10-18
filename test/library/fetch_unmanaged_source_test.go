@@ -287,7 +287,7 @@ func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
 				t.Fatal(err)
 			}
 			skill := result.Skill
-			if skill.Revision != "" || skill.CollectionID == 0 {
+			if skill.Revision != "" || skill.CollectionID == 0 || skill.Edited {
 				t.Fatalf("FetchUnmanaged() = %#v, want a skill in the collection with an unknown source version", result)
 			}
 			if version := f.currentVersion(t, skill); version.MaybeEdited {
@@ -333,7 +333,7 @@ func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
 
 			skill := f.fetch(t).Skill
 			version := f.currentVersion(t, skill)
-			if !version.MaybeEdited || skill.Revision != "" {
+			if !version.MaybeEdited || skill.Revision != "" || !skill.Edited {
 				t.Fatalf("version = %#v, skill = %#v, want a possible edit with an unknown source version", version, skill)
 			}
 			requireScopeStatus(t, f.lib, skill.ID, f.claude, library.SkillScopeCurrent)
@@ -357,8 +357,8 @@ func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if version := f.currentVersion(t, updated.Skill); version.MaybeEdited {
-				t.Fatalf("version after update = %#v, want the source's version", version)
+			if version := f.currentVersion(t, updated.Skill); version.MaybeEdited || updated.Skill.Edited {
+				t.Fatalf("version after update = %#v, skill = %#v, want the source's version", version, updated.Skill)
 			}
 			requireCheck(t, f.lib, skill.ID, library.UpdateCurrent, false, false)
 			history, err := f.lib.ListUpdateHistory(ctx, library.UpdateHistoryFilter{SkillID: skill.ID})
@@ -531,7 +531,7 @@ func TestFetchUnmanagedEditedAfterInstallingTheLatestFollowsOnlyTheAuthor(t *tes
 			}
 			skill := result.Skill
 			head := gitRevParse(t, f.repo, "HEAD")
-			if skill.Revision != head || !skill.UpdatedAt.IsZero() {
+			if skill.Revision != head || !skill.UpdatedAt.IsZero() || !skill.Edited {
 				t.Fatalf("FetchUnmanaged() = %#v, want the source version the edits are based on (%s) and no update yet", skill, head)
 			}
 			version := f.currentVersion(t, skill)

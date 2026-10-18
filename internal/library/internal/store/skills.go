@@ -31,6 +31,7 @@ type Skill struct {
 	RenamedTo     string
 	Skipped       bool
 	KeptDeleted   bool
+	Edited        bool
 }
 
 type Current struct {
@@ -66,7 +67,8 @@ const skillQuery = `
 		skills.update_check_content != '' AND EXISTS (
 			SELECT 1 FROM skipped_changes WHERE skipped_changes.skill_id = skills.id AND skipped_changes.content = skills.update_check_content
 		),
-		skills.kept_serial > 0
+		skills.kept_serial > 0,
+		current_version.base_version_id IS NOT NULL OR current_version.maybe_edited
 	FROM skills
 	LEFT JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -129,7 +131,7 @@ func (q queries) listSkills(ctx context.Context, operation, clause string, args 
 func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 	var skill Skill
 	var fetchedAt, updatedAt, checkedAt string
-	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted)
+	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited)
 	if err != nil {
 		return Skill{}, err
 	}

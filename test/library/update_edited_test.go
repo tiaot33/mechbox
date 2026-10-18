@@ -22,9 +22,15 @@ func (f scopeEditFixture) takeClaudeEdits(t *testing.T) library.Skill {
 	if plan.Skills[0].Edited {
 		t.Fatalf("plan from scope = %#v; want Edited false", plan.Skills[0])
 	}
+	if f.skill.Edited {
+		t.Fatalf("skill = %#v; want Edited false before the edits are taken", f.skill)
+	}
 	result, err := f.lib.Update(t.Context(), library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{f.skill.ID}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !result.Skills[0].Skill.Edited {
+		t.Fatalf("skill = %#v; want Edited after taking the edits", result.Skills[0].Skill)
 	}
 	return result.Skills[0].Skill
 }
