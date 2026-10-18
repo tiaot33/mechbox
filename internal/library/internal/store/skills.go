@@ -61,7 +61,7 @@ type NewVersion struct {
 const skillQuery = `
 	SELECT skills.id, skills.name, current_version.description,
 		ifnull(sources.id, 0), ifnull(sources.type, ''), ifnull(sources.locator, ''), current_version.id, current_version.revision,
-		first_version.created_at, CASE WHEN current_version.id = first_version.id THEN '' ELSE current_version.created_at END,
+		first_version.created_at, CASE WHEN current_version.created_at = first_version.created_at THEN '' ELSE current_version.created_at END,
 		skills.update_checked_at, skills.update_check_status, skills.update_check_revision, skills.update_check_renamed_to,
 		skills.update_check_content != '' AND EXISTS (
 			SELECT 1 FROM skipped_changes WHERE skipped_changes.skill_id = skills.id AND skipped_changes.content = skills.update_check_content
