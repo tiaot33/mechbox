@@ -36,7 +36,8 @@ type UpdatePlan struct {
 	// Skills 是集合里的每个技能,按 ID 升序。
 	Skills []PlannedSkill `json:"skills"`
 	// Installs 是有变化的技能装出去的每一处及其现在的状态,按「技能 × 地方」逐条给出,与 InspectSkillScopes 的结果同形、同序;
-	// 同一处装了几个有变化的技能时各自一条。没有时为空数组。用目录里的修改更新时不含取内容的那个文件夹(共用它的 Agent 也不列)。
+	// 同一处装了几个有变化的技能时各自一条。没有时为空数组。用目录里的修改更新时不含取内容的那个文件夹(共用它的 Agent、
+	// 以及解析符号链接后是同一个真实文件夹的地方也不列)。
 	Installs []SkillScopeInspection `json:"installs"`
 	// FromScope 是用目录里的修改更新(PlanUpdateFromScope)时取内容的那一处;从来源更新时为 nil。
 	FromScope *Scope `json:"from_scope,omitempty"`
@@ -242,7 +243,7 @@ func (l *Library) PlanUpdateFromScope(ctx context.Context, skill SkillID, scope 
 		return UpdatePlan{}, err
 	}
 	for _, inspection := range inspections {
-		if inspection.Folder != edit.folder {
+		if agentdir.Canonical(inspection.Folder) != agentdir.Canonical(edit.folder) {
 			plan.Installs = append(plan.Installs, inspection)
 		}
 	}

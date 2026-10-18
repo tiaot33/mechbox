@@ -351,3 +351,42 @@ func TestUpdateFromScopeLeavesOutAgentsSharingTheFolder(t *testing.T) {
 	_, err = lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: sharedScope}}})
 	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "installs", SkillID: skill.ID})
 }
+
+// 一处是指向另一处的符号链接时,两处是同一个文件夹,内容就是这份修改:计划里不把另一处列为被改过,更新时也不能勾。
+func TestUpdateFromScopeTreatsPlacesLinkedToTheSameFolderAsOne(t *testing.T) {
+	ctx := t.Context()
+	f := newScopeEditFixture(t)
+	lib, skill := f.lib, f.skill
+	claudeFolder, codexFolder := filepath.Join(f.directories[f.claude], "pdf"), filepath.Join(f.directories[f.codex], "pdf")
+	if err := os.RemoveAll(claudeFolder); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(codexFolder, claudeFolder); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(codexFolder, "SKILL.md"), []byte(skillDocument("pdf", "edited in codex")), 0o644)
+
+	plan, err := lib.PlanUpdateFromScope(ctx, skill.ID, f.claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	places := map[library.Scope]library.SkillScopeStatus{}
+	for _, install := range plan.Installs {
+		places[install.Scope] = install.Status
+	}
+	if want := map[library.Scope]library.SkillScopeStatus{f.project: library.SkillScopeCurrent}; !reflect.DeepEqual(places, want) {
+		t.Fatalf("plan installs = %v; want the place linked to the same folder left out", places)
+	}
+	_, err = lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.codex, Overwrite: true}}})
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "installs", SkillID: skill.ID})
+
+	if _, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}, Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: f.project}}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[library.Scope]library.SkillScopeStatus{f.claude: library.SkillScopeCurrent, f.codex: library.SkillScopeCurrent, f.project: library.SkillScopeCurrent}; !reflect.DeepEqual(f.statuses(t), want) {
+		t.Fatalf("statuses = %v; want every place on the new version", f.statuses(t))
+	}
+	if target, err := os.Readlink(claudeFolder); err != nil || target != codexFolder {
+		t.Fatalf("claude folder link = %q, %v; want it left as it was", target, err)
+	}
+}
