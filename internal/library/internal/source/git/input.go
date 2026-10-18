@@ -83,6 +83,9 @@ func parse(in Input) (parsedInput, error) {
 				return parsedInput{}, invalid()
 			}
 		case "ssh":
+			if _, hasPassword := u.User.Password(); hasPassword {
+				return parsedInput{}, invalid()
+			}
 		default:
 			return parsedInput{}, invalid()
 		}

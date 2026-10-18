@@ -2,6 +2,7 @@ package git
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
@@ -56,6 +57,7 @@ func TestParseRejectsUnsafeOrAmbiguousInputs(t *testing.T) {
 		{Input: "git@git.example.com:team/-"},
 		{Input: "https://user:secret@git.example.com/repo.git"},
 		{Input: "https://token@git.example.com/repo.git"},
+		{Input: "ssh://git:secret@git.example.com/team/repo.git"},
 		{Input: "https://git.example.com/repo.git?private_token=x"},
 		{Input: "https:///repo.git"},
 		{Input: "ftp://git.example.com/repo.git"},
@@ -87,6 +89,9 @@ func TestInvalidInputIsRejectedBeforeContactingRemote(t *testing.T) {
 	}
 	if _, err := InputRefs(t.Context(), "https://user:secret@git.example.com/repo.git"); !isInputError(err) {
 		t.Errorf("InputRefs = %v", err)
+	}
+	if _, err := Locate(t.Context(), Input{Input: "ssh://git:secret@git.example.com/team/repo.git"}); !isInputError(err) || strings.Contains(err.Error(), "secret") {
+		t.Errorf("Locate with ssh password = %v", err)
 	}
 	if _, ok, err := Probe(t.Context(), "https://git.example.com/repo", "", "../outside"); ok || !isInputError(err) {
 		t.Errorf("Probe = %v, %v", ok, err)
