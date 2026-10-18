@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
-// UninstallFolders 是卸载技能管理器时，库装到各作用域的技能文件夹怎么处理。
+// UninstallFolders 是卸载 Mechbox 时，库装到各作用域的技能文件夹怎么处理。
 type UninstallFolders string
 
 const (
@@ -24,14 +24,14 @@ func (f UninstallFolders) valid() bool {
 	return f == "" || f == FoldersKeep || f == FoldersKeepModified || f == FoldersTrash
 }
 
-// UninstallOptions 是卸载技能管理器的选项。
+// UninstallOptions 是卸载 Mechbox 的选项。
 type UninstallOptions struct {
 	Folders UninstallFolders `json:"folders"`
 	// SkipKeychain 为 true 时删不掉系统钥匙串里的条目也继续卸载(用户看了上一次的结果后选了跳过)。
 	SkipKeychain bool `json:"skip_keychain"`
 }
 
-// UninstallResult 是卸载技能管理器的结果。
+// UninstallResult 是卸载 Mechbox 的结果。
 type UninstallResult struct {
 	// Uninstalled 为 true 时卸载已经确认，应用随即退出。
 	Uninstalled bool `json:"uninstalled"`
@@ -40,7 +40,7 @@ type UninstallResult struct {
 	KeychainError string `json:"keychain_error,omitempty"`
 }
 
-// UninstallApp 卸载技能管理器：先删除系统钥匙串里的令牌与密钥，再按选项把装出去的技能文件夹移到废纸篓
+// UninstallApp 卸载 Mechbox：先删除系统钥匙串里的令牌与密钥，再按选项把装出去的技能文件夹移到废纸篓
 // (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
 // 退出时技能库关上以后，再删除数据库、settings.json 与系统给应用留下的数据，并把应用移到废纸篓(移不动时在 Finder 中选中它)。
 // 移文件夹中途失败时返回错误、不退出，数据库与设置都还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。

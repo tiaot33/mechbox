@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 接管以后,符号链接的那一处在库第一次写它时换成独立的文件夹

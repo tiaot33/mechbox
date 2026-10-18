@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, record func(*store.Tx) error) error {

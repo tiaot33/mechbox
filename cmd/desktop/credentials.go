@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 type secretStore interface {

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 从作用域入库未纳管技能

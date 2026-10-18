@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // serveGatedArchive 起一个受 gate 控制的 zip 远端;archive 每次请求时读取,便于测试中途换内容。

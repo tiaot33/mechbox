@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 本文件把 library.Library 的方法(Close 除外)逐个开放给前端：同名、同签名，原样转发。

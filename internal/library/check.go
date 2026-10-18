@@ -9,11 +9,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // UpdateCheckStatus 是检查更新的结论,随技能保存在 Skill.LastUpdateCheck 上。

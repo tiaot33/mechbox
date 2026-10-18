@@ -5,12 +5,12 @@ import (
 	"errors"
 	"io/fs"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/market"
-	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/market"
+	"github.com/tiaot33/mechbox/internal/library/internal/s3"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // ErrorCode 是稳定的错误类别,调用方(TUI / 桌面端)据此决定界面表现。

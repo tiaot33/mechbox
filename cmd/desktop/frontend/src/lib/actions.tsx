@@ -723,7 +723,7 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
     body: (
       <>
         <Hint>
-          {shortPath(s, project.path)} 不再由技能管理器管理，它在各 Agent 下的直接安装与组安装记录都会删除。
+          {shortPath(s, project.path)} 不再由 Mechbox 管理，它在各 Agent 下的直接安装与组安装记录都会删除。
         </Hint>
         <DetachNotice s={s} items={detachedBy(places)} when="删这个文件夹前" prefix="选「同时删除」时:" />
       </>

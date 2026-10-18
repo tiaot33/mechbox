@@ -11,7 +11,7 @@ const HOME = process.env.E2E_HOME;
 const URL = process.env.E2E_URL;
 const ZIP_URL = process.env.E2E_ZIP_URL;
 const ZIP_DIR = process.env.E2E_ZIP_DIR;
-const SHOTS = process.env.E2E_SHOTS ?? "/tmp/skills-e2e-shots";
+const SHOTS = process.env.E2E_SHOTS ?? "/tmp/mechbox-e2e-shots";
 const NETWORK = process.env.E2E_NETWORK === "1";
 if (!HOME || !URL || !ZIP_URL) throw new Error("需要 E2E_HOME、E2E_URL、E2E_ZIP_URL,请用 run.sh 运行");
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -29,14 +29,14 @@ page.on("response", async (r) => {
 });
 // previewCalls / refsCalls 数前端发出的 PreviewFetch / ListSourceRefs 调用(Wails 按绑定里的 methodID 发 POST)。
 const bindings = fs.readFileSync(
-  new globalThis.URL("../frontend/bindings/github.com/tiaot33/skills-tui/cmd/desktop/libraryservice.ts", import.meta.url),
+  new globalThis.URL("../frontend/bindings/github.com/tiaot33/mechbox/cmd/desktop/libraryservice.ts", import.meta.url),
   "utf8",
 );
 const methodID = (name) => bindings.match(new RegExp(`function ${name}\\([^]*?ByID\\((\\d+)`))[1];
 const previewMethodID = methodID("PreviewFetch");
 const refsMethodID = methodID("ListSourceRefs");
 const appBindings = fs.readFileSync(
-  new globalThis.URL("../frontend/bindings/github.com/tiaot33/skills-tui/cmd/desktop/appservice.ts", import.meta.url),
+  new globalThis.URL("../frontend/bindings/github.com/tiaot33/mechbox/cmd/desktop/appservice.ts", import.meta.url),
   "utf8",
 );
 const appMethodID = (name) => appBindings.match(new RegExp(`function ${name}\\([^]*?ByID\\((\\d+)`))[1];
@@ -2170,7 +2170,7 @@ await step("同步：未配置时同步计划报错", async () => {
 });
 
 await step("设置页：分区、应用设置写进这台机器的设置文件、项目、关于", async () => {
-  const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
+  const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
   const sw = (label) => page.locator(".settings .set-row", { hasText: label }).locator('[role="switch"]');
   const interval = (label) => btn(section("检查更新"), label);
   const open = async () => {
@@ -2178,10 +2178,10 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
     await page.locator('.settings [role="switch"]').first().waitFor();
   };
   await open();
-  for (const name of ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于", "卸载技能管理器"]) {
+  for (const name of ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于", "卸载 Mechbox"]) {
     assert((await section(name).count()) === 1, `应有分区「${name}」`);
   }
-  assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/skills-manager/library.db` }).count()) === 1, "关于应显示数据库位置");
+  assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/mechbox/library.db` }).count()) === 1, "关于应显示数据库位置");
   assert(/^\d+\.\d+\.\d+/.test((await section("关于").locator("dd").first().textContent()).trim()), "关于应显示应用版本");
   assert((await section("Agent").locator(".set-row", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
   assert((await section("项目").locator(".set-row", { hasText: "proj-a" }).count()) === 1, "项目分区应列出 proj-a");
@@ -2247,7 +2247,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
 });
 
 await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部留空时回到环境变量", async () => {
-  const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
+  const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
   const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
   const field = (name, label) => section(name).locator('[data-slot="field"]', { hasText: label }).locator("input");
   const sidebarSync = () => page.locator(".a-left .nav-item", { hasText: "同步" });
@@ -2332,7 +2332,7 @@ await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部
 });
 
 await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 编辑迁移 / 删除、共用目录卸载", async () => {
-  const settingsFile = `${HOME}/Library/Application Support/skills-manager/settings.json`;
+  const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
   const agents = () => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: /^Agent$/ }) });
   const row = (name) => agents().locator(".set-row", { hasText: name });
   const shownSwitch = (name) => row(name).locator('[role="switch"]');
@@ -2796,9 +2796,9 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await settle();
 });
 
-// ============ 卸载技能管理器(最后一步：卸载后 server 退出) ============
-await step("卸载技能管理器：现查被改过的几处，移走其余的，退出后删除数据库与设置文件", async () => {
-  const appDir = `${HOME}/Library/Application Support/skills-manager`;
+// ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============
+await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出后删除数据库与设置文件", async () => {
+  const appDir = `${HOME}/Library/Application Support/mechbox`;
   for (const name of ["omicron", "sigma"]) {
     fs.mkdirSync(`${HOME}/code/last/${name}`, { recursive: true });
     fs.writeFileSync(`${HOME}/code/last/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
@@ -2821,8 +2821,8 @@ await step("卸载技能管理器：现查被改过的几处，移走其余的�
   fs.writeFileSync(`${skillsDir}/hand-made/SKILL.md`, '---\nname: hand-made\ndescription: "mine"\n---\n');
 
   await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
-  await btn(section("卸载技能管理器"), "卸载技能管理器…").click();
-  await modal().locator('[data-slot="dialog-title"]', { hasText: "卸载技能管理器" }).waitFor();
+  await btn(section("卸载 Mechbox"), "卸载 Mechbox…").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "卸载 Mechbox" }).waitFor();
   await modal().locator('[data-slot="choice"]', { hasText: "保留已安装的文件夹" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "sigma · Claude Code · 全局" }).count()) === 1, "被改过的 sigma 应列出来");
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "omicron" }).count()) === 0, "没改过的 omicron 不应列为被改过");

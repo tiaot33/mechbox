@@ -12,14 +12,14 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // appDirName 是技能库在用户配置目录下的子目录名。
-const appDirName = "skills-manager"
+const appDirName = "mechbox"
 
-// defaultLibraryPath 返回真实技能库的位置：<用户配置目录>/skills-manager/library.db。
-// macOS 上即 ~/Library/Application Support/skills-manager/library.db;
+// defaultLibraryPath 返回真实技能库的位置：<用户配置目录>/mechbox/library.db。
+// macOS 上即 ~/Library/Application Support/mechbox/library.db;
 // 从 Finder / Dock 启动时也可用，因为它只依赖 HOME 而不依赖 shell 环境变量。
 func defaultLibraryPath() (string, error) {
 	dir, err := os.UserConfigDir()

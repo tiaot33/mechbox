@@ -10,11 +10,11 @@
     <Installer
         Path="desktop"
         Arguments=""
-        InstallLocation="C:\Program Files\tiaot33\技能管理器">
+        InstallLocation="C:\Program Files\tiaot33\Mechbox">
     </Installer>
     <PackageInformation
-        PackageName="技能管理器"
-        PackageDisplayName="技能管理器"
+        PackageName="Mechbox"
+        PackageDisplayName="Mechbox"
         PublisherName="CN=tiaot33"
         PublisherDisplayName="tiaot33"
         Version="0.1.0.0"
@@ -27,7 +27,7 @@
             <Application
                 Id="com.example.desktop"
                 Description="A desktop application"
-                DisplayName="技能管理器"
+                DisplayName="Mechbox"
                 ExecutableName="desktop"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,7 +41,7 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>技能管理器</DisplayName>
+            <DisplayName>Mechbox</DisplayName>
             <PublisherDisplayName>tiaot33</PublisherDisplayName>
             <Description>A desktop application</Description>
             <Logo>Assets\AppIcon.png</Logo>

@@ -12,7 +12,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/icons"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 const updatesCheckedEvent = "updates-checked"
@@ -286,16 +286,16 @@ func (a *AppService) windowClosing(event *application.WindowEvent) {
 
 func (a *AppService) newTray() *application.SystemTray {
 	menu := a.app.NewMenu()
-	menu.Add("打开技能管理器").OnClick(func(*application.Context) { a.showWindow() })
+	menu.Add("打开 Mechbox").OnClick(func(*application.Context) { a.showWindow() })
 	menu.AddSeparator()
-	menu.Add("退出技能管理器").OnClick(func(*application.Context) { a.app.Quit() })
+	menu.Add("退出 Mechbox").OnClick(func(*application.Context) { a.app.Quit() })
 	tray := a.app.SystemTray.New()
 	if runtime.GOOS == "darwin" {
 		tray.SetTemplateIcon(icons.SystrayMacTemplate)
 	} else {
 		tray.SetIcon(icons.SystrayLight)
 	}
-	tray.SetTooltip("技能管理器")
+	tray.SetTooltip("Mechbox")
 	tray.SetMenu(menu)
 	return tray
 }

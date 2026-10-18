@@ -1,4 +1,4 @@
-// desktop 是技能管理器的桌面端：Wails v3 应用，与技能库(Library)同进程运行。
+// desktop 是 Mechbox 的桌面端：Wails v3 应用，与技能库(Library)同进程运行。
 //
 // 在本目录运行(需要 wails3 CLI 与 pnpm):
 //
@@ -17,7 +17,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // assets 是前端构建产物;all: 前缀让占位的点文件也被嵌入，保证目录非空时可编译。
@@ -29,7 +29,7 @@ var assets embed.FS
 const mainWindowName = "main"
 
 // bundleID 是应用的标识，与 build/config.yml 的 productIdentifier 相同;也用作单实例锁的 ID 和系统钥匙串条目的服务名。
-const bundleID = "com.tiaot33.skills-manager"
+const bundleID = "com.tiaot33.mechbox"
 
 func main() {
 	if err := run(); err != nil {
@@ -46,7 +46,7 @@ func run() error {
 	libraryService := NewLibraryService(path)
 	appService := NewAppService(filepath.Join(filepath.Dir(path), settingsFileName), libraryService)
 	app := application.New(application.Options{
-		Name:        "技能管理器",
+		Name:        "Mechbox",
 		Description: "管理 coding agent 的 Agent Skills",
 		Services: []application.Service{
 			application.NewService(libraryService),
@@ -74,7 +74,7 @@ func run() error {
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      mainWindowName,
-		Title:     "技能管理器",
+		Title:     "Mechbox",
 		Width:     1400,
 		Height:    880,
 		MinWidth:  1000,

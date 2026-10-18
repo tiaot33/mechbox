@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 在观察到指定成员的磁盘改动后同步取消,不依赖调度时序或内部故障注入接口。

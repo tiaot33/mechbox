@@ -6,8 +6,8 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // CollectionID 是集合的身份;界面打开集合、从技能发起更新时都按它引用集合。

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // updateLocalSkill 改写本地 Source 的 SKILL.md 并 Update,使已安装的文件夹变为 stale。

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 接入方按 JSON 字段名与枚举值对接;术语改名后的字段与取值在这里逐一钉住。

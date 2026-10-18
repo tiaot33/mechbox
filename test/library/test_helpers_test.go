@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // archiveServer 打桩 URL 来源的压缩包服务端(接管 http.DefaultClient),可配置 ETag 或 Last-Modified;

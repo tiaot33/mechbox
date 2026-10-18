@@ -6,8 +6,8 @@ version: '3'
 # This information is used to generate the build assets.
 info:
   companyName: "tiaot33" # The name of the company
-  productName: "技能管理器" # The name of the application
-  productIdentifier: "com.tiaot33.skills-manager" # The unique product identifier
+  productName: "Mechbox" # The name of the application
+  productIdentifier: "com.tiaot33.mechbox" # The unique product identifier
   description: "管理 coding agent 的 Agent Skills" # The application description
   copyright: "(c) 2026, tiaot33" # Copyright text
   comments: "" # Comments

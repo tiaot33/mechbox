@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // holdDirectTransaction 用直连模拟"另一个进程"在库上开着一个事务(begin 为 BEGIN 或 BEGIN IMMEDIATE),

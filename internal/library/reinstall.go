@@ -7,9 +7,9 @@ import (
 	"maps"
 	"path/filepath"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // SkillScopeFilter 按技能、作用域缩小 SkillScope 范围,两个条件都可选、可组合;供 ListSkillScopes 与

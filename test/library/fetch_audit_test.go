@@ -12,7 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // skillsAuditMock 把发往 skills.sh 的请求从当前 Transport 分流出来,其余请求原样透传。

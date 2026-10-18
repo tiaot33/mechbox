@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
 
 func TestTreeHashMatchesGit(t *testing.T) {

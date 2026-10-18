@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // sourceFixture 是一种来源的测试替身。publish 把来源里的技能整个换成 skills(技能名 → SKILL.md 正文),

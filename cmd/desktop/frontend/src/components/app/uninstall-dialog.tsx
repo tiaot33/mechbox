@@ -1,4 +1,4 @@
-// 卸载技能管理器：设置页最后一个分区打开。先现查各处安装的状态，说清会删什么、已安装的技能文件夹怎么处理
+// 卸载 Mechbox：设置页最后一个分区打开。先现查各处安装的状态，说清会删什么、已安装的技能文件夹怎么处理
 // (默认保留;移到废纸篓时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
 // 退出后删除数据库与设置，把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
 import { useEffect, useState } from "react";
@@ -50,7 +50,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
   const moving = folders === UninstallFolders.FoldersTrash ? present.length : folders === UninstallFolders.FoldersKeepModified ? present.length - modified.length : 0;
 
   const choices: Choice[] = [
-    { value: UninstallFolders.FoldersKeep, label: "保留已安装的文件夹", desc: "留在原处，Agent 照常使用;重装技能管理器后可以再入库，来源可能要重新填" },
+    { value: UninstallFolders.FoldersKeep, label: "保留已安装的文件夹", desc: "留在原处，Agent 照常使用;重装 Mechbox 后可以再入库，来源可能要重新填" },
     ...(modified.length
       ? [
           {
@@ -93,7 +93,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
   const working = phase.kind === "working" || phase.kind === "done";
   return (
     <Modal
-      title="卸载技能管理器"
+      title="卸载 Mechbox"
       onClose={() => !working && onClose()}
       footer={
         <>
@@ -117,7 +117,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
     >
       <Hint>
         删除这台机器上的技能库(库里的技能、版本历史与更新历史、组、登记的项目与自定义 Agent)、设置页里的设置(包括 GitHub
-        与同步),以及系统钥匙串里的令牌与密钥;然后退出，把技能管理器移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。
+        与同步),以及系统钥匙串里的令牌与密钥;然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。
       </Hint>
       {config &&
         (config.sync ? (
@@ -145,7 +145,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
             <ChoiceList choices={choices} value={folders} onChange={setFolders} />
             {moving > 0 && (
               <Hint>
-                也包括入库前就在那里、后来交给技能管理器管理的文件夹。
+                也包括入库前就在那里、后来交给 Mechbox 管理的文件夹。
                 {inProjects > 0 && "项目里的文件夹如果已提交到仓库，移走后会出现在 git 改动里。"}
               </Hint>
             )}
@@ -175,12 +175,12 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
       {phase.kind === "keychain" && (
         <Notice tone="warn" className="whitespace-pre-line">
           没能删除系统钥匙串里的令牌和密钥(可能是拒绝了授权):{phase.message}
-          {"\n"}技能管理器还没卸载，什么都没动。可以重试;也可以跳过，之后在「钥匙串访问」里搜索 com.tiaot33.skills-manager 手动删除。
+          {"\n"}Mechbox 还没卸载，什么都没动。可以重试;也可以跳过，之后在「钥匙串访问」里搜索 com.tiaot33.mechbox 手动删除。
         </Notice>
       )}
       {phase.kind === "failed" && (
         <Notice tone="bad" className="whitespace-pre-line">
-          技能管理器没有卸载，技能库和设置都还在:{describeError(phase.error)}
+          Mechbox 没有卸载，技能库和设置都还在:{describeError(phase.error)}
           {"\n"}已经移到废纸篓的文件夹可以从废纸篓放回，重试时跳过它们。
           {!phase.skippedKeychain && "系统钥匙串里的令牌和密钥已经删除，继续使用要在设置页重新填。"}
         </Notice>

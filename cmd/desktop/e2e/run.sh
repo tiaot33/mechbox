@@ -6,7 +6,7 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 desktop=$(dirname "$here")
-work=$(mktemp -d /tmp/skills-e2e.XXXXXX)
+work=$(mktemp -d /tmp/mechbox-e2e.XXXXXX)
 server_pid=""
 zip_pid=""
 hosts_pid=""
@@ -115,4 +115,4 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 E2E_HOME="$home" E2E_URL="http://localhost:$port/" E2E_ZIP_URL="http://localhost:$zip_port/delta.zip" E2E_ZIP_DIR="$work/zips" \
-	E2E_SHOTS="${E2E_SHOTS:-/tmp/skills-e2e-shots}" node "$here/e2e.mjs" "$@"
+	E2E_SHOTS="${E2E_SHOTS:-/tmp/mechbox-e2e-shots}" node "$here/e2e.mjs" "$@"

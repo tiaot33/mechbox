@@ -1,6 +1,6 @@
 # 桌面端
 
-技能管理器的桌面端：Wails v3 应用，Go 进程直接持有技能库（Library），React 前端经 Wails 绑定调用它（ADR 0008）。macOS 一等支持，Windows / Linux 只保证能编译。
+Mechbox 的桌面端：Wails v3 应用，Go 进程直接持有技能库（Library），React 前端经 Wails 绑定调用它（ADR 0008）。macOS 一等支持，Windows / Linux 只保证能编译。
 
 以下命令都在 `cmd/desktop/` 目录下执行。
 
@@ -22,7 +22,7 @@
 | 第一次打开、登记项目之后 | 在这台机器上第一次打开 app 时(记在 `settings.json` 里，换到新机器也一样),直接打开各 Agent 全局目录里不是库装的技能的确认;每登记一个项目，打开这个项目里的。先写磁盘上什么都不改、Agent 用的和现在一样，再写唯一的代价(之后还用命令行工具更新，只能报为被手动改过);第一次打开时说明项目里的登记项目时再接。按认出的来源(含在 skills.sh 上找到的，找到后补上)分组，内容一样的几处(含符号链接)合成一条，每条确认前都可以"改来源"(改链接或清空);在项目仓库里的、项目 skills-lock.json 记的默认不勾，勾上才提醒之后在 app 里更新会改动项目仓库里的文件;同名但内容不一样的单列出来，每个只选一份，默认选最近修改的;读不出的列在"不能入库"里。按来源逐批入库，读来源时写出在等什么;一个失败不影响其余的，没入库的可以改来源链接重试或清空后不带来源入库。之后作用域摘要里淡淡写一句还有几个不是库装的(在项目仓库里的不算),"全部入库…"再打开这个作用域的确认，不计入角标 |
 | 拖放 | 技能卡片 → 右栏作用域 = 直接安装;技能卡片 → 左栏组 = 加入;组 → 右栏作用域 = 组安装 |
 | 左栏"同步" | 整库推送到 S3 / 从 S3 拉回(先看同步计划：S3 上是哪台机器什么时候推送的那一份;拉回还说明里面有什么、不能拉回的原因、哪些项目不在这台机器上) |
-| 左栏"设置" | 设置页(替换三栏，左边是分区目录):通用(关闭窗口后留在菜单栏、Dock 角标)、Agent(显示勾选;添加、编辑、删除自定义 Agent,改目录时选择是否迁移)、项目(登记 / 改位置 / 注销，与右栏同一套弹窗)、检查更新(自动检查开关与间隔)、GitHub(个人访问令牌)与同步(服务地址、存储桶、对象名、区域、Access Key ID、Secret Access Key、Session Token;留空时照旧读环境变量)、关于(应用版本、数据库位置)、卸载技能管理器(见下文"运行时行为") |
+| 左栏"设置" | 设置页(替换三栏，左边是分区目录):通用(关闭窗口后留在菜单栏、Dock 角标)、Agent(显示勾选;添加、编辑、删除自定义 Agent,改目录时选择是否迁移)、项目(登记 / 改位置 / 注销，与右栏同一套弹窗)、检查更新(自动检查开关与间隔)、GitHub(个人访问令牌)与同步(服务地址、存储桶、对象名、区域、Access Key ID、Secret Access Key、Session Token;留空时照旧读环境变量)、关于(应用版本、数据库位置)、卸载 Mechbox(见下文"运行时行为") |
 | 顶栏 | 作用域胶囊、搜索(⌘K)、列表 / 卡片、刷新(重新读取并对照磁盘巡检已安装的技能) |
 
 Agent 的显示勾选只影响选择安装位置的地方(右栏与作用域弹层、详情里的"安装到…"):用户没勾选过的 Agent,检测到的和自定义的显示，其余不显示;已经装了技能的 Agent 不管勾没勾，装出去的地方照常列出。右栏与作用域弹层在每个地方直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent"。几个 Agent 共用一个目录时，装一次这几个都算已装;从其中一个卸载前提示还被哪些 Agent 共用。改自定义 Agent 的目录、删除自定义 Agent 时，确认框列出还有别的 Agent 在用、因而保留的文件夹。
@@ -46,7 +46,7 @@ Agent 的显示勾选只影响选择安装位置的地方(右栏与作用域弹�
 wails3 dev
 ```
 
-它会生成绑定、启动 Vite 开发服务器（端口 9245），再编译并打开开发版应用 `bin/skills-manager.dev.app`：
+它会生成绑定、启动 Vite 开发服务器（端口 9245），再编译并打开开发版应用 `bin/mechbox.dev.app`：
 
 - 改前端（`frontend/src/`）：窗口热更新，不重启。
 - 改 `cmd/desktop/` 下的 Go 代码：自动重新生成绑定、重新编译并重启应用。
@@ -62,9 +62,9 @@ HOME=/tmp/skills-dev GOMODCACHE=$(go env GOMODCACHE) GOCACHE=$(go env GOCACHE) w
 ## 构建与打包
 
 ```sh
-wails3 build     # 只编译二进制：bin/skills-manager
-wails3 package   # 打成 macOS 应用：bin/skills-manager.app（ad-hoc 签名）
-open bin/skills-manager.app
+wails3 build     # 只编译二进制：bin/mechbox
+wails3 package   # 打成 macOS 应用：bin/mechbox.app（ad-hoc 签名）
+open bin/mechbox.app
 ```
 
 `bin/` 不入库。
@@ -73,12 +73,12 @@ open bin/skills-manager.app
 
 ## 运行时行为
 
-- **技能库位置**：`<用户配置目录>/skills-manager/library.db`，macOS 上是 `~/Library/Application Support/skills-manager/library.db`。首次启动时创建目录，由 Library 初始化空库。它只依赖 `HOME`，所以从 Finder / Dock 启动也能找到。
-- **应用设置**：检查更新、通用与 Agent 的显示勾选(以及这台机器是否打开过 app,第一次打开时带用户入库已有的技能)只属于这台机器，存在技能库旁边的 `settings.json`（macOS 上是 `~/Library/Application Support/skills-manager/settings.json`），不进技能库、不随同步走；文件里没有的字段取默认值，加设置项就是给 `Settings` 加字段。
-- **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 存在 macOS 系统钥匙串(一个条目，服务名 `com.tiaot33.skills-manager`),其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许;拒绝后打开设置页会再读一次，仍读不到时这两个分区只显示「重试」,不能修改。
+- **技能库位置**：`<用户配置目录>/mechbox/library.db`，macOS 上是 `~/Library/Application Support/mechbox/library.db`。首次启动时创建目录，由 Library 初始化空库。它只依赖 `HOME`，所以从 Finder / Dock 启动也能找到。
+- **应用设置**：检查更新、通用与 Agent 的显示勾选(以及这台机器是否打开过 app,第一次打开时带用户入库已有的技能)只属于这台机器，存在技能库旁边的 `settings.json`（macOS 上是 `~/Library/Application Support/mechbox/settings.json`），不进技能库、不随同步走；文件里没有的字段取默认值，加设置项就是给 `Settings` 加字段。
+- **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 存在 macOS 系统钥匙串(一个条目，服务名 `com.tiaot33.mechbox`),其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许;拒绝后打开设置页会再读一次，仍读不到时这两个分区只显示「重试」,不能修改。
 - **自动检查更新**：默认打开、每天。Go 端每分钟看一次是否到了间隔（以技能库里记下的检查时间为准，从未检查过的技能从入库时算起，手动检查也算）；“只在打开时”是启动应用、从菜单栏或 Dock 重新打开窗口时各检查一次。只检查非本地目录来源的集合，不发系统通知；检查完更新 Dock 角标，并发 `updates-checked` 事件让前端重读。
 - **Dock 角标**：计入角标的技能数，按技能库给出的 `UpdateCheck.Pending`(有新版本且没跳过、来源里已删除且没选继续保留、推测出改名;本地目录来源、跳过的改动、新技能不计入),和左栏"更新"的计数一致；前端每次重读快照后经 `AppService.RefreshBadge` 重算。只在 macOS 上显示。
-- **卸载技能管理器**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、系统钥匙串里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删钥匙串条目——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;server 模式与 macOS 以外的平台只删数据库与 `settings.json`,文件夹直接删除，没有废纸篓。
+- **卸载 Mechbox**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、系统钥匙串里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删钥匙串条目——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;server 模式与 macOS 以外的平台只删数据库与 `settings.json`,文件夹直接删除，没有废纸篓。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
 - **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。
 
@@ -95,17 +95,17 @@ pnpm install && cd e2e && pnpm test        # 端到端验证(见下)
 
 ### 端到端验证
 
-`e2e/run.sh` 把桌面端编译成 Wails 的 server 模式(同一套前端与绑定，以 HTTP 服务运行、不开窗口),在临时 `HOME` 里放好测试技能、项目目录和几个 zip,然后用本机的 Google Chrome 按界面操作走一遍：入库(本地目录 / URL / 本地 Git 仓库与分支下拉)、分组、登记项目、直接安装与组安装、冲突询问、重新安装、检查更新与更新(风险提示、连同装出去的地方、从技能发起、重新读取、用目录里的修改更新)、更新计划(差异、确认改名、继续保留、新技能不感兴趣、跳过)、历史与回滚、版本比较、拖放、同步未配置、设置(含 GitHub 令牌与同步设置、Agent 的显示勾选、自定义 Agent 的添加 / 改目录迁移 / 删除与共用目录卸载)、第一次打开时一次确认全部入库(内容一样的合成一条、同名不一样的只选较新的、作用域里再全部入库)、登记项目后一次确认入库(项目仓库里与 skills-lock.json 记的默认不勾、读不成来源的清空后入库)、未纳管技能(符号链接、项目仓库里已提交的;入库、内容一致时只补记安装、从来源记录认出来源与可能有你的修改、读不成来源时清空后入库、在 skills.sh 上找到来源后写出并预填)、符号链接(用这里的修改更新、回滚、重新安装时说明并换成独立的一份，卸载被链着的文件夹前先给链着它的换上一份，指向 Agent 目录以外的默认不入库、不算进还有几个没入库)、全局和项目里的同名技能、Git 来源与 npx skills 记录(来源名字与来源版本、来源版本未知、装的是来源现在这一版又改过的不报有更新)、库里同名的技能、改项目位置、移除与注销、卸载技能管理器(最后一步，之后 server 退出),并核对磁盘上已安装的文件夹。
+`e2e/run.sh` 把桌面端编译成 Wails 的 server 模式(同一套前端与绑定，以 HTTP 服务运行、不开窗口),在临时 `HOME` 里放好测试技能、项目目录和几个 zip,然后用本机的 Google Chrome 按界面操作走一遍：入库(本地目录 / URL / 本地 Git 仓库与分支下拉)、分组、登记项目、直接安装与组安装、冲突询问、重新安装、检查更新与更新(风险提示、连同装出去的地方、从技能发起、重新读取、用目录里的修改更新)、更新计划(差异、确认改名、继续保留、新技能不感兴趣、跳过)、历史与回滚、版本比较、拖放、同步未配置、设置(含 GitHub 令牌与同步设置、Agent 的显示勾选、自定义 Agent 的添加 / 改目录迁移 / 删除与共用目录卸载)、第一次打开时一次确认全部入库(内容一样的合成一条、同名不一样的只选较新的、作用域里再全部入库)、登记项目后一次确认入库(项目仓库里与 skills-lock.json 记的默认不勾、读不成来源的清空后入库)、未纳管技能(符号链接、项目仓库里已提交的;入库、内容一致时只补记安装、从来源记录认出来源与可能有你的修改、读不成来源时清空后入库、在 skills.sh 上找到来源后写出并预填)、符号链接(用这里的修改更新、回滚、重新安装时说明并换成独立的一份，卸载被链着的文件夹前先给链着它的换上一份，指向 Agent 目录以外的默认不入库、不算进还有几个没入库)、全局和项目里的同名技能、Git 来源与 npx skills 记录(来源名字与来源版本、来源版本未知、装的是来源现在这一版又改过的不报有更新)、库里同名的技能、改项目位置、移除与注销、卸载 Mechbox(最后一步，之后 server 退出),并核对磁盘上已安装的文件夹。
 
 ```sh
 pnpm install                 # 在 cmd/desktop/ 下，装好 workspace 里 frontend 与 e2e 的依赖
 cd e2e
 pnpm test                    # 离线步骤
 E2E_NETWORK=1 pnpm test      # 连同技能市场与 GitHub 入库(需要联网)
-pnpm test 重新安装           # 只跑名字包含"重新安装"的步骤(步骤之间有依赖，单跑可能缺前置状态;名字含"卸载"的也会跑到最后的卸载技能管理器，之后 server 退出)
+pnpm test 重新安装           # 只跑名字包含"重新安装"的步骤(步骤之间有依赖，单跑可能缺前置状态;名字含"卸载"的也会跑到最后的卸载 Mechbox，之后 server 退出)
 ```
 
-失败的步骤会截图到 `/tmp/skills-e2e-shots/`。server 模式(`server` 构建标签)不用系统钥匙串，令牌和密钥只存在进程内存里，不碰本机钥匙串里的真实条目。server 模式下"在 Finder 中显示"什么都不做(e2e 只核对前端传过去的路径);卸载技能管理器时不清 `~/Library`、不动可执行文件，文件夹直接删除。离线时 `run.sh` 用 `E2E_HOSTS` 让 server 模式把 skills.sh 与假的 well-known 站点 `skills.e2e.test` 的请求改到本地的 HTTP 服务，不访问真实的 skills.sh;在 skills.sh 上找来源的步骤(`[离线]` 开头)只在离线时运行。server 模式没有原生窗口，所以系统目录选择框、窗口毛玻璃、单实例、Dock 角标与关闭窗口后留在菜单栏不在这里验证，需要在 `wails3 dev` 里手动确认。
+失败的步骤会截图到 `/tmp/mechbox-e2e-shots/`。server 模式(`server` 构建标签)不用系统钥匙串，令牌和密钥只存在进程内存里，不碰本机钥匙串里的真实条目。server 模式下"在 Finder 中显示"什么都不做(e2e 只核对前端传过去的路径);卸载 Mechbox 时不清 `~/Library`、不动可执行文件，文件夹直接删除。离线时 `run.sh` 用 `E2E_HOSTS` 让 server 模式把 skills.sh 与假的 well-known 站点 `skills.e2e.test` 的请求改到本地的 HTTP 服务，不访问真实的 skills.sh;在 skills.sh 上找来源的步骤(`[离线]` 开头)只在离线时运行。server 模式没有原生窗口，所以系统目录选择框、窗口毛玻璃、单实例、Dock 角标与关闭窗口后留在菜单栏不在这里验证，需要在 `wails3 dev` 里手动确认。
 
 `frontend/dist/` 里提交了一个占位文件 `.gitkeep`（源文件是 `frontend/public/.gitkeep`，每次 Vite 构建都会复制过去），所以没构建前端时 `go build/vet/test ./...` 也能通过，纯 Go 的开发不需要 Node 工具链。
 
@@ -121,7 +121,7 @@ cmd/desktop/
 ├── keychain_darwin.go      macOS 系统钥匙串(其他平台与 server 模式见 keychain_other.go,只存在内存里)
 ├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
 ├── reveal_darwin.go        在 Finder 中显示(其他平台与 server 模式见 reveal_other.go,什么都不做)
-├── uninstall.go            卸载技能管理器：删钥匙串条目、移走文件夹，退出后删数据库与设置(uninstall_darwin.go 清 ~/Library、移到废纸篓;其他平台与 server 模式见 uninstall_other.go,文件夹直接删除)
+├── uninstall.go            卸载 Mechbox：删钥匙串条目、移走文件夹，退出后删数据库与设置(uninstall_darwin.go 清 ~/Library、移到废纸篓;其他平台与 server 模式见 uninstall_other.go,文件夹直接删除)
 ├── library_methods.go      绑定服务：逐个转发 Library 的全部方法
 ├── e2e/                    端到端验证(server 模式 + Chrome)
 ├── pnpm-workspace.yaml     pnpm workspace:frontend 与 e2e,共用 pnpm-lock.yaml

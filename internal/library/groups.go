@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // GroupID 是分组的数据库主键。

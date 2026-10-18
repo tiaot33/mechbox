@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
 )
 
 func escapeGitHubPath(name string) string {
@@ -39,7 +39,7 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	if req.URL.Host == githubAPIHost {
 		req.Header.Set("Accept", "application/vnd.github+json")
 	}
-	req.Header.Set("User-Agent", "skills-tui")
+	req.Header.Set("User-Agent", "mechbox")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

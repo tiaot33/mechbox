@@ -1,4 +1,4 @@
-# Skills Manager · 技能管理器
+# Mechbox
 
 A tool for managing coding-agent skills: fetching them from their Sources into a Library, organising them, and installing them into the directories that coding agents read from.
 

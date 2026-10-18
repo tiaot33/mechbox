@@ -12,17 +12,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/market"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/wellknown"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/market"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/git"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/wellknown"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // SearchSkill 是 skills.sh 搜索到的一个技能,只供展示;Preview 原样传给 PreviewFetch,入库预览只列这一个技能。

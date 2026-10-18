@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 来源里改名的技能:推测、确认、否认与回滚

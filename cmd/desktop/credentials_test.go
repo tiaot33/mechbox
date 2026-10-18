@@ -14,7 +14,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // startApp 启动一个应用设置服务;钥匙串条目换成本测试专用的，测试结束时删掉，不碰真实条目。

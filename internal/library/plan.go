@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // UpdatePlanID 是一份更新计划的不透明句柄,由 Library 签发。和入库预览句柄一样不持久化、不参与 Sync、

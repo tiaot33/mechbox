@@ -20,7 +20,7 @@
 
     "paths": {
       "@/*": ["./src/*"],
-      "@bindings/*": ["./bindings/github.com/tiaot33/skills-tui/*"]
+      "@bindings/*": ["./bindings/github.com/tiaot33/mechbox/*"]
     }
   },
   "include": ["src", "bindings", "vite.config.ts"]

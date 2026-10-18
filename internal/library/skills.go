@@ -5,12 +5,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // SkillID 是库里技能的数据库主键。各实体的 ID 定义为不同类型,以免互相传错。

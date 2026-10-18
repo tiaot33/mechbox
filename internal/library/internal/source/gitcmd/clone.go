@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 )
 
 type Skill struct {
@@ -30,7 +30,7 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 	if FullCommit.MatchString(ref) {
 		ref = strings.ToLower(ref)
 	}
-	root, err := os.MkdirTemp("", "skills-git-")
+	root, err := os.MkdirTemp("", "mechbox-git-")
 	if err != nil {
 		return result, err
 	}
@@ -130,7 +130,7 @@ func treeSHA(ctx context.Context, repository, skillPath string) (string, error) 
 }
 
 func Commits(ctx context.Context, remotes []string, since, head string) ([]source.Commit, error) {
-	root, err := os.MkdirTemp("", "skills-git-")
+	root, err := os.MkdirTemp("", "mechbox-git-")
 	if err != nil {
 		return nil, err
 	}

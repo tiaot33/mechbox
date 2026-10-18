@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // skillRepository 建一个 main 分支的仓库:根目录本身是技能 root,skills 下另有 alpha 与 beta。

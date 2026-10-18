@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 按名字去 skills.sh 搜,认出没有来源记录的技能的来源

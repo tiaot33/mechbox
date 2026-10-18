@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 每个来源一个集合,按首次入库的先后排列而不是按名字;只有一个技能的集合照样列出。

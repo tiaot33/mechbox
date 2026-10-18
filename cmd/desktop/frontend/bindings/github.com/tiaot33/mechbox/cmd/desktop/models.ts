@@ -119,7 +119,7 @@ export interface Settings {
 }
 
 /**
- * UninstallFolders 是卸载技能管理器时，库装到各作用域的技能文件夹怎么处理。
+ * UninstallFolders 是卸载 Mechbox 时，库装到各作用域的技能文件夹怎么处理。
  */
 export enum UninstallFolders {
     /**
@@ -144,7 +144,7 @@ export enum UninstallFolders {
 };
 
 /**
- * UninstallOptions 是卸载技能管理器的选项。
+ * UninstallOptions 是卸载 Mechbox 的选项。
  */
 export interface UninstallOptions {
     "folders": UninstallFolders;
@@ -156,7 +156,7 @@ export interface UninstallOptions {
 }
 
 /**
- * UninstallResult 是卸载技能管理器的结果。
+ * UninstallResult 是卸载 Mechbox 的结果。
  */
 export interface UninstallResult {
     /**

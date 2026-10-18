@@ -9,8 +9,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // InstallOptions 是 Install 与 InstallGroup 的选项。

@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
 )
 
 const Type = "github"

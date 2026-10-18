@@ -119,7 +119,7 @@ const viewLabel: Partial<Record<SourceType, string>> = {
 };
 
 // 抽屉宽度：拖左边缘调整，记在这台机器上。
-const drawerWidth = { storageKey: "skills-manager.drawer-width", defaultWidth: 540, min: 420, max: 960 };
+const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min: 420, max: 960 };
 
 export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; onClose: () => void }) {
   const ui = useUI();

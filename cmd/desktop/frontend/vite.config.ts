@@ -14,7 +14,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       // Wails 绑定生成器按 Go 包路径输出，别名省掉冗长的前缀。
-      "@bindings": path.resolve(import.meta.dirname, "bindings/github.com/tiaot33/skills-tui"),
+      "@bindings": path.resolve(import.meta.dirname, "bindings/github.com/tiaot33/mechbox"),
     },
   },
   plugins: [react(), tailwindcss(), wails("./bindings")],

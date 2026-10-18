@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
 
 type Change struct {

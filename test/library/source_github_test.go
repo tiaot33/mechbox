@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // gitHubModes 是 GitHub 来源的两种读取方式:REST API,以及 API 不可用时的浅克隆。

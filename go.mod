@@ -1,4 +1,4 @@
-module github.com/tiaot33/skills-tui
+module github.com/tiaot33/mechbox
 
 go 1.26
 

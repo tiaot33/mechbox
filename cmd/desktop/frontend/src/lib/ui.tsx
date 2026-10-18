@@ -222,7 +222,7 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
   );
 }
 
-// ChoiceList 是弹窗里的单选项，确认框与自己画的弹窗(如卸载技能管理器)共用。
+// ChoiceList 是弹窗里的单选项，确认框与自己画的弹窗(如卸载 Mechbox)共用。
 export function ChoiceList({ choices, value, onChange }: { choices: Choice[]; value: string; onChange: (value: string) => void }) {
   return choices.map((c) => (
     <label

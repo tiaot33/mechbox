@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // UpdateRequest 是一次更新:按一份更新计划,带上用户勾选的技能和勾选的地方。从哪里发起只决定默认勾哪些:从集合发起勾计划里

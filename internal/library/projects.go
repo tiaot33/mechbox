@@ -11,8 +11,8 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // ProjectID 是已登记项目的身份:登记时分配,注销前不变;同步到另一台机器、或改了项目位置后仍指同一个项目。

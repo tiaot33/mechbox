@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 桌面端要覆盖技能库的全部功能：Library 的每个公开方法(Close 由服务生命周期负责)

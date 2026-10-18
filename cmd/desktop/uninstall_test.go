@@ -9,7 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // uninstallFixture 是在临时 HOME 里打开的技能库与应用设置服务：数据库和 settings.json 在同一个目录下(与真实布局一样),

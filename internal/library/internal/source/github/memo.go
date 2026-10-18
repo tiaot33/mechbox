@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/gitcmd"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
 )
 
 const githubMemoTreeLimit = 16

@@ -7,14 +7,14 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/download"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/git"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/github"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/local"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/wellknown"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/s3"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/git"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/wellknown"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // Library 是桌面端使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;

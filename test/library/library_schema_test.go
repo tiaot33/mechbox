@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 内置 Agent 的名称和目录以应用版本为准:库里的行缺了或被改过,重开后都恢复为应用内置的值;

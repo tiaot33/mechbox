@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // s3Stub 是一个内存 S3 打桩,记录当前对象内容并按内容哈希给出 ETag。

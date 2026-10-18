@@ -1,12 +1,12 @@
-# 技能管理器 · Skills Manager
+# Mechbox
 
 一个 macOS 桌面应用，管理 Claude Code、Codex 等 Agent 用的 [Agent Skills](https://agentskills.io)：从各处收集技能放进自己的库，按需装到全局或某个项目里，来源有新内容时由你审阅后再更新，出了问题可以回滚。
 
-技能是以 `SKILL.md` 为入口的文件夹，Agent 从磁盘上的特定目录发现并按需加载。技能管理器把库当作唯一权威：Agent 目录里的技能文件夹都由库写出，库不会在你不知情时改动它们。术语见 [CONTEXT.md](CONTEXT.md)。
+技能是以 `SKILL.md` 为入口的文件夹，Agent 从磁盘上的特定目录发现并按需加载。Mechbox 把库当作唯一权威：Agent 目录里的技能文件夹都由库写出，库不会在你不知情时改动它们。术语见 [CONTEXT.md](CONTEXT.md)。
 
 ## 什么时候用
 
-技能管理器是低频工具，通常在这些时候打开：
+Mechbox 是低频工具，通常在这些时候打开：
 
 - **第一次打开**：你早就用命令行工具或手动拷贝装了一批技能，想让它接过来。
 - **要加新技能**：看到别人推荐，或在 skills.sh 上搜到。
@@ -62,7 +62,7 @@
 
 | 内容 | 位置 |
 | --- | --- |
-| 库（技能、版本、集合、组、安装记录、已登记项目） | `~/Library/Application Support/skills-manager/library.db`，一个 SQLite 数据库 |
+| 库（技能、版本、集合、组、安装记录、已登记项目） | `~/Library/Application Support/mechbox/library.db`，一个 SQLite 数据库 |
 | 应用设置（检查更新、菜单栏、Dock 角标、显示哪些 Agent） | 同一目录下的 `settings.json`，只属于这台机器，不随同步走 |
 | GitHub 令牌、S3 密钥 | macOS 系统钥匙串，不进库、不随同步走（[ADR 0011](docs/adr/0011-credentials-stay-on-this-machine.md)） |
 

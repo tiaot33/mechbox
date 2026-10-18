@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 func TestGetSkillAuditLooksUpLibrarySkillBySourceAndName(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 更新保留旧版本:版本列表与按 ID 读取返回同一个值,历史版本的文件按版本 ID 原样可读,

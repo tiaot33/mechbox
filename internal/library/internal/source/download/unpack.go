@@ -12,8 +12,8 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/source"
-	"github.com/tiaot33/skills-tui/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 )
 
 var ErrUnrecognized = errors.New("content is not a SKILL.md, zip, tar or tar.gz")

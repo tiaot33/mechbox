@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tiaot33/skills-tui/internal/library"
+	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // recordHTTP 让所有 HTTP 请求失败,并记下请求过的地址。

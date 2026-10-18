@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // VersionID 是技能版本的数据库主键:全库唯一,同一技能内写入越晚越大。哪个是技能的当前版本看 Skill.VersionID。

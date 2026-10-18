@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/skills-tui/internal/library/internal/s3"
-	"github.com/tiaot33/skills-tui/internal/library/internal/store"
+	"github.com/tiaot33/mechbox/internal/library/internal/s3"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // SyncSettings 是同步用的 S3 设置,由调用方(例如设置页)传给 [Library.SetSyncSettings]。

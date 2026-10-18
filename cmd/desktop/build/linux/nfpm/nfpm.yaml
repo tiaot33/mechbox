@@ -3,7 +3,7 @@
 #
 # The lines below are called `modelines`. See `:help modeline`
 
-name: "skills-manager"
+name: "mechbox"
 arch: ${GOARCH}
 platform: "linux"
 version: "0.0.1"
@@ -17,12 +17,12 @@ license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/skills-manager"
-    dst: "/usr/local/bin/skills-manager"
+  - src: "./bin/mechbox"
+    dst: "/usr/local/bin/mechbox"
   - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/skills-manager.png"
-  - src: "./build/linux/skills-manager.desktop"
-    dst: "/usr/share/applications/skills-manager.desktop"
+    dst: "/usr/share/icons/hicolor/128x128/apps/mechbox.png"
+  - src: "./build/linux/mechbox.desktop"
+    dst: "/usr/share/applications/mechbox.desktop"
 
 # Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
 depends:

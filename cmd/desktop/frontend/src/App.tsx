@@ -179,7 +179,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
       <div className="window-backdrop relative flex h-screen flex-col overflow-hidden">
         <Toolbar
           snapshot={s}
-          title={s ? filterTitle(s, current) : "技能管理器"}
+          title={s ? filterTitle(s, current) : "Mechbox"}
           count={s ? skills.length + unmanaged.length : undefined}
           busy={ui.busy}
           scope={scope}
@@ -203,7 +203,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
           {s && (
             <>
               {left && (
-                <ResizablePane side="left" storageKey="skills-manager.left-width" defaultWidth={210} min={180} max={360}>
+                <ResizablePane side="left" storageKey="mechbox.left-width" defaultWidth={210} min={180} max={360}>
                   <FilterSidebar
                     s={s}
                     config={config}
@@ -227,7 +227,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
                 onFetch={openFetch}
               />
               {right && (
-                <ResizablePane side="right" storageKey="skills-manager.right-width" defaultWidth={270} min={220} max={440}>
+                <ResizablePane side="right" storageKey="mechbox.right-width" defaultWidth={270} min={220} max={440}>
                 <ScopePanel
                   s={s}
                   scope={scope}
