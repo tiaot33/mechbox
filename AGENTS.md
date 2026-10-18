@@ -33,6 +33,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 1. 在 `internal/library/internal/source/` 下加子包,导出 `Type`、识别输入的 `Matches` / `Locate`(要联网才认得出的给 `Probe`)和实现 `source.Kind` 的类型。
 2. 在 `library.go` 的 `Open` 里登记。
 3. 在 `fetch.go` 的 `previewTarget`(或 `probeLink`)识别顺序里放到合适的位置。
+4. 在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。
 
 `PreviewFetchRequest` 只有一个输入,不加字段。更新、检查更新、展示与错误翻译都不用改。
 

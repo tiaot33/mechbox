@@ -1,6 +1,9 @@
 package library_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -223,6 +226,68 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 			requireAvailable(false, false)
 			if versions, err := lib.ListVersions(t.Context(), skills[0].ID); err != nil || len(versions) != 2 {
 				t.Fatalf("versions = %#v, %v", versions, err)
+			}
+		})
+	}
+}
+
+// GitHub 来源入库时要的文件多就先取整包 tar.gz,其余从 raw.githubusercontent.com 逐个取;两处的内容都按 git blob SHA 核对,
+// 核对不上或取不到时才用 API 的 blob 接口。
+func TestGitHubDownloadsVerifiedContentBeforeUsingBlobAPI(t *testing.T) {
+	many := map[string]repoFile{}
+	var skillFilesOfMany []string
+	for i := range 10 {
+		name := fmt.Sprintf("skill-%d", i)
+		skillFilesOfMany = append(skillFilesOfMany, name+"/SKILL.md")
+		many[name+"/SKILL.md"] = repoFile{content: []byte(skillDocument(name, "body "+name)), mode: 0o644}
+		many[name+"/scripts/run.sh"] = repoFile{content: []byte("echo " + name), mode: 0o755}
+	}
+	few := map[string]repoFile{
+		"alpha/SKILL.md":       {content: []byte(skillDocument("alpha", "body alpha")), mode: 0o644},
+		"alpha/scripts/run.sh": {content: []byte("echo alpha"), mode: 0o755},
+	}
+	for _, tc := range []struct {
+		name     string
+		files    map[string]repoFile
+		tamper   bool
+		archives int
+		raw      []string
+	}{
+		// blob 接口不可用,取到的内容只能来自整包或 raw:预览读的 SKILL.md 走 raw,入库要的 10 个脚本走一次整包。
+		{name: "many files from one archive", files: many, archives: 1, raw: skillFilesOfMany},
+		{name: "few files from raw", files: few, raw: []string{"alpha/SKILL.md", "alpha/scripts/run.sh"}},
+		{name: "tampered downloads fall back to blob api", files: many, tamper: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := writeGitHubRepo(t, tc.files)
+			api := serveGitHubAPI(t, inspectGitHubRepo(t, repo))
+			blockGitHubClone(t)
+			api.serveDownloads(true, true, tc.tamper)
+			api.setFailBlobs(!tc.tamper)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(preview.Candidates) != len(tc.files)/2 {
+				t.Fatalf("candidates = %v", candidateNames(preview))
+			}
+			for _, skill := range fetchSkills(t, lib, preview, candidateNames(preview)) {
+				want := []library.File{
+					{Path: "SKILL.md", Content: tc.files[skill.Name+"/SKILL.md"].content, Mode: library.ModeRegular},
+					{Path: "scripts/run.sh", Content: tc.files[skill.Name+"/scripts/run.sh"].content, Mode: library.ModeExecutable},
+				}
+				if got := skillFiles(t, lib, skill); !reflect.DeepEqual(got, want) {
+					t.Fatalf("%s files = %#v", skill.Name, got)
+				}
+			}
+			if tc.tamper {
+				return
+			}
+			api.mu.Lock()
+			defer api.mu.Unlock()
+			if raw := slices.Sorted(slices.Values(api.rawPaths)); api.archiveRequests != tc.archives || !slices.Equal(raw, tc.raw) {
+				t.Fatalf("archive requests %d, raw %v; want %d, %v", api.archiveRequests, raw, tc.archives, tc.raw)
 			}
 		})
 	}
@@ -761,6 +826,12 @@ type gitHubAPIMock struct {
 	acceptedToken string
 	// authorizations 按顺序记下每个 API 请求的 Authorization 头,匿名请求记为空串。
 	authorizations []string
+	// archives、rawFiles 为 true 时,替身也回答 codeload.github.com 的整包 tar.gz 与 raw.githubusercontent.com 的单个文件,
+	// 内容取自对应 commit;tamperDownloads 时这两处给出的内容都被改过。默认两处都不回答,内容只能经 API 的 blob 接口取到。
+	// archiveRequests、rawPaths 记下两处回答过的整包请求次数与文件路径。
+	archives, rawFiles, tamperDownloads bool
+	archiveRequests                     int
+	rawPaths                            []string
 }
 
 // takeAuthorizations 返回并清空已记下的 Authorization 头。
@@ -805,6 +876,12 @@ func (m *gitHubAPIMock) Swap(fx gitHubFixture) {
 	m.fx = next
 }
 
+func (m *gitHubAPIMock) serveDownloads(archives, rawFiles, tamper bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.archives, m.rawFiles, m.tamperDownloads = archives, rawFiles, tamper
+}
+
 func (m *gitHubAPIMock) setFailBlobs(fail bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -835,7 +912,7 @@ func (m *gitHubAPIMock) head(match func(gitHubFixture) bool) (gitHubFixture, boo
 
 func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 	if r.URL.Host != "api.github.com" {
-		return &http.Response{StatusCode: http.StatusBadGateway, Body: http.NoBody, Header: make(http.Header)}, nil
+		return m.download(r)
 	}
 	m.mu.Lock()
 	gate, gated := m.blobGate, m.gatedBlob
@@ -905,6 +982,80 @@ func (m *gitHubAPIMock) roundTrip(r *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, map[string]any{"sha": sha, "encoding": "base64", "content": base64.StdEncoding.EncodeToString(content), "size": len(content)}), nil
 	}
 	return notFound, nil
+}
+
+func (m *gitHubAPIMock) download(r *http.Request) (*http.Response, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	unavailable := &http.Response{StatusCode: http.StatusBadGateway, Body: http.NoBody, Header: make(http.Header)}
+	at := func(commit string) (gitHubFixture, bool) {
+		return m.head(func(h gitHubFixture) bool { return h.commit == commit })
+	}
+	content := func(blob []byte) []byte {
+		if m.tamperDownloads {
+			return append(slices.Clone(blob), " tampered"...)
+		}
+		return blob
+	}
+	switch r.URL.Host {
+	case "raw.githubusercontent.com":
+		commit, filePath, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/owner/repo/"), "/")
+		fx, ok := at(commit)
+		if !m.rawFiles || !ok {
+			return unavailable, nil
+		}
+		entry, ok := fx.paths[filePath]
+		if !ok || entry.Type != "blob" {
+			return textResponse(http.StatusNotFound, "404: Not Found"), nil
+		}
+		m.rawPaths = append(m.rawPaths, filePath)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(content(fx.blobs[entry.SHA]))), Header: make(http.Header)}, nil
+	case "codeload.github.com":
+		commit, ok := strings.CutPrefix(r.URL.Path, "/owner/repo/tar.gz/")
+		fx, found := at(commit)
+		if !m.archives || !ok || !found {
+			return unavailable, nil
+		}
+		m.archiveRequests++
+		var buffer bytes.Buffer
+		zipped := gzip.NewWriter(&buffer)
+		writer := tar.NewWriter(zipped)
+		// 和 git archive 打的包一样:先是记着 commit 的 pax 全局头,再是顶层目录,每个目录各有一个条目。
+		prefix := "repo-" + commit + "/"
+		if err := writer.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": commit}}); err != nil {
+			return nil, err
+		}
+		if err := writer.WriteHeader(&tar.Header{Name: prefix, Mode: 0o775, Typeflag: tar.TypeDir}); err != nil {
+			return nil, err
+		}
+		for _, entry := range fx.entries {
+			if entry.Type == "tree" {
+				if err := writer.WriteHeader(&tar.Header{Name: prefix + entry.Path + "/", Mode: 0o775, Typeflag: tar.TypeDir}); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			mode, err := strconv.ParseInt(entry.Mode, 8, 64)
+			if err != nil {
+				return nil, err
+			}
+			blob := content(fx.blobs[entry.SHA])
+			if err := writer.WriteHeader(&tar.Header{Name: prefix + entry.Path, Mode: mode & 0o777, Size: int64(len(blob)), Typeflag: tar.TypeReg}); err != nil {
+				return nil, err
+			}
+			if _, err := writer.Write(blob); err != nil {
+				return nil, err
+			}
+		}
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+		if err := zipped.Close(); err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(&buffer), Header: make(http.Header)}, nil
+	}
+	return unavailable, nil
 }
 
 func (m *gitHubAPIMock) errorResponse(status int) *http.Response {
