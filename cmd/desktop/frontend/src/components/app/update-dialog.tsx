@@ -158,8 +158,9 @@ export function UpdateDialog({
   const shown = expanded ? changed : changed.filter((p) => p.skill.id === focus || checked.has(p.skill.id));
   const folded = changed.filter((p) => !shown.includes(p));
   const movable = [...changed, ...renamed];
-  // 还没勾上的有变化或推测出改名的技能会留在旧的来源版本上。
-  const splitting = skills.length > 1 && checked.size > 0 && movable.some((p) => !checked.has(p.skill.id));
+  // 还没勾上的有变化或推测出改名的技能会留在旧的来源版本上。更新会换掉用户修改的(edited)默认就不勾，
+  // 来源版本也可能本来就不知道，留着它们是预料之中的，不为此警告。
+  const splitting = skills.length > 1 && checked.size > 0 && movable.some((p) => !checked.has(p.skill.id) && !p.edited);
   // 一次写操作(更新、跳过、改名、移除、继续保留、不感兴趣)没结束前，其他写操作都不能点：
   // 更新读来源期间跳过成功，随后的更新仍会把这份改动换进库里、装出去。
   const locked = working || ui.busy;

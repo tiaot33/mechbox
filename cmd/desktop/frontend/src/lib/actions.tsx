@@ -36,7 +36,9 @@ import { offerProject } from "@/components/app/fetch-unmanaged-dialog";
 import {
   agentName,
   deletedInSource,
+  installedWhere,
   needsReinstall,
+  noSource,
   pending,
   placeOf,
   projectName,
@@ -735,7 +737,11 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
 // 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
 export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill) {
   const place = scopeLabel(s, skill.scope);
-  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} close={close} />);
+  // 库里已有同名的技能时确认里说出来：内容不同不合并，入库后会有两个同名的。
+  const twins = s.skills
+    .filter((x) => x.name === skill.name)
+    .map((x) => `${noSource(x.source) ? "没有来源" : sourceLabel(s, x.source)}，${installedWhere(s, x.id)}`);
+  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} close={close} />);
   if (!r) return;
   if (r.matched) ui.toast(`「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}`);
   else if (r.skill.collection_id) ui.toast(`已入库「${r.skill.name}」，以后跟着 ${r.skill.source.label} 检查更新`);
@@ -746,10 +752,12 @@ export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill)
 function FetchUnmanagedDialog({
   place,
   skill,
+  twins,
   close,
 }: {
   place: string;
   skill: UnmanagedSkill;
+  twins: string[];
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
@@ -786,6 +794,12 @@ function FetchUnmanagedDialog({
       <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
       <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
       {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
+      {twins.length > 0 && (
+        <Notice tone="warn" className="unmanaged-same-name">
+          库里已经有叫「{skill.name}」的技能({twins.join(";")})。内容和它的某个版本一样时只记下装在这里;不一样时不合并，入库后库里会有
+          {twins.length + 1} 个「{skill.name}」,卡片上写出各装在哪里。
+        </Notice>
+      )}
       <Field label="来源链接">
         <Input
           className="unmanaged-source font-mono"

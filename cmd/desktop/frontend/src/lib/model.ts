@@ -131,6 +131,18 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   return { text, title: pairs.map((p) => `「${projectName(s, p.project_id)}」的文件夹:${shortPath(s, p.project.folder)}`).join("\n") };
 }
 
+// sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
+export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">): Skill[] {
+  return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
+}
+
+// installedWhere 写出技能装在哪里，供分辨库里同名的几个技能:"Claude Code · 全局、Codex · proj-a",超过两处写"等 N 处";没装时写"没装在任何地方"。
+export function installedWhere(s: Snapshot, skillID: number): string {
+  const places = skillScopesOf(s, skillID).map((p) => scopeLabel(s, p.scope));
+  if (!places.length) return "没装在任何地方";
+  return `装在 ${places.slice(0, 2).join("、")}${places.length > 2 ? ` 等 ${places.length} 处` : ""}`;
+}
+
 export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection | undefined {
   return s.skillScopes.find((p) => p.skill_id === skillID && scopeKey(p.scope) === key);
 }
@@ -217,19 +229,27 @@ export function shortRevision(revision: string): string {
 }
 
 // revisionSummary 说明集合里的技能在哪个来源版本上:都在同一个时"在 a1b2c3";
-// 不在同一个时直接写"pdf 在 d4e5f6,其余 4 个在 a1b2c3",不起专门的名字。本地目录来源为空。
+// 不在同一个时直接写"pdf 在 d4e5f6,其余 4 个在 a1b2c3",不起专门的名字。
+// 来源版本未知的(入库时和来源里的不一样)不算进任何一个，单独写"grill-me 的来源版本未知";都未知时只写"来源版本未知"。
+// 本地目录来源与没有来源的技能为空。
 export function revisionSummary(skills: Skill[]): string {
+  const tracked = skills.filter((x) => !isLocal(x.source) && !noSource(x.source));
+  const unknown = tracked.filter((x) => !x.revision);
   const byRevision = new Map<string, Skill[]>();
-  for (const x of skills) {
+  for (const x of tracked) {
     if (!x.revision) continue;
     const key = shortRevision(x.revision);
     byRevision.set(key, [...(byRevision.get(key) ?? []), x]);
   }
-  if (byRevision.size === 0) return "";
+  const names = (list: Skill[]) => list.map((x) => x.name).join("、");
+  if (byRevision.size === 0) return unknown.length ? "来源版本未知" : "";
   const groups = [...byRevision.entries()].sort((a, b) => b[1].length - a[1].length);
   const [main, ...others] = groups;
-  if (!others.length) return `在 ${main[0]}`;
-  const parts = others.map(([rev, list]) => `${list.map((x) => x.name).join("、")} 在 ${rev}`);
+  if (!others.length && !unknown.length) return `在 ${main[0]}`;
+  const parts = [
+    ...others.map(([rev, list]) => `${names(list)} 在 ${rev}`),
+    ...(unknown.length ? [`${names(unknown)} 的来源版本未知`] : []),
+  ];
   return `${parts.join(",")},其余 ${main[1].length} 个在 ${main[0]}`;
 }
 
@@ -248,10 +268,13 @@ function lastSegment(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-// sourceLabel 是集合在左栏里的名字：GitHub 取 owner/repo,URL 取文件名，本地取缩写路径。
+// sourceLabel 是集合在左栏里的名字：GitHub 取 owner/repo,Git 仓库取主机加仓库路径,well-known 取站点主机加路径,
+// URL 取文件名，本地取缩写路径。
 export function sourceLabel(s: Snapshot, source: Source): string {
   switch (source.type) {
     case SourceType.SourceGitHub:
+    case SourceType.SourceGit:
+    case SourceType.SourceWellKnown:
       return source.label;
     case SourceType.SourceURL:
       return lastSegment(source.label);
@@ -264,11 +287,18 @@ export function sourceLabel(s: Snapshot, source: Source): string {
   }
 }
 
-// sourceShort 是卡片上的来源短名：GitHub 取 owner,URL 取文件名，本地一律"自研"。
+// sourceShort 是卡片上的来源短名：GitHub 取 owner,Git 仓库取主机后的第一段(owner 或 group),well-known 取站点主机,
+// URL 取文件名，本地一律"自研"。
 export function sourceShort(s: Snapshot, source: Source): string {
   switch (source.type) {
     case SourceType.SourceGitHub:
       return sourceLabel(s, source).split("/")[0];
+    case SourceType.SourceGit: {
+      const parts = source.label.split("/");
+      return parts[1] ?? parts[0];
+    }
+    case SourceType.SourceWellKnown:
+      return source.label.split("/")[0];
     case SourceType.SourceURL:
       return sourceLabel(s, source).replace(/\.zip$/, "");
     default:

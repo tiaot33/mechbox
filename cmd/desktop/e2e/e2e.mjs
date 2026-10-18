@@ -804,13 +804,14 @@ await step("重复登记同一项目报错", async () => {
 await step("登记项目后：一次确认入库项目里不是库装的技能，项目仓库里的默认不勾;确认前清空认出的来源", async () => {
   const projC = path.join(HOME, "code", "team-proj");
   const dir = path.join(projC, ".claude", "skills");
-  const docs = { "team-rules": "committed by the team", "proj-notes": "my project notes", "locked-tool": "installed by the lock file" };
+  const docs = { "team-rules": "committed by the team", "proj-notes": "my project notes", "locked-tool": "installed by the lock file", "lint-rules": "also in the lock file" };
   for (const [name, description] of Object.entries(docs)) {
     fs.mkdirSync(path.join(dir, name), { recursive: true });
     fs.writeFileSync(path.join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
   }
   // skills-lock.json 提交在仓库里，技能文件夹本身没提交;记下的来源已经不在了。
-  fs.writeFileSync(path.join(projC, "skills-lock.json"), JSON.stringify({ version: 1, skills: { "locked-tool": { source: "./vendor/missing", sourceType: "local", computedHash: "abc" } } }));
+  const locked = { source: "./vendor/missing", sourceType: "local", computedHash: "abc" };
+  fs.writeFileSync(path.join(projC, "skills-lock.json"), JSON.stringify({ version: 1, skills: { "locked-tool": locked, "lint-rules": locked } }));
   const git = (...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "-C", projC, ...args]);
   git("init", "-q", "-b", "main");
   git("add", "-f", ".claude/skills/team-rules", "skills-lock.json");
@@ -824,7 +825,7 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     await modal().locator('[data-slot="input"]').fill(projC);
     await btn(modal(), "登记").click();
     await toast("已登记项目");
-    await modal().locator(".fetch-unmanaged-lead", { hasText: "在项目「team-proj」里发现 3 个不是库装的技能" }).waitFor({ timeout: 15000 });
+    await modal().locator(".fetch-unmanaged-lead", { hasText: "在项目「team-proj」里发现 4 个不是库装的技能" }).waitFor({ timeout: 15000 });
     assert(!(await modal().textContent()).includes("登记项目时再接"), "登记项目时不再说之后再接");
     assert(!(await checked("team-rules")) && (await row("team-rules").textContent()).includes("在项目仓库里"), "提交在项目仓库里的默认不勾");
     assert(!(await checked("locked-tool")) && (await row("locked-tool").textContent()).includes("记在 skills-lock.json 里"), "skills-lock.json 记的默认不勾");
@@ -832,7 +833,10 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     assert((await modal().locator(".fetch-unmanaged-team").count()) === 0, "没勾项目仓库里的就不提醒");
     // 勾上归项目仓库管的，才写清之后在 app 里更新会改动项目仓库里的文件。
     await row("locked-tool").click();
-    assert((await modal().locator(".fetch-unmanaged-team").textContent()).includes("「locked-tool」归项目仓库管。之后在 app 里更新它们，会改动项目仓库里的文件"), "勾上后提醒");
+    assert((await modal().locator(".fetch-unmanaged-team").textContent()).includes("「locked-tool」归项目仓库管。之后在 app 里更新它，会改动项目仓库里的文件"), "勾上一项时提醒里说「它」");
+    await row("lint-rules").click();
+    assert((await modal().locator(".fetch-unmanaged-team").textContent()).includes("「lint-rules」「locked-tool」归项目仓库管。之后在 app 里更新它们"), "勾上几项时说「它们」");
+    await row("lint-rules").click();
     await page.screenshot({ path: path.join(SHOTS, "register-project-fetch.png") });
     // 记下的来源已经不在了：确认前清空来源，作为没有来源的技能入库。
     await row("locked-tool").locator(".fetch-unmanaged-edit").click();
@@ -848,6 +852,13 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     await closeDrawer();
     assert((await card("team-rules").count()) === 0, "没勾的不入库");
     assert.deepStrictEqual(disk(), before, "入库时磁盘上什么都没动");
+    // 没入库的 lint-rules 记在 skills-lock.json 里:卡片上和确认列表一样标出来，所以作用域里不提「还有几个没入库」。
+    await selectScope("Claude Code", "team-proj");
+    const lint = page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: /^lint-rules$/ }) });
+    await lint.waitFor();
+    assert((await lint.locator('[data-slot="badge"]', { hasText: "记在 skills-lock.json 里" }).count()) === 1, "卡片上标出记在 skills-lock.json 里");
+    assert((await page.locator(".unmanaged-hint").count()) === 0, "归项目仓库管的不算进还有几个没入库");
+    await clearScope();
   } finally {
     for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
     for (const n of ["proj-notes", "locked-tool"]) {
@@ -1112,6 +1123,11 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await selectScope("Claude Code");
     await unmanaged("kit-a").waitFor();
     assert.equal(await unmanaged("kit-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
+    // 卡片底部放不下时换行，「不是库装的」和来源都要能看全。
+    const clipped = (el) => el.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
+    assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-status"))), "「不是库装的」没被截断");
+    assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-source-label"))), "来源没被截断");
+    await page.screenshot({ path: path.join(SHOTS, "unmanaged-source-label.png") });
     assert((await unmanaged("kit-c").locator(".unmanaged-source-label").count()) === 0, "认不出的不写来源");
 
     await btn(unmanaged("kit-a"), "入库").click();
@@ -1462,11 +1478,12 @@ await step("改了作者的技能：只看作者那边有没有新版，更新�
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "作者发了新版时计入角标");
   await updatesNav().click();
   const row = page.locator(".update-row", { hasText: "delta" });
-  await btn(row, "更新").click();
-  await toast("没有能直接更新的改动;改名、删除和会换掉你的修改的更新请在更新计划里确认");
-  await settle();
-  assert(projSkill("delta").includes("delta edited by hand"), "按默认勾选更新时不换掉修改");
-  await btn(row, "查看").click();
+  // 要处理的改动都会换掉你的修改：这一行和卡片直接写出来，「更新」不直接执行，打开更新计划。
+  assert((await row.textContent()).includes("有新版本，更新会换掉你的修改"), `列表这一行写出会换掉你的修改:${await row.textContent()}`);
+  assert((await row.locator('[data-slot="button"][data-variant="primary"]').count()) === 0, "没有直接执行的主按钮");
+  assert((await card("delta").locator(".update-edited-note").textContent()).includes("更新会换掉你的修改"), "卡片上写出会换掉你的修改");
+  await page.screenshot({ path: path.join(SHOTS, "update-row-edited.png") });
+  await btn(row, "更新…").click();
   const delta = planRow("update-skill", "delta");
   await delta.locator(".update-edited", { hasText: "更新会换掉你的修改" }).waitFor({ timeout: 15000 });
   assert(!(await delta.locator("input[type=checkbox]").isChecked()), "会换掉修改的技能默认不勾");
@@ -1493,7 +1510,7 @@ await step("改了作者的技能：只看作者那边有没有新版，更新�
   rewriteZip("delta v4");
   await checkUpdates("1 个技能有新版本");
   await updatesNav().click();
-  await btn(page.locator(".update-row", { hasText: "delta" }), "查看").click();
+  await btn(page.locator(".update-row", { hasText: "delta" }), "更新…").click();
   await planRow("update-skill", "delta").locator(".update-edited").waitFor({ timeout: 15000 });
   await btn(planRow("update-skill", "delta"), "跳过").click();
   await toast("已跳过「delta」这次的改动");
@@ -1506,7 +1523,7 @@ await step("改了作者的技能：只看作者那边有没有新版，更新�
   await checkUpdates("1 个技能有新版本");
   // 后面的步骤按角标计数，这次的改动也跳过。
   await updatesNav().click();
-  await btn(page.locator(".update-row", { hasText: "delta" }), "查看").click();
+  await btn(page.locator(".update-row", { hasText: "delta" }), "更新…").click();
   await btn(planRow("update-skill", "delta"), "跳过").click();
   await toast("已跳过「delta」这次的改动");
   await page.keyboard.press("Escape");
@@ -1632,6 +1649,170 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
 });
 
 // ============ 拖放 ============
+// npx skills 从一个 Git 仓库装了三个技能:lint 和来源一样;tdd 装的是来源现在这一版、之后被改过(记录里的哈希等于来源的);
+// grill-me 被改过、记录里没有哈希(说不清)。Git 来源的名字与来源版本照常显示;来源版本未知的如实写出;
+// tdd 第一次检查更新没有更新，作者再改才报，和 grill-me 一样写明更新会换掉你的修改。
+await step("Git 来源与 npx skills 记录：来源名字与来源版本、来源版本未知的如实写出、装的是来源现在这一版又改过的不报有更新", async () => {
+  const work = path.join(HOME, "sources", "matt-skills");
+  const bare = path.join(HOME, "sources", "matt-skills.git");
+  const url = "https://git.pm.test/matt/skills.git";
+  const names = ["grill-me", "tdd", "lint"];
+  const doc = (name, body) => `---\nname: ${name}\ndescription: "${name} from matt"\n---\n\n${body}\n`;
+  const gitIn = (dir, ...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "-C", dir, ...args]).toString().trim();
+  for (const name of names) {
+    fs.mkdirSync(path.join(work, "skills", name), { recursive: true });
+    fs.writeFileSync(path.join(work, "skills", name, "SKILL.md"), doc(name, "v1"));
+  }
+  gitIn(work, "init", "-q", "-b", "main");
+  gitIn(work, "add", "-A");
+  gitIn(work, "commit", "-qm", "v1");
+  execFileSync("git", ["clone", "-q", "--bare", work, bare]);
+  execFileSync("git", ["config", "--file", path.join(HOME, ".gitconfig"), `url.file://${bare}.insteadOf`, url]);
+  const head = () => gitIn(work, "rev-parse", "HEAD");
+  const tree = (name) => gitIn(work, "rev-parse", `HEAD:skills/${name}`);
+  const codex = path.join(HOME, ".agents", "skills");
+  const disk = { "grill-me": doc("grill-me", "edited"), tdd: doc("tdd", "edited"), lint: doc("lint", "v1") };
+  for (const [name, content] of Object.entries(disk)) {
+    fs.mkdirSync(path.join(codex, name), { recursive: true });
+    fs.writeFileSync(path.join(codex, name, "SKILL.md"), content);
+  }
+  const record = (hash) => ({ source: url, sourceType: "git", sourceUrl: url, skillFolderHash: hash });
+  fs.writeFileSync(
+    path.join(HOME, ".agents", ".skill-lock.json"),
+    JSON.stringify({ version: 3, skills: { "grill-me": record(""), tdd: record(tree("tdd")), lint: record(tree("lint")) } }),
+  );
+  const unmanaged = (name) => page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const label = "git.pm.test/matt/skills";
+  try {
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+    await selectScope("Codex");
+    for (const name of names) {
+      await btn(unmanaged(name), "入库").click();
+      await btn(modal(), "入库").click();
+      await toast(`已入库「${name}」`);
+      await settle();
+    }
+    await clearScope();
+    await settle();
+
+    // Git 来源：左栏集合、卡片和详情都写出 host/仓库路径，详情里的来源版本和 GitHub 一样写分支与 commit。
+    const nav = page.locator(".a-left .nav-item", { hasText: label });
+    assert.equal(await nav.count(), 1, "左栏集合写出 Git 仓库");
+    assert.equal(await page.locator(".a-left .nav-item", { hasText: "未知来源" }).count(), 0, "没有未知来源");
+    await openDrawer("lint");
+    const meta = drawer().locator(".meta");
+    assert((await meta.textContent()).includes(label), `详情的集合写出 Git 仓库:${await meta.textContent()}`);
+    assert((await meta.textContent()).includes(`main · ${head().slice(0, 12)}`), `来源版本写分支与 commit:${await meta.textContent()}`);
+    await openDrawer("grill-me");
+    assert((await drawer().locator(".meta").textContent()).includes("main · 来源版本未知"), "来源版本未知时如实写出");
+    await closeDrawer();
+
+    // tdd 装的是来源现在这一版又被改过：第一次检查更新只有 grill-me 有新版本。
+    await checkUpdates("1 个技能有新版本");
+    await updatesNav().click();
+    const row = page.locator(".update-row", { hasText: label });
+    const facts = await row.textContent();
+    assert(facts.includes("grill-me 的来源版本未知") && facts.includes(`其余 2 个在 ${head().slice(0, 7)}`), `列表写出哪些技能的来源版本未知:${facts}`);
+    assert(!facts.includes(`${head().slice(0, 7)} → ${head().slice(0, 7)}`), `不写同一个来源版本到它自己:${facts}`);
+    assert(facts.includes("grill-me 有变化，更新会换掉你的修改") && !facts.includes("tdd"), `只有 grill-me 有变化，写明会换掉你的修改:${facts}`);
+    assert((await card("tdd").locator('[data-slot="badge"]', { hasText: "有新版本" }).count()) === 0, "tdd 没有更新");
+    await page.screenshot({ path: path.join(SHOTS, "git-npx-updates.png") });
+    await btn(row, "更新…").click();
+    await planRow("update-skill", "grill-me").locator(".update-edited").waitFor({ timeout: 15000 });
+    const hint = await modal().locator('[data-slot="hint"]').first().textContent();
+    assert(hint.startsWith(label) && hint.includes("grill-me 的来源版本未知") && !hint.includes("技能都在"), `计划顶部如实写出:${hint}`);
+    assert.equal(await modal().locator('[data-slot="notice"]', { hasText: "不在同一个来源版本上" }).count(), 0, "可能有你的修改的默认没勾，不警告不在同一个来源版本上");
+    await page.screenshot({ path: path.join(SHOTS, "git-npx-plan.png") });
+    await page.keyboard.press("Escape");
+    await settle();
+
+    // 作者改了 tdd:照常报有新版本，写明会换掉你的修改。
+    fs.writeFileSync(path.join(work, "skills", "tdd", "SKILL.md"), doc("tdd", "v2"));
+    gitIn(work, "commit", "-qam", "tdd v2");
+    gitIn(work, "push", "-q", bare, "main");
+    await checkUpdates("2 个技能有新版本");
+    // 更新列表还开着：再点一次"更新"会收起，先回到所有技能。
+    await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+    await updatesNav().click();
+    assert((await page.locator(".update-row", { hasText: label }).textContent()).includes("grill-me、tdd 有变化，更新会换掉你的修改"), "作者再改时 tdd 也报");
+    assert((await card("tdd").locator(".update-edited-note").textContent()).includes("更新会换掉你的修改"), "卡片上写明");
+  } finally {
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    await clearScope();
+    for (const name of names) {
+      if ((await card(name).count()) === 0) continue;
+      await openDrawer(name);
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const name of names) fs.rmSync(path.join(codex, name), { recursive: true, force: true });
+    fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+  }
+});
+
+// 库里已有一个没有来源的 review,在另一个作用域入库同名、内容不一样的 review:确认时说出来，入库后两个 review 写出各装在哪里。
+await step("库里同名的技能：入库确认时说出来，卡片和详情写出各装在哪里", async () => {
+  const claude = path.join(HOME, ".claude", "skills", "review");
+  const codex = path.join(HOME, ".agents", "skills", "review");
+  for (const [dir, body] of [[claude, "review in claude"], [codex, "review in codex"]]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nname: review\ndescription: "${body}"\n---\n`);
+  }
+  const unmanaged = page.locator(".unmanaged-card", { has: page.locator(".unmanaged-name", { hasText: /^review$/ }) });
+  try {
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+    await selectScope("Claude Code");
+    await btn(unmanaged, "入库").click();
+    assert.equal(await modal().locator(".unmanaged-same-name").count(), 0, "库里还没有同名的");
+    await btn(modal(), "入库").click();
+    await toast("已入库「review」");
+    await settle();
+
+    await selectScope("Codex");
+    await btn(unmanaged, "入库").click();
+    const note = await modal().locator(".unmanaged-same-name").textContent();
+    assert(note.includes("库里已经有叫「review」的技能") && note.includes("Claude Code · 全局"), `确认时说出库里已有同名的、装在哪里:${note}`);
+    await page.screenshot({ path: path.join(SHOTS, "same-name-in-library-confirm.png") });
+    await btn(modal(), "入库").click();
+    await toast("已入库「review」");
+    await settle();
+    await clearScope();
+    await settle();
+
+    const cards = card("review");
+    assert.equal(await cards.count(), 2, "同名但内容不同不合并");
+    const notes = (await cards.locator(".dup-name-note").allTextContents()).sort();
+    assert.deepStrictEqual(notes, ["库里有 2 个「review」;这个装在 Claude Code · 全局", "库里有 2 个「review」;这个装在 Codex · 全局"], `卡片写出各装在哪里:${notes}`);
+    await page.screenshot({ path: path.join(SHOTS, "same-name-in-library-cards.png") });
+    await cards.first().click();
+    await drawer().waitFor();
+    const meta = await drawer().locator(".meta").textContent();
+    assert(meta.includes("库里还有 1 个「review」") && /装在 (Claude Code|Codex) · 全局/.test(meta), `详情写出另一个装在哪里:${meta}`);
+    await closeDrawer();
+  } finally {
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    await clearScope();
+    while ((await card("review").count()) > 0) {
+      await closeDrawer();
+      await card("review").first().click();
+      await drawer().waitFor();
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const dir of [claude, codex]) fs.rmSync(dir, { recursive: true, force: true });
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+  }
+});
+
 await step("拖放：卡片 → 左栏组(加入)", async () => {
   await card("delta").dragTo(page.locator(".a-left .nav-item", { hasText: "前端调试" }));
   await toast("已把「delta」加入「前端调试」");
