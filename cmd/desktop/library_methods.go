@@ -256,6 +256,10 @@ func (s *LibraryService) PlanFetchUnmanaged(ctx context.Context, req library.Pla
 	return settle(s.lib.PlanFetchUnmanaged(ctx, req))(ctx)
 }
 
+func (s *LibraryService) FindUnmanagedSources(ctx context.Context, req library.FindUnmanagedSourcesRequest) ([]library.FoundUnmanagedSource, error) {
+	return settle(s.lib.FindUnmanagedSources(ctx, req))(ctx)
+}
+
 func (s *LibraryService) FetchUnmanagedSkills(ctx context.Context, req library.FetchUnmanagedSkillsRequest) ([]library.FetchedUnmanagedSkill, error) {
 	return settle(s.lib.FetchUnmanagedSkills(ctx, req))(ctx)
 }

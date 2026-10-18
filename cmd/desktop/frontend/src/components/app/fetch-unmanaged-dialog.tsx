@@ -1,7 +1,7 @@
 // 一次确认把作用域里不是库装的技能全部入库：第一次打开 app 时看各 Agent 的全局，登记一个项目之后看这个项目，
 // 之后也能从作用域里那一行淡淡的提示再打开。磁盘上什么都不改;按认出的来源分组，同名不同内容的单列出来只选一份，
 // 一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
@@ -13,7 +13,7 @@ import {
   type UnmanagedFetchItem,
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
-import { toLibraryError, type LibraryError } from "@/lib/library";
+import { toLibraryError, useFoundSources, withFoundSource, type LibraryError } from "@/lib/library";
 import { homePath, outsideLinkNote, sameNameFetchNote, scopeOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
@@ -158,7 +158,7 @@ interface Failed {
 
 function FetchUnmanagedDialog({
   agents,
-  plan,
+  plan: listed,
   library,
   home,
   where,
@@ -172,8 +172,11 @@ function FetchUnmanagedDialog({
   close: () => void;
 }) {
   const ui = useUI();
+  // 来源记录认不出来源的，在 skills.sh 上找到来源后补上，和来源记录认出的一样预填、分组。
+  const sources = useFoundSources();
+  const plan = useMemo(() => listed.map((p) => withFoundSource(sources, p)), [listed, sources]);
   const [picked, setPicked] = useState<Set<number>>(
-    () => new Set(plan.flatMap((p, i) => (p.selected ? [i] : []))),
+    () => new Set(listed.flatMap((p, i) => (p.selected ? [i] : []))),
   );
   const [progress, setProgress] = useState<string>();
   const [fetched, setFetched] = useState<FetchedUnmanagedSkill[]>();

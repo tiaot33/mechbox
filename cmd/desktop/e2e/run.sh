@@ -2,16 +2,18 @@
 # 桌面端端到端验证：把桌面端编译成 Wails server 模式(HTTP 服务，不开窗口),
 # 在临时 HOME 里放好测试数据，用本机 Chrome 按界面操作走遍技能库的全部功能并核对磁盘。
 # 用法(在 cmd/desktop/e2e 下):pnpm install && pnpm test [步骤名过滤]
-# 需要联网的步骤(技能市场、GitHub)默认跳过，E2E_NETWORK=1 时运行。
+# 需要联网的步骤(技能市场、GitHub)默认跳过，E2E_NETWORK=1 时运行;离线时不访问真实的 skills.sh。
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 desktop=$(dirname "$here")
 work=$(mktemp -d /tmp/skills-e2e.XXXXXX)
 server_pid=""
 zip_pid=""
+hosts_pid=""
 cleanup() {
 	[ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null || true
 	[ -n "$zip_pid" ] && kill "$zip_pid" 2>/dev/null || true
+	[ -n "$hosts_pid" ] && kill "$hosts_pid" 2>/dev/null || true
 	rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -85,11 +87,27 @@ first first-dup "the old copy" "$home/.claude/skills/first-dup"
 first first-dup "the new copy" "$home/.agents/skills/first-dup"
 touch -t 202401010000 "$home/.claude/skills/first-dup/SKILL.md"
 
+# 离线时 server 模式按 E2E_HOSTS 把 skills.sh 与 well-known 站点 skills.e2e.test 的请求改到本地的 hosts 服务，
+# 不访问真实的 skills.sh:搜索不论搜什么都返回 found-a / found-b 两个结果，都来自 skills.e2e.test;
+# 站点的旧格式索引里有这两个技能。e2e 在 Agent 目录里放同名的未纳管技能，测在 skills.sh 上找来源。
+mkdir -p "$work/hosts/api" "$work/hosts/.well-known/skills/found-a" "$work/hosts/.well-known/skills/found-b"
+printf '{"skills":[{"id":"skills.e2e.test/found-a","name":"found-a","source":"skills.e2e.test","installs":3},{"id":"skills.e2e.test/found-b","name":"found-b","source":"skills.e2e.test","installs":1}]}\n' >"$work/hosts/api/search"
+printf -- '---\nname: found-a\ndescription: "found-a from skills.e2e.test"\n---\n\n# found-a\n\n- one\n- two\n- three\n' >"$work/hosts/.well-known/skills/found-a/SKILL.md"
+printf -- '---\nname: found-b\ndescription: "found-b from skills.e2e.test"\n---\n\n# found-b\n\n- one\n- two\n- three\n' >"$work/hosts/.well-known/skills/found-b/SKILL.md"
+printf '{"skills":[{"name":"found-a","description":"found-a from skills.e2e.test","files":["SKILL.md"]},{"name":"found-b","description":"found-b from skills.e2e.test","files":["SKILL.md"]}]}\n' >"$work/hosts/.well-known/skills/index.json"
+
 port=${E2E_PORT:-18080}
 zip_port=$((port + 1))
+hosts_port=$((port + 2))
 (cd "$work/zips" && exec python3 -m http.server "$zip_port" >/dev/null 2>&1) &
 zip_pid=$!
-HOME="$home" XDG_STATE_HOME="" WAILS_SERVER_PORT="$port" "$work/server" >"$work/server.log" 2>&1 &
+hosts=""
+if [ "${E2E_NETWORK:-}" != 1 ]; then
+	(cd "$work/hosts" && exec python3 -m http.server "$hosts_port" >/dev/null 2>&1) &
+	hosts_pid=$!
+	hosts="skills.sh=localhost:$hosts_port skills.e2e.test=localhost:$hosts_port"
+fi
+HOME="$home" XDG_STATE_HOME="" WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" "$work/server" >"$work/server.log" 2>&1 &
 server_pid=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
 	curl -sf -o /dev/null "http://localhost:$port/" && break

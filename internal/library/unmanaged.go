@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tiaot33/skills-tui/internal/library/internal/agentdir"
+	"github.com/tiaot33/skills-tui/internal/library/internal/market"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skillfile"
 	"github.com/tiaot33/skills-tui/internal/library/internal/skilllock"
 	"github.com/tiaot33/skills-tui/internal/library/internal/source"
@@ -986,4 +988,180 @@ func (f *sourceRecords) find(target resolvedScope, names ...string) (skilllock.R
 		f.read[root] = records
 	}
 	return records.Find(names...)
+}
+
+// FindUnmanagedSourcesRequest 指定要去 skills.sh 找来源的未纳管技能。
+type FindUnmanagedSourcesRequest struct {
+	// Folders 是 ListUnmanagedSkills 列出的条目,按作用域与文件夹名指定,重复的只算一次。
+	// 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的,和已经不是未纳管技能、不在了的一样,不找也不报错。
+	Folders []FolderInScope `json:"folders"`
+}
+
+// FoundUnmanagedSource 是在 skills.sh 上给一个未纳管技能找到的来源。
+type FoundUnmanagedSource struct {
+	Scope Scope  `json:"scope"`
+	Name  string `json:"name"` // UnmanagedSkill.Name,即技能文件夹名
+	// SourceInput 是找到的来源,和来源记录认出的 UnmanagedSkill.SourceInput 一样用:界面写「来自 …」,入库确认里预填给
+	// FetchUnmanagedRequest.SourceInput 与 UnmanagedFetchItem.SourceInput,整批确认按它分组。格式同 PreviewFetchRequest.Input:
+	// GitHub 仓库为 owner/repo,well-known 站点为 https://<站点>;不带分支,SourceRef 留空。
+	SourceInput string `json:"source_input"`
+}
+
+// FindUnmanagedSources 给来源记录认不出来源的未纳管技能去 skills.sh 找来源:按 SKILL.md 里的 name 搜索,只看名字和它相同、
+// 能转成入库预览输入的结果(规则同 SearchSkills),读出来源里这个技能的文件,和磁盘上的内容比较相似度,
+// 得分不低于 60% 的取得分最高的那个,一样高时取 skills.sh 排在前面的。相似度的算法和推测来源里改名的技能相同:
+// 同路径的文件按非空行的重合比例算分(SKILL.md 不算 name 那一行),相加后除以两边文件数中较多的那个。
+// 用找到的来源入库(FetchUnmanaged、FetchUnmanagedSkills)时,内容和来源里的一致就是来源里的那一版,不一致时和用户自己给的来源一样,
+// 版本标为 SkillVersion.MaybeEdited。
+// 它要联网,ListUnmanagedSkills 与 PlanFetchUnmanaged 不等它:界面列出之后在后台调用,结果到了再补上。
+// 搜索 skills.sh 与读来源加起来最多同时 4 个;同一个来源这一次只读一次,几个技能共用。联网期间不持库锁。
+// 搜不到、没有达到阈值的、skills.sh 或来源连不上、文件夹读不成的,都当作认不出来源:不在结果里,也不报错。
+// 只读:不改库、不改磁盘。结果按请求顺序,只列出找到来源的。
+// 错误:作用域不合法返回 InvalidArgument(Details.Field 指向对应字段),文件夹名不合法为 name;Agent、项目不存在返回 NotFound。
+func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSourcesRequest) (found []FoundUnmanagedSource, err error) {
+	defer func() { err = typedError(err) }()
+	folders, err := l.sourcelessFolders(ctx, req.Folders)
+	if err != nil {
+		return nil, err
+	}
+	searched := map[string][]string{}
+	for _, folder := range folders {
+		searched[folder.name] = nil
+	}
+	limit := make(parallelLimit, maxSourceSearches)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for name := range maps.Clone(searched) {
+		wg.Go(func() {
+			limit.do(ctx, func() {
+				results, err := market.Search(ctx, name)
+				if err != nil {
+					return
+				}
+				var inputs []string
+				for _, result := range results {
+					if _, input, ok := searchInputs(result); ok && result.Name == name && !slices.Contains(inputs, input) {
+						inputs = append(inputs, input)
+					}
+				}
+				mu.Lock()
+				searched[name] = inputs
+				mu.Unlock()
+			})
+		})
+	}
+	wg.Wait()
+	wanted := map[string][]string{}
+	for name, inputs := range searched {
+		for _, input := range inputs {
+			wanted[input] = append(wanted[input], name)
+		}
+	}
+	type sourceSkill struct{ input, name string }
+	fetched := map[sourceSkill][]skillfile.File{}
+	for input, names := range wanted {
+		wg.Go(func() {
+			var opened *openedSource
+			limit.do(ctx, func() { opened, _ = l.openSource(ctx, input, "") })
+			if opened == nil {
+				return
+			}
+			for _, name := range names {
+				limit.do(ctx, func() {
+					skills, err := opened.snapshot.Fetch(ctx, []string{name})
+					if err != nil || len(skills) != 1 {
+						return
+					}
+					mu.Lock()
+					fetched[sourceSkill{input, name}] = skills[0].Files
+					mu.Unlock()
+				})
+			}
+		})
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	found = []FoundUnmanagedSource{}
+	for _, folder := range folders {
+		best, score := "", 0.0
+		for _, input := range searched[folder.name] {
+			files, ok := fetched[sourceSkill{input, folder.name}]
+			if !ok {
+				continue
+			}
+			if each := similarity(folder.files, files); each >= renameSimilarity && each > score {
+				best, score = input, each
+			}
+		}
+		if best != "" {
+			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Name: folder.Name, SourceInput: best})
+		}
+	}
+	return found, nil
+}
+
+const maxSourceSearches = 4
+
+type parallelLimit chan struct{}
+
+func (p parallelLimit) do(ctx context.Context, work func()) {
+	select {
+	case p <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	defer func() { <-p }()
+	work()
+}
+
+type sourcelessFolder struct {
+	FolderInScope
+	name  string
+	files []skillfile.File
+}
+
+func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInScope) ([]sourcelessFolder, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	const operation = "find unmanaged sources"
+	wanted := map[Scope]bool{}
+	for _, folder := range requested {
+		if !validFolderName(folder.Name) {
+			return nil, argumentError(operation, "name", "invalid skill folder name")
+		}
+		if _, err := l.resolveScope(ctx, operation, folder.Scope); err != nil {
+			return nil, err
+		}
+		wanted[folder.Scope] = true
+	}
+	if len(wanted) == 0 {
+		return nil, nil
+	}
+	entries, err := l.unmanagedSkills(ctx, wanted)
+	if err != nil {
+		return nil, err
+	}
+	listed := map[FolderInScope]unmanagedEntry{}
+	for _, entry := range entries {
+		listed[FolderInScope{Scope: entry.Scope, Name: entry.Name}] = entry
+	}
+	var folders []sourcelessFolder
+	for _, folder := range requested {
+		entry, ok := listed[folder]
+		if !ok || entry.SourceInput != "" {
+			continue
+		}
+		delete(listed, folder)
+		files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			continue
+		}
+		folders = append(folders, sourcelessFolder{FolderInScope: folder, name: parsed.Name, files: files})
+	}
+	return folders, nil
 }

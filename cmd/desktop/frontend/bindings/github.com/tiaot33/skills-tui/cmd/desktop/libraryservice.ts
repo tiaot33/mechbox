@@ -70,6 +70,10 @@ export function FetchUnmanagedSkills(req: library$0.FetchUnmanagedSkillsRequest)
     return $Call.ByID(977900320, req);
 }
 
+export function FindUnmanagedSources(req: library$0.FindUnmanagedSourcesRequest): $CancellablePromise<library$0.FoundUnmanagedSource[] | null> {
+    return $Call.ByID(2707933367, req);
+}
+
 export function GetSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(3591563083, id);
 }

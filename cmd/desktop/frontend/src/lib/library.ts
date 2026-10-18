@@ -1,5 +1,5 @@
 // 桌面端读取技能库的入口：经 Wails 绑定调用 Go 侧的 LibraryService。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { CancelError, type CancellablePromise } from "@wailsio/runtime";
 import { AppService, LibraryService, type AppInfo } from "@bindings/cmd/desktop";
 import {
@@ -13,9 +13,11 @@ import {
   type Skill,
   type SkillScopeInspection,
   type SameNameSkill,
+  type PlannedUnmanagedSkill,
+  type Scope,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
-import { parseScope, type ScopeKey } from "./model";
+import { parseScope, scopeKey, type ScopeKey } from "./model";
 
 // LibraryError 就是技能库的 library.Error(类型由绑定生成);Go 端的 MarshalError 把任意错误规范成它，
 // Wails 运行时放在被拒绝的 Error 的 cause 上。
@@ -85,6 +87,7 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
       ([info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName, settings]) => {
         if (cancelled) return;
         const agentsShown = settings.agents_shown ?? {};
+        findSources(unmanaged);
         setState({
           status: "ready",
           snapshot: { info, agents, agentsShown, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName },
@@ -118,4 +121,70 @@ export function useScopeDirectory(scope: ScopeKey | null): string | undefined {
     return () => void call.cancel();
   }, [scope]);
   return directory;
+}
+
+// ---------- 在 skills.sh 上找到的来源 ----------
+
+// 来源记录认不出来源的未纳管技能，列出之后在后台去 skills.sh 找来源，找到的陆续补到界面上。
+// found 按作用域与文件夹名记下这次打开 app 以来找过的：值是找到的来源，找过没找到的为 ""，不再重复找;
+// 找的过程中出错(取消、技能库报错)的不记，下次重读时再找。
+let found: ReadonlyMap<string, string> = new Map();
+const searching = new Set<string>();
+const listeners = new Set<() => void>();
+
+function folderKey(scope: Scope, name: string): string {
+  return `${scopeKey(scope)}/${name}`;
+}
+
+function findSources(unmanaged: UnmanagedSkill[]) {
+  const pending = unmanaged.filter((u) => {
+    const key = folderKey(u.scope, u.name);
+    return !u.source_input && !found.has(key) && !searching.has(key);
+  });
+  if (pending.length === 0) return;
+  const keys = pending.map((u) => folderKey(u.scope, u.name));
+  for (const key of keys) searching.add(key);
+  LibraryService.FindUnmanagedSources({ folders: pending.map((u) => ({ scope: u.scope, name: u.name })) }).then(
+    (results) => {
+      const next = new Map(found);
+      for (const key of keys) next.set(key, "");
+      for (const r of results ?? []) next.set(folderKey(r.scope, r.name), r.source_input);
+      for (const key of keys) searching.delete(key);
+      found = next;
+      for (const listener of listeners) listener();
+    },
+    () => {
+      for (const key of keys) searching.delete(key);
+    },
+  );
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+}
+
+// FoundSources 是在 skills.sh 上找到的来源，用 foundSource 取一个未纳管技能的。
+export type FoundSources = ReadonlyMap<string, string>;
+
+// useFoundSources 订阅在 skills.sh 上找到的来源：找到新的时重新渲染。
+export function useFoundSources(): FoundSources {
+  return useSyncExternalStore(subscribe, () => found);
+}
+
+// foundSource 是在 skills.sh 上给这个未纳管技能找到的来源;来源记录认得出、还没找完或没找到时为 undefined。
+export function foundSource(sources: FoundSources, skill: UnmanagedSkill): string | undefined {
+  if (skill.source_input) return undefined;
+  return sources.get(folderKey(skill.scope, skill.name)) || undefined;
+}
+
+// withFoundSource 给来源记录认不出来源的那一条补上在 skills.sh 上找到的来源(取第一处找到的),
+// 和来源记录认出的一样预填、分组。
+export function withFoundSource(sources: FoundSources, planned: PlannedUnmanagedSkill): PlannedUnmanagedSkill {
+  if (planned.source_input || planned.error) return planned;
+  for (const folder of planned.folders ?? []) {
+    const input = foundSource(sources, folder);
+    if (input) return { ...planned, source_input: input, source_ref: undefined };
+  }
+  return planned;
 }
