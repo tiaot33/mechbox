@@ -71,7 +71,8 @@ export interface ConfigStatus {
 }
 
 /**
- * Credentials 是设置页 GitHub 与同步分区里填的内容。令牌、Secret Access Key、Session Token 存在系统钥匙串里，
+ * Credentials 是设置页 GitHub 与同步分区里填的内容。令牌、Secret Access Key、Session Token 存在系统钥匙串里
+ * (macOS 钥匙串、Windows 凭据管理器、Linux 的 Secret Service),
  * 其余几项存在 settings.json;都只属于这台机器，不进技能库，也不随同步走(见 ADR 0011)。
  */
 export interface Credentials {

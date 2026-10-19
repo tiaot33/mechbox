@@ -221,8 +221,8 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                   </>
                 ),
               )}
-              {card("github", t.tokenInKeychain, credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
-              {card("sync", t.secretsInKeychain, credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
+              {card("github", t.tokenInKeychain(), credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
+              {card("sync", t.secretsInKeychain(), credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
               {card(
                 "about",
                 null,
@@ -237,7 +237,7 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                 "uninstall",
                 null,
                 <SetRow>
-                  <Hint className="grow">{t.uninstallDesc}</Hint>
+                  <Hint className="grow">{t.uninstallDesc()}</Hint>
                   <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog s={s} onClose={close} />)}>
                     {t.uninstallButton}
                   </Button>

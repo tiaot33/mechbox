@@ -42,7 +42,7 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
   return (form) =>
     failed ? (
       <div className="flex items-center gap-2">
-        <Hint className="grow">{t.keychainFailed}</Hint>
+        <Hint className="grow">{t.keychainFailed()}</Hint>
         <Button onClick={() => setAttempt((n) => n + 1)}>{t.retry}</Button>
       </div>
     ) : (
