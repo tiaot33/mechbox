@@ -84,10 +84,10 @@ open bin/mechbox.app
 
 - **技能库位置**：`<用户配置目录>/mechbox/library.db`，macOS 上是 `~/Library/Application Support/mechbox/library.db`。首次启动时创建目录，由 Library 初始化空库。它只依赖 `HOME`，所以从 Finder / Dock 启动也能找到。
 - **应用设置**：检查更新、通用与 Agent 的显示勾选(以及这台机器是否打开过 app,第一次打开时带用户入库已有的技能)只属于这台机器，存在技能库旁边的 `settings.json`（macOS 上是 `~/Library/Application Support/mechbox/settings.json`），不进技能库、不随同步走；文件里没有的字段取默认值，加设置项就是给 `Settings` 加字段。
-- **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 存在 macOS 系统钥匙串(一个条目，服务名 `com.tiaot33.mechbox`),其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许;拒绝后打开设置页会再读一次，仍读不到时这两个分区只显示「重试」,不能修改。
+- **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 合成一项存在系统里:macOS 是钥匙串(一个条目，服务名 `com.tiaot33.mechbox`);Windows 是凭据管理器(一条普通凭据 `com.tiaot33.mechbox:credentials`,只存在这台机器上、不随漫游配置文件走;单条凭据最多 2560 字节，超过时分成几条 `com.tiaot33.mechbox:credentials:<代>:<序号>`,最后才改写第一条，中途失败时旧内容仍可读;缺了一段或第一条坏了(例如手动删过)按没存过处理，重新填写后覆盖);Linux 是 D-Bus 会话总线上的 Secret Service(GNOME Keyring、KWallet 等;默认集合里一项，属性 `service=com.tiaot33.mechbox`、`account=credentials`)。其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许;Linux 上集合锁着时 Secret Service 会弹出解锁框，5 分钟没处理就撤掉、按读不到处理。拒绝或关掉后打开设置页会再读一次，仍读不到时这两个分区只显示「重试」,不能修改。Linux 上没有 Secret Service(没有 D-Bus 会话——不会自己启动 `dbus-launch`——或没装、没启动 GNOME Keyring / KWallet)时同样按读不到处理，不退回只存在内存里;读不到的提示在 Linux 上还写明可以装好并启动 GNOME Keyring / KWallet 后重试，或从设置了环境变量的终端启动;卸载 Mechbox 时删不掉条目照旧拦下，可以跳过(Secret Service 可能只是没启动，条目还在)。
 - **自动检查更新**：默认打开、每天。Go 端每分钟看一次是否到了间隔（以技能库里记下的检查时间为准，从未检查过的技能从入库时算起，手动检查也算）；“只在打开时”是启动应用、从菜单栏或 Dock 重新打开窗口时各检查一次。只检查非本地目录来源的集合，不发系统通知；检查完更新 Dock 角标，并发 `updates-checked` 事件让前端重读。
 - **Dock 角标**：计入角标的技能数，按技能库给出的 `UpdateCheck.Pending`(有新版本且没跳过、来源里已删除且没选继续保留、推测出改名;本地目录来源、跳过的改动、新技能不计入),和左栏"更新"的计数一致；前端每次重读快照后经 `AppService.RefreshBadge` 重算。只在 macOS 上显示。
-- **卸载 Mechbox**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、系统钥匙串里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删钥匙串条目——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;Windows / Linux 上:
+- **卸载 Mechbox**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、存在系统里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删令牌与密钥的条目(见上一条)——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;Windows / Linux 上:
   - 退出后只删数据库与 `settings.json`,应用本身和 WebView 的数据不动，弹窗里写明应用要用系统的方式卸载。
   - Windows 上文件夹移到回收站，弹窗里说「回收站 / Recycle Bin」。
   - Linux 上文件夹按 freedesktop 规范移进 `$XDG_DATA_HOME/Trash`(默认 `~/.local/share/Trash`);和家目录不在同一个文件系统上时，放进那个卷顶层的 `.Trash/$uid` 或 `.Trash-$uid`。弹窗里中文说「回收站」,英文说 Trash。
@@ -120,7 +120,7 @@ E2E_NETWORK=1 pnpm test      # 连同技能市场与 GitHub 入库(需要联网)
 pnpm test 重新安装           # 只跑名字包含"重新安装"的步骤(步骤之间有依赖，单跑可能缺前置状态;名字含"卸载"的也会跑到最后的卸载 Mechbox，之后 server 退出)
 ```
 
-失败的步骤会截图到 `/tmp/mechbox-e2e-shots/`。步骤按中文界面写,`run.sh` 给 server 设 `LC_ALL=zh_CN.UTF-8`,界面不随跑测试的机器的系统语言变。server 模式(`server` 构建标签)不用系统钥匙串，令牌和密钥只存在进程内存里，不碰本机钥匙串里的真实条目。server 模式下"在 Finder 中显示"什么都不做(e2e 只核对前端传过去的路径);卸载 Mechbox 时不清 `~/Library`、不动可执行文件，文件夹直接删除。离线时 `run.sh` 用 `E2E_HOSTS` 让 server 模式把 skills.sh 与假的 well-known 站点 `skills.e2e.test` 的请求改到本地的 HTTP 服务，不访问真实的 skills.sh;在 skills.sh 上找来源的步骤(`[离线]` 开头)只在离线时运行。server 模式没有原生窗口，所以系统目录选择框、窗口毛玻璃、单实例、Dock 角标与关闭窗口后留在菜单栏不在这里验证，需要在 `wails3 dev` 里手动确认。
+失败的步骤会截图到 `/tmp/mechbox-e2e-shots/`。步骤按中文界面写,`run.sh` 给 server 设 `LC_ALL=zh_CN.UTF-8`,界面不随跑测试的机器的系统语言变。server 模式(`server` 构建标签)在各平台上都不用系统的钥匙串 / 凭据管理器 / Secret Service,令牌和密钥只存在进程内存里，不碰本机的真实条目。server 模式下"在 Finder 中显示"什么都不做(e2e 只核对前端传过去的路径);卸载 Mechbox 时不清 `~/Library`、不动可执行文件，文件夹直接删除。离线时 `run.sh` 用 `E2E_HOSTS` 让 server 模式把 skills.sh 与假的 well-known 站点 `skills.e2e.test` 的请求改到本地的 HTTP 服务，不访问真实的 skills.sh;在 skills.sh 上找来源的步骤(`[离线]` 开头)只在离线时运行。server 模式没有原生窗口，所以系统目录选择框、窗口毛玻璃、单实例、Dock 角标与关闭窗口后留在菜单栏不在这里验证，需要在 `wails3 dev` 里手动确认。
 
 `frontend/dist/` 里提交了一个占位文件 `.gitkeep`（源文件是 `frontend/public/.gitkeep`，每次 Vite 构建都会复制过去），所以没构建前端时 `go build/vet/test ./...` 也能通过，纯 Go 的开发不需要 Node 工具链。
 
@@ -135,10 +135,10 @@ cmd/desktop/
 ├── language.go             界面语言：设置值与按系统语言解析(language_darwin.go 读 macOS 的首选语言;其他平台与 server 模式见 language_other.go,读环境变量)
 ├── menu.go                 Go 这边画的菜单文字(菜单栏图标的菜单、macOS 顶部菜单栏),随界面语言切换
 ├── credentials.go          设置页的 GitHub 令牌与同步设置：存取并交给技能库
-├── keychain_darwin.go      macOS 系统钥匙串(其他平台与 server 模式见 keychain_other.go,只存在内存里)
+├── keychain_darwin.go      令牌与密钥存在系统里:macOS 钥匙串(keychain_windows.go 是 Windows 凭据管理器，超过单条上限时按 keychain_parts.go 分成几条;keychain_linux.go 是 D-Bus 上的 Secret Service,等解锁框的结果见 keychain_prompt.go;server 模式见 keychain_server.go,只存在内存里)
 ├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
 ├── reveal_darwin.go        在 Finder 中显示(其他平台与 server 模式见 reveal_other.go,什么都不做)
-├── uninstall.go            卸载 Mechbox：删钥匙串条目、移走文件夹，退出后删数据库与设置(uninstall_<平台>.go 是各平台怎么移文件夹、清系统数据;uninstall_darwin.go 清 ~/Library 并把 .app 移到废纸篓;server 模式见 uninstall_server.go,文件夹直接删除)
+├── uninstall.go            卸载 Mechbox：删令牌与密钥的条目、移走文件夹，退出后删数据库与设置(uninstall_<平台>.go 是各平台怎么移文件夹、清系统数据;uninstall_darwin.go 清 ~/Library 并把 .app 移到废纸篓;server 模式见 uninstall_server.go,文件夹直接删除)
 ├── trash_windows.go        Windows 回收站(IFileOperation,驱动器没有回收站时中止);trash_freedesktop.go 是 Linux 的 freedesktop 回收站
 ├── library_methods.go      绑定服务：逐个转发 Library 的全部方法
 ├── e2e/                    端到端验证(server 模式 + Chrome)
