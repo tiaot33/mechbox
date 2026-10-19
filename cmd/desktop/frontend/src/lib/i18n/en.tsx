@@ -1,5 +1,6 @@
 // 英文界面文案：结构与 zh.tsx 一一对应，satisfies Messages 让漏翻、参数不对的条目在 tsc 里报出。
 import type { ReactNode } from "react";
+import { System } from "@wailsio/runtime";
 import type { Messages } from ".";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
 
@@ -10,6 +11,16 @@ const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
+
+// store 是令牌与密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
+const store = () => (System.IsWindows() ? "Windows Credential Manager" : System.IsLinux() ? "the system keyring" : "the system keychain");
+// manualDelete 是卸载时跳过后去哪里手动删除这些条目。
+const manualDelete = () =>
+  System.IsWindows()
+    ? "later delete them by hand in Credential Manager under Windows Credentials (the entries starting with com.tiaot33.mechbox)"
+    : System.IsLinux()
+      ? "later delete them by hand by searching for com.tiaot33.mechbox in Passwords and Keys or KWalletManager"
+      : "later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access";
 
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
@@ -723,12 +734,12 @@ export const en = {
     autoCheck: "Check for updates automatically",
     autoCheckDesc: "Check every Source for new Versions on a schedule (local directory Sources aren't checked).",
     interval: "Interval",
-    tokenInKeychain: "The token is stored in the system keychain",
-    secretsInKeychain: "Secrets are stored in the system keychain",
+    tokenInKeychain: () => `The token is stored in ${store()}`,
+    secretsInKeychain: () => `Secrets are stored in ${store()}`,
     version: "Version",
     databasePath: "Database location",
-    uninstallDesc:
-      "Deletes the Library, the settings on this page, and the token and secrets in the system keychain, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.",
+    uninstallDesc: () =>
+      `Deletes the Library, the settings on this page, and the token and secrets in ${store()}, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.`,
     uninstallButton: "Uninstall Mechbox…",
   },
 
@@ -745,7 +756,8 @@ export const en = {
     retry: "Retry",
     skipKeychain: "Skip and continue uninstalling",
     uninstall: "Uninstall and quit",
-    what: "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects and custom Agents), the settings on the Settings page (including GitHub and Sync), and the token and secrets in the system keychain; then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
+    what: () =>
+      `Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects and custom Agents), the settings on the Settings page (including GitHub and Sync), and the token and secrets in ${store()}; then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.`,
     syncKept: "The Library on S3 isn't touched. You can push before uninstalling, then pull it back after reinstalling and filling in the Sync settings.",
     goSync: "Sync first…",
     noSync: "Sync isn't configured: the Library's content can't be recovered after uninstalling.",
@@ -760,9 +772,9 @@ export const en = {
     trashing: (n: number) => `Moving ${count(n, "skill folder")} to the Trash…`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
-      `Couldn't delete the token and secrets in the system keychain (access may have been denied): ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip and later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access.`,
+      `Couldn't delete the token and secrets in ${store()}${System.IsWindows() ? "" : " (access may have been denied)"}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip and ${manualDelete()}.`,
     failed: (error: string, keychainDeleted: boolean) =>
-      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the Trash can be put back from it; a retry skips them.${keychainDeleted ? " The token and secrets in the system keychain have been deleted; re-enter them in Settings to keep using them." : ""}`,
+      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the Trash can be put back from it; a retry skips them.${keychainDeleted ? ` The token and secrets in ${store()} have been deleted; re-enter them in Settings to keep using them.` : ""}`,
     done: "Uninstalled. Quitting…",
   },
 
@@ -986,7 +998,7 @@ export const en = {
   },
 
   credentials: {
-    keychainFailed: "Couldn't read the system keychain, so the token and secrets can't be viewed or changed right now.",
+    keychainFailed: () => `Couldn't read ${store()}, so the token and secrets can't be viewed or changed right now.`,
     retry: "Retry",
     endpoint: "Endpoint (optional, defaults to AWS S3)",
     bucket: "Bucket",

@@ -117,7 +117,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
         </>
       }
     >
-      <Hint>{t.what}</Hint>
+      <Hint>{t.what()}</Hint>
       {config &&
         (config.sync ? (
           <Notice className="flex items-center gap-2">

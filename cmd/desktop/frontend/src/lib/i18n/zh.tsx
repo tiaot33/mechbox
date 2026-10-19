@@ -1,12 +1,24 @@
 // 中文界面文案，文案的唯一来源：按界面区域分组，每条是字符串或函数(插值即参数);en.tsx 照这里的结构翻译。
 // 新增界面文案时两份一起写。
 import type { ReactNode } from "react";
+import { System } from "@wailsio/runtime";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
 
 const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "未纳管")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
 const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}${w.total > 2 ? ` 等 ${w.total} 处` : ""}` : "没装在任何地方");
+
+// store 是令牌与密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
+// Windows 的以英文开头，前面带空格，接在中文后面。
+const store = () => (System.IsWindows() ? " Windows 凭据管理器" : System.IsLinux() ? "系统密钥环" : "系统钥匙串");
+// manualDelete 是卸载时跳过后去哪里手动删除这些条目。
+const manualDelete = () =>
+  System.IsWindows()
+    ? "之后在「凭据管理器」的「Windows 凭据」里删除以 com.tiaot33.mechbox 开头的几条"
+    : System.IsLinux()
+      ? "之后在「密码和密钥」或 KWalletManager 里搜索 com.tiaot33.mechbox 手动删除"
+      : "之后在「钥匙串访问」里搜索 com.tiaot33.mechbox 手动删除";
 
 export const zh = {
   common: {
@@ -672,11 +684,11 @@ export const zh = {
     autoCheck: "自动检查更新",
     autoCheckDesc: "按间隔检查所有来源有没有新版本(本地目录来源不检查)。",
     interval: "间隔",
-    tokenInKeychain: "令牌存在系统钥匙串里",
-    secretsInKeychain: "密钥存在系统钥匙串里",
+    tokenInKeychain: () => `令牌存在${store()}里`,
+    secretsInKeychain: () => `密钥存在${store()}里`,
     version: "应用版本",
     databasePath: "数据库位置",
-    uninstallDesc: "删除技能库、设置页里的设置和系统钥匙串里的令牌与密钥，退出后把应用移到废纸篓;已安装的技能文件夹默认保留，Agent 照常使用。",
+    uninstallDesc: () => `删除技能库、设置页里的设置和${store()}里的令牌与密钥，退出后把应用移到废纸篓;已安装的技能文件夹默认保留，Agent 照常使用。`,
     uninstallButton: "卸载 Mechbox…",
   },
 
@@ -692,7 +704,8 @@ export const zh = {
     retry: "重试",
     skipKeychain: "跳过并继续卸载",
     uninstall: "卸载并退出",
-    what: "删除这台机器上的技能库(库里的技能、版本历史与更新历史、组、登记的项目与自定义 Agent)、设置页里的设置(包括 GitHub 与同步),以及系统钥匙串里的令牌与密钥;然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。",
+    what: () =>
+      `删除这台机器上的技能库(库里的技能、版本历史与更新历史、组、登记的项目与自定义 Agent)、设置页里的设置(包括 GitHub 与同步),以及${store()}里的令牌与密钥;然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。`,
     syncKept: "S3 上的库不动。卸载前可以先推送，重装后填好同步设置就能拉回。",
     goSync: "先去同步…",
     noSync: "没有配置同步：卸载后技能库里的内容无法恢复。",
@@ -706,9 +719,9 @@ export const zh = {
     trashing: (n: number) => `正在把 ${n} 个技能文件夹移到废纸篓…`,
     uninstalling: "正在卸载…",
     keychainFailed: (message: string) =>
-      `没能删除系统钥匙串里的令牌和密钥(可能是拒绝了授权):${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，之后在「钥匙串访问」里搜索 com.tiaot33.mechbox 手动删除。`,
+      `没能删除${store()}里的令牌和密钥${System.IsWindows() ? "" : "(可能是拒绝了授权)"}:${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，${manualDelete()}。`,
     failed: (error: string, keychainDeleted: boolean) =>
-      `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到废纸篓的文件夹可以从废纸篓放回，重试时跳过它们。${keychainDeleted ? "系统钥匙串里的令牌和密钥已经删除，继续使用要在设置页重新填。" : ""}`,
+      `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到废纸篓的文件夹可以从废纸篓放回，重试时跳过它们。${keychainDeleted ? `已经删除了${store()}里的令牌和密钥，继续使用要在设置页重新填。` : ""}`,
     done: "已卸载，正在退出…",
   },
 
@@ -927,7 +940,7 @@ export const zh = {
   },
 
   credentials: {
-    keychainFailed: "没能读取系统钥匙串，令牌和密钥暂时不能查看或修改。",
+    keychainFailed: () => `没能读取${store()}，令牌和密钥暂时不能查看或修改。`,
     retry: "重试",
     endpoint: "服务地址(可选，默认 AWS S3)",
     bucket: "存储桶",
