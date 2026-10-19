@@ -19,14 +19,13 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentName, linkNote, revisionSummary, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { agentName, folderKey, linkNote, revisionSummary, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
   collectionName,
   defaultInstallOn,
   defaultSkills,
-  folderKey,
   installKey,
   keepDeleted,
   notInterested,
@@ -587,7 +586,7 @@ export function Places({
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
                 {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge>{t.folderMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="warn">{t.folderMissing}</Badge>}
                 {(p.shared_with?.length ?? 0) > 0 && (
                   <span className="text-[11px] text-muted-foreground">
                     {t.sharedFolder(p.shared_with!.map((code) => agentName(s, code)))}

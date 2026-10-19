@@ -203,7 +203,7 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 // 这是一次普通的更新,计划同样交给 Update 执行(确认时一并把勾选的其他地方换成这份修改)、用 GetUpdatePlanFile 读那里的文件,
 // 留下的更新记录(UpdateRecord.FromScope 为这一处)同样能回滚、单独重试没换上的地方;不能跳过(SkipUpdate)。
 // 计划里只有这一个技能:Change 为 changed,Risks 与 Diff 从库里的当前版本到那里的内容;Revision 与 Commits 为空。
-// Installs 列出这个技能装出去的其他各处及其状态,默认勾选的规则和从来源更新相同:用户改过的地方不勾,勾上才覆盖。
+// Installs 列出这个技能装出去的其他各处及其状态,默认勾选的规则和从来源更新相同:用户改过的地方、文件夹不在了的地方不勾,勾上才覆盖、才装回去。
 // 更新之后,取内容的那一处和新的当前版本一致,巡检为 current。新版本的 SkillVersion.BasedOn 是当时库里的当前版本,
 // 来源版本沿用它的;之后检查更新只看来源从这份修改所基于的来源版本之后有没有改过(见 PlannedSkill.Edited)。
 // 只读:不改库,也不碰装出去的文件夹;可以反复生成。

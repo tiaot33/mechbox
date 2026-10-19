@@ -7,9 +7,9 @@ import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/i
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
+import { folderKey, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
-import { canInstall, defaultInstallOn, folderKey, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
+import { canInstall, defaultInstallOn, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";

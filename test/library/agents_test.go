@@ -524,7 +524,7 @@ func TestGroupInstallCountsSkillInstalledByASharingAgent(t *testing.T) {
 	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Name: "g"})
 }
 
-// 共用目录里文件夹不在了,从共用的另一个 Agent 也能重新安装回去。
+// 共用目录里文件夹不在了,从共用的另一个 Agent 同意后也能重新安装回去。
 func TestReinstallThroughASharingAgent(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
@@ -540,7 +540,7 @@ func TestReinstallThroughASharingAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	shared := library.GlobalScope(agent.Code)
-	requireReinstallResults(t, reinstall(t, lib, reinstallAt(skill.ID, shared)), []library.ReinstallResult{reinstalledResult(skill.ID, shared)})
+	requireReinstallResults(t, reinstall(t, lib, putBack([]library.ReinstallRequest{reinstallAt(skill.ID, shared)})...), []library.ReinstallResult{reinstalledResult(skill.ID, shared)})
 	requireInstalledFolder(t, directory, "example", "# example\n")
 }
 

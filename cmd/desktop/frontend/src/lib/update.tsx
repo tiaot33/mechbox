@@ -34,7 +34,7 @@ import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes, linkWrites } 
 import { describeError } from "./errors";
 import { messages, useT } from "./i18n";
 import type { LibraryError, Snapshot } from "./library";
-import { collectionSkills, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
+import { collectionSkills, folderKey, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
 import { Modal, type useUI } from "./ui";
 import { FetchReview } from "@/components/app/fetch-review";
 import { ScopeUpdateDialog } from "@/components/app/scope-update-dialog";
@@ -74,10 +74,12 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
 }
 
 export const installKey = (p: { skill_id: SkillID; scope: SkillScopeInspection["scope"] }) => `${p.skill_id}|${scopeKey(p.scope)}`;
-// folderKey 是装出去的实际文件夹:几个 Agent 共用一个目录时，它们的这一处是同一个文件夹，只能一起换。
-export const folderKey = (p: SkillScopeInspection) => `${p.skill_id}|${p.folder}`;
 export const canInstall = (p: SkillScopeInspection) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
-export const defaultInstallOn = (p: SkillScopeInspection) => canInstall(p) && p.status !== SkillScopeStatus.SkillScopeModified;
+// defaultInstallOn 是默认勾选：用户改过的、文件夹不在了的(可能是用户有意删掉的)不勾，勾上才覆盖、才装回去。
+export const defaultInstallOn = (p: SkillScopeInspection) =>
+  canInstall(p) && p.status !== SkillScopeStatus.SkillScopeModified && p.status !== SkillScopeStatus.SkillScopeMissing;
+// consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。
+const consented = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified || p.status === SkillScopeStatus.SkillScopeMissing;
 
 // plannedInstalls 是勾选的技能装出去的各处;更新计划只列有变化(或推测出改名)的技能。
 export function plannedInstalls(plan: UpdatePlan, checked: Set<SkillID>): SkillScopeInspection[] {
@@ -116,6 +118,7 @@ export interface UpdateOutcome {
   changed: number; // 换了新版本的技能数
   placed: number; // 换成新版的地方
   keptEdited: number; // 用户改过、没勾，保持原样的地方
+  keptMissing: number; // 文件夹不在了、没勾，没装回去的地方
   failed: ReinstallResult[];
   requests: ReinstallRequest[];
   plain: Set<string>; // 不算进 record 的地方(installKey),没换上时按普通重新安装重试
@@ -142,7 +145,7 @@ export async function runUpdate(
   const written = (p: SkillScopeInspection) => canInstall(p) && installOn(p);
   const requests: ReinstallRequest[] = places
     .filter(written)
-    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: p.status === SkillScopeStatus.SkillScopeModified }));
+    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: consented(p) }));
   if (confirmLinks && !(await confirmLinkWrites(ui, confirmLinks, places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
@@ -159,6 +162,7 @@ export async function runUpdate(
     changed: (result.skills ?? []).filter((x) => x.changed).length,
     placed: installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
     keptEdited: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && !installOn(p)).map(folderKey)).size,
+    keptMissing: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing && !installOn(p)).map(folderKey)).size,
     failed: installs.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed),
     requests,
     plain: new Set(),
@@ -179,8 +183,8 @@ const failedOnly = (results: ReinstallResult[] | null) => (results ?? []).filter
 
 function summarize(o: UpdateOutcome): string {
   const t = messages().update;
-  if (o.from) return t.summaryFromScope(o.from, o.label, o.placed, o.keptEdited);
-  return t.summary(o.local, o.label, o.changed, o.placed, o.keptEdited);
+  if (o.from) return t.summaryFromScope(o.from, o.label, o.placed, o.keptEdited, o.keptMissing);
+  return t.summary(o.local, o.label, o.changed, o.placed, o.keptEdited, o.keptMissing);
 }
 
 // reportUpdates 汇报一次或几次更新：都换上了用 toast,一次更新时带"回滚";有地方没换上时列出原因，可以单独重试。
@@ -312,7 +316,7 @@ export async function updateWithDefaults(ui: UI, s: Snapshot, collectionIDs: Col
   await reportUpdates(ui, s, outcomes);
 }
 
-// rereadSkill 是本地目录来源的"重新读取":读出目录当前内容成为新版本，并换到装过它的地方(用户改过的地方不动)。
+// rereadSkill 是本地目录来源的"重新读取":读出目录当前内容成为新版本，并换到装过它的地方(用户改过的、文件夹不在了的地方不动)。
 // 底层就是只勾这一个技能的更新，所以照样有版本历史和回滚。
 export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
   const plan = await ui.run(() => LibraryService.PlanUpdate(skill.collection_id));
@@ -333,18 +337,19 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
 }
 
 // refreshInstalls 是目录内容没变时的"重新读取":库里已是目录现在的内容，但装出去的地方可能还没换上(上次没换上、
-// 文件夹不在了),把这些换成当前版本;用户改过的地方不动，项目不在这台机器上的装不上。都已是当前版本时只提示一句。
+// 落后于库里的版本),把这些换成当前版本;用户改过的、文件夹不在了的地方不动，项目不在这台机器上的装不上。都已是当前版本时只提示一句。
 // 带来当前版本的那次更新里列过的地方，补装算进那次更新，回滚它时一起装回去;其余的是普通的重新安装。
 async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<UpdateOutcome | undefined> {
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes({ skill_id: skill.id }), { reload: false });
   if (inspected === undefined) return undefined;
   const behind = (inspected ?? []).filter((p) => p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p));
   const keptEdited = new Set(behind.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map(folderKey)).size;
+  const keptMissing = new Set(behind.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing).map(folderKey)).size;
   const requests: ReinstallRequest[] = behind
-    .filter((p) => p.status !== SkillScopeStatus.SkillScopeModified)
+    .filter((p) => !consented(p))
     .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: false }));
   if (!requests.length) {
-    ui.toast(messages().update.unchanged(skill.name, keptEdited));
+    ui.toast(messages().update.unchanged(skill.name, keptEdited, keptMissing));
     return undefined;
   }
   const wanted = new Set(requests.map(installKey));
@@ -381,6 +386,7 @@ async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<Updat
     changed: 0,
     placed: results.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
     keptEdited,
+    keptMissing,
     failed: failedOnly(results),
     requests,
     plain: new Set(plain.map(installKey)),

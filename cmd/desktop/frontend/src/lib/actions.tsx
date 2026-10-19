@@ -1,7 +1,7 @@
 // 写操作的公共流程：卡片开关、详情抽屉、整组开关与拖放都走这里，冲突处理只写一份。
 // 规则来自技能库的契约(go doc ./internal/library):
 // - 安装前先看安装计划：不是从库里装的同名文件夹可选覆盖;被另一个技能占用或作用域根目录不存在时只能说明原因。
-// - 重新安装先现查各处状态，只换不是当前版本的几处;被改过的逐处由用户勾选是否覆盖。
+// - 重新安装先现查各处状态，只换不是当前版本的几处;被改过的逐处由用户勾选是否覆盖，文件夹不在了的逐处由用户选不动、装回去还是卸载。
 // - 组安装 / 加入组 / 重新安装逐条返回结果，被跳过或失败的条目列出原因。
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
@@ -31,12 +31,13 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "./errors";
 import { messages, useT } from "./i18n";
-import { foundSource, useFoundSources, type LibraryError, type Snapshot } from "./library";
+import { foundSource, toLibraryError, useFoundSources, type LibraryError, type Snapshot } from "./library";
 import { FetchReview } from "@/components/app/fetch-review";
 import { offerProject } from "@/components/app/fetch-unmanaged-dialog";
 import {
   agentName,
   deletedInSource,
+  folderKey,
   installedWhere,
   linkNote,
   outsideLinkNote,
@@ -61,6 +62,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
+import { Segmented } from "@/components/ui/segmented";
 import { Notice } from "@/components/ui/notice";
 
 type UI = ReturnType<typeof useUI>;
@@ -403,6 +405,7 @@ const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${sc
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
 // 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
+// 文件夹不在了的几处可能是用户有意删掉的：只点了这一处时直接装回去;批量时逐处让用户选不动、装回去还是卸载，默认不动。
 // what 是重新安装的是什么：技能名(经 reinstallSkill 加上引号)或作用域。
 export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, what: string) {
   const t = messages().actions;
@@ -413,87 +416,175 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
     ui.toast(t.allCurrent(what));
     return;
   }
+  const single = !!filter.skill_id && !!filter.scope;
   const modified = targets.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
-  let overwrite = new Set<string>();
-  if (modified.length) {
-    const chosen = await ui.open<Set<string>>((close) => <OverwriteDialog s={s} places={modified} close={close} />);
-    if (!chosen) return;
-    overwrite = chosen;
+  const missing = single ? [] : targets.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing);
+  let chosen: ReinstallChoices = { overwrite: new Set(), missing: new Map() };
+  if (modified.length || missing.length) {
+    const picked = await ui.open<ReinstallChoices>((close) => <ReinstallDialog s={s} modified={modified} missing={missing} close={close} />);
+    if (!picked) return;
+    chosen = picked;
   }
-  const requests: ReinstallRequest[] = targets
-    .filter((p) => p.status !== SkillScopeStatus.SkillScopeModified || overwrite.has(placeKey(p)))
-    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: overwrite.has(placeKey(p)) }));
-  const kept = targets.length - requests.length;
-  if (!requests.length) {
-    ui.toast(t.nothingReinstalled(what, kept));
+  const choice = (p: SkillScopeInspection) => chosen.missing.get(folderKey(p)) ?? "keep";
+  const wanted = (p: SkillScopeInspection) => {
+    if (p.status === SkillScopeStatus.SkillScopeModified) return chosen.overwrite.has(placeKey(p));
+    if (p.status === SkillScopeStatus.SkillScopeMissing) return single || choice(p) === "putBack";
+    return true;
+  };
+  const requests: ReinstallRequest[] = targets.filter(wanted).map((p) => ({
+    skill_id: p.skill_id,
+    scope: p.scope,
+    overwrite: p.status === SkillScopeStatus.SkillScopeModified || p.status === SkillScopeStatus.SkillScopeMissing,
+  }));
+  // 共用一个文件夹的几处卸载一次就都撤销了，只卸载其中一处。
+  const uninstalls = [...new Map(missing.filter((p) => choice(p) === "uninstall").map((p) => [folderKey(p), p])).values()];
+  const keptModified = modified.length - modified.filter(wanted).length;
+  const keptMissing = new Set(missing.filter((p) => choice(p) === "keep").map(folderKey)).size;
+  if (!requests.length && !uninstalls.length) {
+    ui.toast(t.nothingReinstalled(what, keptModified, keptMissing));
     return;
   }
   const requested = new Set(requests.map(placeKey));
   const written = (p: SkillScopeInspection) => requested.has(placeKey(p));
   const explained = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified;
-  if (!(await confirmLinkWrites(ui, s, inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
-  const results = await ui.run(() => LibraryService.Reinstall(requests));
-  if (!results) return;
-  const failed = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
-  if (failed.length) {
-    await showResults(ui, t.reinstallPartly, failed.map((r) => failedRow(s, r)), kept ? t.keptEdited(kept) : undefined);
+  if (requests.length && !(await confirmLinkWrites(ui, s, inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
+  const done = await ui.run(async () => {
+    const results = requests.length ? ((await LibraryService.Reinstall(requests)) ?? []) : [];
+    const rows: ResultRow[] = [];
+    let uninstalled = 0;
+    for (const p of uninstalls) {
+      try {
+        await LibraryService.Uninstall(p.skill_id, p.scope);
+        uninstalled++;
+      } catch (e) {
+        const err = toLibraryError(e);
+        if (err.code === ErrorCode.Canceled) throw e;
+        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.notUninstalled, tone: "bad", reason: describeError(err) });
+      }
+    }
+    return { results, rows, uninstalled };
+  });
+  if (!done) return;
+  const failed = done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
+  if (failed.length || done.rows.length) {
+    await showResults(ui, t.reinstallPartly, [...failed.map((r) => failedRow(s, r)), ...done.rows], t.kept(keptModified, keptMissing) || undefined);
     return;
   }
-  const done = results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled).length;
-  ui.toast(t.reinstalled(done, what, kept));
+  const placed = done.results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled).length;
+  ui.toast(t.reinstalled(placed, done.uninstalled, what, keptModified, keptMissing));
 }
 
-// OverwriteDialog 列出被改过的各处，默认都不覆盖;勾选的才用库里的当前版本覆盖。
-function OverwriteDialog({
+type MissingChoice = "keep" | "putBack" | "uninstall";
+
+// ReinstallChoices 是确认框里的选择:被改过的勾选了哪几处覆盖(placeKey),文件夹不在了的每个文件夹选了什么(folderKey)。
+interface ReinstallChoices {
+  overwrite: Set<string>;
+  missing: Map<string, MissingChoice>;
+}
+
+// ReinstallDialog 在重新安装前问用户两类地方：文件夹不在了的(不动、装回去还是卸载，默认不动)与被改过的(勾选的才覆盖，默认都不覆盖)。
+function ReinstallDialog({
   s,
-  places,
+  modified,
+  missing,
   close,
 }: {
   s: Snapshot;
-  places: SkillScopeInspection[];
-  close: (value?: Set<string>) => void;
+  modified: SkillScopeInspection[];
+  missing: SkillScopeInspection[];
+  close: (value?: ReinstallChoices) => void;
 }) {
   const t = useT();
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [overwrite, setOverwrite] = useState<Set<string>>(new Set());
+  const [choices, setChoices] = useState<Map<string, MissingChoice>>(new Map());
+  const folders = [...new Map(missing.map((p) => [folderKey(p), missing.filter((x) => folderKey(x) === folderKey(p))])).entries()];
+  const choose = (key: string, value: MissingChoice) => setChoices((prev) => new Map(prev).set(key, value));
   const toggle = (key: string) =>
-    setChosen((prev) => {
+    setOverwrite((prev) => {
       const next = new Set(prev);
       if (!next.delete(key)) next.add(key);
       return next;
     });
   return (
     <Modal
-      title={t.actions.modifiedTitle}
+      title={missing.length ? t.actions.reinstallConfirmTitle : t.actions.modifiedTitle}
       onClose={() => close()}
       footer={
         <>
+          {folders.length > 0 && (
+            <Button className="mr-auto" onClick={() => setChoices(new Map(folders.map(([key]) => [key, "putBack"])))}>
+              {t.actions.putBackAll}
+            </Button>
+          )}
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant={chosen.size ? "danger" : "primary"} onClick={() => close(chosen)} autoFocus>
-            {chosen.size ? t.actions.reinstallOverwrite(chosen.size) : t.actions.reinstall}
+          <Button variant={overwrite.size ? "danger" : "primary"} onClick={() => close({ overwrite, missing: choices })} autoFocus>
+            {missing.length ? t.common.ok : overwrite.size ? t.actions.reinstallOverwrite(overwrite.size) : t.actions.reinstall}
           </Button>
         </>
       }
     >
-      <Notice tone="warn">{t.actions.modifiedNotice}</Notice>
-      <ListBox>
-        {places.map((p) => {
-          const key = placeKey(p);
-          return (
-            <ListRow key={key} asChild compact clickable selected={chosen.has(key)}>
-              <label>
-                <input type="checkbox" className="shrink-0 accent-primary" checked={chosen.has(key)} onChange={() => toggle(key)} />
-                <div className="min-w-0 grow">
-                  <div>
-                    {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+      {folders.length > 0 && (
+        <>
+          <Notice tone="warn">{t.actions.missingNotice(folders.length)}</Notice>
+          <ListBox>
+            {folders.map(([key, places]) => {
+              const p = places[0];
+              const groups = [...new Set(places.flatMap((x) => x.groups ?? []))];
+              const shared = p.shared_with ?? [];
+              return (
+                <ListRow key={key} compact>
+                  <div className="min-w-0 grow">
+                    <div>
+                      {t.actions.missingPlace(skillName(s, p.skill_id), places.map((x) => scopeLabel(s, x.scope)))}
+                    </div>
+                    <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                    {shared.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground">{t.actions.missingShared(shared.map((code) => agentName(s, code)))}</div>
+                    )}
+                    {groups.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground">{t.actions.missingGrouped(groups.map((g) => groupName(s, g)))}</div>
+                    )}
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
-                  {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
-                </div>
-              </label>
-            </ListRow>
-          );
-        })}
-      </ListBox>
+                  <Segmented
+                    className="shrink-0"
+                    value={choices.get(key) ?? "keep"}
+                    onChange={(value) => choose(key, value)}
+                    options={[
+                      { value: "keep", label: t.actions.leaveAlone },
+                      { value: "putBack", label: t.actions.putBack },
+                      ...(groups.length ? [] : [{ value: "uninstall" as const, label: t.actions.uninstall }]),
+                    ]}
+                  />
+                </ListRow>
+              );
+            })}
+          </ListBox>
+        </>
+      )}
+      {modified.length > 0 && (
+        <>
+          <Notice tone="warn">{t.actions.modifiedNotice}</Notice>
+          <ListBox>
+            {modified.map((p) => {
+              const key = placeKey(p);
+              return (
+                <ListRow key={key} asChild compact clickable selected={overwrite.has(key)}>
+                  <label>
+                    <input type="checkbox" className="shrink-0 accent-primary" checked={overwrite.has(key)} onChange={() => toggle(key)} />
+                    <div className="min-w-0 grow">
+                      <div>
+                        {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
+                      </div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                      {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
+                    </div>
+                  </label>
+                </ListRow>
+              );
+            })}
+          </ListBox>
+        </>
+      )}
     </Modal>
   );
 }
