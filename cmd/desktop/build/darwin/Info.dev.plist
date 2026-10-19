@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>en</string>
 		<key>CFBundleExecutable</key>
 		<string>mechbox</string>
 		<key>CFBundleGetInfoString</key>
@@ -14,6 +16,11 @@
 		<string>com.tiaot33.mechbox</string>
 		<key>CFBundleName</key>
 		<string>Mechbox</string>
+		<key>CFBundleLocalizations</key>
+		<array>
+			<string>en</string>
+			<string>zh-Hans</string>
+		</array>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>

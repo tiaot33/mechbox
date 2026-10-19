@@ -37,6 +37,14 @@ export function FirstOpen(): $CancellablePromise<boolean> {
 }
 
 /**
+ * Language 返回界面实际用的语言(zh 或 en):设置里选了的按设置;跟随系统时看系统的首选语言(macOS 上是系统设置里的语言顺序，
+ * 其他平台与 server 模式读 LC_ALL / LC_MESSAGES / LANG),首选中文(含繁体)时是中文，其余是英文。
+ */
+export function Language(): $CancellablePromise<$models.Language> {
+    return $Call.ByID(537396504);
+}
+
+/**
  * RefreshBadge 按技能库现在的检查更新结论重设 Dock 角标;前端每次重读快照后调用。
  */
 export function RefreshBadge(): $CancellablePromise<void> {

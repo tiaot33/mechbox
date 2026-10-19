@@ -45,6 +45,7 @@ type AppService struct {
 
 	nativeMu sync.Mutex
 	tray     *application.SystemTray
+	menus    nativeMenus
 
 	badgeMu sync.Mutex
 	wake    chan struct{}
@@ -71,6 +72,9 @@ func (a *AppService) ServiceStartup(context.Context, application.ServiceOptions)
 	}
 	a.applyCredentials(a.credentials())
 	a.credMu.Unlock()
+	a.nativeMu.Lock()
+	a.menus.setLanguage(a.settings.Language.resolve())
+	a.nativeMu.Unlock()
 	a.opened = true
 	loop, stop := context.WithCancel(context.Background())
 	a.stop = stop
@@ -95,10 +99,19 @@ func (a *AppService) Settings() Settings {
 	return a.settings
 }
 
+// Language 返回界面实际用的语言(zh 或 en):设置里选了的按设置;跟随系统时看系统的首选语言(macOS 上是系统设置里的语言顺序，
+// 其他平台与 server 模式读 LC_ALL / LC_MESSAGES / LANG),首选中文(含繁体)时是中文，其余是英文。
+func (a *AppService) Language() Language {
+	return a.Settings().Language.resolve()
+}
+
 // SaveSettings 保存设置并立即生效。前端每次传完整的设置，一次一次依次保存。
 func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 	if !settings.CheckInterval.valid() {
 		return Settings{}, fmt.Errorf("unknown check interval %q", settings.CheckInterval)
+	}
+	if !settings.Language.valid() {
+		return Settings{}, fmt.Errorf("unknown language %q", settings.Language)
 	}
 	a.mu.Lock()
 	err := saveSettings(a.path, settingsFile{Settings: settings, Sync: a.sync, FirstOpenDone: !a.firstOpen})
@@ -109,6 +122,9 @@ func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	a.nativeMu.Lock()
+	a.menus.setLanguage(settings.Language.resolve())
+	a.nativeMu.Unlock()
 	a.poke()
 	a.refreshBadge(context.Background())
 	return settings, nil
@@ -286,9 +302,9 @@ func (a *AppService) windowClosing(event *application.WindowEvent) {
 
 func (a *AppService) newTray() *application.SystemTray {
 	menu := a.app.NewMenu()
-	menu.Add("打开 Mechbox").OnClick(func(*application.Context) { a.showWindow() })
+	a.menus.label(menu.Add(""), "open").OnClick(func(*application.Context) { a.showWindow() })
 	menu.AddSeparator()
-	menu.Add("退出 Mechbox").OnClick(func(*application.Context) { a.app.Quit() })
+	a.menus.label(menu.Add(""), "quit").OnClick(func(*application.Context) { a.app.Quit() })
 	tray := a.app.SystemTray.New()
 	if runtime.GOOS == "darwin" {
 		tray.SetTemplateIcon(icons.SystrayMacTemplate)
@@ -325,6 +341,7 @@ func (a *AppService) showWindow() {
 
 func (a *AppService) attach(app *application.App, window *application.WebviewWindow) {
 	a.app, a.window = app, window
+	a.menus.attach(app)
 	window.RegisterHook(events.Common.WindowClosing, a.windowClosing)
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		if !event.Context().HasVisibleWindows() {
