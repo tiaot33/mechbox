@@ -32,6 +32,7 @@ import {
 } from "@bindings/internal/library";
 import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes, linkWrites } from "./actions";
 import { describeError } from "./errors";
+import { messages, useT } from "./i18n";
 import type { LibraryError, Snapshot } from "./library";
 import { collectionSkills, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
 import { Modal, type useUI } from "./ui";
@@ -52,7 +53,7 @@ export const skillName = (s: Snapshot, id: SkillID) => s.skills.find((x) => x.id
 // collectionName 是集合在界面上的名字：集合里只有一个技能时就是技能名，不出现集合这一层。
 export function collectionName(s: Snapshot, collectionID: CollectionID): string {
   const c = s.collections.find((x) => x.id === collectionID);
-  if (!c) return `集合 #${collectionID}`;
+  if (!c) return messages().update.collectionFallback(collectionID);
   const skills = collectionSkills(s, c);
   return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
 }
@@ -85,24 +86,24 @@ export function plannedInstalls(plan: UpdatePlan, checked: Set<SkillID>): SkillS
 
 // ---------- 风险 ----------
 
-const riskText: Record<string, string> = {
-  [UpdateRiskKind.RiskExecutableAdded]: "新增可执行文件",
-  [UpdateRiskKind.RiskScriptAdded]: "新增脚本",
-  [UpdateRiskKind.RiskScriptChanged]: "改动脚本",
-};
-
-export const riskLabel = (r: UpdateRisk) => riskText[r.kind] ?? "需要看一眼";
+export function riskLabel(r: UpdateRisk): string {
+  const t = messages().update;
+  const known: Record<string, string> = {
+    [UpdateRiskKind.RiskExecutableAdded]: t.riskExecutableAdded,
+    [UpdateRiskKind.RiskScriptAdded]: t.riskScriptAdded,
+    [UpdateRiskKind.RiskScriptChanged]: t.riskScriptChanged,
+  };
+  return known[r.kind] ?? t.riskOther;
+}
 
 // riskSummary 把几处风险合成一句，如"新增 1 个脚本 · 改动 2 个脚本";没有风险时为空。
 export function riskSummary(risks: UpdateRisk[]): string {
   const count = (kind: UpdateRiskKind) => risks.filter((r) => r.kind === kind).length;
-  return [
-    count(UpdateRiskKind.RiskExecutableAdded) && `新增 ${count(UpdateRiskKind.RiskExecutableAdded)} 个可执行文件`,
-    count(UpdateRiskKind.RiskScriptAdded) && `新增 ${count(UpdateRiskKind.RiskScriptAdded)} 个脚本`,
-    count(UpdateRiskKind.RiskScriptChanged) && `改动 ${count(UpdateRiskKind.RiskScriptChanged)} 个脚本`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  return messages().update.riskSummary(
+    count(UpdateRiskKind.RiskExecutableAdded),
+    count(UpdateRiskKind.RiskScriptAdded),
+    count(UpdateRiskKind.RiskScriptChanged),
+  );
 }
 
 // ---------- 执行 ----------
@@ -142,7 +143,7 @@ export async function runUpdate(
   const requests: ReinstallRequest[] = places
     .filter(written)
     .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: p.status === SkillScopeStatus.SkillScopeModified }));
-  if (confirmLinks && !(await confirmLinkWrites(ui, confirmLinks, places, written, `更新 ${label}`, "更新"))) return undefined;
+  if (confirmLinks && !(await confirmLinkWrites(ui, confirmLinks, places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
     onError: (err) => (conflict = stalePlan(err)),
@@ -177,30 +178,21 @@ function placeAgain(ui: UI, record: UpdateRecordID, requests: ReinstallRequest[]
 const failedOnly = (results: ReinstallResult[] | null) => (results ?? []).filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
 
 function summarize(o: UpdateOutcome): string {
-  if (o.from) {
-    return [`已用 ${o.from} 里的修改更新「${o.label}」`, o.placed ? `换到了 ${o.placed} 个地方` : "", o.keptEdited ? `${o.keptEdited} 个地方你改过，没动` : ""]
-      .filter(Boolean)
-      .join(" · ");
-  }
-  return [
-    o.local ? `已重新读取「${o.label}」` : `已更新 ${o.label}`,
-    o.changed ? `${o.changed} 个技能换了新版本` : "内容没有变化",
-    o.placed ? `换到了 ${o.placed} 个地方` : "",
-    o.keptEdited ? `${o.keptEdited} 个地方你改过，没动` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const t = messages().update;
+  if (o.from) return t.summaryFromScope(o.from, o.label, o.placed, o.keptEdited);
+  return t.summary(o.local, o.label, o.changed, o.placed, o.keptEdited);
 }
 
 // reportUpdates 汇报一次或几次更新：都换上了用 toast,一次更新时带"回滚";有地方没换上时列出原因，可以单独重试。
 export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome[]) {
   if (!outcomes.length) return;
+  const t = messages().update;
   if (outcomes.every((o) => !o.failed.length)) {
     if (outcomes.length === 1) {
       const o = outcomes[0];
-      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: "回滚", onClick: () => void rollbackUpdate(ui, s, o.record, o.requests) } : undefined);
+      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: t.rollback, onClick: () => void rollbackUpdate(ui, s, o.record, o.requests) } : undefined);
     } else {
-      ui.toast([...outcomes.map(summarize), "要退回某一次，可以在历史里回滚"].join("\n"));
+      ui.toast([...outcomes.map(summarize), t.rollbackInHistory].join("\n"));
     }
     return;
   }
@@ -210,6 +202,7 @@ export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome
 // FailedPlaces 列出没换上的地方和原因;"重试"把它们单独再换一次，结果算进那次更新(回滚时一起装回去)。
 // 重试中途关掉弹窗时取消正在换的这一次，后面的集合不再继续。
 function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcomes: UpdateOutcome[]; close: () => void }) {
+  const t = useT().update;
   const [failed, setFailed] = useState(() => outcomes.map((o) => o.failed));
   const [working, setWorking] = useState(false);
   const alive = useRef(true);
@@ -224,7 +217,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
   const left = failed.flat().length;
   const retry = async () => {
     const again = outcomes.flatMap((o, i) => o.requests.filter((r) => failed[i].some((f) => installKey(f) === installKey(r))));
-    if (!(await confirmLinkedRequests(ui, s, again, "重试没换上的地方", "重试"))) return;
+    if (!(await confirmLinkedRequests(ui, s, again, t.retryTitle, t.retry))) return;
     if (!alive.current) return;
     setWorking(true);
     const next: ReinstallResult[][] = [];
@@ -247,7 +240,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
     setWorking(false);
     setFailed(next);
     if (!next.flat().length) {
-      ui.toast("没换上的地方都换上了");
+      ui.toast(t.allPlaced);
       close();
     }
   };
@@ -255,7 +248,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
   const single = outcomes.length === 1 && outcomes[0].record && outcomes[0].changed ? outcomes[0] : undefined;
   return (
     <Modal
-      title="有地方没换上"
+      title={t.failedTitle}
       onClose={close}
       footer={
         <>
@@ -266,20 +259,21 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
                 void rollbackUpdate(ui, s, single.record, single.requests);
               }}
             >
-              回滚
+              {t.rollback}
             </Button>
           )}
           <span className="grow" />
-          <Button onClick={close}>知道了</Button>
+          <Button onClick={close}>{t.gotIt}</Button>
           <Button variant="primary" loading={working} disabled={!left} onClick={retry}>
-            重试没换上的 {left} 个地方
+            {t.retryFailed(left)}
           </Button>
         </>
       }
     >
       <Notice className="whitespace-pre-line">
         {outcomes.map(summarize).join("\n")}
-        {"\n"}下面这些地方没换上，保持原样;处理好原因后可以重试。
+        {"\n"}
+        {t.failedNotice}
       </Notice>
       <ListBox>
         {failed.flat().map((r) => (
@@ -290,7 +284,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
               </div>
               {r.error && <div className="text-xs whitespace-pre-line text-muted-foreground">{describeError(r.error)}</div>}
             </div>
-            <Badge tone="bad">没换上</Badge>
+            <Badge tone="bad">{t.notPlaced}</Badge>
           </ListRow>
         ))}
       </ListBox>
@@ -301,17 +295,18 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
 // updateWithDefaults 不打开更新计划，按默认勾选更新这些集合，最后一起汇报。改名、删除和会换掉用户修改的更新要在更新计划里由用户回答，这里不动。
 export async function updateWithDefaults(ui: UI, s: Snapshot, collectionIDs: CollectionID[]) {
   const outcomes: UpdateOutcome[] = [];
+  const t = messages().update;
   for (const id of collectionIDs) {
     const name = collectionName(s, id);
     const plan = await ui.run(() => LibraryService.PlanUpdate(id), { reload: false });
     if (!plan) continue;
     const checked = defaultSkills(plan);
     if (!checked.size) {
-      ui.toast(`${name} 没有能直接更新的改动;改名、删除和会换掉你的修改的更新请在更新计划里确认`);
+      ui.toast(t.nothingDirect(name));
       continue;
     }
     const o = await runUpdate(ui, plan, name, checked, defaultInstallOn, undefined, s);
-    if (o === "conflict") ui.toast(`${name} 的来源刚又变了，请打开更新计划重新看`, "error");
+    if (o === "conflict") ui.toast(t.sourceMoved(name), "error");
     else if (o) outcomes.push(o);
   }
   await reportUpdates(ui, s, outcomes);
@@ -324,7 +319,7 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
   if (!plan) return;
   const item = plan.skills?.find((p) => p.skill.id === skill.id);
   if (!item || item.change === PlannedChange.PlannedDeleted) {
-    ui.toast(`目录里已经没有「${skill.name}」了`, "error");
+    ui.toast(messages().update.goneFromDirectory(skill.name), "error");
     return;
   }
   if (item.change === PlannedChange.PlannedUnchanged) {
@@ -333,7 +328,7 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
     return;
   }
   const o = await runUpdate(ui, plan, skill.name, new Set([skill.id]), defaultInstallOn, undefined, s);
-  if (o === "conflict") ui.toast("目录在读取期间又变了，请再重新读取一次", "error");
+  if (o === "conflict") ui.toast(messages().update.directoryMoved, "error");
   else if (o) await reportUpdates(ui, s, [o]);
 }
 
@@ -349,11 +344,11 @@ async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<Updat
     .filter((p) => p.status !== SkillScopeStatus.SkillScopeModified)
     .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: false }));
   if (!requests.length) {
-    ui.toast([`「${skill.name}」的内容没有变化`, keptEdited ? `${keptEdited} 个地方你改过，没动` : ""].filter(Boolean).join(" · "));
+    ui.toast(messages().update.unchanged(skill.name, keptEdited));
     return undefined;
   }
   const wanted = new Set(requests.map(installKey));
-  if (!(await confirmLinkWrites(ui, s, inspected ?? [], (p) => wanted.has(installKey(p)), `重新读取「${skill.name}」`, "重新安装"))) return undefined;
+  if (!(await confirmLinkWrites(ui, s, inspected ?? [], (p) => wanted.has(installKey(p)), messages().update.rereadTitle(skill.name), messages().update.reinstall))) return undefined;
   const history = await ui.run(() => LibraryService.ListUpdateHistory({ skill_id: skill.id }), { reload: false });
   if (history === undefined) return undefined;
   const record = (history ?? []).find(
@@ -406,19 +401,21 @@ export function openUpdate(ui: UI, s: Snapshot, collectionID: CollectionID, opts
 
 // ---------- 回滚 ----------
 
-const rollbackText: Record<string, { text: string; tone: Tone }> = {
-  [RollbackOutcome.RollbackReinstalled]: { text: "已装回", tone: "ok" },
-  [RollbackOutcome.RollbackCurrent]: { text: "本来就是旧版", tone: "ok" },
-  [RollbackOutcome.RollbackReinstalledSince]: { text: "之后又重新安装过，没动", tone: "warn" },
-  [RollbackOutcome.RollbackModified]: { text: "你改过，没动", tone: "warn" },
-  [RollbackOutcome.RollbackMissing]: { text: "文件夹不在了，没动", tone: "warn" },
-  [RollbackOutcome.RollbackRootMissing]: { text: "项目不在这台机器上，没动", tone: "warn" },
-  [RollbackOutcome.RollbackUninstalled]: { text: "已不装在这里", tone: "neutral" },
-  [RollbackOutcome.RollbackRemoved]: { text: "技能已从库里移除", tone: "neutral" },
-  [RollbackOutcome.RollbackFailed]: { text: "没装回", tone: "bad" },
-};
-
-export const rollbackOutcome = (outcome: string) => rollbackText[outcome] ?? { text: "没装回，需要查看", tone: "warn" as Tone };
+export function rollbackOutcome(outcome: string): { text: string; tone: Tone } {
+  const t = messages().update;
+  const known: Record<string, { text: string; tone: Tone }> = {
+    [RollbackOutcome.RollbackReinstalled]: { text: t.rollbackReinstalled, tone: "ok" },
+    [RollbackOutcome.RollbackCurrent]: { text: t.rollbackCurrent, tone: "ok" },
+    [RollbackOutcome.RollbackReinstalledSince]: { text: t.rollbackReinstalledSince, tone: "warn" },
+    [RollbackOutcome.RollbackModified]: { text: t.rollbackModified, tone: "warn" },
+    [RollbackOutcome.RollbackMissing]: { text: t.rollbackMissing, tone: "warn" },
+    [RollbackOutcome.RollbackRootMissing]: { text: t.rollbackRootMissing, tone: "warn" },
+    [RollbackOutcome.RollbackUninstalled]: { text: t.rollbackUninstalled, tone: "neutral" },
+    [RollbackOutcome.RollbackRemoved]: { text: t.rollbackRemoved, tone: "neutral" },
+    [RollbackOutcome.RollbackFailed]: { text: t.rollbackFailed, tone: "bad" },
+  };
+  return known[outcome] ?? { text: t.rollbackUnknown, tone: "warn" };
+}
 
 const putBack = (r: RollbackInstall) => r.outcome === RollbackOutcome.RollbackReinstalled || r.outcome === RollbackOutcome.RollbackCurrent;
 
@@ -429,24 +426,22 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false });
   if (inspected === undefined) return;
   const writes = linkWrites(inspected ?? [], (p) => wanted.has(installKey(p)));
+  const t = messages().update;
   const ok = await ui.confirm({
-    title: "回滚这次更新",
+    title: t.rollbackTitle,
     body: (
       <>
-        <Hint>
-          库里的技能换回这次更新之前的版本，这次换过的地方也装回旧版;之后又重新安装过、你改过或不在这台机器上的地方不动。
-          回滚掉的改动记为跳过，不再计入角标;想要时可以在更新计划里再勾上。
-        </Hint>
+        <Hint>{t.rollbackHint}</Hint>
         <LinkWriteNotes s={s} {...writes} />
       </>
     ),
-    confirm: "回滚",
+    confirm: t.rollback,
   });
   if (!ok) return;
   const result = await ui.run(() => LibraryService.Rollback(record), {
     onError: (err) => {
       if (err.code !== ErrorCode.FailedPrecondition) return false;
-      ui.toast("这次更新已经回滚过了", "error");
+      ui.toast(t.alreadyRolledBack, "error");
       return true;
     },
   });
@@ -457,32 +452,30 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
   const back = installs.filter(putBack).length;
   const left = installs.filter((r) => !putBack(r));
   const removed = result.removed ?? [];
-  const head = [
-    `已回滚:${(result.skills ?? []).map((x) => x.name).join("、") || "没有可换回的技能"}换回了更新之前的版本`,
-    back ? `装回了 ${back} 个地方` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const head = t.rolledBack(
+    (result.skills ?? []).map((x) => x.name),
+    back,
+  );
   if (!left.length && !removed.length) {
     ui.toast(head);
     return;
   }
   await ui.open((close) => (
     <Modal
-      title="回滚完成"
+      title={t.rollbackDone}
       onClose={() => close()}
       footer={
         <Button variant="primary" onClick={() => close()}>
-          知道了
+          {t.gotIt}
         </Button>
       }
     >
-      <Notice>{head}。下面这些没有装回，保持原样。</Notice>
+      <Notice>{t.rollbackLeft(head)}</Notice>
       <ListBox>
         {removed.map((x) => (
           <ListRow key={`removed-${x.skill_id}`}>
             <span className="grow">{x.name}</span>
-            <Badge>技能已从库里移除</Badge>
+            <Badge>{t.rollbackRemoved}</Badge>
           </ListRow>
         ))}
         {left.map((r) => (
@@ -518,12 +511,12 @@ export async function previewNewSkills(ui: UI, collectionID: CollectionID) {
 // notInterested 是对新技能点"不感兴趣":集合上不再提，入库预览里仍能找到。
 export async function notInterested(ui: UI, collectionID: CollectionID, names: string[]): Promise<boolean> {
   const done = await ui.run(() => LibraryService.MarkNotInterested(collectionID, names).then(() => true), {
-    success: "不再提示这几个新技能;想要时在「看来源里的其他技能」里仍能找到",
+    success: messages().update.notInterested,
   });
   return !!done;
 }
 
 // keepDeleted 是对来源里已删除的技能选"继续保留":不再提醒，只在技能上留一个淡色标记。
 export function keepDeleted(ui: UI, s: Snapshot, id: SkillID) {
-  return ui.run(() => LibraryService.KeepDeletedSkill(id), { success: `已继续保留「${skillName(s, id)}」,不再提醒` });
+  return ui.run(() => LibraryService.KeepDeletedSkill(id), { success: messages().update.keptDeleted(skillName(s, id)) });
 }

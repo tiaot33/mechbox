@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "./utils";
 import { describeError } from "./errors";
+import { useT } from "./i18n";
 import { toLibraryError, type LibraryError } from "./library";
 
 export interface Choice {
@@ -183,13 +184,14 @@ export function Modal({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  const t = useT();
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent wide={wide}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogClose asChild>
-            <Button variant="ghost" size="icon" aria-label="关闭">
+            <Button variant="ghost" size="icon" aria-label={t.common.close}>
               <Icon name="close" />
             </Button>
           </DialogClose>
@@ -202,6 +204,7 @@ export function Modal({
 }
 
 function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: string) => void }) {
+  const t = useT();
   const [choice, setChoice] = useState(opts.initial ?? opts.choices?.[0]?.value ?? "ok");
   return (
     <Modal
@@ -209,9 +212,9 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
       onClose={() => close()}
       footer={
         <>
-          <Button onClick={() => close()}>取消</Button>
+          <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button variant={opts.danger ? "danger" : "primary"} onClick={() => close(choice)} autoFocus>
-            {opts.confirm ?? "确定"}
+            {opts.confirm ?? t.common.ok}
           </Button>
         </>
       }
@@ -243,6 +246,7 @@ export function ChoiceList({ choices, value, onChange }: { choices: Choice[]; va
 }
 
 function PromptDialog({ opts, close }: { opts: PromptOptions; close: (value?: string) => void }) {
+  const t = useT();
   const [value, setValue] = useState(opts.initial ?? "");
   const submit = () => value.trim() && close(value.trim());
   return (
@@ -251,9 +255,9 @@ function PromptDialog({ opts, close }: { opts: PromptOptions; close: (value?: st
       onClose={() => close()}
       footer={
         <>
-          <Button onClick={() => close()}>取消</Button>
+          <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button variant="primary" onClick={submit} disabled={!value.trim()}>
-            {opts.confirm ?? "确定"}
+            {opts.confirm ?? t.common.ok}
           </Button>
         </>
       }

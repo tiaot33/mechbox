@@ -17,11 +17,11 @@ const settingsFileName = "settings.json"
 // Settings 是只属于这台机器的应用设置：存在用户配置目录下的 settings.json,不进技能库，也不随同步走。
 // 加设置项就是加字段;文件里没有的字段取 defaultSettings 的值。
 type Settings struct {
-	AutoCheck     bool          `json:"auto_check"`       // 自动检查更新
-	CheckInterval CheckInterval `json:"check_interval"`   // 自动检查的间隔
-	StayInMenuBar bool          `json:"stay_in_menu_bar"` // 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
-	DockBadge     bool          `json:"dock_badge"`       // Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
-	Language      Language      `json:"language"`         // 界面语言;空字符串跟随系统
+	AutoCheck     bool          `json:"auto_check"`         // 自动检查更新
+	CheckInterval CheckInterval `json:"check_interval"`     // 自动检查的间隔
+	StayInMenuBar bool          `json:"stay_in_menu_bar"`   // 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
+	DockBadge     bool          `json:"dock_badge"`         // Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
+	Language      Language      `json:"language,omitempty"` // 界面语言;空字符串跟随系统
 	// AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
 	// 显示只影响选择安装位置的地方，已经装了技能的 Agent 装出去的地方照常列出。
 	AgentsShown map[library.AgentCode]bool `json:"agents_shown,omitempty"`

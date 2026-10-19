@@ -6,6 +6,7 @@ import type { ConfigStatus } from "@bindings/cmd/desktop";
 import { SourceType } from "@bindings/internal/library";
 import { checkUpdates, createGroup, deleteGroup, renameGroup } from "@/lib/actions";
 import { alreadyInGroup, dropProps, useDnD } from "@/lib/dnd";
+import { useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import {
   checkableCollections,
@@ -39,10 +40,12 @@ interface FilterSidebarProps {
 export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings }: FilterSidebarProps) {
   const ui = useUI();
   const dnd = useDnD();
+  const tt = useT();
+  const t = tt.sidebar;
   const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
   const collections = s.collections.filter((c) => (c.skills?.length ?? 0) > 1);
-  // 收起的分节("集合" / "组")。
+  // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // 再点一次当前筛选回到"所有技能",与原型一致。
   const pick = (target: SkillFilter) => onFilter(sameFilter(filter, target) ? { kind: "all" } : target);
@@ -67,33 +70,33 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings
     <aside className={leftClass}>
       <SideButton onClick={onFetch}>
         <Icon name="plus" />
-        <span>入库技能</span>
+        <span>{t.fetch}</span>
       </SideButton>
       <SideButton onClick={() => ui.open((close) => <MarketDialog onClose={close} />)}>
         <Icon name="tag" />
-        <span>技能市场</span>
+        <span>{t.market}</span>
       </SideButton>
       <ul className="flex flex-col gap-0.5">
-        {row({ kind: "all" }, <Icon name="bolt" />, "所有技能", s.skills.length)}
-        {updates > 0 && row({ kind: "updates" }, <Icon name="up" />, "更新", updates, "要处理的更新：有新版本、来源里已删除或可能改了名的技能;和 Dock 角标一致")}
+        {row({ kind: "all" }, <Icon name="bolt" />, t.allSkills, s.skills.length)}
+        {updates > 0 && row({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
         <li>
           <button
             type="button"
             className={navItem()}
             disabled={!checkable.length || ui.busy}
             onClick={() => checkUpdates(ui, s, checkable)}
-            title="检查各来源是否有新版本(只读，本地目录来源不检查)"
+            title={t.checkTitle}
           >
             <Icon name="refresh" />
-            <span className="grow">检查更新</span>
+            <span className="grow">{t.check}</span>
           </button>
         </li>
       </ul>
 
-      <SectionHead name="集合" count={collections.length} collapsed={collapsed} onToggle={setCollapsed}>
-        <span className="pr-1.5 text-[10px] font-medium text-subtle">按来源</span>
+      <SectionHead id="collections" name={t.collections} count={collections.length} collapsed={collapsed} onToggle={setCollapsed}>
+        <span className="pr-1.5 text-[10px] font-medium text-subtle">{t.bySource}</span>
       </SectionHead>
-      {!collapsed.has("集合") && (
+      {!collapsed.has("collections") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
           {collections.map((c) =>
             row(
@@ -101,28 +104,26 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings
               null,
               sourceLabel(s, c.source),
               c.skills?.length ?? 0,
-              `${sourceKindLabel[c.source.type]} · ${sourceLabel(s, c.source)}`,
+              `${sourceKindLabel(c.source.type)} · ${sourceLabel(s, c.source)}`,
               c.source.type === SourceType.SourceLocal,
             ),
           )}
         </ul>
       )}
-      {collections.length === 0 && !collapsed.has("集合") && (
-        <Hint className="mt-1 px-3">从同一来源入库两个以上技能后，按来源自动归成集合。</Hint>
-      )}
+      {collections.length === 0 && !collapsed.has("collections") && <Hint className="mt-1 px-3">{t.noCollections}</Hint>}
 
-      <SectionHead name="组" count={s.groups.length} collapsed={collapsed} onToggle={setCollapsed}>
+      <SectionHead id="groups" name={t.groups} count={s.groups.length} collapsed={collapsed} onToggle={setCollapsed}>
         <Button
           variant="ghost"
           size="icon-sm"
           className="opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100"
-          title="新建组"
+          title={t.newGroup}
           onClick={() => createGroup(ui)}
         >
           <Icon name="plus" />
         </Button>
       </SectionHead>
-      {!collapsed.has("组") && (
+      {!collapsed.has("groups") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
           {s.groups.map((g) => {
             const target: SkillFilter = { kind: "group", groupID: g.id };
@@ -135,21 +136,21 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings
                   tabIndex={0}
                   className={navItem({ kind: "section" })}
                   data-active={sameFilter(filter, target)}
-                  data-already={already || undefined}
+                  data-already={already ? tt.layout.alreadyThere : undefined}
                   onClick={() => pick(target)}
                   draggable
-                  onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, `组「${g.name}」· ${g.members?.length ?? 0} 个技能`)}
+                  onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, tt.list.groupDrag(g.name, g.members?.length ?? 0))}
                   onDragEnd={dnd.end}
                   data-drop-group={g.id}
                   {...dropProps(canDrop, () => dnd.dropOnGroup(g.id))}
-                  title="点击筛选;拖到右侧作用域 = 组安装;把技能卡片拖到这里 = 加入本组"
+                  title={t.groupTitle}
                 >
                   <span className="grow truncate">{g.name}</span>
                   <span className="row-actions hidden gap-0.5 group-hover:inline-flex">
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      title="重命名"
+                      title={t.rename}
                       onClick={(e) => {
                         e.stopPropagation();
                         void renameGroup(ui, s, g.id);
@@ -160,7 +161,7 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      title="删除组"
+                      title={t.deleteGroup}
                       onClick={(e) => {
                         e.stopPropagation();
                         void deleteGroup(ui, s, g.id);
@@ -178,23 +179,21 @@ export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings
           })}
         </ul>
       )}
-      {s.groups.length === 0 && !collapsed.has("组") && (
-        <Hint className="mt-1 px-3">还没有组。按场景把技能归到一起，就能整组安装。</Hint>
-      )}
+      {s.groups.length === 0 && !collapsed.has("groups") && <Hint className="mt-1 px-3">{t.noGroups}</Hint>}
 
       <div className="grow" />
       <ul className="flex flex-col gap-0.5">
         <li>
           <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog config={config} onClose={close} />)}>
             <Icon name="cloud" />
-            <span className="grow">同步</span>
-            <span className="text-[11px] text-muted-foreground">{config.sync ? "手动" : "未配置"}</span>
+            <span className="grow">{t.sync}</span>
+            <span className="text-[11px] text-muted-foreground">{config.sync ? t.manual : t.notConfigured}</span>
           </button>
         </li>
         <li>
           <button type="button" className={navItem()} onClick={onSettings}>
             <Icon name="gear" />
-            <span className="grow">设置</span>
+            <span className="grow">{t.settings}</span>
           </button>
         </li>
       </ul>
@@ -218,28 +217,30 @@ function SideButton({ onClick, children }: { onClick: () => void; children: Reac
   );
 }
 
-// SectionHead 是可折叠的分节标题：箭头 + 名称 + 数量，右侧放说明或操作(悬停时出现)。
+// SectionHead 是可折叠的分节标题：箭头 + 名称 + 数量，右侧放说明或操作(悬停时出现);id 记折叠状态。
 function SectionHead({
+  id,
   name,
   count,
   collapsed,
   onToggle,
   children,
 }: {
+  id: string;
   name: string;
   count: number;
   collapsed: Set<string>;
   onToggle: (update: (set: Set<string>) => Set<string>) => void;
   children?: React.ReactNode;
 }) {
-  const closed = collapsed.has(name);
+  const closed = collapsed.has(id);
   return (
     <div className="nav-sec group/sec flex items-center justify-between pt-2.5 pr-0.5">
       <button
         type="button"
         className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-md pr-1.5 pl-2 text-[11px] font-semibold text-muted-foreground hover:bg-black/[0.04] hover:text-foreground"
         aria-expanded={!closed}
-        onClick={() => onToggle((set) => toggled(set, name))}
+        onClick={() => onToggle((set) => toggled(set, id))}
       >
         <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
         <span>{name}</span>

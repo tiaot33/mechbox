@@ -17,8 +17,9 @@ import {
 import { removeSkill } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
+import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentName, linkNote, revisionSummary, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { agentName, linkNote, revisionSummary, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
@@ -62,6 +63,8 @@ export function UpdateDialog({
   onClose: () => void;
 }) {
   const ui = useUI();
+  const tt = useT();
+  const t = tt.plan;
   const label = collectionName(s, collectionID);
   const collection = s.collections.find((c) => c.id === collectionID);
   const [generation, setGeneration] = useState(0);
@@ -130,20 +133,21 @@ export function UpdateDialog({
 
   if (!plan) {
     return (
-      <Modal title={`更新 ${label}`} wide onClose={onClose}>
+      <Modal title={t.title(label)} wide onClose={onClose}>
         {failed ? (
           <>
             <Notice tone="bad" className="whitespace-pre-line">
-              没能生成更新计划。{"\n"}
+              {t.planFailed}
+              {"\n"}
               {describeError(failed)}
             </Notice>
             <div>
-              <Button onClick={replan}>重试</Button>
+              <Button onClick={replan}>{t.retry}</Button>
             </div>
           </>
         ) : (
           <Hint className="flex items-center gap-1.5">
-            <Spinner /> 正在读取来源，生成更新计划…
+            <Spinner /> {t.reading}
           </Hint>
         )}
       </Modal>
@@ -197,7 +201,7 @@ export function UpdateDialog({
   const skip = async (ids?: SkillID[]) => {
     const req = ids ? { plan: plan.id, skills: ids } : { plan: plan.id, whole_revision: true };
     const done = await ui.run(() => LibraryService.SkipUpdate(req).then(() => true), {
-      success: ids ? `已跳过「${ids.map(name).join("、")}」这次的改动` : `已跳过 ${label} 的这个来源版本`,
+      success: ids ? t.skippedSkills(ids.map(name)) : t.skippedRevision(label),
       onError: onStale,
     });
     if (!done) return;
@@ -208,7 +212,7 @@ export function UpdateDialog({
 
   const reject = async (p: PlannedSkill) => {
     const done = await ui.run(() => LibraryService.RejectRename(plan.id, p.skill.id).then(() => true), {
-      success: `已记下：「${p.skill.name}」和「${p.renamed_to}」不是同一个`,
+      success: t.rejected(p.skill.name, p.renamed_to),
       onError: onStale,
     });
     if (!done) return;
@@ -232,41 +236,41 @@ export function UpdateDialog({
 
   return (
     <Modal
-      title={`更新 ${label}`}
+      title={t.title(label)}
       wide
       onClose={onClose}
       footer={
         <>
           {movable.some((p) => !p.skipped) && (
-            <Button disabled={locked} onClick={() => skip()} title="明确不要来源这个版本里的改动：不再计入角标，直到来源又有新改动;之后可以在历史里找回来">
-              跳过这个来源版本
+            <Button disabled={locked} onClick={() => skip()} title={t.skipRevisionTitle}>
+              {t.skipRevision}
             </Button>
           )}
           <span className="grow" />
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t.cancel}</Button>
           <Button variant="primary" disabled={!checked.size || conflict || (locked && !working)} loading={working} onClick={run}>
-            更新 {checked.size} 个
+            {t.updateN(checked.size)}
           </Button>
         </>
       }
     >
       {conflict && (
         <Notice tone="warn" className="flex items-center gap-2">
-          <span className="grow">更新计划生成之后，来源或技能库又变了。请重新看一遍更新计划再确认。</span>
+          <span className="grow">{t.conflict}</span>
           <Button size="sm" onClick={replan}>
-            重新生成更新计划
+            {t.replan}
           </Button>
         </Notice>
       )}
       <Hint>
         {sourceLabel(s, plan.source)}
-        {from && ` · ${from.startsWith("在 ") ? `技能都${from}` : from}`}
-        {to && ` · 来源最新是 ${to}`}
+        {from && (from.kind === "same" ? t.allAt(from.revision) : t.mixed(revisionText(from)))}
+        {to && t.latest(to)}
       </Hint>
 
       {movable.length > 0 && (
         <>
-          <div className={sectionClass}>先看一眼</div>
+          <div className={sectionClass}>{t.firstLook}</div>
           {risks.length ? (
             <Notice tone="warn" className="flex flex-col gap-0.5">
               {risks.map(({ p, r }) => (
@@ -283,14 +287,14 @@ export function UpdateDialog({
               ))}
             </Notice>
           ) : (
-            <Hint>这次的改动里没有新增或改动的脚本，也没有新增的可执行文件。</Hint>
+            <Hint>{t.noRisks}</Hint>
           )}
         </>
       )}
 
       {(plan.commits?.length ?? 0) > 0 && <Commits plan={plan} />}
 
-      <div className={sectionClass}>技能</div>
+      <div className={sectionClass}>{t.skills}</div>
       <ListBox>
         {shown.map((p) => (
           <ListRow key={p.skill.id} compact selected={checked.has(p.skill.id)} className="update-skill">
@@ -302,20 +306,20 @@ export function UpdateDialog({
                 onChange={(e) => check(p.skill.id, e.target.checked)}
               />
               <b className="font-semibold whitespace-nowrap">{p.skill.name}</b>
-              {p.skipped ? <Badge title="之前跳过了来源里的这份改动;照样可以勾上更新">已跳过</Badge> : <Badge tone="warn">有变化</Badge>}
+              {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="warn">{t.changed}</Badge>}
               {(p.risks?.length ?? 0) > 0 && <Badge tone="bad">{riskSummary(p.risks ?? [])}</Badge>}
               {p.edited && (
-                <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title="库里的这个技能用你在目录里的修改更新过，或入库时和来源里的不一样、可能有你的修改;勾上后换成来源的新版本，之后可以在历史里回滚回来">
-                  更新会换掉你的修改
+                <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title={t.editedTitle}>
+                  {t.edited}
                 </span>
               )}
             </label>
             <Button variant="link" onClick={() => view(p)}>
-              {viewing?.id === p.skill.id ? "收起差异" : "看差异"}
+              {viewing?.id === p.skill.id ? t.hideDiff : t.showDiff}
             </Button>
             {!p.skipped && (
-              <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])} title="明确不要这次的改动;来源里它又变了才重新提醒">
-                跳过
+              <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])} title={t.skipTitle}>
+                {t.skip}
               </Button>
             )}
           </ListRow>
@@ -323,10 +327,10 @@ export function UpdateDialog({
         {folded.length > 0 && (
           <ListRow compact>
             <span className="grow text-muted-foreground">
-              同一来源还有 {folded.length} 个技能有变化({folded.map((p) => p.skill.name).join("、")})
+              {t.folded(folded.map((p) => p.skill.name))}
             </span>
             <Button variant="link" onClick={() => setExpanded(true)}>
-              展开
+              {t.expand}
             </Button>
           </ListRow>
         )}
@@ -336,39 +340,37 @@ export function UpdateDialog({
             <ListRow key={p.skill.id} selected={yes} className="update-rename">
               <div className="min-w-0 grow">
                 <div>
-                  <b className="font-semibold">{p.skill.name}</b> 在来源里可能改名为 <b className="font-semibold">{p.renamed_to}</b>,是同一个吗?
-                  {p.skipped && <Badge className="ml-1.5">已跳过</Badge>}
+                  {t.renameQuestion(<b className="font-semibold">{p.skill.name}</b>, <b className="font-semibold">{p.renamed_to}</b>)}
+                  {p.skipped && <Badge className="ml-1.5">{t.skipped}</Badge>}
                 </div>
                 <div className="text-[11px] text-muted-foreground">
-                  {yes
-                    ? `确认后技能改用新名字，组、安装记录和版本历史都跟过去;Agent 里要改用 /${p.renamed_to} 调用。`
-                    : `确认是同一个时，Agent 里的调用名会变，要改用 /${p.renamed_to}。`}
-                  {p.edited && <span className="update-edited">内容也会换成来源里的，更新会换掉你的修改。</span>}
+                  {yes ? t.renameYes(p.renamed_to) : t.renameNo(p.renamed_to)}
+                  {p.edited && <span className="update-edited">{t.renameEdited}</span>}
                 </div>
               </div>
               {yes ? (
                 <>
-                  <Badge tone="accent">是同一个</Badge>
+                  <Badge tone="accent">{t.sameOne}</Badge>
                   <Button variant="link" disabled={locked} onClick={() => check(p.skill.id, false)}>
-                    撤销
+                    {t.undo}
                   </Button>
                 </>
               ) : (
                 <>
                   <Button size="sm" disabled={locked} onClick={() => check(p.skill.id, true)}>
-                    是
+                    {t.yes}
                   </Button>
                   <Button size="sm" disabled={locked} onClick={() => reject(p)}>
-                    不是
+                    {t.no}
                   </Button>
                 </>
               )}
               <Button variant="link" onClick={() => view(p)}>
-                {viewing?.id === p.skill.id ? "收起差异" : "看差异"}
+                {viewing?.id === p.skill.id ? t.hideDiff : t.showDiff}
               </Button>
               {!p.skipped && (
                 <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])}>
-                  跳过
+                  {t.skip}
                 </Button>
               )}
             </ListRow>
@@ -381,11 +383,11 @@ export function UpdateDialog({
               <div className="min-w-0 grow">
                 <b className="font-semibold">{p.skill.name}</b>
                 <span className="ml-1.5 text-[11px] text-muted-foreground">
-                  {sourceLabel(s, plan.source)} 里已经删掉了它。你的副本还在，可以继续用。
+                  {t.deletedHere(sourceLabel(s, plan.source))}
                 </span>
               </div>
               {keep ? (
-                <Badge>已继续保留</Badge>
+                <Badge>{t.keptDeleted}</Badge>
               ) : (
                 <>
                   <Button
@@ -395,7 +397,7 @@ export function UpdateDialog({
                       if (await removeSkill(ui, s, p.skill.id)) setRemoved((set) => new Set(set).add(p.skill.id));
                     }}
                   >
-                    移除
+                    {t.remove}
                   </Button>
                   <Button
                     size="sm"
@@ -404,7 +406,7 @@ export function UpdateDialog({
                       if (await keepDeleted(ui, s, p.skill.id)) setKept((set) => new Set(set).add(p.skill.id));
                     }}
                   >
-                    继续保留
+                    {t.keep}
                   </Button>
                 </>
               )}
@@ -413,14 +415,14 @@ export function UpdateDialog({
         })}
         {unchanged.length > 0 && (
           <ListRow compact className="text-muted-foreground">
-            没变化:{unchanged.map((p) => p.skill.name).join("、")}
+            {t.unchanged(unchanged.map((p) => p.skill.name))}
           </ListRow>
         )}
-        {skills.length === 0 && <ListRow className="text-muted-foreground">集合里已经没有技能了。</ListRow>}
+        {skills.length === 0 && <ListRow className="text-muted-foreground">{t.empty}</ListRow>}
       </ListBox>
       {splitting && (
         <Notice tone="warn">
-          只更新 {checked.size <= 3 ? [...checked].map(name).join("、") : `勾选的 ${checked.size} 个技能`} 后,{label} 里的技能会不在同一个来源版本上。
+          {t.splitting(checked.size <= 3 ? [...checked].map(name) : checked.size, label)}
         </Notice>
       )}
 
@@ -431,10 +433,10 @@ export function UpdateDialog({
       {!focus && newSkills.length > 0 && (
         <div className="update-new flex items-center gap-2 text-[12px] text-muted-foreground">
           <span className="grow">
-            {sourceLabel(s, plan.source)} 新发布了 {newSkills.length} 个技能({newSkills.join("、")})
+            {tt.drawer.newSkills(sourceLabel(s, plan.source), newSkills)}
           </span>
           <Button variant="link" disabled={locked} onClick={() => previewNewSkills(ui, collectionID).then(refreshNew)}>
-            去入库
+            {tt.drawer.goFetch}
           </Button>
           <Button
             variant="link"
@@ -443,16 +445,16 @@ export function UpdateDialog({
               if (await notInterested(ui, collectionID, newSkills)) refreshNew();
             }}
           >
-            不感兴趣
+            {tt.drawer.notInterested}
           </Button>
         </div>
       )}
 
       {checked.size > 0 && (
         <>
-          <div className={sectionClass}>装在这些地方，一起换成新版</div>
+          <div className={sectionClass}>{t.places}</div>
           <Places s={s} places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
-          <Hint>没勾的地方保持原样，之后可以在那里单独重新安装。</Hint>
+          <Hint>{t.uncheckedNote}</Hint>
         </>
       )}
     </Modal>
@@ -461,12 +463,13 @@ export function UpdateDialog({
 
 // Commits 是 GitHub 来源这段时间的提交说明，每条只显示第一行，最新的在前。
 function Commits({ plan }: { plan: UpdatePlan }) {
+  const t = useT().plan;
   const [all, setAll] = useState(false);
   const commits = plan.commits ?? [];
   const list = all ? commits : commits.slice(0, 6);
   return (
     <details open className="update-commits">
-      <summary className={cn(sectionClass, "cursor-pointer")}>提交说明 · {commits.length} 条</summary>
+      <summary className={cn(sectionClass, "cursor-pointer")}>{t.commits(commits.length)}</summary>
       <ListBox className="mt-1.5">
         {list.map((c) => (
           <ListRow key={c.sha} compact title={c.message}>
@@ -480,7 +483,7 @@ function Commits({ plan }: { plan: UpdatePlan }) {
         {!all && commits.length > list.length && (
           <ListRow compact>
             <Button variant="link" onClick={() => setAll(true)}>
-              还有 {commits.length - list.length} 条
+              {t.moreCommits(commits.length - list.length)}
             </Button>
           </ListRow>
         )}
@@ -504,11 +507,12 @@ export function SkillDiff({
   onPath: (path: string) => void;
   onError: (err: LibraryError) => boolean;
 }) {
+  const t = useT().plan;
   const diff = item.diff;
   const files = [
-    ...(diff?.added ?? []).map((p) => ["added", "新增", p] as const),
-    ...(diff?.changed ?? []).map((p) => ["changed", "修改", p] as const),
-    ...(diff?.deleted ?? []).map((p) => ["deleted", "删除", p] as const),
+    ...(diff?.added ?? []).map((p) => ["added", t.added, p] as const),
+    ...(diff?.changed ?? []).map((p) => ["changed", t.modifiedFile, p] as const),
+    ...(diff?.deleted ?? []).map((p) => ["deleted", t.deleted, p] as const),
   ];
   const kind = files.find((f) => f[2] === path)?.[0];
   const versionID = item.skill.version_id;
@@ -518,7 +522,7 @@ export function SkillDiff({
   const color = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
   return (
     <div className="update-diff flex flex-col gap-1.5 rounded-box border border-border-subtle bg-white/60 p-2.5">
-      <b className="text-[12px]">{item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name} 的改动</b>
+      <b className="text-[12px]">{t.changesOf(item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name)}</b>
       <div className="flex flex-col">
         {files.map(([k, text, p]) => (
           <button
@@ -532,12 +536,12 @@ export function SkillDiff({
             )}
             onClick={() => onPath(p)}
           >
-            <span className="w-7 shrink-0 font-sans">{text}</span>
+            <span className="w-7 shrink-0 font-sans [&:lang(en)]:w-14">{text}</span>
             <span className="min-w-0 grow truncate">{p}</span>
             {risk.has(p) && <Badge tone="bad">{risk.get(p)}</Badge>}
           </button>
         ))}
-        {files.length === 0 && <span className="text-[11px] text-muted-foreground">文件内容相同</span>}
+        {files.length === 0 && <span className="text-[11px] text-muted-foreground">{t.sameContent}</span>}
       </div>
       {kind && <FileDiff path={path} before={kind === "added" ? null : before} after={kind === "deleted" ? null : after} onError={onError} />}
     </div>
@@ -551,7 +555,7 @@ export function Places({
   name,
   on,
   onToggle,
-  modified = "你在这里改过，换新版会覆盖你的修改",
+  modified,
 }: {
   s: Snapshot;
   places: SkillScopeInspection[];
@@ -560,7 +564,8 @@ export function Places({
   onToggle: (p: SkillScopeInspection) => void;
   modified?: string; // 用户改过的地方旁边的说明
 }) {
-  if (!places.length) return <Hint>勾选的技能还没有装到任何地方，只更新技能库。</Hint>;
+  const t = useT().plan;
+  if (!places.length) return <Hint>{t.notPlaced}</Hint>;
   // unchecked 是链着这一处、这次没勾的地方：换这一处之前，库先给它们换上独立的一份。
   const unchecked = (p: SkillScopeInspection) =>
     (p.linked_by ?? []).filter((scope) => {
@@ -579,12 +584,12 @@ export function Places({
               <label key={installKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
                 <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
-                {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified}</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">项目不在这台机器上，装不上</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge>文件夹不在了</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge>{t.folderMissing}</Badge>}
                 {(p.shared_with?.length ?? 0) > 0 && (
                   <span className="text-[11px] text-muted-foreground">
-                    和 {p.shared_with!.map((code) => agentName(s, code)).join("、")} 共用一个文件夹，一起换
+                    {t.sharedFolder(p.shared_with!.map((code) => agentName(s, code)))}
                   </span>
                 )}
                 {p.link_target && on(p) && (
@@ -594,7 +599,7 @@ export function Places({
                 )}
                 {on(p) && unchecked(p).length > 0 && (
                   <span className="update-place-kept min-w-0 text-[11px] text-muted-foreground">
-                    {unchecked(p).map((scope) => scopeLabel(s, scope)).join("、")} 链着这里，没勾，会先换成独立的一份，保持现在的内容
+                    {t.linkedHere(unchecked(p).map((scope) => scopeLabel(s, scope)))}
                   </span>
                 )}
               </label>

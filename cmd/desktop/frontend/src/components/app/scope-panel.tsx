@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Agent, RegisteredProject } from "@bindings/internal/library";
 import { registerProject, relocateProject, unregisterProject } from "@/lib/actions";
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
+import { useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import {
   agentsIn,
@@ -46,6 +47,8 @@ interface ScopePanelProps {
 
 export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onToggleProject, onToggleMore }: ScopePanelProps) {
   const ui = useUI();
+  const t = useT().scopes;
+  const tl = useT().layout;
   const dnd = useDnD();
   const selected = scope ? parseScope(scope) : null;
   const rail = useRef<HTMLElement>(null);
@@ -74,7 +77,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
           type="button"
           className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub")}
           data-active={scope === key}
-          data-already={already || undefined}
+          data-already={already ? tl.alreadyThere : undefined}
           onClick={() => onScope(scope === key ? null : key)}
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
@@ -82,7 +85,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
           <AgentMark code={agent.code} name={agent.name} />
           <span className="grow truncate">{agent.name}</span>
           {issues > 0 && (
-            <i className="size-1.5 shrink-0 rounded-full bg-warn" title={`${issues} 个技能文件夹与当前版本不一致，需要重新安装`} />
+            <i className="size-1.5 shrink-0 rounded-full bg-warn" title={t.issues(issues)} />
           )}
           <NavCount value={installed.length} accent />
         </button>
@@ -110,12 +113,12 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
               {...aimProps(`m${place}`, more)}
             >
               <Icon name="chev" className={cn("size-2.5 transition-transform", more ? "-rotate-90" : "rotate-90")} />
-              <span className="grow">{more ? "收起" : `其他 ${rest.length} 个 Agent`}</span>
+              <span className="grow">{more ? t.collapse : t.more(rest.length)}</span>
             </button>
           </li>
         )}
         {shown.length === 0 && rest.length === 0 && (
-          <li className="px-2 py-1 text-[11.5px] text-muted-foreground">没有可选的 Agent,可在设置页勾选显示</li>
+          <li className="px-2 py-1 text-[11.5px] text-muted-foreground">{t.noAgents}</li>
         )}
       </>
     );
@@ -127,14 +130,14 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
 
   return (
     <aside ref={rail} className={rightClass}>
-      <RailHead icon="globe" label="全局" />
+      <RailHead icon="globe" label={t.global} />
       <ul className={listClass}>{agentRows(0)}</ul>
-      <RailHead icon="folder" label="已登记项目">
+      <RailHead icon="folder" label={t.projects}>
         <Button
           variant="ghost"
           size="icon-sm"
           className="opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100"
-          title="登记项目"
+          title={t.register}
           onClick={register}
         >
           <Icon name="plus" />
@@ -153,15 +156,15 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                 aria-expanded={open}
                 className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
                 onClick={() => onToggleProject(p.id)}
-                title={p.missing ? `${shortPath(s, p.path)}\n不在这台机器上` : shortPath(s, p.path)}
+                title={p.missing ? t.missingTitle(shortPath(s, p.path)) : shortPath(s, p.path)}
                 {...aimProps(`p${p.id}`, open)}
               >
                 <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
                 <Icon name="folder" className="size-[13px]" />
                 <span className="grow truncate">{projectName(s, p.id)}</span>
                 {p.missing && (
-                  <Badge tone="warn" title="项目目录在这台机器上不存在;可以改项目位置">
-                    不在这台机器上
+                  <Badge tone="warn" title={t.missingBadgeTitle}>
+                    {t.missing}
                   </Badge>
                 )}
                 {!open && (
@@ -175,7 +178,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    title="改项目位置"
+                    title={t.relocateTitle}
                     onClick={(e) => {
                       e.stopPropagation();
                       void relocate(p);
@@ -186,7 +189,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    title="注销项目"
+                    title={t.unregisterTitle}
                     onClick={(e) => {
                       e.stopPropagation();
                       void unregisterProject(ui, s, p);
@@ -212,7 +215,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
           );
         })}
       </ul>
-      {s.projects.length === 0 && <Hint className="mt-1 px-6">还没有登记项目。登记后可以把技能安装到项目级目录。</Hint>}
+      {s.projects.length === 0 && <Hint className="mt-1 px-6">{t.noProjects}</Hint>}
     </aside>
   );
 }
@@ -287,6 +290,7 @@ export function ProjectPathDialog({
   onClose: () => void;
 }) {
   const ui = useUI();
+  const t = useT().scopes;
   const [path, setPath] = useState(project?.path ?? "");
   const [working, setWorking] = useState(false);
   const resolved = resolveLocalPath(path, home);
@@ -299,38 +303,34 @@ export function ProjectPathDialog({
   };
   return (
     <Modal
-      title={project ? `改项目「${project.name}」的位置` : "登记项目"}
+      title={project ? t.relocateDialog(project.name) : t.register}
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t.cancel}</Button>
           <Button variant="primary" disabled={!resolved?.path} loading={working} onClick={submit}>
-            {project ? "改位置" : "登记"}
+            {project ? t.relocate : t.registerShort}
           </Button>
         </>
       }
     >
-      <Hint>
-        {project
-          ? "把项目指到本机上的目录(从别的机器同步过来，或项目目录被移动、改名之后)。直接安装与组安装都保留;旧位置的技能文件夹不搬动，技能库从此不再管。"
-          : "登记后，这个项目与每个 Agent 组成项目级作用域，技能可以安装到项目里的 Agent 目录。"}
-      </Hint>
+      <Hint>{project ? t.relocateHint : t.registerHint}</Hint>
       <div className="flex min-w-0 items-center gap-2">
         <Input
           className="grow"
           autoFocus
-          placeholder="/path/to/project 或 ~/path/to/project"
+          placeholder={t.pathPlaceholder}
           value={path}
           onChange={(e) => setPath(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
         <Button
           onClick={async () => {
-            const dir = await pickDirectory(project ? "选择项目在这台机器上的目录" : "选择要登记的项目目录");
+            const dir = await pickDirectory(project ? t.chooseRelocate : t.chooseRegister);
             if (dir) setPath(dir);
           }}
         >
-          选择…
+          {t.choose}
         </Button>
       </div>
       {resolved?.error && <FieldError>{resolved.error}</FieldError>}

@@ -30,6 +30,7 @@ import {
   type UnmanagedSkill,
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "./errors";
+import { messages, useT } from "./i18n";
 import { foundSource, useFoundSources, type LibraryError, type Snapshot } from "./library";
 import { FetchReview } from "@/components/app/fetch-review";
 import { offerProject } from "@/components/app/fetch-unmanaged-dialog";
@@ -77,13 +78,14 @@ interface ResultRow {
 }
 
 function showResults(ui: UI, title: string, rows: ResultRow[], note?: string) {
+  const t = messages().actions;
   return ui.open((close) => (
     <Modal
       title={title}
       onClose={() => close()}
       footer={
         <Button variant="primary" onClick={() => close()}>
-          知道了
+          {t.gotIt}
         </Button>
       }
     >
@@ -103,35 +105,37 @@ function showResults(ui: UI, title: string, rows: ResultRow[], note?: string) {
   ));
 }
 
-const memberOutcome: Record<string, { text: string; tone: ResultRow["tone"] }> = {
-  [GroupMemberOutcome.MemberInstalled]: { text: "已安装", tone: "ok" },
-  [GroupMemberOutcome.MemberAlreadyInstalled]: { text: "原已安装", tone: "ok" },
-  [GroupMemberOutcome.MemberSkipped]: { text: "已跳过", tone: "warn" },
-};
+function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"] } | undefined {
+  const t = messages().actions;
+  return {
+    [GroupMemberOutcome.MemberInstalled]: { text: t.memberInstalled, tone: "ok" as const },
+    [GroupMemberOutcome.MemberAlreadyInstalled]: { text: t.memberAlready, tone: "ok" as const },
+    [GroupMemberOutcome.MemberSkipped]: { text: t.memberSkipped, tone: "warn" as const },
+  }[outcome];
+}
 
 function memberRows(s: Snapshot, results: GroupMemberResult[]): ResultRow[] {
   return results.map((r) => ({
     label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
-    outcome: memberOutcome[r.outcome]?.text ?? r.outcome,
-    tone: memberOutcome[r.outcome]?.tone ?? "warn",
+    outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
+    tone: memberOutcome(r.outcome)?.tone ?? "warn",
     reason: r.error ? describeError(r.error) : undefined,
   }));
 }
 
 function summarizeMembers(results: GroupMemberResult[]): string {
   const count = (o: GroupMemberOutcome) => results.filter((r) => r.outcome === o).length;
-  const parts = [
-    `新安装 ${count(GroupMemberOutcome.MemberInstalled)}`,
-    `原已安装 ${count(GroupMemberOutcome.MemberAlreadyInstalled)}`,
-  ];
-  const skipped = count(GroupMemberOutcome.MemberSkipped);
-  if (skipped) parts.push(`跳过 ${skipped}`);
-  return parts.join(" · ");
+  return messages().actions.membersSummary(
+    count(GroupMemberOutcome.MemberInstalled),
+    count(GroupMemberOutcome.MemberAlreadyInstalled),
+    count(GroupMemberOutcome.MemberSkipped),
+  );
 }
 
 // ---------- 单个技能的安装 ----------
 
 export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scope) {
+  const t = messages().actions;
   const plan = await ui.run(() => LibraryService.PlanInstall(id, scope), { reload: false });
   if (!plan) return;
   const where = scopeLabel(s, scope);
@@ -140,24 +144,22 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
     case InstallPlanStatus.InstallOccupied: {
       // 占用者与本技能同名;用来源区分是哪一个。
       const occupier = s.skills.find((x) => x.id === plan.occupier_skill_id);
-      const who =
+      const folder = shortPath(s, plan.folder);
+      ui.toast(
         occupier?.id === id
-          ? "这个技能的另一个作用域"
+          ? t.occupiedSelf(folder)
           : occupier
-            ? `来自 ${sourceLabel(s, occupier.source)} 的同名技能`
-            : "另一个同名技能";
-      ui.toast(`无法安装:${who}已装在\n${shortPath(s, plan.folder)}\n先卸载它，再安装`, "error");
+            ? t.occupiedSource(sourceLabel(s, occupier.source), folder)
+            : t.occupiedOther(folder),
+        "error",
+      );
       return;
     }
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
-        title: "目标已有同名文件夹",
-        body: (
-          <Notice tone="warn">
-            {shortPath(s, plan.folder)} 已存在，但不是从技能库装的。覆盖会用「{plan.name}」替换它。
-          </Notice>
-        ),
-        confirm: "覆盖并安装",
+        title: t.untrackedTitle,
+        body: <Notice tone="warn">{t.untrackedBody(shortPath(s, plan.folder), plan.name)}</Notice>,
+        confirm: t.overwriteInstall,
         danger: true,
       });
       if (!ok) return;
@@ -166,11 +168,12 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
     }
   }
   await ui.run(() => LibraryService.Install(id, scope, { overwrite }), {
-    success: `已安装「${plan.name}」到 ${where}`,
+    success: t.installed(plan.name, where),
   });
 }
 
 export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scope) {
+  const t = messages().actions;
   // 共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   const place = skillScopeIn(s, id, scopeKey(scope));
@@ -178,30 +181,31 @@ export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Sc
   const detached = detachedBy(place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : []);
   if (place && (shared.length || detached.length)) {
     const ok = await ui.confirm({
-      title: `卸载「${skillName(s, id)}」`,
+      title: t.uninstallTitle(skillName(s, id)),
       body: (
         <>
           {shared.length > 0 && (
             <Notice tone="warn">
-              {shortPath(s, place.folder)} 还被 {shared.map((code) => agentName(s, code)).join("、")} 共用。
-              {place.groups?.length
-                ? "卸载会撤销这几个 Agent 的直接安装;还有组安装留着它，文件夹不删。"
-                : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"}
+              {t.uninstallShared(
+                shortPath(s, place.folder),
+                shared.map((code) => agentName(s, code)),
+                !!place.groups?.length,
+              )}
             </Notice>
           )}
-          <DetachNotice s={s} items={detached} when="删这个文件夹前" />
+          <DetachNotice s={s} items={detached} when="delete" />
         </>
       ),
-      confirm: "卸载",
+      confirm: t.uninstall,
       danger: true,
     });
     if (!ok) return;
   }
   await ui.run(() => LibraryService.Uninstall(id, scope), {
-    success: `已卸载「${skillName(s, id)}」在 ${scopeLabel(s, scope)} 的直接安装`,
+    success: t.uninstalled(skillName(s, id), scopeLabel(s, scope)),
     onError: (err) => {
       if (err.code !== ErrorCode.FailedPrecondition) return false;
-      ui.toast("这个技能只随组安装，没有直接安装可卸载;请在对应的组上卸载", "error");
+      ui.toast(t.onlyViaGroup, "error");
       return true;
     },
   });
@@ -210,6 +214,7 @@ export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Sc
 // ---------- 组安装 ----------
 
 export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope: Scope) {
+  const t = messages().actions;
   const plan = await ui.run(() => LibraryService.PlanGroupInstall(groupID, scope), { reload: false });
   if (!plan) return;
   const members = plan.members ?? [];
@@ -220,18 +225,20 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
   let overwrite = false;
   if (untracked.length) {
     const choice = await ui.confirm({
-      title: `把「${groupName(s, groupID)}」组安装到 ${scopeLabel(s, scope)}`,
+      title: t.groupInstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
       body: (
         <Notice tone="warn">
-          {untracked.length} 个成员的目标位置已有不是从技能库装的同名文件夹:
-          {untracked.map((m) => m.name).join("、")}
+          {t.groupUntracked(
+            untracked.length,
+            untracked.map((m) => m.name),
+          )}
         </Notice>
       ),
       choices: [
-        { value: "skip", label: "跳过这些成员", desc: "其余成员照常安装，之后可再次组安装补齐" },
-        { value: "overwrite", label: "覆盖这些文件夹", desc: "用技能库里的版本替换它们" },
+        { value: "skip", label: t.skipMembers, desc: t.skipMembersDesc },
+        { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
       ],
-      confirm: "安装",
+      confirm: t.install,
     });
     if (!choice) return;
     overwrite = choice === "overwrite";
@@ -240,13 +247,14 @@ export async function installGroup(ui: UI, s: Snapshot, groupID: GroupID, scope:
   if (!results) return;
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   if (skipped.length || blocked.length) {
-    await showResults(ui, `组安装「${groupName(s, groupID)}」`, memberRows(s, results), summarizeMembers(results));
+    await showResults(ui, t.groupInstallResults(groupName(s, groupID)), memberRows(s, results), summarizeMembers(results));
   } else {
-    ui.toast(`已把「${groupName(s, groupID)}」组安装到 ${scopeLabel(s, scope)}\n${summarizeMembers(results)}`);
+    ui.toast(t.groupInstalled(groupName(s, groupID), scopeLabel(s, scope), summarizeMembers(results)));
   }
 }
 
 export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scope: Scope) {
+  const t = messages().actions;
   // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
   const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
   // 别处的符号链接指着要删的文件夹时，删之前库先给那几处换上独立的一份，也先说明。
@@ -267,81 +275,81 @@ export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scop
   const detached = detachedBy(folderPlaces(s, gone));
   if (removed.length || detached.length) {
     const ok = await ui.confirm({
-      title: `卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
+      title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
       body: (
         <>
           {removed.length > 0 && (
             <>
-              <Notice tone="warn">
-                下面 {removed.length} 个技能文件夹还被别的 Agent 共用，只靠这个组安装留着：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。
-              </Notice>
+              <Notice tone="warn">{t.groupUninstallShared(removed.length)}</Notice>
               <SharedFolders s={s} places={removed} />
             </>
           )}
-          <DetachNotice s={s} items={detached} when="删这个文件夹前" />
+          <DetachNotice s={s} items={detached} when="delete" />
         </>
       ),
-      confirm: "卸载",
+      confirm: t.uninstall,
       danger: true,
     });
     if (!ok) return;
   }
   await ui.run(() => LibraryService.UninstallGroup(groupID, scope), {
-    success: `已卸载「${groupName(s, groupID)}」在 ${scopeLabel(s, scope)} 的组安装`,
+    success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)),
   });
 }
 
 // ---------- 组成员与组本身 ----------
 
 export async function addSkillToGroup(ui: UI, s: Snapshot, groupID: GroupID, id: SkillID) {
+  const t = messages().actions;
   const results = await ui.run(() => LibraryService.AddSkillToGroup(groupID, id));
   if (!results) return;
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   if (skipped.length) {
     await showResults(
       ui,
-      `「${skillName(s, id)}」已加入「${groupName(s, groupID)}」`,
+      t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)),
       memberRows(s, results),
-      "成员关系已成立;下面这些作用域没能安装，可在处理冲突后再次组安装补齐。",
+      t.addedToGroupPartly,
     );
   } else {
-    const where = results.length ? `,并安装到该组已组安装的 ${results.length} 个作用域` : "";
-    ui.toast(`已把「${skillName(s, id)}」加入「${groupName(s, groupID)}」${where}`);
+    ui.toast(t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
   }
 }
 
 export async function removeSkillFromGroup(ui: UI, s: Snapshot, groupID: GroupID, id: SkillID) {
+  const t = messages().actions;
   // 该组安装到的作用域上，这个技能可能只随本组安装;有组安装时让用户决定去留。
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
   if (installed.length) {
     const choice = await ui.confirm({
-      title: `把「${skillName(s, id)}」移出「${groupName(s, groupID)}」`,
+      title: t.removeFromGroupTitle(skillName(s, id), groupName(s, groupID)),
       body: (
         <>
-          <Hint>该组已组安装到 {installed.length} 个作用域。只随本组安装的技能如何处理?</Hint>
-          <DetachNotice s={s} items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="删这个文件夹前" prefix="选「一并卸载」时:" />
+          <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
+          <DetachNotice s={s} items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="delete" prefix={t.ifUninstallToo} />
         </>
       ),
       choices: [
-        { value: MemberRemovalPolicy.KeepAsDirectInstall, label: "保留", desc: "改为直接安装，磁盘不动" },
-        { value: MemberRemovalPolicy.UninstallMember, label: "一并卸载", desc: "从这些作用域的目录里移除文件夹" },
+        { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
+        { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
       ],
-      confirm: "移出",
+      confirm: t.removeFromGroup,
     });
     if (!choice) return;
     policy = choice as MemberRemovalPolicy;
   }
   await ui.run(() => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }), {
-    success: `已把「${skillName(s, id)}」移出「${groupName(s, groupID)}」`,
+    success: t.removedFromGroup(skillName(s, id), groupName(s, groupID)),
   });
 }
 
 export async function createGroup(ui: UI, withSkill?: SkillID) {
-  const name = await ui.prompt({ title: "新建组", label: "按场景命名，例如「前端调试」", confirm: "创建" });
+  const t = messages().actions;
+  const name = await ui.prompt({ title: t.newGroup, label: t.newGroupLabel, confirm: t.create });
   if (!name) return;
   const group = await ui.run(() => LibraryService.CreateGroup(name), {
-    success: (g) => (g.name !== name ? `名字已被占用，已创建为「${g.name}」` : `已创建组「${g.name}」`),
+    success: (g) => (g.name !== name ? t.groupCreatedAs(g.name) : t.groupCreated(g.name)),
     reload: !withSkill,
   });
   if (group && withSkill) await ui.run(() => LibraryService.AddSkillToGroup(group.id, withSkill));
@@ -350,44 +358,43 @@ export async function createGroup(ui: UI, withSkill?: SkillID) {
 
 export async function renameGroup(ui: UI, s: Snapshot, groupID: GroupID) {
   const current = groupName(s, groupID);
-  const name = await ui.prompt({ title: "重命名组", initial: current, confirm: "重命名" });
+  const t = messages().actions;
+  const name = await ui.prompt({ title: t.renameGroup, initial: current, confirm: t.rename });
   if (!name || name === current) return;
   await ui.run(() => LibraryService.RenameGroup(groupID, name), {
-    success: (g) => (g.name !== name ? `名字已被占用，已改为「${g.name}」` : `已重命名为「${g.name}」`),
+    success: (g) => (g.name !== name ? t.groupRenamedAs(g.name) : t.groupRenamed(g.name)),
   });
 }
 
 export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
   // 有组安装时，只随本组安装的技能由用户决定去留，与移出成员一致。
   const installs = s.groupInstalls.filter((a) => a.group_id === groupID).length;
+  const t = messages().actions;
   const choice = await ui.confirm({
-    title: `删除组「${groupName(s, groupID)}」`,
+    title: t.deleteGroupTitle(groupName(s, groupID)),
     body: (
       <>
-        <Hint>
-          成员技能不会被删除。
-          {installs ? `该组的 ${installs} 个组安装会一并删除。只随本组安装的技能如何处理?` : ""}
-        </Hint>
+        <Hint>{t.deleteGroupHint(installs)}</Hint>
         <DetachNotice
           s={s}
           items={detachedBy(folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? [])))}
-          when="删这个文件夹前"
-          prefix="选「一并卸载」时:"
+          when="delete"
+          prefix={t.ifUninstallToo}
         />
       </>
     ),
     choices: installs
       ? [
-          { value: MemberRemovalPolicy.KeepAsDirectInstall, label: "保留", desc: "改为直接安装，磁盘不动" },
-          { value: MemberRemovalPolicy.UninstallMember, label: "一并卸载", desc: "从这些作用域的目录里移除文件夹" },
+          { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
+          { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
         ]
       : undefined,
-    confirm: "删除组",
+    confirm: t.deleteGroup,
     danger: true,
   });
   if (!choice) return;
   const policy = installs ? (choice as MemberRemovalPolicy) : MemberRemovalPolicy.KeepAsDirectInstall;
-  await ui.run(() => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy }), { success: "已删除组" });
+  await ui.run(() => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy }), { success: t.groupDeleted });
 }
 
 // ---------- 重新安装 ----------
@@ -396,12 +403,14 @@ const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${sc
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
 // 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
+// what 是重新安装的是什么：技能名(经 reinstallSkill 加上引号)或作用域。
 export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, what: string) {
+  const t = messages().actions;
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes(filter), { reload: false });
   if (inspected === undefined) return;
   const targets = (inspected ?? []).filter(needsReinstall);
   if (!targets.length) {
-    ui.toast(`${what}已安装的都是当前版本`);
+    ui.toast(t.allCurrent(what));
     return;
   }
   const modified = targets.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
@@ -415,24 +424,23 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
     .filter((p) => p.status !== SkillScopeStatus.SkillScopeModified || overwrite.has(placeKey(p)))
     .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: overwrite.has(placeKey(p)) }));
   const kept = targets.length - requests.length;
-  const keptNote = kept ? `;${kept} 处改过的保持原样` : "";
   if (!requests.length) {
-    ui.toast(`没有重新安装(${what})${keptNote}`);
+    ui.toast(t.nothingReinstalled(what, kept));
     return;
   }
   const requested = new Set(requests.map(placeKey));
   const written = (p: SkillScopeInspection) => requested.has(placeKey(p));
   const explained = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified;
-  if (!(await confirmLinkWrites(ui, s, inspected ?? [], written, `重新安装(${what})`, "重新安装", explained))) return;
+  if (!(await confirmLinkWrites(ui, s, inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
   const results = await ui.run(() => LibraryService.Reinstall(requests));
   if (!results) return;
   const failed = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
   if (failed.length) {
-    await showResults(ui, "部分未能重新安装", failed.map((r) => failedRow(s, r)), keptNote.slice(1) || undefined);
+    await showResults(ui, t.reinstallPartly, failed.map((r) => failedRow(s, r)), kept ? t.keptEdited(kept) : undefined);
     return;
   }
   const done = results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled).length;
-  ui.toast(`已重新安装 ${done} 处(${what})${keptNote}`);
+  ui.toast(t.reinstalled(done, what, kept));
 }
 
 // OverwriteDialog 列出被改过的各处，默认都不覆盖;勾选的才用库里的当前版本覆盖。
@@ -445,6 +453,7 @@ function OverwriteDialog({
   places: SkillScopeInspection[];
   close: (value?: Set<string>) => void;
 }) {
+  const t = useT();
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const toggle = (key: string) =>
     setChosen((prev) => {
@@ -454,20 +463,18 @@ function OverwriteDialog({
     });
   return (
     <Modal
-      title="有技能文件夹被改过"
+      title={t.actions.modifiedTitle}
       onClose={() => close()}
       footer={
         <>
-          <Button onClick={() => close()}>取消</Button>
+          <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button variant={chosen.size ? "danger" : "primary"} onClick={() => close(chosen)} autoFocus>
-            {chosen.size ? `重新安装并覆盖 ${chosen.size} 处` : "重新安装"}
+            {chosen.size ? t.actions.reinstallOverwrite(chosen.size) : t.actions.reinstall}
           </Button>
         </>
       }
     >
-      <Notice tone="warn">
-        下面这些地方和库里任何版本都对不上，可能被手动改过。勾选的会被库里的当前版本覆盖，改动会丢掉;没勾选的保持原样。
-      </Notice>
+      <Notice tone="warn">{t.actions.modifiedNotice}</Notice>
       <ListBox>
         {places.map((p) => {
           const key = placeKey(p);
@@ -525,21 +532,34 @@ export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
   });
 }
 
-// DetachNotice 说明 detachedBy 找出的那几处会先换上独立的一份;when 是"删这个文件夹前"这类说法,prefix 用在只和某个选项有关时。
-export function DetachNotice({ s, items, when, prefix = "" }: { s: Snapshot; items: Detached[]; when: string; prefix?: string }) {
+// DetachNotice 说明 detachedBy 找出的那几处会先换上独立的一份;when 是在删、换还是搬走这个文件夹之前,
+// prefix 用在只和某个选项有关时(如"选「一并卸载」时:")。
+export function DetachNotice({
+  s,
+  items,
+  when,
+  prefix = "",
+}: {
+  s: Snapshot;
+  items: Detached[];
+  when: "delete" | "replace" | "move";
+  prefix?: string;
+}) {
+  const t = useT();
   if (!items.length) return null;
   return (
     <Notice className="detach-linked">
       {prefix}
-      {items.map(({ place, by }) => {
-        const them = by.length > 1 ? "它们" : "它";
-        return (
-          <span key={placeKey(place)} className="block">
-            {by.map((scope) => scopeLabel(s, scope)).join("、")} 里的「{skillName(s, place.skill_id)}」是指向 {shortPath(s, place.folder)} 的符号链接。
-            {when}，先给{them}换上独立的一份({them}现在读到的内容),{them}照常装着。
-          </span>
-        );
-      })}
+      {items.map(({ place, by }) => (
+        <span key={placeKey(place)} className="block">
+          {t.actions.detach(
+            by.map((scope) => scopeLabel(s, scope)),
+            skillName(s, place.skill_id),
+            shortPath(s, place.folder),
+            when,
+          )}
+        </span>
+      ))}
     </Notice>
   );
 }
@@ -552,17 +572,16 @@ export function linkWrites(places: SkillScopeInspection[], written: (p: SkillSco
 }
 
 export function LinkWriteNotes({ s, links, kept }: { s: Snapshot } & ReturnType<typeof linkWrites>) {
+  const t = useT();
   return (
     <>
       {links.length > 0 && (
         <>
-          <Notice className="write-linked">
-            下面 {links.length} 处现在是符号链接，这次会换成独立的一份，链接指向的文件夹不动;之后在那里改，这几处不再跟着变。
-          </Notice>
+          <Notice className="write-linked">{t.actions.writeLinked(links.length)}</Notice>
           <LinkedPlaces s={s} places={links} />
         </>
       )}
-      <DetachNotice s={s} items={kept} when="换这个文件夹前" />
+      <DetachNotice s={s} items={kept} when="replace" />
     </>
   );
 }
@@ -615,7 +634,7 @@ export function LinkedPlaces({ s, places }: { s: Snapshot; places: SkillScopeIns
 function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {
   return {
     label: `${skillName(s, r.skill_id)} · ${scopeLabel(s, r.scope)}`,
-    outcome: "失败",
+    outcome: messages().actions.failed,
     tone: "bad",
     reason: r.error ? describeError(r.error) : undefined,
   };
@@ -625,33 +644,29 @@ function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {
 
 // checkUpdates 按集合检查更新(只读);没读成来源的集合列出原因。汇报的数目只算计入角标的(跳过的、选了继续保留的不算)。
 export async function checkUpdates(ui: UI, s: Snapshot, collections: CollectionID[]) {
+  const t = messages().actions;
   const checks = await ui.run(() => LibraryService.CheckUpdates(collections));
   if (!checks) return;
   const skills = checks.flatMap((c) => c.skills ?? []).filter(pending);
   const available = skills.filter(updateAvailable).length;
   const renamed = skills.filter(renamedTo).length;
   const deleted = skills.filter(deletedInSource).length;
-  const summary = [
-    `检查了 ${checks.length} 个来源`,
-    available ? `${available} 个技能有新版本` : "",
-    renamed ? `${renamed} 个技能可能改了名` : "",
-    deleted ? `${deleted} 个技能来源里已删除` : "",
-  ].filter(Boolean);
+  const summary = t.checkSummary(checks.length, available, renamed, deleted);
   const failed = checks.filter((c) => c.error);
   if (failed.length) {
     await showResults(
       ui,
-      "检查更新",
+      t.checkUpdates,
       failed.map((c) => ({
-        label: c.source?.label ? sourceLabel(s, c.source) : `集合 #${c.collection_id}`,
-        outcome: "检查失败",
+        label: c.source?.label ? sourceLabel(s, c.source) : t.collectionFallback(c.collection_id),
+        outcome: t.checkFailed,
         tone: "bad" as const,
         reason: describeError(c.error!),
       })),
-      [...summary, `${failed.length} 个来源没读成，可以稍后重试`].join(","),
+      t.checkFailedNote(summary, failed.length),
     );
   } else {
-    ui.toast(skills.length ? summary.join(",") : `检查了 ${checks.length} 个来源，没有要处理的更新`);
+    ui.toast(skills.length ? summary : t.nothingPending(checks.length));
   }
 }
 
@@ -664,35 +679,34 @@ export async function previewCollection(ui: UI, collectionID: CollectionID) {
 
 // ---------- 移除技能 ----------
 
-// lostEdits 说明删除这些文件夹时哪几处的改动会丢掉(状态取自快照里的巡检;共用目录的几个 Agent 共用一个文件夹，只算一处)。
-const lostEdits = (places: SkillScopeInspection[]) => {
-  const n = new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map((p) => p.folder)).size;
-  return n ? `;其中 ${n} 处被改过，改动会丢掉` : "";
-};
+// lostEdits 是删除这些文件夹时有几处的改动会丢掉(状态取自快照里的巡检;共用目录的几个 Agent 共用一个文件夹，只算一处)。
+const lostEdits = (places: SkillScopeInspection[]) =>
+  new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map((p) => p.folder)).size;
 
 export async function removeSkill(ui: UI, s: Snapshot, id: SkillID) {
   const places = skillScopesOf(s, id);
   const installed = places.length;
+  const t = messages().actions;
   const choice = await ui.confirm({
-    title: `移除「${skillName(s, id)}」`,
-    body: <Hint>从技能库删除它和全部历史版本，也会退出所有组。</Hint>,
+    title: t.removeSkillTitle(skillName(s, id)),
+    body: <Hint>{t.removeSkillHint}</Hint>,
     choices: installed
       ? [
           {
             value: FolderPolicy.Remove,
-            label: "同时删除已安装的文件夹",
-            desc: `从 ${installed} 个作用域的目录里移除文件夹${lostEdits(places)}`,
+            label: t.removeInstalled,
+            desc: t.removeFromScopes(installed, lostEdits(places)),
           },
-          { value: FolderPolicy.Keep, label: "保留已安装的文件夹", desc: "只删除技能库里的记录，文件夹留在原处" },
+          { value: FolderPolicy.Keep, label: t.keepInstalled, desc: t.keepInstalledDesc },
         ]
       : undefined,
-    confirm: "移除",
+    confirm: t.remove,
     danger: true,
   });
   if (!choice) return false;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   const done = await ui.run(() => LibraryService.RemoveSkill(id, { folders: policy }).then(() => true), {
-    success: "已移除",
+    success: t.removed,
   });
   return !!done;
 }
@@ -702,7 +716,7 @@ export async function removeSkill(ui: UI, s: Snapshot, id: SkillID) {
 // registerProject 登记项目;登记之后把用户带到这个项目里不是库装的技能，一次确认全部入库。
 export async function registerProject(ui: UI, path: string): Promise<boolean> {
   const project = await ui.run(() => LibraryService.RegisterProject(path), {
-    success: (p) => `已登记项目 ${p.path}`,
+    success: (p) => messages().actions.projectRegistered(p.path),
   });
   if (project) void offerProject(ui, project);
   return !!project;
@@ -710,7 +724,7 @@ export async function registerProject(ui: UI, path: string): Promise<boolean> {
 
 export async function relocateProject(ui: UI, project: RegisteredProject, path: string): Promise<boolean> {
   const moved = await ui.run(() => LibraryService.RelocateProject(project.id, path), {
-    success: (p) => `已把项目「${p.name}」指到 ${p.path}`,
+    success: (p) => messages().actions.projectRelocated(p.name, p.path),
   });
   return !!moved;
 }
@@ -718,33 +732,32 @@ export async function relocateProject(ui: UI, project: RegisteredProject, path: 
 export async function unregisterProject(ui: UI, s: Snapshot, project: RegisteredProject) {
   const places = s.skillScopes.filter((p) => p.scope.project_id === project.id);
   const installed = places.length;
+  const t = messages().actions;
   const choice = await ui.confirm({
-    title: `注销项目「${projectName(s, project.id)}」`,
+    title: t.unregisterTitle(projectName(s, project.id)),
     body: (
       <>
-        <Hint>
-          {shortPath(s, project.path)} 不再由 Mechbox 管理，它在各 Agent 下的直接安装与组安装记录都会删除。
-        </Hint>
-        <DetachNotice s={s} items={detachedBy(places)} when="删这个文件夹前" prefix="选「同时删除」时:" />
+        <Hint>{t.unregisterHint(shortPath(s, project.path))}</Hint>
+        <DetachNotice s={s} items={detachedBy(places)} when="delete" prefix={t.ifRemoveToo} />
       </>
     ),
     choices: installed
       ? [
           {
             value: FolderPolicy.Remove,
-            label: "同时删除项目里已安装的文件夹",
-            desc: `移除 ${new Set(places.map((p) => p.folder)).size} 个技能文件夹${lostEdits(places)}`,
+            label: t.removeProjectFolders,
+            desc: t.removeFolders(new Set(places.map((p) => p.folder)).size, lostEdits(places)),
           },
-          { value: FolderPolicy.Keep, label: "保留项目里已安装的文件夹", desc: "文件夹留在项目目录里" },
+          { value: FolderPolicy.Keep, label: t.keepProjectFolders, desc: t.keepProjectFoldersDesc },
         ]
       : undefined,
-    confirm: "注销",
+    confirm: t.unregister,
     danger: true,
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   await ui.run(() => LibraryService.UnregisterProject(project.id, { folders: policy }), {
-    success: "已注销项目",
+    success: t.unregistered,
   });
 }
 
@@ -753,17 +766,18 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
 
 // SharedFolders 列出还有别的 Agent 在读、因而保留的技能文件夹。
 function SharedFolders({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
+  const t = useT();
   return (
     <ListBox>
       {places.map((p) => (
         <ListRow key={placeKey(p)}>
           <div className="min-w-0 grow">
             <div>
-              {skillName(s, p.skill_id)} · {p.scope.project_id ? projectName(s, p.scope.project_id) : "全局"}
+              {skillName(s, p.skill_id)} · {p.scope.project_id ? projectName(s, p.scope.project_id) : t.model.global}
             </div>
             <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
           </div>
-          <span className="text-[11px] text-muted-foreground">{(p.shared_with ?? []).map((code) => agentName(s, code)).join("、")} 在用</span>
+          <span className="text-[11px] text-muted-foreground">{t.actions.sharedBy((p.shared_with ?? []).map((code) => agentName(s, code)))}</span>
         </ListRow>
       ))}
     </ListBox>
@@ -772,7 +786,7 @@ function SharedFolders({ s, places }: { s: Snapshot; places: SkillScopeInspectio
 
 export async function addAgent(ui: UI, input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
   const added = await ui.run(() => LibraryService.AddAgent(input), {
-    success: (a) => `已添加 Agent「${a.name}」`,
+    success: (a) => messages().actions.agentAdded(a.name),
     onError: onInvalid,
   });
   return !!added;
@@ -789,6 +803,7 @@ export async function editAgent(
   input: CustomAgent,
   onInvalid: (err: LibraryError) => boolean,
 ): Promise<boolean> {
+  const t = messages().actions;
   const globalChanged = cleanPath(input.global_directory) !== cleanPath(agent.global_directory);
   const projectChanged = cleanPath(input.project_directory) !== cleanPath(agent.project_directory);
   const changedHere = (scope: Scope) => scope.agent === agent.code && (placeOf(scope) ? projectChanged : globalChanged);
@@ -798,37 +813,29 @@ export async function editAgent(
   if (affected.length || groupInstalls) {
     const shared = affected.filter((p) => p.shared_with?.length);
     const choice = await ui.confirm({
-      title: `改 Agent「${agent.name}」的目录`,
+      title: t.editAgentTitle(agent.name),
       body: (
         <>
-          <Hint>
-            这个 Agent 在旧目录里{[affected.length && `已装了 ${affected.length} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join(",")}。
-          </Hint>
+          <Hint>{t.editAgentHint(affected.length, groupInstalls)}</Hint>
           {shared.length > 0 && (
             <>
-              <Notice>
-                其中 {shared.length} 个文件夹还有别的 Agent 在用，留在旧目录给它们：迁移时复制一份到新目录，不迁移时不动。
-              </Notice>
+              <Notice>{t.editAgentShared(shared.length)}</Notice>
               <SharedFolders s={s} places={shared} />
             </>
           )}
           <DetachNotice
             s={s}
             items={detachedBy(folderPlaces(s, affected.filter((p) => !p.shared_with?.length)))}
-            when="把这个文件夹搬走前"
-            prefix="选「迁移」时:"
+            when="move"
+            prefix={t.ifMigrate}
           />
         </>
       ),
       choices: [
-        {
-          value: "migrate",
-          label: "迁移到新目录",
-          desc: "把已装的文件夹原样搬过去，组安装保留;新目录里已有同名文件夹的不覆盖、不搬，旧文件夹留在原处，完成后列出",
-        },
-        { value: "keep", label: "不迁移", desc: "只改目录，旧目录里的文件夹不动，去掉这个 Agent 在那里的安装记录与组安装" },
+        { value: "migrate", label: t.migrate, desc: t.migrateDesc },
+        { value: "keep", label: t.noMigrate, desc: t.noMigrateDesc },
       ],
-      confirm: "保存",
+      confirm: t.save,
     });
     if (!choice) return false;
     migrate = choice === "migrate";
@@ -841,17 +848,17 @@ export async function editAgent(
   if (skipped.length) {
     await showResults(
       ui,
-      `已保存 Agent「${name}」`,
+      t.agentSaved(name),
       skipped.map((m) => ({
-        label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : "全局"}`,
-        outcome: "没有迁移",
+        label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : messages().model.global}`,
+        outcome: t.notMigrated,
         tone: "warn" as const,
-        reason: `新目录里已有同名文件夹，或被库里另一个技能的安装占用:${shortPath(s, m.to)}\n旧文件夹留在原处:${shortPath(s, m.from)}`,
+        reason: t.notMigratedReason(shortPath(s, m.to), shortPath(s, m.from)),
       })),
-      `迁移了 ${migrations.length - skipped.length} 个文件夹;下面 ${skipped.length} 个没有迁移，这个 Agent 在那里不再算已装。`,
+      t.migratedPartly(migrations.length - skipped.length, skipped.length),
     );
   } else {
-    ui.toast(migrations.length ? `已保存 Agent「${name}」,迁移了 ${migrations.length} 个文件夹` : `已保存 Agent「${name}」`);
+    ui.toast(migrations.length ? t.agentSavedMigrated(name, migrations.length) : t.agentSaved(name));
   }
   return true;
 }
@@ -861,39 +868,38 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
   const places = s.skillScopes.filter((p) => p.scope.agent === agent.code);
   const kept = places.filter((p) => p.shared_with?.length);
   const own = places.filter((p) => !p.shared_with?.length);
+  const t = messages().actions;
   const choice = await ui.confirm({
-    title: `删除 Agent「${agent.name}」`,
+    title: t.deleteAgentTitle(agent.name),
     body: (
       <>
-        <Hint>它从 Agent 列表里消失，在全局和各项目的直接安装与组安装记录都会删除。</Hint>
+        <Hint>{t.deleteAgentHint}</Hint>
         {kept.length > 0 && (
           <>
-            <Notice>
-              下面 {kept.length} 个文件夹还有别的 Agent 在用，不管怎么选都保留，安装记录转给它们。
-            </Notice>
+            <Notice>{t.deleteAgentShared(kept.length)}</Notice>
             <SharedFolders s={s} places={kept} />
           </>
         )}
-        <DetachNotice s={s} items={detachedBy(folderPlaces(s, own))} when="删这个文件夹前" prefix="选「同时删除」时:" />
+        <DetachNotice s={s} items={detachedBy(folderPlaces(s, own))} when="delete" prefix={t.ifRemoveToo} />
       </>
     ),
     choices: own.length
       ? [
           {
             value: FolderPolicy.Remove,
-            label: "同时删除已安装的文件夹",
-            desc: `移除 ${own.length} 个技能文件夹${lostEdits(own)}`,
+            label: t.removeInstalled,
+            desc: t.removeFolders(own.length, lostEdits(own)),
           },
-          { value: FolderPolicy.Keep, label: "保留已安装的文件夹", desc: "文件夹留在原处，技能库从此不再管" },
+          { value: FolderPolicy.Keep, label: t.keepInstalled, desc: t.keepAgentFoldersDesc },
         ]
       : undefined,
-    confirm: "删除",
+    confirm: t.delete,
     danger: true,
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   await ui.run(() => LibraryService.DeleteAgent(agent.code, { folders: policy }), {
-    success: `已删除 Agent「${agent.name}」`,
+    success: t.agentDeleted(agent.name),
   });
 }
 
@@ -902,17 +908,18 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
 // 来源链接预填 npx skills 来源记录里认出的来源，认不出时预填在 skills.sh 上找到的来源，用户可以改或清空;清空就是没有来源的技能。
 // 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
 export async function fetchUnmanaged(ui: UI, s: Snapshot, skill: UnmanagedSkill) {
+  const t = messages().actions;
   const place = scopeLabel(s, skill.scope);
   // 库里已有同名的技能时确认里说出来：内容不同不合并，入库后会有两个同名的。
   const twins = s.skills
     .filter((x) => x.name === skill.name)
-    .map((x) => `${noSource(x.source) ? "没有来源" : sourceLabel(s, x.source)}，${installedWhere(s, x.id)}`);
+    .map((x) => t.twin(noSource(x.source) ? messages().model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id)));
   const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
   const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} outside={outside} close={close} />);
   if (!r) return;
-  if (r.matched) ui.toast(`「${skill.name}」和库里「${r.skill.name}」的一个版本一致，已记为装在 ${place}`);
-  else if (r.skill.collection_id) ui.toast(`已入库「${r.skill.name}」，以后跟着 ${r.skill.source.label} 检查更新`);
-  else ui.toast(`已入库「${r.skill.name}」`);
+  if (r.matched) ui.toast(t.matchedVersion(skill.name, r.skill.name, place));
+  else if (r.skill.collection_id) ui.toast(t.fetchedTracking(r.skill.name, r.skill.source.label));
+  else ui.toast(t.fetched(r.skill.name));
 }
 
 // FetchUnmanagedDialog 是入库确认：来源链接可改可清空;读来源失败时留在框里说明原因，用户可以重试、改链接或清空后入库。
@@ -930,6 +937,7 @@ function FetchUnmanagedDialog({
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
+  const t = useT();
   // 确认框开着时才在 skills.sh 上找到来源的，用户还没动过链接就补上。
   const found = foundSource(useFoundSources(), skill);
   const [edited, setLink] = useState<string>();
@@ -952,20 +960,20 @@ function FetchUnmanagedDialog({
   };
   return (
     <Modal
-      title={`入库「${skill.name}」`}
+      title={t.actions.fetchTitle(skill.name)}
       onClose={() => close()}
       footer={
         <>
-          <Button onClick={() => close()}>取消</Button>
+          <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button variant="primary" onClick={() => void submit()} disabled={busy} autoFocus>
-            入库
+            {t.actions.fetch}
           </Button>
         </>
       }
     >
-      <Hint>入库就是把它交给 app 管。{place} 里的文件夹原样不动，Agent 用到的内容不变。</Hint>
-      <Hint>之后如果还用命令行工具更新它，app 只能把它报为被手动改过。</Hint>
-      {skill.in_repository && <Notice tone="warn">它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。</Notice>}
+      <Hint>{t.actions.fetchHandOver(place)}</Hint>
+      <Hint>{t.actions.fetchCliCost}</Hint>
+      {skill.in_repository && <Notice tone="warn">{t.actions.fetchInRepository}</Notice>}
       {outside && (
         <Notice tone="warn" className="unmanaged-link-outside">
           {outside}
@@ -973,22 +981,20 @@ function FetchUnmanagedDialog({
       )}
       {twins.length > 0 && (
         <Notice tone="warn" className="unmanaged-same-name">
-          {`库里已经有叫「${skill.name}」的技能(${twins.join(";")})。${sameNameFetchNote(skill.name, !!input)}`}
+          {t.actions.sameNameTwins(skill.name, twins, sameNameFetchNote(skill.name, !!input))}
         </Notice>
       )}
-      <Field label="来源链接">
+      <Field label={t.actions.sourceLink}>
         <Input
           className="unmanaged-source font-mono"
           value={link}
-          placeholder="owner/repo、Git 地址或链接"
+          placeholder={t.actions.sourceLinkPlaceholder}
           onChange={(e) => setLink(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void submit()}
         />
       </Field>
       <Hint className="unmanaged-source-note">
-        {input
-          ? `${input === found ? "在 skills.sh 上找到的同名技能，内容和这里的大部分相同。" : ""}以后跟着 ${input}${ref ? ` · ${ref}` : ""} 检查更新。和来源里的不一样时，作者的新版会出现在更新里。`
-          : "没有来源：不检查更新，之后在 Agent 目录里改了，用目录里的修改更新它。"}
+        {input ? t.actions.sourceNote(input === found, `${input}${ref ? ` · ${ref}` : ""}`) : t.actions.noSourceNote}
       </Hint>
       {error && (
         <Notice tone="bad" className="unmanaged-error whitespace-pre-line">

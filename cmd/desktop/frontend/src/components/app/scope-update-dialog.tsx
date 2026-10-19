@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
+import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
@@ -19,8 +20,9 @@ const sectionClass = "mt-1 text-[13.5px] font-semibold";
 
 export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; skill: Skill; scope: Scope; onClose: () => void }) {
   const ui = useUI();
+  const t = useT().fromScope;
   const place = scopeLabel(s, scope);
-  const title = `用 ${place} 里的修改更新「${skill.name}」`;
+  const title = t.title(place, skill.name);
   const [generation, setGeneration] = useState(0);
   const [plan, setPlan] = useState<UpdatePlan | null>(null);
   const [failed, setFailed] = useState<LibraryError | null>(null);
@@ -64,16 +66,17 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
         {failed ? (
           <>
             <Notice tone="bad" className="whitespace-pre-line">
-              没能读出这里的修改。{"\n"}
+              {t.readFailed}
+              {"\n"}
               {describeError(failed)}
             </Notice>
             <div>
-              <Button onClick={replan}>重试</Button>
+              <Button onClick={replan}>{t.retry}</Button>
             </div>
           </>
         ) : (
           <Hint className="flex items-center gap-1.5">
-            <Spinner /> 正在读取 {place} 里的文件夹…
+            <Spinner /> {t.reading(place)}
           </Hint>
         )}
       </Modal>
@@ -115,24 +118,22 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
       footer={
         <>
           <span className="grow" />
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t.cancel}</Button>
           <Button variant="primary" disabled={conflict || (locked && !working)} loading={working} onClick={run}>
-            更新
+            {t.update}
           </Button>
         </>
       }
     >
       {conflict && (
         <Notice tone="warn" className="flex items-center gap-2">
-          <span className="grow">读取之后，这里的文件或技能库又变了。请重新看一遍再确认。</span>
+          <span className="grow">{t.conflict}</span>
           <Button size="sm" onClick={replan}>
-            重新读取
+            {t.reread}
           </Button>
         </Notice>
       )}
-      <Hint>
-        {place} 里的内容会成为「{skill.name}」在库里的新版本，之后可以在更新历史里回滚。
-      </Hint>
+      <Hint>{t.becomes(place, skill.name)}</Hint>
       {risks.length > 0 && (
         <Notice tone="warn" className="flex flex-col gap-0.5">
           {risks.map((r) => (
@@ -147,24 +148,24 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
 
       {same.length > 0 && (
         <Hint className="scope-update-same">
-          {same.map((p) => scopeLabel(s, p.scope)).join("、")} 和这里是同一个文件夹，已经是这份修改。
+          {t.same(same.map((p) => scopeLabel(s, p.scope)))}
         </Hint>
       )}
       {places.length > 0 ? (
         <>
-          <div className={sectionClass}>还装在这些地方，一起换成这份修改</div>
+          <div className={sectionClass}>{t.places}</div>
           <Places
             s={s}
             places={places}
             name={() => skill.name}
             on={installOn}
             onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))}
-            modified="你在这里也改过，换成这份修改会覆盖这里的修改"
+            modified={t.modifiedHere}
           />
-          <Hint>没勾的地方保持原样，之后可以在那里单独重新安装。</Hint>
+          <Hint>{t.uncheckedNote}</Hint>
         </>
       ) : (
-        same.length === 0 && <Hint>「{skill.name}」没有装在别的地方，只更新技能库。</Hint>
+        same.length === 0 && <Hint>{t.nowhereElse(skill.name)}</Hint>
       )}
     </Modal>
   );

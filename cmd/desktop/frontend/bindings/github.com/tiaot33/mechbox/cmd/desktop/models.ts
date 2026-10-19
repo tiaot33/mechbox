@@ -139,7 +139,7 @@ export interface Settings {
     /**
      * 界面语言;空字符串跟随系统
      */
-    "language": Language;
+    "language"?: Language;
 
     /**
      * AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。

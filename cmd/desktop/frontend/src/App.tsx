@@ -29,6 +29,7 @@ import {
   type ScopeKey,
   type SkillFilter,
 } from "@/lib/model";
+import { useT } from "@/lib/i18n";
 import { UIProvider, useUI } from "@/lib/ui";
 import { bodyClass, centerClass } from "@/components/app/layout";
 import { ResizablePane } from "@/components/app/resizable";
@@ -37,6 +38,8 @@ import "./index.css";
 
 export default function App() {
   const [state, reload] = useLibrarySnapshot();
+  // 读一次当前语言的文案：切换语言时 App 随之重渲染，整个界面(包括组件外按模块级语言取文案的地方)跟着换。
+  useT();
   return (
     <UIProvider reload={reload}>
       <Main state={state} reload={reload} />
@@ -257,13 +260,14 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
 }
 
 function LoadError({ error, onRetry }: { error: LibraryError; onRetry: () => void }) {
+  const t = useT().app;
   return (
     <main className={centerClass}>
       <div className="flex flex-col items-center gap-1.5 pt-[22vh] text-muted-foreground">
-        <b className="text-sm text-foreground">读取技能库失败</b>
+        <b className="text-sm text-foreground">{t.loadFailed}</b>
         <span className="select-text">{error.message}</span>
         <Button className="mt-1.5" onClick={onRetry}>
-          重试
+          {t.retry}
         </Button>
       </div>
     </main>

@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AppService, type Credentials } from "@bindings/cmd/desktop";
 import type { SyncSettings } from "@bindings/internal/library";
+import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
@@ -40,8 +41,8 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
   return (form) =>
     failed ? (
       <div className="flex items-center gap-2">
-        <Hint className="grow">没能读取系统钥匙串，令牌和密钥暂时不能查看或修改。</Hint>
-        <Button onClick={() => setAttempt((n) => n + 1)}>重试</Button>
+        <Hint className="grow">{messages().credentials.keychainFailed}</Hint>
+        <Button onClick={() => setAttempt((n) => n + 1)}>{messages().credentials.retry}</Button>
       </div>
     ) : (
       credentials && form(credentials, saved)
@@ -50,34 +51,38 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
 
 type SyncField = keyof SyncSettings;
 
-const syncFields: { key: SyncField; label: string; secret?: boolean }[][] = [
-  [{ key: "endpoint", label: "服务地址(可选，默认 AWS S3)" }],
-  [
-    { key: "bucket", label: "存储桶" },
-    { key: "key", label: "对象名(可选，默认 library.db)" },
-    { key: "region", label: "区域(可选，默认 us-east-1)" },
-  ],
-  [
-    { key: "access_key_id", label: "Access Key ID" },
-    { key: "secret_access_key", label: "Secret Access Key", secret: true },
-  ],
-  [{ key: "session_token", label: "Session Token(可选)", secret: true }],
-];
+const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] => {
+  const t = messages().credentials;
+  return [
+    [{ key: "endpoint", label: t.endpoint }],
+    [
+      { key: "bucket", label: t.bucket },
+      { key: "key", label: t.key },
+      { key: "region", label: t.region },
+    ],
+    [
+      { key: "access_key_id", label: "Access Key ID" },
+      { key: "secret_access_key", label: "Secret Access Key", secret: true },
+    ],
+    [{ key: "session_token", label: t.sessionToken, secret: true }],
+  ];
+};
 
 export function GitHubForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: Credentials) => void }) {
+  const t = useT().credentials;
   const [token, setToken] = useState(saved.github_token);
   return (
     <SaveForm
       dirty={token !== saved.github_token}
       save={() => AppService.SaveGitHubToken(token)}
-      success="已保存 GitHub 令牌"
+      success={t.tokenSaved}
       onSaved={(next) => {
         setToken(next.github_token);
         onSaved(next);
       }}
-      hint="留空时从环境变量 GITHUB_TOKEN 或 GH_TOKEN 读取。"
+      hint={t.tokenHint}
     >
-      <Field label="个人访问令牌">
+      <Field label={t.token}>
         <TextInput secret value={token} onChange={setToken} />
       </Field>
     </SaveForm>
@@ -85,21 +90,23 @@ export function GitHubForm({ saved, onSaved }: { saved: Credentials; onSaved: (c
 }
 
 export function SyncForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: Credentials) => void }) {
+  const t = useT().credentials;
+  const fields = syncFields();
   const [draft, setDraft] = useState<SyncSettings>(saved.sync);
   const value = (s: SyncSettings, key: SyncField) => s[key] ?? "";
-  const dirty = syncFields.flat().some(({ key }) => value(draft, key) !== value(saved.sync, key));
+  const dirty = fields.flat().some(({ key }) => value(draft, key) !== value(saved.sync, key));
   return (
     <SaveForm
       dirty={dirty}
       save={() => AppService.SaveSyncSettings(draft)}
-      success="已保存同步设置"
+      success={t.syncSaved}
       onSaved={(next) => {
         setDraft(next.sync);
         onSaved(next);
       }}
-      hint="全部留空时从环境变量 SKILLS_S3_*、AWS_* 读取;填了任意一项就整组用这里的。"
+      hint={t.syncHint}
     >
-      {syncFields.map((row) => (
+      {fields.map((row) => (
         <div key={row[0].key} className="flex min-w-0 items-start gap-2">
           {row.map((f) => (
             <Field key={f.key} label={f.label} className="flex-1">
@@ -128,6 +135,7 @@ function SaveForm({
   children: React.ReactNode;
 }) {
   const ui = useUI();
+  const t = useT().credentials;
   const [saving, setSaving] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,7 +153,7 @@ function SaveForm({
       <div className="flex items-center gap-2">
         <Hint className="grow">{hint}</Hint>
         <Button type="submit" variant="primary" disabled={!dirty} loading={saving}>
-          保存
+          {t.save}
         </Button>
       </div>
     </form>

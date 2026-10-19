@@ -6,6 +6,7 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs } from "@bindings/internal/library";
 import { Modal, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
+import { useT } from "@/lib/i18n";
 import { toLibraryError } from "@/lib/library";
 import { resolveFetchInput } from "@/lib/paths";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ export async function pickDirectory(title: string): Promise<string> {
 
 export function FetchDialog({ home, onClose }: { home: string; onClose: () => void }) {
   const ui = useUI();
+  const t = useT().fetch;
   const [text, setText] = useState("");
   // chosen 是用户在下拉里选的分支或 tag;没选时为 null,下拉选中输入里带的分支，没带时选中默认分支。
   const [chosen, setChosen] = useState<string | null>(null);
@@ -94,21 +96,18 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
 
   return (
     <Modal
-      title="入库技能"
+      title={t.title}
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t.cancel}</Button>
           <Button variant="primary" disabled={!ready} loading={working} onClick={previewFetch}>
-            入库预览
+            {t.preview}
           </Button>
         </>
       }
     >
-      <Hint>
-        粘贴技能的来源，技能库会识别它是哪一种：本地目录、GitHub 仓库(owner/repo、owner/repo@技能名或链接)、GitLab 等 Git
-        仓库地址(含 SSH)、SKILL.md / zip / tar 下载链接，或提供 well-known 索引的站点。入库时复制的是预览这一刻的内容。
-      </Hint>
+      <Hint>{t.hint}</Hint>
       <div className="flex min-w-0 items-center gap-2">
         <Input
           className="grow"
@@ -120,11 +119,11 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
         />
         <Button
           onClick={async () => {
-            const dir = await pickDirectory("选择技能目录");
+            const dir = await pickDirectory(t.chooseDirectory);
             if (dir) edit(dir);
           }}
         >
-          选择…
+          {t.choose}
         </Button>
       </div>
       {input?.error && <FieldError>{input.error}</FieldError>}
@@ -269,6 +268,7 @@ function RefPicker({
   locked: boolean;
   onChoose: (ref: string) => void;
 }) {
+  const t = useT().fetch;
   const [open, setOpen] = useState(false);
   const labelId = useId();
   const triggerId = useId();
@@ -288,28 +288,28 @@ function RefPicker({
         <Icon name="check" className="size-3" />
       </span>
       <span className="grow truncate font-mono">{name}</span>
-      {kind === "b" && name === ready?.default_branch && <span className="text-[11px] text-muted-foreground">默认分支</span>}
+      {kind === "b" && name === ready?.default_branch && <span className="text-[11px] text-muted-foreground">{t.defaultBranch}</span>}
     </CommandItem>
   );
   return (
     <div className="fetch-refs flex min-w-0 flex-col gap-1">
       <span id={labelId} className="text-xs text-muted-foreground">
-        分支 / tag
+        {t.refs}
       </span>
       {refs.status === "failed" ? (
         <Notice tone="warn" className="refs-failure whitespace-pre-line">
-          {`取不到分支和 tag 列表，仍可入库预览。\n${refs.reason}`}
+          {t.refsFailed(refs.reason)}
         </Notice>
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild disabled={!ready || locked}>
             <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger h-[30px] w-72 max-w-full justify-between rounded-lg px-2.5 font-normal">
               {ready ? (
-                <span className="truncate font-mono">{selected || "默认分支"}</span>
+                <span className="truncate font-mono">{selected || t.defaultBranch}</span>
               ) : (
                 <span className="inline-flex items-center gap-1.5">
                   <Spinner />
-                  正在读取分支和 tag…
+                  {t.readingRefs}
                 </span>
               )}
               <Icon name="down" className="size-3 shrink-0 text-muted-foreground" />
@@ -317,11 +317,11 @@ function RefPicker({
           </PopoverTrigger>
           {ready && (
             <PopoverContent align="start" className="refs-menu z-[60] w-72">
-              <Command label="筛选分支和 tag" filter={(value, search) => (value.slice(2).toLowerCase().includes(search.trim().toLowerCase()) ? 1 : 0)}>
-                <CommandInput placeholder="筛选分支和 tag" />
+              <Command label={t.filterRefs} filter={(value, search) => (value.slice(2).toLowerCase().includes(search.trim().toLowerCase()) ? 1 : 0)}>
+                <CommandInput placeholder={t.filterRefs} />
                 <CommandList>
-                  <CommandEmpty>没有匹配的分支或 tag</CommandEmpty>
-                  {!!ready.branches?.length && <CommandGroup heading="分支">{ready.branches.map((name) => item("b", name))}</CommandGroup>}
+                  <CommandEmpty>{t.noRefs}</CommandEmpty>
+                  {!!ready.branches?.length && <CommandGroup heading={t.branches}>{ready.branches.map((name) => item("b", name))}</CommandGroup>}
                   {!!ready.tags?.length && <CommandGroup heading="Tag">{ready.tags.map((name) => item("t", name))}</CommandGroup>}
                 </CommandList>
               </Command>
@@ -329,7 +329,7 @@ function RefPicker({
           )}
         </Popover>
       )}
-      {locked && <Hint className="refs-locked">分支由输入里的 {ready?.input_ref} 决定，要换分支请修改输入。</Hint>}
+      {locked && <Hint className="refs-locked">{t.locked(ready?.input_ref)}</Hint>}
     </div>
   );
 }

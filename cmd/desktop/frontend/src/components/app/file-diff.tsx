@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import type { File } from "@bindings/internal/library";
 import { decodeContent } from "@/lib/content";
+import { useT } from "@/lib/i18n";
 import { toLibraryError, type LibraryError } from "@/lib/library";
 import { lineDiff, type DiffLine } from "@/lib/diff";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export function FileDiff({
   after: Read | null;
   onError?: (err: LibraryError) => boolean;
 }) {
+  const t = useT().diff;
   const [texts, setTexts] = useState<[string | null, string | null] | "error" | undefined>(undefined);
   const report = useRef(onError);
   report.current = onError;
@@ -50,13 +52,13 @@ export function FileDiff({
   if (texts === undefined) {
     return (
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Spinner /> 正在读取 {path}…
+        <Spinner /> {t.reading(path)}
       </div>
     );
   }
-  if (texts === "error") return <Notice tone="bad">读取 {path} 失败。</Notice>;
+  if (texts === "error") return <Notice tone="bad">{t.failed(path)}</Notice>;
   const [a, b] = texts;
-  if (a === null || b === null) return <Notice>二进制文件，不显示内容。</Notice>;
+  if (a === null || b === null) return <Notice>{t.binary}</Notice>;
   const doc = path.toLowerCase().endsWith(".md");
   return (
     <div
@@ -74,8 +76,9 @@ export function FileDiff({
 }
 
 function Line({ line, doc }: { line: DiffLine; doc: boolean }) {
+  const t = useT().diff;
   if (line.kind === "skip") {
-    return <div className="px-3 py-0.5 text-[11px] text-subtle">… {line.count} 行没变 …</div>;
+    return <div className="px-3 py-0.5 text-[11px] text-subtle">{t.unchanged(line.count)}</div>;
   }
   return (
     <div

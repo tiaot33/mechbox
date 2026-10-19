@@ -16,6 +16,7 @@ import {
 import { confirmLinkedRequests } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
+import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
 import { scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
@@ -28,13 +29,18 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 
-const kindText: Record<string, { text: string; tone: Tone }> = {
-  [UpdateRecordKind.UpdateRecordUpdate]: { text: "更新", tone: "accent" },
-  [UpdateRecordKind.UpdateRecordSkip]: { text: "跳过", tone: "neutral" },
-  [UpdateRecordKind.UpdateRecordRollback]: { text: "回滚", tone: "warn" },
-};
+function kindText(kind: string): { text: string; tone: Tone } | undefined {
+  const t = messages().history;
+  const known: Record<string, { text: string; tone: Tone }> = {
+    [UpdateRecordKind.UpdateRecordUpdate]: { text: t.update, tone: "accent" },
+    [UpdateRecordKind.UpdateRecordSkip]: { text: t.skip, tone: "neutral" },
+    [UpdateRecordKind.UpdateRecordRollback]: { text: t.rollback, tone: "warn" },
+  };
+  return known[kind];
+}
 
 export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
+  const t = useT().history;
   const [records, setRecords] = useState<UpdateRecord[] | null>(null);
   const [failed, setFailed] = useState<LibraryError | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -65,26 +71,27 @@ export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filt
       onClose={onClose}
       footer={
         <Button variant="primary" onClick={onClose}>
-          关闭
+          {t.close}
         </Button>
       }
     >
       {failed ? (
         <>
           <Notice tone="bad" className="whitespace-pre-line">
-            没能读取历史。{"\n"}
+            {t.readFailed}
+            {"\n"}
             {describeError(failed)}
           </Notice>
           <div>
-            <Button onClick={() => setGeneration((n) => n + 1)}>重试</Button>
+            <Button onClick={() => setGeneration((n) => n + 1)}>{t.retry}</Button>
           </div>
         </>
       ) : records === null ? (
         <Hint className="flex items-center gap-1.5">
-          <Spinner /> 正在读取历史…
+          <Spinner /> {t.reading}
         </Hint>
       ) : records.length === 0 ? (
-        <Hint>还没有更新、跳过或回滚的记录。</Hint>
+        <Hint>{t.empty}</Hint>
       ) : (
         <ListBox>
           {records.map((r) => (
@@ -98,7 +105,8 @@ export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filt
 
 function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecord; all: UpdateRecord[]; onChange: () => void }) {
   const ui = useUI();
-  const kind = kindText[record.kind] ?? { text: record.kind, tone: "neutral" as Tone };
+  const t = useT().history;
+  const kind = kindText(record.kind) ?? { text: record.kind, tone: "neutral" as Tone };
   const skills = record.skills ?? [];
   const installs = record.installs ?? [];
   const update = record.kind === UpdateRecordKind.UpdateRecordUpdate;
@@ -109,28 +117,28 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
   const from = useFromRevisions(update ? record : undefined);
 
   const facts = [
-    record.from_scope && `用 ${scopeLabel(s, record.from_scope)} 里的修改更新`,
+    record.from_scope && t.fromScope(scopeLabel(s, record.from_scope)),
     // 回滚记录的来源版本是被回滚那次更新换到的，不是回滚后的，所以只说回滚了哪次。
     record.revision &&
       !rollback &&
       (update
-        ? `${from.length ? `从 ${from.join("、")} ` : ""}换到 ${shortRevision(record.revision)}`
-        : `来源版本 ${shortRevision(record.revision)}`),
-    record.whole_revision && "整个来源版本",
-    rollback && (target ? `回滚了 ${formatDate(target.created_at)} 的更新` : "回滚了一次更新"),
-    update && installs.length > 0 && `重新安装了 ${installs.length - failed.length} 个地方${failed.length ? `,${failed.length} 个没换上` : ""}`,
+        ? t.movedTo(from, shortRevision(record.revision))
+        : t.revision(shortRevision(record.revision))),
+    record.whole_revision && t.wholeRevision,
+    rollback && (target ? t.rolledBackAt(formatDate(target.created_at)) : t.rolledBackOne),
+    update && installs.length > 0 && t.reinstalled(installs.length - failed.length, failed.length),
     rollback &&
       installs.length > 0 &&
-      `装回了 ${installs.filter((i) => rollbackOutcome(i.outcome).tone === "ok").length} / ${installs.length} 个地方`,
+      t.putBack(installs.filter((i) => rollbackOutcome(i.outcome).tone === "ok").length, installs.length),
   ].filter(Boolean);
 
   const retry = async () => {
     const requests = failed.map((i) => ({ skill_id: i.skill_id, scope: i.scope, overwrite: false }));
-    if (!(await confirmLinkedRequests(ui, s, requests, "重试没换上的地方", "重试"))) return;
+    if (!(await confirmLinkedRequests(ui, s, requests, t.retryTitle, t.retry))) return;
     const results = await ui.run(() => LibraryService.RetryUpdateInstalls(record.id, requests));
     if (!results) return;
     const left = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed).length;
-    ui.toast(left ? `还有 ${left} 个地方没换上` : "没换上的地方都换上了", left ? "error" : "ok");
+    ui.toast(left ? t.stillLeft(left) : t.allPlaced, left ? "error" : "ok");
     onChange();
   };
 
@@ -145,7 +153,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
           {facts.map((f) => (
             <span key={String(f)}>{f}</span>
           ))}
-          {rolledBack && <Badge>已回滚</Badge>}
+          {rolledBack && <Badge>{t.rolledBack}</Badge>}
         </div>
         <div className="flex flex-col gap-0.5">
           {skills.map((x) => (
@@ -155,7 +163,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
         {installs.length > 0 && <Places s={s} record={record} />}
         {(record.commits?.length ?? 0) > 0 && (
           <details>
-            <summary className="cursor-pointer text-[11px] text-muted-foreground">提交说明 · {record.commits!.length} 条</summary>
+            <summary className="cursor-pointer text-[11px] text-muted-foreground">{t.commits(record.commits!.length)}</summary>
             <div className="mt-1 flex flex-col gap-0.5">
               {record.commits!.map((c) => (
                 <div key={c.sha} className="flex gap-2 text-[11px]" title={c.message}>
@@ -170,7 +178,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
       <div className="flex shrink-0 items-center gap-1.5">
         {update && !rolledBack && failed.length > 0 && (
           <Button size="sm" onClick={retry}>
-            重试没换上的
+            {t.retryFailed}
           </Button>
         )}
         {update && !rolledBack && (
@@ -181,16 +189,16 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
               onChange();
             }}
           >
-            回滚
+            {t.rollback}
           </Button>
         )}
         {record.kind === UpdateRecordKind.UpdateRecordSkip && s.collections.some((c) => c.id === record.collection_id) && (
           <Button
             size="sm"
             onClick={() => openUpdate(ui, s, record.collection_id, { select: skills.map((x) => x.skill_id) })}
-            title="打开更新计划，默认勾上这次跳过的技能;来源之后又变了时按最新的内容算"
+            title={t.reviewTitle}
           >
-            再看更新计划
+            {t.review}
           </Button>
         )}
       </div>
@@ -221,23 +229,28 @@ function useFromRevisions(record: UpdateRecord | undefined): string[] {
   return revisions;
 }
 
-const reinstallText: Record<string, { text: string; tone: Tone }> = {
-  [ReinstallOutcome.Reinstalled]: { text: "换上了", tone: "ok" },
-  [ReinstallOutcome.ReinstallCurrent]: { text: "本来就是这个版本", tone: "ok" },
-  [ReinstallOutcome.ReinstallFailed]: { text: "没换上", tone: "bad" },
-};
+function reinstallText(outcome: string): { text: string; tone: Tone } | undefined {
+  const t = messages().history;
+  const known: Record<string, { text: string; tone: Tone }> = {
+    [ReinstallOutcome.Reinstalled]: { text: t.placedOk, tone: "ok" },
+    [ReinstallOutcome.ReinstallCurrent]: { text: t.placedCurrent, tone: "ok" },
+    [ReinstallOutcome.ReinstallFailed]: { text: t.placedFailed, tone: "bad" },
+  };
+  return known[outcome];
+}
 
 // Places 逐处列出那次重新安装(更新)或装回(回滚)的结果，没换上、没装回的写明原因。
 function Places({ s, record }: { s: Snapshot; record: UpdateRecord }) {
+  const t = useT().history;
   const installs = record.installs ?? [];
   const names = new Map((record.skills ?? []).map((x) => [x.skill_id, x.name]));
   const name = (i: RecordedInstall) => names.get(i.skill_id) ?? s.skills.find((x) => x.id === i.skill_id)?.name ?? `#${i.skill_id}`;
   const outcome = (i: RecordedInstall) =>
-    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText[i.outcome] ?? { text: i.outcome, tone: "warn" as Tone });
+    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText(i.outcome) ?? { text: i.outcome, tone: "warn" as Tone });
   return (
     <details className="update-places">
       <summary className="cursor-pointer text-[11px] text-muted-foreground">
-        {record.kind === UpdateRecordKind.UpdateRecordRollback ? "装回的地方" : "重新安装的地方"} · {installs.length} 处
+        {t.places(record.kind === UpdateRecordKind.UpdateRecordRollback, installs.length)}
       </summary>
       <div className="mt-1 flex flex-col gap-0.5">
         {installs.map((i) => (
@@ -257,6 +270,7 @@ function Places({ s, record }: { s: Snapshot; record: UpdateRecord }) {
 // SkillLine 是记录里的一个技能;更新和回滚可以展开看从哪个版本换到哪个版本改了哪些文件(技能已移除时版本也不在了)。
 function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolean }) {
   const ui = useUI();
+  const t = useT().history;
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [versions, setVersions] = useState<(SkillVersion | null)[]>([]);
   const alive = useRef(true);
@@ -287,9 +301,9 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
   const describe = (v: SkillVersion | null | undefined) => (v ? [v.revision && shortRevision(v.revision), formatDate(v.created_at)].filter(Boolean).join(" · ") : "");
   const files = diff
     ? [
-        ...(diff.added ?? []).map((p) => ["added", "新增", p] as const),
-        ...(diff.changed ?? []).map((p) => ["changed", "修改", p] as const),
-        ...(diff.deleted ?? []).map((p) => ["deleted", "删除", p] as const),
+        ...(diff.added ?? []).map((p) => ["added", t.added, p] as const),
+        ...(diff.changed ?? []).map((p) => ["changed", t.changed, p] as const),
+        ...(diff.deleted ?? []).map((p) => ["deleted", t.deleted, p] as const),
       ]
     : [];
   const color = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
@@ -299,7 +313,7 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
         <b className="font-semibold">{skill.from_name ? `${skill.from_name} → ${skill.name}` : skill.name}</b>
         {diffable && skill.from_version_id !== skill.to_version_id && (
           <Button variant="link" onClick={toggle}>
-            {diff ? "收起" : "改了什么"}
+            {diff ? t.collapse : t.whatChanged}
           </Button>
         )}
       </div>
@@ -307,7 +321,7 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
         <div className="pl-2">
           {versions.length > 0 && (
             <div className="text-[11px] text-muted-foreground">
-              从 {describe(versions[0]) || "旧版本"} 换到 {describe(versions[1]) || "新版本"}
+              {t.fromTo(describe(versions[0]), describe(versions[1]))}
             </div>
           )}
           {files.map(([k, text, p]) => (
@@ -315,7 +329,7 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
               {text} {p}
             </div>
           ))}
-          {files.length === 0 && <div className="text-[11px] text-muted-foreground">文件内容相同</div>}
+          {files.length === 0 && <div className="text-[11px] text-muted-foreground">{t.sameContent}</div>}
         </div>
       )}
     </div>

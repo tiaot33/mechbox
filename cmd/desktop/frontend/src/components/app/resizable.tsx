@@ -1,6 +1,7 @@
 // 可拖动调宽：左右两栏(ResizablePane)与技能详情抽屉共用。拖动柄拖动调整宽度，双击恢复默认宽度，
 // 方向键每次调 16px。宽度只属于这台机器的界面，存在 localStorage,下次打开沿用。
 import { useRef, useState, type ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface WidthOptions {
@@ -39,6 +40,7 @@ export function ResizeHandle({
   label: string;
   className?: string;
 }) {
+  const t = useT().layout;
   const [dragging, setDragging] = useState(false);
   const start = useRef<{ x: number; width: number } | null>(null);
   const sign = edge === "right" ? 1 : -1;
@@ -51,7 +53,7 @@ export function ResizeHandle({
       aria-valuenow={width}
       aria-label={label}
       tabIndex={0}
-      title="拖动调整宽度，双击恢复默认"
+      title={t.resizeTitle}
       className={cn("group/handle absolute top-0 bottom-0 z-10 flex w-2 cursor-col-resize justify-center outline-none", className)}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -82,6 +84,7 @@ export function ResizeHandle({
 // ResizablePane 包住左栏或右栏，拖动柄在靠中间底板的那一侧。
 export function ResizablePane({ side, children, ...opts }: WidthOptions & { side: "left" | "right"; children: ReactNode }) {
   const [width, apply] = useStoredWidth(opts);
+  const t = useT().layout;
   return (
     <div className="relative isolate flex shrink-0 flex-col" style={{ width }}>
       {children}
@@ -90,7 +93,7 @@ export function ResizablePane({ side, children, ...opts }: WidthOptions & { side
         edge={side === "left" ? "right" : "left"}
         width={width}
         onWidth={apply}
-        label={side === "left" ? "调整侧栏宽度" : "调整作用域栏宽度"}
+        label={side === "left" ? t.resizeLeft : t.resizeRight}
         className={side === "left" ? "-right-2" : "-left-2"}
       />
     </div>

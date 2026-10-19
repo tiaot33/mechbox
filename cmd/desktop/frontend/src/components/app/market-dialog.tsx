@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Browser } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { FetchPreview, SearchSkill } from "@bindings/internal/library";
+import { useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -14,6 +15,7 @@ import { Icon } from "./icons";
 
 export function MarketDialog({ onClose }: { onClose: () => void }) {
   const ui = useUI();
+  const t = useT().market;
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<SearchSkill[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -39,19 +41,19 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
 
   const skills = result ?? [];
   return (
-    <Modal title="技能市场" wide onClose={onClose}>
+    <Modal title={t.title} wide onClose={onClose}>
       <div className="flex min-w-0 items-center gap-2">
         <SearchInput
           className="grow"
           icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
           autoFocus
-          placeholder="在 skills.sh 上搜索技能"
+          placeholder={t.placeholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && search()}
         />
         <Button variant="primary" onClick={search} disabled={!query.trim()} loading={searching}>
-          搜索
+          {t.search}
         </Button>
       </div>
       {result &&
@@ -64,25 +66,25 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       className="text-[13px] font-semibold text-foreground hover:text-primary"
-                      title={`在 skills.sh 查看「${s.name}」`}
+                      title={t.viewOnSite(s.name)}
                       onClick={() => void Browser.OpenURL(s.detail_url)}
                     >
                       {s.name}
                     </button>
-                    {s.installs != null && <span className="text-[11px] text-muted-foreground">{s.installs.toLocaleString()} 次安装</span>}
+                    {s.installs != null && <span className="text-[11px] text-muted-foreground">{t.installs(s.installs)}</span>}
                   </div>
                   <div className="truncate font-mono text-[11px] text-muted-foreground">{s.preview.input}</div>
                 </div>
                 <Button size="sm" variant="primary" disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
-                  入库
+                  {t.fetch}
                 </Button>
               </ListRow>
             ))}
           </ListBox>
         ) : (
-          <Notice>没有搜到技能。</Notice>
+          <Notice>{t.none}</Notice>
         ))}
-      <Hint>搜索结果来自 skills.sh,入库前会先做入库预览，可查看候选;来自 GitHub 仓库的还能查看审计信息。</Hint>
+      <Hint>{t.hint}</Hint>
     </Modal>
   );
 }
