@@ -5,7 +5,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
-import { PlannedChange, type Collection, type CollectionID, type Group, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
+import {
+  PlannedChange,
+  type Collection,
+  type CollectionID,
+  type Group,
+  type Skill,
+  type UnmanagedSkill,
+  type UpdateRisk,
+} from "@bindings/internal/library";
 import {
   deleteGroup,
   fetchUnmanaged,
@@ -287,7 +295,10 @@ function SkillCard(props: {
               onCheckedChange={toggle}
               title={here?.direct ? t.list.uninstallDirect : t.list.installDirect}
             />
-            <span className="min-w-0 truncate">{here ? t.list.hereState(here.direct, via) : t.list.notInstalled}</span>
+            {/* 英文放不下时截断，悬停看全。 */}
+            <span className="min-w-0 truncate" title={here ? t.list.hereState(here.direct, via) : undefined}>
+              {here ? t.list.hereState(here.direct, via) : t.list.notInstalled}
+            </span>
             {here && needsReinstall(here) && (
               <Badge tone={skillScopeStatus(here.status).tone} className="font-sans">
                 {skillScopeStatus(here.status).label}
@@ -378,7 +389,7 @@ function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill;
       )}
       <div
         className={cn(
-          "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
+          "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono [&:lang(en)]:gap-2 text-[10px] text-muted-foreground",
           list ? "w-[220px] shrink-0" : "mt-auto",
         )}
       >
@@ -648,7 +659,8 @@ function revisionMove(skills: Skill[], to: string | undefined): string {
 // 同一份差异只读一次。读失败的不记，下次再读;离开更新列表时取消还在读的。
 // 生成更新计划会写下这次读到的检查结论：来源在检查更新之后又变了时，计划和快照对不上，重读快照让更新列表、计数跟上，
 // 风险只按计划实际读到的来源版本记。重读后快照仍停在旧的键上时不再反复读来源，快照换了键才重新算。
-const riskCache = new Map<string, string>();
+// 记的是风险本身，文案在渲染时按当前语言生成，切换语言后跟着变。
+const riskCache = new Map<string, UpdateRisk[]>();
 
 const riskKey = (id: CollectionID, revision: string | undefined, versions: number[]) =>
   `${id}:${revision ?? ""}:${[...versions].sort((a, b) => a - b).join(",")}`;
@@ -685,9 +697,8 @@ function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID,
           (plan) => {
             const skills = plan.skills ?? [];
             const movable = skills.filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
-            const risk = riskSummary(movable.flatMap((p) => p.risks ?? []));
             const actual = riskKey(id, plan.revision, skills.map((p) => p.skill.version_id));
-            riskCache.set(actual, risk);
+            riskCache.set(actual, movable.flatMap((p) => p.risks ?? []));
             if (actual === key) return;
             settled.current.add(key);
             ui.reload();
@@ -701,7 +712,7 @@ function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID,
     }
   }, [wanted]);
 
-  return new Map(keys.map(([id, key]) => [id, riskCache.get(key) ?? ""]));
+  return new Map(keys.map(([id, key]) => [id, riskSummary(riskCache.get(key) ?? [])]));
 }
 
 // CollectionHead 是筛选某个集合时的标题条：来源、集合里的技能在哪个来源版本上、更新、历史，以及来源里的新技能。

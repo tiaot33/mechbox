@@ -10,6 +10,9 @@ const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}$
 
 export const zh = {
   common: {
+    working: "正在处理…",
+    sameContent: "文件内容相同",
+    binary: "二进制文件，不显示内容。",
     cancel: "取消",
     ok: "确定",
     close: "关闭",
@@ -383,7 +386,6 @@ export const zh = {
     noAgents: (place: string) => `${place}没有可选的 Agent,可在设置页勾选显示`,
     files: "文件",
     filesNote: (n: number) => `${n} 个 · 只读，内容来自技能库`,
-    binary: "二进制文件，不显示内容。",
     viewSource: "查看源码",
     viewRendered: "查看渲染",
     executable: "可执行",
@@ -400,7 +402,6 @@ export const zh = {
     viewFiles: "查看文件",
     versionToCurrent: (n: number | undefined) => `版本 ${n} → 当前`,
     collapse: "收起",
-    sameContent: "文件内容相同",
     versionFiles: (n: number | undefined) => `版本 ${n} 的文件`,
   },
 
@@ -542,7 +543,6 @@ export const zh = {
     added: "新增",
     modifiedFile: "修改",
     deleted: "删除",
-    sameContent: "文件内容相同",
     modifiedHere: "你在这里改过，换新版会覆盖你的修改",
     notPlaced: "勾选的技能还没有装到任何地方，只更新技能库。",
     rootMissing: "项目不在这台机器上，装不上",
@@ -635,7 +635,6 @@ export const zh = {
     collapse: "收起",
     whatChanged: "改了什么",
     fromTo: (from: string, to: string) => `从 ${from || "旧版本"} 换到 ${to || "新版本"}`,
-    sameContent: "文件内容相同",
   },
 
   settings: {
@@ -653,7 +652,6 @@ export const zh = {
     weekly: "每周",
     back: "返回技能库",
     title: "设置",
-    working: "正在处理…",
     stayInMenuBar: "关闭窗口后留在菜单栏",
     stayInMenuBarDesc: "关闭窗口后应用继续运行，Dock 图标和角标仍在，菜单栏多一个入口，继续按间隔检查;关掉时关闭窗口就退出。",
     dockBadge: "Dock 角标",
@@ -859,6 +857,7 @@ export const zh = {
     title: "入库技能",
     cancel: "取消",
     preview: "入库预览",
+    inputPlaceholder: "anthropics/skills、https://gitlab.com/team/skills、~/skills",
     hint: "粘贴技能的来源，技能库会识别它是哪一种：本地目录、GitHub 仓库(owner/repo、owner/repo@技能名或链接)、GitLab 等 Git 仓库地址(含 SSH)、SKILL.md / zip / tar 下载链接，或提供 well-known 索引的站点。入库时复制的是预览这一刻的内容。",
     choose: "选择…",
     chooseDirectory: "选择技能目录",
@@ -869,6 +868,7 @@ export const zh = {
     filterRefs: "筛选分支和 tag",
     noRefs: "没有匹配的分支或 tag",
     branches: "分支",
+    tags: "Tag",
     locked: (ref: string | undefined) => `分支由输入里的 ${ref} 决定，要换分支请修改输入。`,
   },
 
@@ -896,7 +896,6 @@ export const zh = {
 
   toolbar: {
     toggleLeft: "显示/隐藏侧栏",
-    working: "正在处理…",
     search: "搜索技能",
     installedOnlyTitle: (agent: string) => `只看已安装在 ${agent} 这个作用域的技能`,
     installedOnly: "仅已安装",
@@ -934,6 +933,8 @@ export const zh = {
     bucket: "存储桶",
     key: "对象名(可选，默认 library.db)",
     region: "区域(可选，默认 us-east-1)",
+    accessKeyId: "Access Key ID",
+    secretAccessKey: "Secret Access Key",
     sessionToken: "Session Token(可选)",
     tokenSaved: "已保存 GitHub 令牌",
     tokenHint: "留空时从环境变量 GITHUB_TOKEN 或 GH_TOKEN 读取。",
@@ -957,7 +958,6 @@ export const zh = {
   diff: {
     reading: (path: string) => `正在读取 ${path}…`,
     failed: (path: string) => `读取 ${path} 失败。`,
-    binary: "二进制文件，不显示内容。",
     unchanged: (n: number) => `… ${n} 行没变 …`,
   },
 
@@ -965,7 +965,6 @@ export const zh = {
     resizeTitle: "拖动调整宽度，双击恢复默认",
     resizeLeft: "调整侧栏宽度",
     resizeRight: "调整作用域栏宽度",
-    working: "正在处理…",
     alreadyThere: "已在",
   },
 

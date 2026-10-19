@@ -17,14 +17,9 @@ function apply(language: Language) {
   document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
 }
 
-// language 是界面当前的语言。
-export function language(): Language {
-  return current;
-}
-
-// locale 是 toLocaleString 等格式化用的语言标签。
-export function locale(): string {
-  return current === "zh" ? "zh-CN" : "en";
+// toLanguage 把 Go 端给出的语言(AppService.Language)转成界面语言;认不出的按英文，和 Go 端认不出系统语言时一样。
+export function toLanguage(value: string): Language {
+  return value === "zh" ? "zh" : "en";
 }
 
 // messages 是当前语言的文案，给组件外的函数用;组件里用 useT。

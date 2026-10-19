@@ -8,7 +8,7 @@ function Spinner({ className, ...props }: ComponentProps<"span">) {
     <span
       data-slot="spinner"
       role="status"
-      aria-label={t.layout.working}
+      aria-label={t.common.working}
       className={cn(
         "inline-block size-[11px] shrink-0 animate-spin rounded-full border-[1.5px] border-current border-r-transparent",
         className,

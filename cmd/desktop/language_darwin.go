@@ -5,6 +5,8 @@ package main
 /*
 #cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework Foundation
+#include <stdlib.h>
+#include <string.h>
 #import <Foundation/Foundation.h>
 
 static char *preferredLanguage(void) {

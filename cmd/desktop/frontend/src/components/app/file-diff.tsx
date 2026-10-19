@@ -25,7 +25,8 @@ export function FileDiff({
   after: Read | null;
   onError?: (err: LibraryError) => boolean;
 }) {
-  const t = useT().diff;
+  const tt = useT();
+  const t = tt.diff;
   const [texts, setTexts] = useState<[string | null, string | null] | "error" | undefined>(undefined);
   const report = useRef(onError);
   report.current = onError;
@@ -58,7 +59,7 @@ export function FileDiff({
   }
   if (texts === "error") return <Notice tone="bad">{t.failed(path)}</Notice>;
   const [a, b] = texts;
-  if (a === null || b === null) return <Notice>{t.binary}</Notice>;
+  if (a === null || b === null) return <Notice>{tt.common.binary}</Notice>;
   const doc = path.toLowerCase().endsWith(".md");
   return (
     <div

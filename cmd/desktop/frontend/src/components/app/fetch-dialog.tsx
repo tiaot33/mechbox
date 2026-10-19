@@ -112,7 +112,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
         <Input
           className="grow"
           autoFocus
-          placeholder="anthropics/skills、https://gitlab.com/team/skills、~/skills"
+          placeholder={t.inputPlaceholder}
           value={text}
           onChange={(e) => edit(e.target.value)}
           onKeyDown={submitOnEnter}
@@ -322,7 +322,7 @@ function RefPicker({
                 <CommandList>
                   <CommandEmpty>{t.noRefs}</CommandEmpty>
                   {!!ready.branches?.length && <CommandGroup heading={t.branches}>{ready.branches.map((name) => item("b", name))}</CommandGroup>}
-                  {!!ready.tags?.length && <CommandGroup heading="Tag">{ready.tags.map((name) => item("t", name))}</CommandGroup>}
+                  {!!ready.tags?.length && <CommandGroup heading={t.tags}>{ready.tags.map((name) => item("t", name))}</CommandGroup>}
                 </CommandList>
               </Command>
             </PopoverContent>

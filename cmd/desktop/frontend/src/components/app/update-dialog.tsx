@@ -507,7 +507,8 @@ export function SkillDiff({
   onPath: (path: string) => void;
   onError: (err: LibraryError) => boolean;
 }) {
-  const t = useT().plan;
+  const tt = useT();
+  const t = tt.plan;
   const diff = item.diff;
   const files = [
     ...(diff?.added ?? []).map((p) => ["added", t.added, p] as const),
@@ -541,7 +542,7 @@ export function SkillDiff({
             {risk.has(p) && <Badge tone="bad">{risk.get(p)}</Badge>}
           </button>
         ))}
-        {files.length === 0 && <span className="text-[11px] text-muted-foreground">{t.sameContent}</span>}
+        {files.length === 0 && <span className="text-[11px] text-muted-foreground">{tt.common.sameContent}</span>}
       </div>
       {kind && <FileDiff path={path} before={kind === "added" ? null : before} after={kind === "deleted" ? null : after} onError={onError} />}
     </div>

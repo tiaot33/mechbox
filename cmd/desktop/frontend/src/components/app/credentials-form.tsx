@@ -14,6 +14,7 @@ type Form = (saved: Credentials, onSaved: (c: Credentials) => void) => ReactNode
 // useCredentials 读取设置页填过的内容，返回按分区渲染表单的函数。钥匙串读不到(例如拒绝了授权)时不给表单，
 // 免得把没读到当成没填、保存时盖掉钥匙串里的内容。读到或保存后调用 onChange,让主界面重读配置状态。
 export function useCredentials(onChange: () => void): (form: Form) => ReactNode {
+  const t = useT().credentials;
   const [credentials, setCredentials] = useState<Credentials>();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -41,8 +42,8 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
   return (form) =>
     failed ? (
       <div className="flex items-center gap-2">
-        <Hint className="grow">{messages().credentials.keychainFailed}</Hint>
-        <Button onClick={() => setAttempt((n) => n + 1)}>{messages().credentials.retry}</Button>
+        <Hint className="grow">{t.keychainFailed}</Hint>
+        <Button onClick={() => setAttempt((n) => n + 1)}>{t.retry}</Button>
       </div>
     ) : (
       credentials && form(credentials, saved)
@@ -61,8 +62,8 @@ const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] =
       { key: "region", label: t.region },
     ],
     [
-      { key: "access_key_id", label: "Access Key ID" },
-      { key: "secret_access_key", label: "Secret Access Key", secret: true },
+      { key: "access_key_id", label: t.accessKeyId },
+      { key: "secret_access_key", label: t.secretAccessKey, secret: true },
     ],
     [{ key: "session_token", label: t.sessionToken, secret: true }],
   ];
@@ -107,7 +108,7 @@ export function SyncForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: 
       hint={t.syncHint}
     >
       {fields.map((row) => (
-        <div key={row[0].key} className="flex min-w-0 items-start gap-2">
+        <div key={row[0].key} className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
           {row.map((f) => (
             <Field key={f.key} label={f.label} className="flex-1">
               <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />

@@ -270,7 +270,8 @@ function Places({ s, record }: { s: Snapshot; record: UpdateRecord }) {
 // SkillLine 是记录里的一个技能;更新和回滚可以展开看从哪个版本换到哪个版本改了哪些文件(技能已移除时版本也不在了)。
 function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolean }) {
   const ui = useUI();
-  const t = useT().history;
+  const tt = useT();
+  const t = tt.history;
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [versions, setVersions] = useState<(SkillVersion | null)[]>([]);
   const alive = useRef(true);
@@ -329,7 +330,7 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
               {text} {p}
             </div>
           ))}
-          {files.length === 0 && <div className="text-[11px] text-muted-foreground">{t.sameContent}</div>}
+          {files.length === 0 && <div className="text-[11px] text-muted-foreground">{tt.common.sameContent}</div>}
         </div>
       )}
     </div>

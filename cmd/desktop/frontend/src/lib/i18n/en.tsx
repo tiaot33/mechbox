@@ -6,7 +6,9 @@ import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model"
 const and = (items: string[]) => new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 // count 是"1 skill"、"3 skills";不规则的复数给出 many。
 const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en")} ${n === 1 ? one : many}`;
-const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by Mechbox" : "unmanaged")));
+const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : "unmanaged")));
+// projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
+const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
 
 const where = (w: InstalledWhere) =>
@@ -14,6 +16,9 @@ const where = (w: InstalledWhere) =>
 
 export const en = {
   common: {
+    working: "Working…",
+    sameContent: "File contents are identical",
+    binary: "Binary file; content not shown.",
     cancel: "Cancel",
     ok: "OK",
     close: "Close",
@@ -59,10 +64,10 @@ export const en = {
     sameNameGlobalUnknown: (name: string, k: SameNameKind[]) => `Global also has a skill named ${name} (${kinds(k)})`,
     sameNameGlobalFolder: (folder: string) => `Global folder: ${folder}`,
     sameNameProjectWins: (projects: string[], name: string, who: string) =>
-      `Project ${quoted(projects)} also has ${name}. There, ${who} uses this global one`,
+      `${projectsHave(projects)} ${name}. There, ${who} uses this global one`,
     sameNameProjectBoth: (projects: string[], name: string, who: string) =>
-      `Project ${quoted(projects)} also has ${name}. There, both will show up in ${who}`,
-    sameNameProjectUnknown: (projects: string[], name: string) => `Project ${quoted(projects)} also has a skill named ${name}`,
+      `${projectsHave(projects)} ${name}. There, both will show up in ${who}`,
+    sameNameProjectUnknown: (projects: string[], name: string) => `${projectsHave(projects)} a skill named ${name}`,
     sameNameProjectFolder: (project: string, folder: string) => `Folder in “${project}”: ${folder}`,
     sameNameFetchSourced: (name: string) =>
       `With a Source, it's compared only with the same-named skill from that Source: if the content matches one of its Versions, it's just recorded as installed here; if not, it can't be fetched (you can clear the Source). Same-named skills from other Sources or with no Source aren't merged—the Library will have another “${name}”, and each card shows where it's installed.`,
@@ -99,7 +104,7 @@ export const en = {
       `Can't install: a skill with the same name from ${source} is already installed at\n${folder}\nUninstall it first, then install`,
     occupiedOther: (folder: string) => `Can't install: another skill with the same name is already installed at\n${folder}\nUninstall it first, then install`,
     untrackedTitle: "A folder with the same name is already there",
-    untrackedBody: (folder: string, name: string) => `${folder} exists but wasn't installed from the Library. Overwriting replaces it with “${name}”.`,
+    untrackedBody: (folder: string, name: string) => `${folder} exists but wasn't installed by the Library. Overwriting replaces it with “${name}”.`,
     overwriteInstall: "Overwrite and install",
     installed: (name: string, where: string) => `Installed “${name}” in ${where}`,
     uninstallTitle: (name: string) => `Uninstall “${name}”`,
@@ -113,7 +118,7 @@ export const en = {
     onlyViaGroup: "This skill is only installed through a Group, so there's no direct install to uninstall. Uninstall it on the Group instead",
     groupInstallTitle: (group: string, scope: string) => `Group install “${group}” in ${scope}`,
     groupUntracked: (n: number, names: string[]) =>
-      `For ${count(n, "member")}, a folder with the same name that wasn't installed from the Library is already in place: ${names.join(", ")}`,
+      `For ${count(n, "member")}, a folder with the same name that wasn't installed by the Library is already in place: ${names.join(", ")}`,
     skipMembers: "Skip these members",
     skipMembersDesc: "The other members install as usual; Group install again later to fill them in",
     overwriteFolders: "Overwrite these folders",
@@ -123,7 +128,9 @@ export const en = {
     groupInstalled: (group: string, scope: string, summary: string) => `Group installed “${group}” in ${scope}\n${summary}`,
     groupUninstallTitle: (group: string, scope: string) => `Uninstall the Group install of “${group}” in ${scope}`,
     groupUninstallShared: (n: number) =>
-      `The ${count(n, "skill folder")} below are shared with other Agents and kept only by this Group install: uninstalling deletes them, and none of the sharing Agents will count them as installed.`,
+      n === 1
+        ? "The skill folder below is shared with other Agents and kept only by this Group install: uninstalling deletes it, and none of the sharing Agents will count it as installed."
+        : `The ${count(n, "skill folder")} below are shared with other Agents and kept only by this Group install: uninstalling deletes them, and none of the sharing Agents will count them as installed.`,
     groupUninstalled: (group: string, scope: string) => `Uninstalled the Group install of “${group}” in ${scope}`,
     addedToGroupTitle: (skill: string, group: string) => `Added “${skill}” to “${group}”`,
     addedToGroupPartly: "It's now a member, but couldn't be installed in the Scopes below. Resolve the conflicts, then Group install again to fill them in.",
@@ -180,7 +187,7 @@ export const en = {
       [
         `Checked ${count(checked, "Source")}`,
         available ? `${count(available, "skill")} with a new Version` : "",
-        renamed ? `${count(renamed, "skill")} possibly renamed` : "",
+        renamed ? `${count(renamed, "skill")} maybe renamed` : "",
         deleted ? `${count(deleted, "skill")} deleted in the Source` : "",
       ]
         .filter(Boolean)
@@ -229,7 +236,7 @@ export const en = {
     notMigratedReason: (to: string, from: string) =>
       `The new directory already has a folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
-      `Migrated ${count(migrated, "folder")}; the ${skipped} below weren't migrated, and this Agent no longer counts them as installed there.`,
+      `Migrated ${count(migrated, "folder")}; ${skipped === 1 ? "the 1 below wasn't migrated, and this Agent no longer counts it" : `the ${skipped} below weren't migrated, and this Agent no longer counts them`} as installed there.`,
     agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "folder")}`,
     deleteAgentTitle: (name: string) => `Delete Agent “${name}”`,
     deleteAgentHint: "It disappears from the Agent list, and its direct install and Group install records, global and in every project, are deleted.",
@@ -413,7 +420,6 @@ export const en = {
     noAgents: (place: string) => `No Agents available in ${place}; you can show them in Settings`,
     files: "Files",
     filesNote: (n: number) => `${n} · read-only, from the Library`,
-    binary: "Binary file; content not shown.",
     viewSource: "View source",
     viewRendered: "View rendered",
     executable: "Executable",
@@ -430,7 +436,6 @@ export const en = {
     viewFiles: "View files",
     versionToCurrent: (n: number | undefined) => `Version ${n} → current`,
     collapse: "Collapse",
-    sameContent: "File contents are identical",
     versionFiles: (n: number | undefined) => `Files of Version ${n}`,
   },
 
@@ -439,7 +444,7 @@ export const en = {
     emptyHint: "Fetch skills from a local directory, GitHub or the skill market.",
     fetchSkills: "Fetch skills",
     noMatch: "No matching skills",
-    renamedTitle: (to: string) => `May have been renamed to ${to} in the Source; click to see the Update plan`,
+    renamedTitle: (to: string) => `Maybe renamed to ${to} in the Source; click to see the Update plan`,
     availableTitle: "The Source has a new Version; click to see the Update plan",
     maybeRenamed: "Maybe renamed",
     newVersion: "New Version",
@@ -454,7 +459,7 @@ export const en = {
     uninstallDirect: "Uninstall the direct install",
     installDirect: "Install directly in this Scope",
     hereState: (direct: boolean, via: string[]) =>
-      [direct ? "Direct install" : "", via.length ? `via ${via.map((g) => `“${g}”`).join(" ")}` : ""].filter(Boolean).join(" + "),
+      [direct ? "Direct install" : "", via.length ? `via ${quoted(via)}` : ""].filter(Boolean).join(" + "),
     notInstalled: "Not installed",
     agents: (names: string[]) => names.join(", "),
     projects: (n: number) => count(n, "project"),
@@ -579,7 +584,6 @@ export const en = {
     added: "Added",
     modifiedFile: "Changed",
     deleted: "Deleted",
-    sameContent: "File contents are identical",
     modifiedHere: "You edited it here; the new Version will overwrite your edits",
     notPlaced: "The checked skills aren't installed anywhere yet; only the Library is updated.",
     rootMissing: "Project not on this machine; can't install",
@@ -598,7 +602,9 @@ export const en = {
     leftTitle: "A few weren't fetched",
     done: "Done",
     leftHint: (n: number) =>
-      `The ${count(n, "skill")} below ${n === 1 ? "wasn't" : "weren't"} fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them one by one from the Scope later.`,
+      n === 1
+        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it from the Scope later."
+        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them one by one from the Scope later.`,
     linkPlaceholder: "owner/repo, Git URL or link; leave empty for no Source",
     retry: "Retry",
     fetchWithoutSource: "Fetch without Source",
@@ -635,7 +641,13 @@ export const en = {
     sameName: "Same name in Library",
     fetched: (n: number, matched: number) =>
       `Fetched ${count(n, "skill")}; the app manages ${n === 1 ? "it" : "them"} now` +
-      (matched ? `; ${matched} matched skills already in the Library and were just recorded as installed here` : ""),
+      (!matched
+        ? ""
+        : n === 1
+          ? "; it matched a skill already in the Library and was just recorded as installed here"
+          : matched === 1
+            ? "; 1 of them matched a skill already in the Library and was just recorded as installed here"
+            : `; ${matched} of them matched skills already in the Library and were just recorded as installed here`),
   },
 
   history: {
@@ -673,7 +685,6 @@ export const en = {
     collapse: "Collapse",
     whatChanged: "What changed",
     fromTo: (from: string, to: string) => `From ${from || "the old Version"} to ${to || "the new Version"}`,
-    sameContent: "File contents are identical",
   },
 
   settings: {
@@ -691,7 +702,6 @@ export const en = {
     weekly: "Weekly",
     back: "Back to Library",
     title: "Settings",
-    working: "Working…",
     stayInMenuBar: "Stay in the menu bar after closing the window",
     stayInMenuBarDesc:
       "After you close the window, the app keeps running: the Dock icon and badge stay, the menu bar gets an entry, and checks continue on schedule. When off, closing the window quits.",
@@ -800,7 +810,7 @@ export const en = {
     market: "Skill market",
     allSkills: "All skills",
     updates: "Updates",
-    updatesTitle: "Updates to handle: skills with a new Version, deleted in the Source, or possibly renamed; matches the Dock badge",
+    updatesTitle: "Updates to handle: skills with a new Version, deleted in the Source, or maybe renamed; matches the Dock badge",
     checkTitle: "Check every Source for new Versions (read-only; local directory Sources aren't checked)",
     check: "Check for updates",
     collections: "Collections",
@@ -906,6 +916,7 @@ export const en = {
     title: "Fetch skills",
     cancel: "Cancel",
     preview: "Preview",
+    inputPlaceholder: "anthropics/skills, https://gitlab.com/team/skills, ~/skills",
     hint: "Paste where the skills come from and the Library will recognize the kind of Source: a local directory, a GitHub repo (owner/repo, owner/repo@skill-name or a link), a Git repo URL on GitLab or elsewhere (including SSH), a SKILL.md / zip / tar download link, or a site with a well-known index. Fetching copies the content as of the Preview.",
     choose: "Choose…",
     chooseDirectory: "Choose a skill directory",
@@ -916,6 +927,7 @@ export const en = {
     filterRefs: "Filter branches and tags",
     noRefs: "No matching branch or tag",
     branches: "Branches",
+    tags: "Tag",
     locked: (ref: string | undefined) => `The branch is set by ${ref} in the input; edit the input to change it.`,
   },
 
@@ -943,7 +955,6 @@ export const en = {
 
   toolbar: {
     toggleLeft: "Show/hide sidebar",
-    working: "Working…",
     search: "Search skills",
     installedOnlyTitle: (agent: string) => `Only show skills installed in this ${agent} Scope`,
     installedOnly: "Installed only",
@@ -981,6 +992,8 @@ export const en = {
     bucket: "Bucket",
     key: "Object key (optional, defaults to library.db)",
     region: "Region (optional, defaults to us-east-1)",
+    accessKeyId: "Access Key ID",
+    secretAccessKey: "Secret Access Key",
     sessionToken: "Session Token (optional)",
     tokenSaved: "Saved the GitHub token",
     tokenHint: "When empty, it's read from the GITHUB_TOKEN or GH_TOKEN environment variable.",
@@ -1004,7 +1017,6 @@ export const en = {
   diff: {
     reading: (path: string) => `Reading ${path}…`,
     failed: (path: string) => `Couldn't read ${path}.`,
-    binary: "Binary file; content not shown.",
     unchanged: (n: number) => `… ${count(n, "unchanged line")} …`,
   },
 
@@ -1012,7 +1024,6 @@ export const en = {
     resizeTitle: "Drag to resize; double-click to reset",
     resizeLeft: "Resize sidebar",
     resizeRight: "Resize Scope sidebar",
-    working: "Working…",
     alreadyThere: "Already there",
   },
 

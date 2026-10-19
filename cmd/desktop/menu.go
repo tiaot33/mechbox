@@ -34,8 +34,10 @@ var nativeLabels = map[Language]map[string]string{
 }
 
 // nativeMenus 记下 Go 这边画的菜单项，界面语言变了时逐项换文字。
-// 换文字要等主线程，所以只在 mu 下记录和取出菜单项，换文字时不持锁。
+// 换文字要等主线程，所以只在 mu 下记录和取出菜单项，换文字时不持 mu;几次换语言由 applyMu 排队。
+// 顶部菜单栏在 attach 时建好，那时还没读设置、文字是空的，ServiceStartup 定下语言后换上(都早于原生菜单画出来)。
 type nativeMenus struct {
+	applyMu  sync.Mutex
 	mu       sync.Mutex
 	language Language
 	labeled  []labeledItem
@@ -53,9 +55,19 @@ func (m *nativeMenus) label(item *application.MenuItem, key string) *application
 	}
 	m.mu.Lock()
 	m.labeled = append(m.labeled, labeledItem{item, key})
-	label := nativeLabels[m.language][key]
+	language := m.language
 	m.mu.Unlock()
-	return item.SetLabel(label)
+	// 写文字期间换了语言时，setLanguage 可能已经写过新文字、又被这里的旧文字盖掉，所以写完再对一次。
+	for {
+		item.SetLabel(nativeLabels[language][key])
+		m.mu.Lock()
+		current := m.language
+		m.mu.Unlock()
+		if current == language {
+			return item
+		}
+		language = current
+	}
 }
 
 func (m *nativeMenus) role(role application.Role, key string) *application.MenuItem {
@@ -106,6 +118,8 @@ func (m *nativeMenus) macMenu() *application.Menu {
 
 // setLanguage 换掉已经画出来的菜单项文字;顶部菜单栏整个重建一遍，菜单栏上的标题才会跟着变。
 func (m *nativeMenus) setLanguage(language Language) {
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
 	m.mu.Lock()
 	if language == m.language {
 		m.mu.Unlock()

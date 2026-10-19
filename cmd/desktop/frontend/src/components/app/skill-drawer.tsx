@@ -519,7 +519,8 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
 
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
 function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMetadata[] }) {
-  const t = useT().drawer;
+  const tt = useT();
+  const t = tt.drawer;
   const [path, setPath] = useState("SKILL.md");
   const [content, setContent] = useState<string | null | undefined>(undefined);
   const [raw, setRaw] = useState(false);
@@ -538,7 +539,7 @@ function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMeta
         <FileTree nodes={fileTree(files)} selected={path} onSelect={setPath} />
       </div>
       {content === undefined ? null : content === null ? (
-        <Notice>{t.binary}</Notice>
+        <Notice>{tt.common.binary}</Notice>
       ) : markdown ? (
         <>
           <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
@@ -659,7 +660,8 @@ function Code({ children }: { children: string }) {
 // 版本按这个技能入库以来的先后编号(版本 1 是入库时的那一份),不用库里全局的版本 ID。
 function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; currentID: VersionID }) {
   const ui = useUI();
-  const t = useT().drawer;
+  const tt = useT();
+  const t = tt.drawer;
   const number = new Map(versions.map((v, i) => [v.id, i + 1]));
   const list = [...versions].reverse();
   const [diff, setDiff] = useState<{ id: number; diff: VersionDiff } | null>(null);
@@ -734,7 +736,7 @@ function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; curre
               {label} {p}
             </div>
           ))}
-          {changes.length === 0 && <div className="text-[11px]">{t.sameContent}</div>}
+          {changes.length === 0 && <div className="text-[11px]">{tt.common.sameContent}</div>}
         </Notice>
       )}
       {viewing && (
@@ -753,7 +755,7 @@ function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; curre
               {t.collapse}
             </Button>
           </div>
-          {viewedText === null ? <Notice>{t.binary}</Notice> : viewedText !== undefined ? <Code>{viewedText}</Code> : null}
+          {viewedText === null ? <Notice>{tt.common.binary}</Notice> : viewedText !== undefined ? <Code>{viewedText}</Code> : null}
         </div>
       )}
     </Card>

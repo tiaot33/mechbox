@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AppService, CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
 import { unregisterProject } from "@/lib/actions";
-import { useLanguage, useT } from "@/lib/i18n";
+import { toLanguage, useLanguage, useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
@@ -32,7 +32,8 @@ type Section = (typeof sections)[number];
 
 export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onClose: () => void; onConfigChange: () => void }) {
   const ui = useUI();
-  const t = useT().settings;
+  const tt = useT();
+  const t = tt.settings;
   const { setLanguage } = useLanguage();
   const intervals: { value: CheckInterval; label: string }[] = [
     { value: CheckInterval.CheckOnOpen, label: t.onOpen },
@@ -66,15 +67,17 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
     return () => void call.cancel();
   }, []);
 
-  // 改语言时保存后再问 Go 端实际用哪种(跟随系统时由系统定),整个界面随之切换。
+  // 改语言时：选了具体语言的先切过去，保存期间打开的确认框也是新语言;跟随系统的由 Go 端按系统定。
+  // 保存完(包括保存失败退回原设置)都再问 Go 端实际用哪种，以它为准。
   const save = (change: Partial<Settings>) => {
     if (!latest.current) return;
     const next = { ...latest.current, ...change };
     show(next);
+    if (change.language) setLanguage(toLanguage(change.language));
     saving.current = saving.current.then(async () => {
       const saved = await ui.run(() => AppService.SaveSettings(next), { reload: false });
       if (!saved) await AppService.Settings().then(show, () => {});
-      if (saved && "language" in change) await AppService.Language().then((l) => setLanguage(l === "zh" ? "zh" : "en"), () => {});
+      if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
   };
 
@@ -102,7 +105,7 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
           </Button>
           <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b>{t.title}</b>
-            {ui.busy && <Spinner className="text-muted-foreground" title={t.working} />}
+            {ui.busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
           </span>
         </div>
       </header>

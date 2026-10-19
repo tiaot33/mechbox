@@ -57,7 +57,8 @@ export function Toolbar(props: ToolbarProps) {
   const { snapshot: s, scope } = props;
   const search = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
-  const t = useT().toolbar;
+  const tt = useT();
+  const t = tt.toolbar;
 
   // ⌘K 聚焦搜索框。
   useEffect(() => {
@@ -82,7 +83,7 @@ export function Toolbar(props: ToolbarProps) {
         <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
           <b>{props.title}</b>
           {props.count !== undefined && <Count value={props.count} />}
-          {props.busy && <Spinner className="text-muted-foreground" title={t.working} />}
+          {props.busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
         </span>
       </div>
       <div className="flex justify-center">
