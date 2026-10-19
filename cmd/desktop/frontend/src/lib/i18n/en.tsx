@@ -29,6 +29,8 @@ const manualDelete = () =>
     : System.IsLinux()
       ? "later delete them by hand by searching for com.tiaot33.mechbox in Passwords and Keys or KWalletManager"
       : "later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access";
+// deniedHint 是删不掉时猜的原因;Windows 上没有授权这一步，不猜。
+const deniedHint = () => (System.IsWindows() ? "" : " (access may have been denied)");
 
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
@@ -793,7 +795,7 @@ export const en = {
     trashing: (n: number) => `Moving ${count(n, "skill folder")} to the Trash…`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
-      `Couldn't delete the token and secrets in ${store()}${System.IsWindows() ? "" : " (access may have been denied)"}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip and ${manualDelete()}.`,
+      `Couldn't delete the token and secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip and ${manualDelete()}.`,
     failed: (error: string, keychainDeleted: boolean) =>
       `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the Trash can be put back from it; a retry skips them.${keychainDeleted ? ` The token and secrets in ${store()} have been deleted; re-enter them in Settings to keep using them.` : ""}`,
     done: "Uninstalled. Quitting…",

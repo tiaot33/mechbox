@@ -31,7 +31,7 @@ func (p partedCredential) get() ([]byte, bool, error) {
 	}
 	gen, count, parted, err := parseParts(blob)
 	if err != nil {
-		return nil, false, fmt.Errorf("credential %s: %w", p.target, err)
+		return nil, false, nil
 	}
 	if !parted {
 		return blob, true, nil
@@ -43,7 +43,7 @@ func (p partedCredential) get() ([]byte, bool, error) {
 			return nil, false, err
 		}
 		if !ok {
-			return nil, false, fmt.Errorf("credential %s: part %d of %d missing", p.target, i+1, count)
+			return nil, false, nil
 		}
 		value = append(value, part...)
 	}
@@ -55,13 +55,14 @@ func (p partedCredential) set(value []byte) error {
 	if err != nil {
 		return err
 	}
-	oldGen, oldCount, oldParted, _ := parseParts(old)
+	gen, _, _, _ := parseParts(old)
+	keep := map[string]bool{}
 	if len(value) <= credentialBlobLimit && !bytes.HasPrefix(value, partsHeader) {
 		if err := p.store.write(p.target, p.user, value); err != nil {
 			return err
 		}
 	} else {
-		gen := oldGen + 1
+		gen++
 		var parts [][]byte
 		for rest := value; len(rest) > 0; {
 			n := min(len(rest), credentialBlobLimit)
@@ -72,14 +73,19 @@ func (p partedCredential) set(value []byte) error {
 				p.removeParts(gen, i)
 				return err
 			}
+			keep[p.partTarget(gen, i)] = true
 		}
 		if err := p.store.write(p.target, p.user, fmt.Appendf(bytes.Clone(partsHeader), "%d:%d", gen, len(parts))); err != nil {
 			p.removeParts(gen, len(parts))
 			return err
 		}
 	}
-	if oldParted {
-		p.removeParts(oldGen, oldCount)
+	if targets, err := p.store.list(p.target + ":"); err == nil {
+		for _, target := range targets {
+			if !keep[target] {
+				_ = p.store.remove(target)
+			}
+		}
 	}
 	return nil
 }

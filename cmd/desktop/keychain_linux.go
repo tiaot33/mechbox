@@ -19,15 +19,12 @@ const (
 	secretsCollection = "org.freedesktop.Secret.Collection"
 	secretsItem       = "org.freedesktop.Secret.Item"
 	secretsSession    = "org.freedesktop.Secret.Session"
-	secretsPrompt     = "org.freedesktop.Secret.Prompt"
 	noObject          = dbus.ObjectPath("/")
 	secretsTimeout    = 30 * time.Second
+	promptTimeout     = 5 * time.Minute
 )
 
-var (
-	errNoSecretService = errors.New("no Secret Service on the D-Bus session bus (install and start GNOME Keyring or KWallet)")
-	errPromptDismissed = errors.New("Secret Service prompt dismissed")
-)
+var errNoSecretService = errors.New("no Secret Service on the D-Bus session bus (install and start GNOME Keyring or KWallet)")
 
 type secretValue struct {
 	Session     dbus.ObjectPath
@@ -130,11 +127,17 @@ type secretService struct {
 }
 
 func withSecretService(run func(*secretService) error) error {
-	conn, err := dbus.ConnectSessionBus()
+	conn, err := dbus.SessionBusPrivateNoAutoStartup()
 	if err != nil {
 		return fmt.Errorf("%w: %w", errNoSecretService, err)
 	}
 	defer conn.Close()
+	if err := conn.Auth(nil); err != nil {
+		return fmt.Errorf("%w: %w", errNoSecretService, err)
+	}
+	if err := conn.Hello(); err != nil {
+		return fmt.Errorf("%w: %w", errNoSecretService, err)
+	}
 	s := &secretService{conn: conn, signals: make(chan *dbus.Signal, 16)}
 	conn.Signal(s.signals)
 	return run(s)
@@ -228,19 +231,11 @@ func (s *secretService) prompt(prompt dbus.ObjectPath) (dbus.Variant, error) {
 	if err := s.call(prompt, secretsPrompt+".Prompt", []any{""}); err != nil {
 		return dbus.Variant{}, err
 	}
-	for signal := range s.signals {
-		if signal.Path != prompt || signal.Name != secretsPrompt+".Completed" {
-			continue
-		}
-		var dismissed bool
-		var result dbus.Variant
-		if err := dbus.Store(signal.Body, &dismissed, &result); err != nil {
-			return dbus.Variant{}, err
-		}
-		if dismissed {
-			return dbus.Variant{}, errPromptDismissed
-		}
-		return result, nil
+	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
+	defer cancel()
+	result, err := awaitPrompt(ctx, s.signals, prompt)
+	if errors.Is(err, errPromptTimeout) {
+		_ = s.call(prompt, secretsPrompt+".Dismiss", nil)
 	}
-	return dbus.Variant{}, errors.New("D-Bus connection closed while waiting for the Secret Service prompt")
+	return result, err
 }

@@ -26,7 +26,7 @@ const (
 	credPersistLocalMachine = 2
 )
 
-type credential struct {
+type credentialW struct {
 	Flags              uint32
 	Type               uint32
 	TargetName         *uint16
@@ -58,7 +58,7 @@ func (windowsCredentials) read(target string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	var cred *credential
+	var cred *credentialW
 	if ok, _, err := procCredReadW.Call(uintptr(unsafe.Pointer(name)), credTypeGeneric, 0, uintptr(unsafe.Pointer(&cred))); ok == 0 {
 		if errors.Is(err, windows.ERROR_NOT_FOUND) {
 			return nil, false, nil
@@ -78,7 +78,7 @@ func (windowsCredentials) write(target, user string, blob []byte) error {
 	if err != nil {
 		return err
 	}
-	cred := credential{
+	cred := credentialW{
 		Type:               credTypeGeneric,
 		TargetName:         name,
 		UserName:           userName,
@@ -111,7 +111,7 @@ func (windowsCredentials) list(prefix string) ([]string, error) {
 		return nil, err
 	}
 	var count uint32
-	var creds **credential
+	var creds **credentialW
 	if ok, _, err := procCredEnumerateW.Call(uintptr(unsafe.Pointer(filter)), 0, uintptr(unsafe.Pointer(&count)), uintptr(unsafe.Pointer(&creds))); ok == 0 {
 		if errors.Is(err, windows.ERROR_NOT_FOUND) {
 			return nil, nil

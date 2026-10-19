@@ -12,12 +12,19 @@ import (
 // fakeCredentials 模拟 Windows 凭据管理器：每条凭据的内容不超过 credentialBlobLimit,超过时像系统一样拒绝写入。
 type fakeCredentials struct {
 	items     map[string][]byte
+	failRead  bool
 	failWrite func(target string) bool
 }
 
-var errWriteFailed = errors.New("write failed")
+var (
+	errReadFailed  = errors.New("read failed")
+	errWriteFailed = errors.New("write failed")
+)
 
 func (f *fakeCredentials) read(target string) ([]byte, bool, error) {
+	if f.failRead {
+		return nil, false, errReadFailed
+	}
 	blob, ok := f.items[target]
 	return bytes.Clone(blob), ok, nil
 }
@@ -169,13 +176,84 @@ func TestPartedCredentialDeleteRemovesEveryPart(t *testing.T) {
 	}
 }
 
-func TestPartedCredentialReportsMissingPart(t *testing.T) {
+// 缺了一段或头坏了(例如在凭据管理器里手动删过)按没存过处理：设置页给出空表单，重填后覆盖掉，残留的分段一起清掉。
+func TestPartedCredentialTreatsBrokenItemAsNotStored(t *testing.T) {
 	p, store := newParted()
 	if err := p.set(bytes.Repeat([]byte("x"), credentialBlobLimit*2)); err != nil {
 		t.Fatal(err)
 	}
 	delete(store.items, p.partTarget(1, 1))
-	if _, _, err := p.get(); err == nil || !strings.Contains(err.Error(), "part 2 of 2 missing") {
-		t.Fatalf("get with a missing part = %v; want an error", err)
+	if _, ok, err := p.get(); ok || err != nil {
+		t.Fatalf("get with a missing part = %v, %v; want not stored", ok, err)
+	}
+	if err := p.set([]byte("fresh")); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Collect(maps.Keys(store.items)); len(got) != 1 || got[0] != p.target {
+		t.Fatalf("items after re-entering = %v; want only %s", got, p.target)
+	}
+	if got := mustGet(t, p); string(got) != "fresh" {
+		t.Fatalf("get after re-entering = %q", got)
+	}
+
+	for _, header := range []string{"mechbox-parts:", "mechbox-parts:1", "mechbox-parts:0:1", "mechbox-parts:1:0", "mechbox-parts:1:2:3", "mechbox-parts:a:1", "mechbox-parts:-1:1"} {
+		store.items[p.target] = []byte(header)
+		if _, ok, err := p.get(); ok || err != nil {
+			t.Fatalf("get with header %q = %v, %v; want not stored", header, ok, err)
+		}
+	}
+}
+
+func TestPartedCredentialSetCleansStaleParts(t *testing.T) {
+	p, store := newParted()
+	store.items[p.partTarget(7, 0)] = []byte("orphan")
+	store.items[p.partTarget(1, 5)] = []byte("orphan")
+	if err := p.set(bytes.Repeat([]byte("x"), credentialBlobLimit+1)); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{p.target, p.partTarget(1, 0), p.partTarget(1, 1)}
+	if got := slices.Sorted(maps.Keys(store.items)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
+		t.Fatalf("items = %v; want %v", got, want)
+	}
+}
+
+// 内容本身以分段头开头时也分段保存，读回来不会被当成分段头。
+func TestPartedCredentialValueLookingLikeHeader(t *testing.T) {
+	p, _ := newParted()
+	value := append(bytes.Clone(partsHeader), "1:1"...)
+	if err := p.set(value); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustGet(t, p); !bytes.Equal(got, value) {
+		t.Fatalf("get = %q; want %q", got, value)
+	}
+}
+
+func TestPartedCredentialEmptyValue(t *testing.T) {
+	p, _ := newParted()
+	if err := p.set(nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustGet(t, p); len(got) != 0 {
+		t.Fatalf("get = %q; want empty", got)
+	}
+}
+
+// 读不出来(系统报错)时如实返回错误，设置页按读不到处理，不覆盖。
+func TestPartedCredentialReportsReadError(t *testing.T) {
+	p, store := newParted()
+	if err := p.set([]byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	store.failRead = true
+	if _, _, err := p.get(); !errors.Is(err, errReadFailed) {
+		t.Fatalf("get = %v; want the read error", err)
+	}
+	if err := p.set([]byte("new")); !errors.Is(err, errReadFailed) {
+		t.Fatalf("set = %v; want the read error", err)
+	}
+	store.failRead = false
+	if got := mustGet(t, p); string(got) != "old" {
+		t.Fatalf("get after a failed set = %q; want old", got)
 	}
 }

@@ -1,4 +1,5 @@
 // 中文界面文案，文案的唯一来源：按界面区域分组，每条是字符串或函数(插值即参数);en.tsx 照这里的结构翻译。
+// 随平台变的条目(令牌与密钥存在哪里)写成零参函数，用到时现取平台。
 // 新增界面文案时两份一起写。
 import type { ReactNode } from "react";
 import { System } from "@wailsio/runtime";
@@ -19,6 +20,8 @@ const manualDelete = () =>
     : System.IsLinux()
       ? "之后在「密码和密钥」或 KWalletManager 里搜索 com.tiaot33.mechbox 手动删除"
       : "之后在「钥匙串访问」里搜索 com.tiaot33.mechbox 手动删除";
+// deniedHint 是删不掉时猜的原因;Windows 上没有授权这一步，不猜。
+const deniedHint = () => (System.IsWindows() ? "" : "(可能是拒绝了授权)");
 
 // keptAsIs 是重新安装时没动的地方：用户改过的、文件夹不在了的。
 const keptAsIs = (edited: number, missing: number) =>
@@ -742,7 +745,7 @@ export const zh = {
     trashing: (n: number) => `正在把 ${n} 个技能文件夹移到废纸篓…`,
     uninstalling: "正在卸载…",
     keychainFailed: (message: string) =>
-      `没能删除${store()}里的令牌和密钥${System.IsWindows() ? "" : "(可能是拒绝了授权)"}:${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，${manualDelete()}。`,
+      `没能删除${store()}里的令牌和密钥${deniedHint()}:${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，${manualDelete()}。`,
     failed: (error: string, keychainDeleted: boolean) =>
       `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到废纸篓的文件夹可以从废纸篓放回，重试时跳过它们。${keychainDeleted ? `已经删除了${store()}里的令牌和密钥，继续使用要在设置页重新填。` : ""}`,
     done: "已卸载，正在退出…",
