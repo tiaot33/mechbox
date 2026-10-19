@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build unix
 
 package main
 
@@ -27,6 +27,7 @@ func skillFolder(t *testing.T, dir, name string) string {
 	return folder
 }
 
+// readTrashInfo 读回收站里 name 对应的 .trashinfo。
 func readTrashInfo(t *testing.T, trash, name string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(trash, "info", name+".trashinfo"))
@@ -89,7 +90,7 @@ func TestFreedesktopTrashSkipsNameLeftInFilesWithoutInfo(t *testing.T) {
 	}
 	folder := skillFolder(t, t.TempDir(), "notes")
 
-	if err := trashInto(trash, "", folder); err != nil {
+	if err := trashInto(trash, folder, folder); err != nil {
 		t.Fatalf("trashInto: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(trash, "files", "notes.1", "SKILL.md")); err != nil {
@@ -107,7 +108,7 @@ func TestFreedesktopTrashLeavesFolderAndNoInfoWhenMoveFails(t *testing.T) {
 	}
 	missing := filepath.Join(t.TempDir(), "notes")
 
-	if err := trashInto(trash, "", missing); err == nil {
+	if err := trashInto(trash, missing, missing); err == nil {
 		t.Fatal("trashInto should fail for a folder that isn't there")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(trash, "info")); len(entries) != 0 {
@@ -130,7 +131,7 @@ func TestFreedesktopTopdirTrashRecordsPathRelativeToTop(t *testing.T) {
 	if info, err := os.Stat(trash); err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("trash should be created with mode 0700; Stat: %v, %v", info, err)
 	}
-	if err := trashInto(trash, top, folder); err != nil {
+	if err := trashInto(trash, folder, "work/proj/.claude/skills/notes"); err != nil {
 		t.Fatalf("trashInto: %v", err)
 	}
 	if info := readTrashInfo(t, trash, "notes"); !regexp.MustCompile(`\nPath=work/proj/\.claude/skills/notes\n`).MatchString(info) {

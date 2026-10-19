@@ -237,7 +237,7 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                 "uninstall",
                 null,
                 <SetRow>
-                  <Hint className="grow">{t.uninstallDesc}</Hint>
+                  <Hint className="grow">{t.uninstallDesc()}</Hint>
                   <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog s={s} onClose={close} />)}>
                     {t.uninstallButton}
                   </Button>

@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build unix
 
 package main
 
@@ -16,6 +16,13 @@ import (
 )
 
 func moveToFreedesktopTrash(path string) error {
+	if err := freedesktopTrash(path); err != nil {
+		return fmt.Errorf("move %s to trash: %w", path, err)
+	}
+	return nil
+}
+
+func freedesktopTrash(path string) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -35,12 +42,14 @@ func moveToFreedesktopTrash(path string) error {
 		return err
 	}
 	if err := prepareTrash(home); err != nil {
-		return fmt.Errorf("move %s to trash: %w", path, err)
-	}
-	if homeInfo, err := os.Stat(home); err != nil {
 		return err
-	} else if device(homeInfo) == dev {
-		return trashInto(home, "", path)
+	}
+	homeInfo, err := os.Stat(home)
+	if err != nil {
+		return err
+	}
+	if device(homeInfo) == dev {
+		return trashInto(home, path, path)
 	}
 	top, err := mountTop(parent, dev)
 	if err != nil {
@@ -48,9 +57,13 @@ func moveToFreedesktopTrash(path string) error {
 	}
 	trash, err := topdirTrash(top, os.Getuid())
 	if err != nil {
-		return fmt.Errorf("move %s to trash: %s is on another file system and its trash can't be used: %w", path, top, err)
+		return fmt.Errorf("%s is on another file system and its trash can't be used: %w", top, err)
 	}
-	return trashInto(trash, top, path)
+	original, err := filepath.Rel(top, path)
+	if err != nil {
+		return err
+	}
+	return trashInto(trash, path, original)
 }
 
 func homeTrash() (string, error) {
@@ -114,48 +127,53 @@ func prepareTrash(trash string) error {
 	return errors.Join(os.MkdirAll(filepath.Join(trash, "files"), 0o700), os.MkdirAll(filepath.Join(trash, "info"), 0o700))
 }
 
-func trashInto(trash, top, path string) error {
-	original := path
-	if top != "" {
-		rel, err := filepath.Rel(top, path)
-		if err != nil {
+var errTrashNameTaken = errors.New("name already taken in trash")
+
+func trashInto(trash, path, original string) error {
+	content := trashInfo(original, time.Now())
+	for i := 0; ; i++ {
+		name := filepath.Base(path)
+		if i > 0 {
+			name += "." + strconv.Itoa(i)
+		}
+		if err := trashAs(trash, name, path, content); !errors.Is(err, errTrashNameTaken) {
 			return err
 		}
-		original = rel
 	}
+}
+
+func trashAs(trash, name, path, content string) error {
+	info := filepath.Join(trash, "info", name+".trashinfo")
+	file, err := os.OpenFile(info, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return errTrashNameTaken
+	}
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString(content)
+	err = errors.Join(err, file.Close())
+	target := filepath.Join(trash, "files", name)
+	if err == nil {
+		if _, statErr := os.Lstat(target); statErr == nil {
+			err = errTrashNameTaken
+		}
+	}
+	if err == nil {
+		err = os.Rename(path, target)
+	}
+	if err != nil {
+		_ = os.Remove(info)
+	}
+	return err
+}
+
+func trashInfo(original string, deleted time.Time) string {
 	segments := strings.Split(filepath.ToSlash(original), "/")
 	for i, segment := range segments {
 		segments[i] = url.PathEscape(segment)
 	}
-	content := fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n", strings.Join(segments, "/"), time.Now().Format("2006-01-02T15:04:05"))
-	name := filepath.Base(path)
-	for i := 1; ; i++ {
-		info := filepath.Join(trash, "info", name+".trashinfo")
-		file, err := os.OpenFile(info, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if errors.Is(err, fs.ErrExist) {
-			name = filepath.Base(path) + "." + strconv.Itoa(i)
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("move %s to trash: %w", path, err)
-		}
-		_, err = file.WriteString(content)
-		if err := errors.Join(err, file.Close()); err != nil {
-			_ = os.Remove(info)
-			return fmt.Errorf("move %s to trash: %w", path, err)
-		}
-		target := filepath.Join(trash, "files", name)
-		if _, err := os.Lstat(target); err == nil {
-			_ = os.Remove(info)
-			name = filepath.Base(path) + "." + strconv.Itoa(i)
-			continue
-		}
-		if err := os.Rename(path, target); err != nil {
-			_ = os.Remove(info)
-			return fmt.Errorf("move %s to trash: %w", path, err)
-		}
-		return nil
-	}
+	return fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n", strings.Join(segments, "/"), deleted.Format("2006-01-02T15:04:05"))
 }
 
 func device(info fs.FileInfo) uint64 {
