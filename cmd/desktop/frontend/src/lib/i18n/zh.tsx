@@ -18,6 +18,9 @@ const keptPlaces = (edited: number, missing: number) => [
   missing ? `${missing} 个地方文件夹不在了，没动` : "",
 ];
 
+// bin 是卸载时技能文件夹移去的地方:Windows 上叫回收站，其他平台叫废纸篓。
+const bin = (windows: boolean) => (windows ? "回收站" : "废纸篓");
+
 export const zh = {
   common: {
     working: "正在处理…",
@@ -706,9 +709,9 @@ export const zh = {
   uninstall: {
     keep: "保留已安装的文件夹",
     keepDesc: "留在原处，Agent 照常使用;重装 Mechbox 后可以再入库，来源可能要重新填",
-    keepModified: (n: number) => `移到废纸篓，但保留被改过的 ${n} 处`,
-    keepModifiedDesc: "被改过的留在原处，其余移到废纸篓，Agent 不再能用",
-    trash: "全部移到废纸篓",
+    keepModified: (n: number, windows: boolean) => `移到${bin(windows)}，但保留被改过的 ${n} 处`,
+    keepModifiedDesc: (windows: boolean) => `被改过的留在原处，其余移到${bin(windows)}，Agent 不再能用`,
+    trash: (windows: boolean) => `全部移到${bin(windows)}`,
     trashDesc: (modified: number) => `Agent 不再能用这些技能${modified ? `;被改过的 ${modified} 处也一起移走` : ""}`,
     title: "卸载 Mechbox",
     cancel: "取消",
@@ -725,13 +728,13 @@ export const zh = {
       `${offMachine > 0 ? `另有 ${offMachine} 处在不在这台机器上的项目里，不受影响。` : ""}不是库装的技能不受影响。`,
     adopted: (inProjects: boolean) =>
       `也包括入库前就在那里、后来交给 Mechbox 管理的文件夹。${inProjects ? "项目里的文件夹如果已提交到仓库，移走后会出现在 git 改动里。" : ""}`,
-    modified: (n: number, trash: boolean) => `下面 ${n} 处被改过${trash ? "，会和其余的一起移到废纸篓" : ""}:`,
-    trashing: (n: number) => `正在把 ${n} 个技能文件夹移到废纸篓…`,
+    modified: (n: number, trash: boolean, windows: boolean) => `下面 ${n} 处被改过${trash ? `，会和其余的一起移到${bin(windows)}` : ""}:`,
+    trashing: (n: number, windows: boolean) => `正在把 ${n} 个技能文件夹移到${bin(windows)}…`,
     uninstalling: "正在卸载…",
     keychainFailed: (message: string) =>
       `没能删除系统钥匙串里的令牌和密钥(可能是拒绝了授权):${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，之后在「钥匙串访问」里搜索 com.tiaot33.mechbox 手动删除。`,
-    failed: (error: string, keychainDeleted: boolean) =>
-      `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到废纸篓的文件夹可以从废纸篓放回，重试时跳过它们。${keychainDeleted ? "系统钥匙串里的令牌和密钥已经删除，继续使用要在设置页重新填。" : ""}`,
+    failed: (error: string, keychainDeleted: boolean, windows: boolean) =>
+      `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到${bin(windows)}的文件夹可以从${bin(windows)}${windows ? "还原" : "放回"}，重试时跳过它们。${keychainDeleted ? "系统钥匙串里的令牌和密钥已经删除，继续使用要在设置页重新填。" : ""}`,
     done: "已卸载，正在退出…",
   },
 

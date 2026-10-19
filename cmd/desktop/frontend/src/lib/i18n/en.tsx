@@ -18,6 +18,8 @@ const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
+// bin 是卸载时技能文件夹移去的地方:Windows 上叫 Recycle Bin,其他平台叫 Trash。
+const bin = (windows: boolean) => (windows ? "Recycle Bin" : "Trash");
 
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
@@ -756,9 +758,9 @@ export const en = {
   uninstall: {
     keep: "Keep the installed folders",
     keepDesc: "They stay where they are and Agents keep using them; after reinstalling Mechbox you can fetch them again, though you may need to re-enter their Sources",
-    keepModified: (n: number) => `Move to the Trash, but keep the ${count(n, "edited place")}`,
-    keepModifiedDesc: "The edited ones stay where they are; the rest go to the Trash and Agents can no longer use them",
-    trash: "Move everything to the Trash",
+    keepModified: (n: number, windows: boolean) => `Move to the ${bin(windows)}, but keep the ${count(n, "edited place")}`,
+    keepModifiedDesc: (windows: boolean) => `The edited ones stay where they are; the rest go to the ${bin(windows)} and Agents can no longer use them`,
+    trash: (windows: boolean) => `Move everything to the ${bin(windows)}`,
     trashDesc: (modified: number) =>
       `Agents can no longer use these skills${modified ? `; the ${count(modified, "edited place")} ${modified === 1 ? "goes" : "go"} too` : ""}`,
     title: "Uninstall Mechbox",
@@ -776,14 +778,14 @@ export const en = {
       `${offMachine > 0 ? ` ${count(offMachine, "more place")} in projects not on this machine ${offMachine === 1 ? "isn't" : "aren't"} affected.` : ""} Skills not installed by the Library aren't affected.`,
     adopted: (inProjects: boolean) =>
       `This includes folders that were already there before fetching and were later handed over to Mechbox.${inProjects ? " Folders in projects that are committed to a repository will show up as git changes once moved." : ""}`,
-    modified: (n: number, trash: boolean) =>
-      `The ${count(n, "place")} below ${n === 1 ? "was" : "were"} edited${trash ? " and will be moved to the Trash with the rest" : ""}:`,
-    trashing: (n: number) => `Moving ${count(n, "skill folder")} to the Trash…`,
+    modified: (n: number, trash: boolean, windows: boolean) =>
+      `The ${count(n, "place")} below ${n === 1 ? "was" : "were"} edited${trash ? ` and will be moved to the ${bin(windows)} with the rest` : ""}:`,
+    trashing: (n: number, windows: boolean) => `Moving ${count(n, "skill folder")} to the ${bin(windows)}…`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
       `Couldn't delete the token and secrets in the system keychain (access may have been denied): ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip and later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access.`,
-    failed: (error: string, keychainDeleted: boolean) =>
-      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the Trash can be put back from it; a retry skips them.${keychainDeleted ? " The token and secrets in the system keychain have been deleted; re-enter them in Settings to keep using them." : ""}`,
+    failed: (error: string, keychainDeleted: boolean, windows: boolean) =>
+      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the ${bin(windows)} can be ${windows ? "restored" : "put back"} from it; a retry skips them.${keychainDeleted ? " The token and secrets in the system keychain have been deleted; re-enter them in Settings to keep using them." : ""}`,
     done: "Uninstalled. Quitting…",
   },
 

@@ -1,7 +1,8 @@
 // 卸载 Mechbox：设置页最后一个分区打开。先现查各处安装的状态，说清会删什么、已安装的技能文件夹怎么处理
-// (默认保留;移到废纸篓时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
+// (默认保留;移到废纸篓(Windows 上是回收站)时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
 // 退出后删除数据库与设置，把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
 import { useEffect, useState } from "react";
+import { System } from "@wailsio/runtime";
 import { AppService, LibraryService, UninstallFolders, type ConfigStatus } from "@bindings/cmd/desktop";
 import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
@@ -26,6 +27,7 @@ type Phase =
 export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => void }) {
   const ui = useUI();
   const t = useT().uninstall;
+  const windows = System.IsWindows();
   const [places, setPlaces] = useState<SkillScopeInspection[]>();
   const [config, setConfig] = useState<ConfigStatus>();
   const [folders, setFolders] = useState<string>(UninstallFolders.FoldersKeep);
@@ -57,14 +59,14 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
       ? [
           {
             value: UninstallFolders.FoldersKeepModified,
-            label: t.keepModified(modified.length),
-            desc: t.keepModifiedDesc,
+            label: t.keepModified(modified.length, windows),
+            desc: t.keepModifiedDesc(windows),
           },
         ]
       : []),
     {
       value: UninstallFolders.FoldersTrash,
-      label: t.trash,
+      label: t.trash(windows),
       desc: t.trashDesc(modified.length),
     },
   ];
@@ -151,7 +153,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
             {modified.length > 0 && (
               <>
                 <Notice tone="warn">
-                  {t.modified(modified.length, folders === UninstallFolders.FoldersTrash)}
+                  {t.modified(modified.length, folders === UninstallFolders.FoldersTrash, windows)}
                 </Notice>
                 <ListBox>
                   {modified.map((p) => (
@@ -170,7 +172,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
           </>
         )
       )}
-      {phase.kind === "working" && <Hint>{moving > 0 ? t.trashing(moving) : t.uninstalling}</Hint>}
+      {phase.kind === "working" && <Hint>{moving > 0 ? t.trashing(moving, windows) : t.uninstalling}</Hint>}
       {phase.kind === "keychain" && (
         <Notice tone="warn" className="whitespace-pre-line">
           {t.keychainFailed(phase.message)}
@@ -178,7 +180,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
       )}
       {phase.kind === "failed" && (
         <Notice tone="bad" className="whitespace-pre-line">
-          {t.failed(describeError(phase.error), !phase.skippedKeychain)}
+          {t.failed(describeError(phase.error), !phase.skippedKeychain, windows)}
         </Notice>
       )}
       {phase.kind === "done" && <Notice tone="ok">{t.done}</Notice>}

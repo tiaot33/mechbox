@@ -87,7 +87,7 @@ open bin/mechbox.app
 - **GitHub 令牌与同步设置**:设置页填的令牌、Secret Access Key、Session Token 存在 macOS 系统钥匙串(一个条目，服务名 `com.tiaot33.mechbox`),其余几项存在 `settings.json` 的 `sync` 下;都不进技能库、不随同步走(ADR 0011)。启动时和点保存后交给技能库;令牌没填时技能库读 `GITHUB_TOKEN` / `GH_TOKEN`,同步设置全部留空时读 `SKILLS_S3_*`、`AWS_*`,填了任意一项就整组用设置页的。应用换了签名(每次重新编译、`wails3 dev` 重启)后第一次读取时 macOS 会询问是否允许;拒绝后打开设置页会再读一次，仍读不到时这两个分区只显示「重试」,不能修改。
 - **自动检查更新**：默认打开、每天。Go 端每分钟看一次是否到了间隔（以技能库里记下的检查时间为准，从未检查过的技能从入库时算起，手动检查也算）；“只在打开时”是启动应用、从菜单栏或 Dock 重新打开窗口时各检查一次。只检查非本地目录来源的集合，不发系统通知；检查完更新 Dock 角标，并发 `updates-checked` 事件让前端重读。
 - **Dock 角标**：计入角标的技能数，按技能库给出的 `UpdateCheck.Pending`(有新版本且没跳过、来源里已删除且没选继续保留、推测出改名;本地目录来源、跳过的改动、新技能不计入),和左栏"更新"的计数一致；前端每次重读快照后经 `AppService.RefreshBadge` 重算。只在 macOS 上显示。
-- **卸载 Mechbox**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、系统钥匙串里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删钥匙串条目——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;server 模式与 macOS 以外的平台只删数据库与 `settings.json`,文件夹直接删除，没有废纸篓。
+- **卸载 Mechbox**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、系统钥匙串里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删钥匙串条目——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;server 模式与 macOS 以外的平台只删数据库与 `settings.json`;文件夹在 Windows 上移到回收站(弹窗里的「废纸篓 / Trash」在 Windows 上换成「回收站 / Recycle Bin」),在 Linux 上按 freedesktop 规范移进 `$XDG_DATA_HOME/Trash`(默认 `~/.local/share/Trash`;与家目录不在同一个文件系统上时放进那个卷顶层的 `.Trash/$uid` 或 `.Trash-$uid`),进不了回收站时报错、留在原处，不直接删除;server 模式下文件夹直接删除。
 - **界面语言**：设置页「通用」里选跟随系统(默认)、简体中文或 English,存在 `settings.json` 的 `language`(跟随系统时不写)。跟随系统时由 Go 端判断系统语言(`AppService.Language`):macOS 读系统设置里排第一的首选语言(`[NSLocale preferredLanguages]`,不用 WebView 的 `navigator.language`,它跟随 app bundle 声明的语言),其他平台与 server 模式读 `LC_ALL` / `LC_MESSAGES` / `LANG`;首选中文(含繁体)时用中文，其余用英文。前端等 Go 端给出语言再渲染，改了设置整个界面立即切换，菜单栏图标的菜单与 macOS 顶部菜单栏同时换文字。系统控件(目录选择框的按钮、输入框的右键菜单等)跟随系统语言，不跟随这里的选择;`Info.plist` 声明了 en 与 zh-Hans 两种本地化，系统控件才会按系统语言显示中文。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
 - **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。
@@ -133,7 +133,7 @@ cmd/desktop/
 ├── keychain_darwin.go      macOS 系统钥匙串(其他平台与 server 模式见 keychain_other.go,只存在内存里)
 ├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
 ├── reveal_darwin.go        在 Finder 中显示(其他平台与 server 模式见 reveal_other.go,什么都不做)
-├── uninstall.go            卸载 Mechbox：删钥匙串条目、移走文件夹，退出后删数据库与设置(uninstall_darwin.go 清 ~/Library、移到废纸篓;其他平台与 server 模式见 uninstall_other.go,文件夹直接删除)
+├── uninstall.go            卸载 Mechbox：删钥匙串条目、移走文件夹，退出后删数据库与设置(uninstall_darwin.go 清 ~/Library、移到废纸篓;uninstall_windows.go 移到回收站;uninstall_linux.go 移进 freedesktop 回收站，实现在 trash_freedesktop.go;server 模式见 uninstall_server.go,文件夹直接删除)
 ├── library_methods.go      绑定服务：逐个转发 Library 的全部方法
 ├── e2e/                    端到端验证(server 模式 + Chrome)
 ├── pnpm-workspace.yaml     pnpm workspace:frontend 与 e2e,共用 pnpm-lock.yaml
