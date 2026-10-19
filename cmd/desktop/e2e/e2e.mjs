@@ -1340,6 +1340,48 @@ await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单�
   await closeDrawer();
 });
 
+await step("删除已安装的文件夹 → 全部重新安装：文件夹不在了的默认不动，可以装回去或卸载", async () => {
+  const gone = path.join(await scopeDir(), "gamma");
+  const refresh = async () => {
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
+  };
+  const reinstallAll = async () => {
+    await btn(page.locator(".a-scope-sum"), "全部重新安装").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "重新安装前确认" }).waitFor();
+  };
+  const row = () => modal().locator('[data-slot="list-row"]', { hasText: "gamma" });
+  fs.rmSync(gone, { recursive: true });
+  await refresh();
+  await reinstallAll();
+  assert.equal(await row().locator('button[aria-pressed="true"]').textContent(), "不动", "默认不动");
+  await btn(modal(), "确定").click();
+  await toast("1 处文件夹不在了，没动");
+  await settle();
+  assert(!fs.existsSync(gone), "没选装回去时不装回去");
+
+  await reinstallAll();
+  await btn(modal(), "全部装回去").click();
+  await btn(modal(), "确定").click();
+  await toast("已重新安装 1 处");
+  await settle();
+  assert(fs.existsSync(path.join(gone, "SKILL.md")), "选了装回去就装回去");
+
+  fs.rmSync(gone, { recursive: true });
+  await refresh();
+  await reinstallAll();
+  await btn(row(), "卸载").click();
+  await btn(modal(), "确定").click();
+  await toast("卸载了 1 处");
+  await settle();
+  assert.equal(await card("gamma").locator('[role="switch"]').getAttribute("aria-checked"), "false", "选了卸载就不再装在这里");
+  assert(!fs.existsSync(gone), "卸载不会把文件夹装回去");
+  // 后面的步骤还要用 proj-a 里的 gamma,装回来。
+  await card("gamma").locator('[role="switch"]').click();
+  await toast("已安装「gamma」");
+  await settle();
+});
+
 // ============ 更新 ============
 // URL 来源的更新：改写 zip 里的 delta(带一个新脚本),检查更新 → 更新列表(风险提示)→ 按默认勾选更新，装出去的地方一起换成新版;
 // 之后在历史里回滚、从更新计划里把回滚掉的改动找回来。
@@ -1455,13 +1497,17 @@ await step("详情：本地目录来源重新读取，一个操作完成，改�
   await settle();
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "Codex 全局的 gamma 应为 v3");
   assert(projSkill("gamma").includes("edited by hand"), "改过的地方保持原样");
-  // 目录没变、装出去的地方却没换上(这里是文件夹不在了)时，再点一次重新读取把它补上，改过的地方照样不动。
+  // 文件夹不在了的地方可能是用户有意删掉的：重新读取不把它装回去，改过的地方照样不动;要装回去在那一行单独重新安装。
   fs.rmSync(codexGlobal, { recursive: true });
   await btn(drawer(), "重新读取").click();
-  await toast("已重新读取「gamma」 · 内容没有变化 · 换到了 1 个地方 · 1 个地方你改过，没动");
+  await toast("「gamma」的内容没有变化 · 1 个地方你改过，没动 · 1 个地方文件夹不在了，没动");
+  await settle();
+  assert(!fs.existsSync(codexGlobal), "重新读取不装回文件夹不在了的地方");
+  assert(projSkill("gamma").includes("edited by hand"), "改过的地方仍保持原样");
+  await btn(drawer().locator(".scope-table tbody tr", { hasText: "Codex · 全局" }), "重新安装").click();
+  await toast("已重新安装 1 处");
   await settle();
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "Codex 全局的 gamma 应重新装回 v3");
-  assert(projSkill("gamma").includes("edited by hand"), "改过的地方仍保持原样");
   // 上次重新读取没换上的地方，补装算进那次更新：回滚那次更新时它也一起装回旧版。
   fs.writeFileSync(`${SK}/gamma/SKILL.md`, '---\nname: gamma\ndescription: "gamma v4"\n---\n\n# gamma v4\n');
   const codexSkills = path.dirname(codexGlobal);

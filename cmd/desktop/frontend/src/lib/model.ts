@@ -170,6 +170,9 @@ export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): Skill
   return s.skillScopes.find((p) => p.skill_id === skillID && scopeKey(p.scope) === key);
 }
 
+// folderKey 是装出去的实际文件夹:几个 Agent 共用一个目录时，它们的这一处是同一个文件夹，只能一起换、一起装回去或卸载。
+export const folderKey = (p: SkillScopeInspection) => `${p.skill_id}|${p.folder}`;
+
 export function needsReinstall(p: SkillScopeInspection): boolean {
   return p.status !== SkillScopeStatus.SkillScopeCurrent;
 }

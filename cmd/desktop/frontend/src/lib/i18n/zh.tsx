@@ -8,6 +8,16 @@ const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库�
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
 const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}${w.total > 2 ? ` 等 ${w.total} 处` : ""}` : "没装在任何地方");
 
+// keptAsIs 是重新安装时没动的地方：用户改过的、文件夹不在了的。
+const keptAsIs = (edited: number, missing: number) =>
+  [edited ? `${edited} 处改过的保持原样` : "", missing ? `${missing} 处文件夹不在了，没动` : ""].filter(Boolean).join(";");
+
+// keptPlaces 是更新时没动的地方，接在更新结果的句子后面。
+const keptPlaces = (edited: number, missing: number) => [
+  edited ? `${edited} 个地方你改过，没动` : "",
+  missing ? `${missing} 个地方文件夹不在了，没动` : "",
+];
+
 export const zh = {
   common: {
     working: "正在处理…",
@@ -151,13 +161,26 @@ export const zh = {
     groupDeleted: "已删除组",
     reinstallSkill: (name: string) => `「${name}」`,
     allCurrent: (what: string) => `${what}已安装的都是当前版本`,
-    keptEdited: (n: number) => `${n} 处改过的保持原样`,
-    nothingReinstalled: (what: string, kept: number) => `没有重新安装(${what})${kept ? `;${kept} 处改过的保持原样` : ""}`,
+    kept: keptAsIs,
+    nothingReinstalled: (what: string, edited: number, missing: number) =>
+      [`没有重新安装(${what})`, keptAsIs(edited, missing)].filter(Boolean).join(";"),
     reinstallTitle: (what: string) => `重新安装(${what})`,
     reinstall: "重新安装",
-    reinstallPartly: "部分未能重新安装",
-    reinstalled: (done: number, what: string, kept: number) => `已重新安装 ${done} 处(${what})${kept ? `;${kept} 处改过的保持原样` : ""}`,
+    reinstallPartly: "部分未能完成",
+    reinstalled: (placed: number, uninstalled: number, what: string, edited: number, missing: number) =>
+      [placed || !uninstalled ? `已重新安装 ${placed} 处(${what})` : "", uninstalled ? `卸载了 ${uninstalled} 处` : "", keptAsIs(edited, missing)]
+        .filter(Boolean)
+        .join(";"),
+    notUninstalled: "没卸载",
     modifiedTitle: "有技能文件夹被改过",
+    reinstallConfirmTitle: "重新安装前确认",
+    putBackAll: "全部装回去",
+    missingNotice: (n: number) => `有 ${n} 处的文件夹不在了。可能是你在 app 之外删掉的，也可能是误删，或者这台机器还没装过。`,
+    missingPlace: (skill: string, scopes: string[]) => `${skill} · ${scopes.join("、")}`,
+    missingShared: (agents: string[]) => `和 ${agents.join("、")} 共用一个文件夹，一起装回去或卸载`,
+    missingGrouped: (groups: string[]) => `随「${groups.join("」「")}」安装，不能单独卸载`,
+    leaveAlone: "不动",
+    putBack: "装回去",
     reinstallOverwrite: (n: number) => `重新安装并覆盖 ${n} 处`,
     modifiedNotice: "下面这些地方和库里任何版本都对不上，可能被手动改过。勾选的会被库里的当前版本覆盖，改动会丢掉;没勾选的保持原样。",
     detach: (scopes: string[], name: string, folder: string, when: "delete" | "replace" | "move") => {
@@ -254,16 +277,16 @@ export const zh = {
         .join(" · "),
     confirmTitle: (label: string) => `更新 ${label}`,
     update: "更新",
-    summaryFromScope: (from: string, label: string, placed: number, keptEdited: number) =>
-      [`已用 ${from} 里的修改更新「${label}」`, placed ? `换到了 ${placed} 个地方` : "", keptEdited ? `${keptEdited} 个地方你改过，没动` : ""]
+    summaryFromScope: (from: string, label: string, placed: number, keptEdited: number, keptMissing: number) =>
+      [`已用 ${from} 里的修改更新「${label}」`, placed ? `换到了 ${placed} 个地方` : "", ...keptPlaces(keptEdited, keptMissing)]
         .filter(Boolean)
         .join(" · "),
-    summary: (local: boolean, label: string, changed: number, placed: number, keptEdited: number) =>
+    summary: (local: boolean, label: string, changed: number, placed: number, keptEdited: number, keptMissing: number) =>
       [
         local ? `已重新读取「${label}」` : `已更新 ${label}`,
         changed ? `${changed} 个技能换了新版本` : "内容没有变化",
         placed ? `换到了 ${placed} 个地方` : "",
-        keptEdited ? `${keptEdited} 个地方你改过，没动` : "",
+        ...keptPlaces(keptEdited, keptMissing),
       ]
         .filter(Boolean)
         .join(" · "),
@@ -281,8 +304,8 @@ export const zh = {
     sourceMoved: (name: string) => `${name} 的来源刚又变了，请打开更新计划重新看`,
     goneFromDirectory: (name: string) => `目录里已经没有「${name}」了`,
     directoryMoved: "目录在读取期间又变了，请再重新读取一次",
-    unchanged: (name: string, keptEdited: number) =>
-      [`「${name}」的内容没有变化`, keptEdited ? `${keptEdited} 个地方你改过，没动` : ""].filter(Boolean).join(" · "),
+    unchanged: (name: string, keptEdited: number, keptMissing: number) =>
+      [`「${name}」的内容没有变化`, ...keptPlaces(keptEdited, keptMissing)].filter(Boolean).join(" · "),
     rereadTitle: (name: string) => `重新读取「${name}」`,
     reinstall: "重新安装",
     rollbackReinstalled: "已装回",
@@ -330,7 +353,7 @@ export const zh = {
     deletedInSource: (source: string, name: string) => `作者已从 ${source} 删掉了「${name}」。你的副本还在，可以继续用。`,
     remove: "移除",
     keep: "继续保留",
-    rereadTitle: "从目录读出当前内容成为新版本，并换到装过它的地方(你改过的地方不动)",
+    rereadTitle: "从目录读出当前内容成为新版本，并换到装过它的地方(你改过的、文件夹不在了的地方不动)",
     reread: "重新读取",
     reinstallAll: "全部重新安装",
     historyTitle: (name: string) => `「${name}」的更新历史`,
@@ -546,7 +569,7 @@ export const zh = {
     modifiedHere: "你在这里改过，换新版会覆盖你的修改",
     notPlaced: "勾选的技能还没有装到任何地方，只更新技能库。",
     rootMissing: "项目不在这台机器上，装不上",
-    folderMissing: "文件夹不在了",
+    folderMissing: "文件夹不在了，可能是你删掉的;勾上会装回去",
     sharedFolder: (agents: string[]) => `和 ${agents.join("、")} 共用一个文件夹，一起换`,
     linkedHere: (scopes: string[]) => `${scopes.join("、")} 链着这里，没勾，会先换成独立的一份，保持现在的内容`,
   },

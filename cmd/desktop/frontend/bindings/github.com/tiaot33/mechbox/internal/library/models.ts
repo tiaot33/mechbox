@@ -401,7 +401,7 @@ export enum ErrorCode {
 
     /**
      * NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref),
-     * 或更新时来源里已经没有勾选的某个技能。
+     * 或更新时来源里已经没有勾选的某个技能,或重新安装时这一处的文件夹不在了、且没同意装回去(Details.Path 为技能文件夹;同意后可再重新安装)。
      * 不可重试。UI:提示目标不存在;名字类看 Details.Name。
      */
     NotFound = "not_found",
@@ -1172,7 +1172,7 @@ export enum ReinstallOutcome {
     $zero = "",
 
     /**
-     * 换成了当前版本,包括把不在了的文件夹放回去、把符号链接换成独立的文件夹
+     * 换成了当前版本,包括同意后把不在了的文件夹装回去、把符号链接换成独立的文件夹
      */
     Reinstalled = "reinstalled",
 
@@ -1195,7 +1195,8 @@ export interface ReinstallRequest {
     "scope": Scope;
 
     /**
-     * Overwrite 只对这一处有效:这里被改过(modified)时,同意用库里的当前版本覆盖。默认不覆盖。
+     * Overwrite 只对这一处有效:同意动用户在这里留下的样子。这里被改过(modified)时用库里的当前版本覆盖;
+     * 文件夹不在了(missing,可能是用户有意删掉的)时装回去。默认都不做。
      */
     "overwrite": boolean;
 }
@@ -1204,7 +1205,8 @@ export interface ReinstallRequest {
  * ReinstallResult 是一处的重新安装结果。Error 仅在 ReinstallFailed 时非空:
  *   - AlreadyExists:这里被改过,且没同意覆盖(Details.Path 为技能文件夹);
  *   - FailedPrecondition:作用域根目录不存在,即项目不在这台机器上(Details.Path 为根目录,项目带 ProjectID);
- *   - NotFound:执行到这一处时技能已不装在这里,或技能、Agent、项目已不在库里;
+ *   - NotFound:这里的文件夹不在了,且没同意装回去(Details.Path 为技能文件夹);或执行到这一处时技能已不装在这里,
+ *     或技能、Agent、项目已不在库里(Details.Path 为空);
  *   - 其他为权限或 I/O 故障。
  */
 export interface ReinstallResult {
@@ -1672,7 +1674,7 @@ export enum SkillScopeStatus {
     SkillScopeRootMissing = "root_missing",
 
     /**
-     * 技能文件夹不在了(包括整个 Agent 目录不在了);重新安装会把它放回去
+     * 技能文件夹不在了(包括整个 Agent 目录不在了),可能是用户有意删掉的,也可能是误删或这台机器还没装过;重新安装要明确同意才装回去
      */
     SkillScopeMissing = "missing",
 
@@ -2226,8 +2228,8 @@ export interface UpdateRequest {
     "skills": SkillID[] | null;
 
     /**
-     * Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方,
-     * Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。用目录里的修改更新时不能列取内容的那个文件夹。
+     * Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方
+     * Overwrite 为 true 才覆盖,文件夹不在了(missing)的地方 Overwrite 为 true 才装回去,也就是勾选即同意。没勾的地方保持原样。用目录里的修改更新时不能列取内容的那个文件夹。
      */
     "installs"?: ReinstallRequest[] | null;
 }

@@ -25,7 +25,8 @@ type SkillScopeFilter struct {
 type ReinstallRequest struct {
 	SkillID SkillID `json:"skill_id"`
 	Scope   Scope   `json:"scope"`
-	// Overwrite 只对这一处有效:这里被改过(modified)时,同意用库里的当前版本覆盖。默认不覆盖。
+	// Overwrite 只对这一处有效:同意动用户在这里留下的样子。这里被改过(modified)时用库里的当前版本覆盖;
+	// 文件夹不在了(missing,可能是用户有意删掉的)时装回去。默认都不做。
 	Overwrite bool `json:"overwrite"`
 }
 
@@ -33,7 +34,7 @@ type ReinstallRequest struct {
 type ReinstallOutcome string
 
 const (
-	Reinstalled      ReinstallOutcome = "reinstalled" // 换成了当前版本,包括把不在了的文件夹放回去、把符号链接换成独立的文件夹
+	Reinstalled      ReinstallOutcome = "reinstalled" // 换成了当前版本,包括同意后把不在了的文件夹装回去、把符号链接换成独立的文件夹
 	ReinstallCurrent ReinstallOutcome = "current"     // 本来就是当前版本,没动;符号链接那一处不算,照样写成独立的文件夹
 	ReinstallFailed  ReinstallOutcome = "failed"      // 没换上,原因见 Error;这一处保持原样
 )
@@ -41,7 +42,8 @@ const (
 // ReinstallResult 是一处的重新安装结果。Error 仅在 ReinstallFailed 时非空:
 //   - AlreadyExists:这里被改过,且没同意覆盖(Details.Path 为技能文件夹);
 //   - FailedPrecondition:作用域根目录不存在,即项目不在这台机器上(Details.Path 为根目录,项目带 ProjectID);
-//   - NotFound:执行到这一处时技能已不装在这里,或技能、Agent、项目已不在库里;
+//   - NotFound:这里的文件夹不在了,且没同意装回去(Details.Path 为技能文件夹);或执行到这一处时技能已不装在这里,
+//     或技能、Agent、项目已不在库里(Details.Path 为空);
 //   - 其他为权限或 I/O 故障。
 type ReinstallResult struct {
 	SkillID SkillID          `json:"skill_id"`
@@ -57,7 +59,7 @@ type SkillScopeStatus string
 
 const (
 	SkillScopeRootMissing SkillScopeStatus = "root_missing" // 作用域根目录不存在,即项目不在这台机器上;重新安装也装不上,先把已登记项目指到本机路径
-	SkillScopeMissing     SkillScopeStatus = "missing"      // 技能文件夹不在了(包括整个 Agent 目录不在了);重新安装会把它放回去
+	SkillScopeMissing     SkillScopeStatus = "missing"      // 技能文件夹不在了(包括整个 Agent 目录不在了),可能是用户有意删掉的,也可能是误删或这台机器还没装过;重新安装要明确同意才装回去
 	SkillScopeCurrent     SkillScopeStatus = "current"      // 和库里的当前版本完全一致
 	SkillScopeStale       SkillScopeStatus = "stale"        // 和库里某个旧版本完全一致;重新安装不用额外确认
 	SkillScopeModified    SkillScopeStatus = "modified"     // 和库里任何版本都对不上(包括多了、少了文件,或有不是普通文件的东西),即用户在这里改过;重新安装要明确同意覆盖
@@ -210,8 +212,8 @@ func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID
 
 // Reinstall 把列出的每一处换成技能在库里的当前版本,不改变留着它们的直接安装与组安装,SkillScope.CreatedAt 不变。
 // 只换列出的几处:巡检之后才多出来的安装不会被一起换掉。逐处执行,结果与 requests 一一对应、顺序相同;
-// 每一处各自要么换成功、要么保持原样,一处失败不影响其他处。本来就是当前版本的不动;落后的、文件夹不在了的
-// (可重建 Agent 目录)换成当前版本;被改过的只在这一处的 Overwrite 同意时覆盖。是符号链接的那一处(见 SkillScopeInspection.LinkTarget)
+// 每一处各自要么换成功、要么保持原样,一处失败不影响其他处。本来就是当前版本的不动;落后的换成当前版本;
+// 被改过的只在这一处的 Overwrite 同意时覆盖,文件夹不在了的只在 Overwrite 同意时装回去(可重建 Agent 目录)。是符号链接的那一处(见 SkillScopeInspection.LinkTarget)
 // 写成独立的文件夹,不写进链接指向的地方,链接读到的已是当前版本时也一样。别处的链接指着要写的这一处、而那一处没列出时
 // (SkillScopeInspection.LinkedBy),先给它换上独立的一份,保持它现在读到的内容。
 // 状态问题记在这一处的结果里(见 ReinstallResult),不让整次调用失败;只有请求本身不合法(Scope 组合非法、
@@ -339,6 +341,10 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	case SkillScopeModified:
 		if !request.Overwrite {
 			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)})
+		}
+	case SkillScopeMissing:
+		if !request.Overwrite {
+			return "", false, &Error{Code: NotFound, Message: operation + ": installed folder was deleted outside the library", Details: ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)}}
 		}
 	}
 	folder := place[0].Folder

@@ -6,6 +6,14 @@ import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model"
 const and = (items: string[]) => new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 // count 是"1 skill"、"3 skills";不规则的复数给出 many。
 const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en")} ${n === 1 ? one : many}`;
+// keptAsIs 是重新安装时没动的地方：用户改过的、文件夹不在了的。
+const keptAsIs = (edited: number, missing: number) =>
+  [edited ? `${count(edited, "edited place")} left as is` : "", missing ? `${count(missing, "missing folder")} left alone` : ""].filter(Boolean).join("; ");
+// keptPlaces 是更新时没动的地方，接在更新结果的句子后面。
+const keptPlaces = (edited: number, missing: number) => [
+  edited ? `${count(edited, "place")} you edited left alone` : "",
+  missing ? `${count(missing, "missing folder")} left alone` : "",
+];
 const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : "unmanaged")));
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
@@ -163,15 +171,32 @@ export const en = {
     groupDeleted: "Group deleted",
     reinstallSkill: (name: string) => `“${name}”`,
     allCurrent: (what: string) => `Everything installed for ${what} is already the current Version`,
-    keptEdited: (n: number) => `${count(n, "edited place")} left as is`,
-    nothingReinstalled: (what: string, kept: number) =>
-      `Nothing reinstalled (${what})${kept ? `; ${count(kept, "edited place")} left as is` : ""}`,
+    kept: keptAsIs,
+    nothingReinstalled: (what: string, edited: number, missing: number) =>
+      [`Nothing reinstalled (${what})`, keptAsIs(edited, missing)].filter(Boolean).join("; "),
     reinstallTitle: (what: string) => `Reinstall (${what})`,
     reinstall: "Reinstall",
-    reinstallPartly: "Some couldn't be reinstalled",
-    reinstalled: (done: number, what: string, kept: number) =>
-      `Reinstalled in ${count(done, "place")} (${what})${kept ? `; ${count(kept, "edited place")} left as is` : ""}`,
+    reinstallPartly: "Some couldn't be completed",
+    reinstalled: (placed: number, uninstalled: number, what: string, edited: number, missing: number) =>
+      [
+        placed || !uninstalled ? `Reinstalled in ${count(placed, "place")} (${what})` : "",
+        uninstalled ? `${count(uninstalled, "place")} uninstalled` : "",
+        keptAsIs(edited, missing),
+      ]
+        .filter(Boolean)
+        .join("; "),
+    notUninstalled: "Not uninstalled",
     modifiedTitle: "Some skill folders were edited",
+    reinstallConfirmTitle: "Confirm before reinstalling",
+    putBackAll: "Put all back",
+    missingNotice: (n: number) =>
+      `The folder is gone in ${count(n, "place")}. You may have deleted it outside the app or by mistake, or it was never installed on this machine.`,
+    missingPlace: (skill: string, scopes: string[]) => `${skill} · ${scopes.join(", ")}`,
+    missingShared: (agents: string[]) => `Shares a folder with ${and(agents)}; put back or uninstalled together`,
+    missingGrouped: (groups: string[]) =>
+      `Installed through the ${and(groups.map((g) => `“${g}”`))} Group${groups.length > 1 ? "s" : ""}; can't be uninstalled on its own`,
+    leaveAlone: "Leave",
+    putBack: "Put back",
     reinstallOverwrite: (n: number) => `Reinstall and overwrite ${count(n, "place")}`,
     modifiedNotice:
       "These places don't match any Version in the Library and may have been edited by hand. Checked ones are overwritten with the current Version from the Library, losing the edits; unchecked ones stay as they are.",
@@ -279,20 +304,16 @@ export const en = {
         .join(" · "),
     confirmTitle: (label: string) => `Update ${label}`,
     update: "Update",
-    summaryFromScope: (from: string, label: string, placed: number, keptEdited: number) =>
-      [
-        `Updated “${label}” with the edits in ${from}`,
-        placed ? `placed in ${count(placed, "place")}` : "",
-        keptEdited ? `${count(keptEdited, "place")} you edited left alone` : "",
-      ]
+    summaryFromScope: (from: string, label: string, placed: number, keptEdited: number, keptMissing: number) =>
+      [`Updated “${label}” with the edits in ${from}`, placed ? `placed in ${count(placed, "place")}` : "", ...keptPlaces(keptEdited, keptMissing)]
         .filter(Boolean)
         .join(" · "),
-    summary: (local: boolean, label: string, changed: number, placed: number, keptEdited: number) =>
+    summary: (local: boolean, label: string, changed: number, placed: number, keptEdited: number, keptMissing: number) =>
       [
         local ? `Re-read “${label}”` : `Updated ${label}`,
         changed ? `${count(changed, "skill")} got a new Version` : "Content unchanged",
         placed ? `placed in ${count(placed, "place")}` : "",
-        keptEdited ? `${count(keptEdited, "place")} you edited left alone` : "",
+        ...keptPlaces(keptEdited, keptMissing),
       ]
         .filter(Boolean)
         .join(" · "),
@@ -311,8 +332,8 @@ export const en = {
     sourceMoved: (name: string) => `The Source of ${name} just changed again. Open the Update plan and review it again`,
     goneFromDirectory: (name: string) => `“${name}” is no longer in the directory`,
     directoryMoved: "The directory changed while it was being read. Re-read it once more",
-    unchanged: (name: string, keptEdited: number) =>
-      [`The content of “${name}” hasn't changed`, keptEdited ? `${count(keptEdited, "place")} you edited left alone` : ""].filter(Boolean).join(" · "),
+    unchanged: (name: string, keptEdited: number, keptMissing: number) =>
+      [`The content of “${name}” hasn't changed`, ...keptPlaces(keptEdited, keptMissing)].filter(Boolean).join(" · "),
     rereadTitle: (name: string) => `Re-read “${name}”`,
     reinstall: "Reinstall",
     rollbackReinstalled: "Put back",
@@ -362,7 +383,7 @@ export const en = {
     deletedInSource: (source: string, name: string) => `The author deleted “${name}” from ${source}. Your copy is still here and you can keep using it.`,
     remove: "Remove",
     keep: "Keep",
-    rereadTitle: "Read the directory's current content as a new Version and place it where it's installed (places you edited are left alone)",
+    rereadTitle: "Read the directory's current content as a new Version and place it where it's installed (places you edited or whose folder is gone are left alone)",
     reread: "Re-read",
     reinstallAll: "Reinstall all",
     historyTitle: (name: string) => `Update history of “${name}”`,
@@ -587,7 +608,7 @@ export const en = {
     modifiedHere: "You edited it here; the new Version will overwrite your edits",
     notPlaced: "The checked skills aren't installed anywhere yet; only the Library is updated.",
     rootMissing: "Project not on this machine; can't install",
-    folderMissing: "Folder missing",
+    folderMissing: "Folder missing, maybe you deleted it; check to put it back",
     sharedFolder: (agents: string[]) => `Shares a folder with ${and(agents)}; replaced together`,
     linkedHere: (scopes: string[]) => `${and(scopes)} link${scopes.length === 1 ? "s" : ""} here and ${scopes.length === 1 ? "isn't" : "aren't"} checked; ${scopes.length === 1 ? "it gets" : "they get"} a separate copy first, keeping the current content`,
   },

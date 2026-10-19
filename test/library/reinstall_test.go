@@ -114,6 +114,14 @@ func inspectedRequests(t *testing.T, lib *library.Library, filter library.SkillS
 	return requests
 }
 
+// putBack 给每个请求都带上同意:被改过的覆盖,文件夹不在了的装回去。
+func putBack(requests []library.ReinstallRequest) []library.ReinstallRequest {
+	for i := range requests {
+		requests[i].Overwrite = true
+	}
+	return requests
+}
+
 func requireReinstallResults(t *testing.T, got, want []library.ReinstallResult) {
 	t.Helper()
 	if !reflect.DeepEqual(got, want) {
@@ -743,6 +751,7 @@ func TestReinstallWriteFailureRestoresItemAndContinues(t *testing.T) {
 	}
 }
 
+// 文件夹不在了(连同整个 Agent 目录)时,没同意不装回去、也不建目录;同意后装回去。
 func TestReinstallPutsBackMissingFolderAndAgentDirectory(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
@@ -772,6 +781,25 @@ func TestReinstallPutsBackMissingFolderAndAgentDirectory(t *testing.T) {
 	requireInspectionStatuses(t, lib, library.SkillScopeMissing, library.SkillScopeMissing)
 
 	got := reinstall(t, lib, inspectedRequests(t, lib, library.SkillScopeFilter{SkillID: skill.ID})...)
+
+	if len(got) != 2 {
+		t.Fatalf("Reinstall() = %#v, want 2 results", got)
+	}
+	for i, want := range []struct {
+		scope library.Scope
+		path  string
+	}{{claude, filepath.Join(claudeDirectory, skill.Name)}, {codex, filepath.Join(codexDirectory, skill.Name)}} {
+		if got[i].SkillID != skill.ID || got[i].Scope != want.scope || got[i].Outcome != library.ReinstallFailed {
+			t.Fatalf("Reinstall()[%d] = %#v, want failed without consent to put it back", i, got[i])
+		}
+		requireErrorDetails(t, got[i].Error, library.NotFound, library.ErrorDetails{Path: want.path})
+	}
+	if _, err := os.Lstat(claudeDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("agent directory was created without consent: %v", err)
+	}
+	requireInspectionStatuses(t, lib, library.SkillScopeMissing, library.SkillScopeMissing)
+
+	got = reinstall(t, lib, putBack(inspectedRequests(t, lib, library.SkillScopeFilter{SkillID: skill.ID}))...)
 
 	requireReinstallResults(t, got, []library.ReinstallResult{reinstalledResult(skill.ID, claude), reinstalledResult(skill.ID, codex)})
 	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeCurrent)
@@ -811,7 +839,7 @@ func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
 	}
 	requireInspectionStatuses(t, lib, library.SkillScopeMissing, library.SkillScopeRootMissing)
 
-	got := reinstall(t, lib, inspectedRequests(t, lib, library.SkillScopeFilter{SkillID: skill.ID})...)
+	got := reinstall(t, lib, putBack(inspectedRequests(t, lib, library.SkillScopeFilter{SkillID: skill.ID}))...)
 
 	if len(got) != 2 {
 		t.Fatalf("Reinstall() = %#v, want 2 results", got)
