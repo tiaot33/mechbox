@@ -87,6 +87,31 @@ export interface Credentials {
 }
 
 /**
+ * Language 是界面语言的设置值。
+ */
+export enum Language {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 跟随系统
+     */
+    LanguageSystem = "",
+
+    /**
+     * 简体中文
+     */
+    LanguageZh = "zh",
+
+    /**
+     * English
+     */
+    LanguageEn = "en",
+};
+
+/**
  * Settings 是只属于这台机器的应用设置：存在用户配置目录下的 settings.json,不进技能库，也不随同步走。
  * 加设置项就是加字段;文件里没有的字段取 defaultSettings 的值。
  */
@@ -110,6 +135,11 @@ export interface Settings {
      * Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
      */
     "dock_badge": boolean;
+
+    /**
+     * 界面语言;空字符串跟随系统
+     */
+    "language"?: Language;
 
     /**
      * AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。

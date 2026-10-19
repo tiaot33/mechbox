@@ -2,6 +2,7 @@
 // 整条是窗口拖动区，能点的元素显式 no-drag(见 layout.ts 的 titlebarClass)。
 import { useEffect, useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
+import { useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import {
   agentName,
@@ -56,6 +57,8 @@ export function Toolbar(props: ToolbarProps) {
   const { snapshot: s, scope } = props;
   const search = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
+  const tt = useT();
+  const t = tt.toolbar;
 
   // ⌘K 聚焦搜索框。
   useEffect(() => {
@@ -74,13 +77,13 @@ export function Toolbar(props: ToolbarProps) {
     <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
       <div className="flex min-w-0 items-center gap-2">
         <div className="w-16" />
-        <Button variant="ghost" size="icon" className={cn(props.left && "text-foreground")} onClick={props.onLeft} title="显示/隐藏侧栏">
+        <Button variant="ghost" size="icon" className={cn(props.left && "text-foreground")} onClick={props.onLeft} title={t.toggleLeft}>
           <Icon name="sidebarL" />
         </Button>
         <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
           <b>{props.title}</b>
           {props.count !== undefined && <Count value={props.count} />}
-          {props.busy && <Spinner className="text-muted-foreground" title="正在处理…" />}
+          {props.busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
         </span>
       </div>
       <div className="flex justify-center">
@@ -97,7 +100,7 @@ export function Toolbar(props: ToolbarProps) {
           className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
           icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
           suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">⌘K</kbd>}
-          placeholder="搜索技能"
+          placeholder={t.search}
           value={props.search}
           onChange={(e) => props.onSearch(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && props.onSearch("")}
@@ -105,10 +108,10 @@ export function Toolbar(props: ToolbarProps) {
         {s && scope && (
           <label
             className="toggle-label inline-flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap text-foreground-secondary"
-            title={`只看已安装在 ${agentName(s, parseScope(scope).agent)} 这个作用域的技能`}
+            title={t.installedOnlyTitle(agentName(s, parseScope(scope).agent))}
           >
             <Switch checked={props.installedOnly} onCheckedChange={props.onInstalledOnly} />
-            <span>仅已安装</span>
+            <span>{t.installedOnly}</span>
           </label>
         )}
         <Segmented
@@ -117,14 +120,14 @@ export function Toolbar(props: ToolbarProps) {
           value={props.view}
           onChange={props.onView}
           options={[
-            { value: "list", label: <Icon name="list" />, title: "列表" },
-            { value: "card", label: <Icon name="grid" />, title: "卡片" },
+            { value: "list", label: <Icon name="list" />, title: t.list },
+            { value: "card", label: <Icon name="grid" />, title: t.card },
           ]}
         />
-        <Button variant="ghost" size="icon" onClick={props.onRefresh} title="刷新(重新读取技能库并对照磁盘巡检已安装的技能)">
+        <Button variant="ghost" size="icon" onClick={props.onRefresh} title={t.refresh}>
           <Icon name="refresh" />
         </Button>
-        <Button variant="ghost" size="icon" className={cn(props.right && "text-foreground")} onClick={props.onRight} title="显示/隐藏作用域栏">
+        <Button variant="ghost" size="icon" className={cn(props.right && "text-foreground")} onClick={props.onRight} title={t.toggleRight}>
           <Icon name="sidebarR" />
         </Button>
       </div>
@@ -139,12 +142,13 @@ const pillClass =
   "scope-pill inline-flex h-7 items-center rounded-full border border-border bg-white text-xs font-medium whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-primary-border data-[open=true]:border-primary-border [&_[data-slot=icon]]:size-[11px] [&_[data-slot=icon]]:text-subtle";
 
 function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { open: boolean }) {
+  const t = useT();
   if (!scope) {
     return (
       <PopoverTrigger asChild>
         <button type="button" className={cn(pillClass, "gap-1.5 bg-white/60 px-3 text-muted-foreground")} data-open={open}>
           <Icon name="globe" />
-          <span>选择作用域</span>
+          <span>{t.toolbar.chooseScope}</span>
           <Icon name="down" />
         </button>
       </PopoverTrigger>
@@ -159,7 +163,7 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { op
           <button type="button" className="inline-flex h-full items-center gap-1.5 pr-2 pl-2.5">
             <AgentMark code={sc.agent} name={agentName(s, sc.agent)} />
             <b>{agentName(s, sc.agent)}</b>
-            <span className="text-muted-foreground">· {sc.project_id ? projectName(s, sc.project_id) : "全局"}</span>
+            <span className="text-muted-foreground">· {sc.project_id ? projectName(s, sc.project_id) : t.model.global}</span>
             {issues > 0 && <Badge tone="warn">{issues}</Badge>}
             <Icon name="down" />
           </button>
@@ -168,7 +172,7 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { op
           type="button"
           className="scope-pill-clear grid h-full place-items-center border-l border-border-subtle pr-2.5 pl-1.5 hover:[&_[data-slot=icon]]:text-foreground"
           onClick={() => onScope(null)}
-          title="取消选择作用域"
+          title={t.toolbar.clearScope}
         >
           <Icon name="close" />
         </button>
@@ -180,8 +184,9 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { op
 // ScopeMenu 是作用域弹层：按地方分组，和右栏一样直接列出装有技能的与检测到的 Agent,
 // 勾选了显示但没检测到的用每处一个下拉补上。
 function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { onOpen: (open: boolean) => void }) {
+  const t = useT();
   const places: { id: Place; name: string; path: string }[] = [
-    { id: 0, name: "全局", path: "~" },
+    { id: 0, name: t.model.global, path: "~" },
     ...s.projects.map((p) => ({ id: p.id, name: projectName(s, p.id), path: shortPath(s, p.path) })),
   ];
   const pick = (key: ScopeKey | null) => {
@@ -226,7 +231,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
                 value=""
                 onChange={(e) => e.target.value && pick(e.target.value)}
               >
-                <option value="">+ {used.length ? "其他 " : ""}{rest.length} 个 Agent</option>
+                <option value="">{t.toolbar.moreAgents(used.length > 0, rest.length)}</option>
                 {rest.map((a) => (
                   <option key={a.code} value={key(a.code)}>
                     {a.name}
@@ -241,7 +246,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
         <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-border-subtle px-2.5 pt-2 pb-1">
           <span className="truncate font-mono text-[11px] text-muted-foreground">{scopeDirectory ? shortPath(s, scopeDirectory) : ""}</span>
           <Button variant="link" onClick={() => pick(null)}>
-            清除
+            {t.toolbar.clear}
           </Button>
         </div>
       )}

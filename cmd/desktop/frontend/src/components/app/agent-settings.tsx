@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/library";
 import { addAgent, deleteAgent, editAgent } from "@/lib/actions";
 import { describeError } from "@/lib/errors";
+import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { agentShown, shortPath } from "@/lib/model";
 import { resolveLocalPath } from "@/lib/paths";
@@ -27,12 +28,11 @@ export function AgentSection({
   onShown: (agent: Agent, on: boolean) => void;
 }) {
   const ui = useUI();
+  const t = useT().agents;
   const edit = (agent: Agent) => ui.open((close) => <AgentDialog s={s} agent={agent} onClose={close} />);
   return (
     <>
-      <Hint className="mb-1">
-        勾选的 Agent 出现在选择安装位置的地方。已经装了技能的 Agent 不管勾没勾，装出去的地方在技能详情、更新和巡检里照常列出。
-      </Hint>
+      <Hint className="mb-1">{t.shownHint}</Hint>
       {s.agents.map((a) => {
         const on = agentShown(shown, a);
         return (
@@ -41,20 +41,20 @@ export function AgentSection({
             <div className="min-w-0 grow">
               <div className="flex items-center gap-1.5">
                 {a.name}
-                {a.custom ? <Badge>自定义</Badge> : <Badge>{a.detected ? "检测到" : "未检测到"}</Badge>}
+                {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
               </div>
               <div className="truncate font-mono text-[11px] text-muted-foreground select-text">
-                {shortPath(s, a.global_directory)} · 项目里 {a.project_directory}
+                {t.directories(shortPath(s, a.global_directory), a.project_directory)}
               </div>
             </div>
             {a.custom && (
               <>
-                <Button onClick={() => void edit(a)}>编辑</Button>
-                <Button onClick={() => void deleteAgent(ui, s, a)}>删除</Button>
+                <Button onClick={() => void edit(a)}>{t.edit}</Button>
+                <Button onClick={() => void deleteAgent(ui, s, a)}>{t.delete}</Button>
               </>
             )}
             {shown !== undefined && (
-              <Switch checked={on} aria-label={`显示 ${a.name}`} title={on ? "显示" : "不显示"} onCheckedChange={(v) => onShown(a, v)} />
+              <Switch checked={on} aria-label={t.show(a.name)} title={on ? t.shown : t.hidden} onCheckedChange={(v) => onShown(a, v)} />
             )}
           </SetRow>
         );
@@ -68,6 +68,7 @@ type AgentField = keyof CustomAgent;
 // AgentDialog 添加一个自定义 Agent,或给出 agent 时编辑它。全局技能目录必须在用户主目录里面。
 export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent; onClose: () => void }) {
   const ui = useUI();
+  const t = useT().agents;
   const home = s.info.home_dir;
   const [name, setName] = useState(agent?.name ?? "");
   const [global, setGlobal] = useState(agent ? shortPath(s, agent.global_directory) : "");
@@ -79,18 +80,18 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
 
   const validate = () => {
     const found: Partial<Record<AgentField, string>> = {};
-    if (!name.trim()) found.name = "填写名称";
+    if (!name.trim()) found.name = t.nameRequired;
     const resolved = resolveLocalPath(global, home);
-    if (!resolved) found.global_directory = "填写全局技能目录";
+    if (!resolved) found.global_directory = t.globalRequired;
     else if (resolved.path === undefined) found.global_directory = resolved.error;
     else if (!resolved.path.startsWith(home + "/") || resolved.path.replace(/\/+$/, "") === home) {
-      found.global_directory = "全局技能目录要在用户主目录里面(不能是主目录本身)";
+      found.global_directory = t.globalInHome;
     }
     const rel = project.trim();
-    if (!rel) found.project_directory = "填写项目里的技能目录";
-    else if (rel.startsWith("/") || rel.startsWith("~")) found.project_directory = "填相对项目根目录的路径，如 .agents/skills";
+    if (!rel) found.project_directory = t.projectRequired;
+    else if (rel.startsWith("/") || rel.startsWith("~")) found.project_directory = t.projectRelative;
     else if (rel.split("/").some((part) => part === "..") || rel.replace(/^\.\/?|\/+$/g, "") === "") {
-      found.project_directory = "要在项目根目录里面(不能是项目根本身)";
+      found.project_directory = t.projectInside;
     }
     return { found, global: resolved?.path ?? "" };
   };
@@ -122,36 +123,36 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
   const error = (field: AgentField) => errors[field] && <FieldError>{errors[field]}</FieldError>;
   return (
     <Modal
-      title={agent ? `编辑 Agent「${agent.name}」` : "添加 Agent"}
+      title={agent ? t.editTitle(agent.name) : t.addTitle}
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t.cancel}</Button>
           <Button variant="primary" loading={working} onClick={submit}>
-            {agent ? "保存" : "添加"}
+            {agent ? t.save : t.add}
           </Button>
         </>
       }
     >
-      <Field label="名称">
+      <Field label={t.name}>
         <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         {error("name")}
       </Field>
-      <Field label="全局技能目录(在用户主目录里面)">
+      <Field label={t.global}>
         <div className="flex min-w-0 items-center gap-2">
           <Input className="grow" placeholder="~/.my-agent/skills" value={global} onChange={(e) => setGlobal(e.target.value)} />
           <Button
             onClick={async () => {
-              const dir = await pickDirectory("选择全局技能目录");
+              const dir = await pickDirectory(t.chooseGlobal);
               if (dir) setGlobal(shortPath(s, dir));
             }}
           >
-            选择…
+            {t.choose}
           </Button>
         </div>
         {error("global_directory")}
       </Field>
-      <Field label="项目里的技能目录(相对项目根目录)">
+      <Field label={t.project}>
         <Input
           placeholder=".my-agent/skills"
           value={project}

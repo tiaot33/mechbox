@@ -10,6 +10,7 @@ export {
 
 export {
     CheckInterval,
+    Language,
     UninstallFolders
 } from "./models.js";
 

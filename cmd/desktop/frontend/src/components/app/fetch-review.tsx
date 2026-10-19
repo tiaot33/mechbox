@@ -9,6 +9,7 @@ import {
   type SkillAudit,
   SourceType,
 } from "@bindings/internal/library";
+import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -33,17 +34,22 @@ function parentDir(path: string): string {
 }
 
 // sourceKindName 是识别结果里来源类型的说法。
-const sourceKindName: Record<SourceType, string> = {
-  [SourceType.SourceGitHub]: "GitHub 仓库",
-  [SourceType.SourceGit]: "Git 仓库",
-  [SourceType.SourceURL]: "直接下载",
-  [SourceType.SourceWellKnown]: "well-known 索引",
-  [SourceType.SourceLocal]: "本地目录",
-  [SourceType.$zero]: "未知来源",
-};
+function sourceKindName(type: SourceType): string | undefined {
+  const t = messages().review;
+  const known: Record<SourceType, string> = {
+    [SourceType.SourceGitHub]: t.kindGitHub,
+    [SourceType.SourceGit]: t.kindGit,
+    [SourceType.SourceURL]: t.kindURL,
+    [SourceType.SourceWellKnown]: t.kindWellKnown,
+    [SourceType.SourceLocal]: t.kindLocal,
+    [SourceType.$zero]: t.kindUnknown,
+  };
+  return known[type];
+}
 
 export function FetchReview({ preview, onlyNew = false, onClose, onBack }: FetchReviewProps) {
   const ui = useUI();
+  const t = useT().review;
   // 只有 GitHub 仓库在 skills.sh 收录范围内，才提供审计查询，也只有它走 GitHub API、没有令牌时容易被限流。
   const github = preview.source.type === SourceType.SourceGitHub;
   const [tokenMissing, setTokenMissing] = useState(false);
@@ -77,7 +83,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     setFetching(true);
     const names = [...selected];
     const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names), {
-      success: (list) => `已入库 ${list?.length ?? 0} 个技能`,
+      success: (list) => t.fetched(list?.length ?? 0),
     });
     setFetching(false);
     if (fetched) onClose();
@@ -110,9 +116,11 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           />
           <b className="shrink-0 font-semibold whitespace-nowrap">{c.name}</b>
           {c.fetched ? (
-            <Badge title="同一来源的同名技能已在库中;要取新内容请在技能详情里点「更新」">已入库</Badge>
+            <Badge title={t.alreadyTitle}>{t.already}</Badge>
           ) : c.new ? (
-            <Badge tone="accent" title="上次从这个来源入库之后才出现的技能">新技能</Badge>
+            <Badge tone="accent" title={t.newTitle}>
+              {t.new}
+            </Badge>
           ) : null}
           <span className="min-w-0 grow truncate font-mono text-[11px] text-muted-foreground">{rel !== c.name ? rel : ""}</span>
           {c.plugin_name && <span className="shrink-0 text-[11px] text-subtle">{c.plugin_name}</span>}
@@ -124,46 +132,44 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
 
   return (
     <Modal
-      title="入库预览"
+      title={t.title}
       wide
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onBack}>返回</Button>
+          <Button onClick={onBack}>{t.back}</Button>
           <span className="grow" />
-          <span className="text-[11px] text-muted-foreground">
-            已选 {selected.size} / {fresh.length}
-          </span>
+          <span className="text-[11px] text-muted-foreground">{t.selected(selected.size, fresh.length)}</span>
           <Button variant="primary" disabled={selected.size === 0} loading={fetching} onClick={fetchSelected}>
-            入库所选
+            {t.fetchSelected}
           </Button>
         </>
       }
     >
       <div className="fetch-source flex min-w-0 items-center gap-2 text-xs">
-        <span className="shrink-0 text-muted-foreground">识别为</span>
+        <span className="shrink-0 text-muted-foreground">{t.recognizedAs}</span>
         <Badge tone="accent" className="shrink-0">
-          {sourceKindName[preview.source.type] ?? preview.source.type}
+          {sourceKindName(preview.source.type) ?? preview.source.type}
         </Badge>
         <span className="min-w-0 truncate font-mono" title={preview.source.label}>
           {preview.source.label}
         </span>
-        {preview.source.ref && <span className="shrink-0 text-muted-foreground">分支 {preview.source.ref}</span>}
+        {preview.source.ref && <span className="shrink-0 text-muted-foreground">{t.branch(preview.source.ref)}</span>}
       </div>
       {tokenMissing && (
-        <Notice tone="warn">设置页没有填 GitHub 令牌，也没有设置 GITHUB_TOKEN / GH_TOKEN,匿名访问 GitHub API 容易被限流。</Notice>
+        <Notice tone="warn">{t.noToken}</Notice>
       )}
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span>
-          {candidates.length} 个候选
+          {t.candidates(candidates.length)}
           {preview.revision ? ` · ${preview.revision.slice(0, 12)}` : ""}
         </span>
         <span className="grow" />
         <Button variant="link" onClick={() => setSelected(new Set(fresh.map((c) => c.name)))}>
-          全选
+          {t.selectAll}
         </Button>
         <Button variant="link" onClick={() => setSelected(new Set())}>
-          全不选
+          {t.selectNone}
         </Button>
       </div>
       {candidates.length > 0 ? (
@@ -180,10 +186,10 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           )}
         </ListBox>
       ) : (
-        <Notice tone="warn">来源里没有找到可入库的技能。</Notice>
+        <Notice tone="warn">{t.noCandidates}</Notice>
       )}
       <Diagnostics
-        summary={`${preview.diagnostics?.length} 个路径未成为候选`}
+        summary={t.diagnostics(preview.diagnostics?.length)}
         items={(preview.diagnostics ?? []).map((d) => ({ key: d.path, reason: d.reason }))}
       />
     </Modal>
@@ -224,6 +230,7 @@ function GroupHeader({
 
 // Audit 按需查询 skills.sh 的审计(点击才联网),查到后概括成一个标记：只供参考，不影响入库。
 function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate: Candidate }) {
+  const t = useT().review;
   const [audit, setAudit] = useState<SkillAudit | null | "loading" | undefined>(undefined);
   const load = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -236,7 +243,7 @@ function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate:
   if (audit === undefined) {
     return (
       <button type="button" className="shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary" onClick={load}>
-        查看审计
+        {t.viewAudit}
       </button>
     );
   }

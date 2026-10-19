@@ -27,7 +27,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", settingsFileName)
 	want := settingsFile{
 		Settings: Settings{
-			AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false,
+			AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn,
 			AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 		},
 		Sync: syncFields{Endpoint: "https://s3.example.com", Bucket: "b", Key: "k.db", Region: "r", AccessKeyID: "AKID"},
@@ -47,7 +47,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 
 func TestSettingsFillMissingFieldsWithDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), settingsFileName)
-	if err := os.WriteFile(path, []byte(`{"dock_badge": false, "check_interval": "sometimes"}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"dock_badge": false, "check_interval": "sometimes", "language": "fr"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := loadSettings(path)
@@ -80,6 +80,36 @@ func TestSaveSettingsRejectsUnknownInterval(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("settings file written for a rejected change: %v", err)
+	}
+}
+
+func TestSaveSettingsRejectsUnknownLanguage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), settingsFileName)
+	service := NewAppService(path, nil)
+	if _, err := service.SaveSettings(Settings{CheckInterval: CheckDaily, Language: "fr"}); err == nil {
+		t.Fatal("SaveSettings accepted an unknown language")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("settings file written for a rejected change: %v", err)
+	}
+}
+
+func TestLanguageFollowsSettingThenSystem(t *testing.T) {
+	for tag, want := range map[string]Language{
+		"zh-Hans-CN": LanguageZh, "zh-Hant-TW": LanguageZh, "zh_CN.UTF-8": LanguageZh, "ZH": LanguageZh,
+		"en-US": LanguageEn, "en_US.UTF-8": LanguageEn, "ja-JP": LanguageEn, "zhx": LanguageEn, "C": LanguageEn, "": LanguageEn,
+	} {
+		if got := languageOf(tag); got != want {
+			t.Errorf("languageOf(%q) = %q; want %q", tag, got, want)
+		}
+	}
+	for _, l := range []Language{LanguageZh, LanguageEn} {
+		if got := l.resolve(); got != l {
+			t.Errorf("%q.resolve() = %q; want the setting itself", l, got)
+		}
+	}
+	if got := LanguageSystem.resolve(); got != LanguageZh && got != LanguageEn {
+		t.Errorf("LanguageSystem.resolve() = %q; want zh or en", got)
 	}
 }
 

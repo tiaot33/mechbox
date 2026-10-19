@@ -1,4 +1,5 @@
 // 技能文件内容的展示辅助：Go 的 []byte 经 JSON 成为 base64 字符串。
+import { messages } from "./i18n";
 
 // decodeContent 把 base64 内容解成文本;不是合法 UTF-8(二进制文件)时返回 null。
 export function decodeContent(base64: string | null): string | null {
@@ -18,9 +19,9 @@ export function formatSize(bytes: number): string {
 }
 
 export function formatDate(value: string | undefined): string {
-  if (!value) return "未知";
+  if (!value) return messages().common.unknown;
   const d = new Date(value);
-  if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return "未知";
+  if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return messages().common.unknown;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

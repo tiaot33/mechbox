@@ -18,6 +18,7 @@ import {
   type Source,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
+import { messages } from "./i18n";
 import type { Snapshot } from "./library";
 
 // ---------- 作用域 ----------
@@ -54,7 +55,7 @@ export function projectName(s: Snapshot, id: ProjectID): string {
 }
 
 export function scopeLabel(s: Snapshot, scope: Scope): string {
-  return `${agentName(s, scope.agent)} · ${scope.project_id ? projectName(s, scope.project_id) : "全局"}`;
+  return `${agentName(s, scope.agent)} · ${scope.project_id ? projectName(s, scope.project_id) : messages().model.global}`;
 }
 
 // shortPath 把用户主目录缩写成 ~。
@@ -67,11 +68,10 @@ export function homePath(home: string | undefined, path: string): string {
 }
 
 // outsideLinkNote 是指向 Agent 目录以外的符号链接入库时的说明:之后在 app 里更新会换掉链接。
-export const outsideLinkNote = (target: string) =>
-  `它是指向 ${target} 的符号链接。之后在 app 里更新它，会把链接换成独立的一份;在 ${target} 里改就不再影响这里。`;
+export const outsideLinkNote = (target: string) => messages().model.outsideLinkNote(target);
 
 // linkNote 是库要写一处符号链接时的说明:写成独立的文件夹，不再写进链接指向的地方。
-export const linkNote = (s: Snapshot, target: string) => `这次会换成独立的一份(现在是指向 ${shortPath(s, target)} 的符号链接)`;
+export const linkNote = (s: Snapshot, target: string) => messages().model.linkNote(shortPath(s, target));
 
 // agentShown 是 Agent 的显示勾选：用户勾选过的按勾选，没勾选过的检测到的和自定义的显示。
 // 显示只影响选择安装位置的地方(右栏与胶囊弹层的"其他 Agent"、"安装到…");已经装了技能的 Agent 照常列出。
@@ -112,7 +112,10 @@ export function unmanagedIn(s: Snapshot, key: ScopeKey): UnmanagedSkill[] {
 // 按 Agent 已知的规则说出后果(Claude Code 里全局的生效，Codex 里两份都会出现),没有已知规则的只说同名。
 // 同名按 SKILL.md 里的 name,两处的文件夹名可以不同。folder 是这个作用域里那个技能文件夹;没有同名时返回 undefined。
 // title 列出另一处的文件夹。
+export type SameNameKind = "managed" | "unmanaged";
+
 export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
+  const m = messages().model;
   const scope = parseScope(key);
   const agent = s.agents.find((a) => a.code === scope.agent);
   const rule = agent?.same_name ?? SameNameRule.SameNameUnknown;
@@ -120,25 +123,25 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   if (scope.project_id) {
     const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.project_id === scope.project_id && p.project.folder === folder);
     if (pairs.length === 0) return undefined;
-    const kinds = [...new Set(pairs.map((p) => (p.global.skill_id ? "库装的" : "未纳管")))];
-    const other = `${pairs[0].name}(${kinds.join("、")})`;
+    const kinds = [...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : "unmanaged")))];
+    const name = pairs[0].name;
     const text = {
-      [SameNameRule.SameNameGlobalWins]: `全局也有 ${other}，${who} 用全局的那个，这里的不会生效`,
-      [SameNameRule.SameNameBothShown]: `全局也有 ${other}，${who} 里两份都会出现`,
-      [SameNameRule.SameNameUnknown]: `全局也有同名的 ${other}`,
+      [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
+      [SameNameRule.SameNameBothShown]: m.sameNameGlobalBoth(name, kinds, who),
+      [SameNameRule.SameNameUnknown]: m.sameNameGlobalUnknown(name, kinds),
     }[rule];
-    return { text, title: pairs.map((p) => `全局的文件夹:${shortPath(s, p.global.folder)}`).join("\n") };
+    return { text, title: pairs.map((p) => m.sameNameGlobalFolder(shortPath(s, p.global.folder))).join("\n") };
   }
   const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.global.folder === folder);
   if (pairs.length === 0) return undefined;
   const name = pairs[0].name;
-  const projects = `项目「${[...new Set(pairs.map((p) => projectName(s, p.project_id)))].join("」「")}」`;
+  const projects = [...new Set(pairs.map((p) => projectName(s, p.project_id)))];
   const text = {
-    [SameNameRule.SameNameGlobalWins]: `${projects}里也有 ${name}，${who} 在那里用全局的这个`,
-    [SameNameRule.SameNameBothShown]: `${projects}里也有 ${name}，${who} 在那里两份都会出现`,
-    [SameNameRule.SameNameUnknown]: `${projects}里也有同名的 ${name}`,
+    [SameNameRule.SameNameGlobalWins]: m.sameNameProjectWins(projects, name, who),
+    [SameNameRule.SameNameBothShown]: m.sameNameProjectBoth(projects, name, who),
+    [SameNameRule.SameNameUnknown]: m.sameNameProjectUnknown(projects, name),
   }[rule];
-  return { text, title: pairs.map((p) => `「${projectName(s, p.project_id)}」的文件夹:${shortPath(s, p.project.folder)}`).join("\n") };
+  return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.project_id), shortPath(s, p.project.folder))).join("\n") };
 }
 
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
@@ -148,16 +151,19 @@ export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">
 
 // sameNameFetchNote 说明入库一个和库里技能同名的技能会怎样：不带来源时和库里所有技能比，带来源时只和这个来源里同名的比。
 export function sameNameFetchNote(name: string, sourced: boolean): string {
-  return sourced
-    ? `带来源入库时只和这个来源里同名的技能比：内容和它的某个版本一样时只记下装在这里，不一样时不能入库(可以清空来源);其他来源或没有来源的同名技能不合并，入库后库里会多一个「${name}」,卡片上写出各装在哪里。`
-    : `内容和其中一个的某个版本一样时只记下装在这里;都不一样时不合并，入库后库里会多一个「${name}」,卡片上写出各装在哪里。`;
+  return sourced ? messages().model.sameNameFetchSourced(name) : messages().model.sameNameFetchUnsourced(name);
 }
 
-// installedWhere 写出技能装在哪里，供分辨库里同名的几个技能:"Claude Code · 全局、Codex · proj-a",超过两处写"等 N 处";没装时写"没装在任何地方"。
-export function installedWhere(s: Snapshot, skillID: number): string {
+// installedWhere 是技能装在哪里，供分辨库里同名的几个技能:places 是前两处("Claude Code · 全局"、"Codex · proj-a"),
+// total 是一共几处(超过两处时文案写"等 N 处",为 0 时写"没装在任何地方")。
+export interface InstalledWhere {
+  places: string[];
+  total: number;
+}
+
+export function installedWhere(s: Snapshot, skillID: number): InstalledWhere {
   const places = skillScopesOf(s, skillID).map((p) => scopeLabel(s, p.scope));
-  if (!places.length) return "没装在任何地方";
-  return `装在 ${places.slice(0, 2).join("、")}${places.length > 2 ? ` 等 ${places.length} 处` : ""}`;
+  return { places: places.slice(0, 2), total: places.length };
 }
 
 export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection | undefined {
@@ -168,14 +174,17 @@ export function needsReinstall(p: SkillScopeInspection): boolean {
   return p.status !== SkillScopeStatus.SkillScopeCurrent;
 }
 
-export const skillScopeStatus: Record<SkillScopeStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
-  [SkillScopeStatus.SkillScopeCurrent]: { label: "最新", tone: "ok" },
-  [SkillScopeStatus.SkillScopeStale]: { label: "旧版本", tone: "warn" },
-  [SkillScopeStatus.SkillScopeModified]: { label: "被手动改过", tone: "bad" },
-  [SkillScopeStatus.SkillScopeMissing]: { label: "文件夹不在了", tone: "bad" },
-  [SkillScopeStatus.SkillScopeRootMissing]: { label: "项目不在这台机器上", tone: "bad" },
-  [SkillScopeStatus.$zero]: { label: "未知", tone: "warn" },
-};
+export function skillScopeStatus(status: SkillScopeStatus): { label: string; tone: "ok" | "warn" | "bad" } {
+  const m = messages();
+  return {
+    [SkillScopeStatus.SkillScopeCurrent]: { label: m.model.statusCurrent, tone: "ok" as const },
+    [SkillScopeStatus.SkillScopeStale]: { label: m.model.statusStale, tone: "warn" as const },
+    [SkillScopeStatus.SkillScopeModified]: { label: m.model.statusModified, tone: "bad" as const },
+    [SkillScopeStatus.SkillScopeMissing]: { label: m.model.statusMissing, tone: "bad" as const },
+    [SkillScopeStatus.SkillScopeRootMissing]: { label: m.model.statusRootMissing, tone: "bad" as const },
+    [SkillScopeStatus.$zero]: { label: m.common.unknown, tone: "warn" as const },
+  }[status];
+}
 
 // groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on。
 // 成员各自的直接安装不算组安装。
@@ -245,11 +254,16 @@ export function shortRevision(revision: string): string {
   return revision.slice(0, 7);
 }
 
-// revisionSummary 说明集合里的技能在哪个来源版本上:都在同一个时"在 a1b2c3";
-// 不在同一个时直接写"pdf 在 d4e5f6,其余 4 个在 a1b2c3",不起专门的名字。
-// 来源版本未知的(入库时和来源里的不一样)不算进任何一个，单独写"grill-me 的来源版本未知";都未知时只写"来源版本未知"。
-// 本地目录来源与没有来源的技能为空。
-export function revisionSummary(skills: Skill[]): string {
+// revisionSummary 说明集合里的技能在哪个来源版本上：都在同一个时是 same("在 a1b2c3");
+// 不在同一个时是 mixed,直接写"pdf 在 d4e5f6,其余 4 个在 a1b2c3",不起专门的名字。
+// 来源版本未知的(入库时和来源里的不一样)不算进任何一个，单独写"grill-me 的来源版本未知";都未知时是 unknown("来源版本未知")。
+// 本地目录来源与没有来源的技能为 undefined。文案见 revisionText。
+export type RevisionSummary =
+  | { kind: "unknown" }
+  | { kind: "same"; revision: string }
+  | { kind: "mixed"; others: { names: string[]; revision: string }[]; unknown: string[]; rest: number; revision: string };
+
+export function revisionSummary(skills: Skill[]): RevisionSummary | undefined {
   const tracked = skills.filter((x) => !isLocal(x.source) && !noSource(x.source));
   const unknown = tracked.filter((x) => !x.revision);
   const byRevision = new Map<string, Skill[]>();
@@ -258,28 +272,46 @@ export function revisionSummary(skills: Skill[]): string {
     const key = shortRevision(x.revision);
     byRevision.set(key, [...(byRevision.get(key) ?? []), x]);
   }
-  const names = (list: Skill[]) => list.map((x) => x.name).join("、");
-  if (byRevision.size === 0) return unknown.length ? "来源版本未知" : "";
+  const names = (list: Skill[]) => list.map((x) => x.name);
+  if (byRevision.size === 0) return unknown.length ? { kind: "unknown" } : undefined;
   const groups = [...byRevision.entries()].sort((a, b) => b[1].length - a[1].length);
   const [main, ...others] = groups;
-  if (!others.length && !unknown.length) return `在 ${main[0]}`;
-  const parts = [
-    ...others.map(([rev, list]) => `${names(list)} 在 ${rev}`),
-    ...(unknown.length ? [`${names(unknown)} 的来源版本未知`] : []),
-  ];
-  return `${parts.join(",")},其余 ${main[1].length} 个在 ${main[0]}`;
+  if (!others.length && !unknown.length) return { kind: "same", revision: main[0] };
+  return {
+    kind: "mixed",
+    others: others.map(([revision, list]) => ({ names: names(list), revision })),
+    unknown: names(unknown),
+    rest: main[1].length,
+    revision: main[0],
+  };
+}
+
+export function revisionText(summary: RevisionSummary | undefined): string {
+  const m = messages().model;
+  switch (summary?.kind) {
+    case "unknown":
+      return m.revisionUnknown;
+    case "same":
+      return m.revisionSame(summary.revision);
+    case "mixed":
+      return m.revisionMixed(summary);
+    default:
+      return "";
+  }
 }
 
 // ---------- 来源 ----------
 
-export const sourceKindLabel: Record<SourceType, string> = {
-  [SourceType.SourceGitHub]: "GitHub",
-  [SourceType.SourceGit]: "Git",
-  [SourceType.SourceURL]: "URL",
-  [SourceType.SourceWellKnown]: "well-known",
-  [SourceType.SourceLocal]: "自研",
-  [SourceType.$zero]: "没有来源",
-};
+export function sourceKindLabel(type: SourceType): string {
+  return {
+    [SourceType.SourceGitHub]: "GitHub",
+    [SourceType.SourceGit]: "Git",
+    [SourceType.SourceURL]: "URL",
+    [SourceType.SourceWellKnown]: "well-known",
+    [SourceType.SourceLocal]: messages().model.kindLocal,
+    [SourceType.$zero]: messages().model.noSource,
+  }[type];
+}
 
 function lastSegment(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -298,9 +330,9 @@ export function sourceLabel(s: Snapshot, source: Source): string {
     case SourceType.SourceLocal:
       return shortPath(s, source.label);
     case SourceType.$zero:
-      return "没有来源";
+      return messages().model.noSource;
     default:
-      return "未知来源";
+      return messages().model.unknownSource;
   }
 }
 
@@ -319,7 +351,7 @@ export function sourceShort(s: Snapshot, source: Source): string {
     case SourceType.SourceURL:
       return sourceLabel(s, source).replace(/\.zip$/, "");
     default:
-      return sourceKindLabel[source.type];
+      return sourceKindLabel(source.type);
   }
 }
 
@@ -349,14 +381,14 @@ export function filterTitle(s: Snapshot, filter: SkillFilter): string {
   switch (filter.kind) {
     case "collection": {
       const c = s.collections.find((c) => c.id === filter.collectionID);
-      return c ? sourceLabel(s, c.source) : "所有技能";
+      return c ? sourceLabel(s, c.source) : messages().model.allSkills;
     }
     case "group":
-      return s.groups.find((g) => g.id === filter.groupID)?.name ?? "所有技能";
+      return s.groups.find((g) => g.id === filter.groupID)?.name ?? messages().model.allSkills;
     case "updates":
-      return "更新";
+      return messages().model.updates;
     default:
-      return "所有技能";
+      return messages().model.allSkills;
   }
 }
 

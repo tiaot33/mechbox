@@ -13,6 +13,7 @@ import {
   type UnmanagedFetchItem,
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
+import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource, type LibraryError } from "@/lib/library";
 import { homePath, outsideLinkNote, sameNameFetchNote, scopeOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
@@ -76,7 +77,7 @@ export async function offerFetchUnmanaged(
     return;
   }
   if (plan.length === 0) {
-    if (!quiet) ui.toast("这里没有不是库装的技能");
+    if (!quiet) ui.toast(messages().unmanaged.nothingHere);
     return;
   }
   await ui.open((close) => (
@@ -108,9 +109,10 @@ function outsideTarget(planned: PlannedUnmanagedSkill) {
 }
 
 function OutsideBadge({ planned, home }: { planned: PlannedUnmanagedSkill; home: string }) {
+  const t = useT().unmanaged;
   return (
-    <Badge tone="warn" title={`符号链接，指向 ${homePath(home, outsideTarget(planned))}`}>
-      指向 Agent 目录以外
+    <Badge tone="warn" title={t.outsideTitle(homePath(home, outsideTarget(planned)))}>
+      {t.outside}
     </Badge>
   );
 }
@@ -172,6 +174,7 @@ function FetchUnmanagedDialog({
   close: () => void;
 }) {
   const ui = useUI();
+  const t = useT().unmanaged;
   // 来源记录认不出来源的，在 skills.sh 上找到来源后补上，和来源记录认出的一样预填、分组。
   const sources = useFoundSources();
   const plan = useMemo(() => listed.map((p) => withFoundSource(sources, p)), [listed, sources]);
@@ -186,14 +189,14 @@ function FetchUnmanagedDialog({
   const [editing, setEditing] = useState<number | null>(null);
 
   const agentNames = (planned: PlannedUnmanagedSkill) =>
-    [
+    t.agents([
       ...new Set(
         foldersOf(planned).map(
           (f) =>
             agents.find((a) => a.code === f.scope.agent)?.name ?? f.scope.agent,
         ),
       ),
-    ].join("、");
+    ]);
 
   const usable = plan.flatMap((p, i) => (p.error ? [] : [i]));
   const unusable = plan.filter((p) => p.error);
@@ -259,8 +262,8 @@ function FetchUnmanagedDialog({
     )) {
       setProgress(
         key === noSource
-          ? "正在入库没有来源的技能…"
-          : `正在读取 ${key.split("\n")[0]}…`,
+          ? t.fetchingNoSource
+          : t.reading(key.split("\n")[0]),
       );
       try {
         const results =
@@ -314,22 +317,19 @@ function FetchUnmanagedDialog({
   if (fetched) {
     return (
       <Modal
-        title="还有几个没入库"
+        title={t.leftTitle}
         wide
         onClose={close}
         footer={
           <Button variant="primary" onClick={close} autoFocus>
-            完成
+            {t.done}
           </Button>
         }
       >
         {fetched.length > 0 && (
           <Notice tone="ok">{fetchedMessage(fetched)}</Notice>
         )}
-        <Hint>
-          下面 {failed.length} 个没入库，仍是未纳管技能，Agent
-          照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库;也可以先放着，之后在作用域里逐个入库。
-        </Hint>
+        <Hint>{t.leftHint(failed.length)}</Hint>
         <ListBox scroll className="fetch-unmanaged-failed">
           {failed.map((f) => (
             <ListRow key={f.key} className="flex-col items-stretch gap-1.5">
@@ -346,7 +346,7 @@ function FetchUnmanagedDialog({
                 <Input
                   className="fetch-unmanaged-link grow font-mono"
                   value={f.link}
-                  placeholder="owner/repo、Git 地址或链接;留空就是没有来源"
+                  placeholder={t.linkPlaceholder}
                   onChange={(e) => update(f.key, { link: e.target.value })}
                   onKeyDown={(e) => e.key === "Enter" && void retry(f)}
                 />
@@ -355,7 +355,7 @@ function FetchUnmanagedDialog({
                   loading={f.busy}
                   onClick={() => void retry(f)}
                 >
-                  {f.link.trim() ? "重试" : "不带来源入库"}
+                  {f.link.trim() ? t.retry : t.fetchWithoutSource}
                 </Button>
               </div>
             </ListRow>
@@ -369,7 +369,7 @@ function FetchUnmanagedDialog({
   const changedSource = (i: number) => {
     if (!links.has(i)) return undefined;
     const { input } = sourceOf(plan[i], links.get(i));
-    return input ? `改为跟着 ${input}` : "改为没有来源";
+    return input ? t.followsNow(input) : t.noSourceNow;
   };
   const sourceButton = (i: number) => (
     <button
@@ -382,7 +382,7 @@ function FetchUnmanagedDialog({
         setEditing(editing === i ? null : i);
       }}
     >
-      改来源
+      {t.editSource}
     </button>
   );
   const sourceEditor = (i: number) =>
@@ -392,7 +392,7 @@ function FetchUnmanagedDialog({
           className="fetch-unmanaged-source grow font-mono"
           autoFocus
           value={links.get(i) ?? ""}
-          placeholder="owner/repo、Git 地址或链接;留空就是没有来源"
+          placeholder={t.linkPlaceholder}
           onChange={(e) =>
             setLinks((map) => new Map(map).set(i, e.target.value))
           }
@@ -422,13 +422,10 @@ function FetchUnmanagedDialog({
             <b className="fetch-unmanaged-name shrink-0 font-semibold whitespace-nowrap">
               {p.name}
             </b>
-            {p.in_repository && <Badge tone="warn">在项目仓库里</Badge>}
+            {p.in_repository && <Badge tone="warn">{t.inRepository}</Badge>}
             {!p.in_repository && p.in_project_lock && (
-              <Badge
-                tone="warn"
-                title="项目的 skills-lock.json 记了它，是团队约定装的"
-              >
-                记在 skills-lock.json 里
+              <Badge tone="warn" title={t.inLockTitle}>
+                {t.inLock}
               </Badge>
             )}
             {p.link_outside && <OutsideBadge planned={p} home={home} />}
@@ -451,14 +448,14 @@ function FetchUnmanagedDialog({
 
   const lead =
     where.kind === "first-open"
-      ? `在各 Agent 的全局目录里发现 ${usable.length} 个不是库装的技能。`
+      ? t.leadFirstOpen(usable.length)
       : where.kind === "project"
-        ? `在项目「${where.project.name}」里发现 ${usable.length} 个不是库装的技能。`
-        : `在 ${where.label} 里发现 ${usable.length} 个不是库装的技能。`;
+        ? t.leadProject(where.project.name, usable.length)
+        : t.leadScope(where.label, usable.length);
 
   return (
     <Modal
-      title="把你在用的技能交给 app 管"
+      title={t.title}
       wide
       onClose={close}
       footer={
@@ -470,7 +467,7 @@ function FetchUnmanagedDialog({
           )}
           <span className="grow" />
           <Button onClick={close} disabled={!!progress}>
-            先不入库
+            {t.notNow}
           </Button>
           <Button
             className="fetch-unmanaged-confirm"
@@ -480,20 +477,17 @@ function FetchUnmanagedDialog({
             onClick={() => void submit()}
             autoFocus
           >
-            入库 {picked.size} 个
+            {t.fetchN(picked.size)}
           </Button>
         </>
       }
     >
       <p className="fetch-unmanaged-lead text-[13px] font-semibold">
-        {lead}入库时磁盘上什么都不改，Agent 用的和现在一样。
+        {t.lead(lead)}
       </p>
-      <Hint>
-        入库就是交给 app 管：之后如果还用命令行工具更新这些技能，app
-        只能把它们报为被手动改过。
-      </Hint>
+      <Hint>{t.cost}</Hint>
       {where.kind === "first-open" && (
-        <Hint>项目里的技能，登记项目时再接。</Hint>
+        <Hint>{t.projectsLater}</Hint>
       )}
       {ordered.length > 0 && (
         <ListBox scroll className="fetch-unmanaged-groups">
@@ -503,7 +497,7 @@ function FetchUnmanagedDialog({
               <div key={key} className="fetch-unmanaged-group">
                 <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
                   <span className="min-w-0 truncate font-mono">
-                    {key === noSource ? "没有来源" : first.source_input}
+                    {key === noSource ? t.noSource : first.source_input}
                   </span>
                   {first.source_ref && (
                     <span className="shrink-0 font-normal text-muted-foreground">
@@ -511,13 +505,11 @@ function FetchUnmanagedDialog({
                     </span>
                   )}
                   <span className="shrink-0 font-normal text-muted-foreground">
-                    · {members.length} 个
+                    {t.groupCount(members.length)}
                   </span>
                   <span className="grow" />
                   <span className="shrink-0 font-normal text-muted-foreground">
-                    {key === noSource
-                      ? "不检查更新，在 Agent 目录里改了用那里的修改更新"
-                      : "以后跟着它检查更新"}
+                    {key === noSource ? t.noSourceNote : t.sourceNote}
                   </span>
                 </div>
                 {members.map(row)}
@@ -528,10 +520,8 @@ function FetchUnmanagedDialog({
       )}
       {conflicts.size > 0 && (
         <div className="fetch-unmanaged-conflicts flex flex-col gap-1.5">
-          <b className="text-xs">同名但内容不一样，每个只入库一份</b>
-          <Hint>
-            默认选最近修改的那份。没选的仍是未纳管技能，照样在原处、不被覆盖，之后想要哪份再入库。
-          </Hint>
+          <b className="text-xs">{t.conflicts}</b>
+          <Hint>{t.conflictsHint}</Hint>
           <ListBox>
             {[...conflicts].map(([name, members]) => (
               <div key={name} className="fetch-unmanaged-conflict">
@@ -562,19 +552,17 @@ function FetchUnmanagedDialog({
                             {agentNames(p)}
                           </span>
                           {p.in_repository && (
-                            <Badge tone="warn">在项目仓库里</Badge>
+                            <Badge tone="warn">{t.inRepository}</Badge>
                           )}
                           {!p.in_repository && p.in_project_lock && (
-                            <Badge tone="warn">记在 skills-lock.json 里</Badge>
+                            <Badge tone="warn">{t.inLock}</Badge>
                           )}
                           {p.link_outside && <OutsideBadge planned={p} home={home} />}
                           <span className="grow" />
                           <span className="shrink-0 text-[11px] text-muted-foreground">
-                            {p.modified_at
-                              ? `${new Date(p.modified_at).toLocaleString()} 修改`
-                              : ""}
+                            {p.modified_at ? t.modifiedAt(p.modified_at) : ""}
                             {!links.has(i) && p.source_input
-                              ? ` · 来自 ${p.source_input}`
+                              ? t.from(p.source_input)
                               : ""}
                           </span>
                           {changedSource(i) && (
@@ -598,7 +586,7 @@ function FetchUnmanagedDialog({
                       checked={!members.some((i) => picked.has(i))}
                       onChange={() => choose(members, null)}
                     />
-                    <span className="text-muted-foreground">都先不入库</span>
+                    <span className="text-muted-foreground">{t.noneOfThem}</span>
                   </label>
                 </ListRow>
               </div>
@@ -608,21 +596,20 @@ function FetchUnmanagedDialog({
       )}
       {team.length > 0 && (
         <Notice tone="warn" className="fetch-unmanaged-team">
-          {`勾上的${team.map((p) => `「${p.name}」`).join("")}归项目仓库管。`}
-          {`之后在 app 里更新${team.length === 1 ? "它" : "它们"}，会改动项目仓库里的文件。`}
+          {t.team(team.map((p) => p.name))}
         </Notice>
       )}
       {outside.map((p) => (
         <Notice key={p.name} tone="warn" className="fetch-unmanaged-link-outside">
-          {`勾上的「${p.name}」:${outsideLinkNote(homePath(home, outsideTarget(p)))}`}
+          {t.outsideNote(p.name, outsideLinkNote(homePath(home, outsideTarget(p))))}
         </Notice>
       ))}
       {unusable.length > 0 && (
         <Diagnostics
-          summary={`${unusable.length} 个不能入库`}
+          summary={t.unusable(unusable.length)}
           items={unusable.map((p) => ({
             key: foldersOf(p)[0]?.folder ?? p.name,
-            reason: `${p.name}:${unmanagedSourceError(p.error!, p.name)}`,
+            reason: t.unusableReason(p.name, unmanagedSourceError(p.error!, p.name)),
           }))}
         />
       )}
@@ -631,17 +618,14 @@ function FetchUnmanagedDialog({
 }
 
 function SameNameInLibrary({ name, sourced }: { name: string; sourced: boolean }) {
+  const t = useT().unmanaged;
   return (
-    <Badge className="fetch-unmanaged-same-name" title={`库里已经有叫「${name}」的技能。${sameNameFetchNote(name, sourced)}`}>
-      库里已有同名
+    <Badge className="fetch-unmanaged-same-name" title={t.sameNameTitle(name, sameNameFetchNote(name, sourced))}>
+      {t.sameName}
     </Badge>
   );
 }
 
 function fetchedMessage(done: FetchedUnmanagedSkill[]): string {
-  const matched = done.filter((r) => r.matched).length;
-  return (
-    `已入库 ${done.length} 个技能，交给 app 管了` +
-    (matched ? `;其中 ${matched} 个和库里已有的一样，只记下了装在这里` : "")
-  );
+  return messages().unmanaged.fetched(done.length, done.filter((r) => r.matched).length);
 }
