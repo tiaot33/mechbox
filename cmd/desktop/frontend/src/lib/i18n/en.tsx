@@ -25,12 +25,22 @@ const store = () => (System.IsWindows() ? "Windows Credential Manager" : System.
 // manualDelete 是卸载时跳过后去哪里手动删除这些条目。
 const manualDelete = () =>
   System.IsWindows()
-    ? "later delete them by hand in Credential Manager under Windows Credentials (the entries starting with com.tiaot33.mechbox)"
+    ? " and later delete them by hand in Credential Manager under Windows Credentials (the entries starting with com.tiaot33.mechbox)"
     : System.IsLinux()
-      ? "later delete them by hand by searching for com.tiaot33.mechbox in Passwords and Keys or KWalletManager"
-      : "later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access";
+      ? "; if you entered them in Settings before, later find com.tiaot33.mechbox in Passwords and Keys or KWalletManager and delete it"
+      : " and later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access";
 // deniedHint 是删不掉时猜的原因;Windows 上没有授权这一步，不猜。
-const deniedHint = () => (System.IsWindows() ? "" : " (access may have been denied)");
+const deniedHint = () =>
+  System.IsWindows()
+    ? ""
+    : System.IsLinux()
+      ? " (the keyring may not have been unlocked, or GNOME Keyring or KWallet isn't running)"
+      : " (access may have been denied)";
+// readFailedHelp 是读不到时怎么办;只有 Linux 上可能是没装或没启动密钥环。
+const readFailedHelp = () =>
+  System.IsLinux()
+    ? " If GNOME Keyring or KWallet isn't installed or running, install and start it, then retry; or start Mechbox from a terminal with GITHUB_TOKEN, SKILLS_S3_*, AWS_* and similar environment variables set."
+    : "";
 
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
@@ -795,7 +805,7 @@ export const en = {
     trashing: (n: number) => `Moving ${count(n, "skill folder")} to the Trash…`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
-      `Couldn't delete the token and secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip and ${manualDelete()}.`,
+      `Couldn't delete the token and secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip${manualDelete()}.`,
     failed: (error: string, keychainDeleted: boolean) =>
       `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the Trash can be put back from it; a retry skips them.${keychainDeleted ? ` The token and secrets in ${store()} have been deleted; re-enter them in Settings to keep using them.` : ""}`,
     done: "Uninstalled. Quitting…",
@@ -1021,7 +1031,7 @@ export const en = {
   },
 
   credentials: {
-    keychainFailed: () => `Couldn't read ${store()}, so the token and secrets can't be viewed or changed right now.`,
+    keychainFailed: () => `Couldn't read ${store()}, so the token and secrets can't be viewed or changed right now.${readFailedHelp()}`,
     retry: "Retry",
     endpoint: "Endpoint (optional, defaults to AWS S3)",
     bucket: "Bucket",

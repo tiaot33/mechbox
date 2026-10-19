@@ -18,10 +18,16 @@ const manualDelete = () =>
   System.IsWindows()
     ? "之后在「凭据管理器」的「Windows 凭据」里删除以 com.tiaot33.mechbox 开头的几条"
     : System.IsLinux()
-      ? "之后在「密码和密钥」或 KWalletManager 里搜索 com.tiaot33.mechbox 手动删除"
+      ? "如果之前在设置页填过，之后在「密码和密钥」或 KWalletManager 里找到 com.tiaot33.mechbox 删除"
       : "之后在「钥匙串访问」里搜索 com.tiaot33.mechbox 手动删除";
 // deniedHint 是删不掉时猜的原因;Windows 上没有授权这一步，不猜。
-const deniedHint = () => (System.IsWindows() ? "" : "(可能是拒绝了授权)");
+const deniedHint = () =>
+  System.IsWindows() ? "" : System.IsLinux() ? "(可能是没有解锁密钥环，或者 GNOME Keyring、KWallet 没有运行)" : "(可能是拒绝了授权)";
+// readFailedHelp 是读不到时怎么办;只有 Linux 上可能是没装或没启动密钥环。
+const readFailedHelp = () =>
+  System.IsLinux()
+    ? "如果没有装或没有启动 GNOME Keyring、KWallet，装好并启动后点重试;也可以从设置了 GITHUB_TOKEN、SKILLS_S3_*、AWS_* 等环境变量的终端启动 Mechbox。"
+    : "";
 
 // keptAsIs 是重新安装时没动的地方：用户改过的、文件夹不在了的。
 const keptAsIs = (edited: number, missing: number) =>
@@ -966,7 +972,7 @@ export const zh = {
   },
 
   credentials: {
-    keychainFailed: () => `没能读取${store()}，令牌和密钥暂时不能查看或修改。`,
+    keychainFailed: () => `没能读取${store()}，令牌和密钥暂时不能查看或修改。${readFailedHelp()}`,
     retry: "重试",
     endpoint: "服务地址(可选，默认 AWS S3)",
     bucket: "存储桶",
