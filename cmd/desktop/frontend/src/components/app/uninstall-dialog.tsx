@@ -1,6 +1,6 @@
 // 卸载 Mechbox：设置页最后一个分区打开。先现查各处安装的状态，说清会删什么、已安装的技能文件夹怎么处理
-// (默认保留;移到废纸篓时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
-// 退出后删除数据库与设置，把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
+// (默认保留;移到废纸篓(Windows、Linux 上是回收站)时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
+// 退出后删除数据库与设置,macOS 上把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
 import { useEffect, useState } from "react";
 import { AppService, LibraryService, UninstallFolders, type ConfigStatus } from "@bindings/cmd/desktop";
 import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/library";
@@ -20,7 +20,7 @@ type Phase =
   | { kind: "idle" }
   | { kind: "working" }
   | { kind: "keychain"; message: string }
-  | { kind: "failed"; error: LibraryError; skippedKeychain: boolean }
+  | { kind: "failed"; error: LibraryError; skippedKeychain: boolean; trashing: boolean }
   | { kind: "done" };
 
 export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => void }) {
@@ -58,13 +58,13 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
           {
             value: UninstallFolders.FoldersKeepModified,
             label: t.keepModified(modified.length),
-            desc: t.keepModifiedDesc,
+            desc: t.keepModifiedDesc(),
           },
         ]
       : []),
     {
       value: UninstallFolders.FoldersTrash,
-      label: t.trash,
+      label: t.trash(),
       desc: t.trashDesc(modified.length),
     },
   ];
@@ -84,7 +84,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
     // 失败时 app 不退出：移走了一部分文件夹，界面与这里的计数都要跟上。
     ui.reload();
     void inspect();
-    setPhase(error ? { kind: "failed", error, skippedKeychain: skipKeychain } : { kind: "idle" });
+    setPhase(error ? { kind: "failed", error, skippedKeychain: skipKeychain, trashing: folders !== UninstallFolders.FoldersKeep } : { kind: "idle" });
   };
 
   const goSync = () => {
@@ -178,7 +178,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
       )}
       {phase.kind === "failed" && (
         <Notice tone="bad" className="whitespace-pre-line">
-          {t.failed(describeError(phase.error), !phase.skippedKeychain)}
+          {t.failed(describeError(phase.error), !phase.skippedKeychain, phase.trashing)}
         </Notice>
       )}
       {phase.kind === "done" && <Notice tone="ok">{t.done}</Notice>}

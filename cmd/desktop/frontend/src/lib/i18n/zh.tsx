@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { System } from "@wailsio/runtime";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
+import { platform } from "@/lib/platform";
 
 const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "未纳管")).join("、");
 
@@ -38,6 +39,10 @@ const keptPlaces = (edited: number, missing: number) => [
   edited ? `${edited} 个地方你改过，没动` : "",
   missing ? `${missing} 个地方文件夹不在了，没动` : "",
 ];
+
+// bin 是卸载时技能文件夹移去的地方:macOS 叫废纸篓,Windows 和 Linux 叫回收站;从里面拿回来,macOS 说放回，其他说还原。
+const bin = () => (platform() === "mac" ? "废纸篓" : "回收站");
+const putBack = () => (platform() === "mac" ? "放回" : "还原");
 
 export const zh = {
   common: {
@@ -720,16 +725,19 @@ export const zh = {
     secretsInKeychain: () => `密钥存在${store()}里`,
     version: "应用版本",
     databasePath: "数据库位置",
-    uninstallDesc: () => `删除技能库、设置页里的设置和${store()}里的令牌与密钥，退出后把应用移到废纸篓;已安装的技能文件夹默认保留，Agent 照常使用。`,
+    uninstallDesc: (): string =>
+      platform() === "mac"
+        ? `删除技能库、设置页里的设置和${store()}里的令牌与密钥，退出后把应用移到废纸篓;已安装的技能文件夹默认保留，Agent 照常使用。`
+        : `删除技能库、设置页里的设置和${store()}里的令牌与密钥，然后退出;应用本身要另外卸载。已安装的技能文件夹默认保留，Agent 照常使用。`,
     uninstallButton: "卸载 Mechbox…",
   },
 
   uninstall: {
     keep: "保留已安装的文件夹",
     keepDesc: "留在原处，Agent 照常使用;重装 Mechbox 后可以再入库，来源可能要重新填",
-    keepModified: (n: number) => `移到废纸篓，但保留被改过的 ${n} 处`,
-    keepModifiedDesc: "被改过的留在原处，其余移到废纸篓，Agent 不再能用",
-    trash: "全部移到废纸篓",
+    keepModified: (n: number) => `移到${bin()}，但保留被改过的 ${n} 处`,
+    keepModifiedDesc: () => `被改过的留在原处，其余移到${bin()}，Agent 不再能用`,
+    trash: () => `全部移到${bin()}`,
     trashDesc: (modified: number) => `Agent 不再能用这些技能${modified ? `;被改过的 ${modified} 处也一起移走` : ""}`,
     title: "卸载 Mechbox",
     cancel: "取消",
@@ -737,7 +745,12 @@ export const zh = {
     skipKeychain: "跳过并继续卸载",
     uninstall: "卸载并退出",
     what: () =>
-      `删除这台机器上的技能库(库里的技能、版本历史与更新历史、组、登记的项目与自定义 Agent)、设置页里的设置(包括 GitHub 与同步),以及${store()}里的令牌与密钥;然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。`,
+      `删除这台机器上的技能库(库里的技能、版本历史与更新历史、组、登记的项目与自定义 Agent)、设置页里的设置(包括 GitHub 与同步),以及${store()}里的令牌与密钥;` +
+      {
+        mac: "然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。",
+        windows: "然后退出。Mechbox 本身不会被删除，之后在「设置 → 应用」里卸载它。",
+        linux: "然后退出。Mechbox 本身不会被删除，之后用安装它的方式删除(软件包管理器，或直接删掉 AppImage 文件)。",
+      }[platform()],
     syncKept: "S3 上的库不动。卸载前可以先推送，重装后填好同步设置就能拉回。",
     goSync: "先去同步…",
     noSync: "没有配置同步：卸载后技能库里的内容无法恢复。",
@@ -747,13 +760,13 @@ export const zh = {
       `${offMachine > 0 ? `另有 ${offMachine} 处在不在这台机器上的项目里，不受影响。` : ""}不是库装的技能不受影响。`,
     adopted: (inProjects: boolean) =>
       `也包括入库前就在那里、后来交给 Mechbox 管理的文件夹。${inProjects ? "项目里的文件夹如果已提交到仓库，移走后会出现在 git 改动里。" : ""}`,
-    modified: (n: number, trash: boolean) => `下面 ${n} 处被改过${trash ? "，会和其余的一起移到废纸篓" : ""}:`,
-    trashing: (n: number) => `正在把 ${n} 个技能文件夹移到废纸篓…`,
+    modified: (n: number, trash: boolean) => `下面 ${n} 处被改过${trash ? `，会和其余的一起移到${bin()}` : ""}:`,
+    trashing: (n: number) => `正在把 ${n} 个技能文件夹移到${bin()}…`,
     uninstalling: "正在卸载…",
     keychainFailed: (message: string) =>
       `没能删除${store()}里的令牌和密钥${deniedHint()}:${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，${manualDelete()}。`,
-    failed: (error: string, keychainDeleted: boolean) =>
-      `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到废纸篓的文件夹可以从废纸篓放回，重试时跳过它们。${keychainDeleted ? `已经删除了${store()}里的令牌和密钥，继续使用要在设置页重新填。` : ""}`,
+    failed: (error: string, keychainDeleted: boolean, trashing: boolean) =>
+      `Mechbox 没有卸载，技能库和设置都还在:${error}\n已经移到${bin()}的文件夹可以从${bin()}${putBack()}，重试时跳过它们。${trashing ? `没能移到${bin()}的那一处还在原处，没有被删除;可以改选「保留已安装的文件夹」后重试，或自己处理那一处后重试。` : ""}${keychainDeleted ? `已经删除了${store()}里的令牌和密钥，继续使用要在设置页重新填。` : ""}`,
     done: "已卸载，正在退出…",
   },
 

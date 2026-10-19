@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { System } from "@wailsio/runtime";
 import type { Messages } from ".";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
+import { platform } from "@/lib/platform";
 
 const and = (items: string[]) => new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 // count 是"1 skill"、"3 skills";不规则的复数给出 many。
@@ -19,6 +20,9 @@ const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
+// bin 是卸载时技能文件夹移去的地方:Windows 叫 Recycle Bin,macOS 和 Linux 叫 Trash;从里面拿回来,macOS 说 put back,其他说 restored。
+const bin = () => (platform() === "windows" ? "Recycle Bin" : "Trash");
+const putBack = () => (platform() === "mac" ? "put back" : "restored");
 
 // store 是令牌与密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
 const store = () => (System.IsWindows() ? "Windows Credential Manager" : System.IsLinux() ? "the system keyring" : "the system keychain");
@@ -772,16 +776,18 @@ export const en = {
     version: "Version",
     databasePath: "Database location",
     uninstallDesc: () =>
-      `Deletes the Library, the settings on this page, and the token and secrets in ${store()}, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.`,
+      platform() === "mac"
+        ? `Deletes the Library, the settings on this page, and the token and secrets in ${store()}, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.`
+        : `Deletes the Library, the settings on this page, and the token and secrets in ${store()}, then quits; the app itself has to be uninstalled separately. Installed skill folders are kept by default and Agents keep using them.`,
     uninstallButton: "Uninstall Mechbox…",
   },
 
   uninstall: {
     keep: "Keep the installed folders",
     keepDesc: "They stay where they are and Agents keep using them; after reinstalling Mechbox you can fetch them again, though you may need to re-enter their Sources",
-    keepModified: (n: number) => `Move to the Trash, but keep the ${count(n, "edited place")}`,
-    keepModifiedDesc: "The edited ones stay where they are; the rest go to the Trash and Agents can no longer use them",
-    trash: "Move everything to the Trash",
+    keepModified: (n: number) => `Move to the ${bin()}, but keep the ${count(n, "edited place")}`,
+    keepModifiedDesc: () => `The edited ones stay where they are; the rest go to the ${bin()} and Agents can no longer use them`,
+    trash: () => `Move everything to the ${bin()}`,
     trashDesc: (modified: number) =>
       `Agents can no longer use these skills${modified ? `; the ${count(modified, "edited place")} ${modified === 1 ? "goes" : "go"} too` : ""}`,
     title: "Uninstall Mechbox",
@@ -790,7 +796,12 @@ export const en = {
     skipKeychain: "Skip and continue uninstalling",
     uninstall: "Uninstall and quit",
     what: () =>
-      `Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects and custom Agents), the settings on the Settings page (including GitHub and Sync), and the token and secrets in ${store()}; then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.`,
+      `Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects and custom Agents), the settings on the Settings page (including GitHub and Sync), and the token and secrets in ${store()}; ` +
+      {
+        mac: "then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
+        windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
+        linux: "then quits. Mechbox itself isn't removed; remove it afterwards the way you installed it (your package manager, or delete the AppImage file).",
+      }[platform()],
     syncKept: "The Library on S3 isn't touched. You can push before uninstalling, then pull it back after reinstalling and filling in the Sync settings.",
     goSync: "Sync first…",
     noSync: "Sync isn't configured: the Library's content can't be recovered after uninstalling.",
@@ -801,13 +812,13 @@ export const en = {
     adopted: (inProjects: boolean) =>
       `This includes folders that were already there before fetching and were later handed over to Mechbox.${inProjects ? " Folders in projects that are committed to a repository will show up as git changes once moved." : ""}`,
     modified: (n: number, trash: boolean) =>
-      `The ${count(n, "place")} below ${n === 1 ? "was" : "were"} edited${trash ? " and will be moved to the Trash with the rest" : ""}:`,
-    trashing: (n: number) => `Moving ${count(n, "skill folder")} to the Trash…`,
+      `The ${count(n, "place")} below ${n === 1 ? "was" : "were"} edited${trash ? ` and will be moved to the ${bin()} with the rest` : ""}:`,
+    trashing: (n: number) => `Moving ${count(n, "skill folder")} to the ${bin()}…`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
       `Couldn't delete the token and secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip${manualDelete()}.`,
-    failed: (error: string, keychainDeleted: boolean) =>
-      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the Trash can be put back from it; a retry skips them.${keychainDeleted ? ` The token and secrets in ${store()} have been deleted; re-enter them in Settings to keep using them.` : ""}`,
+    failed: (error: string, keychainDeleted: boolean, trashing: boolean) =>
+      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the ${bin()} can be ${putBack()} from it; a retry skips them.${trashing ? ` The folder that couldn't be moved to the ${bin()} is still where it was and hasn't been deleted. Choose “Keep the installed folders” and retry, or deal with that folder yourself and retry.` : ""}${keychainDeleted ? ` The token and secrets in ${store()} have been deleted; re-enter them in Settings to keep using them.` : ""}`,
     done: "Uninstalled. Quitting…",
   },
 
