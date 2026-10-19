@@ -3,6 +3,7 @@ package library_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -345,6 +346,51 @@ func TestUpdateReinstallsCheckedPlacesOnly(t *testing.T) {
 	requireSkillFile(t, directories[edited], "pdf", "edited by hand")
 	if _, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{skill.ID}}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("reusing the plan = %v; want NotFound", err)
+	}
+}
+
+// 更新时文件夹不在了的地方:没同意不装回去,同意后装回新版。
+func TestUpdatePutsBackMissingFolderOnlyWithConsent(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	codex := library.GlobalScope(library.AgentCodex)
+	directories := map[library.Scope]string{}
+	for _, scope := range []library.Scope{claude, codex} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		directory, err := lib.ScopeDirectory(ctx, scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		directories[scope] = directory
+		if err := os.RemoveAll(filepath.Join(directory, "pdf")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeLocalSkill(t, source, "v2")
+	plan, err := lib.PlanUpdate(ctx, skill.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := lib.Update(ctx, library.UpdateRequest{
+		Plan:     plan.ID,
+		Skills:   []library.SkillID{skill.ID},
+		Installs: []library.ReinstallRequest{{SkillID: skill.ID, Scope: claude, Overwrite: true}, {SkillID: skill.ID, Scope: codex}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Installs) != 2 || result.Installs[0].Outcome != library.Reinstalled || result.Installs[1].Outcome != library.ReinstallFailed {
+		t.Fatalf("installs = %#v; want the consented place put back and the other refused", result.Installs)
+	}
+	requireErrorDetails(t, result.Installs[1].Error, library.NotFound, library.ErrorDetails{Path: filepath.Join(directories[codex], "pdf")})
+	requireInstalledFolder(t, directories[claude], "pdf", "v2")
+	if _, err := os.Lstat(filepath.Join(directories[codex], "pdf")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing folder was put back without consent: %v", err)
 	}
 }
 

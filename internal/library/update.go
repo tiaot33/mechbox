@@ -22,8 +22,8 @@ type UpdateRequest struct {
 	// Skills 是勾选的技能,都必须在计划里有变化或没变化(来源里已删除的不能勾);重复的只算一次。
 	// 有变化而没勾的技能完全不动。
 	Skills []SkillID `json:"skills"`
-	// Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方,
-	// Overwrite 为 true 才覆盖,也就是勾选即同意覆盖。没勾的地方保持原样。用目录里的修改更新时不能列取内容的那个文件夹。
+	// Installs 是勾选的地方:勾选的技能装在哪里、换成新版。通常取自 UpdatePlan.Installs;用户改过(modified)的地方
+	// Overwrite 为 true 才覆盖,文件夹不在了(missing)的地方 Overwrite 为 true 才装回去,也就是勾选即同意。没勾的地方保持原样。用目录里的修改更新时不能列取内容的那个文件夹。
 	Installs []ReinstallRequest `json:"installs,omitempty"`
 }
 
