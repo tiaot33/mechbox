@@ -2,6 +2,7 @@ package main
 
 import (
 	"runtime"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -33,7 +34,9 @@ var nativeLabels = map[Language]map[string]string{
 }
 
 // nativeMenus 记下 Go 这边画的菜单项，界面语言变了时逐项换文字。
+// 换文字要等主线程，所以只在 mu 下记录和取出菜单项，换文字时不持锁。
 type nativeMenus struct {
+	mu       sync.Mutex
 	language Language
 	labeled  []labeledItem
 	appMenu  *application.Menu
@@ -48,8 +51,11 @@ func (m *nativeMenus) label(item *application.MenuItem, key string) *application
 	if item == nil {
 		return nil
 	}
+	m.mu.Lock()
 	m.labeled = append(m.labeled, labeledItem{item, key})
-	return item.SetLabel(nativeLabels[m.language][key])
+	label := nativeLabels[m.language][key]
+	m.mu.Unlock()
+	return item.SetLabel(label)
 }
 
 func (m *nativeMenus) role(role application.Role, key string) *application.MenuItem {
@@ -100,21 +106,28 @@ func (m *nativeMenus) macMenu() *application.Menu {
 
 // setLanguage 换掉已经画出来的菜单项文字;顶部菜单栏整个重建一遍，菜单栏上的标题才会跟着变。
 func (m *nativeMenus) setLanguage(language Language) {
+	m.mu.Lock()
 	if language == m.language {
+		m.mu.Unlock()
 		return
 	}
 	m.language = language
-	for _, l := range m.labeled {
+	labeled, appMenu := append([]labeledItem(nil), m.labeled...), m.appMenu
+	m.mu.Unlock()
+	for _, l := range labeled {
 		l.item.SetLabel(nativeLabels[language][l.key])
 	}
-	if m.appMenu != nil {
-		m.appMenu.Update()
+	if appMenu != nil {
+		appMenu.Update()
 	}
 }
 
 func (m *nativeMenus) attach(app *application.App) {
 	if runtime.GOOS == "darwin" {
-		m.appMenu = m.macMenu()
-		app.Menu.SetApplicationMenu(m.appMenu)
+		menu := m.macMenu()
+		m.mu.Lock()
+		m.appMenu = menu
+		m.mu.Unlock()
+		app.Menu.SetApplicationMenu(menu)
 	}
 }

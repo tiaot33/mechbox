@@ -17,7 +17,6 @@ export const en = {
     cancel: "Cancel",
     ok: "OK",
     close: "Close",
-    retry: "Retry",
     unknown: "Unknown",
   },
 

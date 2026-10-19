@@ -72,9 +72,7 @@ func (a *AppService) ServiceStartup(context.Context, application.ServiceOptions)
 	}
 	a.applyCredentials(a.credentials())
 	a.credMu.Unlock()
-	a.nativeMu.Lock()
 	a.menus.setLanguage(a.settings.Language.resolve())
-	a.nativeMu.Unlock()
 	a.opened = true
 	loop, stop := context.WithCancel(context.Background())
 	a.stop = stop
@@ -122,9 +120,7 @@ func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	a.nativeMu.Lock()
 	a.menus.setLanguage(settings.Language.resolve())
-	a.nativeMu.Unlock()
 	a.poke()
 	a.refreshBadge(context.Background())
 	return settings, nil

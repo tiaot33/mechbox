@@ -13,7 +13,6 @@ export const zh = {
     cancel: "取消",
     ok: "确定",
     close: "关闭",
-    retry: "重试",
     unknown: "未知",
   },
 
