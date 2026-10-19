@@ -595,7 +595,7 @@ function UpdatesHead({ s }: { s: Snapshot }) {
         ].filter(Boolean);
         return (
           <div key={c.id} className={cn(barRowClass, "update-row")}>
-            <b className="truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+            <b className="truncate [&:lang(en)]:shrink-0">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
             <span className="min-w-0 grow truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
               {facts.join(" · ")}
             </span>

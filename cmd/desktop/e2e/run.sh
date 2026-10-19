@@ -107,7 +107,8 @@ if [ "${E2E_NETWORK:-}" != 1 ]; then
 	hosts_pid=$!
 	hosts="skills.sh=localhost:$hosts_port skills.e2e.test=localhost:$hosts_port"
 fi
-HOME="$home" XDG_STATE_HOME="" WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" "$work/server" >"$work/server.log" 2>&1 &
+# 界面语言跟随系统，server 模式按 LC_ALL / LC_MESSAGES / LANG 判断;e2e 的步骤按中文界面写，固定成中文，不随跑测试的机器变。
+HOME="$home" XDG_STATE_HOME="" LC_ALL=zh_CN.UTF-8 WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" "$work/server" >"$work/server.log" 2>&1 &
 server_pid=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
 	curl -sf -o /dev/null "http://localhost:$port/" && break

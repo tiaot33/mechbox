@@ -474,7 +474,7 @@ export const en = {
     from: (source: string) => `From ${source}`,
     linkTitle: (target: string) => `Symlink to ${target}`,
     link: (target: string) => `Symlink → ${target}`,
-    notByLibrary: "Not installed by the Library",
+    notByLibrary: "Not from Library",
     revealInFinder: "Show in Finder",
     fetchTitle: "Hand it over to the app: the folder stays as it is, and you can install it elsewhere and take it along with Sync",
     fetch: "Fetch",

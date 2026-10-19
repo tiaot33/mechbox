@@ -4,7 +4,7 @@ A tool for managing coding-agent skills: fetching them from their Sources into a
 
 Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `SKILL.md` that agents discover from disk and load on demand. For format, discovery scopes, invocation, and same-name behavior, see [ecosystem background](docs/agents/agent-skills-background.md). Product terms stay in this file; how the product maps onto the ecosystem, and known gaps, are at the end of the ecosystem background.
 
-> Term headings are bilingual: the **English** name is the canonical identifier used in code; the **中文** name is the term used in the v1 (Chinese-only) UI.
+> Term headings are bilingual: the **English** name is the canonical identifier used in code and also the term used in the English UI; the **中文** name is the term used in the Chinese UI.
 
 ## Language · 术语
 

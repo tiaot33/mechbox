@@ -143,7 +143,12 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                         <div>{t.language}</div>
                         <Hint className="mt-0.5">{t.languageDesc}</Hint>
                       </div>
-                      <Segmented value={settings.language ?? Language.LanguageSystem} onChange={(v) => save({ language: v })} options={languages} />
+                      <Segmented
+                        className="shrink-0"
+                        value={settings.language ?? Language.LanguageSystem}
+                        onChange={(v) => save({ language: v })}
+                        options={languages}
+                      />
                     </SetRow>
                   </>
                 ),
