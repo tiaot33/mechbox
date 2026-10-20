@@ -265,7 +265,9 @@ func (a *AppService) check(ctx context.Context, collections []library.Collection
 	a.mu.Lock()
 	a.lastAttempt = time.Now().Round(0)
 	a.mu.Unlock()
-	if _, err := a.library.lib.CheckUpdates(ctx, collections); err != nil && ctx.Err() == nil {
+	var err error
+	a.library.inBackground(ctx, func() { _, err = a.library.lib.CheckUpdates(ctx, collections) })
+	if err != nil && ctx.Err() == nil {
 		a.app.Logger.Warn("automatic update check", "error", err)
 	}
 	if ctx.Err() != nil {

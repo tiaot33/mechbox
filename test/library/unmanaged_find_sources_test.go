@@ -258,6 +258,93 @@ func TestFindUnmanagedSourcesRunsAtMostFourRequestsAndOpensEachSourceOnce(t *tes
 	}
 }
 
+// sourceReads 记下每个来源从第一个请求开始、到要的技能都下载完为止的这一段,同时在读的来源最多有几个,
+// 以及每个来源开始时已经有几个来源读完了。
+type sourceReads struct {
+	mu       sync.Mutex
+	skills   int
+	order    []string
+	before   map[string]int
+	read     map[string]int
+	finished int
+	open     int
+	peak     int
+}
+
+func (r *sourceReads) roundTrip(next func(*http.Request) (*http.Response, error), delay time.Duration) func(*http.Request) (*http.Response, error) {
+	return func(req *http.Request) (*http.Response, error) {
+		host := req.URL.Host
+		if !strings.HasSuffix(host, ".example") {
+			return next(req)
+		}
+		r.mu.Lock()
+		if _, ok := r.before[host]; !ok {
+			r.before[host] = r.finished
+			r.order = append(r.order, host)
+			r.open++
+			r.peak = max(r.peak, r.open)
+		}
+		r.mu.Unlock()
+		time.Sleep(delay)
+		response, err := next(req)
+		if strings.HasSuffix(req.URL.Path, "/artifact") {
+			r.mu.Lock()
+			if r.read[host]++; r.read[host] == r.skills {
+				r.finished++
+				r.open--
+			}
+			r.mu.Unlock()
+		}
+		return response, err
+	}
+}
+
+func TestFindUnmanagedSourcesReadsAtMostTwoSourcesAtATime(t *testing.T) {
+	isolateGit(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "")
+	s := serveSearchedSite(t, nil)
+	reads := &sourceReads{skills: 2, before: map[string]int{}, read: map[string]int{}}
+	http.DefaultClient = &http.Client{Transport: fetchTransport(reads.roundTrip(s.roundTrip, 30*time.Millisecond))}
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	directory := scopeDirectory(t, lib, claude)
+	body := "one\ntwo\nthree\nfour\nfive\nsix"
+	near := "one\ntwo\nthree\nfour\nfive\nother"
+	writeFile(t, filepath.Join(directory, "alpha", "SKILL.md"), []byte(skillDocument("alpha", body)), 0o644)
+	writeFile(t, filepath.Join(directory, "beta", "SKILL.md"), []byte(skillDocument("beta", body)), 0o644)
+	// 三个来源里都有 alpha 和 beta:alpha 和 one 里的一样,beta 和 two 里的一样,three 里的差得远。
+	s.searchResults(t, "alpha", [2]string{"alpha", "one.example"}, [2]string{"alpha", "two.example"}, [2]string{"alpha", "three.example"})
+	s.searchResults(t, "beta", [2]string{"beta", "one.example"}, [2]string{"beta", "two.example"}, [2]string{"beta", "three.example"})
+	contents := map[string][2]string{"one": {body, near}, "two": {near, body}, "three": {"x\ny\nz", "x\ny\nz"}}
+	for host, bodies := range contents {
+		artifactIndex(t, s.site, "https://"+host+".example", []artifact{
+			{name: "alpha", kind: "skill-md", content: []byte(skillDocument("alpha", bodies[0]))},
+			{name: "beta", kind: "skill-md", content: []byte(skillDocument("beta", bodies[1]))},
+		})
+	}
+
+	found := findUnmanagedSources(t, lib, library.FolderInScope{Scope: claude, Name: "alpha"}, library.FolderInScope{Scope: claude, Name: "beta"})
+	want := []library.FoundUnmanagedSource{
+		{Scope: claude, Name: "alpha", SourceInput: "https://one.example"},
+		{Scope: claude, Name: "beta", SourceInput: "https://two.example"},
+	}
+	if !reflect.DeepEqual(found, want) {
+		t.Fatalf("found = %#v, want %#v", found, want)
+	}
+	if len(reads.order) != 3 || reads.finished != 3 {
+		t.Fatalf("read sources %v, finished %d", reads.order, reads.finished)
+	}
+	if reads.peak > 2 {
+		t.Fatalf("read %d sources at a time, want at most 2", reads.peak)
+	}
+	// 第三个来源要等前两个之一要的技能都读完才开始。
+	if third := reads.order[2]; reads.before[third] < 1 {
+		t.Fatalf("%s started before any other source finished reading its skills", third)
+	}
+}
+
 func TestFindUnmanagedSourcesErrors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -7,6 +7,7 @@ import (
 )
 
 // 本文件把 library.Library 的方法(Close 除外)逐个开放给前端：同名、同签名，原样转发。
+// FindUnmanagedSources 例外：它和自动检查更新都要读来源，轮流进行，不同时跑，做完把空闲内存还给系统。
 // TestLibraryServiceExposesEveryLibraryMethod 保证 Library 新增方法时这里不会漏。
 
 // settle 处理前端已取消的调用：前端 promise.cancel() 后 ctx 被取消，此时方法若返回错误,
@@ -260,8 +261,9 @@ func (s *LibraryService) PlanFetchUnmanaged(ctx context.Context, req library.Pla
 	return settle(s.lib.PlanFetchUnmanaged(ctx, req))(ctx)
 }
 
-func (s *LibraryService) FindUnmanagedSources(ctx context.Context, req library.FindUnmanagedSourcesRequest) ([]library.FoundUnmanagedSource, error) {
-	return settle(s.lib.FindUnmanagedSources(ctx, req))(ctx)
+func (s *LibraryService) FindUnmanagedSources(ctx context.Context, req library.FindUnmanagedSourcesRequest) (found []library.FoundUnmanagedSource, err error) {
+	s.inBackground(ctx, func() { found, err = s.lib.FindUnmanagedSources(ctx, req) })
+	return settle(found, err)(ctx)
 }
 
 func (s *LibraryService) FetchUnmanagedSkills(ctx context.Context, req library.FetchUnmanagedSkillsRequest) ([]library.FetchedUnmanagedSkill, error) {
