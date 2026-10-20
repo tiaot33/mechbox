@@ -329,7 +329,8 @@ type FoundUnmanagedSource struct {
 // 用找到的来源入库(FetchUnmanaged、FetchUnmanagedSkills)时,内容和来源里的一致就是来源里的那一版,不一致时和用户自己给的来源一样,
 // 版本标为 SkillVersion.MaybeEdited。
 // 它要联网,ListUnmanagedSkills 与 PlanFetchUnmanaged 不等它:界面列出之后在后台调用,结果到了再补上。
-// 搜索 skills.sh 与读来源加起来最多同时 4 个;同一个来源这一次只读一次,几个技能共用。联网期间不持库锁。
+// 搜索 skills.sh 最多同时 4 个;都搜完后再读来源,最多同时读 2 个来源,一个来源里要的技能都读完才读下一个;
+// 同一个来源这一次只读一次,几个技能共用。联网期间不持库锁。
 // 搜不到、没有达到阈值的、skills.sh 或来源连不上、文件夹读不成的,都当作认不出来源:不在结果里,也不报错。
 // 只读:不改库、不改磁盘。结果按请求顺序,只列出找到来源的。
 // 错误:作用域不合法返回 InvalidArgument(Details.Field 指向对应字段),文件夹名不合法为 name;Agent、项目不存在返回 NotFound。
@@ -374,24 +375,24 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 	}
 	type sourceSkill struct{ input, name string }
 	fetched := map[sourceSkill][]skillfile.File{}
+	reads := make(parallelLimit, maxSourceReads)
 	for input, names := range wanted {
 		wg.Go(func() {
-			var opened *openedSource
-			limit.do(ctx, func() { opened, _ = l.openSource(ctx, input, "") })
-			if opened == nil {
-				return
-			}
-			for _, name := range names {
-				limit.do(ctx, func() {
+			reads.do(ctx, func() {
+				opened, err := l.openSource(ctx, input, "")
+				if err != nil {
+					return
+				}
+				for _, name := range names {
 					skills, err := opened.snapshot.Fetch(ctx, []string{name})
 					if err != nil || len(skills) != 1 {
-						return
+						continue
 					}
 					mu.Lock()
 					fetched[sourceSkill{input, name}] = skills[0].Files
 					mu.Unlock()
-				})
-			}
+				}
+			})
 		})
 	}
 	wg.Wait()
@@ -417,7 +418,10 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 	return found, nil
 }
 
-const maxSourceSearches = 4
+const (
+	maxSourceSearches = 4
+	maxSourceReads    = 2
+)
 
 type parallelLimit chan struct{}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -38,11 +39,13 @@ type LibraryService struct {
 	configMu sync.Mutex
 	token    bool
 	sync     *library.SyncSettings
+
+	background chan struct{}
 }
 
 // NewLibraryService 创建绑定服务;库在 Wails 启动服务时才打开。
 func NewLibraryService(path string) *LibraryService {
-	return &LibraryService{path: path}
+	return &LibraryService{path: path, background: make(chan struct{}, 1)}
 }
 
 // ServiceStartup 在 Wails 启动服务时打开技能库：目录不存在则创建，库文件不存在则由 Open 初始化空库。
@@ -55,6 +58,20 @@ func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOpti
 		return err
 	}
 	s.lib = lib
+	return nil
+}
+
+func (s *LibraryService) inBackground(ctx context.Context, work func()) error {
+	select {
+	case s.background <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() {
+		debug.FreeOSMemory()
+		<-s.background
+	}()
+	work()
 	return nil
 }
 

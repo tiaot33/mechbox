@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -84,6 +85,36 @@ func TestLibraryServiceSwallowsErrorsOfCancelledCalls(t *testing.T) {
 	// 未取消的调用照常返回错误。
 	if _, err := service.ScopeDirectory(t.Context(), library.Scope{Kind: "bogus"}); err == nil {
 		t.Fatal("ScopeDirectory with an invalid scope succeeded")
+	}
+}
+
+// 找来源要等进行中的自动检查更新做完才开始;等的时候前端取消了，就不再找。
+func TestFindUnmanagedSourcesWaitsForBackgroundWork(t *testing.T) {
+	service := NewLibraryService(filepath.Join(t.TempDir(), "library.db"))
+	if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("ServiceStartup: %v", err)
+	}
+	t.Cleanup(func() { _ = service.ServiceShutdown() })
+	req := library.FindUnmanagedSourcesRequest{Folders: []library.FolderInScope{{Scope: library.Scope{Kind: "bogus"}, Name: "pdf"}}}
+
+	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = service.inBackground(t.Context(), func() {
+			close(started)
+			<-release
+		})
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if found, err := service.FindUnmanagedSources(ctx, req); found != nil || err != nil {
+		t.Fatalf("FindUnmanagedSources during background work = %v, %v; want it to wait until cancelled", found, err)
+	}
+	close(release)
+	<-done
+	if _, err := service.FindUnmanagedSources(t.Context(), req); err == nil {
+		t.Fatal("FindUnmanagedSources with an invalid scope succeeded after background work finished")
 	}
 }
 
