@@ -61,18 +61,17 @@ func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOpti
 	return nil
 }
 
-func (s *LibraryService) inBackground(ctx context.Context, work func()) error {
+func (s *LibraryService) inBackground(ctx context.Context, work func()) {
 	select {
 	case s.background <- struct{}{}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return
 	}
 	defer func() {
 		debug.FreeOSMemory()
 		<-s.background
 	}()
 	work()
-	return nil
 }
 
 // ServiceShutdown 在应用退出时关闭技能库。

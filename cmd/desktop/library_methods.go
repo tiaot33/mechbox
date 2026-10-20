@@ -262,9 +262,7 @@ func (s *LibraryService) PlanFetchUnmanaged(ctx context.Context, req library.Pla
 }
 
 func (s *LibraryService) FindUnmanagedSources(ctx context.Context, req library.FindUnmanagedSourcesRequest) (found []library.FoundUnmanagedSource, err error) {
-	if waited := s.inBackground(ctx, func() { found, err = s.lib.FindUnmanagedSources(ctx, req) }); waited != nil {
-		err = waited
-	}
+	s.inBackground(ctx, func() { found, err = s.lib.FindUnmanagedSources(ctx, req) })
 	return settle(found, err)(ctx)
 }
 

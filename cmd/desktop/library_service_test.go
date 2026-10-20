@@ -100,7 +100,7 @@ func TestFindUnmanagedSourcesWaitsForBackgroundWork(t *testing.T) {
 	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = service.inBackground(t.Context(), func() {
+		service.inBackground(t.Context(), func() {
 			close(started)
 			<-release
 		})
