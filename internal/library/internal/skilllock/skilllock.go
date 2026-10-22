@@ -7,8 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -16,8 +14,9 @@ import (
 )
 
 const (
+	GlobalFile           = ".agents/.skill-lock.json"
+	ProjectFile          = "skills-lock.json"
 	globalRecordsVersion = 3
-	projectRecordsFile   = "skills-lock.json"
 )
 
 type Record struct {
@@ -27,28 +26,19 @@ type Record struct {
 	Ref          string `json:"ref"`
 	FolderHash   string `json:"skillFolderHash"`
 	ComputedHash string `json:"computedHash"`
-	root         string
 }
 
 type Records map[string]Record
 
-func GlobalRecords(home string) Records {
-	path := filepath.Join(home, ".agents", ".skill-lock.json")
-	if state := os.Getenv("XDG_STATE_HOME"); state != "" {
-		path = filepath.Join(state, "skills", ".skill-lock.json")
-	}
-	return readRecords(path, "", globalRecordsVersion)
+func ParseGlobal(content []byte) Records {
+	return parse(content, globalRecordsVersion)
 }
 
-func ProjectRecords(root string) Records {
-	return readRecords(filepath.Join(root, projectRecordsFile), root, 0)
+func ParseProject(content []byte) Records {
+	return parse(content, 0)
 }
 
-func readRecords(path, root string, minVersion int) Records {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
+func parse(content []byte, minVersion int) Records {
 	var file struct {
 		Version *int              `json:"version"`
 		Skills  map[string]Record `json:"skills"`
@@ -56,12 +46,7 @@ func readRecords(path, root string, minVersion int) Records {
 	if json.Unmarshal(content, &file) != nil || file.Version == nil || *file.Version < minVersion {
 		return nil
 	}
-	records := Records{}
-	for name, entry := range file.Skills {
-		entry.root = root
-		records[name] = entry
-	}
-	return records
+	return file.Skills
 }
 
 func (l Records) Find(names ...string) (Record, bool) {
@@ -81,15 +66,12 @@ func (e Record) Input() (input, ref string, ok bool) {
 		input, ref = cmp.Or(e.SourceURL, e.Source), e.Ref
 	case "well-known", "download":
 		input = cmp.Or(e.SourceURL, e.Source)
-	case "local":
-		switch {
-		case filepath.IsAbs(e.Source):
-			input = e.Source
-		case e.Source != "" && e.root != "":
-			input = filepath.Join(e.root, filepath.FromSlash(e.Source))
-		}
 	}
 	return input, ref, input != ""
+}
+
+func (e Record) LocalPath() (string, bool) {
+	return e.Source, e.SourceType == "local"
 }
 
 func (e Record) Matches(files []skillfile.File) bool {

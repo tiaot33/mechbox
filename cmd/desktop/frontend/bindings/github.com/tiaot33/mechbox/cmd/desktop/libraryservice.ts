@@ -98,8 +98,12 @@ export function GetVersionFile(id: library$0.VersionID, path: string): $Cancella
     return $Call.ByID(3433441728, id, path);
 }
 
+export function HomeDirectory(): $CancellablePromise<string> {
+    return $Call.ByID(4228136540);
+}
+
 /**
- * Info 返回技能库路径、用户主目录与应用版本。
+ * Info 返回技能库路径、技能库所用的用户主目录与应用版本。
  */
 export function Info(): $CancellablePromise<$models.AppInfo> {
     return $Call.ByID(170646414);

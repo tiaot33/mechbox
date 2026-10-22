@@ -182,8 +182,7 @@ func SameEntry(a, b string) bool {
 func Within(path, directory string) bool {
 	info, err := os.Stat(directory)
 	if err != nil {
-		relative, err := filepath.Rel(Canonical(directory), Canonical(path))
-		return err == nil && relative != "." && filepath.IsLocal(relative)
+		return Inside(directory, path)
 	}
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		path = resolved

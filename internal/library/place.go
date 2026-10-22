@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -66,10 +65,10 @@ func (l *Library) placementConflict(ctx context.Context, operation string, id Sk
 	}
 	if other != nil {
 		return preconditionError(operation, "another skill already installs this name into the same directory", ErrorDetails{
-			Path: filepath.Join(target.directory, other.name), Name: other.name, SkillID: other.skillID,
+			Path: agentdir.FolderPath(target.directory, other.name), Name: other.name, SkillID: other.skillID,
 		}), nil
 	}
-	path := filepath.Join(target.directory, name)
+	path := agentdir.FolderPath(target.directory, name)
 	exists, err := agentdir.Exists(path)
 	if err != nil {
 		return nil, fmt.Errorf("inspect target folder: %w", err)
@@ -100,7 +99,7 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 			return err
 		}
 		if item.replaces != "" && item.replaces != item.skill.Name {
-			change.Remove(filepath.Join(item.scope.directory, item.replaces))
+			change.Remove(agentdir.FolderPath(item.scope.directory, item.replaces))
 		}
 	}
 	return l.applyChange(ctx, &change, record)
@@ -140,7 +139,7 @@ func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Chang
 }
 
 func (l *Library) requireFreeFolder(ctx context.Context, operation string, skill Skill, target resolvedScope) error {
-	path := filepath.Join(target.directory, skill.Name)
+	path := agentdir.FolderPath(target.directory, skill.Name)
 	if other, err := l.targetClaimant(ctx, skill.ID, skill.Name, target); err != nil {
 		return err
 	} else if other != nil && other.skillID != skill.ID {

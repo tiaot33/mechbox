@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -38,7 +37,7 @@ type UnmanagedSkill struct {
 	InRepository bool `json:"in_repository,omitzero"`
 	// SourceInput 是从 npx skills 留下的来源记录里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
 	// FetchUnmanagedRequest.SourceInput,界面写「来自 …」。认不出时为空,用户可以自己给一个来源链接。
-	// 全局作用域读 ~/.agents/.skill-lock.json(设了 XDG_STATE_HOME 时为 $XDG_STATE_HOME/skills/.skill-lock.json,只认 version 3 及以上),
+	// 全局作用域读 ~/.agents/.skill-lock.json(不跟随 XDG_STATE_HOME,只认 version 3 及以上),
 	// 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
 	// 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
 	SourceInput string `json:"source_input,omitempty"`
@@ -104,7 +103,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 			entry.Description = candidate.Description
 		}
 		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
-			entry.SourceInput, entry.SourceRef, _ = record.Input()
+			entry.SourceInput, entry.SourceRef = record.input, record.ref
 			entry.InProjectLock = target.projectID != nil
 		}
 		if target.projectID != nil {
@@ -247,7 +246,7 @@ func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scop
 	}
 	claimed := map[folder]SkillID{}
 	for _, skillScope := range installed {
-		claimed[folder{skillScope.Scope, filepath.Base(skillScope.Folder)}] = skillScope.SkillID
+		claimed[folder{skillScope.Scope, agentdir.FolderName(skillScope.Folder)}] = skillScope.SkillID
 	}
 	var folders []scopeFolder
 	for _, agent := range agents {
