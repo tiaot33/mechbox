@@ -3,10 +3,10 @@ package library
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/s3"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
@@ -21,7 +21,7 @@ import (
 // 见 docs/adr/0008-desktop-is-wails-v3-in-process.md。
 type Library struct {
 	store *store.Store
-	home  string
+	home  agentdir.Home
 	mu    sync.RWMutex
 
 	previewMu sync.Mutex
@@ -69,10 +69,10 @@ func Open(path string) (lib *Library, err error) {
 	if err != nil {
 		return nil, err
 	}
-	home, err := os.UserHomeDir()
+	home, err := agentdir.UserHome()
 	if err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("open library: find home directory: %w", err)
+		return nil, fmt.Errorf("open library: %w", err)
 	}
 	client := github.NewClient()
 	direct := download.New(maxFetchFiles, maxFetchSize)
@@ -111,6 +111,14 @@ func (l *Library) Close() (err error) {
 	l.previewMu.Unlock()
 	l.github.Close()
 	return l.store.Close()
+}
+
+// HomeDirectory 返回各 Agent 全局目录所在的用户主目录:Open 时取当前用户的主目录,拉回同步后重新取。
+// [Agent].GlobalDirectory、全局作用域的 [Library.ScopeDirectory] 都在它下面,界面据此把路径缩写成 ~。
+func (l *Library) HomeDirectory() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.home.Root()
 }
 
 // SetGitHubToken 设置访问 GitHub 用的个人访问令牌,之后的入库预览、入库、检查更新与更新立即使用。

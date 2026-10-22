@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"path/filepath"
 	"slices"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -222,7 +221,7 @@ func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, 
 	if err != nil || len(place) == 0 {
 		return false
 	}
-	return agentdir.SameFolder(filepath.Join(target.directory, place[0].Folder), edit.folder)
+	return agentdir.SameFolder(agentdir.FolderPath(target.directory, place[0].Folder), edit.folder)
 }
 
 func selectedSkills(operation string, state *planState, requested []SkillID) ([]SkillID, error) {

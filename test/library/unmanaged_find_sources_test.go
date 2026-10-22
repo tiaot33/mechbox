@@ -162,7 +162,6 @@ func TestFindUnmanagedSourcesTakesTheMostSimilarSourceAboveTheThreshold(t *testi
 	isolateGit(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", "")
 	s := serveSearchedSite(t, nil)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -215,7 +214,6 @@ func TestFindUnmanagedSourcesRunsAtMostFourRequestsAndOpensEachSourceOnce(t *tes
 	isolateGit(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", "")
 	s := serveSearchedSite(t, nil)
 	s.delay = 20 * time.Millisecond
 	lib := openTestLibrary(t)
@@ -303,7 +301,6 @@ func TestFindUnmanagedSourcesReadsAtMostTwoSourcesAtATime(t *testing.T) {
 	isolateGit(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", "")
 	s := serveSearchedSite(t, nil)
 	reads := &sourceReads{skills: 2, before: map[string]int{}, read: map[string]int{}}
 	http.DefaultClient = &http.Client{Transport: fetchTransport(reads.roundTrip(s.roundTrip, 30*time.Millisecond))}

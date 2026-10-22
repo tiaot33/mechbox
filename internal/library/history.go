@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"path/filepath"
 	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -402,7 +401,7 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 		return "", &Error{Code: Conflict, Message: operation + ": skill version changed since the rollback", Details: ErrorDetails{SkillID: id}}
 	}
 	folderName := place[0].Folder
-	folder := filepath.Join(target.directory, folderName)
+	folder := agentdir.FolderPath(target.directory, folderName)
 	if exists, err := agentdir.Exists(folder); err != nil {
 		return "", fmt.Errorf("inspect target folder: %w", err)
 	} else if !exists {

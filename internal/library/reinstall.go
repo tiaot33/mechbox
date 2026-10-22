@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"path/filepath"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -167,7 +166,7 @@ func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target reso
 		return SkillScopeRootMissing, 0, nil
 	}
 
-	folder := filepath.Join(target.directory, name)
+	folder := agentdir.FolderPath(target.directory, name)
 	if exists, err := agentdir.Exists(folder); err != nil {
 		return "", 0, fmt.Errorf("inspect target folder: %w", err)
 	} else if !exists {
@@ -335,16 +334,16 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	}
 	switch status {
 	case SkillScopeCurrent:
-		if place[0].Folder == skill.Name && agentdir.LinkTarget(filepath.Join(target.directory, place[0].Folder)) == "" {
+		if place[0].Folder == skill.Name && agentdir.LinkTarget(agentdir.FolderPath(target.directory, place[0].Folder)) == "" {
 			return ReinstallCurrent, false, nil
 		}
 	case SkillScopeModified:
 		if !request.Overwrite {
-			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)})
+			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: agentdir.FolderPath(target.directory, place[0].Folder)})
 		}
 	case SkillScopeMissing:
 		if !request.Overwrite {
-			return "", false, &Error{Code: NotFound, Message: operation + ": installed folder was deleted outside the library", Details: ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)}}
+			return "", false, &Error{Code: NotFound, Message: operation + ": installed folder was deleted outside the library", Details: ErrorDetails{Path: agentdir.FolderPath(target.directory, place[0].Folder)}}
 		}
 	}
 	folder := place[0].Folder

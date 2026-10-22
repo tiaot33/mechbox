@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -158,7 +157,7 @@ func memberNameCounts(members []Skill) map[string]int {
 }
 
 func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
-	plan := InstallPlan{SkillID: id, Name: name, Folder: filepath.Join(scope.directory, name), Status: InstallReady}
+	plan := InstallPlan{SkillID: id, Name: name, Folder: agentdir.FolderPath(scope.directory, name), Status: InstallReady}
 	place, err := l.store.PlaceSkillScopes(ctx, int64(id), scope.record())
 	if err != nil {
 		return plan, err
@@ -279,7 +278,7 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 			for _, row := range place {
 				if !slices.Contains(folders, row.Folder) {
 					folders = append(folders, row.Folder)
-					change.Remove(filepath.Join(target.directory, row.Folder))
+					change.Remove(agentdir.FolderPath(target.directory, row.Folder))
 				}
 			}
 		}
@@ -311,7 +310,7 @@ func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, 
 	if err != nil {
 		return err
 	}
-	key := filepath.Join(agentdir.Canonical(target.directory), name)
+	key := agentdir.FolderKey(target.directory, name)
 	planned := plan.planned[key]
 	switch {
 	case len(place) > 0:
@@ -346,11 +345,11 @@ func (l *Library) memberBlocker(ctx context.Context, plan *memberPlan, id SkillI
 	if missing, err := target.rootMissing(plan.operation); err != nil || missing != nil {
 		return missing, err
 	}
-	path := filepath.Join(target.directory, name)
+	path := agentdir.FolderPath(target.directory, name)
 	if duplicate {
 		return preconditionError(plan.operation, "multiple members install to the same target", ErrorDetails{Name: name, Path: path}), nil
 	}
-	if plan.planned[filepath.Join(agentdir.Canonical(target.directory), name)] != nil {
+	if plan.planned[agentdir.FolderKey(target.directory, name)] != nil {
 		return preconditionError(plan.operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
 	}
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.Overwrite)
@@ -459,7 +458,7 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 				return err
 			}
 			if len(place) == 0 {
-				change.Remove(filepath.Join(target.directory, member.Name))
+				change.Remove(agentdir.FolderPath(target.directory, member.Name))
 			}
 		}
 		return nil
@@ -513,7 +512,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 		}
 		entry := merged[key]
 		if entry == nil {
-			entry = &SkillScope{SkillID: SkillID(row.SkillID), Folder: filepath.Join(target.directory, row.Name), CreatedAt: row.CreatedAt}
+			entry = &SkillScope{SkillID: SkillID(row.SkillID), Folder: agentdir.FolderPath(target.directory, row.Name), CreatedAt: row.CreatedAt}
 			merged[key] = entry
 			folders = append(folders, key)
 			codes, err := l.store.FolderSharers(ctx, row.Scope)

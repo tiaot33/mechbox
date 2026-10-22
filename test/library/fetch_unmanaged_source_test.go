@@ -25,12 +25,9 @@ func writeSourceRecords(t *testing.T, path string, version int, skills map[strin
 	writeFile(t, path, content, 0o644)
 }
 
-// globalRecordsPath 让全局的来源记录落在临时的 XDG_STATE_HOME 下,返回它的路径。
-func globalRecordsPath(t *testing.T) string {
-	t.Helper()
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
-	return filepath.Join(state, "skills", ".skill-lock.json")
+// globalRecordsPath 是 npx skills 在主目录 home 下记全局来源的文件。
+func globalRecordsPath(home string) string {
+	return filepath.Join(home, ".agents", ".skill-lock.json")
 }
 
 // computedHash 按 npx skills 项目里来源记录的算法算技能文件夹的哈希:按相对路径排序,依次把路径和内容送进 SHA-256。
@@ -66,7 +63,6 @@ func newSourcedSkillFixture(t *testing.T) sourcedSkillFixture {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", "")
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"skills/pdf/SKILL.md":       {content: []byte(skillDocument("pdf", "v1")), mode: 0o644},
 		"skills/pdf/scripts/run.sh": {content: []byte(pdfScript), mode: 0o755},

@@ -92,7 +92,6 @@ func TestFetchUnmanagedSkillsTakesOverGlobalSkillsInOneConfirmation(t *testing.T
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", "")
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -213,7 +212,6 @@ func TestPlanFetchUnmanagedListsConflictsAndSelectsTheNewest(t *testing.T) {
 func TestPlanFetchUnmanagedLeavesTeamSkillsOfTheProjectUnselected(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", "")
 	lib := openTestLibrary(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -353,7 +351,7 @@ func TestPlanFetchUnmanagedMergesFoldersSharedByAgents(t *testing.T) {
 func TestFetchUnmanagedSkillsReadsSourcesAndKeepsGoingWhenOneFails(t *testing.T) {
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
-	recordsPath := globalRecordsPath(t)
+	recordsPath := globalRecordsPath(f.home)
 	f.writeDisk(t, "v1")
 	directory := filepath.Dir(f.folder)
 	writeFile(t, filepath.Join(directory, "docx", "SKILL.md"), []byte(skillDocument("docx", "v1")), 0o644)

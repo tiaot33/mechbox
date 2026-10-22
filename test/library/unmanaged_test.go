@@ -270,7 +270,7 @@ func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	recordsPath := globalRecordsPath(t)
+	recordsPath := globalRecordsPath(home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	claudeDirectory := scopeDirectory(t, lib, claude)

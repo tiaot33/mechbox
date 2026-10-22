@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -153,7 +152,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 	if err := target.requireRoot(operation); err != nil {
 		return unmanagedFolder{}, err
 	}
-	path := filepath.Join(target.directory, req.Name)
+	path := agentdir.FolderPath(target.directory, req.Name)
 	folders, err := agentdir.List(target.directory)
 	if err != nil {
 		return unmanagedFolder{}, err
@@ -166,7 +165,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 		return unmanagedFolder{}, err
 	}
 	for _, skillScope := range installed {
-		if filepath.Base(skillScope.Folder) == req.Name {
+		if agentdir.FolderName(skillScope.Folder) == req.Name {
 			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: skillScope.SkillID})
 		}
 	}
@@ -272,8 +271,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	records := l.sourceRecords()
 	for _, each := range folders {
 		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
-			recordedInput, recordedRef, recognized := entry.Input()
-			if !recognized || recordedInput != input || recordedRef != ref {
+			if !entry.recognized || entry.input != input || entry.ref != ref {
 				continue
 			}
 			matches := entry.Matches(each.files)
@@ -674,15 +672,21 @@ next:
 }
 
 type sourceRecords struct {
-	home string
+	home agentdir.Home
 	read map[string]skilllock.Records
+}
+
+type sourceRecord struct {
+	skilllock.Record
+	input, ref string
+	recognized bool
 }
 
 func (l *Library) sourceRecords() *sourceRecords {
 	return &sourceRecords{home: l.home, read: map[string]skilllock.Records{}}
 }
 
-func (f *sourceRecords) find(target resolvedScope, names ...string) (skilllock.Record, bool) {
+func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecord, bool) {
 	root := ""
 	if target.projectID != nil {
 		root = target.root
@@ -690,11 +694,23 @@ func (f *sourceRecords) find(target resolvedScope, names ...string) (skilllock.R
 	records, ok := f.read[root]
 	if !ok {
 		if root == "" {
-			records = skilllock.GlobalRecords(f.home)
+			content, _ := agentdir.ReadFile(f.home.Join(skilllock.GlobalFile))
+			records = skilllock.ParseGlobal(content)
 		} else {
-			records = skilllock.ProjectRecords(root)
+			content, _ := agentdir.ReadFile(agentdir.Join(root, skilllock.ProjectFile))
+			records = skilllock.ParseProject(content)
 		}
 		f.read[root] = records
 	}
-	return records.Find(names...)
+	record, ok := records.Find(names...)
+	if !ok {
+		return sourceRecord{}, false
+	}
+	found := sourceRecord{Record: record}
+	found.input, found.ref, found.recognized = record.Input()
+	if path, local := record.LocalPath(); local {
+		found.input = agentdir.Resolve(root, path)
+		found.recognized = found.input != ""
+	}
+	return found, true
 }

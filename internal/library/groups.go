@@ -3,7 +3,6 @@ package library
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -280,7 +279,7 @@ func releaseMemberScopes(ctx context.Context, tx *store.Tx, change *agentdir.Cha
 			return err
 		}
 		if len(place) == 0 {
-			change.Remove(filepath.Join(skillScope.directory, skillScope.Name))
+			change.Remove(agentdir.FolderPath(skillScope.directory, skillScope.Name))
 		}
 	}
 	return nil
