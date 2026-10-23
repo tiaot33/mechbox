@@ -1,6 +1,8 @@
 // 本地路径输入：技能库要求绝对路径(相对路径会按进程当前目录解析，从 Finder 启动时是 /)。
-// 界面支持 ~ 展开，相对路径直接拦下。
+// 界面支持 ~ 展开，相对路径直接拦下。绝对路径包括 Windows 的盘符路径与 \\wsl.localhost\... 这类网络路径。
 import { messages } from "./i18n";
+
+const absolute = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
 
 export type PathInput = { path: string; error?: undefined } | { path?: undefined; error: string };
 
@@ -9,7 +11,7 @@ export function resolveLocalPath(input: string, home: string): PathInput | null 
   if (!text) return null;
   if (text === "~") return { path: home };
   if (text.startsWith("~/")) return { path: home + text.slice(1) };
-  if (text.startsWith("/")) return { path: text };
+  if (absolute.test(text)) return { path: text };
   return { error: messages().paths.absolute };
 }
 

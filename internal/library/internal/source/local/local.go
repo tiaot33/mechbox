@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
 )
 
 const Type = "local"
@@ -20,13 +22,13 @@ type locator struct {
 }
 
 func Matches(input string) bool {
-	return filepath.IsAbs(input) || input == "." || input == ".." ||
+	return wsl.IsPath(input) || filepath.IsAbs(input) || input == "." || input == ".." ||
 		strings.HasPrefix(input, "./") || strings.HasPrefix(input, "../") ||
 		(filepath.Separator == '\\' && (strings.HasPrefix(input, ".\\") || strings.HasPrefix(input, "..\\")))
 }
 
 func Locate(path string) (source.Target, error) {
-	root, err := filepath.Abs(path)
+	root, err := absolute(path)
 	if err != nil {
 		return source.Target{}, fmt.Errorf("resolve source path: %w", err)
 	}
@@ -59,14 +61,14 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, _ source.S
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(decoded.Path)
+	fsys, info, err := directory(ctx, decoded.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read local source: %w", err)
 	}
 	if !info.IsDir() {
 		return nil, &source.InputError{Reason: "read local source: path is not a directory"}
 	}
-	skills, diagnostics, err := discovery.ScanFS(ctx, os.DirFS(decoded.Path), ".", discovery.NewBudget(k.maxFiles, k.maxBytes))
+	skills, diagnostics, err := discovery.ScanFS(ctx, fsys, ".", discovery.NewBudget(k.maxFiles, k.maxBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +76,23 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, _ source.S
 		return nil, discovery.NoCandidates(diagnostics)
 	}
 	return &snapshot{skills: skills, diagnostics: diagnostics}, nil
+}
+
+func absolute(path string) (string, error) {
+	if distro, linux, ok := wsl.Split(path); ok {
+		return wsl.Join(distro, linux), nil
+	}
+	return filepath.Abs(path)
+}
+
+func directory(ctx context.Context, path string) (fs.FS, fs.FileInfo, error) {
+	if distro, linux, ok := wsl.Split(path); ok {
+		fsys := wsl.DirFS(ctx, distro, linux)
+		info, err := fs.Stat(fsys, ".")
+		return fsys, info, err
+	}
+	info, err := os.Stat(path)
+	return os.DirFS(path), info, err
 }
 
 func decode(loc source.Locator) (locator, error) {

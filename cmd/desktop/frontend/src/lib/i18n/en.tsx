@@ -758,6 +758,10 @@ export const en = {
     language: "Language",
     languageDesc: "System controls such as dialog buttons and the right-click menu in text fields follow the system language, not this setting.",
     followSystem: "System",
+    wslDistro: "Global directories",
+    wslDistroDesc:
+      "Where each agent's global directory lives. With a WSL distribution, the directories under its home are used; skills installed in the Windows global directories stay where they are and are no longer managed.",
+    windowsHome: "This Windows PC",
     // 语言选项写各自的名字，两份文案里一样。
     chinese: "简体中文",
     english: "English",
@@ -1086,5 +1090,14 @@ export const en = {
   app: {
     loadFailed: "Couldn't read the Library",
     retry: "Retry",
+    distroUnavailable: (distro: string) => `Couldn't open WSL distribution "${distro}"`,
+    distroUnavailableBody: (reason: string) =>
+      `Settings put each agent's global directory in this distribution, but it can't be opened right now: ${reason}. Until it opens, the global directories shown are the ones on Windows.`,
+    retryDistro: "Try again",
+    retryDistroDesc: "If the distribution or WSL was just starting or updating, trying again in a moment may work",
+    useWindowsHome: "Use Windows instead",
+    useWindowsHomeDesc: "Switch the global directories back to Windows; skills installed in the distribution stay where they are",
+    continue: "Continue",
+    distroOpened: (distro: string) => `Opened WSL distribution "${distro}"`,
   },
 } satisfies Messages;

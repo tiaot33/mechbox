@@ -707,6 +707,10 @@ export const zh = {
     dockBadgeDesc: "显示有新版本的技能数，本地目录来源的技能不计入。",
     language: "语言",
     languageDesc: "系统对话框的按钮、输入框的右键菜单等系统控件跟随系统语言，不跟随这里的选择。",
+    wslDistro: "全局目录",
+    wslDistroDesc:
+      "各 Agent 的全局目录在哪。选了 WSL 发行版时换成发行版主目录下的目录;之前装在 Windows 本机全局目录里的技能留在原处，不再管。",
+    windowsHome: "Windows 本机",
     followSystem: "跟随系统",
     // 语言选项写各自的名字，两份文案里一样。
     chinese: "简体中文",
@@ -1029,5 +1033,14 @@ export const zh = {
   app: {
     loadFailed: "读取技能库失败",
     retry: "重试",
+    distroUnavailable: (distro: string) => `打不开 WSL 发行版「${distro}」`,
+    distroUnavailableBody: (reason: string) =>
+      `设置里各 Agent 的全局目录在这个发行版里，但现在打不开:${reason}。打开之前，界面上的全局目录是 Windows 本机的。`,
+    retryDistro: "再试一次",
+    retryDistroDesc: "发行版刚启动或 WSL 刚更新时，过一会儿再试可能就好了",
+    useWindowsHome: "改用 Windows 本机",
+    useWindowsHomeDesc: "设置里的全局目录改回 Windows 本机，发行版里装的技能留在原处",
+    continue: "继续",
+    distroOpened: (distro: string) => `已打开 WSL 发行版「${distro}」`,
   },
 };

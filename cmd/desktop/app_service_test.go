@@ -95,7 +95,7 @@ func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 		t.Fatalf("first start = %+v; want defaults", got)
 	}
 	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
-	if _, err := first.SaveSettings(want); err != nil {
+	if _, err := first.SaveSettings(t.Context(), want); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	if err := first.ServiceShutdown(); err != nil {
@@ -181,7 +181,7 @@ func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 		t.Fatal("FirstOpen() a second time = true; want false")
 	}
 	// 之后保存设置也不会把它抹掉。
-	if _, err := first.SaveSettings(defaultSettings()); err != nil {
+	if _, err := first.SaveSettings(t.Context(), defaultSettings()); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	if err := first.ServiceShutdown(); err != nil {

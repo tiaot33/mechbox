@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -75,7 +76,7 @@ func TestSettingsCorruptFileFallsBackToDefaults(t *testing.T) {
 func TestSaveSettingsRejectsUnknownInterval(t *testing.T) {
 	path := filepath.Join(t.TempDir(), settingsFileName)
 	service := NewAppService(path, nil)
-	if _, err := service.SaveSettings(Settings{CheckInterval: "sometimes"}); err == nil {
+	if _, err := service.SaveSettings(t.Context(), Settings{CheckInterval: "sometimes"}); err == nil {
 		t.Fatal("SaveSettings accepted an unknown interval")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -86,7 +87,7 @@ func TestSaveSettingsRejectsUnknownInterval(t *testing.T) {
 func TestSaveSettingsRejectsUnknownLanguage(t *testing.T) {
 	path := filepath.Join(t.TempDir(), settingsFileName)
 	service := NewAppService(path, nil)
-	if _, err := service.SaveSettings(Settings{CheckInterval: CheckDaily, Language: "fr"}); err == nil {
+	if _, err := service.SaveSettings(t.Context(), Settings{CheckInterval: CheckDaily, Language: "fr"}); err == nil {
 		t.Fatal("SaveSettings accepted an unknown language")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -116,5 +117,69 @@ func TestLanguageFollowsSettingThenSystem(t *testing.T) {
 func TestAppVersionComesFromBuildConfig(t *testing.T) {
 	if v := appVersion(); v == "" {
 		t.Fatal("appVersion is empty; want info.version from build/config.yml")
+	}
+}
+
+// MECHBOX_TEST_WSL_SHELL 让「WSL 发行版」就是本机的 sh;每个发行版的 sh 启动一次、一直用下去,所以各处用不同的名字。
+func TestWSLDistroSetting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	lib := startLibrary(t)
+	path := filepath.Join(t.TempDir(), settingsFileName)
+	app := startApp(t, path, lib)
+
+	settings := app.Settings()
+	settings.WSLDistro = "saved-distro"
+	if _, err := app.SaveSettings(t.Context(), settings); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	if got := lib.lib.HomeDirectory(); !strings.HasPrefix(got, `\\wsl.localhost\saved-distro\`) {
+		t.Fatalf("HomeDirectory = %q", got)
+	}
+
+	t.Setenv("MECHBOX_TEST_WSL_SHELL", "/nonexistent/sh")
+	settings.WSLDistro = "broken-distro"
+	if _, err := app.SaveSettings(t.Context(), settings); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("SaveSettings with a broken distro = %v", err)
+	}
+	if got := app.Settings().WSLDistro; got != "saved-distro" {
+		t.Fatalf("WSLDistro after a failed switch = %q", got)
+	}
+	settings.WSLDistro = ""
+	if _, err := app.SaveSettings(t.Context(), settings); err != nil {
+		t.Fatalf("SaveSettings back to Windows: %v", err)
+	}
+	if got := lib.lib.HomeDirectory(); got != home {
+		t.Fatalf("HomeDirectory back on Windows = %q", got)
+	}
+}
+
+func TestWSLDistroUnavailableAtStartup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MECHBOX_TEST_WSL_SHELL", "/nonexistent/sh")
+	lib := startLibrary(t)
+	path := filepath.Join(t.TempDir(), settingsFileName)
+	if err := saveSettings(path, settingsFile{Settings: Settings{CheckInterval: CheckDaily, WSLDistro: "late-distro"}, FirstOpenDone: true}); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, path, lib)
+	if app.WSLDistroError() == "" {
+		t.Fatal("no error for a distro that can't be opened")
+	}
+	home := lib.lib.HomeDirectory()
+	if strings.HasPrefix(home, `\\`) {
+		t.Fatalf("HomeDirectory = %q; want the Windows home until the distro opens", home)
+	}
+	if err := app.RetryWSLDistro(t.Context()); err == nil || app.WSLDistroError() == "" {
+		t.Fatalf("RetryWSLDistro = %v, error %q", err, app.WSLDistroError())
+	}
+
+	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	if err := app.RetryWSLDistro(t.Context()); err != nil {
+		t.Fatalf("RetryWSLDistro: %v", err)
+	}
+	if app.WSLDistroError() != "" || !strings.HasPrefix(lib.lib.HomeDirectory(), `\\wsl.localhost\late-distro\`) {
+		t.Fatalf("after retry: error %q, home %q", app.WSLDistroError(), lib.lib.HomeDirectory())
 	}
 }
