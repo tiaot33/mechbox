@@ -7,8 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Agent, RegisteredProject } from "@bindings/internal/library";
 import { useShallow } from "zustand/react/shallow";
 import { useSnapshot } from "@/lib/library";
-import { registerProject, relocateProject, unregisterProject } from "@/lib/actions";
-import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
+import { registerProject, relocateProject, unregisterProject } from "@/features/scope/projects";
+import { alreadyInScope, dropProps, useDnD } from "./dnd";
 import { useT } from "@/lib/i18n";
 import {
   agentNameIn,
@@ -36,7 +36,7 @@ import { Button } from "@/components/ui/button";
 import { FieldError, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Icon } from "./icons";
-import { pickDirectory } from "./fetch-dialog";
+import { pickDirectory } from "@/features/fetch/fetch-dialog";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
 import { PlaceAgentMark } from "./parts";
@@ -193,7 +193,7 @@ export function ScopePanel() {
                     title={t.unregisterTitle}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void unregisterProject(ui, s, p);
+                      void unregisterProject(p);
                     }}
                   >
                     <Icon name="close" />
@@ -290,7 +290,6 @@ export function ProjectPathDialog({
   project?: RegisteredProject;
   onClose: () => void;
 }) {
-  const ui = useUI();
   const t = useT().scopes;
   const [path, setPath] = useState(project?.path ?? "");
   const [working, setWorking] = useState(false);
@@ -298,7 +297,7 @@ export function ProjectPathDialog({
   const submit = async () => {
     if (!resolved?.path || working) return;
     setWorking(true);
-    const ok = project ? await relocateProject(ui, project, resolved.path) : await registerProject(ui, resolved.path);
+    const ok = project ? await relocateProject(project, resolved.path) : await registerProject(resolved.path);
     setWorking(false);
     if (ok) onClose();
   };

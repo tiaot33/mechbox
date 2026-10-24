@@ -16,16 +16,15 @@ import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource, type LibraryError } from "@/lib/library";
 import { agentNameIn, homePath, outsideLinkNote, placeOf, sameNameFetchNote, scopeOf } from "@/lib/model";
-import { Modal, useUI } from "@/lib/ui";
+import { Modal, useUI, ui } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import { Diagnostics } from "./parts";
+import { Diagnostics } from "@/components/app/parts";
 
-type UI = ReturnType<typeof useUI>;
 
 // Where 是这次看的是哪里，决定标题和开头那句话。
 export type Where =
@@ -34,35 +33,19 @@ export type Where =
   | { kind: "scope"; label: string };
 
 // offerFirstOpen 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能;没有就什么都不做。
-export async function offerFirstOpen(ui: UI, agents: Agent[]) {
+export async function offerFirstOpen(agents: Agent[]) {
   if (!(await AppService.FirstOpen())) return;
-  await offerFetchUnmanaged(
-    ui,
-    agents,
-    agents.map((a) => scopeOf(a.code, 0)),
-    { kind: "first-open" },
-  );
+  await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, 0)), { kind: "first-open" });
 }
 
 // offerProject 在登记一个项目之后，把用户带到这个项目里各 Agent 目录下不是库装的技能;没有就什么都不做。
-export async function offerProject(ui: UI, project: RegisteredProject) {
+export async function offerProject(project: RegisteredProject) {
   const agents = (await LibraryService.ListAgents().catch(() => null)) ?? [];
-  await offerFetchUnmanaged(
-    ui,
-    agents,
-    agents.map((a) => scopeOf(a.code, project.id)),
-    { kind: "project", project },
-  );
+  await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project });
 }
 
 // offerFetchUnmanaged 生成整批入库的计划并打开确认;quiet 为 false 时(用户自己点的)计划为空也告诉一声。
-export async function offerFetchUnmanaged(
-  ui: UI,
-  agents: Agent[],
-  scopes: Scope[],
-  where: Where,
-  quiet = true,
-) {
+export async function offerFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet = true) {
   let plan: PlannedUnmanagedSkill[];
   let library: string[];
   let home: string;

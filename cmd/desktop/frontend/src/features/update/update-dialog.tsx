@@ -14,11 +14,11 @@ import {
   type UpdatePlan,
 } from "@bindings/internal/library";
 import { canInstall, defaultInstallOn, defaultSkills, placeKey, plannedInstalls } from "@/lib/consent";
-import { removeSkill } from "@/lib/actions";
+import { removeSkill } from "@/features/skill/remove";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { type LibraryError, useSnapshot } from "@/lib/library";
+import { useSnapshot, type LibraryError } from "@/lib/library";
 import {
   agentName,
   folderKey,
@@ -34,17 +34,12 @@ import {
   sourceLabel,
 } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
-import {
-  collectionName,
-  keepDeleted,
-  notInterested,
-  previewNewSkills,
-  reportUpdates,
-  riskLabel,
-  riskSummary,
-  runUpdate,
-  stalePlan,
-} from "@/lib/update";
+import { collectionName } from "@/lib/model";
+import { keepDeleted } from "@/features/skill/remove";
+import { notInterested, previewNewSkills } from "@/features/fetch/preview";
+import { reportUpdates } from "./report";
+import { riskLabel, riskSummary } from "./risks";
+import { runUpdate, stalePlan } from "./update";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -209,12 +204,12 @@ export function UpdateDialog({
 
   const run = async () => {
     setWorking(true);
-    const o = await runUpdate(ui, s, plan, label, checked, installOn);
+    const o = await runUpdate(plan, label, checked, installOn);
     setWorking(false);
     if (o === "conflict") return setConflict(true);
     if (!o) return;
     onClose();
-    await reportUpdates(ui, s, [o]);
+    await reportUpdates([o]);
   };
 
   const check = (id: SkillID, on: boolean) => setChecked((set) => (on ? new Set(set).add(id) : new Set([...set].filter((x) => x !== id))));
@@ -379,7 +374,7 @@ export function UpdateDialog({
                     size="sm"
                     disabled={locked}
                     onClick={async () => {
-                      if (await removeSkill(ui, s, p.skill.id)) setRemoved((set) => new Set(set).add(p.skill.id));
+                      if (await removeSkill(p.skill.id)) setRemoved((set) => new Set(set).add(p.skill.id));
                     }}
                   >
                     {t.remove}
@@ -388,7 +383,7 @@ export function UpdateDialog({
                     size="sm"
                     disabled={locked}
                     onClick={async () => {
-                      if (await keepDeleted(ui, s, p.skill.id)) setKept((set) => new Set(set).add(p.skill.id));
+                      if (await keepDeleted(p.skill.id)) setKept((set) => new Set(set).add(p.skill.id));
                     }}
                   >
                     {t.keep}
@@ -420,14 +415,14 @@ export function UpdateDialog({
           <span className="grow">
             {tt.drawer.newSkills(sourceLabel(s, plan.source), newSkills)}
           </span>
-          <Button variant="link" disabled={locked} onClick={() => void previewNewSkills(ui, collectionID)}>
+          <Button variant="link" disabled={locked} onClick={() => void previewNewSkills(collectionID)}>
             {tt.drawer.goFetch}
           </Button>
           <Button
             variant="link"
             disabled={locked}
             onClick={async () => {
-              if (await notInterested(ui, collectionID, newSkills)) setDismissed((names) => [...names, ...newSkills]);
+              if (await notInterested(collectionID, newSkills)) setDismissed((names) => [...names, ...newSkills]);
             }}
           >
             {tt.drawer.notInterested}

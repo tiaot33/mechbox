@@ -2,10 +2,10 @@
 // 内置 Agent 的名称和目录由应用维护，只能勾选显示。
 import { useRef, useState } from "react";
 import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/library";
-import { addAgent, deleteAgent, editAgent } from "@/lib/actions";
+import { addAgent, deleteAgent, editAgent } from "./agents";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { type LibraryError, useSnapshot } from "@/lib/library";
+import { useSnapshot, type LibraryError } from "@/lib/library";
 import { agentShown, shortPath } from "@/lib/model";
 import { insideHome, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
@@ -14,9 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { pickDirectory } from "./fetch-dialog";
-import { AgentMark } from "./parts";
-import { SetRow } from "./set-row";
+import { pickDirectory } from "@/features/fetch/fetch-dialog";
+import { AgentMark } from "@/components/app/parts";
+import { SetRow } from "@/components/app/set-row";
 
 export function AgentSection({
   shown,
@@ -49,7 +49,7 @@ export function AgentSection({
             {a.custom && (
               <>
                 <Button onClick={() => void edit(a)}>{t.edit}</Button>
-                <Button onClick={() => void deleteAgent(ui, s, a)}>{t.delete}</Button>
+                <Button onClick={() => void deleteAgent(a)}>{t.delete}</Button>
               </>
             )}
             {shown !== undefined && (
@@ -67,7 +67,6 @@ type AgentField = keyof CustomAgent;
 // AgentDialog 添加一个自定义 Agent,或给出 agent 时编辑它。全局技能目录必须在用户主目录里面。
 export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => void }) {
   const s = useSnapshot();
-  const ui = useUI();
   const t = useT().agents;
   const home = s.info.home_dir;
   const [name, setName] = useState(agent?.name ?? "");
@@ -110,7 +109,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
     submitting.current = true;
     setWorking(true);
     try {
-      const ok = agent ? await editAgent(ui, s, agent, input, onInvalid) : await addAgent(ui, input, onInvalid);
+      const ok = agent ? await editAgent(agent, input, onInvalid) : await addAgent(input, onInvalid);
       if (ok) onClose();
     } finally {
       submitting.current = false;

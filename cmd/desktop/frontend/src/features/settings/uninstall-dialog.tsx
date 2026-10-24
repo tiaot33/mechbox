@@ -7,7 +7,7 @@ import { AppService, LibraryService, UninstallFolders } from "@bindings/cmd/desk
 import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { type LibraryError, useSnapshot, configQuery } from "@/lib/library";
+import { useSnapshot, configQuery, type LibraryError } from "@/lib/library";
 import { mergeProjectPlaces, projectName, scopeLabel, shortPath } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";

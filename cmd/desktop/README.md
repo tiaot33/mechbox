@@ -154,8 +154,13 @@ cmd/desktop/
         ├── App.tsx         主界面：三栏布局与启动时的提示(第一次打开、WSL 发行版没能打开)
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)与少量全局样式
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
-        ├── components/app/ 主界面组件、详情抽屉与各弹窗;layout.ts 是三栏与顶栏的公共样式
-        └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，actions.tsx 写操作流程，update.tsx 更新流程(更新计划、回滚、历史),diff.ts 更新计划里的逐行差异，
+        ├── components/app/ 主界面：顶栏、左栏、中间列表、右栏与详情抽屉，几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);
+        │                   layout.ts 是三栏与顶栏的公共样式
+        ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
+        │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
+        │                   install/ 安装、卸载、组安装与重新安装，update/ 检查更新、更新计划、更新、回滚与更新历史，
+        │                   group/ 组，scope/ 已登记项目与自定义 Agent,skill/ 移除技能与继续保留，settings/ 设置页、同步与卸载 Mechbox
+        └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，diff.ts 更新计划里的逐行差异，
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
                             content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案用),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)
@@ -165,7 +170,7 @@ cmd/desktop/
 
 界面上看得到的文字(JSX 文本、`title` / `placeholder` / `aria-label` 等属性、toast、弹窗、错误文案)都写进 `frontend/src/lib/i18n/` 的两份文案文件，新增文案时中英一起写：`zh.tsx` 是唯一来源，按界面区域分组;`en.tsx` 照它的结构翻译，`satisfies Messages` 让漏翻、参数不对的条目在 `tsc` 里报出。
 
-- 组件里用 `useT()` 取当前语言的文案;组件外的函数(`model.ts`、`actions.tsx` 等)用 `messages()`。
+- 组件里用 `useT()` 取当前语言的文案;组件外的函数(`model.ts`、`features/` 里的写操作流程等)用 `messages()`。
 - 带变量的句子写成函数，整句交给文案文件：不要把半句话当参数传，也不要在组件里拼接两句文案(英文语序不同，句子之间还要空格)。带格式的句子(如加粗的名字)让函数返回 ReactNode。
 - 英文的单复数、列表(`Intl.ListFormat`)在 `en.tsx` 里处理;中文列表照旧用顿号。日期统一经 `formatDate`,数字的 `toLocaleString` 显式传语言。
 - 英文用词：术语表(`CONTEXT.md`)里有的概念用术语表的英文名。
@@ -176,7 +181,7 @@ cmd/desktop/
 
 1. 在 `library_methods.go` 里加一个方法，签名沿用技能库的：`ctx` 在前，返回 `(T, error)`。转发时经 `settle` 包一层：`return settle(s.lib.X(ctx))(ctx)`。前端取消调用后 Go 端若仍返回错误，Wails 会把它报成未处理的 rejection，`settle` 负责把这种错误吞掉。
 2. 重新生成绑定。`wails3 dev` / `build` 会自动生成；也可以手动运行 `wails3 generate bindings -clean=true -ts -i`。生成的文件要提交。
-3. 前端从 `@bindings/cmd/desktop` 导入 `LibraryService`，类型从 `@bindings/internal/library` 导入。读库里现有状态的只读调用写成 `lib/library.ts` 里的查询(TanStack Query 的 `queryOptions`,经 `wails` 把查询的 `signal` 接到可取消的调用上),组件里用 `useQuery` 取;快照用 `useSnapshot()`,不经 props 传。内容只由 key 决定、或来自技能库以外的查询标 `meta: stable`,写操作后不重读。生成计划、入库预览这类流程里的一步会在 Go 端留下状态，不做成查询，在弹窗或流程里直接调用，关掉时 `cancel()`。写操作放进 `lib/actions.tsx`,经 `ui.run` 执行——它负责忙碌状态、按错误码提示，并在完成后让查询缓存失效重读(`reloadLibrary`)。
+3. 前端从 `@bindings/cmd/desktop` 导入 `LibraryService`，类型从 `@bindings/internal/library` 导入。读库里现有状态的只读调用写成 `lib/library.ts` 里的查询(TanStack Query 的 `queryOptions`,经 `wails` 把查询的 `signal` 接到可取消的调用上),组件里用 `useQuery` 取;快照用 `useSnapshot()`,不经 props 传。内容只由 key 决定、或来自技能库以外的查询标 `meta: stable`,写操作后不重读。生成计划、入库预览这类流程里的一步会在 Go 端留下状态，不做成查询，在弹窗或流程里直接调用，关掉时 `cancel()`。写操作放进 `features/` 里对应流程的文件，经 `ui.run` 执行——它负责忙碌状态、按错误码提示，并在完成后让查询缓存失效重读(`reloadLibrary`)。
 
 错误：Go 端所有错误都经 `library.ErrorOf` 规范成技能库错误，再编码给前端。前端从 `err.cause` 拿到 `{code, message, details}`，用 `lib/library.ts` 的 `toLibraryError` 读取。
 

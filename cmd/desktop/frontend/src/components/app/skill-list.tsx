@@ -14,21 +14,15 @@ import {
   type UnmanagedSkill,
   type UpdateRisk,
 } from "@bindings/internal/library";
-import {
-  deleteGroup,
-  fetchUnmanaged,
-  installGroup,
-  installSkill,
-  previewCollection,
-  reinstall,
-  renameGroup,
-  uninstallGroup,
-  uninstallSkill,
-} from "@/lib/actions";
+import { deleteGroup, renameGroup } from "@/features/group/group";
+import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
+import { installGroup, installSkill, uninstallGroup, uninstallSkill } from "@/features/install/install";
+import { previewCollection } from "@/features/fetch/preview";
+import { reinstall } from "@/features/install/reinstall";
 import { useShallow } from "zustand/react/shallow";
-import { useDnD } from "@/lib/dnd";
+import { useDnD } from "./dnd";
 import { messages, useT } from "@/lib/i18n";
-import { foundSource, useFoundSources, type Snapshot, useSnapshot } from "@/lib/library";
+import { foundSource, useFoundSources, useSnapshot, type Snapshot } from "@/lib/library";
 import {
   agentName,
   collectionSkills,
@@ -65,8 +59,10 @@ import {
   type ScopeKey,
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
-import { offerFetchUnmanaged } from "./fetch-unmanaged-dialog";
-import { notInterested, openHistory, openUpdate, previewNewSkills, riskSummary, updateWithDefaults } from "@/lib/update";
+import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
+import { notInterested, previewNewSkills } from "@/features/fetch/preview";
+import { openHistory, openUpdate, updateWithDefaults } from "@/features/update/update";
+import { riskSummary } from "@/features/update/risks";
 import { cn } from "@/lib/utils";
 import { toggleDrawer, useListing, useScopeDirectory, useView, type ListView } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +71,7 @@ import { Switch } from "@/components/ui/switch";
 import { Icon, SourceIcon } from "./icons";
 import { centerClass } from "./layout";
 import { AgentMark, Chip, PlaceAgentMark } from "./parts";
-import { openFetch } from "./fetch-dialog";
+import { openFetch } from "@/features/fetch/fetch-dialog";
 
 // 列表顶部的摘要条(作用域摘要、更新列表、集合标题条)共用的外观。
 const barClass = "a-scope-sum mx-3.5 mt-3 flex flex-col gap-2 rounded-[10px] border border-hairline bg-glass-card px-3 py-2.5 shadow-tile";
@@ -159,7 +155,6 @@ function SkillCard(props: {
 }) {
   const s = useSnapshot();
   const { skill, scope, view } = props;
-  const ui = useUI();
   const dnd = useDnD();
   const t = useT();
   const installed = skillScopesOf(s, skill.id);
@@ -176,7 +171,7 @@ function SkillCard(props: {
   const toggle = () => {
     if (!scope) return;
     const sc = parseScope(scope);
-    void (here?.direct ? uninstallSkill(ui, s, skill.id, sc) : installSkill(ui, s, skill.id, sc));
+    void (here?.direct ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
   };
 
   return (
@@ -208,7 +203,7 @@ function SkillCard(props: {
               title={renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle}
               onClick={(e) => {
                 e.stopPropagation();
-                void openUpdate(ui, s, skill.collection_id, { focus: skill.id });
+                void openUpdate(skill.collection_id, { focus: skill.id });
               }}
             >
               {renamedTo(skill) ? t.list.maybeRenamed : t.list.newVersion}
@@ -401,7 +396,7 @@ function UnmanagedCard({ skill, view }: { skill: UnmanagedSkill; view: ListView 
           variant="link"
           className="fetch-unmanaged shrink-0 font-sans text-[10.5px]"
           title={t.fetchTitle}
-          onClick={() => void fetchUnmanaged(ui, s, skill)}
+          onClick={() => void fetchUnmanaged(skill)}
         >
           {t.fetch}
         </Button>
@@ -435,7 +430,6 @@ function SameNameLine({ note, list }: { note: { text: string; title: string }; l
 // ScopeSummary 是选中作用域时列表顶部的摘要:Agent 目录、健康状态、全部重新安装，以及每个组的整组开关。
 function ScopeSummary({ scope, directory }: { scope: ScopeKey; directory: string | undefined }) {
   const s = useSnapshot();
-  const ui = useUI();
   const t = useT().list;
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
@@ -453,7 +447,7 @@ function ScopeSummary({ scope, directory }: { scope: ScopeKey; directory: string
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statUnmanaged} />}
         <Stat value={issues} label={t.statStale} warn={issues > 0} />
         {issues > 0 && (
-          <Button size="sm" onClick={() => reinstall(ui, s, { scope: sc }, scopeLabel(s, sc))}>
+          <Button size="sm" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
             <Icon name="refresh" />
             {t.reinstallAll}
           </Button>
@@ -465,7 +459,7 @@ function ScopeSummary({ scope, directory }: { scope: ScopeKey; directory: string
           <Button
             variant="link"
             className="fetch-all-unmanaged text-[11px]"
-            onClick={() => void offerFetchUnmanaged(ui, s.agents, [sc], { kind: "scope", label: scopeLabel(s, sc) }, false)}
+            onClick={() => void offerFetchUnmanaged(s.agents, [sc], { kind: "scope", label: scopeLabel(s, sc) }, false)}
           >
             {t.fetchAll}
           </Button>
@@ -487,7 +481,7 @@ function ScopeSummary({ scope, directory }: { scope: ScopeKey; directory: string
                   "gchip inline-flex h-6 items-center gap-1.5 rounded-md border border-border px-[9px] text-[11.5px] text-foreground-secondary transition-colors hover:border-border-strong hover:bg-white/70",
                   on && "border-group-border bg-group-soft font-medium text-[#5b21b6] hover:border-group hover:bg-group-soft",
                 )}
-                onClick={() => (on ? uninstallGroup(ui, s, g.id, sc) : installGroup(ui, s, g.id, sc))}
+                onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
                 <i className={cn("size-[7px] rounded-full border-[1.5px] border-subtle", on && "border-group bg-group")} />
@@ -515,7 +509,6 @@ function Stat({ value, label, warn = false }: { value: number; label: string; wa
 // GroupHead 是筛选某个组时列表顶部的组标题条：整组的拖动把手，附带重命名、删除与组安装到当前作用域。
 function GroupHead({ group, scope }: { group: Group; scope: ScopeKey | null }) {
   const s = useSnapshot();
-  const ui = useUI();
   const dnd = useDnD();
   const t = useT();
   const scopes = s.groupInstalls.filter((a) => a.group_id === group.id).map((a) => a.scope);
@@ -541,7 +534,7 @@ function GroupHead({ group, scope }: { group: Group; scope: ScopeKey | null }) {
           <>
             {t.list.groupInstalledIn}
             {scopes.map((sc) => (
-              <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(ui, s, group.id, sc)}>
+              <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(group.id, sc)}>
                 <PlaceAgentMark code={sc.agent} place={placeOf(sc)} />
                 {sc.project_id ? projectName(s, sc.project_id) : t.model.global}
               </Chip>
@@ -553,14 +546,14 @@ function GroupHead({ group, scope }: { group: Group; scope: ScopeKey | null }) {
       </span>
       <span className="ml-auto flex items-center gap-1.5">
         {scope && !scopes.some((sc) => scopeKey(sc) === scope) && (
-          <Button size="sm" onClick={() => installGroup(ui, s, group.id, parseScope(scope))}>
+          <Button size="sm" onClick={() => installGroup(group.id, parseScope(scope))}>
             {t.list.groupInstallTo(scopeLabel(s, parseScope(scope)))}
           </Button>
         )}
-        <Button size="sm" onClick={() => renameGroup(ui, s, group.id)}>
+        <Button size="sm" onClick={() => renameGroup(group.id)}>
           {t.list.rename}
         </Button>
-        <Button size="sm" variant="danger" onClick={() => deleteGroup(ui, s, group.id)}>
+        <Button size="sm" variant="danger" onClick={() => deleteGroup(group.id)}>
           {t.list.deleteGroup}
         </Button>
       </span>
@@ -573,7 +566,6 @@ function GroupHead({ group, scope }: { group: Group; scope: ScopeKey | null }) {
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 function UpdatesHead() {
   const s = useSnapshot();
-  const ui = useUI();
   const busy = useBusy();
   const t = useT().list;
   const collections = updatableCollections(s);
@@ -611,17 +603,17 @@ function UpdatesHead() {
               </span>
             )}
             {plain.length === 0 && edited.length > 0 ? (
-              <Button size="sm" onClick={() => openUpdate(ui, s, c.id)} title={t.updateEditedTitle}>
+              <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
                 <Icon name="up" />
                 {t.updateEdited}
               </Button>
             ) : (
-              <Button size="sm" onClick={() => openUpdate(ui, s, c.id)}>
+              <Button size="sm" onClick={() => openUpdate(c.id)}>
                 {t.view}
               </Button>
             )}
             {plain.length > 0 && (
-              <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(ui, s, [c.id])}>
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
                 <Icon name="up" />
                 {t.update}
               </Button>
@@ -632,7 +624,7 @@ function UpdatesHead() {
       <div className={barRowClass}>
         <span className="grow text-[11px] text-muted-foreground">{t.updatesFooter}</span>
         {direct.length > 1 && (
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(ui, s, direct.map((c) => c.id))}>
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
             <Icon name="up" />
             {t.updateAll}
           </Button>
@@ -713,7 +705,6 @@ function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID,
 // CollectionHead 是筛选某个集合时的标题条：来源、集合里的技能在哪个来源版本上、更新、历史，以及来源里的新技能。
 function CollectionHead({ collection }: { collection: Collection }) {
   const s = useSnapshot();
-  const ui = useUI();
   const t = useT();
   const skills = collectionSkills(s, collection);
   const todo = skills.filter(pending).length;
@@ -731,14 +722,14 @@ function CollectionHead({ collection }: { collection: Collection }) {
           {label}
         </span>
         <span className="grow truncate text-[11px] text-muted-foreground">{facts.join(" · ")}</span>
-        <Button size="sm" onClick={() => previewCollection(ui, collection.id)} title={t.list.otherSkillsHint}>
+        <Button size="sm" onClick={() => previewCollection(collection.id)} title={t.list.otherSkillsHint}>
           {t.drawer.otherSkills}
         </Button>
-        <Button size="sm" onClick={() => openHistory(ui, s, { collection_id: collection.id }, t.list.historyTitle(label))}>
+        <Button size="sm" onClick={() => openHistory({ collection_id: collection.id }, t.list.historyTitle(label))}>
           {t.list.history}
         </Button>
         {!local && skills.some(hasUpdate) && (
-          <Button size="sm" variant={todo ? "primary" : "default"} onClick={() => openUpdate(ui, s, collection.id)}>
+          <Button size="sm" variant={todo ? "primary" : "default"} onClick={() => openUpdate(collection.id)}>
             <Icon name="up" />
             {t.list.update}
           </Button>
@@ -749,10 +740,10 @@ function CollectionHead({ collection }: { collection: Collection }) {
           <span className="grow truncate text-[11px] text-muted-foreground">
             {t.drawer.newSkills(label, fresh)}
           </span>
-          <Button variant="link" onClick={() => previewNewSkills(ui, collection.id)}>
+          <Button variant="link" onClick={() => previewNewSkills(collection.id)}>
             {t.drawer.goFetch}
           </Button>
-          <Button variant="link" onClick={() => notInterested(ui, collection.id, fresh)}>
+          <Button variant="link" onClick={() => notInterested(collection.id, fresh)}>
             {t.drawer.notInterested}
           </Button>
         </div>

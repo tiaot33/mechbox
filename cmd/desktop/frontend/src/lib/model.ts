@@ -14,6 +14,7 @@ import {
   type ProjectID,
   type Scope,
   type Skill,
+  type SkillID,
   type SkillScopeInspection,
   type Source,
   type UnmanagedSkill,
@@ -53,6 +54,11 @@ export function agentName(s: Snapshot, code: AgentCode): string {
 export function projectName(s: Snapshot, id: ProjectID): string {
   return s.projects.find((p) => p.id === id)?.name ?? "";
 }
+
+// skillName / groupName 是库里技能、组的名字;已被移除的写成 #ID。
+export const skillName = (s: Snapshot, id: SkillID) => s.skills.find((x) => x.id === id)?.name ?? `#${id}`;
+
+export const groupName = (s: Snapshot, id: GroupID) => s.groups.find((g) => g.id === id)?.name ?? `#${id}`;
 
 export function scopeLabel(s: Snapshot, scope: Scope): string {
   return `${agentNameIn(s, scope.agent, placeOf(scope))} · ${scope.project_id ? projectName(s, scope.project_id) : messages().model.global}`;
@@ -250,6 +256,12 @@ export function sameNameFetchNote(name: string, sourced: boolean): string {
 
 // installedWhere 是技能装在哪里，供分辨库里同名的几个技能:places 是前两处("Claude Code · 全局"、"Codex · proj-a"),
 // total 是一共几处(超过两处时文案写"等 N 处",为 0 时写"没装在任何地方")。
+// folderPlaces 是和 places 同一个文件夹的各处(含共用这个目录的 Agent),删文件夹时它们一起没了。
+export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): SkillScopeInspection[] {
+  const folders = new Set(places.map((p) => `${p.skill_id}|${p.folder}`));
+  return s.skillScopes.filter((p) => folders.has(`${p.skill_id}|${p.folder}`));
+}
+
 export interface InstalledWhere {
   places: string[];
   total: number;
@@ -335,6 +347,14 @@ export function hasUpdate(skill: Skill): boolean {
 export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
   const ids = new Set(c.skills ?? []);
   return s.skills.filter((x) => ids.has(x.id));
+}
+
+// collectionName 是集合在界面上的名字：集合里只有一个技能时就是技能名，不出现集合这一层。
+export function collectionName(s: Snapshot, collectionID: CollectionID): string {
+  const c = s.collections.find((x) => x.id === collectionID);
+  if (!c) return messages().update.collectionFallback(collectionID);
+  const skills = collectionSkills(s, c);
+  return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
 }
 
 // updatableCollections 是有计入角标的技能的集合，按集合列表顺序。

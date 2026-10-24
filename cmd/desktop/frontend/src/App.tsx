@@ -1,17 +1,17 @@
 // 主界面：从技能出发的三栏布局(UI 原型变体 A)——左栏筛选、中间技能卡片、右栏作用域，顶部统一工具栏;
 // 点卡片打开右侧详情抽屉;左栏"设置"把三栏换成设置页。界面状态在 lib/view,各栏自己取;
-// 写操作经 lib/actions 与 lib/ui 的 run 执行，完成后让查询缓存失效重读。
+// 写操作经 features/ 里的流程与 lib/ui 的 run 执行，完成后让查询缓存失效重读。
 import { useEffect, useRef } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
 import { FilterSidebar } from "@/components/app/filter-sidebar";
 import { ScopePanel } from "@/components/app/scope-panel";
-import { SettingsPage } from "@/components/app/settings-page";
+import { SettingsPage } from "@/features/settings/settings-page";
 import { SkillDrawer } from "@/components/app/skill-drawer";
 import { SkillList } from "@/components/app/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
-import { offerFirstOpen } from "@/components/app/fetch-unmanaged-dialog";
-import { setDragGhost } from "@/lib/dnd";
+import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
+import { setDragGhost } from "@/components/app/dnd";
 import { reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { ui, UIHost } from "@/lib/ui";
@@ -51,7 +51,7 @@ function Main() {
   useEffect(() => {
     if (!s || firstOpen.current) return;
     firstOpen.current = true;
-    void offerFirstOpen(ui, s.agents);
+    void offerFirstOpen(s.agents);
   }, [s]);
 
   // 设置里选的 WSL 发行版启动时没能打开：说明界面上暂时是 Windows 本机的全局目录，让用户再试或改回 Windows 本机。
