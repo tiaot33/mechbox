@@ -2,8 +2,9 @@
 // 整条是窗口拖动区，能点的元素显式 no-drag(见 layout.ts 的 titlebarClass)。
 import { useEffect, useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
+import { useShallow } from "zustand/react/shallow";
 import { useT } from "@/lib/i18n";
-import { useSnapshot, useLoadedSnapshot } from "@/lib/library";
+import { useSnapshot, useLoadedSnapshot, reloadLibrary } from "@/lib/library";
 import {
   agentNameIn,
   agentsIn,
@@ -19,8 +20,21 @@ import {
   skillScopesIn,
   type Place,
   type ScopeKey,
+  filterTitle,
 } from "@/lib/model";
+import { useBusy } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import {
+  selectScope,
+  setInstalledOnly,
+  setSearch,
+  setView,
+  toggleLeft,
+  toggleRight,
+  useListing,
+  useScopeDirectory,
+  useView,
+} from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
@@ -33,31 +47,13 @@ import { Icon } from "./icons";
 import { titlebarClass } from "./layout";
 import { Count, PlaceAgentMark } from "./parts";
 
-export type ListView = "card" | "list";
-
-interface ToolbarProps {
-  title: string;
-  count: number | undefined;
-  busy: boolean;
-  scope: ScopeKey | null;
-  scopeDirectory: string | undefined;
-  search: string;
-  installedOnly: boolean;
-  view: ListView;
-  left: boolean;
-  right: boolean;
-  onScope: (key: ScopeKey | null) => void;
-  onSearch: (text: string) => void;
-  onInstalledOnly: (on: boolean) => void;
-  onView: (view: ListView) => void;
-  onLeft: () => void;
-  onRight: () => void;
-  onRefresh: () => void;
-}
-
-export function Toolbar(props: ToolbarProps) {
-  const { scope } = props;
+export function Toolbar() {
   const s = useLoadedSnapshot();
+  const busy = useBusy();
+  const listing = useListing();
+  const { scope, search: text, installedOnly, view, left, right } = useView(
+    useShallow((v) => ({ scope: v.scope, search: v.search, installedOnly: v.installedOnly, view: v.view, left: v.left, right: v.right })),
+  );
   const search = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
   const tt = useT();
@@ -80,20 +76,20 @@ export function Toolbar(props: ToolbarProps) {
     <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
       <div className="flex min-w-0 items-center gap-2">
         <div className="w-16" />
-        <Button variant="ghost" size="icon" className={cn(props.left && "text-foreground")} onClick={props.onLeft} title={t.toggleLeft}>
+        <Button variant="ghost" size="icon" className={cn(left && "text-foreground")} onClick={toggleLeft} title={t.toggleLeft}>
           <Icon name="sidebarL" />
         </Button>
         <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
-          <b>{props.title}</b>
-          {props.count !== undefined && <Count value={props.count} />}
-          {props.busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
+          <b>{s ? filterTitle(s, listing.filter) : "Mechbox"}</b>
+          {s && <Count value={listing.skills.length + listing.unmanaged.length} />}
+          {busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
         </span>
       </div>
       <div className="flex justify-center">
         {s && (
           <Popover open={menu} onOpenChange={setMenu}>
-            <ScopePill {...props} open={menu} />
-            <ScopeMenu {...props} onOpen={setMenu} />
+            <ScopePill open={menu} />
+            <ScopeMenu onOpen={setMenu} />
           </Popover>
         )}
       </div>
@@ -104,33 +100,33 @@ export function Toolbar(props: ToolbarProps) {
           icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
           suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">⌘K</kbd>}
           placeholder={t.search}
-          value={props.search}
-          onChange={(e) => props.onSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && props.onSearch("")}
+          value={text}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setSearch("")}
         />
         {s && scope && (
           <label
             className="toggle-label inline-flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap text-foreground-secondary"
             title={t.installedOnlyTitle(agentNameIn(s, parseScope(scope).agent, placeOf(parseScope(scope))))}
           >
-            <Switch checked={props.installedOnly} onCheckedChange={props.onInstalledOnly} />
+            <Switch checked={installedOnly} onCheckedChange={setInstalledOnly} />
             <span>{t.installedOnly}</span>
           </label>
         )}
         <Segmented
           className="icon-seg"
           iconOnly
-          value={props.view}
-          onChange={props.onView}
+          value={view}
+          onChange={setView}
           options={[
             { value: "list", label: <Icon name="list" />, title: t.list },
             { value: "card", label: <Icon name="grid" />, title: t.card },
           ]}
         />
-        <Button variant="ghost" size="icon" onClick={props.onRefresh} title={t.refresh}>
+        <Button variant="ghost" size="icon" onClick={() => void reloadLibrary()} title={t.refresh}>
           <Icon name="refresh" />
         </Button>
-        <Button variant="ghost" size="icon" className={cn(props.right && "text-foreground")} onClick={props.onRight} title={t.toggleRight}>
+        <Button variant="ghost" size="icon" className={cn(right && "text-foreground")} onClick={toggleRight} title={t.toggleRight}>
           <Icon name="sidebarR" />
         </Button>
       </div>
@@ -139,12 +135,12 @@ export function Toolbar(props: ToolbarProps) {
 }
 
 // ScopePill 是顶栏中间的作用域胶囊：未选时是淡色占位，选中后显示 Agent · 地方，点开是选择弹层,× 清除。
-type MenuProps = ToolbarProps;
-
 const pillClass =
   "scope-pill inline-flex h-7 items-center rounded-full border border-border bg-white text-xs font-medium whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-primary-border data-[open=true]:border-primary-border [&_[data-slot=icon]]:size-[11px] [&_[data-slot=icon]]:text-subtle";
 
-function ScopePill({ scope, open, scopeDirectory, onScope }: MenuProps & { open: boolean }) {
+function ScopePill({ open }: { open: boolean }) {
+  const scope = useView((v) => v.scope);
+  const scopeDirectory = useScopeDirectory();
   const s = useSnapshot();
   const t = useT();
   if (!scope) {
@@ -175,7 +171,7 @@ function ScopePill({ scope, open, scopeDirectory, onScope }: MenuProps & { open:
         <button
           type="button"
           className="scope-pill-clear grid h-full place-items-center border-l border-border-subtle pr-2.5 pl-1.5 hover:[&_[data-slot=icon]]:text-foreground"
-          onClick={() => onScope(null)}
+          onClick={() => selectScope(null)}
           title={t.toolbar.clearScope}
         >
           <Icon name="close" />
@@ -187,7 +183,9 @@ function ScopePill({ scope, open, scopeDirectory, onScope }: MenuProps & { open:
 
 // ScopeMenu 是作用域弹层：按地方分组，和右栏一样直接列出装有技能的与检测到的 Agent,
 // 勾选了显示但没检测到的用每处一个下拉补上。
-function ScopeMenu({ scope, scopeDirectory, onScope, onOpen }: MenuProps & { onOpen: (open: boolean) => void }) {
+function ScopeMenu({ onOpen }: { onOpen: (open: boolean) => void }) {
+  const scope = useView((v) => v.scope);
+  const scopeDirectory = useScopeDirectory();
   const s = useSnapshot();
   const t = useT();
   const places: { id: Place; name: string; path: string }[] = [
@@ -195,7 +193,7 @@ function ScopeMenu({ scope, scopeDirectory, onScope, onOpen }: MenuProps & { onO
     ...s.projects.map((p) => ({ id: p.id, name: projectName(s, p.id), path: shortPath(s, p.path) })),
   ];
   const pick = (key: ScopeKey | null) => {
-    onScope(key);
+    selectScope(key);
     onOpen(false);
   };
   return (

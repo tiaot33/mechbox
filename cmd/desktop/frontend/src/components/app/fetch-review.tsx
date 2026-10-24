@@ -13,14 +13,14 @@ import {
 import { configQuery } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { cn } from "@/lib/utils";
+import { cn, toggled } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { AuditBadge } from "./audit";
-import { Diagnostics, toggled } from "./parts";
+import { Diagnostics } from "./parts";
 
 interface FetchReviewProps {
   preview: FetchPreview;

@@ -1,6 +1,7 @@
-// 全局界面服务：toast、弹窗(确认 / 输入 / 自定义)与写操作执行器 run。
+// 全局界面服务：toast、弹窗(确认 / 输入 / 自定义)与写操作执行器 run;组件外的写操作流程也直接用 ui。
 // 写操作统一经 run:显示忙碌、失败时按错误码提示、完成后让查询缓存失效重读(前端在自己的写操作之后重读，见 ADR 0008)。
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { create } from "zustand";
 import { ErrorCode } from "@bindings/internal/library";
 import { Icon } from "@/components/app/icons";
 import { Button } from "@/components/ui/button";
@@ -56,89 +57,92 @@ interface UIService {
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
   // reload 重读界面上的数据：不经 run 的只读调用也会写库(如生成更新计划时写下的检查结论),之后由调用方让界面跟上。
   reload: () => void;
-  busy: boolean;
 }
 
-const UIContext = createContext<UIService | null>(null);
+interface ToastState {
+  message: string;
+  tone: "ok" | "error";
+  show: boolean;
+  action?: ToastAction;
+}
+
+// 弹窗栈、toast 与进行中的写操作数放在 store 里，组件外的写操作流程也能打开弹窗、弹 toast;UIHost 把它们画出来。
+const useUIStore = create<{ dialogs: { id: number; node: ReactNode }[]; toast: ToastState; pending: number }>()(() => ({
+  dialogs: [],
+  toast: { message: "", tone: "ok", show: false },
+  pending: 0,
+}));
+const set = useUIStore.setState;
+
+let toastTimer: number | undefined;
+let nextDialogID = 1;
+
+function toast(message: string, tone: "ok" | "error" = "ok", action?: ToastAction) {
+  window.clearTimeout(toastTimer);
+  set({ toast: { message, tone, show: true, action } });
+  toastTimer = window.setTimeout(() => set((s) => ({ toast: { ...s.toast, show: false } })), action ? 6000 : tone === "error" ? 5200 : 2400);
+}
+
+function hideToast() {
+  window.clearTimeout(toastTimer);
+  set((s) => ({ toast: { ...s.toast, show: false } }));
+}
+
+function open<T>(render: (close: (value?: T) => void) => ReactNode): Promise<T | undefined> {
+  return new Promise<T | undefined>((resolve) => {
+    const id = nextDialogID++;
+    const close = (value?: T) => {
+      set((s) => ({ dialogs: s.dialogs.filter((d) => d.id !== id) }));
+      resolve(value);
+    };
+    set((s) => ({ dialogs: [...s.dialogs, { id, node: render(close) }] }));
+  });
+}
+
+async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise<T | undefined> {
+  set((s) => ({ pending: s.pending + 1 }));
+  try {
+    const value = await task();
+    const message = typeof opts.success === "function" ? opts.success(value) : opts.success;
+    if (message) toast(message);
+    return value;
+  } catch (e) {
+    const err = toLibraryError(e);
+    if (err.code === ErrorCode.Canceled) return undefined;
+    if (!opts.onError?.(err)) toast(describeError(err), "error");
+    return undefined;
+  } finally {
+    set((s) => ({ pending: s.pending - 1 }));
+    // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
+    if (opts.reload !== false) void reloadLibrary();
+  }
+}
+
+// ui 是全局界面服务;组件里也可以用 useUI() 取同一个。
+export const ui: UIService = {
+  toast,
+  open,
+  confirm: (opts) => open<string>((close) => <ConfirmDialog opts={opts} close={close} />),
+  prompt: (opts) => open<string>((close) => <PromptDialog opts={opts} close={close} />),
+  run,
+  reload: () => void reloadLibrary(),
+};
 
 export function useUI(): UIService {
-  const ui = useContext(UIContext);
-  if (!ui) throw new Error("useUI outside UIProvider");
   return ui;
 }
 
-export function UIProvider({ children }: { children: ReactNode }) {
-  const [toastState, setToast] = useState<{ message: string; tone: "ok" | "error"; show: boolean; action?: ToastAction }>({
-    message: "",
-    tone: "ok",
-    show: false,
-  });
-  const timer = useRef<number | undefined>(undefined);
-  const [dialogs, setDialogs] = useState<{ id: number; node: ReactNode }[]>([]);
-  const nextID = useRef(1);
-  const [pending, setPending] = useState(0);
+// useBusy 是有没有经 run 进行中的写操作(顶栏转圈、禁用会冲突的按钮)。
+export function useBusy(): boolean {
+  return useUIStore((s) => s.pending > 0);
+}
 
-  const toast = useCallback((message: string, tone: "ok" | "error" = "ok", action?: ToastAction) => {
-    window.clearTimeout(timer.current);
-    setToast({ message, tone, show: true, action });
-    timer.current = window.setTimeout(() => setToast((t) => ({ ...t, show: false })), action ? 6000 : tone === "error" ? 5200 : 2400);
-  }, []);
-  const hideToast = () => {
-    window.clearTimeout(timer.current);
-    setToast((t) => ({ ...t, show: false }));
-  };
-
-  const open = useCallback(<T,>(render: (close: (value?: T) => void) => ReactNode) => {
-    return new Promise<T | undefined>((resolve) => {
-      const id = nextID.current++;
-      const close = (value?: T) => {
-        setDialogs((list) => list.filter((d) => d.id !== id));
-        resolve(value);
-      };
-      setDialogs((list) => [...list, { id, node: render(close) }]);
-    });
-  }, []);
-
-  const confirm = useCallback(
-    (opts: ConfirmOptions) => open<string>((close) => <ConfirmDialog opts={opts} close={close} />),
-    [open],
-  );
-
-  const prompt = useCallback(
-    (opts: PromptOptions) => open<string>((close) => <PromptDialog opts={opts} close={close} />),
-    [open],
-  );
-
-  const run = useCallback(
-    async <T,>(task: () => Promise<T>, opts: RunOptions<T> = {}) => {
-      setPending((n) => n + 1);
-      try {
-        const value = await task();
-        const message = typeof opts.success === "function" ? opts.success(value) : opts.success;
-        if (message) toast(message);
-        return value;
-      } catch (e) {
-        const err = toLibraryError(e);
-        if (err.code === ErrorCode.Canceled) return undefined;
-        if (!opts.onError?.(err)) toast(describeError(err), "error");
-        return undefined;
-      } finally {
-        setPending((n) => n - 1);
-        // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
-        if (opts.reload !== false) void reloadLibrary();
-      }
-    },
-    [toast],
-  );
-
-  const service = useMemo(
-    () => ({ toast, open, confirm, prompt, run, reload: () => void reloadLibrary(), busy: pending > 0 }),
-    [toast, open, confirm, prompt, run, pending],
-  );
-
+// UIHost 画出打开着的弹窗与 toast,放在主界面最外层。
+export function UIHost() {
+  const dialogs = useUIStore((s) => s.dialogs);
+  const toastState = useUIStore((s) => s.toast);
   return (
-    <UIContext.Provider value={service}>
-      {children}
+    <>
       {dialogs.map((d) => (
         <div key={d.id}>{d.node}</div>
       ))}
@@ -166,7 +170,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
           </Button>
         )}
       </div>
-    </UIContext.Provider>
+    </>
   );
 }
 

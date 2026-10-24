@@ -25,6 +25,7 @@ import {
   uninstallGroup,
   uninstallSkill,
 } from "@/lib/actions";
+import { useShallow } from "zustand/react/shallow";
 import { useDnD } from "@/lib/dnd";
 import { messages, useT } from "@/lib/i18n";
 import { foundSource, useFoundSources, type Snapshot, useSnapshot } from "@/lib/library";
@@ -62,39 +63,29 @@ import {
   updateAvailable,
   viaGroupCount,
   type ScopeKey,
-  type SkillFilter,
 } from "@/lib/model";
-import { useUI } from "@/lib/ui";
+import { useBusy, useUI } from "@/lib/ui";
 import { offerFetchUnmanaged } from "./fetch-unmanaged-dialog";
 import { notInterested, openHistory, openUpdate, previewNewSkills, riskSummary, updateWithDefaults } from "@/lib/update";
 import { cn } from "@/lib/utils";
+import { toggleDrawer, useListing, useScopeDirectory, useView, type ListView } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Icon, SourceIcon } from "./icons";
 import { centerClass } from "./layout";
 import { AgentMark, Chip, PlaceAgentMark } from "./parts";
-import type { ListView } from "./toolbar";
-
-interface SkillListProps {
-  skills: Skill[];
-  unmanaged: UnmanagedSkill[];
-  filter: SkillFilter;
-  scope: ScopeKey | null;
-  scopeDirectory: string | undefined;
-  view: ListView;
-  selected: number | null;
-  onOpen: (id: number) => void;
-  onFetch: () => void;
-}
+import { openFetch } from "./fetch-dialog";
 
 // 列表顶部的摘要条(作用域摘要、更新列表、集合标题条)共用的外观。
 const barClass = "a-scope-sum mx-3.5 mt-3 flex flex-col gap-2 rounded-[10px] border border-hairline bg-glass-card px-3 py-2.5 shadow-tile";
 const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
-export function SkillList(props: SkillListProps) {
+export function SkillList() {
   const s = useSnapshot();
-  const { skills, unmanaged, filter, scope, view } = props;
+  const { skills, unmanaged, filter } = useListing();
+  const { scope, view, selected } = useView(useShallow((v) => ({ scope: v.scope, view: v.view, selected: v.drawer })));
+  const scopeDirectory = useScopeDirectory();
   const group = filter.kind === "group" ? s.groups.find((g) => g.id === filter.groupID) : undefined;
   const collection = filter.kind === "collection" ? s.collections.find((c) => c.id === filter.collectionID) : undefined;
   // 列出的技能都来自同一个来源时，卡片上不再逐张写来源。
@@ -102,7 +93,7 @@ export function SkillList(props: SkillListProps) {
   const t = useT().list;
   return (
     <main className={centerClass}>
-      {scope && <ScopeSummary scope={scope} directory={props.scopeDirectory} />}
+      {scope && <ScopeSummary scope={scope} directory={scopeDirectory} />}
       {group && <GroupHead group={group} scope={scope} />}
       {collection && <CollectionHead collection={collection} />}
       {filter.kind === "updates" && updatableCollections(s).length > 0 && <UpdatesHead />}
@@ -124,9 +115,9 @@ export function SkillList(props: SkillListProps) {
               scope={scope}
               view={view}
               showSource={showSource}
-              selected={props.selected === skill.id}
+              selected={selected === skill.id}
               hideGroup={group?.id}
-              onOpen={() => props.onOpen(skill.id)}
+              onOpen={() => toggleDrawer(skill.id)}
             />
           ))}
           {unmanaged.map((u) => (
@@ -138,7 +129,7 @@ export function SkillList(props: SkillListProps) {
               <ListEmpty>
                 <b className="text-sm text-foreground">{t.emptyLibrary}</b>
                 <span>{t.emptyHint}</span>
-                <Button variant="primary" className="mt-1.5" onClick={props.onFetch}>
+                <Button variant="primary" className="mt-1.5" onClick={() => void openFetch(s.info.home_dir)}>
                   <Icon name="plus" />
                   {t.fetchSkills}
                 </Button>
@@ -583,6 +574,7 @@ function GroupHead({ group, scope }: { group: Group; scope: ScopeKey | null }) {
 function UpdatesHead() {
   const s = useSnapshot();
   const ui = useUI();
+  const busy = useBusy();
   const t = useT().list;
   const collections = updatableCollections(s);
   const risks = usePlanRisks(s, collections);
@@ -629,7 +621,7 @@ function UpdatesHead() {
               </Button>
             )}
             {plain.length > 0 && (
-              <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, [c.id])}>
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(ui, s, [c.id])}>
                 <Icon name="up" />
                 {t.update}
               </Button>
@@ -640,7 +632,7 @@ function UpdatesHead() {
       <div className={barRowClass}>
         <span className="grow text-[11px] text-muted-foreground">{t.updatesFooter}</span>
         {direct.length > 1 && (
-          <Button size="sm" variant="primary" disabled={ui.busy} onClick={() => updateWithDefaults(ui, s, direct.map((c) => c.id))}>
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(ui, s, direct.map((c) => c.id))}>
             <Icon name="up" />
             {t.updateAll}
           </Button>

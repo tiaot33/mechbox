@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Dialogs, type CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs } from "@bindings/internal/library";
-import { Modal, useUI } from "@/lib/ui";
+import { Modal, ui, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { toLibraryError } from "@/lib/library";
@@ -29,6 +29,11 @@ export async function pickDirectory(title: string): Promise<string> {
     CanCreateDirectories: false,
   });
   return typeof picked === "string" ? picked : (picked[0] ?? "");
+}
+
+// openFetch 打开入库技能对话框(左栏"入库技能"、空库时的按钮);home 用来展开输入里的 ~。
+export function openFetch(home: string) {
+  return ui.open((close) => <FetchDialog home={home} onClose={close} />);
 }
 
 export function FetchDialog({ home, onClose }: { home: string; onClose: () => void }) {

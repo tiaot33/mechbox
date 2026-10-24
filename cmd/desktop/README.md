@@ -148,12 +148,12 @@ cmd/desktop/
 └── frontend/
     ├── bindings/           wails3 生成的 TS 绑定与类型，入库，不手改
     └── src/
-        ├── App.tsx         主界面：状态与三栏布局
+        ├── App.tsx         主界面：三栏布局与启动时的提示(第一次打开、WSL 发行版没能打开)
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)与少量全局样式
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
         ├── components/app/ 主界面组件、详情抽屉与各弹窗;layout.ts 是三栏与顶栏的公共样式
         └── lib/            library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，actions.tsx 写操作流程，update.tsx 更新流程(更新计划、回滚、历史),diff.ts 更新计划里的逐行差异，
-                            ui.tsx 弹窗 / toast / run,errors.ts 错误文案，dnd.ts 拖放，
+                            view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
                             content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案用),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)
 ```

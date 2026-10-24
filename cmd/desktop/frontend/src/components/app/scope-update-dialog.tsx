@@ -8,7 +8,7 @@ import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { type LibraryError, useSnapshot } from "@/lib/library";
 import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
-import { Modal, useUI } from "@/lib/ui";
+import { Modal, useBusy, useUI } from "@/lib/ui";
 import { canInstall, defaultInstallOn, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -21,6 +21,7 @@ const sectionClass = "mt-1 text-[13.5px] font-semibold";
 export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; scope: Scope; onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
+  const busy = useBusy();
   const t = useT().fromScope;
   const place = scopeLabel(s, scope);
   const title = t.title(place, skill.name);
@@ -93,7 +94,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
   const risks = item.risks ?? [];
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
   const installOn = (p: SkillScopeInspection) => canInstall(p) && (installChoice.get(folderKey(p)) ?? defaultInstallOn(p));
-  const locked = working || ui.busy;
+  const locked = working || busy;
 
   const onStale = (err: LibraryError) => {
     if (!stalePlan(err)) return false;
