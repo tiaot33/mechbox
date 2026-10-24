@@ -14,14 +14,15 @@ import {
   type UpdateRecord,
   type VersionDiff,
 } from "@bindings/internal/library";
-import { confirmLinkedRequests } from "@/lib/actions";
+import { confirmLinkedRequests } from "@/components/app/link-notes";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
-import { openUpdate, rollbackOutcome, rollbackUpdate } from "@/lib/update";
+import { openUpdate } from "./update";
+import { rollbackOutcome, rollbackUpdate } from "./rollback";
 import { cn } from "@/lib/utils";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,7 +121,7 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
 
   const retry = async () => {
     const requests = failed.map((i) => ({ skill_id: i.skill_id, scope: i.scope, overwrite: false }));
-    if (!(await confirmLinkedRequests(ui, s, requests, t.retryTitle, t.retry))) return;
+    if (!(await confirmLinkedRequests(requests, t.retryTitle, t.retry))) return;
     const results = await ui.run(() => LibraryService.RetryUpdateInstalls(record.id, requests));
     if (!results) return;
     const left = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed).length;
@@ -169,7 +170,7 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
         {update && !rolledBack && (
           <Button
             size="sm"
-            onClick={() => void rollbackUpdate(ui, s, record.id, record.installs ?? [])}
+            onClick={() => void rollbackUpdate(record.id, record.installs ?? [])}
           >
             {t.rollback}
           </Button>
@@ -177,7 +178,7 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
         {record.kind === UpdateRecordKind.UpdateRecordSkip && s.collections.some((c) => c.id === record.collection_id) && (
           <Button
             size="sm"
-            onClick={() => openUpdate(ui, s, record.collection_id, { select: skills.map((x) => x.skill_id) })}
+            onClick={() => openUpdate(record.collection_id, { select: skills.map((x) => x.skill_id) })}
             title={t.reviewTitle}
           >
             {t.review}

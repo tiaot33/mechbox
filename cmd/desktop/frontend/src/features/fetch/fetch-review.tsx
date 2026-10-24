@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
+  SourceType,
   type Candidate,
   type FetchPreview,
   type FetchPreviewID,
   type SkillAudit,
-  SourceType,
 } from "@bindings/internal/library";
 import { configQuery } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
@@ -20,7 +20,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { AuditBadge } from "./audit";
-import { Diagnostics } from "./parts";
+import { Diagnostics } from "@/components/app/parts";
 
 interface FetchReviewProps {
   preview: FetchPreview;

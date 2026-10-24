@@ -5,26 +5,21 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import { Browser } from "@wailsio/runtime";
 import {
   FileMode,
-  type AgentCode,
   SkillScopeStatus,
   SourceType,
   UpdateCheckStatus,
+  type AgentCode,
   type FileMetadata,
   type Skill,
   type SkillVersion,
   type VersionDiff,
   type VersionID,
 } from "@bindings/internal/library";
-import {
-  addSkillToGroup,
-  createGroup,
-  installSkill,
-  previewCollection,
-  reinstall,
-  removeSkill,
-  removeSkillFromGroup,
-  uninstallSkill,
-} from "@/lib/actions";
+import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
+import { installSkill, uninstallSkill } from "@/features/install/install";
+import { previewCollection } from "@/features/fetch/preview";
+import { reinstall } from "@/features/install/reinstall";
+import { removeSkill } from "@/features/skill/remove";
 import { useSnapshot, versionFileQuery, versionFilesQuery, versionsQuery } from "@/lib/library";
 import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
@@ -61,7 +56,9 @@ import {
   type Place,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
-import { keepDeleted, notInterested, openHistory, openUpdate, previewNewSkills, rereadSkill, updateFromScope } from "@/lib/update";
+import { keepDeleted } from "@/features/skill/remove";
+import { notInterested, previewNewSkills } from "@/features/fetch/preview";
+import { openHistory, openUpdate, rereadSkill, updateFromScope } from "@/features/update/update";
 import { cn } from "@/lib/utils";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,7 +68,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { AuditCard } from "./audit";
+import { AuditCard } from "@/features/fetch/audit";
 import { Icon, SourceIcon } from "./icons";
 import { Chip, PlaceAgentMark } from "./parts";
 import { ResizeHandle, useStoredWidth } from "./resizable";
@@ -138,7 +135,6 @@ const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min
 
 export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   const s = useSnapshot();
-  const ui = useUI();
   const t = useT();
   const d = t.drawer;
   const id = skill.id;
@@ -179,7 +175,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
             <div className="flex items-center gap-2.5 px-2">
               <SheetTitle className="flex-1 text-[18px] font-bold tracking-[-0.01em]">{skill.name}</SheetTitle>
               {hasUpdate(skill) && (
-                <Button variant={pending(skill) ? "primary" : "default"} onClick={() => openUpdate(ui, s, skill.collection_id, { focus: id })}>
+                <Button variant={pending(skill) ? "primary" : "default"} onClick={() => openUpdate(skill.collection_id, { focus: id })}>
                   <Icon name="up" />
                   {d.update}
                 </Button>
@@ -195,7 +191,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                 <span className="grow">
                   {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
                 </span>
-                <Button size="sm" onClick={() => openUpdate(ui, s, skill.collection_id, { focus: id })}>
+                <Button size="sm" onClick={() => openUpdate(skill.collection_id, { focus: id })}>
                   {d.view}
                 </Button>
               </Notice>
@@ -208,33 +204,33 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                   <span className="grow">
                     {d.deletedInSource(sourceLabel(s, skill.source), skill.name)}
                   </span>
-                  <Button size="sm" onClick={async () => (await removeSkill(ui, s, id)) && onClose()}>
+                  <Button size="sm" onClick={async () => (await removeSkill(id)) && onClose()}>
                     {d.remove}
                   </Button>
-                  <Button size="sm" onClick={() => keepDeleted(ui, s, id)}>
+                  <Button size="sm" onClick={() => keepDeleted(id)}>
                     {d.keep}
                   </Button>
                 </Notice>
               ))}
             <div className="flex flex-wrap gap-1.5 px-2">
               {isLocal(skill.source) && (
-                <Button size="sm" onClick={() => rereadSkill(ui, s, skill)} title={d.rereadTitle}>
+                <Button size="sm" onClick={() => rereadSkill(skill)} title={d.rereadTitle}>
                   <Icon name="up" />
                   {d.reread}
                 </Button>
               )}
               {installed.length > 0 && (
-                <Button size="sm" onClick={() => reinstall(ui, s, { skill_id: id }, t.actions.reinstallSkill(skill.name))}>
+                <Button size="sm" onClick={() => reinstall({ skill_id: id }, t.actions.reinstallSkill(skill.name))}>
                   <Icon name="refresh" />
                   {d.reinstallAll}
                 </Button>
               )}
-              <Button size="sm" onClick={() => openHistory(ui, s, { skill_id: id }, d.historyTitle(skill.name))} title={d.historyHint}>
+              <Button size="sm" onClick={() => openHistory({ skill_id: id }, d.historyTitle(skill.name))} title={d.historyHint}>
                 {d.history}
               </Button>
               {/* 只有一个技能的来源没有集合这一层，从这里找回来源里的其他技能(包括点过"不感兴趣"的)。 */}
               {collection.length === 1 && c && (
-                <Button size="sm" onClick={() => previewCollection(ui, c.id)} title={d.otherSkillsHint}>
+                <Button size="sm" onClick={() => previewCollection(c.id)} title={d.otherSkillsHint}>
                   {d.otherSkills}
                 </Button>
               )}
@@ -244,10 +240,10 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                 <span className="grow">
                   {d.newSkills(sourceLabel(s, skill.source), c!.new_skills!)}
                 </span>
-                <Button variant="link" onClick={() => previewNewSkills(ui, c!.id)}>
+                <Button variant="link" onClick={() => previewNewSkills(c!.id)}>
                   {d.goFetch}
                 </Button>
-                <Button variant="link" onClick={() => notInterested(ui, c!.id, c!.new_skills!)}>
+                <Button variant="link" onClick={() => notInterested(c!.id, c!.new_skills!)}>
                   {d.notInterested}
                 </Button>
               </div>
@@ -331,7 +327,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                 <dt>{d.groups}</dt>
                 <dd className="flex flex-wrap items-center gap-1.5">
                   {groups.map((g) => (
-                    <Chip key={g.id} removeTitle={d.removeFromGroup} onRemove={() => removeSkillFromGroup(ui, s, g.id, id)}>
+                    <Chip key={g.id} removeTitle={d.removeFromGroup} onRemove={() => removeSkillFromGroup(g.id, id)}>
                       {g.name}
                     </Chip>
                   ))}
@@ -340,8 +336,8 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                     value=""
                     onChange={(e) => {
                       const v = e.target.value;
-                      if (v === "new") void createGroup(ui, id);
-                      else if (v) void addSkillToGroup(ui, s, Number(v), id);
+                      if (v === "new") void createGroup(id);
+                      else if (v) void addSkillToGroup(Number(v), id);
                     }}
                   >
                     <option value="">{d.addToGroup}</option>
@@ -373,7 +369,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                   <tbody>
                     {installed.map((p) => {
                       const st = skillScopeStatus(p.status);
-                      const toggle = () => (p.direct ? uninstallSkill(ui, s, id, p.scope) : installSkill(ui, s, id, p.scope));
+                      const toggle = () => (p.direct ? uninstallSkill(id, p.scope) : installSkill(id, p.scope));
                       return (
                         <tr key={scopeKey(p.scope)}>
                           <td>
@@ -408,7 +404,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                                 {" "}
                                 <Button
                                   variant="link"
-                                  onClick={() => reinstall(ui, s, { skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
+                                  onClick={() => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
                                 >
                                   {d.reinstall}
                                 </Button>
@@ -419,7 +415,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                                 {" "}
                                 <Button
                                   variant="link"
-                                  onClick={() => updateFromScope(ui, s, skill, p.scope)}
+                                  onClick={() => updateFromScope(skill, p.scope)}
                                   title={d.updateFromHereHint}
                                 >
                                   {d.updateFromHere}
@@ -445,7 +441,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">
-              <Button size="sm" variant="danger" onClick={async () => (await removeSkill(ui, s, id)) && onClose()}>
+              <Button size="sm" variant="danger" onClick={async () => (await removeSkill(id)) && onClose()}>
                 {d.removeSkill}
               </Button>
             </div>
@@ -461,7 +457,6 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
 // 这个地方能选的 Agent 都装上了时，不摆一个选不了的下拉框，直接说明。
 function InstallTo({ skillID }: { skillID: number }) {
   const s = useSnapshot();
-  const ui = useUI();
   const t = useT();
   const [place, setPlace] = useState<Place>(0);
   const used = agentsUsedIn(s, place);
@@ -504,7 +499,7 @@ function InstallTo({ skillID }: { skillID: number }) {
               ))}
             </optgroup>
           </NativeSelect>
-          <Button size="sm" variant="primary" onClick={() => installSkill(ui, s, skillID, scopeOf(chosen, place))}>
+          <Button size="sm" variant="primary" onClick={() => installSkill(skillID, scopeOf(chosen, place))}>
             <Icon name="plus" />
             {t.drawer.install}
           </Button>

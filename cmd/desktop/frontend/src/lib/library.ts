@@ -130,6 +130,13 @@ export function useSnapshot(): Snapshot {
   return data;
 }
 
+// currentSnapshot 是写操作流程开始时界面上的快照;流程只在快照读到之后由界面发起。
+export function currentSnapshot(): Snapshot {
+  const s = queryClient.getQueryData(snapshotQuery.queryKey);
+  if (!s) throw new Error("currentSnapshot before the snapshot is loaded");
+  return s;
+}
+
 // ---------- 其他只读数据 ----------
 
 // configQuery 是 GitHub 令牌与同步设置有没有配置;设置页保存后经 reloadLibrary 或 invalidateConfig 重读。

@@ -18,7 +18,7 @@ import { Notice } from "@/components/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { FetchReview } from "./fetch-review";
-import { Icon } from "./icons";
+import { Icon } from "@/components/app/icons";
 
 // pickDirectory 打开系统目录选择框;取消时返回空串。
 export async function pickDirectory(title: string): Promise<string> {

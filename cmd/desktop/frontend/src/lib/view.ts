@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { Scope, SkillID } from "@bindings/internal/library";
-import type { DragItem } from "./dnd";
+import type { GroupID, Scope, SkillID } from "@bindings/internal/library";
 import { queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
@@ -22,6 +21,9 @@ import {
 import { toggled } from "./utils";
 
 export type ListView = "card" | "list";
+
+// DragItem 是正在拖的东西：技能卡片，或组(左栏组行、列表顶部的组标题条)。
+export type DragItem = { kind: "skill"; id: SkillID } | { kind: "group"; id: GroupID };
 
 interface ViewState {
   filter: SkillFilter;

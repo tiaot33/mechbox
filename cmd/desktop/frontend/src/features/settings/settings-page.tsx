@@ -7,9 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
-import { unregisterProject } from "@/lib/actions";
+import { unregisterProject } from "@/features/scope/projects";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import { type LibraryError, useSnapshot, wslDistrosQuery, wslDistroErrorQuery } from "@/lib/library";
+import { useSnapshot, wslDistrosQuery, wslDistroErrorQuery, type LibraryError } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -22,13 +22,13 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { AgentDialog, AgentSection } from "./agent-settings";
+import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
 import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
-import { Icon } from "./icons";
-import { bodyClass, centerClass, leftClass, titlebarClass } from "./layout";
-import { navItem } from "./nav";
-import { ProjectPathDialog } from "./scope-panel";
-import { SetRow } from "./set-row";
+import { Icon } from "@/components/app/icons";
+import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
+import { navItem } from "@/components/app/nav";
+import { ProjectPathDialog } from "@/components/app/scope-panel";
+import { SetRow } from "@/components/app/set-row";
 import { UninstallDialog } from "./uninstall-dialog";
 
 // 分区按文案里的键排，标题取当前语言的文案。
@@ -244,7 +244,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                       <Button onClick={() => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={p} onClose={close} />)}>
                         {t.relocate}
                       </Button>
-                      <Button onClick={() => void unregisterProject(ui, s, p)}>{t.unregister}</Button>
+                      <Button onClick={() => void unregisterProject(p)}>{t.unregister}</Button>
                     </SetRow>
                   ))}
                   {s.projects.length === 0 && <Hint>{t.noProjects}</Hint>}

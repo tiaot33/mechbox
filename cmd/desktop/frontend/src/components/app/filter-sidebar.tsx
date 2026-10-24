@@ -5,8 +5,9 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType } from "@bindings/internal/library";
 import { useSnapshot, configQuery } from "@/lib/library";
-import { checkUpdates, createGroup, deleteGroup, renameGroup } from "@/lib/actions";
-import { alreadyInGroup, dropProps, useDnD } from "@/lib/dnd";
+import { checkUpdates } from "@/features/update/check";
+import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
+import { alreadyInGroup, dropProps, useDnD } from "./dnd";
 import { useT } from "@/lib/i18n";
 import {
   checkableCollections,
@@ -22,13 +23,13 @@ import { cn, toggled } from "@/lib/utils";
 import { openSettings, setFilter, useCurrentFilter } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
-import { openFetch } from "./fetch-dialog";
+import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Icon } from "./icons";
 import { leftClass } from "./layout";
-import { MarketDialog } from "./market-dialog";
+import { MarketDialog } from "@/features/fetch/market-dialog";
 import { NavCount, navItem } from "./nav";
 import { TailPath } from "./parts";
-import { SyncDialog } from "./sync-dialog";
+import { SyncDialog } from "@/features/settings/sync-dialog";
 
 const noConfig = { sync: false, github_token: false };
 
@@ -84,7 +85,7 @@ export function FilterSidebar() {
             type="button"
             className={navItem()}
             disabled={!checkable.length || busy}
-            onClick={() => checkUpdates(ui, s, checkable)}
+            onClick={() => checkUpdates(checkable)}
             title={t.checkTitle}
           >
             <Icon name="refresh" />
@@ -118,7 +119,7 @@ export function FilterSidebar() {
           size="icon-sm"
           className="opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100"
           title={t.newGroup}
-          onClick={() => createGroup(ui)}
+          onClick={() => createGroup()}
         >
           <Icon name="plus" />
         </Button>
@@ -153,7 +154,7 @@ export function FilterSidebar() {
                       title={t.rename}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void renameGroup(ui, s, g.id);
+                        void renameGroup(g.id);
                       }}
                     >
                       <Icon name="edit" />
@@ -164,7 +165,7 @@ export function FilterSidebar() {
                       title={t.deleteGroup}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void deleteGroup(ui, s, g.id);
+                        void deleteGroup(g.id);
                       }}
                     >
                       <Icon name="close" />

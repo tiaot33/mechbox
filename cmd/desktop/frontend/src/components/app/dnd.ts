@@ -1,15 +1,13 @@
 // 拖放(原型变体 A):左 = 整理进哪个组，右 = 安装到哪个作用域。
 // - 技能卡片 → 右栏作用域 = 直接安装;技能卡片 → 左栏组 = 加入该组。
 // - 组(左栏组行或列表顶部的组标题条)→ 右栏作用域 = 组安装。
-// 正在拖的东西记在界面状态(lib/view)里;拖动时跟着鼠标的标签是 App 里的一个元素，经 setDragGhost 登记。
-import type { GroupID, SkillID } from "@bindings/internal/library";
-import { addSkillToGroup, installGroup, installSkill } from "./actions";
-import { useSnapshot, type Snapshot } from "./library";
-import { parseScope, scopeKey, skillScopeIn, type ScopeKey } from "./model";
-import { useUI } from "./ui";
-import { endDrag, reveal, startDrag, useView } from "./view";
-
-export type DragItem = { kind: "skill"; id: SkillID } | { kind: "group"; id: GroupID };
+// 正在拖的东西(DragItem)记在界面状态(lib/view)里;拖动时跟着鼠标的标签是 App 里的一个元素，经 setDragGhost 登记。
+import type { GroupID } from "@bindings/internal/library";
+import type { Snapshot } from "@/lib/library";
+import { parseScope, scopeKey, skillScopeIn, type ScopeKey } from "@/lib/model";
+import { endDrag, reveal, startDrag, useView, type DragItem } from "@/lib/view";
+import { addSkillToGroup } from "@/features/group/group";
+import { installGroup, installSkill } from "@/features/install/install";
 
 let ghost: HTMLElement | null = null;
 
@@ -20,8 +18,6 @@ export function setDragGhost(el: HTMLElement | null) {
 
 // useDnD 给拖动源与放置目标用：正在拖的东西、开始 / 结束拖动，以及放到作用域、组上。
 export function useDnD() {
-  const ui = useUI();
-  const s = useSnapshot();
   const item = useView((v) => v.drag);
   return {
     item,
@@ -42,12 +38,12 @@ export function useDnD() {
       endDrag();
       // 拖动中临时展开的地方拖完会收回，放下的那一行保持展开，好看到装上的结果。
       reveal(sc);
-      void (item.kind === "skill" ? installSkill(ui, s, item.id, sc) : installGroup(ui, s, item.id, sc));
+      void (item.kind === "skill" ? installSkill(item.id, sc) : installGroup(item.id, sc));
     },
     dropOnGroup: (id: GroupID) => {
       if (item?.kind !== "skill") return;
       endDrag();
-      void addSkillToGroup(ui, s, id, item.id);
+      void addSkillToGroup(id, item.id);
     },
   };
 }

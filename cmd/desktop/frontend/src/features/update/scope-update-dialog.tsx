@@ -1,5 +1,5 @@
 // 用目录里的修改更新(issue #185):对巡检为被手动改过的那一处，把那里的内容作为技能在库里的新版本，并换到勾选的其他地方。
-// 和从来源更新是同一种更新(流程见 lib/update.tsx):一次确认先换库、再逐处重新安装，留下记录、能回滚。
+// 和从来源更新是同一种更新(流程见 update.tsx):一次确认先换库、再逐处重新安装，留下记录、能回滚。
 // 其他地方默认全勾，用户改过的地方默认不勾，项目不在这台机器上的不能勾。
 import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
@@ -7,10 +7,12 @@ import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/i
 import { canInstall, defaultInstallOn } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { type LibraryError, useSnapshot } from "@/lib/library";
+import { useSnapshot, type LibraryError } from "@/lib/library";
 import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
-import { reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
+import { reportUpdates } from "./report";
+import { riskLabel } from "./risks";
+import { runUpdate, stalePlan } from "./update";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -105,12 +107,12 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
 
   const run = async () => {
     setWorking(true);
-    const o = await runUpdate(ui, s, plan, skill.name, new Set([skill.id]), installOn, place);
+    const o = await runUpdate(plan, skill.name, new Set([skill.id]), installOn, place);
     setWorking(false);
     if (o === "conflict") return setConflict(true);
     if (!o) return;
     onClose();
-    await reportUpdates(ui, s, [o]);
+    await reportUpdates([o]);
   };
 
   return (

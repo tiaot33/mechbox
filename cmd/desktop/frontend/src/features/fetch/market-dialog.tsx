@@ -11,7 +11,7 @@ import { SearchInput } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { FetchReview } from "./fetch-review";
-import { Icon } from "./icons";
+import { Icon } from "@/components/app/icons";
 
 export function MarketDialog({ onClose }: { onClose: () => void }) {
   const ui = useUI();
