@@ -18,7 +18,7 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
-import { scopeLabel, shortRevision } from "@/lib/model";
+import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate, rollbackOutcome, rollbackUpdate } from "@/lib/update";
 import { cn } from "@/lib/utils";
@@ -253,7 +253,7 @@ function Places({ s, record }: { s: Snapshot; record: UpdateRecord }) {
         {t.places(record.kind === UpdateRecordKind.UpdateRecordRollback, installs.length)}
       </summary>
       <div className="mt-1 flex flex-col gap-0.5">
-        {installs.map((i) => (
+        {mergeProjectPlaces(s, installs).map((i) => (
           <div key={`${i.skill_id}|${i.scope.agent}|${i.scope.project_id ?? 0}`} className="flex items-center gap-2 text-[11px]">
             <span className="min-w-0 truncate">
               {name(i)} · {scopeLabel(s, i.scope)}

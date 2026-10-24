@@ -34,7 +34,7 @@ import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes, linkWrites } 
 import { describeError } from "./errors";
 import { messages, useT } from "./i18n";
 import type { LibraryError, Snapshot } from "./library";
-import { collectionSkills, folderKey, isLocal, scopeKey, scopeLabel, sourceLabel } from "./model";
+import { collectionSkills, folderKey, isLocal, mergeProjectPlaces, scopeKey, scopeLabel, sourceLabel } from "./model";
 import { Modal, type useUI } from "./ui";
 import { FetchReview } from "@/components/app/fetch-review";
 import { ScopeUpdateDialog } from "@/components/app/scope-update-dialog";
@@ -280,7 +280,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
         {t.failedNotice}
       </Notice>
       <ListBox>
-        {failed.flat().map((r) => (
+        {mergeProjectPlaces(s, failed.flat()).map((r) => (
           <ListRow key={installKey(r)}>
             <div className="min-w-0 grow">
               <div>
@@ -484,7 +484,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
             <Badge>{t.rollbackRemoved}</Badge>
           </ListRow>
         ))}
-        {left.map((r) => (
+        {mergeProjectPlaces(s, left).map((r) => (
           <ListRow key={installKey(r)}>
             <div className="min-w-0 grow">
               <div>

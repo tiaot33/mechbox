@@ -40,6 +40,7 @@ import {
   folderKey,
   installedWhere,
   linkNote,
+  mergeProjectPlaces,
   outsideLinkNote,
   needsReinstall,
   noSource,
@@ -176,10 +177,11 @@ export async function installSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scop
 
 export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Scope) {
   const t = messages().actions;
-  // 共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
+  // 全局共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
+  // 项目里共用目录的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   const place = skillScopeIn(s, id, scopeKey(scope));
-  const shared = place?.shared_with ?? [];
+  const shared = scope.project_id ? [] : (place?.shared_with ?? []);
   const detached = detachedBy(place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : []);
   if (place && (shared.length || detached.length)) {
     const ok = await ui.confirm({
@@ -273,7 +275,7 @@ export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scop
       );
       return !others.some((g) => memberOf(g.group_id, p.skill_id));
     });
-  const removed = gone.filter((p) => p.shared_with?.length);
+  const removed = scope.project_id ? [] : gone.filter((p) => p.shared_with?.length);
   const detached = detachedBy(folderPlaces(s, gone));
   if (removed.length || detached.length) {
     const ok = await ui.confirm({
@@ -402,6 +404,8 @@ export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
 // ---------- 重新安装 ----------
 
 const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
+// overwriteKey 是被改过的一处在确认框里的勾选:项目里共用一个文件夹的几处合成一行，按文件夹勾选;其余逐处勾选。
+const overwriteKey = (p: SkillScopeInspection) => (p.scope.project_id ? folderKey(p) : placeKey(p));
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
 // 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
@@ -427,7 +431,7 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
   }
   const choice = (p: SkillScopeInspection) => chosen.missing.get(folderKey(p)) ?? "keep";
   const wanted = (p: SkillScopeInspection) => {
-    if (p.status === SkillScopeStatus.SkillScopeModified) return chosen.overwrite.has(placeKey(p));
+    if (p.status === SkillScopeStatus.SkillScopeModified) return chosen.overwrite.has(overwriteKey(p));
     if (p.status === SkillScopeStatus.SkillScopeMissing) return single || choice(p) === "putBack";
     return true;
   };
@@ -438,7 +442,7 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
   }));
   // 共用一个文件夹的几处卸载一次就都撤销了，只卸载其中一处。
   const uninstalls = [...new Map(missing.filter((p) => choice(p) === "uninstall").map((p) => [folderKey(p), p])).values()];
-  const keptModified = modified.length - modified.filter(wanted).length;
+  const keptModified = new Set(modified.filter((p) => !wanted(p)).map(overwriteKey)).size;
   const keptMissing = new Set(missing.filter((p) => choice(p) === "keep").map(folderKey)).size;
   if (!requests.length && !uninstalls.length) {
     ui.toast(t.nothingReinstalled(what, keptModified, keptMissing));
@@ -465,18 +469,18 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
     return { results, rows, uninstalled };
   });
   if (!done) return;
-  const failed = done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
+  const failed = mergeProjectPlaces(s, done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed));
   if (failed.length || done.rows.length) {
     await showResults(ui, t.reinstallPartly, [...failed.map((r) => failedRow(s, r)), ...done.rows], t.kept(keptModified, keptMissing) || undefined);
     return;
   }
-  const placed = done.results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled).length;
+  const placed = mergeProjectPlaces(s, done.results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled)).length;
   ui.toast(t.reinstalled(placed, done.uninstalled, what, keptModified, keptMissing));
 }
 
 type MissingChoice = "keep" | "putBack" | "uninstall";
 
-// ReinstallChoices 是确认框里的选择:被改过的勾选了哪几处覆盖(placeKey),文件夹不在了的每个文件夹选了什么(folderKey)。
+// ReinstallChoices 是确认框里的选择:被改过的勾选了哪几处覆盖(overwriteKey),文件夹不在了的每个文件夹选了什么(folderKey)。
 interface ReinstallChoices {
   overwrite: Set<string>;
   missing: Map<string, MissingChoice>;
@@ -530,12 +534,12 @@ function ReinstallDialog({
             {folders.map(([key, places]) => {
               const p = places[0];
               const groups = [...new Set(places.flatMap((x) => x.groups ?? []))];
-              const shared = p.shared_with ?? [];
+              const shared = p.scope.project_id ? [] : (p.shared_with ?? []);
               return (
                 <ListRow key={key} compact>
                   <div className="min-w-0 grow">
                     <div>
-                      {t.actions.missingPlace(skillName(s, p.skill_id), places.map((x) => scopeLabel(s, x.scope)))}
+                      {t.actions.missingPlace(skillName(s, p.skill_id), mergeProjectPlaces(s, places).map((x) => scopeLabel(s, x.scope)))}
                     </div>
                     <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
                     {shared.length > 0 && (
@@ -565,8 +569,8 @@ function ReinstallDialog({
         <>
           <Notice tone="warn">{t.actions.modifiedNotice}</Notice>
           <ListBox>
-            {modified.map((p) => {
-              const key = placeKey(p);
+            {mergeProjectPlaces(s, modified).map((p) => {
+              const key = overwriteKey(p);
               return (
                 <ListRow key={key} asChild compact clickable selected={overwrite.has(key)}>
                   <label>
@@ -644,7 +648,7 @@ export function DetachNotice({
       {items.map(({ place, by }) => (
         <span key={placeKey(place)} className="block">
           {t.actions.detach(
-            by.map((scope) => scopeLabel(s, scope)),
+            mergeProjectPlaces(s, by.map((scope) => ({ scope }))).map((x) => scopeLabel(s, x.scope)),
             skillName(s, place.skill_id),
             shortPath(s, place.folder),
             when,
@@ -705,7 +709,7 @@ export async function confirmLinkedRequests(ui: UI, s: Snapshot, requests: { ski
 export function LinkedPlaces({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
   return (
     <ListBox>
-      {places.map((p) => (
+      {mergeProjectPlaces(s, places).map((p) => (
         <ListRow key={placeKey(p)} compact className="linked-place">
           <div className="min-w-0 grow">
             <div>

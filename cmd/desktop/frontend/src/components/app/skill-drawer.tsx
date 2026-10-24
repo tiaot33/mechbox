@@ -28,7 +28,7 @@ import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/con
 import { messages, useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import {
-  agentName,
+  agentNameIn,
   agentShown,
   agentsUsedIn,
   collectionSkills,
@@ -36,14 +36,18 @@ import {
   hasUpdate,
   installedWhere,
   isLocal,
+  mergeProjectAgents,
+  mergeProjectPlaces,
   noSource,
   needsReinstall,
   pending,
+  placeOf,
   projectName,
   renamedTo,
   revisionSummary,
   revisionText,
   sameNameInLibrary,
+  sameProjectFolder,
   scopeKey,
   scopeLabel,
   scopeOf,
@@ -69,7 +73,7 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTi
 import { Switch } from "@/components/ui/switch";
 import { AuditCard } from "./audit";
 import { Icon, SourceIcon } from "./icons";
-import { AgentMark, Chip } from "./parts";
+import { Chip, PlaceAgentMark } from "./parts";
 import { ResizeHandle, useStoredWidth } from "./resizable";
 
 function checkStatus(status: UpdateCheckStatus): { label: string; tone: Tone } {
@@ -151,7 +155,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
 
   const groups = s.groups.filter((g) => g.members?.includes(id));
   const notIn = s.groups.filter((g) => !g.members?.includes(id));
-  const installed = skillScopesOf(s, id);
+  const installed = mergeProjectPlaces(s, skillScopesOf(s, id));
   const stale = installed.filter(needsReinstall).length;
   const check = skill.last_update_check;
   const c = s.collections.find((x) => x.id === skill.collection_id);
@@ -387,7 +391,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                           </td>
                           <td>
                             <div className="flex items-center gap-1.5">
-                              <AgentMark code={p.scope.agent} name={agentName(s, p.scope.agent)} />
+                              <PlaceAgentMark s={s} code={p.scope.agent} place={placeOf(p.scope)} />
                               {scopeLabel(s, p.scope)}
                             </div>
                             <div className="max-w-[250px] truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
@@ -458,13 +462,15 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
 }
 
 // InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面，其余只列勾选显示的。
+// 项目里共用一个目录的几个 Agent 合成一个选项。
 // 这个地方能选的 Agent 都装上了时，不摆一个选不了的下拉框，直接说明。
 function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   const ui = useUI();
   const t = useT();
   const [place, setPlace] = useState<Place>(0);
   const used = agentsUsedIn(s, place);
-  const rest = s.agents.filter((a) => !used.includes(a) && agentShown(s.agentsShown, a));
+  const shown = s.agents.filter((a) => !used.includes(a) && agentShown(s.agentsShown, a));
+  const rest = place ? mergeProjectAgents(s, shown).filter((a) => !used.some((u) => sameProjectFolder(s, u.code, a.code))) : shown;
   const available = (code: AgentCode) => !skillScopeIn(s, skillID, scopeKey(scopeOf(code, place)));
   const options = [...used, ...rest];
   const first = options.find((a) => available(a.code));
@@ -490,7 +496,7 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
               <optgroup label={t.drawer.usedHere}>
                 {used.map((a) => (
                   <option key={a.code} value={a.code} disabled={!available(a.code)}>
-                    {a.name}
+                    {agentNameIn(s, a.code, place)}
                   </option>
                 ))}
               </optgroup>
@@ -498,7 +504,7 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
             <optgroup label={used.length ? t.drawer.otherAgents : "Agent"}>
               {rest.map((a) => (
                 <option key={a.code} value={a.code} disabled={!available(a.code)}>
-                  {a.name}
+                  {agentNameIn(s, a.code, place)}
                 </option>
               ))}
             </optgroup>

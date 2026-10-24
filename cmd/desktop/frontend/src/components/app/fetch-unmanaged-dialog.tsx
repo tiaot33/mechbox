@@ -15,7 +15,7 @@ import {
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource, type LibraryError } from "@/lib/library";
-import { homePath, outsideLinkNote, sameNameFetchNote, scopeOf } from "@/lib/model";
+import { agentNameIn, homePath, outsideLinkNote, placeOf, sameNameFetchNote, scopeOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -192,8 +192,7 @@ function FetchUnmanagedDialog({
     t.agents([
       ...new Set(
         foldersOf(planned).map(
-          (f) =>
-            agents.find((a) => a.code === f.scope.agent)?.name ?? f.scope.agent,
+          (f) => agentNameIn({ agents }, f.scope.agent, placeOf(f.scope)),
         ),
       ),
     ]);
