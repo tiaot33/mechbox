@@ -82,12 +82,6 @@ export function Diagnostics({ summary, items }: { summary: string; items: { key:
   );
 }
 
-export function toggled<T>(set: Set<T>, value: T): Set<T> {
-  const next = new Set(set);
-  if (!next.delete(value)) next.add(value);
-  return next;
-}
-
 // Chip 是带 × 的小胶囊(技能所属的组、组安装到的作用域),点 × 移除。
 export function Chip({
   children,

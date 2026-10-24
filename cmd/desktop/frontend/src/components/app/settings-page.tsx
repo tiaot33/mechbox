@@ -11,7 +11,7 @@ import { unregisterProject } from "@/lib/actions";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { type LibraryError, useSnapshot, wslDistrosQuery, wslDistroErrorQuery } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
-import { useUI } from "@/lib/ui";
+import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ type Section = (typeof sections)[number];
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
+  const busy = useBusy();
   const tt = useT();
   const t = tt.settings;
   const { setLanguage } = useLanguage();
@@ -129,7 +130,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           </Button>
           <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b>{t.title}</b>
-            {ui.busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
+            {busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
           </span>
         </div>
       </header>

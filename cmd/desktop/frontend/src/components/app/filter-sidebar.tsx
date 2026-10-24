@@ -2,9 +2,9 @@
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);只有一个技能的集合不列出，集合这一层只在有两个以上技能时出现。
 // 组行可拖到右栏作用域(组安装),也接受技能卡片(加入该组)。
 import { useState } from "react";
-import type { ConfigStatus } from "@bindings/cmd/desktop";
+import { useQuery } from "@tanstack/react-query";
 import { SourceType } from "@bindings/internal/library";
-import { useSnapshot } from "@/lib/library";
+import { useSnapshot, configQuery } from "@/lib/library";
 import { checkUpdates, createGroup, deleteGroup, renameGroup } from "@/lib/actions";
 import { alreadyInGroup, dropProps, useDnD } from "@/lib/dnd";
 import { useT } from "@/lib/i18n";
@@ -17,28 +17,28 @@ import {
   sourceLabel,
   type SkillFilter,
 } from "@/lib/model";
-import { useUI } from "@/lib/ui";
-import { cn } from "@/lib/utils";
+import { useBusy, useUI } from "@/lib/ui";
+import { cn, toggled } from "@/lib/utils";
+import { openSettings, setFilter, useCurrentFilter } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
+import { openFetch } from "./fetch-dialog";
 import { Icon } from "./icons";
 import { leftClass } from "./layout";
 import { MarketDialog } from "./market-dialog";
 import { NavCount, navItem } from "./nav";
-import { TailPath, toggled } from "./parts";
+import { TailPath } from "./parts";
 import { SyncDialog } from "./sync-dialog";
 
-interface FilterSidebarProps {
-  config: ConfigStatus;
-  filter: SkillFilter;
-  onFilter: (filter: SkillFilter) => void;
-  onFetch: () => void;
-  onSettings: () => void;
-}
+const noConfig = { sync: false, github_token: false };
 
-export function FilterSidebar({ config, filter, onFilter, onFetch, onSettings }: FilterSidebarProps) {
+export function FilterSidebar() {
   const s = useSnapshot();
+  const filter = useCurrentFilter();
+  // 设置页保存 GitHub 令牌或同步设置后让它失效重读，保存晚于回到主界面完成时也一样。
+  const config = useQuery(configQuery).data ?? noConfig;
   const ui = useUI();
+  const busy = useBusy();
   const dnd = useDnD();
   const tt = useT();
   const t = tt.sidebar;
@@ -48,7 +48,7 @@ export function FilterSidebar({ config, filter, onFilter, onFetch, onSettings }:
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // 再点一次当前筛选回到"所有技能",与原型一致。
-  const pick = (target: SkillFilter) => onFilter(sameFilter(filter, target) ? { kind: "all" } : target);
+  const pick = (target: SkillFilter) => setFilter(sameFilter(filter, target) ? { kind: "all" } : target);
   // 本地路径放不下时省掉开头整段、保留末尾(末段才是技能目录名)。
   const row = (target: SkillFilter, icon: React.ReactNode | null, label: string, count: number, title?: string, local = false) => (
     <li key={JSON.stringify(target)}>
@@ -68,7 +68,7 @@ export function FilterSidebar({ config, filter, onFilter, onFetch, onSettings }:
 
   return (
     <aside className={leftClass}>
-      <SideButton onClick={onFetch}>
+      <SideButton onClick={() => void openFetch(s.info.home_dir)}>
         <Icon name="plus" />
         <span>{t.fetch}</span>
       </SideButton>
@@ -83,7 +83,7 @@ export function FilterSidebar({ config, filter, onFilter, onFetch, onSettings }:
           <button
             type="button"
             className={navItem()}
-            disabled={!checkable.length || ui.busy}
+            disabled={!checkable.length || busy}
             onClick={() => checkUpdates(ui, s, checkable)}
             title={t.checkTitle}
           >
@@ -191,7 +191,7 @@ export function FilterSidebar({ config, filter, onFilter, onFetch, onSettings }:
           </button>
         </li>
         <li>
-          <button type="button" className={navItem()} onClick={onSettings}>
+          <button type="button" className={navItem()} onClick={openSettings}>
             <Icon name="gear" />
             <span className="grow">{t.settings}</span>
           </button>

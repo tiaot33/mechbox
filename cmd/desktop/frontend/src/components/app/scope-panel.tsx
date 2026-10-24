@@ -5,6 +5,7 @@
 // 指针还没到就展开，拖完收回。
 import { useEffect, useRef, useState } from "react";
 import type { Agent, RegisteredProject } from "@bindings/internal/library";
+import { useShallow } from "zustand/react/shallow";
 import { useSnapshot } from "@/lib/library";
 import { registerProject, relocateProject, unregisterProject } from "@/lib/actions";
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
@@ -25,10 +26,10 @@ import {
   shortPath,
   skillScopesIn,
   type Place,
-  type ScopeKey,
 } from "@/lib/model";
 import { resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
+import { pickScope, toggleMoreAgents, toggleProject, useView } from "@/lib/view";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,16 +41,8 @@ import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
 import { PlaceAgentMark } from "./parts";
 
-interface ScopePanelProps {
-  scope: ScopeKey | null;
-  expanded: Set<Place>;
-  moreAgents: Set<Place>;
-  onScope: (key: ScopeKey | null) => void;
-  onToggleProject: (id: Place) => void;
-  onToggleMore: (place: Place) => void;
-}
-
-export function ScopePanel({ scope, expanded, moreAgents, onScope, onToggleProject, onToggleMore }: ScopePanelProps) {
+export function ScopePanel() {
+  const { scope, expanded, moreAgents } = useView(useShallow((v) => ({ scope: v.scope, expanded: v.expanded, moreAgents: v.moreAgents })));
   const s = useSnapshot();
   const ui = useUI();
   const t = useT().scopes;
@@ -85,7 +78,7 @@ export function ScopePanel({ scope, expanded, moreAgents, onScope, onToggleProje
           className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub")}
           data-active={isSelected(agent, place)}
           data-already={already ? tl.alreadyThere : undefined}
-          onClick={() => onScope(isSelected(agent, place) ? null : key)}
+          onClick={() => pickScope(isSelected(agent, place) ? null : key)}
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
@@ -117,7 +110,7 @@ export function ScopePanel({ scope, expanded, moreAgents, onScope, onToggleProje
             <button
               type="button"
               className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub more text-xs text-muted-foreground")}
-              onClick={() => onToggleMore(place)}
+              onClick={() => toggleMoreAgents(place)}
               {...aimProps(`m${place}`, more)}
             >
               <Icon name="chev" className={cn("size-2.5 transition-transform", more ? "-rotate-90" : "rotate-90")} />
@@ -163,7 +156,7 @@ export function ScopePanel({ scope, expanded, moreAgents, onScope, onToggleProje
                 tabIndex={0}
                 aria-expanded={open}
                 className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
-                onClick={() => onToggleProject(p.id)}
+                onClick={() => toggleProject(p.id)}
                 title={p.missing ? t.missingTitle(shortPath(s, p.path)) : shortPath(s, p.path)}
                 {...aimProps(`p${p.id}`, open)}
               >

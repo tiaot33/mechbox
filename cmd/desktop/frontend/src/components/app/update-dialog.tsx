@@ -32,7 +32,7 @@ import {
   shortRevision,
   sourceLabel,
 } from "@/lib/model";
-import { Modal, useUI } from "@/lib/ui";
+import { Modal, useBusy, useUI } from "@/lib/ui";
 import {
   canInstall,
   collectionName,
@@ -73,6 +73,7 @@ export function UpdateDialog({
 }) {
   const s = useSnapshot();
   const ui = useUI();
+  const busy = useBusy();
   const tt = useT();
   const t = tt.plan;
   const label = collectionName(s, collectionID);
@@ -156,7 +157,7 @@ export function UpdateDialog({
   const splitting = skills.length > 1 && checked.size > 0 && movable.some((p) => !checked.has(p.skill.id) && !p.edited);
   // 一次写操作(更新、跳过、改名、移除、继续保留、不感兴趣)没结束前，其他写操作都不能点：
   // 更新读来源期间跳过成功，随后的更新仍会把这份改动换进库里、装出去。
-  const locked = working || ui.busy;
+  const locked = working || busy;
   const risks = movable.flatMap((p) => (p.risks ?? []).map((r) => ({ p, r })));
   const places = plannedInstalls(plan, checked);
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
