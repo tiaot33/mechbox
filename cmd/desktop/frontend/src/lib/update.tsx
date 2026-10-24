@@ -2,9 +2,7 @@
 // 更新计划弹窗、更新列表里的"更新"(按默认勾选直接执行)、"全部更新"、本地目录来源的"重新读取"
 // 与用目录里的修改更新(PlanUpdateFromScope,issue #185)都走这里;
 // 完成后的提示带回滚入口，没换上的地方可以单独重试。
-// 默认勾选：有变化且没跳过的技能全勾(从技能发起时只勾这一个);推测出的改名要用户点"是";
-// 用目录里的修改更新过的技能(issue #188),更新会换掉用户的修改，不默认勾;
-// 装出去的地方全勾，用户改过的地方不勾，项目不在这台机器上的不能勾。
+// 默认勾哪些技能、哪些地方见 consent.ts。
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
@@ -13,11 +11,9 @@ import {
   PlannedChange,
   ReinstallOutcome,
   RollbackOutcome,
-  SkillScopeStatus,
   UpdateRecordKind,
   UpdateRiskKind,
   type CollectionID,
-  type PlannedSkill,
   type ReinstallRequest,
   type ReinstallResult,
   type RollbackInstall,
@@ -30,11 +26,12 @@ import {
   type UpdateRecordID,
   type UpdateRisk,
 } from "@bindings/internal/library";
-import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes, linkWrites } from "./actions";
+import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes } from "./actions";
+import { defaultInstallOn, defaultSkills, linkWrites, placeKey, refreshRequests, updateInstalls } from "./consent";
 import { describeError } from "./errors";
 import { messages, useT } from "./i18n";
 import { type LibraryError, type Snapshot, useSnapshot } from "./library";
-import { collectionSkills, folderKey, isLocal, mergeProjectPlaces, scopeKey, scopeLabel, sourceLabel } from "./model";
+import { collectionSkills, isLocal, mergeProjectPlaces, scopeLabel, sourceLabel } from "./model";
 import { Modal, type useUI } from "./ui";
 import { FetchReview } from "@/components/app/fetch-review";
 import { ScopeUpdateDialog } from "@/components/app/scope-update-dialog";
@@ -56,34 +53,6 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
   if (!c) return messages().update.collectionFallback(collectionID);
   const skills = collectionSkills(s, c);
   return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
-}
-
-// ---------- 勾选 ----------
-
-// movable 是更新计划里能勾上更新的技能：有变化，或推测出了改名(勾上即确认"是")。
-export const movable = (p: PlannedSkill) => p.change === PlannedChange.PlannedChanged || !!p.renamed_to;
-
-// defaultSkills 是默认勾选：有变化且没跳过的全勾;给了 select(从技能发起、从跳过记录找回)时只勾这几个。
-// 改名推测都不默认勾，等用户回答"是";用户改过的技能(edited)有变化时也不默认勾，用户自己勾上才算同意换掉修改。
-export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID> {
-  const skills = (plan.skills ?? []).filter((p) => !(p.edited && p.change === PlannedChange.PlannedChanged));
-  if (select) {
-    return new Set(skills.filter((p) => select.includes(p.skill.id) && !p.renamed_to && p.change !== PlannedChange.PlannedDeleted).map((p) => p.skill.id));
-  }
-  return new Set(skills.filter((p) => p.change === PlannedChange.PlannedChanged && !p.skipped).map((p) => p.skill.id));
-}
-
-export const installKey = (p: { skill_id: SkillID; scope: SkillScopeInspection["scope"] }) => `${p.skill_id}|${scopeKey(p.scope)}`;
-export const canInstall = (p: SkillScopeInspection) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
-// defaultInstallOn 是默认勾选：用户改过的、文件夹不在了的(可能是用户有意删掉的)不勾，勾上才覆盖、才装回去。
-export const defaultInstallOn = (p: SkillScopeInspection) =>
-  canInstall(p) && p.status !== SkillScopeStatus.SkillScopeModified && p.status !== SkillScopeStatus.SkillScopeMissing;
-// consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。
-const consented = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified || p.status === SkillScopeStatus.SkillScopeMissing;
-
-// plannedInstalls 是勾选的技能装出去的各处;更新计划只列有变化(或推测出改名)的技能。
-export function plannedInstalls(plan: UpdatePlan, checked: Set<SkillID>): SkillScopeInspection[] {
-  return (plan.installs ?? []).filter((p) => checked.has(p.skill_id));
 }
 
 // ---------- 风险 ----------
@@ -121,7 +90,7 @@ export interface UpdateOutcome {
   keptMissing: number; // 文件夹不在了、没勾，没装回去的地方
   failed: ReinstallResult[];
   requests: ReinstallRequest[];
-  plain: Set<string>; // 不算进 record 的地方(installKey),没换上时按普通重新安装重试
+  plain: Set<string>; // 不算进 record 的地方(placeKey),没换上时按普通重新安装重试
 }
 
 // stalePlan 是更新计划用不了了：生成之后来源或库变了(Conflict),句柄已失效，或勾选的技能在来源里没了、在库里被移除了(NotFound)。
@@ -142,11 +111,7 @@ export async function runUpdate(
   from?: string,
   confirmLinks = false, // 不经更新计划弹窗的快捷更新：写到符号链接相关的地方前先确认
 ): Promise<UpdateOutcome | "conflict" | undefined> {
-  const places = plannedInstalls(plan, checked);
-  const written = (p: SkillScopeInspection) => canInstall(p) && installOn(p);
-  const requests: ReinstallRequest[] = places
-    .filter(written)
-    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: consented(p) }));
+  const { places, written, requests, keptEdited, keptMissing } = updateInstalls(plan, checked, installOn);
   if (confirmLinks && !(await confirmLinkWrites(ui, s, places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
@@ -162,8 +127,8 @@ export async function runUpdate(
     record: result.record ?? 0,
     changed: (result.skills ?? []).filter((x) => x.changed).length,
     placed: mergeProjectPlaces(s, installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)).length,
-    keptEdited: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && !installOn(p)).map(folderKey)).size,
-    keptMissing: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing && !installOn(p)).map(folderKey)).size,
+    keptEdited,
+    keptMissing,
     failed: installs.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed),
     requests,
     plain: new Set(),
@@ -222,14 +187,14 @@ function FailedPlaces({ ui, outcomes, close }: { ui: UI; outcomes: UpdateOutcome
   }, []);
   const left = mergeProjectPlaces(s, failed.flat()).length;
   const retry = async () => {
-    const again = outcomes.flatMap((o, i) => o.requests.filter((r) => failed[i].some((f) => installKey(f) === installKey(r))));
+    const again = outcomes.flatMap((o, i) => o.requests.filter((r) => failed[i].some((f) => placeKey(f) === placeKey(r))));
     if (!(await confirmLinkedRequests(ui, s, again, t.retryTitle, t.retry))) return;
     if (!alive.current) return;
     setWorking(true);
     const next: ReinstallResult[][] = [];
     for (const [i, o] of outcomes.entries()) {
-      const again = o.requests.filter((r) => failed[i].some((f) => installKey(f) === installKey(r)));
-      const viaRecord = o.record ? again.filter((r) => !o.plain.has(installKey(r))) : [];
+      const again = o.requests.filter((r) => failed[i].some((f) => placeKey(f) === placeKey(r)));
+      const viaRecord = o.record ? again.filter((r) => !o.plain.has(placeKey(r))) : [];
       const left: ReinstallResult[] = [];
       for (const [batch, record] of [
         [viaRecord, o.record],
@@ -239,7 +204,7 @@ function FailedPlaces({ ui, outcomes, close }: { ui: UI; outcomes: UpdateOutcome
         const results = await placeAgain(ui, record, batch, (c) => (call.current = c));
         call.current = null;
         if (!alive.current) return;
-        left.push(...(results ? failedOnly(results) : failed[i].filter((f) => batch.some((r) => installKey(r) === installKey(f)))));
+        left.push(...(results ? failedOnly(results) : failed[i].filter((f) => batch.some((r) => placeKey(r) === placeKey(f)))));
       }
       next.push(left);
     }
@@ -283,7 +248,7 @@ function FailedPlaces({ ui, outcomes, close }: { ui: UI; outcomes: UpdateOutcome
       </Notice>
       <ListBox>
         {mergeProjectPlaces(s, failed.flat()).map((r) => (
-          <ListRow key={installKey(r)}>
+          <ListRow key={placeKey(r)}>
             <div className="min-w-0 grow">
               <div>
                 {skillName(s, r.skill_id)} · {scopeLabel(s, r.scope)}
@@ -344,18 +309,13 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
 async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<UpdateOutcome | undefined> {
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes({ skill_id: skill.id }), { reload: false });
   if (inspected === undefined) return undefined;
-  const behind = (inspected ?? []).filter((p) => p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p));
-  const keptEdited = new Set(behind.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map(folderKey)).size;
-  const keptMissing = new Set(behind.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing).map(folderKey)).size;
-  const requests: ReinstallRequest[] = behind
-    .filter((p) => !consented(p))
-    .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: false }));
+  const { requests, keptEdited, keptMissing } = refreshRequests(inspected ?? []);
   if (!requests.length) {
     ui.toast(messages().update.unchanged(skill.name, keptEdited, keptMissing));
     return undefined;
   }
-  const wanted = new Set(requests.map(installKey));
-  if (!(await confirmLinkWrites(ui, s, inspected ?? [], (p) => wanted.has(installKey(p)), messages().update.rereadTitle(skill.name), messages().update.reinstall))) return undefined;
+  const wanted = new Set(requests.map(placeKey));
+  if (!(await confirmLinkWrites(ui, s, inspected ?? [], (p) => wanted.has(placeKey(p)), messages().update.rereadTitle(skill.name), messages().update.reinstall))) return undefined;
   const history = await ui.run(() => LibraryService.ListUpdateHistory({ skill_id: skill.id }), { reload: false });
   if (history === undefined) return undefined;
   const record = (history ?? []).find(
@@ -364,9 +324,9 @@ async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<Updat
       !r.rolled_back_by &&
       (r.skills ?? []).some((x) => x.skill_id === skill.id && x.to_version_id === skill.version_id && x.from_version_id !== x.to_version_id),
   );
-  const listed = new Set((record?.installs ?? []).map(installKey));
-  const viaRecord = requests.filter((r) => listed.has(installKey(r)));
-  const plain = requests.filter((r) => !listed.has(installKey(r)));
+  const listed = new Set((record?.installs ?? []).map(placeKey));
+  const viaRecord = requests.filter((r) => listed.has(placeKey(r)));
+  const plain = requests.filter((r) => !listed.has(placeKey(r)));
   const results: ReinstallResult[] = [];
   if (viaRecord.length) {
     const r = await placeAgain(ui, record!.id, viaRecord);
@@ -391,7 +351,7 @@ async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<Updat
     keptMissing,
     failed: failedOnly(results),
     requests,
-    plain: new Set(plain.map(installKey)),
+    plain: new Set(plain.map(placeKey)),
   };
 }
 
@@ -430,10 +390,10 @@ const putBack = (r: RollbackInstall) => r.outcome === RollbackOutcome.RollbackRe
 // rollbackUpdate 回滚一次更新：库换回那次更新之前的版本，那次装过的地方(places)按磁盘内容核对后装回;没装回的列出原因。
 // 那次装过的地方现在是符号链接的，装回时换成独立的一份，确认前现查一次说出来。
 export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID, places: { skill_id: SkillID; scope: Scope }[]) {
-  const wanted = new Set(places.map(installKey));
+  const wanted = new Set(places.map(placeKey));
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false });
   if (inspected === undefined) return;
-  const writes = linkWrites(inspected ?? [], (p) => wanted.has(installKey(p)));
+  const writes = linkWrites(inspected ?? [], (p) => wanted.has(placeKey(p)));
   const t = messages().update;
   const ok = await ui.confirm({
     title: t.rollbackTitle,
@@ -487,7 +447,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
           </ListRow>
         ))}
         {mergeProjectPlaces(s, left).map((r) => (
-          <ListRow key={installKey(r)}>
+          <ListRow key={placeKey(r)}>
             <div className="min-w-0 grow">
               <div>
                 {name(r.skill_id)} · {scopeLabel(s, r.scope)}
