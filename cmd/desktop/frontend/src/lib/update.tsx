@@ -134,19 +134,20 @@ export function stalePlan(err: LibraryError): boolean {
 // 计划生成后来源或库变了时返回 "conflict",由调用方让用户重新看计划;其他失败已提示错误，返回 undefined。
 export async function runUpdate(
   ui: UI,
+  s: Snapshot,
   plan: UpdatePlan,
   label: string,
   checked: Set<SkillID>,
   installOn: (p: SkillScopeInspection) => boolean,
   from?: string,
-  confirmLinks?: Snapshot, // 不经更新计划弹窗的快捷更新传入快照：写到符号链接相关的地方前先确认
+  confirmLinks = false, // 不经更新计划弹窗的快捷更新：写到符号链接相关的地方前先确认
 ): Promise<UpdateOutcome | "conflict" | undefined> {
   const places = plannedInstalls(plan, checked);
   const written = (p: SkillScopeInspection) => canInstall(p) && installOn(p);
   const requests: ReinstallRequest[] = places
     .filter(written)
     .map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: consented(p) }));
-  if (confirmLinks && !(await confirmLinkWrites(ui, confirmLinks, places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
+  if (confirmLinks && !(await confirmLinkWrites(ui, s, places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
     onError: (err) => (conflict = stalePlan(err)),
@@ -160,7 +161,7 @@ export async function runUpdate(
     from,
     record: result.record ?? 0,
     changed: (result.skills ?? []).filter((x) => x.changed).length,
-    placed: installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
+    placed: mergeProjectPlaces(s, installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)).length,
     keptEdited: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && !installOn(p)).map(folderKey)).size,
     keptMissing: new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing && !installOn(p)).map(folderKey)).size,
     failed: installs.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed),
@@ -218,7 +219,7 @@ function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcome
       void call.current?.cancel();
     };
   }, []);
-  const left = failed.flat().length;
+  const left = mergeProjectPlaces(s, failed.flat()).length;
   const retry = async () => {
     const again = outcomes.flatMap((o, i) => o.requests.filter((r) => failed[i].some((f) => installKey(f) === installKey(r))));
     if (!(await confirmLinkedRequests(ui, s, again, t.retryTitle, t.retry))) return;
@@ -309,7 +310,7 @@ export async function updateWithDefaults(ui: UI, s: Snapshot, collectionIDs: Col
       ui.toast(t.nothingDirect(name));
       continue;
     }
-    const o = await runUpdate(ui, plan, name, checked, defaultInstallOn, undefined, s);
+    const o = await runUpdate(ui, s, plan, name, checked, defaultInstallOn, undefined, true);
     if (o === "conflict") ui.toast(t.sourceMoved(name), "error");
     else if (o) outcomes.push(o);
   }
@@ -331,7 +332,7 @@ export async function rereadSkill(ui: UI, s: Snapshot, skill: Skill) {
     if (o) await reportUpdates(ui, s, [o]);
     return;
   }
-  const o = await runUpdate(ui, plan, skill.name, new Set([skill.id]), defaultInstallOn, undefined, s);
+  const o = await runUpdate(ui, s, plan, skill.name, new Set([skill.id]), defaultInstallOn, undefined, true);
   if (o === "conflict") ui.toast(messages().update.directoryMoved, "error");
   else if (o) await reportUpdates(ui, s, [o]);
 }
@@ -384,7 +385,7 @@ async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<Updat
     local: true,
     record: record?.id ?? 0,
     changed: 0,
-    placed: results.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed).length,
+    placed: mergeProjectPlaces(s, results.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)).length,
     keptEdited,
     keptMissing,
     failed: failedOnly(results),
@@ -455,7 +456,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
   const names = new Map<SkillID, string>([...(result.removed ?? []), ...(result.skills ?? [])].map((x) => [x.skill_id, x.name]));
   const name = (id: SkillID) => names.get(id) ?? skillName(s, id);
   const installs = result.installs ?? [];
-  const back = installs.filter(putBack).length;
+  const back = mergeProjectPlaces(s, installs.filter(putBack)).length;
   const left = installs.filter((r) => !putBack(r));
   const removed = result.removed ?? [];
   const head = t.rolledBack(

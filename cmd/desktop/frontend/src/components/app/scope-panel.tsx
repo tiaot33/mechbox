@@ -20,7 +20,7 @@ import {
   projectFolderNote,
   projectName,
   scopeKey,
-  sameProjectFolder,
+  sameMergedScope,
   scopeOf,
   shortPath,
   skillScopesIn,
@@ -57,8 +57,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
   const dnd = useDnD();
   const selected = scope ? parseScope(scope) : null;
   // isSelected:这一行是不是选中的作用域;项目里合成的一行，选中共用的任何一个都算。
-  const isSelected = (a: Agent, place: Place) =>
-    !!selected && placeOf(selected) === place && (place ? sameProjectFolder(s, selected.agent, a.code) : selected.agent === a.code);
+  const isSelected = (a: Agent, place: Place) => !!selected && sameMergedScope(s, selected, scopeOf(a.code, place));
   const rail = useRef<HTMLElement>(null);
 
   // aimed:这次拖动中预判展开过的项目("p" + ID)与"其他 Agent"("m" + 位置);拖动中不收回，免得列表在指针下跳动。

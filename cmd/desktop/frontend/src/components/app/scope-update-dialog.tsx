@@ -7,7 +7,7 @@ import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/i
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { folderKey, mergeProjectPlaces, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
+import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { canInstall, defaultInstallOn, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
 import { Button } from "@/components/ui/button";
@@ -87,7 +87,7 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
   const places = plan.installs ?? [];
   // 计划里不列的其他地方和取内容的这一处是同一个文件夹(共用目录，或符号链接指向同一个文件夹):内容已经是这份修改。
   const same = skillScopesOf(s, skill.id).filter(
-    (p) => scopeKey(p.scope) !== scopeKey(scope) && !places.some((x) => scopeKey(x.scope) === scopeKey(p.scope)),
+    (p) => !sameMergedScope(s, p.scope, scope) && !places.some((x) => scopeKey(x.scope) === scopeKey(p.scope)),
   );
   const risks = item.risks ?? [];
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
@@ -102,7 +102,7 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
 
   const run = async () => {
     setWorking(true);
-    const o = await runUpdate(ui, plan, skill.name, new Set([skill.id]), installOn, place);
+    const o = await runUpdate(ui, s, plan, skill.name, new Set([skill.id]), installOn, place);
     setWorking(false);
     if (o === "conflict") return setConflict(true);
     if (!o) return;

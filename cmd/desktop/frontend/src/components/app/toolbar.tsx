@@ -12,7 +12,7 @@ import {
   placeOf,
   projectFolderNote,
   projectName,
-  sameProjectFolder,
+  sameMergedScope,
   scopeKey,
   scopeOf,
   shortPath,
@@ -201,9 +201,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
       {places.map((place) => {
         const { open: used, folded: rest } = agentsIn(s, place.id);
         const key = (code: AgentCode) => scopeKey(scopeOf(code, place.id));
-        const current = scope ? parseScope(scope) : null;
-        const active = (code: AgentCode) =>
-          !!current && placeOf(current) === place.id && (place.id ? sameProjectFolder(s, current.agent, code) : current.agent === code);
+        const active = (code: AgentCode) => !!scope && sameMergedScope(s, parseScope(scope), scopeOf(code, place.id));
         return (
           <div key={place.id}>
             <div className="sm-place flex items-center gap-3 px-2 pt-2 pb-1 text-[11.5px] font-semibold text-muted-foreground">

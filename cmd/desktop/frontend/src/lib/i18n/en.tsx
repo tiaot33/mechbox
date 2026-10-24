@@ -91,8 +91,8 @@ export const en = {
   model: {
     global: "Global",
     agentNames: (names: string[]) => names.join(", "),
-    projectFolderNote: (folder: string, names: string[], total: number) =>
-      `${total > names.length ? `${names.join(", ")} and ${total - names.length} more` : and(names)} all read ${folder} in the project: one install covers them all, and uninstalling removes it for all of them`,
+    projectFolderNote: (folder: string, names: string[]) =>
+      `${and(names)} all read ${folder} in the project: one install covers them all, and uninstalling removes it for all of them`,
     outsideLinkNote: (target: string) =>
       `It's a symlink to ${target}. Updating it in the app later replaces the link with a separate copy; changes made in ${target} will no longer affect it here.`,
     linkNote: (target: string) => `Will become a separate copy this time (currently a symlink to ${target})`,

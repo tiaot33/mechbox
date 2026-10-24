@@ -36,7 +36,7 @@ import {
   hasUpdate,
   installedWhere,
   isLocal,
-  mergeProjectAgents,
+  mergeAgentsExcept,
   mergeProjectPlaces,
   noSource,
   needsReinstall,
@@ -47,7 +47,6 @@ import {
   revisionSummary,
   revisionText,
   sameNameInLibrary,
-  sameProjectFolder,
   scopeKey,
   scopeLabel,
   scopeOf,
@@ -469,8 +468,7 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   const t = useT();
   const [place, setPlace] = useState<Place>(0);
   const used = agentsUsedIn(s, place);
-  const shown = s.agents.filter((a) => !used.includes(a) && agentShown(s.agentsShown, a));
-  const rest = place ? mergeProjectAgents(s, shown).filter((a) => !used.some((u) => sameProjectFolder(s, u.code, a.code))) : shown;
+  const rest = mergeAgentsExcept(s, place, s.agents.filter((a) => agentShown(s.agentsShown, a)), used);
   const available = (code: AgentCode) => !skillScopeIn(s, skillID, scopeKey(scopeOf(code, place)));
   const options = [...used, ...rest];
   const first = options.find((a) => available(a.code));

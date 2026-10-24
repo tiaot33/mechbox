@@ -66,10 +66,13 @@ export async function offerFetchUnmanaged(
   let plan: PlannedUnmanagedSkill[];
   let library: string[];
   let home: string;
+  let agentsShown: Partial<Record<string, boolean>>;
   try {
     plan = (await LibraryService.PlanFetchUnmanaged({ scopes })) ?? [];
     library = ((await LibraryService.ListSkills()) ?? []).map((x) => x.name);
     home = (await LibraryService.Info()).home_dir;
+    // 项目里合成的一处叫这台机器上显示的那几个 Agent,和右栏一样按应用设置里的显示勾选。
+    agentsShown = (await AppService.Settings()).agents_shown ?? {};
   } catch (err) {
     const e = toLibraryError(err);
     if (e.code !== ErrorCode.Canceled && !quiet)
@@ -83,6 +86,7 @@ export async function offerFetchUnmanaged(
   await ui.open((close) => (
     <FetchUnmanagedDialog
       agents={agents}
+      agentsShown={agentsShown}
       plan={plan}
       library={new Set(library)}
       home={home}
@@ -160,6 +164,7 @@ interface Failed {
 
 function FetchUnmanagedDialog({
   agents,
+  agentsShown,
   plan: listed,
   library,
   home,
@@ -167,6 +172,7 @@ function FetchUnmanagedDialog({
   close,
 }: {
   agents: Agent[];
+  agentsShown: Partial<Record<string, boolean>>;
   plan: PlannedUnmanagedSkill[];
   library: Set<string>; // 库里已有的技能名：同名的标出来，内容不同时入库后会有两个同名的
   home: string;
@@ -192,7 +198,7 @@ function FetchUnmanagedDialog({
     t.agents([
       ...new Set(
         foldersOf(planned).map(
-          (f) => agentNameIn({ agents }, f.scope.agent, placeOf(f.scope)),
+          (f) => agentNameIn({ agents, agentsShown }, f.scope.agent, placeOf(f.scope)),
         ),
       ),
     ]);

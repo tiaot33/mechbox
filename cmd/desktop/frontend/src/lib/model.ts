@@ -89,7 +89,7 @@ export function agentsIn(s: Snapshot, place: Place): { open: Agent[]; folded: Ag
   const folded = s.agents.filter((a) => !open.includes(a) && agentShown(s.agentsShown, a));
   if (!place) return { open, folded };
   const merged = mergeProjectAgents(s, open);
-  return { open: merged, folded: mergeProjectAgents(s, folded).filter((a) => !merged.some((o) => sameProjectFolder(s, o.code, a.code))) };
+  return { open: merged, folded: mergeAgentsExcept(s, place, folded, merged) };
 }
 
 // agentsUsedIn 是某个地方实际装有技能的 Agent,按 Agent 列表顺序;项目里共用一个目录的几个合成一处。
@@ -104,7 +104,7 @@ export function agentsUsedIn(s: Snapshot, place: Place) {
 // 名字是这台机器上显示的那几个 Agent 的名字;点选、拖放、安装都落在其中第一个(代表)的作用域上。
 // 全局不合：全局目录大多各是各的，少数共用的照旧一个 Agent 一行，卸载前提示还被谁共用。
 
-type AgentList = Pick<Snapshot, "agents"> & { agentsShown?: Snapshot["agentsShown"] };
+type AgentList = Pick<Snapshot, "agents" | "agentsShown">;
 
 // projectSharers 是项目里和这个 Agent 读同一个目录的全部 Agent(含它自己),按 Agent 列表顺序;不和别的 Agent 共用时为空。
 export function projectSharers(s: AgentList, code: AgentCode): Agent[] {
@@ -140,6 +140,12 @@ export function mergeProjectAgents(s: AgentList, agents: Agent[]): Agent[] {
   return out;
 }
 
+// mergeAgentsExcept 是某个地方还没列出的 Agent:项目里合成一处一个，和 listed 里某一处共用目录的去掉。
+export function mergeAgentsExcept(s: AgentList, place: Place, agents: Agent[], listed: Agent[]): Agent[] {
+  if (!place) return agents.filter((a) => !listed.includes(a));
+  return mergeProjectAgents(s, agents).filter((a) => !listed.some((o) => sameProjectFolder(s, o.code, a.code)));
+}
+
 // agentNameIn 是 Agent 在某个地方的名字：项目里合成的一处是那几个 Agent 的名字。
 export function agentNameIn(s: AgentList, code: AgentCode, place: Place): string {
   const named = place ? projectNamed(s, code) : [];
@@ -147,11 +153,22 @@ export function agentNameIn(s: AgentList, code: AgentCode, place: Place): string
   return s.agents.find((a) => a.code === code)?.name ?? code;
 }
 
-// projectFolderNote 是合成的一处的悬停说明：哪几个 Agent 读项目里的这个目录;不合成时为 undefined。
+// projectFolderNote 是合成的一处的悬停说明：读项目里这个目录的全部 Agent(含这台机器上不显示的);不合成时为 undefined。
 export function projectFolderNote(s: AgentList, code: AgentCode, place: Place): string | undefined {
   const all = place ? projectSharers(s, code) : [];
   if (!all.length) return undefined;
-  return messages().model.projectFolderNote(all[0].project_directory, projectNamed(s, code).map((a) => a.name), all.length);
+  return messages().model.projectFolderNote(all[0].project_directory, all.map((a) => a.name));
+}
+
+// sharedWithNote 是一处安装要另外说明的共用 Agent:全局照旧是共用这个文件夹的其他 Agent;
+// 项目里共用一个目录的几个 Agent 已合成一处、名字里写着它们，不再另说。
+export function sharedWithNote(p: Pick<SkillScopeInspection, "scope" | "shared_with">): AgentCode[] {
+  return p.scope.project_id ? [] : (p.shared_with ?? []);
+}
+
+// sameMergedScope 是两个作用域合成后是否是同一处。
+export function sameMergedScope(s: AgentList, a: Scope, b: Scope): boolean {
+  return mergedScopeKey(s, a) === mergedScopeKey(s, b);
 }
 
 // mergedScopeKey 是作用域合成后的身份：项目里共用一个目录的几个作用域是同一个。

@@ -19,7 +19,7 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentName, folderKey, linkNote, mergedScopeKey, mergeProjectPlaces, revisionSummary, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { agentName, folderKey, linkNote, mergedScopeKey, mergeProjectPlaces, revisionSummary, sharedWithNote, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
@@ -223,7 +223,7 @@ export function UpdateDialog({
 
   const run = async () => {
     setWorking(true);
-    const o = await runUpdate(ui, plan, label, checked, installOn);
+    const o = await runUpdate(ui, s, plan, label, checked, installOn);
     setWorking(false);
     if (o === "conflict") return setConflict(true);
     if (!o) return;
@@ -588,9 +588,9 @@ export function Places({
                 {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="warn">{t.folderMissing}</Badge>}
-                {!p.scope.project_id && (p.shared_with?.length ?? 0) > 0 && (
+                {sharedWithNote(p).length > 0 && (
                   <span className="text-[11px] text-muted-foreground">
-                    {t.sharedFolder(p.shared_with!.map((code) => agentName(s, code)))}
+                    {t.sharedFolder(sharedWithNote(p).map((code) => agentName(s, code)))}
                   </span>
                 )}
                 {p.link_target && on(p) && (

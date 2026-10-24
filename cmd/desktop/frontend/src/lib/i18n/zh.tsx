@@ -85,8 +85,7 @@ export const zh = {
   model: {
     global: "全局",
     agentNames: (names: string[]) => names.join("、"),
-    projectFolderNote: (folder: string, names: string[], total: number) =>
-      `${names.join("、")}${total > names.length ? ` 等 ${total} 个 Agent` : ""} 都读项目里的 ${folder}:装一次都算已装，卸载也一起卸载`,
+    projectFolderNote: (folder: string, names: string[]) => `${names.join("、")} 都读项目里的 ${folder}:装一次都算已装，卸载也一起卸载`,
     outsideLinkNote: (target: string) =>
       `它是指向 ${target} 的符号链接。之后在 app 里更新它，会把链接换成独立的一份;在 ${target} 里改就不再影响这里。`,
     linkNote: (target: string) => `这次会换成独立的一份(现在是指向 ${target} 的符号链接)`,

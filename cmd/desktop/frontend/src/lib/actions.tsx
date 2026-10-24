@@ -41,6 +41,7 @@ import {
   installedWhere,
   linkNote,
   mergeProjectPlaces,
+  sharedWithNote,
   outsideLinkNote,
   needsReinstall,
   noSource,
@@ -181,7 +182,7 @@ export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Sc
   // 项目里共用目录的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   const place = skillScopeIn(s, id, scopeKey(scope));
-  const shared = scope.project_id ? [] : (place?.shared_with ?? []);
+  const shared = place ? sharedWithNote(place) : [];
   const detached = detachedBy(place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : []);
   if (place && (shared.length || detached.length)) {
     const ok = await ui.confirm({
@@ -275,7 +276,7 @@ export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scop
       );
       return !others.some((g) => memberOf(g.group_id, p.skill_id));
     });
-  const removed = scope.project_id ? [] : gone.filter((p) => p.shared_with?.length);
+  const removed = gone.filter((p) => sharedWithNote(p).length);
   const detached = detachedBy(folderPlaces(s, gone));
   if (removed.length || detached.length) {
     const ok = await ui.confirm({
@@ -534,7 +535,7 @@ function ReinstallDialog({
             {folders.map(([key, places]) => {
               const p = places[0];
               const groups = [...new Set(places.flatMap((x) => x.groups ?? []))];
-              const shared = p.scope.project_id ? [] : (p.shared_with ?? []);
+              const shared = sharedWithNote(p);
               return (
                 <ListRow key={key} compact>
                   <div className="min-w-0 grow">
@@ -780,7 +781,7 @@ const lostEdits = (places: SkillScopeInspection[]) =>
 
 export async function removeSkill(ui: UI, s: Snapshot, id: SkillID) {
   const places = skillScopesOf(s, id);
-  const installed = places.length;
+  const installed = mergeProjectPlaces(s, places).length;
   const t = messages().actions;
   const choice = await ui.confirm({
     title: t.removeSkillTitle(skillName(s, id)),
