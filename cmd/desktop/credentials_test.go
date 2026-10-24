@@ -63,18 +63,18 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 	lib := startLibrary(t)
 	path := filepath.Join(t.TempDir(), settingsFileName)
 	first := startApp(t, path, lib)
-	if got, err := first.Credentials(); err != nil || got != (Credentials{}) {
+	if got, err := first.SyncSettings(); err != nil || got != (library.SyncSettings{}) {
 		t.Fatalf("first start = %+v, %v; want nothing filled", got, err)
 	}
-	if got := lib.Config(); got.GitHubToken || got.Sync {
+	if got := config(t, lib); got.GitHubToken || got.Sync {
 		t.Fatalf("Config before filling = %+v; want nothing configured", got)
 	}
 	if _, err := lib.PlanSyncPush(t.Context()); library.ErrorOf(err).Code != library.NotConfigured {
 		t.Fatalf("PlanSyncPush before filling = %v; want NotConfigured", err)
 	}
 
-	if _, err := first.SaveGitHubToken(" ghp_secret \n"); err != nil {
-		t.Fatalf("SaveGitHubToken: %v", err)
+	if err := lib.SetGitHubToken(t.Context(), " ghp_secret \n"); err != nil {
+		t.Fatalf("SetGitHubToken: %v", err)
 	}
 	sync := library.SyncSettings{
 		Endpoint: server.URL, Bucket: "bucket", Key: "team.db", Region: "eu-west-1",
@@ -84,11 +84,11 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveSyncSettings: %v", err)
 	}
-	want := Credentials{GitHubToken: "ghp_secret", Sync: sync}
+	want := sync
 	if saved != want {
 		t.Fatalf("SaveSyncSettings = %+v; want %+v", saved, want)
 	}
-	if got := lib.Config(); !got.GitHubToken || !got.Sync {
+	if got := config(t, lib); !got.GitHubToken || !got.Sync {
 		t.Fatalf("Config after filling = %+v; want both configured", got)
 	}
 	if _, err := lib.PlanSyncPush(t.Context()); err != nil {
@@ -98,7 +98,7 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 		t.Fatalf("S3 requests = %q; want them signed with the settings page's access key", got)
 	}
 
-	// 令牌和密钥只在钥匙串里;settings.json 里只有其余几项。
+	// 密钥只在钥匙串里，令牌只在技能库里;settings.json 里只有其余几项。
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -123,8 +123,8 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 	if err := json.Unmarshal(item, &stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored != (secrets{GitHubToken: "ghp_secret", SecretAccessKey: "s3-secret", SessionToken: "s3-session"}) {
-		t.Fatalf("keychain item = %+v", stored)
+	if stored != (secrets{SecretAccessKey: "s3-secret", SessionToken: "s3-session"}) || strings.Contains(string(item), "ghp_secret") {
+		t.Fatalf("keychain item = %s; want only the S3 secrets", item)
 	}
 
 	// 改其他设置不会丢掉同步设置。
@@ -137,21 +137,28 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 		t.Fatalf("ServiceShutdown: %v", err)
 	}
 
-	// 重启：新的技能库实例从设置里拿回令牌与同步设置。
-	restarted := startLibrary(t)
+	// 重启：新的技能库实例从数据库里拿回令牌，从设置里拿回同步设置。
+	if err := lib.ServiceShutdown(); err != nil {
+		t.Fatalf("library ServiceShutdown: %v", err)
+	}
+	restarted := NewLibraryService(lib.path)
+	if err := restarted.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("library ServiceStartup after restart: %v", err)
+	}
+	t.Cleanup(func() { _ = restarted.ServiceShutdown() })
 	second := NewAppService(path, restarted)
 	second.keychain = first.keychain
 	if err := second.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup after restart: %v", err)
 	}
 	t.Cleanup(func() { _ = second.ServiceShutdown() })
-	if got, err := second.Credentials(); err != nil || got != want {
+	if got, err := second.SyncSettings(); err != nil || got != want {
 		t.Fatalf("after restart = %+v, %v; want %+v", got, err, want)
 	}
 	if got := second.Settings(); !reflect.DeepEqual(got, toggled) {
 		t.Fatalf("settings after restart = %+v; want %+v", got, toggled)
 	}
-	if got := restarted.Config(); !got.GitHubToken || !got.Sync {
+	if got := config(t, restarted); !got.GitHubToken || !got.Sync {
 		t.Fatalf("Config after restart = %+v; want both configured", got)
 	}
 	before := len(requests())
@@ -169,7 +176,7 @@ func TestClearedCredentialsFallBackToEnvironment(t *testing.T) {
 	lib := startLibrary(t)
 	path := filepath.Join(t.TempDir(), settingsFileName)
 	a := startApp(t, path, lib)
-	if got := lib.Config(); !got.GitHubToken || !got.Sync {
+	if got := config(t, lib); !got.GitHubToken || !got.Sync {
 		t.Fatalf("Config with only environment variables = %+v; want both configured", got)
 	}
 
@@ -177,27 +184,27 @@ func TestClearedCredentialsFallBackToEnvironment(t *testing.T) {
 	if _, err := a.SaveSyncSettings(library.SyncSettings{Bucket: "page-bucket"}); err != nil {
 		t.Fatalf("SaveSyncSettings: %v", err)
 	}
-	if got := lib.Config(); got.Sync {
+	if got := config(t, lib); got.Sync {
 		t.Fatalf("Config with a partial sync group = %+v; want sync not configured", got)
 	}
 	if _, err := lib.PlanSyncPush(t.Context()); library.ErrorOf(err).Code != library.NotConfigured {
 		t.Fatalf("PlanSyncPush with a partial sync group = %v; want NotConfigured", err)
 	}
 
-	if _, err := a.SaveGitHubToken("page-token"); err != nil {
-		t.Fatalf("SaveGitHubToken: %v", err)
+	if err := lib.SetGitHubToken(t.Context(), "page-token"); err != nil {
+		t.Fatalf("SetGitHubToken: %v", err)
 	}
-	if _, err := a.SaveGitHubToken(""); err != nil {
-		t.Fatalf("SaveGitHubToken clear: %v", err)
+	if err := lib.SetGitHubToken(t.Context(), ""); err != nil {
+		t.Fatalf("SetGitHubToken clear: %v", err)
 	}
 	cleared, err := a.SaveSyncSettings(library.SyncSettings{Bucket: "  "})
 	if err != nil {
 		t.Fatalf("SaveSyncSettings clear: %v", err)
 	}
-	if cleared != (Credentials{}) {
+	if cleared != (library.SyncSettings{}) {
 		t.Fatalf("after clearing = %+v; want nothing filled", cleared)
 	}
-	if got := lib.Config(); !got.GitHubToken || !got.Sync {
+	if got := config(t, lib); !got.GitHubToken || !got.Sync {
 		t.Fatalf("Config after clearing = %+v; want environment variables used again", got)
 	}
 	if _, ok, err := a.keychain.get(); ok || err != nil {
@@ -278,20 +285,20 @@ func TestDeniedKeychainAtStartupDoesNotLoseSecrets(t *testing.T) {
 	clearEnv(t)
 	lib := startLibrary(t)
 	path := filepath.Join(t.TempDir(), settingsFileName)
-	old := secrets{GitHubToken: "ghp_old", SecretAccessKey: "s3-secret", SessionToken: "s3-session"}
+	old := secrets{SecretAccessKey: "s3-secret", SessionToken: "s3-session"}
 	if err := saveSettings(path, settingsFile{Settings: defaultSettings(), Sync: syncFields{Bucket: "bucket", AccessKeyID: "AKID"}}); err != nil {
 		t.Fatal(err)
 	}
 	store := &memoryStore{value: must(json.Marshal(old)), fail: map[string][]error{"get": {errDenied, errDenied, errDenied}}}
 
-	// 启动时拒绝：令牌回到环境变量，同步缺密钥。
+	// 启动时拒绝：同步缺密钥。
 	a := startWithStore(t, path, lib, store)
-	if got := lib.Config(); got.GitHubToken || got.Sync {
+	if got := config(t, lib); got.GitHubToken || got.Sync {
 		t.Fatalf("Config after denied startup = %+v; want nothing configured", got)
 	}
-	// 打开设置页时再次拒绝：读不到就报错，也不能保存，钥匙串里的内容不动。
-	if _, err := a.Credentials(); !errors.Is(err, errDenied) {
-		t.Fatalf("Credentials while denied = %v; want the keychain error", err)
+	// 打开设置页时再次拒绝：同步分区读不到就报错，也不能保存，钥匙串里的内容不动。
+	if _, err := a.SyncSettings(); !errors.Is(err, errDenied) {
+		t.Fatalf("SyncSettings while denied = %v; want the keychain error", err)
 	}
 	if _, err := a.SaveSyncSettings(library.SyncSettings{Bucket: "bucket", AccessKeyID: "AKID", Region: "eu-west-1"}); !errors.Is(err, errDenied) {
 		t.Fatalf("SaveSyncSettings while denied = %v; want the keychain error", err)
@@ -299,24 +306,52 @@ func TestDeniedKeychainAtStartupDoesNotLoseSecrets(t *testing.T) {
 	if got := store.secrets(t); got != old {
 		t.Fatalf("keychain after a denied save = %+v; want %+v", got, old)
 	}
+	// 令牌存在技能库里，钥匙串读不到时照常显示和保存。
+	if err := lib.SetGitHubToken(t.Context(), "ghp_page"); err != nil {
+		t.Fatalf("SetGitHubToken while the keychain is denied: %v", err)
+	}
+	if token, err := lib.GitHubToken(t.Context()); err != nil || token != "ghp_page" {
+		t.Fatalf("GitHubToken while the keychain is denied = %q, %v", token, err)
+	}
+	if got := config(t, lib); !got.GitHubToken || got.Sync {
+		t.Fatalf("Config with only the token = %+v; want the token configured", got)
+	}
 
-	// 用户允许后，设置页拿到完整内容，技能库也用上;只改区域不会清掉密钥。
-	got, err := a.Credentials()
+	// 用户允许后，同步分区拿到完整内容，技能库也用上;只改区域不会清掉密钥。
+	got, err := a.SyncSettings()
 	if err != nil {
-		t.Fatalf("Credentials after allowing: %v", err)
+		t.Fatalf("SyncSettings after allowing: %v", err)
 	}
-	if got.GitHubToken != "ghp_old" || got.Sync.SecretAccessKey != "s3-secret" || got.Sync.SessionToken != "s3-session" {
-		t.Fatalf("Credentials after allowing = %+v; want the stored secrets", got)
+	if got.SecretAccessKey != "s3-secret" || got.SessionToken != "s3-session" {
+		t.Fatalf("SyncSettings after allowing = %+v; want the stored secrets", got)
 	}
-	if c := lib.Config(); !c.GitHubToken || !c.Sync {
+	if c := config(t, lib); !c.GitHubToken || !c.Sync {
 		t.Fatalf("Config after allowing = %+v; want both configured", c)
 	}
-	got.Sync.Region = "eu-west-1"
-	if _, err := a.SaveSyncSettings(got.Sync); err != nil {
+	got.Region = "eu-west-1"
+	if _, err := a.SaveSyncSettings(got); err != nil {
 		t.Fatalf("SaveSyncSettings: %v", err)
 	}
 	if stored := store.secrets(t); stored != old {
 		t.Fatalf("keychain after changing the region = %+v; want %+v", stored, old)
+	}
+}
+
+// 升级前存在钥匙串里的令牌不迁移：技能库里没有令牌，也不读钥匙串条目里的令牌;同步分区照常读出密钥。
+func TestTokenLeftInKeychainIsNotUsed(t *testing.T) {
+	clearEnv(t)
+	lib := startLibrary(t)
+	path := filepath.Join(t.TempDir(), settingsFileName)
+	store := &memoryStore{value: []byte(`{"github_token":"ghp_before","secret_access_key":"s3-secret"}`)}
+	a := startWithStore(t, path, lib, store)
+	if token, err := lib.GitHubToken(t.Context()); err != nil || token != "" {
+		t.Fatalf("GitHubToken = %q, %v; want nothing filled", token, err)
+	}
+	if got := config(t, lib); got.GitHubToken {
+		t.Fatalf("Config = %+v; want the keychain token ignored", got)
+	}
+	if got, err := a.SyncSettings(); err != nil || got.SecretAccessKey != "s3-secret" {
+		t.Fatalf("SyncSettings = %+v, %v; want the stored secret", got, err)
 	}
 }
 
@@ -361,9 +396,9 @@ func TestFailedSettingsWriteRestoresKeychain(t *testing.T) {
 			if got := store.secrets(t).SecretAccessKey; got != c.wantSecret {
 				t.Fatalf("keychain secret = %q; want %q", got, c.wantSecret)
 			}
-			got, err := a.Credentials()
-			if err != nil || got.Sync.SecretAccessKey != c.wantSecret || got.Sync.Bucket != "old-bucket" {
-				t.Fatalf("Credentials = %+v, %v; want old settings.json fields with secret %q", got, err, c.wantSecret)
+			got, err := a.SyncSettings()
+			if err != nil || got.SecretAccessKey != c.wantSecret || got.Bucket != "old-bucket" {
+				t.Fatalf("SyncSettings = %+v, %v; want old settings.json fields with secret %q", got, err, c.wantSecret)
 			}
 		})
 	}
@@ -374,4 +409,13 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+func config(t *testing.T, lib *LibraryService) ConfigStatus {
+	t.Helper()
+	status, err := lib.Config(t.Context())
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	return status
 }

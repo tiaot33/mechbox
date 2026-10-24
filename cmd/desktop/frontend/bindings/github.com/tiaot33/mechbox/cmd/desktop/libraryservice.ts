@@ -98,6 +98,10 @@ export function GetVersionFile(id: library$0.VersionID, path: string): $Cancella
     return $Call.ByID(3433441728, id, path);
 }
 
+export function GitHubToken(): $CancellablePromise<string> {
+    return $Call.ByID(132140442);
+}
+
 export function HomeDirectory(): $CancellablePromise<string> {
     return $Call.ByID(4228136540);
 }

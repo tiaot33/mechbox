@@ -13,11 +13,12 @@
 // 下面按用户操作的顺序列出每一步用到的方法和所在文件。
 //
 // 设置(library.go、sync.go):
-//   - [Library.SetGitHubToken] 传入访问 GitHub 用的个人访问令牌;没传入时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
+//   - [Library.GitHubToken]、[Library.SetGitHubToken] 读取与设置访问 GitHub 用的个人访问令牌;它存在数据库里,随推送、拉回走。
+//     没设置时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
 //   - [Library.SetSyncSettings] 传入同步用的 S3 设置,整组取用;没传入时读 SKILLS_S3_*、AWS_* 环境变量。
 //   - [Library.ListWSLDistros]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
 //     或换回 Windows 本机;换了以后只认新目录。
-//     这几项都只在这个 Library 实例上有效,改完下一次请求就用新值。
+//     同步设置与 WSL 发行版只在这个 Library 实例上有效,不写进库。这几项改完下一次请求就用新值。
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求(GitHub 仓库与 well-known 站点的技能)。

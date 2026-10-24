@@ -37,7 +37,6 @@ type LibraryService struct {
 	lib  *library.Library
 
 	configMu sync.Mutex
-	token    bool
 	sync     *library.SyncSettings
 
 	background chan struct{}
@@ -117,11 +116,15 @@ func appVersion() string {
 // ConfigStatus 报告技能库依赖的外部配置是否就绪：设置页里填了就看设置页的，没填才看环境变量。
 type ConfigStatus struct {
 	Sync        bool `json:"sync"`         // S3 同步：存储桶与密钥齐全
-	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
+	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页(存在数据库里)或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
 }
 
 // Config 返回外部配置的就绪状态，只看是否填了，不校验取值。
-func (s *LibraryService) Config() ConfigStatus {
+func (s *LibraryService) Config(ctx context.Context) (ConfigStatus, error) {
+	token, err := s.lib.GitHubToken(ctx)
+	if err != nil {
+		return settle(ConfigStatus{}, err)(ctx)
+	}
 	set := func(names ...string) bool {
 		for _, name := range names {
 			if os.Getenv(name) == "" {
@@ -134,10 +137,10 @@ func (s *LibraryService) Config() ConfigStatus {
 	defer s.configMu.Unlock()
 	status := ConfigStatus{
 		Sync:        set("SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
-		GitHubToken: s.token || set("GITHUB_TOKEN") || set("GH_TOKEN"),
+		GitHubToken: token != "" || set("GITHUB_TOKEN") || set("GH_TOKEN"),
 	}
 	if s.sync != nil {
 		status.Sync = s.sync.Bucket != "" && s.sync.AccessKeyID != "" && s.sync.SecretAccessKey != ""
 	}
-	return status
+	return status, nil
 }

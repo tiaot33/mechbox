@@ -20,7 +20,7 @@ import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
 import { SetRow } from "@/components/app/set-row";
-import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
+import { GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
 
@@ -36,7 +36,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const t = tt.settings;
   const { setLanguage } = useLanguage();
   const [settings, setSettings] = useState<Settings>();
-  const credentials = useCredentials();
   const [current, setCurrent] = useState<Section>(sections[0]);
   const refs = useRef<Partial<Record<Section, HTMLElement | null>>>({});
 
@@ -153,8 +152,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 null,
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
-              {card("github", t.tokenInKeychain(), credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
-              {card("sync", t.secretsInKeychain(), credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
+              {card("github", t.tokenInLibrary, <GitHubSection />)}
+              {card("sync", t.secretsInKeychain(), <SyncSection />)}
               {card(
                 "about",
                 null,

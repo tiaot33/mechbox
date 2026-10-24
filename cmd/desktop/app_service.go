@@ -59,7 +59,7 @@ func NewAppService(path string, lib *LibraryService) *AppService {
 	return &AppService{path: path, library: lib, keychain: defaultKeychain(), discard: discard, wake: make(chan struct{}, 1)}
 }
 
-// ServiceStartup 读取设置，把各 Agent 的全局目录所在的 WSL 发行版、设置页里填的 GitHub 令牌与同步设置交给技能库，
+// ServiceStartup 读取设置，把各 Agent 的全局目录所在的 WSL 发行版、设置页里填的同步设置交给技能库，
 // 并开始后台检查;它排在 LibraryService 之后启动，技能库已经打开。选了发行版而打不开时，技能库留在 Windows 本机的全局目录，
 // 原因由 WSLDistroError 给出。
 func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
@@ -77,7 +77,7 @@ func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOp
 	if err := a.readSecrets(); err != nil && a.app != nil {
 		a.app.Logger.Warn("keychain unreadable", "error", err)
 	}
-	a.applyCredentials(a.credentials())
+	a.applySyncSettings(a.syncSettings())
 	a.credMu.Unlock()
 	a.menus.setLanguage(a.settings.Language.resolve())
 	a.opened = true

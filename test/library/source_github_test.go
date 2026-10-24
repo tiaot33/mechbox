@@ -446,7 +446,7 @@ func TestGitHubPassedTokenReplacesEnvironmentTokenAfterAnonymous(t *testing.T) {
 	blockGitHubClone(t)
 	t.Setenv("GITHUB_TOKEN", "environment-token")
 	lib := openTestLibrary(t)
-	lib.SetGitHubToken("passed-token")
+	setGitHubToken(t, lib, "passed-token")
 	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil || len(preview.Candidates) != 1 {
 		t.Fatalf("preview = %#v, %v", preview, err)
@@ -463,6 +463,33 @@ func TestGitHubPassedTokenReplacesEnvironmentTokenAfterAnonymous(t *testing.T) {
 		if authorization != "Bearer passed-token" {
 			t.Fatalf("authorizations = %q, want passed token after anonymous", authorizations)
 		}
+	}
+}
+
+// 设置的令牌存在数据库里:重新打开同一个数据库,读到的仍是它,访问 GitHub 时也用它。
+func TestGitHubTokenIsKeptInDatabase(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	api.acceptedToken = "stored-token"
+	blockGitHubClone(t)
+	path := filepath.Join(t.TempDir(), "library.db")
+	first := openTestLibraryAt(t, path)
+	setGitHubToken(t, first, "stored-token")
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lib := openTestLibraryAt(t, path)
+	if token, err := lib.GitHubToken(t.Context()); err != nil || token != "stored-token" {
+		t.Fatalf("GitHubToken after reopen = %q, %v", token, err)
+	}
+	if preview, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil || len(preview.Candidates) != 1 {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	if got := api.takeAuthorizations(); len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != "Bearer stored-token" }) {
+		t.Fatalf("authorizations = %q, want anonymous then stored token", got)
 	}
 }
 
@@ -502,7 +529,7 @@ func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 			api.acceptedToken = strings.TrimPrefix(step.want, "Bearer ")
 			api.mu.Unlock()
 			t.Setenv("GITHUB_TOKEN", step.environment)
-			lib.SetGitHubToken(step.passed)
+			setGitHubToken(t, lib, step.passed)
 			preview()
 			got := api.takeAuthorizations()
 			if len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != step.want }) {
@@ -532,7 +559,7 @@ func TestGitHubTokenChangeAppliesToExistingPreview(t *testing.T) {
 	api.mu.Lock()
 	api.acceptedToken = "new-token"
 	api.mu.Unlock()
-	lib.SetGitHubToken("new-token")
+	setGitHubToken(t, lib, "new-token")
 	stubGitHubCLI(t, "exit 1\n")
 	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
 	if len(skillFiles(t, lib, fetched[0])) != 2 {
@@ -558,7 +585,7 @@ func TestGitHubRequestFinishingAfterTokenChangeDoesNotBypassNewToken(t *testing.
 	gate := newNetworkGate()
 	api.gateBlob(gate, fx.blobSHA("demo/SKILL.md"))
 	lib := openTestLibrary(t)
-	lib.SetGitHubToken("old-token")
+	setGitHubToken(t, lib, "old-token")
 
 	gate.arm()
 	var wg sync.WaitGroup
@@ -568,7 +595,7 @@ func TestGitHubRequestFinishingAfterTokenChangeDoesNotBypassNewToken(t *testing.
 	api.mu.Lock()
 	api.acceptedToken = "new-token"
 	api.mu.Unlock()
-	lib.SetGitHubToken("new-token")
+	setGitHubToken(t, lib, "new-token")
 	gate.open()
 	wg.Wait()
 	if oldErr != nil {

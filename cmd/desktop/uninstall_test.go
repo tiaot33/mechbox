@@ -13,7 +13,7 @@ import (
 )
 
 // uninstallFixture 是在临时 HOME 里打开的技能库与应用设置服务：数据库和 settings.json 在同一个目录下(与真实布局一样),
-// 钥匙串里存着一个令牌;移到废纸篓换成直接删除并记下删了哪些，不碰真实的废纸篓。
+// 钥匙串里存着一个密钥;移到废纸篓换成直接删除并记下删了哪些，不碰真实的废纸篓。
 type uninstallFixture struct {
 	lib       *LibraryService
 	app       *AppService
@@ -31,7 +31,7 @@ func startServices(t *testing.T) *uninstallFixture {
 		t.Fatalf("ServiceStartup: %v", err)
 	}
 	t.Cleanup(func() { _ = f.lib.ServiceShutdown() })
-	f.store = &memoryStore{value: []byte(`{"github_token":"ghp_test"}`)}
+	f.store = &memoryStore{value: []byte(`{"secret_access_key":"s3-secret"}`)}
 	f.app = startWithStore(t, filepath.Join(f.dir, settingsFileName), f.lib, f.store)
 	f.app.discard = func(path string) error {
 		f.discarded = append(f.discarded, path)
@@ -153,7 +153,7 @@ func TestUninstallAppStopsWhenKeychainRefusesUntilSkipped(t *testing.T) {
 	if result.Uninstalled || result.KeychainError == "" {
 		t.Fatalf("UninstallApp = %+v; want the keychain error and not uninstalled", result)
 	}
-	if !exists(folder) || f.store.secrets(t).GitHubToken != "ghp_test" {
+	if !exists(folder) || f.store.secrets(t).SecretAccessKey != "s3-secret" {
 		t.Fatalf("nothing should change when the keychain refuses; folder kept %v, keychain %s", exists(folder), f.store.value)
 	}
 
@@ -215,7 +215,7 @@ func TestUninstallAppRefusesToSaveCredentials(t *testing.T) {
 	var saveErr error
 	trash := f.app.discard
 	f.app.discard = func(path string) error {
-		_, saveErr = f.app.SaveGitHubToken("ghp_late")
+		_, saveErr = f.app.SaveSyncSettings(library.SyncSettings{Bucket: "late-bucket", AccessKeyID: "AKID", SecretAccessKey: "late-secret"})
 		return trash(path)
 	}
 
@@ -224,7 +224,7 @@ func TestUninstallAppRefusesToSaveCredentials(t *testing.T) {
 		t.Fatal("folder should be trashed")
 	}
 	if saveErr == nil || f.store.value != nil {
-		t.Fatalf("SaveGitHubToken during uninstall = %v, keychain %s; want refused and the item gone", saveErr, f.store.value)
+		t.Fatalf("SaveSyncSettings during uninstall = %v, keychain %s; want refused and the item gone", saveErr, f.store.value)
 	}
 }
 

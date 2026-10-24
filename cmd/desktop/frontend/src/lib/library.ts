@@ -149,6 +149,16 @@ export function invalidateConfig() {
   return queryClient.invalidateQueries({ queryKey: configQuery.queryKey });
 }
 
+// gitHubTokenQuery 是设置页填的 GitHub 令牌;它存在数据库里，拉回后经 reloadLibrary 重读。
+export const gitHubTokenQuery = queryOptions({
+  queryKey: ["github-token"],
+  queryFn: ({ signal }) => wails(signal, LibraryService.GitHubToken()),
+});
+
+export function invalidateGitHubToken() {
+  return queryClient.invalidateQueries({ queryKey: gitHubTokenQuery.queryKey });
+}
+
 // scopeDirectoryQuery 查作用域对应的 Agent 目录。home 是快照里的主目录，设置里改选 WSL 发行版后它变了，同一个作用域也要重查。
 export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undefined) {
   return queryOptions({

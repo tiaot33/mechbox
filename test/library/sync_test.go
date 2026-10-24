@@ -728,6 +728,86 @@ func TestSyncPushAndPullWithPassedSettings(t *testing.T) {
 	}
 }
 
+// 设置的 GitHub 令牌存在数据库里,随推送、拉回走:拉回的一侧换成推送那份库里的令牌,访问 GitHub 时用它;
+// 清空后回到读环境变量;拉回一份没有令牌的库,本机的令牌随之变成没填。同步设置不在库里,拉回不改。
+func TestGitHubTokenTravelsWithSync(t *testing.T) {
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.anonymousStatus = http.StatusNotFound
+	blockGitHubClone(t)
+	stub := newS3Stub(t)
+	gitHub := http.DefaultClient.Transport
+	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+		if "http://"+r.URL.Host == stub.endpoint {
+			return http.DefaultTransport.RoundTrip(r)
+		}
+		return gitHub.RoundTrip(r)
+	})}
+	ctx := t.Context()
+
+	pushing := openTestLibrary(t)
+	setGitHubToken(t, pushing, "  synced-token\n")
+	if _, err := pushing.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	pulling := openTestLibrary(t)
+	setGitHubToken(t, pulling, "local-token")
+	pull := func() {
+		t.Helper()
+		plan, err := pulling.PlanSyncPull(ctx)
+		if err != nil || !plan.CanPull {
+			t.Fatalf("pull plan = %#v, %v", plan, err)
+		}
+		if err := pulling.SyncPull(ctx, plan.Remote.Identity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tokenIs := func(want string) {
+		t.Helper()
+		if token, err := pulling.GitHubToken(ctx); err != nil || token != want {
+			t.Fatalf("GitHubToken = %q, %v; want %q", token, err, want)
+		}
+	}
+	previewWith := func(token string) {
+		t.Helper()
+		api.mu.Lock()
+		api.acceptedToken = token
+		api.mu.Unlock()
+		preview, err := pulling.PreviewFetch(ctx, gitHubRequest())
+		if err != nil || len(preview.Candidates) != 1 {
+			t.Fatalf("preview = %#v, %v", preview, err)
+		}
+		got := api.takeAuthorizations()
+		if len(got) < 2 || got[0] != "" || slices.ContainsFunc(got[1:], func(a string) bool { return a != "Bearer "+token }) {
+			t.Fatalf("authorizations = %q, want anonymous then %q", got, token)
+		}
+	}
+
+	pull()
+	tokenIs("synced-token")
+	previewWith("synced-token")
+
+	t.Setenv("GITHUB_TOKEN", "environment-token")
+	setGitHubToken(t, pulling, "")
+	tokenIs("")
+	previewWith("environment-token")
+
+	setGitHubToken(t, pulling, "local-token")
+	setGitHubToken(t, pushing, "")
+	plan, err := pushing.PlanSyncPush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pushing.SyncPush(ctx, plan.Remote.Identity); err != nil {
+		t.Fatal(err)
+	}
+	pull()
+	tokenIs("")
+	previewWith("environment-token")
+}
+
 // 同步设置整组取用:传入了就只用传入的那一组,缺的项不从环境变量补;在同一个 Library 上改设置,
 // 下一次同步就用新值;传 nil 回到环境变量。
 func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {

@@ -65,26 +65,9 @@ export interface ConfigStatus {
     "sync": boolean;
 
     /**
-     * GitHub 令牌：设置页或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
+     * GitHub 令牌：设置页(存在数据库里)或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
      */
     "github_token": boolean;
-}
-
-/**
- * Credentials 是设置页 GitHub 与同步分区里填的内容。令牌、Secret Access Key、Session Token 存在系统钥匙串里
- * (macOS 钥匙串、Windows 凭据管理器、Linux 的 Secret Service),
- * 其余几项存在 settings.json;都只属于这台机器，不进技能库，也不随同步走(见 ADR 0011)。
- */
-export interface Credentials {
-    /**
-     * 留空时技能库读 GITHUB_TOKEN / GH_TOKEN
-     */
-    "github_token": string;
-
-    /**
-     * 全部留空时技能库读 SKILLS_S3_*、AWS_*;填了任意一项就整组用这里的
-     */
-    "sync": library$0.SyncSettings;
 }
 
 /**

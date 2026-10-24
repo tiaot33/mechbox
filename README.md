@@ -72,9 +72,9 @@ Windows 和 Linux 版有些功能还没有，见[尚未支持](#尚未支持)。
 
 | 内容 | 位置 |
 | --- | --- |
-| 库（技能、版本、集合、组、安装记录、已登记项目） | `~/Library/Application Support/mechbox/library.db`，一个 SQLite 数据库 |
-| 应用设置（检查更新、菜单栏、Dock 角标、显示哪些 Agent） | 同一目录下的 `settings.json`，只属于这台机器，不随同步走 |
-| GitHub 令牌、S3 密钥 | macOS 的钥匙串、Windows 的凭据管理器、Linux 的 Secret Service（GNOME Keyring、KWallet 等），不进库、不随同步走（[ADR 0011](docs/adr/0011-credentials-stay-on-this-machine.md)） |
+| 库（技能、版本、集合、组、安装记录、已登记项目、GitHub 令牌） | `~/Library/Application Support/mechbox/library.db`，一个 SQLite 数据库；随同步走 |
+| 应用设置（检查更新、菜单栏、Dock 角标、显示哪些 Agent、S3 同步设置里除密钥以外的几项） | 同一目录下的 `settings.json`，只属于这台机器，不随同步走 |
+| S3 的 Secret Access Key、Session Token | macOS 的钥匙串、Windows 的凭据管理器、Linux 的 Secret Service（GNOME Keyring、KWallet 等），不进库、不随同步走（[ADR 0011](docs/adr/0011-github-token-syncs-s3-settings-stay-local.md)） |
 
 应用开着时不要只复制 `library.db` 来备份，尚未合并的写入还在旁边的 `library.db-wal` 里；要备份就用同步推送，或退出应用后再复制。
 

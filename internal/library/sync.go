@@ -34,7 +34,7 @@ type SyncSettings struct {
 
 // SetSyncSettings 设置同步用的 S3 设置,之后的同步计划、推送与拉回立即使用。整组取用:传入非 nil 时只用传入的这一组,
 // 留空的项不再从环境变量补;传 nil 表示没有传入,回到读取 SKILLS_S3_*、AWS_* 环境变量。设置只在这个 Library 实例上有效,
-// 不写进库,也不随同步传到别的机器。传入的设置缺少存储桶或密钥时,同步方法与环境变量缺项时一样返回 NotConfigured。
+// 不写进库,也不随同步传到别的机器(新机器得先有它才能拉回;各台机器也可能用不同的 Access Key)。传入的设置缺少存储桶或密钥时,同步方法与环境变量缺项时一样返回 NotConfigured。
 func (l *Library) SetSyncSettings(settings *SyncSettings) {
 	if settings == nil {
 		l.syncSettings.Store(nil)
@@ -195,6 +195,8 @@ func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote
 //   - 已登记项目的路径是推送那台机器上的;在本机不存在的项目([RegisteredProject].Missing)用
 //     [Library.RelocateProject] 指到它在这台机器上的位置。
 //   - 内置 Agent 与 [Open] 时一样以本机应用为准;全局作用域按本机的用户主目录。
+//   - GitHub 令牌换成那份库里的([Library.SetGitHubToken]);那份库里没有时变成没设置,读环境变量。
+//     同步设置不在库里,拉回不改。
 func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (err error) {
 	defer func() { err = typedError(err) }()
 	data, object, err := s3.Get(ctx, l.syncSettings.Load())
@@ -224,7 +226,15 @@ func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (err er
 		return fmt.Errorf("sync pull: %w", err)
 	}
 	l.home = home
-	return l.store.Replace(ctx, image)
+	if err := l.store.Replace(ctx, image); err != nil {
+		return err
+	}
+	token, err := l.store.GitHubToken(ctx)
+	if err != nil {
+		return fmt.Errorf("sync pull: %w", err)
+	}
+	l.github.SetToken(token)
+	return nil
 }
 
 func remoteLibrary(object s3.Object) *RemoteLibrary {
