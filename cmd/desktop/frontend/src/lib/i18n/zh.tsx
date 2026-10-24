@@ -1,5 +1,5 @@
 // 中文界面文案，文案的唯一来源：按界面区域分组，每条是字符串或函数(插值即参数);en.tsx 照这里的结构翻译。
-// 随平台变的条目(令牌与密钥存在哪里)写成零参函数，用到时现取平台。
+// 随平台变的条目(密钥存在哪里)写成零参函数，用到时现取平台。
 // 新增界面文案时两份一起写。
 import type { ReactNode } from "react";
 import { System } from "@wailsio/runtime";
@@ -11,7 +11,7 @@ const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库�
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
 const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}${w.total > 2 ? ` 等 ${w.total} 处` : ""}` : "没装在任何地方");
 
-// store 是令牌与密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
+// store 是同步用的密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
 // Windows 的以英文开头，前面带空格，接在中文后面。
 const store = () => (System.IsWindows() ? " Windows 凭据管理器" : System.IsLinux() ? "系统密钥环" : "系统钥匙串");
 // manualDelete 是卸载时跳过后去哪里手动删除这些条目。
@@ -27,7 +27,7 @@ const deniedHint = () =>
 // readFailedHelp 是读不到时怎么办;只有 Linux 上可能是没装或没启动密钥环。
 const readFailedHelp = () =>
   System.IsLinux()
-    ? "如果没有装或没有启动 GNOME Keyring、KWallet，装好并启动后点重试；也可以从设置了 GITHUB_TOKEN、SKILLS_S3_*、AWS_* 等环境变量的终端启动 Mechbox。"
+    ? "如果没有装或没有启动 GNOME Keyring、KWallet，装好并启动后点重试；也可以从设置了 SKILLS_S3_*、AWS_* 等环境变量的终端启动 Mechbox。"
     : "";
 
 // keptAsIs 是重新安装时没动的地方：用户改过的、文件夹不在了的。
@@ -733,14 +733,14 @@ export const zh = {
     autoCheck: "自动检查更新",
     autoCheckDesc: "按间隔检查所有来源有没有新版本（本地目录来源不检查）。",
     interval: "间隔",
-    tokenInKeychain: () => `令牌存在${store()}里`,
+    tokenInLibrary: "令牌存在数据库里，随同步走",
     secretsInKeychain: () => `密钥存在${store()}里`,
     version: "应用版本",
     databasePath: "数据库位置",
     uninstallDesc: (): string =>
       platform() === "mac"
-        ? `删除技能库、设置页里的设置和${store()}里的令牌与密钥，退出后把应用移到废纸篓；已安装的技能文件夹默认保留，Agent 照常使用。`
-        : `删除技能库、设置页里的设置和${store()}里的令牌与密钥，然后退出；应用本身要另外卸载。已安装的技能文件夹默认保留，Agent 照常使用。`,
+        ? `删除技能库、设置页里的设置和${store()}里的密钥，退出后把应用移到废纸篓；已安装的技能文件夹默认保留，Agent 照常使用。`
+        : `删除技能库、设置页里的设置和${store()}里的密钥，然后退出；应用本身要另外卸载。已安装的技能文件夹默认保留，Agent 照常使用。`,
     uninstallButton: "卸载 Mechbox…",
   },
 
@@ -757,7 +757,7 @@ export const zh = {
     skipKeychain: "跳过并继续卸载",
     uninstall: "卸载并退出",
     what: () =>
-      `删除这台机器上的技能库（库里的技能、版本历史与更新历史、组、登记的项目与自定义 Agent）、设置页里的设置（包括 GitHub 与同步），以及${store()}里的令牌与密钥；` +
+      `删除这台机器上的技能库（库里的技能、版本历史与更新历史、组、登记的项目、自定义 Agent 与 GitHub 令牌）、设置页里的设置（包括同步），以及${store()}里的密钥；` +
       {
         mac: "然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。",
         windows: "然后退出。Mechbox 本身不会被删除，之后在「设置 → 应用」里卸载它。",
@@ -778,9 +778,9 @@ export const zh = {
       `其中 ${n} 个在 WSL 发行版里，移到那个发行版的回收站（~/.local/share/Trash），不进 Windows 的回收站；要找回时，在发行版里从 ~/.local/share/Trash/files 移回原处。`,
     uninstalling: "正在卸载…",
     keychainFailed: (message: string) =>
-      `没能删除${store()}里的令牌和密钥${deniedHint()}：${message}\nMechbox 还没卸载，什么都没动。可以重试；也可以跳过，${manualDelete()}。`,
+      `没能删除${store()}里的密钥${deniedHint()}：${message}\nMechbox 还没卸载，什么都没动。可以重试；也可以跳过，${manualDelete()}。`,
     failed: (error: string, keychainDeleted: boolean, trashing: boolean) =>
-      `Mechbox 没有卸载，技能库和设置都还在：${error}\n已经移到${bin()}的文件夹可以从${bin()}${putBack()}，重试时跳过它们。${trashing ? `没能移到${bin()}的那一处还在原处，没有被删除；可以改选「保留已安装的文件夹」后重试，或自己处理那一处后重试。` : ""}${keychainDeleted ? `已经删除了${store()}里的令牌和密钥，继续使用要在设置页重新填。` : ""}`,
+      `Mechbox 没有卸载，技能库和设置都还在：${error}\n已经移到${bin()}的文件夹可以从${bin()}${putBack()}，重试时跳过它们。${trashing ? `没能移到${bin()}的那一处还在原处，没有被删除；可以改选「保留已安装的文件夹」后重试，或自己处理那一处后重试。` : ""}${keychainDeleted ? `已经删除了${store()}里的密钥，继续同步要在设置页重新填。` : ""}`,
     done: "已卸载，正在退出…",
   },
 
@@ -816,7 +816,8 @@ export const zh = {
     counts: (skills: number, groups: number, projects: number) => `${skills} 个技能 · ${groups} 个组 · ${projects} 个已登记项目`,
     pushWarning: "推送会用本机的库覆盖 S3 上的这一份。",
     cannotPull: "S3 上的库不能拉回。",
-    pullWarning: "拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失。Agent 目录里的文件夹不会改动。",
+    pullWarning:
+      "拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失；设置页填的 GitHub 令牌也换成那份库里的，那份库里没有就清空。Agent 目录里的文件夹不会改动。",
     missingProjects: (names: string[]) => `这些项目不在这台机器上，拉回后在右栏改项目位置指到本机：${names.join("、")}`,
   },
 
@@ -1001,7 +1002,8 @@ export const zh = {
   },
 
   credentials: {
-    keychainFailed: () => `没能读取${store()}，令牌和密钥暂时不能查看或修改。${readFailedHelp()}`,
+    keychainFailed: () => `没能读取${store()}，同步设置暂时不能查看或修改。${readFailedHelp()}`,
+    tokenReadFailed: (message: string) => `没能读取 GitHub 令牌：${message}`,
     retry: "重试",
     endpoint: "服务地址（可选，默认 AWS S3）",
     bucket: "存储桶",

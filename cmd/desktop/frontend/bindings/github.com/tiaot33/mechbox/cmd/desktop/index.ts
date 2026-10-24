@@ -17,7 +17,6 @@ export {
 export type {
     AppInfo,
     ConfigStatus,
-    Credentials,
     Settings,
     UninstallOptions,
     UninstallResult

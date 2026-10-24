@@ -1,33 +1,34 @@
-// 设置页的 GitHub 与同步分区：令牌与密钥存在系统钥匙串里，其余几项存在这台机器的应用设置里，都不进技能库。
+// 设置页的 GitHub 与同步分区。GitHub 令牌存在数据库里，和库里其他内容一样随推送、拉回走;
+// 同步设置只属于这台机器：Secret Access Key 与 Session Token 存在系统钥匙串里，其余几项存在这台机器的应用设置里，不进技能库。
 // 填完点保存才存入并交给技能库;留空时技能库照旧读环境变量。同步设置整组取用：填了任意一项就整组用这里的。
-import { useEffect, useState, type ReactNode } from "react";
-import { AppService, type Credentials } from "@bindings/cmd/desktop";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import type { SyncSettings } from "@bindings/internal/library";
-import { invalidateConfig } from "@/lib/library";
+import { describeError } from "@/lib/errors";
+import { gitHubTokenQuery, invalidateConfig, invalidateGitHubToken, toLibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
-type Form = (saved: Credentials, onSaved: (c: Credentials) => void) => ReactNode;
-
-// useCredentials 读取设置页填过的内容，返回按分区渲染表单的函数。钥匙串读不到(例如拒绝了授权)时不给表单，
-// 免得把没读到当成没填、保存时盖掉钥匙串里的内容。读到或保存后让主界面的配置状态失效重读。
+// SyncSection 读取同步分区填过的内容再给出表单。钥匙串读不到(例如拒绝了授权)时不给表单，
+// 免得把没读到当成没填、保存时盖掉钥匙串里的内容;GitHub 分区不受影响。读到或保存后让主界面的配置状态失效重读。
 // 钥匙串的读取不放进查询缓存：写操作后的统一重读会再读钥匙串，可能再弹一次授权。
-export function useCredentials(): (form: Form) => ReactNode {
+export function SyncSection() {
   const t = useT().credentials;
-  const [credentials, setCredentials] = useState<Credentials>();
+  const [settings, setSettings] = useState<SyncSettings>();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
     setFailed(false);
-    const call = AppService.Credentials();
+    const call = AppService.SyncSettings();
     call.then(
-      (c) => {
+      (s) => {
         if (!live) return;
-        setCredentials(c);
+        setSettings(s);
         void invalidateConfig();
       },
       () => live && setFailed(true),
@@ -37,19 +38,39 @@ export function useCredentials(): (form: Form) => ReactNode {
       call.cancel();
     };
   }, [attempt]);
-  const saved = (c: Credentials) => {
-    setCredentials(c);
-    void invalidateConfig();
-  };
-  return (form) =>
-    failed ? (
+  if (failed)
+    return (
       <div className="flex items-center gap-2">
         <Hint className="grow">{t.keychainFailed()}</Hint>
         <Button onClick={() => setAttempt((n) => n + 1)}>{t.retry}</Button>
       </div>
-    ) : (
-      credentials && form(credentials, saved)
     );
+  return (
+    settings && (
+      <SyncForm
+        saved={settings}
+        onSaved={(s) => {
+          setSettings(s);
+          void invalidateConfig();
+        }}
+      />
+    )
+  );
+}
+
+// GitHubSection 给出 GitHub 令牌的表单。令牌是库里的内容，拉回后换成拉回的那个，表单随之重置。
+// 读不到时和同步分区一样说明原因、给出重试，不给表单。
+export function GitHubSection() {
+  const t = useT().credentials;
+  const { data: saved, error, refetch } = useQuery(gitHubTokenQuery);
+  if (error)
+    return (
+      <div className="flex items-center gap-2">
+        <Hint className="grow">{t.tokenReadFailed(describeError(toLibraryError(error)))}</Hint>
+        <Button onClick={() => void refetch()}>{t.retry}</Button>
+      </div>
+    );
+  return saved === undefined ? null : <GitHubForm key={saved} saved={saved} />;
 }
 
 type SyncField = keyof SyncSettings;
@@ -71,17 +92,18 @@ const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] =
   ];
 };
 
-export function GitHubForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: Credentials) => void }) {
+function GitHubForm({ saved }: { saved: string }) {
   const t = useT().credentials;
-  const [token, setToken] = useState(saved.github_token);
+  const [token, setToken] = useState(saved);
   return (
     <SaveForm
-      dirty={token !== saved.github_token}
-      save={() => AppService.SaveGitHubToken(token)}
+      dirty={token !== saved}
+      save={() => LibraryService.SetGitHubToken(token)}
       success={t.tokenSaved}
-      onSaved={(next) => {
-        setToken(next.github_token);
-        onSaved(next);
+      onSaved={() => {
+        setToken(token.trim());
+        void invalidateGitHubToken();
+        void invalidateConfig();
       }}
       hint={t.tokenHint}
     >
@@ -92,19 +114,19 @@ export function GitHubForm({ saved, onSaved }: { saved: Credentials; onSaved: (c
   );
 }
 
-export function SyncForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: Credentials) => void }) {
+function SyncForm({ saved, onSaved }: { saved: SyncSettings; onSaved: (s: SyncSettings) => void }) {
   const t = useT().credentials;
   const fields = syncFields();
-  const [draft, setDraft] = useState<SyncSettings>(saved.sync);
+  const [draft, setDraft] = useState<SyncSettings>(saved);
   const value = (s: SyncSettings, key: SyncField) => s[key] ?? "";
-  const dirty = fields.flat().some(({ key }) => value(draft, key) !== value(saved.sync, key));
+  const dirty = fields.flat().some(({ key }) => value(draft, key) !== value(saved, key));
   return (
     <SaveForm
       dirty={dirty}
       save={() => AppService.SaveSyncSettings(draft)}
       success={t.syncSaved}
       onSaved={(next) => {
-        setDraft(next.sync);
+        setDraft(next);
         onSaved(next);
       }}
       hint={t.syncHint}
@@ -122,7 +144,7 @@ export function SyncForm({ saved, onSaved }: { saved: Credentials; onSaved: (c: 
   );
 }
 
-function SaveForm({
+function SaveForm<T>({
   dirty,
   save,
   success,
@@ -131,9 +153,9 @@ function SaveForm({
   children,
 }: {
   dirty: boolean;
-  save: () => Promise<Credentials>;
+  save: () => Promise<T>;
   success: string;
-  onSaved: (c: Credentials) => void;
+  onSaved: (value: T) => void;
   hint: string;
   children: React.ReactNode;
 }) {
@@ -144,9 +166,9 @@ function SaveForm({
     e.preventDefault();
     if (!dirty || saving) return;
     setSaving(true);
-    const next = await ui.run(save, { reload: false, success });
+    const saved = await ui.run(async () => ({ value: await save() }), { reload: false, success });
     setSaving(false);
-    if (next) onSaved(next);
+    if (saved) onSaved(saved.value);
   };
   return (
     <form className="flex flex-col gap-2.5" onSubmit={submit}>

@@ -324,6 +324,13 @@ func openTestLibraryAt(t *testing.T, path string) *library.Library {
 	return lib
 }
 
+func setGitHubToken(t *testing.T, lib *library.Library, token string) {
+	t.Helper()
+	if err := lib.SetGitHubToken(t.Context(), token); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // stubHTTPResponse 让所有 HTTP 请求都得到同一个响应,用于模拟远端返回的状态与内容。
 func stubHTTPResponse(t *testing.T, status int, body io.Reader) {
 	t.Helper()

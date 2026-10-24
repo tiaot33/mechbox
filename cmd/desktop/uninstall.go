@@ -40,11 +40,11 @@ type UninstallResult struct {
 	KeychainError string `json:"keychain_error,omitempty"`
 }
 
-// UninstallApp 卸载 Mechbox：先删除系统钥匙串里的令牌与密钥，再按选项把装出去的技能文件夹移到废纸篓
+// UninstallApp 卸载 Mechbox：先删除系统钥匙串里的密钥，再按选项把装出去的技能文件夹移到废纸篓
 // (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
 // 退出时技能库关上以后，再删除数据库、settings.json 与系统给应用留下的数据，并把应用移到废纸篓(移不动时在 Finder 中选中它)。
 // 移文件夹中途失败时返回错误、不退出，数据库与设置都还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。
-// 从开始卸载起不再保存令牌与同步设置。S3 上的库不动。
+// 从开始卸载起不再保存同步设置。S3 上的库不动。
 func (a *AppService) UninstallApp(ctx context.Context, opts UninstallOptions) (UninstallResult, error) {
 	if !opts.Folders.valid() {
 		return UninstallResult{}, fmt.Errorf("unknown folders option %q", opts.Folders)
@@ -61,7 +61,7 @@ func (a *AppService) UninstallApp(ctx context.Context, opts UninstallOptions) (U
 	err := a.keychain.delete()
 	if err == nil {
 		a.secrets, a.secretsRead = secrets{}, true
-		a.applyCredentials(a.credentials())
+		a.applySyncSettings(a.syncSettings())
 	}
 	a.credMu.Unlock()
 	if err != nil && !opts.SkipKeychain {
