@@ -13,6 +13,7 @@ import {
   type SkillScopeInspection,
   type UpdatePlan,
 } from "@bindings/internal/library";
+import { canInstall, defaultInstallOn, defaultSkills, placeKey, plannedInstalls } from "@/lib/consent";
 import { removeSkill } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
@@ -34,14 +35,9 @@ import {
 } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
 import {
-  canInstall,
   collectionName,
-  defaultInstallOn,
-  defaultSkills,
-  installKey,
   keepDeleted,
   notInterested,
-  plannedInstalls,
   previewNewSkills,
   reportUpdates,
   riskLabel,
@@ -571,7 +567,7 @@ export function Places({
           <span className="w-[190px] shrink-0 truncate pt-px">{scopeLabel(s, list[0].scope)}</span>
           <div className="flex min-w-0 grow flex-col gap-0.5">
             {list.map((p) => (
-              <label key={installKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
+              <label key={placeKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
                 <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
                 {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}

@@ -104,8 +104,11 @@ open bin/mechbox.app
 go test ./...                              # 仓库根目录；含 cmd/desktop 的测试
 go vet ./...
 cd frontend && pnpm exec tsc               # 前端类型检查
+cd frontend && pnpm test                  # 前端单元测试(vitest)
 pnpm install && cd e2e && pnpm test        # 端到端验证(见下)
 ```
+
+前端单元测试只测不碰界面、不调技能库的纯函数，测试文件放在被测文件旁边(如 `lib/consent.test.ts`)。默认勾哪些、写之前说明什么这类守住 [ADR 0010](../../docs/adr/0010-product-promises.md) 承诺的规则都放在 `lib/consent.ts`,改这些规则时同时改测试。
 
 `go test` 里的 `TestLibraryServiceExposesEveryLibraryMethod` 保证 `library.Library` 的每个方法都开放给了前端：Library 新增方法而绑定服务没跟上时，这个测试会失败。
 
@@ -152,7 +155,7 @@ cmd/desktop/
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)与少量全局样式
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
         ├── components/app/ 主界面组件、详情抽屉与各弹窗;layout.ts 是三栏与顶栏的公共样式
-        └── lib/            library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，actions.tsx 写操作流程，update.tsx 更新流程(更新计划、回滚、历史),diff.ts 更新计划里的逐行差异，
+        └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，actions.tsx 写操作流程，update.tsx 更新流程(更新计划、回滚、历史),diff.ts 更新计划里的逐行差异，
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
                             content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案用),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)

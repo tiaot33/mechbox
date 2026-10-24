@@ -21,7 +21,6 @@ import {
   type GroupID,
   type GroupMemberResult,
   type RegisteredProject,
-  type ReinstallRequest,
   type ReinstallResult,
   type Scope,
   type SkillID,
@@ -29,6 +28,17 @@ import {
   type SkillScopeInspection,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
+import {
+  detachedBy,
+  linkWrites,
+  overwriteKey,
+  placeKey,
+  planReinstall,
+  reinstallTargets,
+  type Detached,
+  type MissingChoice,
+  type ReinstallChoices,
+} from "./consent";
 import { describeError, unmanagedSourceError } from "./errors";
 import { messages, useT } from "./i18n";
 import { foundSource, toLibraryError, useFoundSources, type LibraryError, type Snapshot, useSnapshot } from "./library";
@@ -43,7 +53,6 @@ import {
   mergeProjectPlaces,
   sharedWithNote,
   outsideLinkNote,
-  needsReinstall,
   noSource,
   pending,
   placeOf,
@@ -403,9 +412,6 @@ export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
 
 // ---------- 重新安装 ----------
 
-const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
-// overwriteKey 是被改过的一处在确认框里的勾选:项目里共用一个文件夹的几处合成一行，按文件夹勾选;其余逐处勾选。
-const overwriteKey = (p: SkillScopeInspection) => (p.scope.project_id ? folderKey(p) : placeKey(p));
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
 // 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
@@ -415,35 +421,19 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
   const t = messages().actions;
   const inspected = await ui.run(() => LibraryService.InspectSkillScopes(filter), { reload: false });
   if (inspected === undefined) return;
-  const targets = (inspected ?? []).filter(needsReinstall);
+  const single = !!filter.skill_id && !!filter.scope;
+  const { targets, modified, missing } = reinstallTargets(inspected ?? [], single);
   if (!targets.length) {
     ui.toast(t.allCurrent(what));
     return;
   }
-  const single = !!filter.skill_id && !!filter.scope;
-  const modified = targets.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
-  const missing = single ? [] : targets.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing);
   let chosen: ReinstallChoices = { overwrite: new Set(), missing: new Map() };
   if (modified.length || missing.length) {
     const picked = await ui.open<ReinstallChoices>((close) => <ReinstallDialog modified={modified} missing={missing} close={close} />);
     if (!picked) return;
     chosen = picked;
   }
-  const choice = (p: SkillScopeInspection) => chosen.missing.get(folderKey(p)) ?? "keep";
-  const wanted = (p: SkillScopeInspection) => {
-    if (p.status === SkillScopeStatus.SkillScopeModified) return chosen.overwrite.has(overwriteKey(p));
-    if (p.status === SkillScopeStatus.SkillScopeMissing) return single || choice(p) === "putBack";
-    return true;
-  };
-  const requests: ReinstallRequest[] = targets.filter(wanted).map((p) => ({
-    skill_id: p.skill_id,
-    scope: p.scope,
-    overwrite: p.status === SkillScopeStatus.SkillScopeModified || p.status === SkillScopeStatus.SkillScopeMissing,
-  }));
-  // 共用一个文件夹的几处卸载一次就都撤销了，只卸载其中一处。
-  const uninstalls = [...new Map(missing.filter((p) => choice(p) === "uninstall").map((p) => [folderKey(p), p])).values()];
-  const keptModified = new Set(modified.filter((p) => !wanted(p)).map(overwriteKey)).size;
-  const keptMissing = new Set(missing.filter((p) => choice(p) === "keep").map(folderKey)).size;
+  const { requests, uninstalls, keptModified, keptMissing } = planReinstall(targets, single, chosen);
   if (!requests.length && !uninstalls.length) {
     ui.toast(t.nothingReinstalled(what, keptModified, keptMissing));
     return;
@@ -476,14 +466,6 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
   }
   const placed = mergeProjectPlaces(s, done.results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled)).length;
   ui.toast(t.reinstalled(placed, done.uninstalled, what, keptModified, keptMissing));
-}
-
-type MissingChoice = "keep" | "putBack" | "uninstall";
-
-// ReinstallChoices 是确认框里的选择:被改过的勾选了哪几处覆盖(overwriteKey),文件夹不在了的每个文件夹选了什么(folderKey)。
-interface ReinstallChoices {
-  overwrite: Set<string>;
-  missing: Map<string, MissingChoice>;
 }
 
 // ReinstallDialog 在重新安装前问用户两类地方：文件夹不在了的(不动、装回去还是卸载，默认不动)与被改过的(勾选的才覆盖，默认都不覆盖)。
@@ -593,11 +575,6 @@ function ReinstallDialog({
 }
 
 // ---------- 符号链接 ----------
-// 库写到是符号链接的那一处时写成独立的一份;覆盖或删除一处时，别处没一起动的链接若指着它，先给那一处换上独立的一份、
-// 保持它现在读到的内容。写之前、删之前都在确认里说出来。
-
-type Detached = { place: SkillScopeInspection; by: Scope[] };
-
 // folderPlaces 是和 places 同一个文件夹的各处(含共用这个目录的 Agent),删文件夹时它们一起没了。
 export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): SkillScopeInspection[] {
   const folders = new Set(places.map((p) => `${p.skill_id}|${p.folder}`));
@@ -610,20 +587,6 @@ function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScop
   return s.skillScopes.filter(
     (p) => members.includes(p.skill_id) && scopes.has(scopeKey(p.scope)) && !p.direct && (p.groups ?? []).every((g) => g === groupID),
   );
-}
-
-// detachedBy 是 touched 这几处(要覆盖或删除的)被别处的链接指着、而那一处不在 touched 里的:库会先给那一处换上独立的一份。
-// 共用一个文件夹的几处只算一次。
-export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
-  const keys = new Set(touched.map(placeKey));
-  const folders = new Set<string>();
-  return touched.flatMap((place) => {
-    const folder = `${place.skill_id}|${place.folder}`;
-    if (folders.has(folder)) return [];
-    folders.add(folder);
-    const by = (place.linked_by ?? []).filter((scope) => !keys.has(placeKey({ skill_id: place.skill_id, scope })));
-    return by.length ? [{ place, by }] : [];
-  });
 }
 
 // DetachNotice 说明 detachedBy 找出的那几处会先换上独立的一份;when 是在删、换还是搬走这个文件夹之前,
@@ -655,13 +618,6 @@ export function DetachNotice({
       ))}
     </Notice>
   );
-}
-
-// linkWrites 是写这几处(written)时和符号链接有关的两种情况:links 是写的就是链接(会换成独立的一份),
-// kept 是别处没一起写的链接指着要写的地方(先换成独立的一份，保持原来的内容)。
-export function linkWrites(places: SkillScopeInspection[], written: (p: SkillScopeInspection) => boolean) {
-  const chosen = places.filter(written);
-  return { links: chosen.filter((p) => p.link_target), kept: detachedBy(chosen) };
 }
 
 export function LinkWriteNotes({ links, kept }: ReturnType<typeof linkWrites>) {

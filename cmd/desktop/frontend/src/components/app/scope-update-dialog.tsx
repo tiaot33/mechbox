@@ -4,12 +4,13 @@
 import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/internal/library";
+import { canInstall, defaultInstallOn } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { type LibraryError, useSnapshot } from "@/lib/library";
 import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
-import { canInstall, defaultInstallOn, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
+import { reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
