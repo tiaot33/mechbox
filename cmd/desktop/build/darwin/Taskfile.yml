@@ -137,6 +137,9 @@ tasks:
   create:dmg:
     summary: Creates a configurable `.dmg` from the `.app` bundle
     platforms: [darwin]
+    deps:
+      - task: common:generate:icons
+      - task: generate:dmg-icon
     cmds:
       - >-
         wails3 tool package --format dmg --name "{{.APP_NAME}}" --out "{{.BIN_DIR}}"
@@ -154,6 +157,17 @@ tasks:
       DMG_WINDOW_HEIGHT: '{{.DMG_WINDOW_HEIGHT | default "380"}}'
       DMG_FILES: '{{.DMG_FILES | default ""}}'
 
+
+  generate:dmg-icon:
+    summary: Generates the DMG file icon `.icns` from `dmg-file-icon.png`
+    run: once
+    dir: build/darwin
+    sources:
+      - "dmg-file-icon.png"
+    generates:
+      - "dmg-file-icon.icns"
+    cmds:
+      - wails3 generate icons -input dmg-file-icon.png -macfilename dmg-file-icon.icns -windowsfilename ""
 
   create:app:bundle:
     summary: Creates an `.app` bundle

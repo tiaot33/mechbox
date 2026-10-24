@@ -9,6 +9,11 @@ frontend/dist/*
 !build/
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# 构建时由 appicon.png、appicon.icon、dmg-file-icon.png 生成的图标(generate:icons、darwin:generate:dmg-icon)。
+build/darwin/icons.icns
+build/darwin/Assets.car
+build/darwin/dmg-file-icon.icns
+build/windows/icon.ico
 # 全局 gitignore 常见的 lib/、*.manifest 规则会误伤这两处源码，显式取消。
 !frontend/src/lib/
 !build/windows/wails.exe.manifest
