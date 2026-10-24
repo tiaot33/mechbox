@@ -813,7 +813,8 @@ export const zh = {
     counts: (skills: number, groups: number, projects: number) => `${skills} 个技能 · ${groups} 个组 · ${projects} 个已登记项目`,
     pushWarning: "推送会用本机的库覆盖 S3 上的这一份。",
     cannotPull: "S3 上的库不能拉回。",
-    pullWarning: "拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失。Agent 目录里的文件夹不会改动。",
+    pullWarning:
+      "拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失;设置页填的 GitHub 令牌也换成那份库里的，那份库里没有就清空。Agent 目录里的文件夹不会改动。",
     missingProjects: (names: string[]) => `这些项目不在这台机器上，拉回后在右栏改项目位置指到本机:${names.join("、")}`,
   },
 
@@ -998,6 +999,7 @@ export const zh = {
 
   credentials: {
     keychainFailed: () => `没能读取${store()}，同步设置暂时不能查看或修改。${readFailedHelp()}`,
+    tokenReadFailed: (message: string) => `没能读取 GitHub 令牌:${message}`,
     retry: "重试",
     endpoint: "服务地址(可选，默认 AWS S3)",
     bucket: "存储桶",

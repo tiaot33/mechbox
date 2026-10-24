@@ -185,7 +185,7 @@ func (l *Library) GitHubToken(ctx context.Context) (token string, err error) {
 // 同一个数据库在别的进程里打开的 Library 要重新 [Open] 才用上新令牌。
 func (l *Library) SetGitHubToken(ctx context.Context, token string) (err error) {
 	defer func() { err = typedError(err) }()
-	ctx, unlock := l.sharedOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	token = strings.TrimSpace(token)
 	if err := l.store.SetGitHubToken(ctx, token); err != nil {

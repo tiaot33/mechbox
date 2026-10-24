@@ -60,7 +60,7 @@ func newStore(db *sql.DB) *Store {
 }
 
 func openDB(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_txlock=immediate&_busy_timeout=%d", path, busyTimeout.Milliseconds()))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_txlock=immediate&_secure_delete=on&_busy_timeout=%d", path, busyTimeout.Milliseconds()))
 	if err != nil {
 		return nil, err
 	}

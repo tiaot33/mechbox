@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import type { SyncSettings } from "@bindings/internal/library";
-import { gitHubTokenQuery, invalidateConfig, invalidateGitHubToken } from "@/lib/library";
+import { describeError } from "@/lib/errors";
+import { gitHubTokenQuery, invalidateConfig, invalidateGitHubToken, toLibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -58,8 +59,17 @@ export function SyncSection() {
 }
 
 // GitHubSection 给出 GitHub 令牌的表单。令牌是库里的内容，拉回后换成拉回的那个，表单随之重置。
+// 读不到时和同步分区一样说明原因、给出重试，不给表单。
 export function GitHubSection() {
-  const { data: saved } = useQuery(gitHubTokenQuery);
+  const t = useT().credentials;
+  const { data: saved, error, refetch } = useQuery(gitHubTokenQuery);
+  if (error)
+    return (
+      <div className="flex items-center gap-2">
+        <Hint className="grow">{t.tokenReadFailed(describeError(toLibraryError(error)))}</Hint>
+        <Button onClick={() => void refetch()}>{t.retry}</Button>
+      </div>
+    );
   return saved === undefined ? null : <GitHubForm key={saved} saved={saved} />;
 }
 

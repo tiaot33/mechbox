@@ -808,6 +808,24 @@ func TestGitHubTokenTravelsWithSync(t *testing.T) {
 	previewWith("environment-token")
 }
 
+// 清空或换掉的令牌不会留在推送出去的库里:删掉的内容在数据库文件里清零,S3 上的对象里找不到旧令牌原文。
+func TestClearedGitHubTokenDoesNotLeaveInPushedLibrary(t *testing.T) {
+	stub := newS3Stub(t)
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	setGitHubToken(t, lib, "ghp_REPLACEDMARKER0123456789")
+	setGitHubToken(t, lib, "ghp_CLEAREDMARKER")
+	setGitHubToken(t, lib, "")
+	if _, err := lib.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, old := range []string{"ghp_REPLACEDMARKER", "ghp_CLEAREDMARKER"} {
+		if bytes.Contains(stub.stored, []byte(old)) {
+			t.Fatalf("pushed library still contains %q", old)
+		}
+	}
+}
+
 // 同步设置整组取用:传入了就只用传入的那一组,缺的项不从环境变量补;在同一个 Library 上改设置,
 // 下一次同步就用新值;传 nil 回到环境变量。
 func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {
