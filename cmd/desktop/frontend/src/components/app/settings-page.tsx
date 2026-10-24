@@ -4,11 +4,12 @@
 // GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
-import { AppService, CheckInterval, Language, LibraryService, type Settings } from "@bindings/cmd/desktop";
+import { useQuery } from "@tanstack/react-query";
+import { AppService, CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
 import { unregisterProject } from "@/lib/actions";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import { type LibraryError, useSnapshot, wslDistrosQuery, wslDistroErrorQuery } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -34,7 +35,8 @@ import { UninstallDialog } from "./uninstall-dialog";
 const sections = ["general", "agents", "projects", "checks", "github", "sync", "about", "uninstall"] as const;
 type Section = (typeof sections)[number];
 
-export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onClose: () => void; onConfigChange: () => void }) {
+export function SettingsPage({ onClose }: { onClose: () => void }) {
+  const s = useSnapshot();
   const ui = useUI();
   const tt = useT();
   const t = tt.settings;
@@ -52,7 +54,7 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
     { value: Language.LanguageEn, label: t.english },
   ];
   const [settings, setSettings] = useState<Settings>();
-  const credentials = useCredentials(onConfigChange);
+  const credentials = useCredentials();
   const [current, setCurrent] = useState<Section>(sections[0]);
   const refs = useRef<Partial<Record<Section, HTMLElement | null>>>({});
 
@@ -72,25 +74,12 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
   }, []);
 
   // 这台机器上装的 WSL 发行版;不在 Windows 上或没装 WSL 时为空，全局目录这一项不出现。
-  const [distros, setDistros] = useState<string[]>([]);
-  useEffect(() => {
-    const call = LibraryService.ListWSLDistros();
-    call.then((list) => setDistros(list ?? []), () => {});
-    return () => void call.cancel();
-  }, []);
+  const distros = useQuery(wslDistrosQuery).data ?? [];
 
   // 选的发行版启动时没能打开、现在用的是 Windows 本机的全局目录时，这一项下面写明，并可以再试一次。
-  const [distroError, setDistroError] = useState("");
-  useEffect(() => {
-    const call = AppService.WSLDistroError();
-    call.then(setDistroError, () => {});
-    return () => void call.cancel();
-  }, []);
-  const retryDistro = async () => {
-    const opened = await ui.run(() => AppService.RetryWSLDistro().then(() => true), { onError: (err) => distroFailed(err) });
-    if (opened) setDistroError("");
-    else await AppService.WSLDistroError().then(setDistroError, () => {});
-  };
+  // 再试、改选发行版都经 run,完成后随缓存失效重读。
+  const distroError = useQuery(wslDistroErrorQuery).data ?? "";
+  const retryDistro = () => ui.run(() => AppService.RetryWSLDistro(), { onError: (err) => distroFailed(err) });
   // 发行版打不开(FailedPrecondition)时说明是哪个发行版、全局目录没有换。
   const distroFailed = (err: LibraryError, distro = latest.current?.wsl_distro ?? "") => {
     if (err.code !== ErrorCode.FailedPrecondition) return false;
@@ -112,7 +101,6 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
         onError: (err) => switching && distroFailed(err, next.wsl_distro ?? ""),
       });
       if (!saved) await AppService.Settings().then(show, () => {});
-      else if (switching) setDistroError("");
       if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
   };
@@ -222,12 +210,11 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
               )}
               {card(
                 "agents",
-                <Button onClick={() => ui.open((close) => <AgentDialog s={s} onClose={close} />)}>
+                <Button onClick={() => ui.open((close) => <AgentDialog onClose={close} />)}>
                   <Icon name="plus" />
                   {t.addAgent}
                 </Button>,
                 <AgentSection
-                  s={s}
                   shown={settings && (settings.agents_shown ?? null)}
                   onShown={(a, on) => save({ agents_shown: { ...latest.current?.agents_shown, [a.code]: on } })}
                 />,
@@ -302,7 +289,7 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                 null,
                 <SetRow>
                   <Hint className="grow">{t.uninstallDesc()}</Hint>
-                  <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog s={s} onClose={close} />)}>
+                  <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
                     {t.uninstallButton}
                   </Button>
                 </SetRow>,

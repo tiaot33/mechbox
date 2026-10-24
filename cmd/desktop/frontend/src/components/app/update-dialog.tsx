@@ -2,8 +2,7 @@
 // 从上到下：来源版本从哪到哪、风险(新增或改动的脚本、新增的可执行文件)、GitHub 的提交说明、技能(有变化 / 改名 / 删除 / 没变化)
 // 与文件差异、来源里的新技能、装出去的地方。可以跳过单个技能的这次改动，也可以跳过整个来源版本。
 // 从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CancellablePromise } from "@wailsio/runtime";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   PlannedChange,
@@ -18,8 +17,21 @@ import { removeSkill } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentName, folderKey, linkNote, mergedScopeKey, mergeProjectPlaces, revisionSummary, sharedWithNote, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { type LibraryError, useSnapshot } from "@/lib/library";
+import {
+  agentName,
+  folderKey,
+  linkNote,
+  mergedScopeKey,
+  mergeProjectPlaces,
+  revisionSummary,
+  sharedWithNote,
+  revisionText,
+  scopeKey,
+  scopeLabel,
+  shortRevision,
+  sourceLabel,
+} from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
@@ -49,18 +61,17 @@ import { FileDiff } from "./file-diff";
 const sectionClass = "mt-1 text-[13.5px] font-semibold";
 
 export function UpdateDialog({
-  s,
   collectionID,
   focus,
   select,
   onClose,
 }: {
-  s: Snapshot;
   collectionID: CollectionID;
   focus?: SkillID; // 从技能发起时的那个技能
   select?: SkillID[]; // 从跳过记录找回时默认勾上的技能
   onClose: () => void;
 }) {
+  const s = useSnapshot();
   const ui = useUI();
   const tt = useT();
   const t = tt.plan;
@@ -75,32 +86,12 @@ export function UpdateDialog({
   const [viewing, setViewing] = useState<{ id: SkillID; path: string } | null>(null);
   const [kept, setKept] = useState<Set<SkillID>>(new Set());
   const [removed, setRemoved] = useState<Set<SkillID>>(new Set());
-  const [newSkills, setNewSkills] = useState<string[]>(collection?.new_skills ?? []);
   const [conflict, setConflict] = useState(false);
   const [working, setWorking] = useState(false);
-  const alive = useRef(true);
-  const reads = useRef(new Set<CancellablePromise<unknown>>());
-  useEffect(() => {
-    alive.current = true;
-    const pending = reads.current;
-    return () => {
-      alive.current = false;
-      for (const call of pending) void call.cancel();
-      pending.clear();
-    };
-  }, []);
-
-  // 新技能按库里现在的集合说：生成计划、回答"不是"、入库或"不感兴趣"之后都会变，弹窗拿到的快照是打开时的。
-  const refreshNew = useCallback(() => {
-    const call = LibraryService.ListCollections();
-    reads.current.add(call);
-    void call
-      .then(
-        (list) => alive.current && setNewSkills(list?.find((c) => c.id === collectionID)?.new_skills ?? []),
-        () => {},
-      )
-      .finally(() => reads.current.delete(call));
-  }, [collectionID]);
+  // 新技能按库里现在的集合说：生成计划、回答"不是"、入库或"不感兴趣"都经 run,完成后快照重读，这里跟着变。
+  // 点了"不感兴趣"的不等快照重读完，立即不再提。
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const newSkills = (collection?.new_skills ?? []).filter((name) => !dismissed.includes(name));
 
   // 生成更新计划要读一次来源;生成时写下的检查结论经 run 的重读带回主界面。关掉弹窗时取消读取。
   useEffect(() => {
@@ -119,7 +110,6 @@ export function UpdateDialog({
       setChecked(defaultSkills(p, focus ? [focus] : select));
       setInstallChoice(new Map());
       setConflict(false);
-      refreshNew();
     });
     return () => {
       cancelled = true;
@@ -215,7 +205,6 @@ export function UpdateDialog({
       onError: onStale,
     });
     if (!done) return;
-    refreshNew();
     setChecked((set) => new Set([...set].filter((id) => id !== p.skill.id)));
     if (viewing?.id === p.skill.id) setViewing(null);
     patch(p.skill.id, { renamed_to: undefined, diff: undefined, risks: undefined });
@@ -434,14 +423,14 @@ export function UpdateDialog({
           <span className="grow">
             {tt.drawer.newSkills(sourceLabel(s, plan.source), newSkills)}
           </span>
-          <Button variant="link" disabled={locked} onClick={() => previewNewSkills(ui, collectionID).then(refreshNew)}>
+          <Button variant="link" disabled={locked} onClick={() => void previewNewSkills(ui, collectionID)}>
             {tt.drawer.goFetch}
           </Button>
           <Button
             variant="link"
             disabled={locked}
             onClick={async () => {
-              if (await notInterested(ui, collectionID, newSkills)) refreshNew();
+              if (await notInterested(ui, collectionID, newSkills)) setDismissed((names) => [...names, ...newSkills]);
             }}
           >
             {tt.drawer.notInterested}
@@ -452,7 +441,7 @@ export function UpdateDialog({
       {checked.size > 0 && (
         <>
           <div className={sectionClass}>{t.places}</div>
-          <Places s={s} places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
+          <Places places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
           <Hint>{t.uncheckedNote}</Hint>
         </>
       )}
@@ -550,20 +539,19 @@ export function SkillDiff({
 
 // Places 按地方列出勾选的技能装在哪里;同一处装了几个技能时各自一个勾选框，状态分开给。
 export function Places({
-  s,
   places,
   name,
   on,
   onToggle,
   modified,
 }: {
-  s: Snapshot;
   places: SkillScopeInspection[];
   name: (id: SkillID) => string;
   on: (p: SkillScopeInspection) => boolean;
   onToggle: (p: SkillScopeInspection) => void;
   modified?: string; // 用户改过的地方旁边的说明
 }) {
+  const s = useSnapshot();
   const t = useT().plan;
   if (!places.length) return <Hint>{t.notPlaced}</Hint>;
   // unchecked 是链着这一处、这次没勾的地方：换这一处之前，库先给它们换上独立的一份。

@@ -1,8 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { CancelledRejectionError } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
 import { I18nProvider, toLanguage, type Language } from "@/lib/i18n";
+import { queryClient } from "@/lib/library";
 import App from "./App";
 
 // 前端取消一个绑定调用时，Go 端可能已经返回了错误、还在路上;它晚于取消到达，Wails 会把它报成未处理的 rejection。
@@ -18,9 +20,11 @@ void AppService.Language()
   .then((language) =>
     createRoot(document.getElementById("root")!).render(
       <StrictMode>
-        <I18nProvider initial={language}>
-          <App />
-        </I18nProvider>
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider initial={language}>
+            <App />
+          </I18nProvider>
+        </QueryClientProvider>
       </StrictMode>,
     ),
   );

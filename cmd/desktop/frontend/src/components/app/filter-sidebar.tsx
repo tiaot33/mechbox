@@ -4,10 +4,10 @@
 import { useState } from "react";
 import type { ConfigStatus } from "@bindings/cmd/desktop";
 import { SourceType } from "@bindings/internal/library";
+import { useSnapshot } from "@/lib/library";
 import { checkUpdates, createGroup, deleteGroup, renameGroup } from "@/lib/actions";
 import { alreadyInGroup, dropProps, useDnD } from "@/lib/dnd";
 import { useT } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
 import {
   checkableCollections,
   pending,
@@ -29,7 +29,6 @@ import { TailPath, toggled } from "./parts";
 import { SyncDialog } from "./sync-dialog";
 
 interface FilterSidebarProps {
-  s: Snapshot;
   config: ConfigStatus;
   filter: SkillFilter;
   onFilter: (filter: SkillFilter) => void;
@@ -37,7 +36,8 @@ interface FilterSidebarProps {
   onSettings: () => void;
 }
 
-export function FilterSidebar({ s, config, filter, onFilter, onFetch, onSettings }: FilterSidebarProps) {
+export function FilterSidebar({ config, filter, onFilter, onFetch, onSettings }: FilterSidebarProps) {
+  const s = useSnapshot();
   const ui = useUI();
   const dnd = useDnD();
   const tt = useT();

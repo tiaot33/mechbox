@@ -33,7 +33,7 @@ import {
 import { confirmLinkWrites, confirmLinkedRequests, LinkWriteNotes, linkWrites } from "./actions";
 import { describeError } from "./errors";
 import { messages, useT } from "./i18n";
-import type { LibraryError, Snapshot } from "./library";
+import { type LibraryError, type Snapshot, useSnapshot } from "./library";
 import { collectionSkills, folderKey, isLocal, mergeProjectPlaces, scopeKey, scopeLabel, sourceLabel } from "./model";
 import { Modal, type useUI } from "./ui";
 import { FetchReview } from "@/components/app/fetch-review";
@@ -201,12 +201,13 @@ export async function reportUpdates(ui: UI, s: Snapshot, outcomes: UpdateOutcome
     }
     return;
   }
-  await ui.open((close) => <FailedPlaces ui={ui} s={s} outcomes={outcomes} close={() => close()} />);
+  await ui.open((close) => <FailedPlaces ui={ui} outcomes={outcomes} close={() => close()} />);
 }
 
 // FailedPlaces 列出没换上的地方和原因;"重试"把它们单独再换一次，结果算进那次更新(回滚时一起装回去)。
 // 重试中途关掉弹窗时取消正在换的这一次，后面的集合不再继续。
-function FailedPlaces({ ui, s, outcomes, close }: { ui: UI; s: Snapshot; outcomes: UpdateOutcome[]; close: () => void }) {
+function FailedPlaces({ ui, outcomes, close }: { ui: UI; outcomes: UpdateOutcome[]; close: () => void }) {
+  const s = useSnapshot();
   const t = useT().update;
   const [failed, setFailed] = useState(() => outcomes.map((o) => o.failed));
   const [working, setWorking] = useState(false);
@@ -396,14 +397,14 @@ async function refreshInstalls(ui: UI, s: Snapshot, skill: Skill): Promise<Updat
 
 // updateFromScope 打开"用这里的修改更新":把巡检为被手动改过的那一处的内容作为技能的新版本，并换到勾选的其他地方。
 export function updateFromScope(ui: UI, s: Snapshot, skill: Skill, scope: Scope) {
-  return ui.open((close) => <ScopeUpdateDialog s={s} skill={skill} scope={scope} onClose={() => close()} />);
+  return ui.open((close) => <ScopeUpdateDialog skill={skill} scope={scope} onClose={() => close()} />);
 }
 
 // openUpdate 打开集合的更新计划。从技能发起时传 focus:默认只勾这一个，其余折叠;
 // 从跳过记录找回时传 select:默认勾上那几个。
 export function openUpdate(ui: UI, s: Snapshot, collectionID: CollectionID, opts: { focus?: SkillID; select?: SkillID[] } = {}) {
   if (!s.collections.some((c) => c.id === collectionID)) return;
-  return ui.open((close) => <UpdateDialog s={s} collectionID={collectionID} focus={opts.focus} select={opts.select} onClose={() => close()} />);
+  return ui.open((close) => <UpdateDialog collectionID={collectionID} focus={opts.focus} select={opts.select} onClose={() => close()} />);
 }
 
 // ---------- 回滚 ----------
@@ -439,7 +440,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
     body: (
       <>
         <Hint>{t.rollbackHint}</Hint>
-        <LinkWriteNotes s={s} {...writes} />
+        <LinkWriteNotes {...writes} />
       </>
     ),
     confirm: t.rollback,
@@ -505,7 +506,7 @@ export async function rollbackUpdate(ui: UI, s: Snapshot, record: UpdateRecordID
 
 // openHistory 打开集合的历史(按集合)或某个技能的历史(按技能:哪几次更新改过它)。
 export function openHistory(ui: UI, s: Snapshot, filter: UpdateHistoryFilter, title: string) {
-  return ui.open((close) => <UpdateHistory s={s} filter={filter} title={title} onClose={() => close()} />);
+  return ui.open((close) => <UpdateHistory filter={filter} title={title} onClose={() => close()} />);
 }
 
 // previewNewSkills 打开这个集合来源的入库预览，新出现的技能默认勾上。

@@ -5,10 +5,10 @@
 // 指针还没到就展开，拖完收回。
 import { useEffect, useRef, useState } from "react";
 import type { Agent, RegisteredProject } from "@bindings/internal/library";
+import { useSnapshot } from "@/lib/library";
 import { registerProject, relocateProject, unregisterProject } from "@/lib/actions";
 import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
 import { useT } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
 import {
   agentNameIn,
   agentsIn,
@@ -41,7 +41,6 @@ import { NavCount, navItem } from "./nav";
 import { PlaceAgentMark } from "./parts";
 
 interface ScopePanelProps {
-  s: Snapshot;
   scope: ScopeKey | null;
   expanded: Set<Place>;
   moreAgents: Set<Place>;
@@ -50,7 +49,8 @@ interface ScopePanelProps {
   onToggleMore: (place: Place) => void;
 }
 
-export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onToggleProject, onToggleMore }: ScopePanelProps) {
+export function ScopePanel({ scope, expanded, moreAgents, onScope, onToggleProject, onToggleMore }: ScopePanelProps) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().scopes;
   const tl = useT().layout;
@@ -89,7 +89,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
-          <PlaceAgentMark s={s} code={agent.code} place={place} />
+          <PlaceAgentMark code={agent.code} place={place} />
           <span className="grow truncate" title={projectFolderNote(s, agent.code, place)}>
             {agentNameIn(s, agent.code, place)}
           </span>
@@ -178,7 +178,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                 {!open && (
                   <span className="inline-flex items-center gap-[3px] group-hover:hidden">
                     {agentsUsedIn(s, p.id).map((a) => (
-                      <PlaceAgentMark key={a.code} s={s} code={a.code} place={p.id} className="size-3 text-[8px]" />
+                      <PlaceAgentMark key={a.code} code={a.code} place={p.id} className="size-3 text-[8px]" />
                     ))}
                   </span>
                 )}

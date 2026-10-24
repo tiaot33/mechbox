@@ -1,8 +1,8 @@
 // skills.sh 的审计：入库预览里每个候选的标记，与技能详情里的审计卡片。只供参考，不影响入库、更新。
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Browser } from "@wailsio/runtime";
-import { LibraryService } from "@bindings/cmd/desktop";
 import { AuditAvailability, AuditStatus, type AuditEntry, type SkillAudit, type SkillID } from "@bindings/internal/library";
+import { skillAuditQuery } from "@/lib/library";
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
 import { Badge, type Tone } from "@/components/ui/badge";
@@ -66,20 +66,12 @@ export function AuditBadge({ audit, onRetry }: { audit: SkillAudit | null; onRet
 }
 
 // AuditCard 是技能详情里的审计：打开详情就按技能的来源与名字查 skills.sh,逐个列出合作方的结论。
-// 来源不在 skills.sh 收录范围(技能库返回 nil)时整张卡片不显示。
+// 来源不在 skills.sh 收录范围(技能库返回 nil)时整张卡片不显示。查过的结果在这次打开 app 期间留着，写操作后不重查。
 export function AuditCard({ skillID }: { skillID: SkillID }) {
   const t = useT().audit;
-  const [audit, setAudit] = useState<SkillAudit | null | "loading">("loading");
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    setAudit("loading");
-    const call = LibraryService.GetSkillAudit(skillID);
-    call.then(
-      (a) => setAudit(a),
-      () => setAudit({ availability: AuditAvailability.AuditUnavailable }),
-    );
-    return () => void call.cancel();
-  }, [skillID, attempt]);
+  const q = useQuery(skillAuditQuery(skillID));
+  const audit: SkillAudit | null | "loading" =
+    q.isFetching || q.isPending ? "loading" : q.isError ? { availability: AuditAvailability.AuditUnavailable } : q.data;
   if (audit === null) return null;
   const entries = audit === "loading" ? [] : (audit.entries ?? []);
   const available = audit !== "loading" && audit.availability === AuditAvailability.AuditAvailable;
@@ -95,7 +87,7 @@ export function AuditCard({ skillID }: { skillID: SkillID }) {
       ) : audit.availability === AuditAvailability.AuditUnavailable ? (
         <p className="text-muted-foreground">
           {t.unavailableLong}{" "}
-          <Button variant="link" onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="link" onClick={() => void q.refetch()}>
             {t.retry}
           </Button>
         </p>

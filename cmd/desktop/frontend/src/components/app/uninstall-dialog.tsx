@@ -2,11 +2,12 @@
 // (默认保留;移到废纸篓(Windows、Linux 上是回收站)时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
 // 退出后删除数据库与设置,macOS 上把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
 import { useEffect, useState } from "react";
-import { AppService, LibraryService, UninstallFolders, type ConfigStatus } from "@bindings/cmd/desktop";
+import { useQuery } from "@tanstack/react-query";
+import { AppService, LibraryService, UninstallFolders } from "@bindings/cmd/desktop";
 import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import { type LibraryError, useSnapshot, configQuery } from "@/lib/library";
 import { mergeProjectPlaces, projectName, scopeLabel, shortPath } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";
@@ -24,22 +25,18 @@ type Phase =
   | { kind: "failed"; error: LibraryError; skippedKeychain: boolean; trashing: boolean }
   | { kind: "done" };
 
-export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => void }) {
+export function UninstallDialog({ onClose }: { onClose: () => void }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().uninstall;
   const [places, setPlaces] = useState<SkillScopeInspection[]>();
-  const [config, setConfig] = useState<ConfigStatus>();
+  const config = useQuery(configQuery).data;
   const [folders, setFolders] = useState<string>(UninstallFolders.FoldersKeep);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   // 打开时现查磁盘：快照里的状态可能落后，用户刚改过的文件夹要算进被改过的几处。
   const inspect = () => ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false }).then((p) => p && setPlaces(p));
-  useEffect(() => {
-    void inspect();
-    const call = LibraryService.Config();
-    call.then(setConfig, () => {});
-    return () => void call.cancel();
-  }, []);
+  useEffect(() => void inspect(), []);
 
   const byFolder = new Map<string, SkillScopeInspection>();
   for (const p of places ?? []) if (!byFolder.has(p.folder)) byFolder.set(p.folder, p);

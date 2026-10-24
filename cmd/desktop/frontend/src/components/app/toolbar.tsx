@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
+import { useSnapshot, useLoadedSnapshot } from "@/lib/library";
 import {
   agentNameIn,
   agentsIn,
@@ -36,7 +36,6 @@ import { Count, PlaceAgentMark } from "./parts";
 export type ListView = "card" | "list";
 
 interface ToolbarProps {
-  snapshot: Snapshot | undefined;
   title: string;
   count: number | undefined;
   busy: boolean;
@@ -57,7 +56,8 @@ interface ToolbarProps {
 }
 
 export function Toolbar(props: ToolbarProps) {
-  const { snapshot: s, scope } = props;
+  const { scope } = props;
+  const s = useLoadedSnapshot();
   const search = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
   const tt = useT();
@@ -92,8 +92,8 @@ export function Toolbar(props: ToolbarProps) {
       <div className="flex justify-center">
         {s && (
           <Popover open={menu} onOpenChange={setMenu}>
-            <ScopePill {...props} s={s} open={menu} />
-            <ScopeMenu {...props} s={s} onOpen={setMenu} />
+            <ScopePill {...props} open={menu} />
+            <ScopeMenu {...props} onOpen={setMenu} />
           </Popover>
         )}
       </div>
@@ -139,12 +139,13 @@ export function Toolbar(props: ToolbarProps) {
 }
 
 // ScopePill 是顶栏中间的作用域胶囊：未选时是淡色占位，选中后显示 Agent · 地方，点开是选择弹层,× 清除。
-type MenuProps = ToolbarProps & { s: Snapshot };
+type MenuProps = ToolbarProps;
 
 const pillClass =
   "scope-pill inline-flex h-7 items-center rounded-full border border-border bg-white text-xs font-medium whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-primary-border data-[open=true]:border-primary-border [&_[data-slot=icon]]:size-[11px] [&_[data-slot=icon]]:text-subtle";
 
-function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { open: boolean }) {
+function ScopePill({ scope, open, scopeDirectory, onScope }: MenuProps & { open: boolean }) {
+  const s = useSnapshot();
   const t = useT();
   if (!scope) {
     return (
@@ -164,7 +165,7 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { op
       <div className={pillClass} data-open={open} data-no-drag title={scopeDirectory ? shortPath(s, scopeDirectory) : undefined}>
         <PopoverTrigger asChild>
           <button type="button" className="inline-flex h-full items-center gap-1.5 pr-2 pl-2.5">
-            <PlaceAgentMark s={s} code={sc.agent} place={placeOf(sc)} />
+            <PlaceAgentMark code={sc.agent} place={placeOf(sc)} />
             <b className="max-w-[240px] truncate">{agentNameIn(s, sc.agent, placeOf(sc))}</b>
             <span className="text-muted-foreground">· {sc.project_id ? projectName(s, sc.project_id) : t.model.global}</span>
             {issues > 0 && <Badge tone="warn">{issues}</Badge>}
@@ -186,7 +187,8 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { op
 
 // ScopeMenu 是作用域弹层：按地方分组，和右栏一样直接列出装有技能的与检测到的 Agent,
 // 勾选了显示但没检测到的用每处一个下拉补上。
-function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { onOpen: (open: boolean) => void }) {
+function ScopeMenu({ scope, scopeDirectory, onScope, onOpen }: MenuProps & { onOpen: (open: boolean) => void }) {
+  const s = useSnapshot();
   const t = useT();
   const places: { id: Place; name: string; path: string }[] = [
     { id: 0, name: t.model.global, path: "~" },
@@ -224,7 +226,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
                 )}
                 onClick={() => pick(key(a.code))}
               >
-                <PlaceAgentMark s={s} code={a.code} place={place.id} />
+                <PlaceAgentMark code={a.code} place={place.id} />
                 <span className="grow truncate" title={projectFolderNote(s, a.code, place.id)}>
                   {agentNameIn(s, a.code, place.id)}
                 </span>

@@ -1,6 +1,7 @@
 // 历史：集合(或某个技能)的每次更新、跳过、回滚各一条，最新的在前。
 // 更新记录可以回滚、重试没换上的地方;跳过的记录可以找回来再更新(打开更新计划，默认勾上那几个)。
 import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
@@ -17,7 +18,7 @@ import { confirmLinkedRequests } from "@/lib/actions";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
+import { toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate, rollbackOutcome, rollbackUpdate } from "@/lib/update";
@@ -39,30 +40,12 @@ function kindText(kind: string): { text: string; tone: Tone } | undefined {
   return known[kind];
 }
 
-export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
+export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
   const t = useT().history;
-  const [records, setRecords] = useState<UpdateRecord[] | null>(null);
-  const [failed, setFailed] = useState<LibraryError | null>(null);
-  const [generation, setGeneration] = useState(0);
-
-  // 读取失败和确实没有记录分开说：失败时给出原因和重试，不显示成"没有记录"。
-  useEffect(() => {
-    let cancelled = false;
-    setFailed(null);
-    const call = LibraryService.ListUpdateHistory(filter);
-    call.then(
-      (r) => !cancelled && setRecords(r ?? []),
-      (e) => {
-        if (cancelled) return;
-        setRecords(null);
-        setFailed(toLibraryError(e));
-      },
-    );
-    return () => {
-      cancelled = true;
-      void call.cancel();
-    };
-  }, [filter, generation]);
+  // 读取失败和确实没有记录分开说：失败时给出原因和重试，不显示成"没有记录"。回滚、重试之后随写操作重读。
+  const q = useQuery(updateHistoryQuery(filter));
+  const failed = q.isError ? toLibraryError(q.error) : null;
+  const records = q.data ?? null;
 
   return (
     <Modal
@@ -83,7 +66,7 @@ export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filt
             {describeError(failed)}
           </Notice>
           <div>
-            <Button onClick={() => setGeneration((n) => n + 1)}>{t.retry}</Button>
+            <Button onClick={() => void q.refetch()}>{t.retry}</Button>
           </div>
         </>
       ) : records === null ? (
@@ -95,7 +78,7 @@ export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filt
       ) : (
         <ListBox>
           {records.map((r) => (
-            <Record key={r.id} s={s} record={r} all={records} onChange={() => setGeneration((n) => n + 1)} />
+            <Record key={r.id} record={r} all={records} />
           ))}
         </ListBox>
       )}
@@ -103,7 +86,8 @@ export function UpdateHistory({ s, filter, title, onClose }: { s: Snapshot; filt
   );
 }
 
-function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecord; all: UpdateRecord[]; onChange: () => void }) {
+function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().history;
   const kind = kindText(record.kind) ?? { text: record.kind, tone: "neutral" as Tone };
@@ -141,7 +125,6 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
     if (!results) return;
     const left = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed).length;
     ui.toast(left ? t.stillLeft(left) : t.allPlaced, left ? "error" : "ok");
-    onChange();
   };
 
   return (
@@ -162,7 +145,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
             <SkillLine key={x.skill_id} skill={x} diffable={update || rollback} />
           ))}
         </div>
-        {installs.length > 0 && <Places s={s} record={record} />}
+        {installs.length > 0 && <Places record={record} />}
         {(record.commits?.length ?? 0) > 0 && (
           <details>
             <summary className="cursor-pointer text-[11px] text-muted-foreground">{t.commits(record.commits!.length)}</summary>
@@ -186,10 +169,7 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
         {update && !rolledBack && (
           <Button
             size="sm"
-            onClick={async () => {
-              await rollbackUpdate(ui, s, record.id, record.installs ?? []);
-              onChange();
-            }}
+            onClick={() => void rollbackUpdate(ui, s, record.id, record.installs ?? [])}
           >
             {t.rollback}
           </Button>
@@ -211,24 +191,11 @@ function Record({ s, record, all, onChange }: { s: Snapshot; record: UpdateRecor
 // useFromRevisions 是一次更新之前各技能所在的来源版本(去重);记录只带换到的来源版本，之前的从各技能的旧版本读。
 // 技能已从库里移除时旧版本也不在了，读不到的不列。
 function useFromRevisions(record: UpdateRecord | undefined): string[] {
-  const [revisions, setRevisions] = useState<string[]>([]);
-  const id = record?.id;
-  useEffect(() => {
-    if (!record?.revision) return;
-    let cancelled = false;
-    const calls = (record.skills ?? []).filter((x) => x.from_version_id !== x.to_version_id).map((x) => LibraryService.GetVersion(x.from_version_id));
-    void Promise.allSettled(calls).then((results) => {
-      if (cancelled) return;
-      const revs = results.flatMap((r) => (r.status === "fulfilled" && r.value.revision ? [shortRevision(r.value.revision)] : []));
-      setRevisions([...new Set(revs)]);
-    });
-    return () => {
-      cancelled = true;
-      calls.forEach((c) => void c.cancel());
-    };
-    // 记录本身不会变，按 ID 读一次。
-  }, [id]);
-  return revisions;
+  const moved = record?.revision ? (record.skills ?? []).filter((x) => x.from_version_id !== x.to_version_id) : [];
+  const versions = useQueries({ queries: moved.map((x) => versionQuery(x.from_version_id)) });
+  // 全部读完(读不到的算完)再列，和逐个出现相比不跳动。
+  if (versions.some((q) => q.isPending)) return [];
+  return [...new Set(versions.flatMap((q) => (q.data?.revision ? [shortRevision(q.data.revision)] : [])))];
 }
 
 function reinstallText(outcome: string): { text: string; tone: Tone } | undefined {
@@ -242,7 +209,8 @@ function reinstallText(outcome: string): { text: string; tone: Tone } | undefine
 }
 
 // Places 逐处列出那次重新安装(更新)或装回(回滚)的结果，没换上、没装回的写明原因。
-function Places({ s, record }: { s: Snapshot; record: UpdateRecord }) {
+function Places({ record }: { record: UpdateRecord }) {
+  const s = useSnapshot();
   const t = useT().history;
   const installs = record.installs ?? [];
   const names = new Map((record.skills ?? []).map((x) => [x.skill_id, x.name]));

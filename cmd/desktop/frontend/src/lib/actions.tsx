@@ -31,7 +31,7 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "./errors";
 import { messages, useT } from "./i18n";
-import { foundSource, toLibraryError, useFoundSources, type LibraryError, type Snapshot } from "./library";
+import { foundSource, toLibraryError, useFoundSources, type LibraryError, type Snapshot, useSnapshot } from "./library";
 import { FetchReview } from "@/components/app/fetch-review";
 import { offerProject } from "@/components/app/fetch-unmanaged-dialog";
 import {
@@ -198,7 +198,7 @@ export async function uninstallSkill(ui: UI, s: Snapshot, id: SkillID, scope: Sc
               )}
             </Notice>
           )}
-          <DetachNotice s={s} items={detached} when="delete" />
+          <DetachNotice items={detached} when="delete" />
         </>
       ),
       confirm: t.uninstall,
@@ -286,10 +286,10 @@ export async function uninstallGroup(ui: UI, s: Snapshot, groupID: GroupID, scop
           {removed.length > 0 && (
             <>
               <Notice tone="warn">{t.groupUninstallShared(removed.length)}</Notice>
-              <SharedFolders s={s} places={removed} />
+              <SharedFolders places={removed} />
             </>
           )}
-          <DetachNotice s={s} items={detached} when="delete" />
+          <DetachNotice items={detached} when="delete" />
         </>
       ),
       confirm: t.uninstall,
@@ -332,7 +332,7 @@ export async function removeSkillFromGroup(ui: UI, s: Snapshot, groupID: GroupID
       body: (
         <>
           <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
-          <DetachNotice s={s} items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="delete" prefix={t.ifUninstallToo} />
+          <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="delete" prefix={t.ifUninstallToo} />
         </>
       ),
       choices: [
@@ -381,7 +381,6 @@ export async function deleteGroup(ui: UI, s: Snapshot, groupID: GroupID) {
       <>
         <Hint>{t.deleteGroupHint(installs)}</Hint>
         <DetachNotice
-          s={s}
           items={detachedBy(folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? [])))}
           when="delete"
           prefix={t.ifUninstallToo}
@@ -426,7 +425,7 @@ export async function reinstall(ui: UI, s: Snapshot, filter: SkillScopeFilter, w
   const missing = single ? [] : targets.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing);
   let chosen: ReinstallChoices = { overwrite: new Set(), missing: new Map() };
   if (modified.length || missing.length) {
-    const picked = await ui.open<ReinstallChoices>((close) => <ReinstallDialog s={s} modified={modified} missing={missing} close={close} />);
+    const picked = await ui.open<ReinstallChoices>((close) => <ReinstallDialog modified={modified} missing={missing} close={close} />);
     if (!picked) return;
     chosen = picked;
   }
@@ -489,16 +488,15 @@ interface ReinstallChoices {
 
 // ReinstallDialog 在重新安装前问用户两类地方：文件夹不在了的(不动、装回去还是卸载，默认不动)与被改过的(勾选的才覆盖，默认都不覆盖)。
 function ReinstallDialog({
-  s,
   modified,
   missing,
   close,
 }: {
-  s: Snapshot;
   modified: SkillScopeInspection[];
   missing: SkillScopeInspection[];
   close: (value?: ReinstallChoices) => void;
 }) {
+  const s = useSnapshot();
   const t = useT();
   const [overwrite, setOverwrite] = useState<Set<string>>(new Set());
   const [choices, setChoices] = useState<Map<string, MissingChoice>>(new Map());
@@ -631,16 +629,15 @@ export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
 // DetachNotice 说明 detachedBy 找出的那几处会先换上独立的一份;when 是在删、换还是搬走这个文件夹之前,
 // prefix 用在只和某个选项有关时(如"选「一并卸载」时:")。
 export function DetachNotice({
-  s,
   items,
   when,
   prefix = "",
 }: {
-  s: Snapshot;
   items: Detached[];
   when: "delete" | "replace" | "move";
   prefix?: string;
 }) {
+  const s = useSnapshot();
   const t = useT();
   if (!items.length) return null;
   return (
@@ -667,17 +664,17 @@ export function linkWrites(places: SkillScopeInspection[], written: (p: SkillSco
   return { links: chosen.filter((p) => p.link_target), kept: detachedBy(chosen) };
 }
 
-export function LinkWriteNotes({ s, links, kept }: { s: Snapshot } & ReturnType<typeof linkWrites>) {
+export function LinkWriteNotes({ links, kept }: ReturnType<typeof linkWrites>) {
   const t = useT();
   return (
     <>
       {links.length > 0 && (
         <>
           <Notice className="write-linked">{t.actions.writeLinked(links.length)}</Notice>
-          <LinkedPlaces s={s} places={links} />
+          <LinkedPlaces places={links} />
         </>
       )}
-      <DetachNotice s={s} items={kept} when="replace" />
+      <DetachNotice items={kept} when="replace" />
     </>
   );
 }
@@ -695,7 +692,7 @@ export async function confirmLinkWrites(
   const { links, kept } = linkWrites(places, written);
   const unexplained = links.filter((p) => !explained(p));
   if (!unexplained.length && !kept.length) return true;
-  return !!(await ui.confirm({ title, body: <LinkWriteNotes s={s} links={unexplained} kept={kept} />, confirm }));
+  return !!(await ui.confirm({ title, body: <LinkWriteNotes links={unexplained} kept={kept} />, confirm }));
 }
 
 // confirmLinkedRequests 是 confirmLinkWrites 的现查版：只知道要写哪几处时，先巡检一次再说明。
@@ -707,7 +704,8 @@ export async function confirmLinkedRequests(ui: UI, s: Snapshot, requests: { ski
 }
 
 // LinkedPlaces 列出是符号链接的各处与它们指向哪里。
-export function LinkedPlaces({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
+export function LinkedPlaces({ places }: { places: SkillScopeInspection[] }) {
+  const s = useSnapshot();
   return (
     <ListBox>
       {mergeProjectPlaces(s, places).map((p) => (
@@ -834,7 +832,7 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
     body: (
       <>
         <Hint>{t.unregisterHint(shortPath(s, project.path))}</Hint>
-        <DetachNotice s={s} items={detachedBy(places)} when="delete" prefix={t.ifRemoveToo} />
+        <DetachNotice items={detachedBy(places)} when="delete" prefix={t.ifRemoveToo} />
       </>
     ),
     choices: installed
@@ -861,7 +859,8 @@ export async function unregisterProject(ui: UI, s: Snapshot, project: Registered
 // 只有自定义 Agent 能改、能删。它离开或删除时，旧目录里还有别的 Agent 在读的文件夹不动，确认框里逐个列出。
 
 // SharedFolders 列出还有别的 Agent 在读、因而保留的技能文件夹。
-function SharedFolders({ s, places }: { s: Snapshot; places: SkillScopeInspection[] }) {
+function SharedFolders({ places }: { places: SkillScopeInspection[] }) {
+  const s = useSnapshot();
   const t = useT();
   return (
     <ListBox>
@@ -916,11 +915,10 @@ export async function editAgent(
           {shared.length > 0 && (
             <>
               <Notice>{t.editAgentShared(shared.length)}</Notice>
-              <SharedFolders s={s} places={shared} />
+              <SharedFolders places={shared} />
             </>
           )}
           <DetachNotice
-            s={s}
             items={detachedBy(folderPlaces(s, affected.filter((p) => !p.shared_with?.length)))}
             when="move"
             prefix={t.ifMigrate}
@@ -973,10 +971,10 @@ export async function deleteAgent(ui: UI, s: Snapshot, agent: Agent) {
         {kept.length > 0 && (
           <>
             <Notice>{t.deleteAgentShared(kept.length)}</Notice>
-            <SharedFolders s={s} places={kept} />
+            <SharedFolders places={kept} />
           </>
         )}
-        <DetachNotice s={s} items={detachedBy(folderPlaces(s, own))} when="delete" prefix={t.ifRemoveToo} />
+        <DetachNotice items={detachedBy(folderPlaces(s, own))} when="delete" prefix={t.ifRemoveToo} />
       </>
     ),
     choices: own.length

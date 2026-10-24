@@ -1,5 +1,5 @@
 // 全局界面服务：toast、弹窗(确认 / 输入 / 自定义)与写操作执行器 run。
-// 写操作统一经 run:显示忙碌、失败时按错误码提示、成功后重读快照(前端在自己的写操作之后重读，见 ADR 0008)。
+// 写操作统一经 run:显示忙碌、失败时按错误码提示、完成后让查询缓存失效重读(前端在自己的写操作之后重读，见 ADR 0008)。
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorCode } from "@bindings/internal/library";
 import { Icon } from "@/components/app/icons";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "./utils";
 import { describeError } from "./errors";
 import { useT } from "./i18n";
-import { toLibraryError, type LibraryError } from "./library";
+import { reloadLibrary, toLibraryError, type LibraryError } from "./library";
 
 export interface Choice {
   value: string;
@@ -54,7 +54,7 @@ interface UIService {
   confirm: (opts: ConfirmOptions) => Promise<string | undefined>;
   prompt: (opts: PromptOptions) => Promise<string | undefined>;
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
-  // reload 重读快照：不经 run 的只读调用也会写库(如生成更新计划时写下的检查结论),之后由调用方让界面跟上。
+  // reload 重读界面上的数据：不经 run 的只读调用也会写库(如生成更新计划时写下的检查结论),之后由调用方让界面跟上。
   reload: () => void;
   busy: boolean;
 }
@@ -67,7 +67,7 @@ export function useUI(): UIService {
   return ui;
 }
 
-export function UIProvider({ reload, children }: { reload: () => void; children: ReactNode }) {
+export function UIProvider({ children }: { children: ReactNode }) {
   const [toastState, setToast] = useState<{ message: string; tone: "ok" | "error"; show: boolean; action?: ToastAction }>({
     message: "",
     tone: "ok",
@@ -125,15 +125,15 @@ export function UIProvider({ reload, children }: { reload: () => void; children:
       } finally {
         setPending((n) => n - 1);
         // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
-        if (opts.reload !== false) reload();
+        if (opts.reload !== false) void reloadLibrary();
       }
     },
-    [reload, toast],
+    [toast],
   );
 
   const service = useMemo(
-    () => ({ toast, open, confirm, prompt, run, reload, busy: pending > 0 }),
-    [toast, open, confirm, prompt, run, reload, pending],
+    () => ({ toast, open, confirm, prompt, run, reload: () => void reloadLibrary(), busy: pending > 0 }),
+    [toast, open, confirm, prompt, run, pending],
   );
 
   return (
