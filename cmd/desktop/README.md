@@ -154,8 +154,9 @@ cmd/desktop/
         ├── App.tsx         主界面：三栏布局与启动时的提示(第一次打开、WSL 发行版没能打开)
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)与少量全局样式
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
-        ├── components/app/ 主界面：顶栏、左栏、中间列表、右栏与详情抽屉，几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);
-        │                   layout.ts 是三栏与顶栏的公共样式
+        ├── components/app/ 主界面：顶栏(toolbar)、左栏(filter-sidebar)、中间列表(skill-list/:列表、技能卡片、未纳管技能卡片、
+        │                   列表顶部的摘要条与更新列表)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
+        │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);layout.ts 是三栏与顶栏的公共样式
         ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
         │                   install/ 安装、卸载、组安装与重新安装，update/ 检查更新、更新计划、更新、回滚与更新历史，

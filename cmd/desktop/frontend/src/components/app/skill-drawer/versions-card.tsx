@@ -1,0 +1,112 @@
+// 技能详情里的版本历史：与当前版本比较，查看旧版本的文件。
+import { useState } from "react";
+import { LibraryService } from "@bindings/cmd/desktop";
+import type { FileMetadata, SkillVersion, VersionDiff, VersionID } from "@bindings/internal/library";
+import { formatDate } from "@/lib/content";
+import { useT } from "@/lib/i18n";
+import { useUI } from "@/lib/ui";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Notice } from "@/components/ui/notice";
+import { Code, useFileContent } from "./files-card";
+
+// VersionsCard 列出版本历史(最新在前);可查看某个版本的文件，或与当前版本比较。
+// 版本按这个技能入库以来的先后编号(版本 1 是入库时的那一份),不用库里全局的版本 ID。
+export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; currentID: VersionID }) {
+  const ui = useUI();
+  const tt = useT();
+  const t = tt.drawer;
+  const number = new Map(versions.map((v, i) => [v.id, i + 1]));
+  const list = [...versions].reverse();
+  const [diff, setDiff] = useState<{ id: number; diff: VersionDiff } | null>(null);
+  const [viewing, setViewing] = useState<{ id: VersionID; files: FileMetadata[] } | null>(null);
+  const [viewPath, setViewPath] = useState("");
+  const viewedText = useFileContent(viewing?.id, viewPath);
+
+  const compare = async (v: SkillVersion) => {
+    const d = await ui.run(() => LibraryService.DiffVersions(v.id, currentID), { reload: false });
+    if (d) setDiff({ id: v.id, diff: d });
+  };
+  const view = async (v: SkillVersion) => {
+    const files = await ui.run(() => LibraryService.ListVersionFiles(v.id), { reload: false });
+    if (files !== undefined) {
+      setViewing({ id: v.id, files: files ?? [] });
+      setViewPath(files?.[0]?.path ?? "");
+    }
+  };
+
+  const changes = diff
+    ? [
+        ...(diff.diff.added ?? []).map((p) => ["added", t.added, p] as const),
+        ...(diff.diff.changed ?? []).map((p) => ["changed", t.changed, p] as const),
+        ...(diff.diff.deleted ?? []).map((p) => ["deleted", t.deleted, p] as const),
+      ]
+    : [];
+  const diffColor = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
+
+  return (
+    <Card>
+      <CardHeader title={t.versions} note={t.versionsNote(versions.length)} />
+      <ol className="versions flex flex-col gap-1.5">
+        {list.map((v) => (
+          <li key={v.id} className="flex items-center gap-3 text-xs">
+            <span className="font-medium">{t.versionN(number.get(v.id))}</span>
+            <span>{formatDate(v.created_at)}</span>
+            {v.revision && <span className="font-mono text-[11px] text-muted-foreground">{v.revision.slice(0, 12)}</span>}
+            {v.based_on ? <span className="text-[11px] text-muted-foreground">{t.basedOn(number.get(v.based_on))}</span> : null}
+            {v.maybe_edited && <span className="text-[11px] text-muted-foreground">{t.maybeEdited}</span>}
+            {v.id === currentID ? (
+              <Badge tone="ok">{t.current}</Badge>
+            ) : (
+              <Button variant="link" onClick={() => compare(v)}>
+                {t.compare}
+              </Button>
+            )}
+            <Button variant="link" onClick={() => view(v)}>
+              {t.viewFiles}
+            </Button>
+          </li>
+        ))}
+      </ol>
+      {diff && (
+        <Notice className="mt-2">
+          <div className="flex items-center gap-2">
+            <b>{t.versionToCurrent(number.get(diff.id))}</b>
+            <span className="grow" />
+            <Button variant="link" onClick={() => setDiff(null)}>
+              {t.collapse}
+            </Button>
+          </div>
+          {changes.map(([kind, label, p]) => (
+            <div key={kind + p} data-diff={kind} className={cn("font-mono text-[11px]", diffColor[kind])}>
+              {label} {p}
+            </div>
+          ))}
+          {changes.length === 0 && <div className="text-[11px]">{tt.common.sameContent}</div>}
+        </Notice>
+      )}
+      {viewing && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <b className="text-[11px]">{t.versionFiles(number.get(viewing.id))}</b>
+            <NativeSelect value={viewPath} onChange={(e) => setViewPath(e.target.value)}>
+              {viewing.files.map((f) => (
+                <option key={f.path} value={f.path}>
+                  {f.path}
+                </option>
+              ))}
+            </NativeSelect>
+            <span className="grow" />
+            <Button variant="link" onClick={() => setViewing(null)}>
+              {t.collapse}
+            </Button>
+          </div>
+          {viewedText === null ? <Notice>{tt.common.binary}</Notice> : viewedText !== undefined ? <Code>{viewedText}</Code> : null}
+        </div>
+      )}
+    </Card>
+  );
+}

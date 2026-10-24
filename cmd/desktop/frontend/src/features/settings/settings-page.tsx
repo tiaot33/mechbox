@@ -4,31 +4,24 @@
 // GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AppService, CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
+import { AppService, type Settings } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
-import { unregisterProject } from "@/features/scope/projects";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import { useSnapshot, wslDistrosQuery, wslDistroErrorQuery, type LibraryError } from "@/lib/library";
-import { projectName, shortPath } from "@/lib/model";
+import { useSnapshot, type LibraryError } from "@/lib/library";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
+import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
-import { Notice } from "@/components/ui/notice";
-import { NativeSelect } from "@/components/ui/native-select";
-import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
-import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
-import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
 import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
-import { ProjectPathDialog } from "@/components/app/scope-panel";
 import { SetRow } from "@/components/app/set-row";
+import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
+import { AboutSection, ChecksSection, GeneralSection, ProjectsSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
 
 // 分区按文案里的键排，标题取当前语言的文案。
@@ -42,18 +35,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const tt = useT();
   const t = tt.settings;
   const { setLanguage } = useLanguage();
-  const intervals: { value: CheckInterval; label: string }[] = [
-    { value: CheckInterval.CheckOnOpen, label: t.onOpen },
-    { value: CheckInterval.CheckHourly, label: t.hourly },
-    { value: CheckInterval.CheckDaily, label: t.daily },
-    { value: CheckInterval.CheckWeekly, label: t.weekly },
-  ];
-  // 跟随系统时实际用哪种语言由 Go 端按系统的首选语言定。
-  const languages: { value: Language; label: string }[] = [
-    { value: Language.LanguageSystem, label: t.followSystem },
-    { value: Language.LanguageZh, label: t.chinese },
-    { value: Language.LanguageEn, label: t.english },
-  ];
   const [settings, setSettings] = useState<Settings>();
   const credentials = useCredentials();
   const [current, setCurrent] = useState<Section>(sections[0]);
@@ -74,12 +55,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     return () => void call.cancel();
   }, []);
 
-  // 这台机器上装的 WSL 发行版;不在 Windows 上或没装 WSL 时为空，全局目录这一项不出现。
-  const distros = useQuery(wslDistrosQuery).data ?? [];
-
-  // 选的发行版启动时没能打开、现在用的是 Windows 本机的全局目录时，这一项下面写明，并可以再试一次。
-  // 再试、改选发行版都经 run,完成后随缓存失效重读。
-  const distroError = useQuery(wslDistroErrorQuery).data ?? "";
   const retryDistro = () => ui.run(() => AppService.RetryWSLDistro(), { onError: (err) => distroFailed(err) });
   // 发行版打不开(FailedPrecondition)时说明是哪个发行版、全局目录没有换。
   const distroFailed = (err: LibraryError, distro = latest.current?.wsl_distro ?? "") => {
@@ -152,62 +127,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               {card(
                 "general",
                 null,
-                settings && (
-                  <>
-                    <SettingRow
-                      label={t.stayInMenuBar}
-                      desc={t.stayInMenuBarDesc}
-                      on={settings.stay_in_menu_bar}
-                      onChange={(on) => save({ stay_in_menu_bar: on })}
-                    />
-                    <SettingRow
-                      label={t.dockBadge}
-                      desc={t.dockBadgeDesc}
-                      on={settings.dock_badge}
-                      onChange={(on) => save({ dock_badge: on })}
-                    />
-                    <SetRow className="language-row">
-                      <div className="grow">
-                        <div>{t.language}</div>
-                        <Hint className="mt-0.5">{t.languageDesc}</Hint>
-                      </div>
-                      <Segmented
-                        className="shrink-0"
-                        value={settings.language ?? Language.LanguageSystem}
-                        onChange={(v) => save({ language: v })}
-                        options={languages}
-                      />
-                    </SetRow>
-                    {(distros.length > 0 || settings.wsl_distro) && (
-                      <SetRow>
-                        <div className="grow">
-                          <div>{t.wslDistro}</div>
-                          <Hint className="mt-0.5">{t.wslDistroDesc}</Hint>
-                        </div>
-                        <NativeSelect
-                          className="shrink-0 max-w-[180px]"
-                          value={settings.wsl_distro ?? ""}
-                          onChange={(e) => save({ wsl_distro: e.target.value })}
-                        >
-                          <option value="">{t.windowsHome}</option>
-                          {[...new Set([...distros, ...(settings.wsl_distro ? [settings.wsl_distro] : [])])].map((d) => (
-                            <option key={d} value={d}>
-                              WSL · {d}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      </SetRow>
-                    )}
-                    {distroError && settings.wsl_distro && (
-                      <SetRow>
-                        <Notice tone="warn" className="grow">
-                          {t.distroFallback(settings.wsl_distro, distroError)}
-                        </Notice>
-                        <Button onClick={() => void retryDistro()}>{t.retryDistro}</Button>
-                      </SetRow>
-                    )}
-                  </>
-                ),
+                settings && <GeneralSection settings={settings} save={save} onRetryDistro={() => void retryDistro()} />,
               )}
               {card(
                 "agents",
@@ -226,64 +146,19 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                   <Icon name="plus" />
                   {t.registerProject}
                 </Button>,
-                <>
-                  {s.projects.map((p) => (
-                    <SetRow key={p.id}>
-                      <Icon name="folder" />
-                      <div className="min-w-0 grow">
-                        <div className="truncate">{projectName(s, p.id)}</div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground select-text" title={p.path}>
-                          {shortPath(s, p.path)}
-                        </div>
-                      </div>
-                      {p.missing && (
-                        <Badge tone="warn" title={t.missingTitle}>
-                          {t.missing}
-                        </Badge>
-                      )}
-                      <Button onClick={() => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={p} onClose={close} />)}>
-                        {t.relocate}
-                      </Button>
-                      <Button onClick={() => void unregisterProject(p)}>{t.unregister}</Button>
-                    </SetRow>
-                  ))}
-                  {s.projects.length === 0 && <Hint>{t.noProjects}</Hint>}
-                </>,
+                <ProjectsSection />,
               )}
               {card(
                 "checks",
                 null,
-                settings && (
-                  <>
-                    <SettingRow
-                      label={t.autoCheck}
-                      desc={t.autoCheckDesc}
-                      on={settings.auto_check}
-                      onChange={(on) => save({ auto_check: on })}
-                    />
-                    <SetRow className={cn(!settings.auto_check && "text-muted-foreground")}>
-                      <div className="grow">{t.interval}</div>
-                      <Segmented
-                        value={settings.check_interval}
-                        disabled={!settings.auto_check}
-                        onChange={(v) => save({ check_interval: v })}
-                        options={intervals}
-                      />
-                    </SetRow>
-                  </>
-                ),
+                settings && <ChecksSection settings={settings} save={save} />,
               )}
               {card("github", t.tokenInKeychain(), credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
               {card("sync", t.secretsInKeychain(), credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
               {card(
                 "about",
                 null,
-                <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-xs [&_dt]:text-muted-foreground">
-                  <dt>{t.version}</dt>
-                  <dd className="font-mono select-text">{s.info.version}</dd>
-                  <dt>{t.databasePath}</dt>
-                  <dd className="font-mono text-[11px] break-all select-text">{s.info.library_path}</dd>
-                </dl>,
+                <AboutSection />,
               )}
               {card(
                 "uninstall",
@@ -300,17 +175,5 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         </main>
       </div>
     </>
-  );
-}
-
-function SettingRow({ label, desc, on, onChange }: { label: string; desc: string; on: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <SetRow>
-      <div className="grow">
-        <div>{label}</div>
-        <Hint className="mt-0.5">{desc}</Hint>
-      </div>
-      <Switch checked={on} onCheckedChange={onChange} />
-    </SetRow>
   );
 }

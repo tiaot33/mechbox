@@ -4,12 +4,10 @@
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖动中按指针轨迹预判要去的折叠项目或"其他 Agent",
 // 指针还没到就展开，拖完收回。
 import { useEffect, useRef, useState } from "react";
-import type { Agent, RegisteredProject } from "@bindings/internal/library";
 import { useShallow } from "zustand/react/shallow";
-import { useSnapshot } from "@/lib/library";
-import { registerProject, relocateProject, unregisterProject } from "@/features/scope/projects";
-import { alreadyInScope, dropProps, useDnD } from "./dnd";
+import type { Agent, RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
+import { useSnapshot } from "@/lib/library";
 import {
   agentNameIn,
   agentsIn,
@@ -20,23 +18,23 @@ import {
   placeOf,
   projectFolderNote,
   projectName,
-  scopeKey,
   sameMergedScope,
+  scopeKey,
   scopeOf,
   shortPath,
   skillScopesIn,
   type Place,
 } from "@/lib/model";
-import { resolveLocalPath } from "@/lib/paths";
-import { Modal, useUI } from "@/lib/ui";
-import { pickScope, toggleMoreAgents, toggleProject, useView } from "@/lib/view";
+import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { pickScope, toggleMoreAgents, toggleProject, useView } from "@/lib/view";
+import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
+import { unregisterProject } from "@/features/scope/projects";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FieldError, Hint } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Hint } from "@/components/ui/field";
+import { alreadyInScope, dropProps, useDnD } from "./dnd";
 import { Icon } from "./icons";
-import { pickDirectory } from "@/features/fetch/fetch-dialog";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
 import { PlaceAgentMark } from "./parts";
@@ -276,64 +274,5 @@ function RailHead({ icon, label, children }: { icon: "globe" | "folder"; label: 
       </span>
       {children}
     </div>
-  );
-}
-
-// ProjectPathDialog 登记一个项目目录，或给出 project 时改它的位置:可直接输入路径，也可用系统目录选择框。
-// 设置页的项目分区也用它。
-export function ProjectPathDialog({
-  home,
-  project,
-  onClose,
-}: {
-  home: string;
-  project?: RegisteredProject;
-  onClose: () => void;
-}) {
-  const t = useT().scopes;
-  const [path, setPath] = useState(project?.path ?? "");
-  const [working, setWorking] = useState(false);
-  const resolved = resolveLocalPath(path, home);
-  const submit = async () => {
-    if (!resolved?.path || working) return;
-    setWorking(true);
-    const ok = project ? await relocateProject(project, resolved.path) : await registerProject(resolved.path);
-    setWorking(false);
-    if (ok) onClose();
-  };
-  return (
-    <Modal
-      title={project ? t.relocateDialog(project.name) : t.register}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>{t.cancel}</Button>
-          <Button variant="primary" disabled={!resolved?.path} loading={working} onClick={submit}>
-            {project ? t.relocate : t.registerShort}
-          </Button>
-        </>
-      }
-    >
-      <Hint>{project ? t.relocateHint : t.registerHint}</Hint>
-      <div className="flex min-w-0 items-center gap-2">
-        <Input
-          className="grow"
-          autoFocus
-          placeholder={t.pathPlaceholder}
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-        <Button
-          onClick={async () => {
-            const dir = await pickDirectory(project ? t.chooseRelocate : t.chooseRegister);
-            if (dir) setPath(dir);
-          }}
-        >
-          {t.choose}
-        </Button>
-      </div>
-      {resolved?.error && <FieldError>{resolved.error}</FieldError>}
-    </Modal>
   );
 }

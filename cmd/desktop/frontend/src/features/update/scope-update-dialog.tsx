@@ -17,7 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
-import { Places, SkillDiff } from "./update-dialog";
+import { Places } from "./places";
+import { SkillDiff } from "./skill-diff";
 
 const sectionClass = "mt-1 text-[13.5px] font-semibold";
 
