@@ -78,7 +78,7 @@ export const zh = {
   },
 
   paths: {
-    absolute: "请输入绝对路径(以 / 或 ~/ 开头),或点「选择…」",
+    absolute: "请输入绝对路径或以 ~ 开头的路径，或点「选择…」",
     fetchRelative: "本地目录请输入绝对路径(以 / 或 ~/ 开头),或点「选择…」",
   },
 
@@ -711,6 +711,10 @@ export const zh = {
     wslDistroDesc:
       "各 Agent 的全局目录在哪。选了 WSL 发行版时换成发行版主目录下的目录;之前装在 Windows 本机全局目录里的技能留在原处，不再管。",
     windowsHome: "Windows 本机",
+    distroFallback: (distro: string, reason: string) =>
+      `打不开 WSL 发行版「${distro}」，现在用的是 Windows 本机的全局目录:${reason}`,
+    retryDistro: "再试一次",
+    distroSwitchFailed: (distro: string, reason: string) => `打不开 WSL 发行版「${distro}」，全局目录没有换:${reason}`,
     followSystem: "跟随系统",
     // 语言选项写各自的名字，两份文案里一样。
     chinese: "简体中文",
@@ -766,6 +770,8 @@ export const zh = {
       `也包括入库前就在那里、后来交给 Mechbox 管理的文件夹。${inProjects ? "项目里的文件夹如果已提交到仓库，移走后会出现在 git 改动里。" : ""}`,
     modified: (n: number, trash: boolean) => `下面 ${n} 处被改过${trash ? `，会和其余的一起移到${bin()}` : ""}:`,
     trashing: (n: number) => `正在把 ${n} 个技能文件夹移到${bin()}…`,
+    distroTrash: (n: number) =>
+      `其中 ${n} 个在 WSL 发行版里，移到那个发行版的回收站(~/.local/share/Trash),不进 Windows 的回收站;要找回时，在发行版里从 ~/.local/share/Trash/files 移回原处。`,
     uninstalling: "正在卸载…",
     keychainFailed: (message: string) =>
       `没能删除${store()}里的令牌和密钥${deniedHint()}:${message}\nMechbox 还没卸载，什么都没动。可以重试;也可以跳过，${manualDelete()}。`,
@@ -1042,5 +1048,6 @@ export const zh = {
     useWindowsHomeDesc: "设置里的全局目录改回 Windows 本机，发行版里装的技能留在原处",
     continue: "继续",
     distroOpened: (distro: string) => `已打开 WSL 发行版「${distro}」`,
+    distroFallback: (distro: string) => `现在用的是 Windows 本机的全局目录;可以在设置 → 通用里再试打开「${distro}」`,
   },
 };

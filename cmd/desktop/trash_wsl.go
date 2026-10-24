@@ -23,15 +23,15 @@ done
 mv -- "$p" "$d/files/$n" || { rm -f "$d/info/$n.trashinfo"; exit 1; }`
 
 func splitWSLPath(input string) (distro, linux string, ok bool) {
-	for _, prefix := range []string{`\\wsl.localhost\`, `\\wsl$\`} {
+	for _, prefix := range []string{`\\wsl.localhost\`, `\\wsl$\`, `//wsl.localhost/`, `//wsl$/`} {
 		if len(input) < len(prefix) || !strings.EqualFold(input[:len(prefix)], prefix) {
 			continue
 		}
-		distro, rest, _ := strings.Cut(input[len(prefix):], `\`)
+		distro, rest, _ := strings.Cut(strings.ReplaceAll(input[len(prefix):], `\`, "/"), "/")
 		if distro == "" {
 			return "", "", false
 		}
-		return distro, path.Clean("/" + strings.ReplaceAll(rest, `\`, "/")), true
+		return distro, path.Clean("/" + rest), true
 	}
 	return "", "", false
 }

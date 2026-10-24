@@ -1,3 +1,5 @@
+//go:build !windows
+
 package wsl
 
 import (
@@ -29,7 +31,7 @@ func TestDirFS(t *testing.T) {
 			t.Fatal(err)
 		}
 		info, err := fs.Stat(fsys, "scripts/run.sh")
-		if err != nil || info.Mode().Perm()&0o111 == 0 {
+		if err != nil || info.Mode().Perm()&0o111 == 0 || info.Size() != int64(len("scripts/run.sh")) {
 			t.Fatalf("run.sh = %v %v", info, err)
 		}
 		if _, err := fs.ReadFile(fsys, "missing"); !os.IsNotExist(err) {

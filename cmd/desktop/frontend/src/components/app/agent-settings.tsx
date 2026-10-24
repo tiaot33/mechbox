@@ -7,7 +7,7 @@ import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { agentShown, shortPath } from "@/lib/model";
-import { resolveLocalPath } from "@/lib/paths";
+import { insideHome, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,9 +84,7 @@ export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent;
     const resolved = resolveLocalPath(global, home);
     if (!resolved) found.global_directory = t.globalRequired;
     else if (resolved.path === undefined) found.global_directory = resolved.error;
-    else if (!resolved.path.startsWith(home + "/") || resolved.path.replace(/\/+$/, "") === home) {
-      found.global_directory = t.globalInHome;
-    }
+    else if (!insideHome(resolved.path, home)) found.global_directory = t.globalInHome;
     const rel = project.trim();
     if (!rel) found.project_directory = t.projectRequired;
     else if (rel.startsWith("/") || rel.startsWith("~")) found.project_directory = t.projectRelative;

@@ -14,6 +14,9 @@ func TestSplitWSLPath(t *testing.T) {
 	if !ok || distro != "Ubuntu" || linux != "/home/me/.claude/skills/tdd" {
 		t.Fatalf("split = %q %q %v", distro, linux, ok)
 	}
+	if distro, linux, ok := splitWSLPath(`//WSL$/Alpine/root/../tmp/x`); !ok || distro != "Alpine" || linux != "/tmp/x" {
+		t.Fatalf("split forward slashes = %q %q %v", distro, linux, ok)
+	}
 	if _, _, ok := splitWSLPath(`C:\Users\me\.claude\skills\tdd`); ok {
 		t.Fatal("split a Windows path")
 	}

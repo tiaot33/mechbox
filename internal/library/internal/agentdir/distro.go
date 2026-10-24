@@ -3,6 +3,7 @@ package agentdir
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -11,6 +12,8 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,15 +25,11 @@ type distro struct {
 	name string
 }
 
-const missingStatus = 3
-
 const (
-	lstatScript = `if [ -L "$1" ]; then printf l; elif [ -d "$1" ]; then printf d; elif [ -f "$1" ]; then printf f; elif [ -e "$1" ]; then printf o; else exit 3; fi`
-	statScript  = `if [ -d "$1" ]; then printf d; elif [ -f "$1" ]; then printf f; elif [ -e "$1" ]; then printf o; else exit 3; fi`
+	lstatScript = `if [ -L "$1" ]; then printf l; elif [ -d "$1" ]; then printf d; elif [ -e "$1" ]; then printf o; else exit 3; fi`
+	statScript  = `if [ -d "$1" ]; then printf d; elif [ -e "$1" ]; then printf o; else exit 3; fi`
 	evalScript  = `[ -e "$1" ] || exit 3
 readlink -f -- "$1"`
-	readScript = `[ -e "$1" ] || exit 3
-cat -- "$1"`
 	sameEntryScript = `{ [ -e "$1" ] || [ -L "$1" ]; } && { [ -e "$2" ] || [ -L "$2" ]; } || exit 3
 if [ -L "$1" ] || [ -L "$2" ]; then
 	a=$(readlink -f -- "$(dirname -- "$1")") || exit 3
@@ -41,57 +40,126 @@ else
 fi`
 	sameFolderScript = `[ -e "$1" ] && [ -e "$2" ] || exit 3
 [ "$1" -ef "$2" ]`
-	withinScript = `[ -e "$2" ] || exit 3
-if [ -e "$1" ] && p=$(readlink -f -- "$1"); then c=$p; else c=$1; fi
-while :; do
-	n=$(dirname -- "$c")
-	[ "$n" = "$c" ] && exit 1
-	c=$n
-	[ "$c" -ef "$2" ] && exit 0
+	canonicalScript = `for c in "$@"; do
+	rest=
+	while :; do
+		if [ -e "$c" ] && r=$(readlink -f -- "$c"); then
+			break
+		fi
+		p=$(dirname -- "$c")
+		if [ "$p" = "$c" ]; then
+			r=$c
+			break
+		fi
+		rest=$(basename -- "$c")${rest:+/$rest}
+		c=$p
+	done
+	printf '%s\0%s\0' "$r" "$rest"
 done`
-	canonicalScript = `c=$1
-rest=
-while :; do
-	if [ -e "$c" ] && r=$(readlink -f -- "$c"); then
-		printf '%s\n%s' "$r" "$rest"
-		exit 0
+	inspectScript = `n=$1
+b=$2
+c=$3
+shift 3
+u=0
+key() {
+	d=$(dirname -- "$1")
+	k=$(readlink -f -- "$d" 2>/dev/null) && [ -n "$k" ] || k=$d
+	printf '%s\0%s\0' "$k" "$(basename -- "$1")"
+}
+one() {
+	if [ -L "$1" ]; then t=l; elif [ -d "$1" ]; then t=d; elif [ -e "$1" ]; then t=o; else t=-; fi
+	r=
+	if [ "$t" = l ] && [ -e "$1" ]; then r=$(readlink -f -- "$1") || r=; fi
+	printf '%s\0%s\0' "$t" "$r"
+	key "$1"
+	h=$1
+	i=0
+	while [ "$i" -lt 40 ] && [ -L "$h" ] && l=$(readlink -- "$h"); do
+		case $l in
+		/*) h=$l ;;
+		*) h=$(dirname -- "$h")/$l ;;
+		esac
+		printf '%s\0' "$h"
+		key "$h"
+		i=$((i + 1))
+	done
+	printf '\0'
+	[ "$n" = - ] && return
+	if [ ! -e "$1" ] || ! d=$(readlink -f -- "$1") || [ ! -d "$d" ]; then
+		printf 'irregular\0'
+		return
 	fi
-	p=$(dirname -- "$c")
-	if [ "$p" = "$c" ]; then
-		printf '%s\n%s' "$c" "$rest"
-		exit 0
+	if ! (cd -- "$d" && find . PRUNE -prune -o ! -type d -print) >"$T/l" 2>"$T/m"; then
+		printf 'error\0%s\0' "$(cat "$T/m")"
+		return
 	fi
-	rest=$(basename -- "$c")${rest:+/$rest}
-	c=$p
+	f=0
+	s=0
+	while IFS= read -r e; do
+		if [ -L "$d/$e" ] || [ ! -f "$d/$e" ]; then
+			printf 'irregular\0'
+			return
+		fi
+		f=$((f + 1))
+		s=$((s + $(wc -c <"$d/$e")))
+		if [ "$f" -gt "$n" ] || [ "$s" -gt "$b" ]; then
+			printf 'large\0'
+			return
+		fi
+	done <"$T/l"
+	if [ "$u" -gt 0 ] && [ $((u + s)) -gt "$c" ]; then
+		printf 'deferred\0'
+		return
+	fi
+	u=$((u + s))
+	if [ "$f" -eq 0 ]; then
+		printf 'ok\0%s\0' 0
+		return
+	fi
+	if ! (cd -- "$d" && tar -cf - -T "$T/l") >"$T/a" 2>"$T/m"; then
+		printf 'error\0%s\0' "$(cat "$T/m")"
+		return
+	fi
+	printf 'ok\0%s\0' "$(($(wc -c <"$T/a")))"
+	cat "$T/a"
+}
+for p in "$@"; do
+	one "$p"
 done`
-	walkScript = `[ -e "$1" ] || exit 3
-r=$(readlink -f -- "$1") || exit 3
-[ -d "$r" ] || exit 3
-cd -- "$r" || exit 1
-tar -cf - .`
 	listScript = `cd -- "$1" 2>/dev/null || exit 0
 shift
 for e in *; do
 	[ -d "$e" ] && [ -f "$e/SKILL.md" ] || continue
 	t=
 	if [ -L "$e" ]; then t=$(readlink -f -- "$e") || continue; fi
-	s=$(($(wc -c <"$e/SKILL.md")))
 	printf '%s\0%s\0' "$e" "$t"
+	[ -r "$e/SKILL.md" ] || continue
+	s=$(($(wc -c <"$e/SKILL.md")))
 	[ "$s" -le 1048576 ] && set -- "$@" "./$e/SKILL.md"
 done
 printf '\0'
-[ $# -eq 0 ] || tar -chf - "$@"`
+[ $# -eq 0 ] || tar -chf - "$@" 2>/dev/null || :`
 	committedScript = `GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 exec git -c core.fsmonitor=false -C "$1" ls-tree -r -z --name-only HEAD -- "$2"`
-	mkdirTempScript = `mkdir -p -- "$1" || exit 3
-mktemp -d "$1/$2XXXXXX"`
-	copyScript   = `cp -RPp -- "$1/." "$2"`
-	renameScript = `[ -e "$1" ] || [ -L "$1" ] || exit 3
+	mkdirTempScript = `mkdir -p -- "$1" && mktemp -d "$1/$2XXXXXX"`
+	copyScript      = `cp -RPp -- "$1/." "$2"`
+	renameScript    = `[ -e "$1" ] || [ -L "$1" ] || exit 3
 if [ -e "$2" ] || [ -L "$2" ]; then echo "target exists" >&2; exit 4; fi
 mv -- "$1" "$2"`
 	removeScript = `[ -e "$1" ] || [ -L "$1" ] || exit 0
 [ -L "$1" ] || find "$1" -type d ! -perm -700 -exec chmod u+rwx {} + 2>/dev/null
 rm -rf -- "$1"`
+	readBatchBytes = 64 << 20
 )
+
+var inspectWithPrune = strings.Replace(inspectScript, "PRUNE", prunePattern(), 1)
+
+func prunePattern() string {
+	var names []string
+	for _, name := range skillfile.IgnoredPatterns() {
+		names = append(names, "-name '"+name+"'")
+	}
+	return `\( ` + strings.Join(names, " -o ") + ` \)`
+}
 
 func (d distro) key() string { return "wsl:" + strings.ToLower(d.name) }
 
@@ -107,18 +175,24 @@ func (d distro) path(linux string) string { return wsl.Join(d.name, linux) }
 
 func (d distro) run(ctx context.Context, op, p, script string, args ...string) ([]byte, error) {
 	output, err := wsl.Run(ctx, d.name, script, args...)
-	if wsl.Status(err) == missingStatus {
-		return output, &fs.PathError{Op: op, Path: p, Err: fs.ErrNotExist}
-	}
-	return output, err
+	return output, d.failure(op, p, err)
 }
 
-func (d distro) query(op, p, script string, args ...string) (string, error) {
-	output, err := wsl.Query(context.Background(), d.name, script, args...)
-	if wsl.Status(err) == missingStatus {
-		return output, &fs.PathError{Op: op, Path: p, Err: fs.ErrNotExist}
+func (d distro) query(ctx context.Context, op, p, script string, args ...string) (string, error) {
+	output, err := wsl.Query(ctx, d.name, script, args...)
+	return output, d.failure(op, p, err)
+}
+
+func (d distro) failure(op, p string, err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		return &fs.PathError{Op: op, Path: p, Err: fs.ErrNotExist}
+	case errors.Is(err, wsl.ErrTooLarge):
+		return fmt.Errorf("%s %s: %w: %w", op, p, ErrTooLarge, err)
 	}
-	return output, err
+	return fmt.Errorf("%s %s: %w", op, p, err)
 }
 
 func (d distro) test(script string, args ...string) (bool, bool) {
@@ -169,15 +243,15 @@ func (d distro) stat(p string) (entry, error) {
 }
 
 func (d distro) entry(op, p, script string) (entry, error) {
-	kind, err := d.query(op, p, script, d.linux(p))
+	kind, err := d.query(context.Background(), op, p, script, d.linux(p))
 	if err != nil {
 		return entry{}, err
 	}
-	return entry{dir: kind == "d", link: kind == "l", regular: kind == "f"}, nil
+	return entry{dir: kind == "d", link: kind == "l"}, nil
 }
 
 func (d distro) evalSymlinks(p string) (string, error) {
-	output, err := d.query("lstat", p, evalScript, d.linux(p))
+	output, err := d.query(context.Background(), "lstat", p, evalScript, d.linux(p))
 	if err != nil {
 		return "", err
 	}
@@ -185,15 +259,16 @@ func (d distro) evalSymlinks(p string) (string, error) {
 }
 
 func (d distro) readlink(p string) (string, error) {
-	output, err := d.query("readlink", p, `readlink -- "$1"`, d.linux(p))
+	output, err := d.query(context.Background(), "readlink", p, `readlink -- "$1"`, d.linux(p))
 	if err != nil {
-		return "", &fs.PathError{Op: "readlink", Path: p, Err: err}
+		return "", err
 	}
 	return strings.TrimSuffix(output, "\n"), nil
 }
 
 func (d distro) readFile(p string) ([]byte, error) {
-	return d.run(context.Background(), "open", p, readScript, d.linux(p))
+	output, err := wsl.ReadFile(context.Background(), d.name, d.linux(p))
+	return output, d.failure("open", p, err)
 }
 
 func (d distro) sameEntry(a, b string) (bool, bool) {
@@ -204,52 +279,204 @@ func (d distro) sameFolder(a, b string) (bool, bool) {
 	return d.test(sameFolderScript, d.linux(a), d.linux(b))
 }
 
-func (d distro) within(p, directory string) (bool, bool) {
-	return d.test(withinScript, d.linux(p), d.linux(directory))
+func (d distro) within(directories []string) func(string) bool {
+	canonical := d.canonicalAll(directories)
+	return func(resolved string) bool {
+		return slices.ContainsFunc(canonical, func(directory string) bool {
+			_, inside := d.relative(directory, resolved)
+			return inside
+		})
+	}
 }
 
 func (d distro) canonical(p string) string {
-	output, err := wsl.Query(context.Background(), d.name, canonicalScript, d.linux(p))
-	if err != nil {
-		return d.clean(p)
-	}
-	resolved, rest, _ := strings.Cut(output, "\n")
-	return d.path(path.Join(resolved, rest))
+	return d.canonicalAll([]string{p})[0]
 }
 
-func (d distro) walk(ctx context.Context, root string, visit func(walked) error) error {
-	output, err := d.run(ctx, "walk", root, walkScript, d.linux(root))
-	if errors.Is(err, fs.ErrNotExist) {
-		return ErrIrregularFile
+func (d distro) canonicalAll(paths []string) []string {
+	canonical := make([]string, len(paths))
+	args := make([]string, len(paths))
+	for i, p := range paths {
+		canonical[i] = d.clean(p)
+		args[i] = d.linux(p)
 	}
+	output, err := d.run(context.Background(), "canonical", paths[0], canonicalScript, args...)
 	if err != nil {
-		return fmt.Errorf("hash installed files: %w", err)
+		return canonical
 	}
-	err = readArchive(output, func(header *tar.Header, name string, content []byte) error {
-		if err := ctx.Err(); err != nil {
+	fields := strings.Split(string(output), "\x00")
+	for i := range paths {
+		if 2*i+1 < len(fields) {
+			canonical[i] = d.path(path.Join(fields[2*i], fields[2*i+1]))
+		}
+	}
+	return canonical
+}
+
+func (d distro) inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error {
+	pending := make([]int, len(folders))
+	for i := range folders {
+		pending[i] = i
+	}
+	for len(pending) > 0 {
+		args := []string{"-", "0", "0"}
+		if read != nil {
+			args = []string{strconv.Itoa(read.files), strconv.FormatInt(read.bytes, 10), strconv.Itoa(readBatchBytes)}
+		}
+		for _, index := range pending {
+			args = append(args, d.linux(folders[index]))
+		}
+		output, err := d.run(ctx, "inspect", folders[pending[0]], inspectWithPrune, args...)
+		if err != nil {
 			return err
 		}
-		if skillfile.Ignored(name) || header.Typeflag == tar.TypeDir {
+		parser := &inspection{d: d, rest: output}
+		var deferred []int
+		for _, index := range pending {
+			state, again, err := parser.next(folders[index], read != nil)
+			if err != nil {
+				return fmt.Errorf("inspect %s: %w", folders[index], err)
+			}
+			if again {
+				deferred = append(deferred, index)
+				continue
+			}
+			if err := visit(index, state); err != nil {
+				return err
+			}
+		}
+		if len(deferred) == len(pending) {
+			return fmt.Errorf("inspect %s: no progress", folders[pending[0]])
+		}
+		pending = deferred
+	}
+	return nil
+}
+
+type inspection struct {
+	d    distro
+	rest []byte
+}
+
+var errMalformed = errors.New("malformed response")
+
+func (p *inspection) field() (string, error) {
+	field, rest, ok := bytes.Cut(p.rest, []byte{0})
+	if !ok {
+		return "", errMalformed
+	}
+	p.rest = rest
+	return string(field), nil
+}
+
+func (p *inspection) key() (string, error) {
+	directory, err := p.field()
+	if err != nil {
+		return "", err
+	}
+	base, err := p.field()
+	if err != nil {
+		return "", err
+	}
+	return p.d.path(path.Join(directory, base)), nil
+}
+
+func (p *inspection) next(folder string, read bool) (FolderState, bool, error) {
+	state := FolderState{Path: folder}
+	kind, err := p.field()
+	if err != nil {
+		return state, false, err
+	}
+	resolved, err := p.field()
+	if err != nil {
+		return state, false, err
+	}
+	if state.key, err = p.key(); err != nil {
+		return state, false, err
+	}
+	for {
+		hopPath, err := p.field()
+		if err != nil {
+			return state, false, err
+		}
+		if hopPath == "" {
+			break
+		}
+		hopKey, err := p.key()
+		if err != nil {
+			return state, false, err
+		}
+		state.chain = append(state.chain, hop{path: p.d.path(hopPath), key: hopKey})
+	}
+	state.Exists = kind != "-"
+	state.Resolves = state.Exists && (kind != "l" || resolved != "")
+	if kind == "l" && resolved != "" {
+		state.LinkTarget = p.d.path(resolved)
+	} else if kind == "l" && len(state.chain) > 0 {
+		state.LinkTarget = state.chain[0].path
+	}
+	if !read {
+		return state, false, nil
+	}
+	status, err := p.field()
+	if err != nil {
+		return state, false, err
+	}
+	switch status {
+	case "irregular":
+		state.Err = ErrIrregularFile
+	case "large":
+		state.Err = ErrTooLarge
+	case "deferred":
+		return state, true, nil
+	case "error":
+		message, err := p.field()
+		if err != nil {
+			return state, false, err
+		}
+		state.Err = fmt.Errorf("read installed files: %s", strings.TrimSpace(message))
+	case "ok":
+		size, err := p.field()
+		if err != nil {
+			return state, false, err
+		}
+		n, err := strconv.Atoi(size)
+		if err != nil || n < 0 || n > len(p.rest) {
+			return state, false, errMalformed
+		}
+		archive := p.rest[:n]
+		p.rest = p.rest[n:]
+		state.Files, state.Modified, state.Err = filesOf(archive)
+	default:
+		return state, false, errMalformed
+	}
+	return state, false, nil
+}
+
+func filesOf(archive []byte) ([]skillfile.File, time.Time, error) {
+	var files []skillfile.File
+	var modified time.Time
+	err := readArchive(archive, func(header *tar.Header, name string, content []byte) error {
+		if header.Typeflag == tar.TypeDir || skillfile.Ignored(name) {
 			return nil
 		}
 		if content == nil {
 			return ErrIrregularFile
 		}
-		return visit(walked{
-			relative: name,
-			mode:     fs.FileMode(header.Mode).Perm(),
-			size:     int64(len(content)),
-			modTime:  header.ModTime,
-			read:     func() ([]byte, error) { return content, nil },
-		})
-	})
-	if err != nil {
-		if errors.Is(err, ErrIrregularFile) || errors.Is(err, ErrTooLarge) || errors.Is(err, context.Canceled) {
-			return err
+		files = append(files, skillfile.File{Path: name, Content: content, Mode: skillfile.ModeOf(fs.FileMode(header.Mode).Perm())})
+		if header.ModTime.After(modified) {
+			modified = header.ModTime
 		}
-		return fmt.Errorf("hash installed files: %w", err)
+		return nil
+	})
+	if errors.Is(err, ErrIrregularFile) {
+		return nil, time.Time{}, err
 	}
-	return nil
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("read installed files: %w", err)
+	}
+	slices.SortFunc(files, func(a, b skillfile.File) int { return cmp.Compare(a.Path, b.Path) })
+	return files, modified, nil
 }
 
 func readArchive(archive []byte, visit func(header *tar.Header, name string, content []byte) error) error {
@@ -296,38 +523,33 @@ func (d distro) list(directory string) ([]Folder, error) {
 	if len(output) == 0 {
 		return nil, nil
 	}
+	parser := &inspection{d: d, rest: output}
 	var folders []Folder
-	rest := output
 	for {
-		name, after, ok := bytes.Cut(rest, []byte{0})
-		if !ok {
-			return nil, fmt.Errorf("list skill folders: malformed listing")
+		name, err := parser.field()
+		if err != nil {
+			return nil, fmt.Errorf("list skill folders: %w", err)
 		}
-		rest = after
-		if len(name) == 0 {
+		if name == "" {
 			break
 		}
-		target, after, ok := bytes.Cut(rest, []byte{0})
-		if !ok {
-			return nil, fmt.Errorf("list skill folders: malformed listing")
+		target, err := parser.field()
+		if err != nil {
+			return nil, fmt.Errorf("list skill folders: %w", err)
 		}
-		rest = after
-		folder := Folder{Name: string(name), Path: d.join(directory, string(name))}
-		if len(target) > 0 {
-			folder.Target = d.path(string(target))
+		folder := Folder{Name: name, Path: d.join(directory, name)}
+		if target != "" {
+			folder.Target = d.path(target)
 		}
 		folders = append(folders, folder)
 	}
 	manifests := map[string][]byte{}
-	err = readArchive(rest, func(_ *tar.Header, name string, content []byte) error {
+	_ = readArchive(parser.rest, func(_ *tar.Header, name string, content []byte) error {
 		if folder, file, ok := strings.Cut(name, "/"); ok && file == "SKILL.md" && content != nil {
 			manifests[folder] = content
 		}
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("list skill folders: %w", err)
-	}
 	for i := range folders {
 		folders[i].SkillMD = manifests[folders[i].Name]
 	}
@@ -335,7 +557,7 @@ func (d distro) list(directory string) ([]Folder, error) {
 }
 
 func (d distro) committed(ctx context.Context, root, directory string) (map[string]bool, error) {
-	output, err := wsl.Run(ctx, d.name, committedScript, d.linux(root), directory)
+	output, err := d.run(ctx, "committed", root, committedScript, d.linux(root), directory)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -346,10 +568,7 @@ func (d distro) committed(ctx context.Context, root, directory string) (map[stri
 }
 
 func (d distro) mkdirTemp(directory, prefix string) (string, error) {
-	output, err := wsl.Query(context.Background(), d.name, mkdirTempScript, d.linux(directory), prefix)
-	if wsl.Status(err) == missingStatus {
-		return "", fmt.Errorf("create scope: %w", err)
-	}
+	output, err := d.query(context.Background(), "stage", directory, mkdirTempScript, d.linux(directory), prefix)
 	if err != nil {
 		return "", fmt.Errorf("stage skill folder: %w", err)
 	}
@@ -379,7 +598,7 @@ func (d distro) writeFiles(stage string, files []skillfile.File) error {
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("write skill file: %w", err)
 	}
-	if _, err := wsl.Run(context.Background(), d.name, extractScript(archive.Bytes()), d.linux(stage)); err != nil {
+	if _, err := d.run(context.Background(), "write", stage, extractScript(archive.Bytes()), d.linux(stage)); err != nil {
 		return fmt.Errorf("write skill file: %w", err)
 	}
 	return nil
@@ -401,20 +620,18 @@ func extractScript(archive []byte) string {
 }
 
 func (d distro) copyTree(ctx context.Context, from, stage string) error {
-	if _, err := wsl.Query(ctx, d.name, copyScript, d.linux(from), d.linux(stage)); err != nil {
+	if _, err := d.query(ctx, "copy", from, copyScript, d.linux(from), d.linux(stage)); err != nil {
 		return fmt.Errorf("copy skill folder: %w", err)
 	}
 	return nil
 }
 
 func (d distro) rename(from, to string) error {
-	_, err := d.query("rename", from, renameScript, d.linux(from), d.linux(to))
+	_, err := d.query(context.Background(), "rename", from, renameScript, d.linux(from), d.linux(to))
 	return err
 }
 
 func (d distro) removeTree(p string) error {
-	if _, err := wsl.Query(context.Background(), d.name, removeScript, d.linux(p)); err != nil {
-		return fmt.Errorf("remove %s: %w", p, err)
-	}
-	return nil
+	_, err := d.query(context.Background(), "remove", p, removeScript, d.linux(p))
+	return err
 }

@@ -284,7 +284,10 @@ async function offerDistroRetry(ui: ReturnType<typeof useUI>) {
       ],
       confirm: t.continue,
     });
-    if (!choice) return;
+    if (!choice) {
+      ui.toast(t.distroFallback(distro));
+      return;
+    }
     if (choice === "windows") {
       await ui.run(() => AppService.SaveSettings({ ...settings, wsl_distro: "" }));
       return;

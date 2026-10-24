@@ -15,6 +15,10 @@ func shellCommand(distro string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+func commandKey() string {
+	return ""
+}
+
 func listDistros(ctx context.Context) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "wsl.exe", "--list", "--quiet")
 	cmd.Env = append(os.Environ(), "WSL_UTF8=1")

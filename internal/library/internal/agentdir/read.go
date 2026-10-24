@@ -1,7 +1,6 @@
 package agentdir
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"io/fs"
@@ -39,45 +38,98 @@ func DirectoryExists(path string) (bool, error) {
 	return false, err
 }
 
-func Read(ctx context.Context, root string) (map[string]skillfile.Digest, error) {
-	files := make(map[string]skillfile.Digest)
-	err := on(root).walk(ctx, root, func(file walked) error {
-		content, err := file.read()
-		if err != nil {
-			return err
-		}
-		files[file.relative] = skillfile.Digest{Fingerprint: skillfile.Fingerprint(content), Mode: skillfile.ModeOf(file.mode)}
+type FolderState struct {
+	Path       string
+	Exists     bool
+	Resolves   bool
+	LinkTarget string
+	Files      []skillfile.File
+	Modified   time.Time
+	Err        error
+	key        string
+	chain      []hop
+}
+
+type hop struct {
+	path, key string
+}
+
+func (s FolderState) SameEntry(other FolderState) bool {
+	return sameKeyedEntry(s.Path, s.key, other.Path, other.key)
+}
+
+func (s FolderState) LinksThrough(folders ...FolderState) bool {
+	return slices.ContainsFunc(s.chain, func(hop hop) bool {
+		return slices.ContainsFunc(folders, func(folder FolderState) bool {
+			return sameKeyedEntry(hop.path, hop.key, folder.Path, folder.key)
+		})
+	})
+}
+
+func sameKeyedEntry(a, aKey, b, bKey string) bool {
+	if aKey != "" && bKey != "" {
+		return aKey == bKey
+	}
+	return SameEntry(a, b)
+}
+
+type limits struct {
+	files int
+	bytes int64
+}
+
+func StatFolders(ctx context.Context, folders []string) ([]FolderState, error) {
+	states := make([]FolderState, len(folders))
+	err := inspect(ctx, folders, nil, func(index int, state FolderState) error {
+		states[index] = state
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return files, nil
+	return states, nil
+}
+
+func ReadFolders(ctx context.Context, folders []string, maxFiles int, maxBytes int64, visit func(index int, state FolderState) error) error {
+	return inspect(ctx, folders, &limits{files: maxFiles, bytes: maxBytes}, visit)
+}
+
+func inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error {
+	groups := map[string][]int{}
+	var order []string
+	for i, folder := range folders {
+		key := on(folder).key()
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], i)
+	}
+	for _, key := range order {
+		indexes := groups[key]
+		paths := make([]string, len(indexes))
+		for i, index := range indexes {
+			paths[i] = folders[index]
+		}
+		err := on(paths[0]).inspect(ctx, paths, read, func(i int, state FolderState) error {
+			return visit(indexes[i], state)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ReadFiles(ctx context.Context, root string, maxFiles int, maxBytes int64) ([]skillfile.File, error) {
-	var files []skillfile.File
-	var size int64
-	err := on(root).walk(ctx, root, func(file walked) error {
-		size += file.size
-		if len(files) >= maxFiles || size > maxBytes {
-			return ErrTooLarge
-		}
-		content, err := file.read()
-		if err != nil {
-			return err
-		}
-		if size += int64(len(content)) - file.size; size > maxBytes {
-			return ErrTooLarge
-		}
-		files = append(files, skillfile.File{Path: file.relative, Content: content, Mode: skillfile.ModeOf(file.mode)})
+	var read FolderState
+	err := ReadFolders(ctx, []string{root}, maxFiles, maxBytes, func(_ int, state FolderState) error {
+		read = state
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(files, func(a, b skillfile.File) int { return cmp.Compare(a.Path, b.Path) })
-	return files, nil
+	return read.Files, read.Err
 }
 
 func LinkTarget(path string) string {
@@ -126,14 +178,20 @@ func SameEntry(a, b string) bool {
 	return system.base(a) == system.base(b) && Canonical(system.dir(a)) == Canonical(system.dir(b))
 }
 
-func Within(path, directory string) bool {
-	if !sameSystem(path, directory) {
-		return false
+func Within(directories []string) func(resolved string) bool {
+	matchers := map[string]func(string) bool{}
+	groups := map[string][]string{}
+	for _, directory := range directories {
+		key := on(directory).key()
+		groups[key] = append(groups[key], directory)
 	}
-	if inside, known := on(directory).within(path, directory); known {
-		return inside
+	for key, group := range groups {
+		matchers[key] = on(group[0]).within(group)
 	}
-	return Inside(directory, path)
+	return func(resolved string) bool {
+		match, ok := matchers[on(resolved).key()]
+		return ok && match(resolved)
+	}
 }
 
 func SameFolder(a, b string) bool {
@@ -148,15 +206,4 @@ func SameFolder(a, b string) bool {
 
 func Canonical(path string) string {
 	return on(path).canonical(path)
-}
-
-func Modified(ctx context.Context, root string) (time.Time, error) {
-	var latest time.Time
-	err := on(root).walk(ctx, root, func(file walked) error {
-		if file.modTime.After(latest) {
-			latest = file.modTime
-		}
-		return nil
-	})
-	return latest, err
 }

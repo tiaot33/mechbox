@@ -1,6 +1,7 @@
 package agentdir
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
@@ -52,7 +55,7 @@ func (native) lstat(path string) (entry, error) {
 	if err != nil {
 		return entry{}, err
 	}
-	return entry{dir: info.IsDir(), link: info.Mode()&fs.ModeSymlink != 0, regular: info.Mode().IsRegular()}, nil
+	return entry{dir: info.IsDir(), link: info.Mode()&fs.ModeSymlink != 0}, nil
 }
 
 func (native) stat(path string) (entry, error) {
@@ -60,7 +63,7 @@ func (native) stat(path string) (entry, error) {
 	if err != nil {
 		return entry{}, err
 	}
-	return entry{dir: info.IsDir(), regular: info.Mode().IsRegular()}, nil
+	return entry{dir: info.IsDir()}, nil
 }
 
 func (native) evalSymlinks(path string) (string, error) { return filepath.EvalSymlinks(path) }
@@ -87,7 +90,18 @@ func (native) sameFolder(a, b string) (bool, bool) {
 	return os.SameFile(aInfo, bInfo), true
 }
 
-func (native) within(path, directory string) (bool, bool) {
+func (native) within(directories []string) func(string) bool {
+	return func(resolved string) bool {
+		return slices.ContainsFunc(directories, func(directory string) bool {
+			if inside, known := nativeWithin(resolved, directory); known {
+				return inside
+			}
+			return Inside(directory, resolved)
+		})
+	}
+}
+
+func nativeWithin(path, directory string) (bool, bool) {
 	info, err := os.Stat(directory)
 	if err != nil {
 		return false, false
@@ -120,16 +134,47 @@ func (native) canonical(path string) string {
 	}
 }
 
-func (native) walk(ctx context.Context, root string, visit func(walked) error) error {
+func (native) inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error {
+	for i, folder := range folders {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		exists, err := Exists(folder)
+		if err != nil && read != nil {
+			return fmt.Errorf("inspect target folder: %w", err)
+		}
+		state := FolderState{Path: folder, Exists: exists, Resolves: Resolves(folder), LinkTarget: LinkTarget(folder)}
+		for _, path := range LinkChain(folder) {
+			state.chain = append(state.chain, hop{path: path})
+		}
+		if read != nil && exists {
+			state.Files, state.Modified, state.Err = readNative(ctx, folder, *read)
+			if errors.Is(state.Err, context.Canceled) || errors.Is(state.Err, context.DeadlineExceeded) {
+				return state.Err
+			}
+		} else if read != nil {
+			state.Err = ErrIrregularFile
+		}
+		if err := visit(i, state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readNative(ctx context.Context, root string, read limits) ([]skillfile.File, time.Time, error) {
 	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) {
-		return ErrIrregularFile
+		return nil, time.Time{}, ErrIrregularFile
 	} else if err != nil {
-		return fmt.Errorf("hash installed files: %w", err)
+		return nil, time.Time{}, fmt.Errorf("read installed files: %w", err)
 	}
 	root, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return fmt.Errorf("hash installed files: %w", err)
+		return nil, time.Time{}, fmt.Errorf("read installed files: %w", err)
 	}
+	var files []skillfile.File
+	var size int64
+	var modified time.Time
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -153,25 +198,35 @@ func (native) walk(ctx context.Context, root string, visit func(walked) error) e
 		if !info.Mode().IsRegular() {
 			return ErrIrregularFile
 		}
+		size += info.Size()
+		if len(files) >= read.files || size > read.bytes {
+			return ErrTooLarge
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if size += int64(len(content)) - info.Size(); size > read.bytes {
+			return ErrTooLarge
+		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		return visit(walked{
-			relative: filepath.ToSlash(relative),
-			mode:     info.Mode(),
-			size:     info.Size(),
-			modTime:  info.ModTime(),
-			read:     func() ([]byte, error) { return os.ReadFile(path) },
-		})
+		files = append(files, skillfile.File{Path: filepath.ToSlash(relative), Content: content, Mode: skillfile.ModeOf(info.Mode())})
+		if info.ModTime().After(modified) {
+			modified = info.ModTime()
+		}
+		return nil
 	})
 	if err != nil {
-		if errors.Is(err, ErrIrregularFile) || errors.Is(err, ErrTooLarge) {
-			return err
+		if errors.Is(err, ErrIrregularFile) || errors.Is(err, ErrTooLarge) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, time.Time{}, err
 		}
-		return fmt.Errorf("hash installed files: %w", err)
+		return nil, time.Time{}, fmt.Errorf("read installed files: %w", err)
 	}
-	return nil
+	slices.SortFunc(files, func(a, b skillfile.File) int { return cmp.Compare(a.Path, b.Path) })
+	return files, modified, nil
 }
 
 func (native) list(directory string) ([]Folder, error) {

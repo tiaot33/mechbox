@@ -5,9 +5,10 @@
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
 import { AppService, CheckInterval, Language, LibraryService, type Settings } from "@bindings/cmd/desktop";
+import { ErrorCode } from "@bindings/internal/library";
 import { unregisterProject } from "@/lib/actions";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
+import type { LibraryError, Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
@@ -77,6 +79,25 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
     return () => void call.cancel();
   }, []);
 
+  // 选的发行版启动时没能打开、现在用的是 Windows 本机的全局目录时，这一项下面写明，并可以再试一次。
+  const [distroError, setDistroError] = useState("");
+  useEffect(() => {
+    const call = AppService.WSLDistroError();
+    call.then(setDistroError, () => {});
+    return () => void call.cancel();
+  }, []);
+  const retryDistro = async () => {
+    const opened = await ui.run(() => AppService.RetryWSLDistro().then(() => true), { onError: (err) => distroFailed(err) });
+    if (opened) setDistroError("");
+    else await AppService.WSLDistroError().then(setDistroError, () => {});
+  };
+  // 发行版打不开(FailedPrecondition)时说明是哪个发行版、全局目录没有换。
+  const distroFailed = (err: LibraryError, distro = latest.current?.wsl_distro ?? "") => {
+    if (err.code !== ErrorCode.FailedPrecondition) return false;
+    ui.toast(t.distroSwitchFailed(distro, err.message), "error");
+    return true;
+  };
+
   // 改语言时：选了具体语言的先切过去，保存期间打开的确认框也是新语言;跟随系统的由 Go 端按系统定。
   // 保存完(包括保存失败退回原设置)都再问 Go 端实际用哪种，以它为准。
   const save = (change: Partial<Settings>) => {
@@ -85,8 +106,13 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
     show(next);
     if (change.language) setLanguage(toLanguage(change.language));
     saving.current = saving.current.then(async () => {
-      const saved = await ui.run(() => AppService.SaveSettings(next), { reload: "wsl_distro" in change });
+      const switching = "wsl_distro" in change;
+      const saved = await ui.run(() => AppService.SaveSettings(next), {
+        reload: switching,
+        onError: (err) => switching && distroFailed(err, next.wsl_distro ?? ""),
+      });
       if (!saved) await AppService.Settings().then(show, () => {});
+      else if (switching) setDistroError("");
       if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
   };
@@ -181,6 +207,14 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                             </option>
                           ))}
                         </NativeSelect>
+                      </SetRow>
+                    )}
+                    {distroError && settings.wsl_distro && (
+                      <SetRow>
+                        <Notice tone="warn" className="grow">
+                          {t.distroFallback(settings.wsl_distro, distroError)}
+                        </Notice>
+                        <Button onClick={() => void retryDistro()}>{t.retryDistro}</Button>
                       </SetRow>
                     )}
                   </>

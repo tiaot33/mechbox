@@ -11,7 +11,12 @@ import (
 var ErrNoHome = errors.New("wsl distribution has no home directory")
 
 func Distros(ctx context.Context) ([]string, error) {
-	output, err := listDistros(ctx)
+	limited, cancel := context.WithTimeout(ctx, homeTimeout)
+	defer cancel()
+	output, err := listDistros(limited)
+	if err != nil && ctx.Err() == nil {
+		return nil, nil
+	}
 	if err != nil || output == nil {
 		return nil, err
 	}
@@ -27,7 +32,8 @@ func Distros(ctx context.Context) ([]string, error) {
 }
 
 func Home(ctx context.Context, distro string) (string, error) {
-	home, err := Query(ctx, distro, `printf '%s' "$HOME"`)
+	output, err := roundTrip(ctx, distro, query(`printf '%s' "$HOME"`, nil), homeTimeout)
+	home := string(output)
 	if err != nil {
 		return "", err
 	}

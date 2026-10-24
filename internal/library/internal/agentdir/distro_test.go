@@ -1,3 +1,5 @@
+//go:build !windows
+
 package agentdir
 
 import (
@@ -8,6 +10,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -19,7 +23,7 @@ func TestMain(m *testing.M) {
 	if shell == "" {
 		shell = "sh"
 	}
-	wsl.UseCommand(func(string) *exec.Cmd { return exec.Command(shell) })
+	os.Setenv("MECHBOX_TEST_WSL_SHELL", shell)
 	os.Exit(m.Run())
 }
 
@@ -78,53 +82,111 @@ func TestDistroReadMatchesNative(t *testing.T) {
 	ctx := context.Background()
 	for _, folder := range []string{".claude/skills/shared", ".claude/skills/own", ".agents/skills/shared"} {
 		local := filepath.Join(home, folder)
-		want, err := Read(ctx, local)
-		if err != nil {
-			t.Fatal(err)
+		want, got := readFolders(t, local), readFolders(t, unc(local))
+		if got[0].Err != nil || want[0].Err != nil || !skillfile.Equal(got[0].Files, want[0].Files) {
+			t.Errorf("ReadFolders(%s) = %v %v, want %v %v", folder, got[0].Files, got[0].Err, want[0].Files, want[0].Err)
 		}
-		got, err := Read(ctx, unc(local))
-		if err != nil {
-			t.Fatal(err)
+		if wantTime := want[0].Modified; !got[0].Modified.Equal(wantTime.Truncate(1e9)) && !got[0].Modified.Equal(wantTime) {
+			t.Errorf("Modified(%s) = %v, want %v", folder, got[0].Modified, wantTime)
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("Read(%s) = %v, want %v", folder, got, want)
-		}
-		wantFiles, err := ReadFiles(ctx, local, 100, 1<<20)
-		if err != nil {
-			t.Fatal(err)
-		}
-		gotFiles, err := ReadFiles(ctx, unc(local), 100, 1<<20)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !skillfile.Equal(gotFiles, wantFiles) {
-			t.Errorf("ReadFiles(%s) = %v, want %v", folder, gotFiles, wantFiles)
-		}
-		wantTime, _ := Modified(ctx, local)
-		gotTime, err := Modified(ctx, unc(local))
-		if err != nil || !gotTime.Equal(wantTime.Truncate(1e9)) && !gotTime.Equal(wantTime) {
-			t.Errorf("Modified(%s) = %v %v, want %v", folder, gotTime, err, wantTime)
+		if got[0].Exists != want[0].Exists || got[0].LinkTarget != unc(want[0].LinkTarget) && want[0].LinkTarget != "" {
+			t.Errorf("state(%s) = %+v, want %+v", folder, got[0], want[0])
 		}
 	}
-	digests, _ := Read(ctx, unc(filepath.Join(home, ".claude/skills/shared")))
-	if digests["scripts/run.sh"].Mode != skillfile.ModeExecutable || digests["SKILL.md"].Mode != skillfile.ModeRegular {
-		t.Errorf("modes = %v", digests)
+	files, _ := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1<<20)
+	modes := map[string]skillfile.Mode{}
+	for _, file := range files {
+		modes[file.Path] = file.Mode
 	}
-	if _, ok := digests[".git/HEAD"]; ok {
+	if modes["scripts/run.sh"] != skillfile.ModeExecutable || modes["SKILL.md"] != skillfile.ModeRegular {
+		t.Errorf("modes = %v", modes)
+	}
+	if _, ok := modes[".git/HEAD"]; ok {
 		t.Error("ignored .git read")
 	}
-	if _, err := Read(ctx, unc(filepath.Join(home, ".claude/skills/dangling"))); !errors.Is(err, ErrIrregularFile) {
+	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/dangling")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("dangling: %v", err)
 	}
-	if _, err := Read(ctx, unc(filepath.Join(home, "missing"))); !errors.Is(err, ErrIrregularFile) {
+	if _, err := ReadFiles(ctx, unc(filepath.Join(home, "missing")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("missing: %v", err)
-	}
-	symlink(t, "/etc/hosts", filepath.Join(home, ".claude/skills/own/link"))
-	if _, err := Read(ctx, unc(filepath.Join(home, ".claude/skills/own"))); !errors.Is(err, ErrIrregularFile) {
-		t.Errorf("inner symlink: %v", err)
 	}
 	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 1, 1<<20); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("too many files: %v", err)
+	}
+	write(t, filepath.Join(home, ".agents/skills/shared/.git/objects/big"), strings.Repeat("x", 4096), 0o644)
+	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1024); err != nil {
+		t.Errorf("ignored folders count toward the limit: %v", err)
+	}
+	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 10); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("too many bytes: %v", err)
+	}
+	symlink(t, "/etc/hosts", filepath.Join(home, ".claude/skills/own/link"))
+	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/own")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+		t.Errorf("inner symlink: %v", err)
+	}
+}
+
+func readFolders(t *testing.T, folders ...string) []FolderState {
+	t.Helper()
+	states := make([]FolderState, len(folders))
+	err := ReadFolders(context.Background(), folders, 10, 64<<20, func(index int, state FolderState) error {
+		states[index] = state
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return states
+}
+
+func TestDistroReadFoldersInBatches(t *testing.T) {
+	home := tempDir(t)
+	var folders []string
+	for i := range 5 {
+		folder := filepath.Join(home, "skills", strconv.Itoa(i))
+		write(t, filepath.Join(folder, "SKILL.md"), strings.Repeat(strconv.Itoa(i), 30<<20), 0o644)
+		folders = append(folders, unc(folder))
+	}
+	folders = append(folders, unc(filepath.Join(home, "skills/missing")))
+	states := readFolders(t, folders...)
+	for i, state := range states[:5] {
+		if state.Err != nil || len(state.Files) != 1 || len(state.Files[0].Content) != 30<<20 || state.Files[0].Content[0] != byte('0'+i) {
+			t.Errorf("folder %d: %v", i, state.Err)
+		}
+	}
+	if missing := states[5]; missing.Exists || !errors.Is(missing.Err, ErrIrregularFile) {
+		t.Errorf("missing = %+v", missing)
+	}
+}
+
+func TestDistroStatFoldersFollowsLinks(t *testing.T) {
+	home := npxLayout(t)
+	link := filepath.Join(home, ".claude/skills/shared")
+	target := filepath.Join(home, ".agents/skills/shared")
+	symlink(t, link, filepath.Join(home, "second"))
+	paths := []string{filepath.Join(home, "second"), link, target, filepath.Join(home, ".claude/skills/dangling"), filepath.Join(home, "missing")}
+	for _, convert := range []func(string) string{func(p string) string { return p }, unc} {
+		var folders []string
+		for _, p := range paths {
+			folders = append(folders, convert(p))
+		}
+		states, err := StatFolders(context.Background(), folders)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, linked, real, dangling, missing := states[0], states[1], states[2], states[3], states[4]
+		if second.LinkTarget != convert(target) || linked.LinkTarget != convert(target) || real.LinkTarget != "" {
+			t.Errorf("link targets: %q %q %q", second.LinkTarget, linked.LinkTarget, real.LinkTarget)
+		}
+		if dangling.LinkTarget != convert(filepath.Join(home, "nowhere")) || !dangling.Exists || dangling.Resolves || missing.Exists || !second.Resolves {
+			t.Errorf("dangling %+v, missing %+v", dangling, missing)
+		}
+		if !second.LinksThrough(linked) || !second.LinksThrough(real) || linked.LinksThrough(second) || real.LinksThrough(linked) {
+			t.Error("LinksThrough follows the chain")
+		}
+		if linked.SameEntry(real) || !linked.SameEntry(linked) {
+			t.Error("SameEntry compares the entries, not where they lead")
+		}
 	}
 }
 
@@ -194,8 +256,11 @@ func TestDistroPathQueries(t *testing.T) {
 	if !SameEntry(unc(filepath.Join(home, ".claude/../.claude/skills/shared")), unc(link)) {
 		t.Error("SameEntry through ..")
 	}
-	if !Within(unc(link), unc(filepath.Join(home, ".agents"))) || Within(unc(link), unc(filepath.Join(home, ".claude"))) {
-		t.Error("Within follows the link")
+	if within := Within([]string{unc(filepath.Join(home, ".agents"))}); !within(unc(target)) || within(unc(link)) {
+		t.Error("Within compares resolved paths")
+	}
+	if within := Within([]string{unc(filepath.Join(home, ".claude/../.agents")), filepath.Join(home, ".claude")}); !within(unc(target)) || within(target) {
+		t.Error("Within with directories on both systems")
 	}
 	if got := Canonical(unc(filepath.Join(link, "new/deeper"))); got != unc(filepath.Join(target, "new/deeper")) {
 		t.Errorf("Canonical = %q", got)
@@ -226,11 +291,11 @@ func TestDistroPathQueries(t *testing.T) {
 func TestDistroHome(t *testing.T) {
 	home := tempDir(t)
 	t.Setenv("HOME", home)
-	wsl.UseCommand(func(string) *exec.Cmd { return exec.Command(shellForTest()) })
-	resolved, err := DistroHome(context.Background(), "test")
+	resolved, err := DistroHome(context.Background(), "home")
 	if err != nil {
 		t.Fatal(err)
 	}
+	unc := func(path string) string { return wsl.Join("home", path) }
 	if resolved.Root() != unc(home) {
 		t.Fatalf("Root = %q", resolved.Root())
 	}
@@ -251,13 +316,6 @@ func TestDistroHome(t *testing.T) {
 	if _, err := resolved.Relative(unc("/elsewhere")); !errors.Is(err, ErrOutside) {
 		t.Errorf("Relative(outside) = %v", err)
 	}
-}
-
-func shellForTest() string {
-	if shell := os.Getenv("AGENTDIR_TEST_SHELL"); shell != "" {
-		return shell
-	}
-	return "sh"
 }
 
 func TestDistroChange(t *testing.T) {

@@ -91,6 +91,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		return nil, err
 	}
 	records := l.sourceRecords()
+	within := agentdir.Within(directories)
 	var entries []unmanagedEntry
 	for _, found := range folders {
 		if found.skillID != 0 {
@@ -98,7 +99,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		}
 		target := found.target
 		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
-		entry.LinkOutside = found.Target != "" && !slices.ContainsFunc(directories, func(directory string) bool { return agentdir.Within(found.Target, directory) })
+		entry.LinkOutside = found.Target != "" && !within(found.Target)
 		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
 			entry.Description = candidate.Description
 		}
@@ -285,6 +286,10 @@ func validFolderName(name string) bool {
 
 func readSkillFolder(ctx context.Context, operation, path, name string) ([]skillfile.File, discovery.Candidate, error) {
 	files, err := agentdir.ReadFiles(ctx, path, maxFetchFiles, maxFetchSize)
+	return parseSkillFolder(operation, path, name, files, err)
+}
+
+func parseSkillFolder(operation, path, name string, files []skillfile.File, err error) ([]skillfile.File, discovery.Candidate, error) {
 	switch {
 	case errors.Is(err, agentdir.ErrIrregularFile):
 		return nil, discovery.Candidate{}, preconditionError(operation, "the folder has entries that are not regular files", ErrorDetails{Path: path})
@@ -465,21 +470,33 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 	for _, entry := range entries {
 		listed[FolderInScope{Scope: entry.Scope, Name: entry.Name}] = entry
 	}
-	var folders []sourcelessFolder
+	var found []FolderInScope
+	var paths []string
 	for _, folder := range requested {
 		entry, ok := listed[folder]
 		if !ok || entry.SourceInput != "" {
 			continue
 		}
 		delete(listed, folder)
-		files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			continue
+		found = append(found, folder)
+		paths = append(paths, entry.Folder)
+	}
+	read := make([]*sourcelessFolder, len(found))
+	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
+		files, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state.Files, state.Err)
+		if err == nil {
+			read[i] = &sourcelessFolder{FolderInScope: found[i], name: parsed.Name, files: files}
 		}
-		folders = append(folders, sourcelessFolder{FolderInScope: folder, name: parsed.Name, files: files})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var folders []sourcelessFolder
+	for _, folder := range read {
+		if folder != nil {
+			folders = append(folders, *folder)
+		}
 	}
 	return folders, nil
 }

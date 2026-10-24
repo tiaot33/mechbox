@@ -1,10 +1,14 @@
+//go:build !windows
+
 package wsl
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +31,7 @@ func localShells(t *testing.T) []string {
 func eachShell(t *testing.T, test func(t *testing.T)) {
 	for _, shell := range localShells(t) {
 		t.Run(shell, func(t *testing.T) {
-			UseCommand(func(string) *exec.Cmd { return exec.Command(shell) })
+			t.Setenv(testShell, shell)
 			test(t)
 		})
 	}
@@ -85,7 +89,11 @@ func TestRunCancelRestartsSession(t *testing.T) {
 }
 
 func TestRunReportsDeadShell(t *testing.T) {
-	UseCommand(func(string) *exec.Cmd { return exec.Command("sh", "-c", "echo no such distribution >&2; exit 1") })
+	script := filepath.Join(t.TempDir(), "wsl")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho no such distribution >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(testShell, script)
 	_, err := Run(context.Background(), "gone", `true`)
 	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "no such distribution") {
 		t.Fatalf("err = %v", err)
@@ -145,7 +153,7 @@ func TestQueryReturnsTextExactly(t *testing.T) {
 }
 
 func TestDistrosSkipsMessagesAndDocker(t *testing.T) {
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	t.Setenv(testShell, "sh")
 	distros, err := Distros(context.Background())
 	if err != nil || len(distros) != 1 || distros[0] != "test" {
 		t.Fatalf("Distros = %v, %v", distros, err)

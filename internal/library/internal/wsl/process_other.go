@@ -18,6 +18,10 @@ func shellCommand(string) (*exec.Cmd, error) {
 	return nil, errors.ErrUnsupported
 }
 
+func commandKey() string {
+	return os.Getenv(testShell)
+}
+
 func listDistros(context.Context) ([]byte, error) {
 	if os.Getenv(testShell) != "" {
 		return []byte("test\ndocker-desktop\n"), nil

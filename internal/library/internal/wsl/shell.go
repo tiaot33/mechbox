@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,7 +16,17 @@ import (
 	"unicode/utf16"
 )
 
-var ErrUnavailable = errors.New("wsl distribution unavailable")
+var (
+	ErrUnavailable = errors.New("wsl distribution unavailable")
+	ErrTooLarge    = errors.New("wsl response too large")
+)
+
+const (
+	missingStatus  = 3
+	requestTimeout = 2 * time.Minute
+	homeTimeout    = 30 * time.Second
+	maxResponse    = 256 << 20
+)
 
 type ExitError struct {
 	Status int
@@ -28,6 +39,10 @@ func (e *ExitError) Error() string {
 		message += ": " + stderr
 	}
 	return message
+}
+
+func (e *ExitError) Is(target error) bool {
+	return target == fs.ErrNotExist && e.Status == missingStatus
 }
 
 func Status(err error) int {
@@ -47,7 +62,7 @@ trap 'rm -rf "$T"' EXIT
 
 type session struct {
 	distro string
-	mu     sync.Mutex
+	lock   chan struct{}
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
@@ -58,49 +73,42 @@ type session struct {
 var (
 	sessionsMu sync.Mutex
 	sessions   = map[string]*session{}
-	command    = shellCommand
 )
 
-func UseCommand(build func(distro string) *exec.Cmd) {
-	sessionsMu.Lock()
-	defer sessionsMu.Unlock()
-	for _, s := range sessions {
-		s.mu.Lock()
-		s.stop()
-		s.mu.Unlock()
-	}
-	clear(sessions)
-	command = func(distro string) (*exec.Cmd, error) { return build(distro), nil }
-}
-
 func sessionFor(distro string) *session {
-	key := strings.ToLower(distro)
+	key := strings.ToLower(distro) + "\x00" + commandKey()
 	sessionsMu.Lock()
 	defer sessionsMu.Unlock()
 	s := sessions[key]
 	if s == nil {
-		s = &session{distro: distro}
+		s = &session{distro: distro, lock: make(chan struct{}, 1)}
 		sessions[key] = s
 	}
 	return s
 }
 
 func Run(ctx context.Context, distro, script string, args ...string) ([]byte, error) {
-	return roundTrip(ctx, distro, request(script, args))
+	return roundTrip(ctx, distro, request(script, args), requestTimeout)
 }
 
 func Query(ctx context.Context, distro, script string, args ...string) (string, error) {
-	output, err := roundTrip(ctx, distro, query(script, args))
+	output, err := roundTrip(ctx, distro, query(script, args), requestTimeout)
 	return string(output), err
 }
 
-func roundTrip(ctx context.Context, distro, req string) ([]byte, error) {
+func roundTrip(ctx context.Context, distro, req string, timeout time.Duration) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	s := sessionFor(distro)
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	limited, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	select {
+	case s.lock <- struct{}{}:
+	case <-limited.Done():
+		return nil, s.abandoned(ctx)
+	}
+	defer func() { <-s.lock }()
 	if err := s.start(); err != nil {
 		return nil, err
 	}
@@ -119,11 +127,18 @@ func roundTrip(ctx context.Context, distro, req string) ([]byte, error) {
 			s.stop()
 		}
 		return r.output, r.err
-	case <-ctx.Done():
+	case <-limited.Done():
 		s.stop()
 		<-done
-		return nil, ctx.Err()
+		return nil, s.abandoned(ctx)
 	}
+}
+
+func (s *session) abandoned(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %s: no response", ErrUnavailable, s.distro)
 }
 
 func (s *session) start() error {
@@ -135,7 +150,7 @@ func (s *session) start() error {
 			return nil
 		}
 	}
-	cmd, err := command(s.distro)
+	cmd, err := shellCommand(s.distro)
 	if err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrUnavailable, s.distro, err)
 	}
@@ -149,6 +164,7 @@ func (s *session) start() error {
 	}
 	stderr := &limitedBuffer{limit: 4096}
 	cmd.Stderr = stderr
+	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrUnavailable, s.distro, err)
 	}
@@ -190,12 +206,13 @@ func (s *session) failure(err error) error {
 }
 
 func (s *session) exchange(req string) ([]byte, error) {
-	if _, err := io.WriteString(s.stdin, req); err != nil {
+	stdin, stdout := s.stdin, s.stdout
+	if _, err := io.WriteString(stdin, req); err != nil {
 		return nil, s.failure(err)
 	}
 	var fields []string
 	for {
-		line, err := s.stdout.ReadString('\n')
+		line, err := stdout.ReadString('\n')
 		if err != nil {
 			return nil, s.failure(err)
 		}
@@ -215,8 +232,11 @@ func (s *session) exchange(req string) ([]byte, error) {
 		}
 		numbers[i] = n
 	}
+	if numbers[1]+numbers[2] > maxResponse {
+		return nil, fmt.Errorf("%w: %d bytes", ErrTooLarge, numbers[1]+numbers[2])
+	}
 	body := make([]byte, numbers[1]+numbers[2])
-	if _, err := io.ReadFull(s.stdout, body); err != nil {
+	if _, err := io.ReadFull(stdout, body); err != nil {
 		return nil, s.failure(err)
 	}
 	output, stderr := body[:numbers[1]], body[numbers[1]:]
@@ -254,12 +274,12 @@ func writeArgs(b *strings.Builder, args []string) {
 	b.WriteString("set --")
 	for _, arg := range args {
 		b.WriteByte(' ')
-		b.WriteString(Quote(arg))
+		b.WriteString(quote(arg))
 	}
 	b.WriteByte('\n')
 }
 
-func Quote(arg string) string {
+func quote(arg string) string {
 	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 }
 

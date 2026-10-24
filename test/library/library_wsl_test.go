@@ -1,6 +1,11 @@
+//go:build !windows
+
 package library_test
 
 import (
+	"bytes"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -187,6 +192,89 @@ func TestWSLDistroProjects(t *testing.T) {
 	if _, err := lib.RegisterProject(ctx, wslPath(t, filepath.Join(root, "missing"))); err == nil {
 		t.Fatal("registered a missing project")
 	}
+}
+
+// 巡检、列出未纳管技能、整批入库前的确认一次读很多技能文件夹:往发行版发的命令按批执行,次数不随文件夹个数增长。
+func TestWSLDistroReadsManyFoldersInFewCommands(t *testing.T) {
+	lib, home := openWSLLibrary(t)
+	ctx := t.Context()
+	log := filepath.Join(t.TempDir(), "requests")
+	shell := filepath.Join(t.TempDir(), "sh")
+	writeFile(t, shell, []byte("#!/bin/sh\ntee -a '"+log+"' | sh\n"), 0o755)
+	t.Setenv("MECHBOX_TEST_WSL_SHELL", shell)
+	codex := library.GlobalScope(library.AgentCodex)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	add := func(from, to int) {
+		var items []library.UnmanagedFetchItem
+		for i := from; i < to; i++ {
+			name := fmt.Sprintf("skill-%d", i)
+			writeFile(t, filepath.Join(home, ".agents/skills", name, "SKILL.md"), []byte(skillDocument(name, "v1")), 0o644)
+			writeFile(t, filepath.Join(home, ".agents/skills", name, "scripts/run.sh"), []byte("#!/bin/sh\n"), 0o755)
+			link := filepath.Join(home, ".claude/skills", name)
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("../../.agents/skills/"+name, link); err != nil {
+				t.Fatal(err)
+			}
+			items = append(items, library.UnmanagedFetchItem{Folders: []library.FolderInScope{{Scope: codex, Name: name}}})
+		}
+		fetched, err := lib.FetchUnmanagedSkills(ctx, library.FetchUnmanagedSkillsRequest{Skills: items})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, result := range fetched {
+			if result.Error != nil {
+				t.Fatalf("FetchUnmanagedSkills: %+v", result.Error)
+			}
+		}
+	}
+	commands := func() map[string]int {
+		counts := map[string]int{}
+		for name, operation := range map[string]func() error{
+			"ListUnmanagedSkills": func() error { _, err := lib.ListUnmanagedSkills(ctx); return err },
+			"PlanFetchUnmanaged": func() error {
+				_, err := lib.PlanFetchUnmanaged(ctx, library.PlanFetchUnmanagedRequest{Scopes: []library.Scope{claude}})
+				return err
+			},
+			"InspectSkillScopes": func() error {
+				inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{})
+				for _, inspection := range inspections {
+					if inspection.Status != library.SkillScopeCurrent {
+						t.Fatalf("%s: %s", inspection.Folder, inspection.Status)
+					}
+				}
+				return err
+			},
+		} {
+			before := wslCommands(t, log)
+			if err := operation(); err != nil {
+				t.Fatal(err)
+			}
+			counts[name] = wslCommands(t, log) - before
+		}
+		return counts
+	}
+	add(0, 2)
+	few := commands()
+	for name, count := range few {
+		if count == 0 {
+			t.Fatalf("%s ran no commands in the distribution", name)
+		}
+	}
+	add(2, 8)
+	if many := commands(); !maps.Equal(few, many) {
+		t.Fatalf("commands with 2 folders = %v, with 8 = %v", few, many)
+	}
+}
+
+func wslCommands(t *testing.T, log string) int {
+	t.Helper()
+	content, err := os.ReadFile(log)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return bytes.Count(content, []byte("\nset --"))
 }
 
 func TestWSLDistroUnavailable(t *testing.T) {

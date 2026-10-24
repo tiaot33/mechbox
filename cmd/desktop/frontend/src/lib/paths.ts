@@ -10,9 +10,21 @@ export function resolveLocalPath(input: string, home: string): PathInput | null 
   const text = input.trim();
   if (!text) return null;
   if (text === "~") return { path: home };
-  if (text.startsWith("~/")) return { path: home + text.slice(1) };
+  if (text.startsWith("~/") || text.startsWith("~\\")) return { path: home + text.slice(1) };
   if (absolute.test(text)) return { path: text };
   return { error: messages().paths.absolute };
+}
+
+// insideHome 判断 path 是否在主目录 home 里面(不含主目录本身);Windows 与 WSL 发行版的路径用反斜杠分隔。
+export function insideHome(path: string, home: string): boolean {
+  const base = home.replace(/[\\/]+$/, "");
+  const rest = path.startsWith(base + "/") || path.startsWith(base + "\\") ? path.slice(base.length) : "";
+  return rest.replace(/[\\/]+/g, "") !== "";
+}
+
+// isWSLPath 判断 path 是否在某个 WSL 发行版里(\\wsl.localhost\... 或 \\wsl$\...)。
+export function isWSLPath(path: string): boolean {
+  return /^(\\\\|\/\/)wsl(\.localhost|\$)[\\/]/i.test(path);
 }
 
 // resolveFetchInput 处理入库输入框的内容：以 ~ 开头的展开成主目录下的绝对路径;以 ./、../ 开头的相对路径拦下
@@ -20,7 +32,7 @@ export function resolveLocalPath(input: string, home: string): PathInput | null 
 export function resolveFetchInput(input: string, home: string): PathInput | null {
   const text = input.trim();
   if (!text) return null;
-  if (text === "~" || text.startsWith("~/")) return resolveLocalPath(text, home);
+  if (text === "~" || text.startsWith("~/") || text.startsWith("~\\")) return resolveLocalPath(text, home);
   if (/^\.\.?(\/|$)/.test(text)) return { error: messages().paths.fetchRelative };
   return { path: text };
 }

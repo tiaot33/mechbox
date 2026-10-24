@@ -92,10 +92,6 @@ func (c *Change) Targets() []string {
 	return targets
 }
 
-func (c *Change) Touches(path string) bool {
-	return slices.ContainsFunc(c.Targets(), func(target string) bool { return SameEntry(target, path) })
-}
-
 func copyTree(ctx context.Context, from, stage string) error {
 	if !sameSystem(from, stage) {
 		return fmt.Errorf("copy skill folder: %s and %s are on different systems", from, stage)

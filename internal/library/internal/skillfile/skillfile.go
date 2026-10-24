@@ -30,6 +30,10 @@ type Digest struct {
 
 var ignoredNames = []string{".git", ".DS_Store", "__MACOSX", "__pycache__", "__pypackages__", "Thumbs.db", "desktop.ini"}
 
+func IgnoredPatterns() []string {
+	return append(slices.Clone(ignoredNames), "._*")
+}
+
 func Ignored(path string) bool {
 	for segment := range strings.SplitSeq(path, "/") {
 		if slices.Contains(ignoredNames, segment) || strings.HasPrefix(segment, "._") {

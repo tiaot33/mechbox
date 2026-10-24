@@ -2,9 +2,7 @@ package agentdir
 
 import (
 	"context"
-	"io/fs"
 	"strings"
-	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
@@ -28,9 +26,9 @@ type fileSystem interface {
 	readFile(path string) ([]byte, error)
 	sameEntry(a, b string) (same, known bool)
 	sameFolder(a, b string) (same, known bool)
-	within(path, directory string) (inside, known bool)
+	within(directories []string) func(resolved string) bool
 	canonical(path string) string
-	walk(ctx context.Context, root string, visit func(walked) error) error
+	inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error
 	list(directory string) ([]Folder, error)
 	committed(ctx context.Context, root, directory string) (map[string]bool, error)
 
@@ -42,15 +40,7 @@ type fileSystem interface {
 }
 
 type entry struct {
-	dir, link, regular bool
-}
-
-type walked struct {
-	relative string
-	mode     fs.FileMode
-	size     int64
-	modTime  time.Time
-	read     func() ([]byte, error)
+	dir, link bool
 }
 
 func on(path string) fileSystem {
