@@ -52,6 +52,13 @@ export function RefreshBadge(): $CancellablePromise<void> {
 }
 
 /**
+ * RetryWSLDistro 再打开一次设置里选的 WSL 发行版，打开了就把各 Agent 的全局目录换过去;仍打不开时返回错误。
+ */
+export function RetryWSLDistro(): $CancellablePromise<void> {
+    return $Call.ByID(191639833);
+}
+
+/**
  * RevealInFinder 在 Finder 中选中 path(作用域里的技能文件夹等);是符号链接时选中链接本身。
  * server 模式与 macOS 以外的平台什么都不做。
  */
@@ -68,6 +75,7 @@ export function SaveGitHubToken(token: string): $CancellablePromise<$models.Cred
 
 /**
  * SaveSettings 保存设置并立即生效。前端每次传完整的设置，一次一次依次保存。
+ * 改了全局目录所在的 WSL 发行版时先交给技能库，打不开就不保存、返回错误，技能库仍用原来的全局目录。
  */
 export function SaveSettings(settings: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(3784651466, settings);
@@ -96,4 +104,12 @@ export function Settings(): $CancellablePromise<$models.Settings> {
  */
 export function UninstallApp(opts: $models.UninstallOptions): $CancellablePromise<$models.UninstallResult> {
     return $Call.ByID(4285814079, opts);
+}
+
+/**
+ * WSLDistroError 在设置里选的 WSL 发行版启动时没能打开时给出原因,此时技能库用的是 Windows 本机的全局目录;
+ * 打开了、没选发行版或之后用 RetryWSLDistro 打开了时为空。前端启动时据此提示，让用户重试或改回 Windows 本机。
+ */
+export function WSLDistroError(): $CancellablePromise<string> {
+    return $Call.ByID(2639603139);
 }

@@ -8,6 +8,7 @@ import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { mergeProjectPlaces, projectName, scopeLabel, shortPath } from "@/lib/model";
+import { isWSLPath } from "@/lib/paths";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -50,6 +51,9 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
   const projects = [...new Set(present.flatMap((p) => (p.scope.project_id ? [p.scope.project_id] : [])))];
   const inProjects = present.length - inGlobal;
   const moving = folders === UninstallFolders.FoldersTrash ? present.length : folders === UninstallFolders.FoldersKeepModified ? present.length - modified.length : 0;
+  const movingInDistro = present.filter(
+    (p) => isWSLPath(p.folder) && (folders === UninstallFolders.FoldersTrash || (folders === UninstallFolders.FoldersKeepModified && p.status !== SkillScopeStatus.SkillScopeModified)),
+  ).length;
 
   const choices: Choice[] = [
     { value: UninstallFolders.FoldersKeep, label: t.keep, desc: t.keepDesc },
@@ -148,6 +152,7 @@ export function UninstallDialog({ s, onClose }: { s: Snapshot; onClose: () => vo
             {moving > 0 && (
               <Hint>{t.adopted(inProjects > 0)}</Hint>
             )}
+            {movingInDistro > 0 && <Hint>{t.distroTrash(movingInDistro)}</Hint>}
             {modified.length > 0 && (
               <>
                 <Notice tone="warn">

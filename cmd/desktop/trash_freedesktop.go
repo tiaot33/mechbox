@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -166,14 +164,6 @@ func trashAs(trash, name, path, content string) error {
 		_ = os.Remove(info)
 	}
 	return err
-}
-
-func trashInfo(original string, deleted time.Time) string {
-	segments := strings.Split(filepath.ToSlash(original), "/")
-	for i, segment := range segments {
-		segments[i] = url.PathEscape(segment)
-	}
-	return fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n", strings.Join(segments, "/"), deleted.Format("2006-01-02T15:04:05"))
 }
 
 func device(info fs.FileInfo) uint64 {

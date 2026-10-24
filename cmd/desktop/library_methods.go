@@ -211,6 +211,18 @@ func (s *LibraryService) ScopeDirectory(ctx context.Context, scope library.Scope
 	return settle(s.lib.ScopeDirectory(ctx, scope))(ctx)
 }
 
+func (s *LibraryService) HomeDirectory() string {
+	return s.lib.HomeDirectory()
+}
+
+func (s *LibraryService) ListWSLDistros(ctx context.Context) ([]string, error) {
+	return settle(s.lib.ListWSLDistros(ctx))(ctx)
+}
+
+func (s *LibraryService) SetWSLDistro(ctx context.Context, distro string) error {
+	return settleErr(ctx, s.lib.SetWSLDistro(ctx, distro))
+}
+
 // ---------- 安装、卸载与重新安装 ----------
 
 func (s *LibraryService) PlanInstall(ctx context.Context, id library.SkillID, scope library.Scope) (library.InstallPlan, error) {

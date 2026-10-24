@@ -89,13 +89,9 @@ type AppInfo struct {
 	Version     string `json:"version"`      // 应用版本
 }
 
-// Info 返回技能库路径、用户主目录与应用版本。
+// Info 返回技能库路径、技能库所用的用户主目录与应用版本。
 func (s *LibraryService) Info() (AppInfo, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return AppInfo{}, fmt.Errorf("find home directory: %w", err)
-	}
-	return AppInfo{LibraryPath: s.path, HomeDir: home, Version: appVersion()}, nil
+	return AppInfo{LibraryPath: s.path, HomeDir: s.lib.HomeDirectory(), Version: appVersion()}, nil
 }
 
 //go:embed build/config.yml

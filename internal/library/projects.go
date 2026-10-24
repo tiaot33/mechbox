@@ -5,11 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
-	"syscall"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
@@ -279,7 +275,7 @@ func (l *Library) resolveRow(ctx context.Context, row scopeRow) (resolvedScope, 
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	target := resolvedScope{scopeRow: row, root: l.home, relative: agent.GlobalPath}
+	target := resolvedScope{scopeRow: row, root: l.home.Root(), relative: agent.GlobalPath}
 	if row.projectID != nil {
 		project, err := l.store.GetProject(ctx, int64(*row.projectID))
 		if err != nil {
@@ -287,7 +283,7 @@ func (l *Library) resolveRow(ctx context.Context, row scopeRow) (resolvedScope, 
 		}
 		target.root, target.relative = project.Path, agent.ProjectPath
 	}
-	target.directory = filepath.Join(target.root, filepath.FromSlash(target.relative))
+	target.directory = agentdir.Join(target.root, target.relative)
 	return target, nil
 }
 
@@ -307,30 +303,19 @@ func registeredProjects(rows []store.Project) ([]RegisteredProject, error) {
 }
 
 func registeredProject(row store.Project, missing bool) RegisteredProject {
-	return RegisteredProject{ID: ProjectID(row.ID), Name: filepath.Base(row.Path), Path: row.Path, Missing: missing}
+	return RegisteredProject{ID: ProjectID(row.ID), Name: agentdir.ProjectName(row.Path), Path: row.Path, Missing: missing}
 }
 
 func projectPath(operation, path string) (string, error) {
 	if path == "" {
 		return "", argumentError(operation, "path", "path is required")
 	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve project path: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(absolute)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+	root, err := agentdir.ProjectRoot(path)
+	switch {
+	case errors.Is(err, agentdir.ErrMissing):
 		return "", argumentError(operation, "path", "path does not exist")
-	}
-	if err != nil {
-		return "", fmt.Errorf("resolve project path: %w", err)
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", fmt.Errorf("read project path: %w", err)
-	}
-	if !info.IsDir() {
+	case errors.Is(err, agentdir.ErrNotDirectory):
 		return "", argumentError(operation, "path", "path is not a directory")
 	}
-	return filepath.Clean(resolved), nil
+	return root, err
 }

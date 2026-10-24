@@ -423,7 +423,8 @@ export enum ErrorCode {
     /**
      * FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
      * (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;修改或删除内置 Agent;同一入库预览句柄的入库正在进行;
-     * Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回时 S3 上的库不能拉回)。
+     * Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回时 S3 上的库不能拉回;
+     * 要用的 WSL 发行版打不开:没有这个发行版、WSL 没有响应或发行版里的命令进程中途退出)。
      * 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
      * 加入成员时根目录不存在也是如此。重新安装时根目录不存在放进那一处的 ReinstallResult.Error。
      * 覆盖或重试都无效,用户需先改状态。UI:说明原因,不提供覆盖 / 重试;占用者看 Details.SkillID / Name / Path。
@@ -1971,7 +1972,7 @@ export interface UnmanagedSkill {
     /**
      * SourceInput 是从 npx skills 留下的来源记录里认出的来源,格式同 PreviewFetchRequest.Input;入库确认里预填给
      * FetchUnmanagedRequest.SourceInput,界面写「来自 …」。认不出时为空,用户可以自己给一个来源链接。
-     * 全局作用域读 ~/.agents/.skill-lock.json(设了 XDG_STATE_HOME 时为 $XDG_STATE_HOME/skills/.skill-lock.json,只认 version 3 及以上),
+     * 全局作用域读 ~/.agents/.skill-lock.json(不跟随 XDG_STATE_HOME,只认 version 3 及以上),
      * 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
      * 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
      */

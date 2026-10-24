@@ -98,8 +98,12 @@ export function GetVersionFile(id: library$0.VersionID, path: string): $Cancella
     return $Call.ByID(3433441728, id, path);
 }
 
+export function HomeDirectory(): $CancellablePromise<string> {
+    return $Call.ByID(4228136540);
+}
+
 /**
- * Info 返回技能库路径、用户主目录与应用版本。
+ * Info 返回技能库路径、技能库所用的用户主目录与应用版本。
  */
 export function Info(): $CancellablePromise<$models.AppInfo> {
     return $Call.ByID(170646414);
@@ -171,6 +175,10 @@ export function ListVersionFiles(id: library$0.VersionID): $CancellablePromise<l
 
 export function ListVersions(id: library$0.SkillID): $CancellablePromise<library$0.SkillVersion[] | null> {
     return $Call.ByID(2258615823, id);
+}
+
+export function ListWSLDistros(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2399742632);
 }
 
 export function MarkNotInterested(id: library$0.CollectionID, names: string[] | null): $CancellablePromise<void> {
@@ -259,6 +267,10 @@ export function SetGitHubToken(token: string): $CancellablePromise<void> {
 
 export function SetSyncSettings(settings: library$0.SyncSettings | null): $CancellablePromise<void> {
     return $Call.ByID(1864003768, settings);
+}
+
+export function SetWSLDistro(distro: string): $CancellablePromise<void> {
+    return $Call.ByID(4219977415, distro);
 }
 
 export function SkipUpdate(req: library$0.SkipRequest): $CancellablePromise<void> {

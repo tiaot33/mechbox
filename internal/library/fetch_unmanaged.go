@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -153,7 +152,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 	if err := target.requireRoot(operation); err != nil {
 		return unmanagedFolder{}, err
 	}
-	path := filepath.Join(target.directory, req.Name)
+	path := agentdir.FolderPath(target.directory, req.Name)
 	folders, err := agentdir.List(target.directory)
 	if err != nil {
 		return unmanagedFolder{}, err
@@ -166,7 +165,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 		return unmanagedFolder{}, err
 	}
 	for _, skillScope := range installed {
-		if filepath.Base(skillScope.Folder) == req.Name {
+		if agentdir.FolderName(skillScope.Folder) == req.Name {
 			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: skillScope.SkillID})
 		}
 	}
@@ -272,8 +271,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	records := l.sourceRecords()
 	for _, each := range folders {
 		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
-			recordedInput, recordedRef, recognized := entry.Input()
-			if !recognized || recordedInput != input || recordedRef != ref {
+			if !entry.recognized || entry.input != input || entry.ref != ref {
 				continue
 			}
 			matches := entry.Matches(each.files)
@@ -405,14 +403,37 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	if err != nil {
 		return nil, err
 	}
+	type planned struct {
+		sum      string
+		parsed   discovery.Candidate
+		modified time.Time
+		err      error
+	}
+	reads := make([]planned, len(entries))
+	var paths []string
+	var indexes []int
+	for i, entry := range entries {
+		if !validFolderName(entry.Name) {
+			reads[i].err = &Error{Code: InvalidArgument, Message: operation + ": invalid skill folder name", Details: ErrorDetails{Field: "name", Path: entry.Folder}}
+			continue
+		}
+		paths = append(paths, entry.Folder)
+		indexes = append(indexes, i)
+	}
+	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		i := indexes[index]
+		files, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state.Files, state.Err)
+		reads[i] = planned{sum: skillfile.Sum(files), parsed: parsed, modified: state.Modified, err: err}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	plan = []PlannedUnmanagedSkill{}
 	byContent := map[string][]int{}
-	for _, entry := range entries {
-		files, parsed, modified, err := readPlannedFolder(ctx, operation, entry)
+	for i, entry := range entries {
+		sum, parsed, modified, err := reads[i].sum, reads[i].parsed, reads[i].modified, reads[i].err
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
 			failure := ErrorOf(err)
 			if failure.Details.Path == "" {
 				failure.Details.Path = entry.Folder
@@ -420,7 +441,6 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			plan = append(plan, PlannedUnmanagedSkill{Name: entry.Name, Description: entry.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill}, Error: failure})
 			continue
 		}
-		sum := skillfile.Sum(files)
 		same := slices.IndexFunc(byContent[sum], func(index int) bool {
 			return !slices.ContainsFunc(plan[index].Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
 		})
@@ -468,18 +488,6 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		return cmp.Or(cmp.Compare(a.Name, b.Name), b.ModifiedAt.Compare(a.ModifiedAt))
 	})
 	return plan, nil
-}
-
-func readPlannedFolder(ctx context.Context, operation string, entry unmanagedEntry) ([]skillfile.File, discovery.Candidate, time.Time, error) {
-	if !validFolderName(entry.Name) {
-		return nil, discovery.Candidate{}, time.Time{}, &Error{Code: InvalidArgument, Message: operation + ": invalid skill folder name", Details: ErrorDetails{Field: "name", Path: entry.Folder}}
-	}
-	files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
-	if err != nil {
-		return nil, discovery.Candidate{}, time.Time{}, err
-	}
-	modified, err := agentdir.Modified(ctx, entry.Folder)
-	return files, parsed, modified, err
 }
 
 // FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
@@ -674,15 +682,21 @@ next:
 }
 
 type sourceRecords struct {
-	home string
+	home agentdir.Home
 	read map[string]skilllock.Records
+}
+
+type sourceRecord struct {
+	skilllock.Record
+	input, ref string
+	recognized bool
 }
 
 func (l *Library) sourceRecords() *sourceRecords {
 	return &sourceRecords{home: l.home, read: map[string]skilllock.Records{}}
 }
 
-func (f *sourceRecords) find(target resolvedScope, names ...string) (skilllock.Record, bool) {
+func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecord, bool) {
 	root := ""
 	if target.projectID != nil {
 		root = target.root
@@ -690,11 +704,23 @@ func (f *sourceRecords) find(target resolvedScope, names ...string) (skilllock.R
 	records, ok := f.read[root]
 	if !ok {
 		if root == "" {
-			records = skilllock.GlobalRecords(f.home)
+			content, _ := agentdir.ReadFile(f.home.Join(skilllock.GlobalFile))
+			records = skilllock.ParseGlobal(content)
 		} else {
-			records = skilllock.ProjectRecords(root)
+			content, _ := agentdir.ReadFile(agentdir.Join(root, skilllock.ProjectFile))
+			records = skilllock.ParseProject(content)
 		}
 		f.read[root] = records
 	}
-	return records.Find(names...)
+	record, ok := records.Find(names...)
+	if !ok {
+		return sourceRecord{}, false
+	}
+	found := sourceRecord{Record: record}
+	found.input, found.ref, found.recognized = record.Input()
+	if path, local := record.LocalPath(); local {
+		found.input = agentdir.Resolve(root, path)
+		found.recognized = found.input != ""
+	}
+	return found, true
 }

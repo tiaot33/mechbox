@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -191,7 +190,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 				continue
 			}
 			destination := migrationDestination(item, row)
-			if agentdir.Canonical(destination.directory) == agentdir.Canonical(item.Folder) || isInside(item.Folder, destination.directory) {
+			if agentdir.Canonical(destination.directory) == agentdir.Canonical(item.Folder) || agentdir.Inside(item.Folder, destination.directory) {
 				field := "global_directory"
 				if project {
 					field = "project_directory"
@@ -218,7 +217,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 			continue
 		}
 		destination := migrationDestination(item, row)
-		name := filepath.Base(item.Folder)
+		name := agentdir.FolderName(item.Folder)
 		renamed, err := l.installedUnderAnotherName(ctx, item.SkillID, name, destination)
 		if err != nil {
 			return EditAgentResult{}, err
@@ -227,7 +226,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 			if item.own != nil {
 				dropped = append(dropped, item.own.ID)
 			}
-			result.Migrations = append(result.Migrations, AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: filepath.Join(destination.directory, name), Outcome: MigrationSkipped})
+			result.Migrations = append(result.Migrations, AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: agentdir.FolderPath(destination.directory, name), Outcome: MigrationSkipped})
 			continue
 		}
 		exists, err := agentdir.Exists(item.Folder)
@@ -237,7 +236,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 		if !exists {
 			continue
 		}
-		migration := AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: filepath.Join(destination.directory, name)}
+		migration := AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: agentdir.FolderPath(destination.directory, name)}
 		occupied, err := l.migrationBlocked(ctx, code, changed, item.SkillID, name, destination, planned)
 		if err != nil {
 			return EditAgentResult{}, err
@@ -300,13 +299,8 @@ func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
 	if destination.projectID != nil {
 		destination.relative = row.ProjectPath
 	}
-	destination.directory = filepath.Join(destination.root, filepath.FromSlash(destination.relative))
+	destination.directory = agentdir.Join(destination.root, destination.relative)
 	return destination
-}
-
-func isInside(root, path string) bool {
-	_, inside := relativeInside(agentdir.Canonical(root), agentdir.Canonical(path))
-	return inside
 }
 
 func (l *Library) installedUnderAnotherName(ctx context.Context, id SkillID, name string, destination resolvedScope) (bool, error) {
@@ -316,7 +310,7 @@ func (l *Library) installedUnderAnotherName(ctx context.Context, id SkillID, nam
 		return false, err
 	}
 	for _, other := range installed {
-		if agentdir.Canonical(filepath.Dir(other.Folder)) == want && filepath.Base(other.Folder) != name {
+		if agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) == want && agentdir.FolderName(other.Folder) != name {
 			return true, nil
 		}
 	}
@@ -324,7 +318,7 @@ func (l *Library) installedUnderAnotherName(ctx context.Context, id SkillID, nam
 }
 
 func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed map[bool]bool, id SkillID, name string, destination resolvedScope, planned map[string]bool) (bool, error) {
-	folder := filepath.Join(destination.directory, name)
+	folder := agentdir.FolderPath(destination.directory, name)
 	if planned[agentdir.Canonical(folder)] {
 		return true, nil
 	}
@@ -459,13 +453,13 @@ func (l *Library) customAgent(ctx context.Context, operation string, code AgentC
 func (l *Library) agentOf(row store.Agent) (Agent, error) {
 	agent := Agent{
 		Code: AgentCode(row.Code), Name: row.Name, Custom: row.Custom,
-		GlobalDirectory: filepath.Join(l.home, filepath.FromSlash(row.GlobalPath)), ProjectDirectory: row.ProjectPath,
+		GlobalDirectory: l.home.Join(row.GlobalPath), ProjectDirectory: row.ProjectPath,
 	}
 	if !row.Custom {
 		agent.SameName = sameNameRules[agent.Code]
 	}
 	if row.DetectPath != "" {
-		detected, err := agentdir.DirectoryExists(filepath.Join(l.home, filepath.FromSlash(row.DetectPath)))
+		detected, err := agentdir.DirectoryExists(l.home.Join(row.DetectPath))
 		if err != nil {
 			return Agent{}, fmt.Errorf("detect agent: %w", err)
 		}
@@ -479,43 +473,27 @@ func (l *Library) customAgentRow(operation string, agent CustomAgent) (store.Age
 	if name == "" {
 		return store.Agent{}, argumentError(operation, "name", "name is required")
 	}
-	global := agent.GlobalDirectory
-	if global == "" {
+	if agent.GlobalDirectory == "" {
 		return store.Agent{}, argumentError(operation, "global_directory", "global directory is required")
 	}
-	if global == "~" || strings.HasPrefix(global, "~/") {
-		global = filepath.Join(l.home, global[1:])
-	}
-	if !filepath.IsAbs(global) {
+	globalPath, err := l.home.Relative(agent.GlobalDirectory)
+	switch {
+	case errors.Is(err, agentdir.ErrNotAbsolute):
 		return store.Agent{}, argumentError(operation, "global_directory", "global directory must be an absolute path")
-	}
-	globalPath, inside := relativeInside(l.home, global)
-	if !inside {
-		globalPath, inside = relativeInside(agentdir.Canonical(l.home), agentdir.Canonical(global))
-	}
-	if !inside {
+	case err != nil:
 		return store.Agent{}, argumentError(operation, "global_directory", "global directory must be inside the home directory")
 	}
-	project := agent.ProjectDirectory
-	if project == "" {
+	if agent.ProjectDirectory == "" {
 		return store.Agent{}, argumentError(operation, "project_directory", "project directory is required")
 	}
-	if filepath.IsAbs(project) {
+	projectPath, err := agentdir.ProjectRelative(agent.ProjectDirectory)
+	switch {
+	case errors.Is(err, agentdir.ErrNotRelative):
 		return store.Agent{}, argumentError(operation, "project_directory", "project directory must be relative to the project")
-	}
-	project = filepath.Clean(project)
-	if project == "." || !filepath.IsLocal(project) {
+	case err != nil:
 		return store.Agent{}, argumentError(operation, "project_directory", "project directory must be inside the project")
 	}
-	return store.Agent{Name: name, GlobalPath: filepath.ToSlash(globalPath), ProjectPath: filepath.ToSlash(project), Custom: true}, nil
-}
-
-func relativeInside(root, path string) (string, bool) {
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == "." || !filepath.IsLocal(relative) {
-		return "", false
-	}
-	return relative, true
+	return store.Agent{Name: name, GlobalPath: globalPath, ProjectPath: projectPath, Custom: true}, nil
 }
 
 func randomBytes(n int) []byte {

@@ -38,7 +38,7 @@ func startServices(t *testing.T) *uninstallFixture {
 		return os.RemoveAll(path)
 	}
 	// 先保存一次设置，让 settings.json 落盘。
-	if _, err := f.app.SaveSettings(defaultSettings()); err != nil {
+	if _, err := f.app.SaveSettings(t.Context(), defaultSettings()); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	return f

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -283,7 +282,7 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	if err := target.requireRoot(operation); err != nil {
 		return scopeEdit{}, err
 	}
-	folder := filepath.Join(target.directory, place[0].Folder)
+	folder := agentdir.FolderPath(target.directory, place[0].Folder)
 	unmodified := preconditionError(operation, "the installed folder was not modified", ErrorDetails{Path: folder})
 	if exists, err := agentdir.Exists(folder); err != nil {
 		return scopeEdit{}, fmt.Errorf("inspect target folder: %w", err)

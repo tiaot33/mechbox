@@ -34,6 +34,7 @@ type AppService struct {
 	uninstalling bool
 	uninstalled  bool
 	lastAttempt  time.Time
+	distroError  string
 
 	removeOnce sync.Once
 	discard    func(path string) error
@@ -58,14 +59,20 @@ func NewAppService(path string, lib *LibraryService) *AppService {
 	return &AppService{path: path, library: lib, keychain: defaultKeychain(), discard: discard, wake: make(chan struct{}, 1)}
 }
 
-// ServiceStartup 读取设置，把设置页里填的 GitHub 令牌与同步设置交给技能库，并开始后台检查;
-// 它排在 LibraryService 之后启动，技能库已经打开。
-func (a *AppService) ServiceStartup(context.Context, application.ServiceOptions) error {
+// ServiceStartup 读取设置，把各 Agent 的全局目录所在的 WSL 发行版、设置页里填的 GitHub 令牌与同步设置交给技能库，
+// 并开始后台检查;它排在 LibraryService 之后启动，技能库已经打开。选了发行版而打不开时，技能库留在 Windows 本机的全局目录，
+// 原因由 WSLDistroError 给出。
+func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	file, err := loadSettings(a.path)
 	if err != nil && a.app != nil {
 		a.app.Logger.Warn("settings unreadable, using defaults", "error", err)
 	}
 	a.settings, a.sync, a.firstOpen = file.Settings, file.Sync, err == nil && !file.FirstOpenDone
+	if distro := a.settings.WSLDistro; distro != "" {
+		if err := a.library.lib.SetWSLDistro(ctx, distro); err != nil {
+			a.distroError = library.ErrorOf(err).Message
+		}
+	}
 	a.credMu.Lock()
 	if err := a.readSecrets(); err != nil && a.app != nil {
 		a.app.Logger.Warn("keychain unreadable", "error", err)
@@ -104,26 +111,62 @@ func (a *AppService) Language() Language {
 }
 
 // SaveSettings 保存设置并立即生效。前端每次传完整的设置，一次一次依次保存。
-func (a *AppService) SaveSettings(settings Settings) (Settings, error) {
+// 改了全局目录所在的 WSL 发行版时先交给技能库，打不开就不保存、返回错误，技能库仍用原来的全局目录。
+func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Settings, error) {
 	if !settings.CheckInterval.valid() {
 		return Settings{}, fmt.Errorf("unknown check interval %q", settings.CheckInterval)
 	}
 	if !settings.Language.valid() {
 		return Settings{}, fmt.Errorf("unknown language %q", settings.Language)
 	}
+	previous := a.Settings().WSLDistro
+	switched := settings.WSLDistro != previous
+	if switched {
+		if err := a.library.lib.SetWSLDistro(ctx, settings.WSLDistro); err != nil {
+			return Settings{}, err
+		}
+	}
 	a.mu.Lock()
 	err := saveSettings(a.path, settingsFile{Settings: settings, Sync: a.sync, FirstOpenDone: !a.firstOpen})
 	if err == nil {
 		a.settings = settings
+		if switched {
+			a.distroError = ""
+		}
 	}
 	a.mu.Unlock()
 	if err != nil {
+		if switched {
+			_ = a.library.lib.SetWSLDistro(context.WithoutCancel(ctx), previous)
+		}
 		return Settings{}, err
 	}
 	a.menus.setLanguage(settings.Language.resolve())
 	a.poke()
 	a.refreshBadge(context.Background())
 	return settings, nil
+}
+
+// WSLDistroError 在设置里选的 WSL 发行版启动时没能打开时给出原因,此时技能库用的是 Windows 本机的全局目录;
+// 打开了、没选发行版或之后用 RetryWSLDistro 打开了时为空。前端启动时据此提示，让用户重试或改回 Windows 本机。
+func (a *AppService) WSLDistroError() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.distroError
+}
+
+// RetryWSLDistro 再打开一次设置里选的 WSL 发行版，打开了就把各 Agent 的全局目录换过去;仍打不开时返回错误。
+func (a *AppService) RetryWSLDistro(ctx context.Context) error {
+	if err := a.library.lib.SetWSLDistro(ctx, a.Settings().WSLDistro); err != nil {
+		a.mu.Lock()
+		a.distroError = library.ErrorOf(err).Message
+		a.mu.Unlock()
+		return err
+	}
+	a.mu.Lock()
+	a.distroError = ""
+	a.mu.Unlock()
+	return nil
 }
 
 // FirstOpen 在这台机器上第一次打开 app 时返回 true,并在 settings.json 里记下已经打开过,之后(含重启)都返回 false。

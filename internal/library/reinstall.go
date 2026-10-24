@@ -3,9 +3,7 @@ package library
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
-	"path/filepath"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -119,37 +117,88 @@ func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilte
 }
 
 func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skillScopes []SkillScope) ([]SkillScopeInspection, error) {
-	inspections := []SkillScopeInspection{}
-	links := map[SkillID][]SkillScope{}
-	for _, skillScope := range skillScopes {
+	inspections := make([]SkillScopeInspection, len(skillScopes))
+	heads := make([]int64, len(skillScopes))
+	rootsMissing := map[string]bool{}
+	var folders, absent []string
+	var indexes, absentIndexes []int
+	skills := map[SkillID]bool{}
+	for i, skillScope := range skillScopes {
+		inspections[i].SkillScope = skillScope
+		skills[skillScope.SkillID] = true
 		target, err := l.resolveScope(ctx, operation, skillScope.Scope)
 		if err != nil {
 			return nil, err
 		}
-		status, versionID, err := l.inspectSkillScope(ctx, skillScope.SkillID, target)
+		folder, head, err := l.installedFolder(ctx, skillScope.SkillID, target)
 		if err != nil {
 			return nil, err
 		}
-		inspection := SkillScopeInspection{SkillScope: skillScope, Status: status, VersionID: versionID, LinkTarget: agentdir.LinkTarget(skillScope.Folder)}
-		linked, ok := links[skillScope.SkillID]
+		missing, ok := rootsMissing[target.root]
 		if !ok {
-			if linked, err = l.linkedPlaces(ctx, skillScope.SkillID); err != nil {
+			failure, err := target.rootMissing(operation)
+			if err != nil {
 				return nil, err
 			}
-			links[skillScope.SkillID] = linked
+			missing = failure != nil
+			rootsMissing[target.root] = missing
 		}
+		heads[i] = head
+		if missing {
+			inspections[i].Status = SkillScopeRootMissing
+			absent = append(absent, folder)
+			absentIndexes = append(absentIndexes, i)
+			continue
+		}
+		folders = append(folders, folder)
+		indexes = append(indexes, i)
+	}
+	states := make([]agentdir.FolderState, len(skillScopes))
+	err := agentdir.ReadFolders(ctx, folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		i := indexes[index]
+		status, versionID, err := l.folderStatus(ctx, skillScopes[i].SkillID, heads[i], state)
+		if err != nil {
+			return err
+		}
+		inspections[i].Status, inspections[i].VersionID, inspections[i].LinkTarget = status, versionID, state.LinkTarget
+		state.Files = nil
+		states[i] = state
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	absentStates, err := agentdir.StatFolders(ctx, absent)
+	if err != nil {
+		return nil, err
+	}
+	for index, state := range absentStates {
+		states[absentIndexes[index]] = state
+		inspections[absentIndexes[index]].LinkTarget = state.LinkTarget
+	}
+	if len(skills) == 0 {
+		return inspections, nil
+	}
+	var id SkillID
+	if len(skills) == 1 {
+		id = skillScopes[0].SkillID
+	}
+	linked, err := l.linkedPlaces(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for i := range inspections {
 		for _, place := range linked {
-			if !agentdir.SameEntry(place.Folder, skillScope.Folder) && linksThrough(place.Folder, []string{skillScope.Folder}) {
-				inspection.LinkedBy = append(inspection.LinkedBy, place.Scope)
+			if place.SkillID == skillScopes[i].SkillID && !place.state.SameEntry(states[i]) && place.state.LinksThrough(states[i]) {
+				inspections[i].LinkedBy = append(inspections[i].LinkedBy, place.Scope)
 			}
 		}
-		inspections = append(inspections, inspection)
 	}
 	return inspections, nil
 }
 
-func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target resolvedScope) (SkillScopeStatus, VersionID, error) {
-	name, currentVersionID, err := l.store.SkillHead(ctx, int64(id))
+func (l *Library) installedFolder(ctx context.Context, id SkillID, target resolvedScope) (string, int64, error) {
+	name, head, err := l.store.SkillHead(ctx, int64(id))
 	if err != nil {
 		return "", 0, err
 	}
@@ -160,29 +209,38 @@ func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target reso
 	if len(place) > 0 {
 		name = place[0].Folder
 	}
+	return agentdir.FolderPath(target.directory, name), head, nil
+}
 
+func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target resolvedScope) (SkillScopeStatus, VersionID, error) {
+	folder, head, err := l.installedFolder(ctx, id, target)
+	if err != nil {
+		return "", 0, err
+	}
 	if missing, err := target.rootMissing("inspect skill scope"); err != nil {
 		return "", 0, err
 	} else if missing != nil {
 		return SkillScopeRootMissing, 0, nil
 	}
+	var status SkillScopeStatus
+	var versionID VersionID
+	err = agentdir.ReadFolders(ctx, []string{folder}, maxFetchFiles, maxFetchSize, func(_ int, state agentdir.FolderState) error {
+		status, versionID, err = l.folderStatus(ctx, id, head, state)
+		return err
+	})
+	return status, versionID, err
+}
 
-	folder := filepath.Join(target.directory, name)
-	if exists, err := agentdir.Exists(folder); err != nil {
-		return "", 0, fmt.Errorf("inspect target folder: %w", err)
-	} else if !exists {
+func (l *Library) folderStatus(ctx context.Context, id SkillID, head int64, state agentdir.FolderState) (SkillScopeStatus, VersionID, error) {
+	switch {
+	case !state.Exists:
 		return SkillScopeMissing, 0, nil
+	case errors.Is(state.Err, agentdir.ErrIrregularFile), errors.Is(state.Err, agentdir.ErrTooLarge):
+		return SkillScopeModified, 0, nil
+	case state.Err != nil:
+		return "", 0, state.Err
 	}
-
-	disk, err := agentdir.Read(ctx, folder)
-	if err != nil {
-		if errors.Is(err, agentdir.ErrIrregularFile) {
-			return SkillScopeModified, 0, nil
-		}
-		return "", 0, err
-	}
-
-	return l.matchVersion(ctx, id, currentVersionID, disk)
+	return l.matchVersion(ctx, id, head, digests(state.Files))
 }
 
 func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk map[string]skillfile.Digest) (SkillScopeStatus, VersionID, error) {
@@ -335,16 +393,16 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	}
 	switch status {
 	case SkillScopeCurrent:
-		if place[0].Folder == skill.Name && agentdir.LinkTarget(filepath.Join(target.directory, place[0].Folder)) == "" {
+		if place[0].Folder == skill.Name && agentdir.LinkTarget(agentdir.FolderPath(target.directory, place[0].Folder)) == "" {
 			return ReinstallCurrent, false, nil
 		}
 	case SkillScopeModified:
 		if !request.Overwrite {
-			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)})
+			return "", false, existsError(operation, "installed folder was modified outside the library", ErrorDetails{Path: agentdir.FolderPath(target.directory, place[0].Folder)})
 		}
 	case SkillScopeMissing:
 		if !request.Overwrite {
-			return "", false, &Error{Code: NotFound, Message: operation + ": installed folder was deleted outside the library", Details: ErrorDetails{Path: filepath.Join(target.directory, place[0].Folder)}}
+			return "", false, &Error{Code: NotFound, Message: operation + ": installed folder was deleted outside the library", Details: ErrorDetails{Path: agentdir.FolderPath(target.directory, place[0].Folder)}}
 		}
 	}
 	folder := place[0].Folder

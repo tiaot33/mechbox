@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -66,10 +65,10 @@ func (l *Library) placementConflict(ctx context.Context, operation string, id Sk
 	}
 	if other != nil {
 		return preconditionError(operation, "another skill already installs this name into the same directory", ErrorDetails{
-			Path: filepath.Join(target.directory, other.name), Name: other.name, SkillID: other.skillID,
+			Path: agentdir.FolderPath(target.directory, other.name), Name: other.name, SkillID: other.skillID,
 		}), nil
 	}
-	path := filepath.Join(target.directory, name)
+	path := agentdir.FolderPath(target.directory, name)
 	exists, err := agentdir.Exists(path)
 	if err != nil {
 		return nil, fmt.Errorf("inspect target folder: %w", err)
@@ -100,36 +99,49 @@ func (l *Library) place(ctx context.Context, placements []*placement, record fun
 			return err
 		}
 		if item.replaces != "" && item.replaces != item.skill.Name {
-			change.Remove(filepath.Join(item.scope.directory, item.replaces))
+			change.Remove(agentdir.FolderPath(item.scope.directory, item.replaces))
 		}
 	}
 	return l.applyChange(ctx, &change, record)
 }
 
-func (l *Library) linkedPlaces(ctx context.Context, id SkillID) ([]SkillScope, error) {
+type linkedPlace struct {
+	SkillScope
+	state agentdir.FolderState
+}
+
+func (l *Library) linkedPlaces(ctx context.Context, id SkillID) ([]linkedPlace, error) {
 	skillScopes, err := l.listSkillScopes(ctx, id, nil)
 	if err != nil {
 		return nil, err
 	}
-	var linked []SkillScope
-	for _, skillScope := range skillScopes {
-		if agentdir.LinkTarget(skillScope.Folder) != "" {
-			linked = append(linked, skillScope)
+	folders := make([]string, len(skillScopes))
+	for i, skillScope := range skillScopes {
+		folders[i] = skillScope.Folder
+	}
+	states, err := agentdir.StatFolders(ctx, folders)
+	if err != nil {
+		return nil, err
+	}
+	var linked []linkedPlace
+	for i, skillScope := range skillScopes {
+		if states[i].LinkTarget != "" {
+			linked = append(linked, linkedPlace{SkillScope: skillScope, state: states[i]})
 		}
 	}
 	return linked, nil
 }
 
-func linksThrough(link string, folders []string) bool {
-	return slices.ContainsFunc(agentdir.LinkChain(link), func(hop string) bool {
-		return slices.ContainsFunc(folders, func(folder string) bool { return agentdir.SameEntry(hop, folder) })
-	})
-}
-
-func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Change, linked []SkillScope) error {
-	targets := change.Targets()
+func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Change, linked []linkedPlace) error {
+	if len(linked) == 0 {
+		return nil
+	}
+	targets, err := agentdir.StatFolders(ctx, change.Targets())
+	if err != nil {
+		return err
+	}
 	for _, place := range linked {
-		if change.Touches(place.Folder) || !agentdir.Resolves(place.Folder) || !linksThrough(place.Folder, targets) {
+		if slices.ContainsFunc(targets, place.state.SameEntry) || !place.state.Resolves || !place.state.LinksThrough(targets...) {
 			continue
 		}
 		if err := change.Detach(ctx, place.Folder); err != nil {
@@ -140,7 +152,7 @@ func (l *Library) detachLinkedPlaces(ctx context.Context, change *agentdir.Chang
 }
 
 func (l *Library) requireFreeFolder(ctx context.Context, operation string, skill Skill, target resolvedScope) error {
-	path := filepath.Join(target.directory, skill.Name)
+	path := agentdir.FolderPath(target.directory, skill.Name)
 	if other, err := l.targetClaimant(ctx, skill.ID, skill.Name, target); err != nil {
 		return err
 	} else if other != nil && other.skillID != skill.ID {
