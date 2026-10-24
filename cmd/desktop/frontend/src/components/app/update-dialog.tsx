@@ -19,7 +19,7 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentName, folderKey, linkNote, revisionSummary, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
+import { agentName, folderKey, linkNote, mergedScopeKey, mergeProjectPlaces, revisionSummary, sharedWithNote, revisionText, scopeKey, scopeLabel, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import {
   canInstall,
@@ -223,7 +223,7 @@ export function UpdateDialog({
 
   const run = async () => {
     setWorking(true);
-    const o = await runUpdate(ui, plan, label, checked, installOn);
+    const o = await runUpdate(ui, s, plan, label, checked, installOn);
     setWorking(false);
     if (o === "conflict") return setConflict(true);
     if (!o) return;
@@ -572,8 +572,9 @@ export function Places({
       const other = places.find((x) => x.skill_id === p.skill_id && scopeKey(x.scope) === scopeKey(scope));
       return !other || !on(other);
     });
+  // 项目里共用一个文件夹的几处合成一行;勾选本来就按文件夹记，一起换。
   const rows = new Map<string, SkillScopeInspection[]>();
-  for (const p of places) rows.set(scopeKey(p.scope), [...(rows.get(scopeKey(p.scope)) ?? []), p]);
+  for (const p of mergeProjectPlaces(s, places)) rows.set(mergedScopeKey(s, p.scope), [...(rows.get(mergedScopeKey(s, p.scope)) ?? []), p]);
   return (
     <ListBox>
       {[...rows.entries()].map(([key, list]) => (
@@ -587,9 +588,9 @@ export function Places({
                 {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="warn">{t.folderMissing}</Badge>}
-                {(p.shared_with?.length ?? 0) > 0 && (
+                {sharedWithNote(p).length > 0 && (
                   <span className="text-[11px] text-muted-foreground">
-                    {t.sharedFolder(p.shared_with!.map((code) => agentName(s, code)))}
+                    {t.sharedFolder(sharedWithNote(p).map((code) => agentName(s, code)))}
                   </span>
                 )}
                 {p.link_target && on(p) && (
@@ -599,7 +600,7 @@ export function Places({
                 )}
                 {on(p) && unchecked(p).length > 0 && (
                   <span className="update-place-kept min-w-0 text-[11px] text-muted-foreground">
-                    {t.linkedHere(unchecked(p).map((scope) => scopeLabel(s, scope)))}
+                    {t.linkedHere(mergeProjectPlaces(s, unchecked(p).map((scope) => ({ scope }))).map((x) => scopeLabel(s, x.scope)))}
                   </span>
                 )}
               </label>

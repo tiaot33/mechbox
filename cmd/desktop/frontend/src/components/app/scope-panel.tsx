@@ -1,5 +1,6 @@
 // 右栏：作用域——全局与每个已登记项目下，直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent";
 // 项目行折叠时用小图标显示在用的 Agent。点选一行即选中该作用域(与顶栏胶囊同步)。
+// 项目里共用一个目录的几个 Agent 合成一行，叫那几个 Agent 的名字，点选的是其中代表的作用域。
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖动中按指针轨迹预判要去的折叠项目或"其他 Agent",
 // 指针还没到就展开，拖完收回。
 import { useEffect, useRef, useState } from "react";
@@ -9,13 +10,17 @@ import { alreadyInScope, dropProps, useDnD } from "@/lib/dnd";
 import { useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import {
+  agentNameIn,
   agentsIn,
   agentsUsedIn,
+  mergeProjectPlaces,
   needsReinstall,
   parseScope,
   placeOf,
+  projectFolderNote,
   projectName,
   scopeKey,
+  sameMergedScope,
   scopeOf,
   shortPath,
   skillScopesIn,
@@ -33,7 +38,7 @@ import { Icon } from "./icons";
 import { pickDirectory } from "./fetch-dialog";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
-import { AgentMark } from "./parts";
+import { PlaceAgentMark } from "./parts";
 
 interface ScopePanelProps {
   s: Snapshot;
@@ -51,6 +56,8 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
   const tl = useT().layout;
   const dnd = useDnD();
   const selected = scope ? parseScope(scope) : null;
+  // isSelected:这一行是不是选中的作用域;项目里合成的一行，选中共用的任何一个都算。
+  const isSelected = (a: Agent, place: Place) => !!selected && sameMergedScope(s, selected, scopeOf(a.code, place));
   const rail = useRef<HTMLElement>(null);
 
   // aimed:这次拖动中预判展开过的项目("p" + ID)与"其他 Agent"("m" + 位置);拖动中不收回，免得列表在指针下跳动。
@@ -76,14 +83,16 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
         <button
           type="button"
           className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub")}
-          data-active={scope === key}
+          data-active={isSelected(agent, place)}
           data-already={already ? tl.alreadyThere : undefined}
-          onClick={() => onScope(scope === key ? null : key)}
+          onClick={() => onScope(isSelected(agent, place) ? null : key)}
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
-          <AgentMark code={agent.code} name={agent.name} />
-          <span className="grow truncate">{agent.name}</span>
+          <PlaceAgentMark s={s} code={agent.code} place={place} />
+          <span className="grow truncate" title={projectFolderNote(s, agent.code, place)}>
+            {agentNameIn(s, agent.code, place)}
+          </span>
           {issues > 0 && (
             <i className="size-1.5 shrink-0 rounded-full bg-warn" title={t.issues(issues)} />
           )}
@@ -96,9 +105,8 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
   // 正被选中的作用域即使折在"其他"里也直接列出，否则看不到选中态。
   const agentRows = (place: Place) => {
     const { open, folded } = agentsIn(s, place);
-    const isSelected = (a: Agent) => selected?.agent === a.code && placeOf(selected) === place;
-    const shown = [...open, ...folded.filter(isSelected)];
-    const rest = folded.filter((a) => !isSelected(a));
+    const shown = [...open, ...folded.filter((a) => isSelected(a, place))];
+    const rest = folded.filter((a) => !isSelected(a, place));
     const more = moreAgents.has(place) || aimed.has(`m${place}`);
     return (
       <>
@@ -146,7 +154,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
       <ul className={listClass}>
         {s.projects.map((p) => {
           const open = expanded.has(p.id) || aimed.has(`p${p.id}`);
-          const count = s.skillScopes.filter((x) => placeOf(x.scope) === p.id).length;
+          const count = mergeProjectPlaces(s, s.skillScopes.filter((x) => placeOf(x.scope) === p.id)).length;
           const current = !!selected && placeOf(selected) === p.id;
           return (
             <li key={p.id}>
@@ -170,7 +178,7 @@ export function ScopePanel({ s, scope, expanded, moreAgents, onScope, onTogglePr
                 {!open && (
                   <span className="inline-flex items-center gap-[3px] group-hover:hidden">
                     {agentsUsedIn(s, p.id).map((a) => (
-                      <AgentMark key={a.code} code={a.code} name={a.name} className="size-3 text-[8px]" />
+                      <PlaceAgentMark key={a.code} s={s} code={a.code} place={p.id} className="size-3 text-[8px]" />
                     ))}
                   </span>
                 )}

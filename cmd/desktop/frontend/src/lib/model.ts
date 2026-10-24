@@ -55,7 +55,7 @@ export function projectName(s: Snapshot, id: ProjectID): string {
 }
 
 export function scopeLabel(s: Snapshot, scope: Scope): string {
-  return `${agentName(s, scope.agent)} · ${scope.project_id ? projectName(s, scope.project_id) : messages().model.global}`;
+  return `${agentNameIn(s, scope.agent, placeOf(scope))} · ${scope.project_id ? projectName(s, scope.project_id) : messages().model.global}`;
 }
 
 // shortPath 把用户主目录缩写成 ~。
@@ -82,16 +82,109 @@ export function agentShown(shown: Partial<Record<string, boolean>> | null | unde
 
 // agentsIn 把某个地方的 Agent 分成直接列出的和折进"其他 N 个 Agent"的(右栏与作用域弹层):
 // 在这里装有技能的、以及检测到且勾选显示的直接列出;勾选了显示但没检测到的折起来;没勾选显示、也没装技能的不列出。
+// 项目里共用一个目录的几个 Agent 合成一处(见 mergeProjectAgents),已经列出的那一处不再折进"其他"。
 export function agentsIn(s: Snapshot, place: Place): { open: Agent[]; folded: Agent[] } {
   const used = agentsUsedIn(s, place);
   const open = s.agents.filter((a) => used.includes(a) || (a.detected && agentShown(s.agentsShown, a)));
   const folded = s.agents.filter((a) => !open.includes(a) && agentShown(s.agentsShown, a));
-  return { open, folded };
+  if (!place) return { open, folded };
+  const merged = mergeProjectAgents(s, open);
+  return { open: merged, folded: mergeAgentsExcept(s, place, folded, merged) };
 }
 
-// agentsUsedIn 是某个地方实际装有技能的 Agent,按 Agent 列表顺序。
+// agentsUsedIn 是某个地方实际装有技能的 Agent,按 Agent 列表顺序;项目里共用一个目录的几个合成一处。
 export function agentsUsedIn(s: Snapshot, place: Place) {
-  return s.agents.filter((a) => s.skillScopes.some((p) => p.scope.agent === a.code && placeOf(p.scope) === place));
+  const used = s.agents.filter((a) => s.skillScopes.some((p) => p.scope.agent === a.code && placeOf(p.scope) === place));
+  return place ? mergeProjectAgents(s, used) : used;
+}
+
+// ---------- 项目里共用一个目录的 Agent ----------
+// 项目里几个 Agent 的技能目录相同(如都读 .agents/skills)时，装在其中一个，其余几个也算已装，卸载也一起卸载。
+// 界面上它们合成一处：右栏、作用域弹层、顶栏胶囊、技能详情的安装表、"安装到…"和各处逐处列出的地方都只列一次，
+// 名字是这台机器上显示的那几个 Agent 的名字;点选、拖放、安装都落在其中第一个(代表)的作用域上。
+// 全局不合：全局目录大多各是各的，少数共用的照旧一个 Agent 一行，卸载前提示还被谁共用。
+
+type AgentList = Pick<Snapshot, "agents" | "agentsShown">;
+
+// projectSharers 是项目里和这个 Agent 读同一个目录的全部 Agent(含它自己),按 Agent 列表顺序;不和别的 Agent 共用时为空。
+export function projectSharers(s: AgentList, code: AgentCode): Agent[] {
+  const self = s.agents.find((a) => a.code === code);
+  if (!self) return [];
+  const all = s.agents.filter((a) => a.project_directory === self.project_directory);
+  return all.length > 1 ? all : [];
+}
+
+// projectNamed 是合成的一处用来起名、画图标的 Agent:共用的几个里这台机器上显示的;一个都不显示时取第一个。
+export function projectNamed(s: AgentList, code: AgentCode): Agent[] {
+  const all = projectSharers(s, code);
+  const shown = all.filter((a) => agentShown(s.agentsShown, a));
+  return shown.length ? shown : all.slice(0, 1);
+}
+
+// projectLead 是代表合成的一处的 Agent;不共用时就是它自己。
+export function projectLead(s: AgentList, code: AgentCode): AgentCode {
+  return projectNamed(s, code)[0]?.code ?? code;
+}
+
+export function sameProjectFolder(s: AgentList, a: AgentCode, b: AgentCode): boolean {
+  return a === b || projectSharers(s, a).some((x) => x.code === b);
+}
+
+// mergeProjectAgents 把项目里的一串 Agent 合成一处一个(换成代表的 Agent),保持第一次出现的顺序。
+export function mergeProjectAgents(s: AgentList, agents: Agent[]): Agent[] {
+  const out: Agent[] = [];
+  for (const a of agents) {
+    const lead = s.agents.find((x) => x.code === projectLead(s, a.code)) ?? a;
+    if (!out.includes(lead)) out.push(lead);
+  }
+  return out;
+}
+
+// mergeAgentsExcept 是某个地方还没列出的 Agent:项目里合成一处一个，和 listed 里某一处共用目录的去掉。
+export function mergeAgentsExcept(s: AgentList, place: Place, agents: Agent[], listed: Agent[]): Agent[] {
+  if (!place) return agents.filter((a) => !listed.includes(a));
+  return mergeProjectAgents(s, agents).filter((a) => !listed.some((o) => sameProjectFolder(s, o.code, a.code)));
+}
+
+// agentNameIn 是 Agent 在某个地方的名字：项目里合成的一处是那几个 Agent 的名字。
+export function agentNameIn(s: AgentList, code: AgentCode, place: Place): string {
+  const named = place ? projectNamed(s, code) : [];
+  if (named.length) return messages().model.agentNames(named.map((a) => a.name));
+  return s.agents.find((a) => a.code === code)?.name ?? code;
+}
+
+// projectFolderNote 是合成的一处的悬停说明：读项目里这个目录的全部 Agent(含这台机器上不显示的);不合成时为 undefined。
+export function projectFolderNote(s: AgentList, code: AgentCode, place: Place): string | undefined {
+  const all = place ? projectSharers(s, code) : [];
+  if (!all.length) return undefined;
+  return messages().model.projectFolderNote(all[0].project_directory, all.map((a) => a.name));
+}
+
+// sharedWithNote 是一处安装要另外说明的共用 Agent:全局照旧是共用这个文件夹的其他 Agent;
+// 项目里共用一个目录的几个 Agent 已合成一处、名字里写着它们，不再另说。
+export function sharedWithNote(p: Pick<SkillScopeInspection, "scope" | "shared_with">): AgentCode[] {
+  return p.scope.project_id ? [] : (p.shared_with ?? []);
+}
+
+// sameMergedScope 是两个作用域合成后是否是同一处。
+export function sameMergedScope(s: AgentList, a: Scope, b: Scope): boolean {
+  return mergedScopeKey(s, a) === mergedScopeKey(s, b);
+}
+
+// mergedScopeKey 是作用域合成后的身份：项目里共用一个目录的几个作用域是同一个。
+export function mergedScopeKey(s: AgentList, scope: Scope): ScopeKey {
+  return scopeKey({ agent: scope.project_id ? projectLead(s, scope.agent) : scope.agent, project_id: scope.project_id });
+}
+
+// mergeProjectPlaces 把逐处列出的安装里，项目中共用一个文件夹的几条合成一条(留第一条)。
+export function mergeProjectPlaces<T extends { skill_id?: number; scope: Scope }>(s: AgentList, items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((p) => {
+    const key = `${p.skill_id ?? ""}|${mergedScopeKey(s, p.scope)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // ---------- 安装 ----------
@@ -163,7 +256,7 @@ export interface InstalledWhere {
 }
 
 export function installedWhere(s: Snapshot, skillID: number): InstalledWhere {
-  const places = skillScopesOf(s, skillID).map((p) => scopeLabel(s, p.scope));
+  const places = mergeProjectPlaces(s, skillScopesOf(s, skillID)).map((p) => scopeLabel(s, p.scope));
   return { places: places.slice(0, 2), total: places.length };
 }
 

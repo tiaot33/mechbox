@@ -2596,6 +2596,81 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await back();
 });
 
+await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层、胶囊、安装表只列一次，叫那几个 Agent 的名字;卸载不再另说共用", async () => {
+  const agents = () => section("Agent");
+  const open = async () => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await page.locator('.settings [role="switch"]').first().waitFor();
+  };
+  const back = async () => {
+    await page.locator(".titlebar button[title='返回技能库']").click();
+    await page.waitForSelector(".a-list");
+    await settle();
+  };
+  const add = async (name, global) => {
+    await btn(agents(), "添加 Agent").click();
+    const fields = modal().locator('[data-slot="input"]');
+    await fields.nth(0).fill(name);
+    await fields.nth(1).fill(global);
+    await fields.nth(2).fill(".shared-p/skills");
+    await btn(modal(), "添加").click();
+    await toast(`已添加 Agent「${name}」`);
+    await settle();
+  };
+  // 全局目录各是各的，项目目录相同。
+  await open();
+  await add("Lefty", "~/.lefty/skills");
+  await add("Righty", "~/.righty/skills");
+  await back();
+
+  const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
+  if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.click();
+  await page.locator('.a-right .nav-item.proj[aria-expanded="true"]', { hasText: "proj-b" }).waitFor({ timeout: 3000 });
+  // 自定义 Agent 不检测，折在"其他 N 个 Agent"里。
+  const inProj = page.locator(".a-right li", { has: page.locator(".nav-item.proj", { hasText: "proj-b" }) });
+  const more = inProj.locator(".nav-item.more", { hasText: "其他" });
+  if (await more.count()) await more.click();
+  const railRows = (text) => inProj.locator(".nav-item.sub", { hasText: text });
+  // 自定义 Agent 的先后不按添加顺序，名字里两个都在就行。
+  assert((await railRows("Lefty").count()) === 1 && (await railRows("Righty").count()) === 1, `proj-b 里 Lefty 与 Righty 应合成一行，实际:${(await inProj.innerText()).replace(/\n/g, " / ")}`);
+  const merged = (await railRows("Lefty").locator(".truncate").textContent()).trim();
+  assert(/^(Lefty、Righty|Righty、Lefty)$/.test(merged), `合成的一行应叫这两个 Agent 的名字，实际:${merged}`);
+
+  // 作用域弹层里同样一处，选中后胶囊叫那几个 Agent 的名字。
+  await selectScope(merged, "proj-b");
+  assert((await page.locator(".scope-pill b").textContent()) === merged, `胶囊应叫 ${merged}`);
+  assert((await railRows(merged).getAttribute("data-active")) === "true", "右栏合成的一行应选中");
+  await clearScope();
+
+  // "安装到…"里合成一个选项;装一次，安装表只列一行。
+  await openDrawer("alpha");
+  await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
+  assert((await drawer().locator(".install-to select").nth(1).locator("option", { hasText: "Righty" }).count()) === 1, "安装到…里 Lefty 与 Righty 应合成一个选项");
+  await drawer().locator(".install-to select").nth(1).selectOption({ label: merged });
+  await btn(drawer(), "安装").click();
+  await toast(`已安装「alpha」到 ${merged} · proj-b`);
+  await settle();
+  assert(fs.existsSync(`${HOME}/code/proj-b/.shared-p/skills/alpha/SKILL.md`), "alpha 应装进项目里共用的目录");
+  const tableRows = drawer().locator(".scope-table tbody tr", { hasText: "Righty" });
+  assert((await tableRows.count()) === 1, "安装表里共用的一处只列一行");
+
+  // 卸载：名字里已写着这几个 Agent,不再弹出共用的提示。
+  await tableRows.locator('[role="switch"]').click();
+  await toast("已卸载「alpha」");
+  await settle();
+  assert(!fs.existsSync(`${HOME}/code/proj-b/.shared-p/skills/alpha`), "卸载后共用的文件夹应删除");
+  await closeDrawer();
+
+  await open();
+  for (const name of ["Lefty", "Righty"]) {
+    await btn(agents().locator(".set-row", { hasText: name }), "删除").click();
+    await btn(modal(), "删除").click();
+    await toast(`已删除 Agent「${name}」`);
+    await settle();
+  }
+  await back();
+});
+
 // ============ 冲突与失败路径 ============
 await step("占用冲突：同名技能已在该作用域，安装被拦下并说明占用者", async () => {
   const dir = `${HOME}/code/other/gamma`;

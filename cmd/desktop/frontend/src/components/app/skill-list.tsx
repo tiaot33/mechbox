@@ -73,7 +73,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Icon, SourceIcon } from "./icons";
 import { centerClass } from "./layout";
-import { AgentMark, Chip } from "./parts";
+import { AgentMark, Chip, PlaceAgentMark } from "./parts";
 import type { ListView } from "./toolbar";
 
 interface SkillListProps {
@@ -549,7 +549,7 @@ function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: Scop
             {t.list.groupInstalledIn}
             {scopes.map((sc) => (
               <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(ui, s, group.id, sc)}>
-                <AgentMark code={sc.agent} name={agentName(s, sc.agent)} />
+                <PlaceAgentMark s={s} code={sc.agent} place={placeOf(sc)} />
                 {sc.project_id ? projectName(s, sc.project_id) : t.model.global}
               </Chip>
             ))}

@@ -1,6 +1,8 @@
 // 主界面共用的小部件:Agent 标记、计数、路径末段、诊断列表，以及集合切换。
 import type { AgentCode } from "@bindings/internal/library";
 import { ListBox, ListRow } from "@/components/ui/list";
+import type { Snapshot } from "@/lib/library";
+import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
 import { cn } from "@/lib/utils";
 
 // AgentMark 是 Agent 图标：首字母 + 按代码稳定取色,Agent 再多也不用逐个画。
@@ -15,6 +17,19 @@ export function AgentMark({ code, name, className }: { code: AgentCode; name: st
       style={{ background: fixed[code] ?? `hsl(${hue} 55% 48%)` }}
     >
       {code === "codex" ? "X" : name.slice(0, 1)}
+    </span>
+  );
+}
+
+// PlaceAgentMark 是 Agent 在某个地方的图标：项目里共用一个目录合成的一处，叠着画那几个 Agent 的图标(最多 3 个)。
+export function PlaceAgentMark({ s, code, place, className }: { s: Snapshot; code: AgentCode; place: Place; className?: string }) {
+  const named = place ? projectNamed(s, code) : [];
+  if (!named.length) return <AgentMark code={code} name={agentName(s, code)} className={className} />;
+  return (
+    <span className="inline-flex shrink-0 -space-x-1" title={projectFolderNote(s, code, place)}>
+      {named.slice(0, 3).map((a) => (
+        <AgentMark key={a.code} code={a.code} name={a.name} className={cn("ring-[1.5px] ring-white", className)} />
+      ))}
     </span>
   );
 }

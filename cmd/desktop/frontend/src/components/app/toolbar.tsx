@@ -5,11 +5,14 @@ import type { AgentCode } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import {
-  agentName,
+  agentNameIn,
   agentsIn,
   needsReinstall,
   parseScope,
+  placeOf,
+  projectFolderNote,
   projectName,
+  sameMergedScope,
   scopeKey,
   scopeOf,
   shortPath,
@@ -28,7 +31,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "./icons";
 import { titlebarClass } from "./layout";
-import { AgentMark, Count } from "./parts";
+import { Count, PlaceAgentMark } from "./parts";
 
 export type ListView = "card" | "list";
 
@@ -108,7 +111,7 @@ export function Toolbar(props: ToolbarProps) {
         {s && scope && (
           <label
             className="toggle-label inline-flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap text-foreground-secondary"
-            title={t.installedOnlyTitle(agentName(s, parseScope(scope).agent))}
+            title={t.installedOnlyTitle(agentNameIn(s, parseScope(scope).agent, placeOf(parseScope(scope))))}
           >
             <Switch checked={props.installedOnly} onCheckedChange={props.onInstalledOnly} />
             <span>{t.installedOnly}</span>
@@ -161,8 +164,8 @@ function ScopePill({ s, scope, open, scopeDirectory, onScope }: MenuProps & { op
       <div className={pillClass} data-open={open} data-no-drag title={scopeDirectory ? shortPath(s, scopeDirectory) : undefined}>
         <PopoverTrigger asChild>
           <button type="button" className="inline-flex h-full items-center gap-1.5 pr-2 pl-2.5">
-            <AgentMark code={sc.agent} name={agentName(s, sc.agent)} />
-            <b>{agentName(s, sc.agent)}</b>
+            <PlaceAgentMark s={s} code={sc.agent} place={placeOf(sc)} />
+            <b className="max-w-[240px] truncate">{agentNameIn(s, sc.agent, placeOf(sc))}</b>
             <span className="text-muted-foreground">· {sc.project_id ? projectName(s, sc.project_id) : t.model.global}</span>
             {issues > 0 && <Badge tone="warn">{issues}</Badge>}
             <Icon name="down" />
@@ -198,6 +201,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
       {places.map((place) => {
         const { open: used, folded: rest } = agentsIn(s, place.id);
         const key = (code: AgentCode) => scopeKey(scopeOf(code, place.id));
+        const active = (code: AgentCode) => !!scope && sameMergedScope(s, parseScope(scope), scopeOf(code, place.id));
         return (
           <div key={place.id}>
             <div className="sm-place flex items-center gap-3 px-2 pt-2 pb-1 text-[11.5px] font-semibold text-muted-foreground">
@@ -216,12 +220,14 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
                 key={a.code}
                 className={cn(
                   "sm-item flex h-[30px] w-full items-center gap-2 rounded-[7px] pr-2.5 pl-[22px] text-left hover:bg-black/5",
-                  scope === key(a.code) && "bg-primary-soft font-semibold text-primary hover:bg-primary-soft",
+                  active(a.code) && "bg-primary-soft font-semibold text-primary hover:bg-primary-soft",
                 )}
                 onClick={() => pick(key(a.code))}
               >
-                <AgentMark code={a.code} name={a.name} />
-                <span className="grow">{a.name}</span>
+                <PlaceAgentMark s={s} code={a.code} place={place.id} />
+                <span className="grow truncate" title={projectFolderNote(s, a.code, place.id)}>
+                  {agentNameIn(s, a.code, place.id)}
+                </span>
                 <Count value={skillScopesIn(s, key(a.code)).length} />
               </button>
             ))}
@@ -234,7 +240,7 @@ function ScopeMenu({ s, scope, scopeDirectory, onScope, onOpen }: MenuProps & { 
                 <option value="">{t.toolbar.moreAgents(used.length > 0, rest.length)}</option>
                 {rest.map((a) => (
                   <option key={a.code} value={key(a.code)}>
-                    {a.name}
+                    {agentNameIn(s, a.code, place.id)}
                   </option>
                 ))}
               </NativeSelect>
