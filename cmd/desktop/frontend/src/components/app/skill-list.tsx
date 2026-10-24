@@ -27,7 +27,7 @@ import {
 } from "@/lib/actions";
 import { useDnD } from "@/lib/dnd";
 import { messages, useT } from "@/lib/i18n";
-import { foundSource, useFoundSources, type Snapshot } from "@/lib/library";
+import { foundSource, useFoundSources, type Snapshot, useSnapshot } from "@/lib/library";
 import {
   agentName,
   collectionSkills,
@@ -77,7 +77,6 @@ import { AgentMark, Chip, PlaceAgentMark } from "./parts";
 import type { ListView } from "./toolbar";
 
 interface SkillListProps {
-  s: Snapshot;
   skills: Skill[];
   unmanaged: UnmanagedSkill[];
   filter: SkillFilter;
@@ -94,7 +93,8 @@ const barClass = "a-scope-sum mx-3.5 mt-3 flex flex-col gap-2 rounded-[10px] bor
 const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
 export function SkillList(props: SkillListProps) {
-  const { s, skills, unmanaged, filter, scope, view } = props;
+  const s = useSnapshot();
+  const { skills, unmanaged, filter, scope, view } = props;
   const group = filter.kind === "group" ? s.groups.find((g) => g.id === filter.groupID) : undefined;
   const collection = filter.kind === "collection" ? s.collections.find((c) => c.id === filter.collectionID) : undefined;
   // 列出的技能都来自同一个来源时，卡片上不再逐张写来源。
@@ -102,10 +102,10 @@ export function SkillList(props: SkillListProps) {
   const t = useT().list;
   return (
     <main className={centerClass}>
-      {scope && <ScopeSummary s={s} scope={scope} directory={props.scopeDirectory} />}
-      {group && <GroupHead s={s} group={group} scope={scope} />}
-      {collection && <CollectionHead s={s} collection={collection} />}
-      {filter.kind === "updates" && updatableCollections(s).length > 0 && <UpdatesHead s={s} />}
+      {scope && <ScopeSummary scope={scope} directory={props.scopeDirectory} />}
+      {group && <GroupHead group={group} scope={scope} />}
+      {collection && <CollectionHead collection={collection} />}
+      {filter.kind === "updates" && updatableCollections(s).length > 0 && <UpdatesHead />}
       {/* 网格放在单独的滚动容器里：网格高度随内容,auto-rows-fr 才等于最高那一行，而不是平分可视高度 */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div
@@ -120,7 +120,6 @@ export function SkillList(props: SkillListProps) {
           {skills.map((skill) => (
             <SkillCard
               key={skill.id}
-              s={s}
               skill={skill}
               scope={scope}
               view={view}
@@ -131,7 +130,7 @@ export function SkillList(props: SkillListProps) {
             />
           ))}
           {unmanaged.map((u) => (
-            <UnmanagedCard key={u.folder} s={s} skill={u} view={view} />
+            <UnmanagedCard key={u.folder} skill={u} view={view} />
           ))}
           {skills.length === 0 &&
             unmanaged.length === 0 &&
@@ -159,7 +158,6 @@ function ListEmpty({ children }: { children: React.ReactNode }) {
 }
 
 function SkillCard(props: {
-  s: Snapshot;
   skill: Skill;
   scope: ScopeKey | null;
   view: ListView;
@@ -168,7 +166,8 @@ function SkillCard(props: {
   hideGroup?: number; // 正在筛选的组：每张卡都属于它，不再重复显示
   onOpen: () => void;
 }) {
-  const { s, skill, scope, view } = props;
+  const s = useSnapshot();
+  const { skill, scope, view } = props;
   const ui = useUI();
   const dnd = useDnD();
   const t = useT();
@@ -335,7 +334,8 @@ function SkillCard(props: {
 
 // UnmanagedCard 是作用域里一个不是库装的技能文件夹(未纳管技能):虚线边框、标"未纳管",
 // 提交在项目仓库里的再标"在项目仓库里"，符号链接写出指向哪里。不能拖动、不打开详情，只提供在 Finder 中显示与入库。
-function UnmanagedCard({ s, skill, view }: { s: Snapshot; skill: UnmanagedSkill; view: ListView }) {
+function UnmanagedCard({ skill, view }: { skill: UnmanagedSkill; view: ListView }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().list;
   const list = view === "list";
@@ -442,7 +442,8 @@ function SameNameLine({ note, list }: { note: { text: string; title: string }; l
 }
 
 // ScopeSummary 是选中作用域时列表顶部的摘要:Agent 目录、健康状态、全部重新安装，以及每个组的整组开关。
-function ScopeSummary({ s, scope, directory }: { s: Snapshot; scope: ScopeKey; directory: string | undefined }) {
+function ScopeSummary({ scope, directory }: { scope: ScopeKey; directory: string | undefined }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().list;
   const installed = skillScopesIn(s, scope);
@@ -521,7 +522,8 @@ function Stat({ value, label, warn = false }: { value: number; label: string; wa
 }
 
 // GroupHead 是筛选某个组时列表顶部的组标题条：整组的拖动把手，附带重命名、删除与组安装到当前作用域。
-function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: ScopeKey | null }) {
+function GroupHead({ group, scope }: { group: Group; scope: ScopeKey | null }) {
+  const s = useSnapshot();
   const ui = useUI();
   const dnd = useDnD();
   const t = useT();
@@ -549,7 +551,7 @@ function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: Scop
             {t.list.groupInstalledIn}
             {scopes.map((sc) => (
               <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(ui, s, group.id, sc)}>
-                <PlaceAgentMark s={s} code={sc.agent} place={placeOf(sc)} />
+                <PlaceAgentMark code={sc.agent} place={placeOf(sc)} />
                 {sc.project_id ? projectName(s, sc.project_id) : t.model.global}
               </Chip>
             ))}
@@ -578,7 +580,8 @@ function GroupHead({ s, group, scope }: { s: Snapshot; group: Group; scope: Scop
 // UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
-function UpdatesHead({ s }: { s: Snapshot }) {
+function UpdatesHead() {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().list;
   const collections = updatableCollections(s);
@@ -716,7 +719,8 @@ function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID,
 }
 
 // CollectionHead 是筛选某个集合时的标题条：来源、集合里的技能在哪个来源版本上、更新、历史，以及来源里的新技能。
-function CollectionHead({ s, collection }: { s: Snapshot; collection: Collection }) {
+function CollectionHead({ collection }: { collection: Collection }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT();
   const skills = collectionSkills(s, collection);

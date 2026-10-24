@@ -5,7 +5,7 @@ import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/libr
 import { addAgent, deleteAgent, editAgent } from "@/lib/actions";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import { type LibraryError, useSnapshot } from "@/lib/library";
 import { agentShown, shortPath } from "@/lib/model";
 import { insideHome, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
@@ -19,17 +19,16 @@ import { AgentMark } from "./parts";
 import { SetRow } from "./set-row";
 
 export function AgentSection({
-  s,
   shown,
   onShown,
 }: {
-  s: Snapshot;
   shown?: Partial<Record<string, boolean>> | null; // 应用设置还没读到时为 undefined,不显示勾选
   onShown: (agent: Agent, on: boolean) => void;
 }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().agents;
-  const edit = (agent: Agent) => ui.open((close) => <AgentDialog s={s} agent={agent} onClose={close} />);
+  const edit = (agent: Agent) => ui.open((close) => <AgentDialog agent={agent} onClose={close} />);
   return (
     <>
       <Hint className="mb-1">{t.shownHint}</Hint>
@@ -66,7 +65,8 @@ export function AgentSection({
 type AgentField = keyof CustomAgent;
 
 // AgentDialog 添加一个自定义 Agent,或给出 agent 时编辑它。全局技能目录必须在用户主目录里面。
-export function AgentDialog({ s, agent, onClose }: { s: Snapshot; agent?: Agent; onClose: () => void }) {
+export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => void }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().agents;
   const home = s.info.home_dir;

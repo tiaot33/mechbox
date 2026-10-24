@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AppService, type Credentials } from "@bindings/cmd/desktop";
 import type { SyncSettings } from "@bindings/internal/library";
+import { invalidateConfig } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -12,8 +13,9 @@ import { Input } from "@/components/ui/input";
 type Form = (saved: Credentials, onSaved: (c: Credentials) => void) => ReactNode;
 
 // useCredentials 读取设置页填过的内容，返回按分区渲染表单的函数。钥匙串读不到(例如拒绝了授权)时不给表单，
-// 免得把没读到当成没填、保存时盖掉钥匙串里的内容。读到或保存后调用 onChange,让主界面重读配置状态。
-export function useCredentials(onChange: () => void): (form: Form) => ReactNode {
+// 免得把没读到当成没填、保存时盖掉钥匙串里的内容。读到或保存后让主界面的配置状态失效重读。
+// 钥匙串的读取不放进查询缓存：写操作后的统一重读会再读钥匙串，可能再弹一次授权。
+export function useCredentials(): (form: Form) => ReactNode {
   const t = useT().credentials;
   const [credentials, setCredentials] = useState<Credentials>();
   const [failed, setFailed] = useState(false);
@@ -26,7 +28,7 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
       (c) => {
         if (!live) return;
         setCredentials(c);
-        onChange();
+        void invalidateConfig();
       },
       () => live && setFailed(true),
     );
@@ -37,7 +39,7 @@ export function useCredentials(onChange: () => void): (form: Form) => ReactNode 
   }, [attempt]);
   const saved = (c: Credentials) => {
     setCredentials(c);
-    onChange();
+    void invalidateConfig();
   };
   return (form) =>
     failed ? (

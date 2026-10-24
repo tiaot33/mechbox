@@ -6,7 +6,7 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import { type LibraryError, useSnapshot } from "@/lib/library";
 import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { canInstall, defaultInstallOn, reportUpdates, riskLabel, runUpdate, stalePlan } from "@/lib/update";
@@ -18,7 +18,8 @@ import { Places, SkillDiff } from "./update-dialog";
 
 const sectionClass = "mt-1 text-[13.5px] font-semibold";
 
-export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; skill: Skill; scope: Scope; onClose: () => void }) {
+export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; scope: Scope; onClose: () => void }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT().fromScope;
   const place = scopeLabel(s, scope);
@@ -155,7 +156,6 @@ export function ScopeUpdateDialog({ s, skill, scope, onClose }: { s: Snapshot; s
         <>
           <div className={sectionClass}>{t.places}</div>
           <Places
-            s={s}
             places={places}
             name={() => skill.name}
             on={installOn}

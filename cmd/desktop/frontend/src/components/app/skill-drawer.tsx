@@ -1,5 +1,6 @@
 // 技能详情抽屉(原型变体 A 的右侧抽屉):元数据与组成员、各作用域的安装、文件、版本历史，以及更新 / 重新安装 / 移除。
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { Browser } from "@wailsio/runtime";
 import {
@@ -24,9 +25,9 @@ import {
   removeSkillFromGroup,
   uninstallSkill,
 } from "@/lib/actions";
+import { useSnapshot, versionFileQuery, versionFilesQuery, versionsQuery } from "@/lib/library";
 import { decodeContent, formatDate, formatSize, renderMarkdown } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
 import {
   agentNameIn,
   agentShown,
@@ -135,22 +136,17 @@ function viewLabel(type: SourceType): string {
 // 抽屉宽度：拖左边缘调整，记在这台机器上。
 const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min: 420, max: 960 };
 
-export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; onClose: () => void }) {
+export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => void }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT();
   const d = t.drawer;
-  const [files, setFiles] = useState<FileMetadata[]>([]);
-  const [versions, setVersions] = useState<SkillVersion[]>([]);
   const id = skill.id;
 
-  // 更新带来新版本时 version_id 变，确认来源没变时 revision 前移，随之重读文件与版本历史。
-  // 文件按版本 ID 读：浏览途中技能被更新，读到的仍是同一版本。
-  useEffect(() => {
-    const calls = [LibraryService.ListVersionFiles(skill.version_id), LibraryService.ListVersions(id)] as const;
-    calls[0].then((f) => setFiles(f ?? []), () => {});
-    calls[1].then((v) => setVersions(v ?? []), () => {});
-    return () => calls.forEach((c) => void c.cancel());
-  }, [id, skill.version_id, skill.revision]);
+  // 文件按版本 ID 读：浏览途中技能被更新，读到的仍是同一版本;更新带来新版本时 version_id 变，换成新版本的文件。
+  const files = useQuery(versionFilesQuery(skill.version_id)).data ?? noFiles;
+  // 版本历史随写操作重读。
+  const versions = useQuery(versionsQuery(id)).data ?? noVersions;
 
   const groups = s.groups.filter((g) => g.members?.includes(id));
   const notIn = s.groups.filter((g) => !g.members?.includes(id));
@@ -390,7 +386,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                           </td>
                           <td>
                             <div className="flex items-center gap-1.5">
-                              <PlaceAgentMark s={s} code={p.scope.agent} place={placeOf(p.scope)} />
+                              <PlaceAgentMark code={p.scope.agent} place={placeOf(p.scope)} />
                               {scopeLabel(s, p.scope)}
                             </div>
                             <div className="max-w-[250px] truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
@@ -438,7 +434,7 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
                 </table>
               )}
               {installed.length === 0 && <p className="text-muted-foreground">{d.notInstalled}</p>}
-              <InstallTo s={s} skillID={id} />
+              <InstallTo skillID={id} />
               {installed.length > 0 && (
                 <Hint className="mt-2">{d.switchHint()}</Hint>
               )}
@@ -463,7 +459,8 @@ export function SkillDrawer({ s, skill, onClose }: { s: Snapshot; skill: Skill; 
 // InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面，其余只列勾选显示的。
 // 项目里共用一个目录的几个 Agent 合成一个选项。
 // 这个地方能选的 Agent 都装上了时，不摆一个选不了的下拉框，直接说明。
-function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
+function InstallTo({ skillID }: { skillID: number }) {
+  const s = useSnapshot();
   const ui = useUI();
   const t = useT();
   const [place, setPlace] = useState<Place>(0);
@@ -521,20 +518,24 @@ function InstallTo({ s, skillID }: { s: Snapshot; skillID: number }) {
   );
 }
 
+const noFiles: FileMetadata[] = [];
+const noVersions: SkillVersion[] = [];
+
+// useFileContent 读某个版本里一个文件的内容：还没读到(或没选文件)时为 undefined,二进制或读取失败时为 null。
+function useFileContent(versionID: VersionID | undefined, path: string): string | null | undefined {
+  const q = useQuery({ ...versionFileQuery(versionID ?? 0, path), enabled: versionID !== undefined && !!path });
+  if (versionID === undefined || !path) return undefined;
+  if (q.isError) return null;
+  return q.data && decodeContent(q.data.content);
+}
+
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
 function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMetadata[] }) {
   const tt = useT();
   const t = tt.drawer;
   const [path, setPath] = useState("SKILL.md");
-  const [content, setContent] = useState<string | null | undefined>(undefined);
   const [raw, setRaw] = useState(false);
-  useEffect(() => {
-    setContent(undefined);
-    if (!files.some((f) => f.path === path)) return;
-    const call = LibraryService.GetVersionFile(versionID, path);
-    call.then((f) => setContent(decodeContent(f.content)), () => setContent(null));
-    return () => void call.cancel();
-  }, [versionID, path, files]);
+  const content = useFileContent(versionID, files.some((f) => f.path === path) ? path : "");
   const markdown = path.toLowerCase().endsWith(".md") && !raw;
   return (
     <Card>
@@ -671,15 +672,7 @@ function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; curre
   const [diff, setDiff] = useState<{ id: number; diff: VersionDiff } | null>(null);
   const [viewing, setViewing] = useState<{ id: VersionID; files: FileMetadata[] } | null>(null);
   const [viewPath, setViewPath] = useState("");
-  const [viewedText, setViewedText] = useState<string | null | undefined>(undefined);
-
-  useEffect(() => {
-    setViewedText(undefined);
-    if (!viewing || !viewPath) return;
-    const call = LibraryService.GetVersionFile(viewing.id, viewPath);
-    call.then((f) => setViewedText(decodeContent(f.content)), () => setViewedText(null));
-    return () => void call.cancel();
-  }, [viewing, viewPath]);
+  const viewedText = useFileContent(viewing?.id, viewPath);
 
   const compare = async (v: SkillVersion) => {
     const d = await ui.run(() => LibraryService.DiffVersions(v.id, currentID), { reload: false });

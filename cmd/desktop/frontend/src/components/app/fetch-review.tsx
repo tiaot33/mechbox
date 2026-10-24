@@ -1,6 +1,7 @@
 // 入库的第二步：浏览一次入库预览的候选与诊断，勾选后 Fetch 入库。
 // 入库技能、技能市场与集合上的"看来源里的其他技能"都在拿到入库预览后进入这里;顶部显示技能库识别出的来源。
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   type Candidate,
@@ -9,6 +10,7 @@ import {
   type SkillAudit,
   SourceType,
 } from "@bindings/internal/library";
+import { configQuery } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -52,13 +54,8 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const t = useT().review;
   // 只有 GitHub 仓库在 skills.sh 收录范围内，才提供审计查询，也只有它走 GitHub API、没有令牌时容易被限流。
   const github = preview.source.type === SourceType.SourceGitHub;
-  const [tokenMissing, setTokenMissing] = useState(false);
-  useEffect(() => {
-    if (!github) return;
-    const p = LibraryService.Config();
-    p.then((c) => setTokenMissing(!c.github_token), () => {});
-    return () => void p.cancel();
-  }, [github]);
+  const config = useQuery({ ...configQuery, enabled: github }).data;
+  const tokenMissing = github && !!config && !config.github_token;
   const candidates = preview.candidates ?? [];
   const fresh = candidates.filter((c) => !c.fetched);
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
