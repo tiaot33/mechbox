@@ -15,7 +15,9 @@
 // 设置(library.go、sync.go):
 //   - [Library.SetGitHubToken] 传入访问 GitHub 用的个人访问令牌;没传入时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
 //   - [Library.SetSyncSettings] 传入同步用的 S3 设置,整组取用;没传入时读 SKILLS_S3_*、AWS_* 环境变量。
-//     两者都只在这个 Library 实例上有效,改完下一次请求就用新值。
+//   - [Library.ListWSLDistros]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
+//     或换回 Windows 本机;换了以后只认新目录。
+//     这几项都只在这个 Library 实例上有效,改完下一次请求就用新值。
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求(GitHub 仓库与 well-known 站点的技能)。
@@ -137,6 +139,13 @@
 // 入库预览、入库、检查更新与更新都只经各来源打开的 Snapshot 读取,它钉住一份来源内容。
 // 来源检查更新的结论是变了 / 没变 / 未知三态,未知时 Library 取文件比较;各来源自己的读取状态随版本存进数据库,
 // Library 只存取不解析。
+//
+// WSL 发行版里的目录写成 \\wsl.localhost\<发行版>\...,Agent 目录、已登记项目与本地目录来源都可以在那里。
+// 这些路径不经 Windows 的文件系统读写(在那里读不出符号链接、设不了可执行权限),而是在那个发行版里执行命令:
+// 每个发行版一个常驻的 sh,读技能文件夹时用 tar 一次读完内容、权限与符号链接。Agent 目录按路径选用本机或发行版的实现,
+// Library 不区分。巡检、列出未纳管技能、整批入库前的确认这类一次读很多技能文件夹的流程,把要读的文件夹一起交给
+// agentdir.ReadFolders / StatFolders,发行版里的按批执行(一批的内容有上限,超过的下一批再读),不逐个文件夹执行命令。
+// 发行版没有响应时,取主目录最多等 30 秒、其他命令最多等 2 分钟,之后按发行版打不开处理。
 //
 // 数据库、Agent 目录、各来源、skills.sh、S3 各是 internal/ 下的一个子包,只返回自己的哨兵错误或错误类型,
 // 由 errors.go 的 typedError 统一翻译成公开的 [ErrorCode]。

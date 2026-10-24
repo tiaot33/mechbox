@@ -1,12 +1,14 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
-// 检查更新与通用是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效。
+// 检查更新与通用是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效;
+// 通用里的全局目录(Windows 上装了 WSL 时才出现)改了以后重读快照，界面换成新的全局目录。
 // GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
-import { AppService, CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
+import { AppService, CheckInterval, Language, LibraryService, type Settings } from "@bindings/cmd/desktop";
+import { ErrorCode } from "@bindings/internal/library";
 import { unregisterProject } from "@/lib/actions";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
+import type { LibraryError, Snapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -14,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -67,6 +71,33 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
     return () => void call.cancel();
   }, []);
 
+  // 这台机器上装的 WSL 发行版;不在 Windows 上或没装 WSL 时为空，全局目录这一项不出现。
+  const [distros, setDistros] = useState<string[]>([]);
+  useEffect(() => {
+    const call = LibraryService.ListWSLDistros();
+    call.then((list) => setDistros(list ?? []), () => {});
+    return () => void call.cancel();
+  }, []);
+
+  // 选的发行版启动时没能打开、现在用的是 Windows 本机的全局目录时，这一项下面写明，并可以再试一次。
+  const [distroError, setDistroError] = useState("");
+  useEffect(() => {
+    const call = AppService.WSLDistroError();
+    call.then(setDistroError, () => {});
+    return () => void call.cancel();
+  }, []);
+  const retryDistro = async () => {
+    const opened = await ui.run(() => AppService.RetryWSLDistro().then(() => true), { onError: (err) => distroFailed(err) });
+    if (opened) setDistroError("");
+    else await AppService.WSLDistroError().then(setDistroError, () => {});
+  };
+  // 发行版打不开(FailedPrecondition)时说明是哪个发行版、全局目录没有换。
+  const distroFailed = (err: LibraryError, distro = latest.current?.wsl_distro ?? "") => {
+    if (err.code !== ErrorCode.FailedPrecondition) return false;
+    ui.toast(t.distroSwitchFailed(distro, err.message), "error");
+    return true;
+  };
+
   // 改语言时：选了具体语言的先切过去，保存期间打开的确认框也是新语言;跟随系统的由 Go 端按系统定。
   // 保存完(包括保存失败退回原设置)都再问 Go 端实际用哪种，以它为准。
   const save = (change: Partial<Settings>) => {
@@ -75,8 +106,13 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
     show(next);
     if (change.language) setLanguage(toLanguage(change.language));
     saving.current = saving.current.then(async () => {
-      const saved = await ui.run(() => AppService.SaveSettings(next), { reload: false });
+      const switching = "wsl_distro" in change;
+      const saved = await ui.run(() => AppService.SaveSettings(next), {
+        reload: switching,
+        onError: (err) => switching && distroFailed(err, next.wsl_distro ?? ""),
+      });
       if (!saved) await AppService.Settings().then(show, () => {});
+      else if (switching) setDistroError("");
       if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
   };
@@ -153,6 +189,34 @@ export function SettingsPage({ s, onClose, onConfigChange }: { s: Snapshot; onCl
                         options={languages}
                       />
                     </SetRow>
+                    {(distros.length > 0 || settings.wsl_distro) && (
+                      <SetRow>
+                        <div className="grow">
+                          <div>{t.wslDistro}</div>
+                          <Hint className="mt-0.5">{t.wslDistroDesc}</Hint>
+                        </div>
+                        <NativeSelect
+                          className="shrink-0 max-w-[180px]"
+                          value={settings.wsl_distro ?? ""}
+                          onChange={(e) => save({ wsl_distro: e.target.value })}
+                        >
+                          <option value="">{t.windowsHome}</option>
+                          {[...new Set([...distros, ...(settings.wsl_distro ? [settings.wsl_distro] : [])])].map((d) => (
+                            <option key={d} value={d}>
+                              WSL · {d}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      </SetRow>
+                    )}
+                    {distroError && settings.wsl_distro && (
+                      <SetRow>
+                        <Notice tone="warn" className="grow">
+                          {t.distroFallback(settings.wsl_distro, distroError)}
+                        </Notice>
+                        <Button onClick={() => void retryDistro()}>{t.retryDistro}</Button>
+                      </SetRow>
+                    )}
                   </>
                 ),
               )}

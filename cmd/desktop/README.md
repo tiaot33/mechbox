@@ -22,7 +22,7 @@ Mechbox 的桌面端：Wails v3 应用，Go 进程直接持有技能库（Librar
 | 第一次打开、登记项目之后 | 在这台机器上第一次打开 app 时(记在 `settings.json` 里，换到新机器也一样),直接打开各 Agent 全局目录里不是库装的技能的确认;每登记一个项目，打开这个项目里的。先写磁盘上什么都不改、Agent 用的和现在一样，再写唯一的代价(之后还用命令行工具更新，只能报为被手动改过);第一次打开时说明项目里的登记项目时再接。按认出的来源(含在 skills.sh 上找到的，找到后补上)分组，内容一样的几处(含符号链接)合成一条，每条确认前都可以"改来源"(改链接或清空);在项目仓库里的、项目 skills-lock.json 记的默认不勾，勾上才提醒之后在 app 里更新会改动项目仓库里的文件;同名但内容不一样的单列出来，每个只选一份，默认选最近修改的;读不出的列在"不能入库"里。按来源逐批入库，读来源时写出在等什么;一个失败不影响其余的，没入库的可以改来源链接重试或清空后不带来源入库。之后作用域摘要里淡淡写一句还有几个不是库装的(在项目仓库里的不算),"全部入库…"再打开这个作用域的确认，不计入角标 |
 | 拖放 | 技能卡片 → 右栏作用域 = 直接安装;技能卡片 → 左栏组 = 加入;组 → 右栏作用域 = 组安装 |
 | 左栏"同步" | 整库推送到 S3 / 从 S3 拉回(先看同步计划：S3 上是哪台机器什么时候推送的那一份;拉回还说明里面有什么、不能拉回的原因、哪些项目不在这台机器上) |
-| 左栏"设置" | 设置页(替换三栏，左边是分区目录):通用(关闭窗口后留在菜单栏、Dock 角标、语言：跟随系统 / 简体中文 / English)、Agent(显示勾选;添加、编辑、删除自定义 Agent,改目录时选择是否迁移)、项目(登记 / 改位置 / 注销，与右栏同一套弹窗)、检查更新(自动检查开关与间隔)、GitHub(个人访问令牌)与同步(服务地址、存储桶、对象名、区域、Access Key ID、Secret Access Key、Session Token;留空时照旧读环境变量)、关于(应用版本、数据库位置)、卸载 Mechbox(见下文"运行时行为") |
+| 左栏"设置" | 设置页(替换三栏，左边是分区目录):通用(关闭窗口后留在菜单栏、Dock 角标、语言：跟随系统 / 简体中文 / English;Windows 上装了 WSL 时还有全局目录：Windows 本机或某个 WSL 发行版)、Agent(显示勾选;添加、编辑、删除自定义 Agent,改目录时选择是否迁移)、项目(登记 / 改位置 / 注销，与右栏同一套弹窗)、检查更新(自动检查开关与间隔)、GitHub(个人访问令牌)与同步(服务地址、存储桶、对象名、区域、Access Key ID、Secret Access Key、Session Token;留空时照旧读环境变量)、关于(应用版本、数据库位置)、卸载 Mechbox(见下文"运行时行为") |
 | 顶栏 | 作用域胶囊、搜索(⌘K)、列表 / 卡片、刷新(重新读取并对照磁盘巡检已安装的技能) |
 
 Agent 的显示勾选只影响选择安装位置的地方(右栏与作用域弹层、详情里的"安装到…"):用户没勾选过的 Agent,检测到的和自定义的显示，其余不显示;已经装了技能的 Agent 不管勾没勾，装出去的地方照常列出。右栏与作用域弹层在每个地方直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent"。几个 Agent 共用一个目录时，装一次这几个都算已装;从其中一个卸载前提示还被哪些 Agent 共用。改自定义 Agent 的目录、删除自定义 Agent 时，确认框列出还有别的 Agent 在用、因而保留的文件夹。
@@ -89,10 +89,11 @@ open bin/mechbox.app
 - **Dock 角标**：计入角标的技能数，按技能库给出的 `UpdateCheck.Pending`(有新版本且没跳过、来源里已删除且没选继续保留、推测出改名;本地目录来源、跳过的改动、新技能不计入),和左栏"更新"的计数一致；前端每次重读快照后经 `AppService.RefreshBadge` 重算。只在 macOS 上显示。
 - **卸载 Mechbox**:设置页最后一个分区。弹窗先现查各处安装的状态，写明会删什么(技能库、设置页里的设置、存在系统里的令牌与密钥、应用本身);配置了同步时提醒可以先推送(「先去同步…」打开同步弹窗),没配置时写明无法恢复。已安装的技能文件夹按全局、各项目分开计数，三选一：保留(默认，Agent 照常使用)、移到废纸篓但保留被改过的几处、全部移到废纸篓;被改过的逐处列出。确认后先删令牌与密钥的条目(见上一条)——删不掉时什么都不动，可以重试或跳过;再移文件夹(已经不在的、在不在这台机器上的项目里的跳过),中途失败时数据库与设置都不动，重试时跳过已经移走的;从开始卸载起不再保存令牌与同步设置。然后退出，技能库关上以后再删数据库与 `settings.json`(目录空了连目录一起删)、`~/Library` 下 WebKit、Caches、HTTPStorages、Saved Application State、Preferences 里这个应用的数据，最后把 `.app` 移到废纸篓，移不动时在 Finder 中选中它。S3 上的库不动。不在 `.app` 里运行(如 `go build` 出来的)时不动可执行文件;Windows / Linux 上:
   - 退出后只删数据库与 `settings.json`,应用本身和 WebView 的数据不动，弹窗里写明应用要用系统的方式卸载。
-  - Windows 上文件夹移到回收站，弹窗里说「回收站 / Recycle Bin」。
+  - Windows 上文件夹移到回收站，弹窗里说「回收站 / Recycle Bin」;WSL 发行版里的文件夹(`\\wsl.localhost\...`)进不了 Windows 回收站，经 `wsl.exe` 按 freedesktop 规范移进那个发行版的 `~/.local/share/Trash`。
   - Linux 上文件夹按 freedesktop 规范移进 `$XDG_DATA_HOME/Trash`(默认 `~/.local/share/Trash`);和家目录不在同一个文件系统上时，放进那个卷顶层的 `.Trash/$uid` 或 `.Trash-$uid`。弹窗里中文说「回收站」,英文说 Trash。
   - 进不了回收站时报错，那一处留在原处、不直接删除;弹窗提示可以改选保留后重试。
   - server 模式下只删数据库与 `settings.json`,文件夹直接删除。
+- **WSL 发行版里的 Agent**:Windows 上装了 WSL 时，设置页「通用」里选各 Agent 的全局目录在 Windows 本机(默认)还是某个 WSL 发行版，存在 `settings.json` 的 `wsl_distro`,启动时与改选时交给技能库(`Library.SetWSLDistro`)。选了发行版后，全局目录换成发行版主目录下的(`\\wsl.localhost\<发行版>\home\<用户>\...`,界面上缩写成 `~`),之前装在 Windows 本机全局目录里的技能留在原处、不再管;数据库、令牌、同步设置与自动检查都只有一份，不随它变。改选时打不开发行版就不保存，报错说明原因;启动时打不开，技能库先用 Windows 本机的全局目录，主界面弹窗说明原因，可以再试或改回 Windows 本机(`AppService.WSLDistroError`、`RetryWSLDistro`);关掉弹窗时提示现在用的是 Windows 本机的全局目录，设置页这一项下面也一直写明，并可以再试一次。WSL 没有响应时，启动最多等 30 秒就按打不开处理。卸载 Mechbox 时要移走的文件夹里有发行版里的，弹窗写明它们进那个发行版的回收站、怎么找回。不论选的是哪里，登记在发行版里的项目、发行版里的本地目录来源也都按发行版里的规则读写(符号链接、可执行权限经 `wsl.exe` 在发行版里处理，见技能库的包说明)。
 - **界面语言**：设置页「通用」里选跟随系统(默认)、简体中文或 English,存在 `settings.json` 的 `language`(跟随系统时不写)。跟随系统时由 Go 端判断系统语言(`AppService.Language`):macOS 读系统设置里排第一的首选语言(`[NSLocale preferredLanguages]`,不用 WebView 的 `navigator.language`,它跟随 app bundle 声明的语言),其他平台与 server 模式读 `LC_ALL` / `LC_MESSAGES` / `LANG`;首选中文(含繁体)时用中文，其余用英文。前端等 Go 端给出语言再渲染，改了设置整个界面立即切换，菜单栏图标的菜单与 macOS 顶部菜单栏同时换文字。系统控件(目录选择框的按钮、输入框的右键菜单等)跟随系统语言，不跟随这里的选择;`Info.plist` 声明了 en 与 zh-Hans 两种本地化，系统控件才会按系统语言显示中文。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
 - **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。
@@ -139,7 +140,7 @@ cmd/desktop/
 ├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
 ├── reveal_darwin.go        在 Finder 中显示(其他平台与 server 模式见 reveal_other.go,什么都不做)
 ├── uninstall.go            卸载 Mechbox：删令牌与密钥的条目、移走文件夹，退出后删数据库与设置(uninstall_<平台>.go 是各平台怎么移文件夹、清系统数据;uninstall_darwin.go 清 ~/Library 并把 .app 移到废纸篓;server 模式见 uninstall_server.go,文件夹直接删除)
-├── trash_windows.go        Windows 回收站(IFileOperation,驱动器没有回收站时中止);trash_freedesktop.go 是 Linux 的 freedesktop 回收站
+├── trash_windows.go        Windows 回收站(IFileOperation,驱动器没有回收站时中止);trash_freedesktop.go 是 Linux 的 freedesktop 回收站;trash_wsl.go 是 WSL 发行版里的回收站(trash_wsl_windows.go 经 wsl.exe 执行),trash_info.go 是两者共用的 .trashinfo
 ├── library_methods.go      绑定服务：逐个转发 Library 的全部方法
 ├── e2e/                    端到端验证(server 模式 + Chrome)
 ├── pnpm-workspace.yaml     pnpm workspace:frontend 与 e2e,共用 pnpm-lock.yaml

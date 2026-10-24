@@ -143,6 +143,11 @@ export interface Settings {
     "language"?: Language;
 
     /**
+     * WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。
+     */
+    "wsl_distro"?: string;
+
+    /**
      * AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
      * 显示只影响选择安装位置的地方，已经装了技能的 Agent 装出去的地方照常列出。
      */

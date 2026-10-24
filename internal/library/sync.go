@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/s3"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
@@ -220,7 +219,7 @@ func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (err er
 	defer image.Close()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	home, err := agentdir.UserHome()
+	home, err := resolveHome(ctx, l.distro)
 	if err != nil {
 		return fmt.Errorf("sync pull: %w", err)
 	}

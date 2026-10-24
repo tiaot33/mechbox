@@ -84,7 +84,7 @@ export const en = {
   },
 
   paths: {
-    absolute: "Enter an absolute path (starting with / or ~/), or click “Choose…”",
+    absolute: "Enter an absolute path or one starting with ~, or click “Choose…”",
     fetchRelative: "For a local directory, enter an absolute path (starting with / or ~/), or click “Choose…”",
   },
 
@@ -758,6 +758,15 @@ export const en = {
     language: "Language",
     languageDesc: "System controls such as dialog buttons and the right-click menu in text fields follow the system language, not this setting.",
     followSystem: "System",
+    wslDistro: "Global directories",
+    wslDistroDesc:
+      "Where each agent's global directory lives. With a WSL distribution, the directories under its home are used; skills installed in the Windows global directories stay where they are and are no longer managed.",
+    windowsHome: "This Windows PC",
+    distroFallback: (distro: string, reason: string) =>
+      `Couldn't open WSL distribution "${distro}"; the global directories on this Windows PC are in use: ${reason}`,
+    retryDistro: "Try again",
+    distroSwitchFailed: (distro: string, reason: string) =>
+      `Couldn't open WSL distribution "${distro}"; the global directories weren't changed: ${reason}`,
     // 语言选项写各自的名字，两份文案里一样。
     chinese: "简体中文",
     english: "English",
@@ -814,6 +823,8 @@ export const en = {
     modified: (n: number, trash: boolean) =>
       `The ${count(n, "place")} below ${n === 1 ? "was" : "were"} edited${trash ? ` and will be moved to the ${bin()} with the rest` : ""}:`,
     trashing: (n: number) => `Moving ${count(n, "skill folder")} to the ${bin()}…`,
+    distroTrash: (n: number) =>
+      `${count(n, "of them is", "of them are")} in a WSL distribution and go to that distribution's trash (~/.local/share/Trash), not the Windows Recycle Bin; to get them back, move them from ~/.local/share/Trash/files back where they were inside the distribution.`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
       `Couldn't delete the token and secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip${manualDelete()}.`,
@@ -1086,5 +1097,16 @@ export const en = {
   app: {
     loadFailed: "Couldn't read the Library",
     retry: "Retry",
+    distroUnavailable: (distro: string) => `Couldn't open WSL distribution "${distro}"`,
+    distroUnavailableBody: (reason: string) =>
+      `Settings put each agent's global directory in this distribution, but it can't be opened right now: ${reason}. Until it opens, the global directories shown are the ones on Windows.`,
+    retryDistro: "Try again",
+    retryDistroDesc: "If the distribution or WSL was just starting or updating, trying again in a moment may work",
+    useWindowsHome: "Use Windows instead",
+    useWindowsHomeDesc: "Switch the global directories back to Windows; skills installed in the distribution stay where they are",
+    continue: "Continue",
+    distroOpened: (distro: string) => `Opened WSL distribution "${distro}"`,
+    distroFallback: (distro: string) =>
+      `The global directories on this Windows PC are in use; you can try opening "${distro}" again in Settings → General`,
   },
 } satisfies Messages;

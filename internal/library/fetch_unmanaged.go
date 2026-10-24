@@ -403,14 +403,37 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	if err != nil {
 		return nil, err
 	}
+	type planned struct {
+		sum      string
+		parsed   discovery.Candidate
+		modified time.Time
+		err      error
+	}
+	reads := make([]planned, len(entries))
+	var paths []string
+	var indexes []int
+	for i, entry := range entries {
+		if !validFolderName(entry.Name) {
+			reads[i].err = &Error{Code: InvalidArgument, Message: operation + ": invalid skill folder name", Details: ErrorDetails{Field: "name", Path: entry.Folder}}
+			continue
+		}
+		paths = append(paths, entry.Folder)
+		indexes = append(indexes, i)
+	}
+	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		i := indexes[index]
+		files, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state.Files, state.Err)
+		reads[i] = planned{sum: skillfile.Sum(files), parsed: parsed, modified: state.Modified, err: err}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	plan = []PlannedUnmanagedSkill{}
 	byContent := map[string][]int{}
-	for _, entry := range entries {
-		files, parsed, modified, err := readPlannedFolder(ctx, operation, entry)
+	for i, entry := range entries {
+		sum, parsed, modified, err := reads[i].sum, reads[i].parsed, reads[i].modified, reads[i].err
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
 			failure := ErrorOf(err)
 			if failure.Details.Path == "" {
 				failure.Details.Path = entry.Folder
@@ -418,7 +441,6 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			plan = append(plan, PlannedUnmanagedSkill{Name: entry.Name, Description: entry.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill}, Error: failure})
 			continue
 		}
-		sum := skillfile.Sum(files)
 		same := slices.IndexFunc(byContent[sum], func(index int) bool {
 			return !slices.ContainsFunc(plan[index].Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
 		})
@@ -466,18 +488,6 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		return cmp.Or(cmp.Compare(a.Name, b.Name), b.ModifiedAt.Compare(a.ModifiedAt))
 	})
 	return plan, nil
-}
-
-func readPlannedFolder(ctx context.Context, operation string, entry unmanagedEntry) ([]skillfile.File, discovery.Candidate, time.Time, error) {
-	if !validFolderName(entry.Name) {
-		return nil, discovery.Candidate{}, time.Time{}, &Error{Code: InvalidArgument, Message: operation + ": invalid skill folder name", Details: ErrorDetails{Field: "name", Path: entry.Folder}}
-	}
-	files, parsed, err := readSkillFolder(ctx, operation, entry.Folder, entry.Name)
-	if err != nil {
-		return nil, discovery.Candidate{}, time.Time{}, err
-	}
-	modified, err := agentdir.Modified(ctx, entry.Folder)
-	return files, parsed, modified, err
 }
 
 // FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。

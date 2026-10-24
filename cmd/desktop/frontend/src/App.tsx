@@ -29,8 +29,9 @@ import {
   type ScopeKey,
   type SkillFilter,
 } from "@/lib/model";
-import { useT } from "@/lib/i18n";
+import { messages, useT } from "@/lib/i18n";
 import { UIProvider, useUI } from "@/lib/ui";
+import { Notice } from "@/components/ui/notice";
 import { bodyClass, centerClass } from "@/components/app/layout";
 import { ResizablePane } from "@/components/app/resizable";
 import { Button } from "@/components/ui/button";
@@ -81,12 +82,20 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     void offerFirstOpen(ui, s.agents);
   }, [s, ui]);
 
+  // 设置里选的 WSL 发行版启动时没能打开：说明界面上暂时是 Windows 本机的全局目录，让用户再试或改回 Windows 本机。
+  const distroChecked = useRef(false);
+  useEffect(() => {
+    if (!s || distroChecked.current) return;
+    distroChecked.current = true;
+    void offerDistroRetry(ui);
+  }, [s, ui]);
+
   // 快照变了(写操作、手动检查更新之后),Dock 角标跟着重算。
   useEffect(() => {
     if (s) void AppService.RefreshBadge();
   }, [s]);
 
-  const scopeDirectory = useScopeDirectory(scope);
+  const scopeDirectory = useScopeDirectory(scope, s?.info.home_dir);
   const current = s ? resolveFilter(s, filter) : filter;
   const skills = s ? visibleSkills(s, { filter: current, search, installedOnlyIn: installedOnly ? scope : null }) : [];
   const unmanaged = s ? visibleUnmanaged(s, current, search, scope) : [];
@@ -257,6 +266,41 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
       </div>
     </DnDContext.Provider>
   );
+}
+
+async function offerDistroRetry(ui: ReturnType<typeof useUI>) {
+  const t = messages().app;
+  for (;;) {
+    const reason = await AppService.WSLDistroError().catch(() => "");
+    if (!reason) return;
+    const settings = await AppService.Settings();
+    const distro = settings.wsl_distro ?? "";
+    const choice = await ui.confirm({
+      title: t.distroUnavailable(distro),
+      body: <Notice tone="warn">{t.distroUnavailableBody(reason)}</Notice>,
+      choices: [
+        { value: "retry", label: t.retryDistro, desc: t.retryDistroDesc },
+        { value: "windows", label: t.useWindowsHome, desc: t.useWindowsHomeDesc },
+      ],
+      confirm: t.continue,
+    });
+    if (!choice) {
+      ui.toast(t.distroFallback(distro));
+      return;
+    }
+    if (choice === "windows") {
+      await ui.run(() => AppService.SaveSettings({ ...settings, wsl_distro: "" }));
+      return;
+    }
+    try {
+      await AppService.RetryWSLDistro();
+      ui.toast(t.distroOpened(distro));
+      ui.reload();
+      return;
+    } catch {
+      // 仍打不开：再给一次选择，原因换成这次的。
+    }
+  }
 }
 
 function LoadError({ error, onRetry }: { error: LibraryError; onRetry: () => void }) {

@@ -9,10 +9,11 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/` — `package library`:公开类型、公开方法与用户流程的编排。公开方法与其私有辅助函数按用户流程放在同一个文件里(`fetch.go`、`update.go`、`install.go` 等,对应关系见 doc.go);`library.go` 是实例生命周期与共享状态,`errors.go` 是公开错误类型与唯一的错误翻译点。
 - `internal/library/internal/` — 实现子包,每个外部系统一个:
   - `store` — SQLite:建表与校验、事务、同步用的快照与整库替换;`schema.sql` 是唯一的 DDL 来源。
-  - `agentdir` — Agent 目录与已登记项目的全部路径与文件操作:用户主目录、由相对路径拼出作用域目录与技能文件夹、路径的规范化与比较、校验用户填的目录与项目路径，以及技能文件夹的暂存、移到位、撤销与读取。`library` 不直接用 `os` / `filepath` 处理这些路径。
+  - `agentdir` — Agent 目录与已登记项目的全部路径与文件操作:用户主目录、由相对路径拼出作用域目录与技能文件夹、路径的规范化与比较、校验用户填的目录与项目路径，以及技能文件夹的暂存、移到位、撤销与读取。`library` 不直接用 `os` / `filepath` 处理这些路径。每个操作按路径选实现:路径在 `\\wsl.localhost\` 下的交给 `distro.go`(经 `wsl` 在那个发行版里执行命令),其余交给 `native.go`。
   - `source` — 来源的公共接口(`Kind`、`Snapshot`)、按类型分派与子包共用的错误;每种来源一个子包:`local`(本地目录)、`github`、`git`(GitLab 与其他 Git 服务)、`download`(直接下载)、`wellknown`(well-known 索引);`gitcmd` 是 Git 类来源共用的 git 命令,`discovery` 是各来源共用的候选发现规则与读取上限。
   - `market` — skills.sh 的搜索与审计接口。
   - `s3` — 同步用的 S3 对象读写。
+  - `wsl` — WSL 发行版：列出发行版、取发行版的主目录，在发行版里执行命令(每个发行版一个常驻的 `wsl.exe --exec /bin/sh`,命令只用 GNU 与 busybox 都支持的写法),以及给本地目录来源读发行版里目录的 `fs.FS`。发行版里的路径写成 `\\wsl.localhost\<发行版>\...`。
   - `skilllock` — 解析 `npx skills` 留下的来源记录，给未纳管技能认出来源(不是一种来源);记录文件由 `agentdir` 读出。
   - `skillfile` — 技能文件、文件集合比较与内容指纹,`library` 与各子包共用。
 - `test/library/` — 技能库的集成测试。

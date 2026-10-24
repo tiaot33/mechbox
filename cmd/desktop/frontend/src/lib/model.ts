@@ -63,8 +63,9 @@ export function shortPath(s: Snapshot, path: string): string {
   return homePath(s.info.home_dir, path);
 }
 
+// homePath 把主目录下的路径缩写成 ~;Windows 与 WSL 发行版(\\wsl.localhost\...)的路径用反斜杠分隔。
 export function homePath(home: string | undefined, path: string): string {
-  return home && (path === home || path.startsWith(home + "/")) ? "~" + path.slice(home.length) : path;
+  return home && (path === home || path.startsWith(home + "/") || path.startsWith(home + "\\")) ? "~" + path.slice(home.length) : path;
 }
 
 // outsideLinkNote 是指向 Agent 目录以外的符号链接入库时的说明:之后在 app 里更新会换掉链接。

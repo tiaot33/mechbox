@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"syscall"
 )
 
@@ -15,23 +13,23 @@ var (
 )
 
 func Join(root, relative string) string {
-	return filepath.Join(root, filepath.FromSlash(relative))
+	return on(root).join(root, relative)
 }
 
 func FolderPath(directory, name string) string {
-	return filepath.Join(directory, name)
+	return on(directory).join(directory, name)
 }
 
 func FolderKey(directory, name string) string {
-	return filepath.Join(Canonical(directory), name)
+	return FolderPath(Canonical(directory), name)
 }
 
 func FolderName(folder string) string {
-	return filepath.Base(folder)
+	return on(folder).base(folder)
 }
 
 func FolderDirectory(folder string) string {
-	return filepath.Dir(folder)
+	return on(folder).dir(folder)
 }
 
 func Inside(root, path string) bool {
@@ -43,7 +41,7 @@ func Resolve(root, path string) string {
 	switch {
 	case path == "":
 		return ""
-	case filepath.IsAbs(path):
+	case on(path).isAbs(path):
 		return path
 	case root == "":
 		return ""
@@ -52,31 +50,32 @@ func Resolve(root, path string) string {
 }
 
 func ProjectRoot(input string) (string, error) {
-	absolute, err := filepath.Abs(input)
+	system := on(input)
+	absolute, err := system.abs(input)
 	if err != nil {
 		return "", fmt.Errorf("resolve project path: %w", err)
 	}
-	resolved, err := filepath.EvalSymlinks(absolute)
+	resolved, err := system.evalSymlinks(absolute)
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return "", ErrMissing
 	}
 	if err != nil {
 		return "", fmt.Errorf("resolve project path: %w", err)
 	}
-	info, err := os.Stat(resolved)
+	info, err := system.stat(resolved)
 	if err != nil {
 		return "", fmt.Errorf("read project path: %w", err)
 	}
-	if !info.IsDir() {
+	if !info.dir {
 		return "", ErrNotDirectory
 	}
-	return filepath.Clean(resolved), nil
+	return system.clean(resolved), nil
 }
 
 func ProjectName(root string) string {
-	return filepath.Base(root)
+	return on(root).base(root)
 }
 
 func ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
+	return on(path).readFile(path)
 }

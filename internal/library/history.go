@@ -407,13 +407,14 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	} else if !exists {
 		return RollbackMissing, nil
 	}
-	disk, err := agentdir.Read(ctx, folder)
-	if errors.Is(err, agentdir.ErrIrregularFile) {
+	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
+	if errors.Is(err, agentdir.ErrIrregularFile) || errors.Is(err, agentdir.ErrTooLarge) {
 		return RollbackModified, nil
 	}
 	if err != nil {
 		return "", err
 	}
+	disk := digests(files)
 	if maps.Equal(disk, digests(current.files)) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
 		return RollbackCurrent, nil
 	}

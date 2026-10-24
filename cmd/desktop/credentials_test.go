@@ -130,7 +130,7 @@ func TestCredentialsKeptAcrossRestartAndGivenToLibrary(t *testing.T) {
 	// 改其他设置不会丢掉同步设置。
 	toggled := defaultSettings()
 	toggled.DockBadge = false
-	if _, err := first.SaveSettings(toggled); err != nil {
+	if _, err := first.SaveSettings(t.Context(), toggled); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	if err := first.ServiceShutdown(); err != nil {

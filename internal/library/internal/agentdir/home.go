@@ -1,11 +1,14 @@
 package agentdir
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
 )
 
 var (
@@ -26,6 +29,14 @@ func UserHome() (Home, error) {
 	return Home{root: root}, nil
 }
 
+func DistroHome(ctx context.Context, distro string) (Home, error) {
+	root, err := wsl.Home(ctx, distro)
+	if err != nil {
+		return Home{}, fmt.Errorf("find home directory in %s: %w", distro, err)
+	}
+	return Home{root: root}, nil
+}
+
 func (h Home) Root() string {
 	return h.root
 }
@@ -37,9 +48,9 @@ func (h Home) Join(relative string) string {
 func (h Home) Relative(input string) (string, error) {
 	path := input
 	if path == "~" || strings.HasPrefix(path, "~/") {
-		path = filepath.Join(h.root, path[1:])
+		path = Join(h.root, strings.TrimPrefix(path[1:], "/"))
 	}
-	if !filepath.IsAbs(path) {
+	if !on(path).isAbs(path) {
 		return "", ErrNotAbsolute
 	}
 	relative, inside := relativeInside(h.root, path)
@@ -49,11 +60,11 @@ func (h Home) Relative(input string) (string, error) {
 	if !inside {
 		return "", ErrOutside
 	}
-	return filepath.ToSlash(relative), nil
+	return relative, nil
 }
 
 func ProjectRelative(input string) (string, error) {
-	if filepath.IsAbs(input) {
+	if filepath.IsAbs(input) || wsl.IsPath(input) {
 		return "", ErrNotRelative
 	}
 	relative := filepath.Clean(input)
@@ -64,9 +75,8 @@ func ProjectRelative(input string) (string, error) {
 }
 
 func relativeInside(root, path string) (string, bool) {
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == "." || !filepath.IsLocal(relative) {
+	if !sameSystem(root, path) {
 		return "", false
 	}
-	return relative, true
+	return on(root).relative(root, path)
 }
