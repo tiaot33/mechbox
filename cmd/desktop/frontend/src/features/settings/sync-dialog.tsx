@@ -12,6 +12,7 @@ import {
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
+import { openSettings } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -109,13 +110,28 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
       }
     >
       <Hint>{t.intro}</Hint>
-      {!config.sync && <Notice tone="warn">{t.notConfigured}</Notice>}
+      {!config.sync && (
+        <Notice tone="warn">
+          {t.notConfigured}
+          <div className="mt-1.5">
+            <Button
+              onClick={() => {
+                onClose();
+                openSettings("sync");
+              }}
+            >
+              {t.openSettings}
+            </Button>
+          </div>
+        </Notice>
+      )}
+      {/* 没配置时推、拉都只会报缺少配置，按钮置灰，从上面的"去设置"填。 */}
       {!plan && (
         <div className="flex items-center gap-2">
-          <Button className="grow" disabled={working !== null && working !== "push"} loading={working === "push"} onClick={() => load("push")}>
+          <Button className="grow" disabled={!config.sync || (working !== null && working !== "push")} loading={working === "push"} onClick={() => load("push")}>
             {t.pushTo}
           </Button>
-          <Button className="grow" disabled={working !== null && working !== "pull"} loading={working === "pull"} onClick={() => load("pull")}>
+          <Button className="grow" disabled={!config.sync || (working !== null && working !== "pull")} loading={working === "pull"} onClick={() => load("pull")}>
             {t.pullFrom}
           </Button>
         </div>

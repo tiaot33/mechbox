@@ -192,7 +192,7 @@ export function FilterSidebar() {
           </button>
         </li>
         <li>
-          <button type="button" className={navItem()} onClick={openSettings}>
+          <button type="button" className={navItem()} onClick={() => openSettings()}>
             <Icon name="gear" />
             <span className="grow">{t.settings}</span>
           </button>

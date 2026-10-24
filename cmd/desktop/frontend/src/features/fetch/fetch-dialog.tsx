@@ -8,7 +8,7 @@ import { Modal, ui, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { toLibraryError } from "@/lib/library";
-import { resolveFetchInput } from "@/lib/paths";
+import { isLocalPath, resolveFetchInput } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -88,7 +88,10 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     const result = await ui.run(() => call, {
       reload: false,
       onError: (err) => {
-        if (pending.current === op) setFailure(describeError(err));
+        if (pending.current !== op) return true;
+        // 本地目录读不到时说读不到这个目录，不说"稍后重试";技能库给的原因(不存在 / 没权限)照样附上。
+        const local = err.code === ErrorCode.SourceUnreachable && isLocalPath(input.path);
+        setFailure(local ? t.localUnreadable(err.message) : describeError(err));
         return true;
       },
     });

@@ -156,7 +156,7 @@ export function SkillCard(props: {
       )}
       <div
         className={cn(
-          "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono text-[10px] text-muted-foreground",
+          "a-card-foot flex min-h-[17px] items-center gap-[5px] text-[10px] text-muted-foreground",
           list ? "w-[220px] shrink-0" : "mt-auto",
         )}
       >
@@ -196,7 +196,8 @@ export function SkillCard(props: {
             )}
             {projects > 0 && (
               <>
-                <span className="grow" />
+                {/* 也装在全局时项目数靠右;只装在项目里时紧跟圆点，不留一个孤零零的点。 */}
+                {globals.length > 0 && <span className="grow" />}
                 <span>{t.list.projects(projects)}</span>
               </>
             )}
