@@ -95,7 +95,7 @@ function Main({ state, reload }: { state: ReturnType<typeof useLibrarySnapshot>[
     if (s) void AppService.RefreshBadge();
   }, [s]);
 
-  const scopeDirectory = useScopeDirectory(scope);
+  const scopeDirectory = useScopeDirectory(scope, s?.info.home_dir);
   const current = s ? resolveFilter(s, filter) : filter;
   const skills = s ? visibleSkills(s, { filter: current, search, installedOnlyIn: installedOnly ? scope : null }) : [];
   const unmanaged = s ? visibleUnmanaged(s, current, search, scope) : [];

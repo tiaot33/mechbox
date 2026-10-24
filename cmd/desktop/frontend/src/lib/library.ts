@@ -110,8 +110,9 @@ export function useLibrarySnapshot(): [SnapshotState, () => void] {
   return [state, reload];
 }
 
-// useScopeDirectory 查作用域对应的 Agent 目录;scope 为 null 时不请求。
-export function useScopeDirectory(scope: ScopeKey | null): string | undefined {
+// useScopeDirectory 查作用域对应的 Agent 目录;scope 为 null 时不请求。home 是快照里的主目录，
+// 设置里改选 WSL 发行版后它变了，同一个作用域也要重查。
+export function useScopeDirectory(scope: ScopeKey | null, home: string | undefined): string | undefined {
   const [directory, setDirectory] = useState<string>();
   useEffect(() => {
     setDirectory(undefined);
@@ -119,7 +120,7 @@ export function useScopeDirectory(scope: ScopeKey | null): string | undefined {
     const call = LibraryService.ScopeDirectory(parseScope(scope));
     call.then(setDirectory, () => setDirectory(undefined));
     return () => void call.cancel();
-  }, [scope]);
+  }, [scope, home]);
   return directory;
 }
 
