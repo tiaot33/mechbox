@@ -1,55 +1,68 @@
-// 更新计划：对一个集合发起，先看清改了什么，再一次确认同时完成更新和重新安装(issue #131,流程见 lib/update.tsx)。
+// 更新计划：对一个集合发起，先看清改了什么，再一次确认同时完成更新和重新安装(issue #131,流程见 update.tsx)。
 // 从上到下：来源版本从哪到哪、风险(新增或改动的脚本、新增的可执行文件)、GitHub 的提交说明、技能(有变化 / 改名 / 删除 / 没变化)
 // 与文件差异、来源里的新技能、装出去的地方。可以跳过单个技能的这次改动，也可以跳过整个来源版本。
 // 从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   PlannedChange,
-  SkillScopeStatus,
   type CollectionID,
   type PlannedSkill,
   type SkillID,
   type SkillScopeInspection,
   type UpdatePlan,
 } from "@bindings/internal/library";
-import { canInstall, defaultInstallOn, defaultSkills, placeKey, plannedInstalls } from "@/lib/consent";
-import { removeSkill } from "@/features/skill/remove";
-import { formatDate } from "@/lib/content";
+import { canInstall, defaultInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import {
-  agentName,
-  folderKey,
-  linkNote,
-  mergedScopeKey,
-  mergeProjectPlaces,
-  revisionSummary,
-  sharedWithNote,
-  revisionText,
-  scopeKey,
-  scopeLabel,
-  shortRevision,
-  sourceLabel,
-} from "@/lib/model";
+import { collectionName, folderKey, revisionSummary, revisionText, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
-import { collectionName } from "@/lib/model";
-import { keepDeleted } from "@/features/skill/remove";
-import { notInterested, previewNewSkills } from "@/features/fetch/preview";
-import { reportUpdates } from "./report";
-import { riskLabel, riskSummary } from "./risks";
-import { runUpdate, stalePlan } from "./update";
-import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
-import { FileDiff } from "./file-diff";
+import { Places } from "./places";
+import { ChangedRow, DeletedRow, RenameRow } from "./plan-rows";
+import { Commits, NewSkills, Risks, sectionClass } from "./plan-sections";
+import { reportUpdates } from "./report";
+import { SkillDiff } from "./skill-diff";
+import { runUpdate, stalePlan } from "./update";
 
-const sectionClass = "mt-1 text-[13.5px] font-semibold";
+// usePlan 生成更新计划：打开时读一次来源，重试或计划失效后重新生成(replan);生成时写下的检查结论经 run 的重读带回主界面。
+// 关掉弹窗时取消读取。onLoaded 在每次生成好之后调用，用来定默认勾选;patch 改动已生成的计划里的一个技能(跳过、回答"不是"之后)。
+function usePlan(collectionID: CollectionID, onLoaded: (plan: UpdatePlan) => void) {
+  const ui = useUI();
+  const [generation, setGeneration] = useState(0);
+  const [plan, setPlan] = useState<UpdatePlan | null>(null);
+  const [failed, setFailed] = useState<LibraryError | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setPlan(null);
+    setFailed(null);
+    const call = LibraryService.PlanUpdate(collectionID);
+    void ui.run(() => call, {
+      onError: (err) => {
+        if (!cancelled) setFailed(err);
+        return true;
+      },
+    }).then((p) => {
+      if (cancelled || !p) return;
+      setPlan(p);
+      onLoaded(p);
+    });
+    return () => {
+      cancelled = true;
+      void call.cancel();
+    };
+    // onLoaded 只决定默认勾选，不放进依赖，否则每次渲染都会重新生成。
+  }, [collectionID, generation]);
+  const replan = () => setGeneration((n) => n + 1);
+  const patch = (id: SkillID, change: Partial<PlannedSkill>) =>
+    setPlan((prev) => prev && { ...prev, skills: (prev.skills ?? []).map((p) => (p.skill.id === id ? { ...p, ...change } : p)) });
+  return { plan, failed, replan, patch };
+}
 
 export function UpdateDialog({
   collectionID,
@@ -68,49 +81,19 @@ export function UpdateDialog({
   const tt = useT();
   const t = tt.plan;
   const label = collectionName(s, collectionID);
-  const collection = s.collections.find((c) => c.id === collectionID);
-  const [generation, setGeneration] = useState(0);
-  const [plan, setPlan] = useState<UpdatePlan | null>(null);
-  const [failed, setFailed] = useState<LibraryError | null>(null);
   const [checked, setChecked] = useState<Set<SkillID>>(new Set());
   const [installChoice, setInstallChoice] = useState<Map<string, boolean>>(new Map());
   const [expanded, setExpanded] = useState(!focus);
   const [viewing, setViewing] = useState<{ id: SkillID; path: string } | null>(null);
-  const [kept, setKept] = useState<Set<SkillID>>(new Set());
   const [removed, setRemoved] = useState<Set<SkillID>>(new Set());
   const [conflict, setConflict] = useState(false);
   const [working, setWorking] = useState(false);
-  // 新技能按库里现在的集合说：生成计划、回答"不是"、入库或"不感兴趣"都经 run,完成后快照重读，这里跟着变。
-  // 点了"不感兴趣"的不等快照重读完，立即不再提。
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const newSkills = (collection?.new_skills ?? []).filter((name) => !dismissed.includes(name));
 
-  // 生成更新计划要读一次来源;生成时写下的检查结论经 run 的重读带回主界面。关掉弹窗时取消读取。
-  useEffect(() => {
-    let cancelled = false;
-    setPlan(null);
-    setFailed(null);
-    const call = LibraryService.PlanUpdate(collectionID);
-    void ui.run(() => call, {
-      onError: (err) => {
-        if (!cancelled) setFailed(err);
-        return true;
-      },
-    }).then((p) => {
-      if (cancelled || !p) return;
-      setPlan(p);
-      setChecked(defaultSkills(p, focus ? [focus] : select));
-      setInstallChoice(new Map());
-      setConflict(false);
-    });
-    return () => {
-      cancelled = true;
-      void call.cancel();
-    };
-    // ui 随忙碌状态变，不放进依赖，否则生成计划本身就会触发重新生成;focus / select 只决定默认勾选。
-  }, [collectionID, generation]);
-
-  const replan = () => setGeneration((n) => n + 1);
+  const { plan, failed, replan, patch } = usePlan(collectionID, (p) => {
+    setChecked(defaultSkills(p, focus ? [focus] : select));
+    setInstallChoice(new Map());
+    setConflict(false);
+  });
 
   if (!plan) {
     return (
@@ -175,9 +158,6 @@ export function UpdateDialog({
     setConflict(true);
     return true;
   };
-
-  const patch = (id: SkillID, change: Partial<PlannedSkill>) =>
-    setPlan((prev) => prev && { ...prev, skills: (prev.skills ?? []).map((p) => (p.skill.id === id ? { ...p, ...change } : p)) });
 
   const skip = async (ids?: SkillID[]) => {
     const req = ids ? { plan: plan.id, skills: ids } : { plan: plan.id, whole_revision: true };
@@ -248,61 +228,23 @@ export function UpdateDialog({
         {to && t.latest(to)}
       </Hint>
 
-      {movable.length > 0 && (
-        <>
-          <div className={sectionClass}>{t.firstLook}</div>
-          {risks.length ? (
-            <Notice tone="warn" className="flex flex-col gap-0.5">
-              {risks.map(({ p, r }) => (
-                <button
-                  key={`${p.skill.id}|${r.path}`}
-                  type="button"
-                  className="update-risk flex items-center gap-2 text-left hover:underline"
-                  onClick={() => view(p, r.path)}
-                >
-                  <b className="font-semibold">{p.renamed_to ?? p.skill.name}</b>
-                  <span>{riskLabel(r)}</span>
-                  <span className="min-w-0 truncate font-mono text-[11px]">{r.path}</span>
-                </button>
-              ))}
-            </Notice>
-          ) : (
-            <Hint>{t.noRisks}</Hint>
-          )}
-        </>
-      )}
+      {movable.length > 0 && <Risks risks={risks} onView={view} />}
 
       {(plan.commits?.length ?? 0) > 0 && <Commits plan={plan} />}
 
       <div className={sectionClass}>{t.skills}</div>
       <ListBox>
         {shown.map((p) => (
-          <ListRow key={p.skill.id} compact selected={checked.has(p.skill.id)} className="update-skill">
-            <label className="flex min-w-0 grow cursor-pointer items-center gap-1.5">
-              <input
-                type="checkbox"
-                className="shrink-0 accent-primary"
-                checked={checked.has(p.skill.id)}
-                onChange={(e) => check(p.skill.id, e.target.checked)}
-              />
-              <b className="font-semibold whitespace-nowrap">{p.skill.name}</b>
-              {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="warn">{t.changed}</Badge>}
-              {(p.risks?.length ?? 0) > 0 && <Badge tone="bad">{riskSummary(p.risks ?? [])}</Badge>}
-              {p.edited && (
-                <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title={t.editedTitle}>
-                  {t.edited}
-                </span>
-              )}
-            </label>
-            <Button variant="link" onClick={() => view(p)}>
-              {viewing?.id === p.skill.id ? t.hideDiff : t.showDiff}
-            </Button>
-            {!p.skipped && (
-              <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])} title={t.skipTitle}>
-                {t.skip}
-              </Button>
-            )}
-          </ListRow>
+          <ChangedRow
+            key={p.skill.id}
+            p={p}
+            checked={checked.has(p.skill.id)}
+            viewed={viewing?.id === p.skill.id}
+            locked={locked}
+            onCheck={(on) => check(p.skill.id, on)}
+            onView={() => view(p)}
+            onSkip={() => skip([p.skill.id])}
+          />
         ))}
         {folded.length > 0 && (
           <ListRow compact>
@@ -314,85 +256,28 @@ export function UpdateDialog({
             </Button>
           </ListRow>
         )}
-        {renamed.map((p) => {
-          const yes = checked.has(p.skill.id);
-          return (
-            <ListRow key={p.skill.id} selected={yes} className="update-rename">
-              <div className="min-w-0 grow">
-                <div>
-                  {t.renameQuestion(<b className="font-semibold">{p.skill.name}</b>, <b className="font-semibold">{p.renamed_to}</b>)}
-                  {p.skipped && <Badge className="ml-1.5">{t.skipped}</Badge>}
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  {yes ? t.renameYes(p.renamed_to) : t.renameNo(p.renamed_to)}
-                  {p.edited && <span className="update-edited">{t.renameEdited}</span>}
-                </div>
-              </div>
-              {yes ? (
-                <>
-                  <Badge tone="accent">{t.sameOne}</Badge>
-                  <Button variant="link" disabled={locked} onClick={() => check(p.skill.id, false)}>
-                    {t.undo}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button size="sm" disabled={locked} onClick={() => check(p.skill.id, true)}>
-                    {t.yes}
-                  </Button>
-                  <Button size="sm" disabled={locked} onClick={() => reject(p)}>
-                    {t.no}
-                  </Button>
-                </>
-              )}
-              <Button variant="link" onClick={() => view(p)}>
-                {viewing?.id === p.skill.id ? t.hideDiff : t.showDiff}
-              </Button>
-              {!p.skipped && (
-                <Button variant="link" disabled={locked} onClick={() => skip([p.skill.id])}>
-                  {t.skip}
-                </Button>
-              )}
-            </ListRow>
-          );
-        })}
-        {deleted.map((p) => {
-          const keep = kept.has(p.skill.id) || p.skill.kept_deleted;
-          return (
-            <ListRow key={p.skill.id} className="update-deleted">
-              <div className="min-w-0 grow">
-                <b className="font-semibold">{p.skill.name}</b>
-                <span className="ml-1.5 text-[11px] text-muted-foreground">
-                  {t.deletedHere(sourceLabel(s, plan.source))}
-                </span>
-              </div>
-              {keep ? (
-                <Badge>{t.keptDeleted}</Badge>
-              ) : (
-                <>
-                  <Button
-                    size="sm"
-                    disabled={locked}
-                    onClick={async () => {
-                      if (await removeSkill(p.skill.id)) setRemoved((set) => new Set(set).add(p.skill.id));
-                    }}
-                  >
-                    {t.remove}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={locked}
-                    onClick={async () => {
-                      if (await keepDeleted(p.skill.id)) setKept((set) => new Set(set).add(p.skill.id));
-                    }}
-                  >
-                    {t.keep}
-                  </Button>
-                </>
-              )}
-            </ListRow>
-          );
-        })}
+        {renamed.map((p) => (
+          <RenameRow
+            key={p.skill.id}
+            p={p}
+            yes={checked.has(p.skill.id)}
+            viewed={viewing?.id === p.skill.id}
+            locked={locked}
+            onCheck={(on) => check(p.skill.id, on)}
+            onReject={() => reject(p)}
+            onView={() => view(p)}
+            onSkip={() => skip([p.skill.id])}
+          />
+        ))}
+        {deleted.map((p) => (
+          <DeletedRow
+            key={p.skill.id}
+            p={p}
+            source={sourceLabel(s, plan.source)}
+            locked={locked}
+            onRemoved={() => setRemoved((set) => new Set(set).add(p.skill.id))}
+          />
+        ))}
         {unchanged.length > 0 && (
           <ListRow compact className="text-muted-foreground">
             {t.unchanged(unchanged.map((p) => p.skill.name))}
@@ -410,25 +295,7 @@ export function UpdateDialog({
         <SkillDiff plan={plan} item={viewItem} path={viewing.path} onPath={(path) => setViewing({ id: viewing.id, path })} onError={onStale} />
       )}
 
-      {!focus && newSkills.length > 0 && (
-        <div className="update-new flex items-center gap-2 text-[12px] text-muted-foreground">
-          <span className="grow">
-            {tt.drawer.newSkills(sourceLabel(s, plan.source), newSkills)}
-          </span>
-          <Button variant="link" disabled={locked} onClick={() => void previewNewSkills(collectionID)}>
-            {tt.drawer.goFetch}
-          </Button>
-          <Button
-            variant="link"
-            disabled={locked}
-            onClick={async () => {
-              if (await notInterested(collectionID, newSkills)) setDismissed((names) => [...names, ...newSkills]);
-            }}
-          >
-            {tt.drawer.notInterested}
-          </Button>
-        </div>
-      )}
+      {!focus && <NewSkills collectionID={collectionID} source={sourceLabel(s, plan.source)} locked={locked} />}
 
       {checked.size > 0 && (
         <>
@@ -438,156 +305,5 @@ export function UpdateDialog({
         </>
       )}
     </Modal>
-  );
-}
-
-// Commits 是 GitHub 来源这段时间的提交说明，每条只显示第一行，最新的在前。
-function Commits({ plan }: { plan: UpdatePlan }) {
-  const t = useT().plan;
-  const [all, setAll] = useState(false);
-  const commits = plan.commits ?? [];
-  const list = all ? commits : commits.slice(0, 6);
-  return (
-    <details open className="update-commits">
-      <summary className={cn(sectionClass, "cursor-pointer")}>{t.commits(commits.length)}</summary>
-      <ListBox className="mt-1.5">
-        {list.map((c) => (
-          <ListRow key={c.sha} compact title={c.message}>
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{c.sha.slice(0, 7)}</span>
-            <span className="min-w-0 grow truncate">{c.message.split("\n")[0]}</span>
-            <span className="shrink-0 text-[11px] text-subtle">
-              {[c.author, c.time && formatDate(c.time)].filter(Boolean).join(" · ")}
-            </span>
-          </ListRow>
-        ))}
-        {!all && commits.length > list.length && (
-          <ListRow compact>
-            <Button variant="link" onClick={() => setAll(true)}>
-              {t.moreCommits(commits.length - list.length)}
-            </Button>
-          </ListRow>
-        )}
-      </ListBox>
-    </details>
-  );
-}
-
-// SkillDiff 是一个技能这次改了哪些文件，点文件看内容差异:库里一侧读当前版本，来源一侧读更新计划。
-// 读来源一侧时计划已失效(超时或来源变了)由 onError 交回弹窗，提示重新生成。
-export function SkillDiff({
-  plan,
-  item,
-  path,
-  onPath,
-  onError,
-}: {
-  plan: UpdatePlan;
-  item: PlannedSkill;
-  path: string;
-  onPath: (path: string) => void;
-  onError: (err: LibraryError) => boolean;
-}) {
-  const tt = useT();
-  const t = tt.plan;
-  const diff = item.diff;
-  const files = [
-    ...(diff?.added ?? []).map((p) => ["added", t.added, p] as const),
-    ...(diff?.changed ?? []).map((p) => ["changed", t.modifiedFile, p] as const),
-    ...(diff?.deleted ?? []).map((p) => ["deleted", t.deleted, p] as const),
-  ];
-  const kind = files.find((f) => f[2] === path)?.[0];
-  const versionID = item.skill.version_id;
-  const before = useCallback(() => LibraryService.GetVersionFile(versionID, path), [versionID, path]);
-  const after = useCallback(() => LibraryService.GetUpdatePlanFile(plan.id, item.skill.id, path), [plan.id, item.skill.id, path]);
-  const risk = useMemo(() => new Map((item.risks ?? []).map((r) => [r.path, riskLabel(r)])), [item.risks]);
-  const color = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
-  return (
-    <div className="update-diff flex flex-col gap-1.5 rounded-box border border-border-subtle bg-white/60 p-2.5">
-      <b className="text-[12px]">{t.changesOf(item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name)}</b>
-      <div className="flex flex-col">
-        {files.map(([k, text, p]) => (
-          <button
-            key={p}
-            type="button"
-            data-diff={k}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-black/[0.04]",
-              color[k],
-              p === path && "bg-primary-soft hover:bg-primary-soft",
-            )}
-            onClick={() => onPath(p)}
-          >
-            <span className="w-7 shrink-0 font-sans [&:lang(en)]:w-14">{text}</span>
-            <span className="min-w-0 grow truncate">{p}</span>
-            {risk.has(p) && <Badge tone="bad">{risk.get(p)}</Badge>}
-          </button>
-        ))}
-        {files.length === 0 && <span className="text-[11px] text-muted-foreground">{tt.common.sameContent}</span>}
-      </div>
-      {kind && <FileDiff path={path} before={kind === "added" ? null : before} after={kind === "deleted" ? null : after} onError={onError} />}
-    </div>
-  );
-}
-
-// Places 按地方列出勾选的技能装在哪里;同一处装了几个技能时各自一个勾选框，状态分开给。
-export function Places({
-  places,
-  name,
-  on,
-  onToggle,
-  modified,
-}: {
-  places: SkillScopeInspection[];
-  name: (id: SkillID) => string;
-  on: (p: SkillScopeInspection) => boolean;
-  onToggle: (p: SkillScopeInspection) => void;
-  modified?: string; // 用户改过的地方旁边的说明
-}) {
-  const s = useSnapshot();
-  const t = useT().plan;
-  if (!places.length) return <Hint>{t.notPlaced}</Hint>;
-  // unchecked 是链着这一处、这次没勾的地方：换这一处之前，库先给它们换上独立的一份。
-  const unchecked = (p: SkillScopeInspection) =>
-    (p.linked_by ?? []).filter((scope) => {
-      const other = places.find((x) => x.skill_id === p.skill_id && scopeKey(x.scope) === scopeKey(scope));
-      return !other || !on(other);
-    });
-  // 项目里共用一个文件夹的几处合成一行;勾选本来就按文件夹记，一起换。
-  const rows = new Map<string, SkillScopeInspection[]>();
-  for (const p of mergeProjectPlaces(s, places)) rows.set(mergedScopeKey(s, p.scope), [...(rows.get(mergedScopeKey(s, p.scope)) ?? []), p]);
-  return (
-    <ListBox>
-      {[...rows.entries()].map(([key, list]) => (
-        <ListRow key={key} className="update-place items-start">
-          <span className="w-[190px] shrink-0 truncate pt-px">{scopeLabel(s, list[0].scope)}</span>
-          <div className="flex min-w-0 grow flex-col gap-0.5">
-            {list.map((p) => (
-              <label key={placeKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
-                <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
-                <span className="whitespace-nowrap">{name(p.skill_id)}</span>
-                {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="warn">{t.folderMissing}</Badge>}
-                {sharedWithNote(p).length > 0 && (
-                  <span className="text-[11px] text-muted-foreground">
-                    {t.sharedFolder(sharedWithNote(p).map((code) => agentName(s, code)))}
-                  </span>
-                )}
-                {p.link_target && on(p) && (
-                  <span className="update-place-link min-w-0 text-[11px] break-all text-muted-foreground" title={p.link_target}>
-                    {linkNote(s, p.link_target)}
-                  </span>
-                )}
-                {on(p) && unchecked(p).length > 0 && (
-                  <span className="update-place-kept min-w-0 text-[11px] text-muted-foreground">
-                    {t.linkedHere(mergeProjectPlaces(s, unchecked(p).map((scope) => ({ scope }))).map((x) => scopeLabel(s, x.scope)))}
-                  </span>
-                )}
-              </label>
-            ))}
-          </div>
-        </ListRow>
-      ))}
-    </ListBox>
   );
 }
