@@ -24,7 +24,7 @@ const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
 const bin = () => (platform() === "windows" ? "Recycle Bin" : "Trash");
 const putBack = () => (platform() === "mac" ? "put back" : "restored");
 
-// store 是令牌与密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
+// store 是同步用的密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
 const store = () => (System.IsWindows() ? "Windows Credential Manager" : System.IsLinux() ? "the system keyring" : "the system keychain");
 // manualDelete 是卸载时跳过后去哪里手动删除这些条目。
 const manualDelete = () =>
@@ -43,7 +43,7 @@ const deniedHint = () =>
 // readFailedHelp 是读不到时怎么办;只有 Linux 上可能是没装或没启动密钥环。
 const readFailedHelp = () =>
   System.IsLinux()
-    ? " If GNOME Keyring or KWallet isn't installed or running, install and start it, then retry; or start Mechbox from a terminal with GITHUB_TOKEN, SKILLS_S3_*, AWS_* and similar environment variables set."
+    ? " If GNOME Keyring or KWallet isn't installed or running, install and start it, then retry; or start Mechbox from a terminal with SKILLS_S3_*, AWS_* and similar environment variables set."
     : "";
 
 const where = (w: InstalledWhere) =>
@@ -783,14 +783,14 @@ export const en = {
     autoCheck: "Check for updates automatically",
     autoCheckDesc: "Check every Source for new Versions on a schedule (local directory Sources aren't checked).",
     interval: "Interval",
-    tokenInKeychain: () => `The token is stored in ${store()}`,
+    tokenInLibrary: "Stored in the database and synced with it",
     secretsInKeychain: () => `Secrets are stored in ${store()}`,
     version: "Version",
     databasePath: "Database location",
     uninstallDesc: () =>
       platform() === "mac"
-        ? `Deletes the Library, the settings on this page, and the token and secrets in ${store()}, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.`
-        : `Deletes the Library, the settings on this page, and the token and secrets in ${store()}, then quits; the app itself has to be uninstalled separately. Installed skill folders are kept by default and Agents keep using them.`,
+        ? `Deletes the Library, the settings on this page, and the secrets in ${store()}, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.`
+        : `Deletes the Library, the settings on this page, and the secrets in ${store()}, then quits; the app itself has to be uninstalled separately. Installed skill folders are kept by default and Agents keep using them.`,
     uninstallButton: "Uninstall Mechbox…",
   },
 
@@ -808,7 +808,7 @@ export const en = {
     skipKeychain: "Skip and continue uninstalling",
     uninstall: "Uninstall and quit",
     what: () =>
-      `Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects and custom Agents), the settings on the Settings page (including GitHub and Sync), and the token and secrets in ${store()}; ` +
+      `Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents and the GitHub token), the settings on the Settings page (including Sync), and the secrets in ${store()}; ` +
       {
         mac: "then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
         windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
@@ -830,9 +830,9 @@ export const en = {
       `${count(n, "of them is", "of them are")} in a WSL distribution and go to that distribution's trash (~/.local/share/Trash), not the Windows Recycle Bin; to get them back, move them from ~/.local/share/Trash/files back where they were inside the distribution.`,
     uninstalling: "Uninstalling…",
     keychainFailed: (message: string) =>
-      `Couldn't delete the token and secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip${manualDelete()}.`,
+      `Couldn't delete the secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip${manualDelete()}.`,
     failed: (error: string, keychainDeleted: boolean, trashing: boolean) =>
-      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the ${bin()} can be ${putBack()} from it; a retry skips them.${trashing ? ` The folder that couldn't be moved to the ${bin()} is still where it was and hasn't been deleted. Choose “Keep the installed folders” and retry, or deal with that folder yourself and retry.` : ""}${keychainDeleted ? ` The token and secrets in ${store()} have been deleted; re-enter them in Settings to keep using them.` : ""}`,
+      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the ${bin()} can be ${putBack()} from it; a retry skips them.${trashing ? ` The folder that couldn't be moved to the ${bin()} is still where it was and hasn't been deleted. Choose “Keep the installed folders” and retry, or deal with that folder yourself and retry.` : ""}${keychainDeleted ? ` The secrets in ${store()} have been deleted; re-enter them in Settings to keep syncing.` : ""}`,
     done: "Uninstalled. Quitting…",
   },
 
@@ -870,7 +870,7 @@ export const en = {
     pushWarning: "Pushing overwrites this copy on S3 with this machine's Library.",
     cannotPull: "The Library on S3 can't be pulled.",
     pullWarning:
-      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that Library will disappear. Folders in Agent directories aren't changed.",
+      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that Library will disappear, and the GitHub token entered in Settings is replaced with the one in that Library, or cleared if it has none. Folders in Agent directories aren't changed.",
     missingProjects: (names: string[]) =>
       `These projects aren't on this machine; after pulling, point them to their location here from the right sidebar: ${names.join(", ")}`,
   },
@@ -1056,7 +1056,8 @@ export const en = {
   },
 
   credentials: {
-    keychainFailed: () => `Couldn't read ${store()}, so the token and secrets can't be viewed or changed right now.${readFailedHelp()}`,
+    keychainFailed: () => `Couldn't read ${store()}, so the Sync settings can't be viewed or changed right now.${readFailedHelp()}`,
+    tokenReadFailed: (message: string) => `Couldn't read the GitHub token: ${message}`,
     retry: "Retry",
     endpoint: "Endpoint (optional, defaults to AWS S3)",
     bucket: "Bucket",

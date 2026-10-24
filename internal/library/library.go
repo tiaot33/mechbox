@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -76,7 +77,13 @@ func Open(path string) (lib *Library, err error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
+	token, err := db.GitHubToken(context.Background())
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open library: %w", err)
+	}
 	client := github.NewClient()
+	client.SetToken(token)
 	direct := download.New(maxFetchFiles, maxFetchSize)
 	return &Library{
 		store:    db,
@@ -162,9 +169,28 @@ func resolveHome(ctx context.Context, distro string) (agentdir.Home, error) {
 	return agentdir.DistroHome(ctx, distro)
 }
 
-// SetGitHubToken 设置访问 GitHub 用的个人访问令牌,之后的入库预览、入库、检查更新与更新立即使用。
+// GitHubToken 返回设置的 GitHub 个人访问令牌(设置页显示它);没设置时为空,此时访问 GitHub 读 GITHUB_TOKEN / GH_TOKEN 环境变量。
+// 拉回后是拉回的那份库里的令牌。
+func (l *Library) GitHubToken(ctx context.Context) (token string, err error) {
+	defer func() { err = typedError(err) }()
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	return l.store.GitHubToken(ctx)
+}
+
+// SetGitHubToken 设置访问 GitHub 用的个人访问令牌(去掉首尾空白),之后的入库预览、入库、检查更新与更新立即使用。
 // 它只用在「用令牌访问」这一步:先匿名访问,不行再用令牌,再不行用 gh,顺序不变。
-// 传空字符串表示没有传入,回到读取 GITHUB_TOKEN / GH_TOKEN 环境变量。令牌只在这个 Library 实例上有效,不写进库。
-func (l *Library) SetGitHubToken(token string) {
+// 令牌写进数据库,和库里其他内容一样随推送、拉回走:拉回后换成拉回的那份库里的令牌,那份库里没有就是没设置。
+// 传空字符串即从数据库删掉,回到读取 GITHUB_TOKEN / GH_TOKEN 环境变量。
+// 同一个数据库在别的进程里打开的 Library 要重新 [Open] 才用上新令牌。
+func (l *Library) SetGitHubToken(ctx context.Context, token string) (err error) {
+	defer func() { err = typedError(err) }()
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	token = strings.TrimSpace(token)
+	if err := l.store.SetGitHubToken(ctx, token); err != nil {
+		return err
+	}
 	l.github.SetToken(token)
+	return nil
 }

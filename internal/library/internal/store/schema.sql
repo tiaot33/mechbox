@@ -226,3 +226,11 @@ CREATE TABLE IF NOT EXISTS rolled_back_renames (
     skill_id INTEGER NOT NULL UNIQUE REFERENCES skills(id),  -- 换回了旧名字的技能
     name TEXT NOT NULL                                       -- 回滚掉的那个新名字
 );
+
+-- 设置页填的 GitHub 个人访问令牌,只有一行;和库里其他内容一样随推送、拉回走,拉回后换成拉回的那份库里的(没有就是没填)。
+-- 没有这一行表示没填,访问 GitHub 时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
+-- 数据库打开时开着 secure_delete:清空或换掉的令牌在文件里清零,推送出去的库里找不到旧令牌原文。
+CREATE TABLE IF NOT EXISTS github_token (
+    id INTEGER PRIMARY KEY CHECK(id = 1), -- 固定为 1
+    token TEXT NOT NULL CHECK(token <> '') -- 令牌原文;清空时删掉这一行
+);

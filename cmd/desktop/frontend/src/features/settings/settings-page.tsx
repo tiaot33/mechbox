@@ -1,7 +1,8 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查更新与通用是只属于这台机器的应用设置(Go 端存在用户配置目录下，不进技能库),改了立即保存、生效;
 // 通用里的全局目录(Windows 上装了 WSL 时才出现)改了以后重读快照，界面换成新的全局目录。
-// GitHub 与同步填的令牌和密钥存在系统钥匙串里，其余几项也存在这台机器上，点保存后交给技能库(见 credentials-form.tsx)。
+// GitHub 令牌存在数据库里，随推送、拉回走;同步的 Secret Access Key、Session Token 存在系统钥匙串里，其余几项存在这台机器的设置文件里，
+// 点保存后交给技能库(见 credentials-form.tsx)。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
 import { AppService, type Settings } from "@bindings/cmd/desktop";
@@ -20,7 +21,7 @@ import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
 import { SetRow } from "@/components/app/set-row";
-import { GitHubForm, SyncForm, useCredentials } from "./credentials-form";
+import { GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
 
@@ -36,7 +37,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const t = tt.settings;
   const { setLanguage } = useLanguage();
   const [settings, setSettings] = useState<Settings>();
-  const credentials = useCredentials();
   const [current, setCurrent] = useState<Section>(sections[0]);
   const refs = useRef<Partial<Record<Section, HTMLElement | null>>>({});
 
@@ -153,8 +153,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 null,
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
-              {card("github", t.tokenInKeychain(), credentials((saved, onSaved) => <GitHubForm saved={saved} onSaved={onSaved} />))}
-              {card("sync", t.secretsInKeychain(), credentials((saved, onSaved) => <SyncForm saved={saved} onSaved={onSaved} />))}
+              {card("github", t.tokenInLibrary, <GitHubSection />)}
+              {card("sync", t.secretsInKeychain(), <SyncSection />)}
               {card(
                 "about",
                 null,

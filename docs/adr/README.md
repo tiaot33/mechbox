@@ -27,4 +27,4 @@
 
 - [0007 错误码按界面要做的动作划分](0007-error-codes-follow-ui-actions.md)
 - [0008 桌面端用 Wails v3，与库在同一个进程里](0008-desktop-is-wails-v3-in-process.md)
-- [0011 凭证只存在这台机器上：令牌和密钥进系统的钥匙串、凭据管理器或密钥环，其余进应用设置](0011-credentials-stay-on-this-machine.md)
+- [0011 GitHub 令牌进数据库、随同步走；S3 同步设置只存在这台机器上](0011-github-token-syncs-s3-settings-stay-local.md)

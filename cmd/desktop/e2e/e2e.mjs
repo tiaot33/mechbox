@@ -2292,7 +2292,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   await page.waitForSelector(".a-list");
 });
 
-await step("设置页:GitHub 令牌与同步设置存在这台机器上，全部留空时回到环境变量", async () => {
+await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台机器上，全部留空时回到环境变量", async () => {
   const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
   const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
   const field = (name, label) => section(name).locator('[data-slot="field"]', { hasText: label }).locator("input");
