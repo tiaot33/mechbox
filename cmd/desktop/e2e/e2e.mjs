@@ -12,11 +12,11 @@ const HOME = process.env.E2E_HOME;
 const URL = process.env.E2E_URL;
 const ZIP_URL = process.env.E2E_ZIP_URL;
 const ZIP_DIR = process.env.E2E_ZIP_DIR;
-const SHOTS = process.env.E2E_SHOTS ?? "/tmp/mechbox-e2e-shots";
+const SHOTS = process.env.E2E_SHOTS;
 const NETWORK = process.env.E2E_NETWORK === "1";
 // GITHUB_TOKEN 是联网步骤开始时填进设置页的 GitHub 令牌;应用只认设置页填的，不读环境变量。
 const GITHUB_TOKEN = process.env.E2E_GITHUB_TOKEN ?? "";
-if (!HOME || !URL || !ZIP_URL) throw new Error("需要 E2E_HOME、E2E_URL、E2E_ZIP_URL,请用 run.sh 运行");
+if (!HOME || !URL || !ZIP_URL || !SHOTS) throw new Error("需要 E2E_HOME、E2E_URL、E2E_ZIP_URL、E2E_SHOTS,请用 run.sh 运行");
 fs.mkdirSync(SHOTS, { recursive: true });
 const SK = `${HOME}/code/my-skills`;
 const only = process.argv[2]; // 可选：只跑名字包含该串的步骤
