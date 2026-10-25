@@ -723,6 +723,7 @@ export const en = {
     projects: "Projects",
     checks: "Update checks",
     github: "GitHub",
+    ai: "AI",
     sync: "Sync",
     about: "About",
     uninstall: "Uninstall Mechbox",
@@ -763,6 +764,7 @@ export const en = {
     autoCheckDesc: "Check every Source for new Versions on a schedule (local directory Sources aren't checked).",
     interval: "Interval",
     tokenInLibrary: "Stored in the database and synced with it",
+    aiInLibrary: "The API key is stored in the database and synced with it",
     syncOnThisMachine: "Stored in the database, only for this machine and not synced",
     version: "Version",
     databasePath: "Database location",
@@ -786,7 +788,7 @@ export const en = {
     retry: "Retry",
     uninstall: "Uninstall and quit",
     what: () =>
-      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents, and the settings on the Settings page, including the GitHub token and Sync); " +
+      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents, and the settings on the Settings page, including the GitHub token, AI and Sync); " +
       {
         mac: "then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
         windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
@@ -847,7 +849,7 @@ export const en = {
     pushWarning: "Pushing overwrites this copy on S3 with this machine's Library.",
     cannotPull: "The Library on S3 can't be pulled.",
     pullWarning:
-      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that Library will disappear, and the GitHub token entered in Settings, along with the Update checks, General (except the global directory) and Agents display settings, is replaced with what's in that Library; anything it lacks is cleared or reset to the default. This machine's Sync settings are kept. Folders in Agent directories aren't changed.",
+      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that Library will disappear, and the GitHub token and AI settings entered in Settings, along with the Update checks, General (except the global directory) and Agents display settings, are replaced with what's in that Library; anything it lacks is cleared or reset to the default. This machine's Sync settings are kept. Folders in Agent directories aren't changed.",
     missingProjects: (names: string[]) =>
       `These projects aren't on this machine; after pulling, point them to their location here from the right sidebar: ${names.join(", ")}`,
   },
@@ -1036,6 +1038,7 @@ export const en = {
   credentials: {
     syncReadFailed: (message: string) => `Couldn't read the Sync settings: ${message}`,
     tokenReadFailed: (message: string) => `Couldn't read the GitHub token: ${message}`,
+    aiReadFailed: (message: string) => `Couldn't read the AI settings: ${message}`,
     retry: "Retry",
     endpoint: "Endpoint (optional, defaults to AWS S3)",
     bucket: "Bucket",
@@ -1048,6 +1051,17 @@ export const en = {
     tokenHint: "When empty, the GitHub API is accessed anonymously and is easily rate-limited.",
     token: "Personal access token",
     syncSaved: "Saved the Sync settings",
+    provider: "API",
+    providerOpenAI: "OpenAI-compatible",
+    providerAnthropic: "Anthropic",
+    baseURL: "Base URL (optional, defaults to the official one)",
+    apiKey: "API key",
+    model: "Model",
+    aiSaved: "Saved the AI settings",
+    aiHint: "For DeepSeek, OpenRouter, Ollama and similar services, choose OpenAI-compatible and enter their base URL.",
+    test: "Test connection",
+    testNeeds: "Fill in the API key and model to test",
+    testPassed: "Connected. The API key and model both work",
     syncHint: "Fill in the bucket, Access Key ID and Secret Access Key to sync. The pushed Library doesn't carry these; pulling keeps what's filled in here.",
     save: "Save",
   },

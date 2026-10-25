@@ -19,6 +19,10 @@ import * as library$0 from "../../internal/library/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function AISettings(): $CancellablePromise<library$0.AISettings> {
+    return $Call.ByID(2011808321);
+}
+
 export function AddAgent(agent: library$0.CustomAgent): $CancellablePromise<library$0.Agent> {
     return $Call.ByID(3992441198, agent);
 }
@@ -269,6 +273,10 @@ export function SearchSkills(query: string): $CancellablePromise<library$0.Searc
     return $Call.ByID(2526005404, query);
 }
 
+export function SetAISettings(settings: library$0.AISettings): $CancellablePromise<void> {
+    return $Call.ByID(382243961, settings);
+}
+
 export function SetAppSettings(settings: { [_ in string]?: string } | null): $CancellablePromise<void> {
     return $Call.ByID(2937008032, settings);
 }
@@ -302,6 +310,10 @@ export function SyncPush(expected: library$0.RemoteIdentity): $CancellablePromis
 
 export function SyncSettings(): $CancellablePromise<library$0.SyncSettings> {
     return $Call.ByID(877498288);
+}
+
+export function TestAISettings(settings: library$0.AISettings): $CancellablePromise<void> {
+    return $Call.ByID(2435651545, settings);
 }
 
 export function Uninstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {

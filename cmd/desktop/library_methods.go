@@ -294,7 +294,7 @@ func (s *LibraryService) Reinstall(ctx context.Context, requests []library.Reins
 	return settle(s.lib.Reinstall(ctx, requests))(ctx)
 }
 
-// ---------- GitHub 与同步 ----------
+// ---------- GitHub、AI 与同步 ----------
 
 func (s *LibraryService) AppSettings(ctx context.Context) (map[string]string, error) {
 	return settle(s.lib.AppSettings(ctx))(ctx)
@@ -310,6 +310,18 @@ func (s *LibraryService) GitHubToken(ctx context.Context) (string, error) {
 
 func (s *LibraryService) SetGitHubToken(ctx context.Context, token string) error {
 	return settleErr(ctx, s.lib.SetGitHubToken(ctx, token))
+}
+
+func (s *LibraryService) AISettings(ctx context.Context) (library.AISettings, error) {
+	return settle(s.lib.AISettings(ctx))(ctx)
+}
+
+func (s *LibraryService) SetAISettings(ctx context.Context, settings library.AISettings) error {
+	return settleErr(ctx, s.lib.SetAISettings(ctx, settings))
+}
+
+func (s *LibraryService) TestAISettings(ctx context.Context, settings library.AISettings) error {
+	return settleErr(ctx, s.lib.TestAISettings(ctx, settings))
 }
 
 func (s *LibraryService) SyncSettings(ctx context.Context) (library.SyncSettings, error) {

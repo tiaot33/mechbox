@@ -12,9 +12,11 @@
 //
 // 下面按用户操作的顺序列出每一步用到的方法和所在文件。
 //
-// 设置(library.go、sync.go):设置都存在数据库的 config 表里,只认这里,不读环境变量。改完下一次请求就用新值。
+// 设置(library.go、sync.go、ai.go):设置都存在数据库的 config 表里,只认这里,不读环境变量。改完下一次请求就用新值。
 //   - [Library.GitHubToken]、[Library.SetGitHubToken] 读取与设置访问 GitHub 用的个人访问令牌;随推送、拉回走。没设置时匿名访问。
 //   - [Library.SyncSettings]、[Library.SetSyncSettings] 读取与设置同步用的 S3 设置。
+//   - [Library.AISettings]、[Library.SetAISettings] 读取与设置调用 AI 用的接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key 与模型;
+//     随推送、拉回走。[Library.TestAISettings] 用设置页上的一组设置发一条很短的消息,看能不能用。
 //   - [Library.ListWSLDistros]、[Library.WSLDistro]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
 //     或换回 Windows 本机;换了以后只认新目录。[Open] 不自动换过去,调用方启动时取出存着的选择再设置。
 //   - [Library.AppSettings]、[Library.SetAppSettings] 读写应用自己的设置(如桌面端的自动检查、界面语言),库只存取、不解释;随推送、拉回走。

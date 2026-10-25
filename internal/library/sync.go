@@ -218,7 +218,8 @@ func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote
 //   - 已登记项目的路径是推送那台机器上的;在本机不存在的项目([RegisteredProject].Missing)用
 //     [Library.RelocateProject] 指到它在这台机器上的位置。
 //   - 内置 Agent 与 [Open] 时一样以本机应用为准;全局作用域按本机的用户主目录。
-//   - 设置换成那份库里的:GitHub 令牌([Library.SetGitHubToken],那份库里没有时变成没设置)与应用的设置([Library.SetAppSettings])。
+//   - 设置换成那份库里的:GitHub 令牌([Library.SetGitHubToken],那份库里没有时变成没设置)、AI 设置([Library.SetAISettings])
+//     与应用的设置([Library.SetAppSettings])。
 //     只属于这台机器的同步设置([Library.SetSyncSettings])与 WSL 发行版([Library.SetWSLDistro])保留本机的。
 func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (err error) {
 	defer func() { err = typedError(err) }()
