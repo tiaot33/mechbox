@@ -10,6 +10,8 @@ vars:
   EXTRA_TAGS: '{{.EXTRA_TAGS | default "private_mac_apis"}}'
   # 构建 / 打包 / 运行的目标系统，默认为本机;可用 `wails3 build GOOS=...` 覆盖以交叉编译。
   GOOS: '{{.GOOS | default OS}}'
+  # 开发数据的目录(dev:seed 生成，dev:seeded 使用):devseed 在里面放 home/(临时 HOME)与 library.db。
+  SEED_DIR: '{{.ROOT_DIR}}/.dev/seed'
 
 includes:
   common: ./build/Taskfile.yml
@@ -48,11 +50,11 @@ tasks:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   # 重建开发数据 .dev/seed:临时 HOME(Agent 目录、项目、本地 Git 来源)与其中的数据库，用 testdata/dev 里的技能快照，不联网。
-  # 只清 .dev/seed,不动 dev:test-db 的 .dev/library.db。
+  # 只清 .dev/seed,不动 dev:test-db 的 .dev/library.db;中途失败时删掉 .dev/seed。只支持 macOS 与 Linux。
   dev:seed:
     summary: Rebuilds the development data in .dev/seed from testdata/dev
     cmds:
-      - go run ./devseed -out .dev/seed -data testdata/dev
+      - go run ./devseed -out '{{.SEED_DIR}}' -data testdata/dev
 
   # 用 dev:seed 生成的开发数据以开发模式运行:HOME 与数据库都在 .dev/seed 里，安装也不碰真实的 Agent 目录。
   # Go 的缓存指回原处，免得在临时 HOME 下重新下载依赖。
@@ -64,13 +66,15 @@ tasks:
       GO_CACHE:
         sh: go env GOCACHE
     preconditions:
-      - sh: test -f '{{.ROOT_DIR}}/.dev/seed/library.db'
+      - sh: '[ "{{OS}}" != windows ]'
+        msg: 开发数据只支持 macOS 与 Linux:Windows 上技能库按 USERPROFILE 取主目录，换 HOME 隔离不了
+      - sh: test -f '{{.SEED_DIR}}/library.db'
         msg: 还没有开发数据，先运行 wails3 task dev:seed
     # 环境变量写在命令里:Taskfile 的 env 不覆盖系统里已有的 HOME。
     cmds:
       - >-
-        HOME='{{.ROOT_DIR}}/.dev/seed/home'
-        MECHBOX_LIBRARY='{{.ROOT_DIR}}/.dev/seed/library.db'
+        HOME='{{.SEED_DIR}}/home'
+        MECHBOX_LIBRARY='{{.SEED_DIR}}/library.db'
         GOMODCACHE='{{.GO_MODCACHE}}' GOCACHE='{{.GO_CACHE}}'
         wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 

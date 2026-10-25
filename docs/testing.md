@@ -256,6 +256,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
 - [运行前端检查](#运行前端检查)的前置条件
 - `wails3`，版本和安装方法见 `cmd/desktop/README.md` 的「准备」一节
+- macOS 或 Linux。Windows 上技能库按 `USERPROFILE` 取主目录，换 `HOME` 隔离不了，`dev:seed` 和 `dev:seeded` 都拒绝运行。
 
 ### 步骤
 
@@ -265,7 +266,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
    wails3 task dev:seed
    ```
 
-   命令只清空并重建 `.dev/seed/`，不动 `dev:test-db` 用的 `.dev/library.db`。
+   命令只清空并重建 `.dev/seed/`，不动 `dev:test-db` 用的 `.dev/library.db`。生成中途失败时，命令删掉 `.dev/seed/` 并报错，不会留下只生成了一半的数据。
 
 2. 用开发数据以开发模式启动 app：
 
@@ -275,15 +276,15 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
    窗口打开后，左栏「所有技能」有 10 个技能，「更新」有 5 个要处理的更新。
 
-   在右栏选中 **Claude Code**。列表顶部写着 `~/.claude/skills`、5 个已安装、1 个未纳管。**如果未纳管有几十个，说明 app 用的是你真实的 `HOME`：先退出 app，不要安装或卸载任何技能，**再检查是不是绕过 `dev:seeded` 直接运行了 `wails3 dev`。
-
-   如果没有出现新窗口、命令很快结束，是本机已经开着一个 Mechbox（装好的 app，或另一个 `wails3 dev`）。Mechbox 同一时间只运行一个实例，新进程把已有窗口带到前台后直接退出。退出那个 Mechbox，再运行第 2 步。
-
    如果报端口 9245 已被占用，是另一个 `wails3 dev` 的 Vite 还开着。用 `WAILS_VITE_PORT` 换一个端口，如 `WAILS_VITE_PORT=9345 wails3 task dev:seeded`。
 
-3. 在 app 里操作，验证你的改动。
+3. 核对窗口用的是开发数据：左栏底部的数据库位置必须是 `…/.dev/seed/library.db`；在右栏选中 **Claude Code**，列表顶部写着 5 个已安装、1 个未纳管。
 
-4. 可选：要把数据恢复到初始状态时，先退出 app，再运行第 1 步。第 1 步会删掉 app 正开着的数据库。
+   **核对不通过时，先退出这个窗口，不要安装或卸载任何技能。** 这个窗口读写的是你真实的 Agent 目录或数据库。最常见的原因是本机已经开着一个 Mechbox（装好的 app 关窗后默认留在菜单栏，或另一个 `wails3 dev`）。Mechbox 同一时间只运行一个实例：新进程把已有的窗口带到前台后退出，`dev:seeded` 随之结束，你看到的是那个已有的窗口。从菜单栏退出它，再运行第 2 步。
+
+4. 在 app 里操作，验证你的改动。
+
+5. 可选：要把数据恢复到初始状态时，先退出 app，再运行第 1 步。第 1 步会删掉 app 正开着的数据库。
 
 `dev:seeded` 把 `HOME` 换成 `.dev/seed/home`，所以安装不会写进真实的 Agent 目录。代价是 `gh` 的登录和 `~/.ssh` 在这里用不了。要调试真实的 GitHub 来源，改用 `cmd/desktop/README.md` 里的 `dev:test-db`。
 
