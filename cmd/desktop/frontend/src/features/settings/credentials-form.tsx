@@ -1,28 +1,34 @@
-// 设置页的 GitHub 与同步分区。两者都存在数据库里，只认这里填的，不读环境变量:
-// GitHub 令牌和库里其他内容一样随推送、拉回走;同步设置只属于这台机器，推送时不带，拉回时保留。填完点保存才存入。
+// 设置页的 GitHub、AI 与同步分区。三者都存在数据库里，只认这里填的，不读环境变量:
+// GitHub 令牌、AI 设置和库里其他内容一样随推送、拉回走;同步设置只属于这台机器，推送时不带，拉回时保留。填完点保存才存入。
+// AI 分区的「测试连接」用表单上的内容，不用先保存。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
-import type { SyncSettings } from "@bindings/internal/library";
+import { AIProvider, ErrorCode, type AISettings, type SyncSettings } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
-import { gitHubTokenQuery, invalidateConfig, invalidateGitHubToken, invalidateSyncSettings, syncSettingsQuery, toLibraryError } from "@/lib/library";
+import {
+  aiSettingsQuery,
+  gitHubTokenQuery,
+  invalidateAISettings,
+  invalidateConfig,
+  invalidateGitHubToken,
+  invalidateSyncSettings,
+  syncSettingsQuery,
+  toLibraryError,
+  type LibraryError,
+} from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Segmented } from "@/components/ui/segmented";
 
 // SyncSection 读出同步分区填过的内容再给出表单;读不到时说明原因、给出重试，不给表单，免得把没读到当成没填。
 export function SyncSection() {
   const t = useT().credentials;
   const { data: saved, error, refetch } = useQuery(syncSettingsQuery);
-  if (error)
-    return (
-      <div className="flex items-center gap-2">
-        <Hint className="grow">{t.syncReadFailed(describeError(toLibraryError(error)))}</Hint>
-        <Button onClick={() => void refetch()}>{t.retry}</Button>
-      </div>
-    );
+  if (error) return <ReadFailed message={t.syncReadFailed(describeError(toLibraryError(error)))} retry={refetch} />;
   return saved === undefined ? null : <SyncForm key={JSON.stringify(saved)} saved={saved} />;
 }
 
@@ -31,14 +37,27 @@ export function SyncSection() {
 export function GitHubSection() {
   const t = useT().credentials;
   const { data: saved, error, refetch } = useQuery(gitHubTokenQuery);
-  if (error)
-    return (
-      <div className="flex items-center gap-2">
-        <Hint className="grow">{t.tokenReadFailed(describeError(toLibraryError(error)))}</Hint>
-        <Button onClick={() => void refetch()}>{t.retry}</Button>
-      </div>
-    );
+  if (error) return <ReadFailed message={t.tokenReadFailed(describeError(toLibraryError(error)))} retry={refetch} />;
   return saved === undefined ? null : <GitHubForm key={saved} saved={saved} />;
+}
+
+// AISection 给出 AI 设置的表单。AI 设置是库里的内容，拉回后换成拉回的那组，表单随之重置。
+// 读不到时和同步分区一样说明原因、给出重试，不给表单。
+export function AISection() {
+  const t = useT().credentials;
+  const { data: saved, error, refetch } = useQuery(aiSettingsQuery);
+  if (error) return <ReadFailed message={t.aiReadFailed(describeError(toLibraryError(error)))} retry={refetch} />;
+  return saved === undefined ? null : <AIForm key={JSON.stringify(saved)} saved={saved} />;
+}
+
+function ReadFailed({ message, retry }: { message: string; retry: () => unknown }) {
+  const t = useT().credentials;
+  return (
+    <div className="flex items-center gap-2">
+      <Hint className="grow">{message}</Hint>
+      <Button onClick={() => void retry()}>{t.retry}</Button>
+    </div>
+  );
 }
 
 type SyncField = keyof SyncSettings;
@@ -112,12 +131,88 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
   );
 }
 
+type AIField = keyof AISettings;
+
+const aiFields: AIField[] = ["provider", "base_url", "api_key", "model"];
+
+const trimAI = (s: AISettings): AISettings =>
+  Object.fromEntries(aiFields.map((key) => [key, (s[key] ?? "").trim()])) as AISettings;
+
+function AIForm({ saved }: { saved: AISettings }) {
+  const ui = useUI();
+  const t = useT().credentials;
+  const [draft, setDraft] = useState<AISettings>(saved);
+  const [testing, setTesting] = useState(false);
+  const set = (key: AIField) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
+  const dirty = aiFields.some((key) => (draft[key] ?? "") !== (saved[key] ?? ""));
+  const testable = !!draft.model?.trim();
+  // 测试失败时按错误码说明该查哪一项(通用文案把 AI 服务说成「来源」),后面附上服务给出的原因。
+  const failed = (err: LibraryError) => {
+    const heads: Record<string, string> = {
+      [ErrorCode.SourceUnreachable]: t.testUnreachable,
+      [ErrorCode.NotFound]: t.testNotFound,
+      [ErrorCode.Permission]: t.testPermission,
+      [ErrorCode.InvalidArgument]: t.testRejected,
+    };
+    const head = heads[err.code];
+    if (!head || err.details?.field) return false;
+    ui.toast(`${head}\n${err.message}`, "error");
+    return true;
+  };
+  const test = async () => {
+    setTesting(true);
+    await ui.run(() => LibraryService.TestAISettings(draft), { reload: false, success: t.testPassed, onError: failed });
+    setTesting(false);
+  };
+  return (
+    <SaveForm
+      dirty={dirty}
+      save={() => LibraryService.SetAISettings(draft)}
+      success={t.aiSaved}
+      onSaved={() => {
+        setDraft(trimAI(draft));
+        void invalidateAISettings();
+      }}
+      hint={t.aiHint}
+      actions={
+        <Button disabled={!testable} loading={testing} title={testable ? undefined : t.testNeeds} onClick={() => void test()}>
+          {t.test}
+        </Button>
+      }
+    >
+      <div className="flex flex-col items-start gap-1">
+        <span className="text-xs text-muted-foreground">{t.provider}</span>
+        <Segmented
+          value={draft.provider ?? AIProvider.AIProviderOpenAI}
+          onChange={set("provider")}
+          options={[
+            { value: AIProvider.AIProviderOpenAI, label: t.providerOpenAI },
+            { value: AIProvider.AIProviderAnthropic, label: t.providerAnthropic },
+          ]}
+        />
+      </div>
+      <Field label={t.baseURL}>
+        <TextInput value={draft.base_url ?? ""} onChange={set("base_url")} />
+      </Field>
+      <div className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
+        <Field label={t.apiKey} className="flex-1">
+          <TextInput secret value={draft.api_key ?? ""} onChange={set("api_key")} />
+        </Field>
+        <Field label={t.model} className="flex-1">
+          <TextInput value={draft.model ?? ""} onChange={set("model")} />
+        </Field>
+      </div>
+    </SaveForm>
+  );
+}
+
 function SaveForm<T>({
   dirty,
   save,
   success,
   onSaved,
   hint,
+  actions,
   children,
 }: {
   dirty: boolean;
@@ -125,6 +220,7 @@ function SaveForm<T>({
   success: string;
   onSaved: (value: T) => void;
   hint: string;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const ui = useUI();
@@ -145,6 +241,7 @@ function SaveForm<T>({
       </fieldset>
       <div className="flex items-center gap-2">
         <Hint className="grow">{hint}</Hint>
+        {actions}
         <Button type="submit" variant="primary" disabled={!dirty} loading={saving}>
           {t.save}
         </Button>

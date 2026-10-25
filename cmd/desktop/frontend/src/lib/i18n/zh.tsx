@@ -717,6 +717,7 @@ export const zh = {
     projects: "项目",
     checks: "检查更新",
     github: "GitHub",
+    ai: "AI",
     sync: "同步",
     about: "关于",
     uninstall: "卸载 Mechbox",
@@ -755,6 +756,7 @@ export const zh = {
     autoCheckDesc: "按间隔检查所有来源有没有新版本（本地目录来源不检查）。",
     interval: "间隔",
     tokenInLibrary: "令牌存在数据库里，随同步走",
+    aiInLibrary: "API Key 存在数据库里，随同步走",
     syncOnThisMachine: "存在数据库里，只属于这台机器，不随同步走",
     version: "应用版本",
     databasePath: "数据库位置",
@@ -777,7 +779,7 @@ export const zh = {
     retry: "重试",
     uninstall: "卸载并退出",
     what: () =>
-      "删除这台机器上的技能库（库里的技能、版本历史与更新历史、组、登记的项目、自定义 Agent，以及设置页里的设置、GitHub 令牌与同步设置）；" +
+      "删除这台机器上的技能库（库里的技能、版本历史与更新历史、组、登记的项目、自定义 Agent，以及设置页里的设置、GitHub 令牌、AI 设置与同步设置）；" +
       {
         mac: "然后退出，把 Mechbox 移到废纸篓，没能移到废纸篓时会在 Finder 中选中它，拖进废纸篓即可。",
         windows: "然后退出。Mechbox 本身不会被删除，之后在「设置 → 应用」里卸载它。",
@@ -835,7 +837,7 @@ export const zh = {
     pushWarning: "推送会用本机的库覆盖 S3 上的这一份。",
     cannotPull: "S3 上的库不能拉回。",
     pullWarning:
-      "拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失；设置页填的 GitHub 令牌，以及检查更新、通用（全局目录除外）与 Agent 显示这些设置，也换成那份库里的，那份库里没有的清空或回到默认；同步设置保留本机的。Agent 目录里的文件夹不会改动。",
+      "拉回会整体替换本机的技能库，本机有、那份库里没有的技能、组和项目都会消失；设置页填的 GitHub 令牌、AI 设置，以及检查更新、通用（全局目录除外）与 Agent 显示这些设置，也换成那份库里的，那份库里没有的清空或回到默认；同步设置保留本机的。Agent 目录里的文件夹不会改动。",
     missingProjects: (names: string[]) => `这些项目不在这台机器上，拉回后在右栏改项目位置指到本机：${names.join("、")}`,
   },
 
@@ -1015,6 +1017,7 @@ export const zh = {
   credentials: {
     syncReadFailed: (message: string) => `没能读取同步设置：${message}`,
     tokenReadFailed: (message: string) => `没能读取 GitHub 令牌：${message}`,
+    aiReadFailed: (message: string) => `没能读取 AI 设置：${message}`,
     retry: "重试",
     endpoint: "服务地址（可选，默认 AWS S3）",
     bucket: "存储桶",
@@ -1027,6 +1030,21 @@ export const zh = {
     tokenHint: "留空时匿名访问 GitHub API，容易被限流。",
     token: "个人访问令牌",
     syncSaved: "已保存同步设置",
+    provider: "接口",
+    providerOpenAI: "OpenAI 兼容",
+    providerAnthropic: "Anthropic",
+    baseURL: "服务地址（可选，默认官方地址）",
+    apiKey: "API Key（可选）",
+    model: "模型",
+    aiSaved: "已保存 AI 设置",
+    aiHint: "DeepSeek、OpenRouter、Ollama 等服务选 OpenAI 兼容，填上它们的服务地址；不要 Key 的服务（如本机的 Ollama）API Key 留空。",
+    test: "测试连接",
+    testNeeds: "填好模型才能测试",
+    testUnreachable: "连不上 AI 服务：检查服务地址，或稍后再试",
+    testNotFound: "找不到这个模型，或服务地址不对",
+    testPermission: "API Key 被拒绝",
+    testRejected: "AI 服务拒绝了这次请求",
+    testPassed: "连接成功，API Key 和模型都能用",
     syncHint: "填好存储桶、Access Key ID 和 Secret Access Key 才能同步。推送出去的库里不带这些，拉回时保留这里填的。",
     save: "保存",
   },

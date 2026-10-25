@@ -6,6 +6,7 @@ import (
 	"io/fs"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/ai"
 	"github.com/tiaot33/mechbox/internal/library/internal/market"
 	"github.com/tiaot33/mechbox/internal/library/internal/s3"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
@@ -21,11 +22,13 @@ type ErrorCode string
 
 const (
 	// InvalidArgument 调用方参数本身无效(空名、非目录路径、非法枚举、ref / URL / subpath 语法,
-	// 入库预览的输入识别不出来源:链接既不是技能文件或压缩包,也没有 well-known 索引,也不是 Git 仓库)。
+	// 入库预览的输入识别不出来源:链接既不是技能文件或压缩包,也没有 well-known 索引,也不是 Git 仓库;
+	// 测试 AI 设置时 AI 服务以 404 以外的 4xx 拒绝了请求,如模型名不被接受)。
 	// 不可重试。UI:当作表单校验错误,按 Details.Field 高亮输入框。
 	InvalidArgument ErrorCode = "invalid_argument"
 	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref),
-	// 或更新时来源里已经没有勾选的某个技能,或重新安装时这一处的文件夹不在了、且没同意装回去(Details.Path 为技能文件夹;同意后可再重新安装)。
+	// 或更新时来源里已经没有勾选的某个技能,或重新安装时这一处的文件夹不在了、且没同意装回去(Details.Path 为技能文件夹;同意后可再重新安装),
+	// 或测试 AI 设置时 AI 服务回答 404、或回答的不是这种接口的响应(模型或服务地址不对)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
 	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、安装目标处不是从库里装的同名文件夹),
@@ -47,7 +50,8 @@ const (
 	// Canceled 调用方的 ctx 被取消或超过 deadline。
 	// UI:静默收起。Error.Err 保留原始 context 错误,errors.Is 仍成立。
 	Canceled ErrorCode = "canceled"
-	// SourceUnreachable 可重试的远端 / 网络 / 本地路径缺失故障(DNS、连接、超时、5xx、S3 非 2xx、缺 ETag、本地来源目录不存在)。
+	// SourceUnreachable 可重试的远端 / 网络 / 本地路径缺失故障(DNS、连接、超时、5xx、S3 非 2xx、缺 ETag、本地来源目录不存在,
+	// 测试 AI 设置时 AI 服务连不上、超时、429 或 5xx)。
 	// 可重试。UI:提供"重试"。
 	SourceUnreachable ErrorCode = "source_unreachable"
 	// SourceInvalid 来源可达,但其内容不可用(压缩包损坏、超限、无有效候选、响应不合规、不支持的文件类型,
@@ -59,7 +63,7 @@ const (
 	// 可重试;与 SourceUnreachable 无关,是本机库冲突而非网络故障。UI:提示"另一个进程正在写库,稍后重试",不当 bug。
 	// Library 只报码,是否自动重试由调用方决定。Error.Err 保留底层 SQLite 错误。
 	Busy ErrorCode = "busy"
-	// Permission 鉴权失败(文件系统或远端拒认凭证)。
+	// Permission 鉴权失败(文件系统或远端拒认凭证,包括 AI 服务拒认 API Key)。
 	// 不可靠地靠重试恢复。UI:提示权限问题。
 	Permission ErrorCode = "permission"
 	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证)。
@@ -141,9 +145,11 @@ func typedError(err error) error {
 		return fetchError(SourceInvalid, "read source", err)
 	case errors.Is(err, discovery.ErrNoCandidates), errors.Is(err, source.ErrInvalid), errors.Is(err, market.ErrInvalidResponse):
 		code = SourceInvalid
-	case errors.Is(err, source.ErrUnreachable), errors.Is(err, market.ErrUnreachable), errors.Is(err, s3.ErrUnreachable):
+	case errors.Is(err, source.ErrUnreachable), errors.Is(err, market.ErrUnreachable), errors.Is(err, s3.ErrUnreachable),
+		errors.Is(err, ai.ErrUnreachable):
 		code = SourceUnreachable
-	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission), errors.Is(err, s3.ErrPermission):
+	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission), errors.Is(err, s3.ErrPermission),
+		errors.Is(err, ai.ErrPermission):
 		code = Permission
 	case errors.Is(err, s3.ErrNotConfigured):
 		code = NotConfigured
@@ -155,9 +161,9 @@ func typedError(err error) error {
 		code = Busy
 	case errors.Is(err, store.ErrAlreadyExists):
 		code = AlreadyExists
-	case errors.Is(err, source.ErrUnsupported):
+	case errors.Is(err, source.ErrUnsupported), errors.Is(err, ai.ErrRejected):
 		code = InvalidArgument
-	case errors.Is(err, store.ErrNotFound), errors.Is(err, s3.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, s3.ErrNotFound), errors.Is(err, ai.ErrNotFound):
 		code = NotFound
 	case errors.Is(err, fs.ErrPermission):
 		code = Permission

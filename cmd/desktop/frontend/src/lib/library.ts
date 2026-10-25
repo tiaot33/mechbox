@@ -159,6 +159,16 @@ export function invalidateGitHubToken() {
   return queryClient.invalidateQueries({ queryKey: gitHubTokenQuery.queryKey });
 }
 
+// aiSettingsQuery 是设置页填的 AI 设置;它存在数据库里，拉回后经 reloadLibrary 重读。
+export const aiSettingsQuery = queryOptions({
+  queryKey: ["ai-settings"],
+  queryFn: ({ signal }) => wails(signal, LibraryService.AISettings()),
+});
+
+export function invalidateAISettings() {
+  return queryClient.invalidateQueries({ queryKey: aiSettingsQuery.queryKey });
+}
+
 // syncSettingsQuery 是设置页填的同步设置;它存在数据库里、只属于这台机器，拉回时不变。
 export const syncSettingsQuery = queryOptions({
   queryKey: ["sync-settings"],

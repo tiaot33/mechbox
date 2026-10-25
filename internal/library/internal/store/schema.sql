@@ -230,9 +230,10 @@ CREATE TABLE IF NOT EXISTS rolled_back_renames (
 -- 设置,一项一行;没有某一项的行表示没填。只认这里:不读环境变量,也不另存在系统钥匙串或设置文件里。
 -- 库自己的项:github_token = GitHub 个人访问令牌,没填时匿名访问(不行再用 gh);
 -- sync.endpoint / sync.bucket / sync.key / sync.region / sync.access_key_id / sync.secret_access_key / sync.session_token = 同步用的 S3 设置;
+-- ai.provider / ai.base_url / ai.api_key / ai.model = 调用 AI 用的接口类型(只存 anthropic;没有这一行为 OpenAI 兼容)、服务地址、API Key 与模型;
 -- wsl_distro = 各 Agent 的全局目录所在的 WSL 发行版,没填为这台机器本身。应用自己的项以 app. 开头,库只存取、不解释。
 -- sync. 开头的与 wsl_distro 只属于这台机器:推送出去的库里删掉,拉回时保留本机的;其余随推送、拉回走,拉回后换成拉回的那份库里的。
--- 数据库打开时开着 secure_delete:清空或换掉的值在文件里清零,推送出去的库里找不到旧令牌与 S3 密钥的原文。
+-- 数据库打开时开着 secure_delete:清空或换掉的值在文件里清零,推送出去的库里找不到旧令牌、旧 API Key 与 S3 密钥的原文。
 CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,                  -- 设置项名,如 github_token、sync.bucket、app.language
     value TEXT NOT NULL CHECK(value <> '') -- 设置的值;清空时删掉这一行

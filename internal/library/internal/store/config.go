@@ -12,6 +12,7 @@ const (
 	wslDistroKey   = "wsl_distro"
 	syncPrefix     = "sync."
 	appPrefix      = "app."
+	aiPrefix       = "ai."
 )
 
 const machineConfigWhere = `substr(key, 1, length(?)) = ? OR key = ?`
@@ -22,22 +23,56 @@ type SyncSettings struct {
 	Endpoint, Bucket, Key, Region, AccessKeyID, SecretAccessKey, SessionToken string
 }
 
-func (s *SyncSettings) fields() []struct {
+func (s *SyncSettings) fields() []configField {
+	return []configField{
+		{"endpoint", &s.Endpoint},
+		{"bucket", &s.Bucket},
+		{"key", &s.Key},
+		{"region", &s.Region},
+		{"access_key_id", &s.AccessKeyID},
+		{"secret_access_key", &s.SecretAccessKey},
+		{"session_token", &s.SessionToken},
+	}
+}
+
+type AISettings struct {
+	Provider, BaseURL, APIKey, Model string
+}
+
+func (s *AISettings) fields() []configField {
+	return []configField{
+		{"provider", &s.Provider},
+		{"base_url", &s.BaseURL},
+		{"api_key", &s.APIKey},
+		{"model", &s.Model},
+	}
+}
+
+type configField struct {
 	key   string
 	value *string
-} {
-	return []struct {
-		key   string
-		value *string
-	}{
-		{syncPrefix + "endpoint", &s.Endpoint},
-		{syncPrefix + "bucket", &s.Bucket},
-		{syncPrefix + "key", &s.Key},
-		{syncPrefix + "region", &s.Region},
-		{syncPrefix + "access_key_id", &s.AccessKeyID},
-		{syncPrefix + "secret_access_key", &s.SecretAccessKey},
-		{syncPrefix + "session_token", &s.SessionToken},
+}
+
+func (q queries) readConfigFields(ctx context.Context, prefix string, fields []configField) error {
+	values, err := q.configWithPrefix(ctx, prefix)
+	if err != nil {
+		return err
 	}
+	for _, field := range fields {
+		*field.value = values[field.key]
+	}
+	return nil
+}
+
+func (s *Store) writeConfigFields(ctx context.Context, prefix string, fields []configField) error {
+	return s.InTx(ctx, func(tx *Tx) error {
+		for _, field := range fields {
+			if err := tx.setConfig(ctx, prefix+field.key, *field.value); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (q queries) config(ctx context.Context, key string) (string, error) {
@@ -102,26 +137,23 @@ func (q queries) SetWSLDistro(ctx context.Context, distro string) error {
 }
 
 func (q queries) SyncSettings(ctx context.Context) (SyncSettings, error) {
-	values, err := q.configWithPrefix(ctx, syncPrefix)
-	if err != nil {
-		return SyncSettings{}, err
-	}
 	var settings SyncSettings
-	for _, field := range settings.fields() {
-		*field.value = values[strings.TrimPrefix(field.key, syncPrefix)]
-	}
-	return settings, nil
+	err := q.readConfigFields(ctx, syncPrefix, settings.fields())
+	return settings, err
 }
 
 func (s *Store) SetSyncSettings(ctx context.Context, settings SyncSettings) error {
-	return s.InTx(ctx, func(tx *Tx) error {
-		for _, field := range settings.fields() {
-			if err := tx.setConfig(ctx, field.key, *field.value); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return s.writeConfigFields(ctx, syncPrefix, settings.fields())
+}
+
+func (q queries) AISettings(ctx context.Context) (AISettings, error) {
+	var settings AISettings
+	err := q.readConfigFields(ctx, aiPrefix, settings.fields())
+	return settings, err
+}
+
+func (s *Store) SetAISettings(ctx context.Context, settings AISettings) error {
+	return s.writeConfigFields(ctx, aiPrefix, settings.fields())
 }
 
 func (q queries) AppSettings(ctx context.Context) (map[string]string, error) {
