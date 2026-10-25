@@ -177,7 +177,7 @@ cmd/desktop/
 ### 给前端加一个技能库调用
 
 1. 在 `library_methods.go` 里加一个方法，签名沿用技能库的：`ctx` 在前，返回 `(T, error)`。转发时经 `settle` 包一层：`return settle(s.lib.X(ctx))(ctx)`。前端取消调用后 Go 端若仍返回错误，Wails 会把它报成未处理的 rejection，`settle` 负责把这种错误吞掉。
-2. 重新生成绑定。`wails3 dev` / `build` 会自动生成；也可以手动运行 `wails3 generate bindings -clean=true -ts -i`。生成的文件要提交。
+2. 重新生成绑定。`wails3 dev` / `build` 会自动生成；也可以手动运行 `wails3 generate bindings -clean=true -ts -i`。生成的文件要提交：PR 与 main 上的 Check(`.github/workflows/check.yml`)会重新生成一遍，和提交的不一致时检查失败。
 3. 前端从 `@bindings/cmd/desktop` 导入 `LibraryService`，类型从 `@bindings/internal/library` 导入。读库里现有状态的只读调用写成 `lib/library.ts` 里的查询(TanStack Query 的 `queryOptions`,经 `wails` 把查询的 `signal` 接到可取消的调用上),组件里用 `useQuery` 取;快照用 `useSnapshot()`,不经 props 传。内容只由 key 决定、或来自技能库以外的查询标 `meta: stable`,写操作后不重读。生成计划、入库预览这类流程里的一步会在 Go 端留下状态，不做成查询，在弹窗或流程里直接调用，关掉时 `cancel()`。写操作放进 `features/` 里对应流程的文件，经 `ui.run` 执行——它负责忙碌状态、按错误码提示，并在完成后让查询缓存失效重读(`reloadLibrary`)。
 
 错误：Go 端所有错误都经 `library.ErrorOf` 规范成技能库错误，再编码给前端。前端从 `err.cause` 拿到 `{code, message, details}`，用 `lib/library.ts` 的 `toLibraryError` 读取。

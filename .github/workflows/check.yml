@@ -1,0 +1,59 @@
+# PR 与推到 main 时检查：提交的前端绑定(cmd/desktop/frontend/bindings)与 Go 代码一致。
+# 绑定由 wails3 从 Go 代码生成并入库;Go 端改了绑定服务的方法、导出类型或它们的注释后，要重新生成一起提交。
+# 只检查、不提交：不一致时这次检查失败，并打出差异。
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bindings:
+    name: 前端绑定与 Go 代码一致
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # 生成绑定要完整加载 Go 包，Linux 上 Wails 的 cgo 代码需要 GTK 与 WebKit 的头文件。
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Install wails3
+        run: |
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Generate bindings
+        working-directory: cmd/desktop
+        run: wails3 generate bindings -clean=true -ts -i
+
+      - name: Compare with committed bindings
+        run: |
+          dir=cmd/desktop/frontend/bindings
+          if [ -n "$(git status --porcelain -- "$dir")" ]; then
+            git status --short -- "$dir"
+            git add -N -- "$dir"
+            git diff -- "$dir"
+            echo "::error::提交的前端绑定与 Go 代码不一致。在 cmd/desktop 下运行 wails3 generate bindings -clean=true -ts -i,把生成的文件一起提交。"
+            exit 1
+          fi
+          echo "前端绑定与 Go 代码一致"
