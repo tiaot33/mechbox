@@ -46,7 +46,7 @@ export function Toolbar() {
         <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
           <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
           {listing && <Count value={listing.total} />}
-          <BusyMark />
+          <BusyMark checks={!left} />
         </span>
       </div>
       <div />

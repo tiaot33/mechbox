@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Collection, Group } from "@bindings/internal/library";
 import { useSnapshot, configQuery } from "@/lib/library";
-import { checkUpdates } from "@/features/update/check";
+import { checkUpdates, useCheckMark } from "@/features/update/check";
 import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { previewCollection } from "@/features/fetch/preview";
 import { openHistory, openUpdate } from "@/features/update/update";
@@ -39,6 +39,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Hint } from "@/components/ui/field";
+import { StatusMark } from "@/components/ui/status-mark";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Icon } from "./icons";
 import { leftClass } from "./layout";
@@ -59,6 +60,7 @@ export function LeftSidebar() {
   const config = useQuery(configQuery).data ?? noConfig;
   const ui = useUI();
   const busy = useBusy();
+  const checkStatus = useCheckMark("all");
   const order = useView((v) => v.order);
   const t = useT().sidebar;
   const updates = s.skills.filter(pending).length;
@@ -104,7 +106,7 @@ export function LeftSidebar() {
             onClick={() => checkUpdates(checkable)}
             title={t.checkTitle}
           >
-            <Icon name="refresh" />
+            {checkStatus ? <StatusMark status={checkStatus} size={14} className="text-muted-foreground" /> : <Icon name="refresh" />}
             <span className="grow">{t.check}</span>
           </button>
         </li>
@@ -205,6 +207,7 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
   const label = sourceLabel(s, c.source);
   const local = isLocal(c.source);
   const skills = collectionSkills(s, c);
+  const checkStatus = useCheckMark(c.id);
   return (
     <li>
       <ContextMenu>
@@ -220,13 +223,17 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
               {...drop}
             >
               {local ? <span className="min-w-0 grow truncate">{tailPath(label, pathMax)}</span> : <span className="grow truncate">{label}</span>}
-              <NavCount value={skills.length} accent />
+              {checkStatus ? (
+                <StatusMark status={checkStatus} size={14} className="mr-1 text-muted-foreground" />
+              ) : (
+                <NavCount value={skills.length} accent />
+              )}
             </button>
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
           {!local && (
-            <ContextMenuItem disabled={busy} onSelect={() => checkUpdates([c.id])}>
+            <ContextMenuItem disabled={busy} onSelect={() => checkUpdates([c.id], c.id)}>
               {t.check}
             </ContextMenuItem>
           )}

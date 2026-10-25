@@ -140,7 +140,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           </Button>
           <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b>{t.title}</b>
-            <BusyMark />
+            <BusyMark checks />
           </span>
         </div>
       </header>
