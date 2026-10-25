@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
 import { platform } from "@/lib/platform";
 
+// firstNames 是折起来的那行里列出的前三个名字。
+const firstNames = (names: string[]) => `${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`;
+
 const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "未纳管")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
@@ -514,25 +517,27 @@ export const zh = {
     collectionDrag: (label: string, n: number) => `「${label}」· 装 ${n} 个技能`,
     collectionDragTitle: (n: number) => `拖到右侧作用域 = 把这 ${n} 个技能逐个直接安装；之后入库的新技能不会自动装过去`,
     inUse: (used: number, total: number) => `在用 ${used} · 共 ${total}`,
-    notInstalledFold: (names: string[]) => `另外 ${names.length} 个没装：${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`,
+    notInstalledFold: (names: string[]) => `另外 ${names.length} 个没装：${firstNames(names)}`,
     hideNotInstalled: "收起没装的",
+    inUseHere: (here: number, total: number) => `装在这里 ${here} · 共 ${total}`,
+    notHereFold: (names: string[], more: boolean) => `${more ? "另外 " : ""}${names.length} 个没装在这里：${firstNames(names)}`,
+    hideNotHere: "收起没装在这里的",
     arrangeCollection: "按集合",
     arrangeCollectionTitle: "按来源分节：用户跟随的是作者的那一套",
     arrangeGroup: "按组",
     arrangeGroupTitle: "按你建的组分节：一个技能在几个组里就出现几次",
-    restCollection: "其他来源",
-    restCollectionTitle: "只入库了一个技能的来源，以及没有来源的技能",
+    restCollection: "没有来源",
+    restCollectionTitle: "这些技能没有来源，不检查更新",
     restGroup: "没有归组",
     searchResults: (text: string, n: number) => `搜索「${text}」：${n} 个结果`,
     clearSearch: "清除",
     updatesSkills: "要处理的技能",
     updateCount: (n: number) => `更新 ${n} 个`,
     scopeSees: (agent: string, n: number) => `${agent} 在这里看得到 ${n} 个技能`,
-    sectionHere: "装在这里",
     sectionGlobal: "来自全局",
     sectionGlobalTitle: "Agent 在项目里也看得到全局装的技能；要改请打开全局",
-    sectionOthers: "库里其他技能 · 可以装到这里",
-    nothingHere: "这里还没有装技能。打开下面的开关，或把技能、组、集合拖到右栏的这一行。",
+    sectionUnmanaged: "未纳管技能",
+    nothingHere: "这里还没有装技能。在下面打开技能的开关，或把技能、组、集合拖到右栏的这一行。",
     skillCount: (n: number) => `${n} 个技能`,
     groupInstalledIn: "组安装于",
     uninstallGroupHere: "卸载这个作用域的组安装",
@@ -851,7 +856,7 @@ export const zh = {
     check: "检查更新",
     collections: "集合",
     bySource: "按来源",
-    noCollections: "从同一来源入库两个以上技能后，按来源自动归成集合。",
+    noCollections: "入库技能后，按来源自动归成集合。",
     groups: "组",
     newGroup: "新建组",
     groupTitle: "点击跳到这一组；拖到右侧作用域 = 组安装；把技能拖到这里 = 加入本组",

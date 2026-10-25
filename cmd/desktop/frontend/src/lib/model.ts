@@ -355,12 +355,32 @@ export function hasUpdate(skill: Skill): boolean {
   return updateAvailable(skill) || !!renamedTo(skill);
 }
 
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+// sortedCollections 是集合按来源名排的顺序，左栏和所有技能页的分节都按它。
+export function sortedCollections(s: Snapshot): Collection[] {
+  return [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
+}
+
+// sortSkills 是列表里技能的顺序：先按来源(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
+export function sortSkills(s: Snapshot, skills: Skill[]): Skill[] {
+  const source = (x: Skill) => (noSource(x.source) ? "" : sourceLabel(s, x.source));
+  const time = (x: Skill) => changedAt(x)?.date.getTime() ?? 0;
+  return [...skills].sort(
+    (a, b) =>
+      Number(noSource(a.source)) - Number(noSource(b.source)) ||
+      collator.compare(source(a), source(b)) ||
+      collator.compare(a.name, b.name) ||
+      time(b) - time(a),
+  );
+}
+
 export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
   const ids = new Set(c.skills ?? []);
   return s.skills.filter((x) => ids.has(x.id));
 }
 
-// collectionName 是集合在界面上的名字：集合里只有一个技能时就是技能名，不出现集合这一层。
+// collectionName 是更新计划、更新提示里集合的名字：只有一个技能时用技能名(和更新页的集合行一致),否则是来源名。
 export function collectionName(s: Snapshot, collectionID: CollectionID): string {
   const c = s.collections.find((x) => x.id === collectionID);
   if (!c) return messages().update.collectionFallback(collectionID);
@@ -368,9 +388,9 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
   return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
 }
 
-// updatableCollections 是有计入角标的技能的集合，按集合列表顺序。
+// updatableCollections 是有计入角标的技能的集合，按来源名排(和左栏一致)。
 export function updatableCollections(s: Snapshot): Collection[] {
-  return s.collections.filter((c) => collectionSkills(s, c).some(pending));
+  return sortedCollections(s).filter((c) => collectionSkills(s, c).some(pending));
 }
 
 // checkableCollections 是检查更新的范围：本地目录来源不检查。
@@ -489,7 +509,7 @@ export function sourceShort(s: Snapshot, source: Source): string {
 
 export type Page = { kind: "all" } | { kind: "updates" } | { kind: "scope"; scope: ScopeKey };
 
-// Arrange 是所有技能页按什么分节。
+// Arrange 是所有技能页与作用域页按什么分节。
 export type Arrange = "collection" | "group";
 
 export function samePage(a: Page, b: Page): boolean {
@@ -522,41 +542,55 @@ export function matches(search: string, item: { name: string; description?: stri
 
 // ---------- 所有技能页的分节 ----------
 
-// sectionKey 是一节的身份：收起、展开"没装的"、左栏跳转都按它。
-export const sectionKey = (kind: "collection" | "group", id: number) => `${kind}-${id}`;
+// sectionKey 是一节的身份：收起、展开"没装的"、左栏跳转都按它。作用域页的节带上作用域，收起、展开各作用域分开记，
+// 也不和所有技能页的同一节连在一起。
+export const sectionKey = (kind: "collection" | "group" | "rest", id: number | string, scope?: ScopeKey) =>
+  `${scope ? `${scope}:` : ""}${kind}-${id}`;
 
-// SkillSection 是所有技能页的一节：一个集合、一个组，或最后的"其他来源" / "没有归组"(kind 为 rest,id 为 0)。
-// key 是节的身份(见 sectionKey),最后一节是 "rest-collection" / "rest-group"。
+// SkillSection 是所有技能页、作用域页的一节：一个集合、一个组，或最后的"没有来源" / "没有归组"(kind 为 rest,id 为 0)。
+// key 是节的身份(见 sectionKey),最后一节是 "rest-collection" / "rest-group"。skills 是要列的(搜索时只留匹配的),
+// all 是不搜索时这一节的全部技能，节标题按它数个数。
 export interface SkillSection {
   key: string;
   kind: "collection" | "group" | "rest";
   id: number;
   skills: Skill[];
+  all: Skill[];
 }
 
-// arrangeSkills 把库里的技能分节。按集合时，有两个以上技能的集合各成一节(和左栏一致),其余合进"其他来源";
-// 按组时每个组一节，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。
-// 搜索时只留有结果的节;不搜索时空组也列出，好往里拖技能。
-export function arrangeSkills(s: Snapshot, arrange: Arrange, search: string): SkillSection[] {
+// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域)。按集合时每个来源一节，按来源名排，没有来源的合进最后的"没有来源";
+// 按组时每个组一节，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
+// 搜索时只留有结果的节;emptyGroups 时不搜索也列出空组，好往里拖技能。
+export function arrangeSkills(
+  s: Snapshot,
+  arrange: Arrange,
+  search: string,
+  { skills: all = s.skills, emptyGroups = true, scope }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey } = {},
+): SkillSection[] {
   const hit = (x: Skill) => matches(search, x);
+  const ids = new Set(all.map((x) => x.id));
   const sections: SkillSection[] = [];
   const placed = new Set<SkillID>();
+  const push = (kind: SkillSection["kind"], id: number, skills: Skill[]) => {
+    const sorted = sortSkills(s, skills);
+    sections.push({ key: sectionKey(kind, kind === "rest" ? arrange : id, scope), kind, id, skills: sorted.filter(hit), all: sorted });
+  };
   if (arrange === "collection") {
-    for (const c of s.collections.filter((c) => (c.skills?.length ?? 0) > 1)) {
-      const skills = collectionSkills(s, c);
+    for (const c of sortedCollections(s)) {
+      const skills = collectionSkills(s, c).filter((x) => ids.has(x.id));
       skills.forEach((x) => placed.add(x.id));
-      sections.push({ key: sectionKey("collection", c.id), kind: "collection", id: c.id, skills: skills.filter(hit) });
+      push("collection", c.id, skills);
     }
   } else {
     for (const g of s.groups) {
       const members = new Set(g.members ?? []);
-      const skills = s.skills.filter((x) => members.has(x.id));
+      const skills = all.filter((x) => members.has(x.id));
       skills.forEach((x) => placed.add(x.id));
-      sections.push({ key: sectionKey("group", g.id), kind: "group", id: g.id, skills: skills.filter(hit) });
+      push("group", g.id, skills);
     }
   }
-  sections.push({ key: `rest-${arrange}`, kind: "rest", id: 0, skills: s.skills.filter((x) => !placed.has(x.id) && hit(x)) });
-  return sections.filter((x) => x.skills.length > 0 || (!search.trim() && x.kind === "group"));
+  push("rest", 0, all.filter((x) => !placed.has(x.id)));
+  return sections.filter((x) => x.skills.length > 0 || (emptyGroups && !search.trim() && x.kind === "group"));
 }
 
 // installedSummary 是所有技能页上一行的"装在哪":显示的 Agent 全局都装了就只写"全局",否则写出是哪几个 Agent;
@@ -591,14 +625,17 @@ export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Da
 
 // ---------- 作用域页 ----------
 
-// ScopeListing 是作用域页要列的:装在这里的(库里的与未纳管的)、项目里来自同一个 Agent 全局的(Agent 在项目里也看得到),
-// 以及库里其他可以装到这里的。项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
+// ScopeListing 是作用域页要列的:库里的技能按集合或组分节(sections,装在这里的与可以装到这里的都在里面),
+// 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到,不再出现在 sections 里)。
+// 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
+// here 与 others 是 sections 里装在这里、没装在这里的技能个数(搜索时只数匹配的)。
 export interface ScopeListing {
-  here: Skill[];
+  sections: SkillSection[];
   hereUnmanaged: UnmanagedSkill[];
   global: Skill[];
   globalUnmanaged: UnmanagedSkill[];
-  others: Skill[];
+  here: number;
+  others: number;
 }
 
 // globalScopesSeenFrom 是项目作用域里的 Agent 也看得到的全局作用域(合成一处的几个 Agent 各自的全局);全局作用域为空。
@@ -609,7 +646,7 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
   return (named.length ? named.map((a) => a.code) : [sc.agent]).map((code) => scopeKey(scopeOf(code, 0)));
 }
 
-export function scopeListing(s: Snapshot, key: ScopeKey, search: string): ScopeListing {
+export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
   const globalKeys = globalScopesSeenFrom(s, key);
@@ -622,12 +659,16 @@ export function scopeListing(s: Snapshot, key: ScopeKey, search: string): ScopeL
     folders.add(u.folder);
     return true;
   });
+  const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
+  const listed = s.skills.filter((x) => !globalIDs.has(x.id));
+  const here = listed.filter((x) => hereIDs.has(x.id) && hit(x)).length;
   return {
-    here: s.skills.filter((x) => hereIDs.has(x.id) && hit(x)),
-    hereUnmanaged: unmanagedIn(s, key).filter(hit),
-    global: s.skills.filter((x) => globalIDs.has(x.id) && hit(x)),
-    globalUnmanaged: globalUnmanaged.filter(hit),
-    others: s.skills.filter((x) => !hereIDs.has(x.id) && !globalIDs.has(x.id) && hit(x)),
+    sections: arrangeSkills(s, arrange, search, { skills: listed, emptyGroups: false, scope: key }),
+    hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
+    global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
+    globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
+    here,
+    others: listed.filter(hit).length - here,
   };
 }
 
@@ -644,15 +685,15 @@ export type PageListing = { total: number; results: number } & (
 
 export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
   if (page.kind === "updates") {
-    const todo = s.skills.filter(pending);
+    const todo = sortSkills(s, s.skills.filter(pending));
     const skills = todo.filter((x) => matches(search, x));
     return { kind: "updates", skills, total: todo.length, results: skills.length };
   }
   if (page.kind === "scope") {
-    const all = scopeListing(s, page.scope, "");
-    const listing = search.trim() ? scopeListing(s, page.scope, search) : all;
-    const seen = (l: ScopeListing) => l.here.length + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
-    return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others.length };
+    const all = scopeListing(s, page.scope, arrange, "");
+    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search) : all;
+    const seen = (l: ScopeListing) => l.here + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
+    return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others };
   }
   return {
     kind: "all",

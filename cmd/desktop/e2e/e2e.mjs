@@ -974,11 +974,13 @@ await step("右栏点作用域打开作用域页，开关安装 beta", async () 
   assert(fs.existsSync(path.join(dir, "beta", "SKILL.md")), `磁盘上应有 ${dir}/beta`);
 });
 
-await step("作用域页：装在这里只列这个作用域里装的，其余在可以装到这里", async () => {
-  const here = page.locator('[data-section="scope-here"] .skill-row');
+await step("作用域页：按集合分节，节里装在这里的在前，没装在这里的在后", async () => {
+  const here = page.locator(".a-list .skill-row", { has: page.locator('[role="switch"][aria-checked="true"]') });
   assert.equal(await here.count(), 1, "装在这里应只有 beta");
   assert.equal(await here.locator(".skill-name").textContent(), "beta");
-  assert((await page.locator('[data-section="scope-others"] .skill-row').count()) >= 2, "其余技能在可以装到这里");
+  const rows = page.locator('.list-section[data-section*=":collection-"]', { has: card("beta") }).locator(".skill-row");
+  assert.equal(await rows.first().getAttribute("data-name"), "beta", "装在这里的排在节里最前面");
+  assert((await rows.count()) >= 2, "同一集合里没装在这里的列在后面");
   assert((await page.locator(".scope-sees").textContent()).includes("Codex 在这里看得到 1 个技能"), "摘要写出看得到几个");
 });
 
@@ -1009,7 +1011,7 @@ await step("安装到项目作用域(右栏项目展开 → 检测到的 Agent �
   await page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).nth(1).click();
   await settle();
   assert((await page.locator(".tb-crumb", { hasText: "proj-a" }).count()) === 1, "顶栏应写 proj-a");
-  assert((await page.locator('[data-section="scope-here"] .skill-row').count()) === 0, "该作用域还没有安装，装在这里应为空");
+  assert((await page.locator(".a-list .skill-row", { has: page.locator('[role="switch"][aria-checked="true"]') }).count()) === 0, "该作用域还没有安装，开关都应关着");
   await card("gamma").locator('[role="switch"]').click();
   await toast("已安装「gamma」");
   await settle();
@@ -2202,7 +2204,7 @@ await step("拖放：集合的节标题 → 右栏作用域(把集合里的技�
   await toast("的 3 个技能装到 Codex · proj-b");
   await settle();
   await selectScope("Codex", "proj-b");
-  const here = page.locator('[data-section="scope-here"] .skill-row');
+  const here = page.locator(".a-list .skill-row", { has: page.locator('[role="switch"][aria-checked="true"]') });
   assert.deepStrictEqual((await here.locator(".skill-name").allTextContents()).sort(), ["alpha", "beta", "gamma"], "集合里的 3 个技能都装在这里");
   assert.equal(await here.locator(".skill-state", { hasText: "直接安装" }).count(), 3, "都是直接安装");
   const dir = await scopeDir();
@@ -2261,8 +2263,14 @@ await step("搜索与 ⌘K、按组分节、侧栏开关", async () => {
 });
 
 await step("左栏集合跳到那一节 → 看来源里的其他技能", async () => {
-  assert((await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).count()) === 0, "只有一个技能的集合不列出");
-  assert((await page.locator('.list-section[data-section="rest-collection"]', { has: card("delta") }).count()) === 1, "只有一个技能的集合合进其他来源");
+  assert((await page.locator(".a-left .nav-item", { hasText: "delta.zip" }).count()) === 1, "只有一个技能的集合也列出");
+  assert((await page.locator('.list-section[data-section^="collection-"]', { has: card("delta") }).count()) === 1, "只有一个技能的集合也自成一节");
+  // 排在最后的集合也能滚到底板顶上。
+  const last = page.locator('.a-list[data-page="all"] .list-section[data-section^="collection-"]').last();
+  await page.locator(".a-left .nav-item", { hasText: (await last.locator(".section-name").textContent()).trim() }).first().click();
+  await page.waitForTimeout(800);
+  const gap = await last.evaluate((el) => el.getBoundingClientRect().top - el.closest(".a-list").getBoundingClientRect().top);
+  assert(Math.abs(gap) < 2, `跳到的那一节应贴着列表顶，实际差 ${gap}px`);
   await page.locator(".a-left .nav-item", { hasText: "my-skills" }).click();
   const mine = page.locator('.list-section[data-section^="collection-"]', { has: page.locator(".section-name", { hasText: "my-skills" }) });
   await unfold();

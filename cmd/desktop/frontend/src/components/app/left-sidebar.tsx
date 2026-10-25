@@ -1,5 +1,5 @@
 // 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;底部同步与设置。
-// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);只有一个技能的集合不列出，集合这一层只在有两个以上技能时出现。
+// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，按来源名排，只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装);组行可拖到右栏作用域(组安装),也接受技能(加入该组)。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import { checkUpdates } from "@/features/update/check";
 import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { alreadyInGroup, dropProps, useDnD } from "./dnd";
 import { useT } from "@/lib/i18n";
-import { checkableCollections, pending, shortPath, sourceKindLabel, sourceLabel, type Page } from "@/lib/model";
+import { checkableCollections, pending, shortPath, sortedCollections, sourceKindLabel, sourceLabel, type Page } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
 import { jumpTo, openPage, openSettings, useCurrentPage } from "@/lib/view";
@@ -37,7 +37,7 @@ export function LeftSidebar() {
   const t = tt.sidebar;
   const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
-  const collections = s.collections.filter((c) => (c.skills?.length ?? 0) > 1);
+  const collections = sortedCollections(s);
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
