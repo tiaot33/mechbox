@@ -37,6 +37,7 @@ var (
 	ErrNotFound      = errors.New("ai model or endpoint not found")
 	ErrRejected      = errors.New("ai service rejected the request")
 	ErrNotConfigured = errors.New("ai model not configured")
+	ErrTruncated     = errors.New("ai answer was cut off by max_tokens")
 )
 
 type Header struct {
@@ -114,10 +115,25 @@ func Translate(ctx context.Context, settings Settings, text, language string) (s
 }
 
 func translatePrompt(language string) string {
-	return fmt.Sprintf("You translate the description of an AI agent skill into %[1]s. "+
+	return fmt.Sprintf("You translate the description of an AI agent skill into %s. "+
 		"Reply with the translation only, without quotes, notes or explanations. "+
 		"Keep code, commands, file names, product names and other proper nouns unchanged. "+
-		"If the text is already in %[1]s, reply with it unchanged.", language)
+		"If the text is already in that language, reply with it unchanged.", languageName(language))
+}
+
+func languageName(language string) string {
+	lower := strings.ToLower(language)
+	primary, _, _ := strings.Cut(lower, "-")
+	switch primary {
+	case "zh":
+		if strings.Contains(lower, "hant") || strings.HasSuffix(lower, "-tw") || strings.HasSuffix(lower, "-hk") || strings.HasSuffix(lower, "-mo") {
+			return "Traditional Chinese"
+		}
+		return "Simplified Chinese"
+	case "en":
+		return "English"
+	}
+	return "the language with BCP 47 tag " + language
 }
 
 func call(ctx context.Context, timeout time.Duration, settings Settings, system, prompt string) (string, error) {
@@ -133,7 +149,7 @@ func call(ctx context.Context, timeout time.Duration, settings Settings, system,
 	if err == nil || ctx.Err() != nil {
 		return answer, err
 	}
-	if errors.Is(err, ErrRejected) {
+	if errors.Is(err, ErrRejected) || errors.Is(err, ErrTruncated) {
 		return "", err
 	}
 	status, reason := describe(err)
@@ -225,11 +241,16 @@ func askAnthropic(ctx context.Context, settings Settings, system, prompt string)
 }
 
 func answerText(text, finish string) (string, error) {
+	if finish == "length" || finish == "max_tokens" {
+		return "", fmt.Errorf("%w (finish reason %q)", ErrTruncated, finish)
+	}
 	text = strings.TrimSpace(text)
 	if rest, ok := strings.CutPrefix(text, "<think>"); ok {
-		if _, after, found := strings.Cut(rest, "</think>"); found {
-			text = strings.TrimSpace(after)
+		_, after, found := strings.Cut(rest, "</think>")
+		if !found {
+			return "", fmt.Errorf("%w: the answer stops inside <think> (finish reason %q)", ErrTruncated, finish)
 		}
+		text = strings.TrimSpace(after)
 	}
 	if text == "" {
 		return "", fmt.Errorf("%w: the answer has no text (finish reason %q)", ErrRejected, finish)

@@ -85,7 +85,7 @@ type Error struct {
 
 // ErrorDetails 是类型化的错误细节,零值字段省略。读取用 errors.AsType[*Error]。
 type ErrorDetails struct {
-	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
+	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名;AI 的回答被 max_tokens 截断(思考用完了额度)时为 max_tokens,要在 AI 设置的请求体里写上更大的 max_tokens
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能里取不到的文件(相对技能目录)
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名;入库预览时为没有技能的链接路径);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
@@ -132,6 +132,9 @@ func typedError(err error) error {
 	}
 	if _, ok := errors.AsType[*source.InputError](err); ok {
 		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}
+	}
+	if errors.Is(err, ai.ErrTruncated) {
+		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: "max_tokens"}, Err: err}
 	}
 	var details ErrorDetails
 	if incomplete, ok := errors.AsType[*source.IncompleteError](err); ok {

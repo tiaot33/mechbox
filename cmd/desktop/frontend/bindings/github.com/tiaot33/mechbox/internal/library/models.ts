@@ -543,7 +543,7 @@ export enum ErrorCode {
  */
 export interface ErrorDetails {
     /**
-     * InvalidArgument:与 JSON 字段名一致的参数名
+     * InvalidArgument:与 JSON 字段名一致的参数名;AI 的回答被 max_tokens 截断(思考用完了额度)时为 max_tokens,要在 AI 设置的请求体里写上更大的 max_tokens
      */
     "field"?: string;
 
@@ -1988,6 +1988,30 @@ export interface SyncSettings {
      * SessionToken 是临时凭证的会话令牌;用长期密钥时留空。
      */
     "session_token"?: string;
+}
+
+/**
+ * TranslateDescriptionsResult 是一次自动翻译的结果。
+ */
+export interface TranslateDescriptionsResult {
+    /**
+     * Translated 是这次翻译并存下了几个。
+     */
+    "translated": number;
+
+    /**
+     * Failed 是因为描述本身没翻译成的技能:服务拒绝了这一条(如内容过滤)、回答被 max_tokens 截断。
+     * 其余技能照常翻译;界面这次不再交它们,说明是哪几个。
+     */
+    "failed"?: TranslationFailure[] | null;
+}
+
+/**
+ * TranslationFailure 是自动翻译里没翻译成的一个技能。
+ */
+export interface TranslationFailure {
+    "skill_id": SkillID;
+    "error": Error;
 }
 
 /**

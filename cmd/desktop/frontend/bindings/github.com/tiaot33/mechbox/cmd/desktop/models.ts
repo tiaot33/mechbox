@@ -68,11 +68,6 @@ export interface ConfigStatus {
      * GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
      */
     "github_token": boolean;
-
-    /**
-     * AI:设置页填了模型，可以翻译技能描述
-     */
-    "ai": boolean;
 }
 
 /**

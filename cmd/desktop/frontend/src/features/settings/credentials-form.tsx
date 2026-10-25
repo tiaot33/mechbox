@@ -175,7 +175,6 @@ function AIForm({ saved }: { saved: AISettings }) {
       onSaved={() => {
         setDraft(trimAI(draft));
         void invalidateAISettings();
-        void invalidateConfig();
       }}
       hint={t.aiHint}
       actions={

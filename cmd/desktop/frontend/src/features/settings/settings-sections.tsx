@@ -17,6 +17,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
 import { SetRow } from "@/components/app/set-row";
+import { resumeAutoTranslate } from "@/features/skill/translate";
 
 // GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、界面语言，以及 Windows 上装了 WSL 时的全局目录。
 export function GeneralSection({
@@ -160,7 +161,8 @@ export function ChecksSection({ settings, save }: { settings: Settings; save: (c
   );
 }
 
-// TranslateSection 是 AI 分区里的自动翻译开关：填了 AI 设置时，主界面把技能描述翻译成界面语言(见 lib/translate)。
+// TranslateSection 是 AI 分区里的自动翻译开关：填了 AI 设置时，主界面把技能描述翻译成界面语言(见 features/skill/translate);
+// 重新打开时，之前因失败停下的自动翻译再试。
 export function TranslateSection({ settings, save }: { settings: Settings; save: (change: Partial<Settings>) => void }) {
   const t = useT().settings;
   return (
@@ -168,7 +170,10 @@ export function TranslateSection({ settings, save }: { settings: Settings; save:
       label={t.autoTranslate}
       desc={t.autoTranslateDesc}
       on={settings.auto_translate}
-      onChange={(on) => save({ auto_translate: on })}
+      onChange={(on) => {
+        if (on) resumeAutoTranslate();
+        save({ auto_translate: on });
+      }}
     />
   );
 }

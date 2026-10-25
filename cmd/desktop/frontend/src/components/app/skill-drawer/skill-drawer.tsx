@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType, type FileMetadata, type Skill, type SkillID, type SkillVersion } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import { configQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
+import { aiSettingsQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
 import { deletedInSource, hasUpdate, isLocal, pending, renamedTo, skillScopesOf, sourceLabel, translatedDescription } from "@/lib/model";
 import { AuditCard } from "@/features/fetch/audit";
 import { reinstall } from "@/features/install/reinstall";
@@ -107,7 +107,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
 // Description 是技能的描述：有界面语言的译文时显示译文，可以切到原文;「翻译」每次都用 AI 重新翻译，译文存进数据库。
 function Description({ skill }: { skill: Skill }) {
   const d = useT().drawer;
-  const ai = !!useQuery(configQuery).data?.ai;
+  const ai = !!useQuery(aiSettingsQuery).data?.model;
   const translated = translatedDescription(skill);
   const [original, setOriginal] = useState(false);
   const [translating, setTranslating] = useState(false);

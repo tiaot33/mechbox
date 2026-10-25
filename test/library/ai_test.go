@@ -137,13 +137,16 @@ type aiCall struct {
 }
 
 // aiStub 按 OpenAI 兼容的 Chat Completions 与 Anthropic 的 Messages 回答,回答的文字是 answer(默认 OK);
-// status 不是 200 时回答那个状态与一条错误。
+// status 不是 200 时回答那个状态与一条错误。truncated 时回答的结束原因是被 max_tokens 截断;
+// 请求体里含有 reject 的请求回答 400(只拒绝某一条描述)。
 type aiStub struct {
-	url    string
-	mu     sync.Mutex
-	status int
-	answer string
-	calls  []aiCall
+	url       string
+	mu        sync.Mutex
+	status    int
+	answer    string
+	truncated bool
+	reject    string
+	calls     []aiCall
 }
 
 func newAIStub(t *testing.T) *aiStub {
@@ -167,7 +170,14 @@ func newAIStub(t *testing.T) *aiStub {
 			body:   raw,
 		})
 		status := stub.status
+		if stub.reject != "" && strings.Contains(string(data), stub.reject) {
+			status = http.StatusBadRequest
+		}
 		answer, _ := json.Marshal(stub.answer)
+		finish, stop := "stop", "end_turn"
+		if stub.truncated {
+			finish, stop = "length", "max_tokens"
+		}
 		stub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if status != http.StatusOK {
@@ -178,11 +188,11 @@ func newAIStub(t *testing.T) *aiStub {
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"`+body.Model+`",`+
 				`"content":[{"type":"thinking","thinking":"hmm","signature":"s"},{"type":"text","text":`+string(answer)+`}],`+
-				`"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+				`"stop_reason":"`+stop+`","usage":{"input_tokens":1,"output_tokens":1}}`)
 			return
 		}
 		_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"`+body.Model+`",`+
-			`"choices":[{"index":0,"message":{"role":"assistant","content":`+string(answer)+`},"finish_reason":"stop"}]}`)
+			`"choices":[{"index":0,"message":{"role":"assistant","content":`+string(answer)+`},"finish_reason":"`+finish+`"}]}`)
 	}))
 	t.Cleanup(server.Close)
 	stub.url = server.URL
@@ -203,6 +213,18 @@ func (s *aiStub) takeCalls() []aiCall {
 	calls := s.calls
 	s.calls = nil
 	return calls
+}
+
+func (s *aiStub) truncate(truncated bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.truncated = truncated
+}
+
+func (s *aiStub) rejectContaining(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reject = text
 }
 
 func (s *aiStub) reply(answer string) {

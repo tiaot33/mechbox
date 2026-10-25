@@ -23,7 +23,7 @@ import { NavCount, navItem } from "./nav";
 import { TailPath } from "./parts";
 import { SyncDialog } from "@/features/settings/sync-dialog";
 
-const noConfig = { sync: false, github_token: false, ai: false };
+const noConfig = { sync: false, github_token: false };
 
 export function LeftSidebar() {
   const s = useSnapshot();

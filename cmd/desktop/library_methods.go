@@ -79,7 +79,7 @@ func (s *LibraryService) TranslateDescription(ctx context.Context, id library.Sk
 	return settle(s.lib.TranslateDescription(ctx, id, language))(ctx)
 }
 
-func (s *LibraryService) TranslateDescriptions(ctx context.Context, language string, ids []library.SkillID) (int, error) {
+func (s *LibraryService) TranslateDescriptions(ctx context.Context, language string, ids []library.SkillID) (library.TranslateDescriptionsResult, error) {
 	return settle(s.lib.TranslateDescriptions(ctx, language, ids))(ctx)
 }
 

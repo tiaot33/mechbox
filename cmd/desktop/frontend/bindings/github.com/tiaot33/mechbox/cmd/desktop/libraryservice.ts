@@ -324,7 +324,7 @@ export function TranslateDescription(id: library$0.SkillID, language: string): $
     return $Call.ByID(1524736438, id, language);
 }
 
-export function TranslateDescriptions(language: string, ids: library$0.SkillID[] | null): $CancellablePromise<number> {
+export function TranslateDescriptions(language: string, ids: library$0.SkillID[] | null): $CancellablePromise<library$0.TranslateDescriptionsResult> {
     return $Call.ByID(3593578783, language, ids);
 }
 

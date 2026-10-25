@@ -1073,6 +1073,7 @@ export const zh = {
     bodyHint: "合并进每个请求的 JSON 对象，覆盖同名字段，用来设置思考深度这类参数：OpenAI 兼容的如 reasoning_effort，Anthropic 的如 thinking。Anthropic 请求的 max_tokens 是 4096，思考预算更大时在这里一并写上更大的 max_tokens。",
     invalidHeaders: "请求头的格式不对：每行一个「名字: 值」",
     invalidBody: "请求体要是一个 JSON 对象",
+    truncated: "回答被截断了：思考用完了 max_tokens，在请求体里写上更大的 max_tokens",
     aiNotConfigured: "先在设置的 AI 分区里填好模型",
     syncHint: "填好存储桶、Access Key ID 和 Secret Access Key 才能同步。推送出去的库里不带这些，拉回时保留这里填的。",
     save: "保存",
@@ -1115,6 +1116,10 @@ export const zh = {
     continue: "继续",
     distroOpened: (distro: string) => `已打开 WSL 发行版「${distro}」`,
     distroFallback: (distro: string) => `现在用的是 Windows 本机的全局目录；可以在设置 → 通用里再试打开「${distro}」`,
-    autoTranslateFailed: (reason: string) => `自动翻译技能描述没成，改了 AI 设置或下次打开时再试：${reason}`,
+    autoTranslateFailed: (reason: string) =>
+      `自动翻译技能描述停下了。改了 AI 设置、在设置里把自动翻译关掉再打开，或退出 Mechbox 后重开，都会再试：${reason}`,
+    autoTranslatePaused: (reason: string) => `自动翻译技能描述暂时连不上 AI 服务，过一分钟自己再试：${reason}`,
+    autoTranslateSkipped: (names: string[], reason: string) =>
+      `没能翻译 ${names.map((n) => `「${n}」`).join("、")} 的描述，其余照常翻译；可以在技能详情里再点翻译：${reason}`,
   },
 };

@@ -165,8 +165,8 @@ func TestTranslationIsDroppedWhenDescriptionChanges(t *testing.T) {
 	}
 }
 
-// 自动翻译只翻还没有译文的:跳过描述为空的、已有对得上当前描述的译文的、描述已经是这种语言的,以及不在 ids 里的,
-// 这些都不发请求;返回这次翻译了几个。
+// 自动翻译只翻还没有译文的:跳过描述为空的、已有对得上当前描述的译文的,以及不在 ids 里的,这些都不发请求;
+// 返回这次翻译了几个。界面语言是中文时,已经是中文的描述也跳过;其他语言都交给模型判断。
 func TestTranslateDescriptionsSkipsWhatNeedsNoTranslation(t *testing.T) {
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	english, _ := fetchDescribedSkill(t, lib, "english", "Format code")
@@ -182,8 +182,8 @@ func TestTranslateDescriptionsSkipsWhatNeedsNoTranslation(t *testing.T) {
 
 	stub.reply("格式化代码")
 	ids := []library.SkillID{english.ID, chinese.ID, empty.ID, done.ID, 9999}
-	if n, err := lib.TranslateDescriptions(t.Context(), "zh", ids); err != nil || n != 1 {
-		t.Fatalf("TranslateDescriptions(zh) = %d, %v; want 1", n, err)
+	if got, err := lib.TranslateDescriptions(t.Context(), "zh", ids); err != nil || got.Translated != 1 || got.Failed != nil {
+		t.Fatalf("TranslateDescriptions(zh) = %+v, %v; want 1 translated", got, err)
 	}
 	if calls := stub.takeCalls(); len(calls) != 1 {
 		t.Fatalf("%d requests, want 1 for the English description", len(calls))
@@ -194,19 +194,115 @@ func TestTranslateDescriptionsSkipsWhatNeedsNoTranslation(t *testing.T) {
 	if got := translationsOf(t, lib, other.ID); got != nil {
 		t.Fatalf("translations of a skill not asked for = %v", got)
 	}
-	if n, err := lib.TranslateDescriptions(t.Context(), "zh", ids); err != nil || n != 0 {
-		t.Fatalf("TranslateDescriptions(zh) again = %d, %v; want nothing left", n, err)
+	if got, err := lib.TranslateDescriptions(t.Context(), "zh", ids); err != nil || got.Translated != 0 {
+		t.Fatalf("TranslateDescriptions(zh) again = %+v, %v; want nothing left", got, err)
 	}
 
 	stub.reply("Format Go code")
-	if n, err := lib.TranslateDescriptions(t.Context(), "en", ids); err != nil || n != 1 {
-		t.Fatalf("TranslateDescriptions(en) = %d, %v; want only the Chinese description", n, err)
+	if got, err := lib.TranslateDescriptions(t.Context(), "en", ids); err != nil || got.Translated != 3 {
+		t.Fatalf("TranslateDescriptions(en) = %+v, %v; want every non-empty description sent to the model", got, err)
 	}
-	if got := translationsOf(t, lib, chinese.ID); got["en"] != "Format Go code" {
-		t.Fatalf("translations of chinese = %v", got)
+	if n := len(stub.takeCalls()); n != 3 {
+		t.Fatalf("%d requests, want 3", n)
 	}
-	if n := len(stub.takeCalls()); n != 1 {
-		t.Fatalf("%d requests, want 1", n)
+}
+
+// 中文界面下按汉字在汉字与其他文字的词里占的比例判断描述是不是中文:中文里夹几个英文词的算中文、跳过;
+// 英文里夹一个中文专名的、日文(有假名)都要翻译。
+func TestTranslateDescriptionsJudgesChineseByShare(t *testing.T) {
+	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
+	stub.reply("译文")
+	want := map[string]bool{
+		"用 React 和 TypeScript 构建前端组件": false,
+		"格式化代码":                            false,
+		"Use when writing 飞书 docs":         true,
+		"Generate 小红书 posts for a brand":   true,
+		"コードを整形する":                         true,
+		"Formater le code avant le commit": true,
+	}
+	var ids []library.SkillID
+	byID := map[library.SkillID]string{}
+	i := 0
+	for description := range want {
+		i++
+		skill, _ := fetchDescribedSkill(t, lib, "skill-"+string(rune('a'+i)), description)
+		ids = append(ids, skill.ID)
+		byID[skill.ID] = description
+	}
+	if _, err := lib.TranslateDescriptions(t.Context(), "zh", ids); err != nil {
+		t.Fatal(err)
+	}
+	for id, description := range byID {
+		if got := translationsOf(t, lib, id)["zh"] != ""; got != want[description] {
+			t.Errorf("%q translated = %v, want %v", description, got, want[description])
+		}
+	}
+}
+
+// 被 max_tokens 截断的回答(OpenAI 兼容的 finish_reason 为 length,Anthropic 的 stop_reason 为 max_tokens),
+// 以及停在 <think> 里的回答都不存:报 InvalidArgument,Details.Field 为 max_tokens,原来的译文不变。测试连接也一样。
+func TestTranslateDescriptionRejectsTruncatedAnswers(t *testing.T) {
+	for _, provider := range []library.AIProvider{library.AIProviderOpenAI, library.AIProviderAnthropic} {
+		lib, stub := translatingLibrary(t, provider)
+		skill, _ := fetchDescribedSkill(t, lib, "formatter", "Format code")
+		stub.reply("格式化代码")
+		if _, err := lib.TranslateDescription(t.Context(), skill.ID, "zh"); err != nil {
+			t.Fatal(err)
+		}
+		stub.reply("格式")
+		stub.truncate(true)
+		if _, err := lib.TranslateDescription(t.Context(), skill.ID, "zh"); !isFieldError(err, "max_tokens") {
+			t.Errorf("%s: TranslateDescription cut off = %v, want InvalidArgument on max_tokens", provider, err)
+		}
+		settings, err := lib.AISettings(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := lib.TestAISettings(t.Context(), settings); !isFieldError(err, "max_tokens") {
+			t.Errorf("%s: TestAISettings cut off = %v, want InvalidArgument on max_tokens", provider, err)
+		}
+		stub.truncate(false)
+		stub.reply("<think>the user wants Chinese, so")
+		if _, err := lib.TranslateDescription(t.Context(), skill.ID, "zh"); !isFieldError(err, "max_tokens") {
+			t.Errorf("%s: TranslateDescription stopping inside <think> = %v, want InvalidArgument on max_tokens", provider, err)
+		}
+		if got := translationsOf(t, lib, skill.ID); got["zh"] != "格式化代码" {
+			t.Errorf("%s: translations = %v; a cut-off answer must not replace the old one", provider, got)
+		}
+	}
+}
+
+// 自动翻译里只因某一条描述失败的(服务拒绝了这一条、回答被截断)记进 Failed,其余照常翻译,不返回错误;
+// 整体性的失败(如 Key 被拒)返回错误。
+func TestTranslateDescriptionsSkipsDescriptionsThatFail(t *testing.T) {
+	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
+	var ids []library.SkillID
+	var blocked library.SkillID
+	for _, name := range []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot"} {
+		description := "Describe " + name
+		if name == "charlie" {
+			description = "Something the filter blocks"
+		}
+		skill, _ := fetchDescribedSkill(t, lib, name, description)
+		ids = append(ids, skill.ID)
+		if name == "charlie" {
+			blocked = skill.ID
+		}
+	}
+	stub.reply("译文")
+	stub.rejectContaining("the filter blocks")
+	got, err := lib.TranslateDescriptions(t.Context(), "zh", ids)
+	if err != nil || got.Translated != 5 || len(got.Failed) != 1 || got.Failed[0].SkillID != blocked || got.Failed[0].Error.Code != library.InvalidArgument {
+		t.Fatalf("TranslateDescriptions = %+v, %v; want 5 translated and charlie failed with InvalidArgument", got, err)
+	}
+	if translationsOf(t, lib, blocked) != nil {
+		t.Fatal("the rejected description must have no translation")
+	}
+
+	stub.rejectContaining("")
+	stub.respond(http.StatusUnauthorized)
+	if got, err := lib.TranslateDescriptions(t.Context(), "zh", ids); !library.IsCode(err, library.Permission) || got.Translated != 0 {
+		t.Fatalf("TranslateDescriptions with the key rejected = %+v, %v; want Permission", got, err)
 	}
 }
 
@@ -244,8 +340,8 @@ func TestTranslateDescriptionErrors(t *testing.T) {
 	if _, err := lib.TranslateDescription(t.Context(), skill.ID, "zh"); !library.IsCode(err, library.Permission) {
 		t.Fatalf("TranslateDescription rejected by the service = %v, want Permission", err)
 	}
-	if n, err := lib.TranslateDescriptions(t.Context(), "zh", []library.SkillID{skill.ID}); n != 0 || !library.IsCode(err, library.Permission) {
-		t.Fatalf("TranslateDescriptions rejected by the service = %d, %v; want 0 and Permission", n, err)
+	if got, err := lib.TranslateDescriptions(t.Context(), "zh", []library.SkillID{skill.ID}); got.Translated != 0 || !library.IsCode(err, library.Permission) {
+		t.Fatalf("TranslateDescriptions rejected by the service = %+v, %v; want nothing translated and Permission", got, err)
 	}
 	if got := translationsOf(t, lib, skill.ID); got != nil {
 		t.Fatalf("translations = %v, want none after failures", got)

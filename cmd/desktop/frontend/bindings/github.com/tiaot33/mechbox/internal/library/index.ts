@@ -96,6 +96,8 @@ export type {
     SyncPullPlan,
     SyncPushPlan,
     SyncSettings,
+    TranslateDescriptionsResult,
+    TranslationFailure,
     UnmanagedFetchItem,
     UnmanagedSkill,
     UnregisterProjectOptions,

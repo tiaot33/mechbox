@@ -49,10 +49,14 @@ func (l *Library) AISettings(ctx context.Context) (settings AISettings, err erro
 	if err != nil {
 		return AISettings{}, err
 	}
+	return aiSettingsOf(stored), nil
+}
+
+func aiSettingsOf(stored store.AISettings) AISettings {
 	return normalizeAISettings(AISettings{
 		Provider: AIProvider(stored.Provider), BaseURL: stored.BaseURL, APIKey: stored.APIKey, Model: stored.Model,
 		Headers: stored.Headers, Body: stored.Body,
-	}), nil
+	})
 }
 
 // SetAISettings 把 AI 设置(各项去掉首尾空白)存进数据库;留空的项从数据库删掉,全部留空即清掉。
@@ -82,7 +86,8 @@ func (l *Library) SetAISettings(ctx context.Context, settings AISettings) (err e
 // 看能不能连上、API Key、模型、请求头与请求体能不能用;不读也不改数据库里的设置。最多等 60 秒(开着思考的模型回答得慢)。
 // 设置本身无效时返回 InvalidArgument(Details.Field 为 provider / base_url / headers / body / model;模型必填,API Key 可以留空);
 // 服务的回答按 HTTP 状态归类:401 / 403 为 Permission,404 与回答不是这种接口的响应(都是模型或服务地址不对)为 NotFound,
-// 连不上、超时、429 与 5xx 为 SourceUnreachable,其他 4xx 与回答里没有文字(如思考用完了 max_tokens)为 InvalidArgument;
+// 连不上、超时、429 与 5xx 为 SourceUnreachable,其他 4xx 与回答里没有文字为 InvalidArgument,
+// 回答被 max_tokens 截断(如思考用完了额度)为 InvalidArgument 且 Details.Field 为 max_tokens;
 // Message 里带服务原样给出的原因。
 func (l *Library) TestAISettings(ctx context.Context, settings AISettings) (err error) {
 	defer func() { err = typedError(err) }()

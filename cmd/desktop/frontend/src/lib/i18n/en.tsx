@@ -1132,6 +1132,7 @@ export const en = {
     bodyHint: "A JSON object merged into every request, replacing fields of the same name. Use it for parameters such as thinking depth: reasoning_effort for OpenAI-compatible APIs, thinking for Anthropic. Anthropic requests use max_tokens 4096; with a larger thinking budget, set a larger max_tokens here too.",
     invalidHeaders: "Request headers must be one “Name: value” per line",
     invalidBody: "The request body must be a JSON object",
+    truncated: "The answer was cut off: thinking used up max_tokens. Set a larger max_tokens in the request body",
     aiNotConfigured: "Fill in a model in the AI section of Settings first",
     syncHint: "Fill in the bucket, Access Key ID and Secret Access Key to sync. The pushed Library doesn't carry these; pulling keeps what's filled in here.",
     save: "Save",
@@ -1176,6 +1177,10 @@ export const en = {
     distroFallback: (distro: string) =>
       `The global directories on this Windows PC are in use; you can try opening "${distro}" again in Settings → General`,
     autoTranslateFailed: (reason: string) =>
-      `Couldn't translate skill descriptions automatically; it will try again after you change the AI settings or reopen the app: ${reason}`,
+      `Automatic translation of skill descriptions stopped. It tries again after you change the AI settings, turn automatic translation off and on in Settings, or quit and reopen Mechbox: ${reason}`,
+    autoTranslatePaused: (reason: string) =>
+      `Automatic translation can't reach the AI service right now and will try again in a minute: ${reason}`,
+    autoTranslateSkipped: (names: string[], reason: string) =>
+      `Couldn't translate the description of ${quoted(names)}; the rest are translated as usual. You can translate it again in the skill's details: ${reason}`,
   },
 } satisfies Messages;

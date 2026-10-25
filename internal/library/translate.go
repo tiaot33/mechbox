@@ -1,10 +1,13 @@
 package library
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"regexp"
+	"slices"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"unicode"
 
 	"golang.org/x/sync/errgroup"
@@ -20,7 +23,7 @@ var languageTag = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
 // TranslateDescription 用数据库里的 AI 设置把技能当前版本的描述翻译成 language(BCP 47 语言标签,如界面语言 zh、en),
 // 存进数据库并返回译文;之后 [Skill].DescriptionTranslations 里就有它。已有译文时也重新翻译、覆盖(界面上点「翻译」)。
 // language 不是语言标签时返回 InvalidArgument(Details.Field 为 language);技能不存在返回 NotFound;描述为空返回 FailedPrecondition;
-// AI 设置里没填模型返回 NotConfigured;服务的回答按 [Library.TestAISettings] 的规则归类。最多等 2 分钟。
+// AI 设置里没填模型返回 NotConfigured;服务的回答按 [Library.TestAISettings] 的规则归类,回答被 max_tokens 截断时同样不存。最多等 2 分钟。
 func (l *Library) TranslateDescription(ctx context.Context, id SkillID, language string) (translation string, err error) {
 	defer func() { err = typedError(err) }()
 	if err := validateLanguage("translate description", language); err != nil {
@@ -43,14 +46,31 @@ func (l *Library) TranslateDescription(ctx context.Context, id SkillID, language
 	return l.translate(ctx, settings, row, language)
 }
 
-// TranslateDescriptions 自动翻译:把 ids 里的技能当前版本的描述翻译成 language,存进数据库,返回这次翻译了几个。
-// 跳过不存在的技能、描述为空的、已有对得上当前描述的译文的,以及描述看起来已经是这种语言的(zh 开头的语言里含汉字,
-// en 开头的语言里的字母都是拉丁字母),这些都不联网。最多同时发 4 个请求;一个失败就不再发新的,返回已翻译的个数与这个错误,
-// 已翻译的都已存下。参数与错误同 [Library.TranslateDescription]。
-func (l *Library) TranslateDescriptions(ctx context.Context, language string, ids []SkillID) (translated int, err error) {
+// TranslateDescriptionsResult 是一次自动翻译的结果。
+type TranslateDescriptionsResult struct {
+	// Translated 是这次翻译并存下了几个。
+	Translated int `json:"translated"`
+	// Failed 是因为描述本身没翻译成的技能:服务拒绝了这一条(如内容过滤)、回答被 max_tokens 截断。
+	// 其余技能照常翻译;界面这次不再交它们,说明是哪几个。
+	Failed []TranslationFailure `json:"failed,omitempty"`
+}
+
+// TranslationFailure 是自动翻译里没翻译成的一个技能。
+type TranslationFailure struct {
+	SkillID SkillID `json:"skill_id"`
+	Error   Error   `json:"error"`
+}
+
+// TranslateDescriptions 自动翻译:把 ids 里的技能当前版本的描述翻译成 language,存进数据库。
+// 跳过不存在的技能、描述为空的、已有对得上当前描述的译文的,以及界面语言是中文(zh 开头)而描述已经是中文的
+// (汉字在汉字与其他文字的词里占一半以上,且没有假名);这些都不联网。其他语言都交给模型,模型看到已是该语言时原样返回。
+// 最多同时发 4 个请求。只和一条描述有关的失败(InvalidArgument:服务拒绝了这一条、回答被截断)记进 Failed,其余照常翻译;
+// 整体性的失败(没填模型、连不上、超时、限流、Key 被拒、模型不存在)不再发新的请求,返回已翻译的结果与这个错误,已翻译的都已存下。
+// 参数与错误同 [Library.TranslateDescription]。
+func (l *Library) TranslateDescriptions(ctx context.Context, language string, ids []SkillID) (result TranslateDescriptionsResult, err error) {
 	defer func() { err = typedError(err) }()
 	if err := validateLanguage("translate descriptions", language); err != nil {
-		return 0, err
+		return result, err
 	}
 	wanted := make(map[int64]bool, len(ids))
 	for _, id := range ids {
@@ -60,7 +80,7 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 	rows, err := l.store.ListSkills(read)
 	unlock()
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	var todo []store.Skill
 	for _, row := range rows {
@@ -69,15 +89,15 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 		}
 	}
 	if len(todo) == 0 {
-		return 0, nil
+		return result, nil
 	}
 	read, unlock = l.sharedOperation(ctx)
 	settings, err := l.translateSettings(read)
 	unlock()
 	if err != nil {
-		return 0, err
+		return result, err
 	}
-	var done atomic.Int64
+	var mu sync.Mutex
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(translateConcurrency)
 	for _, row := range todo {
@@ -85,10 +105,18 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 			break
 		}
 		group.Go(func() error {
-			if _, err := l.translate(groupCtx, settings, row, language); err != nil {
+			_, err := l.translate(groupCtx, settings, row, language)
+			mu.Lock()
+			defer mu.Unlock()
+			switch e := ErrorOf(typedError(err)); {
+			case err == nil:
+				result.Translated++
+			case errors.Is(err, store.ErrNotFound):
+			case e.Code == InvalidArgument && groupCtx.Err() == nil:
+				result.Failed = append(result.Failed, TranslationFailure{SkillID: SkillID(row.ID), Error: *e})
+			default:
 				return err
 			}
-			done.Add(1)
 			return nil
 		})
 	}
@@ -96,7 +124,8 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 	if err == nil {
 		err = ctx.Err()
 	}
-	return int(done.Load()), err
+	slices.SortFunc(result.Failed, func(a, b TranslationFailure) int { return cmp.Compare(a.SkillID, b.SkillID) })
+	return result, err
 }
 
 func (l *Library) translateSettings(ctx context.Context) (ai.Settings, error) {
@@ -104,15 +133,11 @@ func (l *Library) translateSettings(ctx context.Context) (ai.Settings, error) {
 	if err != nil {
 		return ai.Settings{}, err
 	}
-	settings := normalizeAISettings(AISettings{
-		Provider: AIProvider(stored.Provider), BaseURL: stored.BaseURL, APIKey: stored.APIKey, Model: stored.Model,
-		Headers: stored.Headers, Body: stored.Body,
-	})
-	return parseAISettings("translate description", settings)
+	return parseAISettings("translate description", aiSettingsOf(stored))
 }
 
 func (l *Library) translate(ctx context.Context, settings ai.Settings, row store.Skill, language string) (string, error) {
-	translation, err := ai.Translate(ctx, settings, row.Description, languageName(language))
+	translation, err := ai.Translate(ctx, settings, row.Description, language)
 	if err != nil {
 		return "", err
 	}
@@ -131,40 +156,27 @@ func validateLanguage(operation, language string) error {
 	return nil
 }
 
-func primaryLanguage(language string) string {
-	primary, _, _ := strings.Cut(strings.ToLower(language), "-")
-	return primary
-}
-
-func languageName(language string) string {
-	lower := strings.ToLower(language)
-	switch primaryLanguage(language) {
-	case "zh":
-		if strings.Contains(lower, "hant") || strings.HasSuffix(lower, "-tw") || strings.HasSuffix(lower, "-hk") || strings.HasSuffix(lower, "-mo") {
-			return "Traditional Chinese"
-		}
-		return "Simplified Chinese"
-	case "en":
-		return "English"
-	}
-	return "the language with BCP 47 tag " + language
-}
-
 func inLanguage(text, language string) bool {
-	switch primaryLanguage(language) {
-	case "zh":
-		return strings.ContainsFunc(text, func(r rune) bool { return unicode.Is(unicode.Han, r) })
-	case "en":
-		letters := false
-		for _, r := range text {
-			if unicode.IsLetter(r) {
-				if !unicode.Is(unicode.Latin, r) {
-					return false
-				}
-				letters = true
-			}
-		}
-		return letters
+	if primary, _, _ := strings.Cut(strings.ToLower(language), "-"); primary != "zh" {
+		return false
 	}
-	return false
+	han, words := 0, 0
+	inWord := false
+	for _, r := range text {
+		switch {
+		case unicode.In(r, unicode.Hiragana, unicode.Katakana):
+			return false
+		case unicode.Is(unicode.Han, r):
+			han++
+			inWord = false
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			if !inWord {
+				words++
+			}
+			inWord = true
+		default:
+			inWord = false
+		}
+	}
+	return han > 0 && han >= words
 }
