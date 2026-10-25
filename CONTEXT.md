@@ -105,9 +105,13 @@ Bringing the folder of a skill installed in a Scope back in line with a version 
 _Avoid_: Rewrite, refresh, restore, resync / 重写、刷新、还原、重新同步
 
 **Sync · 同步**:
-Manual, non-realtime push/pull of the whole Library to and from S3, so a full setup can be reproduced on another machine. Never automatic. After pulling on another machine, the user points each Registered project to where it lives on that machine. In Chinese, push is 推送 and pull is 拉回.
-_Avoid_: Backup, replication, upload / 备份、复制、上传
+Non-realtime push/pull of the whole Library to and from S3, so a full setup can be reproduced on another machine. Each push stores a new Backup of this machine; pushes may run automatically at an interval the user sets, pulls never do. After pulling on another machine, the user points each Registered project to where it lives on that machine. In Chinese, push is 推送 and pull is 拉回.
+_Avoid_: Replication, upload / 复制、上传
+
+**Backup · 备份**:
+One pushed copy of the whole Library on S3, kept in the folder of the machine that pushed it. A push never overwrites a Backup and skips making one when nothing changed; each machine keeps only its newest Backups, as many as the user sets. A pull restores from one Backup the user picks, from any machine.
+_Avoid_: Snapshot, version / 快照、版本
 
 **Sync plan · 同步计划**:
-A read-only report, before a push or pull, of which Library on the remote it would overwrite or restore from; the push or pull then goes ahead only if the remote is still the one the user confirmed.
+A read-only report, before a pull, of what the chosen Backup contains and whether it can be pulled; the pull then goes ahead only if that Backup is still on the remote unchanged.
 _Avoid_: Preview, dry run / 预览、试运行

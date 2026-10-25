@@ -14,14 +14,15 @@
 //
 // 设置(library.go、sync.go、ai.go):设置都存在数据库的 config 表里,只认这里,不读环境变量。改完下一次请求就用新值。
 //   - [Library.GitHubToken]、[Library.SetGitHubToken] 读取与设置访问 GitHub 用的个人访问令牌;随推送、拉回走。没设置时匿名访问。
-//   - [Library.SyncSettings]、[Library.SetSyncSettings] 读取与设置同步用的 S3 设置。
+//   - [Library.SyncSettings]、[Library.SetSyncSettings] 读取与设置同步用的 S3 设置:连接、放备份的文件夹、保留份数与自动推送的间隔。
+//     [Library.SyncStatus] 给出这台机器在 S3 上的设备目录与上次推送的时间。
 //   - [Library.AISettings]、[Library.SetAISettings] 读取与设置调用 AI 用的接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key、模型,
 //     以及每个请求额外带的请求头与合并进请求体的 JSON(设置思考深度这类参数);随推送、拉回走。
 //     [Library.TestAISettings] 用设置页上的一组设置发一条很短的消息,看能不能用。
 //   - [Library.ListWSLDistros]、[Library.WSLDistro]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
 //     或换回 Windows 本机;换了以后只认新目录。[Open] 不自动换过去,调用方启动时取出存着的选择再设置。
 //   - [Library.AppSettings]、[Library.SetAppSettings] 读写应用自己的设置(如桌面端的自动检查、界面语言),库只存取、不解释;随推送、拉回走。
-//     同步设置与 WSL 发行版只属于这台机器:推送出去的库里不带,拉回时保留本机的。
+//     同步设置、同步状态与 WSL 发行版只属于这台机器:推送出去的库里不带,拉回时保留本机的。
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求(GitHub 仓库与 well-known 站点的技能)。
@@ -127,9 +128,11 @@
 //     自定义 Agent 改目录或删除),先给那几处换上独立的一份,保持它们读到的内容。巡检里的
 //     [SkillScopeInspection].LinkTarget、LinkedBy 给出这两种情况,确认前界面据此说明。
 //
-// 同步(sync.go):
-//   - [Library.PlanSyncPush] 再 [Library.SyncPush]:看 S3 上是哪一份库(谁、什么时候推送的),再用本机的库覆盖它。
-//   - [Library.PlanSyncPull] 再 [Library.SyncPull]:看 S3 上的库里有什么、能不能拉回,再用它替换本机的库。
+// 同步(sync.go):S3 上每台机器一个设备目录,每次推送在里面新建一份备份:<文件夹>/<设备目录>/library-<推送时间>.db。
+//   - [Library.SyncPush] 推送:不覆盖已有的备份,库没变时不新建,推完删掉这台机器超出保留份数的最旧备份。
+//     手动推送与应用按 [SyncSettings].AutoPush 的间隔自动推送都调它;库只存间隔,定时由应用做。
+//   - [Library.ListSyncBackups] 列出所有设备的备份,再 [Library.PlanSyncPull] 看选中的那份里有什么、能不能拉回,
+//     [Library.SyncPull] 用它替换本机的库。拉回从不自动进行。
 //     拉回不动 Agent 目录;之后用 [Library.RelocateProject] 把不在这台机器上的项目指到本机位置,
 //     用 [Library.InspectSkillScopes] 与 [Library.Reinstall] 把各处安装对上。
 //

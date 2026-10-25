@@ -47,7 +47,8 @@ type LibraryService struct {
 	path string
 	lib  *library.Library
 
-	afterPull func(context.Context)
+	afterPull         func(context.Context)
+	afterSyncSettings func()
 
 	background chan struct{}
 }
@@ -125,8 +126,9 @@ func appVersion() string {
 
 // ConfigStatus 报告技能库依赖的配置是否就绪;配置都存在数据库里，不读环境变量。
 type ConfigStatus struct {
-	Sync        bool `json:"sync"`         // S3 同步：存储桶与密钥齐全
-	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
+	Sync        bool                 `json:"sync"`                // S3 同步：存储桶与密钥齐全
+	AutoPush    library.SyncInterval `json:"auto_push,omitempty"` // 自动推送的间隔;空字符串为只手动推送
+	GitHubToken bool                 `json:"github_token"`        // GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
 }
 
 // Config 返回配置的就绪状态，只看是否填了，不校验取值。
@@ -141,6 +143,7 @@ func (s *LibraryService) Config(ctx context.Context) (ConfigStatus, error) {
 	}
 	return ConfigStatus{
 		Sync:        sync.Bucket != "" && sync.AccessKeyID != "" && sync.SecretAccessKey != "",
+		AutoPush:    sync.AutoPush,
 		GitHubToken: token != "",
 	}, nil
 }

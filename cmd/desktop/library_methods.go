@@ -340,25 +340,34 @@ func (s *LibraryService) SyncSettings(ctx context.Context) (library.SyncSettings
 	return settle(s.lib.SyncSettings(ctx))(ctx)
 }
 
+// SetSyncSettings 存好以后让应用设置服务按新设置重新判断要不要自动推送，不再等上次失败后的重试间隔。
 func (s *LibraryService) SetSyncSettings(ctx context.Context, settings library.SyncSettings) error {
-	return settleErr(ctx, s.lib.SetSyncSettings(ctx, settings))
+	err := s.lib.SetSyncSettings(ctx, settings)
+	if err == nil && s.afterSyncSettings != nil {
+		s.afterSyncSettings()
+	}
+	return settleErr(ctx, err)
 }
 
-func (s *LibraryService) PlanSyncPush(ctx context.Context) (library.SyncPushPlan, error) {
-	return settle(s.lib.PlanSyncPush(ctx))(ctx)
+func (s *LibraryService) SyncStatus(ctx context.Context) (library.SyncStatus, error) {
+	return settle(s.lib.SyncStatus(ctx))(ctx)
 }
 
-func (s *LibraryService) PlanSyncPull(ctx context.Context) (library.SyncPullPlan, error) {
-	return settle(s.lib.PlanSyncPull(ctx))(ctx)
+func (s *LibraryService) SyncPush(ctx context.Context) (library.SyncPushResult, error) {
+	return settle(s.lib.SyncPush(ctx))(ctx)
 }
 
-func (s *LibraryService) SyncPush(ctx context.Context, expected library.RemoteIdentity) (library.RemoteLibrary, error) {
-	return settle(s.lib.SyncPush(ctx, expected))(ctx)
+func (s *LibraryService) ListSyncBackups(ctx context.Context) ([]library.SyncBackup, error) {
+	return settle(s.lib.ListSyncBackups(ctx))(ctx)
+}
+
+func (s *LibraryService) PlanSyncPull(ctx context.Context, backup library.SyncBackupID) (library.SyncPullPlan, error) {
+	return settle(s.lib.PlanSyncPull(ctx, backup))(ctx)
 }
 
 // SyncPull 拉回后让应用设置服务重新读出设置:拉回的库带着推送那台机器的设置。
-func (s *LibraryService) SyncPull(ctx context.Context, expected library.RemoteIdentity) error {
-	err := s.lib.SyncPull(ctx, expected)
+func (s *LibraryService) SyncPull(ctx context.Context, backup library.SyncBackupID) error {
+	err := s.lib.SyncPull(ctx, backup)
 	if err == nil && s.afterPull != nil {
 		s.afterPull(context.WithoutCancel(ctx))
 	}

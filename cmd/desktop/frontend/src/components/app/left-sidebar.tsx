@@ -4,6 +4,7 @@
 // 集合、组各自拖到同类的行上调整先后，和列表的分节一起变，右键节标题可以恢复默认顺序。两种行名字放不下时悬停显示全名，右键有各自的菜单。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ConfigStatus } from "@bindings/cmd/desktop";
 import type { Collection, Group } from "@bindings/internal/library";
 import { useSnapshot, configQuery } from "@/lib/library";
 import { checkUpdates } from "@/features/update/check";
@@ -47,7 +48,7 @@ import { NavCount, navItem } from "./nav";
 import { TailPath, tailPath, Truncated } from "./parts";
 import { SyncDialog } from "@/features/settings/sync-dialog";
 
-const noConfig = { sync: false, github_token: false };
+const noConfig: ConfigStatus = { sync: false, github_token: false };
 
 // 本地目录集合的路径在左栏最多写这么长，再长省掉开头。
 const pathMax = 24;
@@ -174,7 +175,7 @@ export function LeftSidebar() {
           <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog config={config} onClose={close} />)}>
             <Icon name="cloud" />
             <span className="grow">{t.sync}</span>
-            <span className="text-[11px] text-muted-foreground">{config.sync ? t.manual : t.notConfigured}</span>
+            <span className="text-[11px] text-muted-foreground">{config.sync ? (config.auto_push && t.autoPush[config.auto_push]) || t.manual : t.notConfigured}</span>
           </button>
         </li>
         <li>

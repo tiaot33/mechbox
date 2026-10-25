@@ -13,7 +13,7 @@ import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
 import { useAutoTranslate } from "@/features/skill/translate";
 import { setDragGhost } from "@/components/app/dnd";
-import { reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
+import { invalidateSyncStatus, reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { ui, UIHost } from "@/lib/ui";
 import { closeDrawer, closeSettings, reconcile, useView } from "@/lib/view";
@@ -49,6 +49,8 @@ function Main() {
 
   // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
   useEffect(() => Events.On("updates-checked", () => void reloadLibrary()), []);
+  // 自动推送之后(成功或失败)重读同步状态，设置页上的上次推送时间与失败原因随之更新。
+  useEffect(() => Events.On("sync-pushed", () => void invalidateSyncStatus()), []);
 
   // 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能，一次确认全部入库。
   const firstOpen = useRef(false);

@@ -49,7 +49,7 @@ func sign(req *http.Request, payload []byte, cfg config, now time.Time) {
 		headers.WriteString(name + ":" + values[name] + "\n")
 	}
 	signedHeaders := strings.Join(names, ";")
-	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n\n" + headers.String() + "\n" + signedHeaders + "\n" + payloadHash
+	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n" + req.URL.RawQuery + "\n" + headers.String() + "\n" + signedHeaders + "\n" + payloadHash
 	canonicalSum := sha256.Sum256([]byte(canonical))
 	scope := date + "/" + cfg.region + "/s3/aws4_request"
 	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(canonicalSum[:])

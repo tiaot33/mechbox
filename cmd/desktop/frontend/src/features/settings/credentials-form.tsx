@@ -1,10 +1,12 @@
 // 设置页的 GitHub、AI 与同步分区。三者都存在数据库里，只认这里填的，不读环境变量:
 // GitHub 令牌、AI 设置和库里其他内容一样随推送、拉回走;同步设置只属于这台机器，推送时不带，拉回时保留。填完点保存才存入。
+// 同步分区还有保留份数与自动推送的间隔(定时推送由 Go 端做),下面写出这台机器的备份放在哪、上次推送的时间与自动推送失败的原因。
 // AI 分区的「测试连接」用表单上的内容，不用先保存;请求头、请求体是用户填的原文，库解析，格式不对时保存与测试都报出来。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { AIProvider, type AISettings, type SyncSettings } from "@bindings/internal/library";
+import { AIProvider, SyncInterval, type AISettings, type SyncSettings } from "@bindings/internal/library";
+import { formatDate } from "@/lib/content";
 import { aiError, describeError } from "@/lib/errors";
 import {
   aiSettingsQuery,
@@ -13,7 +15,9 @@ import {
   invalidateConfig,
   invalidateGitHubToken,
   invalidateSyncSettings,
+  invalidateSyncStatus,
   syncSettingsQuery,
+  syncStatusQuery,
   toLibraryError,
   type LibraryError,
 } from "@/lib/library";
@@ -22,6 +26,8 @@ import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -61,7 +67,10 @@ function ReadFailed({ message, retry }: { message: string; retry: () => unknown 
   );
 }
 
-type SyncField = keyof SyncSettings;
+// defaultKeep 与技能库的 defaultKeep 相同:没填保留份数时 S3 上保留这台机器的几份备份。
+const defaultKeep = 10;
+
+type SyncField = Exclude<keyof SyncSettings, "keep" | "auto_push">;
 
 const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] => {
   const t = messages().credentials;
@@ -69,7 +78,7 @@ const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] =
     [{ key: "endpoint", label: t.endpoint }],
     [
       { key: "bucket", label: t.bucket },
-      { key: "key", label: t.key },
+      { key: "folder", label: t.folder },
       { key: "region", label: t.region },
     ],
     [
@@ -107,7 +116,16 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
   const fields = syncFields();
   const [draft, setDraft] = useState<SyncSettings>(saved);
   const value = (s: SyncSettings, key: SyncField) => s[key] ?? "";
-  const dirty = fields.flat().some(({ key }) => value(draft, key) !== value(saved, key));
+  const dirty =
+    fields.flat().some(({ key }) => value(draft, key) !== value(saved, key)) ||
+    (draft.keep ?? 0) !== (saved.keep ?? 0) ||
+    (draft.auto_push ?? "") !== (saved.auto_push ?? "");
+  const intervals = [
+    { value: "", label: t.autoPushOff },
+    { value: SyncInterval.SyncHourly, label: t.autoPushHourly },
+    { value: SyncInterval.SyncDaily, label: t.autoPushDaily },
+    { value: SyncInterval.SyncWeekly, label: t.autoPushWeekly },
+  ];
   return (
     <SaveForm
       dirty={dirty}
@@ -115,9 +133,11 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
       success={t.syncSaved}
       onSaved={() => {
         void invalidateSyncSettings();
+        void invalidateSyncStatus();
         void invalidateConfig();
       }}
       hint={t.syncHint}
+      footer={<SyncStatusLine folder={saved.folder ?? ""} />}
     >
       {fields.map((row) => (
         <div key={row[0].key} className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
@@ -128,7 +148,52 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
           ))}
         </div>
       ))}
+      <div className="flex min-w-0 items-start gap-2">
+        <Field label={t.keep} className="flex-1">
+          <Input
+            className="font-mono"
+            type="number"
+            min={1}
+            placeholder={String(defaultKeep)}
+            value={draft.keep ? String(draft.keep) : ""}
+            onChange={(e) => setDraft((d) => ({ ...d, keep: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
+          />
+          <Hint>{t.keepHint(defaultKeep)}</Hint>
+        </Field>
+        <Field label={t.autoPush} className="flex-1">
+          <NativeSelect
+            className="h-8 max-w-none"
+            value={draft.auto_push ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, auto_push: e.target.value as SyncInterval }))}
+          >
+            {intervals.map((i) => (
+              <option key={i.value} value={i.value}>
+                {i.label}
+              </option>
+            ))}
+          </NativeSelect>
+          <Hint>{t.autoPushHint}</Hint>
+        </Field>
+      </div>
     </SaveForm>
+  );
+}
+
+// SyncStatusLine 写出这台机器的备份放在 S3 的哪个目录(按已保存的文件夹)、上次推送的时间，以及之后没再推送成功的那次自动推送失败。
+function SyncStatusLine({ folder }: { folder: string }) {
+  const t = useT().credentials;
+  const { data: status } = useQuery(syncStatusQuery);
+  if (!status) return null;
+  const path = `${folder ? `${folder}/` : ""}${status.device}/`;
+  return (
+    <>
+      <Hint>
+        {t.deviceFolder(path)} · {status.last_pushed_at ? t.lastPushed(formatDate(status.last_pushed_at)) : t.neverPushed}
+      </Hint>
+      {status.failure && (
+        <Notice tone="warn">{t.autoPushFailed(formatDate(status.failure.at), describeError(status.failure.error as LibraryError))}</Notice>
+      )}
+    </>
   );
 }
 
@@ -224,6 +289,7 @@ function SaveForm<T>({
   onSaved,
   hint,
   actions,
+  footer,
   children,
 }: {
   dirty: boolean;
@@ -233,6 +299,7 @@ function SaveForm<T>({
   onSaved: (value: T) => void;
   hint: string;
   actions?: React.ReactNode;
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const ui = useUI();
@@ -258,6 +325,7 @@ function SaveForm<T>({
           {t.save}
         </Button>
       </div>
+      {footer}
     </form>
   );
 }

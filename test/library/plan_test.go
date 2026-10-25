@@ -284,24 +284,8 @@ func TestSkipRejectsRemovedSkillAndReplacedLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	push, err := lib.PlanSyncPush(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var expected library.RemoteIdentity
-	if push.Remote != nil {
-		expected = push.Remote.Identity
-	}
-	if _, err := lib.SyncPush(ctx, expected); err != nil {
-		t.Fatal(err)
-	}
-	pull, err := lib.PlanSyncPull(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.SyncPull(ctx, pull.Remote.Identity); err != nil {
-		t.Fatal(err)
-	}
+	pushBackup(t, lib)
+	pullLatest(t, lib)
 	if err := lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, Skills: []library.SkillID{b.ID}}); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("skip after the library was replaced = %v; want Conflict", err)
 	}

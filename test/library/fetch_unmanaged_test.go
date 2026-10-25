@@ -316,23 +316,15 @@ func TestFetchedUnmanagedSkillTravelsWithSync(t *testing.T) {
 	stub := newS3Stub(t)
 	stub.secrets["key"] = "secret"
 	lib := openTestLibrary(t)
-	setSyncSettings(t, lib, library.SyncSettings{Endpoint: stub.endpoint, Bucket: "bucket", Key: "library.db", Region: "region", AccessKeyID: "key", SecretAccessKey: "secret"})
+	setSyncSettings(t, lib, library.SyncSettings{Endpoint: stub.endpoint, Bucket: "bucket", Region: "region", AccessKeyID: "key", SecretAccessKey: "secret"})
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	writeUnmanagedSkill(t, scopeDirectory(t, lib, claude), "notes", "my notes")
 	skill := fetchUnmanaged(t, lib, claude, "notes").Skill
-	if _, err := lib.SyncPush(ctx, ""); err != nil {
-		t.Fatal(err)
-	}
+	pushBackup(t, lib)
 
 	other := openTestLibrary(t)
-	setSyncSettings(t, other, library.SyncSettings{Endpoint: stub.endpoint, Bucket: "bucket", Key: "library.db", Region: "region", AccessKeyID: "key", SecretAccessKey: "secret"})
-	plan, err := other.PlanSyncPull(ctx)
-	if err != nil || !plan.CanPull {
-		t.Fatalf("PlanSyncPull() = %#v, %v", plan, err)
-	}
-	if err := other.SyncPull(ctx, plan.Remote.Identity); err != nil {
-		t.Fatal(err)
-	}
+	setSyncSettings(t, other, library.SyncSettings{Endpoint: stub.endpoint, Bucket: "bucket", Region: "region", AccessKeyID: "key", SecretAccessKey: "secret"})
+	pullLatest(t, other)
 	if got, err := other.GetSkill(ctx, skill.ID); err != nil || !reflect.DeepEqual(got, skill) {
 		t.Fatalf("GetSkill() after pull = %#v, %v, want %#v", got, err, skill)
 	}

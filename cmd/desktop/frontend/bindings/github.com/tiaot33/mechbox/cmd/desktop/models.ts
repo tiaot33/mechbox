@@ -26,6 +26,14 @@ export interface AppInfo {
 }
 
 /**
+ * AutoPushFailure 是上一次自动推送失败的时间与原因。
+ */
+export interface AutoPushFailure {
+    "at": string;
+    "error": library$0.Error | null;
+}
+
+/**
  * CheckInterval 是自动检查更新的间隔。
  */
 export enum CheckInterval {
@@ -63,6 +71,11 @@ export interface ConfigStatus {
      * S3 同步：存储桶与密钥齐全
      */
     "sync": boolean;
+
+    /**
+     * 自动推送的间隔;空字符串为只手动推送
+     */
+    "auto_push"?: library$0.SyncInterval;
 
     /**
      * GitHub 令牌：设置页填了(没填时匿名访问，易被限流)

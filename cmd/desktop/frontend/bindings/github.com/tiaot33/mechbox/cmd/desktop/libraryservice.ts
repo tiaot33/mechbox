@@ -173,6 +173,10 @@ export function ListSourceRefs(input: string): $CancellablePromise<library$0.Sou
     return $Call.ByID(1561609025, input);
 }
 
+export function ListSyncBackups(): $CancellablePromise<library$0.SyncBackup[] | null> {
+    return $Call.ByID(2246353216);
+}
+
 export function ListUnmanagedSkills(): $CancellablePromise<library$0.UnmanagedSkill[] | null> {
     return $Call.ByID(3323820920);
 }
@@ -209,12 +213,8 @@ export function PlanInstall(id: library$0.SkillID, scope: library$0.Scope): $Can
     return $Call.ByID(3522939696, id, scope);
 }
 
-export function PlanSyncPull(): $CancellablePromise<library$0.SyncPullPlan> {
-    return $Call.ByID(986267041);
-}
-
-export function PlanSyncPush(): $CancellablePromise<library$0.SyncPushPlan> {
-    return $Call.ByID(1020557754);
+export function PlanSyncPull(backup: library$0.SyncBackupID): $CancellablePromise<library$0.SyncPullPlan> {
+    return $Call.ByID(986267041, backup);
 }
 
 export function PlanUpdate(id: library$0.CollectionID): $CancellablePromise<library$0.UpdatePlan> {
@@ -289,6 +289,9 @@ export function SetSkillNote(id: library$0.SkillID, note: string): $CancellableP
     return $Call.ByID(443534239, id, note);
 }
 
+/**
+ * SetSyncSettings 存好以后让应用设置服务按新设置重新判断要不要自动推送，不再等上次失败后的重试间隔。
+ */
 export function SetSyncSettings(settings: library$0.SyncSettings): $CancellablePromise<void> {
     return $Call.ByID(1864003768, settings);
 }
@@ -304,16 +307,20 @@ export function SkipUpdate(req: library$0.SkipRequest): $CancellablePromise<void
 /**
  * SyncPull 拉回后让应用设置服务重新读出设置:拉回的库带着推送那台机器的设置。
  */
-export function SyncPull(expected: library$0.RemoteIdentity): $CancellablePromise<void> {
-    return $Call.ByID(4037992934, expected);
+export function SyncPull(backup: library$0.SyncBackupID): $CancellablePromise<void> {
+    return $Call.ByID(4037992934, backup);
 }
 
-export function SyncPush(expected: library$0.RemoteIdentity): $CancellablePromise<library$0.RemoteLibrary> {
-    return $Call.ByID(377176661, expected);
+export function SyncPush(): $CancellablePromise<library$0.SyncPushResult> {
+    return $Call.ByID(377176661);
 }
 
 export function SyncSettings(): $CancellablePromise<library$0.SyncSettings> {
     return $Call.ByID(877498288);
+}
+
+export function SyncStatus(): $CancellablePromise<library$0.SyncStatus> {
+    return $Call.ByID(189153527);
 }
 
 export function TestAISettings(settings: library$0.AISettings): $CancellablePromise<void> {

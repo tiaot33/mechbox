@@ -185,6 +185,77 @@ func TestAutoCheckDue(t *testing.T) {
 	}
 }
 
+// 自动推送按同步设置里的间隔:没开、没配好时不推;从没推送过时推;推送成功后满一个间隔才再推;
+// 失败后记下原因，一小时内不重试，改了同步设置就不等了。
+func TestAutoPushDue(t *testing.T) {
+	lib := startLibrary(t)
+	deny := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case deny:
+			http.Error(w, "denied", http.StatusForbidden)
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte("<ListBucketResult></ListBucketResult>"))
+		case r.Method == http.MethodPut:
+			w.Header().Set("ETag", `"pushed"`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	a := NewAppService(lib)
+	ctx := t.Context()
+	settings := library.SyncSettings{Endpoint: server.URL, Bucket: "bucket", AccessKeyID: "key", SecretAccessKey: "secret"}
+	save := func(s library.SyncSettings) {
+		t.Helper()
+		if err := lib.SetSyncSettings(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+
+	save(settings)
+	if a.pushDue(ctx, now) {
+		t.Error("自动推送没开时 due")
+	}
+	daily := settings
+	daily.AutoPush = library.SyncDaily
+	save(library.SyncSettings{Bucket: "bucket", AutoPush: library.SyncDaily})
+	if a.pushDue(ctx, now) {
+		t.Error("没配好密钥时 due")
+	}
+	save(daily)
+	if !a.pushDue(ctx, now) {
+		t.Fatal("从没推送过时不 due")
+	}
+
+	deny = true
+	a.autoPush(ctx)
+	if failure := a.AutoPushFailure(); failure == nil || failure.Error.Code != library.Permission {
+		t.Fatalf("AutoPushFailure() after denied push = %+v; want Permission", failure)
+	}
+	if a.pushDue(ctx, time.Now().Add(30*time.Minute)) {
+		t.Error("失败后半小时内 due")
+	}
+	if !a.pushDue(ctx, time.Now().Add(61*time.Minute)) {
+		t.Error("失败后满一小时不 due")
+	}
+	save(daily)
+	if !a.pushDue(ctx, time.Now()) || a.AutoPushFailure() != nil {
+		t.Error("改了同步设置后仍要等重试间隔，或仍报着上次的失败")
+	}
+
+	deny = false
+	a.autoPush(ctx)
+	if failure := a.AutoPushFailure(); failure != nil {
+		t.Fatalf("AutoPushFailure() after push = %+v; want nil", failure)
+	}
+	if a.pushDue(ctx, time.Now().Add(23*time.Hour)) {
+		t.Error("推送成功后不到一天 due")
+	}
+	if !a.pushDue(ctx, time.Now().Add(25*time.Hour)) {
+		t.Error("推送成功后满一天不 due")
+	}
+}
+
 func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 	lib := startLibrary(t)
 	first := startApp(t, lib)
