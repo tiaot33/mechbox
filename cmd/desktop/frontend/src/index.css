@@ -216,6 +216,14 @@
     padding: 0;
   }
 
+  /* 所有技能页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */
+  .a-list {
+    container-type: size;
+  }
+  .a-list[data-page="all"] .list-section:last-of-type {
+    min-height: 100cqh;
+  }
+
   /* 左栏点了集合或组，滚到的那一节的标题闪一下。 */
   .list-section > .section-head {
     transition: background-color 0.6s ease-out;

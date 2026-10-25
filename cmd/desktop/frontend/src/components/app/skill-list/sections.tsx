@@ -1,4 +1,4 @@
-// 列表的分节：所有技能页按集合或按组分节，作用域页按"装在这里 / 来自全局 / 可以装到这里"分节。
+// 列表的分节：所有技能页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节。
 // 节标题可以收起;集合与组的节标题可以拖到右栏作用域(集合 = 把它的技能逐个直接安装，组 = 组安装),
 // 组的节标题也接受技能(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
 import type { Collection, Group, Skill } from "@bindings/internal/library";
@@ -14,9 +14,11 @@ import {
   revisionSummary,
   revisionText,
   scopeKey,
+  skillScopeIn,
   skillScopesOf,
   sourceLabel,
   updateAvailable,
+  type ScopeKey,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
 import { toggleSection, toggleUnfolded, useView } from "@/lib/view";
@@ -95,8 +97,9 @@ function DragHandle() {
 // inUse 是装在至少一个地方的技能。
 const inUse = (s: ReturnType<typeof useSnapshot>, skills: Skill[]) => skills.filter((x) => skillScopesOf(s, x.id).length > 0);
 
-// CollectionHead 是集合的节标题：来源、在用几个、来源版本与有变化的个数，看来源里的其他技能、历史、更新;可以整个拖到作用域。
-export function CollectionHead({ collection }: { collection: Collection }) {
+// CollectionHead 是集合的节标题：来源、在用几个(作用域页是装在这里几个)、来源版本与有变化的个数，看来源里的其他技能、历史、更新;
+// 可以整个拖到作用域。
+export function CollectionHead({ collection, scope }: { collection: Collection; scope?: ScopeKey }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -120,7 +123,11 @@ export function CollectionHead({ collection }: { collection: Collection }) {
         <SourceIcon type={collection.source.type} className="size-3.5 text-muted-foreground" />
         <b className="section-name truncate font-semibold">{label}</b>
       </span>
-      <Counts>{t.list.inUse(inUse(s, skills).length, skills.length)}</Counts>
+      <Counts>
+        {scope
+          ? t.list.inUseHere(skills.filter((x) => skillScopeIn(s, x.id, scope)).length, skills.length)
+          : t.list.inUse(inUse(s, skills).length, skills.length)}
+      </Counts>
       <span className="min-w-0 grow truncate text-[11px] text-subtle" title={facts.join(" · ")}>
         {facts.join(" · ")}
       </span>
@@ -222,7 +229,7 @@ export function GroupHead({ group }: { group: Group }) {
   );
 }
 
-// PlainHead 是不能拖的节标题：其他来源、没有归组、作用域页的各节。
+// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局。
 export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode; name: string; count: React.ReactNode; title?: string }) {
   return (
     <span className="flex min-w-0 grow items-center gap-2" title={title}>
@@ -235,14 +242,33 @@ export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode
 
 // SkillRows 列出一节里的技能：装在至少一个地方的在前;没装的默认折成一行，点开再列出。
 // 搜索时、或这一节一个都没装时(刚入库的集合)直接全部列出。
-export function SkillRows({ id, skills, render }: { id: string; skills: Skill[]; render: (skill: Skill) => React.ReactNode }) {
+// 作用域页(scope)按装没装在这里分：没装在这里的照样折起来，只有一个时直接列出。
+export function SkillRows({
+  id,
+  skills,
+  scope,
+  render,
+}: {
+  id: string;
+  skills: Skill[];
+  scope?: ScopeKey;
+  render: (skill: Skill) => React.ReactNode;
+}) {
   const s = useSnapshot();
   const t = useT().list;
   const searching = useView((v) => !!v.search.trim());
   const unfolded = useView((v) => v.unfolded.has(id));
-  const used = inUse(s, skills);
+  const used = scope ? skills.filter((x) => skillScopeIn(s, x.id, scope)) : inUse(s, skills);
   const idle = skills.filter((x) => !used.includes(x));
-  const foldable = !searching && used.length > 0 && idle.length > 0;
+  const foldable = !searching && idle.length > 0 && (used.length > 0 || (!!scope && idle.length > 1));
+  const names = idle.map((x) => x.name);
+  const label = scope
+    ? unfolded
+      ? t.hideNotHere
+      : t.notHereFold(names, used.length > 0)
+    : unfolded
+      ? t.hideNotInstalled
+      : t.notInstalledFold(names);
   const shown = foldable && !unfolded ? used : [...used, ...idle];
   return (
     <>
@@ -255,7 +281,7 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
           onClick={() => toggleUnfolded(id)}
         >
           <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
-          <span className="truncate">{unfolded ? t.hideNotInstalled : t.notInstalledFold(idle.map((x) => x.name))}</span>
+          <span className="truncate">{label}</span>
         </button>
       )}
     </>
