@@ -16,7 +16,7 @@ export function AgentMark({ code, name, className }: { code?: AgentCode; name: s
     <span
       title={name}
       className={cn("inline-grid size-3.5 shrink-0 place-items-center overflow-hidden rounded bg-white", className)}
-      style={{ color: brand ? brand.color : code ? `hsl(${hue} 55% 45%)` : "#94a3b8" }}
+      style={{ color: brand ? brand.color : code ? `hsl(${hue} 55% 45%)` : "var(--color-subtle)" }}
     >
       {brand ? <brand.Icon aria-hidden className="pointer-events-none size-[78%]" /> : <Bot />}
     </span>

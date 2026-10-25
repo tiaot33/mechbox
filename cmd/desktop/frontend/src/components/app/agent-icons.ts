@@ -1,4 +1,5 @@
 // Agent 的品牌图标：照搬 @lobehub/icons 的 agentConfig(顺序与关键词一致),按名字认出是哪个 Agent。
+// 不同之处：lobe 把 Kiro 算进 Kilo Code,这里单列一项用 Kiro 自己的图标。
 // 只按路径导入每个图标里纯 SVG 的组件与主色：有彩色版用彩色版，没有的用单色版;包入口和 Avatar 会带上 @lobehub/ui,不用。
 import type { IconType } from "@lobehub/icons/es/types";
 import LobeHub from "@lobehub/icons/es/LobeHub/components/Color";
@@ -35,6 +36,8 @@ import Gemini from "@lobehub/icons/es/Gemini/components/Color";
 import * as GeminiStyle from "@lobehub/icons/es/Gemini/style";
 import KiloCode from "@lobehub/icons/es/KiloCode/components/Mono";
 import * as KiloCodeStyle from "@lobehub/icons/es/KiloCode/style";
+import Kiro from "@lobehub/icons/es/Kiro/components/Color";
+import * as KiroStyle from "@lobehub/icons/es/Kiro/style";
 import Junie from "@lobehub/icons/es/Junie/components/Color";
 import * as JunieStyle from "@lobehub/icons/es/Junie/style";
 import Replit from "@lobehub/icons/es/Replit/components/Color";
@@ -105,7 +108,8 @@ const brands: [IconType, Style, string[]][] = [
   [Copilot, CopilotStyle, ["copilot"]],
   [GeminiCLI, GeminiCLIStyle, ["geminicli", "gemini-cli"]],
   [Gemini, GeminiStyle, ["gemini-scout", "gemini"]],
-  [KiloCode, KiloCodeStyle, ["kilo-code", "kilocode", "kilo", "kiro-cli", "kiro"]],
+  [Kiro, KiroStyle, ["kiro-cli", "kiro"]],
+  [KiloCode, KiloCodeStyle, ["kilo-code", "kilocode", "kilo"]],
   [Junie, JunieStyle, ["junie"]],
   [Replit, ReplitStyle, ["replit"]],
   [Windsurf, WindsurfStyle, ["windsurf"]],

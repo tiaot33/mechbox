@@ -5,7 +5,7 @@ packages:
 # 不安装发布不满 7 天(10080 分钟)的版本，减少装到刚被投毒的版本的风险。
 minimumReleaseAge: 10080
 
-# 只用 @lobehub/icons 里纯 SVG 的 Mono 与 style,用不到要它的 Avatar 等组件，不装这个很重的 peer 依赖。
+# 只按路径导入 @lobehub/icons 里纯 SVG 的图标组件与 style,用不到要它的 Avatar 等组件，不装这个很重的 peer 依赖。
 packageExtensions:
   "@lobehub/icons":
     peerDependenciesMeta:
