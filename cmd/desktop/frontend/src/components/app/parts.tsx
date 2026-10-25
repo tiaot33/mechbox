@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
-import { useBusy, useSettled } from "@/lib/ui";
+import { useMarkBusy, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
 
@@ -164,10 +164,10 @@ export function Chip({
   );
 }
 
-// BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈，全部结束后转动的弧合成整圈、画出对勾(有失败的画叉),
+// BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈(进度画在自己按钮上的除外)，全部结束后转动的弧合成整圈、画出对勾(有失败的画叉),
 // 停一下再淡出;只有被取消的写操作时直接消失。
 export function BusyMark() {
-  const busy = useBusy();
+  const busy = useMarkBusy();
   const settled = useSettled();
   const t = useT();
   const [dismissed, setDismissed] = useState<number | null>(null);

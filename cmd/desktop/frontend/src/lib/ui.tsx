@@ -53,6 +53,8 @@ export interface RunOptions<T> {
   onError?: (err: LibraryError) => boolean;
   // failed 返回 true 表示调用成功了但有逐项失败(结果里列出没完成的),顶栏的状态圈画叉而不是对勾。
   failed?: (value: T) => boolean;
+  // mark 为 false 时顶栏的状态圈不跟着转，也不画对勾或叉，进度画在发起它的按钮上(如左栏的检查更新);默认 true。
+  mark?: boolean;
 }
 
 // ToastAction 是 toast 上的一个按钮(如更新完成后的"回滚");带按钮的 toast 停留得久一些。
@@ -91,12 +93,13 @@ interface DialogEntry {
 }
 
 // 弹窗栈、toast 与进行中的写操作数放在 store 里，组件外的写操作流程也能打开弹窗、弹 toast;UIHost 把它们画出来。
-// settled 是进行中的写操作全部结束时的结果(有失败的就是 failed),顶栏的状态圈据此画对勾或叉;
-// 这一轮只有被取消的写操作时不更新。finished、failed 记着这一轮里有没有没被取消的、有没有失败的。
+// marked 是其中顶栏状态圈要跟着转的写操作数(不含 mark 为 false 的)。settled 是这些写操作全部结束时的结果(有失败的就是 failed),
+// 顶栏的状态圈据此画对勾或叉;这一轮只有被取消的写操作时不更新。finished、failed 记着这一轮里有没有没被取消的、有没有失败的。
 const useUIStore = create<{
   dialogs: DialogEntry[];
   toast: ToastState | null;
   pending: number;
+  marked: number;
   finished: boolean;
   failed: boolean;
   settled: { id: number; failed: boolean } | null;
@@ -104,6 +107,7 @@ const useUIStore = create<{
   dialogs: [],
   toast: null,
   pending: 0,
+  marked: 0,
   finished: false,
   failed: false,
   settled: null,
@@ -143,7 +147,8 @@ function open<T>(render: (close: (value?: T) => void) => ReactNode, opts: OpenOp
 }
 
 async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise<T | undefined> {
-  set((s) => ({ pending: s.pending + 1 }));
+  const mark = opts.mark !== false;
+  set((s) => ({ pending: s.pending + 1, marked: s.marked + (mark ? 1 : 0) }));
   let outcome: "done" | "failed" | "canceled" = "done";
   try {
     const value = await task();
@@ -163,10 +168,12 @@ async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise
   } finally {
     set((s) => {
       const pending = s.pending - 1;
+      if (!mark) return { pending };
+      const marked = s.marked - 1;
       const finished = s.finished || outcome !== "canceled";
       const failed = s.failed || outcome === "failed";
-      if (pending > 0) return { pending, finished, failed };
-      return { pending, finished: false, failed: false, ...(finished && { settled: { id: nextSettledID++, failed } }) };
+      if (marked > 0) return { pending, marked, finished, failed };
+      return { pending, marked, finished: false, failed: false, ...(finished && { settled: { id: nextSettledID++, failed } }) };
     });
     // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
     if (opts.reload !== false) void reloadLibrary();
@@ -190,6 +197,11 @@ export function useUI(): UIService {
 // useBusy 是有没有经 run 进行中的写操作(顶栏转圈、禁用会冲突的按钮)。
 export function useBusy(): boolean {
   return useUIStore((s) => s.pending > 0);
+}
+
+// useMarkBusy 是顶栏的状态圈该不该转：有 mark 不为 false 的写操作进行中。
+export function useMarkBusy(): boolean {
+  return useUIStore((s) => s.marked > 0);
 }
 
 // useSettled 是最近一次写操作全部结束时的结果;id 每次结束都换，用来只闪一下对勾或叉。
