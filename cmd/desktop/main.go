@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -98,15 +99,28 @@ func run() error {
 	return err
 }
 
-// singleInstanceID 是单实例锁的 ID:打开真实技能库时是 bundleID;设了 MECHBOX_LIBRARY 时按数据库位置另取一个，
-// 让各工作区用各自开发数据的开发版窗口同时开着，互不把对方带到前台;打开同一个数据库的仍只有一个实例。
+// singleInstanceID 是单实例锁的 ID:打开真实技能库时是 bundleID,不管是装好的 app 还是用 MECHBOX_LIBRARY 指向它的开发版;
+// 打开别的数据库时按它的位置另取一个，让各工作区用各自开发数据的开发版窗口同时开着，互不把对方带到前台。
+// 位置先解析符号链接，同一个数据库换一种路径写法仍是同一把锁。
 func singleInstanceID(path string) string {
-	if os.Getenv(libraryPathEnv) == "" {
+	path = resolveLibraryPath(path)
+	if real, err := realLibraryPath(); err == nil && resolveLibraryPath(real) == path {
 		return bundleID
 	}
 	sum := sha256.Sum256([]byte(path))
 	// Linux 上 ID 是 D-Bus 名字，每一段不能以数字开头，所以加 db 前缀。
 	return bundleID + ".db" + hex.EncodeToString(sum[:8])
+}
+
+// resolveLibraryPath 解析数据库位置里的符号链接;数据库文件还不存在时只解析它所在的目录，目录也不存在时原样返回。
+func resolveLibraryPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		return filepath.Join(dir, filepath.Base(path))
+	}
+	return path
 }
 
 // marshalError 把绑定方法返回的任意 error 规范成 *library.Error 再编码，

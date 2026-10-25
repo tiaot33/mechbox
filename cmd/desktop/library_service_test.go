@@ -154,19 +154,32 @@ func TestLibraryPathCanPointAtAnotherDatabase(t *testing.T) {
 	}
 }
 
-// 打开真实技能库时单实例锁就是 bundleID;设了 MECHBOX_LIBRARY 时每个数据库一把锁，ID 仍是 D-Bus 认的点分名字。
+// 打开真实技能库时单实例锁就是 bundleID,不管路径怎样写;别的数据库每个一把锁，换一种路径写法仍是同一把，ID 是 D-Bus 认的点分名字。
 func TestSingleInstanceIDFollowsDatabase(t *testing.T) {
-	t.Setenv(libraryPathEnv, "")
-	if got := singleInstanceID("/any/library.db"); got != bundleID {
-		t.Fatalf("singleInstanceID without %s = %q; want %q", libraryPathEnv, got, bundleID)
+	real, err := realLibraryPath()
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv(libraryPathEnv, "set")
-	a, b := singleInstanceID("/worktree-a/.dev/seed/library.db"), singleInstanceID("/worktree-b/.dev/seed/library.db")
-	if a == b || a == bundleID {
+	if got := singleInstanceID(real); got != bundleID {
+		t.Fatalf("singleInstanceID(real library) = %q; want %q", got, bundleID)
+	}
+
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(filepath.Join(dir, "a"), link); err != nil {
+		t.Fatal(err)
+	}
+	a := singleInstanceID(filepath.Join(dir, "a", "library.db"))
+	if b := singleInstanceID(filepath.Join(dir, "b", "library.db")); a == b || a == bundleID {
 		t.Fatalf("singleInstanceID = %q and %q; want a distinct ID per database", a, b)
 	}
-	if again := singleInstanceID("/worktree-a/.dev/seed/library.db"); again != a {
-		t.Fatalf("singleInstanceID for the same database = %q, then %q", a, again)
+	if viaLink := singleInstanceID(filepath.Join(link, "library.db")); viaLink != a {
+		t.Fatalf("singleInstanceID through a symlink = %q; want %q", viaLink, a)
 	}
 	if !regexp.MustCompile(`^com\.tiaot33\.mechbox\.db[0-9a-f]{16}$`).MatchString(a) {
 		t.Fatalf("singleInstanceID = %q; want bundleID plus a .db<hash> element", a)
