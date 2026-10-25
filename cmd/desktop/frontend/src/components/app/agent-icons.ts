@@ -1,73 +1,34 @@
-// Agent 的品牌图标：照搬 @lobehub/icons 的 agentConfig(顺序与关键词一致),按名字认出是哪个 Agent。
-// 不同之处：lobe 把 Kiro 算进 Kilo Code,这里单列一项用 Kiro 自己的图标。
-// 只按路径导入每个图标里纯 SVG 的组件与主色：有彩色版用彩色版，没有的用单色版;包入口和 Avatar 会带上 @lobehub/ui,不用。
+// Agent 的品牌图标，按名字认出是哪个 Agent。图标有两个来源:
+// - agentlogos.dev 的彩色 SVG,放在 agent-logos/ 里(从 https://agentlogos.dev/logos.json 列出的 url 下载)。两边都有的用这里的。
+// - @lobehub/icons:agentlogos.dev 没有的，以及 lobe 那张更好认的(Claude Code、Gemini CLI、Kiro、Amp)。
+// 关键词表照搬 lobe 的 agentConfig(顺序一致),不同之处：Kiro 单列一项(lobe 把它算进 Kilo Code),
+// 另加 lobe 没有、agentlogos.dev 有的编程 Agent。
+// lobe 只按路径导入每个图标里纯 SVG 的组件与主色：有彩色版用彩色版，没有的用单色版;包入口和 Avatar 会带上 @lobehub/ui,不用。
 import type { IconType } from "@lobehub/icons/es/types";
 import LobeHub from "@lobehub/icons/es/LobeHub/components/Color";
 import * as LobeHubStyle from "@lobehub/icons/es/LobeHub/style";
 import ClaudeCode from "@lobehub/icons/es/ClaudeCode/components/Color";
 import * as ClaudeCodeStyle from "@lobehub/icons/es/ClaudeCode/style";
-import Claude from "@lobehub/icons/es/Claude/components/Color";
-import * as ClaudeStyle from "@lobehub/icons/es/Claude/style";
-import Codex from "@lobehub/icons/es/Codex/components/Color";
-import * as CodexStyle from "@lobehub/icons/es/Codex/style";
-import OpenAI from "@lobehub/icons/es/OpenAI/components/Mono";
-import * as OpenAIStyle from "@lobehub/icons/es/OpenAI/style";
-import Kimi from "@lobehub/icons/es/Kimi/components/Color";
-import * as KimiStyle from "@lobehub/icons/es/Kimi/style";
 import OpenClaw from "@lobehub/icons/es/OpenClaw/components/Color";
 import * as OpenClawStyle from "@lobehub/icons/es/OpenClaw/style";
 import HermesAgent from "@lobehub/icons/es/HermesAgent/components/Mono";
 import * as HermesAgentStyle from "@lobehub/icons/es/HermesAgent/style";
-import Manus from "@lobehub/icons/es/Manus/components/Mono";
-import * as ManusStyle from "@lobehub/icons/es/Manus/style";
 import CherryStudio from "@lobehub/icons/es/CherryStudio/components/Color";
 import * as CherryStudioStyle from "@lobehub/icons/es/CherryStudio/style";
-import Cursor from "@lobehub/icons/es/Cursor/components/Mono";
-import * as CursorStyle from "@lobehub/icons/es/Cursor/style";
 import Amp from "@lobehub/icons/es/Amp/components/Color";
 import * as AmpStyle from "@lobehub/icons/es/Amp/style";
-import GithubCopilot from "@lobehub/icons/es/GithubCopilot/components/Mono";
-import * as GithubCopilotStyle from "@lobehub/icons/es/GithubCopilot/style";
-import Copilot from "@lobehub/icons/es/Copilot/components/Color";
-import * as CopilotStyle from "@lobehub/icons/es/Copilot/style";
 import GeminiCLI from "@lobehub/icons/es/GeminiCLI/components/Color";
 import * as GeminiCLIStyle from "@lobehub/icons/es/GeminiCLI/style";
-import Gemini from "@lobehub/icons/es/Gemini/components/Color";
-import * as GeminiStyle from "@lobehub/icons/es/Gemini/style";
-import KiloCode from "@lobehub/icons/es/KiloCode/components/Mono";
-import * as KiloCodeStyle from "@lobehub/icons/es/KiloCode/style";
 import Kiro from "@lobehub/icons/es/Kiro/components/Color";
 import * as KiroStyle from "@lobehub/icons/es/Kiro/style";
-import Junie from "@lobehub/icons/es/Junie/components/Color";
-import * as JunieStyle from "@lobehub/icons/es/Junie/style";
-import Replit from "@lobehub/icons/es/Replit/components/Color";
-import * as ReplitStyle from "@lobehub/icons/es/Replit/style";
-import Windsurf from "@lobehub/icons/es/Windsurf/components/Mono";
-import * as WindsurfStyle from "@lobehub/icons/es/Windsurf/style";
-import Cline from "@lobehub/icons/es/Cline/components/Mono";
-import * as ClineStyle from "@lobehub/icons/es/Cline/style";
-import OpenCode from "@lobehub/icons/es/OpenCode/components/Mono";
-import * as OpenCodeStyle from "@lobehub/icons/es/OpenCode/style";
-import OpenHands from "@lobehub/icons/es/OpenHands/components/Color";
-import * as OpenHandsStyle from "@lobehub/icons/es/OpenHands/style";
-import RooCode from "@lobehub/icons/es/RooCode/components/Mono";
-import * as RooCodeStyle from "@lobehub/icons/es/RooCode/style";
-import Goose from "@lobehub/icons/es/Goose/components/Mono";
-import * as GooseStyle from "@lobehub/icons/es/Goose/style";
-import Trae from "@lobehub/icons/es/Trae/components/Color";
-import * as TraeStyle from "@lobehub/icons/es/Trae/style";
 import Zencoder from "@lobehub/icons/es/Zencoder/components/Color";
 import * as ZencoderStyle from "@lobehub/icons/es/Zencoder/style";
 import Coze from "@lobehub/icons/es/Coze/components/Mono";
 import * as CozeStyle from "@lobehub/icons/es/Coze/style";
 import Dify from "@lobehub/icons/es/Dify/components/Color";
 import * as DifyStyle from "@lobehub/icons/es/Dify/style";
-import Antigravity from "@lobehub/icons/es/Antigravity/components/Color";
-import * as AntigravityStyle from "@lobehub/icons/es/Antigravity/style";
 import Qoder from "@lobehub/icons/es/Qoder/components/Color";
 import * as QoderStyle from "@lobehub/icons/es/Qoder/style";
-import Qwen from "@lobehub/icons/es/Qwen/components/Color";
-import * as QwenStyle from "@lobehub/icons/es/Qwen/style";
 import Microsoft from "@lobehub/icons/es/Microsoft/components/Color";
 import * as MicrosoftStyle from "@lobehub/icons/es/Microsoft/style";
 import OpenWebUI from "@lobehub/icons/es/OpenWebUI/components/Mono";
@@ -78,76 +39,129 @@ import Flowith from "@lobehub/icons/es/Flowith/components/Mono";
 import * as FlowithStyle from "@lobehub/icons/es/Flowith/style";
 import ZeroOne from "@lobehub/icons/es/ZeroOne/components/Color";
 import * as ZeroOneStyle from "@lobehub/icons/es/ZeroOne/style";
-import MetaAI from "@lobehub/icons/es/MetaAI/components/Color";
-import * as MetaAIStyle from "@lobehub/icons/es/MetaAI/style";
 import N8n from "@lobehub/icons/es/N8n/components/Color";
 import * as N8nStyle from "@lobehub/icons/es/N8n/style";
 import Notion from "@lobehub/icons/es/Notion/components/Mono";
 import * as NotionStyle from "@lobehub/icons/es/Notion/style";
 import CodeBuddy from "@lobehub/icons/es/CodeBuddy/components/Color";
 import * as CodeBuddyStyle from "@lobehub/icons/es/CodeBuddy/style";
-import Devin from "@lobehub/icons/es/Devin/components/Color";
-import * as DevinStyle from "@lobehub/icons/es/Devin/style";
+import aider from "./agent-logos/aider.svg";
+import amazonQ from "./agent-logos/amazon-q.svg";
+import antigravity from "./agent-logos/antigravity.svg";
+import augmentCode from "./agent-logos/augment-code.svg";
+import chatgpt from "./agent-logos/chatgpt.svg";
+import claude from "./agent-logos/claude.svg";
+import cline from "./agent-logos/cline.svg";
+import codeium from "./agent-logos/codeium.svg";
+import codex from "./agent-logos/codex.svg";
+import cody from "./agent-logos/cody.svg";
+import continueDev from "./agent-logos/continue.svg";
+import cursor from "./agent-logos/cursor.svg";
+import devin from "./agent-logos/devin.svg";
+import factory from "./agent-logos/factory.svg";
+import firebaseStudio from "./agent-logos/firebase-studio.svg";
+import gemini from "./agent-logos/gemini.svg";
+import githubCopilot from "./agent-logos/github-copilot.svg";
+import goose from "./agent-logos/goose.svg";
+import ibmBob from "./agent-logos/ibm-bob.svg";
+import jules from "./agent-logos/jules.svg";
+import junie from "./agent-logos/junie.svg";
+import kiloCode from "./agent-logos/kilo-code.svg";
+import kimi from "./agent-logos/kimi.svg";
+import manus from "./agent-logos/manus.svg";
+import metaAI from "./agent-logos/meta-ai.svg";
+import microsoftCopilot from "./agent-logos/microsoft-copilot.svg";
+import openai from "./agent-logos/openai.svg";
+import opencode from "./agent-logos/opencode.svg";
+import openhands from "./agent-logos/openhands.svg";
+import pi from "./agent-logos/pi.svg";
+import qodo from "./agent-logos/qodo.svg";
+import qwen from "./agent-logos/qwen.svg";
+import replit from "./agent-logos/replit.svg";
+import rooCode from "./agent-logos/roo-code.svg";
+import tabnine from "./agent-logos/tabnine.svg";
+import trae from "./agent-logos/trae.svg";
+import warp from "./agent-logos/warp.svg";
+import windsurf from "./agent-logos/windsurf.svg";
+import zed from "./agent-logos/zed.svg";
 
-type Style = { COLOR_PRIMARY: string };
+// AgentBrand 是认出的品牌图标:src 是 agentlogos.dev 的彩色 SVG 地址;Icon 是 lobe 的图标组件,
+// color 是它在白底上的颜色(单色版用品牌主色，太浅看不清时用黑色)。
+export type AgentBrand = { src: string } | { Icon: IconType; color: string };
 
-const brands: [IconType, Style, string[]][] = [
-  [LobeHub, LobeHubStyle, ["lobehub", "lobechat", "lobe-chat", "lobe-agent", "lobe-ai", "lobeai", "lobe"]],
-  [ClaudeCode, ClaudeCodeStyle, ["claude-code", "claudecode", "claude-co"]],
-  [Claude, ClaudeStyle, ["claude-desktop", "open-claude", "claude"]],
-  [Codex, CodexStyle, ["codex"]],
-  [OpenAI, OpenAIStyle, ["openai", "chatgpt", "gpt"]],
-  [Kimi, KimiStyle, ["kimi-cli", "kimi-code", "kimi", "kimiclaw", "kimi-claw"]],
-  [OpenClaw, OpenClawStyle, ["open-claw", "openclaw", "dewu-smartclaw", "nanoclaw", "zeroclaw", "goclaw", "clawhub", "catpaw", "copaw", "clawdbot", "moltbot", "claw"]],
-  [HermesAgent, HermesAgentStyle, ["hermes"]],
-  [Manus, ManusStyle, ["manus"]],
-  [CherryStudio, CherryStudioStyle, ["cherry-studio", "cherrystudio"]],
-  [Cursor, CursorStyle, ["cursor"]],
-  [Amp, AmpStyle, ["amp"]],
-  [GithubCopilot, GithubCopilotStyle, ["github-copilot-cli", "github-copilot", "githubcopilot", "vscode-copilot", "copilot-cli", "github"]],
-  [Copilot, CopilotStyle, ["copilot"]],
-  [GeminiCLI, GeminiCLIStyle, ["geminicli", "gemini-cli"]],
-  [Gemini, GeminiStyle, ["gemini-scout", "gemini"]],
-  [Kiro, KiroStyle, ["kiro-cli", "kiro"]],
-  [KiloCode, KiloCodeStyle, ["kilo-code", "kilocode", "kilo"]],
-  [Junie, JunieStyle, ["junie"]],
-  [Replit, ReplitStyle, ["replit"]],
-  [Windsurf, WindsurfStyle, ["windsurf"]],
-  [Cline, ClineStyle, ["cline"]],
-  [OpenCode, OpenCodeStyle, ["open-code", "opencode", "openwork", "open-code-go", "opencodego", "opencodecodingplan", "open-code-zen", "opencodezen"]],
-  [OpenHands, OpenHandsStyle, ["open-hands", "openhands"]],
-  [RooCode, RooCodeStyle, ["roo-code", "roocode"]],
-  [Goose, GooseStyle, ["goose"]],
-  [Trae, TraeStyle, ["trae-ide", "trae-ai", "traeb", "trae"]],
-  [Zencoder, ZencoderStyle, ["zencoder"]],
-  [Coze, CozeStyle, ["coze-coding", "coze"]],
-  [Dify, DifyStyle, ["dify"]],
-  [Antigravity, AntigravityStyle, ["antigravity", "google"]],
-  [Qoder, QoderStyle, ["qoder-work", "qoder"]],
-  [Qwen, QwenStyle, ["qwen-code", "qwen"]],
-  [Microsoft, MicrosoftStyle, ["windows", "vscode", "micode"]],
-  [OpenWebUI, OpenWebUIStyle, ["openwebui-bridge", "openwebui"]],
-  [CodeFlicker, CodeFlickerStyle, ["codeflicker"]],
-  [Flowith, FlowithStyle, ["iflow", "flowith"]],
-  [ZeroOne, ZeroOneStyle, ["agent-zero", "agentzero", "agent0"]],
-  [MetaAI, MetaAIStyle, ["meta-ai", "metaai"]],
-  [N8n, N8nStyle, ["n8n"]],
-  [Notion, NotionStyle, ["notion"]],
-  [CodeBuddy, CodeBuddyStyle, ["code-buddy", "codebuddy"]],
-  [Devin, DevinStyle, ["devin", "cognition"]],
+const brands: [AgentBrand, string[]][] = [
+  [lobe(LobeHub, LobeHubStyle), ["lobehub", "lobechat", "lobe-chat", "lobe-agent", "lobe-ai", "lobeai", "lobe"]],
+  [lobe(ClaudeCode, ClaudeCodeStyle), ["claude-code", "claudecode", "claude-co"]],
+  [{ src: claude }, ["claude-desktop", "open-claude", "claude"]],
+  [{ src: codex }, ["codex"]],
+  [{ src: openai }, ["openai"]],
+  [{ src: chatgpt }, ["chatgpt", "gpt"]],
+  [{ src: kimi }, ["kimi-cli", "kimi-code", "kimi", "kimiclaw", "kimi-claw"]],
+  [lobe(OpenClaw, OpenClawStyle), ["open-claw", "openclaw", "dewu-smartclaw", "nanoclaw", "zeroclaw", "goclaw", "clawhub", "catpaw", "copaw", "clawdbot", "moltbot", "claw"]],
+  [lobe(HermesAgent, HermesAgentStyle), ["hermes"]],
+  [{ src: manus }, ["manus"]],
+  [lobe(CherryStudio, CherryStudioStyle), ["cherry-studio", "cherrystudio"]],
+  [{ src: cursor }, ["cursor"]],
+  [lobe(Amp, AmpStyle), ["amp"]],
+  [{ src: githubCopilot }, ["github-copilot-cli", "github-copilot", "githubcopilot", "vscode-copilot", "copilot-cli", "github"]],
+  [{ src: microsoftCopilot }, ["copilot"]],
+  [lobe(GeminiCLI, GeminiCLIStyle), ["geminicli", "gemini-cli"]],
+  [{ src: gemini }, ["gemini-scout", "gemini"]],
+  [lobe(Kiro, KiroStyle), ["kiro-cli", "kiro"]],
+  [{ src: kiloCode }, ["kilo-code", "kilocode", "kilo"]],
+  [{ src: junie }, ["junie"]],
+  [{ src: replit }, ["replit"]],
+  [{ src: windsurf }, ["windsurf", "devin-desktop"]],
+  [{ src: cline }, ["cline"]],
+  [{ src: opencode }, ["open-code", "opencode", "openwork", "open-code-go", "opencodego", "opencodecodingplan", "open-code-zen", "opencodezen"]],
+  [{ src: openhands }, ["open-hands", "openhands"]],
+  [{ src: rooCode }, ["roo-code", "roocode"]],
+  [{ src: goose }, ["goose"]],
+  [{ src: trae }, ["trae-ide", "trae-ai", "traeb", "trae"]],
+  [lobe(Zencoder, ZencoderStyle), ["zencoder"]],
+  [lobe(Coze, CozeStyle), ["coze-coding", "coze"]],
+  [lobe(Dify, DifyStyle), ["dify"]],
+  [{ src: jules }, ["jules"]],
+  [{ src: firebaseStudio }, ["firebase"]],
+  [{ src: antigravity }, ["antigravity", "google"]],
+  [lobe(Qoder, QoderStyle), ["qoder-work", "qoder"]],
+  [{ src: qwen }, ["qwen-code", "qwen"]],
+  [lobe(Microsoft, MicrosoftStyle), ["windows", "vscode", "micode"]],
+  [lobe(OpenWebUI, OpenWebUIStyle), ["openwebui-bridge", "openwebui"]],
+  [lobe(CodeFlicker, CodeFlickerStyle), ["codeflicker"]],
+  [lobe(Flowith, FlowithStyle), ["iflow", "flowith"]],
+  [lobe(ZeroOne, ZeroOneStyle), ["agent-zero", "agentzero", "agent0"]],
+  [{ src: metaAI }, ["meta-ai", "metaai"]],
+  [lobe(N8n, N8nStyle), ["n8n"]],
+  [lobe(Notion, NotionStyle), ["notion"]],
+  [lobe(CodeBuddy, CodeBuddyStyle), ["code-buddy", "codebuddy"]],
+  [{ src: devin }, ["devin", "cognition"]],
+  [{ src: aider }, ["aider"]],
+  [{ src: augmentCode }, ["augment", "auggie"]],
+  [{ src: cody }, ["sourcegraph", "cody"]],
+  [{ src: qodo }, ["qodo"]],
+  [{ src: zed }, ["-zed-"]],
+  [{ src: warp }, ["warp"]],
+  [{ src: continueDev }, ["continue"]],
+  [{ src: amazonQ }, ["amazon-q", "amazonq", "q-developer"]],
+  [{ src: factory }, ["factory", "-droid-"]],
+  [{ src: pi }, ["-pi-"]],
+  [{ src: tabnine }, ["tabnine"]],
+  [{ src: codeium }, ["codeium"]],
+  [{ src: ibmBob }, ["ibm-bob", "-bob-"]],
 ];
-
-export type AgentBrand = { Icon: IconType; color: string };
 
 // agentBrand 按名字找 Agent 的品牌图标，认不出时返回 undefined。名字里的空格当连字符,
 // 包含某个关键词就算，靠前的先命中("Claude Code" 认成 Claude Code,不是 Claude)。
-// color 是单色版图标在白底上的颜色：品牌主色，太浅(白、浅黄)看不清时用黑色。
+// 两头带连字符的关键词(如 "-pi-")只认整个词，免得 "api"、"android" 这类名字被认成 Pi、Droid。
 export function agentBrand(name: string): AgentBrand | undefined {
   const key = name.trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (!key) return undefined;
-  const found = brands.find(([, , keywords]) => keywords.some((k) => key.includes(k)));
-  if (!found) return undefined;
-  const [Icon, style] = found;
+  const padded = `-${key}-`;
+  return brands.find(([, keywords]) => keywords.some((k) => padded.includes(k)))?.[0];
+}
+
+function lobe(Icon: IconType, style: { COLOR_PRIMARY: string }): AgentBrand {
   return { Icon, color: light(style.COLOR_PRIMARY) ? "#000" : style.COLOR_PRIMARY };
 }
 
