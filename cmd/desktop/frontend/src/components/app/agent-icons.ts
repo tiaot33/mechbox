@@ -4,8 +4,8 @@
 // 关键词表照搬 lobe 的 agentConfig(顺序一致),不同之处:
 // - Kiro 单列一项(lobe 把它算进 Kilo Code);OpenAI 与 ChatGPT 分成两项，各用 agentlogos.dev 的图标。
 // - Windsurf 多一个 agentlogos.dev 给的别名 Devin Desktop。
-// - 另加 lobe 没有、agentlogos.dev 有的编程 Agent,接在表尾;Jules、Firebase Studio 必须排在 Antigravity 前面，
-//   否则名字里带 Google 的会先被 Antigravity 的 "google" 认走。
+// - 另加 lobe 没有、agentlogos.dev 有的 Agent、模型与工具，接在表尾;Jules、Firebase Studio 必须排在 Antigravity 前面，
+//   否则名字里带 Google 的会先被 Antigravity 的 "google" 认走;产品排在它的公司前面(Grok 在 xAI 前,Comet 在 Perplexity 前)。
 // lobe 只按路径导入每个图标里纯 SVG 的组件与主色：有彩色版用彩色版，没有的用单色版;包入口和 Avatar 会带上 @lobehub/ui,不用。
 import type { IconType } from "@lobehub/icons/es/types";
 import LobeHub from "@lobehub/icons/es/LobeHub/components/Color";
@@ -50,33 +50,50 @@ import CodeBuddy from "@lobehub/icons/es/CodeBuddy/components/Color";
 import * as CodeBuddyStyle from "@lobehub/icons/es/CodeBuddy/style";
 import aider from "./agent-logos/aider.svg";
 import amazonQ from "./agent-logos/amazon-q.svg";
+import anthropic from "./agent-logos/anthropic.svg";
 import antigravity from "./agent-logos/antigravity.svg";
 import augmentCode from "./agent-logos/augment-code.svg";
+import blackbox from "./agent-logos/blackbox.svg";
+import bolt from "./agent-logos/bolt.svg";
 import chatgpt from "./agent-logos/chatgpt.svg";
 import claude from "./agent-logos/claude.svg";
 import cline from "./agent-logos/cline.svg";
 import codeium from "./agent-logos/codeium.svg";
 import codex from "./agent-logos/codex.svg";
 import cody from "./agent-logos/cody.svg";
+import comet from "./agent-logos/comet.svg";
 import continueDev from "./agent-logos/continue.svg";
 import cursor from "./agent-logos/cursor.svg";
+import deepseek from "./agent-logos/deepseek.svg";
 import devin from "./agent-logos/devin.svg";
 import factory from "./agent-logos/factory.svg";
 import firebaseStudio from "./agent-logos/firebase-studio.svg";
 import gemini from "./agent-logos/gemini.svg";
+import genspark from "./agent-logos/genspark.svg";
 import githubCopilot from "./agent-logos/github-copilot.svg";
 import goose from "./agent-logos/goose.svg";
+import grok from "./agent-logos/grok.svg";
+import huggingFace from "./agent-logos/hugging-face.svg";
 import ibmBob from "./agent-logos/ibm-bob.svg";
 import jules from "./agent-logos/jules.svg";
 import junie from "./agent-logos/junie.svg";
 import kiloCode from "./agent-logos/kilo-code.svg";
 import kimi from "./agent-logos/kimi.svg";
+import lmStudio from "./agent-logos/lm-studio.svg";
+import lovable from "./agent-logos/lovable.svg";
 import manus from "./agent-logos/manus.svg";
+import mcp from "./agent-logos/mcp.svg";
 import metaAI from "./agent-logos/meta-ai.svg";
 import microsoftCopilot from "./agent-logos/microsoft-copilot.svg";
+import minimax from "./agent-logos/minimax.svg";
+import mistral from "./agent-logos/mistral.svg";
+import muse from "./agent-logos/muse.svg";
+import ollama from "./agent-logos/ollama.svg";
 import openai from "./agent-logos/openai.svg";
 import opencode from "./agent-logos/opencode.svg";
 import openhands from "./agent-logos/openhands.svg";
+import openrouter from "./agent-logos/openrouter.svg";
+import perplexity from "./agent-logos/perplexity.svg";
 import pi from "./agent-logos/pi.svg";
 import qodo from "./agent-logos/qodo.svg";
 import qwen from "./agent-logos/qwen.svg";
@@ -84,8 +101,11 @@ import replit from "./agent-logos/replit.svg";
 import rooCode from "./agent-logos/roo-code.svg";
 import tabnine from "./agent-logos/tabnine.svg";
 import trae from "./agent-logos/trae.svg";
+import v0 from "./agent-logos/v0.svg";
 import warp from "./agent-logos/warp.svg";
 import windsurf from "./agent-logos/windsurf.svg";
+import xai from "./agent-logos/xai.svg";
+import zAI from "./agent-logos/z-ai.svg";
 import zed from "./agent-logos/zed.svg";
 
 // AgentBrand 是认出的品牌图标:src 是 agentlogos.dev 的彩色 SVG 地址;Icon 是 lobe 的图标组件,
@@ -152,6 +172,26 @@ const brands: [AgentBrand, string[]][] = [
   [{ src: tabnine }, ["tabnine"]],
   [{ src: codeium }, ["codeium"]],
   [{ src: ibmBob }, ["ibm-bob", "-bob-"]],
+  [{ src: grok }, ["grok"]],
+  [{ src: xai }, ["-xai-", "x.ai", "-x-ai-"]],
+  [{ src: anthropic }, ["anthropic"]],
+  [{ src: mistral }, ["mistral"]],
+  [{ src: deepseek }, ["deepseek"]],
+  [{ src: zAI }, ["z.ai", "-z-ai-", "-zai-", "zhipu", "-glm-"]],
+  [{ src: minimax }, ["minimax"]],
+  [{ src: comet }, ["-comet-"]],
+  [{ src: perplexity }, ["perplexity"]],
+  [{ src: blackbox }, ["blackbox"]],
+  [{ src: lovable }, ["lovable"]],
+  [{ src: v0 }, ["-v0-", "v0.dev", "v0.app"]],
+  [{ src: bolt }, ["bolt.new", "-bolt-"]],
+  [{ src: genspark }, ["genspark"]],
+  [{ src: muse }, ["-muse-"]],
+  [{ src: ollama }, ["ollama"]],
+  [{ src: lmStudio }, ["lm-studio", "lmstudio"]],
+  [{ src: openrouter }, ["openrouter", "open-router"]],
+  [{ src: huggingFace }, ["hugging-face", "huggingface"]],
+  [{ src: mcp }, ["-mcp-"]],
 ];
 
 // agentBrand 按名字找 Agent 的品牌图标，认不出时返回 undefined。名字里的空格当连字符,
