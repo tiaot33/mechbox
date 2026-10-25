@@ -128,7 +128,7 @@ async function settle() {
 }
 // unfold 展开所有技能页每节里折起来的"没装的"与收起的节(作用域页"来自全局"默认收起)，好按名字找到每一行。
 async function unfold() {
-  for (const b of await page.locator('.not-installed-fold[aria-expanded="false"], .sec-toggle[aria-expanded="false"]').all()) {
+  for (const b of await page.locator('.a-list .not-installed-fold[aria-expanded="false"], .a-list .sec-toggle[aria-expanded="false"]').all()) {
     await b.click().catch(() => {});
   }
 }
@@ -180,9 +180,11 @@ async function selectScope(agentName, place = "全局") {
   await page.locator('.a-list[data-page="scope"]').waitFor();
   await settle();
 }
-// clearScope 回到所有技能页。
+// clearScope 回到所有技能页，按集合分节(左栏点了组、拖组行时会换成按组)。
 async function clearScope() {
   await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+  const byCollection = page.locator(".arrange-seg button", { hasText: "按集合" });
+  if ((await byCollection.count()) && (await byCollection.getAttribute("aria-pressed")) !== "true") await byCollection.click();
   await unfold();
 }
 const candidateNames = async () => (await modal().locator('[data-slot="list-row"] b').allTextContents()).sort();
