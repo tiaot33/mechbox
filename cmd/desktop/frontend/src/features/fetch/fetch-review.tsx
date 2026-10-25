@@ -60,7 +60,8 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const fresh = candidates.filter((c) => !c.fetched);
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
   const [selected, setSelected] = useState<Set<string>>(() => new Set(fresh.filter((c) => !onlyNew || c.new).map((c) => c.name)));
-  const [fetching, setFetching] = useState(false);
+  // 入库所选：running 时按钮上转圈，入库成功后合成对勾，停一下再关掉弹窗。
+  const [fetching, setFetching] = useState<"running" | "done" | null>(null);
 
   const toggle = (name: string) => setSelected((set) => toggled(set, name));
   // 分组的勾选：组里没入库的候选都勾上时取消全组，否则全组勾上。
@@ -77,13 +78,16 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     });
 
   const fetchSelected = async () => {
-    setFetching(true);
+    if (fetching) return;
+    setFetching("running");
     const names = [...selected];
     const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names), {
       success: (list) => t.fetched(list?.length ?? 0),
     });
-    setFetching(false);
-    if (fetched) onClose();
+    if (!fetched) return setFetching(null);
+    setFetching("done");
+    await new Promise((r) => window.setTimeout(r, 450));
+    onClose();
   };
 
   const groups = new Map<string, Candidate[]>();
@@ -137,7 +141,14 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           <Button onClick={onBack}>{t.back}</Button>
           <span className="grow" />
           <span className="text-[11px] text-muted-foreground">{t.selected(selected.size, fresh.length)}</span>
-          <Button variant="primary" disabled={selected.size === 0} loading={fetching} onClick={fetchSelected}>
+          <Button
+            variant="primary"
+            ripple
+            disabled={selected.size === 0}
+            loading={fetching === "running"}
+            done={fetching === "done"}
+            onClick={fetchSelected}
+          >
             {t.fetchSelected}
           </Button>
         </>

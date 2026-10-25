@@ -31,9 +31,9 @@ export async function pickDirectory(title: string): Promise<string> {
   return typeof picked === "string" ? picked : (picked[0] ?? "");
 }
 
-// openFetch 打开入库技能对话框(左栏"入库技能"、空库时的按钮);home 用来展开输入里的 ~。
-export function openFetch(home: string) {
-  return ui.open((close) => <FetchDialog home={home} onClose={close} />);
+// openFetch 打开入库技能对话框(左栏"入库技能"、空库时的按钮);home 用来展开输入里的 ~,origin 是点的那个按钮(弹窗从它放大出来)。
+export function openFetch(home: string, origin?: Element) {
+  return ui.open((close) => <FetchDialog home={home} onClose={close} />, { origin });
 }
 
 export function FetchDialog({ home, onClose }: { home: string; onClose: () => void }) {

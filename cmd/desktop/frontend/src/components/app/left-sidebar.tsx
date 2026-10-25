@@ -85,11 +85,11 @@ export function LeftSidebar() {
 
   return (
     <aside className={leftClass}>
-      <SideButton onClick={() => void openFetch(s.info.home_dir)}>
+      <SideButton onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
         <Icon name="plus" />
         <span>{t.fetch}</span>
       </SideButton>
-      <SideButton onClick={() => ui.open((close) => <MarketDialog onClose={close} />)}>
+      <SideButton onClick={(e) => ui.open((close) => <MarketDialog onClose={close} />, { origin: e.currentTarget })}>
         <Icon name="tag" />
         <span>{t.market}</span>
       </SideButton>
@@ -324,7 +324,7 @@ function GroupRow({ group: g }: { group: Group }) {
   );
 }
 
-function SideButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function SideButton({ onClick, children }: { onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; children: React.ReactNode }) {
   return (
     <button
       type="button"

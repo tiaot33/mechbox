@@ -1,5 +1,6 @@
 /* 样式入口:Tailwind 主题(原型的颜色、圆角、阴影，以及半透明表面的档位)与少量全局样式。
-   组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、渲染出来的 Markdown、拖放中的高亮。 */
+   组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、渲染出来的 Markdown、拖放中的高亮，
+   以及状态圈与 toast 按状态切换的动画。 */
 @import "tailwindcss";
 
 @source not "../dist";
@@ -272,5 +273,166 @@
   }
   [data-dragging] [data-drop-order="after"] {
     box-shadow: inset 0 -2px 0 var(--color-primary);
+  }
+}
+
+/* 状态圈(components/ui/status-mark.tsx):各状态下底圈、弧、对勾与叉的显隐与颜色。 */
+@layer components {
+  .status-mark {
+    overflow: visible;
+    color: currentColor;
+    transition: color 200ms ease;
+  }
+  .status-mark[data-status="done"] {
+    color: var(--color-ok);
+  }
+  .status-mark[data-status="failed"] {
+    color: var(--color-bad);
+  }
+  .status-mark-track {
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: var(--sm-stroke);
+    fill-opacity: 0;
+    stroke-opacity: 0;
+    transition:
+      fill-opacity 180ms ease,
+      stroke-opacity 200ms ease;
+  }
+  .status-mark[data-status="running"] .status-mark-track {
+    stroke-opacity: 0.2;
+  }
+  .status-mark[data-status="done"] .status-mark-track,
+  .status-mark[data-status="failed"] .status-mark-track {
+    fill-opacity: 0.08;
+  }
+  .status-mark-ring {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--sm-stroke);
+    stroke-linecap: round;
+    opacity: 0.55;
+    transition: opacity 200ms ease;
+  }
+  .status-mark:not([data-status="pending"]) .status-mark-ring {
+    opacity: 1;
+  }
+  .status-mark-check,
+  .status-mark-cross {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--sm-stroke);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1 2;
+    stroke-dashoffset: 1.05;
+    opacity: 0;
+    transition:
+      stroke-dashoffset 160ms cubic-bezier(0.23, 1, 0.32, 1),
+      opacity 0ms linear 160ms;
+  }
+  .status-mark[data-status="done"] .status-mark-check,
+  .status-mark[data-status="failed"] .status-mark-cross {
+    stroke-dashoffset: 0;
+    opacity: 1;
+    transition:
+      stroke-dashoffset 240ms cubic-bezier(0.23, 1, 0.32, 1) 120ms,
+      opacity 0ms linear 120ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .status-mark[data-indeterminate] .status-mark-ring {
+      animation: sm-breathe 1400ms cubic-bezier(0.77, 0, 0.175, 1) infinite;
+    }
+    .status-mark-check,
+    .status-mark-cross {
+      stroke-dashoffset: 0;
+      transition: opacity 200ms ease;
+    }
+  }
+  @keyframes sm-breathe {
+    50% {
+      opacity: 0.45;
+    }
+  }
+}
+
+/* 可下滑关掉的 toast(components/ui/swipe-toast.tsx):升起、收起的阶段与底边的引线。
+   新出现时从底部升起(支持 @starting-style 时用它，否则等 data-mounted);收起时沉下去淡出。 */
+@layer components {
+  .swipe-toast {
+    --st-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --st-fuse: var(--color-primary);
+  }
+  .swipe-toast[data-tone="error"] {
+    --st-fuse: var(--color-bad);
+  }
+  .swipe-toast[data-tone="error"] .swipe-toast-card {
+    border-color: var(--color-bad-border);
+    color: var(--color-bad-strong);
+  }
+  .swipe-toast-lift {
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      transform 400ms var(--st-ease-out),
+      opacity 240ms ease;
+  }
+  @starting-style {
+    .swipe-toast-lift {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+  }
+  .swipe-toast[data-mounted="false"] .swipe-toast-lift,
+  .swipe-toast[data-phase="closing"] .swipe-toast-lift {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  .swipe-toast[data-phase="closing"] .swipe-toast-lift {
+    transition:
+      transform 280ms var(--st-ease-out),
+      opacity 200ms ease;
+  }
+  .swipe-toast[data-phase="gone"] .swipe-toast-lift {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .swipe-toast[data-instant] .swipe-toast-lift {
+    transition-duration: 0s;
+  }
+  .swipe-toast[data-phase="closing"] .swipe-toast-card,
+  .swipe-toast[data-phase="gone"] .swipe-toast-card {
+    pointer-events: none;
+  }
+  .swipe-toast-fuse {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--st-fuse) 18%, transparent) 9%,
+      color-mix(in srgb, var(--st-fuse) 50%, transparent) 18%,
+      color-mix(in srgb, var(--st-fuse) 84%, transparent) 28%,
+      var(--st-fuse) 38%,
+      var(--st-fuse) 62%,
+      color-mix(in srgb, var(--st-fuse) 84%, transparent) 72%,
+      color-mix(in srgb, var(--st-fuse) 50%, transparent) 82%,
+      color-mix(in srgb, var(--st-fuse) 18%, transparent) 91%,
+      transparent 100%
+    );
+    transform-origin: left center;
+    pointer-events: none;
+  }
+  .swipe-toast:not([data-fuse]) .swipe-toast-fuse {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .swipe-toast-lift {
+      transform: none !important;
+      transition: opacity 200ms ease;
+    }
   }
 }

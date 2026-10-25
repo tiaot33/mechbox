@@ -5,9 +5,20 @@ import { create } from "zustand";
 import { ErrorCode } from "@bindings/internal/library";
 import { Icon } from "@/components/app/icons";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogMotionContext,
+  DialogTitle,
+  type DialogMotion,
+} from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { SwipeToast } from "@/components/ui/swipe-toast";
 import { cn } from "./utils";
 import { describeError } from "./errors";
 import { useT } from "./i18n";
@@ -48,10 +59,15 @@ export interface ToastAction {
   onClick: () => void;
 }
 
+// OpenOptions.origin 是点了哪个元素打开的弹窗：弹窗从它的位置放大出来，关掉时缩回去。
+export interface OpenOptions {
+  origin?: Element | null;
+}
+
 interface UIService {
   toast: (message: string, tone?: "ok" | "error", action?: ToastAction) => void;
   // open 打开一个自定义弹窗;render 拿到 close,close(value) 关闭并 resolve。
-  open: <T>(render: (close: (value?: T) => void) => ReactNode) => Promise<T | undefined>;
+  open: <T>(render: (close: (value?: T) => void) => ReactNode, opts?: OpenOptions) => Promise<T | undefined>;
   confirm: (opts: ConfirmOptions) => Promise<string | undefined>;
   prompt: (opts: PromptOptions) => Promise<string | undefined>;
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
@@ -60,47 +76,70 @@ interface UIService {
 }
 
 interface ToastState {
+  id: number; // 每条 toast 一个，新的一条换掉旧的、重新升起
   message: string;
   tone: "ok" | "error";
-  show: boolean;
   action?: ToastAction;
 }
 
+interface DialogEntry {
+  id: number;
+  node: ReactNode;
+  motion: DialogMotion;
+}
+
 // 弹窗栈、toast 与进行中的写操作数放在 store 里，组件外的写操作流程也能打开弹窗、弹 toast;UIHost 把它们画出来。
-const useUIStore = create<{ dialogs: { id: number; node: ReactNode }[]; toast: ToastState; pending: number }>()(() => ({
+// settled 是进行中的写操作全部结束时的结果(有失败的就是 failed),顶栏的状态圈据此画对勾或叉。
+const useUIStore = create<{
+  dialogs: DialogEntry[];
+  toast: ToastState | null;
+  pending: number;
+  failed: boolean;
+  settled: { id: number; failed: boolean } | null;
+}>()(() => ({
   dialogs: [],
-  toast: { message: "", tone: "ok", show: false },
+  toast: null,
   pending: 0,
+  failed: false,
+  settled: null,
 }));
 const set = useUIStore.setState;
 
-let toastTimer: number | undefined;
+let nextToastID = 1;
 let nextDialogID = 1;
+let nextSettledID = 1;
 
 function toast(message: string, tone: "ok" | "error" = "ok", action?: ToastAction) {
-  window.clearTimeout(toastTimer);
-  set({ toast: { message, tone, show: true, action } });
-  toastTimer = window.setTimeout(() => set((s) => ({ toast: { ...s.toast, show: false } })), action ? 6000 : tone === "error" ? 5200 : 2400);
+  set({ toast: { id: nextToastID++, message, tone, action } });
 }
 
-function hideToast() {
-  window.clearTimeout(toastTimer);
-  set((s) => ({ toast: { ...s.toast, show: false } }));
+function toastDuration(t: ToastState): number {
+  return t.action ? 6000 : t.tone === "error" ? 5200 : 2400;
 }
 
-function open<T>(render: (close: (value?: T) => void) => ReactNode): Promise<T | undefined> {
+function open<T>(render: (close: (value?: T) => void) => ReactNode, opts: OpenOptions = {}): Promise<T | undefined> {
   return new Promise<T | undefined>((resolve) => {
     const id = nextDialogID++;
+    const remove = () => set((s) => ({ dialogs: s.dialogs.filter((d) => d.id !== id) }));
+    // 从某个元素打开的弹窗关掉时先缩回去，缩完再从栈里拿掉;结果马上交给调用方，不等动画。
     const close = (value?: T) => {
-      set((s) => ({ dialogs: s.dialogs.filter((d) => d.id !== id) }));
+      const entry = useUIStore.getState().dialogs.find((d) => d.id === id);
+      if (entry?.motion.origin && !entry.motion.closing) {
+        const motion = { ...entry.motion, closing: true };
+        set((s) => ({ dialogs: s.dialogs.map((d) => (d.id === id ? { ...d, motion } : d)) }));
+      } else if (!entry?.motion.closing) {
+        remove();
+      }
       resolve(value);
     };
-    set((s) => ({ dialogs: [...s.dialogs, { id, node: render(close) }] }));
+    const motion: DialogMotion = { origin: opts.origin ?? undefined, closing: false, exited: remove, last: { played: false } };
+    set((s) => ({ dialogs: [...s.dialogs, { id, node: render(close), motion }] }));
   });
 }
 
 async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise<T | undefined> {
   set((s) => ({ pending: s.pending + 1 }));
+  let failed = false;
   try {
     const value = await task();
     const message = typeof opts.success === "function" ? opts.success(value) : opts.success;
@@ -109,10 +148,16 @@ async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise
   } catch (e) {
     const err = toLibraryError(e);
     if (err.code === ErrorCode.Canceled) return undefined;
+    failed = true;
     if (!opts.onError?.(err)) toast(describeError(err), "error");
     return undefined;
   } finally {
-    set((s) => ({ pending: s.pending - 1 }));
+    set((s) => {
+      const pending = s.pending - 1;
+      const anyFailed = s.failed || failed;
+      if (pending > 0) return { pending, failed: anyFailed };
+      return { pending, failed: false, settled: { id: nextSettledID++, failed: anyFailed } };
+    });
     // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
     if (opts.reload !== false) void reloadLibrary();
   }
@@ -137,6 +182,11 @@ export function useBusy(): boolean {
   return useUIStore((s) => s.pending > 0);
 }
 
+// useSettled 是最近一次写操作全部结束时的结果;id 每次结束都换，用来只闪一下对勾或叉。
+export function useSettled(): { id: number; failed: boolean } | null {
+  return useUIStore((s) => s.settled);
+}
+
 // UIHost 画出打开着的弹窗与 toast,放在主界面最外层。
 export function UIHost() {
   const dialogs = useUIStore((s) => s.dialogs);
@@ -144,32 +194,22 @@ export function UIHost() {
   return (
     <>
       {dialogs.map((d) => (
-        <div key={d.id}>{d.node}</div>
+        <DialogMotionContext key={d.id} value={d.motion}>
+          {d.node}
+        </DialogMotionContext>
       ))}
-      <div
-        data-slot="toast"
-        data-state={toastState.show ? "open" : "closed"}
-        data-tone={toastState.tone}
-        role="status"
-        className={cn(
-          "pointer-events-none fixed bottom-[66px] left-1/2 z-[101] max-w-[640px] -translate-x-1/2 translate-y-2.5 rounded-[14px] border border-border bg-white px-4 py-2 text-center text-[12.5px] break-words whitespace-pre-line opacity-0 shadow-toast transition-all duration-200",
-          "data-[state=open]:translate-y-0 data-[state=open]:opacity-100 data-[tone=error]:border-bad-border data-[tone=error]:text-bad-strong",
-        )}
-      >
-        {toastState.message}
-        {toastState.action && (
-          <Button
-            variant="link"
-            className={cn("ml-2", toastState.show && "pointer-events-auto")}
-            onClick={() => {
-              hideToast();
-              toastState.action?.onClick();
-            }}
-          >
-            {toastState.action.label}
-          </Button>
-        )}
-      </div>
+      {toastState && (
+        <SwipeToast
+          key={toastState.id}
+          tone={toastState.tone}
+          duration={toastDuration(toastState)}
+          actionLabel={toastState.action?.label}
+          onAction={toastState.action?.onClick}
+          onClose={() => set((s) => (s.toast?.id === toastState.id ? { toast: null } : {}))}
+        >
+          {toastState.message}
+        </SwipeToast>
+      )}
     </>
   );
 }

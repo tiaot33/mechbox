@@ -66,7 +66,7 @@ function EmptyLibrary() {
     <ListEmpty>
       <b className="text-sm text-foreground">{t.emptyLibrary}</b>
       <span>{t.emptyHint}</span>
-      <Button variant="primary" className="mt-1.5" onClick={() => void openFetch(s.info.home_dir)}>
+      <Button variant="primary" className="mt-1.5" onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
         <Icon name="plus" />
         {t.fetchSkills}
       </Button>
