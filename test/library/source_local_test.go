@@ -94,6 +94,23 @@ func TestLocalSkillFolderJoinsTheCollectionOfItsParentDirectory(t *testing.T) {
 	}
 }
 
+// 来源是上一级目录:删掉目录里最后一个技能,检查更新报来源里已删除,不报来源读不到。
+func TestLocalSkillFolderRemovedFromItsParentIsDeletedInSource(t *testing.T) {
+	lib := openTestLibrary(t)
+	root := t.TempDir()
+	writeLocalSkill(t, filepath.Join(root, "alpha"), "alpha")
+	skill, err := fetchLocalDir(t.Context(), lib, filepath.Join(root, "alpha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := checkSkillUpdate(t, lib, t.Context(), skill.ID); err != nil || status != library.UpdateDeleted {
+		t.Fatalf("check = %v, %v; want deleted in source", status, err)
+	}
+}
+
 // 上一级目录列不出这个技能文件夹时,来源就是这个文件夹本身。
 func TestLocalSkillFolderIsItsOwnSourceWhenTheParentCannotListIt(t *testing.T) {
 	skillInside := t.TempDir()

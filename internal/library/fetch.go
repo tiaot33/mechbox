@@ -227,6 +227,9 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	if err == nil {
 		candidates, diagnostics, err = snapshot.Candidates(ctx)
 	}
+	if err == nil && len(candidates) == 0 {
+		err = discovery.NoCandidates(diagnostics)
+	}
 	if err != nil {
 		return FetchPreview{}, inputField(err, field)
 	}
@@ -289,7 +292,10 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 		if err := gitOnly(req); err != nil {
 			return source.Target{}, "", err
 		}
-		target, err = l.local.Locate(ctx, input)
+		_, unlock := l.sharedOperation(ctx)
+		home := l.home.Root()
+		unlock()
+		target, err = l.local.Locate(ctx, input, home)
 	case download.Hosted(input):
 		if err := gitOnly(req); err != nil {
 			return source.Target{}, "", err
