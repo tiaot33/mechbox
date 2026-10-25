@@ -1,4 +1,4 @@
-// 安装与卸载：卡片开关、详情抽屉、整组开关与拖放都走这里，冲突处理只写一份。
+// 安装与卸载：作用域页的开关、详情抽屉、整组开关与拖放(技能、组、集合)都走这里，冲突处理只写一份。
 // 规则来自技能库的契约(go doc ./internal/library):
 // - 安装前先看安装计划：不是从库里装的同名文件夹可选覆盖;被另一个技能占用或作用域根目录不存在时只能说明原因。
 // - 组安装逐条返回结果，被跳过的成员列出原因。
@@ -8,16 +8,20 @@ import {
   ErrorCode,
   GroupMemberOutcome,
   InstallPlanStatus,
+  type CollectionID,
   type GroupID,
+  type InstallPlan,
   type Scope,
   type SkillID,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
+import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import { currentSnapshot } from "@/lib/library";
+import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
 import {
   agentName,
+  collectionSkills,
   folderPlaces,
   groupName,
   placeOf,
@@ -32,7 +36,7 @@ import {
 import { ui } from "@/lib/ui";
 import { Notice } from "@/components/ui/notice";
 import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
-import { memberRows, showResults, summarizeMembers } from "@/components/app/results";
+import { memberRows, showResults, summarizeMembers, type ResultRow } from "@/components/app/results";
 
 export async function installSkill(id: SkillID, scope: Scope) {
   const s = currentSnapshot();
@@ -42,20 +46,9 @@ export async function installSkill(id: SkillID, scope: Scope) {
   const where = scopeLabel(s, scope);
   let overwrite = false;
   switch (plan.status) {
-    case InstallPlanStatus.InstallOccupied: {
-      // 占用者与本技能同名;用来源区分是哪一个。
-      const occupier = s.skills.find((x) => x.id === plan.occupier_skill_id);
-      const folder = shortPath(s, plan.folder);
-      ui.toast(
-        occupier?.id === id
-          ? t.occupiedSelf(folder)
-          : occupier
-            ? t.occupiedSource(sourceLabel(s, occupier.source), folder)
-            : t.occupiedOther(folder),
-        "error",
-      );
+    case InstallPlanStatus.InstallOccupied:
+      ui.toast(occupiedReason(s, id, plan), "error");
       return;
-    }
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
         title: t.untrackedTitle,
@@ -71,6 +64,76 @@ export async function installSkill(id: SkillID, scope: Scope) {
   await ui.run(() => LibraryService.Install(id, scope, { overwrite }), {
     success: t.installed(plan.name, where),
   });
+}
+
+// occupiedReason 说明为什么装不上：同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹;用来源区分是哪一个。
+function occupiedReason(s: Snapshot, id: SkillID, plan: InstallPlan): string {
+  const t = messages().actions;
+  const occupier = s.skills.find((x) => x.id === plan.occupier_skill_id);
+  const folder = shortPath(s, plan.folder);
+  return occupier?.id === id
+    ? t.occupiedSelf(folder)
+    : occupier
+      ? t.occupiedSource(sourceLabel(s, occupier.source), folder)
+      : t.occupiedOther(folder);
+}
+
+// installCollection 是把集合拖到作用域：集合里还没直接安装在这里的技能逐个直接安装。一次性的，不像组安装那样记下来，
+// 之后入库的新技能不会自动装过去。技能库没有整个集合的安装，先逐个看安装计划：被别的技能占用的跳过并说明原因;
+// 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。有没装上的才列出结果，否则只提示装了几个。
+export async function installCollection(id: CollectionID, scope: Scope) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const collection = s.collections.find((c) => c.id === id);
+  if (!collection) return;
+  const label = sourceLabel(s, collection.source);
+  const where = scopeLabel(s, scope);
+  const skills = collectionSkills(s, collection).filter((x) => !skillScopeIn(s, x.id, scopeKey(scope))?.direct);
+  if (!skills.length) return;
+  const plans = await ui.run(() => Promise.all(skills.map((x) => LibraryService.PlanInstall(x.id, scope))), { reload: false });
+  if (!plans) return;
+  const items = skills.map((skill, i) => ({ skill, plan: plans[i] }));
+  const untracked = items.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
+  let overwrite = false;
+  if (untracked.length) {
+    const choice = await ui.confirm({
+      title: t.collectionInstallTitle(label, where),
+      body: <Notice tone="warn">{t.collectionUntracked(untracked.length, untracked.map((x) => x.plan.name))}</Notice>,
+      choices: [
+        { value: "skip", label: t.skipSkills, desc: t.skipSkillsDesc },
+        { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
+      ],
+      confirm: t.install,
+    });
+    if (!choice) return;
+    overwrite = choice === "overwrite";
+  }
+  const rows: ResultRow[] = [];
+  await ui.run(async () => {
+    for (const { skill, plan } of items) {
+      const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
+      if (plan.status === InstallPlanStatus.InstallOccupied) {
+        rows.push({ label: skill.name, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan) });
+        continue;
+      }
+      if (isUntracked && !overwrite) {
+        rows.push({ label: skill.name, outcome: t.memberSkipped, tone: "warn", reason: t.untrackedBody(shortPath(s, plan.folder), plan.name) });
+        continue;
+      }
+      try {
+        await LibraryService.Install(skill.id, scope, { overwrite: isUntracked });
+        rows.push({ label: skill.name, outcome: t.memberInstalled, tone: "ok" });
+      } catch (e) {
+        rows.push({ label: skill.name, outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+      }
+    }
+  });
+  const installed = rows.filter((r) => r.tone === "ok").length;
+  if (rows.some((r) => r.tone !== "ok")) {
+    await showResults(t.collectionInstallResults(label, where), rows, t.collectionSummary(installed, rows.length - installed));
+  } else {
+    ui.toast(t.collectionInstalled(label, where, installed));
+  }
 }
 
 export async function uninstallSkill(id: SkillID, scope: Scope) {

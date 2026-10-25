@@ -1,6 +1,6 @@
-// 左栏：入库 / 市场入口;筛选——所有技能 / 更新 / 集合(按来源)/ 组;底部同步与设置。
+// 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;底部同步与设置。
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);只有一个技能的集合不列出，集合这一层只在有两个以上技能时出现。
-// 组行可拖到右栏作用域(组安装),也接受技能卡片(加入该组)。
+// 集合行可拖到右栏作用域(把集合里的技能逐个直接安装);组行可拖到右栏作用域(组安装),也接受技能(加入该组)。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType } from "@bindings/internal/library";
@@ -9,18 +9,10 @@ import { checkUpdates } from "@/features/update/check";
 import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { alreadyInGroup, dropProps, useDnD } from "./dnd";
 import { useT } from "@/lib/i18n";
-import {
-  checkableCollections,
-  pending,
-  sameFilter,
-  shortPath,
-  sourceKindLabel,
-  sourceLabel,
-  type SkillFilter,
-} from "@/lib/model";
+import { checkableCollections, pending, shortPath, sourceKindLabel, sourceLabel, type Page } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { openSettings, setFilter, useCurrentFilter } from "@/lib/view";
+import { jumpTo, openPage, openSettings, useCurrentPage } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { openFetch } from "@/features/fetch/fetch-dialog";
@@ -35,7 +27,7 @@ const noConfig = { sync: false, github_token: false };
 
 export function FilterSidebar() {
   const s = useSnapshot();
-  const filter = useCurrentFilter();
+  const page = useCurrentPage();
   // 设置页保存 GitHub 令牌或同步设置后让它失效重读，保存晚于回到主界面完成时也一样。
   const config = useQuery(configQuery).data ?? noConfig;
   const ui = useUI();
@@ -48,21 +40,18 @@ export function FilterSidebar() {
   const collections = s.collections.filter((c) => (c.skills?.length ?? 0) > 1);
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  // 再点一次当前筛选回到"所有技能",与原型一致。
-  const pick = (target: SkillFilter) => setFilter(sameFilter(filter, target) ? { kind: "all" } : target);
-  // 本地路径放不下时省掉开头整段、保留末尾(末段才是技能目录名)。
-  const row = (target: SkillFilter, icon: React.ReactNode | null, label: string, count: number, title?: string, local = false) => (
-    <li key={JSON.stringify(target)}>
+  const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
+    <li key={target.kind}>
       <button
         type="button"
-        className={navItem({ kind: icon ? "main" : "section" })}
-        data-active={sameFilter(filter, target)}
-        onClick={() => pick(target)}
+        className={navItem({ kind: "main" })}
+        data-active={page.kind === target.kind}
+        onClick={() => openPage(target)}
         title={title}
       >
         {icon}
-        {local ? <TailPath path={label} max={24} className="grow" /> : <span className="grow truncate">{label}</span>}
-        <NavCount value={count} accent={!icon} />
+        <span className="grow truncate">{label}</span>
+        <NavCount value={count} />
       </button>
     </li>
   );
@@ -78,8 +67,8 @@ export function FilterSidebar() {
         <span>{t.market}</span>
       </SideButton>
       <ul className="flex flex-col gap-0.5">
-        {row({ kind: "all" }, <Icon name="bolt" />, t.allSkills, s.skills.length)}
-        {updates > 0 && row({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
+        {pageRow({ kind: "all" }, <Icon name="bolt" />, t.allSkills, s.skills.length)}
+        {updates > 0 && pageRow({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
         <li>
           <button
             type="button"
@@ -99,16 +88,26 @@ export function FilterSidebar() {
       </SectionHead>
       {!collapsed.has("collections") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
-          {collections.map((c) =>
-            row(
-              { kind: "collection", collectionID: c.id },
-              null,
-              sourceLabel(s, c.source),
-              c.skills?.length ?? 0,
-              `${sourceKindLabel(c.source.type)} · ${sourceLabel(s, c.source)}`,
-              c.source.type === SourceType.SourceLocal,
-            ),
-          )}
+          {collections.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                className={navItem({ kind: "section" })}
+                onClick={() => jumpTo({ kind: "collection", id: c.id })}
+                draggable
+                onDragStart={(e) => dnd.start(e, { kind: "collection", id: c.id }, tt.list.collectionDrag(sourceLabel(s, c.source), c.skills?.length ?? 0))}
+                onDragEnd={dnd.end}
+                title={t.collectionTitle(sourceKindLabel(c.source.type), sourceLabel(s, c.source))}
+              >
+                {c.source.type === SourceType.SourceLocal ? (
+                  <TailPath path={sourceLabel(s, c.source)} max={24} className="grow" />
+                ) : (
+                  <span className="grow truncate">{sourceLabel(s, c.source)}</span>
+                )}
+                <NavCount value={c.skills?.length ?? 0} accent />
+              </button>
+            </li>
+          ))}
         </ul>
       )}
       {collections.length === 0 && !collapsed.has("collections") && <Hint className="mt-1 px-3">{t.noCollections}</Hint>}
@@ -127,7 +126,6 @@ export function FilterSidebar() {
       {!collapsed.has("groups") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
           {s.groups.map((g) => {
-            const target: SkillFilter = { kind: "group", groupID: g.id };
             const already = !!dnd.item && alreadyInGroup(s, dnd.item, g.id);
             const canDrop = dnd.item?.kind === "skill" && !already;
             return (
@@ -136,9 +134,8 @@ export function FilterSidebar() {
                   role="button"
                   tabIndex={0}
                   className={navItem({ kind: "section" })}
-                  data-active={sameFilter(filter, target)}
                   data-already={already ? tt.layout.alreadyThere : undefined}
-                  onClick={() => pick(target)}
+                  onClick={() => jumpTo({ kind: "group", id: g.id })}
                   draggable
                   onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, tt.list.groupDrag(g.name, g.members?.length ?? 0))}
                   onDragEnd={dnd.end}

@@ -23,6 +23,16 @@ const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
 const bin = () => (platform() === "windows" ? "Recycle Bin" : "Trash");
 const putBack = () => (platform() === "mac" ? "put back" : "restored");
 
+// day 是技能最近一次变化的日子：today、yesterday、几天前，再早写日期(不是今年的带上年)。
+const day = (date: Date) => {
+  const now = new Date();
+  const days = Math.round((new Date(now.toDateString()).getTime() - new Date(date.toDateString()).getTime()) / 864e5);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  return date.toLocaleDateString("en", { month: "short", day: "numeric", ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) });
+};
+
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
 
@@ -85,9 +95,9 @@ export const en = {
     sameNameProjectUnknown: (projects: string[], name: string) => `${projectsHave(projects)} a skill named ${name}`,
     sameNameProjectFolder: (project: string, folder: string) => `Folder in “${project}”: ${folder}`,
     sameNameFetchSourced: (name: string) =>
-      `With a Source, it's compared only with the same-named skill from that Source: if the content matches one of its Versions, it's just recorded as installed here; if not, it can't be fetched (you can clear the Source). Same-named skills from other Sources or with no Source aren't merged—the Library will have another “${name}”, and each card shows where it's installed.`,
+      `With a Source, it's compared only with the same-named skill from that Source: if the content matches one of its Versions, it's just recorded as installed here; if not, it can't be fetched (you can clear the Source). Same-named skills from other Sources or with no Source aren't merged—the Library will have another “${name}”, and the list shows where each is installed.`,
     sameNameFetchUnsourced: (name: string) =>
-      `If the content matches a Version of one of them, it's just recorded as installed here; otherwise they aren't merged—the Library will have another “${name}”, and each card shows where it's installed.`,
+      `If the content matches a Version of one of them, it's just recorded as installed here; otherwise they aren't merged—the Library will have another “${name}”, and the list shows where each is installed.`,
     statusCurrent: "Current",
     statusStale: "Old Version",
     statusModified: "Edited by hand",
@@ -105,6 +115,10 @@ export const en = {
     unknownSource: "Unknown Source",
     allSkills: "All skills",
     updates: "Updates",
+    agentsGlobal: (names: string[]) => (names.length > 2 ? `${names.length} Agents global` : `${and(names)} global`),
+    projectCount: (n: number) => count(n, "project"),
+    listSeparator: ", ",
+    changed: (kind: "updated" | "fetched", date: Date) => `${kind === "updated" ? "Updated" : "Fetched"} ${day(date)}`,
   },
 
   actions: {
@@ -140,6 +154,14 @@ export const en = {
     overwriteFoldersDesc: "Replace them with the Versions in the Library",
     install: "Install",
     groupInstallResults: (group: string) => `Group install “${group}”`,
+    collectionInstallTitle: (label: string, scope: string) => `Install the skills of “${label}” in ${scope}`,
+    collectionUntracked: (n: number, names: string[]) =>
+      `${count(n, "skill")} already ${n === 1 ? "has" : "have"} a same-named folder there that the Library didn't install: ${names.join(", ")}`,
+    skipSkills: "Skip these skills",
+    skipSkillsDesc: "The other skills are installed as usual",
+    collectionInstallResults: (label: string, scope: string) => `Install the skills of “${label}” in ${scope}`,
+    collectionInstalled: (label: string, scope: string, n: number) => `Installed ${count(n, "skill")} of “${label}” in ${scope}`,
+    collectionSummary: (installed: number, rest: number) => `${installed} installed, ${rest} not installed`,
     groupInstalled: (group: string, scope: string, summary: string) => `Group installed “${group}” in ${scope}\n${summary}`,
     groupUninstallTitle: (group: string, scope: string) => `Uninstall the Group install of “${group}” in ${scope}`,
     groupUninstallShared: (n: number) =>
@@ -473,7 +495,7 @@ export const en = {
     fetchSkills: "Fetch skills",
     noMatch: "No matching skills",
     emptyGroup: "This Group has no skills yet",
-    emptyGroupHint: "Drag cards onto this Group in the left sidebar, or use \"Add to Group\" in skill details.",
+    emptyGroupHint: "Drag skills onto this Group's heading or onto the Group in the left sidebar, or use \"Add to Group\" in skill details.",
     renamedTitle: (to: string) => `Maybe renamed to ${to} in the Source; click to see the Update plan`,
     availableTitle: "The Source has a new Version; click to see the Update plan",
     maybeRenamed: "Maybe renamed",
@@ -491,8 +513,7 @@ export const en = {
     hereState: (direct: boolean, via: string[]) =>
       [direct ? "Direct install" : "", via.length ? `via ${quoted(via)}` : ""].filter(Boolean).join(" + "),
     notInstalled: "Not installed",
-    agents: (names: string[]) => names.join(", "),
-    projects: (n: number) => count(n, "project"),
+    fromGlobal: "From global",
     unmanagedTitle:
       "This folder wasn't installed by the Library: it may come from a command-line tool, be copied in by hand, or be your own. The Library only lists it and never changes or deletes it.",
     unmanaged: "Unmanaged",
@@ -523,13 +544,37 @@ export const en = {
     groups: "Groups",
     groupChipTitle: (name: string, on: boolean) =>
       `“${name}” ${on ? "is Group installed; click to uninstall (removes only this Group's Group install)" : "isn't Group installed; click to Group install"}`,
-    groupDrag: (name: string, n: number) => `Group “${name}” · ${count(n, "skill")}`,
-    groupDragTitle: (n: number) => `Drag to a Scope on the right = Group install (${count(n, "skill")})`,
+    groupDrag: (name: string, n: number) => `Group install “${name}” · ${count(n, "skill")}, and any added later`,
+    groupDragTitle: (n: number) =>
+      `Drag to a Scope on the right = Group install (${count(n, "skill")} now, and any added to the Group later); drag a skill here = add to this Group`,
+    collectionDrag: (label: string, n: number) => `“${label}” · install ${count(n, "skill")}`,
+    collectionDragTitle: (n: number) =>
+      `Drag to a Scope on the right = install these ${count(n, "skill")} directly, one by one; skills fetched later aren't installed automatically`,
+    inUse: (used: number, total: number) => `${used} in use · ${total} in total`,
+    notInstalledFold: (names: string[]) =>
+      `${count(names.length, "more skill")} not installed: ${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}`,
+    hideNotInstalled: "Hide the ones not installed",
+    arrangeCollection: "By Collection",
+    arrangeCollectionTitle: "Sections by Source: you follow an author's whole set",
+    arrangeGroup: "By Group",
+    arrangeGroupTitle: "Sections by your Groups: a skill in several Groups shows up in each",
+    restCollection: "Other Sources",
+    restCollectionTitle: "Sources you fetched only one skill from, and skills with no Source",
+    restGroup: "Not in a Group",
+    searchResults: (text: string, n: number) => `Search “${text}”: ${count(n, "result")}`,
+    clearSearch: "Clear",
+    updatesSkills: "Skills to handle",
+    updateCount: (n: number) => `Update ${n}`,
+    scopeSees: (agent: string, n: number) => `${agent} sees ${count(n, "skill")} here`,
+    sectionHere: "Installed here",
+    sectionGlobal: "From global",
+    sectionGlobalTitle: "In a project, the Agent also sees the skills installed globally; open the global Scope to change them",
+    sectionOthers: "Other skills in the Library · can be installed here",
+    nothingHere: "Nothing is installed here yet. Turn on a switch below, or drag a skill, Group, or Collection onto this row on the right.",
     skillCount: (n: number) => count(n, "skill"),
     groupInstalledIn: "Group installed in",
     uninstallGroupHere: "Uninstall the Group install in this Scope",
     notGroupInstalled: "Not Group installed in any Scope yet",
-    groupInstallTo: (scope: string) => `Group install in ${scope}`,
     rename: "Rename",
     deleteGroup: "Delete Group",
     changedSkills: (names: string[]) => `${and(names)} changed`,
@@ -865,7 +910,9 @@ export const en = {
     noCollections: "Once you fetch two or more skills from the same Source, they're grouped into a Collection automatically.",
     groups: "Groups",
     newGroup: "New Group",
-    groupTitle: "Click to filter; drag to a Scope on the right = Group install; drag a skill card here = add to this Group",
+    groupTitle: "Click to jump to this Group; drag to a Scope on the right = Group install; drag a skill here = add to this Group",
+    collectionTitle: (kind: string, label: string) =>
+      `${kind} · ${label}\nClick to jump to this section; drag to a Scope on the right = install its skills directly, one by one`,
     rename: "Rename",
     deleteGroup: "Delete Group",
     noGroups: "No Groups yet. Gather skills by use case to install them together.",
@@ -1004,16 +1051,8 @@ export const en = {
   toolbar: {
     toggleLeft: "Show/hide sidebar",
     search: "Search skills",
-    installedOnlyTitle: (agent: string) => `Only show skills installed in this ${agent} Scope`,
-    installedOnly: "Installed only",
-    list: "List",
-    card: "Cards",
     refresh: "Refresh (re-read the Library and inspect installed skills against the disk)",
     toggleRight: "Show/hide Scope sidebar",
-    chooseScope: "Choose Scope",
-    clearScope: "Clear Scope",
-    moreAgents: (others: boolean, n: number) => `+ ${n} ${others ? "other " : ""}${n === 1 ? "Agent" : "Agents"}`,
-    clear: "Clear",
   },
 
   fromScope: {

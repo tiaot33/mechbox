@@ -1,7 +1,7 @@
 // 右栏：作用域——全局与每个已登记项目下，直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent";
-// 项目行折叠时用小图标显示在用的 Agent。点选一行即选中该作用域(与顶栏胶囊同步)。
+// 项目行折叠时用小图标显示在用的 Agent。点一行打开这个作用域的页面(Agent 在那里看得到什么),再点一次回到所有技能。
 // 项目里共用一个目录的几个 Agent 合成一行，叫那几个 Agent 的名字，点选的是其中代表的作用域。
-// 作用域行接受拖放：技能 = 直接安装，组 = 组安装;拖动中按指针轨迹预判要去的折叠项目或"其他 Agent",
+// 作用域行接受拖放：技能 = 直接安装，组 = 组安装，集合 = 把集合里的技能逐个直接安装;拖动中按指针轨迹预判要去的折叠项目或"其他 Agent",
 // 指针还没到就展开，拖完收回。
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -27,7 +27,7 @@ import {
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { pickScope, toggleMoreAgents, toggleProject, useView } from "@/lib/view";
+import { openScope, toggleMoreAgents, toggleProject, useCurrentPage, useView } from "@/lib/view";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { unregisterProject } from "@/features/scope/projects";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +40,9 @@ import { NavCount, navItem } from "./nav";
 import { PlaceAgentMark } from "./parts";
 
 export function ScopePanel() {
-  const { scope, expanded, moreAgents } = useView(useShallow((v) => ({ scope: v.scope, expanded: v.expanded, moreAgents: v.moreAgents })));
+  const { expanded, moreAgents } = useView(useShallow((v) => ({ expanded: v.expanded, moreAgents: v.moreAgents })));
+  const page = useCurrentPage();
+  const scope = page.kind === "scope" ? page.scope : null;
   const s = useSnapshot();
   const ui = useUI();
   const t = useT().scopes;
@@ -76,7 +78,7 @@ export function ScopePanel() {
           className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub")}
           data-active={isSelected(agent, place)}
           data-already={already ? tl.alreadyThere : undefined}
-          onClick={() => pickScope(isSelected(agent, place) ? null : key)}
+          onClick={() => openScope(isSelected(agent, place) && scope ? scope : key)}
           data-drop-scope={key}
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
