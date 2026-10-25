@@ -1,18 +1,26 @@
-# PR 与推到 main 时检查：提交的前端绑定(cmd/desktop/frontend/bindings)与 Go 代码一致。
+# 仅在 PR 中影响绑定的文件变化时检查：提交的前端绑定(cmd/desktop/frontend/bindings)与 Go 代码一致。
 # 绑定由 wails3 从 Go 代码生成并入库;Go 端改了绑定服务的方法、导出类型或它们的注释后，要重新生成一起提交。
 # 只检查、不提交：不一致时这次检查失败，并打出差异。
 name: Check
 
 on:
   pull_request:
-  push:
-    branches: [main]
+    paths:
+      - '.github/workflows/check.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'internal/**/*.go'
+      - 'cmd/desktop/*.go'
+      - '!**/*_test.go'
+      - 'cmd/desktop/frontend/bindings/**'
 
 permissions:
   contents: read
 
 concurrency:
-  group: check-${{ github.ref }}
+  group: check-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:

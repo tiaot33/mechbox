@@ -7,6 +7,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { plan, until, deadline } from "./runner.mjs";
 
 const HOME = process.env.E2E_HOME;
 const URL = process.env.E2E_URL;
@@ -16,20 +17,22 @@ const SHOTS = process.env.E2E_SHOTS;
 const NETWORK = process.env.E2E_NETWORK === "1";
 // GITHUB_TOKEN 是联网步骤开始时填进设置页的 GitHub 令牌;应用只认设置页填的，不读环境变量。
 const GITHUB_TOKEN = process.env.E2E_GITHUB_TOKEN ?? "";
-if (!HOME || !URL || !ZIP_URL || !SHOTS) throw new Error("需要 E2E_HOME、E2E_URL、E2E_ZIP_URL、E2E_SHOTS,请用 run.sh 运行");
-fs.mkdirSync(SHOTS, { recursive: true });
+const LIBRARY = process.env.E2E_LIBRARY;
 const SK = `${HOME}/code/my-skills`;
-const only = process.argv[2]; // 可选：只跑名字包含该串的步骤
-const browser = await chromium.launch({ channel: "chrome", headless: true });
-const page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
+let browser;
+let page;
 const problems = [];
-page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
-page.on("console", (m) => m.type() === "error" && problems.push("console: " + m.text()));
-page.on("response", async (r) => {
-  if (r.status() < 400) return;
-  const body = await r.text().catch(() => "");
-  problems.push(`http ${r.status()} ${r.url()} ${body.slice(0, 160)}`);
-});
+const pendingCalls = new Set();
+const steps = [];
+let currentGroup = "first-open";
+let needs = [];
+function group(name, prerequisites = []) {
+  currentGroup = name;
+  needs = prerequisites;
+}
+function step(name, fn) {
+  steps.push({ index: steps.length, name, fn, group: currentGroup, needs });
+}
 // previewCalls / refsCalls 数前端发出的 PreviewFetch / ListSourceRefs 调用(Wails 按绑定里的 methodID 发 POST)。
 const bindings = fs.readFileSync(
   new globalThis.URL("../frontend/bindings/github.com/tiaot33/mechbox/cmd/desktop/libraryservice.ts", import.meta.url),
@@ -50,53 +53,6 @@ const previewRequests = [];
 const refsCallIDs = [];
 const cancelled = new Set();
 const isCall = (r, id) => r.method() === "POST" && r.url().includes("/wails/runtime") && (r.postData() ?? "").includes(`"methodID":${id}`);
-page.on("request", (r) => {
-  if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
-  const body = JSON.parse(r.postData() ?? "{}");
-  // Wails 的取消请求:object 10(CancelCall),args 里是被取消调用的 call-id
-  if (body.object === 10) cancelled.add(body.args?.["call-id"]);
-  if (body.args?.methodID === Number(previewMethodID)) {
-    previewCalls++;
-    previewRequests.push(body.args.args[0]);
-  }
-  if (body.args?.methodID === Number(refsMethodID)) {
-    refsCalls++;
-    refsCallIDs.push(body.args["call-id"]);
-  }
-});
-await page.goto(URL);
-await page.waitForSelector(".a-list");
-
-const results = [];
-let n = 0;
-async function step(name, fn) {
-  if (only && !name.includes(only)) return;
-  if (name.startsWith("[网络]") && !NETWORK) {
-    console.log("SKIP", name, "(E2E_NETWORK=1 时运行)");
-    return;
-  }
-  if (name.startsWith("[离线]") && NETWORK) {
-    console.log("SKIP", name, "(要用本地模拟的 skills.sh,E2E_NETWORK=1 时不运行)");
-    return;
-  }
-  n++;
-  try {
-    await fn();
-    results.push(["PASS", name]);
-    console.log("PASS", name);
-  } catch (e) {
-    results.push(["FAIL", name, e.message.split("\n")[0]]);
-    console.log("FAIL", name, "—", e.message.split("\n").slice(0, 3).join(" | "));
-    await page
-      .screenshot({ path: path.join(SHOTS, `fail-${String(n).padStart(2, "0")}.png`) })
-      .catch((e) => console.log("  截图失败:", e.message.split("\n")[0]));
-    // 重新载入回到技能库主界面：失败时可能停在设置页、弹窗或抽屉里，留着会让后面的步骤都等到超时
-    await page
-      .goto(URL)
-      .then(() => page.waitForSelector(".a-list", { timeout: 10000 }))
-      .catch((e) => console.log("  重新载入主界面失败:", e.message.split("\n")[0]));
-  }
-}
 const modal = () => page.locator('[data-slot="dialog-content"]').last();
 // card 是库里一个技能的那一行(所有技能页、更新页、作用域页都一样);settle 会展开每节里折起来的没装的。
 const card = (name) => page.locator(".skill-row", { has: page.locator(".skill-name", { hasText: new RegExp(`^${name}$`) }) });
@@ -116,7 +72,7 @@ async function toast(text, tone) {
 }
 // config 读出数据库 config 表里的设置，按设置项名;设置都存在数据库里。
 function config() {
-  const db = new DatabaseSync(`${HOME}/Library/Application Support/mechbox/library.db`, { readOnly: true });
+  const db = new DatabaseSync(LIBRARY, { readOnly: true });
   try {
     return Object.fromEntries(db.prepare("SELECT key, value FROM config").all().map((r) => [r.key, r.value]));
   } finally {
@@ -126,14 +82,56 @@ function config() {
 // appConfig 是 config 里应用自己的设置(app. 开头的项),去掉前缀。
 const appConfig = () => Object.fromEntries(Object.entries(config()).flatMap(([k, v]) => (k.startsWith("app.") ? [[k.slice(4), v]] : [])));
 async function settle() {
-  await page.waitForTimeout(400);
-  await page.waitForFunction(() => !document.querySelector('.tb-crumb [data-slot="spinner"]'), null, { timeout: 30000 });
+  await idle();
   await unfold();
+}
+async function idle() {
+  const frame = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await frame();
+  await until(() => pendingCalls.size === 0, "绑定调用完成");
+  await page.waitForFunction(() => !document.querySelector('.tb-crumb [data-slot="spinner"]'));
+  await frame();
+}
+async function holdCall(id) {
+  const reached = Promise.withResolvers();
+  reached.promise.catch(() => {});
+  const release = Promise.withResolvers();
+  const finished = Promise.withResolvers();
+  let held = false;
+  const handler = async (route) => {
+    if (held || !isCall(route.request(), id)) return route.continue();
+    held = true;
+    try {
+      const response = await route.fetch();
+      reached.resolve(route.request());
+      await release.promise;
+      await route.fulfill({ response }).catch(() => {});
+    } catch (e) {
+      reached.reject(e);
+    } finally {
+      finished.resolve();
+    }
+  };
+  await page.route("**/wails/runtime*", handler);
+  return {
+    requested: () => deadline(() => reached.promise, 15000, "等待被拦截的绑定调用超时"),
+    release: async () => {
+      release.resolve();
+      await deadline(() => finished.promise, 15000, "释放绑定响应超时");
+      await idle();
+    },
+    close: async () => {
+      release.resolve();
+      await page.unroute("**/wails/runtime*", handler);
+    },
+  };
 }
 // unfold 展开所有技能页每节里折起来的"没装的"与收起的节(作用域页"来自全局"默认收起)，好按名字找到每一行。
 async function unfold() {
-  for (const b of await page.locator('.a-list .not-installed-fold[aria-expanded="false"], .a-list .sec-toggle[aria-expanded="false"]').all()) {
-    await b.click().catch(() => {});
+  const folded = page.locator('.a-list .not-installed-fold[aria-expanded="false"]:visible, .a-list .sec-toggle[aria-expanded="false"]:visible');
+  while (await folded.count()) {
+    await folded.first().click();
+    await idle();
   }
 }
 const btn = (scope, name) => scope.getByRole("button", { name, exact: true });
@@ -158,7 +156,8 @@ async function openDrawer(name) {
   await closeDrawer();
   await card(name).click();
   await drawer().waitFor();
-  await page.waitForTimeout(300);
+  await idle();
+  await drawer().locator(".versions li").first().waitFor();
 }
 async function closeDrawer() {
   if (await drawer().count()) await drawer().locator('[data-slot="sheet-close"]').click();
@@ -199,10 +198,11 @@ const scopeDir = async () => {
 
 // ============ 第一次打开 ============
 const FIRST_OPEN = "第一次打开：各 Agent 全局里不是库装的技能一次确认入库，磁盘不动;同名不一样的只入库较新的一份;读不成来源的清空后入库";
-if (only && !FIRST_OPEN.includes(only)) {
-  // 只跑部分步骤时，先关掉第一次打开的确认。
-  await modal().waitFor({ timeout: 5000 }).catch(() => {});
-  if (await modal().count()) await btn(modal(), "先不入库").click();
+const FIRST_NAMES = ["first-notes", "first-pdf", "first-dup"];
+function clearFirstFolders() {
+  for (const agent of [".claude", ".agents"]) {
+    for (const name of FIRST_NAMES) fs.rmSync(path.join(HOME, agent, "skills", name), { recursive: true, force: true });
+  }
 }
 await step(FIRST_OPEN, async () => {
   const claude = path.join(HOME, ".claude", "skills");
@@ -214,7 +214,7 @@ await step(FIRST_OPEN, async () => {
     ...["first-pdf", "first-dup"].map((n) => fs.readFileSync(path.join(agents, n, "SKILL.md"), "utf8")),
   ];
   const before = disk();
-  const names = ["first-notes", "first-pdf", "first-dup"];
+  const names = FIRST_NAMES;
   try {
     await modal().locator('[data-slot="dialog-title"]', { hasText: "把你在用的技能交给 app 管" }).waitFor({ timeout: 15000 });
     const lead = await modal().locator(".fetch-unmanaged-lead").textContent();
@@ -289,16 +289,14 @@ await step(FIRST_OPEN, async () => {
       await toast("已移除");
       await settle();
     }
-    for (const n of names) {
-      fs.rmSync(path.join(claude, n), { recursive: true, force: true });
-      fs.rmSync(path.join(agents, n), { recursive: true, force: true });
-    }
+    clearFirstFolders();
     await page.locator(".titlebar button[title^='刷新']").click();
     await settle();
   }
 });
 
 // ============ 入库 ============
+group("fetch", []);
 await step("入库对话框只有一个输入框，没有来源标签", async () => {
   await openFetch();
   for (const tab of ["本地目录", "GitHub", "URL 压缩包"]) {
@@ -387,9 +385,9 @@ async function previewRefs() {
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
 }
 const GIT_TREE = "https://git.e2e.test/org/repo/-/tree";
-// denyGit 起一个 HTTP 服务，等 delay 毫秒后对一切请求回 403,像一个读不了的私有 Git 仓库。
-async function denyGit(delay = 0) {
-  const server = http.createServer((_, res) => setTimeout(() => res.writeHead(403).end(), delay));
+// denyGit 起一个对一切请求回 403 的 HTTP 服务，像一个读不了的私有 Git 仓库。
+async function denyGit() {
+  const server = http.createServer((_, res) => res.writeHead(403).end());
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     url: (name) => `http://127.0.0.1:${server.address().port}/org/${name}.git`,
@@ -400,6 +398,7 @@ async function denyGit(delay = 0) {
   };
 }
 
+group("refs", []);
 await step("本地路径与 zip 链接不显示分支下拉，不取列表", async () => {
   await openFetch();
   const input = modal().locator('[data-slot="input"]').first();
@@ -552,14 +551,7 @@ await step("#ref 输入：下拉选中输入里的 tag;改选默认分支后按�
 });
 
 await step("预览还没返回时改选分支：旧分支的结果不采用", async () => {
-  // PreviewFetch 的响应压后 2 秒，好在它返回前改选
-  const hold = async (route) => {
-    if (!isCall(route.request(), previewMethodID)) return route.continue();
-    const response = await route.fetch();
-    await page.waitForTimeout(2000);
-    await route.fulfill({ response }).catch(() => {});
-  };
-  await page.route("**/wails/runtime*", hold);
+  const hold = await holdCall(previewMethodID);
   try {
     await openFetch();
     await modal().locator('[data-slot="input"]').first().fill(GIT_REPO);
@@ -569,14 +561,15 @@ await step("预览还没返回时改选分支：旧分支的结果不采用", as
     await btn(modal(), "入库预览").click();
     const busy = modal().locator('[data-slot="button"][aria-busy="true"]');
     await busy.waitFor({ timeout: 2000 });
+    await hold.requested();
     await refsTrigger().click();
     await refsMenu().locator('[data-slot="command-item"]', { hasText: "main" }).click();
     await waitRefs("main");
     assert.equal(await busy.count(), 0, "改选后按钮不应再忙");
-    await page.waitForTimeout(3000);
+    await hold.release();
     assert.equal(await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count(), 1, "旧分支的预览结果不应采用");
   } finally {
-    await page.unroute("**/wails/runtime*", hold);
+    await hold.close();
   }
   await btn(modal(), "入库预览").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 30000 });
@@ -586,31 +579,25 @@ await step("预览还没返回时改选分支：旧分支的结果不采用", as
 });
 
 await step("列表请求刚发出就关掉对话框：请求被取消，晚到的错误不报成未处理", async () => {
-  // ListSourceRefs 的响应压后 1 秒;zip 链接不是 Git 类来源，技能库马上返回错误，压住的错误会在取消之后才到
-  const hold = async (route) => {
-    if (!isCall(route.request(), refsMethodID)) return route.continue();
-    const response = await route.fetch();
-    await page.waitForTimeout(1000);
-    await route.fulfill({ response }).catch(() => {});
-  };
-  await page.route("**/wails/runtime*", hold);
+  const hold = await holdCall(refsMethodID);
   const errors = problems.filter((p) => p.startsWith("pageerror")).length;
   try {
     await openFetch();
-    const before = refsCalls;
     await modal().locator('[data-slot="input"]').first().fill(ZIP_URL);
-    while (refsCalls === before) await page.waitForTimeout(20);
+    await hold.requested();
     await modal().getByRole("button", { name: "取消" }).click();
-    await page.waitForTimeout(1500);
+    await until(() => cancelled.has(refsCallIDs.at(-1)), "关闭弹窗后取消调用");
+    await hold.release();
     assert(cancelled.has(refsCallIDs.at(-1)), "关掉对话框应取消还没返回的列表请求");
     assert.equal(problems.filter((p) => p.startsWith("pageerror")).length, errors, "取消后晚到的错误不应报成未处理");
   } finally {
-    await page.unroute("**/wails/runtime*", hold);
+    await hold.close();
   }
 });
 
 await step("快速改输入：分支下拉只显示最后一次输入的列表", async () => {
-  const slow = await denyGit(3000);
+  const slow = await denyGit();
+  let hold;
   try {
     await openFetch();
     const input = modal().locator('[data-slot="input"]').first();
@@ -623,15 +610,16 @@ await step("快速改输入：分支下拉只显示最后一次输入的列表",
     assert.equal(refsCalls - before, 1, "连着改输入只应取一次列表");
     // 旧请求还没返回时改输入：读取中照常可以入库预览，旧请求的结果不采用
     before = refsCalls;
+    hold = await holdCall(refsMethodID);
     await input.fill(slow.url("slow"));
     await refsTrigger().filter({ hasText: "正在读取" }).waitFor({ timeout: 2000 });
-    await page.waitForTimeout(800);
+    await hold.requested();
     assert.equal(refsCalls - before, 1, "停下输入后应取列表");
     assert.equal(await refsTrigger().filter({ hasText: "正在读取" }).count(), 1, "列表还没取回时应显示正在读取");
     assert(!(await btn(modal(), "入库预览").isDisabled()), "读取中入库预览应照常可点");
     await input.fill(GIT_REPO);
     await waitRefs("main");
-    await page.waitForTimeout(4000);
+    await hold.release();
     assert.equal(await modal().locator(".refs-failure").count(), 0, "旧请求的失败原因不应显示在新输入下面");
     await waitRefs("main");
     await refsTrigger().click();
@@ -639,6 +627,7 @@ await step("快速改输入：分支下拉只显示最后一次输入的列表",
     await page.keyboard.press("Escape");
     await modal().getByRole("button", { name: "取消" }).click();
   } finally {
+    await hold?.close();
     slow.close();
   }
 });
@@ -663,21 +652,20 @@ await step("取不到分支列表时显示原因，仍能入库预览", async ()
 });
 
 await step("预览还没返回时改了输入：旧请求的结果和原因都不采用", async () => {
-  // 每个请求都等 1 秒再回 404:链接本身、四个 well-known 索引与 git ls-remote 走完，旧请求大约 6 秒后才失败。
-  const slow = http.createServer((_, res) => setTimeout(() => res.writeHead(404).end(), 1000));
-  await new Promise((resolve) => slow.listen(0, "127.0.0.1", resolve));
+  const hold = await holdCall(previewMethodID);
   try {
     await openFetch();
     const input = modal().locator('[data-slot="input"]').first();
-    await input.fill(`http://127.0.0.1:${slow.address().port}/slow`);
+    await input.fill(ZIP_URL.replace(/delta\.zip$/, "missing"));
     await btn(modal(), "入库预览").click();
     // 忙碌时按钮文字不可见，按钮不再以「入库预览」为名，按 aria-busy 找。
     const busy = modal().locator('[data-slot="button"][aria-busy="true"]');
     await busy.waitFor({ timeout: 2000 });
+    await hold.requested();
     await input.fill(SK);
     assert.equal(await busy.count(), 0, "改了输入后按钮不应再忙");
     assert(!(await btn(modal(), "入库预览").isDisabled()), "改了输入后应能马上再预览");
-    await page.waitForTimeout(9000);
+    await hold.release();
     assert((await modal().locator(".fetch-failure").count()) === 0, "旧请求的失败原因不应显示在新输入下面");
     assert((await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count()) === 1, "应留在入库对话框");
     await btn(modal(), "入库预览").click();
@@ -685,8 +673,7 @@ await step("预览还没返回时改了输入：旧请求的结果和原因都�
     assert((await modal().locator(".fetch-source", { hasText: SK }).count()) === 1, "结果页应是新输入的入库预览");
     await page.keyboard.press("Escape");
   } finally {
-    slow.closeAllConnections();
-    slow.close();
+    await hold.close();
   }
 });
 
@@ -721,6 +708,7 @@ await step("空白输入回车不发请求，连按两次只发一次，返回�
   await page.keyboard.press("Escape");
 });
 
+group("fetch", []);
 await step("well-known 站点链接：识别为 well-known 索引，只列链接路径下的技能", async () => {
   await openFetch();
   await modal().locator('[data-slot="input"]').first().fill(ZIP_URL.replace(/delta\.zip$/, "site/"));
@@ -774,6 +762,7 @@ await step("zip 链接入库(入库预览 → 候选 → 入库)", async () => {
 });
 
 // ============ 详情抽屉：文件与元数据 ============
+group("details", ["fetch"]);
 await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", async () => {
   await openDrawer("alpha");
   const d = drawer();
@@ -791,6 +780,7 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
 });
 
 // ============ 分组 ============
+group("groups", ["fetch"]);
 await step("新建组(左栏 +)", async () => {
   await closeDrawer();
   await page.locator(".a-left .nav-sec", { hasText: "组" }).locator("button[title='新建组']").click();
@@ -849,6 +839,7 @@ await step("重命名组与删除组(左栏悬停按钮)", async () => {
 });
 
 // ============ 项目 ============
+group("projects", []);
 await step("登记项目 proj-a / proj-b", async () => {
   for (const p of ["proj-a", "proj-b"]) {
     await page.locator(".a-right .nav-sec button[title='登记项目']").click();
@@ -950,6 +941,7 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
 
 // ============ 安装 ============
 let claudeGlobal;
+group("install", ["groups", "projects"]);
 await step("详情：安装到 Claude Code 全局，并落盘", async () => {
   await openDrawer("alpha");
   const d = drawer();
@@ -1038,6 +1030,7 @@ await step("未记录的外来文件夹：安装计划发现后询问覆盖", as
 });
 
 // ============ 未纳管技能 ============
+group("unmanaged", ["install"]);
 await step("未纳管技能：作用域里列出不是库装的技能(符号链接、项目仓库里的),只能在 Finder 中显示", async () => {
   // npx skills 的布局：真实文件夹在 ~/.agents/skills(Codex 全局),Claude Code 全局里是指过去的符号链接。
   const real = path.join(HOME, ".agents", "skills", "npx-tool");
@@ -1080,7 +1073,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     assert((await page.locator(".a-scope-sum .stat", { hasText: "未纳管" }).textContent()).includes("1"), "摘要应数出 1 个未纳管");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
     await btn(npx, "在 Finder 中显示").click();
-    await page.waitForTimeout(300);
+    await idle();
     assert.deepStrictEqual(revealArgs, [link], "在 Finder 中显示的是符号链接本身");
 
     await selectScope("Codex");
@@ -1095,7 +1088,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
 
     // 搜索同样作用于未纳管技能。
     await page.getByPlaceholder("搜索技能").fill("draft");
-    await page.waitForTimeout(200);
+    await idle();
     assert((await page.locator(".unmanaged-row").count()) === 1, "搜索应只剩 my-draft");
     await page.getByPlaceholder("搜索技能").fill("");
   } finally {
@@ -1305,6 +1298,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
 });
 
 // ============ 同名技能 ============
+group("same-name", ["unmanaged"]);
 await step("同名技能：全局和项目里同名的两处都标出来，并说明在这个 Agent 里会怎样", async () => {
   // 全局手动拷了一个 gamma(库把 gamma 装在了 proj-a);proj-a 里有一个自己写的 alpha(库把 alpha 装在了全局);
   // Codex 全局里有上一步入库的 npx-tool,proj-a 里有一个文件夹名不同、SKILL.md 里 name 也是 npx-tool 的(Agent 按 name 认同名)。
@@ -1362,6 +1356,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
 });
 
 // ============ 重新安装 ============
+group("reinstall", ["same-name"]);
 await step("刷新发现被手动改过的文件夹 → 全部重新安装 → 逐处勾选覆盖", async () => {
   const dir = await scopeDir();
   fs.writeFileSync(path.join(dir, "gamma", "SKILL.md"), "edited by hand\n");
@@ -1462,6 +1457,7 @@ const checkUpdates = async (text) => {
 };
 const planRow = (cls, name) => modal().locator(`.${cls}`, { has: page.locator("b", { hasText: new RegExp(`^${name}$`) }) });
 
+group("update", ["reinstall"]);
 await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出去的地方)", async () => {
   await clearScope();
   await openDrawer("delta");
@@ -1717,7 +1713,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     assert.equal(await codexPlace.locator(".update-place-kept").textContent(), "Claude Code · 全局 链着这里，没勾，会先换成独立的一份，保持现在的内容", "没勾的链接写在被链着的那一行");
     await claudeBox.check();
     assert.equal(await codexPlace.locator(".update-place-kept").count(), 0, "勾上后不再说");
-    await page.waitForTimeout(300);
+    await idle();
     await page.screenshot({ path: path.join(SHOTS, "update-linked-place.png") });
     await btn(modal(), "更新").click();
     await toast("已用 Claude Code · proj-a 里的修改更新「link-tdd」");
@@ -1759,7 +1755,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     const linkedNote = modal().locator(".detach-linked");
     await linkedNote.waitFor();
     assert((await linkedNote.textContent()).includes("Claude Code · 全局 里的「link-tdd」是指向"), `卸载前说明:${await linkedNote.textContent()}`);
-    await page.waitForTimeout(300);
+    await idle();
     await page.screenshot({ path: path.join(SHOTS, "uninstall-linked-folder.png") });
     await btn(modal(), "卸载").click();
     await toast("已卸载「link-tdd」");
@@ -1983,6 +1979,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
 // npx skills 从一个 Git 仓库装了三个技能:lint 和来源一样;tdd 装的是来源现在这一版、之后被改过(记录里的哈希等于来源的);
 // grill-me 被改过、记录里没有哈希(说不清)。Git 来源的名字与来源版本照常显示;来源版本未知的如实写出;
 // tdd 第一次检查更新没有更新，作者再改才报，和 grill-me 一样写明更新会换掉你的修改。
+group("git-unmanaged", ["install"]);
 await step("Git 来源与 npx skills 记录：来源名字与来源版本、来源版本未知的如实写出、装的是来源现在这一版又改过的不报有更新", async () => {
   const work = path.join(HOME, "sources", "matt-skills");
   const bare = path.join(HOME, "sources", "matt-skills.git");
@@ -2087,6 +2084,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
 });
 
 // 库里已有一个没有来源的 review,在另一个作用域入库同名、内容不一样的 review:确认时说出来，入库后两个 review 写出各装在哪里。
+group("duplicates", ["install"]);
 await step("库里同名的技能：入库确认时说出来，卡片和详情写出各装在哪里", async () => {
   const claude = path.join(HOME, ".claude", "skills", "review");
   const codex = path.join(HOME, ".agents", "skills", "review");
@@ -2148,6 +2146,7 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
   }
 });
 
+group("drag", ["update"]);
 await step("拖放：卡片 → 左栏组(加入)", async () => {
   await card("delta").dragTo(page.locator(".a-left .nav-item", { hasText: "前端调试" }));
   await toast("已把「delta」加入「前端调试」");
@@ -2248,11 +2247,12 @@ await step("移出分组(有组安装时询问去留)", async () => {
 });
 
 // ============ 其他视图 ============
+group("views", ["drag"]);
 await step("搜索与 ⌘K、按组分节、侧栏开关", async () => {
   const total = await page.locator('.tb-crumb [data-slot="count"]').textContent();
   await page.keyboard.press("Meta+k");
   await page.keyboard.type("gam");
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => document.querySelectorAll(".skill-row").length === 1);
   assert((await page.locator(".skill-row").count()) === 1, "搜索 gam 应只剩 1 个");
   assert.equal(await page.locator('.tb-crumb [data-slot="count"]').textContent(), total, "顶栏的个数不随搜索变");
   assert((await page.locator(".search-line").textContent()).includes("搜索「gam」：1 个结果"), "顶上写出搜的是什么、几个结果");
@@ -2272,7 +2272,7 @@ await step("左栏集合跳到那一节 → 看来源里的其他技能", async 
   // 排在最后的集合也能滚到底板顶上。
   const last = page.locator('.a-list[data-page="all"] .list-section[data-section^="collection-"]').last();
   await page.locator(".a-left .nav-item", { hasText: (await last.locator(".section-name").textContent()).trim() }).first().click();
-  await page.waitForTimeout(800);
+  await until(async () => Math.abs(await last.evaluate((el) => el.getBoundingClientRect().top - el.closest(".a-list").getBoundingClientRect().top)) < 2, "集合滚动到列表顶部");
   const gap = await last.evaluate((el) => el.getBoundingClientRect().top - el.closest(".a-list").getBoundingClientRect().top);
   assert(Math.abs(gap) < 2, `跳到的那一节应贴着列表顶，实际差 ${gap}px`);
   await page.locator(".a-left .nav-item", { hasText: "my-skills" }).click();
@@ -2288,6 +2288,7 @@ await step("左栏集合跳到那一节 → 看来源里的其他技能", async 
 });
 
 // ============ 同步与设置 ============
+group("settings", ["install"]);
 await step("左栏分节折叠与展开", async () => {
   const toggle = page.locator(".a-left .sec-toggle", { hasText: "集合" });
   await toggle.click();
@@ -2338,7 +2339,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await sw("Dock 角标").click();
   await interval("每周").click();
   assert((await sw("Dock 角标").getAttribute("aria-checked")) === "false", "保存中界面也应显示已关掉的 Dock 角标");
-  await page.waitForTimeout(1600);
+  await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
   assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", first_open_done: "true" });
@@ -2418,13 +2419,12 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await field("同步", "Access Key ID").fill("AKIDE2E");
   await field("同步", "Secret Access Key").fill("e2e-secret");
   // 保存拖慢、没等它完成就回到主界面：保存期间输入框不可改，保存完成后侧栏仍要跟上
-  let sent;
-  const slowSent = new Promise((r) => (sent = r));
+  const slowSent = page.waitForResponse((r) => r.request().postData()?.includes("AKIDE2E"));
+  slowSent.catch(() => {});
   const slowSave = async (route) => {
     if (!route.request().postData()?.includes("AKIDE2E")) return route.continue();
     await new Promise((r) => setTimeout(r, 1000));
     await route.continue();
-    sent();
   };
   await page.route("**/wails/runtime", slowSave);
   await btn(section("同步"), "保存").click();
@@ -2763,6 +2763,7 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
 });
 
 // ============ 冲突与失败路径 ============
+group("failures", ["drag", "settings"]);
 await step("占用冲突：同名技能已在该作用域，安装被拦下并说明占用者", async () => {
   const dir = `${HOME}/code/other/gamma`;
   fs.mkdirSync(dir, { recursive: true });
@@ -2813,6 +2814,7 @@ await step("检查更新失败：来源读不到，列出没读成的来源", as
 });
 
 // ============ 移除 ============
+group("remove", ["failures"]);
 await step("移除技能(保留已安装的文件夹)", async () => {
   await openDrawer("delta");
   await btn(drawer(), "移除技能").click();
@@ -2867,6 +2869,7 @@ await step("注销项目(删除项目里已安装的文件夹)", async () => {
 });
 
 // ============ 市场与 GitHub(需要网络) ============
+group("network", ["remove"]);
 await step("[网络] 填上 E2E_GITHUB_TOKEN 给的 GitHub 令牌", async () => {
   if (!GITHUB_TOKEN) return;
   await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
@@ -3020,8 +3023,9 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
 });
 
 // ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============
+group("uninstall", []);
 await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出后删除数据库", async () => {
-  const appDir = `${HOME}/Library/Application Support/mechbox`;
+  const appDir = path.dirname(LIBRARY);
   for (const name of ["omicron", "sigma"]) {
     fs.mkdirSync(`${HOME}/code/last/${name}`, { recursive: true });
     fs.writeFileSync(`${HOME}/code/last/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
@@ -3054,7 +3058,7 @@ await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出
   // server 关掉以后才删数据库。
   const gone = async () => {
     for (let i = 0; i < 40; i++) {
-      const up = await new Promise((resolve) => http.get(URL, (r) => (r.resume(), resolve(true))).on("error", () => resolve(false)));
+      const up = await fetch(URL, { signal: AbortSignal.timeout(1000) }).then((r) => (r.body?.cancel(), true), () => false);
       if (!up && !fs.existsSync(appDir)) return true;
       await new Promise((r) => setTimeout(r, 250));
     }
@@ -3067,12 +3071,117 @@ await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出
   assert(fs.existsSync(`${skillsDir}/hand-made/SKILL.md`), "不是库装的 hand-made 不应受影响");
 });
 
-await page.screenshot({ path: path.join(SHOTS, "final.png") });
-await browser.close();
-const failed = results.filter((r) => r[0] === "FAIL");
-console.log(`\n${results.length - failed.length}/${results.length} 通过`);
-for (const f of failed) console.log("  FAIL", f[1], "—", f[2]);
-// 失败请求里 422 是绑定方法返回的错误(测试里有意触发的报错步骤),列出来便于核对。
-console.log("页面错误 / 失败请求:");
-for (const p of problems.filter((p) => !p.startsWith("console: Failed to load resource"))) console.log("  ", p);
-process.exitCode = failed.length || problems.some((p) => p.startsWith("pageerror")) ? 1 : 0;
+const selected = plan(steps, process.argv.slice(2), NETWORK);
+if (selected.list || process.env.E2E_PLAN_ONLY === "1") {
+  if (selected.list) for (const s of selected.steps) console.log(`${s.group}\t${s.name}`);
+  else console.log(`运行 ${selected.steps.length} 步，其中 ${selected.steps.length - selected.selected.size} 步为前置步骤`);
+} else {
+  if (!HOME || !URL || !ZIP_URL || !ZIP_DIR || !SHOTS || !LIBRARY) throw new Error("缺少 E2E 环境变量，请用 run.sh 运行");
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const results = [];
+  const status = new Map();
+  let stopped = false;
+  const started = performance.now();
+  const timeout = Number(process.env.E2E_TIMEOUT_MS ?? 600000);
+  const stepTimeout = Number(process.env.E2E_STEP_TIMEOUT_MS ?? 120000);
+  if (![timeout, stepTimeout].every((n) => Number.isFinite(n) && n > 0)) throw new Error("E2E 超时必须是正数毫秒");
+  try {
+    await deadline(async () => {
+      browser = await chromium.launch({ channel: "chrome", headless: true, timeout: 15000 });
+      if (stopped) {
+        await browser.close();
+        return;
+      }
+      page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
+      if (stopped) {
+        await browser.close();
+        return;
+      }
+      page.setDefaultTimeout(15000);
+      page.setDefaultNavigationTimeout(15000);
+      await page.context().tracing.start({ screenshots: true, snapshots: true });
+      page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
+      page.on("console", (m) => m.type() === "error" && problems.push("console: " + m.text()));
+      page.on("response", async (r) => {
+        if (r.status() < 400) return;
+        const body = await r.text().catch(() => "");
+        problems.push(`http ${r.status()} ${r.url()} ${body.slice(0, 160)}`);
+      });
+      page.on("request", (r) => {
+        if (r.method() === "POST" && r.url().includes("/wails/runtime")) pendingCalls.add(r);
+      });
+      page.on("requestfinished", (r) => pendingCalls.delete(r));
+      page.on("requestfailed", (r) => pendingCalls.delete(r));
+      page.on("request", (r) => {
+        if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
+        const body = JSON.parse(r.postData() ?? "{}");
+        // Wails 的取消请求:object 10(CancelCall),args 里是被取消调用的 call-id
+        if (body.object === 10) cancelled.add(body.args?.["call-id"]);
+        if (body.args?.methodID === Number(previewMethodID)) {
+          previewCalls++;
+          previewRequests.push(body.args.args[0]);
+        }
+        if (body.args?.methodID === Number(refsMethodID)) {
+          refsCalls++;
+          refsCallIDs.push(body.args["call-id"]);
+        }
+      });
+
+      await page.goto(URL);
+      await page.waitForSelector(".a-list");
+      assert((await page.locator(".a-left div[title]").evaluateAll((nodes) => nodes.map((n) => n.title))).includes(LIBRARY), "应用必须打开本次运行的临时数据库");
+      assert(fs.realpathSync(LIBRARY).startsWith(fs.realpathSync(HOME) + path.sep), "数据库必须位于临时 HOME 内");
+      if (!selected.steps.some((s) => s.group === "first-open")) {
+        await btn(modal(), "先不入库").click();
+        await modal().waitFor({ state: "detached" });
+        clearFirstFolders();
+        await page.locator(".titlebar button[title^='刷新']").click();
+        await settle();
+      }
+      for (const s of selected.steps) {
+        if (stopped) break;
+        const blocked = selected.dependencies.get(s).find((d) => status.get(d) !== "PASS");
+        if (blocked) {
+          status.set(s, "SKIP");
+          results.push({ group: s.group, name: s.name, status: "SKIP", reason: `前置步骤未通过：${blocked.name}` });
+          console.log("SKIP", s.name, `（前置步骤未通过：${blocked.name}）`);
+          continue;
+        }
+        const start = performance.now();
+        try {
+          await deadline(s.fn, stepTimeout, `步骤超时：${s.name}`);
+          if (stopped) break;
+          status.set(s, "PASS");
+          results.push({ group: s.group, name: s.name, status: "PASS", ms: Math.round(performance.now() - start) });
+          console.log("PASS", s.name, `${results.at(-1).ms} ms`);
+        } catch (e) {
+          if (stopped) break;
+          status.set(s, "FAIL");
+          results.push({ group: s.group, name: s.name, status: "FAIL", ms: Math.round(performance.now() - start), error: e.stack ?? String(e) });
+          console.log("FAIL", s.name, "—", e.stack ?? e);
+          await page.screenshot({ path: path.join(SHOTS, `fail-${s.index + 1}.png`) }).catch(() => {});
+          if (e.name === "DeadlineError") throw e;
+          await page.unrouteAll({ behavior: "ignoreErrors" });
+          await page.goto(URL).then(() => page.waitForSelector(".a-list")).catch(() => {});
+        }
+      }
+      await page.screenshot({ path: path.join(SHOTS, "final.png") });
+    }, timeout, "整套 E2E 运行超时");
+  } catch (e) {
+    stopped = true;
+    if (!results.some((r) => r.error === e.stack)) {
+      console.error(e.stack ?? e);
+      results.push({ status: "FAIL", name: "测试运行器", error: e.stack ?? String(e) });
+    }
+  } finally {
+    const failed = stopped || results.some((r) => r.status === "FAIL") || problems.some((p) => p.startsWith("pageerror"));
+    if (page) await deadline(() => page.context().tracing.stop(failed ? { path: path.join(SHOTS, "trace.zip") } : {}), 5000, "保存 trace 超时").catch((e) => console.error(e.message));
+    if (browser) await deadline(() => browser.close(), 5000, "关闭浏览器超时").catch((e) => console.error(e.message));
+    fs.writeFileSync(path.join(SHOTS, "results.json"), JSON.stringify({ ms: Math.round(performance.now() - started), results, problems }, null, 2));
+    console.log(`\n${results.filter((r) => r.status === "PASS").length} 通过，${results.filter((r) => r.status === "FAIL").length} 失败，${results.filter((r) => r.status === "SKIP").length} 跳过`);
+    console.log("页面错误 / 失败请求:");
+    for (const p of problems.filter((p) => !p.startsWith("console: Failed to load resource"))) console.log("  ", p);
+    process.exitCode = failed ? 1 : 0;
+    if (stopped) process.exit(1);
+  }
+}

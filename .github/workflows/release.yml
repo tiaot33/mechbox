@@ -85,11 +85,15 @@ jobs:
             echo "C:\\Program Files (x86)\\NSIS" >> "$GITHUB_PATH"
           fi
 
+      # macOS runner 只有 7 GB 内存；-C 1 避免两个架构同时编译，
+      # GOFLAGS=-p=1 再限制单次 Go 构建的并行编包，降低内存峰值。
       - name: Package (macOS)
         if: runner.os == 'macOS'
         working-directory: cmd/desktop
+        env:
+          GOFLAGS: -p=1
         run: |
-          wails3 task darwin:package:universal
+          wails3 task -C 1 darwin:package:universal
           wails3 task darwin:create:dmg
           mkdir -p dist
           mv bin/mechbox.dmg "dist/Mechbox-${{ steps.version.outputs.version }}-macos-universal.dmg"

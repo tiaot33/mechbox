@@ -6,32 +6,43 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 desktop=$(dirname "$here")
+E2E_PLAN_ONLY=1 node "$here/e2e.mjs" "$@"
+case " $* " in *" --list "*) exit 0 ;; esac
+server=$(node "$here/build.mjs")
 work=$(mktemp -d /tmp/mechbox-e2e.XXXXXX)
+shots=${E2E_SHOTS:-$(mktemp -d /tmp/mechbox-e2e-shots.XXXXXX)}
+mkdir -p "$shots"
 server_pid=""
 zip_pid=""
 hosts_pid=""
 cleanup() {
+	status=$?
+	trap - EXIT INT TERM
 	[ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null || true
 	[ -n "$zip_pid" ] && kill "$zip_pid" 2>/dev/null || true
 	[ -n "$hosts_pid" ] && kill "$hosts_pid" 2>/dev/null || true
+	for pid in $server_pid $zip_pid $hosts_pid; do wait "$pid" 2>/dev/null || true; done
+	if [ "$status" -ne 0 ]; then
+		for log in "$work"/*.log; do [ ! -f "$log" ] || cp "$log" "$shots/"; done
+	fi
 	rm -rf "$work"
+	echo "诊断文件：$shots"
+	exit "$status"
 }
-trap cleanup EXIT INT TERM
-
-echo "构建前端与 server 模式二进制…"
-(cd "$desktop/frontend" && pnpm build >/dev/null)
-(cd "$desktop" && go build -tags server,production -o "$work/server" . 2>/dev/null)
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # 测试数据在 ../testdata/e2e 里，复制到临时目录;Git 不存的部分(空目录、zip、Git 仓库、指向临时目录的 .gitconfig、修改时间)在这里补上。
 # home:my-skills 下三个本地技能(alpha 带一个可执行脚本)、两个项目目录，以及第一次打开时各 Agent 全局目录里早就有的不是库装的技能:
 # first-pdf 是 npx skills 的布局(真实文件夹在 Codex 全局，Claude Code 全局里是指过去的符号链接);first-dup 两处同名、内容不一样，Codex 的那份较新。
 data="$desktop/testdata/e2e"
-home="$work/home"
+test_home="$work/home"
 cp -R "$data/home" "$data/zips" "$data/hosts" "$work/"
-mkdir -p "$home/code/proj-a" "$home/code/proj-b"
+mkdir -p "$test_home/code/proj-a" "$test_home/code/proj-b"
 # 内置 Agent 的配置目录：有它们才算检测到，默认显示在选择安装位置的地方。
-mkdir -p "$home/.claude" "$home/.codex"
-touch -t 202401010000 "$home/.claude/skills/first-dup/SKILL.md"
+mkdir -p "$test_home/.claude" "$test_home/.codex"
+touch -t 202401010000 "$test_home/.claude/skills/first-dup/SKILL.md"
 # 供 URL 入库的 zip:delta 一个技能;pair 两个技能，测从技能发起更新(只勾这一个)与集合重新对齐到同一个来源版本;
 # trio 三个技能，测更新计划里的风险、跳过、改名、来源里已删除与新技能。zips/site 是 well-known 站点，/site/ 下放旧格式的索引，测站点链接的识别。
 (cd "$work/zips" && zip -qr delta.zip delta)
@@ -53,7 +64,7 @@ gitc checkout -qb release/v2
 layer release-v2
 gitc add -A && gitc commit -qm v2 && gitc checkout -q main
 git clone -q --bare "$repo" "$work/git/repo.git"
-git config --file "$home/.gitconfig" "url.file://$work/git/repo.git.insteadOf" https://git.e2e.test/org/repo.git
+git config --file "$test_home/.gitconfig" "url.file://$work/git/repo.git.insteadOf" https://git.e2e.test/org/repo.git
 
 # 离线时 server 模式按 E2E_HOSTS 把 skills.sh 与 well-known 站点 skills.e2e.test 的请求改到本地的 hosts 服务，
 # 不访问真实的 skills.sh:搜索不论搜什么都返回 found-a / found-b 两个结果(hosts/api/search),都来自 skills.e2e.test;
@@ -100,15 +111,13 @@ if [ "${E2E_NETWORK:-}" != 1 ]; then
 	hosts="skills.sh=127.0.0.1:$hosts_port skills.e2e.test=127.0.0.1:$hosts_port"
 fi
 # 界面语言跟随系统，server 模式按 LC_ALL / LC_MESSAGES / LANG 判断;e2e 的步骤按中文界面写，固定成中文，不随跑测试的机器变。
-HOME="$home" XDG_STATE_HOME="" LC_ALL=zh_CN.UTF-8 WAILS_SERVER_HOST=127.0.0.1 WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" \
-	"$work/server" >"$work/server.log" 2>&1 &
+library="$test_home/Library/Application Support/mechbox/library.db"
+HOME="$test_home" MECHBOX_LIBRARY="$library" XDG_CONFIG_HOME="$test_home/.config" XDG_STATE_HOME="$test_home/.local/state" LC_ALL=zh_CN.UTF-8 WAILS_SERVER_HOST=127.0.0.1 WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" \
+	"$server" >"$work/server.log" 2>&1 &
 server_pid=$!
 wait_up "server" "$server_pid" "$port" "$work/server.log"
 
-# 截图每次放一个新目录，不放在 $work 里(结束时会删掉);设了 E2E_SHOTS 就用它。
-shots=${E2E_SHOTS:-$(mktemp -d /tmp/mechbox-e2e-shots.XXXXXX)}
 status=0
-E2E_HOME="$home" E2E_URL="http://127.0.0.1:$port/" E2E_ZIP_URL="http://127.0.0.1:$zip_port/delta.zip" E2E_ZIP_DIR="$work/zips" \
+E2E_PLAN_ONLY=0 E2E_HOME="$test_home" E2E_LIBRARY="$library" E2E_URL="http://127.0.0.1:$port/" E2E_ZIP_URL="http://127.0.0.1:$zip_port/delta.zip" E2E_ZIP_DIR="$work/zips" \
 	E2E_SHOTS="$shots" node "$here/e2e.mjs" "$@" || status=$?
-echo "截图：$shots"
 exit "$status"
