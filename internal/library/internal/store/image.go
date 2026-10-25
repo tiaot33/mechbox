@@ -32,6 +32,10 @@ func (s *Store) Snapshot(ctx context.Context) ([]byte, error) {
 		_ = snapshotDB.Close()
 		return nil, fmt.Errorf("snapshot library: %w", wrap(err))
 	}
+	if _, err := snapshotDB.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere); err != nil {
+		_ = snapshotDB.Close()
+		return nil, fmt.Errorf("drop machine config from sync snapshot: %w", wrap(err))
+	}
 	var mode string
 	err = snapshotDB.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
 	if err == nil && mode != "delete" {
@@ -127,7 +131,43 @@ func (s *Store) Replace(ctx context.Context, image *Image) error {
 	if _, err := image.db.ExecContext(ctx, `UPDATE replica SET token = ?`, newToken()); err != nil {
 		return wrap(err)
 	}
+	if err := keepMachineConfig(ctx, s.db, image.db); err != nil {
+		return err
+	}
 	return wrap(backup(ctx, s.db, image.db))
+}
+
+func keepMachineConfig(ctx context.Context, local, image *sql.DB) error {
+	rows, err := local.QueryContext(ctx, `SELECT key, value FROM config WHERE `+machineConfigWhere)
+	if err != nil {
+		return fmt.Errorf("read machine config: %w", wrap(err))
+	}
+	kept := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			rows.Close()
+			return fmt.Errorf("read machine config: %w", wrap(err))
+		}
+		kept[key] = value
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("read machine config: %w", wrap(err))
+	}
+	tx, err := image.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("keep machine config: %w", wrap(err))
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere); err != nil {
+		return fmt.Errorf("keep machine config: %w", wrap(err))
+	}
+	for key, value := range kept {
+		if err := (queries{tx}).setConfig(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	return wrap(tx.Commit())
 }
 
 func backup(ctx context.Context, destination, source *sql.DB) error {

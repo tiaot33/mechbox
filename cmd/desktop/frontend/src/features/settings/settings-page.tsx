@@ -190,7 +190,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
               {card("github", t.tokenInLibrary, <GitHubSection />)}
-              {card("sync", t.secretsInKeychain(), <SyncSection />)}
+              {card("sync", t.syncOnThisMachine, <SyncSection />)}
               {card(
                 "about",
                 null,

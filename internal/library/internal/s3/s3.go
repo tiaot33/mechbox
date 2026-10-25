@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -125,21 +124,9 @@ func request(ctx context.Context, settings *Settings, method string, body []byte
 	return response, object, nil
 }
 
-func environmentSettings() *Settings {
-	return &Settings{
-		Endpoint:        os.Getenv("SKILLS_S3_ENDPOINT"),
-		Bucket:          os.Getenv("SKILLS_S3_BUCKET"),
-		Key:             os.Getenv("SKILLS_S3_KEY"),
-		Region:          os.Getenv("AWS_REGION"),
-		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
-		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
-	}
-}
-
 func loadConfig(settings *Settings) (config, error) {
 	if settings == nil {
-		settings = environmentSettings()
+		settings = &Settings{}
 	}
 	cfg := config{
 		endpoint:     settings.Endpoint,

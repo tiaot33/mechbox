@@ -127,3 +127,54 @@ func TestMarshalErrorEncodesLibraryError(t *testing.T) {
 		t.Fatalf("marshalError = %+v; want code and message from library.ErrorOf", got)
 	}
 }
+
+// MECHBOX_LIBRARY 设了就打开它(相对路径按当前目录),不打开真实技能库;没设时是用户配置目录下的 mechbox/library.db。
+func TestLibraryPathCanPointAtAnotherDatabase(t *testing.T) {
+	t.Setenv(libraryPathEnv, "")
+	config, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := defaultLibraryPath(); err != nil || got != filepath.Join(config, appDirName, "library.db") {
+		t.Fatalf("defaultLibraryPath() = %q, %v; want the real library", got, err)
+	}
+	dev := filepath.Join(t.TempDir(), "dev.db")
+	t.Setenv(libraryPathEnv, dev)
+	if got, err := defaultLibraryPath(); err != nil || got != dev {
+		t.Fatalf("defaultLibraryPath() with %s = %q, %v; want %q", libraryPathEnv, got, err, dev)
+	}
+	t.Setenv(libraryPathEnv, "dev.db")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := defaultLibraryPath(); err != nil || got != filepath.Join(wd, "dev.db") {
+		t.Fatalf("defaultLibraryPath() with a relative path = %q, %v", got, err)
+	}
+}
+
+// 配置状态只看数据库里存的,环境变量里的令牌与 S3 设置不算。
+func TestConfigStatusOnlyCountsStoredSettings(t *testing.T) {
+	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN", "SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} {
+		t.Setenv(name, "from-environment")
+	}
+	service := startLibrary(t)
+	if got, err := service.Config(t.Context()); err != nil || got != (ConfigStatus{}) {
+		t.Fatalf("Config with only environment variables = %+v, %v; want nothing configured", got, err)
+	}
+	if err := service.SetGitHubToken(t.Context(), "stored"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetSyncSettings(t.Context(), library.SyncSettings{Bucket: "b", AccessKeyID: "AKID"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := service.Config(t.Context()); err != nil || got != (ConfigStatus{GitHubToken: true}) {
+		t.Fatalf("Config without a secret key = %+v, %v", got, err)
+	}
+	if err := service.SetSyncSettings(t.Context(), library.SyncSettings{Bucket: "b", AccessKeyID: "AKID", SecretAccessKey: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := service.Config(t.Context()); err != nil || got != (ConfigStatus{Sync: true, GitHubToken: true}) {
+		t.Fatalf("Config with stored settings = %+v, %v", got, err)
+	}
+}

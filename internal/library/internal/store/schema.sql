@@ -227,10 +227,13 @@ CREATE TABLE IF NOT EXISTS rolled_back_renames (
     name TEXT NOT NULL                                       -- 回滚掉的那个新名字
 );
 
--- 设置页填的 GitHub 个人访问令牌,只有一行;和库里其他内容一样随推送、拉回走,拉回后换成拉回的那份库里的(没有就是没填)。
--- 没有这一行表示没填,访问 GitHub 时读 GITHUB_TOKEN / GH_TOKEN 环境变量。
--- 数据库打开时开着 secure_delete:清空或换掉的令牌在文件里清零,推送出去的库里找不到旧令牌原文。
-CREATE TABLE IF NOT EXISTS github_token (
-    id INTEGER PRIMARY KEY CHECK(id = 1), -- 固定为 1
-    token TEXT NOT NULL CHECK(token <> '') -- 令牌原文;清空时删掉这一行
+-- 设置,一项一行;没有某一项的行表示没填。只认这里:不读环境变量,也不另存在系统钥匙串或设置文件里。
+-- 库自己的项:github_token = GitHub 个人访问令牌,没填时匿名访问(不行再用 gh);
+-- sync.endpoint / sync.bucket / sync.key / sync.region / sync.access_key_id / sync.secret_access_key / sync.session_token = 同步用的 S3 设置;
+-- wsl_distro = 各 Agent 的全局目录所在的 WSL 发行版,没填为这台机器本身。应用自己的项以 app. 开头,库只存取、不解释。
+-- sync. 开头的与 wsl_distro 只属于这台机器:推送出去的库里删掉,拉回时保留本机的;其余随推送、拉回走,拉回后换成拉回的那份库里的。
+-- 数据库打开时开着 secure_delete:清空或换掉的值在文件里清零,推送出去的库里找不到旧令牌与 S3 密钥的原文。
+CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,                  -- 设置项名,如 github_token、sync.bucket、app.language
+    value TEXT NOT NULL CHECK(value <> '') -- 设置的值;清空时删掉这一行
 );

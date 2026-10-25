@@ -1,97 +1,61 @@
 package main
 
 import (
-	"os"
+	"database/sql"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/wailsapp/wails/v3/pkg/application"
+
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-func TestSettingsDefaultWhenFileMissing(t *testing.T) {
-	file, err := loadSettings(filepath.Join(t.TempDir(), settingsFileName))
-	if err != nil {
-		t.Fatalf("loadSettings: %v", err)
-	}
-	if !reflect.DeepEqual(file, settingsFile{Settings: defaultSettings()}) {
-		t.Fatalf("loadSettings = %+v; want defaults %+v", file, defaultSettings())
-	}
+func TestSettingsDefaultWhenNothingStored(t *testing.T) {
+	got, done := settingsFrom(nil)
 	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
-	if !reflect.DeepEqual(file.Settings, want) {
-		t.Fatalf("defaults = %+v; want %+v", file.Settings, want)
+	if !reflect.DeepEqual(got, want) || done {
+		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}
 }
 
 func TestSettingsRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "nested", settingsFileName)
-	want := settingsFile{
-		Settings: Settings{
-			AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn,
-			AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
-		},
-		Sync: syncFields{Endpoint: "https://s3.example.com", Bucket: "b", Key: "k.db", Region: "r", AccessKeyID: "AKID"},
+	want := Settings{
+		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn,
+		AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 	}
-	if err := saveSettings(path, want); err != nil {
-		t.Fatalf("saveSettings: %v", err)
+	for _, opened := range []bool{false, true} {
+		got, done := settingsFrom(want.appValues(opened))
+		if !reflect.DeepEqual(got, want) || done != opened {
+			t.Fatalf("settingsFrom(appValues(%v)) = %+v, %v; want %+v", opened, got, done, want)
+		}
 	}
-	got, err := loadSettings(path)
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("loadSettings = %+v, %v; want %+v", got, err, want)
-	}
-	entries, _ := os.ReadDir(filepath.Dir(path))
-	if len(entries) != 1 {
-		t.Fatalf("settings directory has %d entries; want only %s", len(entries), settingsFileName)
+	if v := defaultSettings().appValues(false)["language"]; v != "" {
+		t.Fatalf("following the system language stores language %q; want nothing", v)
 	}
 }
 
-func TestSettingsFillMissingFieldsWithDefaults(t *testing.T) {
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	if err := os.WriteFile(path, []byte(`{"dock_badge": false, "check_interval": "sometimes", "language": "fr"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := loadSettings(path)
-	if err != nil {
-		t.Fatalf("loadSettings: %v", err)
-	}
-	want := settingsFile{Settings: defaultSettings()}
+func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
+	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{"})
+	want := defaultSettings()
 	want.DockBadge = false
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("loadSettings = %+v; want %+v", got, want)
+		t.Fatalf("settingsFrom = %+v; want %+v", got, want)
 	}
 }
 
-func TestSettingsCorruptFileFallsBackToDefaults(t *testing.T) {
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	if err := os.WriteFile(path, []byte(`{`), 0o644); err != nil {
-		t.Fatal(err)
+func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
+	lib := startLibrary(t)
+	service := startApp(t, lib)
+	for _, settings := range []Settings{{CheckInterval: "sometimes"}, {CheckInterval: CheckDaily, Language: "fr"}} {
+		if _, err := service.SaveSettings(t.Context(), settings); err == nil {
+			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)
+		}
 	}
-	got, err := loadSettings(path)
-	if err == nil || !reflect.DeepEqual(got, settingsFile{Settings: defaultSettings()}) {
-		t.Fatalf("loadSettings = %+v, %v; want defaults and an error", got, err)
-	}
-}
-
-func TestSaveSettingsRejectsUnknownInterval(t *testing.T) {
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	service := NewAppService(path, nil)
-	if _, err := service.SaveSettings(t.Context(), Settings{CheckInterval: "sometimes"}); err == nil {
-		t.Fatal("SaveSettings accepted an unknown interval")
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("settings file written for a rejected change: %v", err)
-	}
-}
-
-func TestSaveSettingsRejectsUnknownLanguage(t *testing.T) {
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	service := NewAppService(path, nil)
-	if _, err := service.SaveSettings(t.Context(), Settings{CheckInterval: CheckDaily, Language: "fr"}); err == nil {
-		t.Fatal("SaveSettings accepted an unknown language")
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("settings file written for a rejected change: %v", err)
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 {
+		t.Fatalf("app settings = %v, %v; want nothing written for rejected changes", values, err)
 	}
 }
 
@@ -126,8 +90,7 @@ func TestWSLDistroSetting(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
 	lib := startLibrary(t)
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	app := startApp(t, path, lib)
+	app := startApp(t, lib)
 
 	settings := app.Settings()
 	settings.WSLDistro = "saved-distro"
@@ -158,12 +121,33 @@ func TestWSLDistroSetting(t *testing.T) {
 func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("MECHBOX_TEST_WSL_SHELL", "/nonexistent/sh")
-	lib := startLibrary(t)
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	if err := saveSettings(path, settingsFile{Settings: Settings{CheckInterval: CheckDaily, WSLDistro: "late-distro"}, FirstOpenDone: true}); err != nil {
+	path := filepath.Join(t.TempDir(), "library.db")
+	created := NewLibraryService(path)
+	if err := created.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	app := startApp(t, path, lib)
+	if err := created.ServiceShutdown(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO config(key, value) VALUES ('wsl_distro', 'late-distro')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lib := NewLibraryService(path)
+	if err := lib.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.ServiceShutdown() })
+	app := startApp(t, lib)
+	if got := app.Settings().WSLDistro; got != "late-distro" {
+		t.Fatalf("WSLDistro = %q; want the stored one", got)
+	}
 	if app.WSLDistroError() == "" {
 		t.Fatal("no error for a distro that can't be opened")
 	}

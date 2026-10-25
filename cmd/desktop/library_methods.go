@@ -219,6 +219,10 @@ func (s *LibraryService) ListWSLDistros(ctx context.Context) ([]string, error) {
 	return settle(s.lib.ListWSLDistros(ctx))(ctx)
 }
 
+func (s *LibraryService) WSLDistro(ctx context.Context) (string, error) {
+	return settle(s.lib.WSLDistro(ctx))(ctx)
+}
+
 func (s *LibraryService) SetWSLDistro(ctx context.Context, distro string) error {
 	return settleErr(ctx, s.lib.SetWSLDistro(ctx, distro))
 }
@@ -292,6 +296,14 @@ func (s *LibraryService) Reinstall(ctx context.Context, requests []library.Reins
 
 // ---------- GitHub 与同步 ----------
 
+func (s *LibraryService) AppSettings(ctx context.Context) (map[string]string, error) {
+	return settle(s.lib.AppSettings(ctx))(ctx)
+}
+
+func (s *LibraryService) SetAppSettings(ctx context.Context, settings map[string]string) error {
+	return settleErr(ctx, s.lib.SetAppSettings(ctx, settings))
+}
+
 func (s *LibraryService) GitHubToken(ctx context.Context) (string, error) {
 	return settle(s.lib.GitHubToken(ctx))(ctx)
 }
@@ -300,15 +312,12 @@ func (s *LibraryService) SetGitHubToken(ctx context.Context, token string) error
 	return settleErr(ctx, s.lib.SetGitHubToken(ctx, token))
 }
 
-func (s *LibraryService) SetSyncSettings(settings *library.SyncSettings) {
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-	s.sync = nil
-	if settings != nil {
-		given := *settings
-		s.sync = &given
-	}
-	s.lib.SetSyncSettings(settings)
+func (s *LibraryService) SyncSettings(ctx context.Context) (library.SyncSettings, error) {
+	return settle(s.lib.SyncSettings(ctx))(ctx)
+}
+
+func (s *LibraryService) SetSyncSettings(ctx context.Context, settings library.SyncSettings) error {
+	return settleErr(ctx, s.lib.SetSyncSettings(ctx, settings))
 }
 
 func (s *LibraryService) PlanSyncPush(ctx context.Context) (library.SyncPushPlan, error) {
@@ -323,6 +332,11 @@ func (s *LibraryService) SyncPush(ctx context.Context, expected library.RemoteId
 	return settle(s.lib.SyncPush(ctx, expected))(ctx)
 }
 
+// SyncPull 拉回后让应用设置服务重新读出设置:拉回的库带着推送那台机器的设置。
 func (s *LibraryService) SyncPull(ctx context.Context, expected library.RemoteIdentity) error {
-	return settleErr(ctx, s.lib.SyncPull(ctx, expected))
+	err := s.lib.SyncPull(ctx, expected)
+	if err == nil && s.afterPull != nil {
+		s.afterPull(context.WithoutCancel(ctx))
+	}
+	return settleErr(ctx, err)
 }

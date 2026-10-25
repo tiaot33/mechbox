@@ -1877,43 +1877,42 @@ export interface SyncPushPlan {
 }
 
 /**
- * SyncSettings 是同步用的 S3 设置,由调用方(例如设置页)传给 [Library.SetSyncSettings]。
- * 各项与环境变量一一对应,留空时的处理也与环境变量相同:对象名默认 library.db,区域默认 us-east-1,
- * 服务地址留空时按存储桶与区域使用 AWS S3。
+ * SyncSettings 是同步用的 S3 设置,用 [Library.SetSyncSettings] 存进数据库。
+ * 留空的项:对象名默认 library.db,区域默认 us-east-1,服务地址留空时按存储桶与区域使用 AWS S3。
  */
 export interface SyncSettings {
     /**
-     * Endpoint 是服务地址(对应 SKILLS_S3_ENDPOINT)。
+     * Endpoint 是服务地址。
      */
     "endpoint"?: string;
 
     /**
-     * Bucket 是存储桶(对应 SKILLS_S3_BUCKET)。
+     * Bucket 是存储桶。
      */
     "bucket": string;
 
     /**
-     * Key 是对象名(对应 SKILLS_S3_KEY)。
+     * Key 是对象名。
      */
     "key"?: string;
 
     /**
-     * Region 是区域(对应 AWS_REGION)。
+     * Region 是区域。
      */
     "region"?: string;
 
     /**
-     * AccessKeyID 对应 AWS_ACCESS_KEY_ID。
+     * AccessKeyID 是访问密钥的 ID。
      */
     "access_key_id": string;
 
     /**
-     * SecretAccessKey 对应 AWS_SECRET_ACCESS_KEY。
+     * SecretAccessKey 是访问密钥。
      */
     "secret_access_key": string;
 
     /**
-     * SessionToken 对应 AWS_SESSION_TOKEN。
+     * SessionToken 是临时凭证的会话令牌;用长期密钥时留空。
      */
     "session_token"?: string;
 }

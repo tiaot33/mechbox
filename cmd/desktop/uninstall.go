@@ -27,47 +27,30 @@ func (f UninstallFolders) valid() bool {
 // UninstallOptions 是卸载 Mechbox 的选项。
 type UninstallOptions struct {
 	Folders UninstallFolders `json:"folders"`
-	// SkipKeychain 为 true 时删不掉系统钥匙串里的条目也继续卸载(用户看了上一次的结果后选了跳过)。
-	SkipKeychain bool `json:"skip_keychain"`
 }
 
 // UninstallResult 是卸载 Mechbox 的结果。
 type UninstallResult struct {
 	// Uninstalled 为 true 时卸载已经确认，应用随即退出。
 	Uninstalled bool `json:"uninstalled"`
-	// KeychainError 非空时没能删除系统钥匙串里的条目(如用户拒绝了授权),什么都没动;
-	// 界面说明原因，用户可以重试，或带 SkipKeychain 再调一次。
-	KeychainError string `json:"keychain_error,omitempty"`
 }
 
-// UninstallApp 卸载 Mechbox：先删除系统钥匙串里的密钥，再按选项把装出去的技能文件夹移到废纸篓
+// UninstallApp 卸载 Mechbox：按选项把装出去的技能文件夹移到废纸篓
 // (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
-// 退出时技能库关上以后，再删除数据库、settings.json 与系统给应用留下的数据，并把应用移到废纸篓(移不动时在 Finder 中选中它)。
-// 移文件夹中途失败时返回错误、不退出，数据库与设置都还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。
-// 从开始卸载起不再保存同步设置。S3 上的库不动。
+// 退出时技能库关上以后，再删除数据库(连同存在里面的设置、令牌与同步设置)与系统给应用留下的数据，
+// 并把应用移到废纸篓(移不动时在 Finder 中选中它)。
+// 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的库不动。
 func (a *AppService) UninstallApp(ctx context.Context, opts UninstallOptions) (UninstallResult, error) {
 	if !opts.Folders.valid() {
 		return UninstallResult{}, fmt.Errorf("unknown folders option %q", opts.Folders)
 	}
-	a.credMu.Lock()
 	a.mu.Lock()
 	if a.uninstalling {
 		a.mu.Unlock()
-		a.credMu.Unlock()
 		return UninstallResult{}, errors.New("uninstall already in progress")
 	}
 	a.uninstalling = true
 	a.mu.Unlock()
-	err := a.keychain.delete()
-	if err == nil {
-		a.secrets, a.secretsRead = secrets{}, true
-		a.applySyncSettings(a.syncSettings())
-	}
-	a.credMu.Unlock()
-	if err != nil && !opts.SkipKeychain {
-		a.stopUninstalling()
-		return UninstallResult{KeychainError: err.Error()}, nil
-	}
 	if opts.Folders != "" && opts.Folders != FoldersKeep {
 		if err := a.trashFolders(ctx, opts.Folders == FoldersKeepModified); err != nil {
 			a.stopUninstalling()
@@ -119,20 +102,19 @@ func (a *AppService) afterShutdown() {
 		return
 	}
 	a.removeOnce.Do(func() {
-		if err := errors.Join(removeAppData(a.library.path, a.path), removeFromSystem()); err != nil {
+		if err := errors.Join(removeAppData(a.library.path), removeFromSystem()); err != nil {
 			fmt.Fprintln(os.Stderr, "uninstall:", err)
 		}
 	})
 }
 
-func removeAppData(libraryPath, settingsPath string) error {
+func removeAppData(libraryPath string) error {
 	var errs []error
-	for _, path := range []string{libraryPath, libraryPath + "-wal", libraryPath + "-shm", libraryPath + "-journal", settingsPath} {
+	for _, path := range []string{libraryPath, libraryPath + "-wal", libraryPath + "-shm", libraryPath + "-journal"} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}
 	}
 	_ = os.Remove(filepath.Dir(libraryPath))
-	_ = os.Remove(filepath.Dir(settingsPath))
 	return errors.Join(errs...)
 }

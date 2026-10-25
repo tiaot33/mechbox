@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
-	"github.com/tiaot33/mechbox/internal/library/internal/s3"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/git"
@@ -35,8 +33,6 @@ type Library struct {
 	github   *github.Client
 	download download.Kind
 	sources  source.Kinds
-
-	syncSettings atomic.Pointer[s3.Settings]
 }
 
 const (
@@ -142,10 +138,19 @@ func (l *Library) ListWSLDistros(ctx context.Context) (distros []string, err err
 	return distros, err
 }
 
+// WSLDistro 返回存在数据库里的 WSL 发行版选择([Library.SetWSLDistro] 存下的);空字符串为这台机器本身(Windows 本机)。
+// [Open] 不自动换到这个发行版:调用方启动时取出它再调 [Library.SetWSLDistro],打不开时可以提示用户重试或改回本机。
+func (l *Library) WSLDistro(ctx context.Context) (distro string, err error) {
+	defer func() { err = typedError(err) }()
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	return l.store.WSLDistro(ctx)
+}
+
 // SetWSLDistro 选择各 Agent 的全局目录在哪,之后的请求立即使用:传发行版名字时换成这个 WSL 发行版主目录下的对应目录,
 // [Library.HomeDirectory] 随之变成发行版的主目录;传空字符串回到当前用户的主目录(Windows 本机)。
 // 换了以后只认新目录,原来的全局目录里装的文件夹留在原处、不再管,库里记着的全局安装都按新目录巡检。
-// 选择只在这个 Library 实例上有效,不写进库,也不随同步传到别的机器。
+// 选择存进数据库([Library.WSLDistro] 读出),只属于这台机器:推送出去的库里不带,拉回时保留本机的。
 //
 // 不论选的是哪里,路径在 \\wsl.localhost\ 或 \\wsl$\ 下的地方(发行版里的全局目录、登记在发行版里的项目、本地目录来源)
 // 都按所在发行版的 Linux 规则读写:符号链接与可执行权限经 wsl.exe 在那个发行版里执行命令处理。
@@ -158,6 +163,9 @@ func (l *Library) SetWSLDistro(ctx context.Context, distro string) (err error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if err := l.store.SetWSLDistro(ctx, distro); err != nil {
+		return err
+	}
 	l.home, l.distro = home, distro
 	return nil
 }
@@ -169,7 +177,7 @@ func resolveHome(ctx context.Context, distro string) (agentdir.Home, error) {
 	return agentdir.DistroHome(ctx, distro)
 }
 
-// GitHubToken 返回设置的 GitHub 个人访问令牌(设置页显示它);没设置时为空,此时访问 GitHub 读 GITHUB_TOKEN / GH_TOKEN 环境变量。
+// GitHubToken 返回存在数据库里的 GitHub 个人访问令牌(设置页显示它);没设置时为空,此时匿名访问 GitHub。
 // 拉回后是拉回的那份库里的令牌。
 func (l *Library) GitHubToken(ctx context.Context) (token string, err error) {
 	defer func() { err = typedError(err) }()
@@ -179,9 +187,9 @@ func (l *Library) GitHubToken(ctx context.Context) (token string, err error) {
 }
 
 // SetGitHubToken 设置访问 GitHub 用的个人访问令牌(去掉首尾空白),之后的入库预览、入库、检查更新与更新立即使用。
-// 它只用在「用令牌访问」这一步:先匿名访问,不行再用令牌,再不行用 gh,顺序不变。
+// 它只用在「用令牌访问」这一步:先匿名访问,不行再用令牌,再不行用 gh,顺序不变。只认数据库里的令牌,不读环境变量。
 // 令牌写进数据库,和库里其他内容一样随推送、拉回走:拉回后换成拉回的那份库里的令牌,那份库里没有就是没设置。
-// 传空字符串即从数据库删掉,回到读取 GITHUB_TOKEN / GH_TOKEN 环境变量。
+// 传空字符串即从数据库删掉,回到匿名访问。
 // 同一个数据库在别的进程里打开的 Library 要重新 [Open] 才用上新令牌。
 func (l *Library) SetGitHubToken(ctx context.Context, token string) (err error) {
 	defer func() { err = typedError(err) }()
@@ -193,4 +201,27 @@ func (l *Library) SetGitHubToken(ctx context.Context, token string) (err error) 
 	}
 	l.github.SetToken(token)
 	return nil
+}
+
+// AppSettings 返回应用自己的设置(如桌面端的自动检查、界面语言),按设置项名;库只存取、不解释,没设置过的项不在结果里。
+// 它们存在数据库里,和库里其他内容一样随推送、拉回走,拉回后换成拉回的那份库里的。
+func (l *Library) AppSettings(ctx context.Context) (settings map[string]string, err error) {
+	defer func() { err = typedError(err) }()
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	return l.store.AppSettings(ctx)
+}
+
+// SetAppSettings 用 settings 整组替换应用自己的设置;值为空字符串的项不保存,之后读不到它。
+// 设置项名为空或带首尾空白时返回 InvalidArgument,原来的设置不变。
+func (l *Library) SetAppSettings(ctx context.Context, settings map[string]string) (err error) {
+	defer func() { err = typedError(err) }()
+	for name := range settings {
+		if name == "" || strings.TrimSpace(name) != name {
+			return argumentError("set app settings", "settings", fmt.Sprintf("invalid setting name %q", name))
+		}
+	}
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	return l.store.SetAppSettings(ctx, settings)
 }

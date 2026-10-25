@@ -325,7 +325,7 @@ func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
 func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	stub := newS3Stub(t)
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	local := fetchNamedSkill(t, lib, "local")
 	if plan, err := lib.PlanSyncPush(t.Context()); err != nil || plan.Remote != nil {
 		t.Fatalf("PlanSyncPush() = %#v, %v; want no remote library", plan, err)

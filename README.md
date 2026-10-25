@@ -70,30 +70,21 @@ Windows 和 Linux 版有些功能还没有，见[尚未支持](#尚未支持)。
 
 ## 数据存在哪里
 
-| 内容 | 位置 |
-| --- | --- |
-| 库（技能、版本、集合、组、安装记录、已登记项目、GitHub 令牌） | `~/Library/Application Support/mechbox/library.db`，一个 SQLite 数据库；随同步走 |
-| 应用设置（检查更新、菜单栏、Dock 角标、显示哪些 Agent、S3 同步设置里除密钥以外的几项） | 同一目录下的 `settings.json`，只属于这台机器，不随同步走 |
-| S3 的 Secret Access Key、Session Token | macOS 的钥匙串、Windows 的凭据管理器、Linux 的 Secret Service（GNOME Keyring、KWallet 等），不进库、不随同步走（[ADR 0011](docs/adr/0011-github-token-syncs-s3-settings-stay-local.md)） |
+所有内容都在 `~/Library/Application Support/mechbox/library.db` 里，这是一个 SQLite 数据库：
+
+- 库：技能、版本、集合、组、安装记录、已登记项目。
+- 设置页里的设置：GitHub 令牌、检查更新、菜单栏、Dock 角标、语言、显示哪些 Agent，以及 S3 同步设置。
+
+设置只认数据库里的，不读环境变量，也不存在系统钥匙串里（[ADR 0011](docs/adr/0011-settings-live-in-the-database.md)）。同步时，库和大部分设置随推送、拉回走；S3 同步设置和 WSL 发行版只属于这台机器，推送时不带，拉回时保留本机的。
 
 应用开着时不要只复制 `library.db` 来备份，尚未合并的写入还在旁边的 `library.db-wal` 里；要备份就用同步推送，或退出应用后再复制。
 
-GitHub 令牌和同步设置在设置页填写。没填时读下面的环境变量；同步设置填了任意一项，就整组用设置页的。
-
-| 环境变量 | 用途 | 默认值 |
-| --- | --- | --- |
-| `GITHUB_TOKEN`、`GH_TOKEN` | GitHub 令牌，减少被限流 | 无；匿名访问受限时再试本机 `gh` 的登录 |
-| `SKILLS_S3_BUCKET` | S3 bucket | 无；同步时必填 |
-| `SKILLS_S3_KEY` | S3 object key | `library.db` |
-| `SKILLS_S3_ENDPOINT` | S3 兼容服务地址 | AWS S3 地址 |
-| `AWS_REGION` | S3 region | `us-east-1` |
-| `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | S3 凭证 | 无；同步时必填 |
-| `AWS_SESSION_TOKEN` | 临时凭证 token | 无 |
+GitHub 令牌没填时匿名访问 GitHub API，受限时再试本机 `gh` 的登录。同步要在设置页填好存储桶、Access Key ID 和 Secret Access Key；对象名默认 `library.db`，区域默认 `us-east-1`，服务地址留空时用 AWS S3。
 
 ## 尚未支持
 
 - 系统通知：有更新时只显示 Dock 角标和左栏计数。
-- Windows、Linux：有安装包，但没有一等支持。没有 Dock 角标；「在 Finder 中显示」不起作用；卸载 Mechbox 时只删技能库与设置，应用本身和 WebView 的数据还在，要用系统的方式卸载。
+- Windows、Linux：有安装包，但没有一等支持。没有 Dock 角标；「在 Finder 中显示」不起作用；卸载 Mechbox 时只删技能库（设置都在里面），应用本身和 WebView 的数据还在，要用系统的方式卸载。
 
 ## 开发
 

@@ -20,14 +20,12 @@ const updatesCheckedEvent = "updates-checked"
 // AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、Dock 角标、关闭窗口后留在菜单栏。
 // 自动检查只读(检查更新不改技能，也不碰装出去的文件夹),结果不发系统通知，只体现在角标和侧栏计数上。
 type AppService struct {
-	path    string
 	library *LibraryService
 	app     *application.App
 	window  *application.WebviewWindow
 
 	mu           sync.Mutex
 	settings     Settings
-	sync         syncFields
 	firstOpen    bool
 	hidden       bool
 	opened       bool
@@ -39,10 +37,7 @@ type AppService struct {
 	removeOnce sync.Once
 	discard    func(path string) error
 
-	credMu      sync.Mutex
-	keychain    secretStore
-	secrets     secrets
-	secretsRead bool
+	saveMu sync.Mutex
 
 	nativeMu sync.Mutex
 	tray     *application.SystemTray
@@ -55,30 +50,30 @@ type AppService struct {
 }
 
 // NewAppService 创建应用设置服务;app 与 window 在 main 里创建窗口后填入。
-func NewAppService(path string, lib *LibraryService) *AppService {
-	return &AppService{path: path, library: lib, keychain: defaultKeychain(), discard: discard, wake: make(chan struct{}, 1)}
+func NewAppService(lib *LibraryService) *AppService {
+	a := &AppService{library: lib, discard: discard, wake: make(chan struct{}, 1)}
+	if lib != nil {
+		lib.afterPull = a.reloadSettings
+	}
+	return a
 }
 
-// ServiceStartup 读取设置，把各 Agent 的全局目录所在的 WSL 发行版、设置页里填的同步设置交给技能库，
-// 并开始后台检查;它排在 LibraryService 之后启动，技能库已经打开。选了发行版而打不开时，技能库留在 Windows 本机的全局目录，
-// 原因由 WSLDistroError 给出。
+// ServiceStartup 从技能库读出设置，换到存着的 WSL 发行版(各 Agent 的全局目录所在),并开始后台检查;
+// 它排在 LibraryService 之后启动，技能库已经打开。选了发行版而打不开时，技能库留在 Windows 本机的全局目录，
+// 原因由 WSLDistroError 给出。设置读不出时用默认值，并且不当作第一次打开。
 func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
-	file, err := loadSettings(a.path)
-	if err != nil && a.app != nil {
-		a.app.Logger.Warn("settings unreadable, using defaults", "error", err)
-	}
-	a.settings, a.sync, a.firstOpen = file.Settings, file.Sync, err == nil && !file.FirstOpenDone
-	if distro := a.settings.WSLDistro; distro != "" {
+	values, err := a.library.lib.AppSettings(ctx)
+	a.warn(err, "settings unreadable, using defaults")
+	settings, done := settingsFrom(values)
+	distro, distroErr := a.library.lib.WSLDistro(ctx)
+	a.warn(distroErr, "WSL distro setting unreadable")
+	settings.WSLDistro = distro
+	a.settings, a.firstOpen = settings, err == nil && !done
+	if distro != "" {
 		if err := a.library.lib.SetWSLDistro(ctx, distro); err != nil {
 			a.distroError = library.ErrorOf(err).Message
 		}
 	}
-	a.credMu.Lock()
-	if err := a.readSecrets(); err != nil && a.app != nil {
-		a.app.Logger.Warn("keychain unreadable", "error", err)
-	}
-	a.applySyncSettings(a.syncSettings())
-	a.credMu.Unlock()
 	a.menus.setLanguage(a.settings.Language.resolve())
 	a.opened = true
 	loop, stop := context.WithCancel(context.Background())
@@ -126,15 +121,12 @@ func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Setti
 			return Settings{}, err
 		}
 	}
-	a.mu.Lock()
-	err := saveSettings(a.path, settingsFile{Settings: settings, Sync: a.sync, FirstOpenDone: !a.firstOpen})
-	if err == nil {
-		a.settings = settings
-		if switched {
-			a.distroError = ""
-		}
+	err := a.saveSettings(ctx, settings, nil)
+	if err == nil && switched {
+		a.mu.Lock()
+		a.distroError = ""
+		a.mu.Unlock()
 	}
-	a.mu.Unlock()
 	if err != nil {
 		if switched {
 			_ = a.library.lib.SetWSLDistro(context.WithoutCancel(ctx), previous)
@@ -169,20 +161,69 @@ func (a *AppService) RetryWSLDistro(ctx context.Context) error {
 	return nil
 }
 
-// FirstOpen 在这台机器上第一次打开 app 时返回 true,并在 settings.json 里记下已经打开过,之后(含重启)都返回 false。
+// FirstOpen 在这个数据库第一次被 app 打开时返回 true,并在技能库的应用设置里记下已经打开过,之后(含重启)都返回 false。
 // 前端据此把用户带到各 Agent 全局目录里不是库装的技能;换到新机器也一样。记不下来时照样返回 true,下次启动会再带一次。
-// settings.json 在却读不出时返回 false,不拿默认值把它覆盖掉。
+// 设置读不出时返回 false,不拿默认值把它覆盖掉。拉回后保留这台机器已经打开过的记录(见 reloadSettings)。
 func (a *AppService) FirstOpen() bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.firstOpen {
+	first := a.firstOpen
+	a.firstOpen = false
+	settings := a.settings
+	a.mu.Unlock()
+	if !first {
 		return false
 	}
-	a.firstOpen = false
-	if err := saveSettings(a.path, settingsFile{Settings: a.settings, Sync: a.sync, FirstOpenDone: true}); err != nil && a.app != nil {
-		a.app.Logger.Warn("settings unwritable, first open not recorded", "error", err)
-	}
+	done := true
+	a.warn(a.saveSettings(context.Background(), settings, &done), "settings unwritable, first open not recorded")
 	return true
+}
+
+// saveSettings 把设置写进技能库的应用设置，写成了才换掉 a.settings;firstOpenDone 为 nil 时按现在的记录。
+// 写入依次进行，免得较早的一次后写、盖掉较新的设置。
+func (a *AppService) saveSettings(ctx context.Context, settings Settings, firstOpenDone *bool) error {
+	a.saveMu.Lock()
+	defer a.saveMu.Unlock()
+	a.mu.Lock()
+	done := !a.firstOpen
+	a.mu.Unlock()
+	if firstOpenDone != nil {
+		done = *firstOpenDone
+	}
+	if err := a.library.lib.SetAppSettings(ctx, settings.appValues(done)); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.settings = settings
+	a.mu.Unlock()
+	return nil
+}
+
+// reloadSettings 在拉回之后重新读出设置并立即生效：拉回的库带着推送那台机器的设置。WSL 发行版只属于这台机器，不变;
+// 这台机器已经打开过 app 时，把这条记录写回去，免得拉回一份没有它的库后下次启动又当作第一次打开。
+func (a *AppService) reloadSettings(ctx context.Context) {
+	values, err := a.library.lib.AppSettings(ctx)
+	if err != nil {
+		a.warn(err, "settings unreadable after pull")
+		return
+	}
+	settings, done := settingsFrom(values)
+	a.mu.Lock()
+	settings.WSLDistro = a.settings.WSLDistro
+	keep := !a.firstOpen && !done
+	a.settings = settings
+	a.mu.Unlock()
+	if keep {
+		a.warn(a.saveSettings(ctx, settings, &keep), "settings unwritable, first open not kept after pull")
+	}
+	a.menus.setLanguage(settings.Language.resolve())
+	a.poke()
+	a.refreshBadge(ctx)
+}
+
+func (a *AppService) warn(err error, message string) {
+	if err != nil && a.app != nil {
+		a.app.Logger.Warn(message, "error", err)
+	}
 }
 
 // RevealInFinder 在 Finder 中选中 path(作用域里的技能文件夹等);是符号链接时选中链接本身。

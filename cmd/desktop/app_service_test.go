@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -51,6 +53,16 @@ func TestOldestConfirmedUsesCheckTimeOrFetchTime(t *testing.T) {
 	}
 }
 
+func startApp(t *testing.T, lib *LibraryService) *AppService {
+	t.Helper()
+	a := NewAppService(lib)
+	if err := a.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("ServiceStartup: %v", err)
+	}
+	t.Cleanup(func() { _ = a.ServiceShutdown() })
+	return a
+}
+
 func startLibrary(t *testing.T) *LibraryService {
 	t.Helper()
 	service := NewLibraryService(filepath.Join(t.TempDir(), "library.db"))
@@ -87,28 +99,31 @@ func fetchLocalSkill(t *testing.T, lib *library.Library, name string) library.Sk
 	return fetchSkill(t, lib, library.PreviewFetchRequest{Input: filepath.Dir(src)}, name)
 }
 
+// 设置存在技能库里:重启(同一个数据库重新打开)后仍是保存的那一组。
 func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
-	lib := startLibrary(t)
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	first := startApp(t, path, lib)
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib := NewLibraryService(path)
+	if err := lib.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	first := startApp(t, lib)
 	if got := first.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
 		t.Fatalf("first start = %+v; want defaults", got)
 	}
-	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
+	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
 	if _, err := first.SaveSettings(t.Context(), want); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
-	if err := first.ServiceShutdown(); err != nil {
-		t.Fatalf("ServiceShutdown: %v", err)
+	if err := errors.Join(first.ServiceShutdown(), lib.ServiceShutdown()); err != nil {
+		t.Fatalf("shutdown: %v", err)
 	}
 
-	second := NewAppService(path, lib)
-	second.keychain = first.keychain
-	if err := second.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup after restart: %v", err)
+	restarted := NewLibraryService(path)
+	if err := restarted.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = second.ServiceShutdown() })
-	if got := second.Settings(); !reflect.DeepEqual(got, want) {
+	t.Cleanup(func() { _ = restarted.ServiceShutdown() })
+	if got := startApp(t, restarted).Settings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("after restart = %+v; want %+v", got, want)
 	}
 }
@@ -127,7 +142,7 @@ func TestAutoCheckDue(t *testing.T) {
 	fetched := remote.FetchedAt
 	only := []library.CollectionID{remote.CollectionID}
 
-	a := NewAppService(filepath.Join(t.TempDir(), settingsFileName), lib)
+	a := NewAppService(lib)
 	due := func(settings Settings, opened bool, last time.Time, now time.Time) []library.CollectionID {
 		a.settings, a.opened, a.lastAttempt = settings, opened, last
 		return a.due(t.Context(), now)
@@ -172,8 +187,7 @@ func TestAutoCheckDue(t *testing.T) {
 
 func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 	lib := startLibrary(t)
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	first := startApp(t, path, lib)
+	first := startApp(t, lib)
 	if !first.FirstOpen() {
 		t.Fatal("FirstOpen() on a new machine = false; want true")
 	}
@@ -187,35 +201,57 @@ func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 	if err := first.ServiceShutdown(); err != nil {
 		t.Fatalf("ServiceShutdown: %v", err)
 	}
-
-	second := NewAppService(path, lib)
-	second.keychain = first.keychain
-	if err := second.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup after restart: %v", err)
-	}
-	t.Cleanup(func() { _ = second.ServiceShutdown() })
-	if second.FirstOpen() {
+	if startApp(t, lib).FirstOpen() {
 		t.Fatal("FirstOpen() after restart = true; want false")
 	}
 
-	// 换到新机器(没有 settings.json)又是第一次。
-	other := startApp(t, filepath.Join(t.TempDir(), settingsFileName), lib)
-	if !other.FirstOpen() {
+	// 换到新机器(新的数据库)又是第一次。
+	if !startApp(t, startLibrary(t)).FirstOpen() {
 		t.Fatal("FirstOpen() on another machine = false; want true")
 	}
 }
 
+// 设置读不出时用默认值，不当作第一次打开，也不拿默认值覆盖库里的设置。
 func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
 	lib := startLibrary(t)
-	path := filepath.Join(t.TempDir(), settingsFileName)
-	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"language": "en"}); err != nil {
 		t.Fatal(err)
 	}
-	app := startApp(t, path, lib)
+	app := NewAppService(lib)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := app.ServiceStartup(ctx, application.ServiceOptions{}); err != nil {
+		t.Fatalf("ServiceStartup: %v", err)
+	}
+	t.Cleanup(func() { _ = app.ServiceShutdown() })
+	if got := app.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
+		t.Fatalf("Settings with unreadable library = %+v; want defaults", got)
+	}
 	if app.FirstOpen() {
 		t.Fatal("FirstOpen() with unreadable settings = true; want false")
 	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != "{not json" {
-		t.Fatalf("settings.json = %q, %v; want it left alone", data, err)
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || values["language"] != "en" || values[firstOpenDoneKey] != "" {
+		t.Fatalf("app settings = %v, %v; want them left alone", values, err)
+	}
+}
+
+// 拉回后设置换成拉回的那份库里的，立即生效;这台机器已经打开过的记录保留，WSL 发行版不变。
+func TestSettingsFollowPulledLibrary(t *testing.T) {
+	lib := startLibrary(t)
+	app := startApp(t, lib)
+	if !app.FirstOpen() {
+		t.Fatal("FirstOpen() = false; want true")
+	}
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"language": "en", "dock_badge": "false"}); err != nil {
+		t.Fatal(err)
+	}
+	app.reloadSettings(t.Context())
+	want := defaultSettings()
+	want.Language, want.DockBadge = LanguageEn, false
+	if got := app.Settings(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Settings after pull = %+v; want %+v", got, want)
+	}
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || values[firstOpenDoneKey] != "true" {
+		t.Fatalf("app settings after pull = %v, %v; want first open kept", values, err)
 	}
 }

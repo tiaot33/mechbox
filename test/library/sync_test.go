@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +27,7 @@ import (
 // 像 S3 一样保存推送时的元数据、在 HEAD / GET 上返回 Last-Modified 与元数据,并拒绝未签名的 x-amz-* 头;
 // 按 secrets 里该 Access Key ID 的 Secret Access Key 校验 SigV4 签名,不认识的 Access Key ID 或签名不符返回 403。
 type s3Stub struct {
+	settings   library.SyncSettings
 	stored     []byte
 	etag       string
 	modified   time.Time
@@ -182,13 +184,19 @@ func newS3Stub(t *testing.T) *s3Stub {
 	}))
 	t.Cleanup(server.Close)
 	stub.endpoint = server.URL
-	t.Setenv("SKILLS_S3_ENDPOINT", server.URL)
-	t.Setenv("SKILLS_S3_BUCKET", "test-bucket")
-	t.Setenv("SKILLS_S3_KEY", "backups/test$file+name.db")
-	t.Setenv("AWS_REGION", "test-region")
-	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+	stub.settings = library.SyncSettings{
+		Endpoint: server.URL, Bucket: "test-bucket", Key: "backups/test$file+name.db",
+		Region: "test-region", AccessKeyID: "test-key", SecretAccessKey: "test-secret",
+	}
 	return stub
+}
+
+// open 打开一个新的测试库,同步设置指向这个桩。
+func (s *s3Stub) open(t *testing.T) *library.Library {
+	t.Helper()
+	lib := openTestLibrary(t)
+	setSyncSettings(t, lib, s.settings)
+	return lib
 }
 
 func thisMachine(t *testing.T) string {
@@ -204,7 +212,7 @@ func thisMachine(t *testing.T) string {
 // 带着计划里的标识推送成功,返回刚推送的那份库。
 func TestSyncPushPlanShowsWhichRemoteLibraryWillBeOverwritten(t *testing.T) {
 	stub := newS3Stub(t)
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	ctx := t.Context()
 
 	first, err := lib.PlanSyncPush(ctx)
@@ -253,7 +261,7 @@ func TestSyncPushPlanShowsWhichRemoteLibraryWillBeOverwritten(t *testing.T) {
 func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	source := filepath.Join(t.TempDir(), "keeper")
 	writeLocalSkill(t, source, "keeper\n")
 	if _, err := fetchLocalDir(ctx, lib, source); err != nil {
@@ -281,7 +289,7 @@ func TestSyncPushConflictsWhenRemoteChangesWithinWindow(t *testing.T) {
 
 func TestSyncRejectsStalePlanAfterRemoteCreationChangeOrDeletion(t *testing.T) {
 	stub := newS3Stub(t)
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	ctx := t.Context()
 	plan, err := lib.PlanSyncPush(ctx)
 	if err != nil {
@@ -318,8 +326,8 @@ func TestSyncRejectsStalePlanAfterRemoteCreationChangeOrDeletion(t *testing.T) {
 // 新机器第一次打开同步页:S3 上还没有库是正常状态,拉回的同步计划说明不能拉回,不返回错误;
 // 硬要拉回则是 NotFound。
 func TestSyncPullPlanWithoutRemoteLibrary(t *testing.T) {
-	newS3Stub(t)
-	lib := openTestLibrary(t)
+	stub := newS3Stub(t)
+	lib := stub.open(t)
 	plan, err := lib.PlanSyncPull(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +345,7 @@ func TestSyncPullPlanWithoutRemoteLibrary(t *testing.T) {
 func TestSyncPullPlanExplainsWhyRemoteCannotBePulled(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	source := filepath.Join(t.TempDir(), "keeper")
 	writeLocalSkill(t, source, "keeper\n")
 	skill, err := fetchLocalDir(ctx, lib, source)
@@ -392,8 +400,8 @@ func TestSyncPullPlanExplainsWhyRemoteCannotBePulled(t *testing.T) {
 }
 
 func TestPullPlanReturnsTemporaryFileFailure(t *testing.T) {
-	newS3Stub(t)
-	lib := openTestLibrary(t)
+	stub := newS3Stub(t)
+	lib := stub.open(t)
 	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -405,8 +413,8 @@ func TestPullPlanReturnsTemporaryFileFailure(t *testing.T) {
 }
 
 func TestPullPlanPreservesCancellationDuringValidation(t *testing.T) {
-	newS3Stub(t)
-	lib := openTestLibrary(t)
+	stub := newS3Stub(t)
+	lib := stub.open(t)
 	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +446,7 @@ func TestSyncPullReplacesLibraryAndKeepsProjectsForRelocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", oldHome)
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeLocalSkill(t, originalSource, "original\n")
 	original, err := fetchLocalDir(ctx, lib, originalSource)
@@ -579,7 +587,7 @@ func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	stub := newS3Stub(t)
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	ctx := t.Context()
 	if _, err := lib.SyncPush(ctx, ""); err != nil {
 		t.Fatal(err)
@@ -605,12 +613,9 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "denied", http.StatusForbidden)
 	}))
-	t.Setenv("SKILLS_S3_ENDPOINT", server.URL)
-	t.Setenv("SKILLS_S3_BUCKET", "test-bucket")
-	t.Setenv("AWS_REGION", "test-region")
-	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+	settings := library.SyncSettings{Endpoint: server.URL, Bucket: "test-bucket", Region: "test-region", AccessKeyID: "test-key", SecretAccessKey: "test-secret"}
 	lib := openTestLibrary(t)
+	setSyncSettings(t, lib, settings)
 	if _, err := lib.SyncPush(t.Context(), ""); !library.IsCode(err, library.Permission) {
 		t.Fatalf("permission error = %v", err)
 	}
@@ -620,7 +625,8 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 	}
 
 	// 缺少必要配置时报 NotConfigured,而非裸的 Internal。
-	t.Setenv("SKILLS_S3_BUCKET", "")
+	settings.Bucket = ""
+	setSyncSettings(t, lib, settings)
 	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
 		t.Fatalf("missing config error = %v, want NotConfigured", err)
 	}
@@ -630,11 +636,18 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 }
 
 func TestAllSyncOperationsReportMissingConfiguration(t *testing.T) {
-	newS3Stub(t)
+	stub := newS3Stub(t)
 	lib := openTestLibrary(t)
-	for _, key := range []string{"SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} {
-		t.Run(key, func(t *testing.T) {
-			t.Setenv(key, "")
+	for name, drop := range map[string]func(*library.SyncSettings){
+		"nothing set":       func(s *library.SyncSettings) { *s = library.SyncSettings{} },
+		"bucket":            func(s *library.SyncSettings) { s.Bucket = "" },
+		"access key id":     func(s *library.SyncSettings) { s.AccessKeyID = "" },
+		"secret access key": func(s *library.SyncSettings) { s.SecretAccessKey = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			settings := stub.settings
+			drop(&settings)
+			setSyncSettings(t, lib, settings)
 			_, pushPlanErr := lib.PlanSyncPush(t.Context())
 			_, pullPlanErr := lib.PlanSyncPull(t.Context())
 			_, pushErr := lib.SyncPush(t.Context(), "")
@@ -650,7 +663,7 @@ func TestAllSyncOperationsReportMissingConfiguration(t *testing.T) {
 
 func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	stub := newS3Stub(t)
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	ctx := t.Context()
 	if _, err := lib.CreateGroup(ctx, "local-group"); err != nil {
 		t.Fatal(err)
@@ -678,16 +691,17 @@ func TestSyncRejectsExistingRemoteWithoutIdentity(t *testing.T) {
 	}
 }
 
-// 调用方传入同步设置后,不设置任何环境变量也能推送和拉回:请求发到传入的服务地址、存储桶与对象名,
-// 用传入的 Access Key ID、Secret Access Key、区域签名,并带上传入的 Session Token。
-func TestSyncPushAndPullWithPassedSettings(t *testing.T) {
+// 存在数据库里的同步设置用于推送和拉回:请求发到设置的服务地址、存储桶与对象名,
+// 用设置的 Access Key ID、Secret Access Key、区域签名,并带上设置的 Session Token。环境变量不读。
+func TestSyncPushAndPullWithStoredSettings(t *testing.T) {
 	stub := newS3Stub(t)
 	stub.secrets["settings-key"] = "settings-secret"
-	for _, key := range []string{"SKILLS_S3_ENDPOINT", "SKILLS_S3_BUCKET", "SKILLS_S3_KEY", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
-		t.Setenv(key, "")
-	}
+	t.Setenv("SKILLS_S3_BUCKET", "environment-bucket")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+	t.Setenv("AWS_SESSION_TOKEN", "environment-session")
 	lib := openTestLibrary(t)
-	lib.SetSyncSettings(&library.SyncSettings{
+	setSyncSettings(t, lib, library.SyncSettings{
 		Endpoint:        stub.endpoint,
 		Bucket:          "settings-bucket",
 		Key:             "settings.db",
@@ -724,12 +738,12 @@ func TestSyncPushAndPullWithPassedSettings(t *testing.T) {
 	want := s3Request{accessKey: "settings-key", region: "settings-region", sessionToken: "settings-session", path: "/settings-bucket/settings.db"}
 	requests := stub.takeRequests()
 	if len(requests) == 0 || slices.ContainsFunc(requests, func(r s3Request) bool { return r != want }) {
-		t.Fatalf("requests = %+v, want passed settings only", requests)
+		t.Fatalf("requests = %+v, want stored settings only", requests)
 	}
 }
 
 // 设置的 GitHub 令牌存在数据库里,随推送、拉回走:拉回的一侧换成推送那份库里的令牌,访问 GitHub 时用它;
-// 清空后回到读环境变量;拉回一份没有令牌的库,本机的令牌随之变成没填。同步设置不在库里,拉回不改。
+// 拉回一份没有令牌的库,本机的令牌随之变成没填。
 func TestGitHubTokenTravelsWithSync(t *testing.T) {
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
@@ -747,12 +761,12 @@ func TestGitHubTokenTravelsWithSync(t *testing.T) {
 	})}
 	ctx := t.Context()
 
-	pushing := openTestLibrary(t)
+	pushing := stub.open(t)
 	setGitHubToken(t, pushing, "  synced-token\n")
 	if _, err := pushing.SyncPush(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	pulling := openTestLibrary(t)
+	pulling := stub.open(t)
 	setGitHubToken(t, pulling, "local-token")
 	pull := func() {
 		t.Helper()
@@ -789,11 +803,6 @@ func TestGitHubTokenTravelsWithSync(t *testing.T) {
 	tokenIs("synced-token")
 	previewWith("synced-token")
 
-	t.Setenv("GITHUB_TOKEN", "environment-token")
-	setGitHubToken(t, pulling, "")
-	tokenIs("")
-	previewWith("environment-token")
-
 	setGitHubToken(t, pulling, "local-token")
 	setGitHubToken(t, pushing, "")
 	plan, err := pushing.PlanSyncPush(ctx)
@@ -805,14 +814,13 @@ func TestGitHubTokenTravelsWithSync(t *testing.T) {
 	}
 	pull()
 	tokenIs("")
-	previewWith("environment-token")
 }
 
 // 清空或换掉的令牌不会留在推送出去的库里:删掉的内容在数据库文件里清零,S3 上的对象里找不到旧令牌原文。
 func TestClearedGitHubTokenDoesNotLeaveInPushedLibrary(t *testing.T) {
 	stub := newS3Stub(t)
 	ctx := t.Context()
-	lib := openTestLibrary(t)
+	lib := stub.open(t)
 	setGitHubToken(t, lib, "ghp_REPLACEDMARKER0123456789")
 	setGitHubToken(t, lib, "ghp_CLEAREDMARKER")
 	setGitHubToken(t, lib, "")
@@ -826,14 +834,27 @@ func TestClearedGitHubTokenDoesNotLeaveInPushedLibrary(t *testing.T) {
 	}
 }
 
-// 同步设置整组取用:传入了就只用传入的那一组,缺的项不从环境变量补;在同一个 Library 上改设置,
-// 下一次同步就用新值;传 nil 回到环境变量。
-func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {
+// 同步设置存在数据库里:重新打开同一个数据库仍是它;在同一个 Library 上改设置,下一次同步就用新值;
+// 缺存储桶或密钥时不从环境变量补;全部清空后同步报 NotConfigured。
+func TestSyncSettingsAreStoredAndTakeEffectImmediately(t *testing.T) {
 	stub := newS3Stub(t)
 	stub.secrets["settings-key"] = "settings-secret"
 	stub.secrets["rotated-key"] = "rotated-secret"
+	t.Setenv("SKILLS_S3_BUCKET", "environment-bucket")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 	t.Setenv("AWS_SESSION_TOKEN", "environment-session")
-	lib := openTestLibrary(t)
+	path := filepath.Join(t.TempDir(), "library.db")
+	first := openTestLibraryAt(t, path)
+	setSyncSettings(t, first, library.SyncSettings{Endpoint: " " + stub.endpoint + "\n", Bucket: "settings-bucket", AccessKeyID: "settings-key", SecretAccessKey: "settings-secret"})
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lib := openTestLibraryAt(t, path)
+	stored := library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: "settings-key", SecretAccessKey: "settings-secret"}
+	if got, err := lib.SyncSettings(t.Context()); err != nil || got != stored {
+		t.Fatalf("SyncSettings after reopen = %+v, %v; want trimmed %+v", got, err, stored)
+	}
 	planPush := func() s3Request {
 		t.Helper()
 		if _, err := lib.PlanSyncPush(t.Context()); err != nil {
@@ -845,12 +866,17 @@ func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {
 		}
 		return requests[0]
 	}
-	environment := s3Request{accessKey: "test-key", region: "test-region", sessionToken: "environment-session", path: "/test-bucket/backups/test%24file%2Bname.db"}
-	if got := planPush(); got != environment {
-		t.Fatalf("environment request = %+v, want %+v", got, environment)
+
+	// 没填区域、对象名与 Session Token:取默认区域与对象名,不带 Session Token,不用环境变量里的。
+	for key, secret := range map[string]string{"settings-key": "settings-secret", "rotated-key": "rotated-secret"} {
+		setSyncSettings(t, lib, library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: key, SecretAccessKey: secret})
+		want := s3Request{accessKey: key, region: "us-east-1", path: "/settings-bucket/library.db"}
+		if got := planPush(); got != want {
+			t.Fatalf("request = %+v, want %+v", got, want)
+		}
 	}
 
-	lib.SetSyncSettings(&library.SyncSettings{Bucket: "settings-bucket"})
+	setSyncSettings(t, lib, library.SyncSettings{Bucket: "settings-bucket"})
 	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
 		t.Fatalf("partial settings = %v, want NotConfigured without falling back to environment", err)
 	}
@@ -858,22 +884,56 @@ func TestSyncSettingsAreTakenAsAWholeAndTakeEffectImmediately(t *testing.T) {
 		t.Fatalf("partial settings sent %+v", requests)
 	}
 
-	// 传入的那组没填区域、对象名与 Session Token:按原有规则取默认区域与对象名,不带 Session Token,不用环境变量里的。
-	for key, secret := range map[string]string{"settings-key": "settings-secret", "rotated-key": "rotated-secret"} {
-		lib.SetSyncSettings(&library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: key, SecretAccessKey: secret})
-		want := s3Request{accessKey: key, region: "us-east-1", path: "/settings-bucket/library.db"}
-		if got := planPush(); got != want {
-			t.Fatalf("request = %+v, want %+v", got, want)
-		}
-	}
-
-	lib.SetSyncSettings(&library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: "settings-key", SecretAccessKey: "wrong-secret"})
+	setSyncSettings(t, lib, library.SyncSettings{Endpoint: stub.endpoint, Bucket: "settings-bucket", AccessKeyID: "settings-key", SecretAccessKey: "wrong-secret"})
 	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.Permission) {
 		t.Fatalf("wrong secret = %v, want Permission", err)
 	}
 
-	lib.SetSyncSettings(nil)
-	if got := planPush(); got != environment {
-		t.Fatalf("request after clearing settings = %+v, want environment %+v", got, environment)
+	setSyncSettings(t, lib, library.SyncSettings{})
+	if got, err := lib.SyncSettings(t.Context()); err != nil || got != (library.SyncSettings{}) {
+		t.Fatalf("SyncSettings after clearing = %+v, %v", got, err)
+	}
+	if _, err := lib.PlanSyncPush(t.Context()); !library.IsCode(err, library.NotConfigured) {
+		t.Fatalf("after clearing = %v, want NotConfigured", err)
+	}
+}
+
+// 同步设置只属于这台机器:推送出去的库里没有 S3 密钥,拉回时保留本机的同步设置;
+// 应用的设置随推送、拉回走,拉回后换成那份库里的。
+func TestSyncSettingsStayOnThisMachineAndAppSettingsTravel(t *testing.T) {
+	stub := newS3Stub(t)
+	ctx := t.Context()
+	pushingSettings := stub.settings
+	pushingSettings.SecretAccessKey, pushingSettings.SessionToken = "PUSHINGSECRETMARKER", "PUSHINGSESSIONMARKER"
+	stub.secrets["test-key"] = pushingSettings.SecretAccessKey
+	pushing := openTestLibrary(t)
+	setSyncSettings(t, pushing, pushingSettings)
+	setAppSettings(t, pushing, map[string]string{"language": "en", "auto_check": "false"})
+	if _, err := pushing.SyncPush(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"PUSHINGSECRETMARKER", "PUSHINGSESSIONMARKER"} {
+		if bytes.Contains(stub.stored, []byte(secret)) {
+			t.Fatalf("pushed library contains %q", secret)
+		}
+	}
+
+	pullingSettings := pushingSettings
+	pullingSettings.SessionToken = "pulling-session"
+	pulling := openTestLibrary(t)
+	setSyncSettings(t, pulling, pullingSettings)
+	setAppSettings(t, pulling, map[string]string{"language": "zh", "dock_badge": "false"})
+	plan, err := pulling.PlanSyncPull(ctx)
+	if err != nil || !plan.CanPull {
+		t.Fatalf("pull plan = %#v, %v", plan, err)
+	}
+	if err := pulling.SyncPull(ctx, plan.Remote.Identity); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := pulling.SyncSettings(ctx); err != nil || got != pullingSettings {
+		t.Fatalf("SyncSettings after pull = %+v, %v; want this machine's %+v", got, err, pullingSettings)
+	}
+	if got, err := pulling.AppSettings(ctx); err != nil || !maps.Equal(got, map[string]string{"language": "en", "auto_check": "false"}) {
+		t.Fatalf("AppSettings after pull = %v, %v; want pushed ones", got, err)
 	}
 }

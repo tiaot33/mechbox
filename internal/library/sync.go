@@ -12,43 +12,59 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
-// SyncSettings 是同步用的 S3 设置,由调用方(例如设置页)传给 [Library.SetSyncSettings]。
-// 各项与环境变量一一对应,留空时的处理也与环境变量相同:对象名默认 library.db,区域默认 us-east-1,
-// 服务地址留空时按存储桶与区域使用 AWS S3。
+// SyncSettings 是同步用的 S3 设置,用 [Library.SetSyncSettings] 存进数据库。
+// 留空的项:对象名默认 library.db,区域默认 us-east-1,服务地址留空时按存储桶与区域使用 AWS S3。
 type SyncSettings struct {
-	// Endpoint 是服务地址(对应 SKILLS_S3_ENDPOINT)。
+	// Endpoint 是服务地址。
 	Endpoint string `json:"endpoint,omitempty"`
-	// Bucket 是存储桶(对应 SKILLS_S3_BUCKET)。
+	// Bucket 是存储桶。
 	Bucket string `json:"bucket"`
-	// Key 是对象名(对应 SKILLS_S3_KEY)。
+	// Key 是对象名。
 	Key string `json:"key,omitempty"`
-	// Region 是区域(对应 AWS_REGION)。
+	// Region 是区域。
 	Region string `json:"region,omitempty"`
-	// AccessKeyID 对应 AWS_ACCESS_KEY_ID。
+	// AccessKeyID 是访问密钥的 ID。
 	AccessKeyID string `json:"access_key_id"`
-	// SecretAccessKey 对应 AWS_SECRET_ACCESS_KEY。
+	// SecretAccessKey 是访问密钥。
 	SecretAccessKey string `json:"secret_access_key"`
-	// SessionToken 对应 AWS_SESSION_TOKEN。
+	// SessionToken 是临时凭证的会话令牌;用长期密钥时留空。
 	SessionToken string `json:"session_token,omitempty"`
 }
 
-// SetSyncSettings 设置同步用的 S3 设置,之后的同步计划、推送与拉回立即使用。整组取用:传入非 nil 时只用传入的这一组,
-// 留空的项不再从环境变量补;传 nil 表示没有传入,回到读取 SKILLS_S3_*、AWS_* 环境变量。设置只在这个 Library 实例上有效,
-// 不写进库,也不随同步传到别的机器(新机器得先有它才能拉回;各台机器也可能用不同的 Access Key)。传入的设置缺少存储桶或密钥时,同步方法与环境变量缺项时一样返回 NotConfigured。
-func (l *Library) SetSyncSettings(settings *SyncSettings) {
-	if settings == nil {
-		l.syncSettings.Store(nil)
-		return
+// SyncSettings 返回存在数据库里的同步设置(设置页显示它);没填的项为空。
+func (l *Library) SyncSettings(ctx context.Context) (settings SyncSettings, err error) {
+	defer func() { err = typedError(err) }()
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	stored, err := l.store.SyncSettings(ctx)
+	return SyncSettings(stored), err
+}
+
+// SetSyncSettings 把同步用的 S3 设置(各项去掉首尾空白)存进数据库,之后的同步计划、推送与拉回立即使用;
+// 留空的项从数据库删掉,全部留空即清掉。只认数据库里的这一组,不读环境变量;缺少存储桶或密钥时同步方法返回 NotConfigured。
+// 同步设置只属于这台机器:推送出去的库里不带,拉回时保留本机的(新机器得先有它才能拉回;各台机器也可能用不同的 Access Key)。
+func (l *Library) SetSyncSettings(ctx context.Context, settings SyncSettings) (err error) {
+	defer func() { err = typedError(err) }()
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	for _, field := range []*string{
+		&settings.Endpoint, &settings.Bucket, &settings.Key, &settings.Region,
+		&settings.AccessKeyID, &settings.SecretAccessKey, &settings.SessionToken,
+	} {
+		*field = strings.TrimSpace(*field)
 	}
-	l.syncSettings.Store(&s3.Settings{
-		Endpoint:        settings.Endpoint,
-		Bucket:          settings.Bucket,
-		Key:             settings.Key,
-		Region:          settings.Region,
-		AccessKeyID:     settings.AccessKeyID,
-		SecretAccessKey: settings.SecretAccessKey,
-		SessionToken:    settings.SessionToken,
-	})
+	return l.store.SetSyncSettings(ctx, store.SyncSettings(settings))
+}
+
+func (l *Library) syncTarget(ctx context.Context) (*s3.Settings, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	stored, err := l.store.SyncSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settings := s3.Settings(stored)
+	return &settings, nil
 }
 
 // RemoteIdentity 是同步计划里远端那份库的标识:原样传回执行方法,界面不展示;空表示计划时远端没有库。
@@ -107,7 +123,11 @@ type SyncPullPlan struct {
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) PlanSyncPush(ctx context.Context) (plan SyncPushPlan, err error) {
 	defer func() { err = typedError(err) }()
-	object, err := s3.Head(ctx, l.syncSettings.Load())
+	settings, err := l.syncTarget(ctx)
+	if err != nil {
+		return SyncPushPlan{}, err
+	}
+	object, err := s3.Head(ctx, settings)
 	if errors.Is(err, s3.ErrNotFound) {
 		return SyncPushPlan{}, nil
 	}
@@ -122,7 +142,11 @@ func (l *Library) PlanSyncPush(ctx context.Context) (plan SyncPushPlan, err erro
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) PlanSyncPull(ctx context.Context) (plan SyncPullPlan, err error) {
 	defer func() { err = typedError(err) }()
-	data, object, err := s3.Get(ctx, l.syncSettings.Load())
+	settings, err := l.syncTarget(ctx)
+	if err != nil {
+		return SyncPullPlan{}, err
+	}
+	data, object, err := s3.Get(ctx, settings)
 	if errors.Is(err, s3.ErrNotFound) {
 		return SyncPullPlan{CannotPull: CannotPullNoRemote}, nil
 	}
@@ -153,13 +177,16 @@ func (l *Library) PlanSyncPull(ctx context.Context) (plan SyncPullPlan, err erro
 	return plan, nil
 }
 
-// SyncPush 用本机的库覆盖 S3 上的库,推送的是调用时本机库的完整内容;expected 传推送的同步计划里的
+// SyncPush 用本机的库覆盖 S3 上的库,推送的是调用时本机库的完整内容(只属于这台机器的同步设置与 WSL 发行版除外);expected 传推送的同步计划里的
 // Remote.Identity,S3 上没有库时传空。S3 上的库自计划后被别处创建、改写或删除都返回 Conflict,S3 不被改动,
 // 界面重新生成同步计划。成功时返回刚推送的那份库,同步页可直接显示,不必再生成计划。
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote RemoteLibrary, err error) {
 	defer func() { err = typedError(err) }()
-	settings := l.syncSettings.Load()
+	settings, err := l.syncTarget(ctx)
+	if err != nil {
+		return RemoteLibrary{}, err
+	}
 	object, err := s3.Head(ctx, settings)
 	switch {
 	case errors.Is(err, s3.ErrNotFound):
@@ -195,11 +222,15 @@ func (l *Library) SyncPush(ctx context.Context, expected RemoteIdentity) (remote
 //   - 已登记项目的路径是推送那台机器上的;在本机不存在的项目([RegisteredProject].Missing)用
 //     [Library.RelocateProject] 指到它在这台机器上的位置。
 //   - 内置 Agent 与 [Open] 时一样以本机应用为准;全局作用域按本机的用户主目录。
-//   - GitHub 令牌换成那份库里的([Library.SetGitHubToken]);那份库里没有时变成没设置,读环境变量。
-//     同步设置不在库里,拉回不改。
+//   - 设置换成那份库里的:GitHub 令牌([Library.SetGitHubToken],那份库里没有时变成没设置)与应用的设置([Library.SetAppSettings])。
+//     只属于这台机器的同步设置([Library.SetSyncSettings])与 WSL 发行版([Library.SetWSLDistro])保留本机的。
 func (l *Library) SyncPull(ctx context.Context, expected RemoteIdentity) (err error) {
 	defer func() { err = typedError(err) }()
-	data, object, err := s3.Get(ctx, l.syncSettings.Load())
+	settings, err := l.syncTarget(ctx)
+	if err != nil {
+		return err
+	}
+	data, object, err := s3.Get(ctx, settings)
 	if errors.Is(err, s3.ErrNotFound) && expected != "" {
 		return &Error{Code: Conflict, Message: "sync pull: remote library deleted since sync plan"}
 	}

@@ -13,16 +13,12 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as library$0 from "../../internal/library/models.js";
-
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
- * FirstOpen 在这台机器上第一次打开 app 时返回 true,并在 settings.json 里记下已经打开过,之后(含重启)都返回 false。
+ * FirstOpen 在这个数据库第一次被 app 打开时返回 true,并在技能库的应用设置里记下已经打开过,之后(含重启)都返回 false。
  * 前端据此把用户带到各 Agent 全局目录里不是库装的技能;换到新机器也一样。记不下来时照样返回 true,下次启动会再带一次。
- * settings.json 在却读不出时返回 false,不拿默认值把它覆盖掉。
+ * 设置读不出时返回 false,不拿默认值把它覆盖掉。拉回后保留这台机器已经打开过的记录(见 reloadSettings)。
  */
 export function FirstOpen(): $CancellablePromise<boolean> {
     return $Call.ByID(2244264344);
@@ -67,13 +63,6 @@ export function SaveSettings(settings: $models.Settings): $CancellablePromise<$m
 }
 
 /**
- * SaveSyncSettings 保存同步设置并立即整组交给技能库;各项都留空即清掉，技能库回到读环境变量。
- */
-export function SaveSyncSettings(sync: library$0.SyncSettings): $CancellablePromise<library$0.SyncSettings> {
-    return $Call.ByID(3055441629, sync);
-}
-
-/**
  * Settings 返回当前设置。
  */
 export function Settings(): $CancellablePromise<$models.Settings> {
@@ -81,22 +70,11 @@ export function Settings(): $CancellablePromise<$models.Settings> {
 }
 
 /**
- * SyncSettings 返回设置页同步分区里填的 S3 设置。Secret Access Key、Session Token 存在系统钥匙串里
- * (macOS 钥匙串、Windows 凭据管理器、Linux 的 Secret Service),其余几项存在 settings.json;
- * 都只属于这台机器，不进技能库，也不随同步走(见 ADR 0011)。全部留空时技能库读 SKILLS_S3_*、AWS_*;填了任意一项就整组用这里的。
- * 启动时没能读取钥匙串(例如用户拒绝了授权)时，这里再读一次并交给技能库;仍读不到就返回错误，同步分区不让保存，
- * 免得用空值盖掉钥匙串里的内容。GitHub 令牌存在技能库里，不受影响。
- */
-export function SyncSettings(): $CancellablePromise<library$0.SyncSettings> {
-    return $Call.ByID(610133516);
-}
-
-/**
- * UninstallApp 卸载 Mechbox：先删除系统钥匙串里的密钥，再按选项把装出去的技能文件夹移到废纸篓
+ * UninstallApp 卸载 Mechbox：按选项把装出去的技能文件夹移到废纸篓
  * (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
- * 退出时技能库关上以后，再删除数据库、settings.json 与系统给应用留下的数据，并把应用移到废纸篓(移不动时在 Finder 中选中它)。
- * 移文件夹中途失败时返回错误、不退出，数据库与设置都还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。
- * 从开始卸载起不再保存同步设置。S3 上的库不动。
+ * 退出时技能库关上以后，再删除数据库(连同存在里面的设置、令牌与同步设置)与系统给应用留下的数据，
+ * 并把应用移到废纸篓(移不动时在 Finder 中选中它)。
+ * 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的库不动。
  */
 export function UninstallApp(opts: $models.UninstallOptions): $CancellablePromise<$models.UninstallResult> {
     return $Call.ByID(4285814079, opts);

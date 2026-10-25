@@ -1,6 +1,5 @@
 // 英文界面文案：结构与 zh.tsx 一一对应，satisfies Messages 让漏翻、参数不对的条目在 tsc 里报出。
 import type { ReactNode } from "react";
-import { System } from "@wailsio/runtime";
 import type { Messages } from ".";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
 import { platform } from "@/lib/platform";
@@ -23,28 +22,6 @@ const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
 // bin 是卸载时技能文件夹移去的地方:Windows 叫 Recycle Bin,macOS 和 Linux 叫 Trash;从里面拿回来,macOS 说 put back,其他说 restored。
 const bin = () => (platform() === "windows" ? "Recycle Bin" : "Trash");
 const putBack = () => (platform() === "mac" ? "put back" : "restored");
-
-// store 是同步用的密钥存在哪里，按平台换说法;平台信息在页面加载后才有，每次用到时现取。
-const store = () => (System.IsWindows() ? "Windows Credential Manager" : System.IsLinux() ? "the system keyring" : "the system keychain");
-// manualDelete 是卸载时跳过后去哪里手动删除这些条目。
-const manualDelete = () =>
-  System.IsWindows()
-    ? " and later delete them by hand in Credential Manager under Windows Credentials (the entries starting with com.tiaot33.mechbox)"
-    : System.IsLinux()
-      ? "; if you entered them in Settings before, later find com.tiaot33.mechbox in Passwords and Keys or KWalletManager and delete it"
-      : " and later delete them by hand by searching for com.tiaot33.mechbox in Keychain Access";
-// deniedHint 是删不掉时猜的原因;Windows 上没有授权这一步，不猜。
-const deniedHint = () =>
-  System.IsWindows()
-    ? ""
-    : System.IsLinux()
-      ? " (the keyring may not have been unlocked, or GNOME Keyring or KWallet isn't running)"
-      : " (access may have been denied)";
-// readFailedHelp 是读不到时怎么办;只有 Linux 上可能是没装或没启动密钥环。
-const readFailedHelp = () =>
-  System.IsLinux()
-    ? " If GNOME Keyring or KWallet isn't installed or running, install and start it, then retry; or start Mechbox from a terminal with SKILLS_S3_*, AWS_* and similar environment variables set."
-    : "";
 
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
@@ -786,13 +763,13 @@ export const en = {
     autoCheckDesc: "Check every Source for new Versions on a schedule (local directory Sources aren't checked).",
     interval: "Interval",
     tokenInLibrary: "Stored in the database and synced with it",
-    secretsInKeychain: () => `Secrets are stored in ${store()}`,
+    syncOnThisMachine: "Stored in the database, only for this machine and not synced",
     version: "Version",
     databasePath: "Database location",
     uninstallDesc: () =>
       platform() === "mac"
-        ? `Deletes the Library, the settings on this page, and the secrets in ${store()}, then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them.`
-        : `Deletes the Library, the settings on this page, and the secrets in ${store()}, then quits; the app itself has to be uninstalled separately. Installed skill folders are kept by default and Agents keep using them.`,
+        ? "Deletes the Library (along with the settings on this page), then moves the app to the Trash after quitting; installed skill folders are kept by default and Agents keep using them."
+        : "Deletes the Library (along with the settings on this page), then quits; the app itself has to be uninstalled separately. Installed skill folders are kept by default and Agents keep using them.",
     uninstallButton: "Uninstall Mechbox…",
   },
 
@@ -807,10 +784,9 @@ export const en = {
     title: "Uninstall Mechbox",
     cancel: "Cancel",
     retry: "Retry",
-    skipKeychain: "Skip and continue uninstalling",
     uninstall: "Uninstall and quit",
     what: () =>
-      `Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents and the GitHub token), the settings on the Settings page (including Sync), and the secrets in ${store()}; ` +
+      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents, and the settings on the Settings page, including the GitHub token and Sync); " +
       {
         mac: "then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
         windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
@@ -831,10 +807,8 @@ export const en = {
     distroTrash: (n: number) =>
       `${count(n, "of them is", "of them are")} in a WSL distribution and go to that distribution's trash (~/.local/share/Trash), not the Windows Recycle Bin; to get them back, move them from ~/.local/share/Trash/files back where they were inside the distribution.`,
     uninstalling: "Uninstalling…",
-    keychainFailed: (message: string) =>
-      `Couldn't delete the secrets in ${store()}${deniedHint()}: ${message}\nMechbox hasn't been uninstalled and nothing was changed. You can retry, or skip${manualDelete()}.`,
-    failed: (error: string, keychainDeleted: boolean, trashing: boolean) =>
-      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the ${bin()} can be ${putBack()} from it; a retry skips them.${trashing ? ` The folder that couldn't be moved to the ${bin()} is still where it was and hasn't been deleted. Choose “Keep the installed folders” and retry, or deal with that folder yourself and retry.` : ""}${keychainDeleted ? ` The secrets in ${store()} have been deleted; re-enter them in Settings to keep syncing.` : ""}`,
+    failed: (error: string, trashing: boolean) =>
+      `Mechbox wasn't uninstalled; the Library and settings are still there: ${error}\nFolders already moved to the ${bin()} can be ${putBack()} from it; a retry skips them.${trashing ? ` The folder that couldn't be moved to the ${bin()} is still where it was and hasn't been deleted. Choose “Keep the installed folders” and retry, or deal with that folder yourself and retry.` : ""}`,
     done: "Uninstalled. Quitting…",
   },
 
@@ -856,7 +830,7 @@ export const en = {
     push: "Push",
     intro: "Manually push the whole Library to S3, or pull it back, to reproduce the same setup on another machine. Never automatic.",
     notConfigured:
-      "S3 isn't configured: fill in the bucket, Access Key ID and Secret Access Key in the Sync section of Settings, or set the environment variables SKILLS_S3_BUCKET, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (optionally SKILLS_S3_ENDPOINT, SKILLS_S3_KEY, AWS_REGION and AWS_SESSION_TOKEN).",
+      "S3 isn't configured: fill in the bucket, Access Key ID and Secret Access Key in the Sync section of Settings.",
     pushTo: "Push to S3…",
     pullFrom: "Pull from S3…",
     openSettings: "Open Settings",
@@ -919,7 +893,7 @@ export const en = {
     fetchSelected: "Fetch selected",
     recognizedAs: "Recognized as",
     branch: (ref: string) => `Branch ${ref}`,
-    noToken: "No GitHub token is set in Settings and GITHUB_TOKEN / GH_TOKEN aren't set either; anonymous GitHub API access is easily rate-limited.",
+    noToken: "No GitHub token is set in Settings; anonymous GitHub API access is easily rate-limited.",
     candidates: (n: number) => count(n, "Candidate"),
     selectAll: "Select all",
     selectNone: "Select none",
@@ -1060,7 +1034,7 @@ export const en = {
   },
 
   credentials: {
-    keychainFailed: () => `Couldn't read ${store()}, so the Sync settings can't be viewed or changed right now.${readFailedHelp()}`,
+    syncReadFailed: (message: string) => `Couldn't read the Sync settings: ${message}`,
     tokenReadFailed: (message: string) => `Couldn't read the GitHub token: ${message}`,
     retry: "Retry",
     endpoint: "Endpoint (optional, defaults to AWS S3)",
@@ -1071,10 +1045,10 @@ export const en = {
     secretAccessKey: "Secret Access Key",
     sessionToken: "Session Token (optional)",
     tokenSaved: "Saved the GitHub token",
-    tokenHint: "When empty, it's read from the GITHUB_TOKEN or GH_TOKEN environment variable.",
+    tokenHint: "When empty, the GitHub API is accessed anonymously and is easily rate-limited.",
     token: "Personal access token",
     syncSaved: "Saved the Sync settings",
-    syncHint: "When all are empty, they're read from the SKILLS_S3_* and AWS_* environment variables; fill in any one and the whole set comes from here.",
+    syncHint: "Fill in the bucket, Access Key ID and Secret Access Key to sync. The pushed Library doesn't carry these; pulling keeps what's filled in here.",
     save: "Save",
   },
 
