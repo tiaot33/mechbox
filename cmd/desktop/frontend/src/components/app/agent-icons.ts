@@ -1,8 +1,11 @@
 // Agent 的品牌图标，按名字认出是哪个 Agent。图标有两个来源:
 // - agentlogos.dev 的彩色 SVG,放在 agent-logos/ 里(从 https://agentlogos.dev/logos.json 列出的 url 下载)。两边都有的用这里的。
 // - @lobehub/icons:agentlogos.dev 没有的，以及 lobe 那张更好认的(Claude Code、Gemini CLI、Kiro、Amp)。
-// 关键词表照搬 lobe 的 agentConfig(顺序一致),不同之处：Kiro 单列一项(lobe 把它算进 Kilo Code),
-// 另加 lobe 没有、agentlogos.dev 有的编程 Agent。
+// 关键词表照搬 lobe 的 agentConfig(顺序一致),不同之处:
+// - Kiro 单列一项(lobe 把它算进 Kilo Code);OpenAI 与 ChatGPT 分成两项，各用 agentlogos.dev 的图标。
+// - Windsurf 多一个 agentlogos.dev 给的别名 Devin Desktop。
+// - 另加 lobe 没有、agentlogos.dev 有的编程 Agent,接在表尾;Jules、Firebase Studio 必须排在 Antigravity 前面，
+//   否则名字里带 Google 的会先被 Antigravity 的 "google" 认走。
 // lobe 只按路径导入每个图标里纯 SVG 的组件与主色：有彩色版用彩色版，没有的用单色版;包入口和 Avatar 会带上 @lobehub/ui,不用。
 import type { IconType } from "@lobehub/icons/es/types";
 import LobeHub from "@lobehub/icons/es/LobeHub/components/Color";
@@ -136,15 +139,15 @@ const brands: [AgentBrand, string[]][] = [
   [lobe(Notion, NotionStyle), ["notion"]],
   [lobe(CodeBuddy, CodeBuddyStyle), ["code-buddy", "codebuddy"]],
   [{ src: devin }, ["devin", "cognition"]],
-  [{ src: aider }, ["aider"]],
-  [{ src: augmentCode }, ["augment", "auggie"]],
+  [{ src: aider }, ["-aider-"]],
+  [{ src: augmentCode }, ["-augment-", "augmentcode", "auggie"]],
   [{ src: cody }, ["sourcegraph", "cody"]],
   [{ src: qodo }, ["qodo"]],
   [{ src: zed }, ["-zed-"]],
-  [{ src: warp }, ["warp"]],
-  [{ src: continueDev }, ["continue"]],
+  [{ src: warp }, ["-warp-"]],
+  [{ src: continueDev }, ["-continue-"]],
   [{ src: amazonQ }, ["amazon-q", "amazonq", "q-developer"]],
-  [{ src: factory }, ["factory", "-droid-"]],
+  [{ src: factory }, ["factory-droid", "factory-ai", "-droid-"]],
   [{ src: pi }, ["-pi-"]],
   [{ src: tabnine }, ["tabnine"]],
   [{ src: codeium }, ["codeium"]],
@@ -153,7 +156,8 @@ const brands: [AgentBrand, string[]][] = [
 
 // agentBrand 按名字找 Agent 的品牌图标，认不出时返回 undefined。名字里的空格当连字符,
 // 包含某个关键词就算，靠前的先命中("Claude Code" 认成 Claude Code,不是 Claude)。
-// 两头带连字符的关键词(如 "-pi-")只认整个词，免得 "api"、"android" 这类名字被认成 Pi、Droid。
+// 两头带连字符的关键词(如 "-pi-")只认整个词，用于很短或是常见英文单词的关键词,
+// 免得 "API Helper"、"Android Studio"、"Augmented Coder" 这类名字被认成 Pi、Droid、Augment Code。
 export function agentBrand(name: string): AgentBrand | undefined {
   const key = name.trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (!key) return undefined;
