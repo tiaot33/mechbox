@@ -56,15 +56,11 @@ func (l *Library) SetSyncSettings(ctx context.Context, settings SyncSettings) (e
 	return l.store.SetSyncSettings(ctx, store.SyncSettings(settings))
 }
 
-func (l *Library) syncTarget(ctx context.Context) (*s3.Settings, error) {
+func (l *Library) syncTarget(ctx context.Context) (s3.Settings, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	stored, err := l.store.SyncSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	settings := s3.Settings(stored)
-	return &settings, nil
+	return s3.Settings(stored), err
 }
 
 // RemoteIdentity 是同步计划里远端那份库的标识:原样传回执行方法,界面不展示;空表示计划时远端没有库。

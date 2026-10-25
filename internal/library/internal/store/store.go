@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -43,6 +46,9 @@ type Tx struct {
 
 func Open(path string) (*Store, error) {
 	ctx := context.Background()
+	if err := restrictToOwner(path); err != nil {
+		return nil, fmt.Errorf("open library: %w", err)
+	}
 	db, err := openDB(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("open library: %w", wrap(err))
@@ -53,6 +59,25 @@ func Open(path string) (*Store, error) {
 	}
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
 	return newStore(db), nil
+}
+
+func restrictToOwner(path string) error {
+	if path == ":memory:" || strings.HasPrefix(path, "file:") {
+		return nil
+	}
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	for _, name := range []string{path, path + "-wal", path + "-shm", path + "-journal"} {
+		if err := os.Chmod(name, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func newStore(db *sql.DB) *Store {

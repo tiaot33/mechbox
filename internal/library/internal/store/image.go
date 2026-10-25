@@ -32,7 +32,7 @@ func (s *Store) Snapshot(ctx context.Context) ([]byte, error) {
 		_ = snapshotDB.Close()
 		return nil, fmt.Errorf("snapshot library: %w", wrap(err))
 	}
-	if _, err := snapshotDB.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere); err != nil {
+	if _, err := snapshotDB.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere, machineConfigArgs...); err != nil {
 		_ = snapshotDB.Close()
 		return nil, fmt.Errorf("drop machine config from sync snapshot: %w", wrap(err))
 	}
@@ -138,7 +138,7 @@ func (s *Store) Replace(ctx context.Context, image *Image) error {
 }
 
 func keepMachineConfig(ctx context.Context, local, image *sql.DB) error {
-	rows, err := local.QueryContext(ctx, `SELECT key, value FROM config WHERE `+machineConfigWhere)
+	rows, err := local.QueryContext(ctx, `SELECT key, value FROM config WHERE `+machineConfigWhere, machineConfigArgs...)
 	if err != nil {
 		return fmt.Errorf("read machine config: %w", wrap(err))
 	}
@@ -159,7 +159,7 @@ func keepMachineConfig(ctx context.Context, local, image *sql.DB) error {
 		return fmt.Errorf("keep machine config: %w", wrap(err))
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere, machineConfigArgs...); err != nil {
 		return fmt.Errorf("keep machine config: %w", wrap(err))
 	}
 	for key, value := range kept {

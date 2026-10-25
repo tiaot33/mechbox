@@ -38,16 +38,16 @@ type Object struct {
 
 const pushedFromHeader = "x-amz-meta-pushed-from"
 
-func Head(ctx context.Context, settings *Settings) (Object, error) {
+func Head(ctx context.Context, settings Settings) (Object, error) {
 	_, object, err := request(ctx, settings, http.MethodHead, nil, nil)
 	return object, err
 }
 
-func Get(ctx context.Context, settings *Settings) ([]byte, Object, error) {
+func Get(ctx context.Context, settings Settings) ([]byte, Object, error) {
 	return request(ctx, settings, http.MethodGet, nil, nil)
 }
 
-func Put(ctx context.Context, settings *Settings, data []byte, expected, pushedFrom string) (Object, error) {
+func Put(ctx context.Context, settings Settings, data []byte, expected, pushedFrom string) (Object, error) {
 	headers := map[string]string{"If-Match": expected}
 	if expected == "" {
 		headers = map[string]string{"If-None-Match": "*"}
@@ -63,7 +63,7 @@ func Put(ctx context.Context, settings *Settings, data []byte, expected, pushedF
 	return object, nil
 }
 
-func request(ctx context.Context, settings *Settings, method string, body []byte, headers map[string]string) ([]byte, Object, error) {
+func request(ctx context.Context, settings Settings, method string, body []byte, headers map[string]string) ([]byte, Object, error) {
 	cfg, err := loadConfig(settings)
 	if err != nil {
 		return nil, Object{}, err
@@ -124,10 +124,7 @@ func request(ctx context.Context, settings *Settings, method string, body []byte
 	return response, object, nil
 }
 
-func loadConfig(settings *Settings) (config, error) {
-	if settings == nil {
-		settings = &Settings{}
-	}
+func loadConfig(settings Settings) (config, error) {
 	cfg := config{
 		endpoint:     settings.Endpoint,
 		bucket:       settings.Bucket,

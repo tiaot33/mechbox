@@ -14,7 +14,9 @@ const (
 	appPrefix      = "app."
 )
 
-const machineConfigWhere = `key LIKE 'sync.%' OR key = 'wsl_distro'`
+const machineConfigWhere = `substr(key, 1, length(?)) = ? OR key = ?`
+
+var machineConfigArgs = []any{syncPrefix, syncPrefix, wslDistroKey}
 
 type SyncSettings struct {
 	Endpoint, Bucket, Key, Region, AccessKeyID, SecretAccessKey, SessionToken string

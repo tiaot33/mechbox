@@ -15,7 +15,10 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-const updatesCheckedEvent = "updates-checked"
+const (
+	updatesCheckedEvent   = "updates-checked"
+	settingsReloadedEvent = "settings-reloaded"
+)
 
 // AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、Dock 角标、关闭窗口后留在菜单栏。
 // 自动检查只读(检查更新不改技能，也不碰装出去的文件夹),结果不发系统通知，只体现在角标和侧栏计数上。
@@ -200,6 +203,7 @@ func (a *AppService) saveSettings(ctx context.Context, settings Settings, firstO
 
 // reloadSettings 在拉回之后重新读出设置并立即生效：拉回的库带着推送那台机器的设置。WSL 发行版只属于这台机器，不变;
 // 这台机器已经打开过 app 时，把这条记录写回去，免得拉回一份没有它的库后下次启动又当作第一次打开。
+// 换完发 settings-reloaded 事件，开着的设置页据此重读，免得之后改一项时拿旧值整组盖掉拉回来的设置。
 func (a *AppService) reloadSettings(ctx context.Context) {
 	values, err := a.library.lib.AppSettings(ctx)
 	if err != nil {
@@ -218,6 +222,9 @@ func (a *AppService) reloadSettings(ctx context.Context) {
 	a.menus.setLanguage(settings.Language.resolve())
 	a.poke()
 	a.refreshBadge(ctx)
+	if a.app != nil {
+		go a.app.Event.Emit(settingsReloadedEvent)
+	}
 }
 
 func (a *AppService) warn(err error, message string) {

@@ -2,7 +2,9 @@ package library_test
 
 import (
 	"maps"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -41,5 +43,42 @@ func TestAppSettingsRejectInvalidNames(t *testing.T) {
 	}
 	if got, err := lib.AppSettings(t.Context()); err != nil || !maps.Equal(got, map[string]string{"language": "en"}) {
 		t.Fatalf("AppSettings after rejected writes = %v, %v", got, err)
+	}
+}
+
+// 数据库里明文存着令牌与密钥:新建的数据库文件只有当前用户能读写;已有的、权限更宽的数据库文件连同 -wal 打开时改成 0600。
+func TestOpenRestrictsDatabaseFileToOwner(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 上文件权限由 ACL 决定")
+	}
+	path := filepath.Join(t.TempDir(), "library.db")
+	lib := openTestLibraryAt(t, path)
+	setGitHubToken(t, lib, "secret-token")
+	if err := lib.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{path, path + "-wal"} {
+		if err := os.WriteFile(name, nil, 0o644); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(name, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	openTestLibraryAt(t, path)
+	for _, name := range []string{path, path + "-wal"} {
+		info, err := os.Stat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Fatalf("%s mode = %v; want 0600", filepath.Base(name), mode)
+		}
+	}
+
+	fresh := filepath.Join(t.TempDir(), "fresh.db")
+	openTestLibraryAt(t, fresh)
+	if info, err := os.Stat(fresh); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("new database mode = %v, %v; want 0600", info.Mode().Perm(), err)
 	}
 }

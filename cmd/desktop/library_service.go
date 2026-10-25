@@ -54,7 +54,7 @@ func NewLibraryService(path string) *LibraryService {
 
 // ServiceStartup 在 Wails 启动服务时打开技能库：目录不存在则创建，库文件不存在则由 Open 初始化空库。
 func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOptions) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("create library directory: %w", err)
 	}
 	lib, err := library.Open(s.path)

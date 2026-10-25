@@ -847,7 +847,7 @@ export const en = {
     pushWarning: "Pushing overwrites this copy on S3 with this machine's Library.",
     cannotPull: "The Library on S3 can't be pulled.",
     pullWarning:
-      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that Library will disappear, and the GitHub token entered in Settings is replaced with the one in that Library, or cleared if it has none. Folders in Agent directories aren't changed.",
+      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that Library will disappear, and the GitHub token entered in Settings, along with the Update checks, General (except the global directory) and Agents display settings, is replaced with what's in that Library; anything it lacks is cleared or reset to the default. This machine's Sync settings are kept. Folders in Agent directories aren't changed.",
     missingProjects: (names: string[]) =>
       `These projects aren't on this machine; after pulling, point them to their location here from the right sidebar: ${names.join(", ")}`,
   },
