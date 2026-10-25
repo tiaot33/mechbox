@@ -132,7 +132,11 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
       }
     >
       <Field label={t.name}>
-        <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        {/* 图标按名字认，边输入边预览。 */}
+        <div className="flex min-w-0 items-center gap-2">
+          <AgentMark code={agent?.code} name={name} className="size-6 rounded-md" />
+          <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
         {error("name")}
       </Field>
       <Field label={t.global}>

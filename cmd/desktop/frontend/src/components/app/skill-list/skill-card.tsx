@@ -188,7 +188,7 @@ export function SkillCard(props: {
                 <span>{t.model.global}</span>
                 <span className="inline-flex items-center gap-[3px]" title={t.list.agents(globals.map((code) => agentName(s, code)))}>
                   {globals.slice(0, 4).map((code) => (
-                    <AgentMark key={code} code={code} name={agentName(s, code)} className="size-3 text-[8px]" />
+                    <AgentMark key={code} code={code} name={agentName(s, code)} className="size-3" />
                   ))}
                   {globals.length > 4 && <span>+{globals.length - 4}</span>}
                 </span>

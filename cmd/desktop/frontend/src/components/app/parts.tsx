@@ -4,20 +4,42 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
 import { cn } from "@/lib/utils";
+import { agentBrand } from "./agent-icons";
 
-// AgentMark 是 Agent 图标：首字母 + 按代码稳定取色,Agent 再多也不用逐个画。
-export function AgentMark({ code, name, className }: { code: AgentCode; name: string; className?: string }) {
-  const fixed: Record<string, string> = { "claude-code": "#d97757", codex: "#111827" };
+// AgentMark 是 Agent 图标：白底方块里画按名字认出的品牌图标;认不出时画机器人，按代码稳定取色,Agent 再多也分得开。
+// 还没有代码(添加 Agent 时的预览)且认不出时用灰色，保存后才有颜色。
+export function AgentMark({ code, name, className }: { code?: AgentCode; name: string; className?: string }) {
+  const brand = agentBrand(name);
   let hue = 0;
-  for (const c of code) hue = (hue * 31 + c.charCodeAt(0)) % 360;
+  for (const c of code ?? "") hue = (hue * 31 + c.charCodeAt(0)) % 360;
   return (
     <span
       title={name}
-      className={cn("inline-grid size-3.5 shrink-0 place-items-center rounded text-[9px] leading-none font-bold text-white", className)}
-      style={{ background: fixed[code] ?? `hsl(${hue} 55% 48%)` }}
+      className={cn("inline-grid size-3.5 shrink-0 place-items-center overflow-hidden rounded bg-white", className)}
+      style={{ color: brand ? brand.color : code ? `hsl(${hue} 55% 45%)` : "#94a3b8" }}
     >
-      {code === "codex" ? "X" : name.slice(0, 1)}
+      {brand ? <brand.Icon aria-hidden className="pointer-events-none size-[78%]" /> : <Bot />}
     </span>
+  );
+}
+
+// Bot 是认不出的 Agent 的机器人图标。不用 Icon:导航项、作用域按钮会给 data-slot=icon 改颜色和尺寸。
+function Bot() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="pointer-events-none size-[78%]"
+    >
+      <path d="M12 8V4H8" />
+      <rect x="4" y="8" width="16" height="12" rx="2" />
+      <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+    </svg>
   );
 }
 
