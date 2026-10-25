@@ -1,10 +1,10 @@
-// 主界面：从技能出发的三栏布局(UI 原型变体 A)——左栏筛选、中间技能卡片、右栏作用域，顶部统一工具栏;
-// 点卡片打开右侧详情抽屉;左栏"设置"把三栏换成设置页。界面状态在 lib/view,各栏自己取;
+// 主界面：三栏布局——左栏页面与集合、组，中间是当前页面(所有技能 / 更新 / 作用域),右栏作用域，顶部统一工具栏;
+// 点技能行打开右侧详情抽屉;左栏"设置"把三栏换成设置页。界面状态在 lib/view,各栏自己取;
 // 写操作经 features/ 里的流程与 lib/ui 的 run 执行，完成后让查询缓存失效重读。
 import { useEffect, useRef } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
-import { FilterSidebar } from "@/components/app/filter-sidebar";
+import { LeftSidebar } from "@/components/app/left-sidebar";
 import { ScopePanel } from "@/components/app/scope-panel";
 import { SettingsPage } from "@/features/settings/settings-page";
 import { SkillDrawer } from "@/components/app/skill-drawer/skill-drawer";
@@ -99,7 +99,7 @@ function Main() {
           <>
             {left && (
               <ResizablePane side="left" storageKey="mechbox.left-width" defaultWidth={210} min={180} max={360}>
-                <FilterSidebar />
+                <LeftSidebar />
               </ResizablePane>
             )}
             <SkillList />

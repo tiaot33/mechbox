@@ -1,4 +1,4 @@
-// 主界面的领域辅助：作用域身份、来源展示、安装状态与筛选，都从只读快照派生。
+// 主界面的领域辅助：作用域身份、来源展示、安装状态、页面与列表的分节，都从只读快照派生。
 import {
   SameNameRule,
   ScopeKind,
@@ -81,12 +81,12 @@ export const outsideLinkNote = (target: string) => messages().model.outsideLinkN
 export const linkNote = (s: Snapshot, target: string) => messages().model.linkNote(shortPath(s, target));
 
 // agentShown 是 Agent 的显示勾选：用户勾选过的按勾选，没勾选过的检测到的和自定义的显示。
-// 显示只影响选择安装位置的地方(右栏与胶囊弹层的"其他 Agent"、"安装到…");已经装了技能的 Agent 照常列出。
+// 显示只影响选择安装位置的地方(右栏的"其他 Agent"、"安装到…");已经装了技能的 Agent 照常列出。
 export function agentShown(shown: Partial<Record<string, boolean>> | null | undefined, agent: Agent): boolean {
   return shown?.[agent.code] ?? (agent.detected || agent.custom);
 }
 
-// agentsIn 把某个地方的 Agent 分成直接列出的和折进"其他 N 个 Agent"的(右栏与作用域弹层):
+// agentsIn 把某个地方的 Agent 分成直接列出的和折进"其他 N 个 Agent"的(右栏):
 // 在这里装有技能的、以及检测到且勾选显示的直接列出;勾选了显示但没检测到的折起来;没勾选显示、也没装技能的不列出。
 // 项目里共用一个目录的几个 Agent 合成一处(见 mergeProjectAgents),已经列出的那一处不再折进"其他"。
 export function agentsIn(s: Snapshot, place: Place): { open: Agent[]; folded: Agent[] } {
@@ -106,7 +106,7 @@ export function agentsUsedIn(s: Snapshot, place: Place) {
 
 // ---------- 项目里共用一个目录的 Agent ----------
 // 项目里几个 Agent 的技能目录相同(如都读 .agents/skills)时，装在其中一个，其余几个也算已装，卸载也一起卸载。
-// 界面上它们合成一处：右栏、作用域弹层、顶栏胶囊、技能详情的安装表、"安装到…"和各处逐处列出的地方都只列一次，
+// 界面上它们合成一处：右栏、作用域页、技能详情的安装表、"安装到…"和各处逐处列出的地方都只列一次，
 // 名字是这台机器上显示的那几个 Agent 的名字;点选、拖放、安装都落在其中第一个(代表)的作用域上。
 // 全局不合：全局目录大多各是各的，少数共用的照旧一个 Agent 一行，卸载前提示还被谁共用。
 
@@ -242,6 +242,17 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
     [SameNameRule.SameNameUnknown]: m.sameNameProjectUnknown(projects, name),
   }[rule];
   return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.project_id), shortPath(s, p.project.folder))).join("\n") };
+}
+
+// skillSameNameNote 是库里一个技能在各处的同名说明(所有技能页、更新页的一行用):它装出去的文件夹和同一个 Agent
+// 另一层级的同名文件夹各说一句后果;text 是第一句，title 逐句列出。没有同名时返回 undefined。
+export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
+  const notes = s.sameName.flatMap((p) => [
+    ...(p.global.skill_id === skillID ? [sameNameNote(s, scopeKey(scopeOf(p.agent, 0)), p.global.folder)] : []),
+    ...(p.project.skill_id === skillID ? [sameNameNote(s, scopeKey(scopeOf(p.agent, p.project_id)), p.project.folder)] : []),
+  ]);
+  const texts = [...new Set(notes.flatMap((n) => (n ? [n.text] : [])))];
+  return texts.length ? { text: texts[0], title: texts.join("\n") } : undefined;
 }
 
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
@@ -453,7 +464,7 @@ export function sourceLabel(s: Snapshot, source: Source): string {
   }
 }
 
-// sourceShort 是卡片上的来源短名：GitHub 取 owner,Git 仓库取主机后的第一段(owner 或 group),well-known 取站点主机,
+// sourceShort 是技能行里的来源短名：GitHub 取 owner,Git 仓库取主机后的第一段(owner 或 group),well-known 取站点主机,
 // URL 取文件名，本地一律"自研"。
 export function sourceShort(s: Snapshot, source: Source): string {
   switch (source.type) {
@@ -472,71 +483,181 @@ export function sourceShort(s: Snapshot, source: Source): string {
   }
 }
 
-// ---------- 左栏筛选 ----------
+// ---------- 页面 ----------
+// 主界面中间只有三种页面：所有技能(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)。
+// 集合和组不是筛选，是所有技能页里的分节;左栏点它们只是跳到那一节。
 
-export type SkillFilter =
-  | { kind: "all" }
-  | { kind: "updates" }
-  | { kind: "collection"; collectionID: CollectionID }
-  | { kind: "group"; groupID: GroupID };
+export type Page = { kind: "all" } | { kind: "updates" } | { kind: "scope"; scope: ScopeKey };
 
-export function sameFilter(a: SkillFilter, b: SkillFilter): boolean {
-  if (a.kind === "collection" && b.kind === "collection") return a.collectionID === b.collectionID;
-  if (a.kind === "group" && b.kind === "group") return a.groupID === b.groupID;
+// Arrange 是所有技能页按什么分节。
+export type Arrange = "collection" | "group";
+
+export function samePage(a: Page, b: Page): boolean {
+  if (a.kind === "scope" && b.kind === "scope") return a.scope === b.scope;
   return a.kind === b.kind;
 }
 
-// resolveFilter 把指向已不存在的集合或组、或已没有更新的筛选退回"所有技能"。
-export function resolveFilter(s: Snapshot, filter: SkillFilter): SkillFilter {
-  if (filter.kind === "collection" && !s.collections.some((c) => c.id === filter.collectionID)) return { kind: "all" };
-  if (filter.kind === "group" && !s.groups.some((g) => g.id === filter.groupID)) return { kind: "all" };
-  if (filter.kind === "updates" && !updatableCollections(s).length) return { kind: "all" };
-  return filter;
-}
-
-export function filterTitle(s: Snapshot, filter: SkillFilter): string {
-  switch (filter.kind) {
-    case "collection": {
-      const c = s.collections.find((c) => c.id === filter.collectionID);
-      return c ? sourceLabel(s, c.source) : messages().model.allSkills;
-    }
-    case "group":
-      return s.groups.find((g) => g.id === filter.groupID)?.name ?? messages().model.allSkills;
-    case "updates":
-      return messages().model.updates;
-    default:
-      return messages().model.allSkills;
+// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页退回所有技能。
+export function resolvePage(s: Snapshot, page: Page): Page {
+  if (page.kind === "updates" && !updatableCollections(s).length) return { kind: "all" };
+  if (page.kind === "scope") {
+    const sc = parseScope(page.scope);
+    if ((sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) || !s.agents.some((a) => a.code === sc.agent)) return { kind: "all" };
   }
+  return page;
 }
 
-export interface ListQuery {
-  filter: SkillFilter;
-  search: string;
-  installedOnlyIn: ScopeKey | null; // 仅显示已安装在该作用域的技能
+export function pageTitle(s: Snapshot, page: Page): string {
+  const m = messages().model;
+  if (page.kind === "updates") return m.updates;
+  if (page.kind === "scope") return scopeLabel(s, parseScope(page.scope));
+  return m.allSkills;
 }
 
-export function visibleSkills(s: Snapshot, q: ListQuery): Skill[] {
-  let skills = s.skills;
-  const f = q.filter;
-  if (f.kind === "collection") {
-    const ids = new Set(s.collections.find((c) => c.id === f.collectionID)?.skills ?? []);
-    skills = skills.filter((x) => ids.has(x.id));
-  }
-  if (f.kind === "group") {
-    const ids = new Set(s.groups.find((g) => g.id === f.groupID)?.members ?? []);
-    skills = skills.filter((x) => ids.has(x.id));
-  }
-  if (f.kind === "updates") skills = skills.filter(pending);
-  const text = q.search.trim().toLowerCase();
-  if (text) skills = skills.filter((x) => (x.name + " " + x.description).toLowerCase().includes(text));
-  const key = q.installedOnlyIn;
-  if (key) skills = skills.filter((x) => skillScopeIn(s, x.id, key));
-  return skills;
-}
-
-// visibleUnmanaged 是选中作用域、看"所有技能"时和库里的技能列在一起的未纳管技能;按组、集合、更新筛选时不列。
-export function visibleUnmanaged(s: Snapshot, filter: SkillFilter, search: string, scope: ScopeKey | null): UnmanagedSkill[] {
-  if (!scope || filter.kind !== "all") return [];
+// matches 是搜索：名字或描述里含有输入的文字，不分大小写;没输入时都算。
+export function matches(search: string, item: { name: string; description?: string }): boolean {
   const text = search.trim().toLowerCase();
-  return unmanagedIn(s, scope).filter((u) => (u.name + " " + (u.description ?? "")).toLowerCase().includes(text));
+  return !text || (item.name + " " + (item.description ?? "")).toLowerCase().includes(text);
+}
+
+// ---------- 所有技能页的分节 ----------
+
+// sectionKey 是一节的身份：收起、展开"没装的"、左栏跳转都按它。
+export const sectionKey = (kind: "collection" | "group", id: number) => `${kind}-${id}`;
+
+// SkillSection 是所有技能页的一节：一个集合、一个组，或最后的"其他来源" / "没有归组"(kind 为 rest,id 为 0)。
+// key 是节的身份(见 sectionKey),最后一节是 "rest-collection" / "rest-group"。
+export interface SkillSection {
+  key: string;
+  kind: "collection" | "group" | "rest";
+  id: number;
+  skills: Skill[];
+}
+
+// arrangeSkills 把库里的技能分节。按集合时，有两个以上技能的集合各成一节(和左栏一致),其余合进"其他来源";
+// 按组时每个组一节，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。
+// 搜索时只留有结果的节;不搜索时空组也列出，好往里拖技能。
+export function arrangeSkills(s: Snapshot, arrange: Arrange, search: string): SkillSection[] {
+  const hit = (x: Skill) => matches(search, x);
+  const sections: SkillSection[] = [];
+  const placed = new Set<SkillID>();
+  if (arrange === "collection") {
+    for (const c of s.collections.filter((c) => (c.skills?.length ?? 0) > 1)) {
+      const skills = collectionSkills(s, c);
+      skills.forEach((x) => placed.add(x.id));
+      sections.push({ key: sectionKey("collection", c.id), kind: "collection", id: c.id, skills: skills.filter(hit) });
+    }
+  } else {
+    for (const g of s.groups) {
+      const members = new Set(g.members ?? []);
+      const skills = s.skills.filter((x) => members.has(x.id));
+      skills.forEach((x) => placed.add(x.id));
+      sections.push({ key: sectionKey("group", g.id), kind: "group", id: g.id, skills: skills.filter(hit) });
+    }
+  }
+  sections.push({ key: `rest-${arrange}`, kind: "rest", id: 0, skills: s.skills.filter((x) => !placed.has(x.id) && hit(x)) });
+  return sections.filter((x) => x.skills.length > 0 || (!search.trim() && x.kind === "group"));
+}
+
+// installedSummary 是所有技能页上一行的"装在哪":显示的 Agent 全局都装了就只写"全局",否则写出是哪几个 Agent;
+// 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方要重新安装。
+export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; title: string; bad: boolean } {
+  const m = messages().model;
+  const places = skillScopesOf(s, skillID);
+  const globals = s.agents.filter((a) => places.some((p) => !placeOf(p.scope) && p.scope.agent === a.code));
+  const open = agentsIn(s, 0).open;
+  const everyAgent = globals.length > 0 && open.every((a) => globals.includes(a));
+  const projects = [...new Set(places.map((p) => placeOf(p.scope)).filter(Boolean))];
+  const text = [
+    !globals.length ? "" : everyAgent ? m.global : m.agentsGlobal(globals.map((a) => a.name)),
+    !projects.length ? "" : projects.length === 1 ? projectName(s, projects[0]) : m.projectCount(projects.length),
+  ]
+    .filter(Boolean)
+    .join(m.listSeparator);
+  const title = mergeProjectPlaces(s, places)
+    .map((p) => scopeLabel(s, p.scope))
+    .join("\n");
+  return { text, title, bad: places.some(needsReinstall) };
+}
+
+// changedAt 是技能最近一次变化：更新带来新版本的时间，从没更新过时是入库时间。Go 的零值时间当作没有。
+export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Date } | undefined {
+  const valid = (v: string | undefined) => (v && new Date(v).getFullYear() > 1 ? new Date(v) : undefined);
+  const updated = valid(skill.updated_at);
+  if (updated) return { kind: "updated", date: updated };
+  const fetched = valid(skill.fetched_at);
+  return fetched ? { kind: "fetched", date: fetched } : undefined;
+}
+
+// ---------- 作用域页 ----------
+
+// ScopeListing 是作用域页要列的:装在这里的(库里的与未纳管的)、项目里来自同一个 Agent 全局的(Agent 在项目里也看得到),
+// 以及库里其他可以装到这里的。项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
+export interface ScopeListing {
+  here: Skill[];
+  hereUnmanaged: UnmanagedSkill[];
+  global: Skill[];
+  globalUnmanaged: UnmanagedSkill[];
+  others: Skill[];
+}
+
+// globalScopesSeenFrom 是项目作用域里的 Agent 也看得到的全局作用域(合成一处的几个 Agent 各自的全局);全局作用域为空。
+export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
+  const sc = parseScope(key);
+  if (!placeOf(sc)) return [];
+  const named = projectNamed(s, sc.agent);
+  return (named.length ? named.map((a) => a.code) : [sc.agent]).map((code) => scopeKey(scopeOf(code, 0)));
+}
+
+export function scopeListing(s: Snapshot, key: ScopeKey, search: string): ScopeListing {
+  const hit = (x: { name: string; description?: string }) => matches(search, x);
+  const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
+  const globalKeys = globalScopesSeenFrom(s, key);
+  const globalIDs = new Set(
+    s.skillScopes.filter((p) => globalKeys.includes(scopeKey(p.scope)) && !hereIDs.has(p.skill_id)).map((p) => p.skill_id),
+  );
+  const folders = new Set<string>();
+  const globalUnmanaged = s.unmanaged.filter((u) => {
+    if (!globalKeys.includes(scopeKey(u.scope)) || folders.has(u.folder)) return false;
+    folders.add(u.folder);
+    return true;
+  });
+  return {
+    here: s.skills.filter((x) => hereIDs.has(x.id) && hit(x)),
+    hereUnmanaged: unmanagedIn(s, key).filter(hit),
+    global: s.skills.filter((x) => globalIDs.has(x.id) && hit(x)),
+    globalUnmanaged: globalUnmanaged.filter(hit),
+    others: s.skills.filter((x) => !hereIDs.has(x.id) && !globalIDs.has(x.id) && hit(x)),
+  };
+}
+
+// ---------- 每一页列什么、数到几 ----------
+
+// PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
+// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致);
+// results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
+export type PageListing = { total: number; results: number } & (
+  | { kind: "all"; sections: SkillSection[] }
+  | { kind: "updates"; skills: Skill[] }
+  | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
+);
+
+export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
+  if (page.kind === "updates") {
+    const todo = s.skills.filter(pending);
+    const skills = todo.filter((x) => matches(search, x));
+    return { kind: "updates", skills, total: todo.length, results: skills.length };
+  }
+  if (page.kind === "scope") {
+    const all = scopeListing(s, page.scope, "");
+    const listing = search.trim() ? scopeListing(s, page.scope, search) : all;
+    const seen = (l: ScopeListing) => l.here.length + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
+    return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others.length };
+  }
+  return {
+    kind: "all",
+    sections: arrangeSkills(s, arrange, search),
+    total: s.skills.length,
+    results: s.skills.filter((x) => matches(search, x)).length,
+  };
 }

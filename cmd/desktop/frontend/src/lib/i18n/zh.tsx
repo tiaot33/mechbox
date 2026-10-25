@@ -20,6 +20,17 @@ const keptPlaces = (edited: number, missing: number) => [
   missing ? `${missing} 个地方文件夹不在了，没动` : "",
 ];
 
+// day 是技能最近一次变化的日子：今天、昨天、几天前，再早写日期(不是今年的带上年)。
+const day = (date: Date) => {
+  const now = new Date();
+  const days = Math.round((new Date(now.toDateString()).getTime() - new Date(date.toDateString()).getTime()) / 864e5);
+  if (days <= 0) return "今天";
+  if (days === 1) return "昨天";
+  if (days < 7) return `${days} 天前`;
+  const md = `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+  return date.getFullYear() === now.getFullYear() ? md : `${date.getFullYear()} 年 ${md}`;
+};
+
 // bin 是卸载时技能文件夹移去的地方:macOS 叫废纸篓,Windows 和 Linux 叫回收站;从里面拿回来,macOS 说放回，其他说还原。
 const bin = () => (platform() === "mac" ? "废纸篓" : "回收站");
 const putBack = () => (platform() === "mac" ? "放回" : "还原");
@@ -82,9 +93,9 @@ export const zh = {
     sameNameProjectUnknown: (projects: string[], name: string) => `项目「${projects.join("」「")}」里也有同名的 ${name}`,
     sameNameProjectFolder: (project: string, folder: string) => `「${project}」的文件夹：${folder}`,
     sameNameFetchSourced: (name: string) =>
-      `带来源入库时只和这个来源里同名的技能比：内容和它的某个版本一样时只记下装在这里，不一样时不能入库（可以清空来源）；其他来源或没有来源的同名技能不合并，入库后库里会多一个「${name}」，卡片上写出各装在哪里。`,
+      `带来源入库时只和这个来源里同名的技能比：内容和它的某个版本一样时只记下装在这里，不一样时不能入库（可以清空来源）；其他来源或没有来源的同名技能不合并，入库后库里会多一个「${name}」，列表里写出各装在哪里。`,
     sameNameFetchUnsourced: (name: string) =>
-      `内容和其中一个的某个版本一样时只记下装在这里；都不一样时不合并，入库后库里会多一个「${name}」，卡片上写出各装在哪里。`,
+      `内容和其中一个的某个版本一样时只记下装在这里；都不一样时不合并，入库后库里会多一个「${name}」，列表里写出各装在哪里。`,
     statusCurrent: "最新",
     statusStale: "旧版本",
     statusModified: "被手动改过",
@@ -102,6 +113,10 @@ export const zh = {
     unknownSource: "未知来源",
     allSkills: "所有技能",
     updates: "更新",
+    agentsGlobal: (names: string[]) => (names.length > 2 ? `${names.length} 个 Agent 全局` : `${names.join("、")} 全局`),
+    projectCount: (n: number) => `${n} 个项目`,
+    listSeparator: "、",
+    changed: (kind: "updated" | "fetched", date: Date) => `${day(date)}${kind === "updated" ? "更新" : "入库"}`,
   },
 
   actions: {
@@ -133,6 +148,12 @@ export const zh = {
     overwriteFoldersDesc: "用技能库里的版本替换它们",
     install: "安装",
     groupInstallResults: (group: string) => `组安装「${group}」`,
+    collectionInstallTitle: (label: string, scope: string) => `把「${label}」的技能装到 ${scope}`,
+    collectionUntracked: (n: number, names: string[]) => `${n} 个技能的目标位置已有不是从技能库装的同名文件夹：${names.join("、")}`,
+    skipSkills: "跳过这些技能",
+    skipSkillsDesc: "其余技能照常安装",
+    collectionInstalled: (label: string, scope: string, n: number) => `已把「${label}」的 ${n} 个技能装到 ${scope}`,
+    collectionSummary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 个没装上`,
     groupInstalled: (group: string, scope: string, summary: string) => `已把「${group}」组安装到 ${scope}\n${summary}`,
     groupUninstallTitle: (group: string, scope: string) => `卸载「${group}」在 ${scope} 的组安装`,
     groupUninstallShared: (n: number) =>
@@ -442,7 +463,7 @@ export const zh = {
     fetchSkills: "入库技能",
     noMatch: "没有匹配的技能",
     emptyGroup: "这个组还没有技能",
-    emptyGroupHint: "把卡片拖到左栏的这个组上，或在技能详情里「加入分组」。",
+    emptyGroupHint: "把技能拖到这个组的标题或左栏的组上，或在技能详情里「加入分组」。",
     renamedTitle: (to: string) => `来源里可能改名为 ${to}；点击查看更新计划`,
     availableTitle: "来源有新版本；点击查看更新计划",
     maybeRenamed: "可能改名",
@@ -460,8 +481,7 @@ export const zh = {
     hereState: (direct: boolean, via: string[]) =>
       [direct ? "直接安装" : "", via.length ? `随「${via.join("」「")}」安装` : ""].filter(Boolean).join(" + "),
     notInstalled: "未安装",
-    agents: (names: string[]) => names.join("、"),
-    projects: (n: number) => `${n} 个项目`,
+    fromGlobal: "来自全局",
     unmanagedTitle: "这个文件夹不是技能库装的：可能是命令行工具装的、手动拷进来的或你自己写的。技能库只列出它，不改动、不删除。",
     unmanaged: "未纳管",
     inRepositoryTitle: "这个文件夹已提交在项目的 git 仓库里，由仓库管理",
@@ -489,13 +509,34 @@ export const zh = {
     fetchAll: "全部入库…",
     groups: "组",
     groupChipTitle: (name: string, on: boolean) => `「${name}」${on ? "已组安装，点击卸载（只撤回本组的组安装）" : "未组安装，点击组安装"}`,
-    groupDrag: (name: string, n: number) => `组「${name}」· ${n} 个技能`,
-    groupDragTitle: (n: number) => `拖到右侧作用域 = 组安装（${n} 个技能）`,
+    groupDrag: (name: string, n: number) => `组安装「${name}」· ${n} 个技能，之后加进组的也会装`,
+    groupDragTitle: (n: number) => `拖到右侧作用域 = 组安装（现在 ${n} 个技能，之后加进组的也会装）；把技能拖到这里 = 加入本组`,
+    collectionDrag: (label: string, n: number) => `「${label}」· 装 ${n} 个技能`,
+    collectionDragTitle: (n: number) => `拖到右侧作用域 = 把这 ${n} 个技能逐个直接安装；之后入库的新技能不会自动装过去`,
+    inUse: (used: number, total: number) => `在用 ${used} · 共 ${total}`,
+    notInstalledFold: (names: string[]) => `另外 ${names.length} 个没装：${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`,
+    hideNotInstalled: "收起没装的",
+    arrangeCollection: "按集合",
+    arrangeCollectionTitle: "按来源分节：用户跟随的是作者的那一套",
+    arrangeGroup: "按组",
+    arrangeGroupTitle: "按你建的组分节：一个技能在几个组里就出现几次",
+    restCollection: "其他来源",
+    restCollectionTitle: "只入库了一个技能的来源，以及没有来源的技能",
+    restGroup: "没有归组",
+    searchResults: (text: string, n: number) => `搜索「${text}」：${n} 个结果`,
+    clearSearch: "清除",
+    updatesSkills: "要处理的技能",
+    updateCount: (n: number) => `更新 ${n} 个`,
+    scopeSees: (agent: string, n: number) => `${agent} 在这里看得到 ${n} 个技能`,
+    sectionHere: "装在这里",
+    sectionGlobal: "来自全局",
+    sectionGlobalTitle: "Agent 在项目里也看得到全局装的技能；要改请打开全局",
+    sectionOthers: "库里其他技能 · 可以装到这里",
+    nothingHere: "这里还没有装技能。打开下面的开关，或把技能、组、集合拖到右栏的这一行。",
     skillCount: (n: number) => `${n} 个技能`,
     groupInstalledIn: "组安装于",
     uninstallGroupHere: "卸载这个作用域的组安装",
     notGroupInstalled: "尚未组安装到任何作用域",
-    groupInstallTo: (scope: string) => `组安装到 ${scope}`,
     rename: "重命名",
     deleteGroup: "删除组",
     changedSkills: (names: string[]) => `${names.join("、")} 有变化`,
@@ -811,7 +852,8 @@ export const zh = {
     noCollections: "从同一来源入库两个以上技能后，按来源自动归成集合。",
     groups: "组",
     newGroup: "新建组",
-    groupTitle: "点击筛选；拖到右侧作用域 = 组安装；把技能卡片拖到这里 = 加入本组",
+    groupTitle: "点击跳到这一组；拖到右侧作用域 = 组安装；把技能拖到这里 = 加入本组",
+    collectionTitle: (kind: string, label: string) => `${kind} · ${label}\n点击跳到这一节；拖到右侧作用域 = 把它的技能逐个直接安装`,
     rename: "重命名",
     deleteGroup: "删除组",
     noGroups: "还没有组。按场景把技能归到一起，就能整组安装。",
@@ -949,16 +991,8 @@ export const zh = {
   toolbar: {
     toggleLeft: "显示/隐藏侧栏",
     search: "搜索技能",
-    installedOnlyTitle: (agent: string) => `只看已安装在 ${agent} 这个作用域的技能`,
-    installedOnly: "仅已安装",
-    list: "列表",
-    card: "卡片",
     refresh: "刷新（重新读取技能库并对照磁盘巡检已安装的技能）",
     toggleRight: "显示/隐藏作用域栏",
-    chooseScope: "选择作用域",
-    clearScope: "取消选择作用域",
-    moreAgents: (others: boolean, n: number) => `+ ${others ? "其他 " : ""}${n} 个 Agent`,
-    clear: "清除",
   },
 
   fromScope: {

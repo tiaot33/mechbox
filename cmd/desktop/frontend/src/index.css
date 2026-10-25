@@ -216,7 +216,16 @@
     padding: 0;
   }
 
-  /* 拖放中：主体区域带 data-dragging(skill / group),可放下的目标描虚线，悬停的目标高亮;
+  /* 左栏点了集合或组，滚到的那一节的标题闪一下。 */
+  .list-section > .section-head {
+    transition: background-color 0.6s ease-out;
+  }
+  .list-section[data-flash] > .section-head {
+    background: var(--color-primary-soft);
+    transition: none;
+  }
+
+  /* 拖放中：主体区域带 data-dragging(skill / group / collection),可放下的目标描虚线，悬停的目标高亮;
      已经在那里的(技能已直接安装、组已组安装、已是组成员)变淡并注明"已在"(data-already 的值是当前语言的这句话)。 */
   [data-dragging] [data-drop-scope],
   [data-dragging="skill"] [data-drop-group] {
@@ -227,7 +236,8 @@
     outline: 1.5px dashed var(--color-border);
     outline-offset: -2px;
   }
-  [data-dragging="group"] [data-drop-group] {
+  [data-dragging="group"] [data-drop-group],
+  [data-dragging="collection"] [data-drop-group] {
     opacity: 0.45;
   }
   [data-dragging] [data-already] {
