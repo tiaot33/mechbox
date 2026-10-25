@@ -69,6 +69,8 @@ wails3 task dev:test-db
 HOME=/tmp/skills-dev GOMODCACHE=$(go env GOMODCACHE) GOCACHE=$(go env GOCACHE) wails3 dev
 ```
 
+**用开发数据调试。** 在 app 里看界面、验证改动时，用 `wails3 task dev:seed` 生成的开发数据，再用 `wails3 task dev:seeded` 启动，不用每次自己造技能。数据里有什么、怎样重置，见 [测试改动](../../docs/testing.md) 的「在 app 里验证界面」。
+
 ## 构建与打包
 
 ```sh
@@ -111,33 +113,9 @@ open bin/mechbox.app
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
 - **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。
 
-## 检查
+## 测试
 
-```sh
-go test ./...                              # 仓库根目录；含 cmd/desktop 的测试
-go vet ./...
-cd frontend && pnpm exec tsc               # 前端类型检查
-cd frontend && pnpm test                  # 前端单元测试(vitest)
-pnpm install && cd e2e && pnpm test        # 端到端验证(见下)
-```
-
-前端单元测试只测不碰界面、不调技能库的纯函数，测试文件放在被测文件旁边(如 `lib/consent.test.ts`)。默认勾哪些、写之前说明什么这类守住 [ADR 0010](../../docs/adr/0010-product-promises.md) 承诺的规则都放在 `lib/consent.ts`,改这些规则时同时改测试。
-
-`go test` 里的 `TestLibraryServiceExposesEveryLibraryMethod` 保证 `library.Library` 的每个方法都开放给了前端：Library 新增方法而绑定服务没跟上时，这个测试会失败。
-
-### 端到端验证
-
-`e2e/run.sh` 把桌面端编译成 Wails 的 server 模式(同一套前端与绑定，以 HTTP 服务运行、不开窗口),在临时 `HOME` 里放好测试技能、项目目录和几个 zip,然后用本机的 Google Chrome 按界面操作走一遍：入库(本地目录 / URL / 本地 Git 仓库与分支下拉)、分组、登记项目、直接安装与组安装、冲突询问、重新安装(文件夹不在了时不动、装回去或卸载)、检查更新与更新(风险提示、连同装出去的地方、从技能发起、重新读取、用目录里的修改更新)、更新计划(差异、确认改名、继续保留、新技能不感兴趣、跳过)、历史与回滚、版本比较、拖放、同步未配置、设置(含 GitHub 令牌与同步设置、Agent 的显示勾选、自定义 Agent 的添加 / 改目录迁移 / 删除与共用目录卸载、项目里共用一个目录的 Agent 合成一处)、第一次打开时一次确认全部入库(内容一样的合成一条、同名不一样的只选较新的、作用域里再全部入库)、登记项目后一次确认入库(项目仓库里与 skills-lock.json 记的默认不勾、读不成来源的清空后入库)、未纳管技能(符号链接、项目仓库里已提交的;入库、内容一致时只补记安装、从来源记录认出来源与可能有你的修改、读不成来源时清空后入库、在 skills.sh 上找到来源后写出并预填)、符号链接(用这里的修改更新、回滚、重新安装时说明并换成独立的一份，卸载被链着的文件夹前先给链着它的换上一份，指向 Agent 目录以外的默认不入库、不算进还有几个没入库)、全局和项目里的同名技能、Git 来源与 npx skills 记录(来源名字与来源版本、来源版本未知、装的是来源现在这一版又改过的不报有更新)、库里同名的技能、改项目位置、移除与注销、卸载 Mechbox(最后一步，之后 server 退出),并核对磁盘上已安装的文件夹。
-
-```sh
-pnpm install                 # 在 cmd/desktop/ 下，装好 workspace 里 frontend 与 e2e 的依赖
-cd e2e
-pnpm test                    # 离线步骤
-E2E_NETWORK=1 pnpm test      # 连同技能市场与 GitHub 入库(需要联网)
-pnpm test 重新安装           # 只跑名字包含"重新安装"的步骤(步骤之间有依赖，单跑可能缺前置状态;名字含"卸载"的也会跑到最后的卸载 Mechbox，之后 server 退出)
-```
-
-失败的步骤会截图到 `/tmp/mechbox-e2e-shots/`。步骤按中文界面写,`run.sh` 给 server 设 `LC_ALL=zh_CN.UTF-8`,界面不随跑测试的机器的系统语言变。设置都存在临时 `HOME` 里的数据库中，e2e 直接读它的 `config` 表核对。联网步骤要用 GitHub 令牌时给 `E2E_GITHUB_TOKEN`,由测试脚本在设置页里填进去(应用本身不读环境变量)。server 模式下"在 Finder 中显示"什么都不做(e2e 只核对前端传过去的路径);卸载 Mechbox 时不清 `~/Library`、不动可执行文件，文件夹直接删除。离线时 `run.sh` 用 `E2E_HOSTS` 让 server 模式把 skills.sh 与假的 well-known 站点 `skills.e2e.test` 的请求改到本地的 HTTP 服务，不访问真实的 skills.sh;在 skills.sh 上找来源的步骤(`[离线]` 开头)只在离线时运行。server 模式没有原生窗口，所以系统目录选择框、窗口毛玻璃、单实例、Dock 角标与关闭窗口后留在菜单栏不在这里验证，需要在 `wails3 dev` 里手动确认。
+改完代码后跑哪些检查、测试放在哪里、怎样跑端到端验证、怎样用开发数据在 app 里验证，都见 [测试改动](../../docs/testing.md)。
 
 `frontend/dist/` 里提交了一个占位文件 `.gitkeep`（源文件是 `frontend/public/.gitkeep`，每次 Vite 构建都会复制过去），所以没构建前端时 `go build/vet/test ./...` 也能通过，纯 Go 的开发不需要 Node 工具链。
 
@@ -157,6 +135,8 @@ cmd/desktop/
 ├── trash_windows.go        Windows 回收站(IFileOperation,驱动器没有回收站时中止);trash_freedesktop.go 是 Linux 的 freedesktop 回收站;trash_wsl.go 是 WSL 发行版里的回收站(trash_wsl_windows.go 经 wsl.exe 执行),trash_info.go 是两者共用的 .trashinfo
 ├── library_methods.go      绑定服务：逐个转发 Library 的全部方法
 ├── e2e/                    端到端验证(server 模式 + Chrome)
+├── devseed/                生成开发数据(wails3 task dev:seed)
+├── testdata/               e2e 的素材(e2e/)与开发数据的技能快照(dev/)
 ├── pnpm-workspace.yaml     pnpm workspace:frontend 与 e2e,共用 pnpm-lock.yaml
 ├── Taskfile.yml、build/    Wails 构建配置（图标、Info.plist、各平台任务）
 └── frontend/
