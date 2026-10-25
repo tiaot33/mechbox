@@ -11,6 +11,7 @@ import { toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { useView } from "@/lib/view";
 import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
@@ -81,10 +82,37 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     });
   };
 
+  // 左栏高亮跟着滚动走：顶上已经滚过的最后一个分区，滚到底时是最后一个分区。
+  // 点左栏跳转时高亮点的那个，平滑滚动途中不跟;用户自己再滚(滚轮、触控、按键、拖滚动条)后恢复跟随。
+  const scroller = useRef<HTMLDivElement>(null);
+  const jumping = useRef(false);
+  const follow = () => {
+    const el = scroller.current;
+    if (!el || jumping.current) return;
+    const top = el.getBoundingClientRect().top;
+    let at: Section = sections[0];
+    for (const section of sections) {
+      const box = refs.current[section];
+      if (box && box.getBoundingClientRect().top - top <= 32) at = section;
+    }
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) at = sections[sections.length - 1];
+    setCurrent(at);
+  };
+  const release = () => void (jumping.current = false);
+
   const go = (section: Section) => {
+    jumping.current = true;
     setCurrent(section);
     refs.current[section]?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  // 从别处(如同步弹窗的"去设置")打开时跳到指定分区;等设置读回来、上面的分区有了高度再跳。
+  const wanted = useView((v) => v.settingsSection);
+  useEffect(() => {
+    if (!wanted || !settings) return;
+    if ((sections as readonly string[]).includes(wanted)) go(wanted as Section);
+    useView.setState({ settingsSection: null });
+  }, [wanted, settings]);
 
   const card = (section: Section, note: React.ReactNode, children: React.ReactNode) => (
     <Card key={section} className="scroll-mt-4" ref={(el) => void (refs.current[section] = el)}>
@@ -122,7 +150,15 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           </ul>
         </aside>
         <main className={centerClass}>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            ref={scroller}
+            className="min-h-0 flex-1 overflow-y-auto"
+            onScroll={follow}
+            onWheel={release}
+            onTouchStart={release}
+            onKeyDown={release}
+            onPointerDown={release}
+          >
             <div className="settings mx-auto flex max-w-[680px] flex-col gap-3 px-5 pt-4 pb-15">
               {card(
                 "general",

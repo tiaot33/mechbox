@@ -69,7 +69,7 @@ export function UnmanagedCard({ skill, view }: { skill: UnmanagedSkill; view: Li
       )}
       <div
         className={cn(
-          "a-card-foot flex min-h-[17px] items-center gap-[5px] font-mono [&:lang(en)]:gap-2 text-[10px] text-muted-foreground",
+          "a-card-foot flex min-h-[17px] items-center gap-[5px] [&:lang(en)]:gap-2 text-[10px] text-muted-foreground",
           list ? "w-[220px] shrink-0" : "mt-auto",
         )}
       >

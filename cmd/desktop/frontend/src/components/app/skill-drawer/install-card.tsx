@@ -45,7 +45,14 @@ export function InstallCard({ skill }: { skill: Skill }) {
     <Card>
       <CardHeader title={d.install} note={d.installNote(installed.length, stale)} />
       {installed.length > 0 && (
-        <table className="scope-table w-full border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
+        <table className="scope-table w-full table-fixed border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
+          {/* 固定列宽：换一个技能时来源、状态两列不左右跳。 */}
+          <colgroup>
+            <col className="w-11" />
+            <col />
+            <col className="w-24" />
+            <col className="w-32" />
+          </colgroup>
           <thead>
             <tr className="[&_th]:border-b [&_th]:border-border-subtle [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-[11px] [&_th]:font-medium [&_th]:text-muted-foreground">
               <th />
@@ -73,7 +80,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       <PlaceAgentMark code={p.scope.agent} place={placeOf(p.scope)} />
                       {scopeLabel(s, p.scope)}
                     </div>
-                    <div className="max-w-[250px] truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                    <div className="truncate font-mono text-[11px] text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</div>
                   </td>
                   <td>
                     <span className="inline-flex flex-wrap gap-1">

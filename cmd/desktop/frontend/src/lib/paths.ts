@@ -15,6 +15,11 @@ export function resolveLocalPath(input: string, home: string): PathInput | null 
   return { error: messages().paths.absolute };
 }
 
+// isLocalPath 判断(~ 已展开的)入库输入是不是本地绝对路径。
+export function isLocalPath(path: string): boolean {
+  return absolute.test(path.trim());
+}
+
 // insideHome 判断 path 是否在主目录 home 里面(不含主目录本身);Windows 与 WSL 发行版的路径用反斜杠分隔。
 export function insideHome(path: string, home: string): boolean {
   const base = home.replace(/[\\/]+$/, "");

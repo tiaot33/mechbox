@@ -70,6 +70,11 @@ export function SkillList() {
                   {t.fetchSkills}
                 </Button>
               </ListEmpty>
+            ) : group && !group.members?.length ? (
+              <ListEmpty>
+                <b className="text-sm text-foreground">{t.emptyGroup}</b>
+                <span>{t.emptyGroupHint}</span>
+              </ListEmpty>
             ) : (
               <ListEmpty>{t.noMatch}</ListEmpty>
             ))}

@@ -298,6 +298,7 @@ await step("预览不存在的目录：在对话框里显示原因", async () =>
   await btn(modal(), "入库预览").click();
   await modal().locator(".fetch-failure").waitFor({ timeout: 20000 });
   const reason = await modal().locator(".fetch-failure").textContent();
+  assert(reason.startsWith("读不到这个目录"), `本地目录读不到时说读不到这个目录，不说稍后重试：${reason}`);
   assert(reason.includes("no such file or directory"), `应写出技能库给出的原因，实际：${reason}`);
   assert((await page.locator('[data-slot="toast"][data-state="open"][data-tone="error"]').count()) === 0, "原因不应只弹 toast");
   await modal().locator('[data-slot="input"]').first().fill(`${SK}/nope2`);
@@ -756,6 +757,9 @@ await step("新建组(左栏 +)", async () => {
   await toast("已创建组「前端调试」");
   await settle();
   assert((await page.locator(".a-left .nav-item", { hasText: "前端调试" }).count()) === 1, "左栏应出现组");
+  await page.locator(".a-left .nav-item", { hasText: "前端调试" }).click();
+  await page.locator(".a-list", { hasText: "这个组还没有技能" }).waitFor({ timeout: 5000 });
+  await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
 });
 
 await step("同名新建组自动加 #2", async () => {
@@ -1283,8 +1287,8 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
     await selectScope("Claude Code", "proj-a");
     await card("gamma").locator(".same-name-note").waitFor();
-    assert.equal(await note(card("gamma")), "全局也有 gamma(未纳管)，Claude Code 用全局的那个，这里的不会生效");
-    assert.equal(await note(unmanaged("alpha")), "全局也有 alpha(库装的)，Claude Code 用全局的那个，这里的不会生效");
+    assert.equal(await note(card("gamma")), "全局也有 gamma（未纳管），Claude Code 用全局的那个，这里的不会生效");
+    assert.equal(await note(unmanaged("alpha")), "全局也有 alpha（库装的），Claude Code 用全局的那个，这里的不会生效");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-project.png") });
 
@@ -1297,7 +1301,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
 
     await selectScope("Codex", "proj-a");
     await unmanaged("vendored-npx").locator(".same-name-note").waitFor();
-    assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool(库装的)，Codex 里两份都会出现");
+    assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool（库装的），Codex 里两份都会出现");
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
   } finally {
@@ -1655,7 +1659,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await btn(row("proj-a"), "用这里的修改更新").click();
     const linked = modal().locator(".update-place", { hasText: "Claude Code · 全局" }).locator(".update-place-link");
     await linked.waitFor({ timeout: 15000 });
-    assert.equal(await linked.textContent(), `这次会换成独立的一份(现在是指向 ${fs.realpathSync(real)} 的符号链接)`, "写明原来指向哪里");
+    assert.equal(await linked.textContent(), `这次会换成独立的一份（现在是指向 ${fs.realpathSync(real)} 的符号链接）`, "写明原来指向哪里");
     const codexPlace = modal().locator(".update-place", { hasText: "Codex · 全局" });
     assert.equal(await codexPlace.locator(".update-place-link").count(), 0, "真实文件夹不说");
     // 去掉链着它的那一处:换 Codex 之前，Claude Code 全局先换成独立的一份、保持现在的内容，在 Codex 那一行说出来。
@@ -1691,7 +1695,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await refresh();
     await btn(row("Claude Code · 全局"), "重新安装").click();
     await modal().locator('[data-slot="dialog-title"]', { hasText: "有技能文件夹被改过" }).waitFor();
-    assert((await modal().textContent()).includes("这次会换成独立的一份(现在是指向"), "覆盖前说明是符号链接");
+    assert((await modal().textContent()).includes("这次会换成独立的一份（现在是指向"), "覆盖前说明是符号链接");
     await modal().locator('[data-slot="list-row"] input[type=checkbox]').check();
     await btn(modal(), "重新安装并覆盖 1 处").click();
     await toast("已重新安装 1 处");
@@ -1825,8 +1829,8 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   await btn(drawer(), "更新").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新 pair.zip" }).waitFor();
   assert(await planRow("update-skill", "eta").locator("input[type=checkbox]").isChecked(), "eta 应勾上");
-  await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化(theta)" }).waitFor();
-  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "只更新 eta 后,pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
+  await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化（theta）" }).waitFor();
+  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
   await btn(modal(), "更新 1 个").click();
   await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
@@ -1838,7 +1842,7 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   const row = page.locator(".update-row", { hasText: "pair.zip" });
   assert((await row.getByText("theta 有变化", { exact: false }).count()) === 1, "更新列表应列出 theta");
   await btn(row, "查看").click();
-  await modal().locator('[data-slot="list-row"]', { hasText: "没变化:eta" }).waitFor({ timeout: 15000 });
+  await modal().locator('[data-slot="list-row"]', { hasText: "没变化：eta" }).waitFor({ timeout: 15000 });
   await btn(modal(), "更新 1 个").click();
   await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
@@ -2068,7 +2072,7 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
     const cards = card("review");
     assert.equal(await cards.count(), 2, "同名但内容不同不合并");
     const notes = (await cards.locator(".dup-name-note").allTextContents()).sort();
-    assert.deepStrictEqual(notes, ["库里有 2 个「review」;这个装在 Claude Code · 全局", "库里有 2 个「review」;这个装在 Codex · 全局"], `卡片写出各装在哪里:${notes}`);
+    assert.deepStrictEqual(notes, ["库里有 2 个「review」；这个装在 Claude Code · 全局", "库里有 2 个「review」；这个装在 Codex · 全局"], `卡片写出各装在哪里:${notes}`);
     await page.screenshot({ path: path.join(SHOTS, "same-name-in-library-cards.png") });
     await cards.first().click();
     await drawer().waitFor();
@@ -2205,14 +2209,16 @@ await step("左栏分节折叠与展开", async () => {
   assert(await page.locator(".a-left .nav-item", { hasText: "my-skills" }).isVisible(), "展开后集合条目应可见");
 });
 
-await step("同步：未配置时同步计划报错", async () => {
+await step("同步：未配置时推、拉置灰，去设置跳到同步分区", async () => {
   await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
   assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "SKILLS_S3_BUCKET" }).count()) === 1, "应提示未配置");
-  await btn(modal(), "推送到 S3…").click();
-  await toast("缺少所需配置", "error");
-  await btn(modal(), "从 S3 拉回…").click();
-  await toast("缺少所需配置", "error");
-  await page.keyboard.press("Escape");
+  assert(await btn(modal(), "推送到 S3…").isDisabled(), "未配置时推送置灰");
+  assert(await btn(modal(), "从 S3 拉回…").isDisabled(), "未配置时拉回置灰");
+  await btn(modal(), "去设置").click();
+  await page.locator(".settings").waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-active="true"]')?.textContent === "同步", null, { timeout: 5000 });
+  await page.locator("button[title='返回技能库']").click();
+  await page.locator(".a-list").waitFor();
 });
 
 await step("设置页：分区、应用设置写进这台机器的设置文件、项目、关于", async () => {

@@ -46,22 +46,26 @@ export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]
       ]
     : [];
   const diffColor = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
+  const notes = (v: SkillVersion) => [v.based_on ? t.basedOn(number.get(v.based_on)) : "", v.maybe_edited ? t.maybeEdited : ""].filter(Boolean);
 
   return (
     <Card>
       <CardHeader title={t.versions} note={t.versionsNote(versions.length)} />
-      <ol className="versions flex flex-col gap-1.5">
+      {/* 各行按列对齐：每行固定六格，没有的留空，"当前"和"与当前比较"占同一格。 */}
+      <ol className="versions grid grid-cols-[auto_auto_auto_minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1.5">
         {list.map((v) => (
-          <li key={v.id} className="flex items-center gap-3 text-xs">
+          <li key={v.id} className="col-span-full grid grid-cols-subgrid items-center text-xs">
             <span className="font-medium">{t.versionN(number.get(v.id))}</span>
             <span>{formatDate(v.created_at)}</span>
-            {v.revision && <span className="font-mono text-[11px] text-muted-foreground">{v.revision.slice(0, 12)}</span>}
-            {v.based_on ? <span className="text-[11px] text-muted-foreground">{t.basedOn(number.get(v.based_on))}</span> : null}
-            {v.maybe_edited && <span className="text-[11px] text-muted-foreground">{t.maybeEdited}</span>}
+            <span className="font-mono text-[11px] text-muted-foreground">{v.revision?.slice(0, 12)}</span>
+            {/* 放不下时截断，悬停看全。 */}
+            <span className="truncate text-[11px] text-muted-foreground" title={notes(v).join(" ")}>
+              {notes(v).join(" ")}
+            </span>
             {v.id === currentID ? (
-              <Badge tone="ok">{t.current}</Badge>
+              <Badge tone="ok" className="justify-self-start">{t.current}</Badge>
             ) : (
-              <Button variant="link" onClick={() => compare(v)}>
+              <Button variant="link" className="justify-self-start" onClick={() => compare(v)}>
                 {t.compare}
               </Button>
             )}

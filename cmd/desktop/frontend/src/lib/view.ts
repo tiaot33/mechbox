@@ -38,6 +38,7 @@ interface ViewState {
   drawer: SkillID | null;
   drag: DragItem | null;
   settings: boolean;
+  settingsSection: string | null; // 打开设置页时直接跳到的分区
 }
 
 export const useView = create<ViewState>()(() => ({
@@ -53,6 +54,7 @@ export const useView = create<ViewState>()(() => ({
   drawer: null,
   drag: null,
   settings: false,
+  settingsSection: null,
 }));
 
 const set = useView.setState;
@@ -66,7 +68,7 @@ export const toggleLeft = () => set((v) => ({ left: !v.left }));
 export const toggleRight = () => set((v) => ({ right: !v.right }));
 export const toggleProject = (place: Place) => set((v) => ({ expanded: toggled(v.expanded, place) }));
 export const toggleMoreAgents = (place: Place) => set((v) => ({ moreAgents: toggled(v.moreAgents, place) }));
-export const openSettings = () => set({ settings: true });
+export const openSettings = (section: string | null = null) => set({ settings: true, settingsSection: section });
 export const closeSettings = () => set({ settings: false });
 
 // toggleDrawer 打开技能详情;点的是当前打开的那个技能时关上。
