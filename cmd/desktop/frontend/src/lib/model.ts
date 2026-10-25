@@ -357,9 +357,41 @@ export function hasUpdate(skill: Skill): boolean {
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-// sortedCollections 是集合按来源名排的顺序，左栏和所有技能页的分节都按它。
-export function sortedCollections(s: Snapshot): Collection[] {
-  return [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
+// Order 是用户在左栏或列表里拖出来的集合与组的先后，只记在这台机器的界面里;
+// 没排过的(还没拖过，或之后新入库的集合、新建的组)按默认顺序接在后面。
+export interface Order {
+  collections: CollectionID[];
+  groups: GroupID[];
+}
+
+export const noOrder: Order = { collections: [], groups: [] };
+
+// inOrder 把排过的按 order 的先后放前面，其余保持原来的先后接在后面。
+function inOrder<T extends { id: number }>(items: T[], order: number[]): T[] {
+  const at = new Map(order.map((id, i) => [id, i]));
+  const rank = (x: T) => at.get(x.id) ?? Infinity;
+  return [...items].sort((a, b) => (rank(a) === rank(b) ? 0 : rank(a) - rank(b)));
+}
+
+// sortedCollections 是集合的顺序：默认按来源名排，用户拖过的按拖出来的先后;左栏、所有技能页与作用域页的分节、更新列表都按它。
+export function sortedCollections(s: Snapshot, order: CollectionID[] = []): Collection[] {
+  const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
+  return inOrder(byName, order);
+}
+
+// sortedGroups 是组的顺序：默认按技能库给的顺序，用户拖过的按拖出来的先后;左栏、分节与作用域摘要里的组都按它。
+export function sortedGroups(s: Snapshot, order: GroupID[] = []): Group[] {
+  return inOrder(s.groups, order);
+}
+
+// moved 是把 dragged 挪到 target 的前面(after 为 false)或后面之后的先后;target 不在 ids 里时不变。
+export function moved(ids: number[], dragged: number, target: number, after: boolean): number[] {
+  if (dragged === target) return ids;
+  const rest = ids.filter((id) => id !== dragged);
+  const at = rest.indexOf(target);
+  if (at < 0) return ids;
+  rest.splice(after ? at + 1 : at, 0, dragged);
+  return rest;
 }
 
 // sortSkills 是列表里技能的顺序：先按来源(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
@@ -388,9 +420,9 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
   return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
 }
 
-// updatableCollections 是有计入角标的技能的集合，按来源名排(和左栏一致)。
-export function updatableCollections(s: Snapshot): Collection[] {
-  return sortedCollections(s).filter((c) => collectionSkills(s, c).some(pending));
+// updatableCollections 是有计入角标的技能的集合，和左栏同一个顺序。
+export function updatableCollections(s: Snapshot, order: CollectionID[] = []): Collection[] {
+  return sortedCollections(s, order).filter((c) => collectionSkills(s, c).some(pending));
 }
 
 // checkableCollections 是检查更新的范围：本地目录来源不检查。
@@ -558,14 +590,19 @@ export interface SkillSection {
   all: Skill[];
 }
 
-// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域)。按集合时每个来源一节，按来源名排，没有来源的合进最后的"没有来源";
-// 按组时每个组一节，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
+// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域)。按集合时每个来源一节，按 sortedCollections 排，没有来源的合进最后的"没有来源";
+// 按组时每个组一节，按 sortedGroups 排，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
 // 搜索时只留有结果的节;emptyGroups 时不搜索也列出空组，好往里拖技能。
 export function arrangeSkills(
   s: Snapshot,
   arrange: Arrange,
   search: string,
-  { skills: all = s.skills, emptyGroups = true, scope }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey } = {},
+  {
+    skills: all = s.skills,
+    emptyGroups = true,
+    scope,
+    order = noOrder,
+  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; order?: Order } = {},
 ): SkillSection[] {
   const hit = (x: Skill) => matches(search, x);
   const ids = new Set(all.map((x) => x.id));
@@ -576,13 +613,13 @@ export function arrangeSkills(
     sections.push({ key: sectionKey(kind, kind === "rest" ? arrange : id, scope), kind, id, skills: sorted.filter(hit), all: sorted });
   };
   if (arrange === "collection") {
-    for (const c of sortedCollections(s)) {
+    for (const c of sortedCollections(s, order.collections)) {
       const skills = collectionSkills(s, c).filter((x) => ids.has(x.id));
       skills.forEach((x) => placed.add(x.id));
       push("collection", c.id, skills);
     }
   } else {
-    for (const g of s.groups) {
+    for (const g of sortedGroups(s, order.groups)) {
       const members = new Set(g.members ?? []);
       const skills = all.filter((x) => members.has(x.id));
       skills.forEach((x) => placed.add(x.id));
@@ -646,7 +683,7 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
   return (named.length ? named.map((a) => a.code) : [sc.agent]).map((code) => scopeKey(scopeOf(code, 0)));
 }
 
-export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
+export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string, order: Order = noOrder): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
   const globalKeys = globalScopesSeenFrom(s, key);
@@ -663,7 +700,7 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   const listed = s.skills.filter((x) => !globalIDs.has(x.id));
   const here = listed.filter((x) => hereIDs.has(x.id) && hit(x)).length;
   return {
-    sections: arrangeSkills(s, arrange, search, { skills: listed, emptyGroups: false, scope: key }),
+    sections: arrangeSkills(s, arrange, search, { skills: listed, emptyGroups: false, scope: key, order }),
     hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
@@ -683,21 +720,21 @@ export type PageListing = { total: number; results: number } & (
   | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
 );
 
-export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
+export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order = noOrder): PageListing {
   if (page.kind === "updates") {
     const todo = sortSkills(s, s.skills.filter(pending));
     const skills = todo.filter((x) => matches(search, x));
     return { kind: "updates", skills, total: todo.length, results: skills.length };
   }
   if (page.kind === "scope") {
-    const all = scopeListing(s, page.scope, arrange, "");
-    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search) : all;
+    const all = scopeListing(s, page.scope, arrange, "", order);
+    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search, order) : all;
     const seen = (l: ScopeListing) => l.here + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
     return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others };
   }
   return {
     kind: "all",
-    sections: arrangeSkills(s, arrange, search),
+    sections: arrangeSkills(s, arrange, search, { order }),
     total: s.skills.length,
     results: s.skills.filter((x) => matches(search, x)).length,
   };

@@ -1,10 +1,18 @@
-// 组：新建、重命名、删除，加入或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
+// 组：新建、重命名、删除，加入(一个技能或整个集合)或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
 import { LibraryService } from "@bindings/cmd/desktop";
-import { GroupMemberOutcome, MemberRemovalPolicy, type GroupID, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import {
+  GroupMemberOutcome,
+  MemberRemovalPolicy,
+  type CollectionID,
+  type GroupID,
+  type GroupMemberResult,
+  type SkillID,
+  type SkillScopeInspection,
+} from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, type Snapshot } from "@/lib/library";
-import { folderPlaces, groupName, scopeKey, skillName } from "@/lib/model";
+import { folderPlaces, groupName, scopeKey, skillName, sourceLabel } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice } from "@/components/app/link-notes";
@@ -20,6 +28,33 @@ export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
     await showResults(t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)), memberRows(s, results), t.addedToGroupPartly);
   } else {
     ui.toast(t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
+  }
+}
+
+// addCollectionToGroup 把集合里还不在组里的技能逐个加入组(集合拖到组上、左栏集合的右键菜单)。
+export async function addCollectionToGroup(groupID: GroupID, collectionID: CollectionID) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const c = s.collections.find((x) => x.id === collectionID);
+  if (!c) return;
+  const label = sourceLabel(s, c.source);
+  const members = new Set(s.groups.find((g) => g.id === groupID)?.members ?? []);
+  const ids = (c.skills ?? []).filter((id) => !members.has(id));
+  if (!ids.length) {
+    ui.toast(t.collectionAlreadyInGroup(label, groupName(s, groupID)));
+    return;
+  }
+  const results = await ui.run(async () => {
+    const all: GroupMemberResult[] = [];
+    for (const id of ids) all.push(...((await LibraryService.AddSkillToGroup(groupID, id)) ?? []));
+    return all;
+  });
+  if (!results) return;
+  const scopes = s.groupInstalls.filter((a) => a.group_id === groupID).length;
+  if (results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped)) {
+    await showResults(t.collectionAddedToGroupTitle(label, groupName(s, groupID)), memberRows(s, results), t.addedToGroupPartly);
+  } else {
+    ui.toast(t.collectionAddedToGroup(label, ids.length, groupName(s, groupID), scopes));
   }
 }
 
@@ -52,15 +87,20 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
   });
 }
 
-export async function createGroup(withSkill?: SkillID) {
+// createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。
+export async function createGroup(withSkills: SkillID[] = []) {
   const t = messages().actions;
   const name = await ui.prompt({ title: t.newGroup, label: t.newGroupLabel, confirm: t.create });
   if (!name) return;
   const group = await ui.run(() => LibraryService.CreateGroup(name), {
     success: (g) => (g.name !== name ? t.groupCreatedAs(g.name) : t.groupCreated(g.name)),
-    reload: !withSkill,
+    reload: !withSkills.length,
   });
-  if (group && withSkill) await ui.run(() => LibraryService.AddSkillToGroup(group.id, withSkill));
+  if (group && withSkills.length) {
+    await ui.run(async () => {
+      for (const id of withSkills) await LibraryService.AddSkillToGroup(group.id, id);
+    });
+  }
   return group;
 }
 

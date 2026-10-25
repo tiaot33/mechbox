@@ -1,29 +1,57 @@
 // 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;底部同步与设置。
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，按来源名排，只有一个技能的也列出。
-// 集合行可拖到右栏作用域(把集合里的技能逐个直接安装);组行可拖到右栏作用域(组安装),也接受技能(加入该组)。
+// 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
+// 集合、组各自拖到同类的行上调整先后，和列表的分节一起变。两种行名字放不下时悬停显示全名，右键有各自的菜单。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { SourceType } from "@bindings/internal/library";
+import type { Collection, Group } from "@bindings/internal/library";
 import { useSnapshot, configQuery } from "@/lib/library";
 import { checkUpdates } from "@/features/update/check";
-import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
-import { alreadyInGroup, dropProps, useDnD } from "./dnd";
+import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
+import { previewCollection } from "@/features/fetch/preview";
+import { openHistory, openUpdate } from "@/features/update/update";
+import { alreadyInGroup, useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { useT } from "@/lib/i18n";
-import { checkableCollections, pending, shortPath, sortedCollections, sourceKindLabel, sourceLabel, type Page } from "@/lib/model";
+import {
+  checkableCollections,
+  collectionSkills,
+  hasUpdate,
+  isLocal,
+  pending,
+  shortPath,
+  sortedCollections,
+  sortedGroups,
+  sourceKindLabel,
+  sourceLabel,
+  type Page,
+} from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { jumpTo, openPage, openSettings, useCurrentPage } from "@/lib/view";
+import { jumpTo, openPage, openSettings, useCurrentPage, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Hint } from "@/components/ui/field";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Icon } from "./icons";
 import { leftClass } from "./layout";
 import { MarketDialog } from "@/features/fetch/market-dialog";
 import { NavCount, navItem } from "./nav";
-import { TailPath } from "./parts";
+import { TailPath, tailPath, Truncated } from "./parts";
 import { SyncDialog } from "@/features/settings/sync-dialog";
 
 const noConfig = { sync: false, github_token: false };
+
+// 本地目录集合的路径在左栏最多写这么长，再长省掉开头。
+const pathMax = 24;
 
 export function LeftSidebar() {
   const s = useSnapshot();
@@ -32,12 +60,12 @@ export function LeftSidebar() {
   const config = useQuery(configQuery).data ?? noConfig;
   const ui = useUI();
   const busy = useBusy();
-  const dnd = useDnD();
-  const tt = useT();
-  const t = tt.sidebar;
+  const order = useView((v) => v.order);
+  const t = useT().sidebar;
   const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
-  const collections = sortedCollections(s);
+  const collections = sortedCollections(s, order.collections);
+  const groups = sortedGroups(s, order.groups);
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
@@ -89,24 +117,7 @@ export function LeftSidebar() {
       {!collapsed.has("collections") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
           {collections.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className={navItem({ kind: "section" })}
-                onClick={() => jumpTo({ kind: "collection", id: c.id })}
-                draggable
-                onDragStart={(e) => dnd.start(e, { kind: "collection", id: c.id }, tt.list.collectionDrag(sourceLabel(s, c.source), c.skills?.length ?? 0))}
-                onDragEnd={dnd.end}
-                title={t.collectionTitle(sourceKindLabel(c.source.type), sourceLabel(s, c.source))}
-              >
-                {c.source.type === SourceType.SourceLocal ? (
-                  <TailPath path={sourceLabel(s, c.source)} max={24} className="grow" />
-                ) : (
-                  <span className="grow truncate">{sourceLabel(s, c.source)}</span>
-                )}
-                <NavCount value={c.skills?.length ?? 0} accent />
-              </button>
-            </li>
+            <CollectionRow key={c.id} collection={c} />
           ))}
         </ul>
       )}
@@ -125,56 +136,9 @@ export function LeftSidebar() {
       </SectionHead>
       {!collapsed.has("groups") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
-          {s.groups.map((g) => {
-            const already = !!dnd.item && alreadyInGroup(s, dnd.item, g.id);
-            const canDrop = dnd.item?.kind === "skill" && !already;
-            return (
-              <li key={g.id}>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className={navItem({ kind: "section" })}
-                  data-already={already ? tt.layout.alreadyThere : undefined}
-                  onClick={() => jumpTo({ kind: "group", id: g.id })}
-                  draggable
-                  onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, tt.list.groupDrag(g.name, g.members?.length ?? 0))}
-                  onDragEnd={dnd.end}
-                  data-drop-group={g.id}
-                  {...dropProps(canDrop, () => dnd.dropOnGroup(g.id))}
-                  title={t.groupTitle}
-                >
-                  <span className="grow truncate">{g.name}</span>
-                  <span className="row-actions hidden gap-0.5 group-hover:inline-flex">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title={t.rename}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void renameGroup(g.id);
-                      }}
-                    >
-                      <Icon name="edit" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title={t.deleteGroup}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void deleteGroup(g.id);
-                      }}
-                    >
-                      <Icon name="close" />
-                    </Button>
-                  </span>
-                  <span className="group-hover:hidden">
-                    <NavCount value={g.members?.length ?? 0} accent />
-                  </span>
-                </div>
-              </li>
-            );
-          })}
+          {groups.map((g) => (
+            <GroupRow key={g.id} group={g} />
+          ))}
         </ul>
       )}
       {s.groups.length === 0 && !collapsed.has("groups") && <Hint className="mt-1 px-3">{t.noGroups}</Hint>}
@@ -200,6 +164,136 @@ export function LeftSidebar() {
         <TailPath path={shortPath(s, s.info.library_path)} max={28} className="grow font-mono text-[10px]" />
       </div>
     </aside>
+  );
+}
+
+// CollectionRow 是左栏的一个集合：点了跳到那一节;拖到右栏作用域 = 逐个直接安装，拖到组上 = 加入该组，拖到别的集合上 = 调整先后;
+// 名字放不下时悬停显示全名;右键菜单是检查更新、更新、来源里的其他技能、更新历史与加入组。
+function CollectionRow({ collection: c }: { collection: Collection }) {
+  const s = useSnapshot();
+  const dnd = useDnD();
+  const busy = useBusy();
+  const drop = useCollectionDrop(c.id);
+  const groupOrder = useView((v) => v.order.groups);
+  const tt = useT();
+  const t = tt.sidebar;
+  const label = sourceLabel(s, c.source);
+  const local = isLocal(c.source);
+  const skills = collectionSkills(s, c);
+  return (
+    <li>
+      <ContextMenu>
+        <Truncated tip={t.collectionTitle(sourceKindLabel(c.source.type), label)} always={local && tailPath(label, pathMax) !== label}>
+          <ContextMenuTrigger asChild>
+            <button
+              type="button"
+              className={navItem({ kind: "section" })}
+              onClick={() => jumpTo({ kind: "collection", id: c.id })}
+              draggable
+              onDragStart={(e) => dnd.start(e, { kind: "collection", id: c.id }, tt.list.collectionDrag(label, skills.length))}
+              onDragEnd={dnd.end}
+              {...drop}
+            >
+              {local ? <span className="min-w-0 grow truncate">{tailPath(label, pathMax)}</span> : <span className="grow truncate">{label}</span>}
+              <NavCount value={skills.length} accent />
+            </button>
+          </ContextMenuTrigger>
+        </Truncated>
+        <ContextMenuContent>
+          {!local && (
+            <ContextMenuItem disabled={busy} onSelect={() => checkUpdates([c.id])}>
+              {t.check}
+            </ContextMenuItem>
+          )}
+          {!local && skills.some(hasUpdate) && <ContextMenuItem onSelect={() => openUpdate(c.id)}>{t.update}</ContextMenuItem>}
+          <ContextMenuItem onSelect={() => previewCollection(c.id)}>{t.otherSkills}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => openHistory({ collection_id: c.id }, tt.list.historyTitle(label))}>{t.history}</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>{t.addToGroup}</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {sortedGroups(s, groupOrder).map((g) => {
+                const already = alreadyInGroup(s, { kind: "collection", id: c.id }, g.id);
+                return (
+                  <ContextMenuItem key={g.id} disabled={already} onSelect={() => addCollectionToGroup(g.id, c.id)}>
+                    <span className="min-w-0 grow truncate">{g.name}</span>
+                    {already && <span className="shrink-0 text-[10px] text-subtle">{tt.layout.alreadyThere}</span>}
+                  </ContextMenuItem>
+                );
+              })}
+              {s.groups.length > 0 && <ContextMenuSeparator />}
+              <ContextMenuItem onSelect={() => createGroup(c.skills ?? [])}>{t.newGroupWith}</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </ContextMenuContent>
+      </ContextMenu>
+    </li>
+  );
+}
+
+// GroupRow 是左栏的一个组：点了跳到那一节;拖到右栏作用域 = 组安装，拖到别的组上 = 调整先后，接受技能与集合(加入本组);
+// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单是重命名、删除与新建组。
+function GroupRow({ group: g }: { group: Group }) {
+  const dnd = useDnD();
+  const drop = useGroupDrop(g.id);
+  const tt = useT();
+  const t = tt.sidebar;
+  return (
+    <li>
+      <ContextMenu>
+        <Truncated tip={g.name}>
+          <ContextMenuTrigger asChild>
+            <div
+              role="button"
+              tabIndex={0}
+              className={navItem({ kind: "section" })}
+              onClick={() => jumpTo({ kind: "group", id: g.id })}
+              draggable
+              onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, tt.list.groupDrag(g.name, g.members?.length ?? 0))}
+              onDragEnd={dnd.end}
+              {...drop}
+            >
+              <span className="grow truncate">{g.name}</span>
+              <span className="row-actions hidden gap-0.5 group-hover:inline-flex">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title={t.rename}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void renameGroup(g.id);
+                  }}
+                >
+                  <Icon name="edit" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title={t.deleteGroup}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void deleteGroup(g.id);
+                  }}
+                >
+                  <Icon name="close" />
+                </Button>
+              </span>
+              <span className="group-hover:hidden">
+                <NavCount value={g.members?.length ?? 0} accent />
+              </span>
+            </div>
+          </ContextMenuTrigger>
+        </Truncated>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => renameGroup(g.id)}>{t.renameWith}</ContextMenuItem>
+          <ContextMenuItem danger onSelect={() => deleteGroup(g.id)}>
+            {t.deleteGroupWith}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => createGroup()}>{t.newGroupWith}</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    </li>
   );
 }
 

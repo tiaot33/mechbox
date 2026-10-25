@@ -1,5 +1,5 @@
 // 主界面的界面状态：在哪一页(所有技能 / 更新 / 作用域)、所有技能页按什么分节、搜索、左右栏、右栏的展开、
-// 列表里收起的节与展开的"没装的"、左栏要跳到的那一节、详情抽屉、拖放与设置页。
+// 列表里收起的节与展开的"没装的"、左栏要跳到的那一节、详情抽屉、拖放、集合与组的先后与设置页。
 // 各栏直接从这里取、改，不经 App 一层层传;改状态的操作是模块级函数，组件外(拖放、写操作流程)也能调用。
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -9,13 +9,18 @@ import type { CollectionID, GroupID, Scope, SkillID } from "@bindings/internal/l
 import { queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
+  moved,
+  noOrder,
   pageListing,
   parseScope,
   placeOf,
   resolvePage,
   samePage,
   sectionKey,
+  sortedCollections,
+  sortedGroups,
   type Arrange,
+  type Order,
   type Page,
   type PageListing,
   type Place,
@@ -45,8 +50,21 @@ interface ViewState {
   jump: Jump | null;
   drawer: SkillID | null;
   drag: DragItem | null;
+  order: Order; // 用户拖出来的集合与组的先后，存在 localStorage,下次打开沿用
   settings: boolean;
   settingsSection: string | null; // 打开设置页时直接跳到的分区
+}
+
+const orderKey = "mechbox.order";
+
+function savedOrder(): Order {
+  try {
+    const v = JSON.parse(localStorage.getItem(orderKey) ?? "null");
+    const ids = (x: unknown) => (Array.isArray(x) ? x.filter((id) => typeof id === "number") : []);
+    return v ? { collections: ids(v.collections), groups: ids(v.groups) } : noOrder;
+  } catch {
+    return noOrder;
+  }
 }
 
 export const useView = create<ViewState>()(() => ({
@@ -62,6 +80,7 @@ export const useView = create<ViewState>()(() => ({
   jump: null,
   drawer: null,
   drag: null,
+  order: savedOrder(),
   settings: false,
   settingsSection: null,
 }));
@@ -121,6 +140,19 @@ export function reveal(scope: Scope) {
 export const startDrag = (item: DragItem) => set({ drag: item, right: true });
 export const endDrag = () => set({ drag: null });
 
+// reorder 把拖动的集合或组挪到另一个(target)的前面或后面(after),左栏与列表的分节一起变，记在这台机器上。
+export function reorder(kind: "collection" | "group", dragged: number, target: number, after: boolean) {
+  const s = queryClient.getQueryData(snapshotQuery.queryKey);
+  if (!s) return;
+  const { order } = get();
+  const next =
+    kind === "collection"
+      ? { ...order, collections: moved(sortedCollections(s, order.collections).map((c) => c.id), dragged, target, after) }
+      : { ...order, groups: moved(sortedGroups(s, order.groups).map((g) => g.id), dragged, target, after) };
+  localStorage.setItem(orderKey, JSON.stringify(next));
+  set({ order: next });
+}
+
 // reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、删除自定义 Agent、
 // 拉取了别的库)时退回所有技能，并记下来，之后又有了更新也不会自己跳回去。
 export function reconcile(s: Snapshot) {
@@ -140,8 +172,8 @@ export function useCurrentPage(): Page {
 export function usePageListing(): PageListing | undefined {
   const s = useLoadedSnapshot();
   const page = useCurrentPage();
-  const { arrange, search } = useView(useShallow((v) => ({ arrange: v.arrange, search: v.search })));
-  return useMemo(() => (s ? pageListing(s, page, arrange, search) : undefined), [s, page, arrange, search]);
+  const { arrange, search, order } = useView(useShallow((v) => ({ arrange: v.arrange, search: v.search, order: v.order })));
+  return useMemo(() => (s ? pageListing(s, page, arrange, search, order) : undefined), [s, page, arrange, search, order]);
 }
 
 // useScopeDirectory 是作用域页的 Agent 目录;不在作用域页或还没读到时为 undefined。

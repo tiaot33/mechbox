@@ -847,7 +847,7 @@ await step("重命名组与删除组(左栏悬停按钮)", async () => {
 // ============ 项目 ============
 await step("登记项目 proj-a / proj-b", async () => {
   for (const p of ["proj-a", "proj-b"]) {
-    await page.locator(".a-right .nav-sec", { hasText: "已登记项目" }).locator("button[title='登记项目']").click();
+    await page.locator(".a-right .nav-sec button[title='登记项目']").click();
     await modal().locator('[data-slot="input"]').fill(`${HOME}/code/${p}`);
     await btn(modal(), "登记").click();
     await toast("已登记项目");
@@ -857,7 +857,7 @@ await step("登记项目 proj-a / proj-b", async () => {
 });
 
 await step("重复登记同一项目报错", async () => {
-  await page.locator(".a-right .nav-sec", { hasText: "已登记项目" }).locator("button[title='登记项目']").click();
+  await page.locator(".a-right .nav-sec button[title='登记项目']").click();
   await modal().locator('[data-slot="input"]').fill(`${HOME}/code/proj-a`);
   await btn(modal(), "登记").click();
   await toast("已经存在", "error");
@@ -884,7 +884,7 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
   const row = (name) => modal().locator('[data-slot="list-row"]', { has: page.locator(".fetch-unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
   const checked = (name) => row(name).locator('input[type="checkbox"]').isChecked();
   try {
-    await page.locator(".a-right .nav-sec", { hasText: "已登记项目" }).locator("button[title='登记项目']").click();
+    await page.locator(".a-right .nav-sec button[title='登记项目']").click();
     await modal().locator('[data-slot="input"]').fill(projC);
     await btn(modal(), "登记").click();
     await toast("已登记项目");

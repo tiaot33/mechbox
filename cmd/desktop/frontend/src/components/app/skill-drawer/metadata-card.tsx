@@ -125,7 +125,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             value=""
             onChange={(e) => {
               const v = e.target.value;
-              if (v === "new") void createGroup(id);
+              if (v === "new") void createGroup([id]);
               else if (v) void addSkillToGroup(Number(v), id);
             }}
           >

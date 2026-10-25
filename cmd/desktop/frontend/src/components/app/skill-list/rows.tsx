@@ -39,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
+import { Truncated } from "@/components/app/parts";
 import { SameNameBadge, SameNameLine } from "./same-name";
 
 // 列宽：所有技能页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
@@ -144,14 +145,16 @@ export function SkillRow(props: {
         )}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[11.5px] text-muted-foreground" title={skill.description}>
-          {props.showSource && (
-            <span className="text-subtle" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
-              {sourceShort(s, skill.source)} ·{" "}
-            </span>
-          )}
-          {skill.description}
-        </p>
+        <Truncated tip={skill.description}>
+          <p className="skill-desc truncate text-[11.5px] text-muted-foreground">
+            {props.showSource && (
+              <span className="text-subtle" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
+                {sourceShort(s, skill.source)} ·{" "}
+              </span>
+            )}
+            {skill.description}
+          </p>
+        </Truncated>
         {same && <SameNameLine note={same} />}
         {/* 有新版本、但更新会换掉用户的修改：直接写出来，更新计划里它默认不勾。 */}
         {pending(skill) && updateAvailable(skill) && skill.edited && (
@@ -244,9 +247,9 @@ export function UnmanagedRow({ skill }: { skill: UnmanagedSkill }) {
         {same && <SameNameBadge note={same} />}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[11.5px] text-muted-foreground" title={skill.description}>
-          {skill.description}
-        </p>
+        <Truncated tip={skill.description}>
+          <p className="unmanaged-desc truncate text-[11.5px] text-muted-foreground">{skill.description}</p>
+        </Truncated>
         {same && <SameNameLine note={same} />}
         {source && (
           <p className="unmanaged-source-label truncate text-[10.5px] text-muted-foreground" title={found ? t.foundTitle(found) : t.recordedTitle(source)}>

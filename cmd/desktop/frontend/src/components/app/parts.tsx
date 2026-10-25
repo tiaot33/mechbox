@@ -1,6 +1,8 @@
-// 主界面共用的小部件:Agent 标记、计数、路径末段、诊断列表，以及集合切换。
+// 主界面共用的小部件:Agent 标记、计数、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
+import { useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { ListBox, ListRow } from "@/components/ui/list";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
 import { cn } from "@/lib/utils";
@@ -89,6 +91,27 @@ export function tailPath(path: string, max: number): string {
   let tail = parts.pop() ?? "";
   while (parts.length && parts[parts.length - 1].length + tail.length + 3 <= max) tail = `${parts.pop()}/${tail}`;
   return `…/${tail}`;
+}
+
+// Truncated 给截断显示的文字挂浮动提示：悬停时它自己或里面带 truncate 的元素放不下、被截断了才显示 tip,没截断时不显示;
+// always 时总是显示(如 TailPath 已经省掉了开头)。children 是触发的元素，要能接 ref 和事件。
+export function Truncated({ tip, always = false, children }: { tip: React.ReactNode; always?: boolean; children: React.ReactElement }) {
+  const ref = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState(false);
+  const truncated = () => {
+    const el = ref.current;
+    if (!el) return false;
+    return [el, ...el.querySelectorAll<HTMLElement>(".truncate")].some((x) => x.scrollWidth > x.clientWidth);
+  };
+  return (
+    <Tooltip open={open} onOpenChange={(next) => setOpen(next && (always || truncated()))}>
+      {/* asChild 时 ref 落在 children 上，不一定是 button。 */}
+      <TooltipTrigger asChild ref={ref as React.Ref<HTMLButtonElement>}>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 // Diagnostics 折叠列出未能成为候选 / 无法安装的条目及原因。

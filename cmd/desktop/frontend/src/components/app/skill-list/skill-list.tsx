@@ -5,7 +5,7 @@
 //   另有装在这里的未纳管技能，以及项目里来自全局的。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect } from "react";
-import type { Group, Skill } from "@bindings/internal/library";
+import type { Collection, Group, Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { parseScope, placeOf, sectionKey, updatableCollections, type PageListing, type ScopeKey, type SkillSection } from "@/lib/model";
@@ -17,7 +17,8 @@ import { Icon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
 import { ScopeSummary } from "./heads";
 import { SkillRow, UnmanagedRow } from "./rows";
-import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows, UseCounts, useGroupDrop } from "./sections";
+import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
+import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows, UseCounts } from "./sections";
 import { UpdatesHead } from "./updates-head";
 
 export function SkillList() {
@@ -148,13 +149,9 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
-      <Section
-        id={section.key}
-        head={<CollectionHead collection={c} scope={scope} listed={section.all} />}
-        sub={<CollectionNews collection={c} />}
-      >
+      <CollectionSection id={section.key} collection={c} scope={scope} listed={section.all}>
         {rows}
-      </Section>
+      </CollectionSection>
     );
   }
   if (section.kind === "group") {
@@ -190,6 +187,32 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
   );
 }
 
+function CollectionSection({
+  id,
+  collection,
+  scope,
+  listed,
+  children,
+}: {
+  id: string;
+  collection: Collection;
+  scope?: ScopeKey;
+  listed: Skill[];
+  children: React.ReactNode;
+}) {
+  const drop = useCollectionDrop(collection.id);
+  return (
+    <Section
+      id={id}
+      head={<CollectionHead collection={collection} scope={scope} listed={listed} />}
+      sub={<CollectionNews collection={collection} />}
+      headProps={drop}
+    >
+      {children}
+    </Section>
+  );
+}
+
 function GroupSection({
   id,
   group,
@@ -203,7 +226,7 @@ function GroupSection({
   listed: Skill[];
   children: React.ReactNode;
 }) {
-  const drop = useGroupDrop(group);
+  const drop = useGroupDrop(group.id);
   return (
     <Section id={id} head={<GroupHead group={group} scope={scope} listed={listed} />} headProps={drop}>
       {children}

@@ -1,6 +1,6 @@
 // 列表的分节：所有技能页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节。
 // 节标题可以收起;集合与组的节标题可以拖到右栏作用域(集合 = 把它的技能逐个直接安装，组 = 组安装),
-// 组的节标题也接受技能(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
+// 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
 import type { Collection, Group, Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -27,7 +27,7 @@ import { deleteGroup, renameGroup } from "@/features/group/group";
 import { uninstallGroup } from "@/features/install/install";
 import { openHistory, openUpdate } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
-import { alreadyInGroup, dropProps, useDnD } from "@/components/app/dnd";
+import { useDnD } from "@/components/app/dnd";
 import { Icon, SourceIcon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark } from "@/components/app/parts";
 
@@ -171,19 +171,6 @@ export function CollectionNews({ collection }: { collection: Collection }) {
       </Button>
     </div>
   );
-}
-
-// useGroupDrop 让组的节标题接受拖来的技能(加入该组)。
-export function useGroupDrop(group: Group) {
-  const s = useSnapshot();
-  const dnd = useDnD();
-  const t = useT();
-  const already = !!dnd.item && alreadyInGroup(s, dnd.item, group.id);
-  return {
-    "data-already": already ? t.layout.alreadyThere : undefined,
-    "data-drop-group": group.id,
-    ...dropProps(dnd.item?.kind === "skill" && !already, () => dnd.dropOnGroup(group.id)),
-  };
 }
 
 // GroupHead 是组的节标题：可以整组拖到作用域(组安装),写出组安装于哪些作用域(可以卸载),重命名与删除。
