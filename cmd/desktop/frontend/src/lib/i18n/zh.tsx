@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
 import { platform } from "@/lib/platform";
 
+// firstNames 是折起来的那行里列出的前三个名字。
+const firstNames = (names: string[]) => `${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`;
+
 const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "未纳管")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
@@ -514,11 +517,10 @@ export const zh = {
     collectionDrag: (label: string, n: number) => `「${label}」· 装 ${n} 个技能`,
     collectionDragTitle: (n: number) => `拖到右侧作用域 = 把这 ${n} 个技能逐个直接安装；之后入库的新技能不会自动装过去`,
     inUse: (used: number, total: number) => `在用 ${used} · 共 ${total}`,
-    notInstalledFold: (names: string[]) => `另外 ${names.length} 个没装：${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`,
+    notInstalledFold: (names: string[]) => `另外 ${names.length} 个没装：${firstNames(names)}`,
     hideNotInstalled: "收起没装的",
     inUseHere: (here: number, total: number) => `装在这里 ${here} · 共 ${total}`,
-    notHereFold: (names: string[], more: boolean) =>
-      `${more ? "另外 " : ""}${names.length} 个没装在这里：${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`,
+    notHereFold: (names: string[], more: boolean) => `${more ? "另外 " : ""}${names.length} 个没装在这里：${firstNames(names)}`,
     hideNotHere: "收起没装在这里的",
     arrangeCollection: "按集合",
     arrangeCollectionTitle: "按来源分节：用户跟随的是作者的那一套",
@@ -535,7 +537,7 @@ export const zh = {
     sectionGlobal: "来自全局",
     sectionGlobalTitle: "Agent 在项目里也看得到全局装的技能；要改请打开全局",
     sectionUnmanaged: "未纳管技能",
-    nothingHere: "这里还没有装技能。展开下面各节打开技能的开关，或把技能、组、集合拖到右栏的这一行。",
+    nothingHere: "这里还没有装技能。在下面打开技能的开关，或把技能、组、集合拖到右栏的这一行。",
     skillCount: (n: number) => `${n} 个技能`,
     groupInstalledIn: "组安装于",
     uninstallGroupHere: "卸载这个作用域的组安装",

@@ -3,9 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { SourceType, type FileMetadata, type Skill, type SkillVersion } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
-import { collectionSkills, deletedInSource, hasUpdate, isLocal, pending, renamedTo, skillScopesOf, sourceLabel } from "@/lib/model";
+import { deletedInSource, hasUpdate, isLocal, pending, renamedTo, skillScopesOf, sourceLabel } from "@/lib/model";
 import { AuditCard } from "@/features/fetch/audit";
-import { notInterested, previewCollection, previewNewSkills } from "@/features/fetch/preview";
 import { reinstall } from "@/features/install/reinstall";
 import { keepDeleted, removeSkill } from "@/features/skill/remove";
 import { openHistory, openUpdate, rereadSkill } from "@/features/update/update";
@@ -132,18 +131,14 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   );
 }
 
-// Actions 是技能上的操作：重新读取(本地目录来源)、全部重新安装、更新历史、看来源里的其他技能(只有一个技能的来源),
-// 以及只有一个技能的来源上"新发布了几个技能"的提示。
+// Actions 是技能上的操作：重新读取(本地目录来源)、全部重新安装、更新历史。来源里的其他技能与新技能在集合的节标题上。
 function Actions({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const t = useT();
   const d = t.drawer;
   const id = skill.id;
   const installed = skillScopesOf(s, id);
-  const c = s.collections.find((x) => x.id === skill.collection_id);
-  const collection = c ? collectionSkills(s, c) : [];
   return (
-    <>
     <div className="flex flex-wrap gap-1.5 px-2">
       {isLocal(skill.source) && (
         <Button size="sm" onClick={() => rereadSkill(skill)} title={d.rereadTitle}>
@@ -160,26 +155,6 @@ function Actions({ skill }: { skill: Skill }) {
       <Button size="sm" onClick={() => openHistory({ skill_id: id }, d.historyTitle(skill.name))} title={d.historyHint}>
         {d.history}
       </Button>
-      {/* 只有一个技能的来源没有集合这一层，从这里找回来源里的其他技能(包括点过"不感兴趣"的)。 */}
-      {collection.length === 1 && c && (
-        <Button size="sm" onClick={() => previewCollection(c.id)} title={d.otherSkillsHint}>
-          {d.otherSkills}
-        </Button>
-      )}
     </div>
-    {collection.length === 1 && (c?.new_skills?.length ?? 0) > 0 && (
-      <div className="skill-new flex items-center gap-2 px-2 text-[11px] text-muted-foreground">
-        <span className="grow">
-          {d.newSkills(sourceLabel(s, skill.source), c!.new_skills!)}
-        </span>
-        <Button variant="link" onClick={() => previewNewSkills(c!.id)}>
-          {d.goFetch}
-        </Button>
-        <Button variant="link" onClick={() => notInterested(c!.id, c!.new_skills!)}>
-          {d.notInterested}
-        </Button>
-      </div>
-    )}
-    </>
   );
 }

@@ -7,6 +7,8 @@ import { platform } from "@/lib/platform";
 const and = (items: string[]) => new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 // count 是"1 skill"、"3 skills";不规则的复数给出 many。
 const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en")} ${n === 1 ? one : many}`;
+// firstNames 是折起来的那行里列出的前三个名字。
+const firstNames = (names: string[]) => `${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}`;
 // keptAsIs 是重新安装时没动的地方：用户改过的、文件夹不在了的。
 const keptAsIs = (edited: number, missing: number) =>
   [edited ? `${count(edited, "edited place")} left as is` : "", missing ? `${count(missing, "missing folder")} left alone` : ""].filter(Boolean).join("; ");
@@ -551,11 +553,11 @@ export const en = {
       `Drag to a Scope on the right = install these ${count(n, "skill")} directly, one by one; skills fetched later aren't installed automatically`,
     inUse: (used: number, total: number) => `${used} in use · ${total} in total`,
     notInstalledFold: (names: string[]) =>
-      `${count(names.length, "more skill")} not installed: ${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}`,
+      `${count(names.length, "more skill")} not installed: ${firstNames(names)}`,
     hideNotInstalled: "Hide the ones not installed",
     inUseHere: (here: number, total: number) => `${here} installed here · ${total} in total`,
     notHereFold: (names: string[], more: boolean) =>
-      `${count(names.length, more ? "more skill" : "skill")} not installed here: ${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}`,
+      `${count(names.length, more ? "more skill" : "skill")} not installed here: ${firstNames(names)}`,
     hideNotHere: "Hide the ones not installed here",
     arrangeCollection: "By Collection",
     arrangeCollectionTitle: "Sections by Source: you follow an author's whole set",
@@ -572,7 +574,7 @@ export const en = {
     sectionGlobal: "From global",
     sectionGlobalTitle: "In a project, the Agent also sees the skills installed globally; open the global Scope to change them",
     sectionUnmanaged: "Unmanaged skills",
-    nothingHere: "Nothing is installed here yet. Expand a section below and turn on a skill's switch, or drag a skill, Group, or Collection onto this row on the right.",
+    nothingHere: "Nothing is installed here yet. Turn on a skill's switch below, or drag a skill, Group, or Collection onto this row on the right.",
     skillCount: (n: number) => count(n, "skill"),
     groupInstalledIn: "Group installed in",
     uninstallGroupHere: "Uninstall the Group install in this Scope",

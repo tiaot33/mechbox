@@ -978,7 +978,7 @@ await step("作用域页：按集合分节，节里装在这里的在前，没�
   const here = page.locator(".a-list .skill-row", { has: page.locator('[role="switch"][aria-checked="true"]') });
   assert.equal(await here.count(), 1, "装在这里应只有 beta");
   assert.equal(await here.locator(".skill-name").textContent(), "beta");
-  const rows = page.locator('.list-section[data-section^="collection-"]', { has: card("beta") }).locator(".skill-row");
+  const rows = page.locator('.list-section[data-section*=":collection-"]', { has: card("beta") }).locator(".skill-row");
   assert.equal(await rows.first().getAttribute("data-name"), "beta", "装在这里的排在节里最前面");
   assert((await rows.count()) >= 2, "同一集合里没装在这里的列在后面");
   assert((await page.locator(".scope-sees").textContent()).includes("Codex 在这里看得到 1 个技能"), "摘要写出看得到几个");
