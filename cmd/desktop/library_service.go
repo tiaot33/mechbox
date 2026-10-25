@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -19,10 +18,17 @@ import (
 // appDirName 是技能库在用户配置目录下的子目录名。
 const appDirName = "mechbox"
 
-// defaultLibraryPath 返回真实技能库的位置：<用户配置目录>/mechbox/library.db。
-// macOS 上即 ~/Library/Application Support/mechbox/library.db;
+// libraryPathEnv 是本地调试用的逃生通道：设了就打开这个数据库，不打开真实技能库。
+// 设置都存在数据库里，换一个数据库就是换一整套设置，不会和真实技能库的设置混在一起。
+const libraryPathEnv = "MECHBOX_LIBRARY"
+
+// defaultLibraryPath 返回技能库的位置：设了 MECHBOX_LIBRARY 时是它(相对路径按当前目录);
+// 否则是真实技能库 <用户配置目录>/mechbox/library.db,macOS 上即 ~/Library/Application Support/mechbox/library.db,
 // 从 Finder / Dock 启动时也可用，因为它只依赖 HOME 而不依赖 shell 环境变量。
 func defaultLibraryPath() (string, error) {
+	if path := os.Getenv(libraryPathEnv); path != "" {
+		return filepath.Abs(path)
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("find user config directory: %w", err)
@@ -36,8 +42,7 @@ type LibraryService struct {
 	path string
 	lib  *library.Library
 
-	configMu sync.Mutex
-	sync     *library.SyncSettings
+	afterPull func(context.Context)
 
 	background chan struct{}
 }
@@ -49,7 +54,7 @@ func NewLibraryService(path string) *LibraryService {
 
 // ServiceStartup 在 Wails 启动服务时打开技能库：目录不存在则创建，库文件不存在则由 Open 初始化空库。
 func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOptions) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("create library directory: %w", err)
 	}
 	lib, err := library.Open(s.path)
@@ -113,34 +118,24 @@ func appVersion() string {
 	return ""
 }
 
-// ConfigStatus 报告技能库依赖的外部配置是否就绪：设置页里填了就看设置页的，没填才看环境变量。
+// ConfigStatus 报告技能库依赖的配置是否就绪;配置都存在数据库里，不读环境变量。
 type ConfigStatus struct {
 	Sync        bool `json:"sync"`         // S3 同步：存储桶与密钥齐全
-	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页(存在数据库里)或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
+	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
 }
 
-// Config 返回外部配置的就绪状态，只看是否填了，不校验取值。
+// Config 返回配置的就绪状态，只看是否填了，不校验取值。
 func (s *LibraryService) Config(ctx context.Context) (ConfigStatus, error) {
 	token, err := s.lib.GitHubToken(ctx)
 	if err != nil {
 		return settle(ConfigStatus{}, err)(ctx)
 	}
-	set := func(names ...string) bool {
-		for _, name := range names {
-			if os.Getenv(name) == "" {
-				return false
-			}
-		}
-		return true
+	sync, err := s.lib.SyncSettings(ctx)
+	if err != nil {
+		return settle(ConfigStatus{}, err)(ctx)
 	}
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-	status := ConfigStatus{
-		Sync:        set("SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
-		GitHubToken: token != "" || set("GITHUB_TOKEN") || set("GH_TOKEN"),
-	}
-	if s.sync != nil {
-		status.Sync = s.sync.Bucket != "" && s.sync.AccessKeyID != "" && s.sync.SecretAccessKey != ""
-	}
-	return status, nil
+	return ConfigStatus{
+		Sync:        sync.Bucket != "" && sync.AccessKeyID != "" && sync.SecretAccessKey != "",
+		GitHubToken: token != "",
+	}, nil
 }

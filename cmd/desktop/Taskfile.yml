@@ -38,6 +38,15 @@ tasks:
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
+  # 用固定的测试数据库 .dev/library.db 以开发模式运行，不碰真实技能库;设置(令牌、同步等)存在这个数据库里，填一次就一直在。
+  # Agent 目录仍按真实 HOME 算，要连安装也隔离就再给一个临时 HOME(见 README)。
+  dev:test-db:
+    summary: Runs the application in development mode against the test database .dev/library.db
+    env:
+      MECHBOX_LIBRARY: '{{.ROOT_DIR}}/.dev/library.db'
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)
     cmds:

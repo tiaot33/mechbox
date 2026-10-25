@@ -410,18 +410,18 @@ func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
 		"demo/scripts/run": {content: []byte{0, 255, 1}, mode: 0o755},
 	})
 	fx := inspectGitHubRepo(t, repo)
-	for _, credential := range []string{"environment token", "gh CLI"} {
+	for _, credential := range []string{"stored token", "gh CLI"} {
 		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusTooManyRequests} {
 			t.Run(credential+"/"+http.StatusText(status), func(t *testing.T) {
 				api := serveGitHubAPI(t, fx)
 				api.anonymousStatus = status
 				blockGitHubClone(t)
+				lib := openTestLibrary(t)
 				if credential == "gh CLI" {
 					serveGitHubCLI(t, fx)
 				} else {
-					t.Setenv("GITHUB_TOKEN", "test-github-token")
+					setGitHubToken(t, lib, "test-github-token")
 				}
-				lib := openTestLibrary(t)
 				preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 				if err != nil || len(preview.Candidates) != 1 {
 					t.Fatalf("preview = %#v, %v", preview, err)
@@ -435,8 +435,8 @@ func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
 	}
 }
 
-// 调用方传入的令牌只放进「用令牌访问」这一步:仍先匿名访问,被拒后才带令牌;传入了就不再读环境变量里的令牌。
-func TestGitHubPassedTokenReplacesEnvironmentTokenAfterAnonymous(t *testing.T) {
+// 存在数据库里的令牌只放进「用令牌访问」这一步:仍先匿名访问,被拒后才带令牌。环境变量里的令牌不读。
+func TestGitHubStoredTokenIsUsedAfterAnonymous(t *testing.T) {
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 	}))
@@ -445,7 +445,14 @@ func TestGitHubPassedTokenReplacesEnvironmentTokenAfterAnonymous(t *testing.T) {
 	api.acceptedToken = "passed-token"
 	blockGitHubClone(t)
 	t.Setenv("GITHUB_TOKEN", "environment-token")
+	t.Setenv("GH_TOKEN", "environment-token")
 	lib := openTestLibrary(t)
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err == nil {
+		t.Fatal("preview without stored token succeeded, want environment token ignored")
+	}
+	if got := api.takeAuthorizations(); slices.Contains(got, "Bearer environment-token") {
+		t.Fatalf("authorizations = %q, want environment token ignored", got)
+	}
 	setGitHubToken(t, lib, "passed-token")
 	preview, err := lib.PreviewFetch(t.Context(), gitHubRequest())
 	if err != nil || len(preview.Candidates) != 1 {
@@ -494,7 +501,7 @@ func TestGitHubTokenIsKeptInDatabase(t *testing.T) {
 }
 
 // 在同一个 Library 上改令牌,下一次访问 GitHub 就用新值:先前没有令牌、靠 gh 读到的私有仓库,传入令牌后
-// 重新按匿名 → 令牌 → gh 的顺序访问;换成另一个令牌后用新令牌;清空后回到环境变量里的令牌。
+// 重新按匿名 → 令牌 → gh 的顺序访问;换成另一个令牌后用新令牌;清空后回到匿名 → gh。
 func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
@@ -503,7 +510,6 @@ func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 	api.anonymousStatus = http.StatusNotFound
 	blockGitHubClone(t)
 	serveGitHubCLI(t, fx)
-	t.Setenv("GITHUB_TOKEN", "")
 	lib := openTestLibrary(t)
 	preview := func() {
 		t.Helper()
@@ -518,17 +524,15 @@ func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 	}
 
 	for _, step := range []struct {
-		name, passed, environment, want string
+		name, passed, want string
 	}{
-		{"passed", "first-token", "", "Bearer first-token"},
-		{"changed", "second-token", "", "Bearer second-token"},
-		{"cleared", "", "environment-token", "Bearer environment-token"},
+		{"passed", "first-token", "Bearer first-token"},
+		{"changed", "second-token", "Bearer second-token"},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			api.mu.Lock()
 			api.acceptedToken = strings.TrimPrefix(step.want, "Bearer ")
 			api.mu.Unlock()
-			t.Setenv("GITHUB_TOKEN", step.environment)
 			setGitHubToken(t, lib, step.passed)
 			preview()
 			got := api.takeAuthorizations()
@@ -537,6 +541,13 @@ func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 			}
 		})
 	}
+	t.Run("cleared", func(t *testing.T) {
+		setGitHubToken(t, lib, "")
+		preview()
+		if got := api.takeAuthorizations(); !slices.Equal(got, []string{""}) {
+			t.Fatalf("after clearing authorizations = %q, want anonymous then gh", got)
+		}
+	})
 }
 
 // 先靠 gh 做了入库预览,再传入令牌:对这个预览入库时也按匿名 → 令牌 → gh 重新访问,用上新令牌,不再直接走 gh。
@@ -633,7 +644,7 @@ func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 	fetched := fetchSkills(t, lib, preview, candidateNames(preview))
 
 	stubGitHubCLI(t, "echo '"+secret+"'\necho '"+secret+"' >&2\nexit 1\n")
-	t.Setenv("GITHUB_TOKEN", secret)
+	setGitHubToken(t, lib, secret)
 	client := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusForbidden, map[string]string{"message": secret}), nil

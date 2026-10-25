@@ -29,5 +29,5 @@ v1 只有桌面端这一个界面。它是一个 Wails v3 应用：Go 进程直�
 
 ## 后果
 
-- 从 Finder 或 Dock 启动的 macOS 应用读不到 shell 环境变量，`PATH` 里也没有 Homebrew。库目前靠环境变量和 `gh` 获取配置与凭证，所以打包后的桌面端需要另外的运行时配置才能用。
+- 从 Finder 或 Dock 启动的 macOS 应用读不到 shell 环境变量，`PATH` 里也没有 Homebrew。所以配置与凭证都在设置页填写、存在数据库里，不读环境变量（[ADR 0011](0011-settings-live-in-the-database.md)）。
 - 以后如果出现别的进程也要使用库，比如终端界面、命令行、多开，到时再决定跨进程的变更通知和通信方式。

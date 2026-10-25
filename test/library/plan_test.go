@@ -261,8 +261,8 @@ func TestSkipStopsCountingUntilTheSkillChangesAgain(t *testing.T) {
 
 func TestSkipRejectsRemovedSkillAndReplacedLibrary(t *testing.T) {
 	ctx := t.Context()
-	newS3Stub(t)
-	lib := openTestLibrary(t)
+	stub := newS3Stub(t)
+	lib := stub.open(t)
 	a, aSource := fetchLocalSkill(t, lib, "a", "v1")
 	writeLocalSkill(t, aSource, "v2")
 	plan, err := lib.PlanUpdate(ctx, a.CollectionID)

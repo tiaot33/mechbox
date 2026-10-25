@@ -1,7 +1,8 @@
 // 同步：整库与 S3 手动推 / 拉。先看同步计划认出 S3 上是哪一份库，用户确认后带着它的标识执行;期间 S3 上的库变了返回 Conflict。
 // 拉回不动 Agent 目录：之后把不在这台机器上的项目改到本机位置，再在各作用域重新安装。
+// 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换。
 import { useState } from "react";
-import { LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
+import { AppService, LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
 import {
   CannotPullReason,
   ErrorCode,
@@ -10,7 +11,7 @@ import {
   type SyncPushPlan,
 } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
-import { messages, useT } from "@/lib/i18n";
+import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { openSettings } from "@/lib/view";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
   const [plan, setPlan] = useState<Plan | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   const [pulled, setPulled] = useState(false);
+  const { setLanguage } = useLanguage();
 
   const load = async (direction: Plan["direction"]) => {
     setWorking(direction);
@@ -80,6 +82,7 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
       if (done) {
         setPlan(null);
         setPulled(true);
+        await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
       }
     }
     setWorking(null);

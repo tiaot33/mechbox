@@ -331,6 +331,20 @@ func setGitHubToken(t *testing.T, lib *library.Library, token string) {
 	}
 }
 
+func setAppSettings(t *testing.T, lib *library.Library, settings map[string]string) {
+	t.Helper()
+	if err := lib.SetAppSettings(t.Context(), settings); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setSyncSettings(t *testing.T, lib *library.Library, settings library.SyncSettings) {
+	t.Helper()
+	if err := lib.SetSyncSettings(t.Context(), settings); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // stubHTTPResponse 让所有 HTTP 请求都得到同一个响应,用于模拟远端返回的状态与内容。
 func stubHTTPResponse(t *testing.T, status int, body io.Reader) {
 	t.Helper()

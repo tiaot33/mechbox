@@ -56,7 +56,7 @@ export enum CheckInterval {
 };
 
 /**
- * ConfigStatus 报告技能库依赖的外部配置是否就绪：设置页里填了就看设置页的，没填才看环境变量。
+ * ConfigStatus 报告技能库依赖的配置是否就绪;配置都存在数据库里，不读环境变量。
  */
 export interface ConfigStatus {
     /**
@@ -65,7 +65,7 @@ export interface ConfigStatus {
     "sync": boolean;
 
     /**
-     * GitHub 令牌：设置页(存在数据库里)或 GITHUB_TOKEN / GH_TOKEN(都没有时匿名访问，易被限流)
+     * GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
      */
     "github_token": boolean;
 }
@@ -96,8 +96,9 @@ export enum Language {
 };
 
 /**
- * Settings 是只属于这台机器的应用设置：存在用户配置目录下的 settings.json,不进技能库，也不随同步走。
- * 加设置项就是加字段;文件里没有的字段取 defaultSettings 的值。
+ * Settings 是设置页里的应用设置。WSLDistro 存在技能库里、只属于这台机器(Library.SetWSLDistro);
+ * 其余各项是技能库数据库里的应用设置(Library.AppSettings),和库里其他内容一样随推送、拉回走。
+ * 加设置项就是加字段并在 appValues / settingsFrom 里加一项;数据库里没有的项取 defaultSettings 的值。
  */
 export interface Settings {
     /**
@@ -167,11 +168,6 @@ export enum UninstallFolders {
  */
 export interface UninstallOptions {
     "folders": UninstallFolders;
-
-    /**
-     * SkipKeychain 为 true 时删不掉系统钥匙串里的条目也继续卸载(用户看了上一次的结果后选了跳过)。
-     */
-    "skip_keychain": boolean;
 }
 
 /**
@@ -182,10 +178,4 @@ export interface UninstallResult {
      * Uninstalled 为 true 时卸载已经确认，应用随即退出。
      */
     "uninstalled": boolean;
-
-    /**
-     * KeychainError 非空时没能删除系统钥匙串里的条目(如用户拒绝了授权),什么都没动;
-     * 界面说明原因，用户可以重试，或带 SkipKeychain 再调一次。
-     */
-    "keychain_error"?: string;
 }

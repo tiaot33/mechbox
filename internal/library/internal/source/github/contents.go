@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"slices"
 	"strings"
@@ -74,7 +73,7 @@ func newGitHubSessionAuth(shared *githubCredentials) *githubSessionAuth {
 }
 
 func (c *githubCredentials) currentToken() string {
-	return cmp.Or(c.token, os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
+	return c.token
 }
 
 type githubClient struct {

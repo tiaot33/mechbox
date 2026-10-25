@@ -188,13 +188,9 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 		}
 		return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(stored)), Header: header}, nil
 	})
-	t.Setenv("SKILLS_S3_ENDPOINT", "https://s3.example")
-	t.Setenv("SKILLS_S3_BUCKET", "test-bucket")
-	t.Setenv("SKILLS_S3_KEY", "library.db")
-	t.Setenv("AWS_REGION", "test-region")
-	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+	settings := library.SyncSettings{Endpoint: "https://s3.example", Bucket: "test-bucket", Key: "library.db", Region: "test-region", AccessKeyID: "test-key", SecretAccessKey: "test-secret"}
 	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
+	setSyncSettings(t, lib, settings)
 	preview, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +199,7 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := openLibraryAt(t, filepath.Join(t.TempDir(), "other.db"))
+	setSyncSettings(t, other, settings)
 	plan, err := other.PlanSyncPull(t.Context())
 	if err != nil || !plan.CanPull {
 		t.Fatalf("PlanSyncPull() = %#v, %v", plan, err)

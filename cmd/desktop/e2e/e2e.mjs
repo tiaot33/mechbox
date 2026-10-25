@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const HOME = process.env.E2E_HOME;
 const URL = process.env.E2E_URL;
@@ -13,6 +14,8 @@ const ZIP_URL = process.env.E2E_ZIP_URL;
 const ZIP_DIR = process.env.E2E_ZIP_DIR;
 const SHOTS = process.env.E2E_SHOTS ?? "/tmp/mechbox-e2e-shots";
 const NETWORK = process.env.E2E_NETWORK === "1";
+// GITHUB_TOKEN 是联网步骤开始时填进设置页的 GitHub 令牌;应用只认设置页填的，不读环境变量。
+const GITHUB_TOKEN = process.env.E2E_GITHUB_TOKEN ?? "";
 if (!HOME || !URL || !ZIP_URL) throw new Error("需要 E2E_HOME、E2E_URL、E2E_ZIP_URL,请用 run.sh 运行");
 fs.mkdirSync(SHOTS, { recursive: true });
 const SK = `${HOME}/code/my-skills`;
@@ -106,6 +109,17 @@ async function toast(text, tone) {
     throw new Error(`toast "${text}" 未出现，当前:"${cur}"`);
   });
 }
+// config 读出数据库 config 表里的设置，按设置项名;设置都存在数据库里。
+function config() {
+  const db = new DatabaseSync(`${HOME}/Library/Application Support/mechbox/library.db`, { readOnly: true });
+  try {
+    return Object.fromEntries(db.prepare("SELECT key, value FROM config").all().map((r) => [r.key, r.value]));
+  } finally {
+    db.close();
+  }
+}
+// appConfig 是 config 里应用自己的设置(app. 开头的项),去掉前缀。
+const appConfig = () => Object.fromEntries(Object.entries(config()).flatMap(([k, v]) => (k.startsWith("app.") ? [[k.slice(4), v]] : [])));
 async function settle() {
   await page.waitForTimeout(400);
   await page.waitForFunction(() => !document.querySelector('.tb-crumb [data-slot="spinner"]'), null, { timeout: 30000 });
@@ -2211,7 +2225,7 @@ await step("左栏分节折叠与展开", async () => {
 
 await step("同步：未配置时推、拉置灰，去设置跳到同步分区", async () => {
   await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
-  assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "SKILLS_S3_BUCKET" }).count()) === 1, "应提示未配置");
+  assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置 S3" }).count()) === 1, "应提示未配置");
   assert(await btn(modal(), "推送到 S3…").isDisabled(), "未配置时推送置灰");
   assert(await btn(modal(), "从 S3 拉回…").isDisabled(), "未配置时拉回置灰");
   await btn(modal(), "去设置").click();
@@ -2221,8 +2235,7 @@ await step("同步：未配置时推、拉置灰，去设置跳到同步分区",
   await page.locator(".a-list").waitFor();
 });
 
-await step("设置页：分区、应用设置写进这台机器的设置文件、项目、关于", async () => {
-  const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
+await step("设置页：分区、应用设置写进数据库、项目、关于", async () => {
   const sw = (label) => page.locator(".settings .set-row", { hasText: label }).locator('[role="switch"]');
   const interval = (label) => btn(section("检查更新"), label);
   const open = async () => {
@@ -2238,7 +2251,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   assert((await section("Agent").locator(".set-row", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
   assert((await section("项目").locator(".set-row", { hasText: "proj-a" }).count()) === 1, "项目分区应列出 proj-a");
 
-  // 默认：自动检查打开、每天;留在菜单栏、Dock 角标打开。改了立即保存到这台机器的设置文件，重新载入后仍是改过的值。
+  // 默认：自动检查打开、每天;留在菜单栏、Dock 角标打开。改了立即保存到数据库，重新载入后仍是改过的值。
   for (const label of ["自动检查更新", "关闭窗口后留在菜单栏", "Dock 角标"]) {
     assert((await sw(label).getAttribute("aria-checked")) === "true", `「${label}」默认应打开`);
   }
@@ -2255,8 +2268,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   await page.waitForTimeout(1600);
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
-  assert.deepStrictEqual(saved, { auto_check: true, check_interval: "weekly", stay_in_menu_bar: true, dock_badge: false, first_open_done: true });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
@@ -2298,8 +2310,7 @@ await step("设置页：分区、应用设置写进这台机器的设置文件�
   await page.waitForSelector(".a-list");
 });
 
-await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台机器上，全部留空时回到环境变量", async () => {
-  const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
+await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认这里填的", async () => {
   const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
   const field = (name, label) => section(name).locator('[data-slot="field"]', { hasText: label }).locator("input");
   const sidebarSync = () => page.locator(".a-left .nav-item", { hasText: "同步" });
@@ -2311,7 +2322,7 @@ await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台
     await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
     await field("GitHub", "个人访问令牌").waitFor();
   };
-  await sidebarSays("未配置", "没填同步设置、也没有环境变量时侧栏应显示未配置");
+  await sidebarSays("未配置", "没填同步设置时侧栏应显示未配置");
   await open();
   assert(await btn(section("GitHub"), "保存").isDisabled(), "没改时不能保存");
   assert((await field("GitHub", "个人访问令牌").getAttribute("type")) === "password", "令牌输入框应遮住内容");
@@ -2320,7 +2331,7 @@ await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台
   await toast("已保存 GitHub 令牌");
   await settle();
 
-  // 整组取用：只填存储桶时缺密钥，仍是未配置
+  // 只填存储桶时缺密钥，仍是未配置
   await field("同步", "存储桶").fill("e2e-bucket");
   await btn(section("同步"), "保存").click();
   await toast("已保存同步设置");
@@ -2350,9 +2361,12 @@ await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台
   await slowSent;
   await page.unroute("**/wails/runtime", slowSave);
   await sidebarSays("手动", "保存晚于回到主界面完成时，侧栏也应显示手动");
-  const raw = fs.readFileSync(settingsFile, "utf8");
-  assert.deepStrictEqual(JSON.parse(raw).sync, { endpoint, bucket: "e2e-bucket", access_key_id: "AKIDE2E" });
-  for (const secret of ["ghp_e2e_token", "e2e-secret"]) assert(!raw.includes(secret), `settings.json 里不应有 ${secret}`);
+  const stored = config();
+  assert.deepStrictEqual(
+    Object.fromEntries(Object.entries(stored).filter(([k]) => k === "github_token" || k.startsWith("sync."))),
+    { github_token: "ghp_e2e_token", "sync.endpoint": endpoint, "sync.bucket": "e2e-bucket", "sync.access_key_id": "AKIDE2E", "sync.secret_access_key": "e2e-secret" },
+    "令牌与同步设置应存在数据库的 config 表里",
+  );
 
   // 重新载入后仍在;侧栏与同步框认设置页的值，同步计划发到设置页填的服务地址
   await page.reload();
@@ -2368,7 +2382,7 @@ await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台
   assert((await field("同步", "存储桶").inputValue()) === "e2e-bucket", "重新载入后存储桶应仍在");
   assert((await field("同步", "Secret Access Key").inputValue()) === "e2e-secret", "重新载入后密钥应仍在");
 
-  // 全部清空：回到读环境变量
+  // 全部清空：从数据库删掉，回到未配置
   await field("GitHub", "个人访问令牌").fill("");
   await btn(section("GitHub"), "保存").click();
   await toast("已保存 GitHub 令牌");
@@ -2377,14 +2391,13 @@ await step("设置页:GitHub 令牌存在数据库里、同步设置存在这台
   await btn(section("同步"), "保存").click();
   await toast("已保存同步设置");
   await settle();
-  assert(!("sync" in JSON.parse(fs.readFileSync(settingsFile, "utf8"))), "清空后 settings.json 里不应再有同步设置");
+  assert(!Object.keys(config()).some((k) => k === "github_token" || k.startsWith("sync.")), "清空后数据库里不应再有令牌与同步设置");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
   await sidebarSays("未配置", "清空后侧栏应回到未配置");
 });
 
 await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 编辑迁移 / 删除、共用目录卸载", async () => {
-  const settingsFile = `${HOME}/Library/Application Support/mechbox/settings.json`;
   const agents = () => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: /^Agent$/ }) });
   const row = (name) => agents().locator(".set-row", { hasText: name });
   const shownSwitch = (name) => row(name).locator('[role="switch"]');
@@ -2430,7 +2443,7 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
     assert((await row(name).getByRole("button", { name: "编辑" }).count()) === 0, `${name} 不能编辑`);
   }
 
-  // 显示勾选：连着关掉两个、保存还没完成就返回，主界面也按最后的勾选;存进这台机器的设置文件，重新载入后仍关着。
+  // 显示勾选：连着关掉两个、保存还没完成就返回，主界面也按最后的勾选;存进数据库，重新载入后仍关着。
   let unslow = await slow("agents_shown");
   await shownSwitch("Codex").click();
   await shownSwitch("Claude Code").click();
@@ -2448,7 +2461,7 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
   assert((await drawer().locator(".install-to select").nth(1).locator("option", { hasText: "Codex" }).count()) === 0, "安装到…不应列出 Codex");
   await closeDrawer();
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsFile, "utf8")).agents_shown, { codex: false, "claude-code": false });
+  assert.deepStrictEqual(JSON.parse(appConfig().agents_shown), { codex: false, "claude-code": false });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
@@ -2782,6 +2795,17 @@ await step("注销项目(删除项目里已安装的文件夹)", async () => {
 });
 
 // ============ 市场与 GitHub(需要网络) ============
+await step("[网络] 填上 E2E_GITHUB_TOKEN 给的 GitHub 令牌", async () => {
+  if (!GITHUB_TOKEN) return;
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  const field = section("GitHub").locator('[data-slot="field"]', { hasText: "个人访问令牌" }).locator("input");
+  await field.fill(GITHUB_TOKEN);
+  await btn(section("GitHub"), "保存").click();
+  await toast("已保存 GitHub 令牌");
+  await settle();
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+});
 await step("[网络] 技能市场搜索 → 入库", async () => {
   await page.locator(".side-btn", { hasText: "技能市场" }).click();
   await modal().locator("input").fill("frontend design");
@@ -2809,7 +2833,7 @@ async function expectSource(kind, label, ref) {
   assert((await source.getByText(label, { exact: true }).count()) === 1, `展示名称应为 ${label}`);
   if (ref) assert((await source.getByText(`分支 ${ref}`).count()) === 1, `应显示分支 ${ref}`);
   const github = kind === "GitHub 仓库";
-  const tokenless = !process.env.GITHUB_TOKEN && !process.env.GH_TOKEN;
+  const tokenless = !GITHUB_TOKEN;
   assert.equal((await modal().getByText("匿名访问 GitHub API").count()) === 1, github && tokenless, "限流提醒只在没有令牌的 GitHub 仓库显示");
   assert.equal((await modal().getByRole("button", { name: "查看审计" }).count()) > 0, github, "只有 GitHub 仓库能查看审计");
 }
@@ -2904,7 +2928,7 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   assert((await modal().locator(".fetch-source", { hasText: "GitHub 仓库" }).count()) === 1, "应识别为 GitHub 仓库");
   assert((await modal().locator(".fetch-source", { hasText: "anthropics/skills" }).count()) === 1, "展示名称应为 owner/repo");
   assert((await modal().getByRole("button", { name: "查看审计" }).count()) >= 1, "GitHub 仓库应能查看审计");
-  if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
+  if (!GITHUB_TOKEN) {
     await modal().getByText("匿名访问 GitHub API").waitFor({ timeout: 5000 });
   }
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "pdf" }).count()) >= 1, "候选里应有 pdf");
@@ -2924,7 +2948,7 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
 });
 
 // ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============
-await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出后删除数据库与设置文件", async () => {
+await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出后删除数据库", async () => {
   const appDir = `${HOME}/Library/Application Support/mechbox`;
   for (const name of ["omicron", "sigma"]) {
     fs.mkdirSync(`${HOME}/code/last/${name}`, { recursive: true });
@@ -2955,7 +2979,7 @@ await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "omicron" }).count()) === 0, "没改过的 omicron 不应列为被改过");
   await modal().locator('[data-slot="choice"]', { hasText: "移到废纸篓，但保留被改过的" }).click();
   await btn(modal(), "卸载并退出").click();
-  // server 关掉以后才删数据库与设置文件。
+  // server 关掉以后才删数据库。
   const gone = async () => {
     for (let i = 0; i < 40; i++) {
       const up = await new Promise((resolve) => http.get(URL, (r) => (r.resume(), resolve(true))).on("error", () => resolve(false)));

@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -28,7 +27,7 @@ var assets embed.FS
 // mainWindowName 是主窗口的名字。
 const mainWindowName = "main"
 
-// bundleID 是应用的标识，与 build/config.yml 的 productIdentifier 相同;也用作单实例锁的 ID 和系统钥匙串条目的服务名。
+// bundleID 是应用的标识，与 build/config.yml 的 productIdentifier 相同;也用作单实例锁的 ID。
 const bundleID = "com.tiaot33.mechbox"
 
 func main() {
@@ -44,7 +43,7 @@ func run() error {
 		return err
 	}
 	libraryService := NewLibraryService(path)
-	appService := NewAppService(filepath.Join(filepath.Dir(path), settingsFileName), libraryService)
+	appService := NewAppService(libraryService)
 	app := application.New(application.Options{
 		Name:        "Mechbox",
 		Description: "管理 coding agent 的 Agent Skills",
@@ -67,7 +66,7 @@ func run() error {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
-		// 卸载时等各服务关闭、技能库关上以后才删数据库与设置。macOS 上 Run 不返回，只能放在 PostShutdown;
+		// 卸载时等各服务关闭、技能库关上以后才删数据库。macOS 上 Run 不返回，只能放在 PostShutdown;
 		// server 模式下 PostShutdown 在 Quit 的 goroutine 里跑,Run 可能先返回、进程随即退出，所以 Run 之后再调一次(只做一遍)。
 		PostShutdown: appService.afterShutdown,
 	})

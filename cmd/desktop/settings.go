@@ -2,20 +2,15 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-const settingsFileName = "settings.json"
-
-// Settings 是只属于这台机器的应用设置：存在用户配置目录下的 settings.json,不进技能库，也不随同步走。
-// 加设置项就是加字段;文件里没有的字段取 defaultSettings 的值。
+// Settings 是设置页里的应用设置。WSLDistro 存在技能库里、只属于这台机器(Library.SetWSLDistro);
+// 其余各项是技能库数据库里的应用设置(Library.AppSettings),和库里其他内容一样随推送、拉回走。
+// 加设置项就是加字段并在 appValues / settingsFrom 里加一项;数据库里没有的项取 defaultSettings 的值。
 type Settings struct {
 	AutoCheck     bool          `json:"auto_check"`         // 自动检查更新
 	CheckInterval CheckInterval `json:"check_interval"`     // 自动检查的间隔
@@ -56,67 +51,50 @@ func (i CheckInterval) valid() bool {
 	return timed || i == CheckOnOpen
 }
 
-type settingsFile struct {
-	Settings
-	Sync          syncFields `json:"sync,omitzero"`
-	FirstOpenDone bool       `json:"first_open_done,omitzero"`
-}
-
-type syncFields struct {
-	Endpoint    string `json:"endpoint,omitempty"`
-	Bucket      string `json:"bucket,omitempty"`
-	Key         string `json:"key,omitempty"`
-	Region      string `json:"region,omitempty"`
-	AccessKeyID string `json:"access_key_id,omitempty"`
-}
+const firstOpenDoneKey = "first_open_done"
 
 func defaultSettings() Settings {
 	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
 }
 
-func loadSettings(path string) (settingsFile, error) {
-	file := settingsFile{Settings: defaultSettings()}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return file, nil
+func (s Settings) appValues(firstOpenDone bool) map[string]string {
+	values := map[string]string{
+		"auto_check":       strconv.FormatBool(s.AutoCheck),
+		"check_interval":   string(s.CheckInterval),
+		"stay_in_menu_bar": strconv.FormatBool(s.StayInMenuBar),
+		"dock_badge":       strconv.FormatBool(s.DockBadge),
+		"language":         string(s.Language),
 	}
-	if err != nil {
-		return file, fmt.Errorf("read settings: %w", err)
+	if len(s.AgentsShown) > 0 {
+		shown, _ := json.Marshal(s.AgentsShown)
+		values["agents_shown"] = string(shown)
 	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		return settingsFile{Settings: defaultSettings()}, fmt.Errorf("parse settings %s: %w", path, err)
+	if firstOpenDone {
+		values[firstOpenDoneKey] = "true"
 	}
-	if !file.CheckInterval.valid() {
-		file.CheckInterval = defaultSettings().CheckInterval
-	}
-	if !file.Language.valid() {
-		file.Language = LanguageSystem
-	}
-	return file, nil
+	return values
 }
 
-func saveSettings(path string, settings settingsFile) error {
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return err
+func settingsFrom(values map[string]string) (Settings, bool) {
+	s := defaultSettings()
+	flag := func(name string, field *bool) {
+		if v, err := strconv.ParseBool(values[name]); err == nil {
+			*field = v
+		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create settings directory: %w", err)
+	flag("auto_check", &s.AutoCheck)
+	flag("stay_in_menu_bar", &s.StayInMenuBar)
+	flag("dock_badge", &s.DockBadge)
+	if interval := CheckInterval(values["check_interval"]); interval.valid() {
+		s.CheckInterval = interval
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), settingsFileName+".*")
-	if err != nil {
-		return fmt.Errorf("write settings: %w", err)
+	if language := Language(values["language"]); language.valid() {
+		s.Language = language
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write settings: %w", err)
+	var shown map[library.AgentCode]bool
+	if json.Unmarshal([]byte(values["agents_shown"]), &shown) == nil && len(shown) > 0 {
+		s.AgentsShown = shown
 	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write settings: %w", err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("write settings: %w", err)
-	}
-	return nil
+	done, _ := strconv.ParseBool(values[firstOpenDoneKey])
+	return s, done
 }

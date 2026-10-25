@@ -159,6 +159,16 @@ export function invalidateGitHubToken() {
   return queryClient.invalidateQueries({ queryKey: gitHubTokenQuery.queryKey });
 }
 
+// syncSettingsQuery 是设置页填的同步设置;它存在数据库里、只属于这台机器，拉回时不变。
+export const syncSettingsQuery = queryOptions({
+  queryKey: ["sync-settings"],
+  queryFn: ({ signal }) => wails(signal, LibraryService.SyncSettings()),
+});
+
+export function invalidateSyncSettings() {
+  return queryClient.invalidateQueries({ queryKey: syncSettingsQuery.queryKey });
+}
+
 // scopeDirectoryQuery 查作用域对应的 Agent 目录。home 是快照里的主目录，设置里改选 WSL 发行版后它变了，同一个作用域也要重查。
 export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undefined) {
   return queryOptions({

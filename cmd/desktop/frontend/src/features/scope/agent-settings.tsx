@@ -1,4 +1,4 @@
-// 设置页的 Agent 分区：每个 Agent 的显示勾选(存在这台机器的应用设置里),以及自定义 Agent 的添加、编辑、删除。
+// 设置页的 Agent 分区：每个 Agent 的显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走),以及自定义 Agent 的添加、编辑、删除。
 // 内置 Agent 的名称和目录由应用维护，只能勾选显示。
 import { useRef, useState } from "react";
 import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/library";

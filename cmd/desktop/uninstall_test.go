@@ -12,12 +12,11 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-// uninstallFixture 是在临时 HOME 里打开的技能库与应用设置服务：数据库和 settings.json 在同一个目录下(与真实布局一样),
-// 钥匙串里存着一个密钥;移到废纸篓换成直接删除并记下删了哪些，不碰真实的废纸篓。
+// uninstallFixture 是在临时 HOME 里打开的技能库与应用设置服务，数据库在应用目录下(与真实布局一样),
+// 存着设置与同步设置;移到废纸篓换成直接删除并记下删了哪些，不碰真实的废纸篓。
 type uninstallFixture struct {
 	lib       *LibraryService
 	app       *AppService
-	store     *memoryStore
 	dir       string
 	discarded []string
 }
@@ -31,15 +30,16 @@ func startServices(t *testing.T) *uninstallFixture {
 		t.Fatalf("ServiceStartup: %v", err)
 	}
 	t.Cleanup(func() { _ = f.lib.ServiceShutdown() })
-	f.store = &memoryStore{value: []byte(`{"secret_access_key":"s3-secret"}`)}
-	f.app = startWithStore(t, filepath.Join(f.dir, settingsFileName), f.lib, f.store)
+	f.app = startApp(t, f.lib)
 	f.app.discard = func(path string) error {
 		f.discarded = append(f.discarded, path)
 		return os.RemoveAll(path)
 	}
-	// 先保存一次设置，让 settings.json 落盘。
 	if _, err := f.app.SaveSettings(t.Context(), defaultSettings()); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
+	}
+	if err := f.lib.lib.SetSyncSettings(t.Context(), library.SyncSettings{Bucket: "b", AccessKeyID: "AKID", SecretAccessKey: "s3-secret"}); err != nil {
+		t.Fatalf("SetSyncSettings: %v", err)
 	}
 	return f
 }
@@ -81,6 +81,8 @@ func (f *uninstallFixture) uninstall(t *testing.T, opts UninstallOptions) Uninst
 	return result
 }
 
+var errDenied = errors.New("permission denied")
+
 func exists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
@@ -92,9 +94,6 @@ func TestUninstallAppKeepsInstalledFoldersByDefault(t *testing.T) {
 
 	if result := f.uninstall(t, UninstallOptions{}); !result.Uninstalled {
 		t.Fatalf("UninstallApp = %+v; want uninstalled", result)
-	}
-	if f.store.value != nil {
-		t.Fatalf("keychain item = %s; want deleted", f.store.value)
 	}
 	// 退出前数据库还在，退出时技能库关上以后才删。
 	if !exists(filepath.Join(f.dir, "library.db")) {
@@ -144,27 +143,6 @@ func TestUninstallAppKeepsModifiedFoldersWhenAsked(t *testing.T) {
 	}
 }
 
-func TestUninstallAppStopsWhenKeychainRefusesUntilSkipped(t *testing.T) {
-	f := startServices(t)
-	folder := f.install(t, "notes")
-	f.store.fail = map[string][]error{"delete": {errDenied, errDenied}}
-
-	result := f.uninstall(t, UninstallOptions{Folders: FoldersTrash})
-	if result.Uninstalled || result.KeychainError == "" {
-		t.Fatalf("UninstallApp = %+v; want the keychain error and not uninstalled", result)
-	}
-	if !exists(folder) || f.store.secrets(t).SecretAccessKey != "s3-secret" {
-		t.Fatalf("nothing should change when the keychain refuses; folder kept %v, keychain %s", exists(folder), f.store.value)
-	}
-
-	if result := f.uninstall(t, UninstallOptions{Folders: FoldersTrash, SkipKeychain: true}); !result.Uninstalled {
-		t.Fatalf("UninstallApp with SkipKeychain = %+v; want uninstalled", result)
-	}
-	if exists(folder) {
-		t.Fatal("folder should be trashed after skipping the keychain")
-	}
-}
-
 func TestFailedUninstallKeepsDataAfterQuit(t *testing.T) {
 	f := startServices(t)
 	tools := f.install(t, "tools")
@@ -174,7 +152,7 @@ func TestFailedUninstallKeepsDataAfterQuit(t *testing.T) {
 		t.Fatalf("UninstallApp = %v; want the folder error", err)
 	}
 	f.quit(t)
-	for _, path := range []string{filepath.Join(f.dir, "library.db"), filepath.Join(f.dir, settingsFileName), tools} {
+	for _, path := range []string{filepath.Join(f.dir, "library.db"), tools} {
 		if !exists(path) {
 			t.Errorf("%s gone after a failed uninstall; want kept", path)
 		}
@@ -209,33 +187,14 @@ func TestUninstallAppRetrySkipsFoldersAlreadyTrashed(t *testing.T) {
 	}
 }
 
-func TestUninstallAppRefusesToSaveCredentials(t *testing.T) {
-	f := startServices(t)
-	folder := f.install(t, "notes")
-	var saveErr error
-	trash := f.app.discard
-	f.app.discard = func(path string) error {
-		_, saveErr = f.app.SaveSyncSettings(library.SyncSettings{Bucket: "late-bucket", AccessKeyID: "AKID", SecretAccessKey: "late-secret"})
-		return trash(path)
-	}
-
-	f.uninstall(t, UninstallOptions{Folders: FoldersTrash})
-	if exists(folder) {
-		t.Fatal("folder should be trashed")
-	}
-	if saveErr == nil || f.store.value != nil {
-		t.Fatalf("SaveSyncSettings during uninstall = %v, keychain %s; want refused and the item gone", saveErr, f.store.value)
-	}
-}
-
 func TestRemoveAppDataLeavesOtherFilesAlone(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"library.db", "library.db-wal", settingsFileName, "notes.txt"} {
+	for _, name := range []string{"library.db", "library.db-wal", "notes.txt"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := removeAppData(filepath.Join(dir, "library.db"), filepath.Join(dir, settingsFileName)); err != nil {
+	if err := removeAppData(filepath.Join(dir, "library.db")); err != nil {
 		t.Fatalf("removeAppData: %v", err)
 	}
 	entries, err := os.ReadDir(dir)

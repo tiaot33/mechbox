@@ -27,12 +27,16 @@ export function AddSkillToGroup(groupID: library$0.GroupID, skillID: library$0.S
     return $Call.ByID(3410498058, groupID, skillID);
 }
 
+export function AppSettings(): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(1008065512);
+}
+
 export function CheckUpdates(collections: library$0.CollectionID[] | null): $CancellablePromise<library$0.CollectionUpdateCheck[] | null> {
     return $Call.ByID(1899244476, collections);
 }
 
 /**
- * Config 返回外部配置的就绪状态，只看是否填了，不校验取值。
+ * Config 返回配置的就绪状态，只看是否填了，不校验取值。
  */
 export function Config(): $CancellablePromise<$models.ConfigStatus> {
     return $Call.ByID(3000412408);
@@ -265,11 +269,15 @@ export function SearchSkills(query: string): $CancellablePromise<library$0.Searc
     return $Call.ByID(2526005404, query);
 }
 
+export function SetAppSettings(settings: { [_ in string]?: string } | null): $CancellablePromise<void> {
+    return $Call.ByID(2937008032, settings);
+}
+
 export function SetGitHubToken(token: string): $CancellablePromise<void> {
     return $Call.ByID(1235509666, token);
 }
 
-export function SetSyncSettings(settings: library$0.SyncSettings | null): $CancellablePromise<void> {
+export function SetSyncSettings(settings: library$0.SyncSettings): $CancellablePromise<void> {
     return $Call.ByID(1864003768, settings);
 }
 
@@ -281,12 +289,19 @@ export function SkipUpdate(req: library$0.SkipRequest): $CancellablePromise<void
     return $Call.ByID(3169157428, req);
 }
 
+/**
+ * SyncPull 拉回后让应用设置服务重新读出设置:拉回的库带着推送那台机器的设置。
+ */
 export function SyncPull(expected: library$0.RemoteIdentity): $CancellablePromise<void> {
     return $Call.ByID(4037992934, expected);
 }
 
 export function SyncPush(expected: library$0.RemoteIdentity): $CancellablePromise<library$0.RemoteLibrary> {
     return $Call.ByID(377176661, expected);
+}
+
+export function SyncSettings(): $CancellablePromise<library$0.SyncSettings> {
+    return $Call.ByID(877498288);
 }
 
 export function Uninstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {
@@ -303,4 +318,8 @@ export function UnregisterProject(id: library$0.ProjectID, opts: library$0.Unreg
 
 export function Update(req: library$0.UpdateRequest): $CancellablePromise<library$0.UpdateResult> {
     return $Call.ByID(1023567415, req);
+}
+
+export function WSLDistro(): $CancellablePromise<string> {
+    return $Call.ByID(762446175);
 }

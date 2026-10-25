@@ -1,6 +1,6 @@
 // 卸载 Mechbox：设置页最后一个分区打开。先现查各处安装的状态，说清会删什么、已安装的技能文件夹怎么处理
-// (默认保留;移到废纸篓(Windows、Linux 上是回收站)时可以留下被改过的几处),确认后由 Go 端删除系统钥匙串里的条目、移走文件夹，然后退出;
-// 退出后删除数据库与设置,macOS 上把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
+// (默认保留;移到废纸篓(Windows、Linux 上是回收站)时可以留下被改过的几处),确认后由 Go 端移走文件夹，然后退出;
+// 退出后删除数据库(设置都在里面),macOS 上把应用移到废纸篓。失败时 app 不退出，这里写清现在的状态，可以重试。
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService, UninstallFolders } from "@bindings/cmd/desktop";
@@ -21,8 +21,7 @@ import { SyncDialog } from "./sync-dialog";
 type Phase =
   | { kind: "idle" }
   | { kind: "working" }
-  | { kind: "keychain"; message: string }
-  | { kind: "failed"; error: LibraryError; skippedKeychain: boolean; trashing: boolean }
+  | { kind: "failed"; error: LibraryError; trashing: boolean }
   | { kind: "done" };
 
 export function UninstallDialog({ onClose }: { onClose: () => void }) {
@@ -70,10 +69,10 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
     },
   ];
 
-  const execute = async (skipKeychain: boolean) => {
+  const execute = async () => {
     setPhase({ kind: "working" });
     let error: LibraryError | undefined;
-    const result = await ui.run(() => AppService.UninstallApp({ folders: folders as UninstallFolders, skip_keychain: skipKeychain }), {
+    const result = await ui.run(() => AppService.UninstallApp({ folders: folders as UninstallFolders }), {
       reload: false,
       onError: (err) => {
         error = err;
@@ -81,11 +80,10 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
       },
     });
     if (result?.uninstalled) return setPhase({ kind: "done" });
-    if (result?.keychain_error) return setPhase({ kind: "keychain", message: result.keychain_error });
     // 失败时 app 不退出：移走了一部分文件夹，界面与这里的计数都要跟上。
     ui.reload();
     void inspect();
-    setPhase(error ? { kind: "failed", error, skippedKeychain: skipKeychain, trashing: folders !== UninstallFolders.FoldersKeep } : { kind: "idle" });
+    setPhase(error ? { kind: "failed", error, trashing: folders !== UninstallFolders.FoldersKeep } : { kind: "idle" });
   };
 
   const goSync = () => {
@@ -103,18 +101,9 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
           <Button disabled={working} onClick={onClose}>
             {t.cancel}
           </Button>
-          {phase.kind === "keychain" ? (
-            <>
-              <Button onClick={() => void execute(false)}>{t.retry}</Button>
-              <Button variant="danger" onClick={() => void execute(true)}>
-                {t.skipKeychain}
-              </Button>
-            </>
-          ) : (
-            <Button variant="danger" disabled={!places || phase.kind === "done"} loading={phase.kind === "working"} onClick={() => void execute(false)}>
-              {phase.kind === "failed" ? t.retry : t.uninstall}
-            </Button>
-          )}
+          <Button variant="danger" disabled={!places || phase.kind === "done"} loading={phase.kind === "working"} onClick={() => void execute()}>
+            {phase.kind === "failed" ? t.retry : t.uninstall}
+          </Button>
         </>
       }
     >
@@ -173,14 +162,9 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
         )
       )}
       {phase.kind === "working" && <Hint>{moving > 0 ? t.trashing(moving) : t.uninstalling}</Hint>}
-      {phase.kind === "keychain" && (
-        <Notice tone="warn" className="whitespace-pre-line">
-          {t.keychainFailed(phase.message)}
-        </Notice>
-      )}
       {phase.kind === "failed" && (
         <Notice tone="bad" className="whitespace-pre-line">
-          {t.failed(describeError(phase.error), !phase.skippedKeychain, phase.trashing)}
+          {t.failed(describeError(phase.error), phase.trashing)}
         </Notice>
       )}
       {phase.kind === "done" && <Notice tone="ok">{t.done}</Notice>}

@@ -453,8 +453,8 @@ func TestUpdateConflictsOnlyWhenACheckedSkillChangedAgain(t *testing.T) {
 
 func TestUpdateRefusesToWriteIntoAPulledLibrary(t *testing.T) {
 	ctx := t.Context()
-	newS3Stub(t)
-	lib := openTestLibrary(t)
+	stub := newS3Stub(t)
+	lib := stub.open(t)
 	skill, source := fetchLocalSkill(t, lib, "a", "v1")
 	writeLocalSkill(t, source, "v2")
 	request := mustPlanUpdate(t, lib, skill.ID)

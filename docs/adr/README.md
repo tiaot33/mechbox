@@ -27,4 +27,4 @@
 
 - [0007 错误码按界面要做的动作划分](0007-error-codes-follow-ui-actions.md)
 - [0008 桌面端用 Wails v3，与库在同一个进程里](0008-desktop-is-wails-v3-in-process.md)
-- [0011 GitHub 令牌进数据库、随同步走；S3 同步设置只存在这台机器上](0011-github-token-syncs-s3-settings-stay-local.md)
+- [0011 设置都存在数据库里，不读环境变量](0011-settings-live-in-the-database.md)
