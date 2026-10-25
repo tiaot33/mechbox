@@ -89,3 +89,12 @@ GitHub 令牌没填时匿名访问 GitHub API，受限时再试本机 `gh` 的�
 ## 开发
 
 从源码构建、调试和打包见 [`cmd/desktop/README.md`](cmd/desktop/README.md)；代码结构与约定见 [AGENTS.md](AGENTS.md)，设计决策见 [`docs/adr/`](docs/adr/)。
+
+## 致谢
+
+Agent 图标来自这两个项目：
+
+- [agentlogos.dev](https://agentlogos.dev)：大多数 Agent 的彩色图标。
+- [LobeHub Icons](https://github.com/lobehub/lobe-icons)（MIT 许可）：agentlogos.dev 没有的 Agent 图标，以及 Claude Code、Gemini CLI、Kiro、Amp 的图标。按名字认出 Agent 用的关键词表也是照它的 agentConfig 写的。
+
+图标里的 logo 是各自所有者的商标。
