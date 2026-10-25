@@ -87,7 +87,9 @@ async function step(name, fn) {
   } catch (e) {
     results.push(["FAIL", name, e.message.split("\n")[0]]);
     console.log("FAIL", name, "—", e.message.split("\n").slice(0, 3).join(" | "));
-    await page.screenshot({ path: path.join(SHOTS, `fail-${String(n).padStart(2, "0")}.png`) }).catch(() => {});
+    await page
+      .screenshot({ path: path.join(SHOTS, `fail-${String(n).padStart(2, "0")}.png`) })
+      .catch((e) => console.log("  截图失败:", e.message.split("\n")[0]));
     // 重新载入回到技能库主界面：失败时可能停在设置页、弹窗或抽屉里，留着会让后面的步骤都等到超时
     await page
       .goto(URL)
