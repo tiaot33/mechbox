@@ -1,6 +1,6 @@
 // 同步：整库与 S3 手动推 / 拉。先看同步计划认出 S3 上是哪一份库，用户确认后带着它的标识执行;期间 S3 上的库变了返回 Conflict。
 // 拉回不动 Agent 目录：之后把不在这台机器上的项目改到本机位置，再在各作用域重新安装。
-// 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换。
+// 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换;这台机器上拖出来的集合与组的先后清掉，旧库的 ID 对不上新库。
 import { useState } from "react";
 import { AppService, LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
 import {
@@ -13,7 +13,7 @@ import {
 import { formatDate } from "@/lib/content";
 import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { openSettings } from "@/lib/view";
+import { forgetOrder, openSettings } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -80,6 +80,7 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
         onError: onConflict,
       });
       if (done) {
+        forgetOrder();
         setPlan(null);
         setPulled(true);
         await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});

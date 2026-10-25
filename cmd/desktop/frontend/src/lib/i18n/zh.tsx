@@ -167,7 +167,10 @@ export const zh = {
     addedToGroup: (skill: string, group: string, scopes: number) =>
       `已把「${skill}」加入「${group}」${scopes ? `，并安装到该组已组安装的 ${scopes} 个作用域` : ""}`,
     collectionAlreadyInGroup: (label: string, group: string) => `「${label}」的技能都已在「${group}」里`,
-    collectionAddedToGroupTitle: (label: string, group: string) => `「${label}」的技能已加入「${group}」`,
+    collectionAddedToGroupTitle: (label: string, group: string, added: number, total: number) =>
+      added === total ? `「${label}」的 ${total} 个技能已加入「${group}」` : `「${label}」的 ${total} 个技能里，${added} 个加入了「${group}」`,
+    collectionAddedPartly: "这些技能已加入组；下面这些作用域没能安装，可在处理冲突后再次组安装补齐。",
+    memberAdded: "已加入",
     collectionAddedToGroup: (label: string, n: number, group: string, scopes: number) =>
       `已把「${label}」的 ${n} 个技能加入「${group}」${scopes ? `，并安装到该组已组安装的 ${scopes} 个作用域` : ""}`,
     removeFromGroupTitle: (skill: string, group: string) => `把「${skill}」移出「${group}」`,
@@ -872,6 +875,7 @@ export const zh = {
     deleteGroupWith: "删除组…",
     newGroupWith: "新建组…",
     addToGroup: "加入组",
+    resetOrder: "恢复默认顺序",
     otherSkills: "看来源里的其他技能",
     history: "更新历史",
     update: "更新…",

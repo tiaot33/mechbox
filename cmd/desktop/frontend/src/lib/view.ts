@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { CollectionID, GroupID, Scope, SkillID } from "@bindings/internal/library";
+import type { Collection, CollectionID, Group, GroupID, Scope, SkillID } from "@bindings/internal/library";
 import { queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
@@ -13,6 +13,7 @@ import {
   noOrder,
   pageListing,
   parseScope,
+  prunedOrder,
   placeOf,
   resolvePage,
   samePage,
@@ -149,16 +150,43 @@ export function reorder(kind: "collection" | "group", dragged: number, target: n
     kind === "collection"
       ? { ...order, collections: moved(sortedCollections(s, order.collections).map((c) => c.id), dragged, target, after) }
       : { ...order, groups: moved(sortedGroups(s, order.groups).map((g) => g.id), dragged, target, after) };
-  localStorage.setItem(orderKey, JSON.stringify(next));
-  set({ order: next });
+  saveOrder(next);
+}
+
+// resetOrder 把集合或组恢复成默认的先后(左栏节标题的右键菜单)。
+export function resetOrder(kind: "collection" | "group") {
+  const { order } = get();
+  saveOrder(kind === "collection" ? { ...order, collections: [] } : { ...order, groups: [] });
+}
+
+// forgetOrder 清掉拖出来的先后：拉取了别的库之后，旧库的 ID 套不到新库的集合与组上。
+export const forgetOrder = () => saveOrder(noOrder);
+
+function saveOrder(order: Order) {
+  localStorage.setItem(orderKey, JSON.stringify(order));
+  set({ order });
+}
+
+// useSortedCollections / useSortedGroups 是按用户拖出来的先后排好的集合与组;要列出它们的地方都用这两个，和左栏一致。
+export function useSortedCollections(s: Snapshot): Collection[] {
+  const order = useView((v) => v.order.collections);
+  return useMemo(() => sortedCollections(s, order), [s, order]);
+}
+
+export function useSortedGroups(s: Snapshot): Group[] {
+  const order = useView((v) => v.order.groups);
+  return useMemo(() => sortedGroups(s, order), [s, order]);
 }
 
 // reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、删除自定义 Agent、
 // 拉取了别的库)时退回所有技能，并记下来，之后又有了更新也不会自己跳回去。
+// 拖出来的先后里已经不在库里的集合与组也在这时去掉。
 export function reconcile(s: Snapshot) {
-  const { page } = get();
+  const { page, order } = get();
   const resolved = resolvePage(s, page);
   if (!samePage(resolved, page)) set({ page: resolved });
+  const pruned = prunedOrder(s, order);
+  if (pruned !== order) saveOrder(pruned);
 }
 
 // useCurrentPage 是校正后的页面(reconcile 随后把它记下来)。

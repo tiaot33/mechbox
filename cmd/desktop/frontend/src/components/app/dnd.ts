@@ -8,7 +8,8 @@
 import type { CollectionID, GroupID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
-import { parseScope, scopeKey, skillScopeIn, type ScopeKey } from "@/lib/model";
+import { missingFromGroup, parseScope, scopeKey, skillScopeIn, type ScopeKey } from "@/lib/model";
+import { useBusy } from "@/lib/ui";
 import { endDrag, reorder, reveal, startDrag, useView, type DragItem } from "@/lib/view";
 import { addCollectionToGroup, addSkillToGroup } from "@/features/group/group";
 import { installCollection, installGroup, installSkill } from "@/features/install/install";
@@ -74,14 +75,10 @@ export function alreadyInScope(s: Snapshot, item: DragItem, key: ScopeKey): bool
   return s.groupInstalls.some((a) => a.group_id === item.id && scopeKey(a.scope) === key);
 }
 
-// alreadyInGroup:技能已是该组成员，或集合里的技能都已是该组成员。
+// alreadyInGroup:技能已是该组成员，或集合里没有还不在组里的技能(见 missingFromGroup)。
 export function alreadyInGroup(s: Snapshot, item: DragItem, id: GroupID): boolean {
-  const members = s.groups.find((g) => g.id === id)?.members ?? [];
-  if (item.kind === "skill") return members.includes(item.id);
-  if (item.kind === "collection") {
-    const ids = s.collections.find((c) => c.id === item.id)?.skills ?? [];
-    return ids.length > 0 && ids.every((x) => members.includes(x));
-  }
+  if (item.kind === "skill") return !!s.groups.find((g) => g.id === id)?.members?.includes(item.id);
+  if (item.kind === "collection") return missingFromGroup(s, item.id, id).length === 0;
   return false;
 }
 
@@ -138,16 +135,17 @@ export function useCollectionDrop(id: CollectionID) {
 }
 
 // useGroupDrop 让组(左栏组行、组的节标题)接受拖来的技能或集合(加入该组)与另一个组(调整先后)。
-// 技能、集合已经都在组里时标出"已在"(data-already),不接受放置。
+// 技能、集合已经都在组里时标出"已在"(data-already),不接受放置;还有写操作在进行时(快照可能还没跟上)也不接受加入。
 export function useGroupDrop(id: GroupID) {
   const s = useSnapshot();
   const dnd = useDnD();
+  const busy = useBusy();
   const t = useT();
   if (dnd.item?.kind === "group") return orderProps(dnd.item.id !== id, (after) => dnd.dropOrder({ kind: "group", id }, after));
   const already = !!dnd.item && alreadyInGroup(s, dnd.item, id);
   return {
     "data-already": already ? t.layout.alreadyThere : undefined,
     "data-drop-group": id,
-    ...dropProps(canAddToGroup(dnd.item) && !already, () => dnd.dropOnGroup(id)),
+    ...dropProps(canAddToGroup(dnd.item) && !already && !busy, () => dnd.dropOnGroup(id)),
   };
 }

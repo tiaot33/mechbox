@@ -1,7 +1,7 @@
 // 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;底部同步与设置。
-// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，按来源名排，只有一个技能的也列出。
+// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，默认按来源名排，只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
-// 集合、组各自拖到同类的行上调整先后，和列表的分节一起变。两种行名字放不下时悬停显示全名，右键有各自的菜单。
+// 集合、组各自拖到同类的行上调整先后，和列表的分节一起变，右键节标题可以恢复默认顺序。两种行名字放不下时悬停显示全名，右键有各自的菜单。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Collection, Group } from "@bindings/internal/library";
@@ -10,7 +10,7 @@ import { checkUpdates } from "@/features/update/check";
 import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { previewCollection } from "@/features/fetch/preview";
 import { openHistory, openUpdate } from "@/features/update/update";
-import { alreadyInGroup, useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
+import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { useT } from "@/lib/i18n";
 import {
   checkableCollections,
@@ -19,15 +19,14 @@ import {
   isLocal,
   pending,
   shortPath,
-  sortedCollections,
-  sortedGroups,
+  missingFromGroup,
   sourceKindLabel,
   sourceLabel,
   type Page,
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { jumpTo, openPage, openSettings, useCurrentPage, useView } from "@/lib/view";
+import { jumpTo, openPage, openSettings, resetOrder, useCurrentPage, useSortedCollections, useSortedGroups, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -64,8 +63,8 @@ export function LeftSidebar() {
   const t = useT().sidebar;
   const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
-  const collections = sortedCollections(s, order.collections);
-  const groups = sortedGroups(s, order.groups);
+  const collections = useSortedCollections(s);
+  const groups = useSortedGroups(s);
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
@@ -111,7 +110,18 @@ export function LeftSidebar() {
         </li>
       </ul>
 
-      <SectionHead id="collections" name={t.collections} count={collections.length} collapsed={collapsed} onToggle={setCollapsed}>
+      <SectionHead
+        id="collections"
+        name={t.collections}
+        count={collections.length}
+        collapsed={collapsed}
+        onToggle={setCollapsed}
+        menu={
+          <ContextMenuItem disabled={!order.collections.length} onSelect={() => resetOrder("collection")}>
+            {t.resetOrder}
+          </ContextMenuItem>
+        }
+      >
         <span className="pr-1.5 text-[10px] font-medium text-subtle">{t.bySource}</span>
       </SectionHead>
       {!collapsed.has("collections") && (
@@ -123,7 +133,22 @@ export function LeftSidebar() {
       )}
       {collections.length === 0 && !collapsed.has("collections") && <Hint className="mt-1 px-3">{t.noCollections}</Hint>}
 
-      <SectionHead id="groups" name={t.groups} count={s.groups.length} collapsed={collapsed} onToggle={setCollapsed}>
+      <SectionHead
+        id="groups"
+        name={t.groups}
+        count={s.groups.length}
+        collapsed={collapsed}
+        onToggle={setCollapsed}
+        menu={
+          <>
+            <ContextMenuItem onSelect={() => createGroup()}>{t.newGroupWith}</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={!order.groups.length} onSelect={() => resetOrder("group")}>
+              {t.resetOrder}
+            </ContextMenuItem>
+          </>
+        }
+      >
         <Button
           variant="ghost"
           size="icon-sm"
@@ -174,7 +199,7 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
   const dnd = useDnD();
   const busy = useBusy();
   const drop = useCollectionDrop(c.id);
-  const groupOrder = useView((v) => v.order.groups);
+  const groups = useSortedGroups(s);
   const tt = useT();
   const t = tt.sidebar;
   const label = sourceLabel(s, c.source);
@@ -212,17 +237,19 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
           <ContextMenuSub>
             <ContextMenuSubTrigger>{t.addToGroup}</ContextMenuSubTrigger>
             <ContextMenuSubContent>
-              {sortedGroups(s, groupOrder).map((g) => {
-                const already = alreadyInGroup(s, { kind: "collection", id: c.id }, g.id);
+              {groups.map((g) => {
+                const already = missingFromGroup(s, c.id, g.id).length === 0;
                 return (
-                  <ContextMenuItem key={g.id} disabled={already} onSelect={() => addCollectionToGroup(g.id, c.id)}>
+                  <ContextMenuItem key={g.id} disabled={already || busy} onSelect={() => addCollectionToGroup(g.id, c.id)}>
                     <span className="min-w-0 grow truncate">{g.name}</span>
                     {already && <span className="shrink-0 text-[10px] text-subtle">{tt.layout.alreadyThere}</span>}
                   </ContextMenuItem>
                 );
               })}
               {s.groups.length > 0 && <ContextMenuSeparator />}
-              <ContextMenuItem onSelect={() => createGroup(c.skills ?? [])}>{t.newGroupWith}</ContextMenuItem>
+              <ContextMenuItem disabled={busy} onSelect={() => createGroup(c.skills ?? [])}>
+                {t.newGroupWith}
+              </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
         </ContextMenuContent>
@@ -309,13 +336,14 @@ function SideButton({ onClick, children }: { onClick: () => void; children: Reac
   );
 }
 
-// SectionHead 是可折叠的分节标题：箭头 + 名称 + 数量，右侧放说明或操作(悬停时出现);id 记折叠状态。
+// SectionHead 是可折叠的分节标题：箭头 + 名称 + 数量，右侧放说明或操作(悬停时出现),menu 是右键菜单的选项;id 记折叠状态。
 function SectionHead({
   id,
   name,
   count,
   collapsed,
   onToggle,
+  menu,
   children,
 }: {
   id: string;
@@ -323,22 +351,28 @@ function SectionHead({
   count: number;
   collapsed: Set<string>;
   onToggle: (update: (set: Set<string>) => Set<string>) => void;
+  menu: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const closed = collapsed.has(id);
   return (
-    <div className="nav-sec group/sec flex items-center justify-between pt-2.5 pr-0.5">
-      <button
-        type="button"
-        className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-md pr-1.5 pl-2 text-[11px] font-semibold text-muted-foreground hover:bg-black/[0.04] hover:text-foreground"
-        aria-expanded={!closed}
-        onClick={() => onToggle((set) => toggled(set, id))}
-      >
-        <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
-        <span>{name}</span>
-        <span className="ml-0.5 font-mono text-[10px] font-medium text-subtle">{count}</span>
-      </button>
-      {children}
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="nav-sec group/sec flex items-center justify-between pt-2.5 pr-0.5">
+          <button
+            type="button"
+            className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-md pr-1.5 pl-2 text-[11px] font-semibold text-muted-foreground hover:bg-black/[0.04] hover:text-foreground"
+            aria-expanded={!closed}
+            onClick={() => onToggle((set) => toggled(set, id))}
+          >
+            <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
+            <span>{name}</span>
+            <span className="ml-0.5 font-mono text-[10px] font-medium text-subtle">{count}</span>
+          </button>
+          {children}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>{menu}</ContextMenuContent>
+    </ContextMenu>
   );
 }

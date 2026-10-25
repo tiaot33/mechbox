@@ -8,7 +8,7 @@ import { useEffect } from "react";
 import type { Collection, Group, Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { parseScope, placeOf, sectionKey, updatableCollections, type PageListing, type ScopeKey, type SkillSection } from "@/lib/model";
+import { anyUpdatable, parseScope, placeOf, sectionKey, type PageListing, type ScopeKey, type SkillSection } from "@/lib/model";
 import { setArrange, setSearch, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
@@ -239,7 +239,7 @@ function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>
   const t = useT().list;
   return (
     <>
-      {updatableCollections(s).length > 0 && <UpdatesHead />}
+      {anyUpdatable(s) && <UpdatesHead />}
       <Section id="updates" className="mt-3" head={<PlainHead name={t.updatesSkills} count={skills.length} />}>
         {skills.map((skill) => (
           <SkillRow key={skill.id} skill={skill} showSource />

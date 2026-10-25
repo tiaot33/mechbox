@@ -175,7 +175,13 @@ export const en = {
     addedToGroup: (skill: string, group: string, scopes: number) =>
       `Added “${skill}” to “${group}”${scopes ? ` and installed it in the ${count(scopes, "Scope")} the Group is installed in` : ""}`,
     collectionAlreadyInGroup: (label: string, group: string) => `All skills from “${label}” are already in “${group}”`,
-    collectionAddedToGroupTitle: (label: string, group: string) => `Added skills from “${label}” to “${group}”`,
+    collectionAddedToGroupTitle: (label: string, group: string, added: number, total: number) =>
+      added === total
+        ? `Added ${count(total, "skill")} from “${label}” to “${group}”`
+        : `Added ${added} of ${count(total, "skill")} from “${label}” to “${group}”`,
+    collectionAddedPartly:
+      "These skills are now members, but couldn't be installed in the Scopes below. Resolve the conflicts, then Group install again to fill them in.",
+    memberAdded: "Added",
     collectionAddedToGroup: (label: string, n: number, group: string, scopes: number) =>
       `Added ${count(n, "skill")} from “${label}” to “${group}”${scopes ? ` and installed them in the ${count(scopes, "Scope")} the Group is installed in` : ""}`,
     removeFromGroupTitle: (skill: string, group: string) => `Remove “${skill}” from “${group}”`,
@@ -927,6 +933,7 @@ export const en = {
     deleteGroupWith: "Delete Group…",
     newGroupWith: "New Group…",
     addToGroup: "Add to Group",
+    resetOrder: "Restore default order",
     otherSkills: "See other skills in the Source",
     history: "Update history",
     update: "Update…",

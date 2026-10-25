@@ -374,14 +374,23 @@ function inOrder<T extends { id: number }>(items: T[], order: number[]): T[] {
 }
 
 // sortedCollections 是集合的顺序：默认按来源名排，用户拖过的按拖出来的先后;左栏、所有技能页与作用域页的分节、更新列表都按它。
-export function sortedCollections(s: Snapshot, order: CollectionID[] = []): Collection[] {
+export function sortedCollections(s: Snapshot, order: CollectionID[]): Collection[] {
   const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
   return inOrder(byName, order);
 }
 
 // sortedGroups 是组的顺序：默认按技能库给的顺序，用户拖过的按拖出来的先后;左栏、分节与作用域摘要里的组都按它。
-export function sortedGroups(s: Snapshot, order: GroupID[] = []): Group[] {
+export function sortedGroups(s: Snapshot, order: GroupID[]): Group[] {
   return inOrder(s.groups, order);
+}
+
+// prunedOrder 去掉已经不在库里的集合与组(删掉了、移除了):技能库会复用删掉的 ID,不去掉的话新建的组会占到旧组的位置。
+// 没有要去掉的时原样返回。
+export function prunedOrder(s: Snapshot, order: Order): Order {
+  const live = (ids: number[], items: { id: number }[]) => ids.filter((id) => items.some((x) => x.id === id));
+  const collections = live(order.collections, s.collections);
+  const groups = live(order.groups, s.groups);
+  return collections.length === order.collections.length && groups.length === order.groups.length ? order : { collections, groups };
 }
 
 // moved 是把 dragged 挪到 target 的前面(after 为 false)或后面之后的先后;target 不在 ids 里时不变。
@@ -421,8 +430,19 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
 }
 
 // updatableCollections 是有计入角标的技能的集合，和左栏同一个顺序。
-export function updatableCollections(s: Snapshot, order: CollectionID[] = []): Collection[] {
+export function updatableCollections(s: Snapshot, order: CollectionID[]): Collection[] {
   return sortedCollections(s, order).filter((c) => collectionSkills(s, c).some(pending));
+}
+
+// anyUpdatable 是有没有 updatableCollections(更新页在不在),不关心先后。
+export function anyUpdatable(s: Snapshot): boolean {
+  return s.collections.some((c) => collectionSkills(s, c).some(pending));
+}
+
+// missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。
+export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
+  const members = new Set(s.groups.find((g) => g.id === groupID)?.members ?? []);
+  return (s.collections.find((c) => c.id === collectionID)?.skills ?? []).filter((id) => !members.has(id));
 }
 
 // checkableCollections 是检查更新的范围：本地目录来源不检查。
@@ -551,7 +571,7 @@ export function samePage(a: Page, b: Page): boolean {
 
 // resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页退回所有技能。
 export function resolvePage(s: Snapshot, page: Page): Page {
-  if (page.kind === "updates" && !updatableCollections(s).length) return { kind: "all" };
+  if (page.kind === "updates" && !anyUpdatable(s)) return { kind: "all" };
   if (page.kind === "scope") {
     const sc = parseScope(page.scope);
     if ((sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) || !s.agents.some((a) => a.code === sc.agent)) return { kind: "all" };
@@ -601,8 +621,8 @@ export function arrangeSkills(
     skills: all = s.skills,
     emptyGroups = true,
     scope,
-    order = noOrder,
-  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; order?: Order } = {},
+    order,
+  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; order: Order },
 ): SkillSection[] {
   const hit = (x: Skill) => matches(search, x);
   const ids = new Set(all.map((x) => x.id));
@@ -683,7 +703,7 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
   return (named.length ? named.map((a) => a.code) : [sc.agent]).map((code) => scopeKey(scopeOf(code, 0)));
 }
 
-export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string, order: Order = noOrder): ScopeListing {
+export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string, order: Order): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
   const globalKeys = globalScopesSeenFrom(s, key);
@@ -720,7 +740,7 @@ export type PageListing = { total: number; results: number } & (
   | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
 );
 
-export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order = noOrder): PageListing {
+export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order): PageListing {
   if (page.kind === "updates") {
     const todo = sortSkills(s, s.skills.filter(pending));
     const skills = todo.filter((x) => matches(search, x));
