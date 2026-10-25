@@ -87,10 +87,12 @@ async function step(name, fn) {
   } catch (e) {
     results.push(["FAIL", name, e.message.split("\n")[0]]);
     console.log("FAIL", name, "—", e.message.split("\n").slice(0, 3).join(" | "));
-    await page.screenshot({ path: path.join(SHOTS, `fail-${String(n).padStart(2, "0")}.png`) });
-    // 关掉可能残留的弹窗 / 抽屉，免得影响后续步骤
-    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
-    if (await drawer().count()) await drawer().locator('[data-slot="sheet-close"]').click();
+    await page.screenshot({ path: path.join(SHOTS, `fail-${String(n).padStart(2, "0")}.png`) }).catch(() => {});
+    // 重新载入回到技能库主界面：失败时可能停在设置页、弹窗或抽屉里，留着会让后面的步骤都等到超时
+    await page
+      .goto(URL)
+      .then(() => page.waitForSelector(".a-list", { timeout: 10000 }))
+      .catch((e) => console.log("  重新载入主界面失败:", e.message.split("\n")[0]));
   }
 }
 const modal = () => page.locator('[data-slot="dialog-content"]').last();
