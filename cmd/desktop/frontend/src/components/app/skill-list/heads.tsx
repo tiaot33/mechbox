@@ -15,6 +15,7 @@ import {
   type ScopeKey,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
+import { useSortedGroups } from "@/lib/view";
 import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
 import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
@@ -36,6 +37,7 @@ export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; dire
   // 在项目仓库里的、项目 skills-lock.json 记的归项目仓库管，指向 Agent 目录以外的是作者有意留在自己目录里的，都不算进"还没交给 app 管"的数里。
   const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock && !u.link_outside).length;
   const sc = parseScope(scope);
+  const groups = useSortedGroups(s);
   return (
     <div className={barClass}>
       <b className="scope-sees text-[13px] font-semibold">{t.scopeSees(agentNameIn(s, sc.agent, placeOf(sc)), sees)}</b>
@@ -68,7 +70,7 @@ export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; dire
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">{t.groups}</span>
-          {s.groups.map((g) => {
+          {groups.map((g) => {
             const state = groupStateIn(s, g, scope);
             const on = state === "on";
             return (

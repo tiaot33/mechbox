@@ -32,7 +32,7 @@ import {
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { toggleDrawer, useView } from "@/lib/view";
+import { toggleDrawer, useSortedGroups, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
@@ -40,6 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
+import { Truncated } from "@/components/app/parts";
 import { SameNameBadge, SameNameLine } from "./same-name";
 
 // 列宽：所有技能页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
@@ -69,7 +70,7 @@ export function SkillRow(props: {
   const here = scope && !props.fromGlobal ? skillScopeIn(s, skill.id, scope) : undefined;
   // 作用域页说这一处的同名后果;所有技能页、更新页说它装出去的各处。
   const same = scope ? (here ? sameNameNote(s, scope, here.folder) : undefined) : skillSameNameNote(s, skill.id);
-  const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
+  const groups = useSortedGroups(s).filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
 
@@ -149,15 +150,29 @@ export function SkillRow(props: {
         )}
       </div>
       <div className="min-w-0">
-        {/* 有界面语言的译文时显示译文，鼠标停住看原文。 */}
-        <p className="truncate text-[11.5px] text-muted-foreground" title={translated ? `${translated}\n\n${t.list.originalTitle(skill.description)}` : skill.description}>
-          {props.showSource && (
-            <span className="text-subtle" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
-              {sourceShort(s, skill.source)} ·{" "}
-            </span>
-          )}
-          {translated ?? skill.description}
-        </p>
+        {/* 有界面语言的译文时显示译文，鼠标停住总能看到原文;没有译文时和原来一样，截断了才提示。 */}
+        <Truncated
+          always={!!translated}
+          tip={
+            translated ? (
+              <>
+                <div>{translated}</div>
+                <div className="mt-1.5 opacity-80">{t.list.originalTitle(skill.description)}</div>
+              </>
+            ) : (
+              skill.description
+            )
+          }
+        >
+          <p className="skill-desc truncate text-[11.5px] text-muted-foreground">
+            {props.showSource && (
+              <span className="text-subtle" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
+                {sourceShort(s, skill.source)} ·{" "}
+              </span>
+            )}
+            {translated ?? skill.description}
+          </p>
+        </Truncated>
         {same && <SameNameLine note={same} />}
         {/* 有新版本、但更新会换掉用户的修改：直接写出来，更新计划里它默认不勾。 */}
         {pending(skill) && updateAvailable(skill) && skill.edited && (
@@ -250,9 +265,9 @@ export function UnmanagedRow({ skill }: { skill: UnmanagedSkill }) {
         {same && <SameNameBadge note={same} />}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[11.5px] text-muted-foreground" title={skill.description}>
-          {skill.description}
-        </p>
+        <Truncated tip={skill.description}>
+          <p className="unmanaged-desc truncate text-[11.5px] text-muted-foreground">{skill.description}</p>
+        </Truncated>
         {same && <SameNameLine note={same} />}
         {source && (
           <p className="unmanaged-source-label truncate text-[10.5px] text-muted-foreground" title={found ? t.foundTitle(found) : t.recordedTitle(source)}>

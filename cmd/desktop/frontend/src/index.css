@@ -234,19 +234,17 @@
   }
 
   /* 拖放中：主体区域带 data-dragging(skill / group / collection),可放下的目标描虚线，悬停的目标高亮;
-     已经在那里的(技能已直接安装、组已组安装、已是组成员)变淡并注明"已在"(data-already 的值是当前语言的这句话)。 */
+     已经在那里的(技能已直接安装、组已组安装、已是组成员)变淡并注明"已在"(data-already 的值是当前语言的这句话);
+     调整集合、组的先后时，悬停的目标在上沿或下沿画一条线(data-drop-order),标出放到它前面还是后面。 */
   [data-dragging] [data-drop-scope],
-  [data-dragging="skill"] [data-drop-group] {
+  [data-dragging="skill"] [data-drop-group],
+  [data-dragging="collection"] [data-drop-group] {
     outline: 1.5px dashed var(--color-primary-border);
     outline-offset: -2px;
   }
   [data-dragging] [data-aim] {
     outline: 1.5px dashed var(--color-border);
     outline-offset: -2px;
-  }
-  [data-dragging="group"] [data-drop-group],
-  [data-dragging="collection"] [data-drop-group] {
-    opacity: 0.45;
   }
   [data-dragging] [data-already] {
     opacity: 0.5;
@@ -268,5 +266,11 @@
     background: #f3f4f6;
     outline-color: var(--color-subtle);
     color: var(--color-foreground-secondary);
+  }
+  [data-dragging] [data-drop-order="before"] {
+    box-shadow: inset 0 2px 0 var(--color-primary);
+  }
+  [data-dragging] [data-drop-order="after"] {
+    box-shadow: inset 0 -2px 0 var(--color-primary);
   }
 }

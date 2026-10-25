@@ -1,14 +1,23 @@
-// 组：新建、重命名、删除，加入或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
+// 组：新建、重命名、删除，加入(一个技能或整个集合)或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
 import { LibraryService } from "@bindings/cmd/desktop";
-import { GroupMemberOutcome, MemberRemovalPolicy, type GroupID, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import {
+  GroupMemberOutcome,
+  MemberRemovalPolicy,
+  type CollectionID,
+  type GroupID,
+  type GroupMemberResult,
+  type SkillID,
+  type SkillScopeInspection,
+} from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
-import { currentSnapshot, type Snapshot } from "@/lib/library";
-import { folderPlaces, groupName, scopeKey, skillName } from "@/lib/model";
+import { describeError } from "@/lib/errors";
+import { currentSnapshot, toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
+import { folderPlaces, groupName, missingFromGroup, scopeKey, skillName, sourceLabel } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice } from "@/components/app/link-notes";
-import { memberRows, showResults } from "@/components/app/results";
+import { memberRows, showResults, type ResultRow } from "@/components/app/results";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   const s = currentSnapshot();
@@ -21,6 +30,46 @@ export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   } else {
     ui.toast(t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
   }
+}
+
+// addCollectionToGroup 把集合里还不在组里的技能逐个加入组(集合拖到组上、左栏集合的右键菜单)。每个技能各是一次写操作，
+// 一个失败不影响其余的;有失败或有作用域没装上时逐个列出已加入、被跳过、失败的技能。
+export async function addCollectionToGroup(groupID: GroupID, collectionID: CollectionID) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const c = s.collections.find((x) => x.id === collectionID);
+  if (!c) return;
+  const label = sourceLabel(s, c.source);
+  const group = groupName(s, groupID);
+  const ids = missingFromGroup(s, collectionID, groupID);
+  if (!ids.length) {
+    ui.toast(t.collectionAlreadyInGroup(label, group));
+    return;
+  }
+  const outcomes = await ui.run(async () => {
+    const all: { id: SkillID; results: GroupMemberResult[]; error?: LibraryError }[] = [];
+    for (const id of ids) {
+      try {
+        all.push({ id, results: (await LibraryService.AddSkillToGroup(groupID, id)) ?? [] });
+      } catch (e) {
+        all.push({ id, results: [], error: toLibraryError(e) });
+      }
+    }
+    return all;
+  });
+  if (!outcomes) return;
+  const added = outcomes.filter((o) => !o.error);
+  const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
+  if (added.length === ids.length && !skipped) {
+    ui.toast(t.collectionAddedToGroup(label, ids.length, group, s.groupInstalls.filter((a) => a.group_id === groupID).length));
+    return;
+  }
+  const rows = outcomes.flatMap((o): ResultRow[] => {
+    if (o.error) return [{ label: skillName(s, o.id), outcome: t.failed, tone: "bad", reason: describeError(o.error) }];
+    if (o.results.length) return memberRows(s, o.results);
+    return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "ok" }];
+  });
+  await showResults(t.collectionAddedToGroupTitle(label, group, added.length, ids.length), rows, skipped ? t.collectionAddedPartly : undefined);
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
@@ -52,15 +101,20 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
   });
 }
 
-export async function createGroup(withSkill?: SkillID) {
+// createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。
+export async function createGroup(withSkills: SkillID[] = []) {
   const t = messages().actions;
   const name = await ui.prompt({ title: t.newGroup, label: t.newGroupLabel, confirm: t.create });
   if (!name) return;
   const group = await ui.run(() => LibraryService.CreateGroup(name), {
     success: (g) => (g.name !== name ? t.groupCreatedAs(g.name) : t.groupCreated(g.name)),
-    reload: !withSkill,
+    reload: !withSkills.length,
   });
-  if (group && withSkill) await ui.run(() => LibraryService.AddSkillToGroup(group.id, withSkill));
+  if (group && withSkills.length) {
+    await ui.run(async () => {
+      for (const id of withSkills) await LibraryService.AddSkillToGroup(group.id, id);
+    });
+  }
   return group;
 }
 

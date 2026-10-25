@@ -5,6 +5,7 @@ import { CancelledRejectionError } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
 import { I18nProvider, toLanguage, type Language } from "@/lib/i18n";
 import { queryClient } from "@/lib/library";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import App from "./App";
 
 // 前端取消一个绑定调用时，Go 端可能已经返回了错误、还在路上;它晚于取消到达，Wails 会把它报成未处理的 rejection。
@@ -22,7 +23,9 @@ void AppService.Language()
       <StrictMode>
         <QueryClientProvider client={queryClient}>
           <I18nProvider initial={language}>
-            <App />
+            <TooltipProvider>
+              <App />
+            </TooltipProvider>
           </I18nProvider>
         </QueryClientProvider>
       </StrictMode>,
