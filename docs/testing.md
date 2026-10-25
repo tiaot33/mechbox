@@ -174,8 +174,7 @@ WSL 相关的测试不需要 Windows。测试把环境变量 `MECHBOX_TEST_WSL_S
 - [运行前端检查](#运行前端检查)的前置条件
 - Go
 - Google Chrome
-- `python3`、`zip`、`curl`、`git`：`run.sh` 用它们起本地 HTTP 服务、打 zip、建 Git 仓库
-- 本机端口 18080～18082 空闲。另一个终端或 agent 也在跑 e2e 时，用 `E2E_PORT` 换一个起始端口，用 `E2E_SHOTS` 换截图目录，如 `E2E_PORT=18280 E2E_SHOTS=/tmp/mechbox-e2e-shots-2 pnpm test`。
+- `python3`、`zip`、`lsof`、`git`：`run.sh` 用它们起本地 HTTP 服务、打 zip、确认服务是自己起的、建 Git 仓库
 
 ### 步骤
 
@@ -185,11 +184,13 @@ WSL 相关的测试不需要 Windows。测试把环境变量 `MECHBOX_TEST_WSL_S
    pnpm test
    ```
 
-   脚本先构建前端和 server 模式二进制，再逐步运行。每步输出一行 `PASS`、`FAIL` 或 `SKIP`，最后一行是通过数，如 `80/80 通过`。全量运行约 4 min，其中包括构建。
+   脚本先构建前端和 server 模式二进制，再逐步运行。每步输出一行 `PASS`、`FAIL` 或 `SKIP`，跑完输出通过数，如 `80/80 通过`。最后一行是这次的截图目录，如 `截图：/tmp/mechbox-e2e-shots.Ab12Cd`。全量运行约 4 min，其中包括构建。
+
+   不同工作区里的几个终端或 agent 可以同时运行 `pnpm test`，不用设环境变量。同一个工作区里一次只跑一个，因为两次构建会同时写 `frontend/dist`。
 
    日志里「页面错误 / 失败请求」下列出的 422 请求，多数来自故意触发错误的步骤。只有某一步 `FAIL` 时才需要看。
 
-2. 如果有步骤失败，到 `/tmp/mechbox-e2e-shots/` 看失败时的截图。
+2. 如果有步骤失败，到最后一行列出的截图目录看失败时的截图。
 
 3. 可选：只跑名字里含某段文字的步骤：
 
@@ -211,6 +212,8 @@ WSL 相关的测试不需要 Windows。测试把环境变量 `MECHBOX_TEST_WSL_S
 
 - **界面语言**：步骤按中文界面写，`run.sh` 给 server 设 `LC_ALL=zh_CN.UTF-8`，界面不随运行机器的系统语言变化。
 - **设置**：都存在临时 `HOME` 里的数据库中，e2e 直接读它的 `config` 表核对。
+- **端口**：`run.sh` 每次向系统要三个空闲端口，分别给 server、zip 服务和 hosts 服务，都只绑 `127.0.0.1`。要固定端口时设 `E2E_PORT`，`run.sh` 用它和后面两个端口；其中有端口被占用时，`run.sh` 报错退出。某个服务没起来时，`run.sh` 打出它的日志并退出，不会去测别人的服务。
+- **截图**：每次放进一个新目录，名字是 `/tmp/mechbox-e2e-shots.` 加 6 位随机字符，跑完不删。要固定目录时设 `E2E_SHOTS`。
 - **网络**：离线运行时，`run.sh` 用 `E2E_HOSTS` 把 skills.sh 和假的 well-known 站点 `skills.e2e.test` 的请求转到本地 HTTP 服务，不访问真实的 skills.sh。名字以 `[离线]` 开头的步骤只在离线时运行。
 - **server 模式的差异**：「在 Finder 中显示」什么都不做，e2e 只核对前端传过去的路径。卸载 Mechbox 时不清 `~/Library`、不动可执行文件，文件夹直接删除。
 

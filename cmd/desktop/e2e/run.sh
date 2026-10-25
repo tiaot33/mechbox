@@ -59,24 +59,56 @@ git config --file "$home/.gitconfig" "url.file://$work/git/repo.git.insteadOf" h
 # 不访问真实的 skills.sh:搜索不论搜什么都返回 found-a / found-b 两个结果(hosts/api/search),都来自 skills.e2e.test;
 # 站点的旧格式索引里有这两个技能。e2e 在 Agent 目录里放同名的未纳管技能，测在 skills.sh 上找来源。
 
-port=${E2E_PORT:-18080}
-zip_port=$((port + 1))
-hosts_port=$((port + 2))
-(cd "$work/zips" && exec python3 -m http.server "$zip_port" >/dev/null 2>&1) &
+# 三个服务都只绑 127.0.0.1、用 127.0.0.1 访问：python 默认绑 [::],Go 的 server 绑 127.0.0.1,两者能同时占同一个端口号，
+# 用 localhost 访问可能连到别的进程。没设 E2E_PORT 时一次向系统要三个空闲端口，几个 e2e 可以同时跑;设了就用它和后面两个，先确认都空闲。
+free_ports() {
+	node -e "const net=require('net');Promise.all([0,1,2].map(()=>new Promise(r=>{const s=net.createServer().listen(0,'127.0.0.1',()=>r(s))}))).then(ss=>{for(const s of ss){console.log(s.address().port);s.close()}})"
+}
+check_free() {
+	node -e "require('net').createServer().on('error',()=>process.exit(1)).listen($1,'127.0.0.1',function(){this.close()})" ||
+		{ echo "端口 $1 已被占用，换一个 E2E_PORT 或不设它" >&2; exit 1; }
+}
+if [ -n "${E2E_PORT:-}" ]; then
+	port=$E2E_PORT
+	zip_port=$((port + 1))
+	hosts_port=$((port + 2))
+	for p in "$port" "$zip_port" "$hosts_port"; do check_free "$p"; done
+else
+	{ read -r port; read -r zip_port; read -r hosts_port; } <<EOF
+$(free_ports)
+EOF
+fi
+# 等服务起来：要确认是本次起的进程在监听这个端口，期间它要一直活着。只看端口能不能连上，可能连到别人的服务，接着测下去还会改坏那边的数据。
+wait_up() {
+	for _ in $(seq 40); do
+		kill -0 "$2" 2>/dev/null || break
+		lsof -a -p "$2" -iTCP:"$3" -sTCP:LISTEN >/dev/null 2>&1 && return
+		sleep 0.25
+	done
+	echo "$1 没有起来,$4:" >&2
+	cat "$4" >&2
+	exit 1
+}
+(cd "$work/zips" && exec python3 -m http.server --bind 127.0.0.1 "$zip_port" >"$work/zip.log" 2>&1) &
 zip_pid=$!
+wait_up "zip 服务" "$zip_pid" "$zip_port" "$work/zip.log"
 hosts=""
 if [ "${E2E_NETWORK:-}" != 1 ]; then
-	(cd "$work/hosts" && exec python3 -m http.server "$hosts_port" >/dev/null 2>&1) &
+	(cd "$work/hosts" && exec python3 -m http.server --bind 127.0.0.1 "$hosts_port" >"$work/hosts.log" 2>&1) &
 	hosts_pid=$!
-	hosts="skills.sh=localhost:$hosts_port skills.e2e.test=localhost:$hosts_port"
+	wait_up "hosts 服务" "$hosts_pid" "$hosts_port" "$work/hosts.log"
+	hosts="skills.sh=127.0.0.1:$hosts_port skills.e2e.test=127.0.0.1:$hosts_port"
 fi
 # 界面语言跟随系统，server 模式按 LC_ALL / LC_MESSAGES / LANG 判断;e2e 的步骤按中文界面写，固定成中文，不随跑测试的机器变。
-HOME="$home" XDG_STATE_HOME="" LC_ALL=zh_CN.UTF-8 WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" "$work/server" >"$work/server.log" 2>&1 &
+HOME="$home" XDG_STATE_HOME="" LC_ALL=zh_CN.UTF-8 WAILS_SERVER_HOST=127.0.0.1 WAILS_SERVER_PORT="$port" E2E_HOSTS="$hosts" \
+	"$work/server" >"$work/server.log" 2>&1 &
 server_pid=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-	curl -sf -o /dev/null "http://localhost:$port/" && break
-	sleep 0.5
-done
+wait_up "server" "$server_pid" "$port" "$work/server.log"
 
-E2E_HOME="$home" E2E_URL="http://localhost:$port/" E2E_ZIP_URL="http://localhost:$zip_port/delta.zip" E2E_ZIP_DIR="$work/zips" \
-	E2E_SHOTS="${E2E_SHOTS:-/tmp/mechbox-e2e-shots}" node "$here/e2e.mjs" "$@"
+# 截图每次放一个新目录，不放在 $work 里(结束时会删掉);设了 E2E_SHOTS 就用它。
+shots=${E2E_SHOTS:-$(mktemp -d /tmp/mechbox-e2e-shots.XXXXXX)}
+status=0
+E2E_HOME="$home" E2E_URL="http://127.0.0.1:$port/" E2E_ZIP_URL="http://127.0.0.1:$zip_port/delta.zip" E2E_ZIP_DIR="$work/zips" \
+	E2E_SHOTS="$shots" node "$here/e2e.mjs" "$@" || status=$?
+echo "截图：$shots"
+exit "$status"
