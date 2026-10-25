@@ -121,7 +121,7 @@ WSL 相关的测试不需要 Windows。测试把环境变量 `MECHBOX_TEST_WSL_S
 | --- | --- |
 | 入库一个本地技能，正文是 `# <名字>` | `fetchNamedSkill` |
 | 入库一个本地技能，指定正文 | `fetchSkillWithBody` |
-| 入库一个本地技能，之后要改来源再更新 | `fetchLocalSkill`，返回来源目录 |
+| 入库一个本地技能，之后要改来源再更新 | `fetchLocalSkill`，返回技能文件夹；来源是它的上一级目录 |
 | 入库一个带可执行脚本的技能 | `fetchExampleSkill` |
 | 从直接下载的 zip 入库 | `zipArchive` 打包，`serveArchive` 用 `httptest` 提供下载并返回入库预览请求 |
 | 在 Git 仓库里提交 | `runGit`、`commitGit` |

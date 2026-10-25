@@ -246,7 +246,8 @@ func fetchSkillWithBody(t *testing.T, lib *library.Library, name, body string) l
 	return skill
 }
 
-// fetchLocalSkill 从独立的本地 Source 入库 skill,并返回 Source 目录,供之后改内容再 Update。
+// fetchLocalSkill 从独立的本地 Source 入库 skill,并返回 skill 文件夹,供之后改内容再 Update;
+// Source 是它的上一级目录,要让 Source 读不到时删掉或改名 filepath.Dir(返回值)。
 func fetchLocalSkill(t *testing.T, lib *library.Library, name, body string) (library.Skill, string) {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), name)

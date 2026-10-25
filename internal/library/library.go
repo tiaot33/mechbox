@@ -34,6 +34,7 @@ type Library struct {
 
 	github   *github.Client
 	download download.Kind
+	local    local.Kind
 	sources  source.Kinds
 }
 
@@ -84,6 +85,7 @@ func Open(path string) (lib *Library, err error) {
 	client := github.NewClient()
 	client.SetToken(token)
 	direct := download.New(maxFetchFiles, maxFetchSize)
+	directory := local.New(maxFetchFiles, maxFetchSize)
 	return &Library{
 		store:    db,
 		home:     home,
@@ -91,12 +93,13 @@ func Open(path string) (lib *Library, err error) {
 		plans:    map[UpdatePlanID]*planState{},
 		github:   client,
 		download: direct,
+		local:    directory,
 		sources: source.Kinds{
 			github.Type:    client,
 			git.Type:       git.Kind{},
 			download.Type:  direct,
 			wellknown.Type: wellknown.New(maxFetchFiles, maxFetchSize),
-			local.Type:     local.New(maxFetchFiles, maxFetchSize),
+			local.Type:     directory,
 		},
 	}, nil
 }

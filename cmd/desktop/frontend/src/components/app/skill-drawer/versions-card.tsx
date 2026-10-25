@@ -57,9 +57,10 @@ export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]
           <li key={v.id} className="col-span-full grid grid-cols-subgrid items-center text-xs">
             <span className="font-medium">{t.versionN(number.get(v.id))}</span>
             <span>{formatDate(v.created_at)}</span>
-            <span className="font-mono text-[11px] text-muted-foreground">{v.revision?.slice(0, 12)}</span>
+            {/* 用目录里的修改更新进来的版本沿用所基于版本的来源版本，再写一遍像是没变：不写，说明占这两格。 */}
+            {!v.based_on && <span className="font-mono text-[11px] text-muted-foreground">{v.revision?.slice(0, 12)}</span>}
             {/* 放不下时截断，悬停看全。 */}
-            <span className="truncate text-[11px] text-muted-foreground" title={notes(v).join(" ")}>
+            <span className={cn("truncate text-[11px] text-muted-foreground", v.based_on && "col-span-2")} title={notes(v).join(" ")}>
               {notes(v).join(" ")}
             </span>
             {v.id === currentID ? (

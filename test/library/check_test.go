@@ -172,7 +172,8 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 	if err != nil || len(versions) != 3 {
 		t.Fatalf("versions = %v, %v", versions, err)
 	}
-	if err := os.RemoveAll(source); err != nil {
+	// 来源是技能文件夹的上一级目录。
+	if err := os.RemoveAll(filepath.Dir(source)); err != nil {
 		t.Fatal(err)
 	}
 	if status, err := checkSkillUpdate(t, lib, ctx, skill.ID); !library.IsCode(err, library.SourceUnreachable) || status != library.UpdateFailed {
@@ -392,7 +393,7 @@ func TestUpdateChecksReplaceEarlierConclusionsAndRemovalStartsUnchecked(t *testi
 		case library.UpdateAvailable:
 			writeLocalSkill(t, source, "new")
 		case library.UpdateFailed:
-			if err := os.Rename(source, source+"-offline"); err != nil {
+			if err := os.Rename(filepath.Dir(source), filepath.Dir(source)+"-offline"); err != nil {
 				t.Fatal(err)
 			}
 		case library.UpdateCurrent:
@@ -432,7 +433,7 @@ func TestUpdateCheckSurvivesReopen(t *testing.T) {
 	unchecked := fetchNamedSkill(t, lib, "unchecked")
 	current := fetchNamedSkill(t, lib, "current")
 	failed, offline := fetchLocalSkill(t, lib, "failed", "old")
-	if err := os.Rename(offline, offline+"-offline"); err != nil {
+	if err := os.Rename(filepath.Dir(offline), filepath.Dir(offline)+"-offline"); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()

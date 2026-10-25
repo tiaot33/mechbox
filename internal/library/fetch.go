@@ -184,6 +184,9 @@ type previewState struct {
 // 以域名开头(第一段带点,如 github.com/…、git.company.com/…)、没写协议的输入先补上 https://,再按这个顺序识别;
 // owner/repo 简写的第一段不带点,不受影响:
 //  1. 本地路径(绝对路径,或以 ./、../ 开头的相对路径;不带前缀的 a/b 按 GitHub 简写处理):本地目录。相对路径按当前工作目录解析为绝对路径。
+//     路径本身是一个技能文件夹(根目录下有 SKILL.md)时,来源是它的上一级目录,入库预览只列这个技能,
+//     这样从同一个目录先后入库的技能归入同一个集合,其余技能用 Collection 再预览一次就能看到;
+//     上一级目录是用户主目录、读不出(超过下面的上限等)或读出的候选里没有这个文件夹(如同名的先出现)时,来源就是这个文件夹本身。
 //  2. GitHub / GitLab 的 raw、archive、release 文件链接(raw.githubusercontent.com、codeload.github.com、github.com/…/raw|archive|releases/download/…、
 //     …/-/raw/…、…/-/archive/…、…/-/releases/…/downloads/…):直接下载,不克隆仓库。
 //  3. GitHub 的简写和仓库链接:GitHub 仓库。输入无效、tree URL 的 ref 边界有歧义、#ref 与 Ref 不一致、Subpath 与 tree URL
@@ -223,6 +226,9 @@ func (l *Library) PreviewFetch(ctx context.Context, req PreviewFetchRequest) (pr
 	}
 	if err == nil {
 		candidates, diagnostics, err = snapshot.Candidates(ctx)
+	}
+	if err == nil && len(candidates) == 0 {
+		err = discovery.NoCandidates(diagnostics)
 	}
 	if err != nil {
 		return FetchPreview{}, inputField(err, field)
@@ -286,7 +292,10 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 		if err := gitOnly(req); err != nil {
 			return source.Target{}, "", err
 		}
-		target, err = local.Locate(input)
+		_, unlock := l.sharedOperation(ctx)
+		home := l.home.Root()
+		unlock()
+		target, err = l.local.Locate(ctx, input, home)
 	case download.Hosted(input):
 		if err := gitOnly(req); err != nil {
 			return source.Target{}, "", err
