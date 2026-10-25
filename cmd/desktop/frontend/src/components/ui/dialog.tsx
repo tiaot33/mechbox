@@ -3,7 +3,8 @@
 // - 表面是半透明白色加 backdrop-blur,遮罩是淡色，不用 shadcn 默认的不透明背景和深色遮罩;
 // - 标题、关闭按钮、可滚动的主体与底部按钮行各有一个部件，弹窗外壳 Modal(lib/ui.tsx)把它们拼起来;
 // - 从某个元素打开的(DialogMotion 给了 origin,如左栏"入库技能"):弹窗从那个元素的位置和大小放大出来，关掉时缩回去;
-//   同一个弹窗里换了一页(入库预览出来，宽度变了)时从上一页的大小形变过去，不再从头弹出。
+//   同一个弹窗里换了一页(入库预览出来，宽度变了)时从上一页的大小形变过去，不再从头弹出;
+// - 在 toast 上按下、拖动不算点了弹窗外面，弹窗不关。
 import { createContext, use, useCallback, useLayoutEffect, useRef, type ComponentProps } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
@@ -32,16 +33,17 @@ interface Box {
   radius: number;
 }
 
-const RADIUS = 14; // rounded-tile
 const EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const radiusOf = (el: Element) => parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
 
 // originBox 是 origin 现在在窗口里的位置;已经不在页面上(或被收起看不见)时为 undefined。
 function originBox(origin: Element | undefined): Box | undefined {
   if (!origin?.isConnected) return undefined;
   const rect = origin.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1) return undefined;
-  return { rect, radius: parseFloat(getComputedStyle(origin).borderTopLeftRadius) || 0 };
+  return { rect, radius: radiusOf(origin) };
 }
 
 // boxFrame 是把弹窗(本来在 to)变换到 box 的位置和大小的那一帧;圆角按缩放比例反算，缩放中看起来仍是 box 的圆角。
@@ -58,7 +60,7 @@ function boxFrame(box: Box, to: DOMRect): Keyframe {
 function morph(el: HTMLElement, box: Box, dir: "in" | "out"): Animation[] {
   const to = el.getBoundingClientRect();
   const at = boxFrame(box, to);
-  const rest: Keyframe = { transform: "none", borderRadius: `${RADIUS}px` };
+  const rest: Keyframe = { transform: "none", borderRadius: `${radiusOf(el)}px` };
   const timing: KeyframeAnimationOptions = { duration: dir === "in" ? 380 : 260, easing: EASE, fill: "both" };
   const fade: Keyframe[] =
     dir === "in"
@@ -70,7 +72,13 @@ function morph(el: HTMLElement, box: Box, dir: "in" | "out"): Animation[] {
   ];
 }
 
-function DialogContent({ className, children, wide = false, ...props }: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean }) {
+function DialogContent({
+  className,
+  children,
+  wide = false,
+  onInteractOutside,
+  ...props
+}: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean }) {
   const motion = use(DialogMotionContext);
   const morphing = !!motion?.origin;
   const content = useRef<HTMLDivElement>(null);
@@ -91,7 +99,7 @@ function DialogContent({ className, children, wide = false, ...props }: Componen
     const anims = from ? morph(el, from, "in") : [];
     return () => {
       const running = anims.some((a) => a.playState === "running");
-      last.from = running ? from : { rect: el.getBoundingClientRect(), radius: RADIUS };
+      last.from = running ? from : { rect: el.getBoundingClientRect(), radius: radiusOf(el) };
       anims.forEach((a) => a.cancel());
       content.current = null;
     };
@@ -137,6 +145,10 @@ function DialogContent({ className, children, wide = false, ...props }: Componen
           wide && "w-[760px]",
           className,
         )}
+        onInteractOutside={(e) => {
+          if (e.target instanceof Element && e.target.closest('[data-slot="toast"]')) e.preventDefault();
+          onInteractOutside?.(e);
+        }}
         {...props}
       >
         {children}

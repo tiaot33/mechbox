@@ -65,6 +65,7 @@ export async function rollbackUpdate(record: UpdateRecordID, places: { skill_id:
       ui.toast(t.alreadyRolledBack, "error");
       return true;
     },
+    failed: (r) => (r.installs ?? []).some((x) => x.outcome === RollbackOutcome.RollbackFailed),
   });
   if (!result) return;
   const names = new Map<SkillID, string>([...(result.removed ?? []), ...(result.skills ?? [])].map((x) => [x.skill_id, x.name]));

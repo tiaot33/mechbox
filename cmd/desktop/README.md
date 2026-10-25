@@ -148,7 +148,7 @@ cmd/desktop/
     ├── bindings/           wails3 生成的 TS 绑定与类型，入库，不手改
     └── src/
         ├── App.tsx         主界面：三栏布局与启动时的提示(第一次打开、WSL 发行版没能打开)
-        ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)与少量全局样式
+        ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)、少量全局样式与按状态切换的动画
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
         ├── components/app/ 主界面：顶栏(toolbar)、左栏(left-sidebar)、中间列表(skill-list/:三种页面、分节与节标题、技能行与未纳管技能行、
         │                   作用域摘要与更新列表)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
@@ -193,5 +193,5 @@ cmd/desktop/
 - 禁用的白底控件只把文字调淡，不整体降透明度，否则白色按钮会融进毛玻璃背景;蓝色主按钮禁用时降透明度。
 - 按钮的 `loading` 让文字留着占位、上面盖一个转圈，按钮宽度不变;弹窗贴着窗口上部出现，内容变高时只往下长。
 - 详情抽屉是非模态的 Radix Dialog,在主体区域里原地渲染、没有遮罩：抽屉开着时其他地方照常可用，点别的技能行切换、再点当前那一行关闭，Esc 或关闭按钮也能关。弹窗(`Modal`)是模态的，叠了几层时 Esc 只关最上面一层。
-- `index.css` 只放工具类管不到的：页面基础样式、窗口底色(`window-backdrop`)、渲染出来的 Markdown(`.md`)与拖放中的高亮(按 `data-dragging`、`data-drop-hover` 等属性)。
+- `index.css` 只放工具类管不到的：页面基础样式、窗口底色(`window-backdrop`)、渲染出来的 Markdown(`.md`)、拖放中的高亮(按 `data-dragging`、`data-drop-hover` 等属性),以及状态圈(`.status-mark`)与 toast(`.swipe-toast`)按状态切换的动画。
 - e2e 按两类钩子找元素：通用控件用 `data-slot`(`dialog-content`、`badge`、`list-row` 等)或角色(`role="switch"`、`aria-pressed`);应用自己的结构用类名(`skill-row`、`section-head`、`nav-item`、`set-row` 等)。这些类名不挂样式，改结构时保留。

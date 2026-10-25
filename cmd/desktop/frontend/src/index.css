@@ -311,11 +311,6 @@
     stroke: currentColor;
     stroke-width: var(--sm-stroke);
     stroke-linecap: round;
-    opacity: 0.55;
-    transition: opacity 200ms ease;
-  }
-  .status-mark:not([data-status="pending"]) .status-mark-ring {
-    opacity: 1;
   }
   .status-mark-check,
   .status-mark-cross {

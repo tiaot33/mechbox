@@ -1,10 +1,13 @@
-// 主界面共用的小部件:Agent 标记、计数、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
-import { useRef, useState } from "react";
+// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
+import { useEffect, useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { ListBox, ListRow } from "@/components/ui/list";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
+import { useBusy, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
 
@@ -158,5 +161,28 @@ export function Chip({
         ×
       </button>
     </span>
+  );
+}
+
+// BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈，全部结束后转动的弧合成整圈、画出对勾(有失败的画叉),
+// 停一下再淡出;只有被取消的写操作时直接消失。
+export function BusyMark() {
+  const busy = useBusy();
+  const settled = useSettled();
+  const t = useT();
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  useEffect(() => {
+    if (busy || !settled) return;
+    const timer = window.setTimeout(() => setDismissed(settled.id), 1100);
+    return () => window.clearTimeout(timer);
+  }, [busy, settled]);
+  const status = busy ? "running" : settled && settled.id !== dismissed ? (settled.failed ? "failed" : "done") : null;
+  if (!status) return null;
+  return (
+    <Spinner
+      status={status}
+      title={busy ? t.common.working : undefined}
+      className={cn("text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_0.85s_reverse_both]")}
+    />
   );
 }

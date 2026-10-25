@@ -10,7 +10,7 @@ import { AppService, type Settings } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { useBusy, useUI } from "@/lib/ui";
+import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { useView } from "@/lib/view";
 import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
@@ -18,10 +18,10 @@ import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
+import { BusyMark } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
@@ -34,9 +34,7 @@ type Section = (typeof sections)[number];
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
-  const busy = useBusy();
-  const tt = useT();
-  const t = tt.settings;
+  const t = useT().settings;
   const { setLanguage } = useLanguage();
   const [settings, setSettings] = useState<Settings>();
   const [current, setCurrent] = useState<Section>(sections[0]);
@@ -142,7 +140,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           </Button>
           <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b>{t.title}</b>
-            {busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
+            <BusyMark />
           </span>
         </div>
       </header>

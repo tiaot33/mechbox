@@ -127,7 +127,7 @@ export async function installCollection(id: CollectionID, scope: Scope) {
         rows.push({ label: skill.name, outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
       }
     }
-  });
+  }, { failed: () => rows.some((r) => r.tone === "bad") });
   const installed = rows.filter((r) => r.tone === "ok").length;
   if (rows.some((r) => r.tone !== "ok")) {
     await showResults(t.collectionInstallTitle(label, where), rows, t.collectionSummary(installed, rows.length - installed));

@@ -78,7 +78,7 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
       }
     }
     return { results, rows, uninstalled };
-  });
+  }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });
   if (!done) return;
   const failed = mergeProjectPlaces(s, done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed));
   if (failed.length || done.rows.length) {

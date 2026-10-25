@@ -56,7 +56,7 @@ export async function addCollectionToGroup(groupID: GroupID, collectionID: Colle
       }
     }
     return all;
-  });
+  }, { failed: (all) => all.some((o) => o.error) });
   if (!outcomes) return;
   const added = outcomes.filter((o) => !o.error);
   const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
