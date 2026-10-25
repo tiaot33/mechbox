@@ -169,7 +169,7 @@ export function ScopePanel() {
                 {!open && (
                   <span className="inline-flex items-center gap-[3px] group-hover:hidden">
                     {agentsUsedIn(s, p.id).map((a) => (
-                      <PlaceAgentMark key={a.code} code={a.code} place={p.id} className="size-3 text-[8px]" />
+                      <PlaceAgentMark key={a.code} code={a.code} place={p.id} className="size-3" />
                     ))}
                   </span>
                 )}
