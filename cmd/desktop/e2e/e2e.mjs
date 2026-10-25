@@ -1610,7 +1610,7 @@ await step("详情：用这里的修改更新，连带换到其他地方，能�
   assert(projSkill("gamma").includes("edited by hand"), "取内容的地方不动");
   await row.locator('[data-slot="badge"]', { hasText: "最新" }).waitFor();
   assert((await drawer().locator(".versions li").count()) === versions + 1, "应多一个版本");
-  await drawer().locator(".versions li").first().getByText(/^基于版本 \d+ 的修改$/).waitFor();
+  await drawer().locator(".versions li").first().getByText(/^你的修改（基于版本 \d+）$/).waitFor();
   await btn(drawer(), "更新历史").click();
   const record = modal().locator(".update-record", { hasText: "用 Claude Code · proj-a 里的修改更新" }).first();
   await record.waitFor();

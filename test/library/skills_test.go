@@ -38,7 +38,7 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 		FetchedAt:    fetched.FetchedAt,
 		Source: library.Source{
 			Type:  library.SourceLocal,
-			Label: source,
+			Label: filepath.Dir(source),
 		},
 	}
 	if !reflect.DeepEqual(got, want) || got.FetchedAt.IsZero() {

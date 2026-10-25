@@ -58,6 +58,70 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 	}
 }
 
+// 选的是一个技能文件夹时,来源是它的上一级目录:入库预览只列这个技能,先后从同一个目录入库的技能进同一个集合。
+func TestLocalSkillFolderJoinsTheCollectionOfItsParentDirectory(t *testing.T) {
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "alpha-dir", "SKILL.md"), []byte(skillDocument("alpha", "alpha body")), 0o644)
+	writeFile(t, filepath.Join(root, "beta", "SKILL.md"), []byte(skillDocument("beta", "beta body")), 0o644)
+	writeFile(t, filepath.Join(root, "broken", "SKILL.md"), []byte("# no frontmatter\n"), 0o644)
+
+	preview, err := lib.PreviewFetch(ctx, localRequest(filepath.Join(root, "alpha-dir")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []library.Candidate{{Name: "alpha", Path: "alpha-dir"}}; !reflect.DeepEqual(preview.Candidates, want) || len(preview.Diagnostics) != 0 {
+		t.Fatalf("preview = %#v; want only %#v without the siblings' diagnostics", preview, want)
+	}
+	if preview.Source.Label != root {
+		t.Fatalf("source label = %q; want the parent directory %q", preview.Source.Label, root)
+	}
+	alpha := fetchSkills(t, lib, preview, []string{"alpha"})[0]
+	beta, err := fetchLocalDir(ctx, lib, filepath.Join(root, "beta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beta.CollectionID != alpha.CollectionID {
+		t.Fatalf("collections = %d and %d; want one collection for the directory", alpha.CollectionID, beta.CollectionID)
+	}
+	again, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Collection: alpha.CollectionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []library.Candidate{{Fetched: alpha.ID, Name: "alpha", Path: "alpha-dir"}, {Fetched: beta.ID, Name: "beta", Path: "beta"}}; !reflect.DeepEqual(again.Candidates, want) {
+		t.Fatalf("collection preview = %#v; want %#v", again.Candidates, want)
+	}
+}
+
+// 上一级目录列不出这个技能文件夹时,来源就是这个文件夹本身。
+func TestLocalSkillFolderIsItsOwnSourceWhenTheParentCannotListIt(t *testing.T) {
+	skillInside := t.TempDir()
+	writeFile(t, filepath.Join(skillInside, "SKILL.md"), []byte(skillDocument("outer", "")), 0o644)
+	writeFile(t, filepath.Join(skillInside, "inner", "SKILL.md"), []byte(skillDocument("inner", "")), 0o644)
+	sameName := t.TempDir()
+	writeFile(t, filepath.Join(sameName, "a", "SKILL.md"), []byte(skillDocument("twin", "first")), 0o644)
+	writeFile(t, filepath.Join(sameName, "b", "SKILL.md"), []byte(skillDocument("twin", "second")), 0o644)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeFile(t, filepath.Join(home, "mine", "SKILL.md"), []byte(skillDocument("mine", "")), 0o644)
+	for name, folder := range map[string]string{
+		"parent is a skill":      filepath.Join(skillInside, "inner"),
+		"same name listed first": filepath.Join(sameName, "b"),
+		"parent is home":         filepath.Join(home, "mine"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			preview, err := openTestLibrary(t).PreviewFetch(t.Context(), localRequest(folder))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(preview.Candidates) != 1 || preview.Candidates[0].Path != "." || preview.Source.Label != folder {
+				t.Fatalf("preview = %#v; want the folder itself as the source", preview)
+			}
+		})
+	}
+}
+
 func TestLocalSkillLeavesOutSystemAndCacheFiles(t *testing.T) {
 	lib := openTestLibrary(t)
 	root := t.TempDir()

@@ -10,9 +10,8 @@ import (
 
 // 每个来源一个集合,按首次入库的先后排列而不是按名字;只有一个技能的集合照样列出。
 func TestListCollectionsListsOneCollectionPerSourceInFetchOrder(t *testing.T) {
-	root := t.TempDir()
-	firstSource := filepath.Join(root, "z-first-skill")
-	secondSource := filepath.Join(root, "a-second-skill")
+	firstSource := filepath.Join(t.TempDir(), "z-first-skill")
+	secondSource := filepath.Join(t.TempDir(), "a-second-skill")
 	writeLocalSkill(t, firstSource, "# First\n")
 	writeLocalSkill(t, secondSource, "# Second\n")
 	lib := openTestLibrary(t)

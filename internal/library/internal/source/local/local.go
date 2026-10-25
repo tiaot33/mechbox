@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,18 +28,6 @@ func Matches(input string) bool {
 		(filepath.Separator == '\\' && (strings.HasPrefix(input, ".\\") || strings.HasPrefix(input, "..\\")))
 }
 
-func Locate(path string) (source.Target, error) {
-	root, err := absolute(path)
-	if err != nil {
-		return source.Target{}, fmt.Errorf("resolve source path: %w", err)
-	}
-	encoded, err := json.Marshal(locator{Path: root})
-	if err != nil {
-		return source.Target{}, fmt.Errorf("encode local locator: %w", err)
-	}
-	return source.Target{Type: Type, Locator: encoded}, nil
-}
-
 type Kind struct {
 	maxFiles int
 	maxBytes int64
@@ -46,6 +35,75 @@ type Kind struct {
 
 func New(maxFiles int, maxBytes int64) Kind {
 	return Kind{maxFiles: maxFiles, maxBytes: maxBytes}
+}
+
+func (k Kind) Locate(ctx context.Context, input string) (source.Target, error) {
+	root, err := absolute(input)
+	if err != nil {
+		return source.Target{}, fmt.Errorf("resolve source path: %w", err)
+	}
+	own, err := encode(root)
+	if err != nil {
+		return source.Target{}, err
+	}
+	target := source.Target{Type: Type, Locator: own}
+	parent, name, ok := split(root)
+	if !ok || !skillFolder(ctx, root) {
+		return target, nil
+	}
+	loc, err := encode(parent)
+	if err != nil {
+		return source.Target{}, err
+	}
+	opened, err := k.Open(ctx, loc, "", nil)
+	if ctx.Err() != nil {
+		return source.Target{}, ctx.Err()
+	}
+	if err != nil {
+		return target, nil
+	}
+	skills := opened.(*snapshot).skills
+	for _, skill := range skills {
+		if skill.Path == name {
+			return source.Target{Type: Type, Locator: loc, Names: []string{skill.Name}, Snapshot: &snapshot{skills: skills}}, nil
+		}
+	}
+	return target, nil
+}
+
+func encode(dir string) (source.Locator, error) {
+	encoded, err := json.Marshal(locator{Path: dir})
+	if err != nil {
+		return nil, fmt.Errorf("encode local locator: %w", err)
+	}
+	return encoded, nil
+}
+
+func split(root string) (parent, name string, ok bool) {
+	if distro, linux, ok := wsl.Split(root); ok {
+		linux = path.Clean("/" + linux)
+		if linux == "/" {
+			return "", "", false
+		}
+		return wsl.Join(distro, path.Dir(linux)), path.Base(linux), true
+	}
+	parent = filepath.Dir(root)
+	if home, err := os.UserHomeDir(); parent == root || err == nil && parent == home {
+		return "", "", false
+	}
+	return parent, filepath.Base(root), true
+}
+
+func skillFolder(ctx context.Context, root string) bool {
+	fsys, info, err := directory(ctx, root)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(entries, func(entry fs.DirEntry) bool { return strings.EqualFold(entry.Name(), "SKILL.md") })
 }
 
 func (k Kind) Describe(loc source.Locator) (source.Description, error) {

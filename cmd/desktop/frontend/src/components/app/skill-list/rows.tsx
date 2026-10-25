@@ -116,6 +116,12 @@ export function SkillRow(props: {
           {skill.name}
         </span>
         {same && <SameNameBadge note={same} />}
+        {/* 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。 */}
+        {skill.edited && (
+          <span className="edited-tag shrink-0 text-[10px] text-subtle" title={t.list.hasEditsTitle}>
+            {t.list.hasEdits}
+          </span>
+        )}
         {/* 计入角标的才标出来;点标签直接打开所在集合的更新计划。 */}
         {pending(skill) && hasUpdate(skill) && (
           <Badge asChild tone="warn" className="px-[5px] py-0 text-[9.5px]">
