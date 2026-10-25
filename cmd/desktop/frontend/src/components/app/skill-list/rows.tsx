@@ -19,6 +19,7 @@ import {
   sameNameInLibrary,
   sameNameNote,
   scopeKey,
+  skillSameNameNote,
   shortPath,
   skillScopeIn,
   skillScopeStatus,
@@ -65,7 +66,8 @@ export function SkillRow(props: {
   const selected = useView((v) => v.drawer === skill.id);
   const t = useT();
   const here = scope && !props.fromGlobal ? skillScopeIn(s, skill.id, scope) : undefined;
-  const same = scope && here ? sameNameNote(s, scope, here.folder) : undefined;
+  // 作用域页说这一处的同名后果;所有技能页、更新页说它装出去的各处。
+  const same = scope ? (here ? sameNameNote(s, scope, here.folder) : undefined) : skillSameNameNote(s, skill.id);
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
 

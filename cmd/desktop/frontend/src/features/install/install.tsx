@@ -130,7 +130,7 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   });
   const installed = rows.filter((r) => r.tone === "ok").length;
   if (rows.some((r) => r.tone !== "ok")) {
-    await showResults(t.collectionInstallResults(label, where), rows, t.collectionSummary(installed, rows.length - installed));
+    await showResults(t.collectionInstallTitle(label, where), rows, t.collectionSummary(installed, rows.length - installed));
   } else {
     ui.toast(t.collectionInstalled(label, where, installed));
   }

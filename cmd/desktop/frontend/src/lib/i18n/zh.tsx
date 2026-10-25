@@ -152,7 +152,6 @@ export const zh = {
     collectionUntracked: (n: number, names: string[]) => `${n} 个技能的目标位置已有不是从技能库装的同名文件夹：${names.join("、")}`,
     skipSkills: "跳过这些技能",
     skipSkillsDesc: "其余技能照常安装",
-    collectionInstallResults: (label: string, scope: string) => `把「${label}」的技能装到 ${scope}`,
     collectionInstalled: (label: string, scope: string, n: number) => `已把「${label}」的 ${n} 个技能装到 ${scope}`,
     collectionSummary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 个没装上`,
     groupInstalled: (group: string, scope: string, summary: string) => `已把「${group}」组安装到 ${scope}\n${summary}`,

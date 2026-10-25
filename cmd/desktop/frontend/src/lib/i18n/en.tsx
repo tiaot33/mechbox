@@ -159,7 +159,6 @@ export const en = {
       `${count(n, "skill")} already ${n === 1 ? "has" : "have"} a same-named folder there that the Library didn't install: ${names.join(", ")}`,
     skipSkills: "Skip these skills",
     skipSkillsDesc: "The other skills are installed as usual",
-    collectionInstallResults: (label: string, scope: string) => `Install the skills of “${label}” in ${scope}`,
     collectionInstalled: (label: string, scope: string, n: number) => `Installed ${count(n, "skill")} of “${label}” in ${scope}`,
     collectionSummary: (installed: number, rest: number) => `${installed} installed, ${rest} not installed`,
     groupInstalled: (group: string, scope: string, summary: string) => `Group installed “${group}” in ${scope}\n${summary}`,

@@ -15,7 +15,7 @@ export function SameNameBadge({ note }: { note: { title: string } }) {
 
 export function SameNameLine({ note }: { note: { text: string; title: string } }) {
   return (
-    <p className="same-name-note truncate text-[10.5px] text-warn-strong" title={`${note.text}\n${note.title}`}>
+    <p className="same-name-note truncate text-[10.5px] text-warn-strong" title={note.title}>
       {note.text}
     </p>
   );

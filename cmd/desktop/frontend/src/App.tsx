@@ -4,7 +4,7 @@
 import { useEffect, useRef } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
-import { FilterSidebar } from "@/components/app/filter-sidebar";
+import { LeftSidebar } from "@/components/app/left-sidebar";
 import { ScopePanel } from "@/components/app/scope-panel";
 import { SettingsPage } from "@/features/settings/settings-page";
 import { SkillDrawer } from "@/components/app/skill-drawer/skill-drawer";
@@ -99,7 +99,7 @@ function Main() {
           <>
             {left && (
               <ResizablePane side="left" storageKey="mechbox.left-width" defaultWidth={210} min={180} max={360}>
-                <FilterSidebar />
+                <LeftSidebar />
               </ResizablePane>
             )}
             <SkillList />

@@ -1342,6 +1342,11 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool（库装的），Codex 里两份都会出现");
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
+
+    // 所有技能页的一行也标同名，说的是它装出去的那一处。
+    await clearScope();
+    assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
+    assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
   } finally {
     for (const [folder] of made) fs.rmSync(folder, { recursive: true, force: true });
     await page.locator(".titlebar button[title^='刷新']").click();
@@ -2238,10 +2243,12 @@ await step("移出分组(有组安装时询问去留)", async () => {
 
 // ============ 其他视图 ============
 await step("搜索与 ⌘K、按组分节、侧栏开关", async () => {
+  const total = await page.locator('.tb-crumb [data-slot="count"]').textContent();
   await page.keyboard.press("Meta+k");
   await page.keyboard.type("gam");
   await page.waitForTimeout(200);
   assert((await page.locator(".skill-row").count()) === 1, "搜索 gam 应只剩 1 个");
+  assert.equal(await page.locator('.tb-crumb [data-slot="count"]').textContent(), total, "顶栏的个数不随搜索变");
   assert((await page.locator(".search-line").textContent()).includes("搜索「gam」：1 个结果"), "顶上写出搜的是什么、几个结果");
   await page.keyboard.press("Escape");
   assert((await page.locator(".search-line").count()) === 0, "Esc 清掉搜索");

@@ -25,7 +25,7 @@ import { SyncDialog } from "@/features/settings/sync-dialog";
 
 const noConfig = { sync: false, github_token: false };
 
-export function FilterSidebar() {
+export function LeftSidebar() {
   const s = useSnapshot();
   const page = useCurrentPage();
   // 设置页保存 GitHub 令牌或同步设置后让它失效重读，保存晚于回到主界面完成时也一样。

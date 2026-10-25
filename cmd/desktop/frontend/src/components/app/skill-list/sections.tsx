@@ -30,9 +30,9 @@ import { Icon, SourceIcon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark } from "@/components/app/parts";
 
 // Section 是一节：标题 + 一块行。defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;
-// 收起状态记在界面状态里，按 key 存与默认相反的那些。
+// 收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
 export function Section({
-  sectionKey,
+  id,
   head,
   sub,
   defaultCollapsed = false,
@@ -40,7 +40,7 @@ export function Section({
   headProps,
   children,
 }: {
-  sectionKey: string;
+  id: string;
   head: React.ReactNode;
   sub?: React.ReactNode; // 标题下面的一行(集合里来源新发布的技能)
   defaultCollapsed?: boolean;
@@ -48,10 +48,11 @@ export function Section({
   headProps?: React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, unknown>;
   children: React.ReactNode;
 }) {
-  const flipped = useView((v) => v.collapsed.has(sectionKey));
-  const collapsed = defaultCollapsed !== flipped;
+  const flipped = useView((v) => v.flipped.has(id));
+  const searching = useView((v) => !!v.search.trim());
+  const collapsed = !searching && defaultCollapsed !== flipped;
   return (
-    <section className={cn("list-section mt-3 first:mt-0", className)} data-section={sectionKey}>
+    <section className={cn("list-section mt-3 first:mt-0", className)} data-section={id}>
       <div
         {...headProps}
         className={cn(
@@ -63,7 +64,7 @@ export function Section({
           type="button"
           className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-black/5 hover:text-foreground"
           aria-expanded={!collapsed}
-          onClick={() => toggleSection(sectionKey)}
+          onClick={() => toggleSection(id)}
         >
           <Icon name="down" className={cn("size-2.5 transition-transform", collapsed && "-rotate-90")} />
         </button>
@@ -234,11 +235,11 @@ export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode
 
 // SkillRows 列出一节里的技能：装在至少一个地方的在前;没装的默认折成一行，点开再列出。
 // 搜索时、或这一节一个都没装时(刚入库的集合)直接全部列出。
-export function SkillRows({ sectionKey, skills, render }: { sectionKey: string; skills: Skill[]; render: (skill: Skill) => React.ReactNode }) {
+export function SkillRows({ id, skills, render }: { id: string; skills: Skill[]; render: (skill: Skill) => React.ReactNode }) {
   const s = useSnapshot();
   const t = useT().list;
   const searching = useView((v) => !!v.search.trim());
-  const unfolded = useView((v) => v.unfolded.has(sectionKey));
+  const unfolded = useView((v) => v.unfolded.has(id));
   const used = inUse(s, skills);
   const idle = skills.filter((x) => !used.includes(x));
   const foldable = !searching && used.length > 0 && idle.length > 0;
@@ -251,7 +252,7 @@ export function SkillRows({ sectionKey, skills, render }: { sectionKey: string; 
           type="button"
           className="not-installed-fold flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-white/80 hover:text-foreground"
           aria-expanded={unfolded}
-          onClick={() => toggleUnfolded(sectionKey)}
+          onClick={() => toggleUnfolded(id)}
         >
           <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
           <span className="truncate">{unfolded ? t.hideNotInstalled : t.notInstalledFold(idle.map((x) => x.name))}</span>

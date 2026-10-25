@@ -7,11 +7,10 @@ import { useLoadedSnapshot, reloadLibrary } from "@/lib/library";
 import { pageTitle } from "@/lib/model";
 import { useBusy } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { setSearch, toggleLeft, toggleRight, useCurrentPage, useView } from "@/lib/view";
+import { setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { usePageCount } from "./skill-list/skill-list";
 import { Icon } from "./icons";
 import { titlebarClass } from "./layout";
 import { Count } from "./parts";
@@ -20,6 +19,7 @@ export function Toolbar() {
   const s = useLoadedSnapshot();
   const busy = useBusy();
   const page = useCurrentPage();
+  const listing = usePageListing();
   const text = useView((v) => v.search);
   const left = useView((v) => v.left);
   const right = useView((v) => v.right);
@@ -49,7 +49,7 @@ export function Toolbar() {
         </Button>
         <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
           <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
-          {s && <PageCount />}
+          {listing && <Count value={listing.total} />}
           {busy && <Spinner className="text-muted-foreground" title={tt.common.working} />}
         </span>
       </div>
@@ -74,8 +74,4 @@ export function Toolbar() {
       </div>
     </header>
   );
-}
-
-function PageCount() {
-  return <Count value={usePageCount()} />;
 }

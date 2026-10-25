@@ -244,6 +244,17 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.project_id), shortPath(s, p.project.folder))).join("\n") };
 }
 
+// skillSameNameNote 是库里一个技能在各处的同名说明(所有技能页、更新页的一行用):它装出去的文件夹和同一个 Agent
+// 另一层级的同名文件夹各说一句后果;text 是第一句，title 逐句列出。没有同名时返回 undefined。
+export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
+  const notes = s.sameName.flatMap((p) => [
+    ...(p.global.skill_id === skillID ? [sameNameNote(s, scopeKey(scopeOf(p.agent, 0)), p.global.folder)] : []),
+    ...(p.project.skill_id === skillID ? [sameNameNote(s, scopeKey(scopeOf(p.agent, p.project_id)), p.project.folder)] : []),
+  ]);
+  const texts = [...new Set(notes.flatMap((n) => (n ? [n.text] : [])))];
+  return texts.length ? { text: texts[0], title: texts.join("\n") } : undefined;
+}
+
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
 export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">): Skill[] {
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
@@ -511,8 +522,11 @@ export function matches(search: string, item: { name: string; description?: stri
 
 // ---------- 所有技能页的分节 ----------
 
+// sectionKey 是一节的身份：收起、展开"没装的"、左栏跳转都按它。
+export const sectionKey = (kind: "collection" | "group", id: number) => `${kind}-${id}`;
+
 // SkillSection 是所有技能页的一节：一个集合、一个组，或最后的"其他来源" / "没有归组"(kind 为 rest,id 为 0)。
-// key 是节的身份(收起、展开"没装的"、左栏跳转都按它),形如 "collection-3"、"group-2"、"rest-collection"。
+// key 是节的身份(见 sectionKey),最后一节是 "rest-collection" / "rest-group"。
 export interface SkillSection {
   key: string;
   kind: "collection" | "group" | "rest";
@@ -531,14 +545,14 @@ export function arrangeSkills(s: Snapshot, arrange: Arrange, search: string): Sk
     for (const c of s.collections.filter((c) => (c.skills?.length ?? 0) > 1)) {
       const skills = collectionSkills(s, c);
       skills.forEach((x) => placed.add(x.id));
-      sections.push({ key: `collection-${c.id}`, kind: "collection", id: c.id, skills: skills.filter(hit) });
+      sections.push({ key: sectionKey("collection", c.id), kind: "collection", id: c.id, skills: skills.filter(hit) });
     }
   } else {
     for (const g of s.groups) {
       const members = new Set(g.members ?? []);
       const skills = s.skills.filter((x) => members.has(x.id));
       skills.forEach((x) => placed.add(x.id));
-      sections.push({ key: `group-${g.id}`, kind: "group", id: g.id, skills: skills.filter(hit) });
+      sections.push({ key: sectionKey("group", g.id), kind: "group", id: g.id, skills: skills.filter(hit) });
     }
   }
   sections.push({ key: `rest-${arrange}`, kind: "rest", id: 0, skills: s.skills.filter((x) => !placed.has(x.id) && hit(x)) });
@@ -614,5 +628,36 @@ export function scopeListing(s: Snapshot, key: ScopeKey, search: string): ScopeL
     global: s.skills.filter((x) => globalIDs.has(x.id) && hit(x)),
     globalUnmanaged: globalUnmanaged.filter(hit),
     others: s.skills.filter((x) => !hereIDs.has(x.id) && !globalIDs.has(x.id) && hit(x)),
+  };
+}
+
+// ---------- 每一页列什么、数到几 ----------
+
+// PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
+// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致);
+// results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
+export type PageListing = { total: number; results: number } & (
+  | { kind: "all"; sections: SkillSection[] }
+  | { kind: "updates"; skills: Skill[] }
+  | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
+);
+
+export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
+  if (page.kind === "updates") {
+    const todo = s.skills.filter(pending);
+    const skills = todo.filter((x) => matches(search, x));
+    return { kind: "updates", skills, total: todo.length, results: skills.length };
+  }
+  if (page.kind === "scope") {
+    const all = scopeListing(s, page.scope, "");
+    const listing = search.trim() ? scopeListing(s, page.scope, search) : all;
+    const seen = (l: ScopeListing) => l.here.length + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
+    return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others.length };
+  }
+  return {
+    kind: "all",
+    sections: arrangeSkills(s, arrange, search),
+    total: s.skills.length,
+    results: s.skills.filter((x) => matches(search, x)).length,
   };
 }
