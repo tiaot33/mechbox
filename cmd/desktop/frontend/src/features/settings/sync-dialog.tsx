@@ -1,12 +1,14 @@
 // 同步：推送把整库存成 S3 上这台机器的一份新备份，点了就推，不覆盖任何备份;库没变时不新建。
-// 拉回先列出所有机器的备份，默认选最新的一份，看它的同步计划，用户确认后用它替换本机的库;列出之后那份备份被删掉或改写返回 Conflict,重新列出。
+// 拉回先列出所有机器的备份，默认选别的机器里最新的一份(新机器开着自动推送时，本机刚推的那份几乎是空的),看它的同步计划，用户确认后用它替换本机的库;列出之后那份备份被删掉或改写返回 Conflict,重新列出。
 // 拉回不动 Agent 目录：之后把不在这台机器上的项目改到本机位置，再在各作用域重新安装。
 // 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换;这台机器上拖出来的集合与组的先后清掉，旧库的 ID 对不上新库。
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
 import { CannotPullReason, ErrorCode, type SyncBackup, type SyncBackupID, type SyncPullPlan } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
-import { invalidateSyncStatus } from "@/lib/library";
+import { describeError } from "@/lib/errors";
+import { invalidateSyncStatus, syncSettingsQuery, type LibraryError } from "@/lib/library";
 import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { forgetOrder, openSettings } from "@/lib/view";
@@ -15,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
+import { SyncStatusLine } from "./credentials-form";
 
 function cannotPull(reason: string): string | undefined {
   const t = messages().sync;
@@ -36,13 +39,15 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
   const [working, setWorking] = useState<string | null>(null);
   const [pulled, setPulled] = useState(false);
   const { setLanguage } = useLanguage();
+  const settings = useQuery({ ...syncSettingsQuery, enabled: config.sync }).data;
 
   const push = async () => {
     setWorking("push");
     setPulled(false);
-    await ui.run(() => LibraryService.SyncPush(), {
-      success: (r) => (r.unchanged ? t.pushUnchanged : t.pushDone(r.backup.device)),
+    const result = await ui.run(() => LibraryService.SyncPush(), {
+      success: (r) => (r.remove_error ? undefined : r.unchanged ? t.pushUnchanged : t.pushDone(r.backup.device)),
     });
+    if (result?.remove_error) ui.toast(t.pushedButNotRemoved(describeError(result.remove_error as LibraryError)), "error");
     void invalidateSyncStatus();
     setWorking(null);
   };
@@ -65,7 +70,7 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
       setPull({ backups, selected: null, plan: null });
       return;
     }
-    await choose(backups, backups[0].id);
+    await choose(backups, (backups.find((b) => !b.this_device) ?? backups[0]).id);
   };
 
   const onConflict = (err: { code: ErrorCode }) => {
@@ -144,8 +149,9 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
           </Button>
         </div>
       )}
+      {config.sync && !pull && <SyncStatusLine folder={settings?.folder ?? ""} />}
       {pulled && <Notice tone="ok">{t.pulled}</Notice>}
-      {pull && pull.backups.length === 0 && <Notice>{t.noBackups}</Notice>}
+      {pull && pull.backups.length === 0 && <Notice>{t.noBackups([settings?.bucket, settings?.folder].filter(Boolean).join("/") || "S3")}</Notice>}
       {pull && pull.backups.length > 0 && (
         <>
           <Hint>{t.chooseBackup}</Hint>

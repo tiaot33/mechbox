@@ -25,6 +25,8 @@ type Library struct {
 	distro string
 	mu     sync.RWMutex
 
+	pushMu sync.Mutex
+
 	previewMu sync.Mutex
 	previews  map[FetchPreviewID]*previewState
 	plans     map[UpdatePlanID]*planState

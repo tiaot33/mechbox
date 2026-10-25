@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,8 +231,8 @@ func TestAutoPushDue(t *testing.T) {
 
 	deny = true
 	a.autoPush(ctx)
-	if failure := a.AutoPushFailure(); failure == nil || failure.Error.Code != library.Permission {
-		t.Fatalf("AutoPushFailure() after denied push = %+v; want Permission", failure)
+	if problem := a.PushProblem(); problem == nil || problem.Error.Code != library.Permission || problem.Uploaded {
+		t.Fatalf("PushProblem() after denied push = %+v; want Permission", problem)
 	}
 	if a.pushDue(ctx, time.Now().Add(30*time.Minute)) {
 		t.Error("失败后半小时内 due")
@@ -239,20 +241,85 @@ func TestAutoPushDue(t *testing.T) {
 		t.Error("失败后满一小时不 due")
 	}
 	save(daily)
-	if !a.pushDue(ctx, time.Now()) || a.AutoPushFailure() != nil {
+	if !a.pushDue(ctx, time.Now()) || a.PushProblem() != nil {
 		t.Error("改了同步设置后仍要等重试间隔，或仍报着上次的失败")
 	}
 
 	deny = false
 	a.autoPush(ctx)
-	if failure := a.AutoPushFailure(); failure != nil {
-		t.Fatalf("AutoPushFailure() after push = %+v; want nil", failure)
+	if problem := a.PushProblem(); problem != nil {
+		t.Fatalf("PushProblem() after push = %+v; want nil", problem)
 	}
 	if a.pushDue(ctx, time.Now().Add(23*time.Hour)) {
 		t.Error("推送成功后不到一天 due")
 	}
 	if !a.pushDue(ctx, time.Now().Add(25*time.Hour)) {
 		t.Error("推送成功后满一天不 due")
+	}
+}
+
+// 手动推送和自动推送共用一份提示:备份传上去了、删旧备份被拒时记下(Uploaded),之后完全成功的手动推送清掉它。
+func TestManualPushRecordsAndClearsPushProblem(t *testing.T) {
+	lib := startLibrary(t)
+	var mu sync.Mutex
+	var keys []string
+	denyDelete := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		key := strings.TrimPrefix(r.URL.Path, "/bucket/")
+		switch r.Method {
+		case http.MethodGet:
+			var list strings.Builder
+			for _, k := range keys {
+				list.WriteString("<Contents><Key>" + k + "</Key><ETag>\"e\"</ETag></Contents>")
+			}
+			_, _ = w.Write([]byte("<ListBucketResult>" + list.String() + "</ListBucketResult>"))
+		case http.MethodPut:
+			keys = append(keys, key)
+			w.Header().Set("ETag", `"e"`)
+		case http.MethodHead:
+			w.Header().Set("ETag", `"e"`)
+		case http.MethodDelete:
+			if denyDelete {
+				http.Error(w, "denied", http.StatusForbidden)
+				return
+			}
+			keys = slices.DeleteFunc(keys, func(k string) bool { return k == key })
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(server.Close)
+	a := NewAppService(lib)
+	ctx := t.Context()
+	if err := lib.SetSyncSettings(ctx, library.SyncSettings{Endpoint: server.URL, Bucket: "bucket", AccessKeyID: "key", SecretAccessKey: "secret", Keep: 1}); err != nil {
+		t.Fatal(err)
+	}
+	push := func() library.SyncPushResult {
+		t.Helper()
+		time.Sleep(2 * time.Millisecond)
+		result, err := lib.SyncPush(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	push()
+	mu.Lock()
+	denyDelete = true
+	mu.Unlock()
+	if result := push(); result.RemoveError == nil || result.RemoveError.Code != library.Permission {
+		t.Fatalf("SyncPush() with removal denied = %+v; want RemoveError Permission", result)
+	}
+	if problem := a.PushProblem(); problem == nil || !problem.Uploaded || problem.Error.Code != library.Permission {
+		t.Fatalf("PushProblem() = %+v; want an uploaded backup whose old ones could not be removed", problem)
+	}
+	mu.Lock()
+	denyDelete = false
+	mu.Unlock()
+	push()
+	if problem := a.PushProblem(); problem != nil {
+		t.Fatalf("PushProblem() after a clean push = %+v; want nil", problem)
 	}
 }
 

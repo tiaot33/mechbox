@@ -1969,6 +1969,12 @@ export interface SyncPushResult {
      * Unchanged 表示本机的库和这台机器最新的那份备份内容相同,没有新建备份。
      */
     "unchanged"?: boolean;
+
+    /**
+     * RemoveError 是删超出份数的旧备份失败的原因(如存储桶不给删除权限);这时备份已经在 S3 上,推送算成功,
+     * 下一次推送会再删。界面据此提示「已推送,但没能删掉旧备份」。
+     */
+    "remove_error"?: Error | null;
 }
 
 /**
@@ -2029,14 +2035,14 @@ export interface SyncSettings {
  */
 export interface SyncStatus {
     /**
-     * Device 是这台机器在 S3 上的设备目录名:主机名加一段随机后缀,第一次用到时生成,之后不变,不能设置;
+     * Device 是这台机器在 S3 上的设备目录名:主机名(第一个点之前的部分)加一段随机后缀,第一次用到时生成,之后不变,不能设置;
      * 两台主机名相同的机器也各用各的目录。
      */
     "device": string;
 
     /**
-     * LastPushedAt 是这台机器上次推送成功的时间(含 S3 上已是同样内容、没有新建备份的那次);没推送过为零值。
-     * 应用据此和 [SyncSettings].AutoPush 判断该不该自动推送。
+     * LastPushedAt 是这台机器上次推送成功的时间(含 S3 上已是同样内容、没有新建备份的那次);没推送过,
+     * 或那次推到的服务地址、存储桶、文件夹和现在的同步设置不同时为零值。应用据此和 [SyncSettings].AutoPush 判断该不该自动推送。
      */
     "last_pushed_at"?: string;
 }

@@ -353,8 +353,13 @@ func (s *LibraryService) SyncStatus(ctx context.Context) (library.SyncStatus, er
 	return settle(s.lib.SyncStatus(ctx))(ctx)
 }
 
+// SyncPush 推送后让应用设置服务记下这次出的问题(或清掉上次的):手动推送和自动推送共用一份提示。
 func (s *LibraryService) SyncPush(ctx context.Context) (library.SyncPushResult, error) {
-	return settle(s.lib.SyncPush(ctx))(ctx)
+	result, err := s.lib.SyncPush(ctx)
+	if ctx.Err() == nil && s.afterSyncPush != nil {
+		s.afterSyncPush(result, err)
+	}
+	return settle(result, err)(ctx)
 }
 
 func (s *LibraryService) ListSyncBackups(ctx context.Context) ([]library.SyncBackup, error) {

@@ -2385,8 +2385,8 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
 });
 
 await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认这里填的", async () => {
-  // sync.device、sync.last_pushed_at 是同步状态(设备目录与上次推送时间),不是设置页填的
-  const isSyncSetting = (k) => k.startsWith("sync.") && k !== "sync.device" && k !== "sync.last_pushed_at";
+  // sync.device、sync.last_pushed_at、sync.last_pushed_to 是同步状态(设备目录与上次推送),不是设置页填的
+  const isSyncSetting = (k) => k.startsWith("sync.") && !["sync.device", "sync.last_pushed_at", "sync.last_pushed_to"].includes(k);
   const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
   const field = (name, label) => section(name).locator('[data-slot="field"]', { hasText: label }).locator("input");
   const sidebarSync = () => page.locator(".a-left .nav-item", { hasText: "同步" });
@@ -2438,7 +2438,8 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await page.waitForSelector(".a-list");
   await slowSent;
   await page.unroute("**/wails/runtime", slowSave);
-  await sidebarSays("每天推送", "保存晚于回到主界面完成时，侧栏也应显示每天推送");
+  // 开了每天自动推送，保存后立即推一次;服务地址是 zip 服务、不是 S3,推送失败，侧栏改写推送失败
+  await sidebarSays("推送失败", "保存晚于回到主界面完成时，侧栏也应跟上：自动推送失败后显示推送失败");
   const stored = config();
   assert.deepStrictEqual(
     Object.fromEntries(Object.entries(stored).filter(([k]) => k === "github_token" || isSyncSetting(k))),
@@ -2452,9 +2453,10 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   // 重新载入后仍在;侧栏与同步框认设置页的值，列出备份发到设置页填的服务地址(zip 服务上没有这个存储桶，列出报错)
   await page.reload();
   await page.waitForSelector(".a-list");
-  await sidebarSays("每天推送", "填好同步设置后侧栏应显示每天推送");
+  await sidebarSays("推送失败", "重新载入后侧栏应仍显示推送失败");
   await sidebarSync().click();
   assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
+  await modal().locator('[data-slot="notice"]', { hasText: "推送失败，S3 上没有新备份" }).waitFor({ timeout: 5000 }).catch(() => assert.fail("同步弹窗应写出上一次推送失败的原因"));
   await btn(modal(), "从 S3 拉回…").click();
   await toast("", "error");
   assert(fs.readFileSync(`${ZIP_DIR}/../zip.log`, "utf8").includes("GET /e2e-bucket?list-type=2"), "列出备份应发到设置页填的服务地址");

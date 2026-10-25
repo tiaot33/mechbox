@@ -135,23 +135,27 @@ func syncFolder(folder string) string {
 
 // SyncStatus 是这台机器的同步状态,设置页据此写「这台机器的备份在 team/mechbox/MacBook-Pro-3f9a2c/,上次推送:3 小时前」。
 type SyncStatus struct {
-	// Device 是这台机器在 S3 上的设备目录名:主机名加一段随机后缀,第一次用到时生成,之后不变,不能设置;
+	// Device 是这台机器在 S3 上的设备目录名:主机名(第一个点之前的部分)加一段随机后缀,第一次用到时生成,之后不变,不能设置;
 	// 两台主机名相同的机器也各用各的目录。
 	Device string `json:"device"`
-	// LastPushedAt 是这台机器上次推送成功的时间(含 S3 上已是同样内容、没有新建备份的那次);没推送过为零值。
-	// 应用据此和 [SyncSettings].AutoPush 判断该不该自动推送。
+	// LastPushedAt 是这台机器上次推送成功的时间(含 S3 上已是同样内容、没有新建备份的那次);没推送过,
+	// 或那次推到的服务地址、存储桶、文件夹和现在的同步设置不同时为零值。应用据此和 [SyncSettings].AutoPush 判断该不该自动推送。
 	LastPushedAt time.Time `json:"last_pushed_at,omitzero"`
 }
 
 // SyncStatus 返回这台机器的同步状态,不连 S3。设备目录名还没生成时在这里生成并存进数据库。
 func (l *Library) SyncStatus(ctx context.Context) (status SyncStatus, err error) {
 	defer func() { err = typedError(err) }()
+	target, err := l.syncTarget(ctx)
+	if err != nil {
+		return SyncStatus{}, err
+	}
 	state, err := l.syncState(ctx)
 	if err != nil {
 		return SyncStatus{}, err
 	}
 	status.Device = state.Device
-	if at, err := time.Parse(time.RFC3339Nano, state.LastPushedAt); err == nil {
+	if at, err := time.Parse(time.RFC3339Nano, state.LastPushedAt); err == nil && state.LastPushedTo == target.location() {
 		status.LastPushedAt = at
 	}
 	return status, nil
@@ -170,27 +174,27 @@ func (l *Library) syncState(ctx context.Context) (store.SyncState, error) {
 	return state, l.store.SetSyncState(ctx, state)
 }
 
-func (l *Library) recordPush(ctx context.Context, at time.Time) error {
+func (l *Library) recordPush(ctx context.Context, at time.Time, target syncTarget) error {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	state, err := l.store.SyncState(ctx)
 	if err != nil {
 		return err
 	}
-	state.LastPushedAt = at.UTC().Format(time.RFC3339Nano)
+	state.LastPushedAt, state.LastPushedTo = at.UTC().Format(time.RFC3339Nano), target.location()
 	return l.store.SetSyncState(ctx, state)
 }
 
 func deviceName() string {
 	name, _ := os.Hostname()
-	name = strings.TrimSuffix(name, ".local")
+	name, _, _ = strings.Cut(name, ".")
 	name = strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.' {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
 			return r
 		}
 		return '-'
 	}, name)
-	name = strings.Trim(name, "-.")
+	name = strings.Trim(name, "-")
 	if name == "" {
 		return "device"
 	}
@@ -211,18 +215,14 @@ func (l *Library) syncTarget(ctx context.Context) (syncTarget, error) {
 		return syncTarget{}, err
 	}
 	settings := syncSettings(stored)
-	target := syncTarget{
+	return syncTarget{
 		s3: s3.Settings{
 			Endpoint: settings.Endpoint, Bucket: settings.Bucket, Region: settings.Region,
 			AccessKeyID: settings.AccessKeyID, SecretAccessKey: settings.SecretAccessKey, SessionToken: settings.SessionToken,
 		},
 		folder: settings.Folder,
 		keep:   cmp.Or(settings.Keep, DefaultSyncKeep),
-	}
-	if target.s3.Bucket == "" || target.s3.AccessKeyID == "" || target.s3.SecretAccessKey == "" {
-		return syncTarget{}, fmt.Errorf("S3 bucket and AWS credentials are required: %w", s3.ErrNotConfigured)
-	}
-	return target, nil
+	}, nil
 }
 
 func (t syncTarget) prefix() string {
@@ -232,11 +232,39 @@ func (t syncTarget) prefix() string {
 	return t.folder + "/"
 }
 
+func (t syncTarget) location() string {
+	return t.s3.Endpoint + "\n" + t.s3.Bucket + "\n" + t.folder
+}
+
 const (
 	backupPrefix     = "library-"
 	backupSuffix     = ".db"
 	backupTimeLayout = "20060102T150405.000Z"
 )
+
+func parseBackupKey(key, prefix string) (device string, pushedAt time.Time, ok bool) {
+	rest, ok := strings.CutPrefix(key, prefix)
+	if !ok {
+		return "", time.Time{}, false
+	}
+	device, name, ok := strings.Cut(rest, "/")
+	if !ok || device == "" {
+		return "", time.Time{}, false
+	}
+	stamp, ok := strings.CutPrefix(name, backupPrefix)
+	if !ok {
+		return "", time.Time{}, false
+	}
+	stamp, ok = strings.CutSuffix(stamp, backupSuffix)
+	if !ok {
+		return "", time.Time{}, false
+	}
+	pushedAt, err := time.Parse(backupTimeLayout, stamp)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	return device, pushedAt, true
+}
 
 // SyncBackupID 标识 S3 上的一份备份:从 [SyncBackup].ID 原样传回 [Library.PlanSyncPull] / [Library.SyncPull],界面不展示。
 type SyncBackupID string
@@ -253,23 +281,52 @@ type SyncBackup struct {
 	PushedAt time.Time `json:"pushed_at"`
 }
 
+func (t syncTarget) backups(objects []s3.Object, thisDevice string) []SyncBackup {
+	backups := []SyncBackup{}
+	for _, object := range objects {
+		if device, pushedAt, ok := parseBackupKey(object.Key, t.prefix()); ok {
+			backups = append(backups, SyncBackup{
+				ID:         SyncBackupID(object.ETag + " " + object.Key),
+				Device:     device,
+				ThisDevice: device == thisDevice,
+				PushedAt:   pushedAt,
+			})
+		}
+	}
+	slices.SortFunc(backups, func(a, b SyncBackup) int {
+		return cmp.Or(b.PushedAt.Compare(a.PushedAt), strings.Compare(string(b.ID), string(a.ID)))
+	})
+	return backups
+}
+
+func (id SyncBackupID) key() string {
+	_, key, _ := strings.Cut(string(id), " ")
+	return key
+}
+
 // SyncPushResult 是一次推送的结果。
 type SyncPushResult struct {
 	// Backup 是 S3 上这台机器最新的那份备份:刚推送的,或 Unchanged 时原有的那份。
 	Backup SyncBackup `json:"backup"`
 	// Unchanged 表示本机的库和这台机器最新的那份备份内容相同,没有新建备份。
 	Unchanged bool `json:"unchanged,omitempty"`
+	// RemoveError 是删超出份数的旧备份失败的原因(如存储桶不给删除权限);这时备份已经在 S3 上,推送算成功,
+	// 下一次推送会再删。界面据此提示「已推送,但没能删掉旧备份」。
+	RemoveError *Error `json:"remove_error,omitempty"`
 }
 
 // SyncPush 把本机的库推送到 S3,作为这台机器的一份新备份:<文件夹>/<设备目录>/library-<推送时间>.db。
 // 推送的是调用时本机库的完整内容(只属于这台机器的同步设置与 WSL 发行版除外)。从不覆盖已有的备份,
-// 本机的库和这台机器最新的那份备份内容相同时不新建(Unchanged),免得自动推送用同样的副本占满份数。
-// 之后删掉这台机器超出保留份数([SyncSettings].Keep)的最旧备份;别的设备的备份不动。
-// 手动推送与应用按 [SyncSettings].AutoPush 自动推送都调用它,不需要先生成计划。
-// S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable;
-// 备份已经传上去、删旧备份失败时也返回这些错误(下一次推送会再删),[SyncStatus].LastPushedAt 照样更新。
+// 本机的库和这台机器最新的那份备份内容相同时不新建(Unchanged),免得自动推送用同样的副本占满份数;
+// 只是检查更新时记下的检查时间变了不算变化。
+// 之后删掉这台机器超出保留份数([SyncSettings].Keep)的最旧备份,刚推送的(或 Unchanged 时最新的)那份始终留着;
+// 别的设备的备份不动。删旧备份失败时推送仍算成功,原因放在 RemoveError。
+// 手动推送与应用按 [SyncSettings].AutoPush 自动推送都调用它,不需要先生成计划;同一个 Library 上的推送依次进行。
+// S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) SyncPush(ctx context.Context) (result SyncPushResult, err error) {
 	defer func() { err = typedError(err) }()
+	l.pushMu.Lock()
+	defer l.pushMu.Unlock()
 	target, err := l.syncTarget(ctx)
 	if err != nil {
 		return SyncPushResult{}, err
@@ -278,86 +335,47 @@ func (l *Library) SyncPush(ctx context.Context) (result SyncPushResult, err erro
 	if err != nil {
 		return SyncPushResult{}, err
 	}
-	devicePrefix := target.prefix() + state.Device + "/"
-	objects, err := s3.List(ctx, target.s3, devicePrefix)
+	objects, err := s3.List(ctx, target.s3, target.prefix()+state.Device+"/")
 	if err != nil {
 		return SyncPushResult{}, err
 	}
-	own := backupObjects(objects, devicePrefix)
+	own := target.backups(objects, state.Device)
 	data, digest, err := l.snapshot(ctx)
 	if err != nil {
 		return SyncPushResult{}, err
 	}
 	unchanged := false
 	if len(own) > 0 {
-		newest, err := s3.Head(ctx, target.s3, own[len(own)-1].Key)
+		newest, err := s3.Head(ctx, target.s3, own[0].ID.key())
 		if err != nil && !errors.Is(err, s3.ErrNotFound) {
 			return SyncPushResult{}, err
 		}
 		unchanged = err == nil && newest.SHA256 == digest
 	}
 	if unchanged {
-		result = SyncPushResult{Backup: syncBackup(own[len(own)-1], target.prefix(), state.Device), Unchanged: true}
+		result = SyncPushResult{Backup: own[0], Unchanged: true}
+		own = own[1:]
 	} else {
-		now := time.Now().UTC()
-		key := devicePrefix + backupPrefix + now.Format(backupTimeLayout) + backupSuffix
+		key := target.prefix() + state.Device + "/" + backupPrefix + time.Now().UTC().Format(backupTimeLayout) + backupSuffix
 		object, err := s3.Put(ctx, target.s3, key, data, digest)
 		if err != nil {
 			return SyncPushResult{}, err
 		}
-		own = append(own, object)
-		slices.SortFunc(own, func(a, b s3.Object) int { return strings.Compare(a.Key, b.Key) })
-		result = SyncPushResult{Backup: syncBackup(object, target.prefix(), state.Device)}
+		result = SyncPushResult{Backup: target.backups([]s3.Object{object}, state.Device)[0]}
 	}
-	if err := l.recordPush(ctx, time.Now()); err != nil {
+	if err := l.recordPush(ctx, time.Now(), target); err != nil {
 		return SyncPushResult{}, err
 	}
-	for _, old := range own[:max(len(own)-target.keep, 0)] {
-		if err := s3.Delete(ctx, target.s3, old.Key); err != nil && !errors.Is(err, s3.ErrNotFound) {
-			return result, fmt.Errorf("sync push: remove old backup %s: %w", old.Key, err)
+	for _, old := range own[min(max(target.keep-1, 0), len(own)):] {
+		if err := s3.Delete(ctx, target.s3, old.ID.key()); err != nil && !errors.Is(err, s3.ErrNotFound) {
+			result.RemoveError = ErrorOf(typedError(fmt.Errorf("sync push: remove old backup %s: %w", old.ID.key(), err)))
+			break
 		}
 	}
 	return result, nil
 }
 
-func backupObjects(objects []s3.Object, devicePrefix string) []s3.Object {
-	var backups []s3.Object
-	for _, object := range objects {
-		name, ok := strings.CutPrefix(object.Key, devicePrefix)
-		if ok && isBackupName(name) {
-			backups = append(backups, object)
-		}
-	}
-	slices.SortFunc(backups, func(a, b s3.Object) int { return strings.Compare(a.Key, b.Key) })
-	return backups
-}
-
-func isBackupName(name string) bool {
-	stamp, ok := strings.CutPrefix(name, backupPrefix)
-	if !ok {
-		return false
-	}
-	stamp, ok = strings.CutSuffix(stamp, backupSuffix)
-	if !ok {
-		return false
-	}
-	_, err := time.Parse(backupTimeLayout, stamp)
-	return err == nil
-}
-
-func syncBackup(object s3.Object, prefix, thisDevice string) SyncBackup {
-	device, name, _ := strings.Cut(strings.TrimPrefix(object.Key, prefix), "/")
-	stamp := strings.TrimSuffix(strings.TrimPrefix(name, backupPrefix), backupSuffix)
-	pushed, _ := time.Parse(backupTimeLayout, stamp)
-	return SyncBackup{
-		ID:         SyncBackupID(object.ETag + " " + object.Key),
-		Device:     device,
-		ThisDevice: device == thisDevice,
-		PushedAt:   pushed,
-	}
-}
-
-// ListSyncBackups 列出 S3 上同步设置的文件夹里所有设备的备份,最新推送的在前;拉回前让用户选从哪一份恢复,默认选第一份。
+// ListSyncBackups 列出 S3 上同步设置的文件夹里所有设备的备份,最新推送的在前;拉回前让用户选从哪一份恢复。
 // 文件夹里不是本应用备份的对象不列出。S3 上还没有备份时返回空列表。
 // S3 未配置返回 NotConfigured,凭证被拒返回 Permission,连不上返回 SourceUnreachable。
 func (l *Library) ListSyncBackups(ctx context.Context) (backups []SyncBackup, err error) {
@@ -374,17 +392,7 @@ func (l *Library) ListSyncBackups(ctx context.Context) (backups []SyncBackup, er
 	if err != nil {
 		return nil, err
 	}
-	backups = []SyncBackup{}
-	for _, object := range objects {
-		device, name, ok := strings.Cut(strings.TrimPrefix(object.Key, target.prefix()), "/")
-		if ok && device != "" && isBackupName(name) {
-			backups = append(backups, syncBackup(object, target.prefix(), state.Device))
-		}
-	}
-	slices.SortFunc(backups, func(a, b SyncBackup) int {
-		return cmp.Or(b.PushedAt.Compare(a.PushedAt), strings.Compare(string(b.ID), string(a.ID)))
-	})
-	return backups, nil
+	return target.backups(objects, state.Device), nil
 }
 
 // CannotPullReason 是拉回的同步计划里不能拉回的原因,界面按它说明下一步该做什么。

@@ -38,13 +38,14 @@ func (s *SyncSettings) fields() []configField {
 }
 
 type SyncState struct {
-	Device, LastPushedAt string
+	Device, LastPushedAt, LastPushedTo string
 }
 
 func (s *SyncState) fields() []configField {
 	return []configField{
 		{"device", &s.Device},
 		{"last_pushed_at", &s.LastPushedAt},
+		{"last_pushed_to", &s.LastPushedTo},
 	}
 }
 

@@ -26,14 +26,6 @@ export interface AppInfo {
 }
 
 /**
- * AutoPushFailure 是上一次自动推送失败的时间与原因。
- */
-export interface AutoPushFailure {
-    "at": string;
-    "error": library$0.Error | null;
-}
-
-/**
  * CheckInterval 是自动检查更新的间隔。
  */
 export enum CheckInterval {
@@ -107,6 +99,15 @@ export enum Language {
      */
     LanguageEn = "en",
 };
+
+/**
+ * PushProblem 是上一次推送(自动或手动)出的问题:推送失败,或备份已经传上去、删超出份数的旧备份失败(Uploaded)。
+ */
+export interface PushProblem {
+    "at": string;
+    "error": library$0.Error | null;
+    "uploaded"?: boolean;
+}
 
 /**
  * Settings 是设置页里的应用设置。WSLDistro 存在技能库里、只属于这台机器(Library.SetWSLDistro);

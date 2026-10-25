@@ -4,7 +4,7 @@
 /**
  * AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、自动推送、Dock 角标、关闭窗口后留在菜单栏。
  * 自动检查只读(检查更新不改技能，也不碰装出去的文件夹),结果不发系统通知，只体现在角标和侧栏计数上。
- * 自动推送按同步设置里的间隔把库推送成 S3 上这台机器的一份新备份，从不自动拉回;失败的原因由 AutoPushFailure 给出。
+ * 自动推送按同步设置里的间隔把库推送成 S3 上这台机器的一份新备份，从不自动拉回;推送出的问题由 PushProblem 给出。
  * @module
  */
 
@@ -15,14 +15,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
-
-/**
- * AutoPushFailure 返回上一次自动推送失败的时间与原因;之后自动推送成功了、或改了同步设置时为 nil。
- * 设置页在它比 SyncStatus.LastPushedAt 晚时显示(之后手动推送成功过就不再显示)。只记在内存里，重启后由下一次自动推送重新得出。
- */
-export function AutoPushFailure(): $CancellablePromise<$models.AutoPushFailure | null> {
-    return $Call.ByID(907940409);
-}
 
 /**
  * FirstOpen 在这个数据库第一次被 app 打开时返回 true,并在技能库的应用设置里记下已经打开过,之后(含重启)都返回 false。
@@ -39,6 +31,14 @@ export function FirstOpen(): $CancellablePromise<boolean> {
  */
 export function Language(): $CancellablePromise<$models.Language> {
     return $Call.ByID(537396504);
+}
+
+/**
+ * PushProblem 返回上一次推送出的问题;上一次推送完全成功、或之后改了同步设置时为 nil。
+ * 设置页、左栏与同步弹窗据此提示，免得用户以为一直在备份。只记在内存里，重启后由下一次推送重新得出。
+ */
+export function PushProblem(): $CancellablePromise<$models.PushProblem | null> {
+    return $Call.ByID(4012717625);
 }
 
 /**
@@ -83,7 +83,7 @@ export function Settings(): $CancellablePromise<$models.Settings> {
  * (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
  * 退出时技能库关上以后，再删除数据库(连同存在里面的设置、令牌与同步设置)与系统给应用留下的数据，
  * 并把应用移到废纸篓(移不动时在 Finder 中选中它)。
- * 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的库不动。
+ * 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的备份不动。
  */
 export function UninstallApp(opts: $models.UninstallOptions): $CancellablePromise<$models.UninstallResult> {
     return $Call.ByID(4285814079, opts);

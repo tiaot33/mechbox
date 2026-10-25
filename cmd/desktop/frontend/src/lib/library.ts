@@ -180,14 +180,13 @@ export function invalidateSyncSettings() {
   return queryClient.invalidateQueries({ queryKey: syncSettingsQuery.queryKey });
 }
 
-// syncStatusQuery 是这台机器在 S3 上的设备目录与上次推送的时间，加上 Go 端记下的上一次自动推送失败。
-// 失败比上次推送晚才算数：之后手动推送成功过就不再显示。Go 端自动推送后发 sync-pushed 事件，App 据此重读。
+// syncStatusQuery 是这台机器在 S3 上的设备目录与上次推送的时间，加上 Go 端记下的上一次推送(自动或手动)出的问题。
+// Go 端自动推送后发 sync-pushed 事件，App 据此重读;手动推送、改同步设置后由发起处重读。
 export const syncStatusQuery = queryOptions({
   queryKey: ["sync-status"],
   queryFn: async ({ signal }) => {
-    const [status, failure] = await Promise.all([wails(signal, LibraryService.SyncStatus()), wails(signal, AppService.AutoPushFailure())]);
-    const pushed = status.last_pushed_at ? Date.parse(status.last_pushed_at) : 0;
-    return { ...status, failure: failure && Date.parse(failure.at) > pushed ? failure : null };
+    const [status, problem] = await Promise.all([wails(signal, LibraryService.SyncStatus()), wails(signal, AppService.PushProblem())]);
+    return { ...status, problem };
   },
 });
 

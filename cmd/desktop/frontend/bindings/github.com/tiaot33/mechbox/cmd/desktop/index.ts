@@ -16,8 +16,8 @@ export {
 
 export type {
     AppInfo,
-    AutoPushFailure,
     ConfigStatus,
+    PushProblem,
     Settings,
     UninstallOptions,
     UninstallResult

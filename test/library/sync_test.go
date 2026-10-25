@@ -398,7 +398,7 @@ func pullLatest(t *testing.T, lib *library.Library) library.SyncPullPlan {
 	return plan
 }
 
-var deviceName = regexp.MustCompile(`^[A-Za-z0-9._-]+-[0-9a-f]{6}$`)
+var deviceName = regexp.MustCompile(`^[A-Za-z0-9_-]+-[0-9a-f]{6}$`)
 
 // 推送在 <文件夹>/<设备目录>/ 下新建一份备份,不覆盖已有的;本机的库没变时不新建。
 // 设备目录是主机名加随机后缀,两台主机名相同的机器也各用各的目录。
@@ -526,7 +526,7 @@ func TestSyncPushKeepsConfiguredNumberOfBackups(t *testing.T) {
 	}
 }
 
-// 备份已经传上去、删旧备份被拒时,推送返回错误,但这份备份留在 S3 上,上次推送的时间照样更新;
+// 备份已经传上去、删旧备份被拒时,推送仍算成功,删不掉的原因放在 RemoveError,上次推送的时间照样更新;
 // 能删以后,下一次推送把超出的删掉。
 func TestSyncPushReportsFailedRemovalAfterUploading(t *testing.T) {
 	stub := newS3Stub(t)
@@ -542,8 +542,9 @@ func TestSyncPushReportsFailedRemovalAfterUploading(t *testing.T) {
 	}
 	stub.denyDelete = true
 	before := time.Now()
-	if _, err := lib.SyncPush(ctx); !library.IsCode(err, library.Permission) {
-		t.Fatalf("SyncPush() with removal denied = %v, want Permission", err)
+	result := pushBackup(t, lib)
+	if result.Unchanged || result.RemoveError == nil || result.RemoveError.Code != library.Permission {
+		t.Fatalf("SyncPush() with removal denied = %#v, want a new backup and RemoveError Permission", result)
 	}
 	if own := stub.keys(stub.folder() + device + "/"); len(own) != 2 {
 		t.Fatalf("objects = %q, want the new backup uploaded and the old one kept", own)
@@ -552,11 +553,114 @@ func TestSyncPushReportsFailedRemovalAfterUploading(t *testing.T) {
 		t.Fatalf("SyncStatus() = %#v, %v; want LastPushedAt updated", status, err)
 	}
 	stub.denyDelete = false
-	if result := pushBackup(t, lib); !result.Unchanged {
-		t.Fatalf("retry = %#v, want Unchanged", result)
+	if retry := pushBackup(t, lib); !retry.Unchanged || retry.RemoveError != nil {
+		t.Fatalf("retry = %#v, want Unchanged without RemoveError", retry)
+	}
+	if own := stub.keys(stub.folder() + device + "/"); len(own) != 1 || !strings.HasSuffix(string(result.Backup.ID), own[0]) {
+		t.Fatalf("objects after retry = %q, want only the backup pushed last", own)
+	}
+}
+
+// 这台机器的时钟往回调过时,刚推送的备份按时间排在旧备份后面,删超出份数的旧备份时也不删它。
+func TestSyncPushNeverRemovesTheBackupItJustPushed(t *testing.T) {
+	stub := newS3Stub(t)
+	settings := stub.settings
+	settings.Keep = 1
+	lib := openTestLibrary(t)
+	setSyncSettings(t, lib, settings)
+	device := syncDevice(t, lib)
+	future := stub.folder() + device + "/library-20991231T000000.000Z.db"
+	stub.put(future, []byte("pushed before the clock went back"))
+	pushed := pushBackup(t, lib)
+	if own := stub.keys(stub.folder() + device + "/"); len(own) != 1 || !strings.HasSuffix(string(pushed.Backup.ID), own[0]) {
+		t.Fatalf("objects = %q, want only the backup just pushed %q", own, pushed.Backup.ID)
+	}
+}
+
+// 同时发起的两次推送依次进行:第二次看到第一次刚推的备份,内容相同不再新建,保留份数不会被超出。
+func TestConcurrentSyncPushesKeepTheLimit(t *testing.T) {
+	stub := newS3Stub(t)
+	settings := stub.settings
+	settings.Keep = 1
+	lib := openTestLibrary(t)
+	setSyncSettings(t, lib, settings)
+	device := syncDevice(t, lib)
+	pushBackup(t, lib)
+	if _, err := lib.CreateGroup(t.Context(), "changed"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	results := make([]library.SyncPushResult, 2)
+	errs := make([]error, 2)
+	for i := range 2 {
+		wg.Go(func() { results[i], errs[i] = lib.SyncPush(t.Context()) })
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Unchanged == results[1].Unchanged {
+		t.Fatalf("results = %#v, want one new backup and one Unchanged", results)
 	}
 	if own := stub.keys(stub.folder() + device + "/"); len(own) != 1 {
-		t.Fatalf("objects after retry = %q, want one", own)
+		t.Fatalf("objects = %q, want one", own)
+	}
+}
+
+// 「没变化」按库里的内容判断:检查更新结论没变、只记下检查时间,同样的应用设置重新保存,都不算变化;
+// 备注里 NUL 字符之后的改动算变化。
+func TestSyncPushDetectsChangesByContent(t *testing.T) {
+	stub := newS3Stub(t)
+	lib := stub.open(t)
+	ctx := t.Context()
+	skill := fetchNamedSkill(t, lib, "keeper")
+	settings := map[string]string{"language": "en", "auto_check": "false", "dock_badge": "true", "check_interval": "daily", "auto_translate": "true"}
+	setAppSettings(t, lib, settings)
+	check := func() {
+		t.Helper()
+		if _, err := lib.CheckUpdates(ctx, []library.CollectionID{skill.CollectionID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check()
+	pushBackup(t, lib)
+	check()
+	for range 5 {
+		setAppSettings(t, lib, settings)
+	}
+	if result := pushBackup(t, lib); !result.Unchanged {
+		t.Fatalf("push after an update check and re-saving the same settings = %#v, want Unchanged", result)
+	}
+	if err := lib.SetSkillNote(ctx, skill.ID, "note\x00first"); err != nil {
+		t.Fatal(err)
+	}
+	pushBackup(t, lib)
+	if err := lib.SetSkillNote(ctx, skill.ID, "note\x00second"); err != nil {
+		t.Fatal(err)
+	}
+	if result := pushBackup(t, lib); result.Unchanged {
+		t.Fatal("push after changing the note after a NUL = Unchanged, want a new backup")
+	}
+}
+
+// 改了推到哪里(服务地址、存储桶或文件夹)以后,上次推送的时间不算数,自动推送立即推到新位置;改回去又算数。
+func TestSyncStatusLastPushIsPerLocation(t *testing.T) {
+	stub := newS3Stub(t)
+	lib := stub.open(t)
+	pushBackup(t, lib)
+	pushed, err := lib.SyncStatus(t.Context())
+	if err != nil || pushed.LastPushedAt.IsZero() {
+		t.Fatalf("SyncStatus() after push = %#v, %v", pushed, err)
+	}
+	moved := stub.settings
+	moved.Folder = "elsewhere"
+	setSyncSettings(t, lib, moved)
+	if status, err := lib.SyncStatus(t.Context()); err != nil || !status.LastPushedAt.IsZero() {
+		t.Fatalf("SyncStatus() after changing the folder = %#v, %v; want no last push", status, err)
+	}
+	setSyncSettings(t, lib, stub.settings)
+	if status, err := lib.SyncStatus(t.Context()); err != nil || !status.LastPushedAt.Equal(pushed.LastPushedAt) {
+		t.Fatalf("SyncStatus() after changing back = %#v, %v; want %v", status, err, pushed.LastPushedAt)
 	}
 }
 

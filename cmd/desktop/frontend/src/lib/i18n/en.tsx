@@ -870,7 +870,7 @@ export const en = {
         windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
         linux: "then quits. Mechbox itself isn't removed; remove it afterwards the way you installed it (your package manager, or delete the AppImage file).",
       }[platform()],
-    syncKept: "The Library on S3 isn't touched. You can push before uninstalling, then pull it back after reinstalling and filling in the Sync settings.",
+    syncKept: "Backups on S3 aren't touched. You can push before uninstalling, then pull it back after reinstalling and filling in the Sync settings.",
     goSync: "Sync first…",
     noSync: "Sync isn't configured: the Library's content can't be recovered after uninstalling.",
     inspecting: "Checking the installed skill folders…",
@@ -897,6 +897,7 @@ export const en = {
     conflict: "This backup was removed or rewritten after it was listed. The backups on S3 have been listed again",
     pushDone: (device: string) => `Pushed to S3 as a new backup of ${device}`,
     pushUnchanged: "The Library hasn't changed since the last push: this machine's newest backup on S3 already matches it, so no new backup was made",
+    pushedButNotRemoved: (error: string) => `Pushed, but older backups beyond the limit couldn't be removed; the next push tries again: ${error}`,
     pullDone: "Pulled from S3 and replaced the Library on this machine",
     title: "Sync",
     back: "Back",
@@ -909,8 +910,9 @@ export const en = {
     openSettings: "Open Settings",
     pulled:
       "Switched to this backup from S3. Folders in Agent directories weren't touched: for projects marked “Not on this machine” on the right, first point them to their location on this machine; then check each Scope's status and use “Reinstall all” as needed.",
-    noBackups: "There are no backups on S3 yet: no machine has pushed one.",
-    chooseBackup: "Choose a backup to pull. The most recently pushed one is selected:",
+    noBackups: (location: string) =>
+      `There are no backups in ${location} yet. If another machine has pushed, check that both machines use the same bucket and folder in their Sync settings.`,
+    chooseBackup: "Choose a backup to pull. The one most recently pushed from another machine is selected:",
     thisDevice: "This machine",
     contents: "Contains",
     counts: (skills: number, groups: number, projects: number) =>
@@ -949,7 +951,10 @@ export const en = {
     noGroups: "No Groups yet. Gather skills by use case to install them together.",
     sync: "Sync",
     manual: "Manual",
-    autoPush: { hourly: "Pushes hourly", daily: "Pushes daily", weekly: "Pushes weekly" } as Record<string, string>,
+    pushHourly: "Pushes hourly",
+    pushDaily: "Pushes daily",
+    pushWeekly: "Pushes weekly",
+    pushFailed: "Push failed",
     notConfigured: "Not set up",
     settings: "Settings",
   },
@@ -1155,7 +1160,9 @@ export const en = {
     deviceFolder: (path: string) => `This machine's backups go to ${path}`,
     lastPushed: (at: string) => `Last pushed: ${at}`,
     neverPushed: "Not pushed yet",
-    autoPushFailed: (at: string, error: string) => `Automatic push failed at ${at}: ${error}`,
+    pushFailed: (at: string, error: string) => `Push failed at ${at}, so there's no new backup on S3: ${error}`,
+    removeFailed: (at: string, error: string) =>
+      `The backup pushed at ${at} is on S3, but older backups beyond the limit couldn't be removed; the next push tries again: ${error}`,
     save: "Save",
   },
 

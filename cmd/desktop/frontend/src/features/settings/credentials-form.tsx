@@ -67,7 +67,7 @@ function ReadFailed({ message, retry }: { message: string; retry: () => unknown 
   );
 }
 
-// defaultKeep 与技能库的 defaultKeep 相同:没填保留份数时 S3 上保留这台机器的几份备份。
+// defaultKeep 与 library.DefaultSyncKeep 相同(常量不进绑定):没填保留份数时 S3 上保留这台机器的几份备份。
 const defaultKeep = 10;
 
 type SyncField = Exclude<keyof SyncSettings, "keep" | "auto_push">;
@@ -179,19 +179,23 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
   );
 }
 
-// SyncStatusLine 写出这台机器的备份放在 S3 的哪个目录(按已保存的文件夹)、上次推送的时间，以及之后没再推送成功的那次自动推送失败。
-function SyncStatusLine({ folder }: { folder: string }) {
+// SyncStatusLine 写出这台机器的备份放在 S3 的哪个目录(按已保存的文件夹)、上次推送的时间，以及上一次推送出的问题;
+// 设置页同步分区与同步弹窗共用。
+export function SyncStatusLine({ folder }: { folder: string }) {
   const t = useT().credentials;
   const { data: status } = useQuery(syncStatusQuery);
   if (!status) return null;
   const path = `${folder ? `${folder}/` : ""}${status.device}/`;
+  const problem = status.problem;
   return (
     <>
       <Hint>
         {t.deviceFolder(path)} · {status.last_pushed_at ? t.lastPushed(formatDate(status.last_pushed_at)) : t.neverPushed}
       </Hint>
-      {status.failure && (
-        <Notice tone="warn">{t.autoPushFailed(formatDate(status.failure.at), describeError(status.failure.error as LibraryError))}</Notice>
+      {problem?.error && (
+        <Notice tone="warn">
+          {(problem.uploaded ? t.removeFailed : t.pushFailed)(formatDate(problem.at), describeError(problem.error as LibraryError))}
+        </Notice>
       )}
     </>
   );

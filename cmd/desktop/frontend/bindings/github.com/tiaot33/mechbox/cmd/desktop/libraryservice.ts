@@ -311,6 +311,9 @@ export function SyncPull(backup: library$0.SyncBackupID): $CancellablePromise<vo
     return $Call.ByID(4037992934, backup);
 }
 
+/**
+ * SyncPush 推送后让应用设置服务记下这次出的问题(或清掉上次的):手动推送和自动推送共用一份提示。
+ */
 export function SyncPush(): $CancellablePromise<library$0.SyncPushResult> {
     return $Call.ByID(377176661);
 }

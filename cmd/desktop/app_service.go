@@ -26,7 +26,7 @@ const autoPushRetry = time.Hour
 
 // AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、自动推送、Dock 角标、关闭窗口后留在菜单栏。
 // 自动检查只读(检查更新不改技能，也不碰装出去的文件夹),结果不发系统通知，只体现在角标和侧栏计数上。
-// 自动推送按同步设置里的间隔把库推送成 S3 上这台机器的一份新备份，从不自动拉回;失败的原因由 AutoPushFailure 给出。
+// 自动推送按同步设置里的间隔把库推送成 S3 上这台机器的一份新备份，从不自动拉回;推送出的问题由 PushProblem 给出。
 type AppService struct {
 	library *LibraryService
 	app     *application.App
@@ -43,7 +43,7 @@ type AppService struct {
 	distroError  string
 
 	lastPushAttempt time.Time
-	pushFailure     *AutoPushFailure
+	pushProblem     *PushProblem
 
 	removeOnce sync.Once
 	discard    func(path string) error
@@ -66,6 +66,7 @@ func NewAppService(lib *LibraryService) *AppService {
 	if lib != nil {
 		lib.afterPull = a.reloadSettings
 		lib.afterSyncSettings = a.syncSettingsChanged
+		lib.afterSyncPush = a.pushed
 	}
 	return a
 }
@@ -380,23 +381,24 @@ func (a *AppService) check(ctx context.Context, collections []library.Collection
 	go a.app.Event.Emit(updatesCheckedEvent)
 }
 
-// AutoPushFailure 是上一次自动推送失败的时间与原因。
-type AutoPushFailure struct {
-	At    time.Time      `json:"at"`
-	Error *library.Error `json:"error"`
+// PushProblem 是上一次推送(自动或手动)出的问题:推送失败,或备份已经传上去、删超出份数的旧备份失败(Uploaded)。
+type PushProblem struct {
+	At       time.Time      `json:"at"`
+	Error    *library.Error `json:"error"`
+	Uploaded bool           `json:"uploaded,omitempty"`
 }
 
-// AutoPushFailure 返回上一次自动推送失败的时间与原因;之后自动推送成功了、或改了同步设置时为 nil。
-// 设置页在它比 SyncStatus.LastPushedAt 晚时显示(之后手动推送成功过就不再显示)。只记在内存里，重启后由下一次自动推送重新得出。
-func (a *AppService) AutoPushFailure() *AutoPushFailure {
+// PushProblem 返回上一次推送出的问题;上一次推送完全成功、或之后改了同步设置时为 nil。
+// 设置页、左栏与同步弹窗据此提示，免得用户以为一直在备份。只记在内存里，重启后由下一次推送重新得出。
+func (a *AppService) PushProblem() *PushProblem {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.pushFailure
+	return a.pushProblem
 }
 
 func (a *AppService) syncSettingsChanged() {
 	a.mu.Lock()
-	a.lastPushAttempt, a.pushFailure = time.Time{}, nil
+	a.lastPushAttempt, a.pushProblem = time.Time{}, nil
 	a.mu.Unlock()
 	a.poke()
 }
@@ -407,7 +409,7 @@ func (a *AppService) pushDue(ctx context.Context, now time.Time) bool {
 		return false
 	}
 	period, timed := settings.AutoPush.Period()
-	if !timed || settings.Bucket == "" || settings.AccessKeyID == "" || settings.SecretAccessKey == "" {
+	if !timed || !syncConfigured(settings) {
 		return false
 	}
 	status, err := a.library.lib.SyncStatus(ctx)
@@ -421,25 +423,31 @@ func (a *AppService) pushDue(ctx context.Context, now time.Time) bool {
 }
 
 func (a *AppService) autoPush(ctx context.Context) {
-	at := time.Now().Round(0)
 	a.mu.Lock()
-	a.lastPushAttempt = at
+	a.lastPushAttempt = time.Now().Round(0)
 	a.mu.Unlock()
-	_, err := a.library.lib.SyncPush(ctx)
+	result, err := a.library.lib.SyncPush(ctx)
 	if ctx.Err() != nil {
 		return
 	}
+	a.pushed(result, err)
+	if a.app != nil {
+		a.warn(err, "automatic sync push")
+		go a.app.Event.Emit(syncPushedEvent)
+	}
+}
+
+func (a *AppService) pushed(result library.SyncPushResult, err error) {
+	var problem *PushProblem
+	switch {
+	case err != nil:
+		problem = &PushProblem{At: time.Now().Round(0), Error: library.ErrorOf(err)}
+	case result.RemoveError != nil:
+		problem = &PushProblem{At: time.Now().Round(0), Error: result.RemoveError, Uploaded: true}
+	}
 	a.mu.Lock()
-	a.pushFailure = nil
-	if err != nil {
-		a.pushFailure = &AutoPushFailure{At: at, Error: library.ErrorOf(err)}
-	}
+	a.pushProblem = problem
 	a.mu.Unlock()
-	if a.app == nil {
-		return
-	}
-	a.warn(err, "automatic sync push")
-	go a.app.Event.Emit(syncPushedEvent)
 }
 
 func (a *AppService) windowClosing(event *application.WindowEvent) {

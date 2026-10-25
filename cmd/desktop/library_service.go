@@ -49,6 +49,7 @@ type LibraryService struct {
 
 	afterPull         func(context.Context)
 	afterSyncSettings func()
+	afterSyncPush     func(library.SyncPushResult, error)
 
 	background chan struct{}
 }
@@ -131,6 +132,11 @@ type ConfigStatus struct {
 	GitHubToken bool                 `json:"github_token"`        // GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
 }
 
+// syncConfigured 报告同步设置是否填齐了存储桶与密钥;没填齐时同步方法返回 NotConfigured。
+func syncConfigured(settings library.SyncSettings) bool {
+	return settings.Bucket != "" && settings.AccessKeyID != "" && settings.SecretAccessKey != ""
+}
+
 // Config 返回配置的就绪状态，只看是否填了，不校验取值。
 func (s *LibraryService) Config(ctx context.Context) (ConfigStatus, error) {
 	token, err := s.lib.GitHubToken(ctx)
@@ -142,7 +148,7 @@ func (s *LibraryService) Config(ctx context.Context) (ConfigStatus, error) {
 		return settle(ConfigStatus{}, err)(ctx)
 	}
 	return ConfigStatus{
-		Sync:        sync.Bucket != "" && sync.AccessKeyID != "" && sync.SecretAccessKey != "",
+		Sync:        syncConfigured(sync),
 		AutoPush:    sync.AutoPush,
 		GitHubToken: token != "",
 	}, nil

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -99,7 +100,9 @@ func contentDigest(ctx context.Context, db *sql.DB) (string, error) {
 				rows.Close()
 				return "", err
 			}
-			columns = append(columns, "quote("+quoteIdentifier(name)+")")
+			if !digestSkips[table+"."+name] {
+				columns = append(columns, "typeof("+quoteIdentifier(name)+") || ':' || hex("+quoteIdentifier(name)+")")
+			}
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
@@ -110,20 +113,31 @@ func contentDigest(ctx context.Context, db *sql.DB) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		var lines []string
 		for rows.Next() {
 			var row string
 			if err := rows.Scan(&row); err != nil {
 				rows.Close()
 				return "", err
 			}
-			fmt.Fprintf(hash, "%d:%s\n", len(row), row)
+			lines = append(lines, row)
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
 			return "", err
 		}
+		slices.Sort(lines)
+		for _, line := range lines {
+			fmt.Fprintf(hash, "%s\n", line)
+		}
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+var digestSkips = map[string]bool{
+	"skills.update_checked_at":   true,
+	"skills.update_check_serial": true,
+	"sources.listed_serial":      true,
 }
 
 func quoteIdentifier(name string) string {

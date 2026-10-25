@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS rolled_back_renames (
 -- 库自己的项:github_token = GitHub 个人访问令牌,没填时匿名访问(不行再用 gh);
 -- sync.endpoint / sync.bucket / sync.folder / sync.region / sync.access_key_id / sync.secret_access_key / sync.session_token = 同步用的 S3 设置;
 -- sync.keep / sync.auto_push = S3 上保留这台机器的备份份数(十进制)与自动推送的间隔(hourly / daily / weekly);
--- sync.device = 这台机器在 S3 上的设备目录名,第一次用到时生成;sync.last_pushed_at = 上次推送成功(或 S3 上已是同样内容)的时间,RFC 3339;
+-- sync.device = 这台机器在 S3 上的设备目录名,第一次用到时生成;sync.last_pushed_at / sync.last_pushed_to = 上次推送成功(或 S3 上已是同样内容)的时间(RFC 3339)与推到的服务地址、存储桶、文件夹(换行分隔);
 -- ai.provider / ai.base_url / ai.api_key / ai.model = 调用 AI 用的接口类型(只存 anthropic;没有这一行为 OpenAI 兼容)、服务地址、API Key 与模型;
 -- ai.headers / ai.body = 每个 AI 请求额外带的 HTTP 头(一行一个「名字: 值」)与合并进请求体的 JSON 对象,都是用户填的原文;
 -- wsl_distro = 各 Agent 的全局目录所在的 WSL 发行版,没填为这台机器本身。应用自己的项以 app. 开头,库只存取、不解释。
