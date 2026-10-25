@@ -47,6 +47,33 @@ tasks:
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
+  # 重建开发数据 .dev/seed:临时 HOME(Agent 目录、项目、本地 Git 来源)与其中的数据库，用 testdata/dev 里的技能快照，不联网。
+  # 只清 .dev/seed,不动 dev:test-db 的 .dev/library.db。
+  dev:seed:
+    summary: Rebuilds the development data in .dev/seed from testdata/dev
+    cmds:
+      - go run ./devseed -out .dev/seed -data testdata/dev
+
+  # 用 dev:seed 生成的开发数据以开发模式运行:HOME 与数据库都在 .dev/seed 里，安装也不碰真实的 Agent 目录。
+  # Go 的缓存指回原处，免得在临时 HOME 下重新下载依赖。
+  dev:seeded:
+    summary: Runs the application in development mode against the development data in .dev/seed
+    vars:
+      GO_MODCACHE:
+        sh: go env GOMODCACHE
+      GO_CACHE:
+        sh: go env GOCACHE
+    preconditions:
+      - sh: test -f '{{.ROOT_DIR}}/.dev/seed/library.db'
+        msg: 还没有开发数据，先运行 wails3 task dev:seed
+    # 环境变量写在命令里:Taskfile 的 env 不覆盖系统里已有的 HOME。
+    cmds:
+      - >-
+        HOME='{{.ROOT_DIR}}/.dev/seed/home'
+        MECHBOX_LIBRARY='{{.ROOT_DIR}}/.dev/seed/library.db'
+        GOMODCACHE='{{.GO_MODCACHE}}' GOCACHE='{{.GO_CACHE}}'
+        wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)
     cmds:
