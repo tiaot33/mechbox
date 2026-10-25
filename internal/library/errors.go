@@ -66,7 +66,7 @@ const (
 	// Permission 鉴权失败(文件系统或远端拒认凭证,包括 AI 服务拒认 API Key)。
 	// 不可靠地靠重试恢复。UI:提示权限问题。
 	Permission ErrorCode = "permission"
-	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证)。
+	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证;翻译描述时 AI 设置里没填模型)。
 	// UI:引导到设置页。
 	NotConfigured ErrorCode = "not_configured"
 	// Internal 真正的 bug 与 I/O 故障。UI:报 bug;不要当成用户可恢复的输入或状态问题。
@@ -85,7 +85,7 @@ type Error struct {
 
 // ErrorDetails 是类型化的错误细节,零值字段省略。读取用 errors.AsType[*Error]。
 type ErrorDetails struct {
-	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名
+	Field     string    `json:"field,omitempty"`     // InvalidArgument:与 JSON 字段名一致的参数名;AI 的回答被 max_tokens 截断(思考用完了额度)时为 max_tokens,要在 AI 设置的请求体里写上更大的 max_tokens
 	Path      string    `json:"path,omitempty"`      // AlreadyExists / FailedPrecondition:冲突或占用的路径(含登记项目、改项目位置时已被登记的路径);NotFound:版本里不存在的文件路径;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能里取不到的文件(相对技能目录)
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名;入库预览时为没有技能的链接路径);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
@@ -133,6 +133,9 @@ func typedError(err error) error {
 	if _, ok := errors.AsType[*source.InputError](err); ok {
 		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}
 	}
+	if errors.Is(err, ai.ErrTruncated) {
+		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: "max_tokens"}, Err: err}
+	}
 	var details ErrorDetails
 	if incomplete, ok := errors.AsType[*source.IncompleteError](err); ok {
 		details = ErrorDetails{Name: incomplete.Skill, Path: incomplete.File}
@@ -151,7 +154,7 @@ func typedError(err error) error {
 	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission), errors.Is(err, s3.ErrPermission),
 		errors.Is(err, ai.ErrPermission):
 		code = Permission
-	case errors.Is(err, s3.ErrNotConfigured):
+	case errors.Is(err, s3.ErrNotConfigured), errors.Is(err, ai.ErrNotConfigured):
 		code = NotConfigured
 	case errors.Is(err, s3.ErrPreconditionFailed), errors.Is(err, store.ErrReplaced):
 		code = Conflict

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -128,29 +129,55 @@ type aiRequest struct {
 	path, authorization, apiKey, organization, model string
 }
 
-// aiStub 按 OpenAI 兼容的 Chat Completions 与 Anthropic 的 Messages 回答;status 不是 200 时回答那个状态与一条错误。
+// aiCall 是 AI 服务桩记下的一次请求的全部:请求头与解析出的请求体。
+type aiCall struct {
+	aiRequest
+	header http.Header
+	body   map[string]any
+}
+
+// aiStub 按 OpenAI 兼容的 Chat Completions 与 Anthropic 的 Messages 回答,回答的文字是 answer(默认 OK);
+// status 不是 200 时回答那个状态与一条错误。truncated 时回答的结束原因是被 max_tokens 截断;
+// 请求体里含有 reject 的请求回答 400(只拒绝某一条描述)。
 type aiStub struct {
-	url      string
-	mu       sync.Mutex
-	status   int
-	requests []aiRequest
+	url       string
+	mu        sync.Mutex
+	status    int
+	answer    string
+	truncated bool
+	reject    string
+	calls     []aiCall
 }
 
 func newAIStub(t *testing.T) *aiStub {
 	t.Helper()
-	stub := &aiStub{status: http.StatusOK}
+	stub := &aiStub{status: http.StatusOK, answer: "OK"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Model string `json:"model"`
 		}
+		var raw map[string]any
 		data, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(data, &body)
+		_ = json.Unmarshal(data, &raw)
 		stub.mu.Lock()
-		stub.requests = append(stub.requests, aiRequest{
-			path: r.URL.Path, authorization: r.Header.Get("Authorization"), apiKey: r.Header.Get("X-Api-Key"),
-			organization: r.Header.Get("OpenAI-Organization"), model: body.Model,
+		stub.calls = append(stub.calls, aiCall{
+			aiRequest: aiRequest{
+				path: r.URL.Path, authorization: r.Header.Get("Authorization"), apiKey: r.Header.Get("X-Api-Key"),
+				organization: r.Header.Get("OpenAI-Organization"), model: body.Model,
+			},
+			header: r.Header.Clone(),
+			body:   raw,
 		})
 		status := stub.status
+		if stub.reject != "" && strings.Contains(string(data), stub.reject) {
+			status = http.StatusBadRequest
+		}
+		answer, _ := json.Marshal(stub.answer)
+		finish, stop := "stop", "end_turn"
+		if stub.truncated {
+			finish, stop = "length", "max_tokens"
+		}
 		stub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if status != http.StatusOK {
@@ -160,11 +187,12 @@ func newAIStub(t *testing.T) *aiStub {
 		}
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"`+body.Model+`",`+
-				`"content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+				`"content":[{"type":"thinking","thinking":"hmm","signature":"s"},{"type":"text","text":`+string(answer)+`}],`+
+				`"stop_reason":"`+stop+`","usage":{"input_tokens":1,"output_tokens":1}}`)
 			return
 		}
 		_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"`+body.Model+`",`+
-			`"choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}`)
+			`"choices":[{"index":0,"message":{"role":"assistant","content":`+string(answer)+`},"finish_reason":"`+finish+`"}]}`)
 	}))
 	t.Cleanup(server.Close)
 	stub.url = server.URL
@@ -172,11 +200,37 @@ func newAIStub(t *testing.T) *aiStub {
 }
 
 func (s *aiStub) take() []aiRequest {
+	var requests []aiRequest
+	for _, call := range s.takeCalls() {
+		requests = append(requests, call.aiRequest)
+	}
+	return requests
+}
+
+func (s *aiStub) takeCalls() []aiCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	requests := s.requests
-	s.requests = nil
-	return requests
+	calls := s.calls
+	s.calls = nil
+	return calls
+}
+
+func (s *aiStub) truncate(truncated bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.truncated = truncated
+}
+
+func (s *aiStub) rejectContaining(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reject = text
+}
+
+func (s *aiStub) reply(answer string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.answer = answer
 }
 
 func (s *aiStub) respond(status int) {
@@ -264,6 +318,106 @@ func TestAISettingsTestClassifiesServiceAnswers(t *testing.T) {
 		settings.BaseURL = website.URL
 		if err := lib.TestAISettings(t.Context(), settings); !library.IsCode(err, library.NotFound) {
 			t.Errorf("%s answered by a website: TestAISettings = %v, want NotFound", provider, err)
+		}
+	}
+}
+
+// 请求头与请求体存的是用户填的原文(去掉首尾空白),重新打开仍是那样;留空即删掉。
+func TestAISettingsKeepHeadersAndBodyAsTyped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.db")
+	first := openTestLibraryAt(t, path)
+	setAISettings(t, first, library.AISettings{
+		Model: "gpt-test", Headers: "\n X-Title: Mechbox\n\nX-Trace:  a b \n", Body: "  {\n  \"reasoning_effort\": \"high\"\n}\n",
+	})
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lib := openTestLibraryAt(t, path)
+	aiSettingsAre(t, lib, library.AISettings{
+		Provider: library.AIProviderOpenAI, Model: "gpt-test",
+		Headers: "X-Title: Mechbox\n\nX-Trace:  a b", Body: "{\n  \"reasoning_effort\": \"high\"\n}",
+	})
+	setAISettings(t, lib, library.AISettings{Model: "gpt-test"})
+	aiSettingsAre(t, lib, library.AISettings{Provider: library.AIProviderOpenAI, Model: "gpt-test"})
+}
+
+// 请求头有一行不是「名字: 值」,或请求体不是一个 JSON 对象时,保存与测试连接都报 InvalidArgument 并指出是哪一项,
+// 原来的设置不变,也不发请求。
+func TestAISettingsRejectInvalidHeadersAndBody(t *testing.T) {
+	stub := newAIStub(t)
+	lib := openTestLibrary(t)
+	saved := library.AISettings{Provider: library.AIProviderOpenAI, Model: "gpt-test", Headers: "X-Title: Mechbox"}
+	setAISettings(t, lib, saved)
+	for _, tc := range []struct {
+		headers, body, field string
+	}{
+		{headers: "X-Title Mechbox", field: "headers"},
+		{headers: "X Title: Mechbox", field: "headers"},
+		{headers: ": Mechbox", field: "headers"},
+		{body: `[1, 2]`, field: "body"},
+		{body: `"high"`, field: "body"},
+		{body: `null`, field: "body"},
+		{body: `{"reasoning_effort": "high"`, field: "body"},
+		{body: `{"reasoning_effort": "high"} {}`, field: "body"},
+	} {
+		settings := library.AISettings{BaseURL: stub.url, Model: "gpt-test", Headers: tc.headers, Body: tc.body}
+		if err := lib.SetAISettings(t.Context(), settings); !isFieldError(err, tc.field) {
+			t.Errorf("SetAISettings(%+v) = %v, want InvalidArgument on %s", settings, err, tc.field)
+		}
+		if err := lib.TestAISettings(t.Context(), settings); !isFieldError(err, tc.field) {
+			t.Errorf("TestAISettings(%+v) = %v, want InvalidArgument on %s", settings, err, tc.field)
+		}
+	}
+	aiSettingsAre(t, lib, saved)
+	if got := stub.take(); len(got) != 0 {
+		t.Fatalf("requests = %+v, want none for invalid settings", got)
+	}
+}
+
+func isFieldError(err error, field string) bool {
+	e := library.ErrorOf(err)
+	return e != nil && e.Code == library.InvalidArgument && e.Details.Field == field
+}
+
+// 测试连接带上请求头与请求体:请求头和库自己设的同名时用填的(如代理要的 Authorization);请求体顶层的每个字段
+// 原样写进请求体,覆盖库填的同名字段(Anthropic 的 max_tokens),字段名里的点不当成路径。
+func TestAISettingsTestSendsCustomHeadersAndBody(t *testing.T) {
+	stub := newAIStub(t)
+	lib := openTestLibrary(t)
+	headers := "X-Title: Mechbox\nAuthorization: Bearer proxy-token"
+	for _, tc := range []struct {
+		settings library.AISettings
+		body     map[string]any
+	}{
+		{
+			library.AISettings{BaseURL: stub.url + "/v1", APIKey: "sk-test", Model: "gpt-test", Headers: headers,
+				Body: `{"reasoning_effort": "high", "a.b": 1}`},
+			map[string]any{"reasoning_effort": "high", "a.b": float64(1)},
+		},
+		{
+			library.AISettings{Provider: library.AIProviderAnthropic, BaseURL: stub.url, APIKey: "sk-ant", Model: "claude-test", Headers: headers,
+				Body: `{"thinking": {"type": "enabled", "budget_tokens": 8192}, "max_tokens": 16000}`},
+			map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": float64(8192)}, "max_tokens": float64(16000)},
+		},
+	} {
+		if err := lib.TestAISettings(t.Context(), tc.settings); err != nil {
+			t.Fatalf("TestAISettings(%+v) = %v", tc.settings, err)
+		}
+		calls := stub.takeCalls()
+		if len(calls) != 1 {
+			t.Fatalf("%s: %d requests, want 1", tc.settings.Provider, len(calls))
+		}
+		call := calls[0]
+		if call.header.Get("X-Title") != "Mechbox" || call.header.Get("Authorization") != "Bearer proxy-token" {
+			t.Errorf("%s: headers = %v, want the custom ones", tc.settings.Provider, call.header)
+		}
+		for key, want := range tc.body {
+			if got := call.body[key]; !reflect.DeepEqual(got, want) {
+				t.Errorf("%s: body[%q] = %#v, want %#v", tc.settings.Provider, key, got, want)
+			}
+		}
+		if call.body["model"] != tc.settings.Model || call.body["messages"] == nil {
+			t.Errorf("%s: body = %v, want the library's own fields kept", tc.settings.Provider, call.body)
 		}
 	}
 }

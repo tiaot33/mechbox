@@ -11,6 +11,7 @@ import { SkillDrawer } from "@/components/app/skill-drawer/skill-drawer";
 import { SkillList } from "@/components/app/skill-list/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
+import { useAutoTranslate } from "@/features/skill/translate";
 import { setDragGhost } from "@/components/app/dnd";
 import { reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
@@ -42,6 +43,9 @@ function Main() {
   const drawer = useView((v) => v.drawer);
   const drag = useView((v) => v.drag);
   const settings = useView((v) => v.settings);
+
+  // 开着自动翻译时，把还没有界面语言译文的技能描述翻译过来。
+  useAutoTranslate();
 
   // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
   useEffect(() => Events.On("updates-checked", () => void reloadLibrary()), []);

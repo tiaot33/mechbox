@@ -122,6 +122,11 @@ export interface Settings {
     "dock_badge": boolean;
 
     /**
+     * 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
+     */
+    "auto_translate": boolean;
+
+    /**
      * 界面语言;空字符串跟随系统
      */
     "language"?: Language;

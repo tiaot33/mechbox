@@ -15,8 +15,9 @@
 // 设置(library.go、sync.go、ai.go):设置都存在数据库的 config 表里,只认这里,不读环境变量。改完下一次请求就用新值。
 //   - [Library.GitHubToken]、[Library.SetGitHubToken] 读取与设置访问 GitHub 用的个人访问令牌;随推送、拉回走。没设置时匿名访问。
 //   - [Library.SyncSettings]、[Library.SetSyncSettings] 读取与设置同步用的 S3 设置。
-//   - [Library.AISettings]、[Library.SetAISettings] 读取与设置调用 AI 用的接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key 与模型;
-//     随推送、拉回走。[Library.TestAISettings] 用设置页上的一组设置发一条很短的消息,看能不能用。
+//   - [Library.AISettings]、[Library.SetAISettings] 读取与设置调用 AI 用的接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key、模型,
+//     以及每个请求额外带的请求头与合并进请求体的 JSON(设置思考深度这类参数);随推送、拉回走。
+//     [Library.TestAISettings] 用设置页上的一组设置发一条很短的消息,看能不能用。
 //   - [Library.ListWSLDistros]、[Library.WSLDistro]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
 //     或换回 Windows 本机;换了以后只认新目录。[Open] 不自动换过去,调用方启动时取出存着的选择再设置。
 //   - [Library.AppSettings]、[Library.SetAppSettings] 读写应用自己的设置(如桌面端的自动检查、界面语言),库只存取、不解释;随推送、拉回走。
@@ -33,9 +34,12 @@
 //   - [Library.GetCandidateAudit] 查看候选在 skills.sh 上的审计,可选。
 //   - [Library.Fetch] 把选中的候选入库。
 //
-// 查看库里的技能(skills.go、collections.go、versions.go):
+// 查看库里的技能(skills.go、collections.go、versions.go、translate.go):
 //   - [Library.ListSkills] 列出技能;[Library.ListCollections] 列出集合:每个来源一个,带集合里的技能 ID。
 //   - [Library.GetSkill] 读取一个技能;[Library.GetSkillAudit] 查看它在 skills.sh 上的审计,可选。
+//   - [Library.SetSkillNote] 给技能写备注,只供展示,不写进技能文件。
+//   - [Library.TranslateDescription] 用 AI 设置把描述翻译成界面语言(每次都重新翻译),[Library.TranslateDescriptions] 自动翻译
+//     还没有译文的;译文存进数据库,按语言放在 [Skill].DescriptionTranslations 上,技能更新后描述变了就不再给出旧译文。
 //   - [Library.ListVersions]、[Library.GetVersion] 列出和读取版本;[Library.ListVersionFiles]、[Library.GetVersionFile] 按版本 ID
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。

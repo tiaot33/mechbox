@@ -51,3 +51,21 @@ export function unmanagedSourceError(err: LibraryError, name: string): string {
   }
   return describeError(err);
 }
+
+// aiError 说明调用 AI(测试连接、翻译描述)为什么没成、该查哪一项，后面附上服务给出的原因：通用文案会把 AI 服务说成「来源」。
+// 回答被 max_tokens 截断时说明去请求体里调大 max_tokens;请求头、请求体以外的字段错误与其他错误码返回 undefined,交给 describeError。
+export function aiError(err: LibraryError): string | undefined {
+  const t = messages().credentials;
+  const field = err.details?.field;
+  const heads: Record<string, string | undefined> = field
+    ? { headers: t.invalidHeaders, body: t.invalidBody, max_tokens: t.truncated }
+    : {
+        [ErrorCode.SourceUnreachable]: t.testUnreachable,
+        [ErrorCode.NotFound]: t.testNotFound,
+        [ErrorCode.Permission]: t.testPermission,
+        [ErrorCode.InvalidArgument]: t.testRejected,
+        [ErrorCode.NotConfigured]: t.aiNotConfigured,
+      };
+  const head = heads[field || err.code];
+  return head && `${head}\n${err.message}`;
+}

@@ -71,6 +71,18 @@ func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, op
 	return settleErr(ctx, s.lib.RemoveSkill(ctx, id, opts))
 }
 
+func (s *LibraryService) SetSkillNote(ctx context.Context, id library.SkillID, note string) error {
+	return settleErr(ctx, s.lib.SetSkillNote(ctx, id, note))
+}
+
+func (s *LibraryService) TranslateDescription(ctx context.Context, id library.SkillID, language string) (string, error) {
+	return settle(s.lib.TranslateDescription(ctx, id, language))(ctx)
+}
+
+func (s *LibraryService) TranslateDescriptions(ctx context.Context, language string, ids []library.SkillID) (library.TranslateDescriptionsResult, error) {
+	return settle(s.lib.TranslateDescriptions(ctx, language, ids))(ctx)
+}
+
 // ---------- 更新 ----------
 
 func (s *LibraryService) CheckUpdates(ctx context.Context, collections []library.CollectionID) ([]library.CollectionUpdateCheck, error) {

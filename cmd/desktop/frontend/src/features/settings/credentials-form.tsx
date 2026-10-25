@@ -1,11 +1,11 @@
 // 设置页的 GitHub、AI 与同步分区。三者都存在数据库里，只认这里填的，不读环境变量:
 // GitHub 令牌、AI 设置和库里其他内容一样随推送、拉回走;同步设置只属于这台机器，推送时不带，拉回时保留。填完点保存才存入。
-// AI 分区的「测试连接」用表单上的内容，不用先保存。
+// AI 分区的「测试连接」用表单上的内容，不用先保存;请求头、请求体是用户填的原文，库解析，格式不对时保存与测试都报出来。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { AIProvider, ErrorCode, type AISettings, type SyncSettings } from "@bindings/internal/library";
-import { describeError } from "@/lib/errors";
+import { AIProvider, type AISettings, type SyncSettings } from "@bindings/internal/library";
+import { aiError, describeError } from "@/lib/errors";
 import {
   aiSettingsQuery,
   gitHubTokenQuery,
@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
+import { Textarea } from "@/components/ui/textarea";
 
 // SyncSection 读出同步分区填过的内容再给出表单;读不到时说明原因、给出重试，不给表单，免得把没读到当成没填。
 export function SyncSection() {
@@ -133,7 +134,13 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
 
 type AIField = keyof AISettings;
 
-const aiFields: AIField[] = ["provider", "base_url", "api_key", "model"];
+const aiFields: AIField[] = ["provider", "base_url", "api_key", "model", "headers", "body"];
+
+// 请求体的示例按接口类型给：思考深度在两种接口里是不同的字段。
+const bodyExamples: Record<string, string> = {
+  [AIProvider.AIProviderOpenAI]: `{"reasoning_effort": "high"}`,
+  [AIProvider.AIProviderAnthropic]: `{"thinking": {"type": "enabled", "budget_tokens": 8192}, "max_tokens": 16000}`,
+};
 
 const trimAI = (s: AISettings): AISettings =>
   Object.fromEntries(aiFields.map((key) => [key, (s[key] ?? "").trim()])) as AISettings;
@@ -146,19 +153,14 @@ function AIForm({ saved }: { saved: AISettings }) {
   const set = (key: AIField) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
   const dirty = aiFields.some((key) => (draft[key] ?? "") !== (saved[key] ?? ""));
   const testable = !!draft.model?.trim();
-  // 测试失败时按错误码说明该查哪一项(通用文案把 AI 服务说成「来源」),后面附上服务给出的原因。
+  // 失败时按错误码说明该查哪一项，后面附上服务给出的原因。
   const failed = (err: LibraryError) => {
-    const heads: Record<string, string> = {
-      [ErrorCode.SourceUnreachable]: t.testUnreachable,
-      [ErrorCode.NotFound]: t.testNotFound,
-      [ErrorCode.Permission]: t.testPermission,
-      [ErrorCode.InvalidArgument]: t.testRejected,
-    };
-    const head = heads[err.code];
-    if (!head || err.details?.field) return false;
-    ui.toast(`${head}\n${err.message}`, "error");
+    const text = aiError(err);
+    if (!text) return false;
+    ui.toast(text, "error");
     return true;
   };
+  const provider = draft.provider ?? AIProvider.AIProviderOpenAI;
   const test = async () => {
     setTesting(true);
     await ui.run(() => LibraryService.TestAISettings(draft), { reload: false, success: t.testPassed, onError: failed });
@@ -169,6 +171,7 @@ function AIForm({ saved }: { saved: AISettings }) {
       dirty={dirty}
       save={() => LibraryService.SetAISettings(draft)}
       success={t.aiSaved}
+      onError={failed}
       onSaved={() => {
         setDraft(trimAI(draft));
         void invalidateAISettings();
@@ -183,7 +186,7 @@ function AIForm({ saved }: { saved: AISettings }) {
       <div className="flex flex-col items-start gap-1">
         <span className="text-xs text-muted-foreground">{t.provider}</span>
         <Segmented
-          value={draft.provider ?? AIProvider.AIProviderOpenAI}
+          value={provider}
           onChange={set("provider")}
           options={[
             { value: AIProvider.AIProviderOpenAI, label: t.providerOpenAI },
@@ -202,6 +205,13 @@ function AIForm({ saved }: { saved: AISettings }) {
           <TextInput value={draft.model ?? ""} onChange={set("model")} />
         </Field>
       </div>
+      <Field label={t.headers}>
+        <TextArea rows={2} value={draft.headers ?? ""} onChange={set("headers")} placeholder={t.headersPlaceholder} />
+      </Field>
+      <Field label={t.body}>
+        <TextArea rows={3} value={draft.body ?? ""} onChange={set("body")} placeholder={bodyExamples[provider]} />
+        <Hint>{t.bodyHint}</Hint>
+      </Field>
     </SaveForm>
   );
 }
@@ -210,6 +220,7 @@ function SaveForm<T>({
   dirty,
   save,
   success,
+  onError,
   onSaved,
   hint,
   actions,
@@ -218,6 +229,7 @@ function SaveForm<T>({
   dirty: boolean;
   save: () => Promise<T>;
   success: string;
+  onError?: (err: LibraryError) => boolean;
   onSaved: (value: T) => void;
   hint: string;
   actions?: React.ReactNode;
@@ -230,7 +242,7 @@ function SaveForm<T>({
     e.preventDefault();
     if (!dirty || saving) return;
     setSaving(true);
-    const saved = await ui.run(async () => ({ value: await save() }), { reload: false, success });
+    const saved = await ui.run(async () => ({ value: await save() }), { reload: false, success, onError });
     setSaving(false);
     if (saved) onSaved(saved.value);
   };
@@ -261,4 +273,8 @@ function TextInput({ value, onChange, secret }: { value: string; onChange: (v: s
       onChange={(e) => onChange(e.target.value)}
     />
   );
+}
+
+function TextArea({ onChange, ...props }: { value: string; onChange: (v: string) => void; rows: number; placeholder?: string }) {
+  return <Textarea className="font-mono" autoComplete="off" spellCheck={false} onChange={(e) => onChange(e.target.value)} {...props} />;
 }

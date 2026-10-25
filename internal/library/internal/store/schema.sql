@@ -50,7 +50,20 @@ CREATE TABLE IF NOT EXISTS skills (
     update_check_renamed_to TEXT NOT NULL DEFAULT '', -- 结论为 deleted 时,推测这个技能在来源里改名成的新名字:同一来源里它消失了,同时出现了内容大部分相同的技能;没有推测为空
     kept_serial INTEGER NOT NULL DEFAULT 0,            -- 来源里已删除,用户选了继续保留时为当时的 update_check_serial(大于 0);0 = 没有这个标记。之后开始的检查更新、更新计划或更新确认来源里又有这个技能时清回 0
     update_check_serial INTEGER NOT NULL DEFAULT 0,    -- 每写一次结论或继续保留标记加 1;检查更新写回前据此发现期间别处已写过,不拿较旧的结论覆盖
+    note TEXT NOT NULL DEFAULT '',                     -- 用户写的备注,只供展示,不进技能文件;空 = 没有备注
     UNIQUE(source_id, name)
+);
+
+-- 技能描述的译文:用 AI 把技能当前版本的描述翻译成某种语言,存下来不再重复翻译。每个技能每种语言一条,重新翻译时覆盖。
+-- description 记下翻译时的原文:技能更新后描述变了,原文对不上当前版本的描述,这条译文就不再用,下次翻译覆盖它。
+-- 只认原文:拉回后同一个 ID 换成了别的技能,原文对不上也不会用。随技能一并删除。
+CREATE TABLE IF NOT EXISTS description_translations (
+    skill_id INTEGER NOT NULL REFERENCES skills(id), -- 哪个技能
+    language TEXT NOT NULL,                          -- 译成的语言,BCP 47 语言标签,如 zh、en
+    description TEXT NOT NULL,                       -- 翻译时的原文,即当时当前版本的描述
+    translation TEXT NOT NULL,                       -- 译文
+    translated_at TEXT NOT NULL DEFAULT '',          -- 翻译时间,RFC3339Nano
+    PRIMARY KEY(skill_id, language)
 );
 
 -- skill 的历史版本及快照元数据;文件清单在 version_files。
@@ -231,6 +244,7 @@ CREATE TABLE IF NOT EXISTS rolled_back_renames (
 -- 库自己的项:github_token = GitHub 个人访问令牌,没填时匿名访问(不行再用 gh);
 -- sync.endpoint / sync.bucket / sync.key / sync.region / sync.access_key_id / sync.secret_access_key / sync.session_token = 同步用的 S3 设置;
 -- ai.provider / ai.base_url / ai.api_key / ai.model = 调用 AI 用的接口类型(只存 anthropic;没有这一行为 OpenAI 兼容)、服务地址、API Key 与模型;
+-- ai.headers / ai.body = 每个 AI 请求额外带的 HTTP 头(一行一个「名字: 值」)与合并进请求体的 JSON 对象,都是用户填的原文;
 -- wsl_distro = 各 Agent 的全局目录所在的 WSL 发行版,没填为这台机器本身。应用自己的项以 app. 开头,库只存取、不解释。
 -- sync. 开头的与 wsl_distro 只属于这台机器:推送出去的库里删掉,拉回时保留本机的;其余随推送、拉回走,拉回后换成拉回的那份库里的。
 -- 数据库打开时开着 secure_delete:清空或换掉的值在文件里清零,推送出去的库里找不到旧令牌、旧 API Key 与 S3 密钥的原文。

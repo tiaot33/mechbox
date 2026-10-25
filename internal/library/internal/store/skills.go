@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -32,6 +33,8 @@ type Skill struct {
 	Skipped       bool
 	KeptDeleted   bool
 	Edited        bool
+	Note          string
+	Translations  map[string]string
 }
 
 type Current struct {
@@ -68,7 +71,12 @@ const skillQuery = `
 			SELECT 1 FROM skipped_changes WHERE skipped_changes.skill_id = skills.id AND skipped_changes.content = skills.update_check_content
 		),
 		skills.kept_serial > 0,
-		current_version.base_version_id IS NOT NULL OR current_version.maybe_edited
+		current_version.base_version_id IS NOT NULL OR current_version.maybe_edited,
+		skills.note,
+		(
+			SELECT json_group_object(language, translation) FROM description_translations
+			WHERE description_translations.skill_id = skills.id AND description_translations.description = current_version.description
+		)
 	FROM skills
 	LEFT JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -130,10 +138,16 @@ func (q queries) listSkills(ctx context.Context, operation, clause string, args 
 
 func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 	var skill Skill
-	var fetchedAt, updatedAt, checkedAt string
-	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited)
+	var fetchedAt, updatedAt, checkedAt, translations string
+	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited, &skill.Note, &translations)
 	if err != nil {
 		return Skill{}, err
+	}
+	if err := json.Unmarshal([]byte(translations), &skill.Translations); err != nil {
+		return Skill{}, fmt.Errorf("decode description translations: %w", err)
+	}
+	if len(skill.Translations) == 0 {
+		skill.Translations = nil
 	}
 	if skill.FetchedAt, err = parseTime(fetchedAt); err != nil {
 		return Skill{}, fmt.Errorf("decode fetched at: %w", err)
@@ -270,6 +284,7 @@ func (t *Tx) RemoveSkill(ctx context.Context, id int64) error {
 		`DELETE FROM skipped_changes WHERE skill_id = ?`,
 		`DELETE FROM rejected_renames WHERE skill_id = ?`,
 		`DELETE FROM rolled_back_renames WHERE skill_id = ?`,
+		`DELETE FROM description_translations WHERE skill_id = ?`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
 		`DELETE FROM skill_versions WHERE skill_id = ?`,
@@ -418,4 +433,31 @@ func (q queries) RejectedRenames(ctx context.Context, skillID int64) (map[string
 		return nil, fmt.Errorf("list rejected renames: %w", wrap(err))
 	}
 	return rejected, nil
+}
+
+func (q queries) SetSkillNote(ctx context.Context, skillID int64, note string) error {
+	result, err := q.q.ExecContext(ctx, `UPDATE skills SET note = ? WHERE id = ?`, note, skillID)
+	if err != nil {
+		return fmt.Errorf("set skill note: %w", wrap(err))
+	}
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
+		return fmt.Errorf("set skill note: %w", errors.Join(ErrNotFound, err))
+	}
+	return nil
+}
+
+func (q queries) SetTranslation(ctx context.Context, skillID int64, language, description, translation string, at time.Time) error {
+	result, err := q.q.ExecContext(ctx, `
+		INSERT INTO description_translations(skill_id, language, description, translation, translated_at)
+		SELECT id, ?, ?, ?, ? FROM skills WHERE id = ?
+		ON CONFLICT(skill_id, language) DO UPDATE SET
+			description = excluded.description, translation = excluded.translation, translated_at = excluded.translated_at
+	`, language, description, translation, formatTime(at), skillID)
+	if err != nil {
+		return fmt.Errorf("set description translation: %w", wrap(err))
+	}
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
+		return fmt.Errorf("set description translation: %w", errors.Join(ErrNotFound, err))
+	}
+	return nil
 }

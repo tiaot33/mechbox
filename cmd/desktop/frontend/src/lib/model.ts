@@ -19,7 +19,7 @@ import {
   type Source,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
-import { messages } from "./i18n";
+import { currentLanguage, messages } from "./i18n";
 import type { Snapshot } from "./library";
 
 // ---------- 作用域 ----------
@@ -590,6 +590,11 @@ export function pageTitle(s: Snapshot, page: Page): string {
 export function matches(search: string, item: { name: string; description?: string }): boolean {
   const text = search.trim().toLowerCase();
   return !text || (item.name + " " + (item.description ?? "")).toLowerCase().includes(text);
+}
+
+// translatedDescription 是描述在界面语言里的译文(技能库存下的);没有译文时为 undefined,显示原文。
+export function translatedDescription(item: { description_translations?: Skill["description_translations"] }): string | undefined {
+  return item.description_translations?.[currentLanguage()] || undefined;
 }
 
 // ---------- 所有技能页的分节 ----------

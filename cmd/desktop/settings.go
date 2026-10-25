@@ -16,6 +16,7 @@ type Settings struct {
 	CheckInterval CheckInterval `json:"check_interval"`     // 自动检查的间隔
 	StayInMenuBar bool          `json:"stay_in_menu_bar"`   // 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
 	DockBadge     bool          `json:"dock_badge"`         // Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
+	AutoTranslate bool          `json:"auto_translate"`     // 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
 	Language      Language      `json:"language,omitempty"` // 界面语言;空字符串跟随系统
 	// WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。
 	WSLDistro string `json:"wsl_distro,omitempty"`
@@ -54,7 +55,7 @@ func (i CheckInterval) valid() bool {
 const firstOpenDoneKey = "first_open_done"
 
 func defaultSettings() Settings {
-	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
+	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true}
 }
 
 func (s Settings) appValues(firstOpenDone bool) map[string]string {
@@ -63,6 +64,7 @@ func (s Settings) appValues(firstOpenDone bool) map[string]string {
 		"check_interval":   string(s.CheckInterval),
 		"stay_in_menu_bar": strconv.FormatBool(s.StayInMenuBar),
 		"dock_badge":       strconv.FormatBool(s.DockBadge),
+		"auto_translate":   strconv.FormatBool(s.AutoTranslate),
 		"language":         string(s.Language),
 	}
 	if len(s.AgentsShown) > 0 {
@@ -85,6 +87,7 @@ func settingsFrom(values map[string]string) (Settings, bool) {
 	flag("auto_check", &s.AutoCheck)
 	flag("stay_in_menu_bar", &s.StayInMenuBar)
 	flag("dock_badge", &s.DockBadge)
+	flag("auto_translate", &s.AutoTranslate)
 	if interval := CheckInterval(values["check_interval"]); interval.valid() {
 		s.CheckInterval = interval
 	}
