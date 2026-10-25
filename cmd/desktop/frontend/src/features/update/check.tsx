@@ -12,7 +12,7 @@ import { showResults } from "@/components/app/results";
 export async function checkUpdates(collections: CollectionID[]) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const checks = await ui.run(() => LibraryService.CheckUpdates(collections));
+  const checks = await ui.run(() => LibraryService.CheckUpdates(collections), { failed: (checks) => (checks ?? []).some((c) => c.error) });
   if (!checks) return;
   const skills = checks.flatMap((c) => c.skills ?? []).filter(pending);
   const available = skills.filter(updateAvailable).length;

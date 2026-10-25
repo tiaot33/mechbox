@@ -4,9 +4,8 @@
 import type { ComponentProps } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
-import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { StatusMark } from "./status-mark";
+import { Spinner } from "./spinner";
 
 const buttonVariants = cva(
   "relative inline-flex shrink-0 items-center justify-center gap-[5px] font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-3 focus-visible:ring-primary-soft",
@@ -70,7 +69,6 @@ function Button({
   onPointerDown,
   ...props
 }: ButtonProps) {
-  const t = useT();
   const classes = cn(
     buttonVariants({ variant, size: size ?? (variant === "link" ? "inline" : "default") }),
     done && "pointer-events-none",
@@ -102,8 +100,8 @@ function Button({
       {loading || done ? (
         <>
           <span className="invisible inline-flex items-center gap-[5px]">{children}</span>
-          <span data-slot={loading ? "spinner" : undefined} role="status" aria-label={loading ? t.common.working : undefined} className="absolute inset-0 grid place-items-center">
-            <StatusMark status={loading ? "running" : "done"} size={11} strokeWidth={3} className={cn(done && variant === "primary" && "text-white!")} />
+          <span className="absolute inset-0 grid place-items-center">
+            <Spinner status={loading ? "running" : "done"} className={cn(done && variant === "primary" && "[&_svg]:text-white!")} />
           </span>
         </>
       ) : (

@@ -51,6 +51,8 @@ export interface RunOptions<T> {
   reload?: boolean; // 默认 true
   // onError 返回 true 表示已自行处理，run 不再弹 toast。
   onError?: (err: LibraryError) => boolean;
+  // failed 返回 true 表示调用成功了但有逐项失败(结果里列出没完成的),顶栏的状态圈画叉而不是对勾。
+  failed?: (value: T) => boolean;
 }
 
 // ToastAction 是 toast 上的一个按钮(如更新完成后的"回滚");带按钮的 toast 停留得久一些。
@@ -89,17 +91,20 @@ interface DialogEntry {
 }
 
 // 弹窗栈、toast 与进行中的写操作数放在 store 里，组件外的写操作流程也能打开弹窗、弹 toast;UIHost 把它们画出来。
-// settled 是进行中的写操作全部结束时的结果(有失败的就是 failed),顶栏的状态圈据此画对勾或叉。
+// settled 是进行中的写操作全部结束时的结果(有失败的就是 failed),顶栏的状态圈据此画对勾或叉;
+// 这一轮只有被取消的写操作时不更新。finished、failed 记着这一轮里有没有没被取消的、有没有失败的。
 const useUIStore = create<{
   dialogs: DialogEntry[];
   toast: ToastState | null;
   pending: number;
+  finished: boolean;
   failed: boolean;
   settled: { id: number; failed: boolean } | null;
 }>()(() => ({
   dialogs: [],
   toast: null,
   pending: 0,
+  finished: false,
   failed: false,
   settled: null,
 }));
@@ -139,24 +144,29 @@ function open<T>(render: (close: (value?: T) => void) => ReactNode, opts: OpenOp
 
 async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise<T | undefined> {
   set((s) => ({ pending: s.pending + 1 }));
-  let failed = false;
+  let outcome: "done" | "failed" | "canceled" = "done";
   try {
     const value = await task();
+    if (opts.failed?.(value)) outcome = "failed";
     const message = typeof opts.success === "function" ? opts.success(value) : opts.success;
     if (message) toast(message);
     return value;
   } catch (e) {
     const err = toLibraryError(e);
-    if (err.code === ErrorCode.Canceled) return undefined;
-    failed = true;
+    if (err.code === ErrorCode.Canceled) {
+      outcome = "canceled";
+      return undefined;
+    }
+    outcome = "failed";
     if (!opts.onError?.(err)) toast(describeError(err), "error");
     return undefined;
   } finally {
     set((s) => {
       const pending = s.pending - 1;
-      const anyFailed = s.failed || failed;
-      if (pending > 0) return { pending, failed: anyFailed };
-      return { pending, failed: false, settled: { id: nextSettledID++, failed: anyFailed } };
+      const finished = s.finished || outcome !== "canceled";
+      const failed = s.failed || outcome === "failed";
+      if (pending > 0) return { pending, finished, failed };
+      return { pending, finished: false, failed: false, ...(finished && { settled: { id: nextSettledID++, failed } }) };
     });
     // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
     if (opts.reload !== false) void reloadLibrary();

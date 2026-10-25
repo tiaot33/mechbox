@@ -67,6 +67,7 @@ export async function runUpdate(
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
     onError: (err) => (conflict = stalePlan(err)),
+    failed: (r) => (r.installs ?? []).some((x) => x.outcome === ReinstallOutcome.ReinstallFailed),
   });
   if (conflict) return "conflict";
   if (!result) return undefined;
@@ -93,7 +94,7 @@ export function placeAgain(record: UpdateRecordID, requests: ReinstallRequest[],
     const call = record ? LibraryService.RetryUpdateInstalls(record, requests) : LibraryService.Reinstall(requests);
     track?.(call);
     return call;
-  });
+  }, { failed: (r) => failedOnly(r).length > 0 });
 }
 
 export const failedOnly = (results: ReinstallResult[] | null) => (results ?? []).filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);

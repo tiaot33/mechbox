@@ -1,20 +1,23 @@
 // 可下滑关掉的 toast(照 React Bits 的 SwipeToast 改写):从底部升起，底边一条引线按剩余时间烧短，烧完自己收起;
-// 鼠标悬停、按住、聚焦或窗口在后台时引线停烧。往下拖过 swipeDistance 或往下一甩就关掉，拖得不够弹回原位，往上拖有阻尼。
+// 鼠标悬停、按住、用键盘聚焦或窗口在后台(最小化、切到别的应用)时引线停烧。往下拖过 40px 或往下一甩就关掉，拖得不够弹回原位，往上拖有阻尼。
 // 显隐阶段的样式(升起、收起、引线)在 index.css 的 .swipe-toast 里。
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import { Button } from "./button";
 
-export type ToastCloseReason = "timeout" | "swipe" | "action" | "escape";
+type CloseReason = "timeout" | "swipe" | "action" | "escape";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 const FLICK = 0.11; // 往下甩的速度(px/ms)超过它就关掉
 const DEAD_ZONE = 3;
 const RESIST_PX = 24;
+const SWIPE_PX = 40; // 往下拖过这么远松手就关掉
 const SLIDE_MS = 400;
 const EXIT = 0.7;
 const BURN = [{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }];
 const HAS_STARTING_STYLE = typeof window !== "undefined" && "CSSStartingStyleRule" in window;
 
+const inBackground = () => document.hidden || !document.hasFocus();
 const rubberband = (over: number, dim: number, c = 0.55) => (over * dim * c) / (dim + c * Math.abs(over));
 const velocityOf = (hist: [number, number][]) => {
   if (hist.length < 2) return 0;
@@ -37,16 +40,14 @@ export function SwipeToast({
   actionLabel,
   onAction,
   onClose,
-  duration = 4000,
-  swipeDistance = 40,
+  duration,
 }: {
   children: ReactNode;
   tone?: "ok" | "error";
   actionLabel?: string;
   onAction?: () => void;
-  onClose: (reason: ToastCloseReason) => void;
-  duration?: number;
-  swipeDistance?: number;
+  onClose: () => void;
+  duration: number;
 }) {
   const reduce = useReducedMotion();
   const [phase, setPhase] = useState<"open" | "closing" | "gone">("open");
@@ -57,9 +58,9 @@ export function SwipeToast({
   const burn = useRef<Animation | null>(null);
   const drag = useRef<Drag | null>(null);
   // 引线停烧的几种原因，任一成立就停。
-  const flags = useRef({ hover: false, interacting: false, focus: false, hidden: false });
+  const flags = useRef({ hover: false, interacting: false, focus: false, hidden: inBackground() });
   const lastInput = useRef<"pointer" | "keyboard">("pointer");
-  const pendingClose = useRef<ToastCloseReason | null>(null);
+  const pendingClose = useRef<CloseReason | null>(null);
   const closeTimer = useRef<number | undefined>(undefined);
   const leaving = useRef(false);
   const phaseRef = useRef(phase);
@@ -78,12 +79,12 @@ export function SwipeToast({
     if (f.hover || f.interacting || f.focus || f.hidden) a.pause();
     else if (a.playState === "paused") a.play();
   };
-  const finish = (why: ToastCloseReason) => {
+  const finish = () => {
     setPhase("gone");
     leaving.current = false;
-    latest.current.onClose(why);
+    latest.current.onClose();
   };
-  const close = (why: ToastCloseReason) => {
+  const close = (why: CloseReason) => {
     if (phaseRef.current !== "open" || leaving.current) return;
     // 正拖着时等松手再关。
     if (drag.current) {
@@ -95,7 +96,7 @@ export function SwipeToast({
     setInstant(now);
     setPhase("closing");
     window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => finish(why), now ? 0 : SLIDE_MS * EXIT + 60);
+    closeTimer.current = window.setTimeout(finish, now ? 0 : SLIDE_MS * EXIT + 60);
   };
   // 收起途中又按住了：停下收起，回到打开。
   const rescue = () => {
@@ -123,12 +124,16 @@ export function SwipeToast({
   }, [phase, duration]);
   useEffect(() => {
     const onVisibility = () => {
-      flags.current.hidden = document.hidden;
+      flags.current.hidden = inBackground();
       syncFuse();
     };
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", onVisibility);
+    window.addEventListener("focus", onVisibility);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("blur", onVisibility);
+      window.removeEventListener("focus", onVisibility);
       window.clearTimeout(closeTimer.current);
       burn.current?.cancel();
     };
@@ -141,7 +146,7 @@ export function SwipeToast({
     if (!reduce && card.current) {
       void animate(y, dy + card.current.offsetHeight, { type: "spring", duration: 0.3, bounce: 0, velocity: v * 1000 });
     }
-    void animate(fade, 0, { duration: 0.2, ease: EASE_OUT }).then(() => finish("swipe"));
+    void animate(fade, 0, { duration: 0.2, ease: EASE_OUT }).then(finish);
   };
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     lastInput.current = "pointer";
@@ -185,7 +190,7 @@ export function SwipeToast({
     flags.current.interacting = false;
     const dy = y.get();
     const v = velocityOf(d.hist);
-    if (dy > 0 && (v > FLICK || (dy >= swipeDistance && v >= 0))) {
+    if (dy > 0 && (v > FLICK || (dy >= SWIPE_PX && v >= 0))) {
       swipeOut(dy, v);
       return;
     }
@@ -232,8 +237,9 @@ export function SwipeToast({
             flags.current.hover = false;
             syncFuse();
           }}
-          onFocus={() => {
-            flags.current.focus = true;
+          onFocus={(e) => {
+            // 鼠标点一下也会让卡片拿到焦点，只有键盘聚焦(给读内容用)才停烧。
+            flags.current.focus = e.target.matches(":focus-visible");
             syncFuse();
           }}
           onBlur={(e) => {
@@ -251,16 +257,16 @@ export function SwipeToast({
         >
           <span className="min-w-0 grow text-center">{children}</span>
           {actionLabel && (
-            <button
-              type="button"
-              className="shrink-0 font-medium text-primary transition-transform hover:underline active:scale-[0.97]"
+            <Button
+              variant="link"
+              className="shrink-0"
               onClick={() => {
                 latest.current.onAction?.();
                 close("action");
               }}
             >
               {actionLabel}
-            </button>
+            </Button>
           )}
           <i ref={fuse} className="swipe-toast-fuse" aria-hidden />
         </motion.div>

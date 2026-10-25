@@ -1,73 +1,56 @@
-// 状态圈(照 React Bits 的 StatusMark 改写，只留图形):pending 是虚线圈,running 是转动的弧,
-// done / failed 由弧合成整圈再画出对勾 / 叉。状态之间是形变过渡，不是换图;各状态的颜色与对勾、叉的描画在 index.css 的 .status-mark 里。
+// 状态圈(照 React Bits 的 StatusMark 改写，只留图形):running 是转动的弧,done / failed 由弧合成整圈再画出对勾 / 叉。
+// 状态之间是形变过渡，不是换图;各状态的颜色与对勾、叉的描画在 index.css 的 .status-mark 里。
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { animate, useMotionValue, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 
-export type MarkStatus = "pending" | "running" | "done" | "failed";
+export type MarkStatus = "running" | "done" | "failed";
 
 const UI = { type: "spring", duration: 0.3, bounce: 0 } as const;
-const MORPH = { duration: 0.3, ease: [0.77, 0, 0.175, 1] } as const;
 const CHECK = "M7.5 12.25 10.5 15.25 16.75 8.75";
 const CROSS = "M8.5 8.5 15.5 15.5M15.5 8.5 8.5 15.5";
-// 虚线圈里每一段的实线占比。
-const IDLE_DASH = 0.3;
+const ARC = 0.68; // running 时弧占整圈的比例
+const SPIN_S = 1.1; // 转一圈的秒数
+const STOP = 1 / 8; // 停转时减速转到下一个八分之一圈
 
 export function StatusMark({
   status,
   size = 14,
   strokeWidth = 2,
-  dashes = 8,
-  spinMs = 1100,
-  arcLength = 0.68,
   className,
 }: {
   status: MarkStatus;
   size?: number;
   strokeWidth?: number; // 按 24×24 的 viewBox 计
-  dashes?: number;
-  spinMs?: number;
-  arcLength?: number; // running 时弧占整圈的比例
   className?: string;
 }) {
   const reduce = useReducedMotion();
   const r = 10 - strokeWidth / 2;
   const C = 2 * Math.PI * r;
-  const P = C / Math.max(1, dashes);
   const running = status === "running";
-  const solid = status !== "pending";
-  const targetArc = running ? arcLength : 1;
+  const targetArc = running ? ARC : 1;
 
-  // mode 从虚线圈(0)形变到实线弧(1);arc 是弧长占比;travel 是 dashoffset,转圈就是让它一直减。
-  const mode = useMotionValue(solid ? 1 : 0);
+  // arc 是弧长占比;travel 是 dashoffset,转圈就是让它一直减。
   const arc = useMotionValue(targetArc);
   const travel = useMotionValue(0);
   const ring = useRef<SVGCircleElement>(null);
-  const geo = useRef({ C, P });
-  geo.current = { C, P };
+  const circumference = useRef(C);
+  circumference.current = C;
   const gen = useRef(0);
 
   const writeDash = () => {
-    const { C, P } = geo.current;
-    const m = mode.get();
+    const c = circumference.current;
     const a = arc.get();
-    const dash = IDLE_DASH * P + (a * C - IDLE_DASH * P) * m;
-    const gap = (1 - IDLE_DASH) * P + ((1 - a) * C - (1 - IDLE_DASH) * P) * m;
-    ring.current?.setAttribute("stroke-dasharray", `${Math.max(0, dash)} ${Math.max(0, gap)}`);
+    ring.current?.setAttribute("stroke-dasharray", `${a * c} ${(1 - a) * c}`);
   };
   useLayoutEffect(() => {
     writeDash();
     ring.current?.setAttribute("stroke-dashoffset", String(travel.get()));
-  }, [C, P]);
+  }, [C]);
   useEffect(() => {
-    const offs = [
-      mode.on("change", writeDash),
-      arc.on("change", writeDash),
-      travel.on("change", (v) => ring.current?.setAttribute("stroke-dashoffset", String(v))),
-    ];
+    const offs = [arc.on("change", writeDash), travel.on("change", (v) => ring.current?.setAttribute("stroke-dashoffset", String(v)))];
     return () => {
       offs.forEach((off) => off());
-      mode.stop();
       arc.stop();
       travel.stop();
     };
@@ -76,25 +59,21 @@ export function StatusMark({
   useEffect(() => {
     const g = ++gen.current;
     if (reduce) {
-      mode.jump(solid ? 1 : 0);
       arc.jump(targetArc);
       travel.jump(0);
       return;
     }
-    if (mode.get() === 0) arc.jump(targetArc);
-    animate(mode, solid ? 1 : 0, MORPH);
     animate(arc, targetArc, UI);
     if (running) {
       const t0 = travel.get();
-      animate(travel, [t0, t0 - C], { duration: spinMs / 1000, ease: "linear", repeat: Infinity });
+      animate(travel, [t0, t0 - C], { duration: SPIN_S, ease: "linear", repeat: Infinity });
       return;
     }
-    // 停转时转到最近的一段的起点再归零，看不出跳动。
-    const to = Math.floor(travel.get() / P) * P;
-    void animate(travel, to, UI).then(() => {
+    const step = C * STOP;
+    void animate(travel, Math.floor(travel.get() / step) * step, UI).then(() => {
       if (gen.current === g) travel.jump(0);
     });
-  }, [status, targetArc, reduce, C, P, spinMs]);
+  }, [status, targetArc, reduce, C]);
 
   return (
     <svg
