@@ -180,6 +180,20 @@ export function invalidateSyncSettings() {
   return queryClient.invalidateQueries({ queryKey: syncSettingsQuery.queryKey });
 }
 
+// syncStatusQuery 是这台机器在 S3 上的设备目录与上次推送的时间，加上 Go 端记下的上一次推送(自动或手动)出的问题。
+// Go 端自动推送后发 sync-pushed 事件，App 据此重读;手动推送、改同步设置后由发起处重读。
+export const syncStatusQuery = queryOptions({
+  queryKey: ["sync-status"],
+  queryFn: async ({ signal }) => {
+    const [status, problem] = await Promise.all([wails(signal, LibraryService.SyncStatus()), wails(signal, AppService.PushProblem())]);
+    return { ...status, problem };
+  },
+});
+
+export function invalidateSyncStatus() {
+  return queryClient.invalidateQueries({ queryKey: syncStatusQuery.queryKey });
+}
+
 // scopeDirectoryQuery 查作用域对应的 Agent 目录。home 是快照里的主目录，设置里改选 WSL 发行版后它变了，同一个作用域也要重查。
 export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undefined) {
   return queryOptions({

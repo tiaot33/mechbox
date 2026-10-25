@@ -20,18 +20,32 @@ const machineConfigWhere = `substr(key, 1, length(?)) = ? OR key = ?`
 var machineConfigArgs = []any{syncPrefix, syncPrefix, wslDistroKey}
 
 type SyncSettings struct {
-	Endpoint, Bucket, Key, Region, AccessKeyID, SecretAccessKey, SessionToken string
+	Endpoint, Bucket, Folder, Region, AccessKeyID, SecretAccessKey, SessionToken, Keep, AutoPush string
 }
 
 func (s *SyncSettings) fields() []configField {
 	return []configField{
 		{"endpoint", &s.Endpoint},
 		{"bucket", &s.Bucket},
-		{"key", &s.Key},
+		{"folder", &s.Folder},
 		{"region", &s.Region},
 		{"access_key_id", &s.AccessKeyID},
 		{"secret_access_key", &s.SecretAccessKey},
 		{"session_token", &s.SessionToken},
+		{"keep", &s.Keep},
+		{"auto_push", &s.AutoPush},
+	}
+}
+
+type SyncState struct {
+	Device, LastPushedAt, LastPushedTo string
+}
+
+func (s *SyncState) fields() []configField {
+	return []configField{
+		{"device", &s.Device},
+		{"last_pushed_at", &s.LastPushedAt},
+		{"last_pushed_to", &s.LastPushedTo},
 	}
 }
 
@@ -146,6 +160,16 @@ func (q queries) SyncSettings(ctx context.Context) (SyncSettings, error) {
 
 func (s *Store) SetSyncSettings(ctx context.Context, settings SyncSettings) error {
 	return s.writeConfigFields(ctx, syncPrefix, settings.fields())
+}
+
+func (q queries) SyncState(ctx context.Context) (SyncState, error) {
+	var state SyncState
+	err := q.readConfigFields(ctx, syncPrefix, state.fields())
+	return state, err
+}
+
+func (s *Store) SetSyncState(ctx context.Context, state SyncState) error {
+	return s.writeConfigFields(ctx, syncPrefix, state.fields())
 }
 
 func (q queries) AISettings(ctx context.Context) (AISettings, error) {

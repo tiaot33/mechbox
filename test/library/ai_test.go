@@ -90,37 +90,18 @@ func TestAISettingsRejectInvalidValues(t *testing.T) {
 // AI 设置和 GitHub 令牌一样随推送、拉回走:拉回的一侧换成推送那份库里的;拉回一份没有 AI 设置的库,本机的随之清掉。
 func TestAISettingsTravelWithSync(t *testing.T) {
 	stub := newS3Stub(t)
-	ctx := t.Context()
 	pushed := library.AISettings{Provider: library.AIProviderAnthropic, APIKey: "sk-synced", Model: "claude-test"}
 	pushing := stub.open(t)
 	setAISettings(t, pushing, pushed)
-	if _, err := pushing.SyncPush(ctx, ""); err != nil {
-		t.Fatal(err)
-	}
+	pushBackup(t, pushing)
 	pulling := stub.open(t)
 	setAISettings(t, pulling, library.AISettings{Provider: library.AIProviderOpenAI, APIKey: "sk-local", Model: "gpt-local"})
-	pull := func() {
-		t.Helper()
-		plan, err := pulling.PlanSyncPull(ctx)
-		if err != nil || !plan.CanPull {
-			t.Fatalf("pull plan = %#v, %v", plan, err)
-		}
-		if err := pulling.SyncPull(ctx, plan.Remote.Identity); err != nil {
-			t.Fatal(err)
-		}
-	}
-	pull()
+	pullLatest(t, pulling)
 	aiSettingsAre(t, pulling, pushed)
 
 	setAISettings(t, pushing, library.AISettings{})
-	plan, err := pushing.PlanSyncPush(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pushing.SyncPush(ctx, plan.Remote.Identity); err != nil {
-		t.Fatal(err)
-	}
-	pull()
+	pushBackup(t, pushing)
+	pullLatest(t, pulling)
 	aiSettingsAre(t, pulling, noAISettings)
 }
 

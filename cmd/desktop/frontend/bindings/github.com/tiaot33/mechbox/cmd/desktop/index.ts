@@ -17,6 +17,7 @@ export {
 export type {
     AppInfo,
     ConfigStatus,
+    PushProblem,
     Settings,
     UninstallOptions,
     UninstallResult

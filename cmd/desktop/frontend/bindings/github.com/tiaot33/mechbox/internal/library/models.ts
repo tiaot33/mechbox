@@ -256,22 +256,17 @@ export enum CannotPullReason {
     $zero = "",
 
     /**
-     * CannotPullNoRemote S3 上没有库:还没有哪台机器推送过。
-     */
-    CannotPullNoRemote = "no_remote",
-
-    /**
-     * CannotPullNotALibrary S3 上的文件不是本应用的库,或已损坏。
+     * CannotPullNotALibrary 这份备份不是本应用的库,或已损坏。
      */
     CannotPullNotALibrary = "not_a_library",
 
     /**
-     * CannotPullNewerApp S3 上的库来自较新版本的应用:先把这台机器上的应用升级。
+     * CannotPullNewerApp 这份备份来自较新版本的应用:先把这台机器上的应用升级。
      */
     CannotPullNewerApp = "newer_app",
 
     /**
-     * CannotPullOlderApp S3 上的库来自较旧版本的应用:先在推送它的机器上升级应用,再推送一次。
+     * CannotPullOlderApp 这份备份来自较旧版本的应用:先在推送它的机器上升级应用,再推送一次。
      */
     CannotPullOlderApp = "older_app",
 };
@@ -475,16 +470,16 @@ export enum ErrorCode {
     AlreadyExists = "already_exists",
 
     /**
-     * Conflict 计划到执行之间状态已变(Sync 的远端身份;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
+     * Conflict 计划到执行之间状态已变(拉回时选中的备份在列出之后被删掉或改写;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
      * 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本)。
-     * 可重新生成同步计划 / 重新发起后再执行。
+     * 可重新列出备份、生成同步计划 / 重新发起后再执行。
      */
     Conflict = "conflict",
 
     /**
      * FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
      * (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;修改或删除内置 Agent;同一入库预览句柄的入库正在进行;
-     * Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回时 S3 上的库不能拉回;
+     * Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回时选中的备份不能拉回;
      * 要用的 WSL 发行版打不开:没有这个发行版、WSL 没有响应或发行版里的命令进程中途退出)。
      * 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
      * 加入成员时根目录不存在也是如此。重新安装时根目录不存在放进那一处的 ReinstallResult.Error。
@@ -1280,33 +1275,6 @@ export interface ReinstallResult {
 }
 
 /**
- * RemoteIdentity 是同步计划里远端那份库的标识:原样传回执行方法,界面不展示;空表示计划时远端没有库。
- * 执行时远端已不是这一份,返回 Conflict,确保推送覆盖的、拉回恢复的就是用户在计划里确认的那一份。
- */
-export type RemoteIdentity = string;
-
-/**
- * RemoteLibrary 是 S3 上的那份库:界面据此写「S3 上的库:MacBook-Pro 于 3 天前推送」,
- * 让用户认出推送会覆盖、拉回会恢复的是哪一份。
- */
-export interface RemoteLibrary {
-    /**
-     * Identity 原样传回 [Library.SyncPush] / [Library.SyncPull]。
-     */
-    "identity": RemoteIdentity;
-
-    /**
-     * PushedAt 是这份库被推送的时间;S3 没给出时为零值。
-     */
-    "pushed_at"?: string;
-
-    /**
-     * PushedFrom 是推送它的机器名(推送时那台机器的主机名);没有记录时为空。
-     */
-    "pushed_from"?: string;
-}
-
-/**
  * RemoveFromGroupOptions 是 RemoveSkillFromGroup 的选项。
  */
 export interface RemoveFromGroupOptions {
@@ -1910,48 +1878,110 @@ export enum SourceType {
 };
 
 /**
- * SyncPullPlan 是拉回的同步计划:会从 S3 上的哪一份库恢复、里面有什么、能不能拉回。
+ * SyncBackup 是 S3 上的一份备份,界面据此写「MacBook-Pro-3f9a2c 于 3 天前推送」,让用户认出拉回会恢复的是哪一份。
+ */
+export interface SyncBackup {
+    /**
+     * ID 原样传回 [Library.PlanSyncPull] / [Library.SyncPull]。
+     */
+    "id": SyncBackupID;
+
+    /**
+     * Device 是推送它的机器的设备目录名([SyncStatus].Device)。
+     */
+    "device": string;
+
+    /**
+     * ThisDevice 表示是这台机器推送的。
+     */
+    "this_device": boolean;
+
+    /**
+     * PushedAt 是推送的时间,按推送那台机器的时钟,精确到毫秒。
+     */
+    "pushed_at": string;
+}
+
+/**
+ * SyncBackupID 标识 S3 上的一份备份:从 [SyncBackup].ID 原样传回 [Library.PlanSyncPull] / [Library.SyncPull],界面不展示。
+ */
+export type SyncBackupID = string;
+
+/**
+ * SyncInterval 是自动推送的间隔;空字符串为不自动推送。
+ */
+export enum SyncInterval {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * SyncHourly 每小时推送一次。
+     */
+    SyncHourly = "hourly",
+
+    /**
+     * SyncDaily 每天推送一次。
+     */
+    SyncDaily = "daily",
+
+    /**
+     * SyncWeekly 每周推送一次。
+     */
+    SyncWeekly = "weekly",
+};
+
+/**
+ * SyncPullPlan 是拉回的同步计划:从选中的那份备份恢复会得到什么、能不能拉回。
  * 只读,不替换本机的库。拉回会替换本机的整个库,Agent 目录里的文件夹不会改动(见 [Library.SyncPull])。
  */
 export interface SyncPullPlan {
     /**
-     * Remote 是 S3 上现在的库;nil 表示 S3 上没有库,此时 CannotPull 为 CannotPullNoRemote。
-     */
-    "remote"?: RemoteLibrary | null;
-
-    /**
-     * CanPull 为 false 时 CannotPull 给出原因。S3 上的库不能拉回时 [Library.SyncPull] 返回 FailedPrecondition;
-     * S3 上没有库(CannotPullNoRemote)时带着空标识拉回返回 NotFound。
+     * CanPull 为 false 时 CannotPull 给出原因,此时 [Library.SyncPull] 返回 FailedPrecondition。
      */
     "can_pull": boolean;
     "cannot_pull"?: CannotPullReason;
 
     /**
-     * Skills、Groups 是那份库里的技能数与组数;仅 CanPull 时填写。
+     * Skills、Groups 是那份备份里的技能数与组数;仅 CanPull 时填写。
      */
     "skills": number;
     "groups": number;
 
     /**
-     * Projects 是那份库里的已登记项目,仅 CanPull 时填写。Path 是推送那台机器上的路径,Missing 按这台机器现查:
+     * Projects 是那份备份里的已登记项目,仅 CanPull 时填写。Path 是推送那台机器上的路径,Missing 按这台机器现查:
      * 拉回后项目 ID 不变,Missing 的项目要用 [Library.RelocateProject] 指到它在这台机器上的位置。
      */
     "projects"?: RegisteredProject[] | null;
 }
 
 /**
- * SyncPushPlan 是推送的同步计划:推送会覆盖 S3 上的哪一份库。只读,不上传。
+ * SyncPushResult 是一次推送的结果。
  */
-export interface SyncPushPlan {
+export interface SyncPushResult {
     /**
-     * Remote 是 S3 上现在的库;nil 表示 S3 上还没有库(第一次推送)。
+     * Backup 是 S3 上这台机器最新的那份备份:刚推送的,或 Unchanged 时原有的那份。
      */
-    "remote"?: RemoteLibrary | null;
+    "backup": SyncBackup;
+
+    /**
+     * Unchanged 表示本机的库和这台机器最新的那份备份内容相同,没有新建备份。
+     */
+    "unchanged"?: boolean;
+
+    /**
+     * RemoveError 是删超出份数的旧备份失败的原因(如存储桶不给删除权限);这时备份已经在 S3 上,推送算成功,
+     * 下一次推送会再删。界面据此提示「已推送,但没能删掉旧备份」。
+     */
+    "remove_error"?: Error | null;
 }
 
 /**
  * SyncSettings 是同步用的 S3 设置,用 [Library.SetSyncSettings] 存进数据库。
- * 留空的项:对象名默认 library.db,区域默认 us-east-1,服务地址留空时按存储桶与区域使用 AWS S3。
+ * 留空的项:文件夹留空时备份放在存储桶根下,区域默认 us-east-1,服务地址留空时按存储桶与区域使用 AWS S3,
+ * 保留份数为 0 时按 [DefaultSyncKeep],自动推送留空时不自动推送。
+ * 备份的对象名由库决定,不能设置:<文件夹>/<设备目录>/library-<推送时间>.db,设备目录见 [SyncStatus].Device。
  */
 export interface SyncSettings {
     /**
@@ -1965,9 +1995,9 @@ export interface SyncSettings {
     "bucket": string;
 
     /**
-     * Key 是对象名。
+     * Folder 是存储桶里放备份的文件夹,可以多级(team/mechbox);首尾的 / 与空的一级去掉。
      */
-    "key"?: string;
+    "folder"?: string;
 
     /**
      * Region 是区域。
@@ -1988,6 +2018,33 @@ export interface SyncSettings {
      * SessionToken 是临时凭证的会话令牌;用长期密钥时留空。
      */
     "session_token"?: string;
+
+    /**
+     * Keep 是 S3 上保留这台机器的备份份数;每次推送后删掉这台机器超出份数的最旧备份,别的设备的不动。
+     */
+    "keep"?: number;
+
+    /**
+     * AutoPush 是自动推送的间隔。库只存取;按间隔调用 [Library.SyncPush] 的是应用,拉回从不自动进行。
+     */
+    "auto_push"?: SyncInterval;
+}
+
+/**
+ * SyncStatus 是这台机器的同步状态,设置页据此写「这台机器的备份在 team/mechbox/MacBook-Pro-3f9a2c/,上次推送:3 小时前」。
+ */
+export interface SyncStatus {
+    /**
+     * Device 是这台机器在 S3 上的设备目录名:主机名(第一个点之前的部分)加一段随机后缀,第一次用到时生成,之后不变,不能设置;
+     * 两台主机名相同的机器也各用各的目录。
+     */
+    "device": string;
+
+    /**
+     * LastPushedAt 是这台机器上次推送成功的时间(含 S3 上已是同样内容、没有新建备份的那次);没推送过,
+     * 或那次推到的服务地址、存储桶、文件夹和现在的同步设置不同时为零值。应用据此和 [SyncSettings].AutoPush 判断该不该自动推送。
+     */
+    "last_pushed_at"?: string;
 }
 
 /**

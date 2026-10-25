@@ -322,21 +322,20 @@ func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
 	}
 }
 
-func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
+func TestSyncPushAndPullPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	local := fetchNamedSkill(t, lib, "local")
-	if plan, err := lib.PlanSyncPush(t.Context()); err != nil || plan.Remote != nil {
-		t.Fatalf("PlanSyncPush() = %#v, %v; want no remote library", plan, err)
-	}
 
 	pushGate := newNetworkGate()
 	pushGate.arm()
+	stub.mu.Lock()
 	stub.gate, stub.gateMethod = pushGate, http.MethodPut
+	stub.mu.Unlock()
 	var wg sync.WaitGroup
 	var pushErr error
-	wg.Go(func() { _, pushErr = lib.SyncPush(t.Context(), "") })
+	wg.Go(func() { _, pushErr = lib.SyncPush(t.Context()) })
 	pushGate.awaitEntered(t)
 	mustFinishBeforeRelease(t, pushGate, "Fetch during push upload", func(ctx context.Context) error {
 		source := filepath.Join(t.TempDir(), "during-push")
@@ -353,19 +352,22 @@ func TestSyncPushAndPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 		t.Fatalf("SyncPush after release: %v", pushErr)
 	}
 
-	headGate := newNetworkGate()
-	headGate.arm()
-	stub.gate, stub.gateMethod = headGate, http.MethodHead
+	backup := listBackups(t, lib)[0]
+	getGate := newNetworkGate()
+	getGate.arm()
+	stub.mu.Lock()
+	stub.gate, stub.gateMethod = getGate, http.MethodGet
+	stub.mu.Unlock()
 	var planErr error
-	wg.Go(func() { _, planErr = lib.PlanSyncPush(t.Context()) })
-	headGate.awaitEntered(t)
-	mustFinishBeforeRelease(t, headGate, "Uninstall during push plan", func(ctx context.Context) error {
+	wg.Go(func() { _, planErr = lib.PlanSyncPull(t.Context(), backup.ID) })
+	getGate.awaitEntered(t)
+	mustFinishBeforeRelease(t, getGate, "Uninstall during pull plan", func(ctx context.Context) error {
 		return lib.Uninstall(ctx, local.ID, library.GlobalScope(library.AgentCodex))
 	})
-	headGate.open()
+	getGate.open()
 	wg.Wait()
 	if planErr != nil {
-		t.Fatalf("PlanSyncPush after release: %v", planErr)
+		t.Fatalf("PlanSyncPull after release: %v", planErr)
 	}
 }
 

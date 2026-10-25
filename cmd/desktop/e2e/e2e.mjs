@@ -2300,7 +2300,7 @@ await step("左栏分节折叠与展开", async () => {
 await step("同步：未配置时推、拉置灰，去设置跳到同步分区", async () => {
   await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
   assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置 S3" }).count()) === 1, "应提示未配置");
-  assert(await btn(modal(), "推送到 S3…").isDisabled(), "未配置时推送置灰");
+  assert(await btn(modal(), "推送到 S3").isDisabled(), "未配置时推送置灰");
   assert(await btn(modal(), "从 S3 拉回…").isDisabled(), "未配置时拉回置灰");
   await btn(modal(), "去设置").click();
   await page.locator(".settings").waitFor();
@@ -2385,6 +2385,8 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
 });
 
 await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认这里填的", async () => {
+  // sync.device、sync.last_pushed_at、sync.last_pushed_to 是同步状态(设备目录与上次推送),不是设置页填的
+  const isSyncSetting = (k) => k.startsWith("sync.") && !["sync.device", "sync.last_pushed_at", "sync.last_pushed_to"].includes(k);
   const endpoint = ZIP_URL.replace(/\/delta\.zip$/, "");
   const field = (name, label) => section(name).locator('[data-slot="field"]', { hasText: label }).locator("input");
   const sidebarSync = () => page.locator(".a-left .nav-item", { hasText: "同步" });
@@ -2406,7 +2408,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await settle();
 
   // 只填存储桶时缺密钥，仍是未配置
-  await field("同步", "存储桶").fill("e2e-bucket");
+  await field("同步", /^存储桶$/).fill("e2e-bucket");
   await btn(section("同步"), "保存").click();
   await toast("已保存同步设置");
   await settle();
@@ -2418,6 +2420,9 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await field("同步", "服务地址").fill(endpoint);
   await field("同步", "Access Key ID").fill("AKIDE2E");
   await field("同步", "Secret Access Key").fill("e2e-secret");
+  await field("同步", "文件夹").fill(" /team/mechbox/ ");
+  await field("同步", "保留份数").fill("5");
+  await section("同步").locator('[data-slot="field"]', { hasText: "自动推送" }).locator("select").selectOption({ label: "每天" });
   // 保存拖慢、没等它完成就回到主界面：保存期间输入框不可改，保存完成后侧栏仍要跟上
   const slowSent = page.waitForResponse((r) => r.request().postData()?.includes("AKIDE2E"));
   slowSent.catch(() => {});
@@ -2428,43 +2433,52 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   };
   await page.route("**/wails/runtime", slowSave);
   await btn(section("同步"), "保存").click();
-  assert(await field("同步", "存储桶").isDisabled(), "保存期间输入框应不可改");
+  assert(await field("同步", /^存储桶$/).isDisabled(), "保存期间输入框应不可改");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
   await slowSent;
   await page.unroute("**/wails/runtime", slowSave);
-  await sidebarSays("手动", "保存晚于回到主界面完成时，侧栏也应显示手动");
+  // 开了每天自动推送，保存后立即推一次;服务地址是 zip 服务、不是 S3,推送失败，侧栏改写推送失败
+  await sidebarSays("推送失败", "保存晚于回到主界面完成时，侧栏也应跟上：自动推送失败后显示推送失败");
   const stored = config();
   assert.deepStrictEqual(
-    Object.fromEntries(Object.entries(stored).filter(([k]) => k === "github_token" || k.startsWith("sync."))),
-    { github_token: "ghp_e2e_token", "sync.endpoint": endpoint, "sync.bucket": "e2e-bucket", "sync.access_key_id": "AKIDE2E", "sync.secret_access_key": "e2e-secret" },
+    Object.fromEntries(Object.entries(stored).filter(([k]) => k === "github_token" || isSyncSetting(k))),
+    {
+      github_token: "ghp_e2e_token", "sync.endpoint": endpoint, "sync.bucket": "e2e-bucket", "sync.folder": "team/mechbox",
+      "sync.access_key_id": "AKIDE2E", "sync.secret_access_key": "e2e-secret", "sync.keep": "5", "sync.auto_push": "daily",
+    },
     "令牌与同步设置应存在数据库的 config 表里",
   );
 
-  // 重新载入后仍在;侧栏与同步框认设置页的值，同步计划发到设置页填的服务地址
+  // 重新载入后仍在;侧栏与同步框认设置页的值，列出备份发到设置页填的服务地址(zip 服务上没有这个存储桶，列出报错)
   await page.reload();
   await page.waitForSelector(".a-list");
-  await sidebarSays("手动", "填好同步设置后侧栏应显示手动");
+  await sidebarSays("推送失败", "重新载入后侧栏应仍显示推送失败");
   await sidebarSync().click();
   assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
-  await btn(modal(), "推送到 S3…").click();
-  await modal().locator(".kv dd", { hasText: "还没有" }).waitFor();
+  await modal().locator('[data-slot="notice"]', { hasText: "推送失败，S3 上没有新备份" }).waitFor({ timeout: 5000 }).catch(() => assert.fail("同步弹窗应写出上一次推送失败的原因"));
+  await btn(modal(), "从 S3 拉回…").click();
+  await toast("", "error");
+  assert(fs.readFileSync(`${ZIP_DIR}/../zip.log`, "utf8").includes("GET /e2e-bucket?list-type=2"), "列出备份应发到设置页填的服务地址");
   await page.keyboard.press("Escape");
   await open();
   assert((await field("GitHub", "个人访问令牌").inputValue()) === "ghp_e2e_token", "重新载入后令牌应仍在");
-  assert((await field("同步", "存储桶").inputValue()) === "e2e-bucket", "重新载入后存储桶应仍在");
+  assert((await field("同步", /^存储桶$/).inputValue()) === "e2e-bucket", "重新载入后存储桶应仍在");
   assert((await field("同步", "Secret Access Key").inputValue()) === "e2e-secret", "重新载入后密钥应仍在");
+  assert((await field("同步", "文件夹").inputValue()) === "team/mechbox", "文件夹应去掉首尾的 / 存下");
+  assert((await section("同步").getByText(/这台机器的备份放在 team\/mechbox\/.+-[0-9a-f]{6}\//).count()) === 1, "应写出这台机器的设备目录");
 
   // 全部清空：从数据库删掉，回到未配置
   await field("GitHub", "个人访问令牌").fill("");
   await btn(section("GitHub"), "保存").click();
   await toast("已保存 GitHub 令牌");
   await settle();
-  for (const label of ["服务地址", "存储桶", "Access Key ID", "Secret Access Key"]) await field("同步", label).fill("");
+  for (const label of ["服务地址", /^存储桶$/, "文件夹", "Access Key ID", "Secret Access Key", "保留份数"]) await field("同步", label).fill("");
+  await section("同步").locator('[data-slot="field"]', { hasText: "自动推送" }).locator("select").selectOption({ label: "关闭" });
   await btn(section("同步"), "保存").click();
   await toast("已保存同步设置");
   await settle();
-  assert(!Object.keys(config()).some((k) => k === "github_token" || k.startsWith("sync.")), "清空后数据库里不应再有令牌与同步设置");
+  assert(!Object.keys(config()).some((k) => k === "github_token" || isSyncSetting(k)), "清空后数据库里不应再有令牌与同步设置");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
   await sidebarSays("未配置", "清空后侧栏应回到未配置");

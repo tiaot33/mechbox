@@ -165,48 +165,22 @@ func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
 
 func TestPreviewsAreNotSynced(t *testing.T) {
 	spec := mockPreviewArchive(t)
+	stub := newS3Stub(t)
 	archiveTransport := http.DefaultClient.Transport
-	var stored []byte
 	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "source.example" {
 			return archiveTransport.RoundTrip(r)
 		}
-		if r.Method == http.MethodPut {
-			var err error
-			stored, err = io.ReadAll(r.Body)
-			if err != nil {
-				return nil, err
-			}
-		}
-		header := make(http.Header)
-		if stored != nil {
-			header.Set("ETag", `"preview-sync"`)
-		}
-		status := http.StatusOK
-		if stored == nil && r.Method != http.MethodPut {
-			status = http.StatusNotFound
-		}
-		return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(stored)), Header: header}, nil
+		return http.DefaultTransport.RoundTrip(r)
 	})
-	settings := library.SyncSettings{Endpoint: "https://s3.example", Bucket: "test-bucket", Key: "library.db", Region: "test-region", AccessKeyID: "test-key", SecretAccessKey: "test-secret"}
-	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
-	setSyncSettings(t, lib, settings)
+	lib := stub.open(t)
 	preview, err := lib.PreviewFetch(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lib.SyncPush(t.Context(), ""); err != nil {
-		t.Fatal(err)
-	}
-	other := openLibraryAt(t, filepath.Join(t.TempDir(), "other.db"))
-	setSyncSettings(t, other, settings)
-	plan, err := other.PlanSyncPull(t.Context())
-	if err != nil || !plan.CanPull {
-		t.Fatalf("PlanSyncPull() = %#v, %v", plan, err)
-	}
-	if err := other.SyncPull(t.Context(), plan.Remote.Identity); err != nil {
-		t.Fatal(err)
-	}
+	pushBackup(t, lib)
+	other := stub.open(t)
+	pullLatest(t, other)
 	if _, err := other.Fetch(t.Context(), preview.ID, candidateNames(preview)); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("synced instance accepted handle: %v", err)
 	}

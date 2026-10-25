@@ -28,3 +28,4 @@
 - [0007 错误码按界面要做的动作划分](0007-error-codes-follow-ui-actions.md)
 - [0008 桌面端用 Wails v3，与库在同一个进程里](0008-desktop-is-wails-v3-in-process.md)
 - [0011 设置都存在数据库里，不读环境变量](0011-settings-live-in-the-database.md)
+- [0013 同步按机器存多份备份：推送可以自动，拉回始终手动](0013-sync-keeps-backups-per-machine.md)

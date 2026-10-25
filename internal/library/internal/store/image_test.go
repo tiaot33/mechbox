@@ -40,10 +40,19 @@ func TestMachineConfigIsNotPushedAndIsKeptOnPull(t *testing.T) {
 		"github_token": "pushed-token", "app.language": "en",
 		"wsl_distro": "PUSHINGDISTRO", "sync.bucket": "pushing-bucket", "sync.secret_access_key": "PUSHINGSECRET",
 	})
-	data, err := pushing.Snapshot(ctx)
+	data, digest, err := pushing.Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	set(pushing, map[string]string{"sync.bucket": "another-bucket", "sync.last_pushed_at": "2026-10-26T00:00:00Z", "wsl_distro": "Debian"})
+	if _, again, err := pushing.Snapshot(ctx); err != nil || again != digest {
+		t.Fatalf("digest after changing machine config = %q, %v; want unchanged %q", again, err, digest)
+	}
+	set(pushing, map[string]string{"app.language": "zh"})
+	if _, changed, err := pushing.Snapshot(ctx); err != nil || changed == digest {
+		t.Fatalf("digest after changing app config = %q, %v; want a new digest", changed, err)
+	}
+	set(pushing, map[string]string{"app.language": "en"})
 	for _, local := range []string{"PUSHINGDISTRO", "PUSHINGSECRET", "pushing-bucket"} {
 		if bytes.Contains(data, []byte(local)) {
 			t.Fatalf("snapshot contains machine config %q", local)

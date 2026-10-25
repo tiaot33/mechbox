@@ -39,7 +39,7 @@ type UninstallResult struct {
 // (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
 // 退出时技能库关上以后，再删除数据库(连同存在里面的设置、令牌与同步设置)与系统给应用留下的数据，
 // 并把应用移到废纸篓(移不动时在 Finder 中选中它)。
-// 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的库不动。
+// 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的备份不动。
 func (a *AppService) UninstallApp(ctx context.Context, opts UninstallOptions) (UninstallResult, error) {
 	if !opts.Folders.valid() {
 		return UninstallResult{}, fmt.Errorf("unknown folders option %q", opts.Folders)

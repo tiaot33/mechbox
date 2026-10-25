@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -22,61 +24,99 @@ var (
 )
 
 type Settings struct {
-	Endpoint, Bucket, Key, Region, AccessKeyID, SecretAccessKey, SessionToken string
+	Endpoint, Bucket, Region, AccessKeyID, SecretAccessKey, SessionToken string
 }
 
 type config struct {
-	endpoint, bucket, key, region, accessKey, secretKey, sessionToken string
-	pathStyle                                                         bool
+	endpoint, bucket, region, accessKey, secretKey, sessionToken string
+	pathStyle                                                    bool
 }
 
 type Object struct {
-	ETag         string
-	LastModified time.Time
-	PushedFrom   string
+	Key, ETag, SHA256 string
 }
 
-const pushedFromHeader = "x-amz-meta-pushed-from"
+const sha256Header = "x-amz-meta-sha256"
 
-func Head(ctx context.Context, settings Settings) (Object, error) {
-	_, object, err := request(ctx, settings, http.MethodHead, nil, nil)
+func Head(ctx context.Context, settings Settings, key string) (Object, error) {
+	_, object, err := request(ctx, settings, http.MethodHead, key, nil, nil, nil)
 	return object, err
 }
 
-func Get(ctx context.Context, settings Settings) ([]byte, Object, error) {
-	return request(ctx, settings, http.MethodGet, nil, nil)
+func Get(ctx context.Context, settings Settings, key, expected string) ([]byte, Object, error) {
+	var headers map[string]string
+	if expected != "" {
+		headers = map[string]string{"If-Match": expected}
+	}
+	return request(ctx, settings, http.MethodGet, key, nil, nil, headers)
 }
 
-func Put(ctx context.Context, settings Settings, data []byte, expected, pushedFrom string) (Object, error) {
-	headers := map[string]string{"If-Match": expected}
-	if expected == "" {
-		headers = map[string]string{"If-None-Match": "*"}
-	}
-	if pushedFrom != "" {
-		headers[pushedFromHeader] = url.QueryEscape(pushedFrom)
-	}
-	_, object, err := request(ctx, settings, http.MethodPut, data, headers)
+func Put(ctx context.Context, settings Settings, key string, data []byte, sha256 string) (Object, error) {
+	headers := map[string]string{"If-None-Match": "*", sha256Header: sha256}
+	_, object, err := request(ctx, settings, http.MethodPut, key, nil, data, headers)
 	if err != nil {
 		return Object{}, err
 	}
-	object.PushedFrom = pushedFrom
+	object.SHA256 = sha256
 	return object, nil
 }
 
-func request(ctx context.Context, settings Settings, method string, body []byte, headers map[string]string) ([]byte, Object, error) {
+func Delete(ctx context.Context, settings Settings, key string) error {
+	_, _, err := request(ctx, settings, http.MethodDelete, key, nil, nil, nil)
+	return err
+}
+
+func List(ctx context.Context, settings Settings, prefix string) ([]Object, error) {
+	var objects []Object
+	token := ""
+	for {
+		query := url.Values{"list-type": {"2"}, "prefix": {prefix}}
+		if token != "" {
+			query.Set("continuation-token", token)
+		}
+		response, _, err := request(ctx, settings, http.MethodGet, "", query, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			IsTruncated           bool   `xml:"IsTruncated"`
+			NextContinuationToken string `xml:"NextContinuationToken"`
+			Contents              []struct {
+				Key  string `xml:"Key"`
+				ETag string `xml:"ETag"`
+			} `xml:"Contents"`
+		}
+		if err := xml.Unmarshal(response, &page); err != nil {
+			return nil, fmt.Errorf("parse S3 object list: %v: %w", err, ErrUnreachable)
+		}
+		for _, content := range page.Contents {
+			objects = append(objects, Object{Key: content.Key, ETag: content.ETag})
+		}
+		if !page.IsTruncated || page.NextContinuationToken == "" {
+			return objects, nil
+		}
+		token = page.NextContinuationToken
+	}
+}
+
+func request(ctx context.Context, settings Settings, method, key string, query url.Values, body []byte, headers map[string]string) ([]byte, Object, error) {
 	cfg, err := loadConfig(settings)
 	if err != nil {
 		return nil, Object{}, err
 	}
-	resource := "/" + uriEncode(cfg.key, true)
+	resource := "/" + uriEncode(key, true)
 	if cfg.pathStyle {
-		resource = "/" + uriEncode(cfg.bucket, false) + resource
+		resource = "/" + uriEncode(cfg.bucket, false)
+		if key != "" {
+			resource += "/" + uriEncode(key, true)
+		}
 	}
 	requestURL := strings.TrimRight(cfg.endpoint, "/") + resource
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, Object{}, fmt.Errorf("create S3 request: %w", err)
 	}
+	req.URL.RawQuery = canonicalQuery(query)
 	for name, value := range headers {
 		req.Header.Set(name, value)
 	}
@@ -107,35 +147,34 @@ func request(ctx context.Context, settings Settings, method string, body []byte,
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, Object{}, fmt.Errorf("S3 returned %s: %w", resp.Status, ErrUnreachable)
 	}
-	object := Object{ETag: resp.Header.Get("ETag")}
+	if key == "" || method == http.MethodDelete {
+		return response, Object{}, nil
+	}
+	object := Object{Key: key, ETag: resp.Header.Get("ETag"), SHA256: resp.Header.Get(sha256Header)}
 	if object.ETag == "" && method != http.MethodPut {
 		return nil, Object{}, fmt.Errorf("S3 response missing ETag: %w", ErrUnreachable)
 	}
-	modified := resp.Header.Get("Last-Modified")
-	if modified == "" && method == http.MethodPut {
-		modified = resp.Header.Get("Date")
-	}
-	if at, err := http.ParseTime(modified); err == nil {
-		object.LastModified = at.UTC()
-	}
-	if pushedFrom, err := url.QueryUnescape(resp.Header.Get(pushedFromHeader)); err == nil {
-		object.PushedFrom = pushedFrom
-	}
 	return response, object, nil
+}
+
+func canonicalQuery(query url.Values) string {
+	var parts []string
+	for _, name := range slices.Sorted(maps.Keys(query)) {
+		for _, value := range query[name] {
+			parts = append(parts, uriEncode(name, false)+"="+uriEncode(value, false))
+		}
+	}
+	return strings.Join(parts, "&")
 }
 
 func loadConfig(settings Settings) (config, error) {
 	cfg := config{
 		endpoint:     settings.Endpoint,
 		bucket:       settings.Bucket,
-		key:          settings.Key,
 		region:       settings.Region,
 		accessKey:    settings.AccessKeyID,
 		secretKey:    settings.SecretAccessKey,
 		sessionToken: settings.SessionToken,
-	}
-	if cfg.key == "" {
-		cfg.key = "library.db"
 	}
 	if cfg.region == "" {
 		cfg.region = "us-east-1"

@@ -458,24 +458,8 @@ func TestUpdateRefusesToWriteIntoAPulledLibrary(t *testing.T) {
 	skill, source := fetchLocalSkill(t, lib, "a", "v1")
 	writeLocalSkill(t, source, "v2")
 	request := mustPlanUpdate(t, lib, skill.ID)
-	push, err := lib.PlanSyncPush(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var expected library.RemoteIdentity
-	if push.Remote != nil {
-		expected = push.Remote.Identity
-	}
-	if _, err := lib.SyncPush(ctx, expected); err != nil {
-		t.Fatal(err)
-	}
-	pull, err := lib.PlanSyncPull(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.SyncPull(ctx, pull.Remote.Identity); err != nil {
-		t.Fatal(err)
-	}
+	pushBackup(t, lib)
+	pullLatest(t, lib)
 	if _, err := lib.Update(ctx, request); !library.IsCode(err, library.Conflict) {
 		t.Fatalf("Update after the library was replaced = %v; want Conflict", err)
 	}

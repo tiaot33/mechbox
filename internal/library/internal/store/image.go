@@ -2,10 +2,14 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -16,25 +20,30 @@ type Image struct {
 	path string
 }
 
-func (s *Store) Snapshot(ctx context.Context) ([]byte, error) {
+func (s *Store) Snapshot(ctx context.Context) ([]byte, string, error) {
 	snapshot, err := os.CreateTemp("", ".library-sync-*.db")
 	if err != nil {
-		return nil, fmt.Errorf("create sync snapshot: %w", err)
+		return nil, "", fmt.Errorf("create sync snapshot: %w", err)
 	}
 	snapshotPath := snapshot.Name()
 	_ = snapshot.Close()
 	defer os.Remove(snapshotPath)
 	snapshotDB, err := openDB(ctx, snapshotPath)
 	if err != nil {
-		return nil, fmt.Errorf("open sync snapshot: %w", err)
+		return nil, "", fmt.Errorf("open sync snapshot: %w", err)
 	}
 	if err := backup(ctx, snapshotDB, s.db); err != nil {
 		_ = snapshotDB.Close()
-		return nil, fmt.Errorf("snapshot library: %w", wrap(err))
+		return nil, "", fmt.Errorf("snapshot library: %w", wrap(err))
 	}
 	if _, err := snapshotDB.ExecContext(ctx, `DELETE FROM config WHERE `+machineConfigWhere, machineConfigArgs...); err != nil {
 		_ = snapshotDB.Close()
-		return nil, fmt.Errorf("drop machine config from sync snapshot: %w", wrap(err))
+		return nil, "", fmt.Errorf("drop machine config from sync snapshot: %w", wrap(err))
+	}
+	digest, err := contentDigest(ctx, snapshotDB)
+	if err != nil {
+		_ = snapshotDB.Close()
+		return nil, "", fmt.Errorf("digest sync snapshot: %w", wrap(err))
 	}
 	var mode string
 	err = snapshotDB.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
@@ -43,16 +52,96 @@ func (s *Store) Snapshot(ctx context.Context) ([]byte, error) {
 	}
 	if err != nil {
 		_ = snapshotDB.Close()
-		return nil, fmt.Errorf("reset sync snapshot journal mode: %w", err)
+		return nil, "", fmt.Errorf("reset sync snapshot journal mode: %w", err)
 	}
 	if err := snapshotDB.Close(); err != nil {
-		return nil, fmt.Errorf("close sync snapshot: %w", err)
+		return nil, "", fmt.Errorf("close sync snapshot: %w", err)
 	}
 	data, err := os.ReadFile(snapshotPath)
 	if err != nil {
-		return nil, fmt.Errorf("read sync snapshot: %w", err)
+		return nil, "", fmt.Errorf("read sync snapshot: %w", err)
 	}
-	return data, nil
+	return data, digest, nil
+}
+
+func contentDigest(ctx context.Context, db *sql.DB) (string, error) {
+	hash := sha256.New()
+	var version int
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(hash, "user_version %d\n", version)
+	var tables []string
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER BY name`)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return "", err
+		}
+		tables = append(tables, name)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	for _, table := range tables {
+		var columns []string
+		rows, err := db.QueryContext(ctx, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)
+		if err != nil {
+			return "", err
+		}
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				rows.Close()
+				return "", err
+			}
+			if !digestSkips[table+"."+name] {
+				columns = append(columns, "typeof("+quoteIdentifier(name)+") || ':' || hex("+quoteIdentifier(name)+")")
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(hash, "table %s\n", table)
+		rows, err = db.QueryContext(ctx, `SELECT `+strings.Join(columns, ` || ',' || `)+` FROM `+quoteIdentifier(table))
+		if err != nil {
+			return "", err
+		}
+		var lines []string
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				rows.Close()
+				return "", err
+			}
+			lines = append(lines, row)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		slices.Sort(lines)
+		for _, line := range lines {
+			fmt.Fprintf(hash, "%s\n", line)
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+var digestSkips = map[string]bool{
+	"skills.update_checked_at":   true,
+	"skills.update_check_serial": true,
+	"sources.listed_serial":      true,
+}
+
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func OpenImage(ctx context.Context, data []byte) (*Image, error) {
