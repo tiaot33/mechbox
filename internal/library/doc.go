@@ -150,6 +150,6 @@
 // agentdir.ReadFolders / StatFolders,发行版里的按批执行(一批的内容有上限,超过的下一批再读),不逐个文件夹执行命令。
 // 发行版没有响应时,取主目录最多等 30 秒、其他命令最多等 2 分钟,之后按发行版打不开处理。
 //
-// 数据库、Agent 目录、各来源、skills.sh、S3 各是 internal/ 下的一个子包,只返回自己的哨兵错误或错误类型,
+// 数据库、Agent 目录、各来源、skills.sh、S3、AI 服务各是 internal/ 下的一个子包,只返回自己的哨兵错误或错误类型,
 // 由 errors.go 的 typedError 统一翻译成公开的 [ErrorCode]。
 package library

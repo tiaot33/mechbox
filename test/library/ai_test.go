@@ -27,11 +27,14 @@ func aiSettingsAre(t *testing.T, lib *library.Library, want library.AISettings) 
 	}
 }
 
+var noAISettings = library.AISettings{Provider: library.AIProviderOpenAI}
+
 // AI 设置存在数据库里:各项去掉首尾空白,重新打开同一个数据库仍是保存的那一组;留空的项删掉,全部留空即清掉。
+// 接口类型没选过或留空时读出为 OpenAI 兼容。
 func TestAISettingsAreTrimmedKeptAndCleared(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
 	first := openTestLibraryAt(t, path)
-	aiSettingsAre(t, first, library.AISettings{})
+	aiSettingsAre(t, first, noAISettings)
 	setAISettings(t, first, library.AISettings{
 		Provider: library.AIProviderAnthropic, BaseURL: " https://ai.example.test/ ", APIKey: "  sk-test\n", Model: " claude-test ",
 	})
@@ -43,19 +46,19 @@ func TestAISettingsAreTrimmedKeptAndCleared(t *testing.T) {
 		Provider: library.AIProviderAnthropic, BaseURL: "https://ai.example.test/", APIKey: "sk-test", Model: "claude-test",
 	})
 	setAISettings(t, lib, library.AISettings{APIKey: "sk-other", Model: "gpt-test"})
-	aiSettingsAre(t, lib, library.AISettings{APIKey: "sk-other", Model: "gpt-test"})
-	setAISettings(t, lib, library.AISettings{})
-	aiSettingsAre(t, lib, library.AISettings{})
+	aiSettingsAre(t, lib, library.AISettings{Provider: library.AIProviderOpenAI, APIKey: "sk-other", Model: "gpt-test"})
+	setAISettings(t, lib, library.AISettings{Provider: library.AIProviderOpenAI})
+	aiSettingsAre(t, lib, noAISettings)
 	if token, err := lib.GitHubToken(t.Context()); err != nil || token != "" {
 		t.Fatalf("GitHubToken = %q, %v; ai settings must not touch other settings", token, err)
 	}
 }
 
 // 接口类型不认识、服务地址不是 http(s) 地址时,保存与测试连接都报 InvalidArgument 并指出是哪一项,原来的设置不变;
-// 测试连接还要求填了 API Key 与模型。
+// 测试连接还要求填了模型。
 func TestAISettingsRejectInvalidValues(t *testing.T) {
 	lib := openTestLibrary(t)
-	saved := library.AISettings{APIKey: "sk-test", Model: "gpt-test"}
+	saved := library.AISettings{Provider: library.AIProviderOpenAI, APIKey: "sk-test", Model: "gpt-test"}
 	setAISettings(t, lib, saved)
 	for _, tc := range []struct {
 		settings library.AISettings
@@ -66,8 +69,7 @@ func TestAISettingsRejectInvalidValues(t *testing.T) {
 		{library.AISettings{BaseURL: "api.example.test/v1", APIKey: "k", Model: "m"}, "base_url", false},
 		{library.AISettings{BaseURL: "ftp://api.example.test", APIKey: "k", Model: "m"}, "base_url", false},
 		{library.AISettings{BaseURL: "https://", APIKey: "k", Model: "m"}, "base_url", false},
-		{library.AISettings{APIKey: " ", Model: "m"}, "api_key", true},
-		{library.AISettings{APIKey: "k"}, "model", true},
+		{library.AISettings{APIKey: "k", Model: " "}, "model", true},
 	} {
 		err := lib.TestAISettings(t.Context(), tc.settings)
 		if e := library.ErrorOf(err); e == nil || e.Code != library.InvalidArgument || e.Details.Field != tc.field {
@@ -95,7 +97,7 @@ func TestAISettingsTravelWithSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	pulling := stub.open(t)
-	setAISettings(t, pulling, library.AISettings{APIKey: "sk-local", Model: "gpt-local"})
+	setAISettings(t, pulling, library.AISettings{Provider: library.AIProviderOpenAI, APIKey: "sk-local", Model: "gpt-local"})
 	pull := func() {
 		t.Helper()
 		plan, err := pulling.PlanSyncPull(ctx)
@@ -118,7 +120,7 @@ func TestAISettingsTravelWithSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	pull()
-	aiSettingsAre(t, pulling, library.AISettings{})
+	aiSettingsAre(t, pulling, noAISettings)
 }
 
 // aiRequest 是 AI 服务桩记下的一次请求。
@@ -184,7 +186,8 @@ func (s *aiStub) respond(status int) {
 }
 
 // 测试连接用传入的这一组(不必先保存)向服务发一条消息:OpenAI 兼容的接口发到服务地址下的 chat/completions,
-// 带 Bearer API Key;Anthropic 的接口发到 v1/messages,带 x-api-key。环境变量里的 Key、组织与令牌都不用。
+// 带 Bearer API Key;Anthropic 的接口发到 v1/messages,带 x-api-key。环境变量里的 Key、组织与令牌都不用;
+// API Key 留空(如 Ollama)也照样发,不带环境变量里的 Key。
 func TestAISettingsTestSendsMessageWithGivenSettings(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "env-openai-key")
 	t.Setenv("OPENAI_ORG_ID", "env-org")
@@ -201,6 +204,10 @@ func TestAISettingsTestSendsMessageWithGivenSettings(t *testing.T) {
 			aiRequest{path: "/v1/chat/completions", authorization: "Bearer sk-form", model: "gpt-test"},
 		},
 		{
+			library.AISettings{BaseURL: stub.url + "/v1", Model: "llama-test"},
+			aiRequest{path: "/v1/chat/completions", model: "llama-test"},
+		},
+		{
 			library.AISettings{Provider: library.AIProviderAnthropic, BaseURL: stub.url, APIKey: "sk-ant-form", Model: "claude-test"},
 			aiRequest{path: "/v1/messages", apiKey: "sk-ant-form", model: "claude-test"},
 		},
@@ -212,15 +219,21 @@ func TestAISettingsTestSendsMessageWithGivenSettings(t *testing.T) {
 			t.Fatalf("requests for %s = %+v, want %+v", tc.settings.Provider, got, tc.want)
 		}
 	}
-	aiSettingsAre(t, lib, library.AISettings{})
+	aiSettingsAre(t, lib, noAISettings)
 }
 
 // 服务的回答按 HTTP 状态归类:401 / 403 为 Permission,404 为 NotFound,429 与 5xx 为 SourceUnreachable,
 // 其他 4xx 为 InvalidArgument;连不上也是 SourceUnreachable。失败不重试,一次测试只发一条消息。
+// 服务地址指到一个对什么都回 200 网页的站点时,回答的不是这种接口的响应,按地址不对报 NotFound,不说成连不上。
 func TestAISettingsTestClassifiesServiceAnswers(t *testing.T) {
 	stub := newAIStub(t)
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
+	website := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<html>welcome</html>")
+	}))
+	t.Cleanup(website.Close)
 	lib := openTestLibrary(t)
 	for _, provider := range []library.AIProvider{library.AIProviderOpenAI, library.AIProviderAnthropic} {
 		settings := library.AISettings{Provider: provider, BaseURL: stub.url + "/v1", APIKey: "sk-test", Model: "model-test"}
@@ -247,6 +260,10 @@ func TestAISettingsTestClassifiesServiceAnswers(t *testing.T) {
 		settings.BaseURL = closed.URL
 		if err := lib.TestAISettings(t.Context(), settings); !library.IsCode(err, library.SourceUnreachable) {
 			t.Errorf("%s unreachable: TestAISettings = %v, want SourceUnreachable", provider, err)
+		}
+		settings.BaseURL = website.URL
+		if err := lib.TestAISettings(t.Context(), settings); !library.IsCode(err, library.NotFound) {
+			t.Errorf("%s answered by a website: TestAISettings = %v, want NotFound", provider, err)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -96,7 +97,10 @@ func describe(err error) (int, string) {
 	if apiErr, ok := errors.AsType[*anthropic.Error](err); ok {
 		return apiErr.StatusCode, apiErr.Error()
 	}
-	return 0, err.Error()
+	if _, ok := errors.AsType[net.Error](err); ok || errors.Is(err, context.DeadlineExceeded) {
+		return 0, err.Error()
+	}
+	return http.StatusNotFound, "the answer is not from this api: " + err.Error()
 }
 
 func classify(status int) error {

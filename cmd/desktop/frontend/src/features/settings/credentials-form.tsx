@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { AIProvider, type AISettings, type SyncSettings } from "@bindings/internal/library";
+import { AIProvider, ErrorCode, type AISettings, type SyncSettings } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import {
   aiSettingsQuery,
@@ -15,6 +15,7 @@ import {
   invalidateSyncSettings,
   syncSettingsQuery,
   toLibraryError,
+  type LibraryError,
 } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
@@ -130,16 +131,12 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
   );
 }
 
-// 服务地址留空时用的官方地址，作为输入框的占位文字。
-const officialBaseURL: Record<string, string> = {
-  [AIProvider.AIProviderOpenAI]: "https://api.openai.com/v1",
-  [AIProvider.AIProviderAnthropic]: "https://api.anthropic.com",
-};
-
 type AIField = keyof AISettings;
 
-// 接口类型留空即 OpenAI 兼容，比较有没有改动时两者算一样。
-const aiValue = (s: AISettings, key: AIField) => (key === "provider" ? s.provider || AIProvider.AIProviderOpenAI : (s[key] ?? ""));
+const aiFields: AIField[] = ["provider", "base_url", "api_key", "model"];
+
+const trimAI = (s: AISettings): AISettings =>
+  Object.fromEntries(aiFields.map((key) => [key, (s[key] ?? "").trim()])) as AISettings;
 
 function AIForm({ saved }: { saved: AISettings }) {
   const ui = useUI();
@@ -147,13 +144,24 @@ function AIForm({ saved }: { saved: AISettings }) {
   const [draft, setDraft] = useState<AISettings>(saved);
   const [testing, setTesting] = useState(false);
   const set = (key: AIField) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
-  const provider = aiValue(draft, "provider");
-  const keys: AIField[] = ["provider", "base_url", "api_key", "model"];
-  const dirty = keys.some((key) => aiValue(draft, key) !== aiValue(saved, key));
-  const testable = !!draft.api_key?.trim() && !!draft.model?.trim();
+  const dirty = aiFields.some((key) => (draft[key] ?? "") !== (saved[key] ?? ""));
+  const testable = !!draft.model?.trim();
+  // 测试失败时按错误码说明该查哪一项(通用文案把 AI 服务说成「来源」),后面附上服务给出的原因。
+  const failed = (err: LibraryError) => {
+    const heads: Record<string, string> = {
+      [ErrorCode.SourceUnreachable]: t.testUnreachable,
+      [ErrorCode.NotFound]: t.testNotFound,
+      [ErrorCode.Permission]: t.testPermission,
+      [ErrorCode.InvalidArgument]: t.testRejected,
+    };
+    const head = heads[err.code];
+    if (!head || err.details?.field) return false;
+    ui.toast(`${head}\n${err.message}`, "error");
+    return true;
+  };
   const test = async () => {
     setTesting(true);
-    await ui.run(() => LibraryService.TestAISettings(draft), { reload: false, success: t.testPassed });
+    await ui.run(() => LibraryService.TestAISettings(draft), { reload: false, success: t.testPassed, onError: failed });
     setTesting(false);
   };
   return (
@@ -161,7 +169,10 @@ function AIForm({ saved }: { saved: AISettings }) {
       dirty={dirty}
       save={() => LibraryService.SetAISettings(draft)}
       success={t.aiSaved}
-      onSaved={() => void invalidateAISettings()}
+      onSaved={() => {
+        setDraft(trimAI(draft));
+        void invalidateAISettings();
+      }}
       hint={t.aiHint}
       actions={
         <Button disabled={!testable} loading={testing} title={testable ? undefined : t.testNeeds} onClick={() => void test()}>
@@ -172,7 +183,7 @@ function AIForm({ saved }: { saved: AISettings }) {
       <div className="flex flex-col items-start gap-1">
         <span className="text-xs text-muted-foreground">{t.provider}</span>
         <Segmented
-          value={provider}
+          value={draft.provider ?? AIProvider.AIProviderOpenAI}
           onChange={set("provider")}
           options={[
             { value: AIProvider.AIProviderOpenAI, label: t.providerOpenAI },
@@ -181,7 +192,7 @@ function AIForm({ saved }: { saved: AISettings }) {
         />
       </div>
       <Field label={t.baseURL}>
-        <TextInput value={draft.base_url ?? ""} onChange={set("base_url")} placeholder={officialBaseURL[provider]} />
+        <TextInput value={draft.base_url ?? ""} onChange={set("base_url")} />
       </Field>
       <div className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
         <Field label={t.apiKey} className="flex-1">
@@ -239,24 +250,13 @@ function SaveForm<T>({
   );
 }
 
-function TextInput({
-  value,
-  onChange,
-  secret,
-  placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  secret?: boolean;
-  placeholder?: string;
-}) {
+function TextInput({ value, onChange, secret }: { value: string; onChange: (v: string) => void; secret?: boolean }) {
   return (
     <Input
       className="font-mono"
       type={secret ? "password" : "text"}
       autoComplete="off"
       spellCheck={false}
-      placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />

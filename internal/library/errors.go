@@ -28,7 +28,7 @@ const (
 	InvalidArgument ErrorCode = "invalid_argument"
 	// NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref),
 	// 或更新时来源里已经没有勾选的某个技能,或重新安装时这一处的文件夹不在了、且没同意装回去(Details.Path 为技能文件夹;同意后可再重新安装),
-	// 或测试 AI 设置时 AI 服务回答 404(模型或服务地址不对)。
+	// 或测试 AI 设置时 AI 服务回答 404、或回答的不是这种接口的响应(模型或服务地址不对)。
 	// 不可重试。UI:提示目标不存在;名字类看 Details.Name。
 	NotFound ErrorCode = "not_found"
 	// AlreadyExists 要创建的东西已存在(同来源同名 skill、分组成员、项目路径、安装目标处不是从库里装的同名文件夹),
