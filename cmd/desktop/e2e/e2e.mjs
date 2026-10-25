@@ -2320,8 +2320,8 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   assert((await section("Agent").locator(".set-row", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
   assert((await section("项目").locator(".set-row", { hasText: "proj-a" }).count()) === 1, "项目分区应列出 proj-a");
 
-  // 默认：自动检查打开、每天;留在菜单栏、Dock 角标打开。改了立即保存到数据库，重新载入后仍是改过的值。
-  for (const label of ["自动检查更新", "关闭窗口后留在菜单栏", "Dock 角标"]) {
+  // 默认：自动检查打开、每天;留在菜单栏、Dock 角标、自动翻译技能描述打开。改了立即保存到数据库，重新载入后仍是改过的值。
+  for (const label of ["自动检查更新", "关闭窗口后留在菜单栏", "Dock 角标", "自动翻译技能描述"]) {
     assert((await sw(label).getAttribute("aria-checked")) === "true", `「${label}」默认应打开`);
   }
   assert((await interval("每天").getAttribute("aria-pressed")) === "true", "间隔默认应为每天");
@@ -2337,7 +2337,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await page.waitForTimeout(1600);
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
