@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -62,6 +63,11 @@ type Skill struct {
 	// (SkillVersion.BasedOn 不为零),或入库时说不清有没有用户修改的那一版(SkillVersion.MaybeEdited)。来源有新版本时,
 	// 更新会换掉这份修改,桌面端在更新列表和卡片上写明、不直接更新。没有来源的技能为 false。
 	Edited bool `json:"edited,omitzero"`
+	// Note 是用户写的备注([Library.SetSkillNote]);没有备注为空。
+	Note string `json:"note,omitempty"`
+	// DescriptionTranslations 是当前描述的译文,键是语言标签([Library.TranslateDescription] 存下的);
+	// 只含翻译时的原文和当前描述相同的,技能更新后描述变了,旧译文就不在这里。没有译文为 nil。
+	DescriptionTranslations map[string]string `json:"description_translations,omitempty"`
 }
 
 // FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -92,14 +98,16 @@ func (l *Library) sourceOf(row store.Source) (Source, error) {
 
 func (l *Library) skillOf(row store.Skill) (Skill, error) {
 	skill := Skill{
-		ID:          SkillID(row.ID),
-		Name:        row.Name,
-		Description: row.Description,
-		VersionID:   VersionID(row.VersionID),
-		Revision:    row.Revision,
-		FetchedAt:   row.FetchedAt,
-		UpdatedAt:   row.UpdatedAt,
-		KeptDeleted: row.KeptDeleted,
+		ID:                      SkillID(row.ID),
+		Name:                    row.Name,
+		Description:             row.Description,
+		VersionID:               VersionID(row.VersionID),
+		Revision:                row.Revision,
+		FetchedAt:               row.FetchedAt,
+		UpdatedAt:               row.UpdatedAt,
+		KeptDeleted:             row.KeptDeleted,
+		Note:                    row.Note,
+		DescriptionTranslations: row.Translations,
 	}
 	if row.Source.ID != 0 {
 		src, err := l.sourceOf(row.Source)
@@ -228,6 +236,15 @@ func (l *Library) ListSkills(ctx context.Context) (skills []Skill, err error) {
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	return l.skillsOf(l.store.ListSkills(ctx))
+}
+
+// SetSkillNote 给技能写备注,去掉首尾空白,留空即删掉备注。备注只供展示(技能详情里显示,列表里鼠标停在技能名字上显示),
+// 不写进技能文件、不产生新版本;随推送、拉回走。技能不存在返回 NotFound。
+func (l *Library) SetSkillNote(ctx context.Context, id SkillID, note string) (err error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	return l.store.SetSkillNote(ctx, int64(id), strings.TrimSpace(note))
 }
 
 // RemoveSkill 从库里移除技能及其全部版本、组成员关系与安装记录。默认同时删除它在各作用域里已安装的文件夹,

@@ -285,6 +285,10 @@ export function SetGitHubToken(token: string): $CancellablePromise<void> {
     return $Call.ByID(1235509666, token);
 }
 
+export function SetSkillNote(id: library$0.SkillID, note: string): $CancellablePromise<void> {
+    return $Call.ByID(443534239, id, note);
+}
+
 export function SetSyncSettings(settings: library$0.SyncSettings): $CancellablePromise<void> {
     return $Call.ByID(1864003768, settings);
 }
@@ -314,6 +318,14 @@ export function SyncSettings(): $CancellablePromise<library$0.SyncSettings> {
 
 export function TestAISettings(settings: library$0.AISettings): $CancellablePromise<void> {
     return $Call.ByID(2435651545, settings);
+}
+
+export function TranslateDescription(id: library$0.SkillID, language: string): $CancellablePromise<string> {
+    return $Call.ByID(1524736438, id, language);
+}
+
+export function TranslateDescriptions(language: string, ids: library$0.SkillID[] | null): $CancellablePromise<number> {
+    return $Call.ByID(3593578783, language, ids);
 }
 
 export function Uninstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {

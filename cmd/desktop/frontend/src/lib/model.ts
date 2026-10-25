@@ -19,7 +19,7 @@ import {
   type Source,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
-import { messages } from "./i18n";
+import { currentLanguage, messages } from "./i18n";
 import type { Snapshot } from "./library";
 
 // ---------- 作用域 ----------
@@ -534,10 +534,18 @@ export function pageTitle(s: Snapshot, page: Page): string {
   return m.allSkills;
 }
 
-// matches 是搜索：名字或描述里含有输入的文字，不分大小写;没输入时都算。
-export function matches(search: string, item: { name: string; description?: string }): boolean {
+// matches 是搜索：名字、描述(连同界面语言的译文)或备注里含有输入的文字，不分大小写;没输入时都算。
+export function matches(search: string, item: SearchItem): boolean {
   const text = search.trim().toLowerCase();
-  return !text || (item.name + " " + (item.description ?? "")).toLowerCase().includes(text);
+  const fields = [item.name, item.description, translatedDescription(item), item.note];
+  return !text || fields.join(" ").toLowerCase().includes(text);
+}
+
+type SearchItem = { name: string; description?: string; description_translations?: Skill["description_translations"]; note?: string };
+
+// translatedDescription 是描述在界面语言里的译文(技能库存下的);没有译文时为 undefined,显示原文。
+export function translatedDescription(item: { description_translations?: Skill["description_translations"] }): string | undefined {
+  return item.description_translations?.[currentLanguage()] || undefined;
 }
 
 // ---------- 所有技能页的分节 ----------
@@ -647,7 +655,7 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
 }
 
 export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
-  const hit = (x: { name: string; description?: string }) => matches(search, x);
+  const hit = (x: SearchItem) => matches(search, x);
   const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
   const globalKeys = globalScopesSeenFrom(s, key);
   const globalIDs = new Set(

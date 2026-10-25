@@ -122,6 +122,7 @@ func appVersion() string {
 type ConfigStatus struct {
 	Sync        bool `json:"sync"`         // S3 同步：存储桶与密钥齐全
 	GitHubToken bool `json:"github_token"` // GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
+	AI          bool `json:"ai"`           // AI:设置页填了模型，可以翻译技能描述
 }
 
 // Config 返回配置的就绪状态，只看是否填了，不校验取值。
@@ -134,8 +135,13 @@ func (s *LibraryService) Config(ctx context.Context) (ConfigStatus, error) {
 	if err != nil {
 		return settle(ConfigStatus{}, err)(ctx)
 	}
+	ai, err := s.lib.AISettings(ctx)
+	if err != nil {
+		return settle(ConfigStatus{}, err)(ctx)
+	}
 	return ConfigStatus{
 		Sync:        sync.Bucket != "" && sync.AccessKeyID != "" && sync.SecretAccessKey != "",
 		GitHubToken: token != "",
+		AI:          ai.Model != "",
 	}, nil
 }

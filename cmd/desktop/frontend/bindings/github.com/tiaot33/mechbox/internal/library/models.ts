@@ -26,7 +26,7 @@ export enum AIProvider {
  */
 export interface AISettings {
     /**
-     * Provider 是接口类型;留空为 OpenAI 兼容。
+     * Provider 是接口类型;传入时留空为 OpenAI 兼容,读出的总是两者之一。
      */
     "provider"?: AIProvider;
 
@@ -36,7 +36,7 @@ export interface AISettings {
     "base_url"?: string;
 
     /**
-     * APIKey 是 API Key。
+     * APIKey 是 API Key;Ollama 这类不要 Key 的服务可以留空。
      */
     "api_key"?: string;
 
@@ -44,6 +44,20 @@ export interface AISettings {
      * Model 是模型名,原样传给服务。
      */
     "model"?: string;
+
+    /**
+     * Headers 是每个请求额外带的 HTTP 头,一行一个「名字: 值」,空行忽略;存的是用户填的原文。
+     * 和库自己设的头同名(如 Authorization)时用这里的,给要另外鉴权的代理用。
+     */
+    "headers"?: string;
+
+    /**
+     * Body 是合并进每个请求体的 JSON 对象,存的是用户填的原文。顶层的每个字段原样写进请求体,覆盖库自己填的同名字段,
+     * 用来设置思考深度这类接口参数:OpenAI 兼容的接口如 {"reasoning_effort": "high"},
+     * Anthropic 的接口如 {"thinking": {"type": "enabled", "budget_tokens": 2048}};库在 Anthropic 的请求里填的
+     * max_tokens 是 4096,思考预算更大时在这里一并写上更大的 max_tokens。
+     */
+    "body"?: string;
 }
 
 /**
@@ -448,7 +462,7 @@ export enum ErrorCode {
     /**
      * NotFound 被引用的实体不存在(各类 ID、入库预览句柄、候选名、远端不存在的 git ref),
      * 或更新时来源里已经没有勾选的某个技能,或重新安装时这一处的文件夹不在了、且没同意装回去(Details.Path 为技能文件夹;同意后可再重新安装),
-     * 或测试 AI 设置时 AI 服务回答 404(模型或服务地址不对)。
+     * 或测试 AI 设置时 AI 服务回答 404、或回答的不是这种接口的响应(模型或服务地址不对)。
      * 不可重试。UI:提示目标不存在;名字类看 Details.Name。
      */
     NotFound = "not_found",
@@ -513,7 +527,7 @@ export enum ErrorCode {
     Permission = "permission",
 
     /**
-     * NotConfigured 所需配置缺失(Sync 未配置 S3/凭证)。
+     * NotConfigured 所需配置缺失(Sync 未配置 S3/凭证;翻译描述时 AI 设置里没填模型)。
      * UI:引导到设置页。
      */
     NotConfigured = "not_configured",
@@ -1584,6 +1598,17 @@ export interface Skill {
      * 更新会换掉这份修改,桌面端在更新列表和卡片上写明、不直接更新。没有来源的技能为 false。
      */
     "edited"?: boolean;
+
+    /**
+     * Note 是用户写的备注([Library.SetSkillNote]);没有备注为空。
+     */
+    "note"?: string;
+
+    /**
+     * DescriptionTranslations 是当前描述的译文,键是语言标签([Library.TranslateDescription] 存下的);
+     * 只含翻译时的原文和当前描述相同的,技能更新后描述变了,旧译文就不在这里。没有译文为 nil。
+     */
+    "description_translations"?: { [_ in string]?: string } | null;
 }
 
 /**

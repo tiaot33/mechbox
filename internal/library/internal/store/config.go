@@ -36,7 +36,7 @@ func (s *SyncSettings) fields() []configField {
 }
 
 type AISettings struct {
-	Provider, BaseURL, APIKey, Model string
+	Provider, BaseURL, APIKey, Model, Headers, Body string
 }
 
 func (s *AISettings) fields() []configField {
@@ -45,6 +45,8 @@ func (s *AISettings) fields() []configField {
 		{"base_url", &s.BaseURL},
 		{"api_key", &s.APIKey},
 		{"model", &s.Model},
+		{"headers", &s.Headers},
+		{"body", &s.Body},
 	}
 }
 

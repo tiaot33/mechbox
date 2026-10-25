@@ -22,6 +22,11 @@ export function toLanguage(value: string): Language {
   return value === "zh" ? "zh" : "en";
 }
 
+// currentLanguage 是当前的界面语言，给组件外的函数用;组件里用 useLanguage。
+export function currentLanguage(): Language {
+  return current;
+}
+
 // messages 是当前语言的文案，给组件外的函数用;组件里用 useT。
 export function messages(): Messages {
   return catalogs[current];

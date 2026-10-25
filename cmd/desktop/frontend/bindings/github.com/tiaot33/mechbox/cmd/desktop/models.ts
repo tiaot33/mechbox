@@ -68,6 +68,11 @@ export interface ConfigStatus {
      * GitHub 令牌：设置页填了(没填时匿名访问，易被限流)
      */
     "github_token": boolean;
+
+    /**
+     * AI:设置页填了模型，可以翻译技能描述
+     */
+    "ai": boolean;
 }
 
 /**
@@ -120,6 +125,11 @@ export interface Settings {
      * Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
      */
     "dock_badge": boolean;
+
+    /**
+     * 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
+     */
+    "auto_translate": boolean;
 
     /**
      * 界面语言;空字符串跟随系统

@@ -160,6 +160,19 @@ export function ChecksSection({ settings, save }: { settings: Settings; save: (c
   );
 }
 
+// TranslateSection 是 AI 分区里的自动翻译开关：填了 AI 设置时，主界面把技能描述翻译成界面语言(见 lib/translate)。
+export function TranslateSection({ settings, save }: { settings: Settings; save: (change: Partial<Settings>) => void }) {
+  const t = useT().settings;
+  return (
+    <SettingRow
+      label={t.autoTranslate}
+      desc={t.autoTranslateDesc}
+      on={settings.auto_translate}
+      onChange={(on) => save({ auto_translate: on })}
+    />
+  );
+}
+
 // AboutSection 是关于分区：应用版本与数据库的位置。
 export function AboutSection() {
   const s = useSnapshot();

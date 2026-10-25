@@ -12,6 +12,10 @@ Skills here are **[Agent Skills](https://agentskills.io)** — folders with a `S
 A package of instructions and optional resources with a root `SKILL.md`, which a coding agent discovers from disk and loads on demand.
 _Avoid_: Plugin, extension, prompt / 插件、扩展、提示词
 
+**Note · 备注**:
+A user's own remark on a skill in the Library, shown in the skill's details and when hovering its name. It lives only in the Library: it is not written into the skill's files and does not make a new Version.
+_Avoid_: Comment, memo / 评论、注释
+
 **Agent · 智能体**:
 A coding agent with a stable code and a display name, loading skills from its global and Registered project directories; changing its name does not change its identity. Built-in Agents (Claude Code, Codex) have directories the product maintains; a user may add a custom Agent and set its directories, the global one under the home directory. Several Agents may read the same directory.
 _Avoid_: Assistant, tool, client / 助手、工具、客户端

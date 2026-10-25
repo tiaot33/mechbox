@@ -15,7 +15,7 @@ import (
 
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 	got, done := settingsFrom(nil)
-	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true}
+	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true}
 	if !reflect.DeepEqual(got, want) || done {
 		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}

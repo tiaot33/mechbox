@@ -26,6 +26,7 @@ import {
   sourceKindLabel,
   sourceLabel,
   sourceShort,
+  translatedDescription,
   updateAvailable,
   type ScopeKey,
 } from "@/lib/model";
@@ -70,6 +71,7 @@ export function SkillRow(props: {
   const same = scope ? (here ? sameNameNote(s, scope, here.folder) : undefined) : skillSameNameNote(s, skill.id);
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
+  const translated = translatedDescription(skill);
 
   const toggle = () => {
     if (!scope) return;
@@ -106,7 +108,10 @@ export function SkillRow(props: {
       )}
       <div className="flex min-w-0 items-center gap-1.5">
         {/* 名字优先：放不下时先截后面的标记。 */}
-        <span className={cn("skill-name min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !props.fromGlobal && "font-medium text-foreground-secondary")}>
+        <span
+          className={cn("skill-name min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !props.fromGlobal && "font-medium text-foreground-secondary")}
+          title={skill.note || undefined}
+        >
           {skill.name}
         </span>
         {same && <SameNameBadge note={same} />}
@@ -144,13 +149,14 @@ export function SkillRow(props: {
         )}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[11.5px] text-muted-foreground" title={skill.description}>
+        {/* 有界面语言的译文时显示译文，鼠标停住看原文。 */}
+        <p className="truncate text-[11.5px] text-muted-foreground" title={translated ? `${translated}\n\n${t.list.originalTitle(skill.description)}` : skill.description}>
           {props.showSource && (
             <span className="text-subtle" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
               {sourceShort(s, skill.source)} ·{" "}
             </span>
           )}
-          {skill.description}
+          {translated ?? skill.description}
         </p>
         {same && <SameNameLine note={same} />}
         {/* 有新版本、但更新会换掉用户的修改：直接写出来，更新计划里它默认不勾。 */}

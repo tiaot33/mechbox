@@ -66,7 +66,7 @@ const (
 	// Permission 鉴权失败(文件系统或远端拒认凭证,包括 AI 服务拒认 API Key)。
 	// 不可靠地靠重试恢复。UI:提示权限问题。
 	Permission ErrorCode = "permission"
-	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证)。
+	// NotConfigured 所需配置缺失(Sync 未配置 S3/凭证;翻译描述时 AI 设置里没填模型)。
 	// UI:引导到设置页。
 	NotConfigured ErrorCode = "not_configured"
 	// Internal 真正的 bug 与 I/O 故障。UI:报 bug;不要当成用户可恢复的输入或状态问题。
@@ -151,7 +151,7 @@ func typedError(err error) error {
 	case errors.Is(err, source.ErrPermission), errors.Is(err, market.ErrPermission), errors.Is(err, s3.ErrPermission),
 		errors.Is(err, ai.ErrPermission):
 		code = Permission
-	case errors.Is(err, s3.ErrNotConfigured):
+	case errors.Is(err, s3.ErrNotConfigured), errors.Is(err, ai.ErrNotConfigured):
 		code = NotConfigured
 	case errors.Is(err, s3.ErrPreconditionFailed), errors.Is(err, store.ErrReplaced):
 		code = Conflict

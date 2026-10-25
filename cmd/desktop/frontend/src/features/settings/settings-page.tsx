@@ -2,7 +2,7 @@
 // 检查更新与通用是应用设置，存在数据库的 config 表里(app.*),随推送、拉回走，改了立即保存、生效;
 // 拉回后 Go 端换成拉回来的设置并发 settings-reloaded 事件，这里随之重读。
 // 通用里的全局目录(Windows 上装了 WSL 时才出现)只属于这台机器，拉回不变;改了以后重读快照，界面换成新的全局目录。
-// GitHub 令牌、AI 设置与同步设置也存在数据库里，点保存才存入(见 credentials-form.tsx)。
+// GitHub 令牌、AI 设置与同步设置也存在数据库里，点保存才存入(见 credentials-form.tsx);AI 分区里的自动翻译开关是应用设置，改了立即保存。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
@@ -24,7 +24,7 @@ import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/a
 import { navItem } from "@/components/app/nav";
 import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
-import { AboutSection, ChecksSection, GeneralSection, ProjectsSection } from "./settings-sections";
+import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
 
 // 分区按文案里的键排，标题取当前语言的文案。
@@ -199,7 +199,14 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
               {card("github", t.tokenInLibrary, <GitHubSection />)}
-              {card("ai", t.aiInLibrary, <AISection />)}
+              {card(
+                "ai",
+                t.aiInLibrary,
+                <>
+                  <AISection />
+                  {settings && <TranslateSection settings={settings} save={save} />}
+                </>,
+              )}
               {card("sync", t.syncOnThisMachine, <SyncSection />)}
               {card(
                 "about",
