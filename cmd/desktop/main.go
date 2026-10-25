@@ -9,7 +9,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -57,7 +59,7 @@ func run() error {
 		MarshalError: marshalError,
 		// 单实例锁在 application.New 里检查：第二个实例在这里就退出，不会打开技能库。
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: bundleID,
+			UniqueID: singleInstanceID(path),
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				appService.showWindow()
 			},
@@ -94,6 +96,17 @@ func run() error {
 	err = app.Run()
 	appService.afterShutdown()
 	return err
+}
+
+// singleInstanceID 是单实例锁的 ID:打开真实技能库时是 bundleID;设了 MECHBOX_LIBRARY 时按数据库位置另取一个，
+// 让各工作区用各自开发数据的开发版窗口同时开着，互不把对方带到前台;打开同一个数据库的仍只有一个实例。
+func singleInstanceID(path string) string {
+	if os.Getenv(libraryPathEnv) == "" {
+		return bundleID
+	}
+	sum := sha256.Sum256([]byte(path))
+	// Linux 上 ID 是 D-Bus 名字，每一段不能以数字开头，所以加 db 前缀。
+	return bundleID + ".db" + hex.EncodeToString(sum[:8])
 }
 
 // marshalError 把绑定方法返回的任意 error 规范成 *library.Error 再编码，

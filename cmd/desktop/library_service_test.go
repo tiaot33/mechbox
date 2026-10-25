@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -150,6 +151,25 @@ func TestLibraryPathCanPointAtAnotherDatabase(t *testing.T) {
 	}
 	if got, err := defaultLibraryPath(); err != nil || got != filepath.Join(wd, "dev.db") {
 		t.Fatalf("defaultLibraryPath() with a relative path = %q, %v", got, err)
+	}
+}
+
+// 打开真实技能库时单实例锁就是 bundleID;设了 MECHBOX_LIBRARY 时每个数据库一把锁，ID 仍是 D-Bus 认的点分名字。
+func TestSingleInstanceIDFollowsDatabase(t *testing.T) {
+	t.Setenv(libraryPathEnv, "")
+	if got := singleInstanceID("/any/library.db"); got != bundleID {
+		t.Fatalf("singleInstanceID without %s = %q; want %q", libraryPathEnv, got, bundleID)
+	}
+	t.Setenv(libraryPathEnv, "set")
+	a, b := singleInstanceID("/worktree-a/.dev/seed/library.db"), singleInstanceID("/worktree-b/.dev/seed/library.db")
+	if a == b || a == bundleID {
+		t.Fatalf("singleInstanceID = %q and %q; want a distinct ID per database", a, b)
+	}
+	if again := singleInstanceID("/worktree-a/.dev/seed/library.db"); again != a {
+		t.Fatalf("singleInstanceID for the same database = %q, then %q", a, again)
+	}
+	if !regexp.MustCompile(`^com\.tiaot33\.mechbox\.db[0-9a-f]{16}$`).MatchString(a) {
+		t.Fatalf("singleInstanceID = %q; want bundleID plus a .db<hash> element", a)
 	}
 }
 
