@@ -3,6 +3,7 @@ import GeminiCLI from "@lobehub/icons/es/GeminiCLI/components/Color";
 import Kiro from "@lobehub/icons/es/Kiro/components/Color";
 import { describe, expect, test } from "vitest";
 import aider from "./agent-logos/aider.svg";
+import augmentCode from "./agent-logos/augment-code.svg";
 import claude from "./agent-logos/claude.svg";
 import codex from "./agent-logos/codex.svg";
 import factory from "./agent-logos/factory.svg";
@@ -11,6 +12,7 @@ import githubCopilot from "./agent-logos/github-copilot.svg";
 import kiloCode from "./agent-logos/kilo-code.svg";
 import pi from "./agent-logos/pi.svg";
 import qodo from "./agent-logos/qodo.svg";
+import warp from "./agent-logos/warp.svg";
 import windsurf from "./agent-logos/windsurf.svg";
 import zed from "./agent-logos/zed.svg";
 import { agentBrand } from "./agent-icons";
@@ -40,6 +42,10 @@ describe("agentBrand", () => {
     ["Pi", pi],
     ["pi coding agent", pi],
     ["Factory Droid", factory],
+    ["Droid", factory],
+    ["Augment Code", augmentCode],
+    ["Auggie CLI", augmentCode],
+    ["Warp", warp],
   ])("%s", (name, expected) => {
     expect(icon(name)).toBe(expected);
   });
@@ -49,9 +55,9 @@ describe("agentBrand", () => {
     expect(agentBrand("  ")).toBeUndefined();
   });
 
-  test("短关键词只认整个词", () => {
-    expect(agentBrand("API Helper")).toBeUndefined();
-    expect(agentBrand("Android Studio")).toBeUndefined();
-    expect(agentBrand("Optimized")).toBeUndefined();
+  test("短关键词与常见单词只认整个词", () => {
+    for (const name of ["API Helper", "Android Studio", "Optimized", "Augmented Coder", "Warpgate Helper", "Agent Factory", "Raider", "Continuer"]) {
+      expect(agentBrand(name), name).toBeUndefined();
+    }
   });
 });
