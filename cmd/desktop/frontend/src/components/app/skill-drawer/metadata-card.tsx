@@ -94,7 +94,14 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
         <dt>{d.fetchedAt}</dt>
         <dd>{formatDate(skill.fetched_at)}</dd>
         <dt>{d.currentVersion}</dt>
-        <dd>{d.versionCount(formatDate(versions.find((v) => v.id === skill.version_id)?.created_at), versions.length)}</dd>
+        <dd>
+          {d.versionCount(formatDate(versions.find((v) => v.id === skill.version_id)?.created_at), versions.length)}
+          {skill.edited && (
+            <span className="has-edits text-muted-foreground" title={d.hasEditsTitle}>
+              {d.hasEdits}
+            </span>
+          )}
+        </dd>
         {/* 本地目录来源不检查更新，只有"重新读取";没有来源的技能只能用目录里的修改更新。 */}
         {!isLocal(skill.source) && !noSource(skill.source) && (
           <>

@@ -303,3 +303,18 @@ func requireWSLStatus(t *testing.T, lib *library.Library, id library.SkillID, wa
 		}
 	}
 }
+
+// 发行版主目录下的技能文件夹和本机主目录下的一样，来源就是这个文件夹本身，不把整个主目录当来源。
+func TestWSLDistroSkillFolderUnderHomeIsItsOwnSource(t *testing.T) {
+	lib, home := openWSLLibrary(t)
+	writeFile(t, filepath.Join(home, "mine", "SKILL.md"), []byte(skillDocument("mine", "")), 0o644)
+	writeFile(t, filepath.Join(home, ".claude/skills/own/SKILL.md"), []byte(skillDocument("own", "")), 0o644)
+	folder := wslPath(t, filepath.Join(home, "mine"))
+	preview, err := lib.PreviewFetch(t.Context(), localRequest(folder))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Candidates) != 1 || preview.Candidates[0].Path != "." || preview.Source.Label != folder {
+		t.Fatalf("preview = %#v; want the folder itself as the source", preview)
+	}
+}

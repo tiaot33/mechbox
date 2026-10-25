@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,18 +28,6 @@ func Matches(input string) bool {
 		(filepath.Separator == '\\' && (strings.HasPrefix(input, ".\\") || strings.HasPrefix(input, "..\\")))
 }
 
-func Locate(path string) (source.Target, error) {
-	root, err := absolute(path)
-	if err != nil {
-		return source.Target{}, fmt.Errorf("resolve source path: %w", err)
-	}
-	encoded, err := json.Marshal(locator{Path: root})
-	if err != nil {
-		return source.Target{}, fmt.Errorf("encode local locator: %w", err)
-	}
-	return source.Target{Type: Type, Locator: encoded}, nil
-}
-
 type Kind struct {
 	maxFiles int
 	maxBytes int64
@@ -46,6 +35,70 @@ type Kind struct {
 
 func New(maxFiles int, maxBytes int64) Kind {
 	return Kind{maxFiles: maxFiles, maxBytes: maxBytes}
+}
+
+func (k Kind) Locate(ctx context.Context, input, home string) (source.Target, error) {
+	root, err := absolute(input)
+	if err != nil {
+		return source.Target{}, fmt.Errorf("resolve source path: %w", err)
+	}
+	own, err := k.scan(ctx, root)
+	if err != nil {
+		return source.Target{}, err
+	}
+	if len(own.skills) == 0 {
+		return source.Target{}, discovery.NoCandidates(own.diagnostics)
+	}
+	target, err := locate(root, own)
+	if err != nil {
+		return source.Target{}, err
+	}
+	parent, name, ok := split(root)
+	if !ok || len(own.skills) != 1 || own.skills[0].Path != "." {
+		return target, nil
+	}
+	if home != "" {
+		if home, err = absolute(home); err != nil || parent == home {
+			return target, nil
+		}
+	}
+	siblings, err := k.scan(ctx, parent)
+	if ctx.Err() != nil {
+		return source.Target{}, ctx.Err()
+	}
+	if err != nil {
+		return target, nil
+	}
+	for _, skill := range siblings.skills {
+		if skill.Path == name {
+			found, err := locate(parent, &snapshot{skills: siblings.skills})
+			found.Names = []string{skill.Name}
+			return found, err
+		}
+	}
+	return target, nil
+}
+
+func locate(dir string, snap *snapshot) (source.Target, error) {
+	encoded, err := json.Marshal(locator{Path: dir})
+	if err != nil {
+		return source.Target{}, fmt.Errorf("encode local locator: %w", err)
+	}
+	return source.Target{Type: Type, Locator: encoded, Snapshot: snap}, nil
+}
+
+func split(root string) (parent, name string, ok bool) {
+	if distro, linux, ok := wsl.Split(root); ok {
+		if linux == "/" {
+			return "", "", false
+		}
+		return wsl.Join(distro, path.Dir(linux)), path.Base(linux), true
+	}
+	parent = filepath.Dir(root)
+	if parent == root {
+		return "", "", false
+	}
+	return parent, filepath.Base(root), true
 }
 
 func (k Kind) Describe(loc source.Locator) (source.Description, error) {
@@ -61,7 +114,11 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, _ source.S
 	if err != nil {
 		return nil, err
 	}
-	fsys, info, err := directory(ctx, decoded.Path)
+	return k.scan(ctx, decoded.Path)
+}
+
+func (k Kind) scan(ctx context.Context, dir string) (*snapshot, error) {
+	fsys, info, err := directory(ctx, dir)
 	if err != nil {
 		return nil, fmt.Errorf("read local source: %w", err)
 	}
@@ -71,9 +128,6 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, _ source.S
 	skills, diagnostics, err := discovery.ScanFS(ctx, fsys, ".", discovery.NewBudget(k.maxFiles, k.maxBytes))
 	if err != nil {
 		return nil, err
-	}
-	if len(skills) == 0 {
-		return nil, discovery.NoCandidates(diagnostics)
 	}
 	return &snapshot{skills: skills, diagnostics: diagnostics}, nil
 }
