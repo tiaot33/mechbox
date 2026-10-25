@@ -29,6 +29,11 @@ func defaultLibraryPath() (string, error) {
 	if path := os.Getenv(libraryPathEnv); path != "" {
 		return filepath.Abs(path)
 	}
+	return realLibraryPath()
+}
+
+// realLibraryPath 返回真实技能库的位置 <用户配置目录>/mechbox/library.db,不看 MECHBOX_LIBRARY。
+func realLibraryPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("find user config directory: %w", err)

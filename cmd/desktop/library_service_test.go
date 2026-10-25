@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -150,6 +151,38 @@ func TestLibraryPathCanPointAtAnotherDatabase(t *testing.T) {
 	}
 	if got, err := defaultLibraryPath(); err != nil || got != filepath.Join(wd, "dev.db") {
 		t.Fatalf("defaultLibraryPath() with a relative path = %q, %v", got, err)
+	}
+}
+
+// 打开真实技能库时单实例锁就是 bundleID,不管路径怎样写;别的数据库每个一把锁，换一种路径写法仍是同一把，ID 是 D-Bus 认的点分名字。
+func TestSingleInstanceIDFollowsDatabase(t *testing.T) {
+	real, err := realLibraryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := singleInstanceID(real); got != bundleID {
+		t.Fatalf("singleInstanceID(real library) = %q; want %q", got, bundleID)
+	}
+
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(filepath.Join(dir, "a"), link); err != nil {
+		t.Fatal(err)
+	}
+	a := singleInstanceID(filepath.Join(dir, "a", "library.db"))
+	if b := singleInstanceID(filepath.Join(dir, "b", "library.db")); a == b || a == bundleID {
+		t.Fatalf("singleInstanceID = %q and %q; want a distinct ID per database", a, b)
+	}
+	if viaLink := singleInstanceID(filepath.Join(link, "library.db")); viaLink != a {
+		t.Fatalf("singleInstanceID through a symlink = %q; want %q", viaLink, a)
+	}
+	if !regexp.MustCompile(`^com\.tiaot33\.mechbox\.db[0-9a-f]{16}$`).MatchString(a) {
+		t.Fatalf("singleInstanceID = %q; want bundleID plus a .db<hash> element", a)
 	}
 }
 
