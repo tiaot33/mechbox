@@ -17,7 +17,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `skilllock` — 解析 `npx skills` 留下的来源记录，给未纳管技能认出来源(不是一种来源);记录文件由 `agentdir` 读出。
   - `skillfile` — 技能文件、文件集合比较与内容指纹,`library` 与各子包共用。
 - `test/library/` — 技能库的集成测试。
-- `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0008):绑定服务开放 Library 的全部方法,`frontend/` 是 React + TS 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建、端到端验证与约定见 `cmd/desktop/README.md`。
+- `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0008):绑定服务开放 Library 的全部方法,`frontend/` 是 React + TS 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建与约定见 `cmd/desktop/README.md`,测试见 `docs/testing.md`。
 
 ### 依赖方向
 
@@ -40,9 +40,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 ### 测试
 
-- 只经公开 API 的集成测试放在顶层 `test/` 下按被测对象分目录(如 `test/library/`,`package library_test`,共享辅助函数在 `test_helpers_test.go`),用真实的 SQLite 文件、git 仓库与 `httptest` 服务。运行 `go test ./test/library`;统计 Library 的覆盖率加 `-coverpkg=./internal/library/...`。
-- 针对某个文件内部实现的单元测试放在该文件旁边。
-- `test/library/` 的测试文件按被测方法所在的源文件命名:文件名前缀就是那个源文件,后面可加方面(`PreviewFetch` 在 `fetch.go`,它的测试在 `fetch_preview_test.go`);某种来源特有的行为放 `source_<来源>_test.go`(如 `source_github_test.go`);Library 整体的性质(并发、多进程、建表、错误、JSON 契约)放 `library_<方面>_test.go`。一个测试用到几个方法时按它主要验证的那个归属。找某个方法的测试也可以按方法名 grep(如 `lib.Install(`)或用 `go test -run`。
+写测试、跑检查、在 app 里验证界面之前，先读 [测试改动](docs/testing.md)：按改动选要跑的检查，测试放在哪里、怎样命名，以及用现成的开发数据(`wails3 task dev:seed`)在 app 里验证，不另造技能。
 
 ### 注释
 
