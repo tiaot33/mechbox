@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import type { Settled } from "@/components/ui/status-mark";
 import { SwipeToast } from "@/components/ui/swipe-toast";
 import { cn } from "./utils";
 import { describeError } from "./errors";
@@ -53,8 +54,9 @@ export interface RunOptions<T> {
   onError?: (err: LibraryError) => boolean;
   // failed 返回 true 表示调用成功了但有逐项失败(结果里列出没完成的),顶栏的状态圈画叉而不是对勾。
   failed?: (value: T) => boolean;
-  // mark 为 false 时顶栏的状态圈不跟着转，也不画对勾或叉，进度画在发起它的按钮上(如左栏的检查更新);默认 true。
-  mark?: boolean;
+  // busyMark 为 false 时顶栏的状态圈(BusyMark)不跟着转，也不画对勾或叉;仍算忙碌。默认 true。
+  // 只给自己在发起处画进度的流程用(如检查更新画在左栏按钮或集合行上),发起处可能看不见时由那个流程自己补上顶栏的进度。
+  busyMark?: boolean;
 }
 
 // ToastAction 是 toast 上的一个按钮(如更新完成后的"回滚");带按钮的 toast 停留得久一些。
@@ -93,7 +95,7 @@ interface DialogEntry {
 }
 
 // 弹窗栈、toast 与进行中的写操作数放在 store 里，组件外的写操作流程也能打开弹窗、弹 toast;UIHost 把它们画出来。
-// marked 是其中顶栏状态圈要跟着转的写操作数(不含 mark 为 false 的)。settled 是这些写操作全部结束时的结果(有失败的就是 failed),
+// marked 是其中顶栏状态圈要跟着转的写操作数(不含 busyMark 为 false 的)。settled 是这些写操作全部结束时的结果(有失败的就是 failed),
 // 顶栏的状态圈据此画对勾或叉;这一轮只有被取消的写操作时不更新。finished、failed 记着这一轮里有没有没被取消的、有没有失败的。
 const useUIStore = create<{
   dialogs: DialogEntry[];
@@ -102,7 +104,7 @@ const useUIStore = create<{
   marked: number;
   finished: boolean;
   failed: boolean;
-  settled: { id: number; failed: boolean } | null;
+  settled: Settled | null;
 }>()(() => ({
   dialogs: [],
   toast: null,
@@ -147,7 +149,7 @@ function open<T>(render: (close: (value?: T) => void) => ReactNode, opts: OpenOp
 }
 
 async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise<T | undefined> {
-  const mark = opts.mark !== false;
+  const mark = opts.busyMark !== false;
   set((s) => ({ pending: s.pending + 1, marked: s.marked + (mark ? 1 : 0) }));
   let outcome: "done" | "failed" | "canceled" = "done";
   try {
@@ -194,18 +196,18 @@ export function useUI(): UIService {
   return ui;
 }
 
-// useBusy 是有没有经 run 进行中的写操作(顶栏转圈、禁用会冲突的按钮)。
+// useBusy 是有没有经 run 进行中的写操作，用来禁用会冲突的按钮。
 export function useBusy(): boolean {
   return useUIStore((s) => s.pending > 0);
 }
 
-// useMarkBusy 是顶栏的状态圈该不该转：有 mark 不为 false 的写操作进行中。
-export function useMarkBusy(): boolean {
+// useBusyMarkRunning 是顶栏的状态圈该不该转：有 busyMark 不为 false 的写操作进行中。
+export function useBusyMarkRunning(): boolean {
   return useUIStore((s) => s.marked > 0);
 }
 
-// useSettled 是最近一次写操作全部结束时的结果;id 每次结束都换，用来只闪一下对勾或叉。
-export function useSettled(): { id: number; failed: boolean } | null {
+// useSettled 是顶栏状态圈跟着转的写操作(busyMark 不为 false 的)最近一次全部结束时的结果。
+export function useSettled(): Settled | null {
   return useUIStore((s) => s.settled);
 }
 

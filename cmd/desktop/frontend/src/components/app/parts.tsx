@@ -1,13 +1,15 @@
 // 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Spinner } from "@/components/ui/spinner";
+import { useMarkStatus } from "@/components/ui/status-mark";
+import { useCheckMark } from "@/features/update/check";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
-import { useMarkBusy, useSettled } from "@/lib/ui";
+import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
 
@@ -164,20 +166,17 @@ export function Chip({
   );
 }
 
-// BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈(进度画在自己按钮上的除外)，全部结束后转动的弧合成整圈、画出对勾(有失败的画叉),
-// 停一下再淡出;只有被取消的写操作时直接消失。
-export function BusyMark() {
-  const busy = useMarkBusy();
-  const settled = useSettled();
+// BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈(ui.run 传了 busyMark: false 的除外)，
+// 全部结束后转动的弧合成整圈、画出对勾(有失败的画叉),停一下再淡出;只有被取消的写操作时直接消失。
+// checks 为 true 时(左栏不显示)也画检查更新的进度，检查本来画在左栏上。
+export function BusyMark({ checks = false }: { checks?: boolean }) {
+  const writes = useMarkStatus(useBusyMarkRunning(), useSettled());
+  const check = useCheckMark();
   const t = useT();
-  const [dismissed, setDismissed] = useState<number | null>(null);
-  useEffect(() => {
-    if (busy || !settled) return;
-    const timer = window.setTimeout(() => setDismissed(settled.id), 1100);
-    return () => window.clearTimeout(timer);
-  }, [busy, settled]);
-  const status = busy ? "running" : settled && settled.id !== dismissed ? (settled.failed ? "failed" : "done") : null;
+  const shown = checks ? check : null;
+  const status = writes === "running" || shown === "running" ? "running" : (writes ?? shown);
   if (!status) return null;
+  const busy = status === "running";
   return (
     <Spinner
       status={status}
