@@ -174,6 +174,16 @@ export const en = {
     addedToGroupPartly: "It's now a member, but couldn't be installed in the Scopes below. Resolve the conflicts, then Group install again to fill them in.",
     addedToGroup: (skill: string, group: string, scopes: number) =>
       `Added “${skill}” to “${group}”${scopes ? ` and installed it in the ${count(scopes, "Scope")} the Group is installed in` : ""}`,
+    collectionAlreadyInGroup: (label: string, group: string) => `All skills from “${label}” are already in “${group}”`,
+    collectionAddedToGroupTitle: (label: string, group: string, added: number, total: number) =>
+      added === total
+        ? `Added ${count(total, "skill")} from “${label}” to “${group}”`
+        : `Added ${added} of ${count(total, "skill")} from “${label}” to “${group}”`,
+    collectionAddedPartly:
+      "These skills are now members, but couldn't be installed in the Scopes below. Resolve the conflicts, then Group install again to fill them in.",
+    memberAdded: "Added",
+    collectionAddedToGroup: (label: string, n: number, group: string, scopes: number) =>
+      `Added ${count(n, "skill")} from “${label}” to “${group}”${scopes ? ` and installed them in the ${count(scopes, "Scope")} the Group is installed in` : ""}`,
     removeFromGroupTitle: (skill: string, group: string) => `Remove “${skill}” from “${group}”`,
     removeFromGroupHint: (n: number) => `This Group is installed in ${count(n, "Scope")}. What should happen to skills installed only through this Group?`,
     ifUninstallToo: "If you choose “Uninstall too”:",
@@ -547,10 +557,10 @@ export const en = {
       `“${name}” ${on ? "is Group installed; click to uninstall (removes only this Group's Group install)" : "isn't Group installed; click to Group install"}`,
     groupDrag: (name: string, n: number) => `Group install “${name}” · ${count(n, "skill")}, and any added later`,
     groupDragTitle: (n: number) =>
-      `Drag to a Scope on the right = Group install (${count(n, "skill")} now, and any added to the Group later); drag a skill here = add to this Group`,
+      `Drag to a Scope on the right = Group install (${count(n, "skill")} now, and any added to the Group later); drag onto another Group = reorder; drag a skill or Collection here = add to this Group`,
     collectionDrag: (label: string, n: number) => `“${label}” · install ${count(n, "skill")}`,
     collectionDragTitle: (n: number) =>
-      `Drag to a Scope on the right = install these ${count(n, "skill")} directly, one by one; skills fetched later aren't installed automatically`,
+      `Drag to a Scope on the right = install these ${count(n, "skill")} directly, one by one (skills fetched later aren't installed automatically); drag onto a Group = add to it; drag onto another Collection = reorder`,
     inUse: (used: number, total: number) => `${used} in use · ${total} in total`,
     notInstalledFold: (names: string[]) =>
       `${count(names.length, "more skill")} not installed: ${firstNames(names)}`,
@@ -916,11 +926,17 @@ export const en = {
     noCollections: "Skills you fetch are grouped into Collections by Source automatically.",
     groups: "Groups",
     newGroup: "New Group",
-    groupTitle: "Click to jump to this Group; drag to a Scope on the right = Group install; drag a skill here = add to this Group",
-    collectionTitle: (kind: string, label: string) =>
-      `${kind} · ${label}\nClick to jump to this section; drag to a Scope on the right = install its skills directly, one by one`,
+    collectionTitle: (kind: string, label: string) => `${kind} · ${label}`,
     rename: "Rename",
     deleteGroup: "Delete Group",
+    renameWith: "Rename…",
+    deleteGroupWith: "Delete Group…",
+    newGroupWith: "New Group…",
+    addToGroup: "Add to Group",
+    resetOrder: "Restore default order",
+    otherSkills: "See other skills in the Source",
+    history: "Update history",
+    update: "Update…",
     noGroups: "No Groups yet. Gather skills by use case to install them together.",
     sync: "Sync",
     manual: "Manual",
@@ -991,7 +1007,7 @@ export const en = {
     more: (n: number) => `${n} other ${n === 1 ? "Agent" : "Agents"}`,
     noAgents: "No Agents available; you can show them in Settings",
     global: "Global",
-    projects: "Registered projects",
+    projects: "Projects",
     register: "Register project",
     missingTitle: (path: string) => `${path}\nNot on this machine`,
     missingBadgeTitle: "The project directory doesn't exist on this machine; you can change the project's location",

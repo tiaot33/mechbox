@@ -19,6 +19,7 @@ import {
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { useView } from "@/lib/view";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,8 @@ export function UpdatesHead() {
   const s = useSnapshot();
   const busy = useBusy();
   const t = useT().list;
-  const collections = updatableCollections(s);
+  const order = useView((v) => v.order.collections);
+  const collections = updatableCollections(s, order);
   const risks = usePlanRisks(s, collections);
   const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
   return (

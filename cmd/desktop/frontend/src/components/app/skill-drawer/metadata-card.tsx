@@ -17,6 +17,7 @@ import {
   sourceLabel,
   updateAvailable,
 } from "@/lib/model";
+import { useSortedGroups } from "@/lib/view";
 import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,8 +32,9 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
   const t = useT();
   const d = t.drawer;
   const id = skill.id;
-  const groups = s.groups.filter((g) => g.members?.includes(id));
-  const notIn = s.groups.filter((g) => !g.members?.includes(id));
+  const sorted = useSortedGroups(s);
+  const groups = sorted.filter((g) => g.members?.includes(id));
+  const notIn = sorted.filter((g) => !g.members?.includes(id));
   const check = skill.last_update_check;
   const c = s.collections.find((x) => x.id === skill.collection_id);
   const collection = c ? collectionSkills(s, c) : [];
@@ -125,7 +127,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             value=""
             onChange={(e) => {
               const v = e.target.value;
-              if (v === "new") void createGroup(id);
+              if (v === "new") void createGroup([id]);
               else if (v) void addSkillToGroup(Number(v), id);
             }}
           >
