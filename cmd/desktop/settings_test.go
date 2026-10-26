@@ -61,7 +61,7 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 
 func TestLanguageFollowsSettingThenSystem(t *testing.T) {
 	for tag, want := range map[string]Language{
-		"zh-Hans-CN": LanguageZh, "zh-Hant-TW": LanguageZh, "zh_CN.UTF-8": LanguageZh, "ZH": LanguageZh,
+		"zh-Hans-CN": LanguageZh, "zh-CN": LanguageZh, "zh-TW": LanguageZh, "zh-Hant-TW": LanguageZh, "zh_CN.UTF-8": LanguageZh, "ZH": LanguageZh,
 		"en-US": LanguageEn, "en_US.UTF-8": LanguageEn, "ja-JP": LanguageEn, "zhx": LanguageEn, "C": LanguageEn, "": LanguageEn,
 	} {
 		if got := languageOf(tag); got != want {

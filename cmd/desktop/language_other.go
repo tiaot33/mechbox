@@ -1,4 +1,4 @@
-//go:build !darwin || server
+//go:build (!darwin && !windows) || server
 
 package main
 
