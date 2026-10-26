@@ -955,6 +955,22 @@ await step("入库技能里随时可以把各 Agent 全局和已登记项目里�
   const disk = () => folders.map((dir) => fs.readFileSync(path.join(dir, "SKILL.md"), "utf8"));
   const before = disk();
   try {
+    // 读的时候不能入库预览;读回来之前关掉入库技能，结果不再打开确认。
+    const hold = await holdCall(methodID("PlanFetchUnmanaged"));
+    try {
+      await openFetch();
+      await modal().locator('[data-slot="input"]').first().fill(SK);
+      await entry().click();
+      await hold.requested();
+      assert(await btn(modal(), "入库预览").isDisabled(), "读 Agent 目录的时候不能入库预览");
+      await btn(modal(), "取消").click();
+      await hold.release();
+      await modal().waitFor({ state: "detached" });
+      assert.equal(await page.locator('[data-slot="dialog-title"]', { hasText: "把你在用的技能交给 app 管" }).count(), 0, "关掉之后读回来的结果不再打开确认");
+    } finally {
+      await hold.close();
+    }
+
     await openFetch();
     await entry().click();
     await modal().locator(".fetch-unmanaged-lead", { hasText: "在各 Agent 的全局目录和 2 个项目里发现 2 个不是库装的技能" }).waitFor();

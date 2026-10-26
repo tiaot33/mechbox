@@ -712,8 +712,8 @@ export const en = {
     done: "Done",
     leftHint: (n: number) =>
       n === 1
-        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it from the Scope later."
-        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them one by one from the Scope later.`,
+        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it later from “Fetch skills” in the sidebar."
+        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them later from “Fetch skills” in the sidebar.`,
     linkPlaceholder: "owner/repo, Git URL or link; leave empty for no Source",
     retry: "Retry",
     fetchWithoutSource: "Fetch without Source",

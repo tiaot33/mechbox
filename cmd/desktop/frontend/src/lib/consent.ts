@@ -3,13 +3,16 @@
 // - 用户改过的地方、文件夹不在了的地方默认不动，勾上(或选"装回去")才覆盖、才装回去。
 // - 用户改过的技能有变化时默认不勾，跳过的改动、来源里已删除的技能、推测出的改名都不默认勾。
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
+// - 整批入库时，归项目仓库管的、指向 Agent 目录以外的默认不接，用户自己的照常默认勾上。
 import {
   PlannedChange,
   SkillScopeStatus,
+  type PlannedUnmanagedSkill,
   type ReinstallRequest,
   type Scope,
   type SkillID,
   type SkillScopeInspection,
+  type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
 import { folderKey, needsReinstall, scopeKey } from "./model";
@@ -157,4 +160,35 @@ export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
 export function linkWrites(places: SkillScopeInspection[], written: (p: SkillScopeInspection) => boolean) {
   const chosen = places.filter(written);
   return { links: chosen.filter((p) => p.link_target), kept: detachedBy(chosen) };
+}
+
+// ---------- 整批入库 ----------
+
+// notOwn 是默认不接的一处：提交在项目仓库里、记在项目 skills-lock.json 里，或指向 Agent 目录以外。
+const notOwn = (f: UnmanagedSkill) => !!(f.in_repository || f.in_project_lock || f.link_outside);
+
+// fetchPlan 是整批入库确认里的各条与默认勾选。库把内容一致的几处合成一条，其中一处默认不接整条就不勾;
+// 这里把默认不接的几处拆成单独一条，用户自己的那几处照常默认勾上(全局和项目一起看时，全局那份不被项目里团队的那份拖着)。
+// 同名冲突时默认勾用户自己的几条里最近修改的那条;都不是用户自己的就都不勾。
+export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[] {
+  const split = plan.flatMap((p) => {
+    const own = (p.folders ?? []).filter((f) => !notOwn(f));
+    const others = (p.folders ?? []).filter(notOwn);
+    if (p.error || !own.length || !others.length) return [p];
+    return [own, others].map((folders) => ({
+      ...p,
+      folders,
+      in_repository: folders.some((f) => f.in_repository),
+      in_project_lock: folders.some((f) => f.in_project_lock),
+      link_outside: folders.some((f) => f.link_outside),
+    }));
+  });
+  const ownEntry = (p: PlannedUnmanagedSkill) => !p.error && !p.in_repository && !p.in_project_lock && !p.link_outside;
+  const time = (p: PlannedUnmanagedSkill) => (p.modified_at ? Date.parse(p.modified_at) : 0);
+  const newest = new Map<string, PlannedUnmanagedSkill>();
+  for (const p of split) {
+    const cur = newest.get(p.name);
+    if (ownEntry(p) && p.conflict && (!cur || time(p) > time(cur))) newest.set(p.name, p);
+  }
+  return split.map((p) => ({ ...p, selected: ownEntry(p) && (!p.conflict || newest.get(p.name) === p) }));
 }

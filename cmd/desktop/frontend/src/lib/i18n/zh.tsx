@@ -669,7 +669,7 @@ export const zh = {
     leftTitle: "还有几个没入库",
     done: "完成",
     leftHint: (n: number) =>
-      `下面 ${n} 个没入库，仍是未纳管技能，Agent 照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库；也可以先放着，之后在作用域里逐个入库。`,
+      `下面 ${n} 个没入库，仍是未纳管技能，Agent 照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库；也可以先放着，之后在左栏「入库技能」里再入库。`,
     linkPlaceholder: "owner/repo、Git 地址或链接；留空就是没有来源",
     retry: "重试",
     fetchWithoutSource: "不带来源入库",

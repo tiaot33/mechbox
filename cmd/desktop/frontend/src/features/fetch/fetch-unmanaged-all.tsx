@@ -14,7 +14,8 @@ import {
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library";
-import { agentNameIn, homePath, outsideLinkNote, placeOf, scopeOf } from "@/lib/model";
+import { fetchPlan } from "@/lib/consent";
+import { agentNameIn, homePath, outsideLinkNote, placeOf, scopeLabel, scopeOf } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -55,10 +56,10 @@ export async function offerProject(project: RegisteredProject) {
 }
 
 // planEverywhere 为各 Agent 的全局目录和全部已登记项目生成整批入库的计划，返回打开确认的函数;
-// 用户自己点的，计划为空或读不出时告诉一声并返回 null。
-export function planEverywhere(agents: Agent[], projects: RegisteredProject[]) {
+// 用户自己点的，计划为空或读不出时告诉一声并返回 null。signal 取消时停下读取，什么都不说，返回 null。
+export function planEverywhere(agents: Agent[], projects: RegisteredProject[], signal: AbortSignal) {
   const scopes = [0, ...projects.map((p) => p.id)].flatMap((place) => agents.map((a) => scopeOf(a.code, place)));
-  return planFetchUnmanaged(agents, scopes, { kind: "everywhere", projects }, false);
+  return planFetchUnmanaged(agents, scopes, { kind: "everywhere", projects }, false, signal);
 }
 
 // offerFetchUnmanaged 生成整批入库的计划并打开确认;quiet 为 false 时(用户自己点的)计划为空也告诉一声。
@@ -66,23 +67,26 @@ export async function offerFetchUnmanaged(agents: Agent[], scopes: Scope[], wher
   await (await planFetchUnmanaged(agents, scopes, where, quiet))?.();
 }
 
-async function planFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet: boolean) {
+async function planFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet: boolean, signal?: AbortSignal) {
   let plan: PlannedUnmanagedSkill[];
   let library: string[];
   let home: string;
   let agentsShown: Partial<Record<string, boolean>>;
   try {
-    plan = (await LibraryService.PlanFetchUnmanaged({ scopes })) ?? [];
+    const call = LibraryService.PlanFetchUnmanaged({ scopes });
+    signal?.addEventListener("abort", () => void call.cancel(), { once: true });
+    plan = fetchPlan((await call) ?? []);
     library = ((await LibraryService.ListSkills()) ?? []).map((x) => x.name);
     home = (await LibraryService.Info()).home_dir;
     // 项目里合成的一处叫这台机器上显示的那几个 Agent,和右栏一样按应用设置里的显示勾选。
     agentsShown = (await AppService.Settings()).agents_shown ?? {};
   } catch (err) {
     const e = toLibraryError(err);
-    if (e.code !== ErrorCode.Canceled && !quiet)
+    if (e.code !== ErrorCode.Canceled && !quiet && !signal?.aborted)
       ui.toast(describeError(e), "error");
     return null;
   }
+  if (signal?.aborted) return null;
   if (plan.length === 0) {
     if (!quiet) ui.toast(where.kind === "everywhere" ? messages().unmanaged.nothingAnywhere : messages().unmanaged.nothingHere);
     return null;
@@ -131,15 +135,13 @@ function FetchUnmanagedDialog({
   const [links, setLinks] = useState<Map<number, string>>(new Map());
   const [editing, setEditing] = useState<number | null>(null);
 
-  // 各 Agent 的全局和各项目一起看时，每一处都写上在全局还是哪个项目。
-  const agentName = (scope: Scope) => {
-    const name = agentNameIn({ agents, agentsShown }, scope.agent, placeOf(scope));
-    if (where.kind !== "everywhere") return name;
-    const place = scope.project_id ? (where.projects.find((p) => p.id === scope.project_id)?.name ?? "") : messages().model.global;
-    return `${name} · ${place}`;
-  };
+  // 各 Agent 的全局和各项目一起看时，每一处写成作用域(在全局还是哪个项目);只看一处时写 Agent 的名字。
+  const placeName = (scope: Scope) =>
+    where.kind === "everywhere"
+      ? scopeLabel({ agents, agentsShown, projects: where.projects }, scope)
+      : agentNameIn({ agents, agentsShown }, scope.agent, placeOf(scope));
   const agentNames = (planned: PlannedUnmanagedSkill) =>
-    t.agents([...new Set(foldersOf(planned).map((f) => agentName(f.scope)))]);
+    t.agents([...new Set(foldersOf(planned).map((f) => placeName(f.scope)))]);
 
   const usable = plan.flatMap((p, i) => (p.error ? [] : [i]));
   const unusable = plan.filter((p) => p.error);
