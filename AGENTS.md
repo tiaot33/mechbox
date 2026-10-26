@@ -17,6 +17,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `wsl` — WSL 发行版：列出发行版、取发行版的主目录，在发行版里执行命令(每个发行版一个常驻的 `wsl.exe --exec /bin/sh`,命令只用 GNU 与 busybox 都支持的写法),以及给本地目录来源读发行版里目录的 `fs.FS`。发行版里的路径写成 `\\wsl.localhost\<发行版>\...`。
   - `skilllock` — 解析 `npx skills` 留下的来源记录，给未纳管技能认出来源(不是一种来源);记录文件由 `agentdir` 读出。
   - `skillfile` — 技能文件、文件集合比较与内容指纹,`library` 与各子包共用。
+  - `process` — 各子包启动外部命令(`git`、`gh`、`wsl.exe`)时共用的进程设置:在 Windows 上不弹出命令行窗口，取消时连同子进程一起结束。
 - `test/library/` — 技能库的集成测试。
 - `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0008):绑定服务开放 Library 的全部方法,`frontend/` 是 React + TS 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建与约定见 `cmd/desktop/README.md`,测试见 `docs/testing.md`。
 

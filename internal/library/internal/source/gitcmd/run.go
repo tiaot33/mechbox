@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 )
 
@@ -52,7 +53,8 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 		"GIT_ALLOW_PROTOCOL=https:http:ssh:git:file",
 	)
 	command.WaitDelay = time.Second
-	KillOnCancel(command)
+	process.Hide(command)
+	process.KillTreeOnCancel(command)
 	output, err := command.CombinedOutput()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -174,7 +176,8 @@ func sshCommand(ctx context.Context) (string, error) {
 	}
 	config := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
 	config.WaitDelay = time.Second
-	KillOnCancel(config)
+	process.Hide(config)
+	process.KillTreeOnCancel(config)
 	output, err := config.Output()
 	if ctx.Err() != nil {
 		return "", ctx.Err()

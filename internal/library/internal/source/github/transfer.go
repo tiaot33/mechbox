@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
 )
 
 func escapeGitHubPath(name string) string {
@@ -327,7 +327,8 @@ func githubCLIOutput(ctx context.Context, dest io.Writer, args ...string) error 
 	command := exec.CommandContext(commandCtx, "gh", args...)
 	command.Env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
 	command.WaitDelay = time.Second
-	gitcmd.KillOnCancel(command)
+	process.Hide(command)
+	process.KillTreeOnCancel(command)
 	command.Stdout = &githubLimitedWriter{dest: dest, remaining: maxFetchSize, cancel: cancel}
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
