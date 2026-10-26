@@ -52,7 +52,7 @@ export function agentName(s: Snapshot, code: AgentCode): string {
   return s.agents.find((a) => a.code === code)?.name ?? code;
 }
 
-export function projectName(s: Snapshot, id: ProjectID): string {
+export function projectName(s: Pick<Snapshot, "projects">, id: ProjectID): string {
   return s.projects.find((p) => p.id === id)?.name ?? "";
 }
 
@@ -61,7 +61,7 @@ export const skillName = (s: Snapshot, id: SkillID) => s.skills.find((x) => x.id
 
 export const groupName = (s: Snapshot, id: GroupID) => s.groups.find((g) => g.id === id)?.name ?? `#${id}`;
 
-export function scopeLabel(s: Snapshot, scope: Scope): string {
+export function scopeLabel(s: AgentList & Pick<Snapshot, "projects">, scope: Scope): string {
   return `${agentNameIn(s, scope.agent, placeOf(scope))} · ${scope.project_id ? projectName(s, scope.project_id) : messages().model.global}`;
 }
 

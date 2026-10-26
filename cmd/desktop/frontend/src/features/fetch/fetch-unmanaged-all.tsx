@@ -1,6 +1,6 @@
-// 一次确认把作用域里不是库装的技能全部入库：第一次打开 app 时看各 Agent 的全局，登记一个项目之后看这个项目，
-// 之后也能从作用域里那一行淡淡的提示再打开。磁盘上什么都不改;按认出的来源分组，同名不同内容的单列出来只选一份，
-// 一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
+// 一次确认把作用域里不是库装的技能全部入库：第一次打开 app 时看各 Agent 的全局，登记一个项目之后看这个项目;
+// 之后随时能从入库技能里对各 Agent 的全局和全部已登记项目再打开，也能从作用域里那一行淡淡的提示打开这一处。
+// 磁盘上什么都不改;按认出的来源分组，同名不同内容的单列出来只选一份，一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
 import { useMemo, useState } from "react";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import {
@@ -14,7 +14,8 @@ import {
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library";
-import { agentNameIn, homePath, outsideLinkNote, placeOf, scopeOf } from "@/lib/model";
+import { fetchPlan } from "@/lib/consent";
+import { agentNameIn, homePath, outsideLinkNote, placeOf, scopeLabel, scopeOf } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -38,6 +39,7 @@ import { ConflictRow, PlannedRow, type SourceEdit } from "./fetch-unmanaged-rows
 // Where 是这次看的是哪里，决定标题和开头那句话。
 export type Where =
   | { kind: "first-open" }
+  | { kind: "everywhere"; projects: RegisteredProject[] }
   | { kind: "project"; project: RegisteredProject }
   | { kind: "scope"; label: string };
 
@@ -53,29 +55,43 @@ export async function offerProject(project: RegisteredProject) {
   await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project });
 }
 
+// planEverywhere 为各 Agent 的全局目录和全部已登记项目生成整批入库的计划，返回打开确认的函数;
+// 用户自己点的，计划为空或读不出时告诉一声并返回 null。signal 取消时停下读取，什么都不说，返回 null。
+export function planEverywhere(agents: Agent[], projects: RegisteredProject[], signal: AbortSignal) {
+  const scopes = [0, ...projects.map((p) => p.id)].flatMap((place) => agents.map((a) => scopeOf(a.code, place)));
+  return planFetchUnmanaged(agents, scopes, { kind: "everywhere", projects }, false, signal);
+}
+
 // offerFetchUnmanaged 生成整批入库的计划并打开确认;quiet 为 false 时(用户自己点的)计划为空也告诉一声。
 export async function offerFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet = true) {
+  await (await planFetchUnmanaged(agents, scopes, where, quiet))?.();
+}
+
+async function planFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet: boolean, signal?: AbortSignal) {
   let plan: PlannedUnmanagedSkill[];
   let library: string[];
   let home: string;
   let agentsShown: Partial<Record<string, boolean>>;
   try {
-    plan = (await LibraryService.PlanFetchUnmanaged({ scopes })) ?? [];
+    const call = LibraryService.PlanFetchUnmanaged({ scopes });
+    signal?.addEventListener("abort", () => void call.cancel(), { once: true });
+    plan = fetchPlan((await call) ?? []);
     library = ((await LibraryService.ListSkills()) ?? []).map((x) => x.name);
     home = (await LibraryService.Info()).home_dir;
     // 项目里合成的一处叫这台机器上显示的那几个 Agent,和右栏一样按应用设置里的显示勾选。
     agentsShown = (await AppService.Settings()).agents_shown ?? {};
   } catch (err) {
     const e = toLibraryError(err);
-    if (e.code !== ErrorCode.Canceled && !quiet)
+    if (e.code !== ErrorCode.Canceled && !quiet && !signal?.aborted)
       ui.toast(describeError(e), "error");
-    return;
+    return null;
   }
+  if (signal?.aborted) return null;
   if (plan.length === 0) {
-    if (!quiet) ui.toast(messages().unmanaged.nothingHere);
-    return;
+    if (!quiet) ui.toast(where.kind === "everywhere" ? messages().unmanaged.nothingAnywhere : messages().unmanaged.nothingHere);
+    return null;
   }
-  await ui.open((close) => (
+  return () => ui.open((close) => (
     <FetchUnmanagedDialog
       agents={agents}
       agentsShown={agentsShown}
@@ -119,14 +135,13 @@ function FetchUnmanagedDialog({
   const [links, setLinks] = useState<Map<number, string>>(new Map());
   const [editing, setEditing] = useState<number | null>(null);
 
+  // 各 Agent 的全局和各项目一起看时，每一处写成作用域(在全局还是哪个项目);只看一处时写 Agent 的名字。
+  const placeName = (scope: Scope) =>
+    where.kind === "everywhere"
+      ? scopeLabel({ agents, agentsShown, projects: where.projects }, scope)
+      : agentNameIn({ agents, agentsShown }, scope.agent, placeOf(scope));
   const agentNames = (planned: PlannedUnmanagedSkill) =>
-    t.agents([
-      ...new Set(
-        foldersOf(planned).map(
-          (f) => agentNameIn({ agents, agentsShown }, f.scope.agent, placeOf(f.scope)),
-        ),
-      ),
-    ]);
+    t.agents([...new Set(foldersOf(planned).map((f) => placeName(f.scope)))]);
 
   const usable = plan.flatMap((p, i) => (p.error ? [] : [i]));
   const unusable = plan.filter((p) => p.error);
@@ -199,11 +214,13 @@ function FetchUnmanagedDialog({
   });
 
   const lead =
-    where.kind === "first-open"
+    where.kind === "first-open" || (where.kind === "everywhere" && where.projects.length === 0)
       ? t.leadFirstOpen(usable.length)
-      : where.kind === "project"
-        ? t.leadProject(where.project.name, usable.length)
-        : t.leadScope(where.label, usable.length);
+      : where.kind === "everywhere"
+        ? t.leadEverywhere(where.projects.length, usable.length)
+        : where.kind === "project"
+          ? t.leadProject(where.project.name, usable.length)
+          : t.leadScope(where.label, usable.length);
 
   return (
     <Modal

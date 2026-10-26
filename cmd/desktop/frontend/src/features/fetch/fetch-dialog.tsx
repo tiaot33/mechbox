@@ -1,5 +1,6 @@
 // 入库技能：给出一个来源输入(本地路径、GitHub、Git 仓库、下载链接或站点链接),由技能库识别来源并做入库预览，
 // 再在 FetchReview 里挑选候选入库。Git 类来源在扫描前从下拉里选分支或 tag。
+// 也可以从这里把各 Agent 的全局目录和全部已登记项目里不是库装的技能一次入库(换成整批入库的确认);一个都没有时只提示，留在这里。
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialogs, type CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
@@ -7,7 +8,7 @@ import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs
 import { Modal, ui, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { toLibraryError } from "@/lib/library";
+import { currentSnapshot, toLibraryError } from "@/lib/library";
 import { isLocalPath, resolveFetchInput } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { Notice } from "@/components/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { FetchReview } from "./fetch-review";
+import { planEverywhere } from "./fetch-unmanaged-all";
 import { Icon } from "@/components/app/icons";
 
 // pickDirectory 打开系统目录选择框;取消时返回空串。
@@ -53,7 +55,26 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     void pending.current?.call?.cancel();
     pending.current = null;
   };
-  useEffect(() => discard, []);
+  // scan 是正在读各 Agent 目录里不是库装的技能，和入库预览一次只做一个;改输入不作废它，
+  // 关掉对话框(含退场动画期间)或卸载时取消，读回的结果不再采用。
+  const scan = useRef<AbortController | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const stopScan = () => {
+    scan.current?.abort();
+    scan.current = null;
+  };
+  useEffect(
+    () => () => {
+      discard();
+      stopScan();
+    },
+    [],
+  );
+  const close = () => {
+    discard();
+    stopScan();
+    onClose();
+  };
   const input = resolveFetchInput(text, home);
   const [refs, settleRefs] = useSourceRefs(input?.path ?? "");
 
@@ -74,7 +95,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
   };
 
   const previewFetch = async () => {
-    if (pending.current || !input?.path) return;
+    if (pending.current || scan.current || !input?.path) return;
     const op: { call?: CancellablePromise<FetchPreview> } = {};
     pending.current = op;
     setWorking(true);
@@ -100,16 +121,30 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     setWorking(false);
     if (result) setPreview(result);
   };
+  const fetchExisting = async () => {
+    if (pending.current || scan.current) return;
+    const op = new AbortController();
+    scan.current = op;
+    setScanning(true);
+    const s = currentSnapshot();
+    const confirm = await planEverywhere(s.agents, s.projects, op.signal);
+    if (scan.current !== op) return;
+    scan.current = null;
+    setScanning(false);
+    if (!confirm) return;
+    onClose();
+    void confirm();
+  };
   const submitOnEnter = (e: React.KeyboardEvent) => e.key === "Enter" && ready && previewFetch();
 
   return (
     <Modal
       title={t.title}
-      onClose={onClose}
+      onClose={close}
       footer={
         <>
-          <Button onClick={onClose}>{t.cancel}</Button>
-          <Button variant="primary" disabled={!ready} loading={working} onClick={previewFetch}>
+          <Button onClick={close}>{t.cancel}</Button>
+          <Button variant="primary" disabled={!ready || scanning} loading={working} onClick={previewFetch}>
             {t.preview}
           </Button>
         </>
@@ -149,6 +184,13 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
           {failure}
         </Notice>
       )}
+      <div className="fetch-existing flex items-center gap-1.5 border-t border-border-subtle pt-2.5 text-[11px] text-muted-foreground">
+        <span>{t.existingHint}</span>
+        <span className="grow" />
+        <Button size="sm" className="shrink-0" disabled={working} loading={scanning} onClick={() => void fetchExisting()}>
+          {t.existing}
+        </Button>
+      </div>
     </Modal>
   );
 }

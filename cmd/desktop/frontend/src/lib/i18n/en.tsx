@@ -702,6 +702,7 @@ export const en = {
 
   unmanaged: {
     nothingHere: "There are no skills here that weren't installed by the Library",
+    nothingAnywhere: "Every skill in the Agents' directories is already managed by the app",
     outsideTitle: (target: string) => `Symlink to ${target}`,
     outside: "Points outside Agent directories",
     agents: (names: string[]) => names.join(", "),
@@ -711,8 +712,8 @@ export const en = {
     done: "Done",
     leftHint: (n: number) =>
       n === 1
-        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it from the Scope later."
-        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them one by one from the Scope later.`,
+        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it later from “Fetch skills” in the sidebar."
+        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them later from “Fetch skills” in the sidebar.`,
     linkPlaceholder: "owner/repo, Git URL or link; leave empty for no Source",
     retry: "Retry",
     fetchWithoutSource: "Fetch without Source",
@@ -723,6 +724,8 @@ export const en = {
     inLockTitle: "The project's skills-lock.json lists it: the team agreed to install it",
     inLock: "In skills-lock.json",
     leadFirstOpen: (n: number) => `Found ${count(n, "skill")} in the Agents' global directories that ${n === 1 ? "wasn't" : "weren't"} installed by the Library.`,
+    leadEverywhere: (projects: number, n: number) =>
+      `Found ${count(n, "skill")} in the Agents' global directories and ${count(projects, "project")} that ${n === 1 ? "wasn't" : "weren't"} installed by the Library.`,
     leadProject: (project: string, n: number) => `Found ${count(n, "skill")} in project “${project}” that ${n === 1 ? "wasn't" : "weren't"} installed by the Library.`,
     leadScope: (scope: string, n: number) => `Found ${count(n, "skill")} in ${scope} that ${n === 1 ? "wasn't" : "weren't"} installed by the Library.`,
     lead: (lead: string) => `${lead} Fetching changes nothing on disk; Agents see the same as now.`,
@@ -730,7 +733,7 @@ export const en = {
     notNow: "Not now",
     fetchN: (n: number) => `Fetch ${n}`,
     cost: "Fetching hands them over to the app: if you keep updating these skills with a command-line tool afterwards, the app can only report them as edited by hand.",
-    projectsLater: "Skills in projects are picked up when you register the project.",
+    projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the sidebar.",
     noSource: "No Source",
     groupCount: (n: number) => `· ${n}`,
     noSourceNote: "No update checks; after editing in the Agent directory, update with those edits",
@@ -1065,6 +1068,8 @@ export const en = {
     branches: "Branches",
     tags: "Tag",
     locked: (ref: string | undefined) => `The branch is set by ${ref} in the input; edit the input to change it.`,
+    existingHint: "Skills already in Agent directories that the Library didn't install can be fetched in one go.",
+    existing: "Fetch from Agent directories…",
   },
 
   audit: {

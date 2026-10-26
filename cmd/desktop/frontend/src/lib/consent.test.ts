@@ -6,13 +6,16 @@ import {
   ScopeKind,
   SkillScopeStatus,
   type PlannedSkill,
+  type PlannedUnmanagedSkill,
   type Scope,
   type Skill,
   type SkillScopeInspection,
+  type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
 import {
   defaultInstallOn,
+  fetchPlan,
   defaultSkills,
   detachedBy,
   linkWrites,
@@ -23,7 +26,7 @@ import {
   updateInstalls,
   type ReinstallChoices,
 } from "./consent";
-import { folderKey } from "./model";
+import { folderKey, scopeKey } from "./model";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -217,5 +220,43 @@ describe("写之前说明符号链接", () => {
     expect(detachedBy([target])).toEqual([{ place: target, by: [global(codex)] }]);
     const linker = place(1, global(codex), SkillScopeStatus.SkillScopeStale, { link_target: target.folder });
     expect(detachedBy([target, linker])).toEqual([]);
+  });
+});
+
+describe("整批入库的默认勾选", () => {
+  const folder = (scope: Scope, extra: Partial<UnmanagedSkill> = {}): UnmanagedSkill => ({ scope, name: "lint", folder: `/${scopeKey(scope)}/lint`, ...extra });
+  const planned = (folders: UnmanagedSkill[], extra: Partial<PlannedUnmanagedSkill> = {}): PlannedUnmanagedSkill => ({
+    name: "lint",
+    folders,
+    in_repository: folders.some((f) => f.in_repository),
+    in_project_lock: folders.some((f) => f.in_project_lock),
+    link_outside: folders.some((f) => f.link_outside),
+    ...extra,
+  });
+
+  it("全局里自己的和项目里团队的内容一样时拆成两条：自己的默认勾上，团队的不勾", () => {
+    const mine = folder(global(claude));
+    const team = folder(project(claude, 7), { in_project_lock: true });
+    const plan = fetchPlan([planned([mine, team])]);
+    expect(plan.map((p) => [p.folders, !!p.selected, !!p.in_project_lock])).toEqual([
+      [[mine], true, false],
+      [[team], false, true],
+    ]);
+  });
+
+  it("同名冲突时默认勾自己的几条里最近修改的，团队的那份再新也不勾", () => {
+    const mine = planned([folder(global(claude))], { conflict: true, modified_at: "2026-10-01T00:00:00Z" });
+    const team = planned([folder(project(claude, 7), { in_repository: true })], { conflict: true, modified_at: "2026-10-20T00:00:00Z" });
+    expect(fetchPlan([mine, team]).map((p) => !!p.selected)).toEqual([true, false]);
+    const older = planned([folder(global(codex))], { conflict: true, modified_at: "2026-09-01T00:00:00Z" });
+    expect(fetchPlan([older, mine, team]).map((p) => !!p.selected)).toEqual([false, true, false]);
+  });
+
+  it("都是团队的、指向外面的或读不出的都不勾，也不拆", () => {
+    const outside = planned([folder(global(claude), { link_outside: true }), folder(global(codex), { link_outside: true })]);
+    const broken = planned([folder(global(claude))], { error: { code: "source_invalid", message: "bad" } as PlannedUnmanagedSkill["error"] });
+    const plan = fetchPlan([outside, broken]);
+    expect(plan).toHaveLength(2);
+    expect(plan.map((p) => !!p.selected)).toEqual([false, false]);
   });
 });
