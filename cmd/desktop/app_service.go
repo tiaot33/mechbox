@@ -113,7 +113,7 @@ func (a *AppService) Settings() Settings {
 }
 
 // Language 返回界面实际用的语言(zh 或 en):设置里选了的按设置;跟随系统时看系统的首选语言(macOS 上是系统设置里的语言顺序，
-// 其他平台与 server 模式读 LC_ALL / LC_MESSAGES / LANG),首选中文(含繁体)时是中文，其余是英文。
+// Windows 上是系统设置里排第一的显示语言，其他平台与 server 模式读 LC_ALL / LC_MESSAGES / LANG),首选中文(含繁体)时是中文，其余是英文。
 func (a *AppService) Language() Language {
 	return a.Settings().Language.resolve()
 }
