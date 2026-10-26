@@ -6,7 +6,7 @@ import { addAgent, deleteAgent, editAgent } from "./agents";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { agentShown, shortPath } from "@/lib/model";
+import { agentShown, projectDirectory, projectDirectoryInput, shortPath } from "@/lib/model";
 import { insideHome, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +43,7 @@ export function AgentSection({
                 {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
               </div>
               <div className="truncate font-mono text-[11px] text-muted-foreground select-text">
-                {t.directories(shortPath(s, a.global_directory), a.project_directory)}
+                {t.directories(shortPath(s, a.global_directory), projectDirectory(a.project_directory))}
               </div>
             </div>
             {a.custom && (
@@ -69,9 +69,10 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
   const s = useSnapshot();
   const t = useT().agents;
   const home = s.info.home_dir;
+  const sep = home.includes("\\") ? "\\" : "/";
   const [name, setName] = useState(agent?.name ?? "");
   const [global, setGlobal] = useState(agent ? shortPath(s, agent.global_directory) : "");
-  const [project, setProject] = useState(agent?.project_directory ?? "");
+  const [project, setProject] = useState(agent ? projectDirectory(agent.project_directory) : "");
   const [errors, setErrors] = useState<Partial<Record<AgentField, string>>>({});
   const [working, setWorking] = useState(false);
   // 提交进行中(含等迁移确认)时不再提交：按钮禁用挡不住输入框里的 Enter。
@@ -84,21 +85,21 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
     if (!resolved) found.global_directory = t.globalRequired;
     else if (resolved.path === undefined) found.global_directory = resolved.error;
     else if (!insideHome(resolved.path, home)) found.global_directory = t.globalInHome;
-    const rel = project.trim();
+    const rel = projectDirectoryInput(project.trim());
     if (!rel) found.project_directory = t.projectRequired;
     else if (rel.startsWith("/") || rel.startsWith("~")) found.project_directory = t.projectRelative;
     else if (rel.split("/").some((part) => part === "..") || rel.replace(/^\.\/?|\/+$/g, "") === "") {
       found.project_directory = t.projectInside;
     }
-    return { found, global: resolved?.path ?? "" };
+    return { found, global: resolved?.path ?? "", project: rel };
   };
 
   const submit = async () => {
     if (submitting.current) return;
-    const { found, global: globalPath } = validate();
+    const { found, global: globalPath, project: projectPath } = validate();
     setErrors(found);
     if (Object.keys(found).length) return;
-    const input: CustomAgent = { name: name.trim(), global_directory: globalPath, project_directory: project.trim() };
+    const input: CustomAgent = { name: name.trim(), global_directory: globalPath, project_directory: projectPath };
     // 技能库按字段报的不合法，显示在对应输入框下面。
     const onInvalid = (err: LibraryError) => {
       const field = err.details?.field as AgentField | undefined;
@@ -141,7 +142,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
       </Field>
       <Field label={t.global}>
         <div className="flex min-w-0 items-center gap-2">
-          <Input className="grow" placeholder="~/.my-agent/skills" value={global} onChange={(e) => setGlobal(e.target.value)} />
+          <Input className="grow" placeholder={shortPath(s, [home, ".my-agent", "skills"].join(sep))} value={global} onChange={(e) => setGlobal(e.target.value)} />
           <Button
             onClick={async () => {
               const dir = await pickDirectory(t.chooseGlobal);
@@ -155,7 +156,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
       </Field>
       <Field label={t.project}>
         <Input
-          placeholder=".my-agent/skills"
+          placeholder={projectDirectory(".my-agent/skills")}
           value={project}
           onChange={(e) => setProject(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { SourceType, type Collection, type Group } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { missingFromGroup, moved, noOrder, prunedOrder, sortedCollections, sortedGroups } from "./model";
+import { homePath, missingFromGroup, moved, noOrder, prunedOrder, sortedCollections, sortedGroups } from "./model";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;
@@ -70,5 +70,16 @@ describe("missingFromGroup", () => {
   it("集合为空或都已在组里时为空", () => {
     expect(missingFromGroup(s, 2, 7)).toEqual([]);
     expect(missingFromGroup(snapshot({ collections: [collection(1, "a/a", [11])], groups: [group(7, [11])] }), 1, 7)).toEqual([]);
+  });
+});
+
+describe("homePath", () => {
+  it("把主目录缩写成 ~", () => {
+    expect(homePath("/Users/me", "/Users/me/.agents/skills")).toBe("~/.agents/skills");
+    expect(homePath("\\\\wsl.localhost\\Ubuntu\\home\\me", "\\\\wsl.localhost\\Ubuntu\\home\\me\\.agents\\skills")).toBe("~\\.agents\\skills");
+  });
+
+  it("Windows 上的主目录不缩写", () => {
+    expect(homePath("C:\\Users\\me", "C:\\Users\\me\\.agents\\skills")).toBe("C:\\Users\\me\\.agents\\skills");
   });
 });
