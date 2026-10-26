@@ -1009,7 +1009,7 @@ export const en = {
     globalRequired: "Enter the global skill directory",
     globalInHome: "The global skill directory must be inside your home directory (not the home directory itself)",
     projectRequired: "Enter the skill directory in projects",
-    projectRelative: "Enter a path relative to the project root, e.g. .agents/skills",
+    projectRelative: (example: string) => `Enter a path relative to the project root, e.g. ${example}`,
     projectInside: "Must be inside the project root (not the project root itself)",
     editTitle: (name: string) => `Edit Agent “${name}”`,
     addTitle: "Add Agent",

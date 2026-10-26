@@ -948,7 +948,7 @@ export const zh = {
     globalRequired: "填写全局技能目录",
     globalInHome: "全局技能目录要在用户主目录里面（不能是主目录本身）",
     projectRequired: "填写项目里的技能目录",
-    projectRelative: "填相对项目根目录的路径，如 .agents/skills",
+    projectRelative: (example: string) => `填相对项目根目录的路径，如 ${example}`,
     projectInside: "要在项目根目录里面（不能是项目根本身）",
     editTitle: (name: string) => `编辑 Agent「${name}」`,
     addTitle: "添加 Agent",

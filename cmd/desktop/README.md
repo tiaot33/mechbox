@@ -159,7 +159,7 @@ cmd/desktop/
         │                   group/ 组，scope/ 已登记项目与自定义 Agent,skill/ 移除技能与继续保留，settings/ 设置页、同步与卸载 Mechbox
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，diff.ts 更新计划里的逐行差异，
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
-                            content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案用),
+                            content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案与 Windows 上路径的分隔符用),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)
 ```
 

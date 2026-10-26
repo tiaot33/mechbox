@@ -21,6 +21,7 @@ import {
 } from "@bindings/internal/library";
 import { currentLanguage, messages } from "./i18n";
 import type { Snapshot } from "./library";
+import { platform } from "./platform";
 
 // ---------- 作用域 ----------
 
@@ -64,15 +65,23 @@ export function scopeLabel(s: AgentList & Pick<Snapshot, "projects">, scope: Sco
   return `${agentNameIn(s, scope.agent, placeOf(scope))} · ${scope.project_id ? projectName(s, scope.project_id) : messages().model.global}`;
 }
 
-// shortPath 把用户主目录缩写成 ~。
+// shortPath 把用户主目录缩写成 ~(Windows 上的主目录不缩写，见 homePath)。
 export function shortPath(s: Snapshot, path: string): string {
   return homePath(s.info.home_dir, path);
 }
 
-// homePath 把主目录下的路径缩写成 ~;Windows 与 WSL 发行版(\\wsl.localhost\...)的路径用反斜杠分隔。
+// homePath 把主目录下的路径缩写成 ~;Windows 上的主目录(C:\Users\...)不认 ~,照原样显示完整路径。
+// WSL 发行版(\\wsl.localhost\...)的路径用反斜杠分隔，主目录照样缩写成 ~。
 export function homePath(home: string | undefined, path: string): string {
-  return home && (path === home || path.startsWith(home + "/") || path.startsWith(home + "\\")) ? "~" + path.slice(home.length) : path;
+  if (!home || /^[A-Za-z]:/.test(home)) return path;
+  return path === home || path.startsWith(home + "/") || path.startsWith(home + "\\") ? "~" + path.slice(home.length) : path;
 }
+
+// nativePath 把斜杠分隔的路径(如技能库记录的 Agent 在项目里的技能目录)换成这个平台的写法:Windows 上用反斜杠。
+export const nativePath = (path: string) => (platform() === "windows" ? path.replaceAll("/", "\\") : path);
+
+// slashPath 把输入框里的相对路径换回技能库的斜杠写法:Windows 上反斜杠也是分隔符。
+export const slashPath = (input: string) => (platform() === "windows" ? input.replaceAll("\\", "/") : input);
 
 // outsideLinkNote 是指向 Agent 目录以外的符号链接入库时的说明:之后在 app 里更新会换掉链接。
 export const outsideLinkNote = (target: string) => messages().model.outsideLinkNote(target);
@@ -163,7 +172,7 @@ export function agentNameIn(s: AgentList, code: AgentCode, place: Place): string
 export function projectFolderNote(s: AgentList, code: AgentCode, place: Place): string | undefined {
   const all = place ? projectSharers(s, code) : [];
   if (!all.length) return undefined;
-  return messages().model.projectFolderNote(all[0].project_directory, all.map((a) => a.name));
+  return messages().model.projectFolderNote(nativePath(all[0].project_directory), all.map((a) => a.name));
 }
 
 // sharedWithNote 是一处安装要另外说明的共用 Agent:全局照旧是共用这个文件夹的其他 Agent;
