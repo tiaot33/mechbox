@@ -4,14 +4,13 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"syscall"
-)
 
-const createNoWindow = 0x08000000
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
+)
 
 func shellCommand(distro string) (*exec.Cmd, error) {
 	cmd := exec.Command("wsl.exe", "--distribution", distro, "--cd", "~", "--exec", "/bin/sh")
-	hide(cmd)
+	process.Hide(cmd)
 	return cmd, nil
 }
 
@@ -22,7 +21,7 @@ func commandKey() string {
 func listDistros(ctx context.Context) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "wsl.exe", "--list", "--quiet")
 	cmd.Env = append(os.Environ(), "WSL_UTF8=1")
-	hide(cmd)
+	process.Hide(cmd)
 	output, err := cmd.Output()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -31,8 +30,4 @@ func listDistros(ctx context.Context) ([]byte, error) {
 		return nil, nil
 	}
 	return output, nil
-}
-
-func hide(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 }

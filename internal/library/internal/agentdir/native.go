@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
 
@@ -268,6 +269,7 @@ func (native) list(directory string) ([]Folder, error) {
 func (native) committed(ctx context.Context, root, directory string) (map[string]bool, error) {
 	command := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--", directory)
 	command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
+	process.Hide(command)
 	output, err := command.Output()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()

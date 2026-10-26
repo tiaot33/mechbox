@@ -1,6 +1,6 @@
 //go:build unix
 
-package gitcmd
+package process
 
 import (
 	"errors"
@@ -9,7 +9,9 @@ import (
 	"syscall"
 )
 
-func KillOnCancel(command *exec.Cmd) {
+func Hide(command *exec.Cmd) {}
+
+func KillTreeOnCancel(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Cancel = func() error {
 		err := syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
