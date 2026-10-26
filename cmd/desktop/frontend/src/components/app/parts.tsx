@@ -81,7 +81,7 @@ export function Count({ value, className }: { value: number; className?: string 
   );
 }
 
-// TailPath 显示路径的末尾几段：放不下时整段省掉开头，写成 …/上级目录/末段，不在目录名中间截断。
+// TailPath 显示路径的末尾几段：放不下时整段省掉开头，写成 …/上级目录/末段(Windows 的路径用反斜杠),不在目录名中间截断。
 export function TailPath({ path, max, className }: { path: string; max: number; className?: string }) {
   return (
     <span title={path} className={cn("min-w-0 truncate", className)}>
@@ -92,10 +92,11 @@ export function TailPath({ path, max, className }: { path: string; max: number; 
 
 export function tailPath(path: string, max: number): string {
   if (path.length <= max) return path;
-  const parts = path.split("/");
+  const sep = path.includes("\\") ? "\\" : "/";
+  const parts = path.split(sep);
   let tail = parts.pop() ?? "";
-  while (parts.length && parts[parts.length - 1].length + tail.length + 3 <= max) tail = `${parts.pop()}/${tail}`;
-  return `…/${tail}`;
+  while (parts.length && parts[parts.length - 1].length + tail.length + 3 <= max) tail = `${parts.pop()}${sep}${tail}`;
+  return `…${sep}${tail}`;
 }
 
 // Truncated 给截断显示的文字挂浮动提示：悬停时它自己或里面带 truncate 的元素放不下、被截断了才显示 tip,没截断时不显示;
