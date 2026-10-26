@@ -221,7 +221,7 @@ await step(FIRST_OPEN, async () => {
     assert(lead.includes("在各 Agent 的全局目录里发现 4 个不是库装的技能") && lead.includes("磁盘上什么都不改，Agent 用的和现在一样"), `开头应先说磁盘不动:${lead}`);
     const text = await modal().textContent();
     assert(text.includes("之后如果还用命令行工具更新这些技能，app 只能把它们报为被手动改过"), `确认前写清代价:${text}`);
-    assert(text.includes("项目里的技能，登记项目时再接"), "第一次打开时说明项目里的之后再接");
+    assert(text.includes("项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库"), "第一次打开时说明项目里的之后再接，先不入库的去哪里再入库");
     assert((await modal().locator(".fetch-unmanaged-team").count()) === 0, "全局里没有项目仓库的提醒");
     // 符号链接和它指向的真实文件夹内容一样，合成一条，两个 Agent 都列出。
     const group = modal().locator(".fetch-unmanaged-group", { hasText: "没有来源" });
@@ -936,6 +936,54 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
       await settle();
     }
     fs.rmSync(projC, { recursive: true, force: true });
+  }
+});
+
+await step("入库技能里随时可以把各 Agent 全局和已登记项目里不是库装的技能一次入库，磁盘不动;都交给 app 管了时只提示", async () => {
+  const entry = () => btn(modal(), "从 Agent 目录入库…");
+  await openFetch();
+  await entry().click();
+  await toast("各 Agent 目录里的技能都已经交给 app 管了");
+  assert.equal(await modal().locator('[data-slot="dialog-title"]', { hasText: "入库技能" }).count(), 1, "没有可入库的时留在入库技能里");
+  await btn(modal(), "取消").click();
+
+  const folders = [path.join(HOME, ".claude", "skills", "anywhere-global"), path.join(HOME, "code", "proj-b", ".claude", "skills", "anywhere-proj")];
+  for (const dir of folders) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${path.basename(dir)}\ndescription: "copied by hand"\n---\n`);
+  }
+  const disk = () => folders.map((dir) => fs.readFileSync(path.join(dir, "SKILL.md"), "utf8"));
+  const before = disk();
+  try {
+    await openFetch();
+    await entry().click();
+    await modal().locator(".fetch-unmanaged-lead", { hasText: "在各 Agent 的全局目录和 2 个项目里发现 2 个不是库装的技能" }).waitFor();
+    await page.locator('[data-slot="dialog-title"]', { hasText: /^入库技能$/ }).waitFor({ state: "detached" });
+    for (const [name, where] of [["anywhere-global", "Claude Code · 全局"], ["anywhere-proj", "Claude Code · proj-b"]]) {
+      const row = modal().locator('[data-slot="list-row"]', { has: page.locator(".fetch-unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+      assert(await row.locator('input[type="checkbox"]').isChecked(), `${name} 默认勾上`);
+      assert((await row.textContent()).includes(where), `${name} 写明在哪里:${await row.textContent()}`);
+    }
+    await page.screenshot({ path: path.join(SHOTS, "fetch-unmanaged-everywhere.png") });
+    await btn(modal(), "入库 2 个").click();
+    await toast("已入库 2 个技能");
+    await settle();
+    await card("anywhere-global").waitFor();
+    await card("anywhere-proj").waitFor();
+    assert.deepStrictEqual(disk(), before, "入库时磁盘上什么都没动");
+  } finally {
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    for (const n of ["anywhere-global", "anywhere-proj"]) {
+      if ((await card(n).count()) === 0) continue;
+      await openDrawer(n);
+      await btn(drawer(), "移除技能").click();
+      await btn(modal(), "移除").click();
+      await toast("已移除");
+      await settle();
+    }
+    for (const dir of folders) fs.rmSync(dir, { recursive: true, force: true });
+    await page.locator(".titlebar button[title^='刷新']").click();
+    await settle();
   }
 });
 

@@ -7,7 +7,7 @@ import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs
 import { Modal, ui, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { toLibraryError } from "@/lib/library";
+import { currentSnapshot, toLibraryError } from "@/lib/library";
 import { isLocalPath, resolveFetchInput } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { Notice } from "@/components/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { FetchReview } from "./fetch-review";
+import { planEverywhere } from "./fetch-unmanaged-all";
 import { Icon } from "@/components/app/icons";
 
 // pickDirectory 打开系统目录选择框;取消时返回空串。
@@ -54,6 +55,13 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     pending.current = null;
   };
   useEffect(() => discard, []);
+  // finding 是正在读各 Agent 目录里不是库装的技能;读完之前关掉了对话框，就不再打开入库确认。
+  const [finding, setFinding] = useState(false);
+  const shown = useRef(false);
+  useEffect(() => {
+    shown.current = true;
+    return () => void (shown.current = false);
+  }, []);
   const input = resolveFetchInput(text, home);
   const [refs, settleRefs] = useSourceRefs(input?.path ?? "");
 
@@ -99,6 +107,16 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     pending.current = null;
     setWorking(false);
     if (result) setPreview(result);
+  };
+  const fetchExisting = async () => {
+    setFinding(true);
+    const s = currentSnapshot();
+    const confirm = await planEverywhere(s.agents, s.projects);
+    if (!shown.current) return;
+    setFinding(false);
+    if (!confirm) return;
+    onClose();
+    void confirm();
   };
   const submitOnEnter = (e: React.KeyboardEvent) => e.key === "Enter" && ready && previewFetch();
 
@@ -149,6 +167,13 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
           {failure}
         </Notice>
       )}
+      <div className="fetch-existing flex items-center gap-1.5 border-t border-border-subtle pt-2.5 text-[11px] text-muted-foreground">
+        <span>{t.existingHint}</span>
+        <span className="grow" />
+        <Button size="sm" className="shrink-0" loading={finding} onClick={() => void fetchExisting()}>
+          {t.existing}
+        </Button>
+      </div>
     </Modal>
   );
 }

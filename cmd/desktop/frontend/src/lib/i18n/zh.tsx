@@ -660,6 +660,7 @@ export const zh = {
 
   unmanaged: {
     nothingHere: "这里没有不是库装的技能",
+    nothingAnywhere: "各 Agent 目录里的技能都已经交给 app 管了",
     outsideTitle: (target: string) => `符号链接，指向 ${target}`,
     outside: "指向 Agent 目录以外",
     agents: (names: string[]) => names.join("、"),
@@ -679,6 +680,7 @@ export const zh = {
     inLockTitle: "项目的 skills-lock.json 记了它，是团队约定装的",
     inLock: "记在 skills-lock.json 里",
     leadFirstOpen: (n: number) => `在各 Agent 的全局目录里发现 ${n} 个不是库装的技能。`,
+    leadEverywhere: (projects: number, n: number) => `在各 Agent 的全局目录和 ${projects} 个项目里发现 ${n} 个不是库装的技能。`,
     leadProject: (project: string, n: number) => `在项目「${project}」里发现 ${n} 个不是库装的技能。`,
     leadScope: (scope: string, n: number) => `在 ${scope} 里发现 ${n} 个不是库装的技能。`,
     lead: (lead: string) => `${lead}入库时磁盘上什么都不改，Agent 用的和现在一样。`,
@@ -686,7 +688,7 @@ export const zh = {
     notNow: "先不入库",
     fetchN: (n: number) => `入库 ${n} 个`,
     cost: "入库就是交给 app 管：之后如果还用命令行工具更新这些技能，app 只能把它们报为被手动改过。",
-    projectsLater: "项目里的技能，登记项目时再接。",
+    projectsLater: "项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库。",
     noSource: "没有来源",
     groupCount: (n: number) => `· ${n} 个`,
     noSourceNote: "不检查更新，在 Agent 目录里改了用那里的修改更新",
@@ -1005,6 +1007,8 @@ export const zh = {
     branches: "分支",
     tags: "Tag",
     locked: (ref: string | undefined) => `分支由输入里的 ${ref} 决定，要换分支请修改输入。`,
+    existingHint: "Agent 目录里已有、不是库装的技能，也能一次入库。",
+    existing: "从 Agent 目录入库…",
   },
 
   audit: {

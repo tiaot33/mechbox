@@ -1,6 +1,6 @@
-// 一次确认把作用域里不是库装的技能全部入库：第一次打开 app 时看各 Agent 的全局，登记一个项目之后看这个项目，
-// 之后也能从作用域里那一行淡淡的提示再打开。磁盘上什么都不改;按认出的来源分组，同名不同内容的单列出来只选一份，
-// 一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
+// 一次确认把作用域里不是库装的技能全部入库：第一次打开 app 时看各 Agent 的全局，登记一个项目之后看这个项目;
+// 之后随时能从入库技能里对各 Agent 的全局和全部已登记项目再打开，也能从作用域里那一行淡淡的提示打开这一处。
+// 磁盘上什么都不改;按认出的来源分组，同名不同内容的单列出来只选一份，一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
 import { useMemo, useState } from "react";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import {
@@ -38,6 +38,7 @@ import { ConflictRow, PlannedRow, type SourceEdit } from "./fetch-unmanaged-rows
 // Where 是这次看的是哪里，决定标题和开头那句话。
 export type Where =
   | { kind: "first-open" }
+  | { kind: "everywhere"; projects: RegisteredProject[] }
   | { kind: "project"; project: RegisteredProject }
   | { kind: "scope"; label: string };
 
@@ -53,8 +54,19 @@ export async function offerProject(project: RegisteredProject) {
   await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project });
 }
 
+// planEverywhere 为各 Agent 的全局目录和全部已登记项目生成整批入库的计划，返回打开确认的函数;
+// 用户自己点的，计划为空或读不出时告诉一声并返回 null。
+export function planEverywhere(agents: Agent[], projects: RegisteredProject[]) {
+  const scopes = [0, ...projects.map((p) => p.id)].flatMap((place) => agents.map((a) => scopeOf(a.code, place)));
+  return planFetchUnmanaged(agents, scopes, { kind: "everywhere", projects }, false);
+}
+
 // offerFetchUnmanaged 生成整批入库的计划并打开确认;quiet 为 false 时(用户自己点的)计划为空也告诉一声。
 export async function offerFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet = true) {
+  await (await planFetchUnmanaged(agents, scopes, where, quiet))?.();
+}
+
+async function planFetchUnmanaged(agents: Agent[], scopes: Scope[], where: Where, quiet: boolean) {
   let plan: PlannedUnmanagedSkill[];
   let library: string[];
   let home: string;
@@ -69,13 +81,13 @@ export async function offerFetchUnmanaged(agents: Agent[], scopes: Scope[], wher
     const e = toLibraryError(err);
     if (e.code !== ErrorCode.Canceled && !quiet)
       ui.toast(describeError(e), "error");
-    return;
+    return null;
   }
   if (plan.length === 0) {
-    if (!quiet) ui.toast(messages().unmanaged.nothingHere);
-    return;
+    if (!quiet) ui.toast(where.kind === "everywhere" ? messages().unmanaged.nothingAnywhere : messages().unmanaged.nothingHere);
+    return null;
   }
-  await ui.open((close) => (
+  return () => ui.open((close) => (
     <FetchUnmanagedDialog
       agents={agents}
       agentsShown={agentsShown}
@@ -119,14 +131,15 @@ function FetchUnmanagedDialog({
   const [links, setLinks] = useState<Map<number, string>>(new Map());
   const [editing, setEditing] = useState<number | null>(null);
 
+  // 各 Agent 的全局和各项目一起看时，每一处都写上在全局还是哪个项目。
+  const agentName = (scope: Scope) => {
+    const name = agentNameIn({ agents, agentsShown }, scope.agent, placeOf(scope));
+    if (where.kind !== "everywhere") return name;
+    const place = scope.project_id ? (where.projects.find((p) => p.id === scope.project_id)?.name ?? "") : messages().model.global;
+    return `${name} · ${place}`;
+  };
   const agentNames = (planned: PlannedUnmanagedSkill) =>
-    t.agents([
-      ...new Set(
-        foldersOf(planned).map(
-          (f) => agentNameIn({ agents, agentsShown }, f.scope.agent, placeOf(f.scope)),
-        ),
-      ),
-    ]);
+    t.agents([...new Set(foldersOf(planned).map((f) => agentName(f.scope)))]);
 
   const usable = plan.flatMap((p, i) => (p.error ? [] : [i]));
   const unusable = plan.filter((p) => p.error);
@@ -199,11 +212,13 @@ function FetchUnmanagedDialog({
   });
 
   const lead =
-    where.kind === "first-open"
+    where.kind === "first-open" || (where.kind === "everywhere" && where.projects.length === 0)
       ? t.leadFirstOpen(usable.length)
-      : where.kind === "project"
-        ? t.leadProject(where.project.name, usable.length)
-        : t.leadScope(where.label, usable.length);
+      : where.kind === "everywhere"
+        ? t.leadEverywhere(where.projects.length, usable.length)
+        : where.kind === "project"
+          ? t.leadProject(where.project.name, usable.length)
+          : t.leadScope(where.label, usable.length);
 
   return (
     <Modal
