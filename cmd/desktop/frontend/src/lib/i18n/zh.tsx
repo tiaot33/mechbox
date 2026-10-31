@@ -300,6 +300,39 @@ export const zh = {
     noSourceNote: "没有来源：不检查更新，之后在 Agent 目录里改了，用目录里的修改更新它。",
   },
 
+  copy: {
+    open: "照着其他 Agent 装…",
+    openTitle: (to: string) => `照着另一个 Agent，把它在全局和各项目里用的技能一次装到 ${to}`,
+    title: (to: string) => `照着其他 Agent 装到 ${to}`,
+    from: "照着",
+    lead: (to: string) => `装到 ${to}，全局的装到全局，项目里的装到同一个项目`,
+    once: (from: string, to: string) =>
+      `只装这一次：之后在 ${from} 新装的技能不会跟着装到 ${to}；想让几个 Agent 一直一样，用组安装。${to} 原有的安装都不动。`,
+    placeCount: (n: number) => `${n} 项`,
+    missingPlace: "项目不在这台机器上，跳过",
+    group: (name: string) => `组「${name}」`,
+    groupMembers: (n: number) => (n ? `${n} 个技能` : "成员都已装在这里"),
+    groupStanding: (to: string) => `组安装：以后加入这个组的技能也会装到 ${to}`,
+    groupOverwrite: (names: string[]) => `覆盖 ${names.length} 个成员处不是从技能库装的同名文件夹：${names.join("、")}`,
+    groupBlocked: (names: string[]) => `装不了，会跳过：${names.join("、")}`,
+    untracked: "勾上会覆盖同名文件夹",
+    untrackedTitle: (folder: string) => `${folder} 已存在，但不是从技能库装的；勾上会覆盖它`,
+    blocked: "装不了",
+    checking: "正在查看安装计划…",
+    edited: (from: string, to: string, names: string[]) =>
+      `${names.map((n) => `「${n}」`).join("、")} 在 ${from} 里被手动改过：${to} 装的是库里的版本，不是改过的那份。想让 ${to} 也用上修改，先在技能详情里对 ${from} 那一处「用这里的修改更新」，再照着装。`,
+    unmanaged: (from: string, n: number) => `${from} 里还有 ${n} 个未纳管技能，不在库里，带不过来；入库以后才能照着装。`,
+    confirm: (skills: number, groups: number, overwrites: number) =>
+      `安装${[skills ? ` ${skills} 个技能` : "", groups ? ` ${groups} 个组` : ""].filter(Boolean).join("和")}${overwrites ? `（覆盖 ${overwrites} 个文件夹）` : ""}`,
+    placeToggle: (place: string) => `勾选或取消${place}这一处`,
+    nothing: (to: string) => `其他 Agent 在这台机器上装的库里技能，都已经装在 ${to} 了`,
+    done: (from: string, to: string, n: number, groups: number) =>
+      `已照着 ${from} 在 ${to} 装上 ${n} 个技能${groups ? `，记下 ${groups} 个组安装` : ""}`,
+    resultsTitle: (from: string, to: string) => `照着 ${from} 装到 ${to}`,
+    summary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 项没装上`,
+    groupFailed: (name: string, where: string) => `组「${name}」 → ${where}`,
+  },
+
   update: {
     collectionFallback: (id: number) => `集合 #${id}`,
     riskExecutableAdded: "新增可执行文件",

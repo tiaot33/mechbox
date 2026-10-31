@@ -4,8 +4,11 @@
 // - 用户改过的技能有变化时默认不勾，跳过的改动、来源里已删除的技能、推测出的改名都不默认勾。
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
 // - 整批入库时，归项目仓库管的、指向 Agent 目录以外的默认不接，用户自己的照常默认勾上。
+// - 照着另一个 Agent 装时，有不是库装的同名文件夹的默认不覆盖，勾上才覆盖。
 import {
+  InstallPlanStatus,
   PlannedChange,
+  type InstallPlan,
   SkillScopeStatus,
   type PlannedUnmanagedSkill,
   type ReinstallRequest,
@@ -191,4 +194,38 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
     if (ownEntry(p) && p.conflict && (!cur || time(p) > time(cur))) newest.set(p.name, p);
   }
   return split.map((p) => ({ ...p, selected: ownEntry(p) && (!p.conflict || newest.get(p.name) === p) }));
+}
+
+// ---------- 照着另一个 Agent 装 ----------
+
+// copyable 是照装时这一项能不能勾：被另一个技能占用的、组里同名的装不了。
+export const copyable = (status: InstallPlanStatus) =>
+  status !== InstallPlanStatus.InstallOccupied && status !== InstallPlanStatus.InstallDuplicate;
+
+// copyByDefault 是照装时默认勾上的：能装的都勾，有不是库装的同名文件夹的不勾，勾上才覆盖(copyOverwrites)。
+// 组安装整组默认勾上，组员里有这种文件夹的默认跳过，用户勾上"覆盖"才覆盖。
+export const copyByDefault = (status: InstallPlanStatus) => copyable(status) && status !== InstallPlanStatus.InstallUntracked;
+
+// copyOverwrites 是勾上即同意覆盖的：这里有不是库装的同名文件夹。
+export const copyOverwrites = (status: InstallPlanStatus) => status === InstallPlanStatus.InstallUntracked;
+
+// CopyPlanned 是照装时一项的安装计划：直接安装是一个技能的，组安装是各成员的;读不出时是错误。
+export type CopyPlanned = { plan: InstallPlan } | { members: InstallPlan[] } | { error: unknown };
+
+// copyDefaults 是照装确认框打开时的勾选:checked 是默认勾上的项(组安装整组勾上，直接安装按 copyByDefault,读不出计划的不勾);
+// overwrite 是勾了"覆盖"的组安装，默认一个都没有：组员里有不是库装的同名文件夹的默认跳过。
+export function copyDefaults(entries: [string, CopyPlanned][]): { checked: Set<string>; overwrite: Set<string> } {
+  const checked = entries.flatMap(([key, v]) => ("members" in v || ("plan" in v && copyByDefault(v.plan.status)) ? [key] : []));
+  return { checked: new Set(checked), overwrite: new Set() };
+}
+
+// copyOverwriteCount 是按勾选会覆盖几个不是库装的同名文件夹：勾上的直接安装里有的，加上勾了"覆盖"的组安装里组员有的。
+export function copyOverwriteCount(entries: Map<string, CopyPlanned>, checked: Set<string>, overwrite: Set<string>): number {
+  let n = 0;
+  for (const [key, v] of entries) {
+    if (!checked.has(key)) continue;
+    if ("plan" in v && copyOverwrites(v.plan.status)) n++;
+    if ("members" in v && overwrite.has(key)) n += v.members.filter((x) => copyOverwrites(x.status)).length;
+  }
+  return n;
 }
