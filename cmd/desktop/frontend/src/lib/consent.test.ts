@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
+  InstallPlanStatus,
   PlannedChange,
   ScopeKind,
   SkillScopeStatus,
@@ -14,6 +15,9 @@ import {
   type UpdatePlan,
 } from "@bindings/internal/library";
 import {
+  copyable,
+  copyByDefault,
+  copyOverwrites,
   defaultInstallOn,
   fetchPlan,
   defaultSkills,
@@ -258,5 +262,25 @@ describe("整批入库的默认勾选", () => {
     const plan = fetchPlan([outside, broken]);
     expect(plan).toHaveLength(2);
     expect(plan.map((p) => !!p.selected)).toEqual([false, false]);
+  });
+});
+
+describe("照着另一个 Agent 装", () => {
+  it("能装的默认勾上，不覆盖任何文件夹", () => {
+    expect(copyByDefault(InstallPlanStatus.InstallReady)).toBe(true);
+    expect(copyOverwrites(InstallPlanStatus.InstallReady)).toBe(false);
+  });
+
+  it("有不是库装的同名文件夹的默认不勾，勾上才覆盖", () => {
+    expect(copyable(InstallPlanStatus.InstallUntracked)).toBe(true);
+    expect(copyByDefault(InstallPlanStatus.InstallUntracked)).toBe(false);
+    expect(copyOverwrites(InstallPlanStatus.InstallUntracked)).toBe(true);
+  });
+
+  it("被另一个技能占用的、组里同名的不能勾", () => {
+    for (const status of [InstallPlanStatus.InstallOccupied, InstallPlanStatus.InstallDuplicate]) {
+      expect(copyable(status)).toBe(false);
+      expect(copyByDefault(status)).toBe(false);
+    }
   });
 });

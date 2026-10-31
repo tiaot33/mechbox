@@ -2,6 +2,7 @@
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
+  agentName,
   agentNameIn,
   groupStateIn,
   needsReinstall,
@@ -17,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSortedGroups } from "@/lib/view";
 import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
+import { openCopyFromAgent } from "@/features/install/copy-agent";
 import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,8 @@ export const barClass = "a-scope-sum flex flex-col gap-2 rounded-[10px] border b
 
 export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
-// ScopeSummary 是作用域页顶部的摘要:Agent 在这里一共看得到几个技能、Agent 目录、健康状态、全部重新安装，以及每个组的整组开关。
+// ScopeSummary 是作用域页顶部的摘要:Agent 在这里一共看得到几个技能、Agent 目录、健康状态、全部重新安装，每个组的整组开关，
+// 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有)。
 export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; directory: string | undefined; sees: number }) {
   const s = useSnapshot();
   const t = useT().list;
@@ -38,9 +41,20 @@ export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; dire
   const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock && !u.link_outside).length;
   const sc = parseScope(scope);
   const groups = useSortedGroups(s);
+  const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
+  const c = useT().copy;
   return (
     <div className={barClass}>
-      <b className="scope-sees text-[13px] font-semibold">{t.scopeSees(agentNameIn(s, sc.agent, placeOf(sc)), sees)}</b>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <b className="scope-sees min-w-0 truncate text-[13px] font-semibold">{t.scopeSees(agentNameIn(s, sc.agent, placeOf(sc)), sees)}</b>
+        <span className="grow" />
+        {others && (
+          <Button size="sm" className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent)}>
+            <Icon name="plus" />
+            {c.open}
+          </Button>
+        )}
+      </div>
       <div className={barRowClass}>
         <span className="text-[11px] text-muted-foreground">{t.agentDirectory}</span>
         <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{directory ? shortPath(s, directory) : "…"}</span>

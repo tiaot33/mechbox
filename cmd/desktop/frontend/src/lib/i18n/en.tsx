@@ -328,6 +328,39 @@ export const en = {
     noSourceNote: "No Source: no update checks. If you edit it in the Agent directory later, update it with the edits from that directory.",
   },
 
+  copy: {
+    open: "Copy from another Agent…",
+    openTitle: (to: string) => `Install in ${to}, in one go, the skills another Agent uses globally and in each project`,
+    title: (to: string) => `Copy from another Agent to ${to}`,
+    from: "Copy from",
+    lead: (to: string) => `Install in ${to}: global skills globally, project skills in the same project`,
+    once: (from: string, to: string) =>
+      `This is a one-time install: skills you install in ${from} later won't follow to ${to}. To keep several Agents the same, use a Group install. Everything already installed in ${to} stays as it is.`,
+    placeCount: (n: number) => count(n, "item"),
+    missingPlace: "Project isn't on this machine; skipped",
+    group: (name: string) => `Group “${name}”`,
+    groupMembers: (n: number) => (n ? count(n, "skill") : "all members already here"),
+    groupStanding: (to: string) => `Group install: skills added to this Group later are installed in ${to} too`,
+    groupOverwrite: (names: string[]) =>
+      `Overwrite ${count(names.length, "folder")} not installed by the Library where members go: ${names.join(", ")}`,
+    groupBlocked: (names: string[]) => `Can't be installed, will be skipped: ${names.join(", ")}`,
+    untracked: "Folder exists",
+    untrackedTitle: (folder: string) => `${folder} exists but wasn't installed by the Library; checking this overwrites it`,
+    blocked: "Can't install",
+    checking: "Checking the install plan…",
+    edited: (from: string, to: string, names: string[]) =>
+      `${quoted(names)} ${names.length === 1 ? "was" : "were"} edited by hand in ${from}: ${to} gets the Library's version, not the edited copy. To use the edits in ${to} too, first use “Update with these edits” on ${from} in the skill details, then copy.`,
+    unmanaged: (from: string, n: number) =>
+      `${from} also has ${count(n, "unmanaged skill")}. They aren't in the Library, so they can't be copied; fetch them first.`,
+    confirm: (skills: number, groups: number) =>
+      `Install ${and([skills ? count(skills, "skill") : "", groups ? count(groups, "Group") : ""].filter(Boolean))}`,
+    nothing: (to: string) => `${to} already has every skill the other Agents have installed`,
+    done: (from: string, to: string, n: number) => `Installed ${count(n, "skill")} in ${to}, copied from ${from}`,
+    resultsTitle: (from: string, to: string) => `Copy from ${from} to ${to}`,
+    summary: (installed: number, rest: number) => `${installed} installed, ${count(rest, "item")} not installed`,
+    groupFailed: (name: string, where: string) => `Group “${name}” → ${where}`,
+  },
+
   update: {
     collectionFallback: (id: number) => `Collection #${id}`,
     riskExecutableAdded: "New executable",
