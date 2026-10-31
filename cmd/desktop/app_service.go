@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/icons"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
@@ -471,6 +471,12 @@ func (a *AppService) windowClosing(event *application.WindowEvent) {
 	a.mu.Unlock()
 }
 
+//go:embed build/tray-template.png
+var trayTemplateIcon []byte
+
+//go:embed build/tray.png
+var trayIcon []byte
+
 func (a *AppService) newTray() *application.SystemTray {
 	menu := a.app.NewMenu()
 	a.menus.label(menu.Add(""), "open").OnClick(func(*application.Context) { a.showWindow() })
@@ -478,9 +484,9 @@ func (a *AppService) newTray() *application.SystemTray {
 	a.menus.label(menu.Add(""), "quit").OnClick(func(*application.Context) { a.app.Quit() })
 	tray := a.app.SystemTray.New()
 	if runtime.GOOS == "darwin" {
-		tray.SetTemplateIcon(icons.SystrayMacTemplate)
+		tray.SetTemplateIcon(trayTemplateIcon)
 	} else {
-		tray.SetIcon(icons.SystrayLight)
+		tray.SetIcon(trayIcon)
 	}
 	tray.SetTooltip("Mechbox")
 	tray.SetMenu(menu)
