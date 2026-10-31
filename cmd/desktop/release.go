@@ -32,6 +32,15 @@ var releaseFeed = "https://api.github.com/repos/tiaot33/mechbox/releases/latest"
 // checksumsAsset 是每个版本附带的校验值文件，格式同 sha256sum 的输出。
 const checksumsAsset = "SHA256SUMS.txt"
 
+// generatedNotes 是 GitHub 自动生成的改动列表的标题;发布正文里它前面是手动安装的说明，更新说明从这里开始。
+const generatedNotes = "## What's Changed"
+
+// pendingFile 记下点了「更新」、app 退出后才装的那个版本，放在数据库所在的目录;下次启动时据此知道装没装上。
+const pendingFile = "update-pending.json"
+
+// checkTimeout 是检查一次新版本最多等多久。
+const checkTimeout = 30 * time.Second
+
 // Release 是 GitHub Releases 上比正在运行的版本更新的 Mechbox。
 type Release struct {
 	Version     string       `json:"version"`
@@ -46,7 +55,7 @@ type ManualReason string
 
 const (
 	ManualPackage  ManualReason = "package"  // 用系统包管理器(deb、rpm、pkg.tar.zst)装的，交给包管理器更新
-	ManualLocation ManualReason = "location" // app 所在的文件夹不能写入：没有权限，或者是直接从 dmg、下载文件夹里打开的
+	ManualLocation ManualReason = "location" // app 不在能直接替换的位置：所在文件夹不能写入(没有权限，或直接从 dmg、下载文件夹里打开),或者和系统临时目录不在同一个磁盘上
 	ManualAsset    ManualReason = "asset"    // 这个版本没有本平台能直接装的安装包或它的校验值
 )
 
@@ -56,6 +65,20 @@ type ReleaseStatus struct {
 	Checks bool `json:"checks"`
 	// Latest 是上一次检查找到的新版本;还没检查过、已是最新时为 nil。
 	Latest *Release `json:"latest,omitempty"`
+	// Failed 是上一次「更新」没装上的版本;上次装上了、或没点过「更新」时为 nil。
+	Failed *InstallFailure `json:"failed,omitempty"`
+}
+
+// InstallFailure 是上一次「更新」没装上的新版本。新版本在 app 退出后才装上，装没装上要到下次启动才知道:
+// 启动时的版本还不是它，就是没装上(Windows 上安装程序被取消或失败，macOS 上替换失败后还原了旧版)。
+type InstallFailure struct {
+	Version string `json:"version"`
+	Reason  string `json:"reason,omitempty"` // 安装程序或替换 app 时记下的最后一行;没有记录时为空
+}
+
+type pendingInstall struct {
+	Version string `json:"version"`
+	Log     string `json:"log,omitempty"`
 }
 
 type installTarget struct {
@@ -64,23 +87,27 @@ type installTarget struct {
 }
 
 type releases struct {
-	feed    *githubFeed
-	updater *updater.Updater
-	init    func() error
-	apply   func(ctx context.Context, u *updater.Updater, staged string, quit func()) error
+	feed     *githubFeed
+	updater  *updater.Updater
+	stateDir string
+	init     func() error
+	apply    func(ctx context.Context, u *updater.Updater, staged, log string, quit func()) error
 
 	checkMu    sync.Mutex
 	mu         sync.Mutex
 	latest     *Release
+	failed     *InstallFailure
 	installing bool
 }
 
-func newReleases(feedURL, current string, u *updater.Updater, target func() installTarget) *releases {
+func newReleases(feedURL, current, stateDir string, u *updater.Updater, target func() installTarget) *releases {
 	if feedURL == "" || current == "" || u == nil {
 		return nil
 	}
-	feed := &githubFeed{url: feedURL, client: http.DefaultClient, target: target}
-	r := &releases{feed: feed, updater: u, apply: installStaged}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = checkTimeout
+	feed := &githubFeed{url: feedURL, client: &http.Client{Transport: transport}, target: target}
+	r := &releases{feed: feed, updater: u, stateDir: stateDir, apply: installStaged, failed: takePending(stateDir, current)}
 	r.init = sync.OnceValue(func() error {
 		return u.Init(updater.Config{CurrentVersion: current, Providers: []updater.Provider{feed}, Window: updater.WindowNone})
 	})
@@ -93,7 +120,28 @@ func (r *releases) status() ReleaseStatus {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return ReleaseStatus{Checks: true, Latest: r.latest}
+	return ReleaseStatus{Checks: true, Latest: r.latest, Failed: r.failed}
+}
+
+func takePending(stateDir, current string) *InstallFailure {
+	path := filepath.Join(stateDir, pendingFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	_ = os.Remove(path)
+	var pending pendingInstall
+	if json.Unmarshal(data, &pending) != nil || !newerVersion(pending.Version, current) {
+		return nil
+	}
+	failure := &InstallFailure{Version: pending.Version}
+	if pending.Log != "" {
+		if log, err := os.ReadFile(pending.Log); err == nil {
+			lines := strings.Split(strings.TrimSpace(string(log)), "\n")
+			failure.Reason = strings.TrimSpace(lines[len(lines)-1])
+		}
+	}
+	return failure
 }
 
 func (r *releases) check(ctx context.Context) (*Release, error) {
@@ -105,6 +153,8 @@ func (r *releases) check(ctx context.Context) (*Release, error) {
 	}
 	r.checkMu.Lock()
 	defer r.checkMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
 	r.mu.Lock()
 	installing := r.installing
 	r.mu.Unlock()
@@ -150,7 +200,7 @@ func (r *releases) install(ctx context.Context, quit func()) error {
 	case latest.Manual != "":
 		return &library.Error{Code: library.FailedPrecondition, Message: fmt.Sprintf("version %s has to be installed from its download page (%s)", latest.Version, latest.Manual)}
 	}
-	err := r.downloadAndInstall(ctx, quit)
+	err := r.downloadAndInstall(ctx, latest.Version, quit)
 	if err != nil {
 		r.mu.Lock()
 		r.installing = false
@@ -159,17 +209,34 @@ func (r *releases) install(ctx context.Context, quit func()) error {
 	return err
 }
 
-func (r *releases) downloadAndInstall(ctx context.Context, quit func()) error {
+func (r *releases) downloadAndInstall(ctx context.Context, version string, quit func()) error {
+	before := partialDownloads()
 	if err := r.updater.DownloadAndInstall(ctx); err != nil {
-		if ctx.Err() != nil {
-			return &library.Error{Code: library.Canceled, Message: ctx.Err().Error(), Err: ctx.Err()}
+		// Wails 的 updater 下载失败或取消时没删掉它建的临时目录(返回前把具名返回值 dir 置空了),这里删掉这次多出来的。
+		for dir := range partialDownloads() {
+			if !before[dir] {
+				_ = os.RemoveAll(dir)
+			}
 		}
 		if libraryErr, ok := errors.AsType[*library.Error](err); ok {
 			return libraryErr
 		}
-		return &library.Error{Code: library.SourceInvalid, Message: err.Error(), Err: err}
+		if ctx.Err() != nil {
+			return unreachable(ctx, err)
+		}
+		if strings.Contains(err.Error(), "digest mismatch") {
+			return &library.Error{Code: library.SourceInvalid, Message: err.Error(), Err: err}
+		}
+		return &library.Error{Code: library.Internal, Message: err.Error(), Err: err}
 	}
-	if err := r.apply(ctx, r.updater, r.updater.DownloadedPath(), quit); err != nil {
+	log := installLog(r.stateDir)
+	pending := filepath.Join(r.stateDir, pendingFile)
+	data, _ := json.Marshal(pendingInstall{Version: version, Log: log})
+	if err := os.WriteFile(pending, data, 0o600); err != nil {
+		return &library.Error{Code: library.Internal, Message: err.Error(), Err: err}
+	}
+	if err := r.apply(ctx, r.updater, r.updater.DownloadedPath(), log, quit); err != nil {
+		_ = os.Remove(pending)
 		return &library.Error{Code: library.Internal, Message: err.Error(), Err: err}
 	}
 	return nil
@@ -223,7 +290,11 @@ func (g *githubFeed) check(ctx context.Context, current string) (*updater.Releas
 	if !newerVersion(version, current) {
 		return nil, nil
 	}
-	release := Release{Version: version, Notes: latest.Body, PublishedAt: latest.PublishedAt, PageURL: latest.HTMLURL}
+	notes := latest.Body
+	if i := strings.Index(notes, generatedNotes); i >= 0 {
+		notes = notes[i:]
+	}
+	release := Release{Version: version, Notes: notes, PublishedAt: latest.PublishedAt, PageURL: latest.HTMLURL}
 	result := &updater.Release{Version: version, Notes: latest.Body, PublishedAt: latest.PublishedAt}
 	target := g.target()
 	release.Manual = target.manual
@@ -351,7 +422,7 @@ func (g *githubFeed) get(ctx context.Context, url, accept string) (*http.Respons
 }
 
 func unreachable(ctx context.Context, err error) error {
-	if ctx.Err() != nil {
+	if errors.Is(ctx.Err(), context.Canceled) {
 		return &library.Error{Code: library.Canceled, Message: ctx.Err().Error(), Err: ctx.Err()}
 	}
 	return &library.Error{Code: library.SourceUnreachable, Message: err.Error(), Err: err}
@@ -402,6 +473,18 @@ func parseVersion(s string) (version, bool) {
 	return v, true
 }
 
+func partialDownloads() map[string]bool {
+	dirs := map[string]bool{}
+	matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "wails-update-*"))
+	for _, dir := range matches {
+		entries, err := os.ReadDir(dir)
+		if err == nil && len(entries) == 1 && entries[0].Name() == ".artifact" {
+			dirs[dir] = true
+		}
+	}
+	return dirs
+}
+
 func writableDir(dir string) bool {
 	f, err := os.CreateTemp(dir, ".mechbox-write-*")
 	if err != nil {
@@ -434,12 +517,13 @@ func replaceFile(staged, target string) error {
 	return err
 }
 
-func installerScript(pid int, setup, staging, dir, exe string) string {
+func installerScript(pid int, setup, staging, dir, exe, log string) string {
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 	return strings.Join([]string{
 		"$ErrorActionPreference = 'SilentlyContinue'",
 		fmt.Sprintf("Wait-Process -Id %d -Timeout 60", pid),
-		fmt.Sprintf("try { Start-Process -FilePath %s -ArgumentList %s -Verb RunAs -Wait } catch {}", quote(setup), quote("/S /D="+dir)),
+		fmt.Sprintf("try { $p = Start-Process -FilePath %s -ArgumentList %s -Verb RunAs -Wait -PassThru; $result = \"installer exit code $($p.ExitCode)\" } catch { $result = \"installer did not run: $($_.Exception.Message)\" }", quote(setup), quote("/S /D="+dir)),
+		fmt.Sprintf("Set-Content -LiteralPath %s -Value $result -Encoding UTF8", quote(log)),
 		fmt.Sprintf("Remove-Item -LiteralPath %s -Recurse -Force", quote(staging)),
 		fmt.Sprintf("Start-Process -FilePath %s", quote(exe)),
 	}, "\n")
@@ -460,7 +544,8 @@ func (a *AppService) Release() ReleaseStatus {
 }
 
 // CheckRelease 读 GitHub Releases 上最新的正式版，比正在运行的版本新时返回它，已是最新时返回 nil;结果记下来，Release 随之改变。
-// 连不上或被限流时返回 SourceUnreachable;这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
+// 连不上、超时或被限流时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
+// 这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
 func (a *AppService) CheckRelease(ctx context.Context) (*Release, error) {
 	return a.releases.check(ctx)
 }
@@ -468,7 +553,8 @@ func (a *AppService) CheckRelease(ctx context.Context) (*Release, error) {
 // InstallRelease 下载上一次检查找到的新版本的安装包，用 SHA256SUMS.txt 校验，然后装上新版并重启:
 // macOS 替换 app,Windows 静默运行安装程序(弹一次 UAC),Linux 替换 AppImage。成功时应用随即退出;
 // 下载进度由 Wails 的 wails:updater:download-progress 事件给出。
-// 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;
+// 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;下载途中取消调用就停下，返回 Canceled。
+// app 退出后才装上新版，装没装上下次启动时由 Release 的 Failed 给出;
 // 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时返回 FailedPrecondition。
 func (a *AppService) InstallRelease(ctx context.Context) error {
 	return a.releases.install(ctx, func() { go a.app.Quit() })

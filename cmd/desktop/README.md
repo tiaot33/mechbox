@@ -91,9 +91,10 @@ open bin/mechbox.app
 
 ### 发布
 
-推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
+推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)与给 app 里的更新用的 `.zip`、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
 
 - 版本号以 tag 为准：构建前由 `.github/scripts/set-version.sh` 写进 `build/config.yml`(关于页显示的版本)、`Info.plist`、Windows 版本资源、NSIS 与 nfpm 配置，仓库里这几处的版本号不用手改。macOS 与 Windows 的版本字段只认数字，预发布后缀只留在 `config.yml` 与 Linux 包里。
+- **安装包的文件名是 app 里的更新依赖的约定**:`Mechbox-<版本>-macos-universal.zip`、`-windows-<架构>-setup.exe`、`-linux-<架构>.AppImage` 与 `SHA256SUMS.txt`,app 按这几个后缀找本平台的安装包和校验值(`release_<平台>.go` 的 `releaseTarget`)。改名、去掉其中一个，已经发出去的版本就找不到安装包，只能打开下载页;发布正文里 GitHub 生成的 `## What's Changed` 是 app 里显示的更新说明的开头。
 - 在 Actions 页面手动运行这个 workflow 只构建、不发布，安装包留在那次运行的 Artifacts 里，文件名里的版本是 `dev-<提交>`。
 - Windows 构建要开 cgo(`CGO_ENABLED=1`,技能库用的 SQLite 驱动需要),Windows 任务默认不开。
 - macOS 只做 ad-hoc 签名、没有公证，Windows 安装程序也没有代码签名;用户第一次打开时会被系统拦一下，Release 说明里写了怎么放行。
@@ -119,11 +120,13 @@ open bin/mechbox.app
 - **WSL 发行版里的 Agent**:Windows 上装了 WSL 时，设置页「通用」里选各 Agent 的全局目录在 Windows 本机(默认)还是某个 WSL 发行版，由技能库存进数据库(`Library.SetWSLDistro`,只属于这台机器，推送不带、拉回保留),启动时取出(`Library.WSLDistro`)再交给技能库。选了发行版后，全局目录换成发行版主目录下的(`\\wsl.localhost\<发行版>\home\<用户>\...`,界面上缩写成 `~`),之前装在 Windows 本机全局目录里的技能留在原处、不再管;数据库、令牌、同步设置与自动检查都只有一份，不随它变。改选时打不开发行版就不保存，报错说明原因;启动时打不开，技能库先用 Windows 本机的全局目录，主界面弹窗说明原因，可以再试或改回 Windows 本机(`AppService.WSLDistroError`、`RetryWSLDistro`);关掉弹窗时提示现在用的是 Windows 本机的全局目录，设置页这一项下面也一直写明，并可以再试一次。WSL 没有响应时，启动最多等 30 秒就按打不开处理。卸载 Mechbox 时要移走的文件夹里有发行版里的，弹窗写明它们进那个发行版的回收站、怎么找回。不论选的是哪里，登记在发行版里的项目、发行版里的本地目录来源也都按发行版里的规则读写(符号链接、可执行权限经 `wsl.exe` 在发行版里处理，见技能库的包说明)。
 - **界面语言**：设置页「通用」里选跟随系统(默认)、简体中文或 English,存在数据库的应用设置里(跟随系统时不写)。跟随系统时由 Go 端判断系统语言(`AppService.Language`):macOS 读系统设置里排第一的首选语言(`[NSLocale preferredLanguages]`,不用 WebView 的 `navigator.language`,它跟随 app bundle 声明的语言),Windows 读系统设置里排第一的显示语言(`GetUserPreferredUILanguages`,Windows 一般不设 `LANG` 等环境变量),其他平台与 server 模式读 `LC_ALL` / `LC_MESSAGES` / `LANG`;首选中文(含繁体)时用中文，其余用英文。前端等 Go 端给出语言再渲染，改了设置整个界面立即切换，菜单栏图标的菜单与 macOS 顶部菜单栏同时换文字。系统控件(目录选择框的按钮、输入框的右键菜单等)跟随系统语言，不跟随这里的选择;`Info.plist` 声明了 en 与 zh-Hans 两种本地化，系统控件才会按系统语言显示中文。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
-- **新版本**(`release.go`):正式版每次启动时读一次 GitHub Releases 上最新的正式版(`releases/latest`,不含预发布),比当前版本新时左栏出现新版本那一行;设置页「关于」里可以随时「检查新版本」。只在内存里记下结果，不写数据库。「更新」由 Wails 的 updater 下载本平台的安装包、按版本附带的 `SHA256SUMS.txt` 校验，然后按平台装上：
+- **新版本**(`release.go`):正式版每次启动时读一次 GitHub Releases 上最新的正式版(`releases/latest`,不含预发布),比当前版本新时左栏出现新版本那一行;设置页「关于」里可以随时「检查新版本」。检查结果只在内存里，不写数据库;一次检查最多等 30 秒。更新说明从 GitHub 生成的 `## What's Changed` 开始显示，略过前面手动安装的说明。「更新」由 Wails 的 updater 下载本平台的安装包、按版本附带的 `SHA256SUMS.txt` 校验，然后按平台装上：
   - macOS 下载 `-macos-universal.zip`,Wails 另起一个自己做 helper,等 app 退出后先备份再替换 `.app`,用 `open -n` 启动新版，失败时还原备份。`.app` 所在文件夹不能写入时(没有权限，或直接从 dmg、被系统隔离运行的位置打开)只给下载页。
   - Windows 下载 `-setup.exe`,起一个隐藏的 PowerShell:等 app 退出后用管理员权限静默运行安装程序(`/S /D=<当前安装目录>`,弹一次 UAC),不管装没装成都再启动安装目录里的 `mechbox.exe`。
   - Linux 上从 AppImage 运行时(有 `APPIMAGE`)下载 `-linux-<架构>.AppImage` 换掉原文件，等 app 退出后启动它;deb、rpm、pkg.tar.zst 装的只给下载页。
-  - 下载失败、校验不通过时对话框里写出原因，当前版本不变，可以再点。开发版与 server 模式见上文"开发"。
+  - 下载失败、校验不通过时对话框里写出原因，当前版本不变，可以再点。下载途中可以停止(关掉对话框也一样),下载完进入校验、装上后对话框锁住;有写操作进行中时「更新」不能点。
+  - 新版本在 app 退出后才装上，所以点「更新」时在数据库所在的目录里记下 `update-pending.json`(版本与安装记录的位置:macOS 是 Wails helper 的日志，Windows 是安装脚本写的 `update.log`,里面是安装程序的退出码)。下次启动时版本还不是它，就提示「上次没有装上」和记录的最后一行，打开新版本对话框时也写着。
+  - 开发版与 server 模式见上文"开发"。
 - **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。实例按数据库区分：用 `MECHBOX_LIBRARY` 打开别的数据库的开发版窗口，可以和装好的 app、和别的数据库的窗口同时开着（见 [测试改动](../../docs/testing.md) 的「几个工作区同时开窗口」）；指向真实技能库的仍和装好的 app 共用一个实例。
 
 ## 测试

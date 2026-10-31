@@ -12,6 +12,7 @@ import { SkillList } from "@/components/app/skill-list/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
 import { useAutoTranslate } from "@/features/skill/translate";
+import { useInstallFailureNotice } from "@/features/release/release";
 import { setDragGhost } from "@/components/app/dnd";
 import { invalidateRelease, invalidateSyncStatus, reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
@@ -46,6 +47,8 @@ function Main() {
 
   // 开着自动翻译时，把还没有界面语言译文的技能描述翻译过来。
   useAutoTranslate();
+  // 上一次「更新」没装上时提示一次。
+  useInstallFailureNotice();
 
   // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
   useEffect(() => Events.On("updates-checked", () => void reloadLibrary()), []);

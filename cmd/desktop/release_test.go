@@ -57,7 +57,7 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"tag_name":     g.tag,
-			"body":         "## 更新说明",
+			"body":         "## 安装\r\n\r\n手动安装的说明\r\n\r\n" + generatedNotes + "\r\n* 更新说明",
 			"html_url":     g.server.URL + "/releases/tag/" + g.tag,
 			"published_at": "2026-11-01T00:00:00Z",
 			"assets":       list,
@@ -87,8 +87,8 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 	return g
 }
 
-func (g *fakeGitHub) releases(current string, target installTarget) *releases {
-	return newReleases(g.server.URL+"/releases/latest", current, updater.New(stubUpdaterHost{}), func() installTarget { return target })
+func (g *fakeGitHub) releases(t *testing.T, current string, target installTarget) *releases {
+	return newReleases(g.server.URL+"/releases/latest", current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target })
 }
 
 const testAsset = "Mechbox-1.2.0-macos-universal.zip"
@@ -102,12 +102,12 @@ func errorCode(err error) library.ErrorCode {
 
 func TestCheckReleaseFindsNewerVersion(t *testing.T) {
 	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{testAsset: []byte("new app"), "Mechbox-1.2.0-windows-amd64-setup.exe": []byte("setup")})
-	r := g.releases("1.1.0", installTarget{asset: "-macos-universal.zip"})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-macos-universal.zip"})
 	latest, err := r.check(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest == nil || latest.Version != "1.2.0" || latest.Notes != "## 更新说明" || latest.Manual != "" || !strings.HasSuffix(latest.PageURL, "/releases/tag/v1.2.0") {
+	if latest == nil || latest.Version != "1.2.0" || latest.Notes != generatedNotes+"\r\n* 更新说明" || latest.Manual != "" || !strings.HasSuffix(latest.PageURL, "/releases/tag/v1.2.0") {
 		t.Fatalf("latest = %+v", latest)
 	}
 	if status := r.status(); !status.Checks || status.Latest == nil || status.Latest.Version != "1.2.0" {
@@ -118,7 +118,7 @@ func TestCheckReleaseFindsNewerVersion(t *testing.T) {
 func TestCheckReleaseUpToDate(t *testing.T) {
 	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{testAsset: []byte("new app")})
 	for _, current := range []string{"1.2.0", "1.3.0"} {
-		r := g.releases(current, installTarget{asset: "-macos-universal.zip"})
+		r := g.releases(t, current, installTarget{asset: "-macos-universal.zip"})
 		latest, err := r.check(t.Context())
 		if err != nil || latest != nil {
 			t.Fatalf("current %s: latest = %+v, err = %v", current, latest, err)
@@ -132,7 +132,7 @@ func TestCheckReleaseUpToDate(t *testing.T) {
 func TestCheckReleaseReportsUnreachableGitHub(t *testing.T) {
 	g := newFakeGitHub(t, "v1.2.0", nil)
 	g.status = http.StatusForbidden
-	r := g.releases("1.1.0", installTarget{asset: "-macos-universal.zip"})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-macos-universal.zip"})
 	if _, err := r.check(t.Context()); errorCode(err) != library.SourceUnreachable || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("err = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestCheckReleaseWithoutInstallableAsset(t *testing.T) {
 		{installTarget{manual: ManualLocation}, ManualLocation},
 	}
 	for _, c := range cases {
-		r := g.releases("1.1.0", c.target)
+		r := g.releases(t, "1.1.0", c.target)
 		latest, err := r.check(t.Context())
 		if err != nil || latest == nil || latest.Manual != c.want {
 			t.Fatalf("%+v: latest = %+v, err = %v", c.target, latest, err)
@@ -166,10 +166,10 @@ func TestCheckReleaseWithoutInstallableAsset(t *testing.T) {
 
 func TestInstallReleaseDownloadsVerifiesAndApplies(t *testing.T) {
 	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{"Mechbox-1.2.0-linux-amd64.AppImage": []byte("new image")})
-	r := g.releases("1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
 	var staged []byte
 	quit := false
-	r.apply = func(_ context.Context, _ *updater.Updater, path string, q func()) error {
+	r.apply = func(_ context.Context, _ *updater.Updater, path, _ string, q func()) error {
 		var err error
 		staged, err = os.ReadFile(path)
 		q()
@@ -187,6 +187,9 @@ func TestInstallReleaseDownloadsVerifiesAndApplies(t *testing.T) {
 	if string(staged) != "new image" || !quit {
 		t.Fatalf("staged = %q, quit = %v", staged, quit)
 	}
+	if pending, err := os.ReadFile(filepath.Join(r.stateDir, pendingFile)); err != nil || !strings.Contains(string(pending), `"version":"1.2.0"`) {
+		t.Fatalf("pending = %s, err = %v", pending, err)
+	}
 	if err := r.install(t.Context(), func() {}); errorCode(err) != library.Busy {
 		t.Fatalf("second install: err = %v", err)
 	}
@@ -195,9 +198,9 @@ func TestInstallReleaseDownloadsVerifiesAndApplies(t *testing.T) {
 func TestInstallReleaseRejectsChecksumMismatch(t *testing.T) {
 	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{"Mechbox-1.2.0-linux-amd64.AppImage": []byte("tampered")})
 	g.checksums = map[string][]byte{"Mechbox-1.2.0-linux-amd64.AppImage": []byte("published")}
-	r := g.releases("1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
 	applied := false
-	r.apply = func(context.Context, *updater.Updater, string, func()) error {
+	r.apply = func(context.Context, *updater.Updater, string, string, func()) error {
 		applied = true
 		return nil
 	}
@@ -215,7 +218,7 @@ func TestInstallReleaseRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestReleasesDisabledWithoutFeed(t *testing.T) {
-	r := newReleases("", "1.0.0", updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{} })
+	r := newReleases("", "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{} })
 	if status := r.status(); status.Checks {
 		t.Fatalf("status = %+v", status)
 	}
@@ -289,10 +292,12 @@ func TestReplaceFileSwapsInPlaceAndMakesExecutable(t *testing.T) {
 }
 
 func TestInstallerScriptRunsSetupSilentlyThenRelaunches(t *testing.T) {
-	script := installerScript(42, `C:\Temp\wails-update-1\Mechbox-1.2.0-windows-amd64-setup.exe`, `C:\Temp\wails-update-1`, `C:\Program Files\tiaot33\Mechbox`, `C:\Program Files\tiaot33\Mechbox\mechbox.exe`)
+	script := installerScript(42, `C:\Temp\wails-update-1\Mechbox-1.2.0-windows-amd64-setup.exe`, `C:\Temp\wails-update-1`, `C:\Program Files\tiaot33\Mechbox`, `C:\Program Files\tiaot33\Mechbox\mechbox.exe`, `C:\Users\a\mechbox\update.log`)
 	for _, want := range []string{
 		"Wait-Process -Id 42",
-		`Start-Process -FilePath 'C:\Temp\wails-update-1\Mechbox-1.2.0-windows-amd64-setup.exe' -ArgumentList '/S /D=C:\Program Files\tiaot33\Mechbox' -Verb RunAs -Wait`,
+		`Start-Process -FilePath 'C:\Temp\wails-update-1\Mechbox-1.2.0-windows-amd64-setup.exe' -ArgumentList '/S /D=C:\Program Files\tiaot33\Mechbox' -Verb RunAs -Wait -PassThru`,
+		`$($p.ExitCode)`,
+		`Set-Content -LiteralPath 'C:\Users\a\mechbox\update.log' -Value $result`,
 		`Remove-Item -LiteralPath 'C:\Temp\wails-update-1' -Recurse -Force`,
 		`Start-Process -FilePath 'C:\Program Files\tiaot33\Mechbox\mechbox.exe'`,
 	} {
@@ -300,7 +305,7 @@ func TestInstallerScriptRunsSetupSilentlyThenRelaunches(t *testing.T) {
 			t.Errorf("script lacks %q:\n%s", want, script)
 		}
 	}
-	if quoted := installerScript(1, `C:\a'b\setup.exe`, `C:\a'b`, `C:\x`, `C:\x\m.exe`); !strings.Contains(quoted, `'C:\a''b\setup.exe'`) {
+	if quoted := installerScript(1, `C:\a'b\setup.exe`, `C:\a'b`, `C:\x`, `C:\x\m.exe`, `C:\x\update.log`); !strings.Contains(quoted, `'C:\a''b\setup.exe'`) {
 		t.Errorf("single quote not escaped:\n%s", quoted)
 	}
 	raw, err := base64.StdEncoding.DecodeString(encodePowerShell("Start-Process 'ä'"))
@@ -313,5 +318,80 @@ func TestInstallerScriptRunsSetupSilentlyThenRelaunches(t *testing.T) {
 	}
 	if got := string(utf16.Decode(units)); got != "Start-Process 'ä'" {
 		t.Fatalf("decoded = %q", got)
+	}
+}
+
+func TestPendingInstallReportsVersionThatDidNotTakeEffect(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "update.log")
+	if err := os.WriteFile(log, []byte("helper start\nparent did not exit within timeout — aborting swap\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write := func(version string) {
+		t.Helper()
+		data, _ := json.Marshal(pendingInstall{Version: version, Log: log})
+		if err := os.WriteFile(filepath.Join(dir, pendingFile), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("1.2.0")
+	failed := takePending(dir, "1.1.0")
+	if failed == nil || failed.Version != "1.2.0" || failed.Reason != "parent did not exit within timeout — aborting swap" {
+		t.Fatalf("failed = %+v", failed)
+	}
+	if _, err := os.Stat(filepath.Join(dir, pendingFile)); !os.IsNotExist(err) {
+		t.Fatalf("pending file kept: %v", err)
+	}
+	write("1.2.0")
+	if failed := takePending(dir, "1.2.0"); failed != nil {
+		t.Fatalf("installed version reported as failed: %+v", failed)
+	}
+	if failed := takePending(dir, "1.1.0"); failed != nil {
+		t.Fatalf("no pending file: %+v", failed)
+	}
+}
+
+func TestInstallReleaseForgetsPendingWhenApplyFails(t *testing.T) {
+	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{"Mechbox-1.2.0-linux-amd64.AppImage": []byte("new image")})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
+	r.apply = func(_ context.Context, _ *updater.Updater, path, _ string, _ func()) error {
+		return errors.Join(errors.New("cannot replace"), os.RemoveAll(filepath.Dir(path)))
+	}
+	if _, err := r.check(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.install(t.Context(), func() {}); errorCode(err) != library.Internal {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.stateDir, pendingFile)); !os.IsNotExist(err) {
+		t.Fatalf("pending file kept after failed apply: %v", err)
+	}
+	if status := r.status(); status.Failed != nil {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestInstallReleaseCanBeCanceledDuringDownload(t *testing.T) {
+	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{"Mechbox-1.2.0-linux-amd64.AppImage": []byte("new image")})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
+	if _, err := r.check(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	before := partialDownloads()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := r.install(ctx, func() {}); errorCode(err) != library.Canceled {
+		t.Fatalf("err = %v", err)
+	}
+	for dir := range partialDownloads() {
+		if !before[dir] {
+			t.Fatalf("canceled download left %s behind", dir)
+		}
+	}
+	r.apply = func(_ context.Context, _ *updater.Updater, path, _ string, _ func()) error {
+		return os.RemoveAll(filepath.Dir(path))
+	}
+	if err := r.install(t.Context(), func() {}); err != nil {
+		t.Fatalf("retry after cancel: %v", err)
 	}
 }

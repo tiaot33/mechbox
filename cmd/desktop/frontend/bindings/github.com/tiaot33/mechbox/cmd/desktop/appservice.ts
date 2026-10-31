@@ -19,7 +19,8 @@ import * as $models from "./models.js";
 
 /**
  * CheckRelease 读 GitHub Releases 上最新的正式版，比正在运行的版本新时返回它，已是最新时返回 nil;结果记下来，Release 随之改变。
- * 连不上或被限流时返回 SourceUnreachable;这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
+ * 连不上、超时或被限流时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
+ * 这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
  */
 export function CheckRelease(): $CancellablePromise<$models.Release | null> {
     return $Call.ByID(255154811);
@@ -38,7 +39,8 @@ export function FirstOpen(): $CancellablePromise<boolean> {
  * InstallRelease 下载上一次检查找到的新版本的安装包，用 SHA256SUMS.txt 校验，然后装上新版并重启:
  * macOS 替换 app,Windows 静默运行安装程序(弹一次 UAC),Linux 替换 AppImage。成功时应用随即退出;
  * 下载进度由 Wails 的 wails:updater:download-progress 事件给出。
- * 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;
+ * 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;下载途中取消调用就停下，返回 Canceled。
+ * app 退出后才装上新版，装没装上下次启动时由 Release 的 Failed 给出;
  * 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时返回 FailedPrecondition。
  */
 export function InstallRelease(): $CancellablePromise<void> {

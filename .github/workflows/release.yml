@@ -98,6 +98,7 @@ jobs:
           mkdir -p dist
           mv bin/mechbox.dmg "dist/Mechbox-${{ steps.version.outputs.version }}-macos-universal.dmg"
           # app 里的更新下载这个 zip 替换 mechbox.app。顶层只能有 mechbox.app 一项，所以不带扩展属性(否则多出 __MACOSX)。
+          # 各平台安装包的文件名后缀与 SHA256SUMS.txt 是 app 里的更新依赖的约定(cmd/desktop/release_<平台>.go),改名前先改那里。
           ditto -c -k --norsrc --noextattr --noacl --keepParent bin/mechbox.app "dist/Mechbox-${{ steps.version.outputs.version }}-macos-universal.zip"
 
       # go-sqlite3 依赖 cgo;Windows 的任务默认 CGO_ENABLED=0,编出来的程序打不开数据库。

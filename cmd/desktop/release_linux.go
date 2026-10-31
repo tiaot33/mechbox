@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,18 +26,20 @@ func releaseTarget() installTarget {
 	return installTarget{asset: "-linux-" + runtime.GOARCH + ".AppImage"}
 }
 
-func installStaged(_ context.Context, _ *updater.Updater, staged string, quit func()) error {
+func installLog(string) string { return "" }
+
+func installStaged(_ context.Context, _ *updater.Updater, staged, _ string, quit func()) error {
 	image := os.Getenv("APPIMAGE")
-	if err := replaceFile(staged, image); err != nil {
-		return err
-	}
-	_ = os.RemoveAll(filepath.Dir(staged))
 	cmd := exec.Command("/bin/sh", "-c", `while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"`, "sh", strconv.Itoa(os.Getpid()), image)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	if err := replaceFile(staged, image); err != nil {
+		return errors.Join(err, cmd.Process.Kill())
+	}
 	_ = cmd.Process.Release()
+	_ = os.RemoveAll(filepath.Dir(staged))
 	quit()
 	return nil
 }

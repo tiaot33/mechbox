@@ -11,6 +11,8 @@ import (
 
 func releaseTarget() installTarget { return installTarget{manual: ManualPackage} }
 
-func installStaged(context.Context, *updater.Updater, string, func()) error {
+func installLog(string) string { return "" }
+
+func installStaged(context.Context, *updater.Updater, string, string, func()) error {
 	return errors.New("server mode does not install new versions")
 }

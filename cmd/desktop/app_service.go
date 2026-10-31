@@ -518,7 +518,7 @@ func (a *AppService) showWindow() {
 
 func (a *AppService) attach(app *application.App, window *application.WebviewWindow) {
 	a.app, a.window = app, window
-	a.releases = newReleases(releaseFeedURL(), appVersion(), app.Updater, releaseTarget)
+	a.releases = newReleases(releaseFeedURL(), appVersion(), filepath.Dir(a.library.path), app.Updater, releaseTarget)
 	a.menus.attach(app)
 	window.RegisterHook(events.Common.WindowClosing, a.windowClosing)
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {

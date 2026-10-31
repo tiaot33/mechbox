@@ -76,6 +76,19 @@ export interface ConfigStatus {
 }
 
 /**
+ * InstallFailure 是上一次「更新」没装上的新版本。新版本在 app 退出后才装上，装没装上要到下次启动才知道:
+ * 启动时的版本还不是它，就是没装上(Windows 上安装程序被取消或失败，macOS 上替换失败后还原了旧版)。
+ */
+export interface InstallFailure {
+    "version": string;
+
+    /**
+     * 安装程序或替换 app 时记下的最后一行;没有记录时为空
+     */
+    "reason"?: string;
+}
+
+/**
  * Language 是界面语言的设置值。
  */
 export enum Language {
@@ -115,7 +128,7 @@ export enum ManualReason {
     ManualPackage = "package",
 
     /**
-     * app 所在的文件夹不能写入：没有权限，或者是直接从 dmg、下载文件夹里打开的
+     * app 不在能直接替换的位置：所在文件夹不能写入(没有权限，或直接从 dmg、下载文件夹里打开),或者和系统临时目录不在同一个磁盘上
      */
     ManualLocation = "location",
 
@@ -166,6 +179,11 @@ export interface ReleaseStatus {
      * Latest 是上一次检查找到的新版本;还没检查过、已是最新时为 nil。
      */
     "latest"?: Release | null;
+
+    /**
+     * Failed 是上一次「更新」没装上的版本;上次装上了、或没点过「更新」时为 nil。
+     */
+    "failed"?: InstallFailure | null;
 }
 
 /**

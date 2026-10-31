@@ -18,6 +18,7 @@ export {
 export type {
     AppInfo,
     ConfigStatus,
+    InstallFailure,
     PushProblem,
     Release,
     ReleaseStatus,
