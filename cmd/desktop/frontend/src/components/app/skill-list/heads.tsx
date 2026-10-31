@@ -1,4 +1,5 @@
-// 列表顶部的摘要条：作用域页的作用域摘要;更新页的更新列表也用这里的外观。
+// 列表顶部的摘要条：作用域页的作用域摘要、项目页的项目摘要;更新页的更新列表也用这里的外观。
+import type { RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
@@ -8,6 +9,7 @@ import {
   needsReinstall,
   parseScope,
   placeOf,
+  projectName,
   scopeLabel,
   shortPath,
   skillScopesIn,
@@ -110,6 +112,21 @@ export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; dire
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录。
+export function ProjectSummary({ project, total }: { project: RegisteredProject; total: number }) {
+  const s = useSnapshot();
+  const t = useT().list;
+  return (
+    <div className={barClass}>
+      <b className="project-sum text-[13px] font-semibold">{t.projectHas(projectName(s, project.id), total)}</b>
+      <div className={barRowClass}>
+        <span className="text-[11px] text-muted-foreground">{t.projectDirectory}</span>
+        <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{shortPath(s, project.path)}</span>
+      </div>
     </div>
   );
 }

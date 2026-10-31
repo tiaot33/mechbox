@@ -1,5 +1,5 @@
 // 拖放：左 = 整理进哪个组，右 = 安装到哪个作用域。
-// - 技能行 → 右栏作用域 = 直接安装;技能行 → 左栏的组或组的节标题 = 加入该组。
+// - 技能行 → 右栏作用域 = 直接安装;技能行 → 左栏的组或组的节标题 = 加入该组。拖的是勾选着的一行时，勾选的几个技能一起装、一起加入。
 // - 组(左栏组行或组的节标题)→ 右栏作用域 = 组安装，之后加进组的也会装;→ 另一个组 = 调整组的先后。
 // - 集合(左栏集合行或集合的节标题)→ 右栏作用域 = 把集合里的技能逐个直接安装，一次性的，之后入库的新技能不会自动装过去;
 //   → 组 = 把集合里的技能逐个加入该组;→ 另一个集合 = 调整集合的先后。
@@ -11,8 +11,8 @@ import { useSnapshot, type Snapshot } from "@/lib/library";
 import { missingFromGroup, parseScope, scopeKey, skillScopeIn, type ScopeKey } from "@/lib/model";
 import { useBusy } from "@/lib/ui";
 import { endDrag, reorder, reveal, startDrag, useView, type DragItem } from "@/lib/view";
-import { addCollectionToGroup, addSkillToGroup } from "@/features/group/group";
-import { installCollection, installGroup, installSkill } from "@/features/install/install";
+import { addCollectionToGroup, addSkillsToGroup, addSkillToGroup } from "@/features/group/group";
+import { installCollection, installGroup, installSkill, installSkills } from "@/features/install/install";
 
 let ghost: HTMLElement | null = null;
 
@@ -28,7 +28,7 @@ export function useDnD() {
     item,
     start: (e: React.DragEvent, dragged: DragItem, label: string) => {
       e.dataTransfer.effectAllowed = "copyMove";
-      e.dataTransfer.setData("text/plain", `${dragged.kind}:${dragged.id}`);
+      e.dataTransfer.setData("text/plain", `${dragged.kind}:${dragged.kind === "skills" ? dragged.ids.join(",") : dragged.id}`);
       if (ghost) {
         ghost.textContent = label;
         e.dataTransfer.setDragImage(ghost, 12, 12);
@@ -44,6 +44,7 @@ export function useDnD() {
       // 拖动中临时展开的地方拖完会收回，放下的那一行保持展开，好看到装上的结果。
       reveal(sc);
       if (item.kind === "skill") void installSkill(item.id, sc);
+      else if (item.kind === "skills") void installSkills(item.ids, sc);
       else if (item.kind === "group") void installGroup(item.id, sc);
       else void installCollection(item.id, sc);
     },
@@ -51,6 +52,9 @@ export function useDnD() {
       if (item?.kind === "skill") {
         endDrag();
         void addSkillToGroup(id, item.id);
+      } else if (item?.kind === "skills") {
+        endDrag();
+        void addSkillsToGroup(id, item.ids);
       } else if (item?.kind === "collection") {
         endDrag();
         void addCollectionToGroup(id, item.id);
@@ -58,16 +62,17 @@ export function useDnD() {
     },
     // dropOrder 把拖动的集合或组放到同类的 target 前面或后面。
     dropOrder: (target: { kind: "collection"; id: CollectionID } | { kind: "group"; id: GroupID }, after: boolean) => {
-      if (item?.kind !== target.kind || item.id === target.id) return;
+      if (!item || item.kind !== target.kind || item.id === target.id) return;
       endDrag();
       reorder(target.kind, item.id, target.id, after);
     },
   };
 }
 
-// alreadyInScope:拖动的东西已经在那个作用域(技能已直接安装 / 组已组安装 / 集合里的技能都已直接安装),放下没有意义。
+// alreadyInScope:拖动的东西已经在那个作用域(技能已直接安装 / 勾选的技能、集合里的技能都已直接安装 / 组已组安装),放下没有意义。
 export function alreadyInScope(s: Snapshot, item: DragItem, key: ScopeKey): boolean {
   if (item.kind === "skill") return !!skillScopeIn(s, item.id, key)?.direct;
+  if (item.kind === "skills") return item.ids.every((id) => skillScopeIn(s, id, key)?.direct);
   if (item.kind === "collection") {
     const ids = s.collections.find((c) => c.id === item.id)?.skills ?? [];
     return ids.length > 0 && ids.every((id) => skillScopeIn(s, id, key)?.direct);
@@ -75,15 +80,16 @@ export function alreadyInScope(s: Snapshot, item: DragItem, key: ScopeKey): bool
   return s.groupInstalls.some((a) => a.group_id === item.id && scopeKey(a.scope) === key);
 }
 
-// alreadyInGroup:技能已是该组成员，或集合里没有还不在组里的技能(见 missingFromGroup)。
+// alreadyInGroup:技能(勾选的几个技能)已是该组成员，或集合里没有还不在组里的技能(见 missingFromGroup)。
 export function alreadyInGroup(s: Snapshot, item: DragItem, id: GroupID): boolean {
   if (item.kind === "skill") return !!s.groups.find((g) => g.id === id)?.members?.includes(item.id);
+  if (item.kind === "skills") return item.ids.every((x) => s.groups.find((g) => g.id === id)?.members?.includes(x));
   if (item.kind === "collection") return missingFromGroup(s, item.id, id).length === 0;
   return false;
 }
 
-// canAddToGroup:拖动的是技能或集合，放到组上就是加入该组。
-export const canAddToGroup = (item: DragItem | null): boolean => item?.kind === "skill" || item?.kind === "collection";
+// canAddToGroup:拖动的是技能(勾选的几个技能)或集合，放到组上就是加入该组。
+export const canAddToGroup = (item: DragItem | null): boolean => item?.kind === "skill" || item?.kind === "skills" || item?.kind === "collection";
 
 // dropProps 生成放置目标的事件处理:canDrop 为 false 时不接受放置。
 export function dropProps(canDrop: boolean, onDrop: () => void) {

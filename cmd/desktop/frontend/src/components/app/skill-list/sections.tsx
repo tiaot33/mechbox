@@ -1,7 +1,7 @@
 // 列表的分节：所有技能页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节。
 // 节标题可以收起;集合与组的节标题可以拖到右栏作用域(集合 = 把它的技能逐个直接安装，组 = 组安装),
 // 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
-import type { Collection, Group, Skill } from "@bindings/internal/library";
+import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
@@ -30,8 +30,9 @@ import { Button } from "@/components/ui/button";
 import { useDnD } from "@/components/app/dnd";
 import { Icon, SourceIcon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark } from "@/components/app/parts";
+import { SectionPick } from "./pick";
 
-// Section 是一节：标题 + 一块行。defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;
+// Section 是一节：标题 + 一块行;给了 pick 时标题上有勾选框，一次勾上这一节的这些技能。defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;
 // 收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
 export function Section({
   id,
@@ -40,6 +41,7 @@ export function Section({
   defaultCollapsed = false,
   className,
   headProps,
+  pick,
   children,
 }: {
   id: string;
@@ -48,6 +50,7 @@ export function Section({
   defaultCollapsed?: boolean;
   className?: string;
   headProps?: React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, unknown>;
+  pick?: SkillID[];
   children: React.ReactNode;
 }) {
   const flipped = useView((v) => v.flipped.has(id));
@@ -70,6 +73,7 @@ export function Section({
         >
           <Icon name="down" className={cn("size-2.5 transition-transform", collapsed && "-rotate-90")} />
         </button>
+        {pick && <SectionPick ids={pick} />}
         {head}
       </div>
       {sub}
@@ -222,7 +226,7 @@ export function GroupHead({ group, scope, listed }: { group: Group; scope?: Scop
   );
 }
 
-// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局。
+// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局、项目页的各个 Agent。
 export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode; name: string; count: React.ReactNode; title?: string }) {
   return (
     <span className="flex min-w-0 grow items-center gap-2" title={title}>

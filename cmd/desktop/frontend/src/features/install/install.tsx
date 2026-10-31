@@ -12,6 +12,7 @@ import {
   type GroupID,
   type InstallPlan,
   type Scope,
+  type Skill,
   type SkillID,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
@@ -22,6 +23,7 @@ import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
 import {
   agentName,
   collectionSkills,
+  folderKey,
   folderPlaces,
   groupName,
   placeOf,
@@ -34,7 +36,9 @@ import {
   sourceLabel,
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
+import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { lostEdits } from "@/features/skill/remove";
 import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
 import { memberRows, showResults, summarizeMembers, type ResultRow } from "@/components/app/results";
 
@@ -89,6 +93,28 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   const label = sourceLabel(s, collection.source);
   const where = scopeLabel(s, scope);
   const skills = collectionSkills(s, collection).filter((x) => !skillScopeIn(s, x.id, scopeKey(scope))?.direct);
+  await installEach(skills, scope, t.collectionInstallTitle(label, where), (n) => t.collectionInstalled(label, where, n));
+}
+
+// installSkills 把勾选的技能装到 scope(底部操作栏的"安装到…"、拖勾选着的一行到作用域):和集合一样逐个直接安装，
+// 已经直接安装在这里的不再装;都已装在这里时只提示。
+export async function installSkills(ids: SkillID[], scope: Scope) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const where = scopeLabel(s, scope);
+  const skills = s.skills.filter((x) => ids.includes(x.id) && !skillScopeIn(s, x.id, scopeKey(scope))?.direct);
+  if (!skills.length) {
+    ui.toast(t.pickedAllThere(where));
+    return;
+  }
+  await installEach(skills, scope, t.pickedInstallTitle(skills.length, where), (n) => t.pickedInstalled(n, where));
+}
+
+// installEach 逐个直接安装：先逐个看安装计划，被别的技能占用的跳过并说明原因;有不是库装的同名文件夹的合成一次询问
+// (跳过或覆盖),不逐个弹。有没装上的才列出结果，否则只提示装了几个(done)。
+async function installEach(skills: Skill[], scope: Scope, title: string, done: (n: number) => string) {
+  const s = currentSnapshot();
+  const t = messages().actions;
   if (!skills.length) return;
   const plans = await ui.run(() => Promise.all(skills.map((x) => LibraryService.PlanInstall(x.id, scope))), { reload: false });
   if (!plans) return;
@@ -97,8 +123,8 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   let overwrite = false;
   if (untracked.length) {
     const choice = await ui.confirm({
-      title: t.collectionInstallTitle(label, where),
-      body: <Notice tone="warn">{t.collectionUntracked(untracked.length, untracked.map((x) => x.plan.name))}</Notice>,
+      title,
+      body: <Notice tone="warn">{t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}</Notice>,
       choices: [
         { value: "skip", label: t.skipSkills, desc: t.skipSkillsDesc },
         { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
@@ -130,9 +156,9 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   }, { failed: () => rows.some((r) => r.tone === "bad") });
   const installed = rows.filter((r) => r.tone === "ok").length;
   if (rows.some((r) => r.tone !== "ok")) {
-    await showResults(t.collectionInstallTitle(label, where), rows, t.collectionSummary(installed, rows.length - installed));
+    await showResults(title, rows, t.installedSummary(installed, rows.length - installed));
   } else {
-    ui.toast(t.collectionInstalled(label, where, installed));
+    ui.toast(done(installed));
   }
 }
 
@@ -177,6 +203,66 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
   });
 }
 
+
+// uninstallSkills 从 scopes 卸载勾选的技能(底部操作栏的"从这里卸载",项目页是项目里的各个 Agent):撤销它们的直接安装。
+// 一批卸载先确认一次：会删掉几个文件夹、其中几处被改过，全局共用的文件夹还有哪些 Agent 在用，别处链接指着的先换上独立的一份。
+// 只随组安装的跳过并说明;有跳过或失败的才列出结果。
+export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: string) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const places = scopes.flatMap((sc) => ids.map((id) => skillScopeIn(s, id, scopeKey(sc))).filter((p): p is SkillScopeInspection => !!p));
+  const direct = places.filter((p) => p.direct);
+  const viaGroup = places.filter((p) => !p.direct);
+  if (!direct.length) {
+    ui.toast(t.pickedNothingDirect(where), "error");
+    return;
+  }
+  // 还有组安装留着的只撤直接安装，文件夹不删。
+  const deleted = folderPlaces(s, direct.filter((p) => !p.groups?.length));
+  // 全局共用的文件夹：只说会被删掉的那些(没有组安装留着);还有组安装留着的文件夹不删，各 Agent 照样算已装。
+  const shared = direct.filter((p) => sharedWithNote(p).length && !p.groups?.length);
+  const title = t.uninstallPickedTitle(new Set(direct.map((p) => p.skill_id)).size, where);
+  const ok = await ui.confirm({
+    title,
+    body: (
+      <>
+        <Hint>{t.uninstallPickedHint(new Set(deleted.map(folderKey)).size, lostEdits(deleted), viaGroup.length)}</Hint>
+        {shared.length > 0 && (
+          <>
+            <Notice tone="warn">{t.uninstallPickedShared}</Notice>
+            <SharedFolders places={shared} />
+          </>
+        )}
+        <DetachNotice items={detachedBy(deleted)} when="delete" />
+      </>
+    ),
+    confirm: t.uninstall,
+    danger: true,
+  });
+  if (!ok) return;
+  const rows: ResultRow[] = viaGroup.map((p) => ({
+    label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`,
+    outcome: t.memberSkipped,
+    tone: "warn",
+    reason: t.onlyViaGroup,
+  }));
+  let done = 0;
+  await ui.run(async () => {
+    for (const p of direct) {
+      try {
+        await LibraryService.Uninstall(p.skill_id, p.scope);
+        done++;
+      } catch (e) {
+        const err = toLibraryError(e);
+        // 全局共用一个文件夹的几处：卸载其中一处时其余几处的直接安装一起撤了。
+        if (err.code === ErrorCode.NotFound) continue;
+        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.failed, tone: "bad", reason: describeError(err) });
+      }
+    }
+  }, { failed: () => rows.some((r) => r.tone === "bad") });
+  if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
+  else ui.toast(t.uninstalledPicked(done, where));
+}
 
 export async function installGroup(groupID: GroupID, scope: Scope) {
   const s = currentSnapshot();

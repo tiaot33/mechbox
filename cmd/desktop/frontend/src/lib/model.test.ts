@@ -1,4 +1,5 @@
-// 集合与组的先后：用户拖出来的顺序优先，没排过的按默认顺序接在后面;集合加入组时加入哪些技能;照着另一个 Agent 装时装哪些。
+// 集合与组的先后：用户拖出来的顺序优先，没排过的按默认顺序接在后面;集合加入组时加入哪些技能;照着另一个 Agent 装时装哪些;
+// 作用域页里有技能装在这里的节排在前面;项目页按 Agent 分节;按住 Shift 勾选一段。
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
@@ -24,7 +25,11 @@ import {
   missingFromGroup,
   moved,
   noOrder,
+  pageSkills,
+  pickRange,
+  projectAgents,
   prunedOrder,
+  scopeListing,
   sortedCollections,
   sortedGroups,
   uncopiedUnmanaged,
@@ -32,7 +37,14 @@ import {
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;
-const snapshot = (s: Partial<Snapshot>) => ({ collections: [], groups: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
+const snapshot = (s: Partial<Snapshot>) =>
+  ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
+const skill = (id: number, name: string, label: string) => ({ id, name, source: { type: SourceType.SourceGitHub, label } }) as Skill;
+const agent = (code: string, project_directory: string) => ({ code, name: code, project_directory, detected: true }) as Agent;
+const where = (agent: string, project_id?: number) =>
+  project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
+const installed = (skill_id: number, agent: string, project_id?: number) => ({ skill_id, scope: where(agent, project_id) }) as SkillScopeInspection;
+const unmanaged = (name: string, agent: string, project_id?: number) => ({ name, folder: name, scope: where(agent, project_id) }) as UnmanagedSkill;
 
 describe("moved", () => {
   it("挪到目标前面或后面", () => {
@@ -107,6 +119,96 @@ describe("homePath", () => {
 
   it("Windows 上的主目录不缩写", () => {
     expect(homePath("C:\\Users\\me", "C:\\Users\\me\\.agents\\skills")).toBe("C:\\Users\\me\\.agents\\skills");
+  });
+});
+
+describe("scopeListing", () => {
+  const s = snapshot({
+    agents: [agent("claude-code", ".claude/skills")],
+    projects: [{ id: 1, name: "proj", path: "/home/proj" }] as Snapshot["projects"],
+    collections: [collection(1, "a/a", [10, 11]), collection(2, "b/b", [20]), collection(3, "c/c", [30, 31])],
+    skills: [skill(10, "a1", "a/a"), skill(11, "a2", "a/a"), skill(20, "b1", "b/b"), skill(30, "c1", "c/c"), skill(31, "c2", "c/c")],
+    skillScopes: [installed(30, "claude-code", 1), installed(20, "claude-code", 1), installed(10, "claude-code")],
+  });
+
+  it("有技能装在这里的节排在前面，先后不变", () => {
+    expect(scopeListing(s, "claude-code@1", "collection", "", noOrder).sections.map((x) => x.id)).toEqual([2, 3, 1]);
+    expect(scopeListing(s, "claude-code@1", "collection", "", noOrder).used).toBe(2);
+    expect(scopeListing(s, "claude-code@0", "collection", "", noOrder).sections.map((x) => x.id)).toEqual([1, 2, 3]);
+  });
+
+  it("搜索时照样按装没装在这里排", () => {
+    expect(scopeListing(s, "claude-code@1", "collection", "2", noOrder).sections.map((x) => x.id)).toEqual([3, 1]);
+  });
+});
+
+describe("projectAgents", () => {
+  const s = snapshot({
+    agents: [agent("claude-code", ".claude/skills"), agent("codex", ".agents/skills"), agent("amp", ".agents/skills"), agent("cursor", ".cursor/skills")],
+    projects: [{ id: 1, name: "proj", path: "/home/proj" }, { id: 2, name: "other", path: "/home/other" }] as Snapshot["projects"],
+    skills: [skill(10, "zeta", "a/a"), skill(11, "alpha", "a/a"), skill(12, "beta", "b/b")],
+    skillScopes: [
+      installed(10, "codex", 1),
+      installed(10, "amp", 1),
+      installed(11, "codex", 1),
+      installed(11, "amp", 1),
+      installed(12, "claude-code"),
+      installed(12, "cursor", 2),
+    ],
+    unmanaged: [unmanaged("mine", "claude-code", 1), unmanaged("global-only", "claude-code")],
+  });
+
+  it("项目里装了技能的 Agent 各一节，共用目录的合成一处，只算装在这个项目里的", () => {
+    const agents = projectAgents(s, 1, "");
+    expect(agents.map((a) => a.scope)).toEqual(["claude-code@1", "codex@1"]);
+    expect(agents[0].skills).toEqual([]);
+    expect(agents[0].unmanaged.map((u) => u.name)).toEqual(["mine"]);
+    expect(agents[1].skills.map((x) => x.name)).toEqual(["alpha", "zeta"]);
+    expect(agents.map((a) => a.all)).toEqual([1, 2]);
+  });
+
+  it("搜索时只留有结果的节，all 不随搜索变", () => {
+    const agents = projectAgents(s, 1, "zet");
+    expect(agents.map((a) => a.scope)).toEqual(["codex@1"]);
+    expect(agents[0].skills.map((x) => x.name)).toEqual(["zeta"]);
+    expect(agents[0].all).toBe(2);
+  });
+});
+
+describe("pickRange", () => {
+  const row = (section: string, id: number) => ({ key: `${section}|${id}`, id });
+  // 项目页：Claude Code 一节是 1-4,Codex 一节是 1-6。
+  const rows = [1, 2, 3, 4].map((id) => row("cc", id)).concat([1, 2, 3, 4, 5, 6].map((id) => row("codex", id)));
+
+  it("是两行之间(含两头)的技能，不分先后", () => {
+    expect(pickRange(rows, "cc|2", "cc|4")).toEqual([2, 3, 4]);
+    expect(pickRange(rows, "codex|6", "codex|5")).toEqual([5, 6]);
+  });
+
+  it("同一个技能在几节里出现时按点的那一行算，不跨到别的节", () => {
+    expect(pickRange(rows, "codex|6", "codex|2")).toEqual([2, 3, 4, 5, 6]);
+  });
+
+  it("跨节时两节之间的行都算，结果不重复", () => {
+    expect(pickRange(rows, "cc|3", "codex|2")).toEqual([3, 4, 1, 2]);
+  });
+
+  it("有一行已经不在列表里时为空", () => {
+    expect(pickRange(rows, "gone|7", "cc|2")).toEqual([]);
+  });
+});
+
+describe("pageSkills", () => {
+  const s = snapshot({
+    agents: [agent("claude-code", ".claude/skills")],
+    projects: [{ id: 1, name: "proj", path: "/home/proj" }] as Snapshot["projects"],
+    skills: [skill(10, "a", "a/a"), skill(11, "b", "a/a")],
+    skillScopes: [installed(10, "claude-code", 1), installed(11, "claude-code")],
+  });
+
+  it("项目页只列装在这个项目里的，其余页是库里的全部", () => {
+    expect([...pageSkills(s, { kind: "project", project: 1 })]).toEqual([10]);
+    expect([...pageSkills(s, { kind: "scope", scope: "claude-code@1" })].sort()).toEqual([10, 11]);
   });
 });
 
