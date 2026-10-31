@@ -16,9 +16,7 @@ import {
   parseScope,
   placeOf,
   projectFolderNote,
-  projectName,
   sectionKey,
-  shortPath,
   type PageListing,
   type ScopeKey,
   type SkillSection,
@@ -30,7 +28,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Icon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
-import { barClass, barRowClass, ScopeSummary } from "./heads";
+import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
 import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
@@ -295,7 +293,8 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           </ArrangeBar>
         </div>
       )}
-      {l.sections.map((x) => (
+      {/* 装在这里的未纳管技能也算装在这里：放在有技能装在这里的节后面、一个都没装的节前面。 */}
+      {l.sections.slice(0, l.used).map((x) => (
         <SkillSectionView key={x.key} section={x} scope={scope} />
       ))}
       {l.hereUnmanaged.length > 0 && (
@@ -305,10 +304,13 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           ))}
         </Section>
       )}
+      {l.sections.slice(l.used).map((x) => (
+        <SkillSectionView key={x.key} section={x} scope={scope} />
+      ))}
       {project && global > 0 && (
         <Section id="scope-global" defaultCollapsed pick={l.global.map((x) => x.id)} head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}>
           {l.global.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal showSource />
+            <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal pickable showSource />
           ))}
           {l.globalUnmanaged.map((u) => (
             <UnmanagedRow key={u.folder} skill={u} />
@@ -329,13 +331,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
   const project = s.projects.find((p) => p.id === page.project)!;
   return (
     <>
-      <div className={barClass}>
-        <b className="project-sum text-[13px] font-semibold">{t.projectHas(projectName(s, project.id), page.total)}</b>
-        <div className={barRowClass}>
-          <span className="text-[11px] text-muted-foreground">{t.projectDirectory}</span>
-          <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{shortPath(s, project.path)}</span>
-        </div>
-      </div>
+      <ProjectSummary project={project} total={page.total} />
       {page.agents.map((a) => (
         <Section
           key={a.scope}
@@ -343,11 +339,12 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           pick={a.skills.map((x) => x.id)}
           head={
             <>
-              <span className="flex min-w-0 grow items-center gap-2" title={projectFolderNote(s, a.agent.code, page.project)}>
-                <PlaceAgentMark code={a.agent.code} place={page.project} />
-                <b className="section-name truncate font-semibold">{agentNameIn(s, a.agent.code, page.project)}</b>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{t.skillCount(a.all)}</span>
-              </span>
+              <PlainHead
+                icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
+                name={agentNameIn(s, a.agent.code, page.project)}
+                count={t.skillCount(a.all)}
+                title={projectFolderNote(s, a.agent.code, page.project)}
+              />
               <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
                 {t.openScope}
               </Button>
@@ -355,7 +352,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           }
         >
           {a.skills.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} scope={a.scope} showSource />
+            <SkillRow key={skill.id} skill={skill} scope={a.scope} pickable showSource />
           ))}
           {a.unmanaged.map((u) => (
             <UnmanagedRow key={u.folder} skill={u} />

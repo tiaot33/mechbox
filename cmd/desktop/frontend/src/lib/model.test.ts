@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { ScopeKind, SourceType, type Agent, type Collection, type Group, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { homePath, missingFromGroup, moved, noOrder, pickRange, projectAgents, prunedOrder, scopeListing, sortedCollections, sortedGroups } from "./model";
+import { homePath, missingFromGroup, moved, noOrder, pageSkills, pickRange, projectAgents, prunedOrder, scopeListing, sortedCollections, sortedGroups } from "./model";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;
@@ -103,6 +103,7 @@ describe("scopeListing", () => {
 
   it("有技能装在这里的节排在前面，先后不变", () => {
     expect(scopeListing(s, "claude-code@1", "collection", "", noOrder).sections.map((x) => x.id)).toEqual([2, 3, 1]);
+    expect(scopeListing(s, "claude-code@1", "collection", "", noOrder).used).toBe(2);
     expect(scopeListing(s, "claude-code@0", "collection", "", noOrder).sections.map((x) => x.id)).toEqual([1, 2, 3]);
   });
 
@@ -145,16 +146,38 @@ describe("projectAgents", () => {
 });
 
 describe("pickRange", () => {
+  const row = (section: string, id: number) => ({ key: `${section}|${id}`, id });
+  // 项目页：Claude Code 一节是 1-4,Codex 一节是 1-6。
+  const rows = [1, 2, 3, 4].map((id) => row("cc", id)).concat([1, 2, 3, 4, 5, 6].map((id) => row("codex", id)));
+
   it("是两行之间(含两头)的技能，不分先后", () => {
-    expect(pickRange([5, 3, 8, 1, 9], 3, 1)).toEqual([3, 8, 1]);
-    expect(pickRange([5, 3, 8, 1, 9], 9, 8)).toEqual([8, 1, 9]);
+    expect(pickRange(rows, "cc|2", "cc|4")).toEqual([2, 3, 4]);
+    expect(pickRange(rows, "codex|6", "codex|5")).toEqual([5, 6]);
   });
 
-  it("一个技能在几节里出现时按第一次出现的位置，结果不重复", () => {
-    expect(pickRange([5, 3, 5, 8], 5, 8)).toEqual([5, 3, 8]);
+  it("同一个技能在几节里出现时按点的那一行算，不跨到别的节", () => {
+    expect(pickRange(rows, "codex|6", "codex|2")).toEqual([2, 3, 4, 5, 6]);
   });
 
-  it("上一次的那一行不在列表里时只有这一行", () => {
-    expect(pickRange([5, 3, 8], 7, 3)).toEqual([3]);
+  it("跨节时两节之间的行都算，结果不重复", () => {
+    expect(pickRange(rows, "cc|3", "codex|2")).toEqual([3, 4, 1, 2]);
+  });
+
+  it("有一行已经不在列表里时为空", () => {
+    expect(pickRange(rows, "gone|7", "cc|2")).toEqual([]);
+  });
+});
+
+describe("pageSkills", () => {
+  const s = snapshot({
+    agents: [agent("claude-code", ".claude/skills")],
+    projects: [{ id: 1, name: "proj", path: "/home/proj" }] as Snapshot["projects"],
+    skills: [skill(10, "a", "a/a"), skill(11, "b", "a/a")],
+    skillScopes: [installed(10, "claude-code", 1), installed(11, "claude-code")],
+  });
+
+  it("项目页只列装在这个项目里的，其余页是库里的全部", () => {
+    expect([...pageSkills(s, { kind: "project", project: 1 })]).toEqual([10]);
+    expect([...pageSkills(s, { kind: "scope", scope: "claude-code@1" })].sort()).toEqual([10, 11]);
   });
 });

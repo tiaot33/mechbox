@@ -152,11 +152,11 @@ export const zh = {
     install: "安装",
     groupInstallResults: (group: string) => `组安装「${group}」`,
     collectionInstallTitle: (label: string, scope: string) => `把「${label}」的技能装到 ${scope}`,
-    collectionUntracked: (n: number, names: string[]) => `${n} 个技能的目标位置已有不是从技能库装的同名文件夹：${names.join("、")}`,
+    untrackedSkills: (n: number, names: string[]) => `${n} 个技能的目标位置已有不是从技能库装的同名文件夹：${names.join("、")}`,
     skipSkills: "跳过这些技能",
     skipSkillsDesc: "其余技能照常安装",
     collectionInstalled: (label: string, scope: string, n: number) => `已把「${label}」的 ${n} 个技能装到 ${scope}`,
-    collectionSummary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 个没装上`,
+    installedSummary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 个没装上`,
     groupInstalled: (group: string, scope: string, summary: string) => `已把「${group}」组安装到 ${scope}\n${summary}`,
     groupUninstallTitle: (group: string, scope: string) => `卸载「${group}」在 ${scope} 的组安装`,
     groupUninstallShared: (n: number) =>
@@ -169,7 +169,7 @@ export const zh = {
     collectionAlreadyInGroup: (label: string, group: string) => `「${label}」的技能都已在「${group}」里`,
     collectionAddedToGroupTitle: (label: string, group: string, added: number, total: number) =>
       added === total ? `「${label}」的 ${total} 个技能已加入「${group}」` : `「${label}」的 ${total} 个技能里，${added} 个加入了「${group}」`,
-    collectionAddedPartly: "这些技能已加入组；下面这些作用域没能安装，可在处理冲突后再次组安装补齐。",
+    membersAddedPartly: "这些技能已加入组；下面这些作用域没能安装，可在处理冲突后再次组安装补齐。",
     memberAdded: "已加入",
     collectionAddedToGroup: (label: string, n: number, group: string, scopes: number) =>
       `已把「${label}」的 ${n} 个技能加入「${group}」${scopes ? `，并安装到该组已组安装的 ${scopes} 个作用域` : ""}`,
@@ -259,7 +259,7 @@ export const zh = {
       ]
         .filter(Boolean)
         .join("。") + "。",
-    uninstallPickedShared: "下面这些技能文件夹还被别的 Agent 共用：卸载会撤销这几个 Agent 的直接安装，没有组安装留着的文件夹会删除，这几个 Agent 都不再算已装。",
+    uninstallPickedShared: "下面这些技能文件夹还被别的 Agent 共用：卸载会删除这些文件夹，共用的几个 Agent 都不再算已装。",
     uninstallPickedSummary: (done: number, rest: number) => `卸载了 ${done} 处，${rest} 处没卸载`,
     uninstalledPicked: (n: number, where: string) => `已从 ${where} 卸载 ${n} 处直接安装`,
     pickedAlreadyInGroup: (group: string) => `勾选的技能都已在「${group}」里`,
@@ -483,6 +483,7 @@ export const zh = {
     ),
     removeSkill: "移除技能",
     installTo: "安装到",
+    agent: "Agent",
     usedHere: "此处已在用",
     otherAgents: "其他 Agent",
     allInstalled: (place: string) => `${place}能选的 Agent 都已安装`,

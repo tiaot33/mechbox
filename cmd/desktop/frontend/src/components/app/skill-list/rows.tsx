@@ -48,6 +48,7 @@ import { SameNameBadge, SameNameLine } from "./same-name";
 // 列宽：所有技能页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
 const libraryCols = "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
+const scopeCols = "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
 const pickLibraryCols = "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
 const pickScopeCols = "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
 
@@ -59,7 +60,7 @@ const recentDays = 7;
 
 // SkillRow 是库里一个技能的一行。scope 为空时是所有技能页 / 更新页的样子;有 scope 时是作用域页的样子:
 // 开头是直接安装的开关，最后一列写在这里的状态;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
-// pickable 的行最前面有勾选框(更新页不能勾选)。
+// pickable 的行最前面有勾选框(所有技能页、作用域页与项目页;更新页不能勾选)。
 export function SkillRow(props: {
   skill: Skill;
   scope?: ScopeKey;
@@ -73,7 +74,6 @@ export function SkillRow(props: {
   const dnd = useDnD();
   const selected = useView((v) => v.drawer === skill.id);
   const picked = useView((v) => v.picked.has(skill.id));
-  const pickedIDs = useView((v) => v.picked);
   const t = useT();
   const here = scope && !props.fromGlobal ? skillScopeIn(s, skill.id, scope) : undefined;
   // 作用域页说这一处的同名后果;所有技能页、更新页说它装出去的各处。
@@ -93,7 +93,7 @@ export function SkillRow(props: {
       className={cn(
         "skill-row group/row cursor-grab transition-colors hover:bg-white/80 active:cursor-grabbing",
         rowClass,
-        scope ? pickScopeCols : props.pickable ? pickLibraryCols : libraryCols,
+        scope ? (props.pickable ? pickScopeCols : scopeCols) : props.pickable ? pickLibraryCols : libraryCols,
         picked && "bg-primary-soft/45 hover:bg-primary-soft/60",
         selected && "bg-primary-soft hover:bg-primary-soft",
       )}
@@ -103,14 +103,14 @@ export function SkillRow(props: {
       data-picked={picked || undefined}
       onClick={() => toggleDrawer(skill.id)}
       draggable
-      onDragStart={(e) =>
-        picked && pickedIDs.size > 1
-          ? dnd.start(e, { kind: "skills", ids: [...pickedIDs] }, t.list.pickedDrag(pickedIDs.size))
-          : dnd.start(e, { kind: "skill", id: skill.id }, skill.name)
-      }
+      onDragStart={(e) => {
+        const all = useView.getState().picked;
+        if (picked && all.size > 1) dnd.start(e, { kind: "skills", ids: [...all] }, t.list.pickedDrag(all.size));
+        else dnd.start(e, { kind: "skill", id: skill.id }, skill.name);
+      }}
       onDragEnd={dnd.end}
     >
-      {(scope || props.pickable) && <PickBox id={skill.id} />}
+      {props.pickable && <PickBox id={skill.id} />}
       {scope && (
         <span onClick={(e) => e.stopPropagation()} className="flex">
           {!props.fromGlobal && (

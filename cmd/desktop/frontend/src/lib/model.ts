@@ -412,13 +412,24 @@ export function moved(ids: number[], dragged: number, target: number, after: boo
   return rest;
 }
 
-// pickRange 是 order 里从 from 到 to(含两头,不分先后)的技能;一个技能在几节里出现时取第一次出现的位置。
-// from 不在 order 里时只有 to。
-export function pickRange(order: SkillID[], from: SkillID, to: SkillID): SkillID[] {
-  const a = order.indexOf(from);
-  const b = order.indexOf(to);
-  if (a < 0 || b < 0) return [to];
-  return [...new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1))];
+// PickRow 是列表里能勾选的一行:key 是这一行的身份(所在的节 + 技能),同一个技能在几节里出现时各是一行。
+export interface PickRow {
+  key: string;
+  id: SkillID;
+}
+
+// pickRange 是 rows 里从 from 那一行到 to 那一行(含两头，不分先后)的技能，不重复;两行有一行不在 rows 里时为空。
+export function pickRange(rows: PickRow[], from: string, to: string): SkillID[] {
+  const a = rows.findIndex((r) => r.key === from);
+  const b = rows.findIndex((r) => r.key === to);
+  if (a < 0 || b < 0) return [];
+  return [...new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1).map((r) => r.id))];
+}
+
+// pageSkills 是这一页列出的库里的技能，勾选只留这些：项目页只列装在这个项目里的，其余页列出库里的全部。
+export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
+  if (page.kind !== "project") return new Set(s.skills.map((x) => x.id));
+  return new Set(projectAgents(s, page.project, "").flatMap((a) => a.skills.map((x) => x.id)));
 }
 
 // sortSkills 是列表里技能的顺序：先按来源(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
@@ -711,10 +722,11 @@ export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Da
 // ScopeListing 是作用域页要列的:库里的技能按集合或组分节(sections,装在这里的与可以装到这里的都在里面),
 // 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到,不再出现在 sections 里)。
 // 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
-// sections 里有技能装在这里的节排在前面(先后不变),一个都没装在这里的接在后面。
+// sections 里有技能装在这里的节排在前面(先后不变),一个都没装在这里的接在后面;used 是前面那几节的个数。
 // here 与 others 是 sections 里装在这里、没装在这里的技能个数(搜索时只数匹配的)。
 export interface ScopeListing {
   sections: SkillSection[];
+  used: number;
   hereUnmanaged: UnmanagedSkill[];
   global: Skill[];
   globalUnmanaged: UnmanagedSkill[];
@@ -750,6 +762,7 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   const used = (x: SkillSection) => x.all.some((k) => hereIDs.has(k.id));
   return {
     sections: [...sections.filter(used), ...sections.filter((x) => !used(x))],
+    used: sections.filter(used).length,
     hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
@@ -792,7 +805,7 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
 // 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致),
-// 项目页是项目里各 Agent 装的技能逐处加起来(合成一处的几个 Agent 只算一次);
+// 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
@@ -815,8 +828,10 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
   }
   if (page.kind === "project") {
     const agents = projectAgents(s, page.project, search);
-    const total = projectAgents(s, page.project, "").reduce((n, x) => n + x.all, 0);
-    return { kind: "project", project: page.project, agents, total, results: agents.reduce((n, x) => n + x.skills.length + x.unmanaged.length, 0) };
+    // 几个 Agent 都装了的技能只算一个;未纳管技能各是各的文件夹。
+    const count = (list: ProjectAgent[]) =>
+      new Set(list.flatMap((a) => a.skills.map((x) => x.id))).size + new Set(list.flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
+    return { kind: "project", project: page.project, agents, total: count(projectAgents(s, page.project, "")), results: count(agents) };
   }
   return {
     kind: "all",

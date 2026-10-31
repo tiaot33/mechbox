@@ -124,7 +124,7 @@ async function installEach(skills: Skill[], scope: Scope, title: string, done: (
   if (untracked.length) {
     const choice = await ui.confirm({
       title,
-      body: <Notice tone="warn">{t.collectionUntracked(untracked.length, untracked.map((x) => x.plan.name))}</Notice>,
+      body: <Notice tone="warn">{t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}</Notice>,
       choices: [
         { value: "skip", label: t.skipSkills, desc: t.skipSkillsDesc },
         { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
@@ -156,7 +156,7 @@ async function installEach(skills: Skill[], scope: Scope, title: string, done: (
   }, { failed: () => rows.some((r) => r.tone === "bad") });
   const installed = rows.filter((r) => r.tone === "ok").length;
   if (rows.some((r) => r.tone !== "ok")) {
-    await showResults(title, rows, t.collectionSummary(installed, rows.length - installed));
+    await showResults(title, rows, t.installedSummary(installed, rows.length - installed));
   } else {
     ui.toast(done(installed));
   }
@@ -219,9 +219,11 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
   }
   // 还有组安装留着的只撤直接安装，文件夹不删。
   const deleted = folderPlaces(s, direct.filter((p) => !p.groups?.length));
-  const shared = direct.filter((p) => sharedWithNote(p).length);
+  // 全局共用的文件夹：只说会被删掉的那些(没有组安装留着);还有组安装留着的文件夹不删，各 Agent 照样算已装。
+  const shared = direct.filter((p) => sharedWithNote(p).length && !p.groups?.length);
+  const title = t.uninstallPickedTitle(new Set(direct.map((p) => p.skill_id)).size, where);
   const ok = await ui.confirm({
-    title: t.uninstallPickedTitle(new Set(direct.map((p) => p.skill_id)).size, where),
+    title,
     body: (
       <>
         <Hint>{t.uninstallPickedHint(new Set(deleted.map(folderKey)).size, lostEdits(deleted), viaGroup.length)}</Hint>
@@ -258,7 +260,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
       }
     }
   }, { failed: () => rows.some((r) => r.tone === "bad") });
-  if (rows.length) await showResults(t.uninstallPickedTitle(direct.length, where), rows, t.uninstallPickedSummary(done, rows.length));
+  if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
   else ui.toast(t.uninstalledPicked(done, where));
 }
 

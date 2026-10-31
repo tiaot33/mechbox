@@ -1,13 +1,8 @@
 // 技能详情里的安装卡片：各作用域的安装与状态，以及"安装到…"。
-import { useState } from "react";
-import { SkillScopeStatus, type AgentCode, type Skill } from "@bindings/internal/library";
+import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
-  agentNameIn,
-  agentShown,
-  agentsUsedIn,
-  mergeAgentsExcept,
   mergeProjectPlaces,
   needsReinstall,
   placeOf,
@@ -19,16 +14,15 @@ import {
   skillScopeIn,
   skillScopeStatus,
   skillScopesOf,
-  type Place,
 } from "@/lib/model";
 import { installSkill, uninstallSkill } from "@/features/install/install";
+import { AgentSelect, PlaceSelect, useInstallTarget } from "@/features/install/install-to";
 import { reinstall } from "@/features/install/reinstall";
 import { updateFromScope } from "@/features/update/update";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
 import { PlaceAgentMark } from "@/components/app/parts";
@@ -133,61 +127,28 @@ export function InstallCard({ skill }: { skill: Skill }) {
   );
 }
 
-// InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent;已在此处用着的 Agent 排在前面，其余只列勾选显示的。
-// 项目里共用一个目录的几个 Agent 合成一个选项。
+// InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent(见 features/install/install-to)。
 // 这个地方能选的 Agent 都装上了时，不摆一个选不了的下拉框，直接说明。
 function InstallTo({ skillID }: { skillID: number }) {
   const s = useSnapshot();
   const t = useT();
-  const [place, setPlace] = useState<Place>(0);
-  const used = agentsUsedIn(s, place);
-  const rest = mergeAgentsExcept(s, place, s.agents.filter((a) => agentShown(s.agentsShown, a)), used);
-  const available = (code: AgentCode) => !skillScopeIn(s, skillID, scopeKey(scopeOf(code, place)));
-  const options = [...used, ...rest];
-  const first = options.find((a) => available(a.code));
-  const [agent, setAgent] = useState<AgentCode | "">("");
-  // 换了地方后，之前选的 Agent 可能不在这里的选项里(不显示且这里没在用),退回第一个可选的。
-  const chosen = agent && options.some((a) => a.code === agent) && available(agent) ? agent : (first?.code ?? "");
-  const placeName = place ? projectName(s, place) : t.model.global;
+  const target = useInstallTarget((sc) => !skillScopeIn(s, skillID, scopeKey(sc)));
+  const placeName = target.place ? projectName(s, target.place) : t.model.global;
   return (
     <div className="install-to mt-2.5 flex items-center gap-1.5">
       <span className="text-[11px] text-muted-foreground">{t.drawer.installTo}</span>
-      <NativeSelect value={place} onChange={(e) => setPlace(Number(e.target.value))}>
-        <option value={0}>{t.model.global}</option>
-        {s.projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {projectName(s, p.id)}
-          </option>
-        ))}
-      </NativeSelect>
-      {chosen ? (
+      <PlaceSelect target={target} />
+      {target.agent ? (
         <>
-          <NativeSelect value={chosen} onChange={(e) => setAgent(e.target.value as AgentCode)}>
-            {used.length > 0 && (
-              <optgroup label={t.drawer.usedHere}>
-                {used.map((a) => (
-                  <option key={a.code} value={a.code} disabled={!available(a.code)}>
-                    {agentNameIn(s, a.code, place)}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            <optgroup label={used.length ? t.drawer.otherAgents : "Agent"}>
-              {rest.map((a) => (
-                <option key={a.code} value={a.code} disabled={!available(a.code)}>
-                  {agentNameIn(s, a.code, place)}
-                </option>
-              ))}
-            </optgroup>
-          </NativeSelect>
-          <Button size="sm" variant="primary" onClick={() => installSkill(skillID, scopeOf(chosen, place))}>
+          <AgentSelect target={target} />
+          <Button size="sm" variant="primary" onClick={() => target.agent && installSkill(skillID, scopeOf(target.agent, target.place))}>
             <Icon name="plus" />
             {t.drawer.install}
           </Button>
         </>
       ) : (
         <span className="text-[11px] text-muted-foreground">
-          {options.length ? t.drawer.allInstalled(placeName) : t.drawer.noAgents(placeName)}
+          {target.options.length ? t.drawer.allInstalled(placeName) : t.drawer.noAgents(placeName)}
         </span>
       )}
     </div>

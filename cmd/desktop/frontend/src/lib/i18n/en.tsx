@@ -157,12 +157,12 @@ export const en = {
     install: "Install",
     groupInstallResults: (group: string) => `Group install “${group}”`,
     collectionInstallTitle: (label: string, scope: string) => `Install the skills of “${label}” in ${scope}`,
-    collectionUntracked: (n: number, names: string[]) =>
+    untrackedSkills: (n: number, names: string[]) =>
       `${count(n, "skill")} already ${n === 1 ? "has" : "have"} a same-named folder there that the Library didn't install: ${names.join(", ")}`,
     skipSkills: "Skip these skills",
     skipSkillsDesc: "The other skills are installed as usual",
     collectionInstalled: (label: string, scope: string, n: number) => `Installed ${count(n, "skill")} of “${label}” in ${scope}`,
-    collectionSummary: (installed: number, rest: number) => `${installed} installed, ${rest} not installed`,
+    installedSummary: (installed: number, rest: number) => `${installed} installed, ${rest} not installed`,
     groupInstalled: (group: string, scope: string, summary: string) => `Group installed “${group}” in ${scope}\n${summary}`,
     groupUninstallTitle: (group: string, scope: string) => `Uninstall the Group install of “${group}” in ${scope}`,
     groupUninstallShared: (n: number) =>
@@ -179,7 +179,7 @@ export const en = {
       added === total
         ? `Added ${count(total, "skill")} from “${label}” to “${group}”`
         : `Added ${added} of ${count(total, "skill")} from “${label}” to “${group}”`,
-    collectionAddedPartly:
+    membersAddedPartly:
       "These skills are now members, but couldn't be installed in the Scopes below. Resolve the conflicts, then Group install again to fill them in.",
     memberAdded: "Added",
     collectionAddedToGroup: (label: string, n: number, group: string, scopes: number) =>
@@ -282,8 +282,7 @@ export const en = {
       ]
         .filter(Boolean)
         .join(". ") + ".",
-    uninstallPickedShared:
-      "The skill folders below are shared with other Agents: uninstalling removes those Agents' direct installs, deletes the folders no Group install keeps, and none of those Agents counts as installed anymore.",
+    uninstallPickedShared: "The skill folders below are shared with other Agents: uninstalling deletes them, and none of those Agents counts as installed anymore.",
     uninstallPickedSummary: (done: number, rest: number) => `${count(done, "place")} uninstalled, ${rest} not uninstalled`,
     uninstalledPicked: (n: number, where: string) => `Uninstalled ${count(n, "direct install")} from ${where}`,
     pickedAlreadyInGroup: (group: string) => `The selected skills are all in “${group}” already`,
@@ -294,7 +293,7 @@ export const en = {
     pickedRemoveFromGroupTitle: (n: number, group: string) => `Remove ${count(n, "skill")} from “${group}”`,
     pickedRemovedFromGroup: (n: number, group: string) => `Removed ${count(n, "skill")} from “${group}”`,
     removeSkillsTitle: (n: number) => `Remove ${count(n, "skill")}`,
-    removeSkillsHint: "Deletes them and all their versions from the Library, and takes them out of every Group.",
+    removeSkillsHint: "Deletes them and all their past Versions from the Library, and takes them out of every Group.",
     removedSkills: (n: number) => `Removed ${count(n, "skill")}`,
     removeInstalled: "Also delete the installed folders",
     keepInstalled: "Keep the installed folders",
@@ -519,6 +518,7 @@ export const en = {
     ),
     removeSkill: "Remove skill",
     installTo: "Install in",
+    agent: "Agent",
     usedHere: "Already used here",
     otherAgents: "Other Agents",
     allInstalled: (place: string) => `Every Agent available in ${place} already has it`,

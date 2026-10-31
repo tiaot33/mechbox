@@ -2407,11 +2407,12 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
   await mine().locator(".section-pick").click();
   await btn(bar, "移除技能").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "移除 3 个技能" }).waitFor();
-  await btn(modal(), "取消").click();
+  await page.keyboard.press("Escape"); // Esc 只关弹窗，勾选留着
+  await modal().waitFor({ state: "detached" });
+  await picked(3);
   await btn(bar, "移出组…").click();
   await modal().locator(".group-picked select").selectOption({ label: "批量" });
-  await btn(modal(), "移出").click();
-  await btn(modal(), "移出").click();
+  await btn(modal(), "移出").click(); // 组没有组安装：选好组就直接移出，不再问
   await toast("已把 3 个技能移出「批量」");
   await settle();
   await page.keyboard.press("Escape");

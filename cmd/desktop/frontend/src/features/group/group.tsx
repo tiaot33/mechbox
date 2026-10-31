@@ -1,4 +1,5 @@
-// 组：新建、重命名、删除，加入(一个技能或整个集合)或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
+// 组：新建、重命名、删除，加入(一个技能、整个集合或勾选的几个技能)或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
+import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   GroupMemberOutcome,
@@ -10,14 +11,17 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
-import { messages } from "@/lib/i18n";
+import { messages, useT } from "@/lib/i18n";
 import { describeError } from "@/lib/errors";
-import { currentSnapshot, toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
+import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
 import { folderPlaces, groupName, missingFromGroup, scopeKey, skillName, sourceLabel } from "@/lib/model";
-import { ui } from "@/lib/ui";
-import { Hint } from "@/components/ui/field";
+import { Modal, ui } from "@/lib/ui";
+import { useSortedGroups } from "@/lib/view";
+import { Button } from "@/components/ui/button";
+import { Field, Hint } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { DetachNotice } from "@/components/app/link-notes";
-import { memberRows, showResults, type ResultRow } from "@/components/app/results";
+import { memberRows, runEach, showResults, type ResultRow } from "@/components/app/results";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   const s = currentSnapshot();
@@ -101,7 +105,7 @@ async function addEachToGroup(
     if (o.results.length) return memberRows(s, o.results);
     return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "ok" }];
   });
-  await showResults(text.title(added.length, ids.length), rows, skipped ? t.collectionAddedPartly : undefined);
+  await showResults(text.title(added.length, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
@@ -119,10 +123,7 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
           <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="delete" prefix={t.ifUninstallToo} />
         </>
       ),
-      choices: [
-        { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
-        { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
-      ],
+      choices: removalChoices(),
       confirm: t.removeFromGroup,
     });
     if (!choice) return;
@@ -142,35 +143,28 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   const ids = picked.filter((id) => s.groups.find((g) => g.id === groupID)?.members?.includes(id));
   if (!ids.length) return;
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
+  // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
-  const choice = await ui.confirm({
-    title: t.pickedRemoveFromGroupTitle(ids.length, group),
-    body: installed.length ? (
-      <>
-        <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
-        <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, ids)))} when="delete" prefix={t.ifUninstallToo} />
-      </>
-    ) : undefined,
-    choices: installed.length
-      ? [
-          { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
-          { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
-        ]
-      : undefined,
-    confirm: t.removeFromGroup,
-  });
-  if (!choice) return;
-  if (installed.length) policy = choice as MemberRemovalPolicy;
-  const rows: ResultRow[] = [];
-  await ui.run(async () => {
-    for (const id of ids) {
-      try {
-        await LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy });
-      } catch (e) {
-        rows.push({ label: skillName(s, id), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
-      }
-    }
-  }, { failed: () => rows.length > 0 });
+  if (installed.length) {
+    const choice = await ui.confirm({
+      title: t.pickedRemoveFromGroupTitle(ids.length, group),
+      body: (
+        <>
+          <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
+          <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, ids)))} when="delete" prefix={t.ifUninstallToo} />
+        </>
+      ),
+      choices: removalChoices(),
+      confirm: t.removeFromGroup,
+    });
+    if (!choice) return;
+    policy = choice as MemberRemovalPolicy;
+  }
+  const rows = await runEach(
+    ids,
+    (id) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }),
+    (id) => skillName(s, id),
+  );
   if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
   else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
 }
@@ -220,12 +214,7 @@ export async function deleteGroup(groupID: GroupID) {
         />
       </>
     ),
-    choices: installs
-      ? [
-          { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
-          { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
-        ]
-      : undefined,
+    choices: installs ? removalChoices() : undefined,
     confirm: t.deleteGroup,
     danger: true,
   });
@@ -235,10 +224,68 @@ export async function deleteGroup(groupID: GroupID) {
 }
 
 
+// removalChoices 是移出成员、删除组时只随本组安装的技能怎么处理：保留(改为直接安装)或一并卸载。
+function removalChoices() {
+  const t = messages().actions;
+  return [
+    { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
+    { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
+  ];
+}
+
 // groupOnly 是这个组在它装到的各作用域里，只靠它留着的成员(没有直接安装、也没有别的组安装):选了一并卸载时这些文件夹会删。
 function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScopeInspection[] {
   const scopes = new Set(s.groupInstalls.filter((g) => g.group_id === groupID).map((g) => scopeKey(g.scope)));
   return s.skillScopes.filter(
     (p) => members.includes(p.skill_id) && scopes.has(scopeKey(p.scope)) && !p.direct && (p.groups ?? []).every((g) => g === groupID),
+  );
+}
+
+// pickGroup 是勾选后操作栏的"加入组…""移出组…":选一个组，把勾选的技能加入(也可以新建一个组)或移出。
+export async function pickGroup(ids: SkillID[], mode: "add" | "remove") {
+  const chosen = await ui.open<GroupID | "new">((close) => <GroupDialog ids={ids} mode={mode} close={close} />);
+  if (chosen === undefined) return;
+  if (chosen === "new") await createGroup(ids);
+  else if (mode === "add") await addSkillsToGroup(chosen, ids);
+  else await removeSkillsFromGroup(chosen, ids);
+}
+
+// GroupDialog 选组：加入时列出全部组(勾选的都已在里面的选不了)和"新建组…";移出时只列有勾选的技能在里面的组。
+function GroupDialog({ ids, mode, close }: { ids: SkillID[]; mode: "add" | "remove"; close: (group?: GroupID | "new") => void }) {
+  const s = useSnapshot();
+  const t = useT();
+  const has = (members: SkillID[] | null | undefined, id: SkillID) => !!members?.includes(id);
+  const groups = useSortedGroups(s).filter((g) => mode === "add" || ids.some((id) => has(g.members, id)));
+  const full = (members: SkillID[] | null | undefined) => ids.every((id) => has(members, id));
+  const first = mode === "add" ? (groups.find((g) => !full(g.members))?.id ?? "new") : groups[0]?.id;
+  const [value, setValue] = useState<GroupID | "new" | undefined>(first);
+  return (
+    <Modal
+      title={mode === "add" ? t.list.pickAddTitle(ids.length) : t.list.pickRemoveTitle(ids.length)}
+      onClose={() => close()}
+      footer={
+        <>
+          <Button onClick={() => close()}>{t.common.cancel}</Button>
+          <Button variant="primary" disabled={value === undefined} onClick={() => close(value)}>
+            {mode === "add" ? (value === "new" ? t.list.pickNewGroupNext : t.list.pickAdd) : t.actions.removeFromGroup}
+          </Button>
+        </>
+      }
+    >
+      <Field label={t.list.pickGroup} className="group-picked">
+        <NativeSelect
+          className="max-w-[260px]"
+          value={value ?? ""}
+          onChange={(e) => setValue(e.target.value === "new" ? "new" : Number(e.target.value))}
+        >
+          {groups.map((g) => (
+            <option key={g.id} value={g.id} disabled={mode === "add" && full(g.members)}>
+              {mode === "add" && full(g.members) ? t.list.pickAllInGroup(g.name) : g.name}
+            </option>
+          ))}
+          {mode === "add" && <option value="new">{t.list.pickNewGroup}</option>}
+        </NativeSelect>
+      </Field>
+    </Modal>
   );
 }

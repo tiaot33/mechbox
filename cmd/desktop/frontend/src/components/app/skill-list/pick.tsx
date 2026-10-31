@@ -2,14 +2,18 @@
 import { useEffect, useRef } from "react";
 import type { SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
+import type { PickRow } from "@/lib/model";
 import { cn } from "@/lib/utils";
 import { setPicked, togglePick, useView } from "@/lib/view";
 
 const boxClass = "size-3.5 shrink-0 cursor-pointer accent-primary transition-opacity";
 
-// listOrder 是列表里各行从上到下的技能，按住 Shift 勾选一段时用。
-const listOrder = () =>
-  [...document.querySelectorAll<HTMLElement>(".a-list .skill-row[data-skill-id]")].map((el) => Number(el.dataset.skillId));
+// pickRow 是一行的身份：所在的节 + 技能，同一个技能在几节里出现时各是一行。
+const pickRow = (el: Element, id: SkillID): PickRow => ({ key: `${el.closest<HTMLElement>("[data-section]")?.dataset.section ?? ""}|${id}`, id });
+
+// listRows 是列表里各行从上到下，按住 Shift 勾选一段时用。
+const listRows = () =>
+  [...document.querySelectorAll<HTMLElement>(".a-list .skill-row[data-skill-id]")].map((el) => pickRow(el, Number(el.dataset.skillId)));
 
 // PickBox 是一行开头的勾选框。
 export function PickBox({ id }: { id: SkillID }) {
@@ -24,7 +28,7 @@ export function PickBox({ id }: { id: SkillID }) {
         checked={picked}
         aria-label={t.pick}
         onChange={() => {}}
-        onClick={(e) => togglePick(id, e.shiftKey ? { order: listOrder() } : undefined)}
+        onClick={(e) => togglePick(pickRow(e.currentTarget, id), e.shiftKey ? listRows() : undefined)}
       />
     </span>
   );

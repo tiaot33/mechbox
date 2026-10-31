@@ -226,7 +226,7 @@ export function GroupHead({ group, scope, listed }: { group: Group; scope?: Scop
   );
 }
 
-// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局。
+// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局、项目页的各个 Agent。
 export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode; name: string; count: React.ReactNode; title?: string }) {
   return (
     <span className="flex min-w-0 grow items-center gap-2" title={title}>

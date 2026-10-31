@@ -12,6 +12,7 @@ import {
   moved,
   noOrder,
   pageListing,
+  pageSkills,
   pickRange,
   parseScope,
   prunedOrder,
@@ -25,6 +26,7 @@ import {
   type Order,
   type Page,
   type PageListing,
+  type PickRow,
   type Place,
   type ScopeKey,
 } from "./model";
@@ -54,7 +56,7 @@ interface ViewState {
   flipped: ReadonlySet<string>; // 列表里收起、展开和默认相反的节(默认展开的被收起了，默认收起的被展开了)
   unfolded: ReadonlySet<string>; // 列表里展开了"没装的"的节
   picked: ReadonlySet<SkillID>; // 列表里勾选的技能，底部的操作栏对它们一起操作;换页时清空
-  anchor: SkillID | null; // 上一次单独勾选或取消的技能，按住 Shift 勾选时从它勾到点的那一行
+  anchor: string | null; // 上一次单独勾选或取消的那一行(PickRow.key),按住 Shift 勾选时从它勾到点的那一行
   jump: Jump | null;
   drawer: SkillID | null;
   drag: DragItem | null;
@@ -122,17 +124,18 @@ function goTo(page: Page, extra: Partial<ViewState> = {}) {
   set({ page, jump: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
 }
 
-// togglePick 勾选或取消一个技能。range 是按住 Shift 点的：order 是列表里各行从上到下的技能，
-// 从上一次单独勾选的那一行到这一行都设成和这一行点完后一样的状态;上一次的那一行不在 order 里时只改这一行。
-export function togglePick(id: SkillID, range?: { order: SkillID[] }) {
+// togglePick 勾选或取消一行的技能。rows 是按住 Shift 点的：列表里各行从上到下，
+// 从上一次单独勾选的那一行到这一行都设成和这一行点完后一样的状态;上一次的那一行已经不在列表里时只改这一行。
+export function togglePick(row: PickRow, rows?: PickRow[]) {
   const { picked, anchor } = get();
-  const on = !picked.has(id);
-  const ids = range && anchor !== null ? pickRange(range.order, anchor, id) : [id];
-  setPicked(ids, on, range && anchor !== null ? anchor : id);
+  const on = !picked.has(row.id);
+  const range = rows && anchor !== null ? pickRange(rows, anchor, row.key) : [];
+  if (range.length) setPicked(range, on, anchor);
+  else setPicked([row.id], on, row.key);
 }
 
 // setPicked 把几个技能一起勾上或取消(节标题上的勾选框)。
-export function setPicked(ids: SkillID[], on: boolean, anchor: SkillID | null = get().anchor) {
+export function setPicked(ids: SkillID[], on: boolean, anchor: string | null = get().anchor) {
   set((v) => {
     const next = new Set(v.picked);
     for (const id of ids) {
@@ -163,14 +166,16 @@ export function openProject(project: ProjectID) {
 // jumpTo 是左栏点了集合或组：回到所有技能页、按它分节、清掉搜索，展开并滚到那一节。
 export function jumpTo(target: { kind: "collection"; id: CollectionID } | { kind: "group"; id: GroupID }) {
   const section = sectionKey(target.kind, target.id);
-  if (get().page.kind !== "all") clearPicked();
-  set((v) => ({
-    page: { kind: "all" },
-    arrange: target.kind,
-    search: "",
-    flipped: new Set([...v.flipped].filter((k) => k !== section)),
-    jump: { section, n: (v.jump?.n ?? 0) + 1 },
-  }));
+  const v = get();
+  goTo(
+    { kind: "all" },
+    {
+      arrange: target.kind,
+      search: "",
+      flipped: new Set([...v.flipped].filter((k) => k !== section)),
+      jump: { section, n: (v.jump?.n ?? 0) + 1 },
+    },
+  );
 }
 
 // reveal 把右栏展开到作用域那一行，否则折叠的项目或"其他 Agent"里看不到它。
@@ -226,12 +231,16 @@ export function useSortedGroups(s: Snapshot): Group[] {
 
 // reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、删除自定义 Agent、
 // 拉取了别的库)时退回所有技能，并记下来，之后又有了更新也不会自己跳回去。
-// 拖出来的先后里已经不在库里的集合与组、勾选的技能里已经移除的也在这时去掉。
+// 拖出来的先后里已经不在库里的集合与组也在这时去掉;勾选的技能只留这一页还列着的(移除了的、项目页上卸载了的去掉),
+// 免得看不见的技能被带进下一次操作。
 export function reconcile(s: Snapshot) {
   const { page, order, picked } = get();
   const resolved = resolvePage(s, page);
   if (!samePage(resolved, page)) set({ page: resolved, picked: new Set(), anchor: null });
-  else if ([...picked].some((id) => !s.skills.some((x) => x.id === id))) set({ picked: new Set([...picked].filter((id) => s.skills.some((x) => x.id === id))) });
+  else if (picked.size) {
+    const listed = pageSkills(s, resolved);
+    if ([...picked].some((id) => !listed.has(id))) set({ picked: new Set([...picked].filter((id) => listed.has(id))) });
+  }
   const pruned = prunedOrder(s, order);
   if (pruned !== order) saveOrder(pruned);
 }
