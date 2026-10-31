@@ -71,7 +71,7 @@ export async function installSkill(id: SkillID, scope: Scope) {
 }
 
 // occupiedReason 说明为什么装不上：同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹;用来源区分是哪一个。
-function occupiedReason(s: Snapshot, id: SkillID, plan: InstallPlan): string {
+export function occupiedReason(s: Snapshot, id: SkillID, plan: InstallPlan): string {
   const t = messages().actions;
   const occupier = s.skills.find((x) => x.id === plan.occupier_skill_id);
   const folder = shortPath(s, plan.folder);

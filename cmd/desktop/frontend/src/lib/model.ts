@@ -325,6 +325,79 @@ export function viaGroupCount(s: Snapshot, group: Group, key: ScopeKey): number 
   return (group.members ?? []).filter((id) => skillScopeIn(s, id, key)?.groups?.includes(group.id)).length;
 }
 
+// ---------- 照着另一个 Agent 装 ----------
+// 照着一个 Agent(from),把它在全局和各已登记项目里装的库里技能装到另一个 Agent(to)的同一处：直接安装照样直接安装，
+// 组安装照样是同一个组的组安装。只装一次、只加不减:to 在这一处已经装了的技能、已经有的组安装不列出;
+// 两个 Agent 在某一处读同一个目录时，那一处本来就一样，也不列出。
+
+// CopyPlace 是照装时的一处:groups 是 from 在这里有、to 还没有的组安装，skills 是 from 在这里直接安装、to 这里还没装的技能;
+// edited 是要装过来的技能里(含随组装过来的),from 这一处被手动改过的:这里装的是库里的版本，不是改过的那份。
+// missing 是项目不在这台机器上，这一处装不了。
+export interface CopyPlace {
+  place: Place;
+  groups: Group[];
+  skills: Skill[];
+  edited: Skill[];
+  missing: boolean;
+}
+
+// sameFolderAt 是两个 Agent 在某一处是否读同一个目录。
+export function sameFolderAt(s: AgentList, a: AgentCode, b: AgentCode, place: Place): boolean {
+  if (place) return sameProjectFolder(s, a, b);
+  const dir = (code: AgentCode) => s.agents.find((x) => x.code === code)?.global_directory;
+  return a === b || (!!dir(a) && dir(a) === dir(b));
+}
+
+// copyTarget 是照装到 to 时这一处装在谁的作用域上：项目里共用一个目录的几个 Agent 合成一处，落在代表的 Agent 上，
+// 和右栏、作用域页一致(组安装记在代表上，合成的那一行才显示为已组安装)。
+export function copyTarget(s: AgentList, to: AgentCode, place: Place): AgentCode {
+  return place ? projectLead(s, to) : to;
+}
+
+// hasGroupAt 是某个组在一处是否已组安装给这个 Agent:组安装记在和它读同一个目录的另一个 Agent 上也算。
+function hasGroupAt(s: Snapshot, g: Group, agent: AgentCode, place: Place): boolean {
+  return s.groupInstalls.some((gi) => gi.group_id === g.id && placeOf(gi.scope) === place && sameFolderAt(s, gi.scope.agent, agent, place));
+}
+
+export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): CopyPlace[] {
+  return [0, ...s.projects.map((p) => p.id)].flatMap((place): CopyPlace[] => {
+    if (sameFolderAt(s, from, to, place)) return [];
+    const fromKey = scopeKey(scopeOf(from, place));
+    const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
+    const installed = new Set(skillScopesIn(s, toKey).map((p) => p.skill_id));
+    const groups = s.groups.filter((g) => hasGroupAt(s, g, from, place) && !hasGroupAt(s, g, to, place));
+    const there = skillScopesIn(s, fromKey).filter((p) => !installed.has(p.skill_id));
+    const skillsOf = (ids: SkillID[]) => sortSkills(s, s.skills.filter((x) => ids.includes(x.id)));
+    const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
+    if (!groups.length && !skills.length) return [];
+    const coming = new Set([...skills.map((x) => x.id), ...groups.flatMap((g) => g.members ?? [])]);
+    const edited = skillsOf(there.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && coming.has(p.skill_id)).map((p) => p.skill_id));
+    const missing = !!s.projects.find((p) => p.id === place)?.missing;
+    return [{ place, groups, skills, edited, missing }];
+  });
+}
+
+// copySources 是可以照着装的 Agent:to 以外、照装时有东西可装的(只在不在这台机器上的项目里有的不算),
+// 装得最多的在前(默认选它),一样多的按 Agent 列表顺序。
+export function copySources(s: Snapshot, to: AgentCode): Agent[] {
+  const count = (code: AgentCode) => s.skillScopes.filter((p) => p.scope.agent === code).length;
+  return s.agents
+    .filter((a) => a.code !== to && copyFromAgent(s, a.code, to).some((p) => !p.missing))
+    .sort((a, b) => count(b.code) - count(a.code));
+}
+
+// uncopiedUnmanaged 是 from 里的未纳管技能：不在库里，照装带不过去。和 to 读同一个目录的那几处不算;
+// to 在同一处已经有同名文件夹的(如 npx skills 从这里链到 to 的那一份)也不算。
+export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): UnmanagedSkill[] {
+  return s.unmanaged.filter((u) => {
+    const place = placeOf(u.scope);
+    if (u.scope.agent !== from || sameFolderAt(s, from, to, place)) return false;
+    const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
+    const there = [...unmanagedIn(s, toKey).map((x) => x.name), ...skillScopesIn(s, toKey).map((p) => lastSegment(p.folder))];
+    return !there.includes(u.name);
+  });
+}
+
 // ---------- 更新 ----------
 // 计入角标的规则由技能库给出(UpdateCheck.pending):有新版本且没跳过、来源里已删除且没选继续保留、推测出改名且没跳过;
 // 本地目录来源、跳过的改动、来源里的新技能都不计入。侧边栏的更新计数、更新列表和 Dock 角标都按它算。
