@@ -931,6 +931,40 @@ export const en = {
       `These projects aren't on this machine; after pulling, point them to their location here from the right sidebar: ${names.join(", ")}`,
   },
 
+  release: {
+    sidebar: "New version",
+    sidebarTitle: (version: string) => `Mechbox ${version} is out. Open to read what's new and update`,
+    title: (version: string) => `Mechbox ${version}`,
+    current: (current: string, version: string, date: string) => `Current version ${current} · ${version} released ${date}`,
+    noNotes: "This version has no release notes.",
+    update: "Update",
+    later: "Later",
+    stop: "Stop download",
+    openPage: "Open download page",
+    uac: "Windows will ask for administrator permission once; the new version opens when installed.",
+    restartNote: "The new version is downloaded, verified and installed, then the app restarts.",
+    downloading: (done: string, total: string) => (total ? `Downloading ${done} / ${total}` : `Downloading ${done}`),
+    installing: "Installing the new version. The app restarts in a moment…",
+    manualPackage: "This Mechbox was installed from a deb, rpm or pkg.tar.zst package, so it can't replace itself. Download the new package from the download page and install it.",
+    manualLocation: (): string =>
+      platform() === "mac"
+        ? "Mechbox isn't somewhere it can replace itself (no write permission to its folder, opened straight from the dmg or the Downloads folder, or on an external disk). Download the new version from the download page and install it again."
+        : "The folder Mechbox is in can't be written to, so it can't update itself. Download the new version from the download page.",
+    manualAsset: "This version has no installer this platform can apply directly. Download it from the download page.",
+    unreachable: "Couldn't reach GitHub, or too many requests were made. Try again later.",
+    invalid: "The downloaded installer doesn't match the checksum on the release page. Nothing was installed; the current version is unchanged.",
+    failed: "The new version wasn't installed; the current version is unchanged.",
+    unreadable: "Couldn't read what GitHub returned. Try again later.",
+    lastFailed: (version: string, reason: string) =>
+      `Mechbox ${version} wasn't installed last time; the current version is unchanged.${reason ? ` Reason: ${reason}` : ""}`,
+    check: "Check for new version",
+    checking: "Checking…",
+    upToDate: "Up to date",
+    found: (version: string) => `New version ${version}`,
+    view: "View",
+    notChecked: "This build doesn't check for new versions",
+  },
+
   sidebar: {
     fetch: "Fetch skills",
     market: "Skill market",

@@ -24,7 +24,8 @@ const (
 // autoPushRetry 是自动推送失败后，最早多久再试一次。
 const autoPushRetry = time.Hour
 
-// AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、自动推送、Dock 角标、关闭窗口后留在菜单栏。
+// AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、自动推送、Dock 角标、关闭窗口后留在菜单栏;
+// 另外每次启动时检查一次 Mechbox 有没有新版本(见 release.go)。
 // 自动检查只读(检查更新不改技能，也不碰装出去的文件夹),结果不发系统通知，只体现在角标和侧栏计数上。
 // 自动推送按同步设置里的间隔把库推送成 S3 上这台机器的一份新备份，从不自动拉回;推送出的问题由 PushProblem 给出。
 type AppService struct {
@@ -47,6 +48,8 @@ type AppService struct {
 
 	removeOnce sync.Once
 	discard    func(path string) error
+
+	releases *releases
 
 	saveMu sync.Mutex
 
@@ -93,6 +96,9 @@ func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOp
 	a.stop = stop
 	a.done = make(chan struct{})
 	go a.loop(loop)
+	if a.releases != nil {
+		go a.checkReleaseOnStartup(loop)
+	}
 	return nil
 }
 
@@ -518,6 +524,7 @@ func (a *AppService) showWindow() {
 
 func (a *AppService) attach(app *application.App, window *application.WebviewWindow) {
 	a.app, a.window = app, window
+	a.releases = newReleases(releaseFeedURL(), appVersion(), filepath.Dir(a.library.path), app.Updater, releaseTarget)
 	a.menus.attach(app)
 	window.RegisterHook(events.Common.WindowClosing, a.windowClosing)
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {

@@ -76,6 +76,19 @@ export interface ConfigStatus {
 }
 
 /**
+ * InstallFailure 是上一次「更新」没装上的新版本。新版本在 app 退出后才装上，装没装上要到下次启动才知道:
+ * 启动时的版本还不是它，就是没装上(Windows 上安装程序被取消或失败，macOS 上替换失败后还原了旧版)。
+ */
+export interface InstallFailure {
+    "version": string;
+
+    /**
+     * 安装程序或替换 app 时记下的最后一行;没有记录时为空
+     */
+    "reason"?: string;
+}
+
+/**
  * Language 是界面语言的设置值。
  */
 export enum Language {
@@ -101,12 +114,76 @@ export enum Language {
 };
 
 /**
+ * ManualReason 说明这次更新为什么不能在 app 里直接装上，只能打开下载页;为空时「更新」下载、校验并装上新版。
+ */
+export enum ManualReason {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 用系统包管理器(deb、rpm、pkg.tar.zst)装的，交给包管理器更新
+     */
+    ManualPackage = "package",
+
+    /**
+     * app 不在能直接替换的位置：所在文件夹不能写入(没有权限，或直接从 dmg、下载文件夹里打开),或者和系统临时目录不在同一个磁盘上
+     */
+    ManualLocation = "location",
+
+    /**
+     * 这个版本没有本平台能直接装的安装包或它的校验值
+     */
+    ManualAsset = "asset",
+};
+
+/**
  * PushProblem 是上一次推送(自动或手动)出的问题:推送失败,或备份已经传上去、删超出份数的旧备份失败(Uploaded)。
  */
 export interface PushProblem {
     "at": string;
     "error": library$0.Error | null;
     "uploaded"?: boolean;
+}
+
+/**
+ * Release 是 GitHub Releases 上比正在运行的版本更新的 Mechbox。
+ */
+export interface Release {
+    "version": string;
+
+    /**
+     * 更新说明(Markdown)
+     */
+    "notes": string;
+    "published_at"?: string;
+
+    /**
+     * 这个版本的下载页
+     */
+    "page_url": string;
+    "manual"?: ManualReason;
+}
+
+/**
+ * ReleaseStatus 是检查新版本的现状。
+ */
+export interface ReleaseStatus {
+    /**
+     * Checks 为 false 时这个构建不检查新版本：开发版与 server 模式没设 MECHBOX_RELEASE_FEED 时。
+     */
+    "checks": boolean;
+
+    /**
+     * Latest 是上一次检查找到的新版本;还没检查过、已是最新时为 nil。
+     */
+    "latest"?: Release | null;
+
+    /**
+     * Failed 是上一次「更新」没装上的版本;上次装上了、或没点过「更新」时为 nil。
+     */
+    "failed"?: InstallFailure | null;
 }
 
 /**
