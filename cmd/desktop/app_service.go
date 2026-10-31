@@ -486,7 +486,7 @@ func (a *AppService) newTray() *application.SystemTray {
 	if runtime.GOOS == "darwin" {
 		tray.SetTemplateIcon(trayTemplateIcon)
 	} else {
-		tray.SetIcon(trayIcon)
+		tray.SetIcon(trayIcon).SetDarkModeIcon(trayIcon)
 	}
 	tray.SetTooltip("Mechbox")
 	tray.SetMenu(menu)
