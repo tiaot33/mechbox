@@ -151,7 +151,7 @@ cmd/desktop/
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)、少量全局样式与按状态切换的动画
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
         ├── components/app/ 主界面：顶栏(toolbar)、左栏(left-sidebar)、中间列表(skill-list/:四种页面、分节与节标题、技能行与未纳管技能行、
-        │                   作用域摘要与更新列表)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
+        │                   作用域摘要与更新列表、勾选框与勾选后的操作栏)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
         │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);layout.ts 是三栏与顶栏的公共样式
         ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),

@@ -1,9 +1,9 @@
 // 集合与组的先后：用户拖出来的顺序优先，没排过的按默认顺序接在后面;集合加入组时加入哪些技能;
-// 作用域页里有技能装在这里的节排在前面;项目页按 Agent 分节。
+// 作用域页里有技能装在这里的节排在前面;项目页按 Agent 分节;按住 Shift 勾选一段。
 import { describe, expect, it } from "vitest";
 import { ScopeKind, SourceType, type Agent, type Collection, type Group, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { homePath, missingFromGroup, moved, noOrder, projectAgents, prunedOrder, scopeListing, sortedCollections, sortedGroups } from "./model";
+import { homePath, missingFromGroup, moved, noOrder, pickRange, projectAgents, prunedOrder, scopeListing, sortedCollections, sortedGroups } from "./model";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;
@@ -141,5 +141,20 @@ describe("projectAgents", () => {
     expect(agents.map((a) => a.scope)).toEqual(["codex@1"]);
     expect(agents[0].skills.map((x) => x.name)).toEqual(["zeta"]);
     expect(agents[0].all).toBe(2);
+  });
+});
+
+describe("pickRange", () => {
+  it("是两行之间(含两头)的技能，不分先后", () => {
+    expect(pickRange([5, 3, 8, 1, 9], 3, 1)).toEqual([3, 8, 1]);
+    expect(pickRange([5, 3, 8, 1, 9], 9, 8)).toEqual([8, 1, 9]);
+  });
+
+  it("一个技能在几节里出现时按第一次出现的位置，结果不重复", () => {
+    expect(pickRange([5, 3, 5, 8], 5, 8)).toEqual([5, 3, 8]);
+  });
+
+  it("上一次的那一行不在列表里时只有这一行", () => {
+    expect(pickRange([5, 3, 8], 7, 3)).toEqual([3]);
   });
 });

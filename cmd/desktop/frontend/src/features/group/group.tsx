@@ -46,6 +46,38 @@ export async function addCollectionToGroup(groupID: GroupID, collectionID: Colle
     ui.toast(t.collectionAlreadyInGroup(label, group));
     return;
   }
+  await addEachToGroup(groupID, ids, {
+    title: (added, total) => t.collectionAddedToGroupTitle(label, group, added, total),
+    done: (n, scopes) => t.collectionAddedToGroup(label, n, group, scopes),
+  });
+}
+
+// addSkillsToGroup 把勾选的技能里还不在组里的加入组(底部操作栏的"加入组…"、拖勾选着的一行到组上);都已在组里时只提示。
+export async function addSkillsToGroup(groupID: GroupID, picked: SkillID[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const group = groupName(s, groupID);
+  const members = s.groups.find((g) => g.id === groupID)?.members ?? [];
+  const ids = picked.filter((id) => !members.includes(id));
+  if (!ids.length) {
+    ui.toast(t.pickedAlreadyInGroup(group));
+    return;
+  }
+  await addEachToGroup(groupID, ids, {
+    title: (added, total) => t.pickedAddedToGroupTitle(group, added, total),
+    done: (n, scopes) => t.pickedAddedToGroup(n, group, scopes),
+  });
+}
+
+// addEachToGroup 把技能逐个加入组：每个技能各是一次写操作，一个失败不影响其余的;有失败或有作用域没装上时
+// 逐个列出已加入、被跳过、失败的技能，否则只提示加入了几个(done,scopes 是该组已组安装的作用域数)。
+async function addEachToGroup(
+  groupID: GroupID,
+  ids: SkillID[],
+  text: { title: (added: number, total: number) => string; done: (n: number, scopes: number) => string },
+) {
+  const s = currentSnapshot();
+  const t = messages().actions;
   const outcomes = await ui.run(async () => {
     const all: { id: SkillID; results: GroupMemberResult[]; error?: LibraryError }[] = [];
     for (const id of ids) {
@@ -61,7 +93,7 @@ export async function addCollectionToGroup(groupID: GroupID, collectionID: Colle
   const added = outcomes.filter((o) => !o.error);
   const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
   if (added.length === ids.length && !skipped) {
-    ui.toast(t.collectionAddedToGroup(label, ids.length, group, s.groupInstalls.filter((a) => a.group_id === groupID).length));
+    ui.toast(text.done(ids.length, s.groupInstalls.filter((a) => a.group_id === groupID).length));
     return;
   }
   const rows = outcomes.flatMap((o): ResultRow[] => {
@@ -69,7 +101,7 @@ export async function addCollectionToGroup(groupID: GroupID, collectionID: Colle
     if (o.results.length) return memberRows(s, o.results);
     return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "ok" }];
   });
-  await showResults(t.collectionAddedToGroupTitle(label, group, added.length, ids.length), rows, skipped ? t.collectionAddedPartly : undefined);
+  await showResults(text.title(added.length, ids.length), rows, skipped ? t.collectionAddedPartly : undefined);
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
@@ -99,6 +131,48 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
   await ui.run(() => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }), {
     success: t.removedFromGroup(skillName(s, id), groupName(s, groupID)),
   });
+}
+
+// removeSkillsFromGroup 把勾选的技能里在组里的移出组(底部操作栏的"移出组…"):组有组安装时和移出一个成员一样，
+// 先问只随本组安装的留着(改为直接安装)还是一并卸载，一批只问一次。有失败的才列出结果。
+export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const group = groupName(s, groupID);
+  const ids = picked.filter((id) => s.groups.find((g) => g.id === groupID)?.members?.includes(id));
+  if (!ids.length) return;
+  const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
+  let policy = MemberRemovalPolicy.KeepAsDirectInstall;
+  const choice = await ui.confirm({
+    title: t.pickedRemoveFromGroupTitle(ids.length, group),
+    body: installed.length ? (
+      <>
+        <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
+        <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, ids)))} when="delete" prefix={t.ifUninstallToo} />
+      </>
+    ) : undefined,
+    choices: installed.length
+      ? [
+          { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
+          { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
+        ]
+      : undefined,
+    confirm: t.removeFromGroup,
+  });
+  if (!choice) return;
+  if (installed.length) policy = choice as MemberRemovalPolicy;
+  const rows: ResultRow[] = [];
+  await ui.run(async () => {
+    for (const id of ids) {
+      try {
+        await LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy });
+      } catch (e) {
+        rows.push({ label: skillName(s, id), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+      }
+    }
+  }, { failed: () => rows.length > 0 });
+  if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
+  else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
 }
 
 // createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。

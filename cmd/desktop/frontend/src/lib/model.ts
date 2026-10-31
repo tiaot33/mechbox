@@ -412,6 +412,15 @@ export function moved(ids: number[], dragged: number, target: number, after: boo
   return rest;
 }
 
+// pickRange 是 order 里从 from 到 to(含两头,不分先后)的技能;一个技能在几节里出现时取第一次出现的位置。
+// from 不在 order 里时只有 to。
+export function pickRange(order: SkillID[], from: SkillID, to: SkillID): SkillID[] {
+  const a = order.indexOf(from);
+  const b = order.indexOf(to);
+  if (a < 0 || b < 0) return [to];
+  return [...new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1))];
+}
+
 // sortSkills 是列表里技能的顺序：先按来源(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
 export function sortSkills(s: Snapshot, skills: Skill[]): Skill[] {
   const source = (x: Skill) => (noSource(x.source) ? "" : sourceLabel(s, x.source));

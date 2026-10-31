@@ -1,6 +1,7 @@
 // 列表的行：库里的技能(所有技能页、更新页与作用域页)与作用域里的未纳管技能。一个技能一行，列对齐，
 // 平常的信息用淡色，只有要处理的(有新版本、来源里已删除、同名、要重新安装)才上色。
-// 库里技能的行点开详情抽屉，可以拖到右栏作用域(直接安装)或左栏、节标题上的组(加入该组)。
+// 库里技能的行点开详情抽屉，可以拖到右栏作用域(直接安装)或左栏、节标题上的组(加入该组);
+// 所有技能页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { AppService } from "@bindings/cmd/desktop";
 import type { Skill, UnmanagedSkill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
@@ -41,11 +42,14 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
 import { Truncated } from "@/components/app/parts";
+import { PickBox } from "./pick";
 import { SameNameBadge, SameNameLine } from "./same-name";
 
 // 列宽：所有技能页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
-export const libraryCols = "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
-export const scopeCols = "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
+// 能勾选的行(更新页以外)前面多一列勾选框。
+const libraryCols = "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
+const pickLibraryCols = "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
+const pickScopeCols = "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
 
 const rowClass =
   "grid min-h-9 items-center gap-x-4 border-b border-[rgba(17,24,39,0.06)] px-3 py-1.5 text-[12px] last:border-b-0";
@@ -55,10 +59,12 @@ const recentDays = 7;
 
 // SkillRow 是库里一个技能的一行。scope 为空时是所有技能页 / 更新页的样子;有 scope 时是作用域页的样子:
 // 开头是直接安装的开关，最后一列写在这里的状态;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
+// pickable 的行最前面有勾选框(更新页不能勾选)。
 export function SkillRow(props: {
   skill: Skill;
   scope?: ScopeKey;
   fromGlobal?: boolean;
+  pickable?: boolean;
   showSource: boolean;
   hideGroup?: number; // 所在的组的节：每行都属于它，不再重复显示
 }) {
@@ -66,6 +72,8 @@ export function SkillRow(props: {
   const { skill, scope } = props;
   const dnd = useDnD();
   const selected = useView((v) => v.drawer === skill.id);
+  const picked = useView((v) => v.picked.has(skill.id));
+  const pickedIDs = useView((v) => v.picked);
   const t = useT();
   const here = scope && !props.fromGlobal ? skillScopeIn(s, skill.id, scope) : undefined;
   // 作用域页说这一处的同名后果;所有技能页、更新页说它装出去的各处。
@@ -85,16 +93,24 @@ export function SkillRow(props: {
       className={cn(
         "skill-row group/row cursor-grab transition-colors hover:bg-white/80 active:cursor-grabbing",
         rowClass,
-        scope ? scopeCols : libraryCols,
+        scope ? pickScopeCols : props.pickable ? pickLibraryCols : libraryCols,
+        picked && "bg-primary-soft/45 hover:bg-primary-soft/60",
         selected && "bg-primary-soft hover:bg-primary-soft",
       )}
       data-name={skill.name}
+      data-skill-id={skill.id}
       data-selected={selected || undefined}
+      data-picked={picked || undefined}
       onClick={() => toggleDrawer(skill.id)}
       draggable
-      onDragStart={(e) => dnd.start(e, { kind: "skill", id: skill.id }, skill.name)}
+      onDragStart={(e) =>
+        picked && pickedIDs.size > 1
+          ? dnd.start(e, { kind: "skills", ids: [...pickedIDs] }, t.list.pickedDrag(pickedIDs.size))
+          : dnd.start(e, { kind: "skill", id: skill.id }, skill.name)
+      }
       onDragEnd={dnd.end}
     >
+      {(scope || props.pickable) && <PickBox id={skill.id} />}
       {scope && (
         <span onClick={(e) => e.stopPropagation()} className="flex">
           {!props.fromGlobal && (
@@ -260,7 +276,8 @@ export function UnmanagedRow({ skill }: { skill: UnmanagedSkill }) {
   const found = foundSource(useFoundSources(), skill);
   const source = skill.source_input || found;
   return (
-    <article className={cn("unmanaged-row", rowClass, scopeCols)} data-name={skill.name}>
+    <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>
+      <span />
       <span className="grid size-[17px] place-items-center rounded-full border border-dashed border-border-strong" title={t.unmanagedTitle} />
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold text-foreground-secondary">{skill.name}</span>
