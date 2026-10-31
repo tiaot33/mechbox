@@ -101,12 +101,71 @@ export enum Language {
 };
 
 /**
+ * ManualReason 说明这次更新为什么不能在 app 里直接装上，只能打开下载页;为空时「更新」下载、校验并装上新版。
+ */
+export enum ManualReason {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 用系统包管理器(deb、rpm、pkg.tar.zst)装的，交给包管理器更新
+     */
+    ManualPackage = "package",
+
+    /**
+     * app 所在的文件夹不能写入：没有权限，或者是直接从 dmg、下载文件夹里打开的
+     */
+    ManualLocation = "location",
+
+    /**
+     * 这个版本没有本平台能直接装的安装包或它的校验值
+     */
+    ManualAsset = "asset",
+};
+
+/**
  * PushProblem 是上一次推送(自动或手动)出的问题:推送失败,或备份已经传上去、删超出份数的旧备份失败(Uploaded)。
  */
 export interface PushProblem {
     "at": string;
     "error": library$0.Error | null;
     "uploaded"?: boolean;
+}
+
+/**
+ * Release 是 GitHub Releases 上比正在运行的版本更新的 Mechbox。
+ */
+export interface Release {
+    "version": string;
+
+    /**
+     * 更新说明(Markdown)
+     */
+    "notes": string;
+    "published_at"?: string;
+
+    /**
+     * 这个版本的下载页
+     */
+    "page_url": string;
+    "manual"?: ManualReason;
+}
+
+/**
+ * ReleaseStatus 是检查新版本的现状。
+ */
+export interface ReleaseStatus {
+    /**
+     * Checks 为 false 时这个构建不检查新版本：开发版与 server 模式没设 MECHBOX_RELEASE_FEED 时。
+     */
+    "checks": boolean;
+
+    /**
+     * Latest 是上一次检查找到的新版本;还没检查过、已是最新时为 nil。
+     */
+    "latest"?: Release | null;
 }
 
 /**

@@ -11,6 +11,7 @@ export {
 export {
     CheckInterval,
     Language,
+    ManualReason,
     UninstallFolders
 } from "./models.js";
 
@@ -18,6 +19,8 @@ export type {
     AppInfo,
     ConfigStatus,
     PushProblem,
+    Release,
+    ReleaseStatus,
     Settings,
     UninstallOptions,
     UninstallResult
