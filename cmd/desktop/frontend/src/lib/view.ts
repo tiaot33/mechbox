@@ -1,11 +1,11 @@
-// 主界面的界面状态：在哪一页(所有技能 / 更新 / 作用域)、所有技能页按什么分节、搜索、左右栏、右栏的展开、
+// 主界面的界面状态：在哪一页(所有技能 / 更新 / 作用域 / 项目)、所有技能页按什么分节、搜索、左右栏、右栏的展开、
 // 列表里收起的节与展开的"没装的"、左栏要跳到的那一节、详情抽屉、拖放、集合与组的先后与设置页。
 // 各栏直接从这里取、改，不经 App 一层层传;改状态的操作是模块级函数，组件外(拖放、写操作流程)也能调用。
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { Collection, CollectionID, Group, GroupID, Scope, SkillID } from "@bindings/internal/library";
+import type { Collection, CollectionID, Group, GroupID, ProjectID, Scope, SkillID } from "@bindings/internal/library";
 import { queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
@@ -113,6 +113,13 @@ export function openScope(key: ScopeKey) {
   if (page.kind === "scope" && page.scope === key) return set({ page: { kind: "all" }, jump: null });
   set({ page: { kind: "scope", scope: key }, jump: null });
   reveal(parseScope(key));
+}
+
+// openProject 打开项目页(项目里各 Agent 装了什么),右栏同步展开这个项目;再点一次正打开的项目回到所有技能。
+export function openProject(project: ProjectID) {
+  const { page } = get();
+  if (page.kind === "project" && page.project === project) return set({ page: { kind: "all" }, jump: null });
+  set((v) => ({ page: { kind: "project", project }, jump: null, expanded: new Set(v.expanded).add(project) }));
 }
 
 // jumpTo 是左栏点了集合或组：回到所有技能页、按它分节、清掉搜索，展开并滚到那一节。

@@ -565,26 +565,28 @@ export function sourceShort(s: Snapshot, source: Source): string {
 }
 
 // ---------- 页面 ----------
-// 主界面中间只有三种页面：所有技能(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)。
-// 集合和组不是筛选，是所有技能页里的分节;左栏点它们只是跳到那一节。
+// 主界面中间有四种页面：所有技能(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)、
+// 项目(这个项目里各 Agent 装了什么)。集合和组不是筛选，是所有技能页里的分节;左栏点它们只是跳到那一节。
 
-export type Page = { kind: "all" } | { kind: "updates" } | { kind: "scope"; scope: ScopeKey };
+export type Page = { kind: "all" } | { kind: "updates" } | { kind: "scope"; scope: ScopeKey } | { kind: "project"; project: ProjectID };
 
 // Arrange 是所有技能页与作用域页按什么分节。
 export type Arrange = "collection" | "group";
 
 export function samePage(a: Page, b: Page): boolean {
   if (a.kind === "scope" && b.kind === "scope") return a.scope === b.scope;
+  if (a.kind === "project" && b.kind === "project") return a.project === b.project;
   return a.kind === b.kind;
 }
 
-// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页退回所有技能。
+// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页退回所有技能。
 export function resolvePage(s: Snapshot, page: Page): Page {
   if (page.kind === "updates" && !anyUpdatable(s)) return { kind: "all" };
   if (page.kind === "scope") {
     const sc = parseScope(page.scope);
     if ((sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) || !s.agents.some((a) => a.code === sc.agent)) return { kind: "all" };
   }
+  if (page.kind === "project" && !s.projects.some((p) => p.id === page.project)) return { kind: "all" };
   return page;
 }
 
@@ -592,6 +594,7 @@ export function pageTitle(s: Snapshot, page: Page): string {
   const m = messages().model;
   if (page.kind === "updates") return m.updates;
   if (page.kind === "scope") return scopeLabel(s, parseScope(page.scope));
+  if (page.kind === "project") return projectName(s, page.project);
   return m.allSkills;
 }
 
@@ -699,6 +702,7 @@ export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Da
 // ScopeListing 是作用域页要列的:库里的技能按集合或组分节(sections,装在这里的与可以装到这里的都在里面),
 // 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到,不再出现在 sections 里)。
 // 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
+// sections 里有技能装在这里的节排在前面(先后不变),一个都没装在这里的接在后面。
 // here 与 others 是 sections 里装在这里、没装在这里的技能个数(搜索时只数匹配的)。
 export interface ScopeListing {
   sections: SkillSection[];
@@ -733,8 +737,10 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
   const listed = s.skills.filter((x) => !globalIDs.has(x.id));
   const here = listed.filter((x) => hereIDs.has(x.id) && hit(x)).length;
+  const sections = arrangeSkills(s, arrange, search, { skills: listed, emptyGroups: false, scope: key, order });
+  const used = (x: SkillSection) => x.all.some((k) => hereIDs.has(k.id));
   return {
-    sections: arrangeSkills(s, arrange, search, { skills: listed, emptyGroups: false, scope: key, order }),
+    sections: [...sections.filter(used), ...sections.filter((x) => !used(x))],
     hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
@@ -743,15 +749,47 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   };
 }
 
+// ---------- 项目页 ----------
+
+// ProjectAgent 是项目页的一节：项目里一个 Agent(共用一个目录的几个合成一处，scope 是代表的作用域)装在这里的
+// 库里的技能与未纳管技能(搜索时只留匹配的);all 是不搜索时一共几个。
+export interface ProjectAgent {
+  scope: ScopeKey;
+  agent: Agent;
+  skills: Skill[];
+  unmanaged: UnmanagedSkill[];
+  all: number;
+}
+
+// projectAgents 是项目页按 Agent 分的节：项目里装有技能(库装的或未纳管的)的 Agent,按 Agent 列表顺序;
+// 搜索时只留有结果的节。来自全局的不算，项目页只列装在项目里的。
+export function projectAgents(s: Snapshot, project: ProjectID, search: string): ProjectAgent[] {
+  const hit = (x: { name: string; description?: string }) => matches(search, x);
+  const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
+  const inProject = (p: { scope: Scope }, a: Agent) => p.scope.agent === a.code && placeOf(p.scope) === project;
+  const used = s.agents.filter((a) => s.skillScopes.some((p) => inProject(p, a)) || s.unmanaged.some((u) => inProject(u, a)));
+  return mergeProjectAgents(s, used)
+    .map((agent) => {
+      const key = scopeKey(scopeOf(agent.code, project));
+      const ids = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
+      const skills = sortSkills(s, s.skills.filter((x) => ids.has(x.id)));
+      const unmanaged = unmanagedIn(s, key).sort(byName);
+      return { scope: key, agent, skills: skills.filter(hit), unmanaged: unmanaged.filter(hit), all: skills.length + unmanaged.length };
+    })
+    .filter((x) => x.skills.length + x.unmanaged.length > 0);
+}
+
 // ---------- 每一页列什么、数到几 ----------
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
-// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致);
+// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致),
+// 项目页是项目里各 Agent 装的技能逐处加起来(合成一处的几个 Agent 只算一次);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
   | { kind: "updates"; skills: Skill[] }
   | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
+  | { kind: "project"; project: ProjectID; agents: ProjectAgent[] }
 );
 
 export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order): PageListing {
@@ -765,6 +803,11 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
     const listing = search.trim() ? scopeListing(s, page.scope, arrange, search, order) : all;
     const seen = (l: ScopeListing) => l.here + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
     return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others };
+  }
+  if (page.kind === "project") {
+    const agents = projectAgents(s, page.project, search);
+    const total = projectAgents(s, page.project, "").reduce((n, x) => n + x.all, 0);
+    return { kind: "project", project: page.project, agents, total, results: agents.reduce((n, x) => n + x.skills.length + x.unmanaged.length, 0) };
   }
   return {
     kind: "all",

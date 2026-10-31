@@ -168,7 +168,7 @@ async function scopeRow(agentName, place = "全局") {
   let list = rail.locator(":scope > ul").first();
   if (place !== "全局") {
     const proj = rail.locator(".nav-item.proj", { hasText: place });
-    if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.click();
+    if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.locator(".proj-toggle").click();
     list = rail.locator("li", { has: page.locator(".nav-item.proj", { hasText: place }) }).locator("ul");
   }
   const named = new RegExp(`^${agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
@@ -1066,7 +1066,7 @@ await step("卡片开关卸载直接安装", async () => {
 
 await step("安装到项目作用域(右栏项目展开 → 检测到的 Agent 直接列出 → 选中)", async () => {
   await clearScope();
-  await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).click();
+  await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).locator(".proj-toggle").click();
   assert((await page.locator(".a-right .nav-item.more").count()) === 0, "检测到的 Agent 应直接列出，不折进其他");
   await page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).nth(1).click();
   await settle();
@@ -1091,6 +1091,41 @@ await step("未记录的外来文件夹：安装计划发现后询问覆盖", as
   await toast("已安装「beta」");
   await settle();
   assert(fs.existsSync(path.join(dir, "beta", "SKILL.md")) && !fs.existsSync(path.join(dir, "beta", "note.txt")), "应已覆盖");
+});
+
+await step("作用域页有技能装在这里的节排在前面;点项目打开项目页，按 Agent 列出项目里装的技能，箭头只展开收起", async () => {
+  await selectScope("Claude Code", "proj-a");
+  const used = [];
+  for (const sec of await page.locator('.a-list[data-page="scope"] .list-section[data-section*=":collection-"]').all()) {
+    used.push((await sec.locator('[role="switch"][aria-checked="true"]').count()) > 0);
+  }
+  const firstIdle = used.indexOf(false);
+  assert(used[0] && (firstIdle < 0 || !used.slice(firstIdle).includes(true)), `有技能装在这里的节应排在前面:${used}`);
+
+  const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-a" });
+  await proj.click();
+  await page.locator('.a-list[data-page="project"]').waitFor();
+  assert((await page.locator(".tb-crumb", { hasText: "proj-a" }).count()) === 1, "顶栏应写 proj-a");
+  assert((await proj.getAttribute("aria-expanded")) === "true", "打开项目页时右栏展开这个项目");
+  const claude = page.locator('.a-list[data-page="project"] .list-section', { has: page.locator(".section-name", { hasText: /^Claude Code$/ }) });
+  for (const name of ["beta", "gamma"]) {
+    const row = claude.locator(".skill-row", { has: page.locator(".skill-name", { hasText: new RegExp(`^${name}$`) }) });
+    assert((await row.locator('[role="switch"][aria-checked="true"]').count()) === 1, `Claude Code 一节应列出装着的 ${name}`);
+  }
+  assert((await page.locator('.a-list[data-page="project"] [role="switch"][aria-checked="false"]').count()) === 0, "项目页只列装着的技能");
+
+  await btn(claude, "打开作用域").click();
+  await page.locator('.a-list[data-page="scope"]').waitFor();
+  assert((await page.locator(".tb-crumb", { hasText: "Claude Code" }).count()) === 1, "打开作用域应到 Claude Code · proj-a");
+
+  await proj.click();
+  await page.locator('.a-list[data-page="project"]').waitFor();
+  await proj.click();
+  await page.locator('.a-list[data-page="all"]').waitFor();
+  await proj.locator(".proj-toggle").click();
+  assert((await proj.getAttribute("aria-expanded")) === "false", "箭头收起项目");
+  assert((await page.locator('.a-list[data-page="all"]').count()) === 1, "箭头不换页");
+  await selectScope("Claude Code", "proj-a");
 });
 
 // ============ 未纳管技能 ============
@@ -1160,7 +1195,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     await selectScope("Claude Code", "proj-a");
     // 选中 proj-b 的作用域时右栏展开了它，收回去，后面的拖放步骤要从折叠的 proj-b 开始。
     const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
+    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.locator(".proj-toggle").click();
   }
   assert(fs.lstatSync(link).isSymbolicLink() && fs.existsSync(path.join(projB, ".claude", "skills", "my-draft", "SKILL.md")), "磁盘上什么都没动");
 });
@@ -1219,7 +1254,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
   } finally {
     await selectScope("Claude Code", "proj-a");
     const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
+    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.locator(".proj-toggle").click();
   }
   const after = [fs.readlinkSync(link), fs.readFileSync(path.join(real, "SKILL.md"), "utf8"), fs.readFileSync(team, "utf8")];
   assert.deepStrictEqual(after, before, "入库时磁盘上什么都没动");
@@ -2603,7 +2638,7 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await settle();
   await unslow();
   const projB = page.locator(".a-right li", { has: page.locator(".nav-item.proj", { hasText: "proj-b" }) });
-  if ((await projB.locator(".nav-item.proj").getAttribute("aria-expanded")) !== "true") await projB.locator(".nav-item.proj").click();
+  if ((await projB.locator(".nav-item.proj").getAttribute("aria-expanded")) !== "true") await projB.locator(".nav-item.proj .proj-toggle").click();
   for (const name of ["Codex", "Claude Code"]) {
     assert((await projB.locator(".nav-item.sub", { hasText: name }).count()) === 0, `右栏不应列出不显示的 ${name}`);
   }
@@ -2793,7 +2828,7 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
   await back();
 
   const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-  if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.click();
+  if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.locator(".proj-toggle").click();
   await page.locator('.a-right .nav-item.proj[aria-expanded="true"]', { hasText: "proj-b" }).waitFor({ timeout: 3000 });
   // 自定义 Agent 不检测，折在"其他 N 个 Agent"里。
   const inProj = page.locator(".a-right li", { has: page.locator(".nav-item.proj", { hasText: "proj-b" }) });

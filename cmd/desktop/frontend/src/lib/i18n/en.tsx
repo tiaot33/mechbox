@@ -604,6 +604,11 @@ export const en = {
     sectionGlobalTitle: "In a project, the Agent also sees the skills installed globally; open the global Scope to change them",
     sectionUnmanaged: "Unmanaged skills",
     nothingHere: "Nothing is installed here yet. Turn on a skill's switch below, or drag a skill, Group, or Collection onto this row on the right.",
+    projectHas: (project: string, n: number) => `${count(n, "skill")} installed in ${project}`,
+    projectDirectory: "Project directory",
+    projectEmpty: "Nothing is installed in this project yet. Expand the project on the right, click an Agent, and turn on a skill's switch there; or drag a skill, Group, or Collection onto that row.",
+    openScope: "Open Scope",
+    openScopeTitle: "Open this Scope: the skills installed here and the ones you can install here",
     skillCount: (n: number) => count(n, "skill"),
     groupInstalledIn: "Group installed in",
     uninstallGroupHere: "Uninstall the Group install in this Scope",
@@ -1024,6 +1029,8 @@ export const en = {
   },
 
   scopes: {
+    expandProject: "Expand",
+    collapseProject: "Collapse",
     issues: (n: number) => `${count(n, "skill folder")} ${n === 1 ? "doesn't" : "don't"} match the current Version and need${n === 1 ? "s" : ""} reinstalling`,
     collapse: "Collapse",
     more: (n: number) => `${n} other ${n === 1 ? "Agent" : "Agents"}`,

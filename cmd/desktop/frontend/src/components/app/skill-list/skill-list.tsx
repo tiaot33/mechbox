@@ -1,21 +1,35 @@
-// 中间：三种页面，各回答一个问题，长得也不一样。
+// 中间：四种页面，各回答一个问题，长得也不一样。
 // - 所有技能(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
 // - 更新(要处理的事):每个有要处理的更新的集合一行，下面是要处理的技能。
 // - 作用域(Agent 在这里看得到什么):库里的技能和所有技能页一样按集合或按组分节，节里装在这里的在前、没装在这里的折起来;
-//   另有装在这里的未纳管技能，以及项目里来自全局的。
+//   有技能装在这里的节排在前面;另有装在这里的未纳管技能，以及项目里来自全局的。
+// - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect } from "react";
 import type { Collection, Group, Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { anyUpdatable, parseScope, placeOf, sectionKey, type PageListing, type ScopeKey, type SkillSection } from "@/lib/model";
-import { setArrange, setSearch, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import {
+  agentNameIn,
+  anyUpdatable,
+  parseScope,
+  placeOf,
+  projectFolderNote,
+  projectName,
+  sectionKey,
+  shortPath,
+  type PageListing,
+  type ScopeKey,
+  type SkillSection,
+} from "@/lib/model";
+import { openScope, setArrange, setSearch, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Icon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
-import { ScopeSummary } from "./heads";
+import { PlaceAgentMark } from "@/components/app/parts";
+import { barClass, barRowClass, ScopeSummary } from "./heads";
 import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
 import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows, UseCounts } from "./sections";
@@ -28,7 +42,7 @@ export function SkillList() {
     <main className={centerClass}>
       {/* 上边距放在里面一层：滚动区自己没有上内边距，吸顶的节标题才贴着底板上沿。换页时换一个滚动区，回到顶上。 */}
       <div
-        key={listing.kind === "scope" ? listing.scope : listing.kind}
+        key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
       >
@@ -37,6 +51,7 @@ export function SkillList() {
           {listing.kind === "all" && <AllSkills sections={listing.sections} />}
           {listing.kind === "updates" && <Updates skills={listing.skills} />}
           {listing.kind === "scope" && <ScopePage listing={listing} />}
+          {listing.kind === "project" && <ProjectPage listing={listing} />}
         </div>
       </div>
     </main>
@@ -290,6 +305,52 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
         </Section>
       )}
       {empty && (search ? <ListEmpty>{t.noMatch}</ListEmpty> : !s.skills.length && <EmptyLibrary />)}
+    </>
+  );
+}
+
+// ProjectPage 是项目页：顶上写项目里一共装了几个技能与项目目录，下面每个装了技能的 Agent 一节;
+// 节里的行和作用域页一样带开关，点节标题上的"打开作用域"去那个 Agent 的作用域页装更多。
+function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: "project" }> }) {
+  const s = useSnapshot();
+  const search = useView((v) => v.search.trim());
+  const t = useT().list;
+  const project = s.projects.find((p) => p.id === page.project)!;
+  return (
+    <>
+      <div className={barClass}>
+        <b className="project-sum text-[13px] font-semibold">{t.projectHas(projectName(s, project.id), page.total)}</b>
+        <div className={barRowClass}>
+          <span className="text-[11px] text-muted-foreground">{t.projectDirectory}</span>
+          <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{shortPath(s, project.path)}</span>
+        </div>
+      </div>
+      {page.agents.map((a) => (
+        <Section
+          key={a.scope}
+          id={`project-${page.project}:${a.scope}`}
+          head={
+            <>
+              <span className="flex min-w-0 grow items-center gap-2" title={projectFolderNote(s, a.agent.code, page.project)}>
+                <PlaceAgentMark code={a.agent.code} place={page.project} />
+                <b className="section-name truncate font-semibold">{agentNameIn(s, a.agent.code, page.project)}</b>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{t.skillCount(a.all)}</span>
+              </span>
+              <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
+                {t.openScope}
+              </Button>
+            </>
+          }
+        >
+          {a.skills.map((skill) => (
+            <SkillRow key={skill.id} skill={skill} scope={a.scope} showSource />
+          ))}
+          {a.unmanaged.map((u) => (
+            <UnmanagedRow key={u.folder} skill={u} />
+          ))}
+        </Section>
+      ))}
+      {page.agents.length === 0 && <ListEmpty>{search ? t.noMatch : t.projectEmpty}</ListEmpty>}
     </>
   );
 }

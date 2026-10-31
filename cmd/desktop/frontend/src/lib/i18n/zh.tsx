@@ -566,6 +566,11 @@ export const zh = {
     sectionGlobalTitle: "Agent 在项目里也看得到全局装的技能；要改请打开全局",
     sectionUnmanaged: "未纳管技能",
     nothingHere: "这里还没有装技能。在下面打开技能的开关，或把技能、组、集合拖到右栏的这一行。",
+    projectHas: (project: string, n: number) => `${project} 里装了 ${n} 个技能`,
+    projectDirectory: "项目目录",
+    projectEmpty: "这个项目里还没有装技能。在右栏展开项目、点一个 Agent,在那里打开技能的开关;或把技能、组、集合拖到那一行。",
+    openScope: "打开作用域",
+    openScopeTitle: "打开这个作用域：装在这里的与可以装到这里的技能",
     skillCount: (n: number) => `${n} 个技能`,
     groupInstalledIn: "组安装于",
     uninstallGroupHere: "卸载这个作用域的组安装",
@@ -963,6 +968,8 @@ export const zh = {
   },
 
   scopes: {
+    expandProject: "展开",
+    collapseProject: "收起",
     issues: (n: number) => `${n} 个技能文件夹与当前版本不一致，需要重新安装`,
     collapse: "收起",
     more: (n: number) => `其他 ${n} 个 Agent`,
