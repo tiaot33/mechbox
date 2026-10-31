@@ -344,7 +344,7 @@ export const en = {
     groupOverwrite: (names: string[]) =>
       `Overwrite ${count(names.length, "folder")} not installed by the Library where members go: ${names.join(", ")}`,
     groupBlocked: (names: string[]) => `Can't be installed, will be skipped: ${names.join(", ")}`,
-    untracked: "Folder exists",
+    untracked: "Overwrites a folder if checked",
     untrackedTitle: (folder: string) => `${folder} exists but wasn't installed by the Library; checking this overwrites it`,
     blocked: "Can't install",
     checking: "Checking the install plan…",
@@ -352,10 +352,12 @@ export const en = {
       `${quoted(names)} ${names.length === 1 ? "was" : "were"} edited by hand in ${from}: ${to} gets the Library's version, not the edited copy. To use the edits in ${to} too, first use “Update with these edits” on ${from} in the skill details, then copy.`,
     unmanaged: (from: string, n: number) =>
       `${from} also has ${count(n, "unmanaged skill")}. They aren't in the Library, so they can't be copied; fetch them first.`,
-    confirm: (skills: number, groups: number) =>
-      `Install ${and([skills ? count(skills, "skill") : "", groups ? count(groups, "Group") : ""].filter(Boolean))}`,
-    nothing: (to: string) => `${to} already has every skill the other Agents have installed`,
-    done: (from: string, to: string, n: number) => `Installed ${count(n, "skill")} in ${to}, copied from ${from}`,
+    confirm: (skills: number, groups: number, overwrites: number) =>
+      `Install ${and([skills ? count(skills, "skill") : "", groups ? count(groups, "Group") : ""].filter(Boolean))}${overwrites ? ` (overwrite ${count(overwrites, "folder")})` : ""}`,
+    placeToggle: (place: string) => `Check or uncheck everything in ${place}`,
+    nothing: (to: string) => `${to} already has every Library skill the other Agents have installed on this machine`,
+    done: (from: string, to: string, n: number, groups: number) =>
+      `Installed ${count(n, "skill")} in ${to}, copied from ${from}${groups ? `, and recorded ${count(groups, "Group install")}` : ""}`,
     resultsTitle: (from: string, to: string) => `Copy from ${from} to ${to}`,
     summary: (installed: number, rest: number) => `${installed} installed, ${count(rest, "item")} not installed`,
     groupFailed: (name: string, where: string) => `Group “${name}” → ${where}`,

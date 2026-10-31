@@ -8,6 +8,7 @@
 import {
   InstallPlanStatus,
   PlannedChange,
+  type InstallPlan,
   SkillScopeStatus,
   type PlannedUnmanagedSkill,
   type ReinstallRequest,
@@ -207,3 +208,24 @@ export const copyByDefault = (status: InstallPlanStatus) => copyable(status) && 
 
 // copyOverwrites 是勾上即同意覆盖的：这里有不是库装的同名文件夹。
 export const copyOverwrites = (status: InstallPlanStatus) => status === InstallPlanStatus.InstallUntracked;
+
+// CopyPlanned 是照装时一项的安装计划：直接安装是一个技能的，组安装是各成员的;读不出时是错误。
+export type CopyPlanned = { plan: InstallPlan } | { members: InstallPlan[] } | { error: unknown };
+
+// copyDefaults 是照装确认框打开时的勾选:checked 是默认勾上的项(组安装整组勾上，直接安装按 copyByDefault,读不出计划的不勾);
+// overwrite 是勾了"覆盖"的组安装，默认一个都没有：组员里有不是库装的同名文件夹的默认跳过。
+export function copyDefaults(entries: [string, CopyPlanned][]): { checked: Set<string>; overwrite: Set<string> } {
+  const checked = entries.flatMap(([key, v]) => ("members" in v || ("plan" in v && copyByDefault(v.plan.status)) ? [key] : []));
+  return { checked: new Set(checked), overwrite: new Set() };
+}
+
+// copyOverwriteCount 是按勾选会覆盖几个不是库装的同名文件夹：勾上的直接安装里有的，加上勾了"覆盖"的组安装里组员有的。
+export function copyOverwriteCount(entries: Map<string, CopyPlanned>, checked: Set<string>, overwrite: Set<string>): number {
+  let n = 0;
+  for (const [key, v] of entries) {
+    if (!checked.has(key)) continue;
+    if ("plan" in v && copyOverwrites(v.plan.status)) n++;
+    if ("members" in v && overwrite.has(key)) n += v.members.filter((x) => copyOverwrites(x.status)).length;
+  }
+  return n;
+}

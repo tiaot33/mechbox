@@ -19,6 +19,7 @@ import type { Snapshot } from "./library";
 import {
   copyFromAgent,
   copySources,
+  copyTarget,
   homePath,
   missingFromGroup,
   moved,
@@ -168,6 +169,31 @@ describe("照着另一个 Agent 装", () => {
     const s = snapshot({ ...base, skillScopes: [installed(1, at(codex, 1)), installed(2, at(codex))] });
     const copy = copyFromAgent(s, codex, cursor);
     expect(copy.map((p) => p.place)).toEqual([0]);
+  });
+
+  it("组安装记在读同一个目录的另一个 Agent 上也算", () => {
+    // Codex 与 Cursor 在项目里共用 .agents/skills,组安装记在 Codex 上;照着 Cursor 装到 Claude Code 时照样带上这个组。
+    const s = snapshot({
+      ...base,
+      skillScopes: [
+        installed(4, at(codex, 1), { direct: false, groups: [7] }),
+        installed(4, at(cursor, 1), { direct: false, groups: [7] }),
+      ],
+      groupInstalls: [{ group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+    });
+    expect(copyFromAgent(s, cursor, claude)).toMatchObject([{ place: 1, groups: [{ id: 7 }], skills: [] }]);
+    // 反过来照着 Claude Code 装到 Cursor:Cursor 那一处已经有这个组安装(记在 Codex 上),不再列出。
+    const back = snapshot({
+      ...base,
+      skillScopes: [installed(4, at(claude, 1), { direct: false, groups: [7] })],
+      groupInstalls: [{ group_id: 7, scope: at(claude, 1) }, { group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+    });
+    expect(copyFromAgent(back, claude, cursor)).toEqual([]);
+  });
+
+  it("项目里装到共用目录的代表 Agent 上，全局装到它自己", () => {
+    expect(copyTarget({ agents, agentsShown: {} }, cursor, 1)).toBe(codex);
+    expect(copyTarget({ agents, agentsShown: {} }, cursor, 0)).toBe(cursor);
   });
 
   it("要装过来的技能里，原来那一处被改过的单列出来", () => {

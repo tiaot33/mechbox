@@ -4,10 +4,10 @@
 //   组安装默认勾上，组员里有这种文件夹的默认跳过，勾上"覆盖"才覆盖。
 // - 项目不在这台机器上的那一处跳过并说明;原来那个 Agent 里改过的技能、未纳管技能，确认时说出来。
 // - 一项装不上不影响其余的;全部装上时只提示装了几个，有没装上的才列出结果。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type InstallPlan, type Skill } from "@bindings/internal/library";
-import { copyable, copyByDefault, copyOverwrites } from "@/lib/consent";
+import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type Skill } from "@bindings/internal/library";
+import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, type CopyPlanned } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
@@ -16,6 +16,7 @@ import {
   agentNameIn,
   copyFromAgent,
   copySources,
+  copyTarget,
   projectName,
   scopeLabel,
   scopeOf,
@@ -48,10 +49,15 @@ export function openCopyFromAgent(to: AgentCode) {
 const skillKey = (place: number, id: number) => `s:${place}:${id}`;
 const groupKey = (place: number, id: number) => `g:${place}:${id}`;
 
-// Planned 是一项的安装计划：直接安装是一个技能的，组安装是各成员的;读不出时是错误。Plans 按 skillKey / groupKey 存。
-type Planned = { plan: InstallPlan } | { members: InstallPlan[] } | { error: LibraryError };
+// Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned),读不出时的错误是技能库错误。Plans 按 skillKey / groupKey 存。
+type Planned = Exclude<CopyPlanned, { error: unknown }> | { error: LibraryError };
 type Plans = Map<string, Planned>;
 
+// targetScope 是照装到 to 时这一处的作用域(项目里共用目录的落在代表的 Agent 上，见 copyTarget)。
+const targetScope = (s: Snapshot, to: AgentCode, place: number) => scopeOf(copyTarget(s, to, place), place);
+
+// CopyDialog 用打开时的快照算要装什么，不随之后的重读变：确认框开着时重读(如自动检查更新)会重算安装计划、
+// 把用户改过的勾选重置掉。
 function CopyDialog({ s, to, sources, close }: { s: Snapshot; to: AgentCode; sources: AgentCode[]; close: () => void }) {
   const { copy: t, common } = useT();
   const [from, setFrom] = useState(sources[0]);
@@ -69,7 +75,7 @@ function CopyDialog({ s, to, sources, close }: { s: Snapshot; to: AgentCode; sou
     const calls = copyFromAgent(s, from, to)
       .filter((p) => !p.missing)
       .flatMap((p) => {
-        const scope = scopeOf(to, p.place);
+        const scope = targetScope(s, to, p.place);
         return [
           ...p.skills.map((x) => {
             const call = LibraryService.PlanInstall(x.id, scope);
@@ -85,10 +91,10 @@ function CopyDialog({ s, to, sources, close }: { s: Snapshot; to: AgentCode; sou
       calls.map(({ key, planned }) => planned.then((v): [string, Planned] => [key, v], (e): [string, Planned] => [key, { error: toLibraryError(e) }])),
     ).then((entries) => {
       if (!live) return;
+      const defaults = copyDefaults(entries);
       setPlans(new Map(entries));
-      // 组安装整组默认勾上;直接安装按 copyByDefault。读不出计划的不能勾。
-      setChecked(new Set(entries.flatMap(([key, v]) => ("members" in v || ("plan" in v && copyByDefault(v.plan.status)) ? [key] : []))));
-      setOverwrite(new Set());
+      setChecked(defaults.checked);
+      setOverwrite(defaults.overwrite);
     });
     return () => {
       live = false;
@@ -105,6 +111,23 @@ function CopyDialog({ s, to, sources, close }: { s: Snapshot; to: AgentCode; sou
   const skillCount = [...checked].filter((k) => k.startsWith("s:")).length;
   const groupCount = checked.size - skillCount;
   const edited = [...new Set(places.flatMap((p) => p.edited.map((x) => x.name)))];
+  const overwrites = plans ? copyOverwriteCount(plans, checked, overwrite) : 0;
+  // togglePlace 是一处标题上的勾选：有勾上的就全部取消，一个都没勾时恢复这一处的默认勾选(不替用户勾上要覆盖的)。
+  const togglePlace = (keys: string[]) =>
+    setChecked((set) => {
+      const next = new Set(set);
+      const any = keys.some((k) => next.has(k));
+      const entries = keys.flatMap((k): [string, Planned][] => {
+        const v = plans?.get(k);
+        return v ? [[k, v]] : [];
+      });
+      const defaults = copyDefaults(entries).checked;
+      for (const k of keys) {
+        if (any) next.delete(k);
+        else if (defaults.has(k)) next.add(k);
+      }
+      return next;
+    });
 
   const submit = () => {
     if (!plans) return;
@@ -122,7 +145,7 @@ function CopyDialog({ s, to, sources, close }: { s: Snapshot; to: AgentCode; sou
           <span className="grow" />
           <Button onClick={close}>{common.cancel}</Button>
           <Button className="copy-agent-confirm" variant="primary" disabled={!plans || checked.size === 0} onClick={submit} autoFocus>
-            {t.confirm(skillCount, groupCount)}
+            {t.confirm(skillCount, groupCount, overwrites)}
           </Button>
         </>
       }
@@ -151,6 +174,7 @@ function CopyDialog({ s, to, sources, close }: { s: Snapshot; to: AgentCode; sou
             overwrite={overwrite}
             onToggle={(key) => setChecked((set) => toggle(set, key))}
             onOverwrite={(key) => setOverwrite((set) => toggle(set, key))}
+            onTogglePlace={togglePlace}
           />
         ))}
       </ListBox>
@@ -175,6 +199,7 @@ function PlaceRows({
   overwrite,
   onToggle,
   onOverwrite,
+  onTogglePlace,
 }: {
   s: Snapshot;
   to: AgentCode;
@@ -184,10 +209,17 @@ function PlaceRows({
   overwrite: Set<string>;
   onToggle: (key: string) => void;
   onOverwrite: (key: string) => void;
+  onTogglePlace: (keys: string[]) => void;
 }) {
   const t = useT().copy;
   const m = useT().model;
   const name = p.place ? projectName(s, p.place) : m.global;
+  const keys = [...p.groups.map((g) => groupKey(p.place, g.id)), ...p.skills.map((x) => skillKey(p.place, x.id))];
+  const on = keys.filter((k) => checked.has(k)).length;
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = on > 0 && on < keys.filter((k) => canCheck(plans?.get(k))).length;
+  });
   const bySource = new Map<string, Skill[]>();
   for (const x of p.skills) {
     const label = sourceLabel(s, x.source);
@@ -196,8 +228,19 @@ function PlaceRows({
   return (
     <div className="copy-agent-place" data-place={p.place}>
       <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-xs font-semibold first:border-t-0">
+        {!p.missing && (
+          <input
+            ref={box}
+            type="checkbox"
+            className="copy-agent-place-toggle shrink-0 accent-primary"
+            aria-label={t.placeToggle(name)}
+            checked={on > 0}
+            disabled={!plans}
+            onChange={() => onTogglePlace(keys)}
+          />
+        )}
         <span className="min-w-0 truncate">{name}</span>
-        <span className="shrink-0 font-normal text-muted-foreground">{agentNameIn(s, to, p.place)}</span>
+        <span className="shrink-0 font-normal text-muted-foreground">{agentNameIn(s, copyTarget(s, to, p.place), p.place)}</span>
         <span className="grow" />
         <span className="shrink-0 font-normal text-muted-foreground">
           {p.missing ? t.missingPlace : t.placeCount(p.groups.length + p.skills.length)}
@@ -346,24 +389,33 @@ async function runCopy(
   const t = messages().copy;
   const a = messages().actions;
   const rows: ResultRow[] = [];
-  let installed = 0;
+  // installed 按"哪一处的哪个技能"记，同一个技能既随组又直接安装时只算一次;groups 是记下的组安装数。
+  const installed = new Set<string>();
+  let groups = 0;
+  const skip = (label: string, reason: string) => rows.push({ label, outcome: a.memberSkipped, tone: "warn", reason });
   const fail = (label: string, e: unknown) =>
     rows.push({ label, outcome: a.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
   await ui.run(
     async () => {
       for (const p of places) {
-        const scope = scopeOf(to, p.place);
+        const scope = targetScope(s, to, p.place);
         const where = scopeLabel(s, scope);
         if (p.missing) {
-          rows.push({ label: where, outcome: a.memberSkipped, tone: "warn", reason: t.missingPlace });
+          skip(where, t.missingPlace);
           continue;
         }
         for (const g of p.groups) {
           const key = groupKey(p.place, g.id);
+          const planned = plans.get(key);
+          if (planned && "error" in planned) {
+            skip(t.groupFailed(g.name, where), describeError(planned.error));
+            continue;
+          }
           if (!checked.has(key)) continue;
           try {
             const results = (await LibraryService.InstallGroup(g.id, scope, { overwrite: overwrite.has(key) })) ?? [];
-            installed += results.filter((r) => r.outcome === GroupMemberOutcome.MemberInstalled).length;
+            groups++;
+            for (const r of results) if (r.outcome === GroupMemberOutcome.MemberInstalled) installed.add(`${p.place}:${r.skill_id}`);
             const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
             // 有不是库装的同名文件夹而没勾覆盖的，是用户自己选的跳过，不再列出。
             rows.push(...memberRows(s, skipped.filter((r) => overwrite.has(key) || !untrackedSkip(plans.get(key), r.skill_id))));
@@ -374,16 +426,21 @@ async function runCopy(
         for (const x of p.skills) {
           const key = skillKey(p.place, x.id);
           const planned = plans.get(key);
-          if (!planned || !("plan" in planned)) continue;
+          if (!planned) continue;
+          if ("error" in planned) {
+            skip(`${x.name} → ${where}`, describeError(planned.error));
+            continue;
+          }
+          if (!("plan" in planned)) continue;
           const { plan } = planned;
           if (!copyable(plan.status)) {
-            rows.push({ label: `${x.name} → ${where}`, outcome: a.memberSkipped, tone: "warn", reason: occupiedReason(s, x.id, plan) });
+            skip(`${x.name} → ${where}`, occupiedReason(s, x.id, plan));
             continue;
           }
           if (!checked.has(key)) continue;
           try {
             await LibraryService.Install(x.id, scope, { overwrite: copyOverwrites(plan.status) });
-            installed++;
+            installed.add(`${p.place}:${x.id}`);
           } catch (e) {
             fail(`${x.name} → ${where}`, e);
           }
@@ -394,9 +451,13 @@ async function runCopy(
   );
   const fromName = agentName(s, from);
   const toName = agentName(s, to);
-  if (rows.length) await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed, rows.length));
-  else ui.toast(t.done(fromName, toName, installed));
+  if (rows.length) await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed.size, rows.length));
+  else ui.toast(t.done(fromName, toName, installed.size, groups));
 }
 
 const untrackedSkip = (planned: Planned | undefined, id: number) =>
   !!planned && "members" in planned && planned.members.some((x) => x.skill_id === id && copyOverwrites(x.status));
+
+// canCheck 是这一项能不能勾：组安装读出计划就能勾，直接安装还要装得了(没被占用)。
+const canCheck = (planned: Planned | undefined) =>
+  !!planned && ("members" in planned || ("plan" in planned && copyable(planned.plan.status)));

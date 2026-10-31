@@ -348,14 +348,24 @@ export function sameFolderAt(s: AgentList, a: AgentCode, b: AgentCode, place: Pl
   return a === b || (!!dir(a) && dir(a) === dir(b));
 }
 
+// copyTarget 是照装到 to 时这一处装在谁的作用域上：项目里共用一个目录的几个 Agent 合成一处，落在代表的 Agent 上，
+// 和右栏、作用域页一致(组安装记在代表上，合成的那一行才显示为已组安装)。
+export function copyTarget(s: AgentList, to: AgentCode, place: Place): AgentCode {
+  return place ? projectLead(s, to) : to;
+}
+
+// hasGroupAt 是某个组在一处是否已组安装给这个 Agent:组安装记在和它读同一个目录的另一个 Agent 上也算。
+function hasGroupAt(s: Snapshot, g: Group, agent: AgentCode, place: Place): boolean {
+  return s.groupInstalls.some((gi) => gi.group_id === g.id && placeOf(gi.scope) === place && sameFolderAt(s, gi.scope.agent, agent, place));
+}
+
 export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): CopyPlace[] {
   return [0, ...s.projects.map((p) => p.id)].flatMap((place): CopyPlace[] => {
     if (sameFolderAt(s, from, to, place)) return [];
     const fromKey = scopeKey(scopeOf(from, place));
-    const toKey = scopeKey(scopeOf(to, place));
+    const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
     const installed = new Set(skillScopesIn(s, toKey).map((p) => p.skill_id));
-    const hasGroup = (g: Group, key: ScopeKey) => groupStateIn(s, g, key) === "on";
-    const groups = s.groups.filter((g) => hasGroup(g, fromKey) && !hasGroup(g, toKey));
+    const groups = s.groups.filter((g) => hasGroupAt(s, g, from, place) && !hasGroupAt(s, g, to, place));
     const there = skillScopesIn(s, fromKey).filter((p) => !installed.has(p.skill_id));
     const skillsOf = (ids: SkillID[]) => sortSkills(s, s.skills.filter((x) => ids.includes(x.id)));
     const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
@@ -382,7 +392,7 @@ export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): 
   return s.unmanaged.filter((u) => {
     const place = placeOf(u.scope);
     if (u.scope.agent !== from || sameFolderAt(s, from, to, place)) return false;
-    const toKey = scopeKey(scopeOf(to, place));
+    const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
     const there = [...unmanagedIn(s, toKey).map((x) => x.name), ...skillScopesIn(s, toKey).map((p) => lastSegment(p.folder))];
     return !there.includes(u.name);
   });

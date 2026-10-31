@@ -17,7 +17,10 @@ import {
 import {
   copyable,
   copyByDefault,
+  copyDefaults,
+  copyOverwriteCount,
   copyOverwrites,
+  type CopyPlanned,
   defaultInstallOn,
   fetchPlan,
   defaultSkills,
@@ -275,6 +278,30 @@ describe("照着另一个 Agent 装", () => {
     expect(copyable(InstallPlanStatus.InstallUntracked)).toBe(true);
     expect(copyByDefault(InstallPlanStatus.InstallUntracked)).toBe(false);
     expect(copyOverwrites(InstallPlanStatus.InstallUntracked)).toBe(true);
+  });
+
+  const planOf = (skill_id: number, status: InstallPlanStatus) => ({ skill_id, name: `s${skill_id}`, folder: `/f/s${skill_id}`, status });
+
+  it("打开时组安装整组勾上、组员的同名文件夹默认不覆盖;读不出计划的、被占用的、要覆盖的直接安装不勾", () => {
+    const entries: [string, CopyPlanned][] = [
+      ["g", { members: [planOf(1, InstallPlanStatus.InstallUntracked), planOf(2, InstallPlanStatus.InstallReady)] }],
+      ["ready", { plan: planOf(3, InstallPlanStatus.InstallReady) }],
+      ["untracked", { plan: planOf(4, InstallPlanStatus.InstallUntracked) }],
+      ["occupied", { plan: planOf(5, InstallPlanStatus.InstallOccupied) }],
+      ["broken", { error: new Error("unreadable") }],
+    ];
+    const { checked, overwrite } = copyDefaults(entries);
+    expect([...checked].sort()).toEqual(["g", "ready"]);
+    expect(overwrite.size).toBe(0);
+  });
+
+  it("数出要覆盖几个文件夹：勾上的直接安装，加上勾了覆盖的组安装里的组员", () => {
+    const entries = new Map<string, CopyPlanned>([
+      ["g", { members: [planOf(1, InstallPlanStatus.InstallUntracked), planOf(2, InstallPlanStatus.InstallUntracked)] }],
+      ["untracked", { plan: planOf(4, InstallPlanStatus.InstallUntracked) }],
+    ]);
+    expect(copyOverwriteCount(entries, new Set(["g"]), new Set())).toBe(0);
+    expect(copyOverwriteCount(entries, new Set(["g", "untracked"]), new Set(["g"]))).toBe(3);
   });
 
   it("被另一个技能占用的、组里同名的不能勾", () => {

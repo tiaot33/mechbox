@@ -3180,7 +3180,7 @@ await step("照着另一个 Agent 装：全局和项目里的一次装上，组�
   assert(await checked(row(projectPlace, "copy-agent-skill", "cp-lambda")), "项目里的 cp-lambda 列在同一个项目下");
   const nuRow = row(globalPlace, "copy-agent-skill", "cp-nu");
   assert(!(await checked(nuRow)), "有不是库装的同名文件夹的 cp-nu 默认不勾");
-  assert((await nuRow.locator('[data-slot="badge"]', { hasText: "有同名文件夹" }).count()) === 1, "cp-nu 应标有同名文件夹");
+  assert((await nuRow.locator('[data-slot="badge"]', { hasText: "勾上会覆盖同名文件夹" }).count()) === 1, "cp-nu 应写明勾上会覆盖同名文件夹");
   assert((await row(globalPlace, "copy-agent-skill", "cp-mu").count()) === 0, "只随组安装的 cp-mu 不单列成直接安装");
   assert((await modal().locator(".copy-agent-edited").textContent()).includes("「cp-kappa」"), "改过的 cp-kappa 应单列说明");
   assert((await modal().locator(".copy-agent-unmanaged").textContent()).includes("未纳管技能"), "应说出未纳管技能带不过来");

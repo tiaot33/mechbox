@@ -315,17 +315,19 @@ export const zh = {
     groupStanding: (to: string) => `组安装：以后加入这个组的技能也会装到 ${to}`,
     groupOverwrite: (names: string[]) => `覆盖 ${names.length} 个成员处不是从技能库装的同名文件夹：${names.join("、")}`,
     groupBlocked: (names: string[]) => `装不了，会跳过：${names.join("、")}`,
-    untracked: "有同名文件夹",
+    untracked: "勾上会覆盖同名文件夹",
     untrackedTitle: (folder: string) => `${folder} 已存在，但不是从技能库装的；勾上会覆盖它`,
     blocked: "装不了",
     checking: "正在查看安装计划…",
     edited: (from: string, to: string, names: string[]) =>
       `${names.map((n) => `「${n}」`).join("、")} 在 ${from} 里被手动改过：${to} 装的是库里的版本，不是改过的那份。想让 ${to} 也用上修改，先在技能详情里对 ${from} 那一处「用这里的修改更新」，再照着装。`,
     unmanaged: (from: string, n: number) => `${from} 里还有 ${n} 个未纳管技能，不在库里，带不过来；入库以后才能照着装。`,
-    confirm: (skills: number, groups: number) =>
-      `安装${[skills ? ` ${skills} 个技能` : "", groups ? ` ${groups} 个组` : ""].filter(Boolean).join("和")}`,
-    nothing: (to: string) => `其他 Agent 装的技能都已经装在 ${to} 了`,
-    done: (from: string, to: string, n: number) => `已照着 ${from} 在 ${to} 装上 ${n} 个技能`,
+    confirm: (skills: number, groups: number, overwrites: number) =>
+      `安装${[skills ? ` ${skills} 个技能` : "", groups ? ` ${groups} 个组` : ""].filter(Boolean).join("和")}${overwrites ? `（覆盖 ${overwrites} 个文件夹）` : ""}`,
+    placeToggle: (place: string) => `勾选或取消${place}这一处`,
+    nothing: (to: string) => `其他 Agent 在这台机器上装的库里技能，都已经装在 ${to} 了`,
+    done: (from: string, to: string, n: number, groups: number) =>
+      `已照着 ${from} 在 ${to} 装上 ${n} 个技能${groups ? `，记下 ${groups} 个组安装` : ""}`,
     resultsTitle: (from: string, to: string) => `照着 ${from} 装到 ${to}`,
     summary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 项没装上`,
     groupFailed: (name: string, where: string) => `组「${name}」 → ${where}`,
