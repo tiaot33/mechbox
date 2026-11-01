@@ -4,7 +4,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useLoadedSnapshot, reloadLibrary } from "@/lib/library";
-import { platform } from "@/lib/platform";
 import { pageTitle } from "@/lib/model";
 import { cn } from "@/lib/utils";
 import { setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, useView } from "@/lib/view";
@@ -56,7 +55,7 @@ export function Toolbar() {
           ref={search}
           className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
           icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
-          suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">{platform() === "mac" ? "⌘K" : "Ctrl K"}</kbd>}
+          suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">{t.searchKey()}</kbd>}
           placeholder={t.search}
           value={text}
           onChange={(e) => setSearch(e.target.value)}

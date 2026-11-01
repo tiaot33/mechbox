@@ -6,11 +6,14 @@
 @source not "../dist";
 
 @theme {
-  /* 系统字体:macOS 的 SF 与苹方,Windows 的 Segoe UI 与微软雅黑(Segoe UI 没有中文字形，中文落到微软雅黑)。 */
+  /* 系统字体:macOS 的 SF 与苹方,Windows 的 Segoe UI 与微软雅黑。西文字体都没有中文字形，等宽字体里的中文也落到苹方或微软雅黑，
+     不然 Windows 上会落到新宋体。 */
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, monospace;
+  --font-mono:
+    "SF Mono", "JetBrains Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", monospace;
 
   --color-foreground: #111827;
   --color-foreground-secondary: #4b5563;
@@ -41,7 +44,7 @@
   --color-group-strong: #6d28d9;
   --color-group-border: #ddd3fb;
 
-  /* 半透明表面的档位：毛玻璃来自窗口背后的 macOS 原生层，界面只用半透明白色让它透出来。
+  /* 半透明表面的档位：毛玻璃来自窗口背后的系统材质(macOS 的毛玻璃,Windows 11 的 Mica),界面只用半透明白色让它透出来。
      tile 是三栏的底板,card 是浮在底板上的技能卡片与摘要条,overlay 是浮在内容上的抽屉、弹窗与弹层，
      overlay 另加 backdrop-blur,把底下的内容糊掉而不是透出文字。 */
   --color-glass-tile: rgba(255, 255, 255, 0.52);
@@ -143,7 +146,8 @@
   }
 }
 
-/* 窗口底色：整窗就是应用，背后是 macOS 原生毛玻璃，页面只铺一层带淡彩的半透明底色。 */
+/* 窗口底色：整窗就是应用，背后是 macOS 的毛玻璃或 Windows 11 的 Mica,页面只铺一层带淡彩的半透明底色。
+   没有 Mica 的 Windows 上窗口是不透明的底色，与最底下这层同色(见 window_windows.go)。 */
 @utility window-backdrop {
   background:
     radial-gradient(circle at 12% 18%, rgba(215, 227, 248, 0.55) 0%, transparent 45%),
