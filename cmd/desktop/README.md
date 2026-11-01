@@ -97,6 +97,7 @@ open bin/mechbox.app
 
 - 版本号以 tag 为准：构建前由 `.github/scripts/set-version.sh` 写进 `build/config.yml`(关于页显示的版本)、`Info.plist`、Windows 版本资源、NSIS 与 nfpm 配置，仓库里这几处的版本号不用手改。macOS 与 Windows 的版本字段只认数字，预发布后缀只留在 `config.yml` 与 Linux 包里。
 - **安装包的文件名是 app 里的更新依赖的约定**:`Mechbox-<版本>-macos-universal.zip`、`-windows-<架构>-setup.exe`、`-linux-<架构>.AppImage` 与 `SHA256SUMS.txt`,app 按这几个后缀找本平台的安装包和校验值(`release_<平台>.go` 的 `releaseTarget`)。改名、去掉其中一个，已经发出去的版本就找不到安装包，只能打开下载页;发布正文里 GitHub 生成的 `## What's Changed` 是 app 里显示的更新说明的开头。
+- 各平台的打包与安装包命名在 `Taskfile.yml` 的 `release` 任务里，workflow 在每个平台上只调它。在本机调试打包就在 `cmd/desktop` 下运行 `wails3 task release`(可加 `VERSION=<版本>`),打出本机系统、本机架构的安装包放进 `dist/`;它不写版本号，要和正式发布一致先跑 `set-version.sh`。
 - 在 Actions 页面手动运行这个 workflow 只构建、不发布，安装包留在那次运行的 Artifacts 里，文件名里的版本是 `dev-<提交>`。
 - Windows 构建要开 cgo(`CGO_ENABLED=1`,技能库用的 SQLite 驱动需要),Windows 任务默认不开。
 - macOS 只做 ad-hoc 签名、没有公证，Windows 安装程序也没有代码签名;用户第一次打开时会被系统拦一下，Release 说明里写了怎么放行。
