@@ -1,4 +1,4 @@
-// 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;
+// 左栏：入库 / 市场入口;页面——技能库 / 更新;集合(按来源)与组是技能库页里的节，点了跳到那一节;
 // 底部同步与设置，Mechbox 有新版本时上面多一行新版本。
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，默认按来源名排，只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
@@ -106,7 +106,7 @@ export function LeftSidebar() {
         <span>{t.market}</span>
       </SideButton>
       <ul className="flex flex-col gap-0.5">
-        {pageRow({ kind: "all" }, <Icon name="bolt" />, t.allSkills, s.skills.length)}
+        {pageRow({ kind: "all" }, <Icon name="bolt" />, t.library, s.skills.length)}
         {updates > 0 && pageRow({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
         <li>
           <button

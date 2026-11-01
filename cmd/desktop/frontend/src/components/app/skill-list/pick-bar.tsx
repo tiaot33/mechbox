@@ -4,11 +4,11 @@ import { useEffect } from "react";
 import type { Scope } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { parseScope, placeOf, projectAgents, projectName, scopeKey, scopeLabel, skillScopeIn, type PageListing } from "@/lib/model";
-import { clearPicked, useView } from "@/lib/view";
+import { parseScope, projectAgents, projectName, scopeKey, scopeLabel, skillScopeIn, type PageListing } from "@/lib/model";
+import { clearPicked, useCurrentPage, useView } from "@/lib/view";
 import { pickGroup } from "@/features/group/group";
 import { uninstallSkills } from "@/features/install/install";
-import { installPicked } from "@/features/install/install-to";
+import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { removeSkills } from "@/features/skill/remove";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
@@ -16,6 +16,7 @@ import { Icon } from "@/components/app/icons";
 export function PickBar({ listing }: { listing: PageListing }) {
   const s = useSnapshot();
   const picked = useView((v) => v.picked);
+  const page = useCurrentPage();
   const t = useT().list;
   const ids = [...picked];
 
@@ -43,12 +44,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
         ? { scopes: projectAgents(s, listing.project, "").map((a) => parseScope(a.scope)), where: projectName(s, listing.project) }
         : undefined;
   // 安装到…默认选这一页的地方：作用域页是这个作用域，项目页是这个项目。
-  const initial =
-    listing.kind === "scope"
-      ? { place: placeOf(parseScope(listing.scope)), agent: parseScope(listing.scope).agent }
-      : listing.kind === "project"
-        ? { place: listing.project }
-        : {};
+  const initial = pageInstallTarget(page);
   const canUninstall = !!here?.scopes.some((sc) => ids.some((id) => skillScopeIn(s, id, scopeKey(sc))?.direct));
   const inGroups = s.groups.some((g) => ids.some((id) => g.members?.includes(id)));
 
@@ -56,7 +52,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[2] flex justify-center px-4">
       <div className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 rounded-xl border border-hairline bg-white/95 px-2 py-1.5 shadow-[0_8px_28px_rgba(17,24,39,0.16)] backdrop-blur-[12px]">
         <span className="px-1.5 text-[12px] font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
-        <Button size="sm" variant="ghost" onClick={() => void installPicked(ids, initial)}>
+        <Button size="sm" variant="ghost" onClick={() => void chooseAndInstall(ids, initial)}>
           <Icon name="plus" />
           {t.pickInstallTo}
         </Button>

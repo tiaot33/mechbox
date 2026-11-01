@@ -1,4 +1,4 @@
-// 主界面的界面状态：在哪一页(所有技能 / 更新 / 作用域 / 项目)、所有技能页按什么分节、搜索、左右栏、右栏的展开、
+// 主界面的界面状态：在哪一页(技能库 / 更新 / 作用域 / 项目)、技能库页按什么分节、搜索、左右栏、右栏的展开、
 // 列表里收起的节与展开的"没装的"、勾选的技能、左栏要跳到的那一节、详情抽屉、拖放、集合与组的先后与设置页。
 // 各栏直接从这里取、改，不经 App 一层层传;改状态的操作是模块级函数，组件外(拖放、写操作流程)也能调用。
 import { useMemo } from "react";
@@ -45,6 +45,14 @@ export interface Jump {
   n: number;
 }
 
+// Flash 是刚入库的未纳管技能：它在作用域页、项目页里换成库里技能的那一行，滚到看得见的地方闪一下。
+// scope 是入库的那个作用域，同一个技能在页上有几行时闪这一处的;n 每次入库都变。
+export interface Flash {
+  skill: SkillID;
+  scope: ScopeKey;
+  n: number;
+}
+
 interface ViewState {
   page: Page;
   arrange: Arrange;
@@ -58,6 +66,7 @@ interface ViewState {
   picked: ReadonlySet<SkillID>; // 列表里勾选的技能，底部的操作栏对它们一起操作;换页时清空
   anchor: string | null; // 上一次单独勾选或取消的那一行(PickRow.key),按住 Shift 勾选时从它勾到点的那一行
   jump: Jump | null;
+  flash: Flash | null;
   drawer: SkillID | null;
   drag: DragItem | null;
   order: Order; // 用户拖出来的集合与组的先后，存在 localStorage,下次打开沿用
@@ -90,6 +99,7 @@ export const useView = create<ViewState>()(() => ({
   picked: new Set(),
   anchor: null,
   jump: null,
+  flash: null,
   drawer: null,
   drag: null,
   order: savedOrder(),
@@ -115,14 +125,18 @@ export const closeSettings = () => set({ settings: false });
 export const toggleDrawer = (id: SkillID) => set((v) => ({ drawer: v.drawer === id ? null : id }));
 export const closeDrawer = () => set({ drawer: null });
 
-// openPage 换到所有技能或更新页;左栏上次要跳到的那一节作废，回到所有技能页时不再滚过去。
+// openPage 换到技能库或更新页;左栏上次要跳到的那一节作废，回到技能库页时不再滚过去。
 export const openPage = (page: Page) => goTo(page);
 
-// goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节作废。
+// goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节、要闪的那一行作废。
 function goTo(page: Page, extra: Partial<ViewState> = {}) {
   const changed = !samePage(get().page, page);
-  set({ page, jump: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
+  set({ page, jump: null, flash: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
 }
+
+// flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
+export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));
+export const doneFlash = (n: number) => set((v) => (v.flash?.n === n ? { flash: null } : {}));
 
 // togglePick 勾选或取消一行的技能。rows 是按住 Shift 点的：列表里各行从上到下，
 // 从上一次单独勾选的那一行到这一行都设成和这一行点完后一样的状态;上一次的那一行已经不在列表里时只改这一行。
@@ -148,7 +162,7 @@ export function setPicked(ids: SkillID[], on: boolean, anchor: string | null = g
 
 export const clearPicked = () => set({ picked: new Set(), anchor: null });
 
-// openScope 打开作用域页，右栏同步展开到那一行;再点一次正打开的作用域回到所有技能。
+// openScope 打开作用域页，右栏同步展开到那一行;再点一次正打开的作用域回到技能库。
 export function openScope(key: ScopeKey) {
   const { page } = get();
   if (page.kind === "scope" && page.scope === key) return goTo({ kind: "all" });
@@ -156,14 +170,14 @@ export function openScope(key: ScopeKey) {
   reveal(parseScope(key));
 }
 
-// openProject 打开项目页(项目里各 Agent 装了什么),右栏同步展开这个项目;再点一次正打开的项目回到所有技能。
+// openProject 打开项目页(项目里各 Agent 装了什么),右栏同步展开这个项目;再点一次正打开的项目回到技能库。
 export function openProject(project: ProjectID) {
   const { page } = get();
   if (page.kind === "project" && page.project === project) return goTo({ kind: "all" });
   goTo({ kind: "project", project }, { expanded: new Set(get().expanded).add(project) });
 }
 
-// jumpTo 是左栏点了集合或组：回到所有技能页、按它分节、清掉搜索，展开并滚到那一节。
+// jumpTo 是左栏点了集合或组：回到技能库页、按它分节、清掉搜索，展开并滚到那一节。
 export function jumpTo(target: { kind: "collection"; id: CollectionID } | { kind: "group"; id: GroupID }) {
   const section = sectionKey(target.kind, target.id);
   const v = get();
@@ -230,7 +244,7 @@ export function useSortedGroups(s: Snapshot): Group[] {
 }
 
 // reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、删除自定义 Agent、
-// 拉取了别的库)时退回所有技能，并记下来，之后又有了更新也不会自己跳回去。
+// 拉取了别的库)时退回技能库，并记下来，之后又有了更新也不会自己跳回去。
 // 拖出来的先后里已经不在库里的集合与组也在这时去掉;勾选的技能只留这一页还列着的(移除了的、项目页上卸载了的去掉),
 // 免得看不见的技能被带进下一次操作。
 export function reconcile(s: Snapshot) {

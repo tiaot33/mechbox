@@ -34,7 +34,8 @@ export const barClass = "a-scope-sum flex flex-col gap-2 rounded-[10px] border b
 
 export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
-// ScopeSummary 是作用域页顶部的摘要:Agent 在这里一共看得到几个技能(其中已安装、未纳管、来自全局各几个，和下面的上一块一致)、
+// ScopeSummary 是作用域页顶部的摘要：这个目录里有几个技能(全局写"全局目录里有",项目写"在项目里能用",含来自全局的;
+// 其中已安装、不在技能库里、来自全局各几个，和下面的上一块一致)、
 // Agent 目录、健康状态、全部重新安装，每个组的整组开关，
 // 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有)。
 export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeKey; directory: string | undefined; sees: number; global: number }) {
@@ -48,10 +49,13 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const groups = useSortedGroups(s);
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
   const c = useT().copy;
+  const agent = agentNameIn(s, sc.agent, placeOf(sc));
   return (
     <div className={barClass}>
       <div className="flex min-w-0 items-center gap-2.5">
-        <b className="scope-sees min-w-0 truncate text-[13px] font-semibold">{t.scopeSees(agentNameIn(s, sc.agent, placeOf(sc)), sees)}</b>
+        <b className="scope-sees min-w-0 truncate text-[13px] font-semibold">
+          {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), sees) : t.scopeSeesGlobal(agent, sees)}
+        </b>
         <span className="grow" />
         {others && (
           <Button size="sm" className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent)}>
@@ -68,7 +72,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         </span>
         <span className="grow" />
         <Stat value={installed.length} label={t.statInstalled} />
-        {unmanaged > 0 && <Stat value={unmanaged} label={t.statUnmanaged} />}
+        {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
         <Stat value={issues} label={t.statStale} warn={issues > 0} />
         {issues > 0 && (

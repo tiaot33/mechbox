@@ -274,7 +274,7 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.project_id), shortPath(s, p.project.folder))).join("\n") };
 }
 
-// skillSameNameNote 是库里一个技能在各处的同名说明(所有技能页、更新页的一行用):它装出去的文件夹和同一个 Agent
+// skillSameNameNote 是库里一个技能在各处的同名说明(技能库页、更新页的一行用):它装出去的文件夹和同一个 Agent
 // 另一层级的同名文件夹各说一句后果;text 是第一句，title 逐句列出。没有同名时返回 undefined。
 export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
   const notes = s.sameName.flatMap((p) => [
@@ -521,7 +521,7 @@ function inOrder<T extends { id: number }>(items: T[], order: number[]): T[] {
   return [...items].sort((a, b) => (rank(a) === rank(b) ? 0 : rank(a) - rank(b)));
 }
 
-// sortedCollections 是集合的顺序：默认按来源名排，用户拖过的按拖出来的先后;左栏、所有技能页与作用域页的分节、更新列表都按它。
+// sortedCollections 是集合的顺序：默认按来源名排，用户拖过的按拖出来的先后;左栏、技能库页与作用域页的分节、更新列表都按它。
 export function sortedCollections(s: Snapshot, order: CollectionID[]): Collection[] {
   const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
   return inOrder(byName, order);
@@ -724,12 +724,12 @@ export function sourceShort(s: Snapshot, source: Source): string {
 }
 
 // ---------- 页面 ----------
-// 主界面中间有四种页面：所有技能(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)、
-// 项目(这个项目里各 Agent 装了什么)。集合和组不是筛选，是所有技能页里的分节;左栏点它们只是跳到那一节。
+// 主界面中间有四种页面：技能库(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)、
+// 项目(这个项目里各 Agent 装了什么)。集合和组不是筛选，是技能库页里的分节;左栏点它们只是跳到那一节。
 
 export type Page = { kind: "all" } | { kind: "updates" } | { kind: "scope"; scope: ScopeKey } | { kind: "project"; project: ProjectID };
 
-// Arrange 是所有技能页与作用域页按什么分节。
+// Arrange 是技能库页与作用域页按什么分节。
 export type Arrange = "collection" | "group";
 
 export function samePage(a: Page, b: Page): boolean {
@@ -738,7 +738,7 @@ export function samePage(a: Page, b: Page): boolean {
   return a.kind === b.kind;
 }
 
-// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页退回所有技能。
+// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页退回技能库。
 export function resolvePage(s: Snapshot, page: Page): Page {
   if (page.kind === "updates" && !anyUpdatable(s)) return { kind: "all" };
   if (page.kind === "scope") {
@@ -754,7 +754,7 @@ export function pageTitle(s: Snapshot, page: Page): string {
   if (page.kind === "updates") return m.updates;
   if (page.kind === "scope") return scopeLabel(s, parseScope(page.scope));
   if (page.kind === "project") return projectName(s, page.project);
-  return m.allSkills;
+  return m.library;
 }
 
 // matches 是搜索：名字或描述里含有输入的文字，不分大小写;没输入时都算。
@@ -768,14 +768,14 @@ export function translatedDescription(item: { description_translations?: Skill["
   return item.description_translations?.[currentLanguage()] || undefined;
 }
 
-// ---------- 所有技能页的分节 ----------
+// ---------- 技能库页的分节 ----------
 
 // sectionKey 是一节的身份：收起、展开"没装的"、左栏跳转都按它。作用域页的节带上作用域，收起、展开各作用域分开记，
-// 也不和所有技能页的同一节连在一起;作用域页下面那块(没装在这里的)的节再带上 not-here,和上面那块的同一节分开记。
+// 也不和技能库页的同一节连在一起;作用域页下面那块(没装在这里的)的节再带上 not-here,和上面那块的同一节分开记。
 export const sectionKey = (kind: "collection" | "group" | "rest", id: number | string, scope?: ScopeKey, notHere = false) =>
   `${scope ? `${scope}:` : ""}${notHere ? "not-here:" : ""}${kind}-${id}`;
 
-// SkillSection 是所有技能页、作用域页的一节：一个集合、一个组，或最后的"没有来源" / "没有归组"(kind 为 rest,id 为 0)。
+// SkillSection 是技能库页、作用域页的一节：一个集合、一个组，或最后的"没有来源" / "没有归组"(kind 为 rest,id 为 0)。
 // key 是节的身份(见 sectionKey),最后一节是 "rest-collection" / "rest-group"。skills 是要列的(搜索时只留匹配的),
 // all 是不搜索时这一节的全部技能，节标题按它数个数。
 export interface SkillSection {
@@ -827,7 +827,7 @@ export function arrangeSkills(
   return sections.filter((x) => x.skills.length > 0 || (emptyGroups && !search.trim() && x.kind === "group"));
 }
 
-// installedSummary 是所有技能页上一行的"装在哪":显示的 Agent 全局都装了就只写"全局",否则写出是哪几个 Agent;
+// installedSummary 是技能库页上一行的"装在哪":显示的 Agent 全局都装了就只写"全局",否则写出是哪几个 Agent;
 // 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方要重新安装。
 export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; title: string; bad: boolean } {
   const m = messages().model;
@@ -948,7 +948,7 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // ---------- 每一页列什么、数到几 ----------
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
-// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
+// 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 export type PageListing = { total: number; results: number } & (
