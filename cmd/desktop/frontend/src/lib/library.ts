@@ -246,6 +246,11 @@ export const wslDistrosQuery = queryOptions({
   queryFn: ({ signal }) => list(wails(signal, LibraryService.ListWSLDistros())),
 });
 
+// useHasWSL 是这台机器装没装 WSL 发行版(只有 Windows 上会有):路径输入据此决定 / 开头的算不算发行版里的路径、要不要写出会被理解成哪里。
+export function useHasWSL(): boolean {
+  return (useQuery(wslDistrosQuery).data ?? []).length > 0;
+}
+
 export const wslDistroErrorQuery = queryOptions({
   queryKey: ["wsl-distro-error"],
   queryFn: ({ signal }) => wails(signal, AppService.WSLDistroError()),

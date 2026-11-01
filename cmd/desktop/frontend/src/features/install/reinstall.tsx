@@ -24,6 +24,7 @@ import {
   sharedWithNote,
   shortPath,
   skillName,
+  wslTitle,
 } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,9 @@ function ReinstallDialog({
                     <div>
                       {t.actions.missingPlace(skillName(s, p.skill_id), mergeProjectPlaces(s, places).map((x) => scopeLabel(s, x.scope)))}
                     </div>
-                    <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                    <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+                      {shortPath(s, p.folder)}
+                    </div>
                     {shared.length > 0 && (
                       <div className="text-[11px] text-muted-foreground">{t.actions.missingShared(shared.map((code) => agentName(s, code)))}</div>
                     )}
@@ -176,7 +179,9 @@ function ReinstallDialog({
                       <div>
                         {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
                       </div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+                        {shortPath(s, p.folder)}
+                      </div>
                       {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
                     </div>
                   </label>

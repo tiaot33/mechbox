@@ -5,7 +5,7 @@ import type { Scope, SkillID, SkillScopeInspection } from "@bindings/internal/li
 import { linkWrites, placeKey, type Detached } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentName, mergeProjectPlaces, projectName, scopeLabel, shortPath, skillName } from "@/lib/model";
+import { agentName, mergeProjectPlaces, projectName, scopeLabel, shortPath, skillName, wslTitle } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
@@ -111,7 +111,9 @@ export function SharedFolders({ places }: { places: SkillScopeInspection[] }) {
             <div>
               {skillName(s, p.skill_id)} · {p.scope.project_id ? projectName(s, p.scope.project_id) : t.model.global}
             </div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+              {shortPath(s, p.folder)}
+            </div>
           </div>
           <span className="text-[11px] text-muted-foreground">{t.actions.sharedBy((p.shared_with ?? []).map((code) => agentName(s, code)))}</span>
         </ListRow>

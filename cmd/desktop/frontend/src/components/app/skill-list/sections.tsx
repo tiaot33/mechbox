@@ -17,6 +17,7 @@ import {
   skillScopesOf,
   sourceLabel,
   updateAvailable,
+  wslTitle,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
 import { toggleSection, toggleUnfolded, useView } from "@/lib/view";
@@ -27,7 +28,7 @@ import { openHistory, openUpdate } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
 import { useDnD } from "@/components/app/dnd";
 import { Icon, SourceIcon } from "@/components/app/icons";
-import { Chip, PlaceAgentMark } from "@/components/app/parts";
+import { Chip, PlaceAgentMark, WSLBadge } from "@/components/app/parts";
 import { SectionPick } from "./pick";
 
 // Section 是一节：标题 + 一块行;给了 pick 时标题上有勾选框，一次勾上这一节的这些技能。defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;
@@ -130,7 +131,10 @@ export function CollectionHead({ collection, count }: { collection: Collection; 
       >
         <DragHandle />
         <SourceIcon type={collection.source.type} className="size-3.5 text-muted-foreground" />
-        <b className="section-name truncate font-semibold">{label}</b>
+        <b className="section-name truncate font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
+          {label}
+        </b>
+        {local && <WSLBadge path={collection.source.label} />}
       </span>
       {count ? <Counts>{count}</Counts> : <UseCounts skills={skills} />}
       <span className="min-w-0 grow truncate text-[11px] text-subtle" title={facts.join(" · ")}>

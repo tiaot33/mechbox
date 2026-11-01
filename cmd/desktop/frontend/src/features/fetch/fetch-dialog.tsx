@@ -8,12 +8,13 @@ import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs
 import { Modal, ui, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError } from "@/lib/library";
+import { currentSnapshot, toLibraryError, useHasWSL } from "@/lib/library";
 import { isLocalPath, resolveFetchInput } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { FieldError, Hint } from "@/components/ui/field";
+import { PathWhere } from "@/components/app/parts";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -75,7 +76,8 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     stopScan();
     onClose();
   };
-  const input = resolveFetchInput(text, home);
+  const wsl = useHasWSL();
+  const input = resolveFetchInput(text, home, wsl);
   const [refs, settleRefs] = useSourceRefs(input?.path ?? "");
 
   if (preview) {
@@ -170,6 +172,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
         </Button>
       </div>
       {input?.error && <FieldError>{input.error}</FieldError>}
+      <PathWhere path={input?.path && isLocalPath(input.path) ? input.path : undefined} />
       <RefPicker
         refs={refs}
         chosen={chosen}

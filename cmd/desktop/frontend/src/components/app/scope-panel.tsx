@@ -24,6 +24,7 @@ import {
   scopeOf,
   shortPath,
   skillScopesIn,
+  wslTitle,
   type Place,
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
@@ -38,7 +39,7 @@ import { alreadyInScope, dropProps, useDnD } from "./dnd";
 import { Icon } from "./icons";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
-import { PlaceAgentMark } from "./parts";
+import { PlaceAgentMark, WSLBadge } from "./parts";
 
 export function ScopePanel() {
   const { expanded, moreAgents } = useView(useShallow((v) => ({ expanded: v.expanded, moreAgents: v.moreAgents })));
@@ -132,7 +133,7 @@ export function ScopePanel() {
 
   return (
     <aside ref={rail} className={rightClass}>
-      <RailHead icon="globe" label={t.global} />
+      <RailHead icon="globe" label={t.global} tag={<WSLBadge path={s.info.home_dir} />} />
       <ul className={listClass}>{agentRows(0)}</ul>
       <RailHead icon="folder" label={t.projects}>
         <Button
@@ -151,6 +152,7 @@ export function ScopePanel() {
           const count = mergeProjectPlaces(s, s.skillScopes.filter((x) => placeOf(x.scope) === p.id)).length;
           const current = !!selected && placeOf(selected) === p.id;
           const active = page.kind === "project" && page.project === p.id;
+          const where = wslTitle(p.path) ?? shortPath(s, p.path);
           return (
             <li key={p.id}>
               <div
@@ -160,7 +162,7 @@ export function ScopePanel() {
                 className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
                 data-active={active}
                 onClick={() => openProject(p.id)}
-                title={p.missing ? t.missingTitle(shortPath(s, p.path)) : shortPath(s, p.path)}
+                title={p.missing ? t.missingTitle(where) : where}
                 {...aimProps(`p${p.id}`, open)}
               >
                 <button
@@ -176,7 +178,9 @@ export function ScopePanel() {
                   <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
                 </button>
                 <Icon name="folder" className="size-[13px]" />
-                <span className="grow truncate">{projectName(s, p.id)}</span>
+                <span className="min-w-0 truncate">{projectName(s, p.id)}</span>
+                <WSLBadge path={p.path} />
+                <span className="grow" />
                 {p.missing && (
                   <Badge tone="warn" title={t.missingBadgeTitle}>
                     {t.missing}
@@ -281,12 +285,24 @@ function aimAt(rail: HTMLElement, x: number, y: number): string | null {
 // 行的左缘对齐分节标题的文字：标题是 图标 + 名称，行从名称下方开始。
 const listClass = "mt-0.5 flex flex-col gap-0.5 pl-4";
 
-function RailHead({ icon, label, children }: { icon: "globe" | "folder"; label: string; children?: React.ReactNode }) {
+// tag 跟在标题后面，如全局目录所在的 WSL 发行版;children 靠右(如登记项目的按钮)。
+function RailHead({
+  icon,
+  label,
+  tag,
+  children,
+}: {
+  icon: "globe" | "folder";
+  label: string;
+  tag?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="nav-sec group/sec flex h-[26px] items-center justify-between pr-0.5 pl-2 text-[11px] font-semibold text-muted-foreground not-first:mt-2.5 first:mt-1">
-      <span className="inline-flex items-center gap-[5px]">
+      <span className="inline-flex min-w-0 items-center gap-[5px]">
         <Icon name={icon} className="size-[11px]" />
         {label}
+        {tag}
       </span>
       {children}
     </div>

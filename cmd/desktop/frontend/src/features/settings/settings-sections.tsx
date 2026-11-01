@@ -16,6 +16,7 @@ import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
+import { WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
@@ -30,7 +31,7 @@ export function GeneralSection({
   save: (change: Partial<Settings>) => void;
   onRetryDistro: () => void;
 }) {
-  const t = useT().settings;
+  const { settings: t, paths } = useT();
   // 跟随系统时实际用哪种语言由 Go 端按系统的首选语言定。
   const languages: { value: Language; label: string }[] = [
     { value: Language.LanguageSystem, label: t.followSystem },
@@ -83,7 +84,7 @@ export function GeneralSection({
           <option value="">{t.windowsHome}</option>
           {[...new Set([...distros, ...(settings.wsl_distro ? [settings.wsl_distro] : [])])].map((d) => (
             <option key={d} value={d}>
-              WSL · {d}
+              {paths.wsl(d)}
             </option>
           ))}
         </NativeSelect>
@@ -111,7 +112,10 @@ export function ProjectsSection() {
       <SetRow key={p.id}>
         <Icon name="folder" />
         <div className="min-w-0 grow">
-          <div className="truncate">{projectName(s, p.id)}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{projectName(s, p.id)}</span>
+            <WSLBadge path={p.path} />
+          </div>
           <div className="truncate font-mono text-[11px] text-muted-foreground select-text" title={p.path}>
             {shortPath(s, p.path)}
           </div>

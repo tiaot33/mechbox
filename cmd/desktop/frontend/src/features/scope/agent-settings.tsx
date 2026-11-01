@@ -5,9 +5,9 @@ import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/libr
 import { addAgent, deleteAgent, editAgent } from "./agents";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { useSnapshot, type LibraryError } from "@/lib/library";
+import { useHasWSL, useSnapshot, type LibraryError } from "@/lib/library";
 import { agentShown, nativePath, shortPath, slashPath } from "@/lib/model";
-import { insideHome, resolveLocalPath } from "@/lib/paths";
+import { insideHome, isWSLPath, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { Field, FieldError, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { pickDirectory } from "@/features/fetch/fetch-dialog";
-import { AgentMark } from "@/components/app/parts";
+import { AgentMark, PathWhere } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 
 export function AgentSection({
@@ -69,6 +69,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
   const s = useSnapshot();
   const t = useT().agents;
   const home = s.info.home_dir;
+  const wsl = useHasWSL();
   const [name, setName] = useState(agent?.name ?? "");
   const [global, setGlobal] = useState(agent ? shortPath(s, agent.global_directory) : "");
   const [project, setProject] = useState(agent ? nativePath(agent.project_directory) : "");
@@ -80,8 +81,11 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
   const validate = () => {
     const found: Partial<Record<AgentField, string>> = {};
     if (!name.trim()) found.name = t.nameRequired;
-    const resolved = resolveLocalPath(global, home);
+    const resolved = resolveLocalPath(global, home, wsl);
+    // 全局目录在 Windows 本机时填了发行版里的路径：只能先去设置里把全局目录换到那个发行版。
+    const wantsWSL = wsl && !isWSLPath(home) && (global.trim().startsWith("/") || (!!resolved?.path && isWSLPath(resolved.path)));
     if (!resolved) found.global_directory = t.globalRequired;
+    else if (wantsWSL) found.global_directory = t.globalInWSL;
     else if (resolved.path === undefined) found.global_directory = resolved.error;
     else if (!insideHome(resolved.path, home)) found.global_directory = t.globalInHome;
     const rel = slashPath(project.trim());
@@ -145,13 +149,14 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
           <Button
             onClick={async () => {
               const dir = await pickDirectory(t.chooseGlobal);
-              if (dir) setGlobal(shortPath(s, dir));
+              if (dir) setGlobal(isWSLPath(dir) ? dir : shortPath(s, dir));
             }}
           >
             {t.choose}
           </Button>
         </div>
         {error("global_directory")}
+        <PathWhere path={resolveLocalPath(global, home, wsl)?.path} />
       </Field>
       <Field label={t.project}>
         <Input
