@@ -3319,24 +3319,24 @@ await step("照着另一个 Agent 装：全局和项目里的一次装上，组�
   await selectScope("Copy Target");
   await page.locator(".copy-agent-open").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "照着其他 Agent 装到 Copy Target" }).waitFor();
-  await modal().locator(".copy-agent-from").selectOption({ label: "Claude Code" });
-  await modal().locator(".copy-agent-skill").first().waitFor();
+  await modal().locator(".copy-from").selectOption({ label: "Claude Code" });
+  await modal().locator(".copy-skill").first().waitFor();
   await page.waitForFunction(() => !document.querySelector('[data-slot="dialog-content"]')?.textContent.includes("正在查看安装计划"));
-  const globalPlace = modal().locator('.copy-agent-place[data-place="0"]');
-  const projectPlace = modal().locator(".copy-agent-place", { hasText: "proj-copy" });
+  const globalPlace = modal().locator('.copy-place[data-place="0"]');
+  const projectPlace = modal().locator(".copy-place", { hasText: "proj-copy" });
   const row = (place, cls, name) => place.locator(`.${cls}[data-name="${name}"]`);
   const checked = (r) => r.locator('input[type="checkbox"]').isChecked();
-  assert(await checked(row(globalPlace, "copy-agent-skill", "cp-kappa")), "全局直接安装的 cp-kappa 默认勾上");
-  assert(await checked(row(globalPlace, "copy-agent-group", "照装组")), "全局的组安装默认勾上");
-  assert(await checked(row(projectPlace, "copy-agent-skill", "cp-lambda")), "项目里的 cp-lambda 列在同一个项目下");
-  const nuRow = row(globalPlace, "copy-agent-skill", "cp-nu");
+  assert(await checked(row(globalPlace, "copy-skill", "cp-kappa")), "全局直接安装的 cp-kappa 默认勾上");
+  assert(await checked(row(globalPlace, "copy-group", "照装组")), "全局的组安装默认勾上");
+  assert(await checked(row(projectPlace, "copy-skill", "cp-lambda")), "项目里的 cp-lambda 列在同一个项目下");
+  const nuRow = row(globalPlace, "copy-skill", "cp-nu");
   assert(!(await checked(nuRow)), "有不是库装的同名文件夹的 cp-nu 默认不勾");
   assert((await nuRow.locator('[data-slot="badge"]', { hasText: "勾上会覆盖同名文件夹" }).count()) === 1, "cp-nu 应写明勾上会覆盖同名文件夹");
-  assert((await row(globalPlace, "copy-agent-skill", "cp-mu").count()) === 0, "只随组安装的 cp-mu 不单列成直接安装");
-  assert((await modal().locator(".copy-agent-edited").textContent()).includes("「cp-kappa」"), "改过的 cp-kappa 应单列说明");
-  assert((await modal().locator(".copy-agent-unmanaged").textContent()).includes("未纳管技能"), "应说出未纳管技能带不过来");
+  assert((await row(globalPlace, "copy-skill", "cp-mu").count()) === 0, "只随组安装的 cp-mu 不单列成直接安装");
+  assert((await modal().locator(".copy-edited").textContent()).includes("「cp-kappa」"), "改过的 cp-kappa 应单列说明");
+  assert((await modal().locator(".copy-unmanaged").textContent()).includes("未纳管技能"), "应说出未纳管技能带不过来");
   await page.screenshot({ path: path.join(SHOTS, "copy-agent.png") });
-  await modal().locator(".copy-agent-confirm").click();
+  await modal().locator(".copy-confirm").click();
   // 前面的场景组留下的项目可能不在这台机器上，那时列出结果而不是只提示。
   const done = page.locator('[data-slot="toast"][data-state="open"]', { hasText: "已照着 Claude Code 在 Copy Target 装上" });
   const results = page.locator('[data-slot="dialog-content"]', { has: page.locator('[data-slot="dialog-title"]', { hasText: "照着 Claude Code 装到 Copy Target" }) });
@@ -3355,6 +3355,99 @@ await step("照着另一个 Agent 装：全局和项目里的一次装上，组�
   assert(!fs.existsSync(`${target}/hand-copy`), "未纳管技能带不过来");
   assert((await page.locator('.gchip[data-state="on"]', { hasText: "照装组" }).count()) === 1, "新 Agent 里是同一个组的组安装");
   assert((await card("cp-kappa").locator('[role="switch"][aria-checked="true"]').count()) === 1, "cp-kappa 是直接安装");
+});
+
+// ============ 照着另一个项目装 ============
+group("copy-project", []);
+await step("照着另一个项目装：在项目页照着它，各 Agent 装到这个项目里的同一个 Agent，组安装仍是组安装，已经装了的不列出，未纳管的按口径说出来", async () => {
+  // 项目 cq-from 里:Claude Code 直接安装 cq-alpha、cq-delta;Codex 直接安装 cq-beta,组安装「照项目组」(成员 cq-gamma)。
+  // 项目 cq-to 里 Claude Code 已经装了 cq-delta。
+  for (const name of ["cq-alpha", "cq-beta", "cq-gamma", "cq-delta"]) {
+    fs.mkdirSync(`${HOME}/code/copyq-src/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/copyq-src/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/copyq-src`);
+  await toast("已入库 4 个技能");
+  await settle();
+  const from = `${HOME}/code/cq-from`;
+  const to = `${HOME}/code/cq-to`;
+  for (const dir of [from, to]) {
+    fs.mkdirSync(dir, { recursive: true });
+    await page.locator(".a-right .nav-sec button[title='登记项目']").click();
+    await modal().locator('[data-slot="input"]').fill(dir);
+    await btn(modal(), "登记").click();
+    await toast("已登记项目");
+    await settle();
+  }
+  await page.locator(".a-left .nav-sec", { hasText: "组" }).locator("button[title='新建组']").click();
+  await modal().locator('[data-slot="input"]').fill("照项目组");
+  await btn(modal(), "创建").click();
+  await toast("已创建组「照项目组」");
+  await settle();
+  await clearScope();
+  await openDrawer("cq-gamma");
+  await drawer().locator("select.chip-add").selectOption({ label: "照项目组" });
+  await toast("已把「cq-gamma」加入「照项目组」");
+  await settle();
+  await closeDrawer();
+  const install = async (agent, place, name) => {
+    await selectScope(agent, place);
+    await card(name).locator('[role="switch"]').click();
+    await toast(`已安装「${name}」`);
+    await settle();
+  };
+  await install("Claude Code", "cq-from", "cq-alpha");
+  await install("Claude Code", "cq-from", "cq-delta");
+  await install("Claude Code", "cq-to", "cq-delta");
+  await install("Codex", "cq-from", "cq-beta");
+  await page.locator(".gchip", { hasText: "照项目组" }).click();
+  await toast("已把「照项目组」组安装到");
+  await settle();
+  // cq-from 里还有两个不是库装的技能：自己拷进来的 hand-mine,和提交在项目仓库里的 team-only。
+  for (const name of ["hand-mine", "team-only"]) {
+    fs.mkdirSync(`${from}/.claude/skills/${name}`, { recursive: true });
+    fs.writeFileSync(`${from}/.claude/skills/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  const git = (...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "-C", from, ...args]);
+  git("init", "-q", "-b", "main");
+  git("add", "-f", ".claude/skills/team-only");
+  git("commit", "-qm", "team");
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+
+  await page.locator(".a-right .nav-item.proj", { hasText: "cq-to" }).click();
+  await page.locator('.a-list[data-page="project"]').waitFor();
+  await page.locator(".copy-project-open").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "照着其他项目装到 cq-to" }).waitFor();
+  await modal().locator(".copy-from").selectOption({ label: "cq-from" });
+  await modal().locator(".copy-skill").first().waitFor();
+  await page.waitForFunction(() => !document.querySelector('[data-slot="dialog-content"]')?.textContent.includes("正在查看安装计划"));
+  const claudePart = modal().locator('.copy-place[data-agent="claude-code"]');
+  const codexPart = modal().locator('.copy-place[data-agent="codex"]');
+  const row = (part, cls, name) => part.locator(`.${cls}[data-name="${name}"]`);
+  const checked = (r) => r.locator('input[type="checkbox"]').isChecked();
+  assert(await checked(row(claudePart, "copy-skill", "cq-alpha")), "Claude Code 的 cq-alpha 列在 Claude Code 一节、默认勾上");
+  assert((await row(claudePart, "copy-skill", "cq-delta").count()) === 0, "cq-to 里已经装了的 cq-delta 不列出");
+  assert(await checked(row(codexPart, "copy-skill", "cq-beta")), "Codex 的 cq-beta 列在 Codex 一节、默认勾上");
+  assert(await checked(row(codexPart, "copy-group", "照项目组")), "Codex 的组安装默认勾上");
+  assert((await row(codexPart, "copy-skill", "cq-gamma").count()) === 0, "只随组安装的 cq-gamma 不单列成直接安装");
+  assert((await modal().textContent()).includes("「加入组…」"), "说明想长期一致时怎样用组安装");
+  assert((await modal().locator(".copy-unmanaged").textContent()).includes("1 个未纳管技能"), "只数还没交给 app 管的 hand-mine");
+  assert((await modal().locator(".copy-repo").textContent()).includes("1 个技能归项目仓库管"), "提交在仓库里的 team-only 单独说明");
+  await page.screenshot({ path: path.join(SHOTS, "copy-project.png") });
+  await modal().locator(".copy-confirm").click();
+  await toast("已照着 cq-from 在 cq-to 装上 3 个技能，记下 1 个组安装");
+  await settle();
+
+  assert(fs.existsSync(`${to}/.claude/skills/cq-alpha/SKILL.md`), "cq-alpha 装到 cq-to 的 Claude Code");
+  assert(fs.existsSync(`${to}/.agents/skills/cq-beta/SKILL.md`), "cq-beta 装到 cq-to 的 Codex");
+  assert(fs.existsSync(`${to}/.agents/skills/cq-gamma/SKILL.md`), "组员 cq-gamma 随组安装装到 cq-to 的 Codex");
+  assert(!fs.existsSync(`${to}/.claude/skills/hand-mine`) && !fs.existsSync(`${to}/.claude/skills/team-only`), "未纳管技能带不过来");
+  assert(!fs.existsSync(`${HOME}/.claude/skills/cq-alpha`), "全局不变");
+  await selectScope("Codex", "cq-to");
+  assert((await page.locator('.gchip[data-state="on"]', { hasText: "照项目组" }).count()) === 1, "cq-to 的 Codex 是同一个组的组安装");
+  assert((await card("cq-beta").locator('[role="switch"][aria-checked="true"]').count()) === 1, "cq-beta 是直接安装");
 });
 
 // ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============

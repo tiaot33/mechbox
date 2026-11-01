@@ -15,7 +15,7 @@ import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library";
 import { fetchPlan } from "@/lib/consent";
-import { agentNameIn, homePath, outsideLinkNote, placeOf, scopeLabel, scopeOf } from "@/lib/model";
+import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -181,7 +181,7 @@ function FetchUnmanagedDialog({
   const chosen = [...picked].sort((a, b) => a - b);
   const team = chosen
     .map((i) => plan[i])
-    .filter((p) => p.in_repository || p.in_project_lock);
+    .filter(repoOwned);
   const outside = chosen.map((i) => plan[i]).filter((p) => p.link_outside);
 
   const submit = async () => {
