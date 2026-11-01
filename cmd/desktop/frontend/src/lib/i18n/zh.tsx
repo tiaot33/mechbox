@@ -1064,6 +1064,7 @@ export const zh = {
     kindLocal: "本地目录",
     kindUnknown: "未知来源",
     fetched: (n: number) => `已入库 ${n} 个技能`,
+    installFetched: "装到…",
     alreadyTitle: "同一来源的同名技能已在库中；要取新内容请在技能详情里点「更新」",
     already: "已入库",
     newTitle: "上次从这个来源入库之后才出现的技能",

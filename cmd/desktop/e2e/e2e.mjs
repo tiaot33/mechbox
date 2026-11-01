@@ -70,6 +70,8 @@ async function toast(text, tone) {
     throw new Error(`toast "${text}" 未出现，当前:"${cur}"`);
   });
 }
+// toastButton 是当前提示上的按钮(如"回滚""装到…")。
+const toastButton = (name) => page.locator('[data-slot="toast"]').getByRole("button", { name });
 // config 读出数据库 config 表里的设置，按设置项名;设置都存在数据库里。
 function config() {
   const db = new DatabaseSync(LIBRARY, { readOnly: true });
@@ -938,6 +940,7 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     assert.equal(await row("locked-tool").locator(".fetch-unmanaged-changed").textContent(), "改为没有来源", "清空后写明没有来源");
     await btn(modal(), "入库 2 个").click();
     await toast("已入库 2 个技能");
+    assert((await toastButton("装到…").count()) === 0, "从项目入库未纳管技能的提示不带装到…");
     await settle();
     await card("proj-notes").waitFor();
     await openDrawer("locked-tool");
@@ -1267,6 +1270,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     assert(!text.includes("项目仓库"), "不在项目仓库里的不提仓库");
     await btn(modal(), "入库").click();
     await toast("已入库「npx-tool」");
+    assert((await toastButton("装到…").count()) === 0, "未纳管技能入库的提示不带装到…");
     await settle();
     await card("npx-tool").waitFor();
     assert((await unmanaged("npx-tool").count()) === 0, "入库后不再是未纳管技能");
@@ -1637,7 +1641,7 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await row.getByText("⚠ 新增 1 个脚本").waitFor({ timeout: 15000 });
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
-  assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
+  assert((await toastButton("回滚").count()) === 1, "完成提示应带回滚");
   await settle();
   assert(projSkill("delta").includes("delta v2"), "项目里的 delta 应换成 v2");
   assert((await updatesNav().count()) === 0, "没有更新后左栏不再显示更新");
@@ -1764,7 +1768,7 @@ await step("详情：用这里的修改更新，连带换到其他地方，能�
   assert((await modal().locator(".update-place", { hasText: "proj-a" }).count()) === 0, "取内容的那一处不列");
   await btn(modal(), "更新").click();
   await toast("已用 Claude Code · proj-a 里的修改更新「gamma」 · 换到了 1 个地方");
-  assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
+  assert((await toastButton("回滚").count()) === 1, "完成提示应带回滚");
   await settle();
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("edited by hand"), "Codex 全局的 gamma 应换成这份修改");
   assert(projSkill("gamma").includes("edited by hand"), "取内容的地方不动");
@@ -3337,6 +3341,35 @@ await step("安装到…一次装到几个 Agent：详情里一个技能装到�
   }
   assert(fs.readFileSync(path.join(codexSkills, "im-three", "SKILL.md"), "utf8").includes('"im-three"'), "覆盖后 Codex 的 im-three 应是库里的版本");
   await page.keyboard.press("Escape");
+});
+
+// ============ 入库完成后直接装出去 ============
+group("install-fetched", []);
+await step("入库完成后直接装出去：提示里的「装到…」打开操作栏的安装到…，刚入库的两个技能装到全局的两个 Agent", async () => {
+  for (const name of ["if-one", "if-two"]) {
+    fs.mkdirSync(`${HOME}/code/install-fetched/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/install-fetched/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/install-fetched`);
+  await toast("已入库 2 个技能");
+  await toastButton("装到…").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "把 2 个技能装到…" }).waitFor();
+  await modal().locator(".install-picked select").nth(0).selectOption("0");
+  await pickAgents(modal(), ["claude-code", "codex"]);
+  await btn(modal(), "安装").click();
+  await toast("已把 2 个技能装到 Claude Code、Codex · 全局");
+  await settle();
+
+  await openDrawer("if-one");
+  const folderOf = async (where) =>
+    (await drawer().locator(".scope-table tbody tr", { hasText: where }).locator(".font-mono").textContent()).replace(/^~/, HOME);
+  const claudeSkills = path.dirname(await folderOf("Claude Code · 全局"));
+  const codexSkills = path.dirname(await folderOf("Codex · 全局"));
+  await closeDrawer();
+  for (const dir of [claudeSkills, codexSkills]) {
+    for (const name of ["if-one", "if-two"]) assert(fs.existsSync(path.join(dir, name, "SKILL.md")), `磁盘上应有 ${dir}/${name}`);
+  }
 });
 
 // ============ 照着另一个 Agent 装 ============

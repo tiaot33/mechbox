@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
+import { installPicked } from "@/features/install/install-to";
 import { AuditBadge } from "./audit";
 import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
@@ -83,14 +84,15 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
       return next;
     });
 
+  // 入库所选：成功的提示带"装到…",点开就是操作栏的"安装到…",刚入库的这几个技能已经选好。
   const fetchSelected = async () => {
     if (fetching) return;
     setFetching("running");
     const names = [...selected];
-    const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names), {
-      success: (list) => t.fetched(list?.length ?? 0),
-    });
+    const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names));
     if (!fetched) return setFetching(null);
+    const ids = fetched.map((skill) => skill.id);
+    ui.toast(t.fetched(ids.length), "ok", ids.length ? { label: t.installFetched, onClick: () => void installPicked(ids) } : undefined);
     setFetching("done");
     await new Promise((r) => window.setTimeout(r, 450));
     onClose();

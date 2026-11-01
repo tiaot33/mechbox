@@ -1131,6 +1131,7 @@ export const en = {
     kindLocal: "Local directory",
     kindUnknown: "Unknown Source",
     fetched: (n: number) => `Fetched ${count(n, "skill")}`,
+    installFetched: "Install in…",
     alreadyTitle: "A skill with the same name from the same Source is already in the Library; to get new content, click “Update” in the skill's details",
     already: "Fetched",
     newTitle: "Appeared after the last Fetch from this Source",
