@@ -131,14 +131,36 @@ describe("scopeListing", () => {
     skillScopes: [installed(30, "claude-code", 1), installed(20, "claude-code", 1), installed(10, "claude-code")],
   });
 
-  it("有技能装在这里的节排在前面，先后不变", () => {
-    expect(scopeListing(s, "claude-code@1", "collection", "", noOrder).sections.map((x) => x.id)).toEqual([2, 3, 1]);
-    expect(scopeListing(s, "claude-code@1", "collection", "", noOrder).used).toBe(2);
-    expect(scopeListing(s, "claude-code@0", "collection", "", noOrder).sections.map((x) => x.id)).toEqual([1, 2, 3]);
+  const ids = (x: { id: number }[]) => x.map((k) => k.id);
+
+  it("分成上下两块：装在这里的与没装在这里的各自按集合分节，来自全局的不在两块里", () => {
+    const l = scopeListing(s, "claude-code@1", "collection", "", noOrder);
+    expect(ids(l.hereSections)).toEqual([2, 3]);
+    expect(l.hereSections.map((x) => ids(x.skills))).toEqual([[20], [30]]);
+    expect(ids(l.global)).toEqual([10]);
+    expect(ids(l.notHereSections)).toEqual([1, 3]);
+    expect(l.notHere.map((x) => x.name)).toEqual(["a2", "c2"]);
+    expect(l.here).toBe(2);
   });
 
-  it("搜索时照样按装没装在这里排", () => {
-    expect(scopeListing(s, "claude-code@1", "collection", "2", noOrder).sections.map((x) => x.id)).toEqual([3, 1]);
+  it("同一个集合在两块里各是一节，身份不同", () => {
+    const l = scopeListing(s, "claude-code@1", "collection", "", noOrder);
+    const [here, notHere] = [l.hereSections.find((x) => x.id === 3)!, l.notHereSections.find((x) => x.id === 3)!];
+    expect(here.key).not.toBe(notHere.key);
+  });
+
+  it("全局作用域没有来自全局的", () => {
+    const l = scopeListing(s, "claude-code@0", "collection", "", noOrder);
+    expect(ids(l.hereSections)).toEqual([1]);
+    expect(ids(l.notHereSections)).toEqual([1, 2, 3]);
+    expect(l.global).toEqual([]);
+  });
+
+  it("搜索时两块都只留匹配的", () => {
+    const l = scopeListing(s, "claude-code@1", "collection", "2", noOrder);
+    expect(l.hereSections).toEqual([]);
+    expect(ids(l.notHereSections)).toEqual([1, 3]);
+    expect(l.here).toBe(0);
   });
 });
 

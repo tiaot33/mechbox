@@ -1,8 +1,8 @@
 // 中间：四种页面，各回答一个问题，长得也不一样。
 // - 所有技能(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
 // - 更新(要处理的事):每个有要处理的更新的集合一行，下面是要处理的技能。
-// - 作用域(Agent 在这里看得到什么):库里的技能和所有技能页一样按集合或按组分节，节里装在这里的在前、没装在这里的折起来;
-//   有技能装在这里的节排在前面;另有装在这里的未纳管技能，以及项目里来自全局的。
+// - 作用域(Agent 在这里看得到什么):分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能(和所有技能页一样按集合或按组分节)、
+//   未纳管技能，以及项目里来自全局的;下面是库里没装在这里的技能，整块默认折成一行，点开同样按集合或按组分节。
 // - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect } from "react";
@@ -16,23 +16,23 @@ import {
   parseScope,
   placeOf,
   projectFolderNote,
-  sectionKey,
+  sourceLabel,
   type PageListing,
   type ScopeKey,
   type SkillSection,
 } from "@/lib/model";
-import { openScope, setArrange, setSearch, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { openScope, setArrange, setSearch, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { Icon } from "@/components/app/icons";
+import { Icon, SourceIcon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
 import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
-import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows, UseCounts } from "./sections";
+import { CollectionHead, CollectionNews, Counts, GroupHead, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 
 export function SkillList() {
@@ -141,33 +141,48 @@ function ArrangeBar({ children }: { children?: React.ReactNode }) {
   );
 }
 
-// SkillSectionView 是一节;有 scope 时是作用域页的样子：行带开关，按装没装在这里折叠。节标题上的勾选框勾这一节列出的技能。
-function SkillSectionView({ section, scope }: { section: SkillSection; scope?: ScopeKey }) {
+// SkillSectionView 是一节。所有技能页(没有 scope)的节里装了的在前、没装的折起来;作用域页(有 scope)的行带开关、不折:
+// 上面那块的节只有装在这里的，节标题写装在这里几个;下面那块(notHere)的节只有没装在这里的，节标题只写名字和个数。
+// 节标题上的勾选框勾这一节列出的技能。
+function SkillSectionView({ section, scope, notHere = false }: { section: SkillSection; scope?: ScopeKey; notHere?: boolean }) {
   const s = useSnapshot();
   const t = useT().list;
   const pick = section.skills.map((x) => x.id);
   // 集合的节标题已经写了来源，行里不再写;其他节逐行写出(没有来源的技能行上照样写"没有来源")。
-  const rows = (
-    <SkillRows
-      id={section.key}
-      skills={section.skills}
+  const row = (skill: SkillSection["skills"][number]) => (
+    <SkillRow
+      key={skill.id}
+      skill={skill}
       scope={scope}
-      render={(skill) => (
-        <SkillRow
-          key={skill.id}
-          skill={skill}
-          scope={scope}
-          pickable
-          showSource={section.kind !== "collection"}
-          hideGroup={section.kind === "group" ? section.id : undefined}
-        />
-      )}
+      pickable
+      showSource={section.kind !== "collection"}
+      hideGroup={section.kind === "group" ? section.id : undefined}
     />
   );
+  const rows = scope ? section.skills.map(row) : <SkillRows id={section.key} skills={section.skills} render={row} />;
+  const rest = section.key.endsWith("rest-collection");
+  if (notHere) {
+    const c = section.kind === "collection" ? s.collections.find((x) => x.id === section.id) : undefined;
+    const g = section.kind === "group" ? s.groups.find((x) => x.id === section.id) : undefined;
+    const icon = c ? (
+      <SourceIcon type={c.source.type} className="size-3.5 text-muted-foreground" />
+    ) : g ? (
+      <Icon name="layers" className="size-3.5 text-group" />
+    ) : (
+      <Icon name={rest ? "folder" : "layers"} className="size-3.5 text-muted-foreground" />
+    );
+    const name = c ? sourceLabel(s, c.source) : g ? g.name : rest ? t.restCollection : t.restGroup;
+    return (
+      <Section id={section.key} pick={pick} head={<PlainHead icon={icon} name={name} count={section.all.length} />}>
+        {rows}
+      </Section>
+    );
+  }
+  const count = scope ? <Counts>{t.hereCount(section.all.length)}</Counts> : undefined;
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
-      <CollectionSection id={section.key} collection={c} scope={scope} listed={section.all} pick={pick}>
+      <CollectionSection id={section.key} collection={c} count={count} listed={section.all} pick={pick}>
         {rows}
       </CollectionSection>
     );
@@ -175,7 +190,7 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
   if (section.kind === "group") {
     const g = s.groups.find((x) => x.id === section.id)!;
     return (
-      <GroupSection id={section.key} group={g} scope={scope} listed={section.all} pick={pick}>
+      <GroupSection id={section.key} group={g} count={count} pick={pick}>
         {section.skills.length ? (
           rows
         ) : (
@@ -187,7 +202,6 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
       </GroupSection>
     );
   }
-  const rest = section.key === sectionKey("rest", "collection", scope);
   return (
     <Section
       id={section.key}
@@ -196,7 +210,7 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
         <PlainHead
           icon={<Icon name={rest ? "folder" : "layers"} className="size-3.5 text-muted-foreground" />}
           name={rest ? t.restCollection : t.restGroup}
-          count={scope ? <UseCounts skills={section.all} scope={scope} /> : section.skills.length}
+          count={scope ? t.hereCount(section.all.length) : section.skills.length}
           title={rest ? t.restCollectionTitle : undefined}
         />
       }
@@ -209,14 +223,14 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
 function CollectionSection({
   id,
   collection,
-  scope,
+  count,
   listed,
   pick,
   children,
 }: {
   id: string;
   collection: Collection;
-  scope?: ScopeKey;
+  count?: React.ReactNode;
   listed: Skill[];
   pick: SkillID[];
   children: React.ReactNode;
@@ -226,7 +240,7 @@ function CollectionSection({
     <Section
       id={id}
       pick={pick}
-      head={<CollectionHead collection={collection} scope={scope} listed={listed} />}
+      head={<CollectionHead collection={collection} count={count} listed={listed} />}
       sub={<CollectionNews collection={collection} />}
       headProps={drop}
     >
@@ -238,21 +252,19 @@ function CollectionSection({
 function GroupSection({
   id,
   group,
-  scope,
-  listed,
+  count,
   pick,
   children,
 }: {
   id: string;
   group: Group;
-  scope?: ScopeKey;
-  listed: Skill[];
+  count?: React.ReactNode;
   pick: SkillID[];
   children: React.ReactNode;
 }) {
   const drop = useGroupDrop(group.id);
   return (
-    <Section id={id} pick={pick} head={<GroupHead group={group} scope={scope} listed={listed} />} headProps={drop}>
+    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} />} headProps={drop}>
       {children}
     </Section>
   );
@@ -282,19 +294,20 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const { scope, listing: l } = page;
   const project = placeOf(parseScope(scope)) !== 0;
   const global = l.global.length + l.globalUnmanaged.length;
-  const empty = !l.sections.length && !l.hereUnmanaged.length && !(project && global);
+  const inUse = l.hereSections.length > 0 || l.hereUnmanaged.length > 0 || (project && global > 0);
+  const empty = !inUse && !l.notHere.length;
   return (
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} />
-      {l.sections.length > 0 && (
+      {(l.hereSections.length > 0 || l.notHere.length > 0) && (
         <div className="mt-3">
           <ArrangeBar>
             {!search && !l.here && !l.hereUnmanaged.length && <span className="min-w-0 text-[11.5px] text-muted-foreground">{t.nothingHere}</span>}
           </ArrangeBar>
         </div>
       )}
-      {/* 装在这里的未纳管技能也算装在这里：放在有技能装在这里的节后面、一个都没装的节前面。 */}
-      {l.sections.slice(0, l.used).map((x) => (
+      {/* 上面：Agent 在这里看得到的。 */}
+      {l.hereSections.map((x) => (
         <SkillSectionView key={x.key} section={x} scope={scope} />
       ))}
       {l.hereUnmanaged.length > 0 && (
@@ -304,9 +317,6 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           ))}
         </Section>
       )}
-      {l.sections.slice(l.used).map((x) => (
-        <SkillSectionView key={x.key} section={x} scope={scope} />
-      ))}
       {project && global > 0 && (
         <Section id="scope-global" defaultCollapsed pick={l.global.map((x) => x.id)} head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}>
           {l.global.map((skill) => (
@@ -317,8 +327,38 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           ))}
         </Section>
       )}
+      {/* 下面：库里没装在这里的。 */}
+      {l.notHere.length > 0 && <NotHere scope={scope} listing={l} more={inUse} />}
       {empty && (search ? <ListEmpty>{t.noMatch}</ListEmpty> : !s.skills.length && <EmptyLibrary />)}
     </>
+  );
+}
+
+// NotHere 是作用域页下面那块：库里没装在这里的技能。上面一条分隔，整块默认折成一行，写出个数和前几个名字;
+// 点开按集合或按组分节。展开状态按作用域分开记;搜索时展开，搜到的行都看得见。
+function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extract<PageListing, { kind: "scope" }>["listing"]; more: boolean }) {
+  const t = useT().list;
+  const id = `${scope}:not-here`;
+  const searching = useView((v) => !!v.search.trim());
+  const unfolded = useView((v) => v.unfolded.has(id)) || searching;
+  const names = l.notHere.map((x) => x.name);
+  return (
+    <div className="not-here mt-4 border-t border-hairline pt-2">
+      <button
+        type="button"
+        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-black/5 hover:text-foreground"
+        aria-expanded={unfolded}
+        disabled={searching}
+        onClick={() => toggleUnfolded(id)}
+      >
+        <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
+        <span className="truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
+      </button>
+      {unfolded &&
+        l.notHereSections.map((x) => (
+          <SkillSectionView key={x.key} section={x} scope={scope} notHere />
+        ))}
+    </div>
   );
 }
 

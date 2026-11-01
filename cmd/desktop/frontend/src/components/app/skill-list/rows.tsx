@@ -1,5 +1,6 @@
 // 列表的行：库里的技能(所有技能页、更新页与作用域页)与作用域里的未纳管技能。一个技能一行，列对齐，
 // 平常的信息用淡色，只有要处理的(有新版本、来源里已删除、同名、要重新安装)才上色。
+// 作用域页与项目页的行首一格只表示 Agent 在这里用不用：开 = 在用，关 = 没在用;最后一列写是谁装的。
 // 库里技能的行点开详情抽屉，可以拖到右栏作用域(直接安装)或左栏、节标题上的组(加入该组);
 // 所有技能页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { AppService } from "@bindings/cmd/desktop";
@@ -31,7 +32,7 @@ import {
   updateAvailable,
   type ScopeKey,
 } from "@/lib/model";
-import { useUI } from "@/lib/ui";
+import { ui, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { toggleDrawer, useSortedGroups, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
@@ -39,7 +40,7 @@ import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
@@ -82,10 +83,13 @@ export function SkillRow(props: {
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
 
+  const via = (here?.groups ?? []).map((id) => s.groups.find((g) => g.id === id)?.name ?? "");
   const toggle = () => {
     if (!scope) return;
     const sc = parseScope(scope);
-    void (here?.direct ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
+    // 只随组安装的：开关不改安装，说明随哪个组装、怎样在这里不用它。
+    if (here && !here.direct) return ui.toast(t.list.groupOnly(skill.name, via));
+    void (here ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
   };
 
   return (
@@ -113,12 +117,15 @@ export function SkillRow(props: {
       {props.pickable && <PickBox id={skill.id} />}
       {scope && (
         <span onClick={(e) => e.stopPropagation()} className="flex">
-          {!props.fromGlobal && (
+          {/* 开 = Agent 在这里用着：直接安装是蓝色，只随组安装是紫色，来自全局是灰色、不能点;关 = 没装在这里。 */}
+          {props.fromGlobal ? (
+            <SwitchMark title={t.list.sectionGlobalTitle} />
+          ) : (
             <Switch
-              checked={!!here?.direct}
-              held={!!here && !here.direct}
+              checked={!!here}
+              tone={here && !here.direct ? "group" : undefined}
               onCheckedChange={toggle}
-              title={here?.direct ? t.list.uninstallDirect : t.list.installDirect}
+              title={!here ? t.list.installDirect : here.direct ? t.list.uninstallDirect : t.list.groupOnlyTitle(via)}
             />
           )}
         </span>
@@ -265,8 +272,9 @@ function ScopeState({ skill, scope, fromGlobal }: { skill: Skill; scope: ScopeKe
   );
 }
 
-// UnmanagedRow 是作用域里一个不是库装的技能文件夹(未纳管技能):标"未纳管",提交在项目仓库里的再标"在项目仓库里",
-// 符号链接写出指向哪里。不能拖动、不打开详情，只提供在 Finder 中显示与入库。
+// UnmanagedRow 是作用域里一个不是库装的技能文件夹(未纳管技能):行首是开着、不能点的开关样子(Agent 在用，只是不归这里管),
+// 最后一列写"未纳管",提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在 Finder 中显示与入库;
+// 符号链接在描述下写出指向哪里。不能拖动、不打开详情。
 export function UnmanagedRow({ skill }: { skill: UnmanagedSkill }) {
   const s = useSnapshot();
   const ui = useUI();
@@ -275,16 +283,23 @@ export function UnmanagedRow({ skill }: { skill: UnmanagedSkill }) {
   // 来源记录认不出来源的，在 skills.sh 上找到来源后补上。
   const found = foundSource(useFoundSources(), skill);
   const source = skill.source_input || found;
+  const state = [
+    { text: t.unmanaged, title: t.unmanagedTitle },
+    skill.in_repository
+      ? { text: t.inRepository, title: t.inRepositoryTitle }
+      : skill.in_project_lock
+        ? { text: t.inLock, title: t.inLockTitle }
+        : undefined,
+    skill.link_outside ? { text: t.linkOutside, title: t.linkOutsideTitle(skill.link_target ?? "") } : undefined,
+  ].filter((x) => !!x);
   return (
     <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>
       <span />
-      <span className="grid size-[17px] place-items-center rounded-full border border-dashed border-border-strong" title={t.unmanagedTitle} />
+      <span className="flex">
+        <SwitchMark title={t.unmanagedTitle} />
+      </span>
       <div className="flex min-w-0 items-center gap-1.5">
-        <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold text-foreground-secondary">{skill.name}</span>
-        <Badge title={t.unmanagedTitle}>{t.unmanaged}</Badge>
-        {skill.in_repository && <Badge title={t.inRepositoryTitle}>{t.inRepository}</Badge>}
-        {!skill.in_repository && skill.in_project_lock && <Badge title={t.inLockTitle}>{t.inLock}</Badge>}
-        {skill.link_outside && <Badge title={t.linkOutsideTitle(skill.link_target ?? "")}>{t.linkOutside}</Badge>}
+        <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold">{skill.name}</span>
         {same && <SameNameBadge note={same} />}
       </div>
       <div className="min-w-0">
@@ -297,25 +312,29 @@ export function UnmanagedRow({ skill }: { skill: UnmanagedSkill }) {
             {t.from(source)}
           </p>
         )}
-        <p
-          className="unmanaged-status truncate text-[10.5px] text-subtle"
-          title={skill.link_target ? t.linkTitle(skill.link_target) : skill.folder}
-        >
-          {skill.link_target ? t.link(shortPath(s, skill.link_target)) : t.notByLibrary}
-        </p>
+        {skill.link_target && (
+          <p className="unmanaged-status truncate text-[10.5px] text-subtle" title={t.linkTitle(skill.link_target)}>
+            {t.link(shortPath(s, skill.link_target))}
+          </p>
+        )}
       </div>
-      <span className="flex items-center gap-2.5 text-[11px]">
-        <Button
-          variant="link"
-          className="reveal-in-finder shrink-0 font-sans text-[11px]"
-          onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
-        >
-          {t.revealInFinder}
-        </Button>
-        <Button variant="link" className="fetch-unmanaged shrink-0 font-sans text-[11px]" title={t.fetchTitle} onClick={() => void fetchUnmanaged(skill)}>
-          {t.fetch}
-        </Button>
-      </span>
+      <div className="flex min-w-0 flex-col items-start gap-0.5">
+        <span className="skill-state unmanaged-state min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
+          {state.map((x) => x.text).join(" · ")}
+        </span>
+        <span className="flex items-center gap-2.5 text-[11px]">
+          <Button
+            variant="link"
+            className="reveal-in-finder shrink-0 font-sans text-[11px]"
+            onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
+          >
+            {t.revealInFinder}
+          </Button>
+          <Button variant="link" className="fetch-unmanaged shrink-0 font-sans text-[11px]" title={t.fetchTitle} onClick={() => void fetchUnmanaged(skill)}>
+            {t.fetch}
+          </Button>
+        </span>
+      </div>
     </article>
   );
 }
