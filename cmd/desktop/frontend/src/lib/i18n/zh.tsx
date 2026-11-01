@@ -35,6 +35,8 @@ const day = (date: Date) => {
 };
 
 // bin 是卸载时技能文件夹移去的地方:macOS 叫废纸篓,Windows 和 Linux 叫回收站;从里面拿回来,macOS 说放回，其他说还原。
+// wslName 是 WSL 发行版的叫法，设置里的下拉选项、发行版标记与路径的说明都用它。
+const wslName = (distro: string) => `WSL · ${distro}`;
 const bin = () => (platform() === "mac" ? "废纸篓" : "回收站");
 const putBack = () => (platform() === "mac" ? "放回" : "还原");
 
@@ -74,6 +76,10 @@ export const zh = {
   paths: {
     absolute: "请输入绝对路径或以 ~ 开头的路径，或点「选择…」",
     fetchRelative: "本地目录请输入绝对路径（以 / 或 ~/ 开头），或点「选择…」",
+    linuxOnWindows: "全局目录在 Windows 本机，看不出 / 开头的路径在哪个 WSL 发行版里：请点「选择…」，或写成 \\\\wsl.localhost\\<发行版>\\…",
+    wsl: wslName,
+    inWSL: (distro: string, path: string) => `${wslName(distro)} 里的 ${path}`,
+    onWindows: (path: string) => `Windows 本机的 ${path}`,
   },
 
   model: {
@@ -279,6 +285,8 @@ export const zh = {
     removed: "已移除",
     projectRegistered: (path: string) => `已登记项目 ${path}`,
     projectRelocated: (name: string, path: string) => `已把项目「${name}」指到 ${path}`,
+    projectRegisteredInWSL: (distro: string, path: string) => `已登记项目：${wslName(distro)} 里的 ${path}`,
+    projectRelocatedInWSL: (name: string, distro: string, path: string) => `已把项目「${name}」指到 ${wslName(distro)} 里的 ${path}`,
     unregisterTitle: (name: string) => `注销项目「${name}」`,
     unregisterHint: (path: string) => `${path} 不再由 Mechbox 管理，它在各 Agent 下的直接安装与组安装记录都会删除。`,
     removeProjectFolders: "同时删除项目里已安装的文件夹",
@@ -1081,6 +1089,7 @@ export const zh = {
     nameRequired: "填写名称",
     globalRequired: "填写全局技能目录",
     globalInHome: "全局技能目录要在用户主目录里面（不能是主目录本身）",
+    globalInWSL: "全局技能目录要在 Windows 本机的主目录里面；要放到 WSL 发行版里，先在「设置 → 通用 → 全局目录」选那个发行版",
     projectRequired: "填写项目里的技能目录",
     projectRelative: (example: string) => `填相对项目根目录的路径，如 ${example}`,
     projectInside: "要在项目根目录里面（不能是项目根本身）",

@@ -16,6 +16,7 @@ import {
   sourceKindLabel,
   sourceLabel,
   updateAvailable,
+  wslTitle,
 } from "@/lib/model";
 import { useSortedGroups } from "@/lib/view";
 import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
@@ -24,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { SourceIcon } from "@/components/app/icons";
-import { Chip } from "@/components/app/parts";
+import { Chip, WSLBadge } from "@/components/app/parts";
 
 // MetadataCard 是技能的元数据：来源、和同一来源其他技能的关系、来源版本、库里的同名技能、入库时间、当前版本、检查更新的结论与组。
 export function MetadataCard({ skill, versions }: { skill: Skill; versions: SkillVersion[] }) {
@@ -50,9 +51,10 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
           </dd>
         ) : (
           <dd>
-            <span className="inline-flex items-center gap-[5px]">
+            <span className="inline-flex items-center gap-[5px]" title={wslTitle(isLocal(skill.source) ? skill.source.label : undefined)}>
               <SourceIcon type={skill.source.type} className="size-3 text-muted-foreground" />
               {sourceLabel(s, skill.source)}
+              {isLocal(skill.source) && <WSLBadge path={skill.source.label} />}
             </span>{" "}
             <span className="text-muted-foreground">{sourceKindLabel(skill.source.type)}</span>
           </dd>

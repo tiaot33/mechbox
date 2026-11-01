@@ -1,14 +1,18 @@
-// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
+// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
 import { useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
+import { Badge } from "@/components/ui/badge";
+import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Spinner } from "@/components/ui/spinner";
 import { useMarkStatus } from "@/components/ui/status-mark";
 import { useCheckMark } from "@/features/update/check";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useT } from "@/lib/i18n";
-import { useSnapshot } from "@/lib/library";
+import { useHasWSL, useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
+import { wslLocation } from "@/lib/paths";
+import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
@@ -79,6 +83,29 @@ export function Count({ value, className }: { value: number; className?: string 
       {value}
     </span>
   );
+}
+
+// WSLBadge 标出 path 在哪个 WSL 发行版里，写法和设置里全局目录的下拉选项一样(WSL · Ubuntu);不在发行版里(Windows 本机)
+// 或不在 Windows 上时不显示。compact 只写 WSL、发行版放进悬停提示，给左栏这类放不下的地方用。
+export function WSLBadge({ path, compact = false, className }: { path: string | undefined; compact?: boolean; className?: string }) {
+  const t = useT().paths;
+  const at = path && platform() === "windows" ? wslLocation(path) : null;
+  if (!at) return null;
+  return (
+    <Badge className={cn("wsl-badge", className)} title={compact ? t.wsl(at.distro) : undefined}>
+      {compact ? "WSL" : t.wsl(at.distro)}
+    </Badge>
+  );
+}
+
+// PathWhere 在路径输入框下面写出输入会被理解成哪里：WSL 发行版里的 Linux 路径，或 Windows 本机的路径。
+// 只在装了 WSL 发行版的 Windows 上显示，其他平台上 ~ 和 / 没有歧义。path 是展开后的绝对路径，不是路径时传 undefined。
+export function PathWhere({ path }: { path: string | undefined }) {
+  const wsl = useHasWSL();
+  const t = useT().paths;
+  if (!path || !wsl) return null;
+  const at = wslLocation(path);
+  return <Hint className="path-where break-all">{at ? t.inWSL(at.distro, at.path) : t.onWindows(path)}</Hint>;
 }
 
 // TailPath 显示路径的末尾几段：放不下时整段省掉开头，写成 …/上级目录/末段(Windows 的路径用反斜杠),不在目录名中间截断。

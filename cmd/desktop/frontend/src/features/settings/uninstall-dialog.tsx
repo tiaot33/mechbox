@@ -8,7 +8,7 @@ import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, configQuery, type LibraryError } from "@/lib/library";
-import { mergeProjectPlaces, projectName, scopeLabel, shortPath } from "@/lib/model";
+import { mergeProjectPlaces, projectName, scopeLabel, shortPath, wslTitle } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,9 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
                         <div>
                           {s.skills.find((x) => x.id === p.skill_id)?.name ?? `#${p.skill_id}`} · {scopeLabel(s, p.scope)}
                         </div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground">{shortPath(s, p.folder)}</div>
+                        <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+                          {shortPath(s, p.folder)}
+                        </div>
                       </div>
                     </ListRow>
                   ))}

@@ -24,6 +24,7 @@ import {
   missingFromGroup,
   sourceKindLabel,
   sourceLabel,
+  wslTitle,
   type Page,
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
@@ -47,7 +48,9 @@ import { Icon } from "./icons";
 import { leftClass } from "./layout";
 import { MarketDialog } from "@/features/fetch/market-dialog";
 import { NavCount, navItem } from "./nav";
-import { TailPath, tailPath, Truncated } from "./parts";
+import { TailPath, tailPath, Truncated, WSLBadge } from "./parts";
+import { isWSLPath } from "@/lib/paths";
+import { platform } from "@/lib/platform";
 import { SyncDialog } from "@/features/settings/sync-dialog";
 import { openRelease } from "@/features/release/release";
 
@@ -214,12 +217,18 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
   const t = tt.sidebar;
   const label = sourceLabel(s, c.source);
   const local = isLocal(c.source);
+  // 发行版里的本地目录后面跟着 WSL 标记(左栏放不下发行版名，悬停时和完整路径一起给出):路径少显示几个字，让末段目录名完整。
+  const inWSL = local && platform() === "windows" && isWSLPath(c.source.label);
+  const max = inWSL ? pathMax - 10 : pathMax;
   const skills = collectionSkills(s, c);
   const checkStatus = useCheckMark(c.id);
   return (
     <li>
       <ContextMenu>
-        <Truncated tip={t.collectionTitle(sourceKindLabel(c.source.type), label)} always={local && tailPath(label, pathMax) !== label}>
+        <Truncated
+          tip={t.collectionTitle(sourceKindLabel(c.source.type), wslTitle(c.source.label) ?? label)}
+          always={local && (tailPath(label, max) !== label || !!wslTitle(c.source.label))}
+        >
           <ContextMenuTrigger asChild>
             <button
               type="button"
@@ -230,7 +239,9 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
               onDragEnd={dnd.end}
               {...drop}
             >
-              {local ? <span className="min-w-0 grow truncate">{tailPath(label, pathMax)}</span> : <span className="grow truncate">{label}</span>}
+              {local ? <span className="min-w-0 truncate">{tailPath(label, max)}</span> : <span className="grow truncate">{label}</span>}
+              {local && <WSLBadge path={c.source.label} compact />}
+              {local && <span className="grow" />}
               {checkStatus ? (
                 <StatusMark status={checkStatus} size={14} className="mr-1 text-muted-foreground" />
               ) : (

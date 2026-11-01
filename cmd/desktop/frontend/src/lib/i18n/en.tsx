@@ -22,6 +22,8 @@ const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
 // bin 是卸载时技能文件夹移去的地方:Windows 叫 Recycle Bin,macOS 和 Linux 叫 Trash;从里面拿回来,macOS 说 put back,其他说 restored。
+// wslName 是 WSL 发行版的叫法，设置里的下拉选项、发行版标记与路径的说明都用它。
+const wslName = (distro: string) => `WSL · ${distro}`;
 const bin = () => (platform() === "windows" ? "Recycle Bin" : "Trash");
 const putBack = () => (platform() === "mac" ? "put back" : "restored");
 
@@ -75,6 +77,11 @@ export const en = {
   paths: {
     absolute: "Enter an absolute path or one starting with ~, or click “Choose…”",
     fetchRelative: "For a local directory, enter an absolute path (starting with / or ~/), or click “Choose…”",
+    linuxOnWindows:
+      "The global directories are on this Windows PC, so a path starting with / doesn't say which WSL distribution it's in: click “Choose…”, or write it as \\\\wsl.localhost\\<distribution>\\…",
+    wsl: wslName,
+    inWSL: (distro: string, path: string) => `${path} in ${wslName(distro)}`,
+    onWindows: (path: string) => `${path} on this Windows PC`,
   },
 
   model: {
@@ -302,6 +309,8 @@ export const en = {
     removed: "Removed",
     projectRegistered: (path: string) => `Registered project ${path}`,
     projectRelocated: (name: string, path: string) => `Pointed project “${name}” to ${path}`,
+    projectRegisteredInWSL: (distro: string, path: string) => `Registered project ${path} in ${wslName(distro)}`,
+    projectRelocatedInWSL: (name: string, distro: string, path: string) => `Pointed project “${name}” to ${path} in ${wslName(distro)}`,
     unregisterTitle: (name: string) => `Unregister project “${name}”`,
     unregisterHint: (path: string) =>
       `${path} will no longer be managed by Mechbox; its direct install and Group install records for every Agent will be deleted.`,
@@ -1147,6 +1156,8 @@ export const en = {
     nameRequired: "Enter a name",
     globalRequired: "Enter the global skill directory",
     globalInHome: "The global skill directory must be inside your home directory (not the home directory itself)",
+    globalInWSL:
+      "The global skill directory must be inside your home directory on this Windows PC; to put it in a WSL distribution, first choose that distribution under Settings → General → Global directories",
     projectRequired: "Enter the skill directory in projects",
     projectRelative: (example: string) => `Enter a path relative to the project root, e.g. ${example}`,
     projectInside: "Must be inside the project root (not the project root itself)",

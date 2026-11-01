@@ -22,6 +22,7 @@ import {
 } from "@bindings/internal/library";
 import { currentLanguage, messages } from "./i18n";
 import type { Snapshot } from "./library";
+import { isWSLPath, windowsHome, wslLocation, wslRest } from "./paths";
 import { platform } from "./platform";
 
 // ---------- 作用域 ----------
@@ -72,11 +73,21 @@ export function shortPath(s: Snapshot, path: string): string {
 }
 
 // homePath 把主目录下的路径缩写成 ~;Windows 上的主目录(C:\Users\...)不认 ~,照原样显示完整路径。
-// WSL 发行版(\\wsl.localhost\...)的路径用反斜杠分隔，主目录照样缩写成 ~。
+// Windows 上 WSL 发行版(\\wsl.localhost\...)里的路径按 Linux 的写法显示：在全局目录所选发行版的主目录下的写成 ~/...,
+// 其他写成 / 开头的绝对路径;在哪个发行版里由 WSLBadge 标出。其他平台上(如拉回的库里带着发行版里的来源)照原样显示。
 export function homePath(home: string | undefined, path: string): string {
-  if (!home || /^[A-Za-z]:/.test(home)) return path;
+  if (!home) return path;
+  if (windowsHome(home)) {
+    const at = wslLocation(path);
+    if (!at) return path;
+    const rest = wslRest(path, home);
+    return rest === null ? at.path : "~" + rest;
+  }
   return path === home || path.startsWith(home + "/") || path.startsWith(home + "\\") ? "~" + path.slice(home.length) : path;
 }
+
+// wslTitle 是路径的悬停提示：WSL 发行版里的路径界面上写成 Linux 路径，悬停给出完整的 \\wsl.localhost\...,方便在资源管理器里打开。
+export const wslTitle = (path: string | undefined) => (path && isWSLPath(path) ? path : undefined);
 
 // nativePath 把斜杠分隔的路径(如技能库记录的 Agent 在项目里的技能目录)换成这个平台的写法:Windows 上用反斜杠。
 export const nativePath = (path: string) => (platform() === "windows" ? path.replaceAll("/", "\\") : path);
