@@ -8,7 +8,7 @@ import { parseScope, projectAgents, projectName, scopeKey, scopeLabel, skillScop
 import { clearPicked, useCurrentPage, useView } from "@/lib/view";
 import { pickGroup } from "@/features/group/group";
 import { uninstallSkills } from "@/features/install/install";
-import { installPicked, pageInstallTarget } from "@/features/install/install-to";
+import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { removeSkills } from "@/features/skill/remove";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
@@ -52,7 +52,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[2] flex justify-center px-4">
       <div className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 rounded-xl border border-hairline bg-white/95 px-2 py-1.5 shadow-[0_8px_28px_rgba(17,24,39,0.16)] backdrop-blur-[12px]">
         <span className="px-1.5 text-[12px] font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
-        <Button size="sm" variant="ghost" onClick={() => void installPicked(ids, initial)}>
+        <Button size="sm" variant="ghost" onClick={() => void chooseAndInstall(ids, initial)}>
           <Icon name="plus" />
           {t.pickInstallTo}
         </Button>

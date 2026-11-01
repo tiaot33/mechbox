@@ -16,7 +16,7 @@ import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { useView } from "@/lib/view";
-import { installPicked, pageInstallTarget } from "@/features/install/install-to";
+import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { cn, toggled } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,7 +93,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     if (!fetched) return setFetching(null);
     // 入库只是放进技能库，还没有 Agent 能用：提示里说清停在哪，给下一步"装到…"。
     const ids = fetched.map((x) => x.id);
-    ui.toast(t.fetched(ids.length), "ok", { label: t.installTo, onClick: () => void installPicked(ids, pageInstallTarget(useView.getState().page)) });
+    ui.toast(t.fetched(ids.length), "ok", { label: t.installTo, onClick: () => void chooseAndInstall(ids, pageInstallTarget(useView.getState().page)) });
     setFetching("done");
     await new Promise((r) => window.setTimeout(r, 450));
     onClose();

@@ -54,7 +54,7 @@ const refsCallIDs = [];
 const cancelled = new Set();
 const isCall = (r, id) => r.method() === "POST" && r.url().includes("/wails/runtime") && (r.postData() ?? "").includes(`"methodID":${id}`);
 const modal = () => page.locator('[data-slot="dialog-content"]').last();
-// card 是库里一个技能的那一行(所有技能页、更新页、作用域页都一样);settle 会展开每节里折起来的没装的。
+// card 是库里一个技能的那一行(技能库页、更新页、作用域页都一样);settle 会展开每节里折起来的没装的。
 const card = (name) => page.locator(".skill-row", { has: page.locator(".skill-name", { hasText: new RegExp(`^${name}$`) }) });
 const drawer = () => page.locator('[data-slot="sheet-content"]');
 async function toast(text, tone) {
@@ -126,7 +126,7 @@ async function holdCall(id) {
     },
   };
 }
-// unfold 展开所有技能页每节里折起来的"没装的"与收起的节(作用域页"来自全局"默认收起)，好按名字找到每一行。
+// unfold 展开技能库页每节里折起来的"没装的"与收起的节(作用域页"来自全局"默认收起)，好按名字找到每一行。
 async function unfold() {
   const folded = page.locator('.a-list .not-installed-fold[aria-expanded="false"]:visible, .a-list .sec-toggle[aria-expanded="false"]:visible');
   while (await folded.count()) {
@@ -176,7 +176,7 @@ async function scopeRow(agentName, place = "全局") {
   if (!(await row.count()) && (await list.locator(".nav-item.more").count())) await list.locator(".nav-item.more").click();
   return row;
 }
-// selectScope 在右栏点开这个作用域的页面;已经开着时不再点(再点会回到所有技能)。
+// selectScope 在右栏点开这个作用域的页面;已经开着时不再点(再点会回到技能库)。
 async function selectScope(agentName, place = "全局") {
   const row = await scopeRow(agentName, place);
   if ((await row.getAttribute("data-active")) !== "true") await row.click();
@@ -192,7 +192,7 @@ async function showNotHere() {
     await idle();
   }
 }
-// clearScope 回到所有技能页，按集合分节(左栏点了组、拖组行时会换成按组)。
+// clearScope 回到技能库页，按集合分节(左栏点了组、拖组行时会换成按组)。
 async function clearScope() {
   await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
   const byCollection = page.locator(".arrange-seg button", { hasText: "按集合" });
@@ -801,7 +801,7 @@ await step("新建组(左栏 +)", async () => {
   await toast("已创建组「前端调试」");
   await settle();
   assert((await page.locator(".a-left .nav-item", { hasText: "前端调试" }).count()) === 1, "左栏应出现组");
-  // 左栏点组：回到所有技能页、按组分节，空组那一节写明还没有技能。
+  // 左栏点组：回到技能库页、按组分节，空组那一节写明还没有技能。
   await page.locator(".a-left .nav-item", { hasText: "前端调试" }).click();
   await page.locator('.list-section[data-section^="group-"]', { hasText: "这个组还没有技能" }).waitFor({ timeout: 5000 });
   await page.locator(".arrange-seg button", { hasText: "按集合" }).click();
@@ -1458,7 +1458,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
     await selectScope("Claude Code", "proj-a");
     await card("gamma").locator(".same-name-note").waitFor();
-    assert.equal(await note(card("gamma")), "全局也有 gamma（未纳管），Claude Code 用全局的那个，这里的不会生效");
+    assert.equal(await note(card("gamma")), "全局也有 gamma（不在技能库里），Claude Code 用全局的那个，这里的不会生效");
     assert.equal(await note(unmanaged("alpha")), "全局也有 alpha（库装的），Claude Code 用全局的那个，这里的不会生效");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-project.png") });
@@ -1485,7 +1485,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
 
-    // 所有技能页的一行也标同名，说的是它装出去的那一处。
+    // 技能库页的一行也标同名，说的是它装出去的那一处。
     await clearScope();
     assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
@@ -2105,7 +2105,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   assert((await card("lambda-kit").count()) === 1 && (await card("lambda").count()) === 0, "技能改用新名字");
   assert((await updatesNav().count()) === 0, "跳过的、继续保留的不计入角标");
   assert((await card("mu").getByText("来源已删除").count()) === 1, "继续保留的技能留一个淡色标记");
-  // 左栏点集合：回到所有技能页，滚到这个集合的那一节;集合的更新、历史与新技能都在节标题上。
+  // 左栏点集合：回到技能库页，滚到这个集合的那一节;集合的更新、历史与新技能都在节标题上。
   await page.locator(".a-left .nav-item", { hasText: "trio.zip" }).click();
   const trioHead = page.locator('.list-section[data-section^="collection-"]', { has: page.locator(".section-name", { hasText: "trio.zip" }) });
   assert((await trioHead.locator(".collection-new").count()) === 0, "不感兴趣的新技能不再在集合上提");
@@ -2202,7 +2202,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
     gitIn(work, "commit", "-qam", "tdd v2");
     gitIn(work, "push", "-q", bare, "main");
     await checkUpdates("2 个技能有新版本");
-    // 更新列表还开着：再点一次"更新"会收起，先回到所有技能。
+    // 更新列表还开着：再点一次"更新"会收起，先回到技能库。
     await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
     await updatesNav().click();
     assert((await page.locator(".update-row", { hasText: label }).textContent()).includes("grill-me、tdd 有变化，更新会换掉你的修改"), "作者再改时 tdd 也报");
@@ -2502,7 +2502,7 @@ await step("左栏集合跳到那一节 → 看来源里的其他技能", async 
   const mine = page.locator('.list-section[data-section^="collection-"]', { has: page.locator(".section-name", { hasText: "my-skills" }) });
   await unfold();
   assert((await mine.locator(".skill-row").count()) === 3, "my-skills 那一节应有 3 个技能");
-  assert((await page.locator('.a-list[data-page="all"]').count()) === 1, "仍在所有技能页");
+  assert((await page.locator('.a-list[data-page="all"]').count()) === 1, "仍在技能库页");
   await btn(mine.locator(".section-head"), "看来源里的其他技能").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
   assert((await modal().locator('[data-slot="list-row"] [data-slot="badge"]', { hasText: "已入库" }).count()) === 3, "已入库的候选应标出来");

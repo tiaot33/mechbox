@@ -234,11 +234,6 @@
     transition: none;
   }
 
-  /* 刚入库的未纳管技能：它换成库里技能的那一行，闪一下。 */
-  .skill-row[data-flash] {
-    background: var(--color-primary-soft);
-  }
-
   /* 拖放中：主体区域带 data-dragging(skill / group / collection),可放下的目标描虚线，悬停的目标高亮;
      已经在那里的(技能已直接安装、组已组安装、已是组成员)变淡并注明"已在"(data-already 的值是当前语言的这句话);
      调整集合、组的先后时，悬停的目标在上沿或下沿画一条线(data-drop-order),标出放到它前面还是后面。 */

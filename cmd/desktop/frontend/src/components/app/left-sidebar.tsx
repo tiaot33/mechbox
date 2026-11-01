@@ -106,7 +106,7 @@ export function LeftSidebar() {
         <span>{t.market}</span>
       </SideButton>
       <ul className="flex flex-col gap-0.5">
-        {pageRow({ kind: "all" }, <Icon name="bolt" />, t.allSkills, s.skills.length)}
+        {pageRow({ kind: "all" }, <Icon name="bolt" />, t.library, s.skills.length)}
         {updates > 0 && pageRow({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
         <li>
           <button

@@ -8,7 +8,7 @@ import { platform } from "@/lib/platform";
 // firstNames 是折起来的那行里列出的前三个名字。
 const firstNames = (names: string[]) => `${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`;
 
-const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "未纳管")).join("、");
+const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "不在技能库里")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
 const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}${w.total > 2 ? ` 等 ${w.total} 处` : ""}` : "没装在任何地方");
@@ -120,7 +120,7 @@ export const zh = {
     kindLocal: "自研",
     noSource: "没有来源",
     unknownSource: "未知来源",
-    allSkills: "技能库",
+    library: "技能库",
     updates: "更新",
     agentsGlobal: (names: string[]) => (names.length > 2 ? `${names.length} 个 Agent 全局` : `${names.join("、")} 全局`),
     projectCount: (n: number) => `${n} 个项目`,
@@ -319,10 +319,10 @@ export const zh = {
     twin: (source: string, w: InstalledWhere) => `${source}，${where(w)}`,
     sameNameTwins: (name: string, twins: string[], note: string) => `库里已经有叫「${name}」的技能（${twins.join("；")}）。${note}`,
     matchedVersion: (name: string, match: string, place: string) =>
-      `「${name}」和技能库里「${match}」的一个版本一致，已记为装在 ${place}，文件夹原样没动；现在可以在这里开关它、装到别处`,
+      `「${name}」和技能库里「${match}」的一个版本一致，已记为装在 ${place}，文件夹原样没动；之后可以在 ${place} 开关它、装到别处`,
     fetchedTracking: (name: string, source: string, place: string) =>
-      `「${name}」已放进技能库，以后跟着 ${source} 检查更新；${place} 里的文件夹原样没动，现在可以在这里开关它、装到别处`,
-    fetched: (name: string, place: string) => `「${name}」已放进技能库，${place} 里的文件夹原样没动；现在可以在这里开关它、装到别处`,
+      `「${name}」已放进技能库，以后跟着 ${source} 检查更新；${place} 里的文件夹原样没动，之后可以在 ${place} 开关它、装到别处`,
+    fetched: (name: string, place: string) => `「${name}」已放进技能库，${place} 里的文件夹原样没动；之后可以在 ${place} 开关它、装到别处`,
     installElsewhere: "装到别处…",
     fetchTitle: (name: string) => `入库「${name}」`,
     fetch: "入库",
@@ -593,7 +593,7 @@ export const zh = {
     notInstalled: "未安装",
     fromGlobal: "来自全局",
     notInLibraryTitle:
-      "这些在 Agent 的目录里、Agent 照常在用，但不在技能库里：可能是命令行工具装的、手动拷进来的或你自己写的。入库时文件夹原样不动；入库以后才能在这里开关、装到别处、检查更新。",
+      "这些在 Agent 的目录里、Agent 照常在用，但不在技能库里：可能是命令行工具装的、手动拷进来的或你自己写的。入库时文件夹原样不动；入库以后才能开关、装到别处、检查更新。",
     notInLibrary: "不在技能库里",
     inRepositoryTitle: "这个文件夹已提交在项目的 git 仓库里，由仓库管理",
     inRepository: "在项目仓库里",
@@ -607,7 +607,7 @@ export const zh = {
     linkTitle: (target: string) => `符号链接，指向 ${target}`,
     link: (target: string) => `符号链接 → ${target}`,
     revealInFinder: "在 Finder 中显示",
-    fetchTitle: "放进技能库：文件夹原样不动；入库以后能在这里开关、装到别处、随同步带走",
+    fetchTitle: "放进技能库：文件夹原样不动；入库以后能开关、装到别处、随同步带走",
     fetch: "入库",
     sameName: "同名",
     agentDirectory: "Agent 目录",
@@ -1020,7 +1020,7 @@ export const zh = {
   sidebar: {
     fetch: "入库技能",
     market: "技能市场",
-    allSkills: "技能库",
+    library: "技能库",
     updates: "更新",
     updatesTitle: "要处理的更新：有新版本、来源里已删除或可能改了名的技能；和 Dock 角标一致",
     checkTitle: "检查各来源是否有新版本（只读，本地目录来源不检查）",

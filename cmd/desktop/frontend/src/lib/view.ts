@@ -45,9 +45,11 @@ export interface Jump {
   n: number;
 }
 
-// Flash 是刚入库的未纳管技能：它在作用域页、项目页里换成库里技能的那一行，滚到看得见的地方闪一下;n 每次入库都变。
+// Flash 是刚入库的未纳管技能：它在作用域页、项目页里换成库里技能的那一行，滚到看得见的地方闪一下。
+// scope 是入库的那个作用域，同一个技能在页上有几行时闪这一处的;n 每次入库都变。
 export interface Flash {
   skill: SkillID;
+  scope: ScopeKey;
   n: number;
 }
 
@@ -133,7 +135,7 @@ function goTo(page: Page, extra: Partial<ViewState> = {}) {
 }
 
 // flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
-export const flashSkill = (skill: SkillID) => set((v) => ({ flash: { skill, n: (v.flash?.n ?? 0) + 1 } }));
+export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));
 export const doneFlash = (n: number) => set((v) => (v.flash?.n === n ? { flash: null } : {}));
 
 // togglePick 勾选或取消一行的技能。rows 是按住 Shift 点的：列表里各行从上到下，

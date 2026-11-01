@@ -35,6 +35,7 @@ import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
 import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
+import { flash } from "./flash";
 
 export function SkillList() {
   const listing = usePageListing();
@@ -100,14 +101,7 @@ function AllSkills({ sections }: { sections: SkillSection[] }) {
   useEffect(() => {
     if (!jump) return;
     const el = document.querySelector<HTMLElement>(`[data-section="${jump.section}"]`);
-    if (!el) return;
-    el.scrollIntoView({ block: "start", behavior: "smooth" });
-    el.dataset.flash = "";
-    const timer = window.setTimeout(() => delete el.dataset.flash, 1200);
-    return () => {
-      window.clearTimeout(timer);
-      delete el.dataset.flash;
-    };
+    if (el) return flash(el, "start");
   }, [jump]);
 
   if (s.skills.length === 0) return <EmptyLibrary />;

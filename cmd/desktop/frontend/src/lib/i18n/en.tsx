@@ -17,7 +17,7 @@ const keptPlaces = (edited: number, missing: number) => [
   edited ? `${count(edited, "place")} you edited left alone` : "",
   missing ? `${count(missing, "missing folder")} left alone` : "",
 ];
-const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : "unmanaged")));
+const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : "not in the Library")));
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
@@ -122,7 +122,7 @@ export const en = {
     kindLocal: "Local",
     noSource: "No Source",
     unknownSource: "Unknown Source",
-    allSkills: "Library",
+    library: "Library",
     updates: "Updates",
     agentsGlobal: (names: string[]) => (names.length > 2 ? `${names.length} Agents global` : `${and(names)} global`),
     projectCount: (n: number) => count(n, "project"),
@@ -349,11 +349,11 @@ export const en = {
     twin: (source: string, w: InstalledWhere) => `${source}, ${where(w)}`,
     sameNameTwins: (name: string, twins: string[], note: string) => `The Library already has a skill named “${name}” (${twins.join("; ")}). ${note}`,
     matchedVersion: (name: string, match: string, place: string) =>
-      `“${name}” matches a Version of “${match}” in the Library; recorded as installed in ${place}, with the folder left as it was. You can now turn it on or off here and install it elsewhere`,
+      `“${name}” matches a Version of “${match}” in the Library; recorded as installed in ${place}, with the folder left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
     fetchedTracking: (name: string, source: string, place: string) =>
-      `“${name}” is now in the Library and will follow ${source} for update checks; the folder in ${place} is left as it was. You can now turn it on or off here and install it elsewhere`,
+      `“${name}” is now in the Library and will follow ${source} for update checks; the folder in ${place} is left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
     fetched: (name: string, place: string) =>
-      `“${name}” is now in the Library; the folder in ${place} is left as it was. You can now turn it on or off here and install it elsewhere`,
+      `“${name}” is now in the Library; the folder in ${place} is left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
     installElsewhere: "Install elsewhere…",
     fetchTitle: (name: string) => `Fetch “${name}”`,
     fetch: "Fetch",
@@ -631,7 +631,7 @@ export const en = {
     notInstalled: "Not installed",
     fromGlobal: "From global",
     notInLibraryTitle:
-      "These are in the Agent's directory and the Agent uses them as usual, but they aren't in the Library: they may come from a command-line tool, be copied in by hand, or be your own. Fetching leaves the folder as it is; once fetched, you can turn them on or off here, install them elsewhere, and check for updates.",
+      "These are in the Agent's directory and the Agent uses them as usual, but they aren't in the Library: they may come from a command-line tool, be copied in by hand, or be your own. Fetching leaves the folder as it is; once fetched, you can turn them on or off, install them elsewhere, and check for updates.",
     notInLibrary: "Not in the Library",
     inRepositoryTitle: "This folder is committed in the project's git repository and managed by it",
     inRepository: "In project repo",
@@ -646,7 +646,7 @@ export const en = {
     linkTitle: (target: string) => `Symlink to ${target}`,
     link: (target: string) => `Symlink → ${target}`,
     revealInFinder: "Show in Finder",
-    fetchTitle: "Put it in the Library: the folder stays as it is; once fetched, you can turn it on or off here, install it elsewhere, and take it along with Sync",
+    fetchTitle: "Put it in the Library: the folder stays as it is; once fetched, you can turn it on or off, install it elsewhere, and take it along with Sync",
     fetch: "Fetch",
     sameName: "Same name",
     agentDirectory: "Agent directory",
@@ -655,7 +655,7 @@ export const en = {
     statGlobal: "from global",
     statStale: "to reinstall",
     reinstallAll: "Reinstall all",
-    notTaken: (n: number) => `${n === 1 ? "1 of them" : `${n} of them`} can be handed over to the app; Agents use them as usual.`,
+    notTaken: (n: number) => `${n} of them can be handed over to the app; Agents use them as usual.`,
     fetchAll: "Fetch all…",
     groups: "Groups",
     groupChipTitle: (name: string, on: boolean) =>
@@ -1085,7 +1085,7 @@ export const en = {
   sidebar: {
     fetch: "Fetch skills",
     market: "Skill market",
-    allSkills: "Library",
+    library: "Library",
     updates: "Updates",
     updatesTitle: "Updates to handle: skills with a new Version, deleted in the Source, or maybe renamed; matches the Dock badge",
     checkTitle: "Check every Source for new Versions (read-only; local directory Sources aren't checked)",

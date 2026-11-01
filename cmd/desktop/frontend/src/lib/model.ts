@@ -754,7 +754,7 @@ export function pageTitle(s: Snapshot, page: Page): string {
   if (page.kind === "updates") return m.updates;
   if (page.kind === "scope") return scopeLabel(s, parseScope(page.scope));
   if (page.kind === "project") return projectName(s, page.project);
-  return m.allSkills;
+  return m.library;
 }
 
 // matches 是搜索：名字或描述里含有输入的文字，不分大小写;没输入时都算。

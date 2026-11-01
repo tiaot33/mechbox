@@ -5,10 +5,10 @@ import type { FetchUnmanagedResult, UnmanagedSkill } from "@bindings/internal/li
 import { unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, foundSource, useFoundSources, type LibraryError } from "@/lib/library";
-import { installedWhere, noSource, outsideLinkNote, sameNameFetchNote, scopeLabel, shortPath, sourceLabel } from "@/lib/model";
+import { installedWhere, noSource, outsideLinkNote, sameNameFetchNote, scopeKey, scopeLabel, shortPath, sourceLabel } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { flashSkill } from "@/lib/view";
-import { installPicked } from "@/features/install/install-to";
+import { chooseAndInstall } from "@/features/install/install-to";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -36,8 +36,8 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
     : r.skill.collection_id
       ? t.fetchedTracking(r.skill.name, r.skill.source.label, place)
       : t.fetched(r.skill.name, place);
-  ui.toast(message, "ok", { label: t.installElsewhere, onClick: () => void installPicked([r.skill.id]) });
-  flashSkill(r.skill.id);
+  ui.toast(message, "ok", { label: t.installElsewhere, onClick: () => void chooseAndInstall([r.skill.id]) });
+  flashSkill(r.skill.id, scopeKey(skill.scope));
 }
 
 // FetchUnmanagedDialog 是入库确认：来源链接可改可清空;读来源失败时留在框里说明原因，用户可以重试、改链接或清空后入库。

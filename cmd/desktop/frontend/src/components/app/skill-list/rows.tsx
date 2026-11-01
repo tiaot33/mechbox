@@ -1,6 +1,7 @@
 // 列表的行：库里的技能(技能库页、更新页与作用域页)与作用域里的未纳管技能。一个技能一行，列对齐，
 // 平常的信息用淡色，只有要处理的(有新版本、来源里已删除、同名、要重新安装)才上色。
 // 作用域页与项目页的行首一格只表示 Agent 在这里用不用：开 = 在用，关 = 没在用;最后一列写是谁装的。
+// 未纳管技能不在技能库里，行首没有开关，是"入库"按钮;在"不在技能库里"一节里时最后一列不再写这句。
 // 库里技能的行点开详情抽屉，可以拖到右栏作用域(直接安装)或左栏、节标题上的组(加入该组);
 // 技能库页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { useEffect, useRef } from "react";
@@ -47,6 +48,7 @@ import { useDnD } from "@/components/app/dnd";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
 import { SameNameBadge, SameNameLine } from "./same-name";
+import { flash } from "./flash";
 
 // 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
@@ -88,7 +90,7 @@ export function SkillRow(props: {
   const groups = useSortedGroups(s).filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
-  const ref = useFlash(skill.id, !!scope);
+  const ref = useFlash(skill.id, scope);
 
   const toggle = () => {
     if (!scope) return;
@@ -102,7 +104,7 @@ export function SkillRow(props: {
     <article
       ref={ref}
       className={cn(
-        "skill-row group/row cursor-grab transition-colors hover:bg-white/80 active:cursor-grabbing",
+        "skill-row group/row cursor-grab transition-colors hover:bg-white/80 active:cursor-grabbing data-[flash]:bg-primary-soft",
         rowClass,
         scope ? (props.pickable ? pickScopeCols : scopeCols) : props.pickable ? pickLibraryCols : libraryCols,
         picked && "bg-primary-soft/45 hover:bg-primary-soft/60",
@@ -110,6 +112,7 @@ export function SkillRow(props: {
       )}
       data-name={skill.name}
       data-skill-id={skill.id}
+      data-scope={scope}
       data-selected={selected || undefined}
       data-picked={picked || undefined}
       onClick={() => toggleDrawer(skill.id)}
@@ -229,24 +232,19 @@ export function SkillRow(props: {
   );
 }
 
-// useFlash 是作用域页、项目页里刚入库的那一行：滚到看得见的地方闪一下。项目页里几个 Agent 都列出它时，只滚到第一行，各行都闪。
-function useFlash(id: SkillID, enabled: boolean) {
+// useFlash 是作用域页、项目页里刚入库的那一行：滚到视口中间(不被吸顶的节标题盖住)闪一下。
+// 同一个技能在页上有几行(项目页的几个 Agent 都装了)时，闪入库的那个作用域的那一行;没有那一行(来自全局一节里的)时闪第一行。
+function useFlash(id: SkillID, scope: ScopeKey | undefined) {
   const ref = useRef<HTMLElement>(null);
-  const n = useView((v) => (enabled && v.flash?.skill === id ? v.flash.n : 0));
+  const target = useView((v) => (scope && v.flash?.skill === id ? v.flash : null));
   useEffect(() => {
     const el = ref.current;
-    if (!n || !el) return;
-    if (document.querySelector(`.skill-row[data-skill-id="${id}"]`) === el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    el.dataset.flash = "";
-    const timer = window.setTimeout(() => {
-      delete el.dataset.flash;
-      doneFlash(n);
-    }, 1200);
-    return () => {
-      window.clearTimeout(timer);
-      delete el.dataset.flash;
-    };
-  }, [id, n]);
+    if (!target || !el) return;
+    const rows = `.skill-row[data-skill-id="${id}"]`;
+    const first = document.querySelector(`${rows}[data-scope="${CSS.escape(target.scope)}"]`) ?? document.querySelector(rows);
+    if (first !== el) return;
+    return flash(el, "center", () => doneFlash(target.n));
+  }, [id, target]);
   return ref;
 }
 

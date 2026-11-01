@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { AgentCode, Scope, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import { useSnapshot } from "@/lib/library";
+import { currentSnapshot, reloadLibrary, useSnapshot } from "@/lib/library";
 import {
   agentNameIn,
   agentShown,
@@ -88,9 +88,10 @@ export function pageInstallTarget(page: Page): { place?: Place; agent?: AgentCod
   return {};
 }
 
-// installPicked 是勾选后操作栏、入库完成提示上的"安装到…":先选装到哪里，再把这些技能一起安装。initial 是默认选的地方与 Agent
-// (见 pageInstallTarget)。
-export async function installPicked(ids: SkillID[], initial: { place?: Place; agent?: AgentCode } = {}) {
+// chooseAndInstall 是勾选后操作栏、入库完成提示上的"安装到…":先选装到哪里，再把这些技能一起安装。initial 是默认选的地方与 Agent
+// (见 pageInstallTarget)。刚入库的技能可能还不在快照里(入库后的重读还没完成),先等重读完，免得按快照筛掉它们、什么都没装。
+export async function chooseAndInstall(ids: SkillID[], initial: { place?: Place; agent?: AgentCode } = {}) {
+  if (!ids.every((id) => currentSnapshot().skills.some((x) => x.id === id))) await reloadLibrary();
   const scope = await ui.open<Scope>((close) => <InstallToDialog ids={ids} initial={initial} close={close} />);
   if (scope) await installSkills(ids, scope);
 }
