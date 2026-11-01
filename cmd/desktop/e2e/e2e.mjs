@@ -3489,6 +3489,7 @@ await step("照着另一个 Agent 装：从项目的作用域页打开时默认�
   assert.equal(await modal().locator(".copy-from").inputValue(), "claude-code", "默认照着在这个项目里可以照着装的最多的 Claude Code");
   const globalPlace = modal().locator('.copy-place[data-place="0"]');
   const projectPlace = modal().locator(".copy-place", { hasText: "proj-copy" });
+  assert((await modal().locator(".copy-place").first().textContent()).includes("proj-copy"), "这个项目排在最前");
   const xi = globalPlace.locator('.copy-skill[data-name="cp-xi"] input[type="checkbox"]');
   assert(await projectPlace.locator('.copy-skill[data-name="cp-omicron"] input[type="checkbox"]').isChecked(), "这个项目里的 cp-omicron 默认勾上");
   assert(!(await xi.isChecked()), "全局的 cp-xi 列出但默认不勾");
@@ -3505,14 +3506,8 @@ await step("照着另一个 Agent 装：从项目的作用域页打开时默认�
   await page.screenshot({ path: path.join(SHOTS, "copy-agent-project.png") });
   assert.equal((await modal().locator(".copy-confirm").textContent()).trim(), "安装 1 个技能", "直接确认只装这个项目里的一个");
   await modal().locator(".copy-confirm").click();
-  // 前面的场景组留下的项目可能不在这台机器上，那时列出结果而不是只提示。
-  const done = page.locator('[data-slot="toast"][data-state="open"]', { hasText: "已照着 Claude Code 在 Copy Target 装上 1 个技能" });
-  const results = page.locator('[data-slot="dialog-content"]', { has: page.locator('[data-slot="dialog-title"]', { hasText: "照着 Claude Code 装到 Copy Target" }) });
-  await done.or(results).first().waitFor();
-  if (await results.count()) {
-    assert((await results.locator('[data-slot="badge"]', { hasText: "失败" }).count()) === 0, "不应有装失败的");
-    await btn(results, "知道了").click();
-  }
+  // 前面的场景组留下的项目可能不在这台机器上;没勾的地方不算没装上，只提示装了几个。
+  await toast("已照着 Claude Code 在 Copy Target 装上 1 个技能");
   await settle();
 
   assert(fs.existsSync(`${project}/.copy-target/skills/cp-omicron/SKILL.md`), "cp-omicron 装到这个项目里");

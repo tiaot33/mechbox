@@ -5,6 +5,7 @@
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
 // - 整批入库时，归项目仓库管的、指向 Agent 目录以外的默认不接，用户自己的照常默认勾上。
 // - 照着另一个 Agent、另一个项目装时，有不是库装的同名文件夹的默认不覆盖，勾上才覆盖。
+// - 从项目的作用域页照着另一个 Agent 装时，全局和其他项目默认不勾，只装这个项目。
 import {
   InstallPlanStatus,
   PlannedChange,
@@ -202,7 +203,7 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
 export const copyable = (status: InstallPlanStatus) =>
   status !== InstallPlanStatus.InstallOccupied && status !== InstallPlanStatus.InstallDuplicate;
 
-// copyByDefault 是照装时默认勾上的：能装的都勾，有不是库装的同名文件夹的不勾，勾上才覆盖(copyOverwrites)。
+// copyByDefault 是照装时默认勾的那几处里(见 copyPlaceByDefault)默认勾上的：能装的都勾，有不是库装的同名文件夹的不勾，勾上才覆盖(copyOverwrites)。
 // 组安装整组默认勾上，组员里有这种文件夹的默认跳过，用户勾上"覆盖"才覆盖。
 export const copyByDefault = (status: InstallPlanStatus) => copyable(status) && status !== InstallPlanStatus.InstallUntracked;
 
@@ -217,7 +218,8 @@ export const copyPlaceByDefault = (at: number, place: number) => !at || place ==
 // CopyPlanned 是照装时一项的安装计划：直接安装是一个技能的，组安装是各成员的;读不出时是错误。
 export type CopyPlanned = { plan: InstallPlan } | { members: InstallPlan[] } | { error: unknown };
 
-// copyDefaults 是照装确认框打开时的勾选:checked 是默认勾上的项(组安装整组勾上，直接安装按 copyByDefault,读不出计划的不勾);
+// copyDefaults 是一组项按默认规则的勾选：确认框打开时用于默认勾的那几处(哪几处见 copyPlaceByDefault),
+// 点一处的标题整处勾上时用于那一处。checked 是默认勾上的项(组安装整组勾上，直接安装按 copyByDefault,读不出计划的不勾);
 // overwrite 是勾了"覆盖"的组安装，默认一个都没有：组员里有不是库装的同名文件夹的默认跳过。
 export function copyDefaults(entries: [string, CopyPlanned][]): { checked: Set<string>; overwrite: Set<string> } {
   const checked = entries.flatMap(([key, v]) => ("members" in v || ("plan" in v && copyByDefault(v.plan.status)) ? [key] : []));

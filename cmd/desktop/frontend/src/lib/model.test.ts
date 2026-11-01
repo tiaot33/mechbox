@@ -376,10 +376,10 @@ describe("照着装", () => {
           installed(1, at(codex)),
         ],
       });
-      expect(copySources(s, codex).map((a) => a.code)).toEqual([cursor, claude]);
-      expect(copySources(snapshot({ ...base, skillScopes: [installed(1, at(claude)), installed(1, at(codex))] }), codex)).toEqual([]);
+      expect(copySources(s, codex, 0).map((a) => a.code)).toEqual([cursor, claude]);
+      expect(copySources(snapshot({ ...base, skillScopes: [installed(1, at(claude)), installed(1, at(codex))] }), codex, 0)).toEqual([]);
       const onlyMissing = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
-      expect(copySources(onlyMissing, codex)).toEqual([]);
+      expect(copySources(onlyMissing, codex, 0)).toEqual([]);
     });
 
     it("从项目的作用域页打开时，在这个项目里可以照着装的最多的在前，一样多的再按装得多少排", () => {
@@ -396,7 +396,7 @@ describe("照着装", () => {
         ],
         groupInstalls: [{ group_id: 7, scope: at(claude, 1) }] as GroupInstall[],
       });
-      expect(copySources(s, codex).map((a) => a.code)).toEqual([cursor, claude]);
+      expect(copySources(s, codex, 0).map((a) => a.code)).toEqual([cursor, claude]);
       expect(copySources(s, codex, 1).map((a) => a.code)).toEqual([claude, cursor]);
       // 项目 3 里谁都没有可以照着装的：照旧装得最多的在前。
       expect(copySources(s, codex, 3).map((a) => a.code)).toEqual([cursor, claude]);
