@@ -66,7 +66,7 @@ func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOpti
 	}
 	lib, err := library.Open(s.path)
 	if err != nil {
-		return fmt.Errorf("%s: %w", s.path, err)
+		return err
 	}
 	s.lib = lib
 	return nil

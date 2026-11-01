@@ -138,6 +138,7 @@ open bin/mechbox.app
   - 新版本在 app 退出后才装上，所以点「更新」时在数据库所在的目录里记下 `update-pending.json`(版本与安装记录的位置:macOS 是 Wails helper 的日志，Windows 是安装脚本写的 `update.log`,里面是安装程序的退出码)。下次启动时版本还不是它，就提示「上次没有装上」和记录的最后一行，打开新版本对话框时也写着。
   - 开发版与 server 模式见上文"开发"。
 - **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。实例按数据库区分：用 `MECHBOX_LIBRARY` 打开别的数据库的开发版窗口，可以和装好的 app、和别的数据库的窗口同时开着（见 [测试改动](../../docs/testing.md) 的「几个工作区同时开窗口」）；指向真实技能库的仍和装好的 app 共用一个实例。
+- **启动失败**：打不开数据库等启动错误，先弹系统提示框写明原因与数据库位置，用户关掉后才退出;原因同时打到 stderr。
 
 ## 测试
 
@@ -150,6 +151,8 @@ open bin/mechbox.app
 ```
 cmd/desktop/
 ├── main.go                 应用入口：窗口、单实例、错误编码
+├── startup_error.go        启动失败时的系统提示框：原因与数据库位置，文案按系统语言(startup_error_<平台>.go 是各平台怎么弹:Windows 用 MessageBoxW,macOS 另起 osascript,
+│                           Linux 用 zenity 或 kdialog、都没装时不弹;server 模式见 startup_error_server.go,不弹)
 ├── window_windows.go       Windows 的窗口外观:Windows 11 22H2 起用 Mica,更早的用不透明浅色底，固定浅色主题(其他平台与 server 模式见 window_other.go,不改)
 ├── library_service.go      绑定服务：生命周期、数据库位置(含 MECHBOX_LIBRARY)、环境信息（含应用版本）、配置状态
 ├── settings.go             应用设置：字段、默认值，与技能库应用设置(Library.AppSettings)之间的转换
@@ -197,7 +200,7 @@ cmd/desktop/
 - 英文的单复数、列表(`Intl.ListFormat`)在 `en.tsx` 里处理;中文列表照旧用顿号。日期统一经 `formatDate`,数字的 `toLocaleString` 显式传语言。
 - 英文用词：术语表(`CONTEXT.md`)里有的概念用术语表的英文名。
 - 按平台换说法的文案(如卸载时的废纸篓 / 回收站)在文案函数里调 `lib/platform.ts` 的 `platform()`,组件不传平台。
-- Go 这边的菜单文字在 `menu.go` 的 `nativeLabels`,同样中英两份。
+- Go 这边的菜单文字在 `menu.go` 的 `nativeLabels`,同样中英两份;启动失败提示框的文字在 `startup_error.go`,也是中英两份，按系统语言选(这时读不到数据库里的语言设置)。
 
 ### 给前端加一个技能库调用
 

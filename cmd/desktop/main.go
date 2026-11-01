@@ -35,20 +35,20 @@ const mainWindowName = "main"
 const bundleID = "com.tiaot33.mechbox"
 
 func main() {
-	if err := run(); err != nil {
+	// 更新时 Wails 会把自己再启动一份来替换 app;那一份在这里做完替换就退出，不碰技能库。
+	updater.HandleHelperMode()
+	path, err := defaultLibraryPath()
+	if err == nil {
+		err = run(path)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		showStartupError(err)
+		showStartupError(err, path)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	// 更新时 Wails 会把自己再启动一份来替换 app;那一份在这里做完替换就退出，不碰技能库。
-	updater.HandleHelperMode()
-	path, err := defaultLibraryPath()
-	if err != nil {
-		return err
-	}
+func run(path string) error {
 	libraryService := NewLibraryService(path)
 	appService := NewAppService(libraryService)
 	app := application.New(application.Options{
@@ -100,7 +100,7 @@ func run() error {
 	window := app.Window.NewWithOptions(windowOptions)
 	appService.attach(app, window)
 
-	err = app.Run()
+	err := app.Run()
 	appService.afterShutdown()
 	return err
 }
