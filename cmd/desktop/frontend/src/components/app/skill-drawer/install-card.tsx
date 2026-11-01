@@ -9,14 +9,13 @@ import {
   projectName,
   scopeKey,
   scopeLabel,
-  scopeOf,
   shortPath,
   skillScopeIn,
   skillScopeStatus,
   skillScopesOf,
 } from "@/lib/model";
-import { installSkill, uninstallSkill } from "@/features/install/install";
-import { AgentSelect, PlaceSelect, useInstallTarget } from "@/features/install/install-to";
+import { installSkill, installSkills, uninstallSkill } from "@/features/install/install";
+import { AgentPicker, PlaceSelect, useInstallTarget } from "@/features/install/install-to";
 import { reinstall } from "@/features/install/reinstall";
 import { updateFromScope } from "@/features/update/update";
 import { Badge } from "@/components/ui/badge";
@@ -127,21 +126,23 @@ export function InstallCard({ skill }: { skill: Skill }) {
   );
 }
 
-// InstallTo 是"安装到…":先选地方(全局 / 项目),再选 Agent(见 features/install/install-to)。
-// 这个地方能选的 Agent 都装上了时，不摆一个选不了的下拉框，直接说明。
+// InstallTo 是"安装到…":先选地方(全局 / 项目),再勾选装到哪几个 Agent(见 features/install/install-to)。
+// 只勾一个时和开关一样装这一处;勾几个时一起装，同名文件夹合成一次询问。
+// 这个地方能选的 Agent 都装上了时，不摆一个选不了的列表，直接说明。
 function InstallTo({ skillID }: { skillID: number }) {
   const s = useSnapshot();
   const t = useT();
   const target = useInstallTarget((sc) => !skillScopeIn(s, skillID, scopeKey(sc)));
   const placeName = target.place ? projectName(s, target.place) : t.model.global;
+  const install = () => (target.scopes.length === 1 ? installSkill(skillID, target.scopes[0]) : installSkills([skillID], target.scopes));
   return (
-    <div className="install-to mt-2.5 flex items-center gap-1.5">
+    <div className="install-to mt-2.5 flex flex-wrap items-center gap-1.5">
       <span className="text-[11px] text-muted-foreground">{t.drawer.installTo}</span>
       <PlaceSelect target={target} />
-      {target.agent ? (
+      {target.selectable ? (
         <>
-          <AgentSelect target={target} />
-          <Button size="sm" variant="primary" onClick={() => target.agent && installSkill(skillID, scopeOf(target.agent, target.place))}>
+          <AgentPicker target={target} taken={t.drawer.hasIt} />
+          <Button size="sm" variant="primary" disabled={!target.scopes.length} onClick={() => void install()}>
             <Icon name="plus" />
             {t.drawer.install}
           </Button>
