@@ -168,7 +168,7 @@ async function scopeRow(agentName, place = "全局") {
   let list = rail.locator(":scope > ul").first();
   if (place !== "全局") {
     const proj = rail.locator(".nav-item.proj", { hasText: place });
-    if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.click();
+    if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.locator(".proj-toggle").click();
     list = rail.locator("li", { has: page.locator(".nav-item.proj", { hasText: place }) }).locator("ul");
   }
   const named = new RegExp(`^${agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
@@ -1066,7 +1066,7 @@ await step("卡片开关卸载直接安装", async () => {
 
 await step("安装到项目作用域(右栏项目展开 → 检测到的 Agent 直接列出 → 选中)", async () => {
   await clearScope();
-  await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).click();
+  await page.locator(".a-right .nav-item.proj", { hasText: "proj-a" }).locator(".proj-toggle").click();
   assert((await page.locator(".a-right .nav-item.more").count()) === 0, "检测到的 Agent 应直接列出，不折进其他");
   await page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).nth(1).click();
   await settle();
@@ -1091,6 +1091,41 @@ await step("未记录的外来文件夹：安装计划发现后询问覆盖", as
   await toast("已安装「beta」");
   await settle();
   assert(fs.existsSync(path.join(dir, "beta", "SKILL.md")) && !fs.existsSync(path.join(dir, "beta", "note.txt")), "应已覆盖");
+});
+
+await step("作用域页有技能装在这里的节排在前面;点项目打开项目页，按 Agent 列出项目里装的技能，箭头只展开收起", async () => {
+  await selectScope("Claude Code", "proj-a");
+  const used = [];
+  for (const sec of await page.locator('.a-list[data-page="scope"] .list-section[data-section*=":collection-"]').all()) {
+    used.push((await sec.locator('[role="switch"][aria-checked="true"]').count()) > 0);
+  }
+  const firstIdle = used.indexOf(false);
+  assert(used[0] && (firstIdle < 0 || !used.slice(firstIdle).includes(true)), `有技能装在这里的节应排在前面:${used}`);
+
+  const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-a" });
+  await proj.click();
+  await page.locator('.a-list[data-page="project"]').waitFor();
+  assert((await page.locator(".tb-crumb", { hasText: "proj-a" }).count()) === 1, "顶栏应写 proj-a");
+  assert((await proj.getAttribute("aria-expanded")) === "true", "打开项目页时右栏展开这个项目");
+  const claude = page.locator('.a-list[data-page="project"] .list-section', { has: page.locator(".section-name", { hasText: /^Claude Code$/ }) });
+  for (const name of ["beta", "gamma"]) {
+    const row = claude.locator(".skill-row", { has: page.locator(".skill-name", { hasText: new RegExp(`^${name}$`) }) });
+    assert((await row.locator('[role="switch"][aria-checked="true"]').count()) === 1, `Claude Code 一节应列出装着的 ${name}`);
+  }
+  assert((await page.locator('.a-list[data-page="project"] [role="switch"][aria-checked="false"]').count()) === 0, "项目页只列装着的技能");
+
+  await btn(claude, "打开作用域").click();
+  await page.locator('.a-list[data-page="scope"]').waitFor();
+  assert((await page.locator(".tb-crumb", { hasText: "Claude Code" }).count()) === 1, "打开作用域应到 Claude Code · proj-a");
+
+  await proj.click();
+  await page.locator('.a-list[data-page="project"]').waitFor();
+  await proj.click();
+  await page.locator('.a-list[data-page="all"]').waitFor();
+  await proj.locator(".proj-toggle").click();
+  assert((await proj.getAttribute("aria-expanded")) === "false", "箭头收起项目");
+  assert((await page.locator('.a-list[data-page="all"]').count()) === 1, "箭头不换页");
+  await selectScope("Claude Code", "proj-a");
 });
 
 // ============ 未纳管技能 ============
@@ -1160,7 +1195,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     await selectScope("Claude Code", "proj-a");
     // 选中 proj-b 的作用域时右栏展开了它，收回去，后面的拖放步骤要从折叠的 proj-b 开始。
     const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
+    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.locator(".proj-toggle").click();
   }
   assert(fs.lstatSync(link).isSymbolicLink() && fs.existsSync(path.join(projB, ".claude", "skills", "my-draft", "SKILL.md")), "磁盘上什么都没动");
 });
@@ -1219,7 +1254,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
   } finally {
     await selectScope("Claude Code", "proj-a");
     const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.click();
+    if ((await projRow.getAttribute("aria-expanded")) === "true") await projRow.locator(".proj-toggle").click();
   }
   const after = [fs.readlinkSync(link), fs.readFileSync(path.join(real, "SKILL.md"), "utf8"), fs.readFileSync(team, "utf8")];
   assert.deepStrictEqual(after, before, "入库时磁盘上什么都没动");
@@ -2310,6 +2345,87 @@ await step("移出分组(有组安装时询问去留)", async () => {
   await clearScope();
 });
 
+await step("勾选几个技能一起操作：节标题全选、Shift 勾一段，一起安装、加入新建的组、拖到作用域、从这里卸载、移出组;换页、Esc 清空", async () => {
+  const mine = () => page.locator('.list-section[data-section*="collection-"]', { has: page.locator(".section-name", { hasText: "my-skills" }) });
+  const bar = page.locator(".pick-bar");
+  const picked = async (n) => bar.locator("span", { hasText: `已选 ${n} 个` }).waitFor({ timeout: 5000 });
+  const codexB = () => path.join(HOME, "code", "proj-b", ".agents", "skills");
+  const names = ["alpha", "beta", "gamma"];
+  const uninstallHere = async () => {
+    await selectScope("Codex", "proj-b");
+    assert((await bar.count()) === 0, "换页后勾选清空");
+    await mine().locator(".section-pick").click();
+    await picked(3);
+    await btn(bar, "从这里卸载").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "从 Codex · proj-b 卸载 3 个技能" }).waitFor();
+    await btn(modal(), "卸载").click();
+    await toast("已从 Codex · proj-b 卸载 3 处直接安装");
+    await settle();
+    for (const n of names) assert(!fs.existsSync(path.join(codexB(), n)), `${n} 应已从 proj-b 卸载`);
+  };
+
+  await clearScope();
+  await mine().locator(".section-pick").click();
+  await picked(3);
+  await mine().locator(".section-pick").click();
+  assert((await bar.count()) === 0, "全部取消后操作栏消失");
+  const boxes = mine().locator(".skill-row .pick-box");
+  await boxes.first().click();
+  await boxes.last().click({ modifiers: ["Shift"] });
+  await picked(3);
+
+  await btn(bar, "安装到…").click();
+  await modal().locator(".install-picked select").nth(0).selectOption({ label: "proj-b" });
+  await modal().locator(".install-picked select").nth(1).selectOption({ label: "Codex" });
+  await btn(modal(), "安装").click();
+  await toast("已把 3 个技能装到 Codex · proj-b");
+  await settle();
+  for (const n of names) assert(fs.existsSync(path.join(codexB(), n, "SKILL.md")), `磁盘上应有 proj-b 的 ${n}`);
+
+  await btn(bar, "加入组…").click();
+  await modal().locator(".group-picked select").selectOption({ label: "新建组…" });
+  await btn(modal(), "下一步").click();
+  await modal().locator('[data-slot="input"]').fill("批量");
+  await btn(modal(), "创建").click();
+  await toast("已创建组「批量」");
+  await settle();
+  await page.locator(".a-left .nav-item", { hasText: "批量" }).locator("text=3").waitFor({ timeout: 5000 });
+
+  await uninstallHere();
+
+  // 拖勾选着的一行 = 拖勾选的全部。
+  await clearScope();
+  await mine().locator(".section-pick").click();
+  await picked(3);
+  await card("alpha").dragTo(await scopeRow("Codex", "proj-b"));
+  await toast("已把 3 个技能装到 Codex · proj-b");
+  await settle();
+  for (const n of names) assert(fs.existsSync(path.join(codexB(), n, "SKILL.md")), `拖放后磁盘上应有 proj-b 的 ${n}`);
+  await uninstallHere();
+
+  await clearScope();
+  await mine().locator(".section-pick").click();
+  await btn(bar, "移除技能").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "移除 3 个技能" }).waitFor();
+  await page.keyboard.press("Escape"); // Esc 只关弹窗，勾选留着
+  await modal().waitFor({ state: "detached" });
+  await picked(3);
+  await btn(bar, "移出组…").click();
+  await modal().locator(".group-picked select").selectOption({ label: "批量" });
+  await btn(modal(), "移出").click(); // 组没有组安装：选好组就直接移出，不再问
+  await toast("已把 3 个技能移出「批量」");
+  await settle();
+  await page.keyboard.press("Escape");
+  assert((await bar.count()) === 0, "Esc 清空勾选");
+
+  const row = page.locator(".a-left .nav-item", { hasText: "批量" });
+  await row.hover();
+  await row.locator(".row-actions button[title='删除组']").click();
+  await btn(modal(), "删除组").click();
+  await toast("已删除组");
+  await settle();
+});
+
 // ============ 其他视图 ============
 group("views", ["drag"]);
 await step("搜索与 ⌘K、按组分节、侧栏开关", async () => {
@@ -2603,7 +2719,7 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await settle();
   await unslow();
   const projB = page.locator(".a-right li", { has: page.locator(".nav-item.proj", { hasText: "proj-b" }) });
-  if ((await projB.locator(".nav-item.proj").getAttribute("aria-expanded")) !== "true") await projB.locator(".nav-item.proj").click();
+  if ((await projB.locator(".nav-item.proj").getAttribute("aria-expanded")) !== "true") await projB.locator(".nav-item.proj .proj-toggle").click();
   for (const name of ["Codex", "Claude Code"]) {
     assert((await projB.locator(".nav-item.sub", { hasText: name }).count()) === 0, `右栏不应列出不显示的 ${name}`);
   }
@@ -2793,7 +2909,7 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
   await back();
 
   const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-  if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.click();
+  if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.locator(".proj-toggle").click();
   await page.locator('.a-right .nav-item.proj[aria-expanded="true"]', { hasText: "proj-b" }).waitFor({ timeout: 3000 });
   // 自定义 Agent 不检测，折在"其他 N 个 Agent"里。
   const inProj = page.locator(".a-right li", { has: page.locator(".nav-item.proj", { hasText: "proj-b" }) });
@@ -3098,6 +3214,112 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
   await toast("没有要处理的更新");
   await settle();
+});
+
+// ============ 照着另一个 Agent 装 ============
+group("copy-agent", []);
+await step("照着另一个 Agent 装：全局和项目里的一次装上，组安装仍是组安装，有同名文件夹的默认不覆盖，改过的与未纳管的说出来", async () => {
+  // 自己造出 Claude Code 在用的技能：全局直接安装 cp-kappa、cp-nu，组安装「照装组」(成员 cp-mu);项目 proj-copy 里直接安装 cp-lambda。
+  for (const name of ["cp-kappa", "cp-lambda", "cp-mu", "cp-nu"]) {
+    fs.mkdirSync(`${HOME}/code/copy-src/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/copy-src/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/copy-src`);
+  await toast("已入库 4 个技能");
+  await settle();
+  fs.mkdirSync(`${HOME}/code/proj-copy`, { recursive: true });
+  await page.locator(".a-right .nav-sec button[title='登记项目']").click();
+  await modal().locator('[data-slot="input"]').fill(`${HOME}/code/proj-copy`);
+  await btn(modal(), "登记").click();
+  await toast("已登记项目");
+  await settle();
+  await page.locator(".a-left .nav-sec", { hasText: "组" }).locator("button[title='新建组']").click();
+  await modal().locator('[data-slot="input"]').fill("照装组");
+  await btn(modal(), "创建").click();
+  await toast("已创建组「照装组」");
+  await settle();
+  await clearScope();
+  await openDrawer("cp-mu");
+  await drawer().locator("select.chip-add").selectOption({ label: "照装组" });
+  await toast("已把「cp-mu」加入「照装组」");
+  await settle();
+  await closeDrawer();
+  await selectScope("Claude Code");
+  for (const name of ["cp-kappa", "cp-nu"]) {
+    await card(name).locator('[role="switch"]').click();
+    await toast(`已安装「${name}」`);
+    await settle();
+  }
+  await page.locator(".gchip", { hasText: "照装组" }).click();
+  await toast("已把「照装组」组安装到");
+  await settle();
+  await selectScope("Claude Code", "proj-copy");
+  await card("cp-lambda").locator('[role="switch"]').click();
+  await toast("已安装「cp-lambda」");
+  await settle();
+  // Claude Code 里改过的 cp-kappa、不是库装的 hand-copy;新 Agent 里已有一个不是库装的 cp-nu 文件夹。
+  const claudeSkills = `${HOME}/.claude/skills`;
+  fs.appendFileSync(`${claudeSkills}/cp-kappa/SKILL.md`, "\nedited by hand\n");
+  fs.mkdirSync(`${claudeSkills}/hand-copy`, { recursive: true });
+  fs.writeFileSync(`${claudeSkills}/hand-copy/SKILL.md`, '---\nname: hand-copy\ndescription: "mine"\n---\n');
+  const target = `${HOME}/.copy-target/skills`;
+  fs.mkdirSync(`${target}/cp-nu`, { recursive: true });
+  fs.writeFileSync(`${target}/cp-nu/note.txt`, "hand made");
+
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  const agents = page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: /^Agent$/ }) });
+  await btn(agents, "添加 Agent").click();
+  const fields = modal().locator('[data-slot="input"]');
+  await fields.nth(0).fill("Copy Target");
+  await fields.nth(1).fill("~/.copy-target/skills");
+  await fields.nth(2).fill(".copy-target/skills");
+  await btn(modal(), "添加").click();
+  await toast("已添加 Agent「Copy Target」");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+
+  await selectScope("Copy Target");
+  await page.locator(".copy-agent-open").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "照着其他 Agent 装到 Copy Target" }).waitFor();
+  await modal().locator(".copy-agent-from").selectOption({ label: "Claude Code" });
+  await modal().locator(".copy-agent-skill").first().waitFor();
+  await page.waitForFunction(() => !document.querySelector('[data-slot="dialog-content"]')?.textContent.includes("正在查看安装计划"));
+  const globalPlace = modal().locator('.copy-agent-place[data-place="0"]');
+  const projectPlace = modal().locator(".copy-agent-place", { hasText: "proj-copy" });
+  const row = (place, cls, name) => place.locator(`.${cls}[data-name="${name}"]`);
+  const checked = (r) => r.locator('input[type="checkbox"]').isChecked();
+  assert(await checked(row(globalPlace, "copy-agent-skill", "cp-kappa")), "全局直接安装的 cp-kappa 默认勾上");
+  assert(await checked(row(globalPlace, "copy-agent-group", "照装组")), "全局的组安装默认勾上");
+  assert(await checked(row(projectPlace, "copy-agent-skill", "cp-lambda")), "项目里的 cp-lambda 列在同一个项目下");
+  const nuRow = row(globalPlace, "copy-agent-skill", "cp-nu");
+  assert(!(await checked(nuRow)), "有不是库装的同名文件夹的 cp-nu 默认不勾");
+  assert((await nuRow.locator('[data-slot="badge"]', { hasText: "勾上会覆盖同名文件夹" }).count()) === 1, "cp-nu 应写明勾上会覆盖同名文件夹");
+  assert((await row(globalPlace, "copy-agent-skill", "cp-mu").count()) === 0, "只随组安装的 cp-mu 不单列成直接安装");
+  assert((await modal().locator(".copy-agent-edited").textContent()).includes("「cp-kappa」"), "改过的 cp-kappa 应单列说明");
+  assert((await modal().locator(".copy-agent-unmanaged").textContent()).includes("未纳管技能"), "应说出未纳管技能带不过来");
+  await page.screenshot({ path: path.join(SHOTS, "copy-agent.png") });
+  await modal().locator(".copy-agent-confirm").click();
+  // 前面的场景组留下的项目可能不在这台机器上，那时列出结果而不是只提示。
+  const done = page.locator('[data-slot="toast"][data-state="open"]', { hasText: "已照着 Claude Code 在 Copy Target 装上" });
+  const results = page.locator('[data-slot="dialog-content"]', { has: page.locator('[data-slot="dialog-title"]', { hasText: "照着 Claude Code 装到 Copy Target" }) });
+  await done.or(results).first().waitFor();
+  if (await results.count()) {
+    assert((await results.locator('[data-slot="badge"]', { hasText: "失败" }).count()) === 0, "不应有装失败的");
+    await btn(results, "知道了").click();
+  }
+  await settle();
+
+  assert(fs.existsSync(`${target}/cp-kappa/SKILL.md`) && !fs.readFileSync(`${target}/cp-kappa/SKILL.md`, "utf8").includes("edited by hand"), "cp-kappa 装的是库里的版本");
+  assert(fs.readFileSync(`${claudeSkills}/cp-kappa/SKILL.md`, "utf8").includes("edited by hand"), "Claude Code 里改过的 cp-kappa 不动");
+  assert(fs.existsSync(`${target}/cp-mu/SKILL.md`), "组员 cp-mu 随组安装装上");
+  assert(fs.existsSync(`${target}/cp-nu/note.txt`) && !fs.existsSync(`${target}/cp-nu/SKILL.md`), "没勾的 cp-nu 不覆盖");
+  assert(fs.existsSync(`${HOME}/code/proj-copy/.copy-target/skills/cp-lambda/SKILL.md`), "cp-lambda 装到同一个项目里");
+  assert(!fs.existsSync(`${target}/hand-copy`), "未纳管技能带不过来");
+  assert((await page.locator('.gchip[data-state="on"]', { hasText: "照装组" }).count()) === 1, "新 Agent 里是同一个组的组安装");
+  assert((await card("cp-kappa").locator('[role="switch"][aria-checked="true"]').count()) === 1, "cp-kappa 是直接安装");
 });
 
 // ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============

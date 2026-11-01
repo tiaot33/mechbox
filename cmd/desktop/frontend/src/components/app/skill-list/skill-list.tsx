@@ -1,21 +1,35 @@
-// 中间：三种页面，各回答一个问题，长得也不一样。
+// 中间：四种页面，各回答一个问题，长得也不一样。
 // - 所有技能(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
 // - 更新(要处理的事):每个有要处理的更新的集合一行，下面是要处理的技能。
 // - 作用域(Agent 在这里看得到什么):库里的技能和所有技能页一样按集合或按组分节，节里装在这里的在前、没装在这里的折起来;
-//   另有装在这里的未纳管技能，以及项目里来自全局的。
+//   有技能装在这里的节排在前面;另有装在这里的未纳管技能，以及项目里来自全局的。
+// - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect } from "react";
-import type { Collection, Group, Skill } from "@bindings/internal/library";
+import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { anyUpdatable, parseScope, placeOf, sectionKey, type PageListing, type ScopeKey, type SkillSection } from "@/lib/model";
-import { setArrange, setSearch, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { cn } from "@/lib/utils";
+import {
+  agentNameIn,
+  anyUpdatable,
+  parseScope,
+  placeOf,
+  projectFolderNote,
+  sectionKey,
+  type PageListing,
+  type ScopeKey,
+  type SkillSection,
+} from "@/lib/model";
+import { openScope, setArrange, setSearch, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Icon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
-import { ScopeSummary } from "./heads";
+import { PlaceAgentMark } from "@/components/app/parts";
+import { ProjectSummary, ScopeSummary } from "./heads";
+import { PickBar } from "./pick-bar";
 import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
 import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows, UseCounts } from "./sections";
@@ -25,10 +39,10 @@ export function SkillList() {
   const listing = usePageListing();
   if (!listing) return <main className={centerClass} />;
   return (
-    <main className={centerClass}>
+    <main className={cn(centerClass, "relative")}>
       {/* 上边距放在里面一层：滚动区自己没有上内边距，吸顶的节标题才贴着底板上沿。换页时换一个滚动区，回到顶上。 */}
       <div
-        key={listing.kind === "scope" ? listing.scope : listing.kind}
+        key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
       >
@@ -37,8 +51,10 @@ export function SkillList() {
           {listing.kind === "all" && <AllSkills sections={listing.sections} />}
           {listing.kind === "updates" && <Updates skills={listing.skills} />}
           {listing.kind === "scope" && <ScopePage listing={listing} />}
+          {listing.kind === "project" && <ProjectPage listing={listing} />}
         </div>
       </div>
+      <PickBar listing={listing} />
     </main>
   );
 }
@@ -125,10 +141,11 @@ function ArrangeBar({ children }: { children?: React.ReactNode }) {
   );
 }
 
-// SkillSectionView 是一节;有 scope 时是作用域页的样子：行带开关，按装没装在这里折叠。
+// SkillSectionView 是一节;有 scope 时是作用域页的样子：行带开关，按装没装在这里折叠。节标题上的勾选框勾这一节列出的技能。
 function SkillSectionView({ section, scope }: { section: SkillSection; scope?: ScopeKey }) {
   const s = useSnapshot();
   const t = useT().list;
+  const pick = section.skills.map((x) => x.id);
   // 集合的节标题已经写了来源，行里不再写;其他节逐行写出(没有来源的技能行上照样写"没有来源")。
   const rows = (
     <SkillRows
@@ -140,6 +157,7 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
           key={skill.id}
           skill={skill}
           scope={scope}
+          pickable
           showSource={section.kind !== "collection"}
           hideGroup={section.kind === "group" ? section.id : undefined}
         />
@@ -149,7 +167,7 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
-      <CollectionSection id={section.key} collection={c} scope={scope} listed={section.all}>
+      <CollectionSection id={section.key} collection={c} scope={scope} listed={section.all} pick={pick}>
         {rows}
       </CollectionSection>
     );
@@ -157,7 +175,7 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
   if (section.kind === "group") {
     const g = s.groups.find((x) => x.id === section.id)!;
     return (
-      <GroupSection id={section.key} group={g} scope={scope} listed={section.all}>
+      <GroupSection id={section.key} group={g} scope={scope} listed={section.all} pick={pick}>
         {section.skills.length ? (
           rows
         ) : (
@@ -173,6 +191,7 @@ function SkillSectionView({ section, scope }: { section: SkillSection; scope?: S
   return (
     <Section
       id={section.key}
+      pick={pick}
       head={
         <PlainHead
           icon={<Icon name={rest ? "folder" : "layers"} className="size-3.5 text-muted-foreground" />}
@@ -192,18 +211,21 @@ function CollectionSection({
   collection,
   scope,
   listed,
+  pick,
   children,
 }: {
   id: string;
   collection: Collection;
   scope?: ScopeKey;
   listed: Skill[];
+  pick: SkillID[];
   children: React.ReactNode;
 }) {
   const drop = useCollectionDrop(collection.id);
   return (
     <Section
       id={id}
+      pick={pick}
       head={<CollectionHead collection={collection} scope={scope} listed={listed} />}
       sub={<CollectionNews collection={collection} />}
       headProps={drop}
@@ -218,17 +240,19 @@ function GroupSection({
   group,
   scope,
   listed,
+  pick,
   children,
 }: {
   id: string;
   group: Group;
   scope?: ScopeKey;
   listed: Skill[];
+  pick: SkillID[];
   children: React.ReactNode;
 }) {
   const drop = useGroupDrop(group.id);
   return (
-    <Section id={id} head={<GroupHead group={group} scope={scope} listed={listed} />} headProps={drop}>
+    <Section id={id} pick={pick} head={<GroupHead group={group} scope={scope} listed={listed} />} headProps={drop}>
       {children}
     </Section>
   );
@@ -269,7 +293,8 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           </ArrangeBar>
         </div>
       )}
-      {l.sections.map((x) => (
+      {/* 装在这里的未纳管技能也算装在这里：放在有技能装在这里的节后面、一个都没装的节前面。 */}
+      {l.sections.slice(0, l.used).map((x) => (
         <SkillSectionView key={x.key} section={x} scope={scope} />
       ))}
       {l.hereUnmanaged.length > 0 && (
@@ -279,10 +304,13 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           ))}
         </Section>
       )}
+      {l.sections.slice(l.used).map((x) => (
+        <SkillSectionView key={x.key} section={x} scope={scope} />
+      ))}
       {project && global > 0 && (
-        <Section id="scope-global" defaultCollapsed head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}>
+        <Section id="scope-global" defaultCollapsed pick={l.global.map((x) => x.id)} head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}>
           {l.global.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal showSource />
+            <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal pickable showSource />
           ))}
           {l.globalUnmanaged.map((u) => (
             <UnmanagedRow key={u.folder} skill={u} />
@@ -290,6 +318,48 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
         </Section>
       )}
       {empty && (search ? <ListEmpty>{t.noMatch}</ListEmpty> : !s.skills.length && <EmptyLibrary />)}
+    </>
+  );
+}
+
+// ProjectPage 是项目页：顶上写项目里一共装了几个技能与项目目录，下面每个装了技能的 Agent 一节;
+// 节里的行和作用域页一样带开关，点节标题上的"打开作用域"去那个 Agent 的作用域页装更多。
+function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: "project" }> }) {
+  const s = useSnapshot();
+  const search = useView((v) => v.search.trim());
+  const t = useT().list;
+  const project = s.projects.find((p) => p.id === page.project)!;
+  return (
+    <>
+      <ProjectSummary project={project} total={page.total} />
+      {page.agents.map((a) => (
+        <Section
+          key={a.scope}
+          id={`project-${page.project}:${a.scope}`}
+          pick={a.skills.map((x) => x.id)}
+          head={
+            <>
+              <PlainHead
+                icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
+                name={agentNameIn(s, a.agent.code, page.project)}
+                count={t.skillCount(a.all)}
+                title={projectFolderNote(s, a.agent.code, page.project)}
+              />
+              <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
+                {t.openScope}
+              </Button>
+            </>
+          }
+        >
+          {a.skills.map((skill) => (
+            <SkillRow key={skill.id} skill={skill} scope={a.scope} pickable showSource />
+          ))}
+          {a.unmanaged.map((u) => (
+            <UnmanagedRow key={u.folder} skill={u} />
+          ))}
+        </Section>
+      ))}
+      {page.agents.length === 0 && <ListEmpty>{search ? t.noMatch : t.projectEmpty}</ListEmpty>}
     </>
   );
 }

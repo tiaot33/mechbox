@@ -1,6 +1,7 @@
 // 写操作的结果列表：组安装、加入组、重新安装等逐条返回结果时，列出每一条的结论，被跳过或失败的写明原因。
 import { GroupMemberOutcome, type GroupMemberResult, type ReinstallResult } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
+import { toLibraryError } from "@/lib/library";
 import { messages } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import { scopeLabel, skillName } from "@/lib/model";
@@ -72,6 +73,26 @@ export function summarizeMembers(results: GroupMemberResult[]): string {
   );
 }
 
+
+// runEach 逐项做一次写操作(批量移除、批量移出组等):一个失败不影响其余的，返回失败的那几项的结果行;
+// 有失败时顶栏的状态圈画叉。label 是一项在结果里的名字。
+export async function runEach<T>(items: T[], call: (item: T) => Promise<unknown>, label: (item: T) => string): Promise<ResultRow[]> {
+  const t = messages().actions;
+  const rows: ResultRow[] = [];
+  await ui.run(
+    async () => {
+      for (const item of items) {
+        try {
+          await call(item);
+        } catch (e) {
+          rows.push({ label: label(item), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+        }
+      }
+    },
+    { failed: () => rows.length > 0 },
+  );
+  return rows;
+}
 
 // failedRow 只用于重新安装失败的条目;成功的只汇总计数。
 export function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {

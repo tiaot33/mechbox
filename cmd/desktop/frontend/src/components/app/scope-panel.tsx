@@ -1,5 +1,6 @@
 // 右栏：作用域——全局与每个已登记项目下，直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent";
-// 项目行折叠时用小图标显示在用的 Agent。点一行打开这个作用域的页面(Agent 在那里看得到什么),再点一次回到所有技能。
+// 项目行折叠时用小图标显示在用的 Agent。点一行打开这个作用域的页面(Agent 在那里看得到什么),再点一次回到所有技能;
+// 点项目行打开项目页(项目里各 Agent 装了什么)并展开，再点一次回到所有技能，只展开、收起点前面的箭头。
 // 项目里共用一个目录的几个 Agent 合成一行，叫那几个 Agent 的名字，点选的是其中代表的作用域。
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装，集合 = 把集合里的技能逐个直接安装;拖动中按指针轨迹预判要去的折叠项目或"其他 Agent",
 // 指针还没到就展开，拖完收回。
@@ -27,7 +28,7 @@ import {
 } from "@/lib/model";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { openScope, toggleMoreAgents, toggleProject, useCurrentPage, useView } from "@/lib/view";
+import { openProject, openScope, toggleMoreAgents, toggleProject, useCurrentPage, useView } from "@/lib/view";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { unregisterProject } from "@/features/scope/projects";
 import { Badge } from "@/components/ui/badge";
@@ -149,6 +150,7 @@ export function ScopePanel() {
           const open = expanded.has(p.id) || aimed.has(`p${p.id}`);
           const count = mergeProjectPlaces(s, s.skillScopes.filter((x) => placeOf(x.scope) === p.id)).length;
           const current = !!selected && placeOf(selected) === p.id;
+          const active = page.kind === "project" && page.project === p.id;
           return (
             <li key={p.id}>
               <div
@@ -156,11 +158,23 @@ export function ScopePanel() {
                 tabIndex={0}
                 aria-expanded={open}
                 className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
-                onClick={() => toggleProject(p.id)}
+                data-active={active}
+                onClick={() => openProject(p.id)}
                 title={p.missing ? t.missingTitle(shortPath(s, p.path)) : shortPath(s, p.path)}
                 {...aimProps(`p${p.id}`, open)}
               >
-                <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
+                <button
+                  type="button"
+                  className="proj-toggle -m-1 grid size-[18px] shrink-0 place-items-center rounded hover:bg-black/5"
+                  aria-label={open ? t.collapseProject : t.expandProject}
+                  title={open ? t.collapseProject : t.expandProject}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleProject(p.id);
+                  }}
+                >
+                  <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
+                </button>
                 <Icon name="folder" className="size-[13px]" />
                 <span className="grow truncate">{projectName(s, p.id)}</span>
                 {p.missing && (
