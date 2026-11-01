@@ -22,11 +22,13 @@ import { messages } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
 import {
   agentName,
+  agentNameIn,
   collectionSkills,
   folderKey,
   folderPlaces,
   groupName,
   placeOf,
+  projectName,
   scopeKey,
   scopeLabel,
   sharedWithNote,
@@ -93,40 +95,87 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   const label = sourceLabel(s, collection.source);
   const where = scopeLabel(s, scope);
   const skills = collectionSkills(s, collection).filter((x) => !skillScopeIn(s, x.id, scopeKey(scope))?.direct);
-  await installEach(skills, scope, t.collectionInstallTitle(label, where), (n) => t.collectionInstalled(label, where, n));
+  await installEach(
+    skills.map((skill) => ({ skill, scope })),
+    t.collectionInstallTitle(label, where),
+    t.collectionInstalled(label, where, skills.length),
+  );
 }
 
-// installSkills 把勾选的技能装到 scope(底部操作栏的"安装到…"、拖勾选着的一行到作用域):和集合一样逐个直接安装，
-// 已经直接安装在这里的不再装;都已装在这里时只提示。
-export async function installSkills(ids: SkillID[], scope: Scope) {
+// installSkillTo 是详情里的"安装到…":把一个技能装到勾上的几个 Agent(同一个地方)。只勾一个时和开关一样装这一处;
+// 勾几个时逐处装，同名文件夹合成一次询问，全部装上时提示装到了哪几个 Agent。
+export async function installSkillTo(id: SkillID, scopes: Scope[]) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const where = scopeLabel(s, scope);
-  const skills = s.skills.filter((x) => ids.includes(x.id) && !skillScopeIn(s, x.id, scopeKey(scope))?.direct);
-  if (!skills.length) {
+  const skill = s.skills.find((x) => x.id === id);
+  if (!skill || !scopes.length) return;
+  if (scopes.length === 1) return installSkill(id, scopes[0]);
+  const where = scopesLabel(s, scopes);
+  await installEach(
+    scopes.map((scope) => ({ skill, scope })),
+    t.skillInstallTitle(skill.name, where),
+    t.installed(skill.name, where),
+  );
+}
+
+// installSkills 把勾选的技能装到 scopes(底部操作栏的"安装到…"可以勾选几个 Agent;拖勾选着的几行到作用域是一处):
+// 和集合一样逐个直接安装，已经直接安装在那里的不再装;都已装在那里时只提示。scopes 在同一个地方(全局或同一个项目)。
+export async function installSkills(ids: SkillID[], scopes: Scope[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  if (!scopes.length) return;
+  const where = scopesLabel(s, scopes);
+  const items = scopes.flatMap((scope) =>
+    s.skills.filter((x) => ids.includes(x.id) && !skillScopeIn(s, x.id, scopeKey(scope))?.direct).map((skill) => ({ skill, scope })),
+  );
+  if (!items.length) {
     ui.toast(t.pickedAllThere(where));
     return;
   }
-  await installEach(skills, scope, t.pickedInstallTitle(skills.length, where), (n) => t.pickedInstalled(n, where));
+  const n = new Set(items.map((x) => x.skill.id)).size;
+  await installEach(items, t.pickedInstallTitle(n, where), t.pickedInstalled(n, where));
 }
 
-// installEach 逐个直接安装：先逐个看安装计划，被别的技能占用的跳过并说明原因;有不是库装的同名文件夹的合成一次询问
-// (跳过或覆盖),不逐个弹。有没装上的才列出结果，否则只提示装了几个(done)。
-async function installEach(skills: Skill[], scope: Scope, title: string, done: (n: number) => string) {
+// scopesLabel 是同一个地方的几个 Agent 合起来的说法，如"Claude Code、Codex · 全局";只有一个时就是 scopeLabel。
+function scopesLabel(s: Snapshot, scopes: Scope[]): string {
+  if (scopes.length === 1) return scopeLabel(s, scopes[0]);
+  const place = placeOf(scopes[0]);
+  const names = messages().model.agentNames(scopes.map((sc) => agentNameIn(s, sc.agent, place)));
+  return `${names} · ${place ? projectName(s, place) : messages().model.global}`;
+}
+
+// installEach 逐处直接安装(一处是一个技能装到一个 Agent):先逐处看安装计划，被别的技能占用的跳过并说明原因;
+// 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。一处装不上(含看安装计划就出错)不影响其余的。
+// 有没装上的才列出结果，否则只提示 done。装到几个 Agent 时，询问与结果里每一处写出是哪个 Agent。
+async function installEach(items: { skill: Skill; scope: Scope }[], title: string, done: string) {
   const s = currentSnapshot();
   const t = messages().actions;
-  if (!skills.length) return;
-  const plans = await ui.run(() => Promise.all(skills.map((x) => LibraryService.PlanInstall(x.id, scope))), { reload: false });
-  if (!plans) return;
-  const items = skills.map((skill, i) => ({ skill, plan: plans[i] }));
-  const untracked = items.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
+  if (!items.length) return;
+  const settled = await ui.run(() => Promise.allSettled(items.map((x) => LibraryService.PlanInstall(x.skill.id, x.scope))), { reload: false });
+  if (!settled) return;
+  const several = new Set(items.map((x) => scopeKey(x.scope))).size > 1;
+  const label = (skill: Skill, scope: Scope) => (several ? `${skill.name} · ${scopeLabel(s, scope)}` : skill.name);
+  const rows: ResultRow[] = [];
+  const planned = items.flatMap((x, i) => {
+    const r = settled[i];
+    if (r.status === "fulfilled") return [{ ...x, plan: r.value }];
+    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(r.reason)) });
+    return [];
+  });
+  const untracked = planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
   let overwrite = false;
   if (untracked.length) {
     const choice = await ui.confirm({
       title,
-      body: <Notice tone="warn">{t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}</Notice>,
+      body: (
+        <Notice tone="warn">
+          {several
+            ? t.untrackedPlaces(untracked.length, untracked.map((x) => label(x.skill, x.scope)))
+            : t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}
+        </Notice>
+      ),
       choices: [
-        { value: "skip", label: t.skipSkills, desc: t.skipSkillsDesc },
+        { value: "skip", label: several ? t.skipPlaces : t.skipSkills, desc: several ? t.skipPlacesDesc : t.skipSkillsDesc },
         { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
       ],
       confirm: t.install,
@@ -134,31 +183,32 @@ async function installEach(skills: Skill[], scope: Scope, title: string, done: (
     if (!choice) return;
     overwrite = choice === "overwrite";
   }
-  const rows: ResultRow[] = [];
   await ui.run(async () => {
-    for (const { skill, plan } of items) {
+    for (const { skill, scope, plan } of planned) {
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
+      const row = label(skill, scope);
       if (plan.status === InstallPlanStatus.InstallOccupied) {
-        rows.push({ label: skill.name, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan) });
+        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan) });
         continue;
       }
       if (isUntracked && !overwrite) {
-        rows.push({ label: skill.name, outcome: t.memberSkipped, tone: "warn", reason: t.untrackedBody(shortPath(s, plan.folder), plan.name) });
+        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: t.untrackedBody(shortPath(s, plan.folder), plan.name) });
         continue;
       }
       try {
         await LibraryService.Install(skill.id, scope, { overwrite: isUntracked });
-        rows.push({ label: skill.name, outcome: t.memberInstalled, tone: "ok" });
+        rows.push({ label: row, outcome: t.memberInstalled, tone: "ok" });
       } catch (e) {
-        rows.push({ label: skill.name, outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+        rows.push({ label: row, outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
       }
     }
   }, { failed: () => rows.some((r) => r.tone === "bad") });
   const installed = rows.filter((r) => r.tone === "ok").length;
   if (rows.some((r) => r.tone !== "ok")) {
-    await showResults(title, rows, t.installedSummary(installed, rows.length - installed));
+    const rest = rows.length - installed;
+    await showResults(title, rows, several ? t.installedPlaces(installed, rest) : t.installedSummary(installed, rest));
   } else {
-    ui.toast(done(installed));
+    ui.toast(done);
   }
 }
 
