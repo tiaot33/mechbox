@@ -34,14 +34,12 @@ export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 // ScopeSummary 是作用域页顶部的摘要:Agent 在这里一共看得到几个技能(其中已安装、未纳管、来自全局各几个，和下面的上一块一致)、
 // Agent 目录、健康状态、全部重新安装，每个组的整组开关，
 // 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有)。
-export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; directory: string | undefined; sees: number }) {
+export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeKey; directory: string | undefined; sees: number; global: number }) {
   const s = useSnapshot();
   const t = useT().list;
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
   const unmanaged = unmanagedIn(s, scope).length;
-  // 看得到的 = 已安装 + 未纳管 + 来自全局(只在项目作用域里有)。
-  const global = sees - installed.length - unmanaged;
   // 在项目仓库里的、项目 skills-lock.json 记的归项目仓库管，指向 Agent 目录以外的是作者有意留在自己目录里的，都不算进"还没交给 app 管"的数里。
   const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock && !u.link_outside).length;
   const sc = parseScope(scope);

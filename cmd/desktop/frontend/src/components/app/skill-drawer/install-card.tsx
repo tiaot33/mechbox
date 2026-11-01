@@ -42,14 +42,14 @@ export function InstallCard({ skill }: { skill: Skill }) {
         <table className="scope-table w-full table-fixed border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
           {/* 固定列宽：换一个技能时来源、状态两列不左右跳。 */}
           <colgroup>
-            <col className="w-11" />
+            <col className="w-14" />
             <col />
             <col className="w-24" />
             <col className="w-32" />
           </colgroup>
           <thead>
             <tr className="[&_th]:border-b [&_th]:border-border-subtle [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-[11px] [&_th]:font-medium [&_th]:text-muted-foreground">
-              <th />
+              <th className="whitespace-nowrap">{d.directColumn}</th>
               <th>{d.scope}</th>
               <th>{d.source}</th>
               <th>{d.status}</th>

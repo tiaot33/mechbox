@@ -6,7 +6,7 @@
 // - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect } from "react";
-import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
+import type { Collection, Group, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ import {
   parseScope,
   placeOf,
   projectFolderNote,
+  sectionKey,
   sourceLabel,
   type PageListing,
   type ScopeKey,
@@ -32,7 +33,7 @@ import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
 import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
-import { CollectionHead, CollectionNews, Counts, GroupHead, PlainHead, Section, SkillRows } from "./sections";
+import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 
 export function SkillList() {
@@ -160,78 +161,66 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
     />
   );
   const rows = scope ? section.skills.map(row) : <SkillRows id={section.key} skills={section.skills} render={row} />;
-  const rest = section.key.endsWith("rest-collection");
-  if (notHere) {
-    const c = section.kind === "collection" ? s.collections.find((x) => x.id === section.id) : undefined;
-    const g = section.kind === "group" ? s.groups.find((x) => x.id === section.id) : undefined;
-    const icon = c ? (
-      <SourceIcon type={c.source.type} className="size-3.5 text-muted-foreground" />
-    ) : g ? (
-      <Icon name="layers" className="size-3.5 text-group" />
-    ) : (
-      <Icon name={rest ? "folder" : "layers"} className="size-3.5 text-muted-foreground" />
-    );
-    const name = c ? sourceLabel(s, c.source) : g ? g.name : rest ? t.restCollection : t.restGroup;
+  // 下面那块的节与"没有来源" / "没有归组"用不能拖的节标题。
+  if (notHere || section.kind === "rest") {
+    const look = sectionLook(s, t, section, section.key === sectionKey("rest", "collection", scope, notHere));
+    const count = notHere ? section.all.length : scope ? t.hereCount(section.all.length) : section.skills.length;
     return (
-      <Section id={section.key} pick={pick} head={<PlainHead icon={icon} name={name} count={section.all.length} />}>
+      <Section id={section.key} pick={pick} head={<PlainHead {...look} count={count} />}>
         {rows}
       </Section>
     );
   }
-  const count = scope ? <Counts>{t.hereCount(section.all.length)}</Counts> : undefined;
+  const count = scope ? t.hereCount(section.all.length) : undefined;
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
-      <CollectionSection id={section.key} collection={c} count={count} listed={section.all} pick={pick}>
+      <CollectionSection id={section.key} collection={c} count={count} pick={pick}>
         {rows}
       </CollectionSection>
     );
   }
-  if (section.kind === "group") {
-    const g = s.groups.find((x) => x.id === section.id)!;
-    return (
-      <GroupSection id={section.key} group={g} count={count} pick={pick}>
-        {section.skills.length ? (
-          rows
-        ) : (
-          <EmptyRows>
-            <b className="mr-1.5 font-medium text-foreground-secondary">{t.emptyGroup}</b>
-            {t.emptyGroupHint}
-          </EmptyRows>
-        )}
-      </GroupSection>
-    );
-  }
+  const g = s.groups.find((x) => x.id === section.id)!;
   return (
-    <Section
-      id={section.key}
-      pick={pick}
-      head={
-        <PlainHead
-          icon={<Icon name={rest ? "folder" : "layers"} className="size-3.5 text-muted-foreground" />}
-          name={rest ? t.restCollection : t.restGroup}
-          count={scope ? t.hereCount(section.all.length) : section.skills.length}
-          title={rest ? t.restCollectionTitle : undefined}
-        />
-      }
-    >
-      {rows}
-    </Section>
+    <GroupSection id={section.key} group={g} count={count} pick={pick}>
+      {section.skills.length ? (
+        rows
+      ) : (
+        <EmptyRows>
+          <b className="mr-1.5 font-medium text-foreground-secondary">{t.emptyGroup}</b>
+          {t.emptyGroupHint}
+        </EmptyRows>
+      )}
+    </GroupSection>
   );
+}
+
+// sectionLook 是不能拖的节标题上的图标、名字和悬停说明：集合写来源，组写组名，最后一节写"没有来源"(rest)或"没有归组"。
+function sectionLook(
+  s: ReturnType<typeof useSnapshot>,
+  t: ReturnType<typeof useT>["list"],
+  section: SkillSection,
+  rest: boolean,
+): { icon: React.ReactNode; name: string; title?: string } {
+  const c = section.kind === "collection" ? s.collections.find((x) => x.id === section.id) : undefined;
+  if (c) return { icon: <SourceIcon type={c.source.type} className="size-3.5 text-muted-foreground" />, name: sourceLabel(s, c.source) };
+  const g = section.kind === "group" ? s.groups.find((x) => x.id === section.id) : undefined;
+  if (g) return { icon: <Icon name="layers" className="size-3.5 text-group" />, name: g.name };
+  return rest
+    ? { icon: <Icon name="folder" className="size-3.5 text-muted-foreground" />, name: t.restCollection, title: t.restCollectionTitle }
+    : { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: t.restGroup };
 }
 
 function CollectionSection({
   id,
   collection,
   count,
-  listed,
   pick,
   children,
 }: {
   id: string;
   collection: Collection;
-  count?: React.ReactNode;
-  listed: Skill[];
+  count?: string;
   pick: SkillID[];
   children: React.ReactNode;
 }) {
@@ -240,7 +229,7 @@ function CollectionSection({
     <Section
       id={id}
       pick={pick}
-      head={<CollectionHead collection={collection} count={count} listed={listed} />}
+      head={<CollectionHead collection={collection} count={count} />}
       sub={<CollectionNews collection={collection} />}
       headProps={drop}
     >
@@ -258,7 +247,7 @@ function GroupSection({
 }: {
   id: string;
   group: Group;
-  count?: React.ReactNode;
+  count?: string;
   pick: SkillID[];
   children: React.ReactNode;
 }) {
@@ -295,40 +284,49 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const project = placeOf(parseScope(scope)) !== 0;
   const global = l.global.length + l.globalUnmanaged.length;
   const inUse = l.hereSections.length > 0 || l.hereUnmanaged.length > 0 || (project && global > 0);
-  const empty = !inUse && !l.notHere.length;
+  const empty = !inUse && !l.notHereSkills.length;
   return (
     <>
-      <ScopeSummary scope={scope} directory={directory} sees={page.total} />
-      {(l.hereSections.length > 0 || l.notHere.length > 0) && (
+      <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
+      {(l.hereSections.length > 0 || l.notHereSkills.length > 0) && (
         <div className="mt-3">
           <ArrangeBar>
-            {!search && !l.here && !l.hereUnmanaged.length && <span className="min-w-0 text-[11.5px] text-muted-foreground">{t.nothingHere}</span>}
+            {!search && !l.hereCount && !l.hereUnmanaged.length && <span className="min-w-0 text-[11.5px] text-muted-foreground">{t.nothingHere}</span>}
           </ArrangeBar>
         </div>
       )}
-      {/* 上面：Agent 在这里看得到的。 */}
-      {l.hereSections.map((x) => (
-        <SkillSectionView key={x.key} section={x} scope={scope} />
-      ))}
-      {l.hereUnmanaged.length > 0 && (
-        <Section id="scope-unmanaged" head={<PlainHead name={t.sectionUnmanaged} count={l.hereUnmanaged.length} title={t.unmanagedTitle} />}>
-          {l.hereUnmanaged.map((u) => (
-            <UnmanagedRow key={u.folder} skill={u} />
+      {/* 上面：Agent 在这里看得到的。块里第一节没有上边距，由块自己补上。 */}
+      {inUse && (
+        <div className="in-use mt-3">
+          {l.hereSections.map((x) => (
+            <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
-        </Section>
-      )}
-      {project && global > 0 && (
-        <Section id="scope-global" defaultCollapsed pick={l.global.map((x) => x.id)} head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}>
-          {l.global.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal pickable showSource />
-          ))}
-          {l.globalUnmanaged.map((u) => (
-            <UnmanagedRow key={u.folder} skill={u} />
-          ))}
-        </Section>
+          {l.hereUnmanaged.length > 0 && (
+            <Section id="scope-unmanaged" head={<PlainHead name={t.sectionUnmanaged} count={l.hereUnmanaged.length} title={t.unmanagedTitle} />}>
+              {l.hereUnmanaged.map((u) => (
+                <UnmanagedRow key={u.folder} skill={u} />
+              ))}
+            </Section>
+          )}
+          {project && global > 0 && (
+            <Section
+              id="scope-global"
+              defaultCollapsed
+              pick={l.global.map((x) => x.id)}
+              head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}
+            >
+              {l.global.map((skill) => (
+                <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal pickable showSource />
+              ))}
+              {l.globalUnmanaged.map((u) => (
+                <UnmanagedRow key={u.folder} skill={u} fromGlobal />
+              ))}
+            </Section>
+          )}
+        </div>
       )}
       {/* 下面：库里没装在这里的。 */}
-      {l.notHere.length > 0 && <NotHere scope={scope} listing={l} more={inUse} />}
+      {l.notHereSkills.length > 0 && <NotHere scope={scope} listing={l} more={inUse} />}
       {empty && (search ? <ListEmpty>{t.noMatch}</ListEmpty> : !s.skills.length && <EmptyLibrary />)}
     </>
   );
@@ -341,7 +339,7 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
   const id = `${scope}:not-here`;
   const searching = useView((v) => !!v.search.trim());
   const unfolded = useView((v) => v.unfolded.has(id)) || searching;
-  const names = l.notHere.map((x) => x.name);
+  const names = l.notHereSkills.map((x) => x.name);
   return (
     <div className="not-here mt-4 border-t border-hairline pt-2">
       <button

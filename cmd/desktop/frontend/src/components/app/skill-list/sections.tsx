@@ -81,7 +81,7 @@ export function Section({
 }
 
 // Counts 是节标题上淡色的数字说明。
-export function Counts({ children }: { children: React.ReactNode }) {
+function Counts({ children }: { children: React.ReactNode }) {
   return <span className="shrink-0 text-[11px] text-muted-foreground">{children}</span>;
 }
 
@@ -106,9 +106,9 @@ function UseCounts({ skills }: { skills: Skill[] }) {
   return <Counts>{t.inUse(inUse(s, skills).length, skills.length)}</Counts>;
 }
 
-// CollectionHead 是集合的节标题：来源、在用几个(只数这一节列出的 listed;作用域页给 count,写装在这里几个)、来源版本与有变化的个数，
+// CollectionHead 是集合的节标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，
 // 看来源里的其他技能、历史、更新;可以整个拖到作用域。
-export function CollectionHead({ collection, count, listed }: { collection: Collection; count?: React.ReactNode; listed?: Skill[] }) {
+export function CollectionHead({ collection, count }: { collection: Collection; count?: string }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -132,7 +132,7 @@ export function CollectionHead({ collection, count, listed }: { collection: Coll
         <SourceIcon type={collection.source.type} className="size-3.5 text-muted-foreground" />
         <b className="section-name truncate font-semibold">{label}</b>
       </span>
-      {count ?? <UseCounts skills={listed ?? skills} />}
+      {count ? <Counts>{count}</Counts> : <UseCounts skills={skills} />}
       <span className="min-w-0 grow truncate text-[11px] text-subtle" title={facts.join(" · ")}>
         {facts.join(" · ")}
       </span>
@@ -175,7 +175,7 @@ export function CollectionNews({ collection }: { collection: Collection }) {
 
 // GroupHead 是组的节标题：可以整组拖到作用域(组安装),写出组安装于哪些作用域(可以卸载),重命名与删除。
 // 作用域页给 count,写装在这里几个;否则写组里几个技能。
-export function GroupHead({ group, count }: { group: Group; count?: React.ReactNode }) {
+export function GroupHead({ group, count }: { group: Group; count?: string }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -194,7 +194,7 @@ export function GroupHead({ group, count }: { group: Group; count?: React.ReactN
         <Icon name="layers" className="size-3.5 text-group" />
         <b className="section-name truncate font-semibold">{group.name}</b>
       </span>
-      {count ?? <Counts>{t.list.skillCount(size)}</Counts>}
+      <Counts>{count ?? t.list.skillCount(size)}</Counts>
       <span className="ml-1 inline-flex min-w-0 grow items-center gap-1 overflow-hidden text-[11px] whitespace-nowrap text-muted-foreground">
         {scopes.length ? (
           <>
@@ -222,7 +222,7 @@ export function GroupHead({ group, count }: { group: Group; count?: React.ReactN
   );
 }
 
-// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局、项目页的各个 Agent。
+// PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局、作用域页下面那块(没装在这里的)的各节、项目页的各个 Agent。
 export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode; name: string; count: React.ReactNode; title?: string }) {
   return (
     <span className="flex min-w-0 grow items-center gap-2" title={title}>

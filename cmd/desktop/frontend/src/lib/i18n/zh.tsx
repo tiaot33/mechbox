@@ -504,6 +504,7 @@ export const zh = {
     uninstallDirect: "卸载直接安装",
     addDirect: "只随组安装；点击追加直接安装",
     direct: "直接",
+    directColumn: "直接安装",
     viaGroup: (group: string | undefined) => `随「${group}」`,
     reinstall: "重新安装",
     updateFromHereHint: "把这里的内容作为库里的新版本，并换到装着它的其他地方",
@@ -609,9 +610,10 @@ export const zh = {
     hideNotHere: "收起没装在这里的",
     notHereBlock: (names: string[], more: boolean) => `库里${more ? "另外 " : ""}${names.length} 个没装在这里：${firstNames(names)}`,
     hereCount: (n: number) => `装在这里 ${n}`,
-    groupOnlyTitle: (via: string[]) => `随「${via.join("」「")}」安装，点击查看怎样在这里不用它`,
     groupOnly: (name: string, via: string[]) =>
-      `「${name}」随「${via.join("」「")}」安装。要在这里不用它，撤掉这个组在这里的组安装，或把它移出组。`,
+      via.length > 1
+        ? `「${name}」随「${via.join("」「")}」安装。要在这里不用它，撤掉这几个组在这里的组安装，或把它移出这几个组。`
+        : `「${name}」随「${via[0]}」安装。要在这里不用它，撤掉这个组在这里的组安装，或把它移出组。`,
     arrangeCollection: "按集合",
     arrangeCollectionTitle: "按来源分节：用户跟随的是作者的那一套",
     arrangeGroup: "按组",

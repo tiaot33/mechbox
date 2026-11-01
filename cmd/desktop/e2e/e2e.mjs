@@ -1044,7 +1044,7 @@ await step("右栏点作用域打开作用域页，开关安装 beta", async () 
 });
 
 await step("作用域页：上面是装在这里的，下面是库里没装在这里的，两块都按集合分节", async () => {
-  const above = page.locator('.a-list[data-page="scope"] > div > .list-section .skill-row');
+  const above = page.locator('.a-list .in-use > .list-section .skill-row');
   assert.deepStrictEqual(await above.evaluateAll((rows) => rows.map((r) => r.dataset.name)), ["beta"], "上面那块只有装在这里的 beta");
   assert.equal(await above.locator('[role="switch"][aria-checked="true"]').count(), 1, "上面那块的开关都开着");
   const below = page.locator(".a-list .not-here .skill-row");
@@ -1119,7 +1119,7 @@ await step("未记录的外来文件夹：安装计划发现后询问覆盖", as
 
 await step("作用域页上面那块的节只有装在这里的;点项目打开项目页，按 Agent 列出项目里装的技能，箭头只展开收起", async () => {
   await selectScope("Claude Code", "proj-a");
-  const sections = page.locator('.a-list[data-page="scope"] > div > .list-section[data-section*=":collection-"]');
+  const sections = page.locator('.a-list .in-use > .list-section[data-section*=":collection-"]');
   assert((await sections.count()) >= 1, "上面那块有集合的节");
   for (const sec of await sections.all()) {
     const rows = await sec.locator(".skill-row").count();
@@ -1454,6 +1454,15 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     assert.equal(await note(unmanaged("alpha")), "全局也有 alpha（库装的），Claude Code 用全局的那个，这里的不会生效");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-project.png") });
+    // 全局那个 gamma 在「来自全局」一节里：最后一列先写来自全局，再写未纳管。
+    // 「来自全局」的收起状态不分作用域，前面的步骤可能已经展开过。
+    const fromGlobal = page.locator('.list-section[data-section="scope-global"]');
+    const collapsed = (await fromGlobal.locator(".sec-toggle").getAttribute("aria-expanded")) === "false";
+    if (collapsed) await fromGlobal.locator(".sec-toggle").click();
+    await idle();
+    assert.equal(await fromGlobal.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^gamma$/ }) }).locator(".unmanaged-state").textContent(), "来自全局 · 未纳管", "来自全局的未纳管技能写来自全局");
+    if (collapsed) await fromGlobal.locator(".sec-toggle").click();
+    await idle();
 
     await selectScope("Claude Code");
     await card("alpha").locator(".same-name-note").waitFor();

@@ -54,7 +54,7 @@ interface ViewState {
   expanded: ReadonlySet<Place>; // 右栏展开的项目
   moreAgents: ReadonlySet<Place>; // 右栏展开了"其他 Agent"的地方
   flipped: ReadonlySet<string>; // 列表里收起、展开和默认相反的节(默认展开的被收起了，默认收起的被展开了)
-  unfolded: ReadonlySet<string>; // 列表里展开了"没装的"的节
+  unfolded: ReadonlySet<string>; // 列表里展开了"没装的"的节，以及展开了下面那块(没装在这里的)的作用域页(`${作用域}:not-here`)
   picked: ReadonlySet<SkillID>; // 列表里勾选的技能，底部的操作栏对它们一起操作;换页时清空
   anchor: string | null; // 上一次单独勾选或取消的那一行(PickRow.key),按住 Shift 勾选时从它勾到点的那一行
   jump: Jump | null;

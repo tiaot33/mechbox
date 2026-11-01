@@ -796,16 +796,16 @@ export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Da
 // ScopeListing 是作用域页要列的，分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能按集合或组分节(hereSections)、
 // 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到，不再出现在别处)。
 // 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
-// 下面是库里没装在这里的技能，同样按集合或组分节(notHereSections);notHere 是其中的技能，按节的先后、一个技能只算一次。
-// 搜索时都只留匹配的;here 是装在这里的库里的技能个数。
+// 下面是库里没装在这里的技能，同样按集合或组分节(notHereSections);notHereSkills 是其中的技能，按节的先后、一个技能只算一次。
+// 搜索时都只留匹配的;hereCount 是装在这里的库里的技能个数。
 export interface ScopeListing {
   hereSections: SkillSection[];
   hereUnmanaged: UnmanagedSkill[];
   global: Skill[];
   globalUnmanaged: UnmanagedSkill[];
   notHereSections: SkillSection[];
-  notHere: Skill[];
-  here: number;
+  notHereSkills: Skill[];
+  hereCount: number;
 }
 
 // globalScopesSeenFrom 是项目作用域里的 Agent 也看得到的全局作用域(合成一处的几个 Agent 各自的全局);全局作用域为空。
@@ -844,8 +844,8 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
     notHereSections,
-    notHere: [...new Set(notHereSections.flatMap((x) => x.skills))],
-    here: here.filter(hit).length,
+    notHereSkills: [...new Set(notHereSections.flatMap((x) => x.skills))],
+    hereCount: here.filter(hit).length,
   };
 }
 
@@ -882,13 +882,13 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // ---------- 每一页列什么、数到几 ----------
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
-// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致),
+// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
   | { kind: "updates"; skills: Skill[] }
-  | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
+  | { kind: "scope"; scope: ScopeKey; listing: ScopeListing; global: number }
   | { kind: "project"; project: ProjectID; agents: ProjectAgent[] }
 );
 
@@ -901,8 +901,16 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
   if (page.kind === "scope") {
     const all = scopeListing(s, page.scope, arrange, "", order);
     const listing = search.trim() ? scopeListing(s, page.scope, arrange, search, order) : all;
-    const seen = (l: ScopeListing) => l.here + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
-    return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.notHere.length };
+    const global = (l: ScopeListing) => l.global.length + l.globalUnmanaged.length;
+    const seen = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length + global(l);
+    return {
+      kind: "scope",
+      scope: page.scope,
+      listing,
+      global: global(all),
+      total: seen(all),
+      results: seen(listing) + listing.notHereSkills.length,
+    };
   }
   if (page.kind === "project") {
     const agents = projectAgents(s, page.project, search);

@@ -540,6 +540,7 @@ export const en = {
     uninstallDirect: "Uninstall the direct install",
     addDirect: "Only installed through a Group; click to add a direct install",
     direct: "Direct",
+    directColumn: "Direct",
     viaGroup: (group: string | undefined) => `Via “${group}”`,
     reinstall: "Reinstall",
     updateFromHereHint: "Make the content here the Library's new Version and place it everywhere else it's installed",
@@ -651,9 +652,10 @@ export const en = {
     notHereBlock: (names: string[], more: boolean) =>
       `${count(names.length, more ? "more skill" : "skill")} in the Library not installed here: ${firstNames(names)}`,
     hereCount: (n: number) => `${n} installed here`,
-    groupOnlyTitle: (via: string[]) => `Installed via ${quoted(via)}; click to see how to stop using it here`,
     groupOnly: (name: string, via: string[]) =>
-      `“${name}” is installed via ${quoted(via)}. To stop using it here, uninstall that Group's Group install here, or remove it from the Group.`,
+      via.length > 1
+        ? `“${name}” is installed via ${quoted(via)}. To stop using it here, uninstall those Groups' Group installs here, or remove it from those Groups.`
+        : `“${name}” is installed via ${quoted(via)}. To stop using it here, uninstall that Group's Group install here, or remove it from the Group.`,
     arrangeCollection: "By Collection",
     arrangeCollectionTitle: "Sections by Source: you follow an author's whole set",
     arrangeGroup: "By Group",

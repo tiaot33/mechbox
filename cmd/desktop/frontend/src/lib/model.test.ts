@@ -1,5 +1,5 @@
 // 集合与组的先后：用户拖出来的顺序优先，没排过的按默认顺序接在后面;集合加入组时加入哪些技能;照着另一个 Agent 装时装哪些;
-// 作用域页里有技能装在这里的节排在前面;项目页按 Agent 分节;按住 Shift 勾选一段。
+// 作用域页分装在这里的与没装在这里的上下两块;项目页按 Agent 分节;按住 Shift 勾选一段。
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
@@ -139,8 +139,8 @@ describe("scopeListing", () => {
     expect(l.hereSections.map((x) => ids(x.skills))).toEqual([[20], [30]]);
     expect(ids(l.global)).toEqual([10]);
     expect(ids(l.notHereSections)).toEqual([1, 3]);
-    expect(l.notHere.map((x) => x.name)).toEqual(["a2", "c2"]);
-    expect(l.here).toBe(2);
+    expect(l.notHereSkills.map((x) => x.name)).toEqual(["a2", "c2"]);
+    expect(l.hereCount).toBe(2);
   });
 
   it("同一个集合在两块里各是一节，身份不同", () => {
@@ -160,7 +160,7 @@ describe("scopeListing", () => {
     const l = scopeListing(s, "claude-code@1", "collection", "2", noOrder);
     expect(l.hereSections).toEqual([]);
     expect(ids(l.notHereSections)).toEqual([1, 3]);
-    expect(l.here).toBe(0);
+    expect(l.hereCount).toBe(0);
   });
 });
 
