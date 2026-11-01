@@ -3279,7 +3279,7 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await settle();
 });
 
-// ============ 照着另一个 Agent 装 ============
+// ============ 安装到…一次装到几个 Agent ============
 group("install-many", []);
 await step("安装到…一次装到几个 Agent：详情里一个技能装到全局的两个 Agent;操作栏里两个技能装到两个 Agent,同名文件夹合成一次询问", async () => {
   for (const name of ["im-one", "im-two", "im-three"]) {
@@ -3339,6 +3339,7 @@ await step("安装到…一次装到几个 Agent：详情里一个技能装到�
   await page.keyboard.press("Escape");
 });
 
+// ============ 照着另一个 Agent 装 ============
 group("copy-agent", []);
 await step("照着另一个 Agent 装：全局和项目里的一次装上，组安装仍是组安装，有同名文件夹的默认不覆盖，改过的与未纳管的说出来", async () => {
   // 自己造出 Claude Code 在用的技能：全局直接安装 cp-kappa、cp-nu，组安装「照装组」(成员 cp-mu);项目 proj-copy 里直接安装 cp-lambda。

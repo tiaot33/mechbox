@@ -14,7 +14,7 @@ import {
   skillScopeStatus,
   skillScopesOf,
 } from "@/lib/model";
-import { installSkill, installSkills, uninstallSkill } from "@/features/install/install";
+import { installSkill, installSkillTo, uninstallSkill } from "@/features/install/install";
 import { AgentPicker, PlaceSelect, useInstallTarget } from "@/features/install/install-to";
 import { reinstall } from "@/features/install/reinstall";
 import { updateFromScope } from "@/features/update/update";
@@ -118,7 +118,8 @@ export function InstallCard({ skill }: { skill: Skill }) {
         </table>
       )}
       {installed.length === 0 && <p className="text-muted-foreground">{d.notInstalled}</p>}
-      <InstallTo skillID={id} />
+      {/* 换一个技能时回到默认勾选，不带着上一个技能的勾选。 */}
+      <InstallTo key={id} skillID={id} />
       {installed.length > 0 && (
         <Hint className="mt-2">{d.switchHint()}</Hint>
       )}
@@ -127,14 +128,12 @@ export function InstallCard({ skill }: { skill: Skill }) {
 }
 
 // InstallTo 是"安装到…":先选地方(全局 / 项目),再勾选装到哪几个 Agent(见 features/install/install-to)。
-// 只勾一个时和开关一样装这一处;勾几个时一起装，同名文件夹合成一次询问。
 // 这个地方能选的 Agent 都装上了时，不摆一个选不了的列表，直接说明。
 function InstallTo({ skillID }: { skillID: number }) {
   const s = useSnapshot();
   const t = useT();
   const target = useInstallTarget((sc) => !skillScopeIn(s, skillID, scopeKey(sc)));
   const placeName = target.place ? projectName(s, target.place) : t.model.global;
-  const install = () => (target.scopes.length === 1 ? installSkill(skillID, target.scopes[0]) : installSkills([skillID], target.scopes));
   return (
     <div className="install-to mt-2.5 flex flex-wrap items-center gap-1.5">
       <span className="text-[11px] text-muted-foreground">{t.drawer.installTo}</span>
@@ -142,7 +141,7 @@ function InstallTo({ skillID }: { skillID: number }) {
       {target.selectable ? (
         <>
           <AgentPicker target={target} taken={t.drawer.hasIt} />
-          <Button size="sm" variant="primary" disabled={!target.scopes.length} onClick={() => void install()}>
+          <Button size="sm" variant="primary" disabled={!target.scopes.length} onClick={() => void installSkillTo(skillID, target.scopes)}>
             <Icon name="plus" />
             {t.drawer.install}
           </Button>

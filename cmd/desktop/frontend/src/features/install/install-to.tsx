@@ -9,17 +9,18 @@ import { Modal, ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
-import { NativeSelect } from "@/components/ui/native-select";
+import { NativeSelect, SelectButton } from "@/components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Icon } from "@/components/app/icons";
 import { installSkills } from "./install";
 
 type Initial = { place?: Place; agent?: AgentCode };
 
-// useInstallTarget 是选到的地方与勾上的 Agent:available 是这个 Agent 能不能选(要装的都已直接安装在那里的不能选)。
-// 没动过勾选时默认勾上这个地方在用、能选的 Agent,以及 initial 里这一页的 Agent;换地方后回到默认。
+// useInstallTarget 是选到的地方与勾上的 Agent:available 是这个 Agent 能不能选(要装的都已直接安装在那里的不能选);
+// unused 是要装的还有没装在那里的(随组安装的也算已装),默认只勾这样的 Agent,不默认给组安装另加直接安装，缺省同 available。
+// 没动过勾选时默认勾上这个地方在用的，以及 initial 里这一页的 Agent;换地方后回到默认。
 // agents 只含选项里能选的，按选项的顺序排;selectable 是这个地方有没有能选的 Agent。
-export function useInstallTarget(available: (scope: Scope) => boolean, initial: Initial = {}) {
+export function useInstallTarget(available: (scope: Scope) => boolean, initial: Initial = {}, unused = available) {
   const s = useSnapshot();
   const [place, setPlaceState] = useState<Place>(initial.place ?? 0);
   const [picked, setPicked] = useState<AgentCode[] | null>(null);
@@ -28,7 +29,7 @@ export function useInstallTarget(available: (scope: Scope) => boolean, initial: 
   const can = (code: AgentCode) => available(scopeOf(code, place));
   const options = [...used, ...rest];
   const defaults = [...used.map((a) => a.code), ...(place === (initial.place ?? 0) && initial.agent ? [initial.agent] : [])];
-  const chosen = picked ?? defaults;
+  const chosen = picked ?? defaults.filter((code) => unused(scopeOf(code, place)));
   const agents = options.map((a) => a.code).filter((code) => chosen.includes(code) && can(code));
   const setPlace = (p: Place) => {
     setPlaceState(p);
@@ -88,16 +89,12 @@ export function AgentPicker({ target, taken }: { target: InstallTarget; taken: s
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          title={names.length ? t.model.agentNames(names) : undefined}
-          className="agent-pick inline-flex min-h-[26px] max-w-[260px] min-w-0 items-center gap-1 rounded-[7px] border border-border bg-white px-1.5 py-[3px] text-left text-xs text-foreground outline-none focus-visible:ring-3 focus-visible:ring-primary-soft"
-        >
+        <SelectButton className="agent-pick" title={names.length ? t.model.agentNames(names) : undefined}>
           <span className={cn("agent-pick-names min-w-0 grow", !names.length && "text-muted-foreground")}>
             {names.length ? t.model.agentNames(names) : t.drawer.pickAgents}
           </span>
           <Icon name="down" className="size-3 shrink-0 text-muted-foreground" />
-        </button>
+        </SelectButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="agent-menu z-[60] max-h-72 w-60 overflow-y-auto">
         {used.length > 0 && (
@@ -127,7 +124,11 @@ export async function installPicked(ids: SkillID[], initial: Initial = {}) {
 function InstallToDialog({ ids, initial, close }: { ids: SkillID[]; initial: Initial; close: (scopes?: Scope[]) => void }) {
   const s = useSnapshot();
   const t = useT();
-  const target = useInstallTarget((sc) => !ids.every((id) => skillScopeIn(s, id, scopeKey(sc))?.direct), initial);
+  const target = useInstallTarget(
+    (sc) => !ids.every((id) => skillScopeIn(s, id, scopeKey(sc))?.direct),
+    initial,
+    (sc) => ids.some((id) => !skillScopeIn(s, id, scopeKey(sc))),
+  );
   const placeName = target.place ? projectName(s, target.place) : t.model.global;
   return (
     <Modal

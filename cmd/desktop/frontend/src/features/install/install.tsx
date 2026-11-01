@@ -98,11 +98,27 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   await installEach(
     skills.map((skill) => ({ skill, scope })),
     t.collectionInstallTitle(label, where),
-    () => t.collectionInstalled(label, where, skills.length),
+    t.collectionInstalled(label, where, skills.length),
   );
 }
 
-// installSkills 把勾选的技能装到 scopes(底部操作栏的"安装到…"可以勾选几个 Agent;拖勾选着的一行到作用域是一处):
+// installSkillTo 是详情里的"安装到…":把一个技能装到勾上的几个 Agent(同一个地方)。只勾一个时和开关一样装这一处;
+// 勾几个时逐处装，同名文件夹合成一次询问，全部装上时提示装到了哪几个 Agent。
+export async function installSkillTo(id: SkillID, scopes: Scope[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const skill = s.skills.find((x) => x.id === id);
+  if (!skill || !scopes.length) return;
+  if (scopes.length === 1) return installSkill(id, scopes[0]);
+  const where = scopesLabel(s, scopes);
+  await installEach(
+    scopes.map((scope) => ({ skill, scope })),
+    t.skillInstallTitle(skill.name, where),
+    t.installed(skill.name, where),
+  );
+}
+
+// installSkills 把勾选的技能装到 scopes(底部操作栏的"安装到…"可以勾选几个 Agent;拖勾选着的几行到作用域是一处):
 // 和集合一样逐个直接安装，已经直接安装在那里的不再装;都已装在那里时只提示。scopes 在同一个地方(全局或同一个项目)。
 export async function installSkills(ids: SkillID[], scopes: Scope[]) {
   const s = currentSnapshot();
@@ -117,9 +133,7 @@ export async function installSkills(ids: SkillID[], scopes: Scope[]) {
     return;
   }
   const n = new Set(items.map((x) => x.skill.id)).size;
-  const title = ids.length === 1 ? t.skillInstallTitle(items[0].skill.name, where) : t.pickedInstallTitle(n, where);
-  const done = () => (ids.length === 1 ? t.installed(items[0].skill.name, where) : t.pickedInstalled(n, where));
-  await installEach(items, title, done);
+  await installEach(items, t.pickedInstallTitle(n, where), t.pickedInstalled(n, where));
 }
 
 // scopesLabel 是同一个地方的几个 Agent 合起来的说法，如"Claude Code、Codex · 全局";只有一个时就是 scopeLabel。
@@ -131,17 +145,23 @@ function scopesLabel(s: Snapshot, scopes: Scope[]): string {
 }
 
 // installEach 逐处直接安装(一处是一个技能装到一个 Agent):先逐处看安装计划，被别的技能占用的跳过并说明原因;
-// 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。一处装不上不影响其余的。
+// 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。一处装不上(含看安装计划就出错)不影响其余的。
 // 有没装上的才列出结果，否则只提示 done。装到几个 Agent 时，询问与结果里每一处写出是哪个 Agent。
-async function installEach(items: { skill: Skill; scope: Scope }[], title: string, done: () => string) {
+async function installEach(items: { skill: Skill; scope: Scope }[], title: string, done: string) {
   const s = currentSnapshot();
   const t = messages().actions;
   if (!items.length) return;
-  const plans = await ui.run(() => Promise.all(items.map((x) => LibraryService.PlanInstall(x.skill.id, x.scope))), { reload: false });
-  if (!plans) return;
+  const settled = await ui.run(() => Promise.allSettled(items.map((x) => LibraryService.PlanInstall(x.skill.id, x.scope))), { reload: false });
+  if (!settled) return;
   const several = new Set(items.map((x) => scopeKey(x.scope))).size > 1;
   const label = (skill: Skill, scope: Scope) => (several ? `${skill.name} · ${scopeLabel(s, scope)}` : skill.name);
-  const planned = items.map((x, i) => ({ ...x, plan: plans[i] }));
+  const rows: ResultRow[] = [];
+  const planned = items.flatMap((x, i) => {
+    const r = settled[i];
+    if (r.status === "fulfilled") return [{ ...x, plan: r.value }];
+    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(r.reason)) });
+    return [];
+  });
   const untracked = planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
   let overwrite = false;
   if (untracked.length) {
@@ -163,7 +183,6 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     if (!choice) return;
     overwrite = choice === "overwrite";
   }
-  const rows: ResultRow[] = [];
   await ui.run(async () => {
     for (const { skill, scope, plan } of planned) {
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
@@ -189,7 +208,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     const rest = rows.length - installed;
     await showResults(title, rows, several ? t.installedPlaces(installed, rest) : t.installedSummary(installed, rest));
   } else {
-    ui.toast(done());
+    ui.toast(done);
   }
 }
 
