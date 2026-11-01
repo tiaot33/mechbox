@@ -71,7 +71,7 @@ func refsRepository(t *testing.T, repository string) {
 	t.Helper()
 	runGit(t, repository, "branch", "release/v2")
 	runGit(t, repository, "tag", "v1")
-	runGit(t, repository, "tag", "-a", "v2", "-m", "v2")
+	runGit(t, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "v2", "-m", "v2")
 }
 
 func TestInputWithoutSchemeStartingWithDomainGetsHTTPS(t *testing.T) {

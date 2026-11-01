@@ -15,13 +15,14 @@ import { homePath } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
+import { useView } from "@/lib/view";
+import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { cn, toggled } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
-import { installPicked } from "@/features/install/install-to";
 import { AuditBadge } from "./audit";
 import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
@@ -84,15 +85,15 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
       return next;
     });
 
-  // 入库所选：成功的提示带"装到…",点开就是操作栏的"安装到…",刚入库的这几个技能已经选好。
   const fetchSelected = async () => {
     if (fetching) return;
     setFetching("running");
     const names = [...selected];
     const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names));
     if (!fetched) return setFetching(null);
-    const ids = fetched.map((skill) => skill.id);
-    ui.toast(t.fetched(ids.length), "ok", ids.length ? { label: t.installFetched, onClick: () => void installPicked(ids) } : undefined);
+    // 入库只是放进技能库，还没有 Agent 能用：提示里说清停在哪，给下一步"装到…"。
+    const ids = fetched.map((x) => x.id);
+    ui.toast(t.fetched(ids.length), "ok", { label: t.installTo, onClick: () => void chooseAndInstall(ids, pageInstallTarget(useView.getState().page)) });
     setFetching("done");
     await new Promise((r) => window.setTimeout(r, 450));
     onClose();

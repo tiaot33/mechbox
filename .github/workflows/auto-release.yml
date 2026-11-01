@@ -1,0 +1,83 @@
+# main 上每合进 3 个用户能感觉到的 PR(标题是 feat / fix / perf)就自动发一版：在最高的正式版上把最后一位加 1,
+# 先跑 go test,通过后打 tag,再在这个 tag 上运行 Release。怎么数、怎么算版本号见 .github/scripts/next-version.sh。
+# 用 workflow 的 token 推的 tag 不会触发 release.yml 的 push 事件，所以改用 workflow_dispatch 在 tag 上运行它。
+# 手动推 tag(如从 v0.0.4 跳到 v0.1.0)照常发布，之后从那个版本接着数。
+name: Auto release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# 同一时刻只有一次在判断和打 tag。正在跑时又来了几次推送，只留最后一次等着跑(GitHub 取消前面等待的),
+# 它从最新的 tag 往后数全部提交，不漏 PR,只是可能把这期间合进的几个 PR 合成一版。
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Decide version
+        id: next
+        run: |
+          version="$(.github/scripts/next-version.sh 2>reason.txt)"
+          cat reason.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6
+        if: steps.next.outputs.version != ''
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # 桌面端的 Go 包要编译 Wails 的 cgo 代码，Linux 上需要 GTK 与 WebKit 的头文件。
+      - name: Install Linux dependencies
+        if: steps.next.outputs.version != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Test
+        if: steps.next.outputs.version != ''
+        run: go test ./...
+
+      # 推之前拉一次最新的 tag 再判断一遍：这期间有人手动推了版本，结果就会变，不再打这个旧的，免得它在 GitHub 上成了最新版。
+      # 触发 Release 失败时重试;最后还失败就报错，并写明怎么在 tag 上补跑(重跑这个 job 会以新 tag 为基准，不会再发)。
+      - name: Tag and release
+        if: steps.next.outputs.version != '' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          git fetch --tags --force --quiet
+          if [[ "$(.github/scripts/next-version.sh 2>/dev/null)" != "$VERSION" ]]; then
+            echo "拉到新的 tag 后不再是 v$VERSION,这次不打 tag" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git tag "v$VERSION" "$GITHUB_SHA"
+          git push origin "v$VERSION"
+          for attempt in 1 2 3; do
+            if gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "v$VERSION"; then
+              echo "已打 v$VERSION 并触发 Release" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep $((attempt * 15))
+          done
+          echo "::error::已推 v$VERSION,但没能触发 Release。在 tag 上补跑：gh workflow run release.yml --ref v$VERSION"
+          echo "已推 v$VERSION,但没能触发 Release。在 tag 上补跑：\`gh workflow run release.yml --ref v$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          exit 1

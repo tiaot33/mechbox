@@ -9,7 +9,7 @@ export const navItem = cva(
   {
     variants: {
       kind: {
-        // 左栏顶层：所有技能、更新、检查更新、同步、设置;设置页的分区目录
+        // 左栏顶层：技能库、更新、检查更新、同步、设置;设置页的分区目录
         main: "h-[30px] gap-2 rounded-md px-2 text-[12.5px] data-[active=true]:bg-[rgba(17,24,39,0.07)] data-[active=true]:font-semibold data-[active=true]:text-foreground",
         // 左栏分节里的集合与组
         section:

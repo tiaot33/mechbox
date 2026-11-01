@@ -1,4 +1,5 @@
-# 推送 v* tag 时构建三个平台的安装包并发布到 GitHub Release;手动运行只构建，安装包留在这次运行的 Artifacts 里。
+# 推送 v* tag 时构建三个平台的安装包并发布到 GitHub Release。在 v* tag 上运行(auto-release.yml 自动发版就这样调它)同样发布;
+# 在分支上手动运行只构建，安装包留在这次运行的 Artifacts 里。
 name: Release
 
 on:
@@ -40,7 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 推 tag 时把版本号写进各处构建配置，打包时也用它命名；手动运行跳过这一步，release 任务按 dev-<提交> 命名。
+      # 在 v* tag 上运行时(推 tag,或 auto-release.yml 在 tag 上调用)把版本号写进各处构建配置，打包时也用它命名;
+      # 在分支上手动运行跳过这一步,release 任务按 dev-<提交> 命名。
       - name: Set version
         id: version
         if: startsWith(github.ref, 'refs/tags/v')
