@@ -36,16 +36,19 @@ tasks:
 
   # 打出发布用的安装包放进 dist/(先清空),只打本机系统、本机架构的。.github/workflows/release.yml 在各平台上跑的就是这个任务，
   # 本机跑同一条命令就能复现 CI 的打包。文件名是 app 里的更新依赖的约定(见 README 的「发布」),改名前先改 release_<平台>.go。
-  # VERSION 只用在文件名里，默认 dev-<提交>;写进构建配置的版本号由 .github/scripts/set-version.sh 负责。
+  # VERSION 只用在文件名里，没给或为空时是 dev-<提交前 7 位>;写进构建配置的版本号由 .github/scripts/set-version.sh 负责。
+  # Windows 上的文件操作用 PowerShell:在 PowerShell / cmd 里运行时 PATH 里通常没有 rm、mkdir、mv。
   release:
     summary: Packages the release installers for this OS into dist/
     vars:
       COMMIT:
-        sh: git rev-parse --short=7 HEAD
-      VERSION: '{{.VERSION | default (print "dev-" .COMMIT)}}'
+        sh: git rev-parse HEAD
+      VERSION: '{{.VERSION | default (print "dev-" (trunc 7 .COMMIT))}}'
     cmds:
-      - rm -rf dist
-      - mkdir -p dist
+      - cmd: rm -rf dist && mkdir -p dist
+        platforms: [darwin, linux]
+      - cmd: powershell -NoProfile -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist; New-Item -ItemType Directory dist | Out-Null"
+        platforms: [windows]
       - task: release:{{OS}}
         vars:
           NAME: Mechbox-{{.VERSION}}
@@ -65,7 +68,7 @@ tasks:
     internal: true
     cmds:
       - wails3 task windows:package CGO_ENABLED=1
-      - mv "{{.BIN_DIR}}/{{.APP_NAME}}-{{ARCH}}-installer.exe" "dist/{{.NAME}}-windows-{{ARCH}}-setup.exe"
+      - powershell -NoProfile -Command "Move-Item -Force '{{.BIN_DIR}}/{{.APP_NAME}}-{{ARCH}}-installer.exe' 'dist/{{.NAME}}-windows-{{ARCH}}-setup.exe'"
 
   # nfpm.yaml 的 arch 取自环境变量 GOARCH(维护者取自 GIT_COMMITTER_NAME / GIT_COMMITTER_EMAIL,CI 里设)。
   # 另起一次 wails3 task 让它带上这个环境变量:task 的 env 只给自己的命令，到不了它调用的任务。

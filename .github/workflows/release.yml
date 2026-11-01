@@ -40,15 +40,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # 推 tag 时把版本号写进各处构建配置，打包时也用它命名；手动运行跳过这一步，release 任务按 dev-<提交> 命名。
       - name: Set version
         id: version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-            .github/scripts/set-version.sh "$version"
-          else
-            version="dev-${GITHUB_SHA::7}"
-          fi
+          version="${GITHUB_REF_NAME#v}"
+          .github/scripts/set-version.sh "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v6
