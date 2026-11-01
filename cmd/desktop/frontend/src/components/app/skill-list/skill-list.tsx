@@ -1,7 +1,7 @@
 // 中间：四种页面，各回答一个问题，长得也不一样。
-// - 所有技能(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
+// - 技能库(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
 // - 更新(要处理的事):每个有要处理的更新的集合一行，下面是要处理的技能。
-// - 作用域(Agent 在这里看得到什么):分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能(和所有技能页一样按集合或按组分节)、
+// - 作用域(Agent 在这里看得到什么):分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能(和技能库页一样按集合或按组分节)、
 //   未纳管技能，以及项目里来自全局的;下面是库里没装在这里的技能，整块默认折成一行，点开同样按集合或按组分节。
 // - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
@@ -122,7 +122,7 @@ function AllSkills({ sections }: { sections: SkillSection[] }) {
   );
 }
 
-// ArrangeBar 切换按集合或按组分节，所有技能页和作用域页共用一个设置。
+// ArrangeBar 切换按集合或按组分节，技能库页和作用域页共用一个设置。
 function ArrangeBar({ children }: { children?: React.ReactNode }) {
   const arrange = useView((v) => v.arrange);
   const t = useT().list;
@@ -142,7 +142,7 @@ function ArrangeBar({ children }: { children?: React.ReactNode }) {
   );
 }
 
-// SkillSectionView 是一节。所有技能页(没有 scope)的节里装了的在前、没装的折起来;作用域页(有 scope)的行带开关、不折:
+// SkillSectionView 是一节。技能库页(没有 scope)的节里装了的在前、没装的折起来;作用域页(有 scope)的行带开关、不折:
 // 上面那块的节只有装在这里的，节标题写装在这里几个;下面那块(notHere)的节只有没装在这里的，节标题只写名字和个数。
 // 节标题上的勾选框勾这一节列出的技能。
 function SkillSectionView({ section, scope, notHere = false }: { section: SkillSection; scope?: ScopeKey; notHere?: boolean }) {
@@ -302,9 +302,9 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
             <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
           {l.hereUnmanaged.length > 0 && (
-            <Section id="scope-unmanaged" head={<PlainHead name={t.sectionUnmanaged} count={l.hereUnmanaged.length} title={t.unmanagedTitle} />}>
+            <Section id="scope-unmanaged" head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}>
               {l.hereUnmanaged.map((u) => (
-                <UnmanagedRow key={u.folder} skill={u} />
+                <UnmanagedRow key={u.folder} skill={u} headed />
               ))}
             </Section>
           )}

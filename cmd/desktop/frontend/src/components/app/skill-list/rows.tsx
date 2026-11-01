@@ -1,10 +1,11 @@
-// 列表的行：库里的技能(所有技能页、更新页与作用域页)与作用域里的未纳管技能。一个技能一行，列对齐，
+// 列表的行：库里的技能(技能库页、更新页与作用域页)与作用域里的未纳管技能。一个技能一行，列对齐，
 // 平常的信息用淡色，只有要处理的(有新版本、来源里已删除、同名、要重新安装)才上色。
 // 作用域页与项目页的行首一格只表示 Agent 在这里用不用：开 = 在用，关 = 没在用;最后一列写是谁装的。
 // 库里技能的行点开详情抽屉，可以拖到右栏作用域(直接安装)或左栏、节标题上的组(加入该组);
-// 所有技能页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
+// 技能库页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
+import { useEffect, useRef } from "react";
 import { AppService } from "@bindings/cmd/desktop";
-import type { Skill, SkillScopeInspection, UnmanagedSkill } from "@bindings/internal/library";
+import type { Skill, SkillID, SkillScopeInspection, UnmanagedSkill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { foundSource, useFoundSources, useSnapshot } from "@/lib/library";
 import {
@@ -35,7 +36,7 @@ import {
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { toggleDrawer, useSortedGroups, useView } from "@/lib/view";
+import { doneFlash, toggleDrawer, useSortedGroups, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
@@ -47,7 +48,7 @@ import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
 import { SameNameBadge, SameNameLine } from "./same-name";
 
-// 列宽：所有技能页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
+// 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
 const libraryCols = "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
 const scopeCols = "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
@@ -60,9 +61,9 @@ const rowClass =
 // 最近几天内的变化用正文颜色，排查"最近是不是变过"时一眼看到。
 const recentDays = 7;
 
-// SkillRow 是库里一个技能的一行。scope 为空时是所有技能页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
+// SkillRow 是库里一个技能的一行。scope 为空时是技能库页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
 // 开头一格表示 Agent 在这里用不用(见下),最后一列写是谁装的;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
-// pickable 的行最前面有勾选框(所有技能页、作用域页与项目页;更新页不能勾选)。
+// pickable 的行最前面有勾选框(技能库页、作用域页与项目页;更新页不能勾选)。
 export function SkillRow(props: {
   skill: Skill;
   scope?: ScopeKey;
@@ -82,11 +83,12 @@ export function SkillRow(props: {
   const place =
     scope && props.fromGlobal ? globalScopesSeenFrom(s, scope).map((key) => skillScopeIn(s, skill.id, key)).find(Boolean) : here;
   const via = (place?.groups ?? []).map((id) => groupName(s, id));
-  // 作用域页说这一处的同名后果;所有技能页、更新页说它装出去的各处。
+  // 作用域页说这一处的同名后果;技能库页、更新页说它装出去的各处。
   const same = scope ? (here ? sameNameNote(s, scope, here.folder) : undefined) : skillSameNameNote(s, skill.id);
   const groups = useSortedGroups(s).filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
+  const ref = useFlash(skill.id, !!scope);
 
   const toggle = () => {
     if (!scope) return;
@@ -98,6 +100,7 @@ export function SkillRow(props: {
 
   return (
     <article
+      ref={ref}
       className={cn(
         "skill-row group/row cursor-grab transition-colors hover:bg-white/80 active:cursor-grabbing",
         rowClass,
@@ -226,7 +229,28 @@ export function SkillRow(props: {
   );
 }
 
-// Where 是所有技能页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时标黄。
+// useFlash 是作用域页、项目页里刚入库的那一行：滚到看得见的地方闪一下。项目页里几个 Agent 都列出它时，只滚到第一行，各行都闪。
+function useFlash(id: SkillID, enabled: boolean) {
+  const ref = useRef<HTMLElement>(null);
+  const n = useView((v) => (enabled && v.flash?.skill === id ? v.flash.n : 0));
+  useEffect(() => {
+    const el = ref.current;
+    if (!n || !el) return;
+    if (document.querySelector(`.skill-row[data-skill-id="${id}"]`) === el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    el.dataset.flash = "";
+    const timer = window.setTimeout(() => {
+      delete el.dataset.flash;
+      doneFlash(n);
+    }, 1200);
+    return () => {
+      window.clearTimeout(timer);
+      delete el.dataset.flash;
+    };
+  }, [id, n]);
+  return ref;
+}
+
+// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时标黄。
 function Where({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const t = useT().list;
@@ -272,10 +296,12 @@ function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | 
   );
 }
 
-// UnmanagedRow 是作用域里一个不是库装的技能文件夹(未纳管技能):行首是开着、不能点的开关样子(Agent 在用，只是不归这里管),
-// 最后一列写"未纳管"(fromGlobal:项目作用域"来自全局"一节里的，先写"来自全局"),提交在项目仓库里、记在 skills-lock.json 里、
-// 指向 Agent 目录以外的接着写出来，下面是在 Finder 中显示与入库;符号链接在描述下写出指向哪里。不能拖动、不打开详情。
-export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSkill; fromGlobal?: boolean }) {
+// UnmanagedRow 是作用域里一个不是库装的技能文件夹(未纳管技能):它不在技能库里，所以行首没有开关，是"入库"按钮;
+// 入库后这一行换成库里技能的一行，出现在它所属的那一节并闪一下。
+// 最后一列写"不在技能库里"(headed:作用域页"不在技能库里"一节里的，节标题已经写了，不再写;fromGlobal:"来自全局"一节里的，先写"来自全局"),
+// 提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在 Finder 中显示;符号链接在描述下写出指向哪里。
+// 不能拖动、不打开详情。
+export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { skill: UnmanagedSkill; fromGlobal?: boolean; headed?: boolean }) {
   const s = useSnapshot();
   const t = useT().list;
   const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
@@ -284,7 +310,7 @@ export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSk
   const source = skill.source_input || found;
   const state = [
     fromGlobal ? { text: t.fromGlobal, title: t.sectionGlobalTitle } : undefined,
-    { text: t.unmanaged, title: t.unmanagedTitle },
+    headed ? undefined : { text: t.notInLibrary, title: t.notInLibraryTitle },
     skill.in_repository
       ? { text: t.inRepository, title: t.inRepositoryTitle }
       : skill.in_project_lock
@@ -296,7 +322,14 @@ export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSk
     <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>
       <span />
       <span className="flex">
-        <SwitchMark title={fromGlobal ? t.sectionGlobalTitle : t.unmanagedTitle} />
+        <Button
+          size="inline"
+          className="fetch-unmanaged h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] text-primary hover:border-primary hover:bg-primary-soft"
+          title={t.fetchTitle}
+          onClick={() => void fetchUnmanaged(skill)}
+        >
+          {t.fetch}
+        </Button>
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold">{skill.name}</span>
@@ -319,21 +352,18 @@ export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSk
         )}
       </div>
       <div className="flex min-w-0 flex-col items-start gap-0.5">
-        <span className="skill-state unmanaged-state max-w-full min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
-          {state.map((x) => x.text).join(" · ")}
-        </span>
-        <span className="flex items-center gap-2.5 text-[11px]">
-          <Button
-            variant="link"
-            className="reveal-in-finder shrink-0 font-sans text-[11px]"
-            onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
-          >
-            {t.revealInFinder}
-          </Button>
-          <Button variant="link" className="fetch-unmanaged shrink-0 font-sans text-[11px]" title={t.fetchTitle} onClick={() => void fetchUnmanaged(skill)}>
-            {t.fetch}
-          </Button>
-        </span>
+        {state.length > 0 && (
+          <span className="skill-state unmanaged-state max-w-full min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
+            {state.map((x) => x.text).join(" · ")}
+          </span>
+        )}
+        <Button
+          variant="link"
+          className="reveal-in-finder shrink-0 font-sans text-[11px]"
+          onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
+        >
+          {t.revealInFinder}
+        </Button>
       </div>
     </article>
   );

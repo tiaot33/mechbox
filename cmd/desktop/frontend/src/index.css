@@ -217,7 +217,7 @@
     padding: 0;
   }
 
-  /* 所有技能页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */
+  /* 技能库页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */
   .a-list {
     container-type: size;
   }
@@ -232,6 +232,11 @@
   .list-section[data-flash] > .section-head {
     background: var(--color-primary-soft);
     transition: none;
+  }
+
+  /* 刚入库的未纳管技能：它换成库里技能的那一行，闪一下。 */
+  .skill-row[data-flash] {
+    background: var(--color-primary-soft);
   }
 
   /* 拖放中：主体区域带 data-dragging(skill / group / collection),可放下的目标描虚线，悬停的目标高亮;

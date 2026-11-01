@@ -194,7 +194,7 @@ async function showNotHere() {
 }
 // clearScope 回到所有技能页，按集合分节(左栏点了组、拖组行时会换成按组)。
 async function clearScope() {
-  await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+  await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
   const byCollection = page.locator(".arrange-seg button", { hasText: "按集合" });
   if ((await byCollection.count()) && (await byCollection.getAttribute("aria-pressed")) !== "true") await byCollection.click();
   await unfold();
@@ -281,7 +281,7 @@ await step(FIRST_OPEN, async () => {
     // 没选的那份仍是未纳管技能：作用域里淡淡提一句，从这里可以再全部入库。
     await selectScope("Claude Code");
     const hint = page.locator(".unmanaged-hint");
-    assert((await hint.textContent()).includes("这里还有 1 个技能不是库装的"), `作用域里提一句:${await hint.textContent()}`);
+    assert((await hint.textContent()).includes("其中 1 个可以交给 app 管"), `作用域里提一句:${await hint.textContent()}`);
     await btn(hint, "全部入库…").click();
     await modal().locator(".fetch-unmanaged-lead", { hasText: "在 Claude Code · 全局 里发现 1 个不是库装的技能" }).waitFor();
     await btn(modal(), "先不入库").click();
@@ -328,9 +328,12 @@ await step("本地目录入库 alpha/beta/gamma(入库预览 → 候选 → 入�
     assert((await modal().locator('[data-slot="list-row"]', { hasText: n }).count()) === 1, `候选里应有 ${n}`);
   }
   await btn(modal(), "入库所选").click();
-  await toast("已入库 3 个技能");
+  // 入库只是放进技能库：提示里说清还没装到任何 Agent，给下一步「装到…」。
+  await toast("已入库 3 个技能，在左栏「技能库」里；还没装到任何 Agent");
+  assert.equal(await page.locator('[data-slot="toast"][data-state="open"] button', { hasText: "装到…" }).count(), 1, "提示里给装到…");
   await settle();
   assert((await page.locator(".skill-row").count()) === 3, "应有 3 个技能");
+  assert.equal(await page.locator(".a-left .nav-item", { hasText: "技能库" }).count(), 1, "左栏那一页叫技能库");
   assert((await page.locator(".a-left .nav-item", { hasText: "code/my-skills" }).count()) === 1, "同一目录下的技能应归入一个集合");
 });
 
@@ -923,7 +926,7 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     await selectScope("Claude Code", "team-proj");
     const lint = page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^lint-rules$/ }) });
     await lint.waitFor();
-    assert.equal(await lint.locator(".unmanaged-state").textContent(), "未纳管 · 记在 skills-lock.json 里", "最后一列写出记在 skills-lock.json 里");
+    assert.equal(await lint.locator(".unmanaged-state").textContent(), "记在 skills-lock.json 里", "最后一列写出记在 skills-lock.json 里");
     assert((await page.locator(".unmanaged-hint").count()) === 0, "归项目仓库管的不算进还有几个没入库");
     await clearScope();
   } finally {
@@ -1052,11 +1055,11 @@ await step("作用域页：上面是装在这里的，下面是库里没装在�
   assert.equal(await below.locator('[role="switch"][aria-checked="true"]').count(), 0, "下面那块的开关都关着");
   assert.equal(await below.filter({ hasText: /^beta/ }).count(), 0, "beta 不在下面那块");
   assert((await page.locator(".a-list .not-here .list-section[data-section*=\":not-here:collection-\"]").count()) >= 1, "下面那块按集合分节");
-  assert((await page.locator(".scope-sees").textContent()).includes("Codex 在这里看得到 1 个技能"), "摘要写出看得到几个");
+  assert((await page.locator(".scope-sees").textContent()).includes("Codex 全局目录里有 1 个技能"), "摘要写出全局目录里有几个");
   // 下面那块默认折成一行，写出个数;展开状态按作用域记着。
   await page.locator(".a-list .not-here-fold").click();
   await idle();
-  assert.match(await page.locator(".a-list .not-here-fold").textContent(), /^库里另外 \d+ 个没装在这里：/, "折起来时写出个数和名字");
+  assert.match(await page.locator(".a-list .not-here-fold").textContent(), /^技能库里还有 \d+ 个，没装到这里：/, "折起来时写出个数和名字");
   assert.equal(await below.count(), 0, "折起来后不列出");
   await showNotHere();
 });
@@ -1188,14 +1191,15 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     const npx = unmanaged("npx-tool");
     await npx.waitFor();
     assert((await card("alpha").count()) === 1, "库装的 alpha 照常列出");
-    assert.equal(await npx.locator(".unmanaged-state").textContent(), "未纳管", "最后一列写未纳管");
-    assert.equal(await npx.locator('[data-slot="switch-mark"]').count(), 1, "行首是开着、不能点的开关样子");
-    assert.equal(await npx.locator('[role="switch"]').count(), 0, "未纳管技能没有能点的开关");
+    assert.equal(await page.locator('[data-section="scope-unmanaged"] .section-name').textContent(), "不在技能库里", "未纳管技能那一节叫不在技能库里");
+    assert.equal(await npx.locator(".unmanaged-state").count(), 0, "节标题已经写了不在技能库里，最后一列不再写");
+    assert.deepStrictEqual(await npx.locator(".fetch-unmanaged").allTextContents(), ["入库"], "行首是入库按钮，行尾没有另一个入库");
+    assert.equal(await npx.locator('[role="switch"], [data-slot="switch-mark"]').count(), 0, "不在技能库里的没有开关");
     // 指向的是解析后的真实路径;临时 HOME 在 /tmp 下(macOS 上是 /private/tmp 的符号链接),所以不按 ~ 缩写比较。
     const foot = await npx.locator(".unmanaged-status").textContent();
     assert(foot.startsWith("符号链接 → ") && foot.includes(`${fs.realpathSync(real)}`), `应写出符号链接指向哪里:${foot}`);
-    assert((await npx.getByRole("button").allTextContents()).join() === "在 Finder 中显示,入库", "只有在 Finder 中显示与入库，没有删除");
-    assert((await page.locator(".a-scope-sum .stat", { hasText: "未纳管" }).textContent()).includes("1"), "摘要应数出 1 个未纳管");
+    assert((await npx.getByRole("button").allTextContents()).join() === "入库,在 Finder 中显示", "只有入库与在 Finder 中显示，没有删除");
+    assert((await page.locator(".a-scope-sum .stat", { hasText: "不在技能库里" }).textContent()).includes("1"), "摘要应数出 1 个不在技能库里");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
     await btn(npx, "在 Finder 中显示").click();
     await idle();
@@ -1207,8 +1211,8 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
 
     await selectScope("Claude Code", "proj-b");
     await unmanaged("team-skill").waitFor();
-    assert.equal(await unmanaged("team-skill").locator(".unmanaged-state").textContent(), "未纳管 · 在项目仓库里", "已提交的写在项目仓库里");
-    assert.equal(await unmanaged("my-draft").locator(".unmanaged-state").textContent(), "未纳管", "没提交的不写");
+    assert.equal(await unmanaged("team-skill").locator(".unmanaged-state").textContent(), "在项目仓库里", "已提交的写在项目仓库里");
+    assert.equal(await unmanaged("my-draft").locator(".unmanaged-state").count(), 0, "没提交的不写");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-project.png") });
 
     // 搜索同样作用于未纳管技能。
@@ -1240,7 +1244,11 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     assert(text.includes("入库就是把它交给 app 管") && text.includes("之后如果还用命令行工具更新它，app 只能把它报为被手动改过"), `确认时应写清由谁管:${text}`);
     assert(!text.includes("项目仓库"), "不在项目仓库里的不提仓库");
     await btn(modal(), "入库").click();
-    await toast("已入库「npx-tool」");
+    await toast("「npx-tool」已放进技能库，Claude Code · 全局 里的文件夹原样没动");
+    assert.equal(await page.locator('[data-slot="toast"][data-state="open"] button', { hasText: "装到别处…" }).count(), 1, "提示里给装到别处…");
+    // 它那一行换成库里技能的一行：在上面那块、开关开着，闪一下。
+    await page.locator('.in-use .skill-row[data-name="npx-tool"][data-flash]').waitFor({ timeout: 5000 });
+    assert.equal(await page.locator('.in-use .skill-row[data-name="npx-tool"] [role="switch"][aria-checked="true"]').count(), 1, "入库后开关开着");
     await settle();
     await card("npx-tool").waitFor();
     assert((await unmanaged("npx-tool").count()) === 0, "入库后不再是未纳管技能");
@@ -1257,7 +1265,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     await selectScope("Codex");
     await btn(unmanaged("npx-tool"), "入库").click();
     await btn(modal(), "入库").click();
-    await toast("「npx-tool」和库里「npx-tool」的一个版本一致，已记为装在 Codex · 全局");
+    await toast("「npx-tool」和技能库里「npx-tool」的一个版本一致，已记为装在 Codex · 全局，文件夹原样没动");
     await settle();
     assert((await card("npx-tool").count()) === 1 && (await unmanaged("npx-tool").count()) === 0, "Codex 里应是同一个技能");
 
@@ -1266,7 +1274,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「team-skill」" }).waitFor();
     assert((await modal().textContent()).includes("之后在 app 里更新它，会改动项目仓库里的文件"), "项目仓库里的应写清会改动仓库");
     await btn(modal(), "入库").click();
-    await toast("已入库「team-skill」");
+    await toast("「team-skill」已放进技能库");
     await settle();
     await card("team-skill").waitFor();
     // 移出库(保留文件夹)后又是未纳管技能;后面的步骤要求 proj-b 里没有 Claude Code 装的技能。
@@ -1309,9 +1317,9 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await selectScope("Claude Code");
     await unmanaged("kit-a").waitFor();
     assert.equal(await unmanaged("kit-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
-    // 「未纳管」和来源都要能看全。
+    // 行首的「入库」和来源都要能看全。
     const clipped = (el) => el.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
-    assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-state"))), "「未纳管」没被截断");
+    assert(!(await clipped(unmanaged("kit-a").locator(".fetch-unmanaged"))), "「入库」没被截断");
     assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-source-label"))), "来源没被截断");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-source-label.png") });
     assert((await unmanaged("kit-c").locator(".unmanaged-source-label").count()) === 0, "认不出的不写来源");
@@ -1321,7 +1329,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     assert.equal(await modal().locator(".unmanaged-source").inputValue(), kit, "来源链接预填来源记录里的来源");
     assert((await modal().locator(".unmanaged-source-note").textContent()).startsWith(`以后跟着 ${kit} 检查更新`), "确认时写清以后跟着谁");
     await btn(modal(), "入库").click();
-    await toast(`已入库「kit-a」，以后跟着 ${kit} 检查更新`);
+    await toast(`「kit-a」已放进技能库，以后跟着 ${kit} 检查更新`);
     await settle();
     await card("kit-a").waitFor();
     assert(!(await card("kit-a").textContent()).includes("没有来源"), "进了来源的集合");
@@ -1329,7 +1337,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     // 和来源里的不一样，又说不清是不是改过:照样进集合，版本历史里标出可能有你的修改。
     await btn(unmanaged("kit-b"), "入库").click();
     await btn(modal(), "入库").click();
-    await toast(`已入库「kit-b」，以后跟着 ${kit} 检查更新`);
+    await toast(`「kit-b」已放进技能库，以后跟着 ${kit} 检查更新`);
     await settle();
     await openDrawer("kit-b");
     assert((await drawer().locator(".versions").textContent()).includes("入库时和来源里的不一样，可能有你的修改"), "版本历史标出可能有你的修改");
@@ -1344,7 +1352,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await modal().locator(".unmanaged-source").fill("");
     assert((await modal().locator(".unmanaged-source-note").textContent()).startsWith("没有来源"), "清空后写明没有来源");
     await btn(modal(), "入库").click();
-    await toast("已入库「kit-c」");
+    await toast("「kit-c」已放进技能库");
     await settle();
     assert((await card("kit-c").textContent()).includes("没有来源"), "清空来源后是没有来源的技能");
     assert.equal(fs.readFileSync(path.join(claudeGlobal, "kit-b", "SKILL.md"), "utf8"), folders["kit-b"], "入库时磁盘上什么都没动");
@@ -1399,7 +1407,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
     assert.equal(await modal().locator(".unmanaged-source").inputValue(), site, "来源链接预填找到的来源");
     assert((await modal().locator(".unmanaged-source-note").textContent()).startsWith("在 skills.sh 上找到的同名技能"), "确认时写明来源是在 skills.sh 上找到的");
     await btn(modal(), "入库").click();
-    await toast("已入库「found-a」，以后跟着 skills.e2e.test 检查更新");
+    await toast("「found-a」已放进技能库，以后跟着 skills.e2e.test 检查更新");
     await settle();
     await card("found-a").waitFor();
     assert(!(await card("found-a").textContent()).includes("没有来源"), "进了找到的来源的集合");
@@ -1460,7 +1468,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     const collapsed = (await fromGlobal.locator(".sec-toggle").getAttribute("aria-expanded")) === "false";
     if (collapsed) await fromGlobal.locator(".sec-toggle").click();
     await idle();
-    assert.equal(await fromGlobal.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^gamma$/ }) }).locator(".unmanaged-state").textContent(), "来自全局 · 未纳管", "来自全局的未纳管技能写来自全局");
+    assert.equal(await fromGlobal.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^gamma$/ }) }).locator(".unmanaged-state").textContent(), "来自全局 · 不在技能库里", "来自全局的未纳管技能写来自全局、不在技能库里");
     if (collapsed) await fromGlobal.locator(".sec-toggle").click();
     await idle();
 
@@ -1789,11 +1797,11 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await refresh();
     await selectScope("Claude Code");
     await unmanaged("link-own").waitFor();
-    assert.equal(await unmanaged("link-own").locator(".unmanaged-state").textContent(), "未纳管 · 指向 Agent 目录以外", "指向 Agent 目录以外的写在最后一列");
-    assert.equal(await unmanaged("link-tdd").locator(".unmanaged-state").textContent(), "未纳管", "指向另一个 Agent 目录的不写");
+    assert.equal(await unmanaged("link-own").locator(".unmanaged-state").textContent(), "指向 Agent 目录以外", "指向 Agent 目录以外的写在最后一列");
+    assert.equal(await unmanaged("link-tdd").locator(".unmanaged-state").count(), 0, "指向另一个 Agent 目录的不写");
     const cards = await page.locator(".unmanaged-row").count();
     const hint = await page.locator(".unmanaged-hint").textContent();
-    assert(hint.includes(`这里还有 ${cards - 1} 个技能不是库装的`), `还有几个没入库不算指向 Agent 目录以外的:${hint}`);
+    assert(hint.includes(`其中 ${cards - 1} 个可以交给 app 管`), `还有几个没入库不算指向 Agent 目录以外的:${hint}`);
 
     // 一次确认入库：默认不勾，勾上才写清之后在 app 里更新会换掉链接。
     await btn(page.locator(".unmanaged-hint"), "全部入库…").click();
@@ -1814,7 +1822,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
 
     await btn(unmanaged("link-tdd"), "入库").click();
     await btn(modal(), "入库").click();
-    await toast("已入库「link-tdd」");
+    await toast("「link-tdd」已放进技能库");
     await settle();
     await selectScope("Codex");
     await btn(unmanaged("link-tdd"), "入库").click();
@@ -2106,7 +2114,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await btn(trioHead.locator(".section-head"), "看来源里的其他技能").click();
   await modal().locator('[data-slot="list-row"]', { hasText: "nu" }).waitFor({ timeout: 20000 });
   await page.keyboard.press("Escape");
-  await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+  await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
 });
 
 // ============ 拖放 ============
@@ -2152,7 +2160,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
     for (const name of names) {
       await btn(unmanaged(name), "入库").click();
       await btn(modal(), "入库").click();
-      await toast(`已入库「${name}」`);
+      await toast(`「${name}」已放进技能库`);
       await settle();
     }
     await clearScope();
@@ -2195,7 +2203,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
     gitIn(work, "push", "-q", bare, "main");
     await checkUpdates("2 个技能有新版本");
     // 更新列表还开着：再点一次"更新"会收起，先回到所有技能。
-    await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+    await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
     await updatesNav().click();
     assert((await page.locator(".update-row", { hasText: label }).textContent()).includes("grill-me、tdd 有变化，更新会换掉你的修改"), "作者再改时 tdd 也报");
     assert((await card("tdd").locator(".update-edited-note").textContent()).includes("更新会换掉你的修改"), "技能行里写明");
@@ -2234,7 +2242,7 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
     await btn(unmanaged, "入库").click();
     assert.equal(await modal().locator(".unmanaged-same-name").count(), 0, "库里还没有同名的");
     await btn(modal(), "入库").click();
-    await toast("已入库「review」");
+    await toast("「review」已放进技能库");
     await settle();
 
     await selectScope("Codex");
@@ -2247,7 +2255,7 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
     await modal().locator(".unmanaged-source").fill("");
     await page.screenshot({ path: path.join(SHOTS, "same-name-in-library-confirm.png") });
     await btn(modal(), "入库").click();
-    await toast("已入库「review」");
+    await toast("「review」已放进技能库");
     await settle();
     await clearScope();
     await settle();
@@ -2499,7 +2507,7 @@ await step("左栏集合跳到那一节 → 看来源里的其他技能", async 
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
   assert((await modal().locator('[data-slot="list-row"] [data-slot="badge"]', { hasText: "已入库" }).count()) === 3, "已入库的候选应标出来");
   await page.keyboard.press("Escape");
-  await page.locator(".a-left .nav-item", { hasText: "所有技能" }).click();
+  await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
 });
 
 // ============ 同步与设置 ============

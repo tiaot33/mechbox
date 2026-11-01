@@ -26,7 +26,7 @@ function Switch({
   );
 }
 
-// SwitchMark 是开着、但不能点的开关样子，只是记号不是控件：Agent 在这里用着这个技能，只是不归这里管(未纳管技能、来自全局)。
+// SwitchMark 是开着、但不能点的开关样子，只是记号不是控件：Agent 在这里用着这个技能，只是在这里改不了(项目作用域里来自全局的)。
 function SwitchMark({ className, title }: { className?: string; title: string }) {
   return (
     <span

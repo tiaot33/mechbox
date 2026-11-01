@@ -4,7 +4,20 @@ import { useState } from "react";
 import type { AgentCode, Scope, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentNameIn, agentShown, agentsUsedIn, mergeAgentsExcept, projectName, scopeKey, scopeOf, skillScopeIn, type Place } from "@/lib/model";
+import {
+  agentNameIn,
+  agentShown,
+  agentsUsedIn,
+  mergeAgentsExcept,
+  parseScope,
+  placeOf,
+  projectName,
+  scopeKey,
+  scopeOf,
+  skillScopeIn,
+  type Page,
+  type Place,
+} from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
@@ -68,8 +81,15 @@ export function AgentSelect({ target }: { target: InstallTarget }) {
   );
 }
 
-// installPicked 是勾选后操作栏的"安装到…":先选装到哪里，再把勾选的技能一起安装。initial 是默认选的地方与 Agent
-// (作用域页是这个作用域，项目页是这个项目)。
+// pageInstallTarget 是在这一页上"安装到…"默认选的地方与 Agent:作用域页是这个作用域，项目页是这个项目，其余不预选。
+export function pageInstallTarget(page: Page): { place?: Place; agent?: AgentCode } {
+  if (page.kind === "scope") return { place: placeOf(parseScope(page.scope)), agent: parseScope(page.scope).agent };
+  if (page.kind === "project") return { place: page.project };
+  return {};
+}
+
+// installPicked 是勾选后操作栏、入库完成提示上的"安装到…":先选装到哪里，再把这些技能一起安装。initial 是默认选的地方与 Agent
+// (见 pageInstallTarget)。
 export async function installPicked(ids: SkillID[], initial: { place?: Place; agent?: AgentCode } = {}) {
   const scope = await ui.open<Scope>((close) => <InstallToDialog ids={ids} initial={initial} close={close} />);
   if (scope) await installSkills(ids, scope);

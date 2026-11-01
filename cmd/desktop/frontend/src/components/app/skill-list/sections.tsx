@@ -1,4 +1,4 @@
-// 列表的分节：所有技能页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节，以及下面那块没装在这里的。
+// 列表的分节：技能库页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节，以及下面那块没装在这里的。
 // 节标题可以收起;集合与组的节标题可以拖到右栏作用域(集合 = 把它的技能逐个直接安装，组 = 组安装),
 // 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
 import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
@@ -97,10 +97,10 @@ function DragHandle() {
   );
 }
 
-// inUse 是一节里算作在用的技能：装在至少一个地方的。所有技能页节标题的个数和行的先后都按它。
+// inUse 是一节里算作在用的技能：装在至少一个地方的。技能库页节标题的个数和行的先后都按它。
 const inUse = (s: ReturnType<typeof useSnapshot>, skills: Skill[]) => skills.filter((x) => skillScopesOf(s, x.id).length > 0);
 
-// UseCounts 是所有技能页节标题上的"在用 N · 共 M"。
+// UseCounts 是技能库页节标题上的"在用 N · 共 M"。
 function UseCounts({ skills }: { skills: Skill[] }) {
   const s = useSnapshot();
   const t = useT().list;
@@ -237,7 +237,7 @@ export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode
   );
 }
 
-// SkillRows 列出所有技能页一节里的技能：装在至少一个地方的在前;没装的默认折成一行，点开再列出。
+// SkillRows 列出技能库页一节里的技能：装在至少一个地方的在前;没装的默认折成一行，点开再列出。
 // 搜索时、或这一节一个都没装时(刚入库的集合)直接全部列出。
 export function SkillRows({ id, skills, render }: { id: string; skills: Skill[]; render: (skill: Skill) => React.ReactNode }) {
   const s = useSnapshot();

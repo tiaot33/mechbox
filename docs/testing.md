@@ -309,7 +309,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
    wails3 task dev:seeded
    ```
 
-   窗口打开后，左栏「所有技能」有 10 个技能，「更新」有 5 个要处理的更新。
+   窗口打开后，左栏「技能库」有 10 个技能，「更新」有 5 个要处理的更新。
 
    Vite 的端口每次启动时自动选一个空闲的，别的工作区开着 `wails3 dev` 也不冲突。要固定端口时设 `WAILS_VITE_PORT`，如 `WAILS_VITE_PORT=9345 wails3 task dev:seeded`。
 
