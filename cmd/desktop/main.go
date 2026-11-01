@@ -77,7 +77,7 @@ func run() error {
 		PostShutdown: appService.afterShutdown,
 	})
 
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+	windowOptions := application.WebviewWindowOptions{
 		Name:      mainWindowName,
 		Title:     "Mechbox",
 		Width:     1400,
@@ -91,10 +91,12 @@ func run() error {
 			Backdrop: application.MacBackdropTranslucent,
 			TitleBar: application.MacTitleBarHiddenInset,
 		},
-		// 透明背景让 macOS 原生毛玻璃透出来;底色由前端的半透明层给出。
+		// 透明背景让 macOS 原生毛玻璃透出来;底色由前端的半透明层给出。Windows 上的底色见 setPlatformWindowOptions。
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL:              "/",
-	})
+	}
+	setPlatformWindowOptions(&windowOptions)
+	window := app.Window.NewWithOptions(windowOptions)
 	appService.attach(app, window)
 
 	err = app.Run()

@@ -4,6 +4,7 @@
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useLoadedSnapshot, reloadLibrary } from "@/lib/library";
+import { platform } from "@/lib/platform";
 import { pageTitle } from "@/lib/model";
 import { cn } from "@/lib/utils";
 import { setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, useView } from "@/lib/view";
@@ -11,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { Icon } from "./icons";
 import { titlebarClass } from "./layout";
-import { BusyMark, Count } from "./parts";
+import { BusyMark, Count, TrafficLightSpace } from "./parts";
 
 export function Toolbar() {
   const s = useLoadedSnapshot();
@@ -23,7 +24,7 @@ export function Toolbar() {
   const search = useRef<HTMLInputElement>(null);
   const t = useT().toolbar;
 
-  // ⌘K 聚焦搜索框。
+  // ⌘K(Windows、Linux 上是 Ctrl+K)聚焦搜索框。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -39,7 +40,7 @@ export function Toolbar() {
   return (
     <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
       <div className="flex min-w-0 items-center gap-2">
-        <div className="w-16" />
+        <TrafficLightSpace />
         <Button variant="ghost" size="icon" className={cn(left && "text-foreground")} onClick={toggleLeft} title={t.toggleLeft}>
           <Icon name="sidebarL" />
         </Button>
@@ -55,7 +56,7 @@ export function Toolbar() {
           ref={search}
           className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
           icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
-          suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">⌘K</kbd>}
+          suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">{platform() === "mac" ? "⌘K" : "Ctrl K"}</kbd>}
           placeholder={t.search}
           value={text}
           onChange={(e) => setSearch(e.target.value)}

@@ -6,8 +6,11 @@
 @source not "../dist";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  /* 系统字体:macOS 的 SF 与苹方,Windows 的 Segoe UI 与微软雅黑(Segoe UI 没有中文字形，中文落到微软雅黑)。 */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, monospace;
 
   --color-foreground: #111827;
   --color-foreground-secondary: #4b5563;
