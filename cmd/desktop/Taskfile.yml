@@ -34,6 +34,52 @@ tasks:
     cmds:
       - task: "{{.GOOS}}:package"
 
+  # 打出发布用的安装包放进 dist/(先清空),只打本机系统、本机架构的。.github/workflows/release.yml 在各平台上跑的就是这个任务，
+  # 本机跑同一条命令就能复现 CI 的打包。文件名是 app 里的更新依赖的约定(见 README 的「发布」),改名前先改 release_<平台>.go。
+  # VERSION 只用在文件名里，默认 dev-<提交>;写进构建配置的版本号由 .github/scripts/set-version.sh 负责。
+  release:
+    summary: Packages the release installers for this OS into dist/
+    vars:
+      COMMIT:
+        sh: git rev-parse --short=7 HEAD
+      VERSION: '{{.VERSION | default (print "dev-" .COMMIT)}}'
+    cmds:
+      - rm -rf dist
+      - mkdir -p dist
+      - task: release:{{OS}}
+        vars:
+          NAME: Mechbox-{{.VERSION}}
+
+  release:darwin:
+    internal: true
+    cmds:
+      - task: darwin:package:universal
+      - task: darwin:create:dmg
+      - mv "{{.BIN_DIR}}/{{.APP_NAME}}.dmg" "dist/{{.NAME}}-macos-universal.dmg"
+      # app 里的更新下载这个 zip 替换 mechbox.app。顶层只能有 mechbox.app 一项，所以不带扩展属性(否则多出 __MACOSX)。
+      - ditto -c -k --norsrc --noextattr --noacl --keepParent "{{.BIN_DIR}}/{{.APP_NAME}}.app" "dist/{{.NAME}}-macos-universal.zip"
+
+  # go-sqlite3 依赖 cgo;Windows 的任务默认 CGO_ENABLED=0,编出来的程序打不开数据库。
+  # 另起一次 wails3 task 传 CGO_ENABLED:用 task 调用时传的变量到不了被调任务再往下调的 build。
+  release:windows:
+    internal: true
+    cmds:
+      - wails3 task windows:package CGO_ENABLED=1
+      - mv "{{.BIN_DIR}}/{{.APP_NAME}}-{{ARCH}}-installer.exe" "dist/{{.NAME}}-windows-{{ARCH}}-setup.exe"
+
+  # nfpm.yaml 的 arch 取自环境变量 GOARCH(维护者取自 GIT_COMMITTER_NAME / GIT_COMMITTER_EMAIL,CI 里设)。
+  # 另起一次 wails3 task 让它带上这个环境变量:task 的 env 只给自己的命令，到不了它调用的任务。
+  release:linux:
+    internal: true
+    env:
+      GOARCH: '{{ARCH}}'
+    cmds:
+      - wails3 task linux:package
+      - mv "{{.BIN_DIR}}"/{{.APP_NAME}}-*.AppImage "dist/{{.NAME}}-linux-{{ARCH}}.AppImage"
+      - mv "{{.BIN_DIR}}/{{.APP_NAME}}.deb" "dist/{{.NAME}}-linux-{{ARCH}}.deb"
+      - mv "{{.BIN_DIR}}/{{.APP_NAME}}.rpm" "dist/{{.NAME}}-linux-{{ARCH}}.rpm"
+      - mv "{{.BIN_DIR}}/{{.APP_NAME}}.pkg.tar.zst" "dist/{{.NAME}}-linux-{{ARCH}}.pkg.tar.zst"
+
   run:
     summary: Runs the application
     cmds:
