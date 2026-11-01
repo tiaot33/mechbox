@@ -1,4 +1,5 @@
-// 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;底部同步与设置。
+// 左栏：入库 / 市场入口;页面——所有技能 / 更新;集合(按来源)与组是所有技能页里的节，点了跳到那一节;
+// 底部同步与设置，Mechbox 有新版本时上面多一行新版本。
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，默认按来源名排，只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
 // 集合、组各自拖到同类的行上调整先后，和列表的分节一起变，右键节标题可以恢复默认顺序。两种行名字放不下时悬停显示全名，右键有各自的菜单。
@@ -6,7 +7,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ConfigStatus } from "@bindings/cmd/desktop";
 import { SyncInterval, type Collection, type Group } from "@bindings/internal/library";
-import { useSnapshot, configQuery, syncStatusQuery } from "@/lib/library";
+import { useSnapshot, configQuery, releaseQuery, syncStatusQuery } from "@/lib/library";
 import { checkUpdates, useCheckMark } from "@/features/update/check";
 import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { previewCollection } from "@/features/fetch/preview";
@@ -48,6 +49,7 @@ import { MarketDialog } from "@/features/fetch/market-dialog";
 import { NavCount, navItem } from "./nav";
 import { TailPath, tailPath, Truncated } from "./parts";
 import { SyncDialog } from "@/features/settings/sync-dialog";
+import { openRelease } from "@/features/release/release";
 
 const noConfig: ConfigStatus = { sync: false, github_token: false };
 
@@ -177,6 +179,7 @@ export function LeftSidebar() {
 
       <div className="grow" />
       <ul className="flex flex-col gap-0.5">
+        <ReleaseRow />
         <li>
           <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog config={config} onClose={close} />)}>
             <Icon name="cloud" />
@@ -386,5 +389,21 @@ function SectionHead({
       </ContextMenuTrigger>
       <ContextMenuContent>{menu}</ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+// ReleaseRow 是 Mechbox 有新版本时左栏底部的一行，点开看更新说明并更新;没有新版本时不出现。
+function ReleaseRow() {
+  const latest = useQuery(releaseQuery).data?.latest;
+  const t = useT().release;
+  if (!latest) return null;
+  return (
+    <li>
+      <button type="button" className={cn(navItem(), "release-row")} title={t.sidebarTitle(latest.version)} onClick={() => openRelease(latest)}>
+        <Icon name="up" />
+        <span className="grow">{t.sidebar}</span>
+        <span className="font-mono text-[11px] text-primary">{latest.version}</span>
+      </button>
+    </li>
   );
 }

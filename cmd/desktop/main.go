@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/updater"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
@@ -41,6 +42,8 @@ func main() {
 }
 
 func run() error {
+	// 更新时 Wails 会把自己再启动一份来替换 app;那一份在这里做完替换就退出，不碰技能库。
+	updater.HandleHelperMode()
 	path, err := defaultLibraryPath()
 	if err != nil {
 		return err

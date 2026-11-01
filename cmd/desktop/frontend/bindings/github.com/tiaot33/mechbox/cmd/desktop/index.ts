@@ -11,13 +11,17 @@ export {
 export {
     CheckInterval,
     Language,
+    ManualReason,
     UninstallFolders
 } from "./models.js";
 
 export type {
     AppInfo,
     ConfigStatus,
+    InstallFailure,
     PushProblem,
+    Release,
+    ReleaseStatus,
     Settings,
     UninstallOptions,
     UninstallResult

@@ -251,6 +251,17 @@ export const wslDistroErrorQuery = queryOptions({
   queryFn: ({ signal }) => wails(signal, AppService.WSLDistroError()),
 });
 
+// releaseQuery 是检查 Mechbox 新版本的现状：Go 端启动时检查一次，检查完发 release-checked 事件，App 据此重读;
+// 设置页「关于」里手动检查之后由发起处重读。
+export const releaseQuery = queryOptions({
+  queryKey: ["release"],
+  queryFn: ({ signal }) => wails(signal, AppService.Release()),
+});
+
+export function invalidateRelease() {
+  return queryClient.invalidateQueries({ queryKey: releaseQuery.queryKey });
+}
+
 // ---------- 在 skills.sh 上找到的来源 ----------
 
 // 来源记录认不出来源的未纳管技能，列出之后在后台去 skills.sh 找来源，找到的陆续补到界面上。

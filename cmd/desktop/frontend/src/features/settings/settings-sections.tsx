@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
+import { ReleaseCheck } from "@/features/release/release";
 
 // GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、界面语言，以及 Windows 上装了 WSL 时的全局目录。
 export function GeneralSection({
@@ -178,14 +179,17 @@ export function TranslateSection({ settings, save }: { settings: Settings; save:
   );
 }
 
-// AboutSection 是关于分区：应用版本与数据库的位置。
+// AboutSection 是关于分区：应用版本(旁边检查新版本)与数据库的位置。
 export function AboutSection() {
   const s = useSnapshot();
   const t = useT().settings;
   return (
   <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-xs [&_dt]:text-muted-foreground">
     <dt>{t.version}</dt>
-    <dd className="font-mono select-text">{s.info.version}</dd>
+    <dd className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
+      <span className="font-mono leading-6 select-text">{s.info.version}</span>
+      <ReleaseCheck />
+    </dd>
     <dt>{t.databasePath}</dt>
     <dd className="font-mono text-[11px] break-all select-text">{s.info.library_path}</dd>
   </dl>
