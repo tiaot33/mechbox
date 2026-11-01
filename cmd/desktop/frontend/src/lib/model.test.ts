@@ -116,13 +116,28 @@ describe("missingFromGroup", () => {
 });
 
 describe("homePath", () => {
+  const wslHome = "\\\\wsl.localhost\\Ubuntu\\home\\me";
+
   it("把主目录缩写成 ~", () => {
     expect(homePath("/Users/me", "/Users/me/.agents/skills")).toBe("~/.agents/skills");
-    expect(homePath("\\\\wsl.localhost\\Ubuntu\\home\\me", "\\\\wsl.localhost\\Ubuntu\\home\\me\\.agents\\skills")).toBe("~\\.agents\\skills");
   });
 
   it("Windows 上的主目录不缩写", () => {
     expect(homePath("C:\\Users\\me", "C:\\Users\\me\\.agents\\skills")).toBe("C:\\Users\\me\\.agents\\skills");
+    expect(homePath(wslHome, "C:\\Users\\me\\.agents\\skills")).toBe("C:\\Users\\me\\.agents\\skills");
+  });
+
+  it("全局目录在 WSL 发行版里时，发行版主目录下的路径写成 ~/...", () => {
+    expect(homePath(wslHome, wslHome + "\\.agents\\skills")).toBe("~/.agents/skills");
+    expect(homePath(wslHome, wslHome)).toBe("~");
+    expect(homePath(wslHome, "\\\\wsl$\\ubuntu\\home\\me\\.claude\\skills")).toBe("~/.claude/skills");
+  });
+
+  it("发行版里的其他路径写成 / 开头的 Linux 路径", () => {
+    expect(homePath(wslHome, "\\\\wsl.localhost\\Ubuntu\\opt\\proj")).toBe("/opt/proj");
+    expect(homePath(wslHome, "\\\\wsl.localhost\\Ubuntu\\home\\melody\\proj")).toBe("/home/melody/proj");
+    expect(homePath(wslHome, "\\\\wsl.localhost\\Debian\\home\\me\\proj")).toBe("/home/me/proj");
+    expect(homePath("C:\\Users\\me", "\\\\wsl.localhost\\Ubuntu\\home\\me\\proj")).toBe("/home/me/proj");
   });
 });
 

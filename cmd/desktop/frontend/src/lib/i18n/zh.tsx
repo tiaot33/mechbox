@@ -74,6 +74,9 @@ export const zh = {
   paths: {
     absolute: "请输入绝对路径或以 ~ 开头的路径，或点「选择…」",
     fetchRelative: "本地目录请输入绝对路径（以 / 或 ~/ 开头），或点「选择…」",
+    linuxOnWindows: "全局目录在 Windows 本机，看不出 / 开头的路径在哪个 WSL 发行版里：请点「选择…」，或写成 \\\\wsl.localhost\\<发行版>\\…",
+    inWSL: (distro: string, path: string) => `WSL · ${distro} 里的 ${path}`,
+    onWindows: (path: string) => `Windows 本机的 ${path}`,
   },
 
   model: {

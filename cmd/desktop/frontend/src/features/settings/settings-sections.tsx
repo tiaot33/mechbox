@@ -16,6 +16,7 @@ import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
+import { WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
@@ -111,7 +112,10 @@ export function ProjectsSection() {
       <SetRow key={p.id}>
         <Icon name="folder" />
         <div className="min-w-0 grow">
-          <div className="truncate">{projectName(s, p.id)}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{projectName(s, p.id)}</span>
+            <WSLBadge path={p.path} />
+          </div>
           <div className="truncate font-mono text-[11px] text-muted-foreground select-text" title={p.path}>
             {shortPath(s, p.path)}
           </div>

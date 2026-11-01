@@ -16,6 +16,7 @@ import {
   skillScopesIn,
   unmanagedIn,
   viaGroupCount,
+  wslTitle,
   type ScopeKey,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
+import { WSLBadge } from "@/components/app/parts";
 
 // 列表顶部的摘要条(作用域摘要、更新列表)共用的外观。
 export const barClass = "a-scope-sum flex flex-col gap-2 rounded-[10px] border border-hairline bg-glass-card px-3 py-2.5 shadow-tile";
@@ -60,7 +62,10 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
       </div>
       <div className={barRowClass}>
         <span className="text-[11px] text-muted-foreground">{t.agentDirectory}</span>
-        <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{directory ? shortPath(s, directory) : "…"}</span>
+        <WSLBadge path={directory} />
+        <span className="max-w-[360px] truncate font-mono text-[11px] select-text" title={wslTitle(directory)}>
+          {directory ? shortPath(s, directory) : "…"}
+        </span>
         <span className="grow" />
         <Stat value={installed.length} label={t.statInstalled} />
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statUnmanaged} />}
@@ -140,7 +145,10 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
       </div>
       <div className={barRowClass}>
         <span className="text-[11px] text-muted-foreground">{t.projectDirectory}</span>
-        <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{shortPath(s, project.path)}</span>
+        <WSLBadge path={project.path} />
+        <span className="max-w-[360px] truncate font-mono text-[11px] select-text" title={wslTitle(project.path)}>
+          {shortPath(s, project.path)}
+        </span>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
 import { agentShown, nativePath, shortPath, slashPath } from "@/lib/model";
-import { insideHome, resolveLocalPath } from "@/lib/paths";
+import { insideHome, isWSLPath, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { Field, FieldError, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { pickDirectory } from "@/features/fetch/fetch-dialog";
-import { AgentMark } from "@/components/app/parts";
+import { AgentMark, PathWhere } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 
 export function AgentSection({
@@ -145,13 +145,14 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
           <Button
             onClick={async () => {
               const dir = await pickDirectory(t.chooseGlobal);
-              if (dir) setGlobal(shortPath(s, dir));
+              if (dir) setGlobal(isWSLPath(dir) ? dir : shortPath(s, dir));
             }}
           >
             {t.choose}
           </Button>
         </div>
         {error("global_directory")}
+        <PathWhere path={resolveLocalPath(global, home)?.path} />
       </Field>
       <Field label={t.project}>
         <Input

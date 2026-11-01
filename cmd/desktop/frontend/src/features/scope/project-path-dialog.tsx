@@ -7,6 +7,7 @@ import { Modal } from "@/lib/ui";
 import { pickDirectory } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { FieldError, Hint } from "@/components/ui/field";
+import { PathWhere } from "@/components/app/parts";
 import { Input } from "@/components/ui/input";
 import { registerProject, relocateProject } from "./projects";
 
@@ -65,6 +66,7 @@ export function ProjectPathDialog({
         </Button>
       </div>
       {resolved?.error && <FieldError>{resolved.error}</FieldError>}
+      <PathWhere path={resolved?.path} />
     </Modal>
   );
 }

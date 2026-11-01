@@ -75,6 +75,10 @@ export const en = {
   paths: {
     absolute: "Enter an absolute path or one starting with ~, or click “Choose…”",
     fetchRelative: "For a local directory, enter an absolute path (starting with / or ~/), or click “Choose…”",
+    linuxOnWindows:
+      "The global directories are on this Windows PC, so a path starting with / doesn't say which WSL distribution it's in: click “Choose…”, or write it as \\\\wsl.localhost\\<distribution>\\…",
+    inWSL: (distro: string, path: string) => `${path} in WSL · ${distro}`,
+    onWindows: (path: string) => `${path} on this Windows PC`,
   },
 
   model: {

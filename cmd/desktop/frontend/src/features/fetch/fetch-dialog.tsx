@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { FieldError, Hint } from "@/components/ui/field";
+import { PathWhere } from "@/components/app/parts";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -170,6 +171,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
         </Button>
       </div>
       {input?.error && <FieldError>{input.error}</FieldError>}
+      <PathWhere path={input?.path && isLocalPath(input.path) ? input.path : undefined} />
       <RefPicker
         refs={refs}
         chosen={chosen}
