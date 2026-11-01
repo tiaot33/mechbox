@@ -159,6 +159,32 @@ async function openDrawer(name) {
   await idle();
   await drawer().locator(".versions li").first().waitFor();
 }
+// pickAgents 在"安装到…"里只勾上 agents(Agent 代码或选项上的名字),其余能选的取消，再收起列表。
+async function pickAgents(root, agents) {
+  await root.locator(".agent-pick").click();
+  const menu = page.locator(".agent-menu");
+  await menu.waitFor();
+  for (const opt of await menu.locator(".agent-option").all()) {
+    const box = opt.locator("input");
+    if (await box.isDisabled()) continue;
+    const name = (await opt.locator("span").first().textContent()).trim();
+    const want = agents.includes(await opt.getAttribute("data-agent")) || agents.includes(name);
+    if ((await box.isChecked()) !== want) await box.click();
+  }
+  await root.locator(".agent-pick").click();
+  await menu.waitFor({ state: "detached" });
+}
+// agentOptions 是"安装到…"里列出的 Agent 选项名字;没有能选的 Agent 时不摆列表，是空的。
+async function agentOptions(root) {
+  if (!(await root.locator(".agent-pick").count())) return [];
+  await root.locator(".agent-pick").click();
+  const menu = page.locator(".agent-menu");
+  await menu.waitFor();
+  const names = (await menu.locator(".agent-option > span:first-of-type").allTextContents()).map((x) => x.trim());
+  await root.locator(".agent-pick").click();
+  await menu.waitFor({ state: "detached" });
+  return names;
+}
 async function closeDrawer() {
   if (await drawer().count()) await drawer().locator('[data-slot="sheet-close"]').click();
 }
@@ -1022,7 +1048,7 @@ await step("详情：安装到 Claude Code 全局，并落盘", async () => {
   await openDrawer("alpha");
   const d = drawer();
   await d.locator(".install-to select").nth(0).selectOption("0");
-  await d.locator(".install-to select").nth(1).selectOption("claude-code");
+  await pickAgents(d, ["claude-code"]);
   await btn(d, "安装").click();
   await toast("已安装「alpha」");
   await settle();
@@ -1604,7 +1630,7 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await clearScope();
   await openDrawer("delta");
   await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-a" });
-  await drawer().locator(".install-to select").nth(1).selectOption("claude-code");
+  await pickAgents(drawer(), ["claude-code"]);
   await btn(drawer(), "安装").click();
   await toast("已安装「delta」");
   await settle();
@@ -1674,7 +1700,7 @@ await step("详情：本地目录来源重新读取，一个操作完成，改�
   await openDrawer("gamma");
   assert((await btn(drawer(), "检查更新").count()) === 0, "单个技能不提供检查更新");
   await drawer().locator(".install-to select").nth(0).selectOption("0");
-  await drawer().locator(".install-to select").nth(1).selectOption("codex");
+  await pickAgents(drawer(), ["codex"]);
   await btn(drawer(), "安装").click();
   await toast("已安装「gamma」");
   await settle();
@@ -1832,7 +1858,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await clearScope();
     await openDrawer("link-tdd");
     await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-a" });
-    await drawer().locator(".install-to select").nth(1).selectOption("claude-code");
+    await pickAgents(drawer(), ["claude-code"]);
     await btn(drawer(), "安装").click();
     await toast("已安装「link-tdd」");
     await settle();
@@ -2049,7 +2075,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await settle();
   await openDrawer("lambda");
   await drawer().locator(".install-to select").nth(0).selectOption("0");
-  await drawer().locator(".install-to select").nth(1).selectOption("claude-code");
+  await pickAgents(drawer(), ["claude-code"]);
   await btn(drawer(), "安装").click();
   await toast("已安装「lambda」");
   await settle();
@@ -2419,7 +2445,7 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
 
   await btn(bar, "安装到…").click();
   await modal().locator(".install-picked select").nth(0).selectOption({ label: "proj-b" });
-  await modal().locator(".install-picked select").nth(1).selectOption({ label: "Codex" });
+  await pickAgents(modal(), ["Codex"]);
   await btn(modal(), "安装").click();
   await toast("已把 3 个技能装到 Codex · proj-b");
   await settle();
@@ -2729,7 +2755,7 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   const installTo = async (skill, agentName) => {
     await openDrawer(skill);
     await drawer().locator(".install-to select").nth(0).selectOption("0");
-    await drawer().locator(".install-to select").nth(1).selectOption({ label: agentName });
+    await pickAgents(drawer(), [agentName]);
     await btn(drawer(), "安装").click();
     await toast(`已安装「${skill}」`);
     await settle();
@@ -2768,7 +2794,7 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   }
   await openDrawer("alpha");
   await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
-  assert((await drawer().locator(".install-to select").nth(1).locator("option", { hasText: "Codex" }).count()) === 0, "安装到…不应列出 Codex");
+  assert(!(await agentOptions(drawer())).some((n) => n.includes("Codex")), "安装到…不应列出 Codex");
   await closeDrawer();
   assert.deepStrictEqual(JSON.parse(appConfig().agents_shown), { codex: false, "claude-code": false });
   await page.reload();
@@ -2895,8 +2921,10 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await back();
   await openDrawer("beta");
   await drawer().locator(".install-to select").nth(0).selectOption("0");
-  await drawer().locator(".install-to select").nth(1).selectOption({ label: "Twin" });
+  await pickAgents(drawer(), ["Twin"]);
   await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
+  assert(!(await drawer().locator(".agent-pick").textContent()).includes("Twin"), "换到 proj-b 后不应仍勾着 Twin");
+  await pickAgents(drawer(), ["Claude Code"]);
   await btn(drawer(), "安装").click();
   await toast("已安装「beta」到 Claude Code · proj-b");
   await settle();
@@ -2973,8 +3001,8 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
   // "安装到…"里合成一个选项;装一次，安装表只列一行。
   await openDrawer("alpha");
   await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-b" });
-  assert((await drawer().locator(".install-to select").nth(1).locator("option", { hasText: "Righty" }).count()) === 1, "安装到…里 Lefty 与 Righty 应合成一个选项");
-  await drawer().locator(".install-to select").nth(1).selectOption({ label: merged });
+  assert((await agentOptions(drawer())).filter((n) => n.includes("Righty")).length === 1, "安装到…里 Lefty 与 Righty 应合成一个选项");
+  await pickAgents(drawer(), [merged]);
   await btn(drawer(), "安装").click();
   await toast(`已安装「alpha」到 ${merged} · proj-b`);
   await settle();
@@ -3257,6 +3285,66 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
   await toast("没有要处理的更新");
   await settle();
+});
+
+// ============ 安装到…一次装到几个 Agent ============
+group("install-many", []);
+await step("安装到…一次装到几个 Agent：详情里一个技能装到全局的两个 Agent;操作栏里两个技能装到两个 Agent,同名文件夹合成一次询问", async () => {
+  for (const name of ["im-one", "im-two", "im-three"]) {
+    fs.mkdirSync(`${HOME}/code/install-many/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/install-many/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/install-many`);
+  await toast("已入库 3 个技能");
+  await settle();
+
+  const folderOf = async (where) =>
+    (await drawer().locator(".scope-table tbody tr", { hasText: where }).locator(".font-mono").textContent()).replace(/^~/, HOME);
+  await openDrawer("im-one");
+  await drawer().locator(".install-to select").nth(0).selectOption("0");
+  await pickAgents(drawer(), ["claude-code", "codex"]);
+  assert((await drawer().locator(".agent-pick").textContent()).includes("Claude Code、Codex"), "收起时写出勾上的全部 Agent");
+  await btn(drawer(), "安装").click();
+  await toast("已安装「im-one」到 Claude Code、Codex · 全局");
+  await settle();
+  const claudeSkills = path.dirname(await folderOf("Claude Code · 全局"));
+  const codexSkills = path.dirname(await folderOf("Codex · 全局"));
+  for (const dir of [claudeSkills, codexSkills]) assert(fs.existsSync(path.join(dir, "im-one", "SKILL.md")), `磁盘上应有 ${dir}/im-one`);
+  // 装上以后两个 Agent 都已装，列表里不能再勾(全局没有别的能选的 Agent 时不摆列表)。
+  if (await drawer().locator(".agent-pick").count()) {
+    await drawer().locator(".agent-pick").click();
+    for (const code of ["claude-code", "codex"]) {
+      assert(await page.locator(`.agent-menu .agent-option[data-agent="${code}"] input`).isDisabled(), `已装的 ${code} 不能再勾`);
+    }
+    await drawer().locator(".agent-pick").click();
+    await page.locator(".agent-menu").waitFor({ state: "detached" });
+  }
+  await closeDrawer();
+
+  // 默认勾上全局在用、还没装的 Agent:两个都已在全局用着。Codex 里已有一个不是库装的 im-three。
+  fs.mkdirSync(path.join(codexSkills, "im-three"), { recursive: true });
+  fs.writeFileSync(path.join(codexSkills, "im-three", "SKILL.md"), '---\nname: im-three\ndescription: "mine"\n---\n');
+  const bar = page.locator(".pick-bar");
+  await card("im-two").locator(".pick-box").click();
+  await card("im-three").locator(".pick-box").click();
+  await bar.locator("span", { hasText: "已选 2 个" }).waitFor();
+  await btn(bar, "安装到…").click();
+  await modal().locator(".install-picked select").nth(0).selectOption("0");
+  const names = await modal().locator(".agent-pick").textContent();
+  assert(names.includes("Claude Code") && names.includes("Codex"), `默认应勾上全局在用的两个 Agent:${names}`);
+  await pickAgents(modal(), ["claude-code", "codex"]);
+  await btn(modal(), "安装").click();
+  await modal().locator('[data-slot="notice"]', { hasText: "1 处已有不是从技能库装的同名文件夹：im-three · Codex · 全局" }).waitFor();
+  await modal().locator("label", { hasText: "覆盖这些文件夹" }).click();
+  await btn(modal(), "安装").click();
+  await toast("已把 2 个技能装到 Claude Code、Codex · 全局");
+  await settle();
+  for (const dir of [claudeSkills, codexSkills]) {
+    for (const name of ["im-two", "im-three"]) assert(fs.existsSync(path.join(dir, name, "SKILL.md")), `磁盘上应有 ${dir}/${name}`);
+  }
+  assert(fs.readFileSync(path.join(codexSkills, "im-three", "SKILL.md"), "utf8").includes('"im-three"'), "覆盖后 Codex 的 im-three 应是库里的版本");
+  await page.keyboard.press("Escape");
 });
 
 // ============ 照着另一个 Agent 装 ============

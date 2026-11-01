@@ -21,7 +21,7 @@ import { Hint } from "@/components/ui/field";
 import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
-import { BusyMark } from "@/components/app/parts";
+import { BusyMark, TrafficLightSpace } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
@@ -133,7 +133,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     <>
       <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
         <div className="flex min-w-0 items-center gap-2">
-          <div className="w-16" />
+          <TrafficLightSpace />
           {/* 等排队的保存都完成再返回，主界面重读时拿到的是最后保存的设置(Agent 的显示勾选)。 */}
           <Button variant="ghost" size="icon" onClick={() => void saving.current.then(onClose)} title={t.back}>
             <Icon name="chevL" />

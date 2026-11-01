@@ -44,7 +44,7 @@ export function useDnD() {
       // 拖动中临时展开的地方拖完会收回，放下的那一行保持展开，好看到装上的结果。
       reveal(sc);
       if (item.kind === "skill") void installSkill(item.id, sc);
-      else if (item.kind === "skills") void installSkills(item.ids, sc);
+      else if (item.kind === "skills") void installSkills(item.ids, [sc]);
       else if (item.kind === "group") void installGroup(item.id, sc);
       else void installCollection(item.id, sc);
     },
