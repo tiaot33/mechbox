@@ -388,6 +388,16 @@ export const en = {
     resultsTitle: (from: string, to: string) => `Copy from ${from} to ${to}`,
     summary: (installed: number, rest: number) => `${installed} installed, ${count(rest, "item")} not installed`,
     groupFailed: (name: string, where: string) => `Group “${name}” → ${where}`,
+    projectOpen: "Copy from another project…",
+    projectOpenTitle: (to: string) => `Install in ${to}, in one go, the skills each Agent uses in another registered project`,
+    projectTitle: (to: string) => `Copy from another project to ${to}`,
+    projectLead: (to: string) => `Install in ${to}: each Agent's skills go to the same Agent in this project`,
+    projectOnce: (from: string, to: string) =>
+      `This is a one-time install: skills you install in ${from} later won't follow to ${to}. To keep several projects the same, use a Group install: on the ${from} project page, check the skills, choose “Add to Group…”, then drag the Group onto the Agents under ${to}. Everything already installed in ${to} stays as it is.`,
+    repoOwned: (from: string, n: number) =>
+      `${from} also has ${count(n, "skill")} that the project repository manages (committed to the repository or listed in skills-lock.json). They go with the repository and aren't part of this install.`,
+    projectNothing: (to: string) => `${to} already has every Library skill installed in the other registered projects`,
+    projectMissing: (to: string) => `${to} isn't on this machine, so nothing can be installed there. Change the project location in the right sidebar to point to this machine first`,
   },
 
   update: {

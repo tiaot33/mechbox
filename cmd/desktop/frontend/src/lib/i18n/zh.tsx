@@ -356,6 +356,16 @@ export const zh = {
     resultsTitle: (from: string, to: string) => `照着 ${from} 装到 ${to}`,
     summary: (installed: number, rest: number) => `装上 ${installed} 个，${rest} 项没装上`,
     groupFailed: (name: string, where: string) => `组「${name}」 → ${where}`,
+    projectOpen: "照着其他项目装…",
+    projectOpenTitle: (to: string) => `照着另一个已登记项目，把各 Agent 在那里用的技能一次装到 ${to}`,
+    projectTitle: (to: string) => `照着其他项目装到 ${to}`,
+    projectLead: (to: string) => `装到 ${to}，每个 Agent 装到这个项目里的同一个 Agent`,
+    projectOnce: (from: string, to: string) =>
+      `只装这一次：之后在 ${from} 新装的技能不会跟着装到 ${to}。想让几个项目一直一样，用组安装：在 ${from} 的项目页勾选技能，「加入组…」，再把组拖到 ${to} 下的 Agent 上。${to} 原有的安装都不动。`,
+    repoOwned: (from: string, n: number) =>
+      `${from} 里还有 ${n} 个技能归项目仓库管（提交在仓库里，或记在 skills-lock.json 里），随项目仓库走，不在这次范围内。`,
+    projectNothing: (to: string) => `其他已登记项目里装的库里技能，都已经装在 ${to} 了`,
+    projectMissing: (to: string) => `${to} 不在这台机器上，装不上；先在右栏改项目位置指到本机`,
   },
 
   update: {

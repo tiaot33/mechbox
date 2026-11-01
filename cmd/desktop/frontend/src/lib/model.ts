@@ -12,6 +12,7 @@ import {
   type Group,
   type GroupID,
   type ProjectID,
+  type RegisteredProject,
   type Scope,
   type Skill,
   type SkillID,
@@ -325,16 +326,18 @@ export function viaGroupCount(s: Snapshot, group: Group, key: ScopeKey): number 
   return (group.members ?? []).filter((id) => skillScopeIn(s, id, key)?.groups?.includes(group.id)).length;
 }
 
-// ---------- 照着另一个 Agent 装 ----------
-// 照着一个 Agent(from),把它在全局和各已登记项目里装的库里技能装到另一个 Agent(to)的同一处：直接安装照样直接安装，
-// 组安装照样是同一个组的组安装。只装一次、只加不减:to 在这一处已经装了的技能、已经有的组安装不列出;
-// 两个 Agent 在某一处读同一个目录时，那一处本来就一样，也不列出。
+// ---------- 照着装 ----------
+// 照着另一个 Agent 装：把它在全局和各已登记项目里装的库里技能装到这个 Agent 的同一处。
+// 照着另一个项目装：把各 Agent 在那个项目里装的库里技能装到这个项目里的同一个 Agent。
+// 两种都是一处照着一处装：直接安装照样直接安装，组安装照样是同一个组的组安装。只装一次、只加不减:
+// 装到的那一处已经装了的技能、已经有的组安装不列出;两处读同一个目录时本来就一样，也不列出。
 
-// CopyPlace 是照装时的一处:groups 是 from 在这里有、to 还没有的组安装，skills 是 from 在这里直接安装、to 这里还没装的技能;
-// edited 是要装过来的技能里(含随组装过来的),from 这一处被手动改过的:这里装的是库里的版本，不是改过的那份。
-// missing 是项目不在这台机器上，这一处装不了。
+// CopyPlace 是照装时的一处：照着 from 装到 to。groups 是 from 有、to 还没有的组安装，skills 是 from 直接安装、to 还没装的技能;
+// edited 是要装过来的技能里(含随组装过来的),from 那里被手动改过的：装的是库里的版本，不是改过的那份。
+// missing 是 to 所在的项目不在这台机器上，这一处装不了。
 export interface CopyPlace {
-  place: Place;
+  from: Scope;
+  to: Scope;
   groups: Group[];
   skills: Skill[];
   edited: Skill[];
@@ -359,22 +362,24 @@ function hasGroupAt(s: Snapshot, g: Group, agent: AgentCode, place: Place): bool
   return s.groupInstalls.some((gi) => gi.group_id === g.id && placeOf(gi.scope) === place && sameFolderAt(s, gi.scope.agent, agent, place));
 }
 
+// copyPlace 是照着 from 装到 to 的这一处;没有要装的时为空。
+function copyPlace(s: Snapshot, from: Scope, to: Scope): CopyPlace[] {
+  const installed = new Set(skillScopesIn(s, scopeKey(to)).map((p) => p.skill_id));
+  const groups = s.groups.filter((g) => hasGroupAt(s, g, from.agent, placeOf(from)) && !hasGroupAt(s, g, to.agent, placeOf(to)));
+  const there = skillScopesIn(s, scopeKey(from)).filter((p) => !installed.has(p.skill_id));
+  const skillsOf = (ids: SkillID[]) => sortSkills(s, s.skills.filter((x) => ids.includes(x.id)));
+  const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
+  if (!groups.length && !skills.length) return [];
+  const coming = new Set([...skills.map((x) => x.id), ...groups.flatMap((g) => g.members ?? [])]);
+  const edited = skillsOf(there.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && coming.has(p.skill_id)).map((p) => p.skill_id));
+  const missing = !!s.projects.find((p) => p.id === placeOf(to))?.missing;
+  return [{ from, to, groups, skills, edited, missing }];
+}
+
 export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): CopyPlace[] {
-  return [0, ...s.projects.map((p) => p.id)].flatMap((place): CopyPlace[] => {
-    if (sameFolderAt(s, from, to, place)) return [];
-    const fromKey = scopeKey(scopeOf(from, place));
-    const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
-    const installed = new Set(skillScopesIn(s, toKey).map((p) => p.skill_id));
-    const groups = s.groups.filter((g) => hasGroupAt(s, g, from, place) && !hasGroupAt(s, g, to, place));
-    const there = skillScopesIn(s, fromKey).filter((p) => !installed.has(p.skill_id));
-    const skillsOf = (ids: SkillID[]) => sortSkills(s, s.skills.filter((x) => ids.includes(x.id)));
-    const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
-    if (!groups.length && !skills.length) return [];
-    const coming = new Set([...skills.map((x) => x.id), ...groups.flatMap((g) => g.members ?? [])]);
-    const edited = skillsOf(there.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && coming.has(p.skill_id)).map((p) => p.skill_id));
-    const missing = !!s.projects.find((p) => p.id === place)?.missing;
-    return [{ place, groups, skills, edited, missing }];
-  });
+  return [0, ...s.projects.map((p) => p.id)].flatMap((place) =>
+    sameFolderAt(s, from, to, place) ? [] : copyPlace(s, scopeOf(from, place), scopeOf(copyTarget(s, to, place), place)),
+  );
 }
 
 // copySources 是可以照着装的 Agent:to 以外、照装时有东西可装的(只在不在这台机器上的项目里有的不算),
@@ -393,9 +398,50 @@ export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): 
     const place = placeOf(u.scope);
     if (u.scope.agent !== from || sameFolderAt(s, from, to, place)) return false;
     const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
-    const there = [...unmanagedIn(s, toKey).map((x) => x.name), ...skillScopesIn(s, toKey).map((p) => lastSegment(p.folder))];
-    return !there.includes(u.name);
+    return !folderNamesIn(s, toKey).includes(u.name);
   });
+}
+
+// folderNamesIn 是作用域的技能目录里已有的技能文件夹名：未纳管的和库装的。
+function folderNamesIn(s: Snapshot, key: ScopeKey): string[] {
+  return [...unmanagedIn(s, key).map((x) => x.name), ...skillScopesIn(s, key).map((p) => lastSegment(p.folder))];
+}
+
+// projectAgentsUsing 是在项目里装了库里技能(直接安装或组安装)的 Agent,共用目录的合成一处(代表的 Agent)。
+function projectAgentsUsing(s: Snapshot, project: ProjectID): Agent[] {
+  const inProject = (scope: Scope, a: Agent) => scope.agent === a.code && placeOf(scope) === project;
+  return mergeProjectAgents(
+    s,
+    s.agents.filter((a) => s.skillScopes.some((p) => inProject(p.scope, a)) || s.groupInstalls.some((g) => inProject(g.scope, a))),
+  );
+}
+
+// copyFromProject 是照着项目 from 装到项目 to:各 Agent(共用目录的合成一处)在 from 装的，装到 to 里的同一个 Agent。
+export function copyFromProject(s: Snapshot, from: ProjectID, to: ProjectID): CopyPlace[] {
+  if (from === to) return [];
+  return projectAgentsUsing(s, from).flatMap((a) => copyPlace(s, scopeOf(a.code, from), scopeOf(a.code, to)));
+}
+
+// copyProjectSources 是可以照着装到 to 的其他已登记项目：有东西可装的，装得最多的在前(默认选它),一样多的按项目列表顺序。
+export function copyProjectSources(s: Snapshot, to: ProjectID): RegisteredProject[] {
+  const count = (id: ProjectID) => s.skillScopes.filter((p) => placeOf(p.scope) === id).length;
+  return s.projects.filter((p) => copyFromProject(s, p.id, to).length > 0).sort((a, b) => count(b.id) - count(a.id));
+}
+
+// repoOwned 是归项目仓库管的未纳管技能：提交在项目仓库里，或记在项目的 skills-lock.json 里。
+export const repoOwned = (u: UnmanagedSkill) => !!(u.in_repository || u.in_project_lock);
+
+// notTakenOver 是还没交给 app 管的未纳管技能：归项目仓库管的、符号链接指向 Agent 目录以外的(作者有意留在自己目录里的)不算。
+export const notTakenOver = (u: UnmanagedSkill) => !repoOwned(u) && !u.link_outside;
+
+// uncopiedProjectUnmanaged 是项目 from 里照装带不过去的未纳管技能(to 里同一个 Agent 已有同名文件夹的不算):
+// unmanaged 是还没交给 app 管的，入库以后才能照着装;repo 是归项目仓库管的，随项目仓库走。
+export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: ProjectID): { unmanaged: UnmanagedSkill[]; repo: UnmanagedSkill[] } {
+  const left = mergeProjectAgents(s, s.agents).flatMap((a) => {
+    const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
+    return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name));
+  });
+  return { unmanaged: left.filter(notTakenOver), repo: left.filter(repoOwned) };
 }
 
 // ---------- 更新 ----------

@@ -7,6 +7,7 @@ import {
   agentNameIn,
   groupStateIn,
   needsReinstall,
+  notTakenOver,
   parseScope,
   placeOf,
   projectName,
@@ -20,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSortedGroups } from "@/lib/view";
 import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
-import { openCopyFromAgent } from "@/features/install/copy-agent";
+import { openCopyFromAgent, openCopyFromProject } from "@/features/install/copy";
 import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
 import { Button } from "@/components/ui/button";
@@ -39,8 +40,7 @@ export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; dire
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
   const unmanaged = unmanagedIn(s, scope).length;
-  // 在项目仓库里的、项目 skills-lock.json 记的归项目仓库管，指向 Agent 目录以外的是作者有意留在自己目录里的，都不算进"还没交给 app 管"的数里。
-  const notTaken = unmanagedIn(s, scope).filter((u) => !u.in_repository && !u.in_project_lock && !u.link_outside).length;
+  const notTaken = unmanagedIn(s, scope).filter(notTakenOver).length;
   const sc = parseScope(scope);
   const groups = useSortedGroups(s);
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
@@ -116,13 +116,27 @@ export function ScopeSummary({ scope, directory, sees }: { scope: ScopeKey; dire
   );
 }
 
-// ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录。
+// ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录，
+// 以及照着其他项目装(别的已登记项目里装了库里的技能时才有)。
 export function ProjectSummary({ project, total }: { project: RegisteredProject; total: number }) {
   const s = useSnapshot();
   const t = useT().list;
+  const c = useT().copy;
+  const elsewhere = (p: { scope: { project_id?: number } }) => !!p.scope.project_id && p.scope.project_id !== project.id;
+  const others = s.skillScopes.some(elsewhere) || s.groupInstalls.some(elsewhere);
+  const name = projectName(s, project.id);
   return (
     <div className={barClass}>
-      <b className="project-sum text-[13px] font-semibold">{t.projectHas(projectName(s, project.id), total)}</b>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <b className="project-sum min-w-0 truncate text-[13px] font-semibold">{t.projectHas(name, total)}</b>
+        <span className="grow" />
+        {others && (
+          <Button size="sm" className="copy-project-open shrink-0" title={c.projectOpenTitle(name)} onClick={() => openCopyFromProject(project.id)}>
+            <Icon name="plus" />
+            {c.projectOpen}
+          </Button>
+        )}
+      </div>
       <div className={barRowClass}>
         <span className="text-[11px] text-muted-foreground">{t.projectDirectory}</span>
         <span className="max-w-[360px] truncate font-mono text-[11px] select-text">{shortPath(s, project.path)}</span>

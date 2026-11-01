@@ -4,7 +4,7 @@
 // - 用户改过的技能有变化时默认不勾，跳过的改动、来源里已删除的技能、推测出的改名都不默认勾。
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
 // - 整批入库时，归项目仓库管的、指向 Agent 目录以外的默认不接，用户自己的照常默认勾上。
-// - 照着另一个 Agent 装时，有不是库装的同名文件夹的默认不覆盖，勾上才覆盖。
+// - 照着另一个 Agent、另一个项目装时，有不是库装的同名文件夹的默认不覆盖，勾上才覆盖。
 import {
   InstallPlanStatus,
   PlannedChange,
@@ -196,7 +196,7 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
   return split.map((p) => ({ ...p, selected: ownEntry(p) && (!p.conflict || newest.get(p.name) === p) }));
 }
 
-// ---------- 照着另一个 Agent 装 ----------
+// ---------- 照着装(照着另一个 Agent、另一个项目) ----------
 
 // copyable 是照装时这一项能不能勾：被另一个技能占用的、组里同名的装不了。
 export const copyable = (status: InstallPlanStatus) =>
