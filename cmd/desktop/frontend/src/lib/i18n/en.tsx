@@ -380,7 +380,7 @@ export const en = {
     from: "Copy from",
     lead: (to: string) => `Install in ${to}: global skills globally, project skills in the same project`,
     once: (from: string, to: string) =>
-      `This is a one-time install: skills you install in ${from} later won't follow to ${to}. To keep several Agents the same, use a Group install. Everything already installed in ${to} stays as it is.`,
+      `This is a one-time install: skills you install in ${from} later won't follow to ${to}. Copy again and only the new ones are listed. Everything already installed in ${to} stays as it is.`,
     placeCount: (n: number) => count(n, "item"),
     missingPlace: "Project isn't on this machine; skipped",
     group: (name: string) => `Group “${name}”`,

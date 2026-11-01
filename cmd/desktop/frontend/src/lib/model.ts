@@ -401,24 +401,49 @@ export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): Copy
   );
 }
 
-// copySources 是可以照着装的 Agent:to 以外、照装时有东西可装的(只在不在这台机器上的项目里有的不算),
-// 装得最多的在前(默认选它),一样多的按 Agent 列表顺序。
-export function copySources(s: Snapshot, to: AgentCode): Agent[] {
-  const count = (code: AgentCode) => s.skillScopes.filter((p) => p.scope.agent === code).length;
+// copySources 是可以照着装的 Agent:to 以外、照装时有东西可装的(只在不在这台机器上的项目里有的不算),排在最前的是默认照着的。
+// at 是从哪个作用域页打开的：从全局的(at 为 0)打开时装得最多的在前;从项目的打开时，在这个项目里可以照着装的项数
+// (copyItems,和确认框里这一处标题上的数一样)最多的在前，一样多的(包括谁都没有)再按装得多少排。再一样多的按 Agent 列表顺序。
+export function copySources(s: Snapshot, to: AgentCode, at: Place): Agent[] {
+  const total = (code: AgentCode) => s.skillScopes.filter((p) => p.scope.agent === code).length;
   return s.agents
-    .filter((a) => a.code !== to && copyFromAgent(s, a.code, to).some((p) => !p.missing))
-    .sort((a, b) => count(b.code) - count(a.code));
+    .flatMap((a) => {
+      if (a.code === to) return [];
+      const copy = copyFromAgent(s, a.code, to);
+      if (!copy.some((p) => !p.missing)) return [];
+      const here = copy.find((p) => at && placeOf(p.to) === at && !p.missing);
+      return [{ a, here: here ? copyItems(here) : 0, total: total(a.code) }];
+    })
+    .sort((x, y) => y.here - x.here || y.total - x.total)
+    .map((x) => x.a);
 }
 
-// uncopiedUnmanaged 是 from 里的未纳管技能：不在库里，照装带不过去。和 to 读同一个目录的那几处不算;
+// copyItems 是照装时一处要装的项数：每个组安装、每个直接安装的技能各算一项。
+export const copyItems = (p: CopyPlace) => p.groups.length + p.skills.length;
+
+// UncopiedUnmanaged 是照装带不过去的未纳管技能，和作用域页同一个口径(见 splitUncopied)。
+export interface UncopiedUnmanaged {
+  unmanaged: UnmanagedSkill[];
+  repo: UnmanagedSkill[];
+}
+
+// splitUncopied 把照装带不过去的未纳管技能按作用域页的口径分开:unmanaged 是还没交给 app 管的(notTakenOver),
+// 入库以后才能照着装;repo 是归项目仓库管的，随项目仓库走;指向 Agent 目录以外的两边都不算。
+function splitUncopied(left: UnmanagedSkill[]): UncopiedUnmanaged {
+  return { unmanaged: left.filter(notTakenOver), repo: left.filter((u) => repoOwned(u) && !u.link_outside) };
+}
+
+// uncopiedUnmanaged 是 from 里照装带不过去的未纳管技能(按 splitUncopied 分开)。和 to 读同一个目录的那几处不算;
 // to 在同一处已经有同名文件夹的(如 npx skills 从这里链到 to 的那一份)也不算。
-export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): UnmanagedSkill[] {
-  return s.unmanaged.filter((u) => {
-    const place = placeOf(u.scope);
-    if (u.scope.agent !== from || sameFolderAt(s, from, to, place)) return false;
-    const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
-    return !folderNamesIn(s, toKey).includes(u.name);
-  });
+export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): UncopiedUnmanaged {
+  return splitUncopied(
+    s.unmanaged.filter((u) => {
+      const place = placeOf(u.scope);
+      if (u.scope.agent !== from || sameFolderAt(s, from, to, place)) return false;
+      const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
+      return !folderNamesIn(s, toKey).includes(u.name);
+    }),
+  );
 }
 
 // folderNamesIn 是作用域的技能目录里已有的技能文件夹名：未纳管的和库装的。
@@ -454,14 +479,14 @@ export function copyProjectSources(s: Snapshot, to: ProjectID): RegisteredProjec
     .sort((a, b) => projectInstalls(s, b.id) - projectInstalls(s, a.id));
 }
 
-// uncopiedProjectUnmanaged 是项目 from 里照装带不过去的未纳管技能(to 里同一个 Agent 已有同名文件夹的不算):
-// unmanaged 是还没交给 app 管的，入库以后才能照着装;repo 是归项目仓库管的，随项目仓库走;指向 Agent 目录以外的两边都不算。
-export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: ProjectID): { unmanaged: UnmanagedSkill[]; repo: UnmanagedSkill[] } {
-  const left = mergeProjectAgents(s, s.agents).flatMap((a) => {
-    const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
-    return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name));
-  });
-  return { unmanaged: left.filter(notTakenOver), repo: left.filter((u) => repoOwned(u) && !u.link_outside) };
+// uncopiedProjectUnmanaged 是项目 from 里照装带不过去的未纳管技能(按 splitUncopied 分开;to 里同一个 Agent 已有同名文件夹的不算)。
+export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: ProjectID): UncopiedUnmanaged {
+  return splitUncopied(
+    mergeProjectAgents(s, s.agents).flatMap((a) => {
+      const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
+      return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name));
+    }),
+  );
 }
 
 // ---------- 更新 ----------

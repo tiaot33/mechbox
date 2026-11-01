@@ -1,5 +1,6 @@
 // 照着装：照着另一个 Agent 或另一个已登记项目，把那里装的库里技能一次装过来。
-// - 照着另一个 Agent(作用域页):把它在全局和各已登记项目里装的装到这个 Agent 的同一处，按地方分开列出。
+// - 照着另一个 Agent(作用域页):把它在全局和各已登记项目里装的装到这个 Agent 的同一处，按地方分开列出;
+//   从项目的作用域页打开时默认只勾这个项目(见 consent.ts 的 copyPlaceByDefault)。
 // - 照着另一个项目(项目页):把各 Agent 在那个项目里装的装到这个项目里的同一个 Agent,按 Agent 分开列出;全局不在范围内。
 // 只装一次、只加不减，装哪些见 model.ts 的 copyFromAgent / copyFromProject;默认勾选与覆盖见 consent.ts。
 // - 先逐个看安装计划：被占用的不能勾并写出原因;有不是库装的同名文件夹的默认不勾，勾上才覆盖。
@@ -9,7 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill } from "@bindings/internal/library";
-import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, type CopyPlanned } from "@/lib/consent";
+import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceByDefault, type CopyPlanned } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
@@ -18,6 +19,7 @@ import {
   agentNameIn,
   copyFromAgent,
   copyFromProject,
+  copyItems,
   copyProjectSources,
   copySources,
   placeOf,
@@ -29,6 +31,8 @@ import {
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
   type CopyPlace,
+  type Place,
+  type UncopiedUnmanaged,
 } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
@@ -50,14 +54,17 @@ interface CopyKind {
   once: (from: string) => string;
   places: (from: string) => CopyPlace[];
   heading: (p: CopyPlace) => { name: string; detail?: string };
-  // unmanaged 是带不过来、入库以后才能照着装的未纳管技能数;repo 是归项目仓库管、随项目仓库走的。
-  left: (from: string) => { unmanaged: number; repo: number };
+  // left 是带不过来的未纳管技能:unmanaged 入库以后才能照着装，repo 归项目仓库管、随项目仓库走。
+  left: (from: string) => UncopiedUnmanaged;
+  // byDefault 是这一处的各项打开时默认勾不勾。
+  byDefault: (p: CopyPlace) => boolean;
 }
 
-// openCopyFromAgent 是作用域页的"照着其他 Agent 装…";没有可以照着装的 Agent 时只告诉一声。
-export function openCopyFromAgent(to: AgentCode) {
+// openCopyFromAgent 是作用域页的"照着其他 Agent 装…",at 是从哪个作用域页打开的(全局为 0);
+// 从项目的作用域页打开时，这个项目排在最前、默认只勾它。没有可以照着装的 Agent 时只告诉一声。
+export function openCopyFromAgent(to: AgentCode, at: Place) {
   const s = currentSnapshot();
-  const sources = copySources(s, to);
+  const sources = copySources(s, to, at);
   const toName = agentName(s, to);
   if (!sources.length) {
     ui.toast(messages().copy.nothing(toName));
@@ -69,12 +76,17 @@ export function openCopyFromAgent(to: AgentCode) {
     sources: sources.map((a) => ({ key: a.code, name: a.name })),
     lead: () => messages().copy.lead(toName),
     once: (from) => messages().copy.once(from, toName),
-    places: (from) => copyFromAgent(s, from as AgentCode, to),
+    places: (from) => {
+      const all = copyFromAgent(s, from as AgentCode, to);
+      const here = (p: CopyPlace) => !!at && placeOf(p.to) === at;
+      return [...all.filter(here), ...all.filter((p) => !here(p))];
+    },
     heading: (p) => ({
       name: placeOf(p.to) ? projectName(s, placeOf(p.to)) : messages().model.global,
       detail: agentNameIn(s, p.to.agent, placeOf(p.to)),
     }),
-    left: (from) => ({ unmanaged: uncopiedUnmanaged(s, from as AgentCode, to).length, repo: 0 }),
+    left: (from) => uncopiedUnmanaged(s, from as AgentCode, to),
+    byDefault: (p) => copyPlaceByDefault(at, placeOf(p.to)),
   });
 }
 
@@ -100,10 +112,8 @@ export function openCopyFromProject(to: ProjectID) {
     once: (from) => messages().copy.projectOnce(from, toName),
     places: (from) => copyFromProject(s, Number(from), to),
     heading: (p) => ({ name: agentNameIn(s, p.to.agent, to) }),
-    left: (from) => {
-      const u = uncopiedProjectUnmanaged(s, Number(from), to);
-      return { unmanaged: u.unmanaged.length, repo: u.repo.length };
-    },
+    left: (from) => uncopiedProjectUnmanaged(s, Number(from), to),
+    byDefault: () => true,
   });
 }
 
@@ -114,6 +124,7 @@ function openCopy(s: Snapshot, kind: CopyKind) {
 // 勾选的 key:一处按装到的作用域区分，再加技能或组。
 const skillKey = (p: CopyPlace, id: number) => `s:${scopeKey(p.to)}:${id}`;
 const groupKey = (p: CopyPlace, id: number) => `g:${scopeKey(p.to)}:${id}`;
+const placeKeys = (p: CopyPlace) => [...p.groups.map((g) => groupKey(p, g.id)), ...p.skills.map((x) => skillKey(p, x.id))];
 
 // Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned),读不出时的错误是技能库错误。Plans 按 skillKey / groupKey 存。
 type Planned = Exclude<CopyPlanned, { error: unknown }> | { error: LibraryError };
@@ -134,24 +145,23 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
   useEffect(() => {
     let live = true;
     setPlans(null);
-    const calls = kind
-      .places(from)
-      .filter((p) => !p.missing)
-      .flatMap((p) => [
-        ...p.skills.map((x) => {
-          const call = LibraryService.PlanInstall(x.id, p.to);
-          return { key: skillKey(p, x.id), call, planned: call.then((plan): Planned => ({ plan })) };
-        }),
-        ...p.groups.map((g) => {
-          const call = LibraryService.PlanGroupInstall(g.id, p.to);
-          return { key: groupKey(p, g.id), call, planned: call.then((v): Planned => ({ members: v.members ?? [] })) };
-        }),
-      ]);
+    const open = kind.places(from).filter((p) => !p.missing);
+    const byDefault = new Set(open.filter(kind.byDefault).flatMap(placeKeys));
+    const calls = open.flatMap((p) => [
+      ...p.skills.map((x) => {
+        const call = LibraryService.PlanInstall(x.id, p.to);
+        return { key: skillKey(p, x.id), call, planned: call.then((plan): Planned => ({ plan })) };
+      }),
+      ...p.groups.map((g) => {
+        const call = LibraryService.PlanGroupInstall(g.id, p.to);
+        return { key: groupKey(p, g.id), call, planned: call.then((v): Planned => ({ members: v.members ?? [] })) };
+      }),
+    ]);
     void Promise.all(
       calls.map(({ key, planned }) => planned.then((v): [string, Planned] => [key, v], (e): [string, Planned] => [key, { error: toLibraryError(e) }])),
     ).then((entries) => {
       if (!live) return;
-      const defaults = copyDefaults(entries);
+      const defaults = copyDefaults(entries.filter(([key]) => byDefault.has(key)));
       setPlans(new Map(entries));
       setChecked(defaults.checked);
       setOverwrite(defaults.overwrite);
@@ -170,9 +180,13 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
   };
   const skillCount = [...checked].filter((k) => k.startsWith("s:")).length;
   const groupCount = checked.size - skillCount;
-  const edited = [...new Set(places.flatMap((p) => p.edited.map((x) => x.name)))];
+  // edited 只说勾上的项里会装过来的改过的技能：直接安装勾上了，或随勾上的组安装装过来。
+  const coming = (p: CopyPlace, id: number) =>
+    checked.has(skillKey(p, id)) || p.groups.some((g) => checked.has(groupKey(p, g.id)) && (g.members ?? []).includes(id));
+  const edited = [...new Set(places.flatMap((p) => p.edited.filter((x) => coming(p, x.id)).map((x) => x.name)))];
   const overwrites = plans ? copyOverwriteCount(plans, checked, overwrite) : 0;
-  // togglePlace 是一处标题上的勾选：有勾上的就全部取消，一个都没勾时恢复这一处的默认勾选(不替用户勾上要覆盖的)。
+  // togglePlace 是一处标题上的勾选：有勾上的就全部取消;一个都没勾时按 copyDefaults 整处勾上(不管这一处打开时默认勾不勾，
+  // 不替用户勾上要覆盖的)。
   const togglePlace = (keys: string[]) =>
     setChecked((set) => {
       const next = new Set(set);
@@ -192,7 +206,9 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
   const submit = () => {
     if (!plans) return;
     close();
-    void runCopy(s, fromName, kind.toName, places, plans, checked, overwrite);
+    // 结果只列用户这次要装的那几处：默认勾的，和用户勾了东西的;其余各处装不了、读不出计划的不算没装上。
+    const meant = places.filter((p) => kind.byDefault(p) || placeKeys(p).some((k) => checked.has(k)));
+    void runCopy(s, fromName, kind.toName, meant, plans, checked, overwrite);
   };
 
   return (
@@ -244,8 +260,8 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
           {t.edited(fromName, kind.toName, edited)}
         </Notice>
       )}
-      {left.unmanaged > 0 && <Notice className="copy-unmanaged">{t.unmanaged(fromName, left.unmanaged)}</Notice>}
-      {left.repo > 0 && <Notice className="copy-repo">{t.repoOwned(fromName, left.repo)}</Notice>}
+      {left.unmanaged.length > 0 && <Notice className="copy-unmanaged">{t.unmanaged(fromName, left.unmanaged.length)}</Notice>}
+      {left.repo.length > 0 && <Notice className="copy-repo">{t.repoOwned(fromName, left.repo.length)}</Notice>}
     </Modal>
   );
 }
@@ -273,7 +289,7 @@ function PlaceRows({
   onTogglePlace: (keys: string[]) => void;
 }) {
   const t = useT().copy;
-  const keys = [...p.groups.map((g) => groupKey(p, g.id)), ...p.skills.map((x) => skillKey(p, x.id))];
+  const keys = placeKeys(p);
   const on = keys.filter((k) => checked.has(k)).length;
   const box = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -302,7 +318,7 @@ function PlaceRows({
         {heading.detail && <span className="shrink-0 font-normal text-muted-foreground">{heading.detail}</span>}
         <span className="grow" />
         <span className="shrink-0 font-normal text-muted-foreground">
-          {p.missing ? t.missingPlace : t.placeCount(p.groups.length + p.skills.length)}
+          {p.missing ? t.missingPlace : t.placeCount(copyItems(p))}
         </span>
       </div>
       {!p.missing && (
