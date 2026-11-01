@@ -760,9 +760,9 @@ export function translatedDescription(item: { description_translations?: Skill["
 // ---------- 所有技能页的分节 ----------
 
 // sectionKey 是一节的身份：收起、展开"没装的"、左栏跳转都按它。作用域页的节带上作用域，收起、展开各作用域分开记，
-// 也不和所有技能页的同一节连在一起。
-export const sectionKey = (kind: "collection" | "group" | "rest", id: number | string, scope?: ScopeKey) =>
-  `${scope ? `${scope}:` : ""}${kind}-${id}`;
+// 也不和所有技能页的同一节连在一起;作用域页下面那块(没装在这里的)的节再带上 not-here,和上面那块的同一节分开记。
+export const sectionKey = (kind: "collection" | "group" | "rest", id: number | string, scope?: ScopeKey, notHere = false) =>
+  `${scope ? `${scope}:` : ""}${notHere ? "not-here:" : ""}${kind}-${id}`;
 
 // SkillSection 是所有技能页、作用域页的一节：一个集合、一个组，或最后的"没有来源" / "没有归组"(kind 为 rest,id 为 0)。
 // key 是节的身份(见 sectionKey),最后一节是 "rest-collection" / "rest-group"。skills 是要列的(搜索时只留匹配的),
@@ -775,7 +775,7 @@ export interface SkillSection {
   all: Skill[];
 }
 
-// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域)。按集合时每个来源一节，按 sortedCollections 排，没有来源的合进最后的"没有来源";
+// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域,notHere 是作用域页下面那块)。按集合时每个来源一节，按 sortedCollections 排，没有来源的合进最后的"没有来源";
 // 按组时每个组一节，按 sortedGroups 排，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
 // 搜索时只留有结果的节;emptyGroups 时不搜索也列出空组，好往里拖技能。
 export function arrangeSkills(
@@ -786,8 +786,9 @@ export function arrangeSkills(
     skills: all = s.skills,
     emptyGroups = true,
     scope,
+    notHere = false,
     order,
-  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; order: Order },
+  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; notHere?: boolean; order: Order },
 ): SkillSection[] {
   const hit = (x: Skill) => matches(search, x);
   const ids = new Set(all.map((x) => x.id));
@@ -795,7 +796,7 @@ export function arrangeSkills(
   const placed = new Set<SkillID>();
   const push = (kind: SkillSection["kind"], id: number, skills: Skill[]) => {
     const sorted = sortSkills(s, skills);
-    sections.push({ key: sectionKey(kind, kind === "rest" ? arrange : id, scope), kind, id, skills: sorted.filter(hit), all: sorted });
+    sections.push({ key: sectionKey(kind, kind === "rest" ? arrange : id, scope, notHere), kind, id, skills: sorted.filter(hit), all: sorted });
   };
   if (arrange === "collection") {
     for (const c of sortedCollections(s, order.collections)) {
@@ -847,19 +848,19 @@ export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Da
 
 // ---------- 作用域页 ----------
 
-// ScopeListing 是作用域页要列的:库里的技能按集合或组分节(sections,装在这里的与可以装到这里的都在里面),
-// 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到,不再出现在 sections 里)。
+// ScopeListing 是作用域页要列的，分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能按集合或组分节(hereSections)、
+// 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到，不再出现在别处)。
 // 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
-// sections 里有技能装在这里的节排在前面(先后不变),一个都没装在这里的接在后面;used 是前面那几节的个数。
-// here 与 others 是 sections 里装在这里、没装在这里的技能个数(搜索时只数匹配的)。
+// 下面是库里没装在这里的技能，同样按集合或组分节(notHereSections);notHereSkills 是其中的技能，按节的先后、一个技能只算一次。
+// 搜索时都只留匹配的;hereCount 是装在这里的库里的技能个数。
 export interface ScopeListing {
-  sections: SkillSection[];
-  used: number;
+  hereSections: SkillSection[];
   hereUnmanaged: UnmanagedSkill[];
   global: Skill[];
   globalUnmanaged: UnmanagedSkill[];
-  here: number;
-  others: number;
+  notHereSections: SkillSection[];
+  notHereSkills: Skill[];
+  hereCount: number;
 }
 
 // globalScopesSeenFrom 是项目作用域里的 Agent 也看得到的全局作用域(合成一处的几个 Agent 各自的全局);全局作用域为空。
@@ -884,18 +885,22 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
     return true;
   });
   const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
-  const listed = s.skills.filter((x) => !globalIDs.has(x.id));
-  const here = listed.filter((x) => hereIDs.has(x.id) && hit(x)).length;
-  const sections = arrangeSkills(s, arrange, search, { skills: listed, emptyGroups: false, scope: key, order });
-  const used = (x: SkillSection) => x.all.some((k) => hereIDs.has(k.id));
+  const here = s.skills.filter((x) => hereIDs.has(x.id));
+  const notHereSections = arrangeSkills(s, arrange, search, {
+    skills: s.skills.filter((x) => !hereIDs.has(x.id) && !globalIDs.has(x.id)),
+    emptyGroups: false,
+    scope: key,
+    notHere: true,
+    order,
+  });
   return {
-    sections: [...sections.filter(used), ...sections.filter((x) => !used(x))],
-    used: sections.filter(used).length,
+    hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key, order }),
     hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
-    here,
-    others: listed.filter(hit).length - here,
+    notHereSections,
+    notHereSkills: [...new Set(notHereSections.flatMap((x) => x.skills))],
+    hereCount: here.filter(hit).length,
   };
 }
 
@@ -932,13 +937,13 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // ---------- 每一页列什么、数到几 ----------
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
-// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致),
+// 所有技能页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
   | { kind: "updates"; skills: Skill[] }
-  | { kind: "scope"; scope: ScopeKey; listing: ScopeListing }
+  | { kind: "scope"; scope: ScopeKey; listing: ScopeListing; global: number }
   | { kind: "project"; project: ProjectID; agents: ProjectAgent[] }
 );
 
@@ -951,8 +956,16 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
   if (page.kind === "scope") {
     const all = scopeListing(s, page.scope, arrange, "", order);
     const listing = search.trim() ? scopeListing(s, page.scope, arrange, search, order) : all;
-    const seen = (l: ScopeListing) => l.here + l.hereUnmanaged.length + l.global.length + l.globalUnmanaged.length;
-    return { kind: "scope", scope: page.scope, listing, total: seen(all), results: seen(listing) + listing.others };
+    const global = (l: ScopeListing) => l.global.length + l.globalUnmanaged.length;
+    const seen = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length + global(l);
+    return {
+      kind: "scope",
+      scope: page.scope,
+      listing,
+      global: global(all),
+      total: seen(all),
+      results: seen(listing) + listing.notHereSkills.length,
+    };
   }
   if (page.kind === "project") {
     const agents = projectAgents(s, page.project, search);

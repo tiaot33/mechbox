@@ -550,6 +550,7 @@ export const en = {
     uninstallDirect: "Uninstall the direct install",
     addDirect: "Only installed through a Group; click to add a direct install",
     direct: "Direct",
+    directColumn: "Direct",
     viaGroup: (group: string | undefined) => `Via “${group}”`,
     reinstall: "Reinstall",
     updateFromHereHint: "Make the content here the Library's new Version and place it everywhere else it's installed",
@@ -632,7 +633,6 @@ export const en = {
     from: (source: string) => `From ${source}`,
     linkTitle: (target: string) => `Symlink to ${target}`,
     link: (target: string) => `Symlink → ${target}`,
-    notByLibrary: "Not from Library",
     revealInFinder: "Show in Finder",
     fetchTitle: "Hand it over to the app: the folder stays as it is, and you can install it elsewhere and take it along with Sync",
     fetch: "Fetch",
@@ -640,6 +640,7 @@ export const en = {
     agentDirectory: "Agent directory",
     statInstalled: "installed",
     statUnmanaged: "unmanaged",
+    statGlobal: "from global",
     statStale: "to reinstall",
     reinstallAll: "Reinstall all",
     notTaken: (n: number) => `${count(n, "skill")} here ${n === 1 ? "wasn't" : "weren't"} installed by the Library; Agents use them as usual.`,
@@ -657,10 +658,14 @@ export const en = {
     notInstalledFold: (names: string[]) =>
       `${count(names.length, "more skill")} not installed: ${firstNames(names)}`,
     hideNotInstalled: "Hide the ones not installed",
-    inUseHere: (here: number, total: number) => `${here} installed here · ${total} in total`,
-    notHereFold: (names: string[], more: boolean) =>
-      `${count(names.length, more ? "more skill" : "skill")} not installed here: ${firstNames(names)}`,
     hideNotHere: "Hide the ones not installed here",
+    notHereBlock: (names: string[], more: boolean) =>
+      `${count(names.length, more ? "more skill" : "skill")} in the Library not installed here: ${firstNames(names)}`,
+    hereCount: (n: number) => `${n} installed here`,
+    groupOnly: (name: string, via: string[]) =>
+      via.length > 1
+        ? `“${name}” is installed via ${quoted(via)}. To stop using it here, uninstall those Groups' Group installs here, or remove it from those Groups.`
+        : `“${name}” is installed via ${quoted(via)}. To stop using it here, uninstall that Group's Group install here, or remove it from the Group.`,
     arrangeCollection: "By Collection",
     arrangeCollectionTitle: "Sections by Source: you follow an author's whole set",
     arrangeGroup: "By Group",
@@ -676,7 +681,7 @@ export const en = {
     sectionGlobal: "From global",
     sectionGlobalTitle: "In a project, the Agent also sees the skills installed globally; open the global Scope to change them",
     sectionUnmanaged: "Unmanaged skills",
-    nothingHere: "Nothing is installed here yet. Turn on a skill's switch below, or drag a skill, Group, or Collection onto this row on the right.",
+    nothingHere: "Nothing is installed here yet. Expand the Library's skills not installed here below and turn one on, or drag a skill, Group, or Collection onto this row on the right.",
     projectHas: (project: string, n: number) => `${count(n, "skill")} installed in ${project}`,
     projectDirectory: "Project directory",
     projectEmpty: "Nothing is installed in this project yet. Expand the project on the right, click an Agent, and turn on a skill's switch there; or drag a skill, Group, or Collection onto that row.",
