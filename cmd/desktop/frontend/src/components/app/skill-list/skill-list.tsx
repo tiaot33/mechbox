@@ -35,6 +35,7 @@ import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
 import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
+import { useVariant } from "@/components/app/prototype-variants";
 
 export function SkillList() {
   const listing = usePageListing();
@@ -285,6 +286,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const global = l.global.length + l.globalUnmanaged.length;
   const inUse = l.hereSections.length > 0 || l.hereUnmanaged.length > 0 || (project && global > 0);
   const empty = !inUse && !l.notHereSkills.length;
+  const variant = useVariant();
   return (
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
@@ -302,7 +304,15 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
             <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
           {l.hereUnmanaged.length > 0 && (
-            <Section id="scope-unmanaged" head={<PlainHead name={t.sectionUnmanaged} count={l.hereUnmanaged.length} title={t.unmanagedTitle} />}>
+            <Section id="scope-unmanaged" head={<PlainHead
+                  name={variant === "B" ? "不在技能库里" : t.sectionUnmanaged}
+                  count={l.hereUnmanaged.length}
+                  title={
+                    variant === "B"
+                      ? "这些在 Agent 的目录里、Agent 照常在用，但不在技能库里：可能是命令行工具装的、手动拷进来的或你自己写的。点行首的「入库」放进技能库，文件夹原样不动"
+                      : t.unmanagedTitle
+                  }
+                />}>
               {l.hereUnmanaged.map((u) => (
                 <UnmanagedRow key={u.folder} skill={u} />
               ))}
@@ -336,6 +346,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
 // 点开按集合或按组分节。展开状态按作用域分开记;搜索时展开，搜到的行都看得见。
 function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extract<PageListing, { kind: "scope" }>["listing"]; more: boolean }) {
   const t = useT().list;
+  const variant = useVariant();
   const id = `${scope}:not-here`;
   const searching = useView((v) => !!v.search.trim());
   const unfolded = useView((v) => v.unfolded.has(id)) || searching;
@@ -350,7 +361,11 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
         onClick={() => toggleUnfolded(id)}
       >
         <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
-        <span className="truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
+        <span className="truncate">{unfolded && !searching
+            ? t.hideNotHere
+            : variant === "B"
+              ? `技能库里还有 ${names.length} 个，没装到这里：${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`
+              : t.notHereBlock(names, more)}</span>
       </button>
       {unfolded &&
         l.notHereSections.map((x) => (

@@ -15,6 +15,8 @@ import { homePath } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
+import { variantNow } from "@/components/app/prototype-variants";
+import { installPicked } from "@/features/install/install-to";
 import { cn, toggled } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -87,9 +89,16 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     if (fetching) return;
     setFetching("running");
     const names = [...selected];
+    const b = variantNow() === "B";
     const fetched = await ui.run(() => LibraryService.Fetch(preview.id, names), {
-      success: (list) => t.fetched(list?.length ?? 0),
+      success: b ? undefined : (list) => t.fetched(list?.length ?? 0),
     });
+    // PROTOTYPE B:说清停在技能库里、还没有 Agent 能用，给下一步「装到…」。
+    if (fetched && b)
+      ui.toast(`已入库 ${fetched.length} 个技能，在左栏「技能库」里；还没装到任何 Agent`, "ok", {
+        label: "装到…",
+        onClick: () => void installPicked(fetched.map((x) => x.id)),
+      });
     if (!fetched) return setFetching(null);
     setFetching("done");
     await new Promise((r) => window.setTimeout(r, 450));

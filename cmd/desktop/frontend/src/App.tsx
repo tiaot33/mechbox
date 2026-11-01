@@ -22,6 +22,7 @@ import { Notice } from "@/components/ui/notice";
 import { bodyClass, centerClass } from "@/components/app/layout";
 import { ResizablePane } from "@/components/app/resizable";
 import { Button } from "@/components/ui/button";
+import { PrototypeSwitcher } from "@/components/app/prototype-variants";
 import "./index.css";
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
     <>
       <Main />
       <UIHost />
+      <PrototypeSwitcher />
     </>
   );
 }

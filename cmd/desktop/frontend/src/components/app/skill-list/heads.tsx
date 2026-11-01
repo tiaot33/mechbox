@@ -27,6 +27,8 @@ import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
+import { useVariant } from "@/components/app/prototype-variants";
+import { Places } from "./rows";
 import { WSLBadge } from "@/components/app/parts";
 
 // 列表顶部的摘要条(作用域摘要、更新列表)共用的外观。
@@ -48,10 +50,18 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const groups = useSortedGroups(s);
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
   const c = useT().copy;
+  const variant = useVariant();
+  const agent = agentNameIn(s, sc.agent, placeOf(sc));
+  const headline =
+    variant === "B"
+      ? sc.project_id
+        ? `${agent} 在 ${projectName(s, sc.project_id)} 里能用 ${sees} 个技能`
+        : `${agent} 全局目录里有 ${sees} 个技能`
+      : t.scopeSees(agent, sees);
   return (
     <div className={barClass}>
       <div className="flex min-w-0 items-center gap-2.5">
-        <b className="scope-sees min-w-0 truncate text-[13px] font-semibold">{t.scopeSees(agentNameIn(s, sc.agent, placeOf(sc)), sees)}</b>
+        <b className="scope-sees min-w-0 truncate text-[13px] font-semibold">{headline}</b>
         <span className="grow" />
         {others && (
           <Button size="sm" className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent)}>
@@ -68,7 +78,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         </span>
         <span className="grow" />
         <Stat value={installed.length} label={t.statInstalled} />
-        {unmanaged > 0 && <Stat value={unmanaged} label={t.statUnmanaged} />}
+        {unmanaged > 0 && <Stat value={unmanaged} label={variant === "B" ? "不在技能库里" : t.statUnmanaged} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
         <Stat value={issues} label={t.statStale} warn={issues > 0} />
         {issues > 0 && (
@@ -80,7 +90,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
       </div>
       {notTaken > 0 && (
         <div className="unmanaged-hint flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{t.notTaken(notTaken)}</span>
+          <span>{variant === "B" ? `其中 ${notTaken} 个不在技能库里，Agent 照常在用。` : t.notTaken(notTaken)}</span>
           <Button
             variant="link"
             className="fetch-all-unmanaged text-[11px]"
@@ -88,6 +98,16 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
           >
             {t.fetchAll}
           </Button>
+        </div>
+      )}
+      {variant === "C" && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <span>每行右边写它在哪：</span>
+          <span className="flex items-center gap-1.5">
+            <Places library here={false} />
+          </span>
+          <span>技能库 = Mechbox 里有一份，能开关、装到别处、检查更新</span>
+          <span>这里 = {agent} 在这里能用到它</span>
         </div>
       )}
       {s.groups.length > 0 && (

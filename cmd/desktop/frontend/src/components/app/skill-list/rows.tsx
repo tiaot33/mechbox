@@ -45,6 +45,7 @@ import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
+import { useVariant } from "@/components/app/prototype-variants";
 import { SameNameBadge, SameNameLine } from "./same-name";
 
 // 列宽：所有技能页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
@@ -257,7 +258,26 @@ function Changed({ skill }: { skill: Skill }) {
 // place 是这一处(来自全局的是全局那一处)的安装，via 是随哪几个组装。
 function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | undefined; via: string[]; fromGlobal: boolean }) {
   const t = useT().list;
+  const variant = useVariant();
   const text = fromGlobal ? t.fromGlobal : place ? t.hereState(place.direct, via) : t.notInstalled;
+  if (variant === "C")
+    return (
+      <span className="skill-state flex min-w-0 flex-col items-start gap-0.5 text-[11px] text-muted-foreground">
+        <Places library here={!!place || fromGlobal} hereLabel={fromGlobal ? "全局" : "这里"} />
+        {(place || fromGlobal) && (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[10.5px] text-subtle" title={text}>
+              {text}
+            </span>
+            {place && needsReinstall(place) && (
+              <Badge tone={skillScopeStatus(place.status).tone} className="font-sans">
+                {skillScopeStatus(place.status).label}
+              </Badge>
+            )}
+          </span>
+        )}
+      </span>
+    );
   return (
     <span className="skill-state flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
       <span className={cn("min-w-0 truncate", !place && !fromGlobal && "text-subtle")} title={text}>
@@ -278,13 +298,14 @@ function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | 
 export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSkill; fromGlobal?: boolean }) {
   const s = useSnapshot();
   const t = useT().list;
+  const variant = useVariant();
   const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
   // 来源记录认不出来源的，在 skills.sh 上找到来源后补上。
   const found = foundSource(useFoundSources(), skill);
   const source = skill.source_input || found;
   const state = [
     fromGlobal ? { text: t.fromGlobal, title: t.sectionGlobalTitle } : undefined,
-    { text: t.unmanaged, title: t.unmanagedTitle },
+    variant === "B" ? (fromGlobal ? { text: "不在技能库里", title: t.unmanagedTitle } : undefined) : variant === "C" ? undefined : { text: t.unmanaged, title: t.unmanagedTitle },
     skill.in_repository
       ? { text: t.inRepository, title: t.inRepositoryTitle }
       : skill.in_project_lock
@@ -296,7 +317,18 @@ export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSk
     <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>
       <span />
       <span className="flex">
-        <SwitchMark title={fromGlobal ? t.sectionGlobalTitle : t.unmanagedTitle} />
+        {variant === "B" ? (
+          <button
+            type="button"
+            className="h-[18px] rounded-[5px] border border-primary-border bg-white px-1 text-[10.5px] leading-none font-medium whitespace-nowrap text-primary hover:bg-primary-soft"
+            title="放进技能库：文件夹原样不动。入库以后它和库里的其他技能一样，能在这里开关、装到别处、检查更新"
+            onClick={() => void fetchUnmanaged(skill)}
+          >
+            入库
+          </button>
+        ) : (
+          <SwitchMark title={fromGlobal ? t.sectionGlobalTitle : t.unmanagedTitle} />
+        )}
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold">{skill.name}</span>
@@ -319,9 +351,12 @@ export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSk
         )}
       </div>
       <div className="flex min-w-0 flex-col items-start gap-0.5">
-        <span className="skill-state unmanaged-state max-w-full min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
-          {state.map((x) => x.text).join(" · ")}
-        </span>
+        {variant === "C" && <Places library={false} here hereLabel={fromGlobal ? "全局" : "这里"} />}
+        {state.length > 0 && (
+          <span className="skill-state unmanaged-state max-w-full min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
+            {state.map((x) => x.text).join(" · ")}
+          </span>
+        )}
         <span className="flex items-center gap-2.5 text-[11px]">
           <Button
             variant="link"
@@ -330,11 +365,35 @@ export function UnmanagedRow({ skill, fromGlobal = false }: { skill: UnmanagedSk
           >
             {t.revealInFinder}
           </Button>
-          <Button variant="link" className="fetch-unmanaged shrink-0 font-sans text-[11px]" title={t.fetchTitle} onClick={() => void fetchUnmanaged(skill)}>
-            {t.fetch}
-          </Button>
+          {variant !== "B" && (
+            <Button variant="link" className="fetch-unmanaged shrink-0 font-sans text-[11px]" title={t.fetchTitle} onClick={() => void fetchUnmanaged(skill)}>
+              {t.fetch}
+            </Button>
+          )}
         </span>
       </div>
     </article>
+  );
+}
+
+// PROTOTYPE C:一行写两个地方，有没有一份。
+export function Places({ library, here, hereLabel = "这里" }: { library: boolean; here: boolean; hereLabel?: string }) {
+  const chip = (on: boolean, label: string, title: string) => (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-[5px] border px-1.5 py-px text-[10.5px] leading-[15px]",
+        on ? "border-primary-border bg-primary-soft text-primary" : "border-dashed border-border-strong text-subtle",
+      )}
+      title={title}
+    >
+      <span className="font-semibold">{on ? "✓" : "✗"}</span>
+      {label}
+    </span>
+  );
+  return (
+    <span className="flex items-center gap-1">
+      {chip(library, "技能库", library ? "技能库里有一份：可以开关、装到别处、检查更新" : "不在技能库里：入库以后才能开关、装到别处、检查更新")}
+      {chip(here, hereLabel, here ? "Claude Code 在这里能用到它" : "没装到这里：Claude Code 在这里用不到它")}
+    </span>
   );
 }

@@ -14,6 +14,7 @@ import { previewCollection } from "@/features/fetch/preview";
 import { openHistory, openUpdate } from "@/features/update/update";
 import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { useT } from "@/lib/i18n";
+import { useVariant } from "./prototype-variants";
 import {
   checkableCollections,
   collectionSkills,
@@ -60,6 +61,7 @@ const noConfig: ConfigStatus = { sync: false, github_token: false };
 const pathMax = 24;
 
 export function LeftSidebar() {
+  const variant = useVariant();
   const s = useSnapshot();
   const page = useCurrentPage();
   // 设置页保存 GitHub 令牌或同步设置后让它失效重读，保存晚于回到主界面完成时也一样。
@@ -106,7 +108,7 @@ export function LeftSidebar() {
         <span>{t.market}</span>
       </SideButton>
       <ul className="flex flex-col gap-0.5">
-        {pageRow({ kind: "all" }, <Icon name="bolt" />, t.allSkills, s.skills.length)}
+        {pageRow({ kind: "all" }, <Icon name="bolt" />, variant !== "A" ? "技能库" : t.allSkills, s.skills.length)}
         {updates > 0 && pageRow({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
         <li>
           <button

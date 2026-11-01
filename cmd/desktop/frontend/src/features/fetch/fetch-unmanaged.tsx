@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { variantNow } from "@/components/app/prototype-variants";
+import { installPicked } from "@/features/install/install-to";
 
 // fetchUnmanaged 把作用域里一个不是库装的技能(未纳管技能)入库:磁盘上什么都不改，文件夹从此由 app 管。
 // 确认时写清代价：之后还用命令行工具更新它，app 只能报为被手动改过;提交在项目仓库里的，之后在 app 里更新会改动仓库里的文件。
@@ -27,6 +29,15 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
   const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
   const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} outside={outside} close={close} />);
   if (!r) return;
+  if (variantNow() === "B") {
+    // PROTOTYPE B:说清东西停在哪，入库的那一行在它的集合里闪一下。
+    ui.toast(`「${r.skill.name}」已放进技能库，${place} 里的文件夹原样没动；现在可以在这里开关它、装到别处`, "ok", {
+      label: "装到别处…",
+      onClick: () => void installPicked([r.skill.id]),
+    });
+    flashRow(r.skill.id);
+    return;
+  }
   if (r.matched) ui.toast(t.matchedVersion(skill.name, r.skill.name, place));
   else if (r.skill.collection_id) ui.toast(t.fetchedTracking(r.skill.name, r.skill.source.label));
   else ui.toast(t.fetched(r.skill.name));
@@ -113,4 +124,22 @@ function FetchUnmanagedDialog({
       )}
     </Modal>
   );
+}
+
+// PROTOTYPE B:列表重读后，把这个技能的行滚到眼前并闪两下。
+function flashRow(id: number) {
+  let tries = 0;
+  const tick = () => {
+    const el = document.querySelector<HTMLElement>(`.in-use .skill-row[data-skill-id="${id}"]`);
+    if (!el) {
+      if (tries++ < 20) window.setTimeout(tick, 100);
+      return;
+    }
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.animate(
+      [{ backgroundColor: "var(--color-primary-soft)" }, { backgroundColor: "transparent" }, { backgroundColor: "var(--color-primary-soft)" }, { backgroundColor: "transparent" }],
+      { duration: 1800, easing: "ease-out" },
+    );
+  };
+  window.setTimeout(tick, 150);
 }

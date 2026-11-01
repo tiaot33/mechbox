@@ -10,10 +10,12 @@ import { setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, use
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { Icon } from "./icons";
+import { useVariant } from "./prototype-variants";
 import { titlebarClass } from "./layout";
 import { BusyMark, Count } from "./parts";
 
 export function Toolbar() {
+  const variant = useVariant();
   const s = useLoadedSnapshot();
   const page = useCurrentPage();
   const listing = usePageListing();
@@ -44,7 +46,7 @@ export function Toolbar() {
           <Icon name="sidebarL" />
         </Button>
         <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
-          <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
+          <b className="truncate">{s ? (variant !== "A" && page.kind === "all" ? "技能库" : pageTitle(s, page)) : "Mechbox"}</b>
           {listing && <Count value={listing.total} />}
           <BusyMark checks={!left} />
         </span>
