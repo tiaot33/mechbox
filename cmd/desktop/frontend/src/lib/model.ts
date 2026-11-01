@@ -647,7 +647,7 @@ export function shortRevision(revision: string): string {
   return revision.slice(0, 7);
 }
 
-// revisionSummary 说明集合里的技能在哪个来源版本上：都在同一个时是 same("在 a1b2c3");
+// revisionSummary 说明集合里的技能在哪个来源版本上：都在同一个时是 same("来源版本 a1b2c3");
 // 不在同一个时是 mixed,直接写"pdf 在 d4e5f6,其余 4 个在 a1b2c3",不起专门的名字。
 // 来源版本未知的(入库时和来源里的不一样)不算进任何一个，单独写"grill-me 的来源版本未知";都未知时是 unknown("来源版本未知")。
 // 本地目录来源与没有来源的技能为 undefined。文案见 revisionText。
@@ -727,6 +727,13 @@ export function sourceLabel(s: Snapshot, source: Source): string {
     default:
       return messages().model.unknownSource;
   }
+}
+
+// sourceInputLabel 是未纳管技能的来源记录(用户填的或 npx skills 记下的链接、路径)在行里的写法：
+// 和集合的节标题一样去掉 https:// 与结尾的 .git,主目录下的路径缩写成 ~;完整的写在悬停提示里。
+export function sourceInputLabel(home: string | undefined, input: string): string {
+  const link = input.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\.git\/?$/, "");
+  return link === input ? homePath(home, input) : link;
 }
 
 // sourceShort 是技能行里的来源短名：GitHub 取 owner,Git 仓库取主机后的第一段(owner 或 group),well-known 取站点主机,

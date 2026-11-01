@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 import {
   agentNameIn,
   anyUpdatable,
+  notTakenOver,
+  scopeLabel,
+  unmanagedIn,
   parseScope,
   placeOf,
   projectFolderNote,
@@ -24,6 +27,7 @@ import {
 } from "@/lib/model";
 import { openScope, setArrange, setSearch, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { openFetch } from "@/features/fetch/fetch-dialog";
+import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Icon, SourceIcon } from "@/components/app/icons";
@@ -31,6 +35,7 @@ import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
+import { EmptyRow, FoldRow, HeadAction } from "./list-layout";
 import { SkillRow, UnmanagedRow } from "./rows";
 import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
 import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows } from "./sections";
@@ -158,14 +163,14 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
   // 下面那块的节与"没有来源" / "没有归组"用不能拖的节标题。
   if (notHere || section.kind === "rest") {
     const look = sectionLook(s, t, section, section.key === sectionKey("rest", "collection", scope, notHere));
-    const count = notHere ? section.all.length : scope ? t.hereCount(section.all.length) : section.skills.length;
+    const count = notHere || scope ? section.all.length : section.skills.length;
     return (
-      <Section id={section.key} pick={pick} head={<PlainHead {...look} count={count} />}>
+      <Section id={section.key} pick={pick} mark={look.icon} head={<PlainHead name={look.name} title={look.title} count={count} />}>
         {rows}
       </Section>
     );
   }
-  const count = scope ? t.hereCount(section.all.length) : undefined;
+  const count = scope ? section.all.length : undefined;
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
@@ -180,10 +185,10 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
       {section.skills.length ? (
         rows
       ) : (
-        <EmptyRows>
+        <EmptyRow>
           <b className="mr-1.5 font-medium text-foreground-secondary">{t.emptyGroup}</b>
           {t.emptyGroupHint}
-        </EmptyRows>
+        </EmptyRow>
       )}
     </GroupSection>
   );
@@ -197,12 +202,12 @@ function sectionLook(
   rest: boolean,
 ): { icon: React.ReactNode; name: string; title?: string } {
   const c = section.kind === "collection" ? s.collections.find((x) => x.id === section.id) : undefined;
-  if (c) return { icon: <SourceIcon type={c.source.type} className="size-3.5 text-muted-foreground" />, name: sourceLabel(s, c.source) };
+  if (c) return { icon: <SourceIcon type={c.source.type} className="text-muted-foreground" />, name: sourceLabel(s, c.source) };
   const g = section.kind === "group" ? s.groups.find((x) => x.id === section.id) : undefined;
-  if (g) return { icon: <Icon name="layers" className="size-3.5 text-group" />, name: g.name };
+  if (g) return { icon: <Icon name="layers" className="text-group" />, name: g.name };
   return rest
-    ? { icon: <Icon name="folder" className="size-3.5 text-muted-foreground" />, name: t.restCollection, title: t.restCollectionTitle }
-    : { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: t.restGroup };
+    ? { icon: <Icon name="folder" className="text-muted-foreground" />, name: t.restCollection, title: t.restCollectionTitle }
+    : { icon: <Icon name="layers" className="text-muted-foreground" />, name: t.restGroup };
 }
 
 function CollectionSection({
@@ -214,7 +219,7 @@ function CollectionSection({
 }: {
   id: string;
   collection: Collection;
-  count?: string;
+  count?: number;
   pick: SkillID[];
   children: React.ReactNode;
 }) {
@@ -223,8 +228,9 @@ function CollectionSection({
     <Section
       id={id}
       pick={pick}
+      mark={<SourceIcon type={collection.source.type} className="text-muted-foreground" />}
       head={<CollectionHead collection={collection} count={count} />}
-      sub={<CollectionNews collection={collection} />}
+      notice={<CollectionNews collection={collection} />}
       headProps={drop}
     >
       {children}
@@ -241,13 +247,13 @@ function GroupSection({
 }: {
   id: string;
   group: Group;
-  count?: string;
+  count?: number;
   pick: SkillID[];
   children: React.ReactNode;
 }) {
   const drop = useGroupDrop(group.id);
   return (
-    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} />} headProps={drop}>
+    <Section id={id} pick={pick} mark={<Icon name="layers" className="text-group" />} head={<GroupHead group={group} count={count} />} headProps={drop}>
       {children}
     </Section>
   );
@@ -263,7 +269,7 @@ function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>
         {skills.map((skill) => (
           <SkillRow key={skill.id} skill={skill} showSource />
         ))}
-        {skills.length === 0 && <EmptyRows>{t.noMatch}</EmptyRows>}
+        {skills.length === 0 && <EmptyRow>{t.noMatch}</EmptyRow>}
       </Section>
     </>
   );
@@ -296,7 +302,30 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
             <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
           {l.hereUnmanaged.length > 0 && (
-            <Section id="scope-unmanaged" head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}>
+            <Section
+              id="scope-unmanaged"
+              mark={<Icon name="inbox" className="text-muted-foreground" />}
+              tone="quiet"
+              head={
+                <PlainHead
+                  name={t.notInLibrary}
+                  count={l.hereUnmanaged.length}
+                  title={t.notInLibraryTitle}
+                  actions={
+                    // 和摘要里的"全部入库…"一样：只在有还没交给 app 管的时候出现，一次入库这个作用域里的全部未纳管技能。
+                    unmanagedIn(s, scope).some(notTakenOver) && (
+                      <HeadAction
+                        icon="inbox"
+                        className="fetch-all-unmanaged-head"
+                        onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)) }, false)}
+                      >
+                        {t.fetchAll}
+                      </HeadAction>
+                    )
+                  }
+                />
+              }
+            >
               {l.hereUnmanaged.map((u) => (
                 <UnmanagedRow key={u.folder} skill={u} headed />
               ))}
@@ -336,16 +365,14 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
   const names = l.notHereSkills.map((x) => x.name);
   return (
     <div className="not-here mt-4 border-t border-hairline pt-2">
-      <button
-        type="button"
-        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-black/5 hover:text-foreground"
-        aria-expanded={unfolded}
+      <FoldRow
+        bare
+        className="not-here-fold py-1.5"
+        open={unfolded}
+        label={unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}
         disabled={searching}
         onClick={() => toggleUnfolded(id)}
-      >
-        <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
-        <span className="truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
-      </button>
+      />
       {unfolded &&
         l.notHereSections.map((x) => (
           <SkillSectionView key={x.key} section={x} scope={scope} notHere />
@@ -369,18 +396,18 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           key={a.scope}
           id={`project-${page.project}:${a.scope}`}
           pick={a.skills.map((x) => x.id)}
+          mark={<PlaceAgentMark code={a.agent.code} place={page.project} />}
           head={
-            <>
-              <PlainHead
-                icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
-                name={agentNameIn(s, a.agent.code, page.project)}
-                count={t.skillCount(a.all)}
-                title={projectFolderNote(s, a.agent.code, page.project)}
-              />
-              <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
-                {t.openScope}
-              </Button>
-            </>
+            <PlainHead
+              name={agentNameIn(s, a.agent.code, page.project)}
+              count={t.skillCount(a.all)}
+              title={projectFolderNote(s, a.agent.code, page.project)}
+              actions={
+                <HeadAction icon="chev" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
+                  {t.openScope}
+                </HeadAction>
+              }
+            />
           }
         >
           {a.skills.map((skill) => (
@@ -394,10 +421,6 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
       {page.agents.length === 0 && <ListEmpty>{search ? t.noMatch : t.projectEmpty}</ListEmpty>}
     </>
   );
-}
-
-function EmptyRows({ children }: { children: React.ReactNode }) {
-  return <p className="px-3 py-3 text-[11.5px] text-muted-foreground">{children}</p>;
 }
 
 // 空状态放在列表区的视觉中部，用上边距定位。

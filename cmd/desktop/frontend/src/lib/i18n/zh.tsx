@@ -111,7 +111,7 @@ export const zh = {
     statusMissing: "文件夹不在了",
     statusRootMissing: "项目不在这台机器上",
     revisionUnknown: "来源版本未知",
-    revisionSame: (revision: string) => `在 ${revision}`,
+    revisionSame: (revision: string) => `来源版本 ${revision}`,
     revisionMixed: (r: Extract<RevisionSummary, { kind: "mixed" }>) =>
       [
         ...r.others.map((o) => `${o.names.join("、")} 在 ${o.revision}`),
@@ -572,6 +572,9 @@ export const zh = {
   },
 
   list: {
+    newPublished: (names: string[]) => `新发布：${names.join("、")}`,
+    expandSection: "展开",
+    collapseSection: "收起",
     emptyLibrary: "技能库还是空的",
     originalTitle: (text: string) => `原文：${text}`,
     emptyHint: "从本地目录、GitHub 或技能市场把技能入库。",
@@ -638,7 +641,6 @@ export const zh = {
     hideNotInstalled: "收起没装的",
     hideNotHere: "收起没装在这里的",
     notHereBlock: (names: string[], more: boolean) => `技能库里${more ? "还" : ""}有 ${names.length} 个，没装到这里：${firstNames(names)}`,
-    hereCount: (n: number) => `装在这里 ${n}`,
     groupOnly: (name: string, via: string[]) =>
       via.length > 1
         ? `「${name}」随「${via.join("」「")}」安装。要在这里不用它，撤掉这几个组在这里的组安装，或把它移出这几个组。`

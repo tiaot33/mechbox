@@ -34,8 +34,9 @@ export function PickBox({ id }: { id: SkillID }) {
   );
 }
 
-// SectionPick 是节标题上的勾选框：勾上或取消这一节列出的全部技能(折起来的"没装的"也算);勾了一部分时是半选。
-export function SectionPick({ ids }: { ids: SkillID[] }) {
+// SectionPick 是节标题开头的一格：平时是这一节的图标(mark),鼠标移上去或勾了技能以后换成勾选框，
+// 勾上或取消这一节列出的全部技能(折起来的"没装的"也算);勾了一部分时是半选。不能勾选的节只有图标。
+export function SectionPick({ ids, mark }: { ids: SkillID[]; mark?: React.ReactNode }) {
   const count = useView((v) => ids.filter((id) => v.picked.has(id)).length);
   const any = useView((v) => v.picked.size > 0);
   const ref = useRef<HTMLInputElement>(null);
@@ -44,16 +45,22 @@ export function SectionPick({ ids }: { ids: SkillID[] }) {
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = count > 0 && !all;
   }, [count, all]);
-  if (!ids.length) return null;
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      className={cn("section-pick", boxClass, !any && "opacity-0 group-hover/head:opacity-100 focus-visible:opacity-100")}
-      checked={all}
-      aria-label={t.pickSection}
-      title={t.pickSection}
-      onChange={() => setPicked(ids, !all)}
-    />
+    <span className="grid size-3.5 shrink-0 place-items-center *:[grid-area:1/1]">
+      {mark && (
+        <span className={cn("flex transition-opacity", ids.length > 0 && (any ? "opacity-0" : "group-hover/head:opacity-0 group-has-focus-visible/head:opacity-0"))}>{mark}</span>
+      )}
+      {ids.length > 0 && (
+        <input
+          ref={ref}
+          type="checkbox"
+          className={cn("section-pick", boxClass, !any && "opacity-0 group-hover/head:opacity-100 focus-visible:opacity-100")}
+          checked={all}
+          aria-label={t.pickSection}
+          title={t.pickSection}
+          onChange={() => setPicked(ids, !all)}
+        />
+      )}
+    </span>
   );
 }

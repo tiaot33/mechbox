@@ -24,6 +24,7 @@ import {
   copySources,
   copyTarget,
   homePath,
+  sourceInputLabel,
   missingFromGroup,
   moved,
   noOrder,
@@ -543,5 +544,18 @@ describe("照着装", () => {
       expect(left.unmanaged.map((u) => u.name)).toEqual(["mine", "also-mine"]);
       expect(left.repo.map((u) => u.name)).toEqual(["team", "locked"]);
     });
+  });
+});
+
+describe("sourceInputLabel", () => {
+  it("链接去掉协议与结尾的 .git", () => {
+    expect(sourceInputLabel("/Users/me", "https://git.dev.test/anthropics/skills.git")).toBe("git.dev.test/anthropics/skills");
+    expect(sourceInputLabel("/Users/me", "https://skills.e2e.test")).toBe("skills.e2e.test");
+  });
+  it("owner/repo 照原样", () => {
+    expect(sourceInputLabel("/Users/me", "openai/skills")).toBe("openai/skills");
+  });
+  it("主目录下的路径缩写成 ~", () => {
+    expect(sourceInputLabel("/Users/me", "/Users/me/sources/team-kit")).toBe("~/sources/team-kit");
   });
 });

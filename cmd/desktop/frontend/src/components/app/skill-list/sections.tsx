@@ -1,6 +1,7 @@
 // 列表的分节：技能库页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节，以及下面那块没装在这里的。
 // 节标题可以收起;集合与组的节标题可以拖到右栏作用域(集合 = 把它的技能逐个直接安装，组 = 组安装),
-// 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
+// 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。集合的更新、历史与来源里的新技能放在集合的节上，组的重命名、删除与组安装于放在组的节标题上。
+// 版式(卡片、标题行、列)见 list-layout.tsx。
 import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -27,16 +28,20 @@ import { uninstallGroup } from "@/features/install/install";
 import { openHistory, openUpdate } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
 import { useDnD } from "@/components/app/dnd";
-import { Icon, SourceIcon } from "@/components/app/icons";
+import { Icon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark, WSLBadge } from "@/components/app/parts";
+import { CardHead, FoldRow, HeadAction, HeadActions, HeadMeta, HeadName, ListCard, Notice, NoticeAction, type CardTone } from "./list-layout";
 import { SectionPick } from "./pick";
 
-// Section 是一节：标题 + 一块行;给了 pick 时标题上有勾选框，一次勾上这一节的这些技能。defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;
-// 收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
+// Section 是一节：标题行与行在同一张卡片里，notice 是标题行与行之间的一条提示(集合里来源新发布的技能)。
+// 标题开头一格放这一节的图标(mark);给了 pick 时鼠标移上去换成勾选框，一次勾上这一节的这些技能。
+// defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
 export function Section({
   id,
   head,
-  sub,
+  mark,
+  notice,
+  tone,
   defaultCollapsed = false,
   className,
   headProps,
@@ -45,7 +50,9 @@ export function Section({
 }: {
   id: string;
   head: React.ReactNode;
-  sub?: React.ReactNode; // 标题下面的一行(集合里来源新发布的技能)
+  mark?: React.ReactNode;
+  notice?: React.ReactNode;
+  tone?: CardTone;
   defaultCollapsed?: boolean;
   className?: string;
   headProps?: React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, unknown>;
@@ -54,62 +61,31 @@ export function Section({
 }) {
   const flipped = useView((v) => v.flipped.has(id));
   const searching = useView((v) => !!v.search.trim());
-  const collapsed = !searching && defaultCollapsed !== flipped;
+  const open = searching || defaultCollapsed === flipped;
   return (
-    <section className={cn("list-section mt-3 first:mt-0", className)} data-section={id}>
-      <div
-        {...headProps}
-        className={cn(
-          "section-head group/head sticky top-0 z-[1] -mx-1 flex min-h-9 min-w-0 items-center gap-2 rounded-lg bg-[rgba(246,247,249,0.92)] px-1 py-1 text-[12.5px] backdrop-blur-[8px]",
-          headProps?.className,
-        )}
+    <section className={cn("list-section mt-2 first:mt-0", className)} data-section={id}>
+      <ListCard
+        tone={tone}
+        open={open}
+        notice={notice}
+        head={
+          <CardHead lead={<SectionPick ids={pick ?? []} mark={mark} />} open={open} onToggle={() => toggleSection(id)} headProps={headProps}>
+            {head}
+          </CardHead>
+        }
       >
-        <button
-          type="button"
-          className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-black/5 hover:text-foreground"
-          aria-expanded={!collapsed}
-          onClick={() => toggleSection(id)}
-        >
-          <Icon name="down" className={cn("size-2.5 transition-transform", collapsed && "-rotate-90")} />
-        </button>
-        {pick && <SectionPick ids={pick} />}
-        {head}
-      </div>
-      {sub}
-      {!collapsed && <div className="section-rows mt-1 rounded-[10px] border border-hairline bg-white/55 shadow-tile">{children}</div>}
+        {children}
+      </ListCard>
     </section>
-  );
-}
-
-// Counts 是节标题上淡色的数字说明。
-function Counts({ children }: { children: React.ReactNode }) {
-  return <span className="shrink-0 text-[11px] text-muted-foreground">{children}</span>;
-}
-
-// DragHandle 是可拖的节标题前的把手。
-function DragHandle() {
-  return (
-    <span className="grid shrink-0 grid-cols-[repeat(2,3px)] gap-0.5 opacity-50 group-hover/head:opacity-100" aria-hidden>
-      {Array.from({ length: 6 }, (_, i) => (
-        <i key={i} className="size-[3px] rounded-full bg-muted-foreground" />
-      ))}
-    </span>
   );
 }
 
 // inUse 是一节里算作在用的技能：装在至少一个地方的。技能库页节标题的个数和行的先后都按它。
 const inUse = (s: ReturnType<typeof useSnapshot>, skills: Skill[]) => skills.filter((x) => skillScopesOf(s, x.id).length > 0);
 
-// UseCounts 是技能库页节标题上的"在用 N · 共 M"。
-function UseCounts({ skills }: { skills: Skill[] }) {
-  const s = useSnapshot();
-  const t = useT().list;
-  return <Counts>{t.inUse(inUse(s, skills).length, skills.length)}</Counts>;
-}
-
-// CollectionHead 是集合的节标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，
+// CollectionHead 是集合的节标题：来源、在用几个(作用域页给 count,只写个数：整页都是这个作用域，不再每节写"装在这里")、来源版本与有变化的个数，
 // 看来源里的其他技能、历史、更新;可以整个拖到作用域。
-export function CollectionHead({ collection, count }: { collection: Collection; count?: string }) {
+export function CollectionHead({ collection, count }: { collection: Collection; count?: number }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -119,7 +95,11 @@ export function CollectionHead({ collection, count }: { collection: Collection; 
   const changed = skills.filter(updateAvailable).length;
   const local = isLocal(collection.source);
   const label = sourceLabel(s, collection.source);
-  const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : ""].filter(Boolean);
+  const facts = [
+    count === undefined ? t.list.inUse(inUse(s, skills).length, skills.length) : "",
+    revisionText(revisionSummary(skills)),
+    changed ? t.drawer.changedCount(changed) : "",
+  ].filter(Boolean);
   return (
     <>
       <span
@@ -129,57 +109,54 @@ export function CollectionHead({ collection, count }: { collection: Collection; 
         onDragEnd={dnd.end}
         title={t.list.collectionDragTitle(skills.length)}
       >
-        <DragHandle />
-        <SourceIcon type={collection.source.type} className="size-3.5 text-muted-foreground" />
-        <b className="section-name truncate font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
-          {label}
-        </b>
+        <HeadName title={wslTitle(local ? collection.source.label : undefined)}>{label}</HeadName>
         {local && <WSLBadge path={collection.source.label} />}
       </span>
-      {count ? <Counts>{count}</Counts> : <UseCounts skills={skills} />}
-      <span className="min-w-0 grow truncate text-[11px] text-subtle" title={facts.join(" · ")}>
+      {count !== undefined && <HeadMeta>{count}</HeadMeta>}
+      <HeadMeta grow title={facts.join(" · ")}>
         {facts.join(" · ")}
-      </span>
-      <span className="flex shrink-0 items-center gap-1">
-        <Button size="sm" variant="ghost" onClick={() => previewCollection(collection.id)} title={t.list.otherSkillsHint}>
+      </HeadMeta>
+      <HeadActions>
+        <HeadAction icon="search" onClick={() => previewCollection(collection.id)} title={t.list.otherSkillsHint}>
           {t.drawer.otherSkills}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => openHistory({ collection_id: collection.id }, t.list.historyTitle(label))}>
+        </HeadAction>
+        <HeadAction icon="clock" onClick={() => openHistory({ collection_id: collection.id }, t.list.historyTitle(label))}>
           {t.list.history}
-        </Button>
+        </HeadAction>
         {!local && skills.some(hasUpdate) && (
           <Button size="sm" variant={todo ? "primary" : "default"} onClick={() => openUpdate(collection.id)}>
             <Icon name="up" />
             {todo ? t.list.updateCount(todo) : t.list.update}
           </Button>
         )}
-      </span>
+      </HeadActions>
     </>
   );
 }
 
-// CollectionNews 是集合节标题下的一行：来源里新发布的技能，去入库或不感兴趣。
+// CollectionNews 是集合卡片下面的一条提示：来源里新发布的技能，去入库或不感兴趣。
 export function CollectionNews({ collection }: { collection: Collection }) {
-  const s = useSnapshot();
   const t = useT();
   const fresh = collection.new_skills ?? [];
   if (!fresh.length) return null;
   return (
-    <div className="collection-new flex min-w-0 items-center gap-2 px-8 pt-0.5 pb-1 text-[11px] text-muted-foreground">
-      <span className="min-w-0 grow truncate">{t.drawer.newSkills(sourceLabel(s, collection.source), fresh)}</span>
-      <Button variant="link" onClick={() => previewNewSkills(collection.id)}>
-        {t.drawer.goFetch}
-      </Button>
-      <Button variant="link" onClick={() => notInterested(collection.id, fresh)}>
-        {t.drawer.notInterested}
-      </Button>
-    </div>
+    <Notice
+      className="collection-new"
+      actions={
+        <>
+          <NoticeAction onClick={() => previewNewSkills(collection.id)}>{t.drawer.goFetch}</NoticeAction>
+          <NoticeAction onClick={() => notInterested(collection.id, fresh)}>{t.drawer.notInterested}</NoticeAction>
+        </>
+      }
+    >
+      {t.list.newPublished(fresh)}
+    </Notice>
   );
 }
 
 // GroupHead 是组的节标题：可以整组拖到作用域(组安装),写出组安装于哪些作用域(可以卸载),重命名与删除。
-// 作用域页给 count,写装在这里几个;否则写组里几个技能。
-export function GroupHead({ group, count }: { group: Group; count?: string }) {
+// 作用域页给 count,只写装在这里几个(一个数);否则写组里几个技能。
+export function GroupHead({ group, count }: { group: Group; count?: number }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -194,12 +171,11 @@ export function GroupHead({ group, count }: { group: Group; count?: string }) {
         onDragEnd={dnd.end}
         title={t.list.groupDragTitle(size)}
       >
-        <DragHandle />
-        <Icon name="layers" className="size-3.5 text-group" />
-        <b className="section-name truncate font-semibold">{group.name}</b>
+        <HeadName>{group.name}</HeadName>
       </span>
-      <Counts>{count ?? t.list.skillCount(size)}</Counts>
-      <span className="ml-1 inline-flex min-w-0 grow items-center gap-1 overflow-hidden text-[11px] whitespace-nowrap text-muted-foreground">
+      <HeadMeta>{count ?? t.list.skillCount(size)}</HeadMeta>
+      <span className="inline-flex min-w-0 grow basis-0 items-center gap-1 overflow-hidden text-[12px] whitespace-nowrap text-muted-foreground">
+        <span aria-hidden>·</span>
         {scopes.length ? (
           <>
             {t.list.groupInstalledIn}
@@ -214,26 +190,29 @@ export function GroupHead({ group, count }: { group: Group; count?: string }) {
           <span className="text-subtle">{t.list.notGroupInstalled}</span>
         )}
       </span>
-      <span className="flex shrink-0 items-center gap-1">
-        <Button size="sm" variant="ghost" onClick={() => renameGroup(group.id)}>
+      <HeadActions>
+        <HeadAction icon="edit" onClick={() => renameGroup(group.id)}>
           {t.list.rename}
-        </Button>
-        <Button size="sm" variant="ghost" className="text-bad-strong" onClick={() => deleteGroup(group.id)}>
+        </HeadAction>
+        <HeadAction icon="trash" className="text-bad-strong hover:text-bad-strong" onClick={() => deleteGroup(group.id)}>
           {t.list.deleteGroup}
-        </Button>
-      </span>
+        </HeadAction>
+      </HeadActions>
     </>
   );
 }
 
 // PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局、作用域页下面那块(没装在这里的)的各节、项目页的各个 Agent。
-export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode; name: string; count: React.ReactNode; title?: string }) {
+// 图标由 Section 的 mark 放在开头一格;actions 放在右边(项目页的"打开作用域")。
+export function PlainHead({ name, count, title, actions }: { name: string; count: React.ReactNode; title?: string; actions?: React.ReactNode }) {
   return (
-    <span className="flex min-w-0 grow items-center gap-2" title={title}>
-      {icon}
-      <b className="section-name truncate font-semibold">{name}</b>
-      <Counts>{count}</Counts>
-    </span>
+    <>
+      <span className="flex min-w-0 items-center gap-2" title={title}>
+        <HeadName>{name}</HeadName>
+        <HeadMeta>{count}</HeadMeta>
+      </span>
+      {actions && <HeadActions>{actions}</HeadActions>}
+    </>
   );
 }
 
@@ -247,21 +226,12 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
   const used = inUse(s, skills);
   const idle = skills.filter((x) => !used.includes(x));
   const foldable = !searching && used.length > 0 && idle.length > 0;
-  const label = unfolded ? t.hideNotInstalled : t.notInstalledFold(idle.map((x) => x.name));
   const shown = foldable && !unfolded ? used : [...used, ...idle];
   return (
     <>
       {shown.map(render)}
       {foldable && (
-        <button
-          type="button"
-          className="not-installed-fold flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-white/80 hover:text-foreground"
-          aria-expanded={unfolded}
-          onClick={() => toggleUnfolded(id)}
-        >
-          <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
-          <span className="truncate">{label}</span>
-        </button>
+        <FoldRow open={unfolded} label={unfolded ? t.hideNotInstalled : t.notInstalledFold(idle.map((x) => x.name))} onClick={() => toggleUnfolded(id)} />
       )}
     </>
   );

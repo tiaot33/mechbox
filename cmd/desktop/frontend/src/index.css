@@ -233,10 +233,10 @@
   }
 
   /* 左栏点了集合或组，滚到的那一节的标题闪一下。 */
-  .list-section > .section-head {
+  .list-section .section-head {
     transition: background-color 0.6s ease-out;
   }
-  .list-section[data-flash] > .section-head {
+  .list-section[data-flash] .section-head {
     background: var(--color-primary-soft);
     transition: none;
   }
