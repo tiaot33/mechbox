@@ -37,6 +37,7 @@ const bundleID = "com.tiaot33.mechbox"
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		showStartupError(err)
 		os.Exit(1)
 	}
 }
