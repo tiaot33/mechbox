@@ -122,8 +122,7 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
   const s = useSnapshot();
   const t = useT().list;
   const c = useT().copy;
-  const elsewhere = (p: { scope: { project_id?: number } }) => !!p.scope.project_id && p.scope.project_id !== project.id;
-  const others = s.skillScopes.some(elsewhere) || s.groupInstalls.some(elsewhere);
+  const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
   return (
     <div className={barClass}>

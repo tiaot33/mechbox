@@ -40,11 +40,11 @@ import { Notice } from "@/components/ui/notice";
 import { memberRows, showResults, type ResultRow } from "@/components/app/results";
 import { occupiedReason } from "./install";
 
-// CopyKind 是一种照装：照着谁(sources 的 key)、装到哪(to)、要装的各处、各处的标题与确认框里另外说的话。
+// CopyKind 是一种照装：照着谁(sources 的 key)、装到的那一处的名字(toName)、要装的各处、各处的标题与确认框里另外说的话。
 // 文案都在调用时取，跟随当前界面语言。
 interface CopyKind {
   title: () => string;
-  to: string;
+  toName: string;
   sources: { key: string; name: string }[];
   lead: () => string;
   once: (from: string) => string;
@@ -65,7 +65,7 @@ export function openCopyFromAgent(to: AgentCode) {
   }
   openCopy(s, {
     title: () => messages().copy.title(toName),
-    to: toName,
+    toName,
     sources: sources.map((a) => ({ key: a.code, name: a.name })),
     lead: () => messages().copy.lead(toName),
     once: (from) => messages().copy.once(from, toName),
@@ -94,7 +94,7 @@ export function openCopyFromProject(to: ProjectID) {
   }
   openCopy(s, {
     title: () => messages().copy.projectTitle(toName),
-    to: toName,
+    toName,
     sources: sources.map((p) => ({ key: String(p.id), name: projectName(s, p.id) })),
     lead: () => messages().copy.projectLead(toName),
     once: (from) => messages().copy.projectOnce(from, toName),
@@ -192,7 +192,7 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
   const submit = () => {
     if (!plans) return;
     close();
-    void runCopy(s, fromName, kind.to, places, plans, checked, overwrite);
+    void runCopy(s, fromName, kind.toName, places, plans, checked, overwrite);
   };
 
   return (
@@ -241,7 +241,7 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
       {!plans && <Hint>{t.checking}</Hint>}
       {edited.length > 0 && (
         <Notice tone="warn" className="copy-edited">
-          {t.edited(fromName, kind.to, edited)}
+          {t.edited(fromName, kind.toName, edited)}
         </Notice>
       )}
       {left.unmanaged > 0 && <Notice className="copy-unmanaged">{t.unmanaged(fromName, left.unmanaged)}</Notice>}

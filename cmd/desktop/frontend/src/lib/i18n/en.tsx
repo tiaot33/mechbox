@@ -393,7 +393,7 @@ export const en = {
     projectTitle: (to: string) => `Copy from another project to ${to}`,
     projectLead: (to: string) => `Install in ${to}: each Agent's skills go to the same Agent in this project`,
     projectOnce: (from: string, to: string) =>
-      `This is a one-time install: skills you install in ${from} later won't follow to ${to}. To keep several projects the same, use a Group install: on the ${from} project page, check the skills, choose “Add to Group…”, then drag the Group onto the Agents under ${to}. Everything already installed in ${to} stays as it is.`,
+      `This is a one-time install: skills you install in ${from} later won't follow to ${to}. To keep several projects the same, use a Group install: on the ${from} project page, check the skills, choose “Add to Group…”, then drag the Group onto the Agents under both ${from} and ${to}. Everything already installed in ${to} stays as it is.`,
     repoOwned: (from: string, n: number) =>
       `${from} also has ${count(n, "skill")} that the project repository manages (committed to the repository or listed in skills-lock.json). They go with the repository and aren't part of this install.`,
     projectNothing: (to: string) => `${to} already has every Library skill installed in the other registered projects`,

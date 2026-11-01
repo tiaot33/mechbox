@@ -18,7 +18,7 @@ import {
   type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
-import { folderKey, needsReinstall, scopeKey } from "./model";
+import { folderKey, needsReinstall, notTakenOver, scopeKey } from "./model";
 
 // placeKey 标识一处安装：哪个技能装在哪个作用域。
 export const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
@@ -167,8 +167,8 @@ export function linkWrites(places: SkillScopeInspection[], written: (p: SkillSco
 
 // ---------- 整批入库 ----------
 
-// notOwn 是默认不接的一处：提交在项目仓库里、记在项目 skills-lock.json 里，或指向 Agent 目录以外。
-const notOwn = (f: UnmanagedSkill) => !!(f.in_repository || f.in_project_lock || f.link_outside);
+// notOwn 是默认不接的一处：提交在项目仓库里、记在项目 skills-lock.json 里，或指向 Agent 目录以外(见 model.ts 的 notTakenOver)。
+const notOwn = (f: UnmanagedSkill) => !notTakenOver(f);
 
 // fetchPlan 是整批入库确认里的各条与默认勾选。库把内容一致的几处合成一条，其中一处默认不接整条就不勾;
 // 这里把默认不接的几处拆成单独一条，用户自己的那几处照常默认勾上(全局和项目一起看时，全局那份不被项目里团队的那份拖着)。
@@ -186,7 +186,7 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
       link_outside: folders.some((f) => f.link_outside),
     }));
   });
-  const ownEntry = (p: PlannedUnmanagedSkill) => !p.error && !p.in_repository && !p.in_project_lock && !p.link_outside;
+  const ownEntry = (p: PlannedUnmanagedSkill) => !p.error && notTakenOver(p);
   const time = (p: PlannedUnmanagedSkill) => (p.modified_at ? Date.parse(p.modified_at) : 0);
   const newest = new Map<string, PlannedUnmanagedSkill>();
   for (const p of split) {

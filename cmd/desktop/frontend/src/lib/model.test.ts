@@ -216,7 +216,7 @@ describe("pageSkills", () => {
   });
 });
 
-describe("照着另一个 Agent 装", () => {
+describe("照着装", () => {
   const claude = AgentCode.AgentClaudeCode;
   const codex = AgentCode.AgentCodex;
   const cursor = "cursor" as AgentCode;
@@ -230,7 +230,8 @@ describe("照着另一个 Agent 装", () => {
   const installed = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspection> = {}) =>
     ({ skill_id, scope, folder: `f${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent, ...extra }) as SkillScopeInspection;
   const skill = (id: number) => ({ id, name: `s${id}`, source: { type: SourceType.SourceGitHub, label: "a/a" } }) as Skill;
-  const projects = [{ id: 1, name: "web" }, { id: 2, name: "old", missing: true }] as RegisteredProject[];
+  // 项目 1、3 在这台机器上，项目 2 不在。
+  const projects = [{ id: 1, name: "web" }, { id: 2, name: "old", missing: true }, { id: 3, name: "new" }] as RegisteredProject[];
   const base = {
     agents,
     projects,
@@ -240,237 +241,228 @@ describe("照着另一个 Agent 装", () => {
     unmanaged: [] as UnmanagedSkill[],
   };
 
-  it("全局的装到全局，项目里的装到同一个项目;直接安装照样直接安装，组安装照样组安装", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [
-        installed(1, at(claude)),
-        installed(4, at(claude), { direct: false, groups: [7] }),
-        installed(5, at(claude), { direct: false, groups: [7] }),
-        installed(2, at(claude, 1)),
-      ],
-      groupInstalls: [{ group_id: 7, scope: at(claude) }] as GroupInstall[],
+  describe("照着另一个 Agent 装", () => {
+    it("全局的装到全局，项目里的装到同一个项目;直接安装照样直接安装，组安装照样组安装", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude)),
+          installed(4, at(claude), { direct: false, groups: [7] }),
+          installed(5, at(claude), { direct: false, groups: [7] }),
+          installed(2, at(claude, 1)),
+        ],
+        groupInstalls: [{ group_id: 7, scope: at(claude) }] as GroupInstall[],
+      });
+      const copy = copyFromAgent(s, claude, codex);
+      expect(copy.map((p) => placeOf(p.to))).toEqual([0, 1]);
+      expect(copy[0].skills.map((x) => x.id)).toEqual([1]);
+      expect(copy[0].groups.map((g) => g.id)).toEqual([7]);
+      expect(copy[1].skills.map((x) => x.id)).toEqual([2]);
+      expect(copy[1].groups).toEqual([]);
     });
-    const copy = copyFromAgent(s, claude, codex);
-    expect(copy.map((p) => placeOf(p.to))).toEqual([0, 1]);
-    expect(copy[0].skills.map((x) => x.id)).toEqual([1]);
-    expect(copy[0].groups.map((g) => g.id)).toEqual([7]);
-    expect(copy[1].skills.map((x) => x.id)).toEqual([2]);
-    expect(copy[1].groups).toEqual([]);
-  });
 
-  it("只加不减：这里已经装了的技能、已有的组安装不列出", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [installed(1, at(claude)), installed(2, at(claude)), installed(1, at(codex)), installed(3, at(codex))],
-      groupInstalls: [{ group_id: 7, scope: at(claude) }, { group_id: 7, scope: at(codex) }] as GroupInstall[],
+    it("只加不减：这里已经装了的技能、已有的组安装不列出", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(1, at(claude)), installed(2, at(claude)), installed(1, at(codex)), installed(3, at(codex))],
+        groupInstalls: [{ group_id: 7, scope: at(claude) }, { group_id: 7, scope: at(codex) }] as GroupInstall[],
+      });
+      const copy = copyFromAgent(s, claude, codex);
+      expect(copy).toHaveLength(1);
+      expect(copy[0].skills.map((x) => x.id)).toEqual([2]);
+      expect(copy[0].groups).toEqual([]);
     });
-    const copy = copyFromAgent(s, claude, codex);
-    expect(copy).toHaveLength(1);
-    expect(copy[0].skills.map((x) => x.id)).toEqual([2]);
-    expect(copy[0].groups).toEqual([]);
-  });
 
-  it("读同一个目录的那一处本来就一样，不列出", () => {
-    const s = snapshot({ ...base, skillScopes: [installed(1, at(codex, 1)), installed(2, at(codex))] });
-    const copy = copyFromAgent(s, codex, cursor);
-    expect(copy.map((p) => placeOf(p.to))).toEqual([0]);
-  });
-
-  it("组安装记在读同一个目录的另一个 Agent 上也算", () => {
-    // Codex 与 Cursor 在项目里共用 .agents/skills,组安装记在 Codex 上;照着 Cursor 装到 Claude Code 时照样带上这个组。
-    const s = snapshot({
-      ...base,
-      skillScopes: [
-        installed(4, at(codex, 1), { direct: false, groups: [7] }),
-        installed(4, at(cursor, 1), { direct: false, groups: [7] }),
-      ],
-      groupInstalls: [{ group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+    it("读同一个目录的那一处本来就一样，不列出", () => {
+      const s = snapshot({ ...base, skillScopes: [installed(1, at(codex, 1)), installed(2, at(codex))] });
+      const copy = copyFromAgent(s, codex, cursor);
+      expect(copy.map((p) => placeOf(p.to))).toEqual([0]);
     });
-    expect(copyFromAgent(s, cursor, claude)).toMatchObject([{ to: { project_id: 1 }, groups: [{ id: 7 }], skills: [] }]);
-    // 反过来照着 Claude Code 装到 Cursor:Cursor 那一处已经有这个组安装(记在 Codex 上),不再列出。
-    const back = snapshot({
-      ...base,
-      skillScopes: [installed(4, at(claude, 1), { direct: false, groups: [7] })],
-      groupInstalls: [{ group_id: 7, scope: at(claude, 1) }, { group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+
+    it("组安装记在读同一个目录的另一个 Agent 上也算", () => {
+      // Codex 与 Cursor 在项目里共用 .agents/skills,组安装记在 Codex 上;照着 Cursor 装到 Claude Code 时照样带上这个组。
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(4, at(codex, 1), { direct: false, groups: [7] }),
+          installed(4, at(cursor, 1), { direct: false, groups: [7] }),
+        ],
+        groupInstalls: [{ group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+      });
+      expect(copyFromAgent(s, cursor, claude)).toMatchObject([{ to: { project_id: 1 }, groups: [{ id: 7 }], skills: [] }]);
+      // 反过来照着 Claude Code 装到 Cursor:Cursor 那一处已经有这个组安装(记在 Codex 上),不再列出。
+      const back = snapshot({
+        ...base,
+        skillScopes: [installed(4, at(claude, 1), { direct: false, groups: [7] })],
+        groupInstalls: [{ group_id: 7, scope: at(claude, 1) }, { group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+      });
+      expect(copyFromAgent(back, claude, cursor)).toEqual([]);
     });
-    expect(copyFromAgent(back, claude, cursor)).toEqual([]);
-  });
 
-  it("项目里装到共用目录的代表 Agent 上，全局装到它自己", () => {
-    expect(copyTarget({ agents, agentsShown: {} }, cursor, 1)).toBe(codex);
-    expect(copyTarget({ agents, agentsShown: {} }, cursor, 0)).toBe(cursor);
-  });
-
-  it("要装过来的技能里，原来那一处被改过的单列出来", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [
-        installed(1, at(claude), { status: SkillScopeStatus.SkillScopeModified }),
-        installed(4, at(claude), { direct: false, groups: [7], status: SkillScopeStatus.SkillScopeModified }),
-        installed(2, at(claude), { status: SkillScopeStatus.SkillScopeModified }),
-        installed(2, at(codex)),
-      ],
-      groupInstalls: [{ group_id: 7, scope: at(claude) }] as GroupInstall[],
+    it("项目里装到共用目录的代表 Agent 上，全局装到它自己", () => {
+      expect(copyTarget({ agents, agentsShown: {} }, cursor, 1)).toBe(codex);
+      expect(copyTarget({ agents, agentsShown: {} }, cursor, 0)).toBe(cursor);
     });
-    expect(copyFromAgent(s, claude, codex)[0].edited.map((x) => x.id)).toEqual([1, 4]);
-  });
 
-  it("项目不在这台机器上的那一处标出来", () => {
-    const s = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
-    expect(copyFromAgent(s, claude, codex)).toMatchObject([{ to: { project_id: 2 }, missing: true }]);
-  });
-
-  it("可以照着装的是有东西可装的其他 Agent,装得最多的在前", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [
-        installed(1, at(claude)),
-        installed(4, at(claude)),
-        installed(2, at(cursor)),
-        installed(3, at(cursor)),
-        installed(5, at(cursor)),
-        installed(1, at(codex)),
-      ],
+    it("要装过来的技能里，原来那一处被改过的单列出来", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude), { status: SkillScopeStatus.SkillScopeModified }),
+          installed(4, at(claude), { direct: false, groups: [7], status: SkillScopeStatus.SkillScopeModified }),
+          installed(2, at(claude), { status: SkillScopeStatus.SkillScopeModified }),
+          installed(2, at(codex)),
+        ],
+        groupInstalls: [{ group_id: 7, scope: at(claude) }] as GroupInstall[],
+      });
+      expect(copyFromAgent(s, claude, codex)[0].edited.map((x) => x.id)).toEqual([1, 4]);
     });
-    expect(copySources(s, codex).map((a) => a.code)).toEqual([cursor, claude]);
-    expect(copySources(snapshot({ ...base, skillScopes: [installed(1, at(claude)), installed(1, at(codex))] }), codex)).toEqual([]);
-    const onlyMissing = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
-    expect(copySources(onlyMissing, codex)).toEqual([]);
+
+    it("项目不在这台机器上的那一处标出来", () => {
+      const s = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
+      expect(copyFromAgent(s, claude, codex)).toMatchObject([{ to: { project_id: 2 }, missing: true }]);
+    });
+
+    it("可以照着装的是有东西可装的其他 Agent,装得最多的在前", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude)),
+          installed(4, at(claude)),
+          installed(2, at(cursor)),
+          installed(3, at(cursor)),
+          installed(5, at(cursor)),
+          installed(1, at(codex)),
+        ],
+      });
+      expect(copySources(s, codex).map((a) => a.code)).toEqual([cursor, claude]);
+      expect(copySources(snapshot({ ...base, skillScopes: [installed(1, at(claude)), installed(1, at(codex))] }), codex)).toEqual([]);
+      const onlyMissing = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
+      expect(copySources(onlyMissing, codex)).toEqual([]);
+    });
+
+    it("未纳管技能带不过来，数出来;读同一个目录的那几处不算", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [],
+        unmanaged: [{ scope: at(codex), name: "a" }, { scope: at(codex, 1), name: "b" }, { scope: at(claude), name: "c" }] as UnmanagedSkill[],
+      });
+      expect(uncopiedUnmanaged(s, codex, claude)).toHaveLength(2);
+      expect(uncopiedUnmanaged(s, codex, cursor)).toHaveLength(1);
+    });
+
+    it("这一处已经有同名文件夹的未纳管技能不算带不过来", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(1, at(claude), { folder: "/home/.claude/skills/b" })],
+        unmanaged: [
+          { scope: at(codex), name: "a" },
+          { scope: at(claude), name: "a" },
+          { scope: at(codex), name: "b" },
+          { scope: at(codex), name: "c" },
+        ] as UnmanagedSkill[],
+      });
+      expect(uncopiedUnmanaged(s, codex, claude).map((u) => u.name)).toEqual(["c"]);
+    });
   });
 
-  it("未纳管技能带不过来，数出来;读同一个目录的那几处不算", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [],
-      unmanaged: [{ scope: at(codex), name: "a" }, { scope: at(codex, 1), name: "b" }, { scope: at(claude), name: "c" }] as UnmanagedSkill[],
+  describe("照着另一个项目装", () => {
+    it("各 Agent 装到这个项目里的同一个 Agent;直接安装照样直接安装，组安装照样组安装，全局不算", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude, 1)),
+          installed(4, at(codex, 1), { direct: false, groups: [7] }),
+          installed(5, at(codex, 1), { direct: false, groups: [7] }),
+          installed(3, at(claude)),
+        ],
+        groupInstalls: [{ group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+      });
+      const copy = copyFromProject(s, 1, 3);
+      expect(copy.map((p) => p.to)).toEqual([at(claude, 3), at(codex, 3)]);
+      expect(copy[0].skills.map((x) => x.id)).toEqual([1]);
+      expect(copy[0].groups).toEqual([]);
+      expect(copy[1].skills).toEqual([]);
+      expect(copy[1].groups.map((g) => g.id)).toEqual([7]);
     });
-    expect(uncopiedUnmanaged(s, codex, claude)).toHaveLength(2);
-    expect(uncopiedUnmanaged(s, codex, cursor)).toHaveLength(1);
-  });
 
-  it("这一处已经有同名文件夹的未纳管技能不算带不过来", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [installed(1, at(claude), { folder: "/home/.claude/skills/b" })],
-      unmanaged: [
-        { scope: at(codex), name: "a" },
-        { scope: at(claude), name: "a" },
-        { scope: at(codex), name: "b" },
-        { scope: at(codex), name: "c" },
-      ] as UnmanagedSkill[],
+    it("项目里共用目录的几个 Agent 合成一处，组安装记在其中哪一个上都算", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(2, at(codex, 1)), installed(2, at(cursor, 1)), installed(4, at(cursor, 1), { direct: false, groups: [7] })],
+        groupInstalls: [{ group_id: 7, scope: at(cursor, 1) }] as GroupInstall[],
+      });
+      expect(copyFromProject(s, 1, 3)).toMatchObject([{ to: at(codex, 3), skills: [{ id: 2 }], groups: [{ id: 7 }] }]);
     });
-    expect(uncopiedUnmanaged(s, codex, claude).map((u) => u.name)).toEqual(["c"]);
-  });
-});
 
-describe("照着另一个项目装", () => {
-  const claude = AgentCode.AgentClaudeCode;
-  const codex = AgentCode.AgentCodex;
-  const cursor = "cursor" as AgentCode;
-  const agents = [
-    { code: claude, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" },
-    { code: codex, name: "Codex", global_directory: "/home/.agents/skills", project_directory: ".agents/skills" },
-    { code: cursor, name: "Cursor", global_directory: "/home/.cursor/skills", project_directory: ".agents/skills" },
-  ] as Agent[];
-  const at = (agent: AgentCode, project_id = 0): Scope =>
-    project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
-  const installed = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspection> = {}) =>
-    ({ skill_id, scope, folder: `f${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent, ...extra }) as SkillScopeInspection;
-  const skill = (id: number) => ({ id, name: `s${id}`, source: { type: SourceType.SourceGitHub, label: "a/a" } }) as Skill;
-  const projects = [{ id: 1, name: "old" }, { id: 2, name: "other", missing: true }, { id: 3, name: "new" }] as RegisteredProject[];
-  const base = {
-    agents,
-    projects,
-    skills: [1, 2, 3, 4, 5].map(skill),
-    groups: [group(7, [4, 5])],
-    groupInstalls: [] as GroupInstall[],
-    unmanaged: [] as UnmanagedSkill[],
-  };
-
-  it("各 Agent 装到这个项目里的同一个 Agent;直接安装照样直接安装，组安装照样组安装，全局不算", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [
-        installed(1, at(claude, 1)),
-        installed(4, at(codex, 1), { direct: false, groups: [7] }),
-        installed(5, at(codex, 1), { direct: false, groups: [7] }),
-        installed(3, at(claude)),
-      ],
-      groupInstalls: [{ group_id: 7, scope: at(codex, 1) }] as GroupInstall[],
+    it("只加不减：这个项目里已经装了的技能、已有的组安装不列出", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(1, at(claude, 1)), installed(2, at(claude, 1)), installed(1, at(claude, 3)), installed(3, at(claude, 3))],
+        groupInstalls: [{ group_id: 7, scope: at(codex, 1) }, { group_id: 7, scope: at(cursor, 3) }] as GroupInstall[],
+      });
+      expect(copyFromProject(s, 1, 3)).toMatchObject([{ to: at(claude, 3), skills: [{ id: 2 }], groups: [] }]);
+      expect(copyFromProject(s, 3, 3)).toEqual([]);
     });
-    const copy = copyFromProject(s, 1, 3);
-    expect(copy.map((p) => [p.from, p.to])).toEqual([
-      [at(claude, 1), at(claude, 3)],
-      [at(codex, 1), at(codex, 3)],
-    ]);
-    expect(copy[0].skills.map((x) => x.id)).toEqual([1]);
-    expect(copy[0].groups).toEqual([]);
-    expect(copy[1].skills).toEqual([]);
-    expect(copy[1].groups.map((g) => g.id)).toEqual([7]);
-  });
 
-  it("项目里共用目录的几个 Agent 合成一处，组安装记在其中哪一个上都算", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [installed(2, at(codex, 1)), installed(2, at(cursor, 1)), installed(4, at(cursor, 1), { direct: false, groups: [7] })],
-      groupInstalls: [{ group_id: 7, scope: at(cursor, 1) }] as GroupInstall[],
+    it("要装过来的技能里，原来那个项目里被改过的单列出来", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(1, at(claude, 1), { status: SkillScopeStatus.SkillScopeModified }), installed(2, at(claude, 1))],
+      });
+      expect(copyFromProject(s, 1, 3)[0].edited.map((x) => x.id)).toEqual([1]);
     });
-    expect(copyFromProject(s, 1, 3)).toMatchObject([{ to: at(codex, 3), skills: [{ id: 2 }], groups: [{ id: 7 }] }]);
-  });
 
-  it("只加不减：这个项目里已经装了的技能、已有的组安装不列出", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [installed(1, at(claude, 1)), installed(2, at(claude, 1)), installed(1, at(claude, 3)), installed(3, at(claude, 3))],
-      groupInstalls: [{ group_id: 7, scope: at(codex, 1) }, { group_id: 7, scope: at(cursor, 3) }] as GroupInstall[],
+    it("可以照着装的是有东西可装的其他项目，装得最多的在前;不在这台机器上的项目也能照着", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude, 1)),
+          installed(2, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing }),
+          installed(3, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing }),
+          installed(4, at(claude, 3)),
+          installed(5, at(claude)),
+        ],
+      });
+      expect(copyProjectSources(s, 3).map((p) => p.id)).toEqual([2, 1]);
+      const done = snapshot({ ...base, skillScopes: [installed(1, at(claude, 1)), installed(1, at(claude, 3))] });
+      expect(copyProjectSources(done, 3)).toEqual([]);
     });
-    expect(copyFromProject(s, 1, 3)).toMatchObject([{ to: at(claude, 3), skills: [{ id: 2 }], groups: [] }]);
-    expect(copyFromProject(s, 3, 3)).toEqual([]);
-  });
 
-  it("要装过来的技能里，原来那个项目里被改过的单列出来", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [installed(1, at(claude, 1), { status: SkillScopeStatus.SkillScopeModified }), installed(2, at(claude, 1))],
+    it("装得多少按技能算：共用目录的几个 Agent 的同一个技能只算一次", () => {
+      // 项目 1 在 .agents/skills 里装了 1 个(Codex、Cursor 各列一条),项目 2 的 Claude Code 装了 2 个。
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(1, at(codex, 1)), installed(1, at(cursor, 1)), installed(2, at(claude, 2)), installed(3, at(claude, 2))],
+      });
+      expect(copyProjectSources(s, 3).map((p) => p.id)).toEqual([2, 1]);
     });
-    expect(copyFromProject(s, 1, 3)[0].edited.map((x) => x.id)).toEqual([1]);
-  });
 
-  it("可以照着装的是有东西可装的其他项目，装得最多的在前;不在这台机器上的项目也能照着", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [
-        installed(1, at(claude, 1)),
-        installed(2, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing }),
-        installed(3, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing }),
-        installed(4, at(claude, 3)),
-        installed(5, at(claude)),
-      ],
+    it("只有空的组安装、没装库里技能的项目不能照着装", () => {
+      const s = snapshot({ ...base, groups: [group(8)], skillScopes: [], groupInstalls: [{ group_id: 8, scope: at(claude, 1) }] as GroupInstall[] });
+      expect(copyProjectSources(s, 3)).toEqual([]);
     });
-    expect(copyProjectSources(s, 3).map((p) => p.id)).toEqual([2, 1]);
-    const done = snapshot({ ...base, skillScopes: [installed(1, at(claude, 1)), installed(1, at(claude, 3))] });
-    expect(copyProjectSources(done, 3)).toEqual([]);
-  });
 
-  it("未纳管技能按作用域页的口径数：归项目仓库管的单独算，指向 Agent 目录以外的不算，这里已有同名文件夹的不算", () => {
-    const s = snapshot({
-      ...base,
-      skillScopes: [installed(1, at(claude, 3), { folder: "/p/new/.claude/skills/taken" })],
-      unmanaged: [
-        { scope: at(claude, 1), name: "mine" },
-        { scope: at(codex, 1), name: "also-mine" },
-        { scope: at(claude, 1), name: "team", in_repository: true },
-        { scope: at(claude, 1), name: "locked", in_project_lock: true },
-        { scope: at(claude, 1), name: "author", link_outside: true },
-        { scope: at(claude, 1), name: "taken" },
-        { scope: at(codex, 1), name: "there" },
-        { scope: at(codex, 3), name: "there" },
-        { scope: at(claude), name: "global" },
-      ] as UnmanagedSkill[],
+    it("未纳管技能按作用域页的口径数：归项目仓库管的单独算，指向 Agent 目录以外的不算，这里已有同名文件夹的不算", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [installed(1, at(claude, 3), { folder: "/p/new/.claude/skills/taken" })],
+        unmanaged: [
+          { scope: at(claude, 1), name: "mine" },
+          { scope: at(codex, 1), name: "also-mine" },
+          { scope: at(claude, 1), name: "team", in_repository: true },
+          { scope: at(claude, 1), name: "locked", in_project_lock: true },
+          { scope: at(claude, 1), name: "author", link_outside: true },
+          { scope: at(claude, 1), name: "author-locked", link_outside: true, in_project_lock: true },
+          { scope: at(claude, 1), name: "taken" },
+          { scope: at(codex, 1), name: "there" },
+          { scope: at(codex, 3), name: "there" },
+          { scope: at(claude), name: "global" },
+        ] as UnmanagedSkill[],
+      });
+      const left = uncopiedProjectUnmanaged(s, 1, 3);
+      expect(left.unmanaged.map((u) => u.name)).toEqual(["mine", "also-mine"]);
+      expect(left.repo.map((u) => u.name)).toEqual(["team", "locked"]);
     });
-    const left = uncopiedProjectUnmanaged(s, 1, 3);
-    expect(left.unmanaged.map((u) => u.name)).toEqual(["mine", "also-mine"]);
-    expect(left.repo.map((u) => u.name)).toEqual(["team", "locked"]);
   });
 });
