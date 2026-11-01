@@ -230,6 +230,9 @@ const scopeDir = async () => {
   const t = (await page.locator(".a-scope-sum .a-sum-row .font-mono").first().textContent()).trim();
   return t.replace(/^~/, HOME);
 };
+// folderOf 是开着的详情里，安装表上 where(如"Claude Code · 全局")那一行的技能文件夹路径。
+const folderOf = async (where) =>
+  (await drawer().locator(".scope-table tbody tr", { hasText: where }).locator(".font-mono").textContent()).replace(/^~/, HOME);
 
 // ============ 第一次打开 ============
 const FIRST_OPEN = "第一次打开：各 Agent 全局里不是库装的技能一次确认入库，磁盘不动;同名不一样的只入库较新的一份;读不成来源的清空后入库";
@@ -3299,8 +3302,6 @@ await step("安装到…一次装到几个 Agent：详情里一个技能装到�
   await toast("已入库 3 个技能");
   await settle();
 
-  const folderOf = async (where) =>
-    (await drawer().locator(".scope-table tbody tr", { hasText: where }).locator(".font-mono").textContent()).replace(/^~/, HOME);
   await openDrawer("im-one");
   await drawer().locator(".install-to select").nth(0).selectOption("0");
   await pickAgents(drawer(), ["claude-code", "codex"]);
@@ -3345,6 +3346,33 @@ await step("安装到…一次装到几个 Agent：详情里一个技能装到�
   }
   assert(fs.readFileSync(path.join(codexSkills, "im-three", "SKILL.md"), "utf8").includes('"im-three"'), "覆盖后 Codex 的 im-three 应是库里的版本");
   await page.keyboard.press("Escape");
+});
+
+// ============ 入库完成后直接装出去 ============
+group("install-fetched", []);
+await step("入库完成后直接装出去：提示里的「装到…」打开安装到…，刚入库的两个技能装到全局的两个 Agent", async () => {
+  for (const name of ["if-one", "if-two"]) {
+    fs.mkdirSync(`${HOME}/code/install-fetched/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/install-fetched/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/install-fetched`);
+  await toast("已入库 2 个技能");
+  await page.locator('[data-slot="toast"][data-state="open"] button', { hasText: "装到…" }).click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "把 2 个技能装到…" }).waitFor();
+  await modal().locator(".install-picked select").nth(0).selectOption("0");
+  await pickAgents(modal(), ["claude-code", "codex"]);
+  await btn(modal(), "安装").click();
+  await toast("已把 2 个技能装到 Claude Code、Codex · 全局");
+  await settle();
+
+  await openDrawer("if-one");
+  const claudeSkills = path.dirname(await folderOf("Claude Code · 全局"));
+  const codexSkills = path.dirname(await folderOf("Codex · 全局"));
+  await closeDrawer();
+  for (const dir of [claudeSkills, codexSkills]) {
+    for (const name of ["if-one", "if-two"]) assert(fs.existsSync(path.join(dir, name, "SKILL.md")), `磁盘上应有 ${dir}/${name}`);
+  }
 });
 
 // ============ 照着另一个 Agent 装 ============
