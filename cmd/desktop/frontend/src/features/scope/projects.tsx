@@ -4,7 +4,8 @@ import { FolderPolicy, type RegisteredProject } from "@bindings/internal/library
 import { detachedBy } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
-import { placedPath, projectName, shortPath } from "@/lib/model";
+import { projectName, shortPath } from "@/lib/model";
+import { wslLocation } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice } from "@/components/app/link-notes";
@@ -14,7 +15,10 @@ import { lostEdits } from "@/features/skill/remove";
 // registerProject 登记项目;登记之后把用户带到这个项目里不是库装的技能，一次确认全部入库。
 export async function registerProject(path: string): Promise<boolean> {
   const project = await ui.run(() => LibraryService.RegisterProject(path), {
-    success: (p) => messages().actions.projectRegistered(placedPath(p.path)),
+    success: (p) => {
+      const at = wslLocation(p.path);
+      return at ? messages().actions.projectRegisteredInWSL(at.distro, at.path) : messages().actions.projectRegistered(p.path);
+    },
   });
   if (project) void offerProject(project);
   return !!project;
@@ -22,7 +26,10 @@ export async function registerProject(path: string): Promise<boolean> {
 
 export async function relocateProject(project: RegisteredProject, path: string): Promise<boolean> {
   const moved = await ui.run(() => LibraryService.RelocateProject(project.id, path), {
-    success: (p) => messages().actions.projectRelocated(p.name, placedPath(p.path)),
+    success: (p) => {
+      const at = wslLocation(p.path);
+      return at ? messages().actions.projectRelocatedInWSL(p.name, at.distro, at.path) : messages().actions.projectRelocated(p.name, p.path);
+    },
   });
   return !!moved;
 }

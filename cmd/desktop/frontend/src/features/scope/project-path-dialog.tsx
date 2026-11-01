@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
+import { useHasWSL } from "@/lib/library";
 import { resolveLocalPath } from "@/lib/paths";
 import { Modal } from "@/lib/ui";
 import { pickDirectory } from "@/features/fetch/fetch-dialog";
@@ -25,7 +26,9 @@ export function ProjectPathDialog({
   const t = useT().scopes;
   const [path, setPath] = useState(project?.path ?? "");
   const [working, setWorking] = useState(false);
-  const resolved = resolveLocalPath(path, home);
+  const resolved = resolveLocalPath(path, home, useHasWSL());
+  // 改位置时预填的是原来的路径，可能是别的机器上的(如从 Mac 同步来的 /Users/...):用户改动之前不报错。
+  const error = path !== project?.path ? resolved?.error : undefined;
   const submit = async () => {
     if (!resolved?.path || working) return;
     setWorking(true);
@@ -65,7 +68,7 @@ export function ProjectPathDialog({
           {t.choose}
         </Button>
       </div>
-      {resolved?.error && <FieldError>{resolved.error}</FieldError>}
+      {error && <FieldError>{error}</FieldError>}
       <PathWhere path={resolved?.path} />
     </Modal>
   );

@@ -8,7 +8,7 @@ import { ErrorCode, type FetchPreview, type PreviewFetchRequest, type SourceRefs
 import { Modal, ui, useUI } from "@/lib/ui";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError } from "@/lib/library";
+import { currentSnapshot, toLibraryError, useHasWSL } from "@/lib/library";
 import { isLocalPath, resolveFetchInput } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -76,7 +76,8 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
     stopScan();
     onClose();
   };
-  const input = resolveFetchInput(text, home);
+  const wsl = useHasWSL();
+  const input = resolveFetchInput(text, home, wsl);
   const [refs, settleRefs] = useSourceRefs(input?.path ?? "");
 
   if (preview) {

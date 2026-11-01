@@ -152,6 +152,7 @@ export function ScopePanel() {
           const count = mergeProjectPlaces(s, s.skillScopes.filter((x) => placeOf(x.scope) === p.id)).length;
           const current = !!selected && placeOf(selected) === p.id;
           const active = page.kind === "project" && page.project === p.id;
+          const where = wslTitle(p.path) ?? shortPath(s, p.path);
           return (
             <li key={p.id}>
               <div
@@ -161,7 +162,7 @@ export function ScopePanel() {
                 className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
                 data-active={active}
                 onClick={() => openProject(p.id)}
-                title={p.missing ? t.missingTitle(wslTitle(p.path) ?? shortPath(s, p.path)) : (wslTitle(p.path) ?? shortPath(s, p.path))}
+                title={p.missing ? t.missingTitle(where) : where}
                 {...aimProps(`p${p.id}`, open)}
               >
                 <button

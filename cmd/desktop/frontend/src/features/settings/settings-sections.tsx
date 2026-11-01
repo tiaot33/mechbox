@@ -31,7 +31,7 @@ export function GeneralSection({
   save: (change: Partial<Settings>) => void;
   onRetryDistro: () => void;
 }) {
-  const t = useT().settings;
+  const { settings: t, paths } = useT();
   // 跟随系统时实际用哪种语言由 Go 端按系统的首选语言定。
   const languages: { value: Language; label: string }[] = [
     { value: Language.LanguageSystem, label: t.followSystem },
@@ -84,7 +84,7 @@ export function GeneralSection({
           <option value="">{t.windowsHome}</option>
           {[...new Set([...distros, ...(settings.wsl_distro ? [settings.wsl_distro] : [])])].map((d) => (
             <option key={d} value={d}>
-              WSL · {d}
+              {paths.wsl(d)}
             </option>
           ))}
         </NativeSelect>

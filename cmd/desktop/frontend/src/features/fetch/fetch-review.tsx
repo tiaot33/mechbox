@@ -10,7 +10,9 @@ import {
   type FetchPreviewID,
   type SkillAudit,
 } from "@bindings/internal/library";
-import { configQuery } from "@/lib/library";
+import { configQuery, useLoadedSnapshot } from "@/lib/library";
+import { homePath } from "@/lib/model";
+import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
@@ -20,7 +22,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { AuditBadge } from "./audit";
-import { Diagnostics } from "@/components/app/parts";
+import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
 interface FetchReviewProps {
   preview: FetchPreview;
@@ -56,6 +58,10 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const github = preview.source.type === SourceType.SourceGitHub;
   const config = useQuery({ ...configQuery, enabled: github }).data;
   const tokenMissing = github && !!config && !config.github_token;
+  // 发行版里的本地目录和入库后一样写成 Linux 路径、带发行版标记;其他来源照技能库给的名字。
+  const home = useLoadedSnapshot()?.info.home_dir;
+  const wslLocal = preview.source.type === SourceType.SourceLocal && isWSLPath(preview.source.label);
+  const sourceName = wslLocal ? homePath(home, preview.source.label) : preview.source.label;
   const candidates = preview.candidates ?? [];
   const fresh = candidates.filter((c) => !c.fetched);
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
@@ -160,8 +166,9 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           {sourceKindName(preview.source.type) ?? preview.source.type}
         </Badge>
         <span className="min-w-0 truncate font-mono" title={preview.source.label}>
-          {preview.source.label}
+          {sourceName}
         </span>
+        {wslLocal && <WSLBadge path={preview.source.label} />}
         {preview.source.ref && <span className="shrink-0 text-muted-foreground">{t.branch(preview.source.ref)}</span>}
       </div>
       {tokenMissing && (

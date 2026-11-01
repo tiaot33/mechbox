@@ -139,6 +139,10 @@ describe("homePath", () => {
     expect(homePath(wslHome, "\\\\wsl.localhost\\Debian\\home\\me\\proj")).toBe("/home/me/proj");
     expect(homePath("C:\\Users\\me", "\\\\wsl.localhost\\Ubuntu\\home\\me\\proj")).toBe("/home/me/proj");
   });
+
+  it("不在 Windows 上时，发行版里的路径照原样(如拉回的库里带着发行版里的来源)", () => {
+    expect(homePath("/Users/me", "\\\\wsl.localhost\\Ubuntu\\opt\\skills")).toBe("\\\\wsl.localhost\\Ubuntu\\opt\\skills");
+  });
 });
 
 describe("scopeListing", () => {
