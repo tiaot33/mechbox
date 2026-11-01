@@ -37,7 +37,7 @@ export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 // ScopeSummary 是作用域页顶部的摘要：这个目录里有几个技能(全局写"全局目录里有",项目写"在项目里能用",含来自全局的;
 // 其中已安装、不在技能库里、来自全局各几个，和下面的上一块一致)、
 // Agent 目录、健康状态、全部重新安装，每个组的整组开关，
-// 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有)。
+// 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有;项目的作用域页上默认只装这个项目)。
 export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeKey; directory: string | undefined; sees: number; global: number }) {
   const s = useSnapshot();
   const t = useT().list;
@@ -58,7 +58,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         </b>
         <span className="grow" />
         {others && (
-          <Button size="sm" className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent)}>
+          <Button size="sm" className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent, placeOf(sc))}>
             <Icon name="plus" />
             {c.open}
           </Button>

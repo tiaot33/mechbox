@@ -20,6 +20,7 @@ import {
   copyDefaults,
   copyOverwriteCount,
   copyOverwrites,
+  copyPlaceByDefault,
   type CopyPlanned,
   defaultInstallOn,
   fetchPlan,
@@ -302,6 +303,11 @@ describe("照着另一个 Agent 装", () => {
     ]);
     expect(copyOverwriteCount(entries, new Set(["g"]), new Set())).toBe(0);
     expect(copyOverwriteCount(entries, new Set(["g", "untracked"]), new Set(["g"]))).toBe(3);
+  });
+
+  it("从全局的作用域页打开时每一处都默认勾，从项目的作用域页打开时只默认勾这个项目", () => {
+    expect([0, 1, 2].map((place) => copyPlaceByDefault(0, place))).toEqual([true, true, true]);
+    expect([0, 1, 2].map((place) => copyPlaceByDefault(1, place))).toEqual([false, true, false]);
   });
 
   it("被另一个技能占用的、组里同名的不能勾", () => {

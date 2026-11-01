@@ -209,6 +209,11 @@ export const copyByDefault = (status: InstallPlanStatus) => copyable(status) && 
 // copyOverwrites 是勾上即同意覆盖的：这里有不是库装的同名文件夹。
 export const copyOverwrites = (status: InstallPlanStatus) => status === InstallPlanStatus.InstallUntracked;
 
+// copyPlaceByDefault 是照着其他 Agent 装时，某一处(place,全局为 0)的各项打开时默认勾不勾，勾哪些仍按 copyDefaults。
+// at 是从哪个作用域页打开的：从全局的(at 为 0)打开时每一处都勾;从项目的打开时只勾这个项目，用户想的是这个项目：
+// 全局装上的在所有项目里都看得到，其他项目仓库里会多出未跟踪的文件夹。其余各处照样列出，点那一处的标题按默认规则整处勾上。
+export const copyPlaceByDefault = (at: number, place: number) => !at || place === at;
+
 // CopyPlanned 是照装时一项的安装计划：直接安装是一个技能的，组安装是各成员的;读不出时是错误。
 export type CopyPlanned = { plan: InstallPlan } | { members: InstallPlan[] } | { error: unknown };
 

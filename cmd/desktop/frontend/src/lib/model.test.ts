@@ -382,14 +382,52 @@ describe("照着装", () => {
       expect(copySources(onlyMissing, codex)).toEqual([]);
     });
 
+    it("从项目的作用域页打开时，在这个项目里可以照着装的最多的在前，一样多的再按装得多少排", () => {
+      // Cursor 一共装得最多，但都在全局;Claude Code 在项目 1 里有 1 个技能和 1 个组安装可以照着装。
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(cursor)),
+          installed(2, at(cursor)),
+          installed(3, at(cursor)),
+          installed(5, at(cursor)),
+          installed(1, at(claude, 1)),
+          installed(4, at(claude, 1), { direct: false, groups: [7] }),
+        ],
+        groupInstalls: [{ group_id: 7, scope: at(claude, 1) }] as GroupInstall[],
+      });
+      expect(copySources(s, codex).map((a) => a.code)).toEqual([cursor, claude]);
+      expect(copySources(s, codex, 1).map((a) => a.code)).toEqual([claude, cursor]);
+      // 项目 3 里谁都没有可以照着装的：照旧装得最多的在前。
+      expect(copySources(s, codex, 3).map((a) => a.code)).toEqual([cursor, claude]);
+    });
+
     it("未纳管技能带不过来，数出来;读同一个目录的那几处不算", () => {
       const s = snapshot({
         ...base,
         skillScopes: [],
         unmanaged: [{ scope: at(codex), name: "a" }, { scope: at(codex, 1), name: "b" }, { scope: at(claude), name: "c" }] as UnmanagedSkill[],
       });
-      expect(uncopiedUnmanaged(s, codex, claude)).toHaveLength(2);
-      expect(uncopiedUnmanaged(s, codex, cursor)).toHaveLength(1);
+      expect(uncopiedUnmanaged(s, codex, claude).unmanaged).toHaveLength(2);
+      expect(uncopiedUnmanaged(s, codex, cursor).unmanaged).toHaveLength(1);
+    });
+
+    it("未纳管技能和作用域页同一个口径：归项目仓库管的单独数，指向 Agent 目录以外的不算", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [],
+        unmanaged: [
+          { scope: at(claude), name: "mine" },
+          { scope: at(claude, 1), name: "also-mine" },
+          { scope: at(claude, 1), name: "team", in_repository: true },
+          { scope: at(claude, 3), name: "locked", in_project_lock: true },
+          { scope: at(claude), name: "outside", link_outside: true },
+          { scope: at(claude, 1), name: "team-outside", in_repository: true, link_outside: true },
+        ] as UnmanagedSkill[],
+      });
+      const left = uncopiedUnmanaged(s, claude, codex);
+      expect(left.unmanaged.map((u) => u.name)).toEqual(["mine", "also-mine"]);
+      expect(left.repo.map((u) => u.name)).toEqual(["team", "locked"]);
     });
 
     it("这一处已经有同名文件夹的未纳管技能不算带不过来", () => {
@@ -403,7 +441,7 @@ describe("照着装", () => {
           { scope: at(codex), name: "c" },
         ] as UnmanagedSkill[],
       });
-      expect(uncopiedUnmanaged(s, codex, claude).map((u) => u.name)).toEqual(["c"]);
+      expect(uncopiedUnmanaged(s, codex, claude).unmanaged.map((u) => u.name)).toEqual(["c"]);
     });
   });
 

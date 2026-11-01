@@ -3453,6 +3453,73 @@ await step("照着另一个 Agent 装：全局和项目里的一次装上，组�
   assert((await card("cp-kappa").locator('[role="switch"][aria-checked="true"]').count()) === 1, "cp-kappa 是直接安装");
 });
 
+await step("照着另一个 Agent 装：从项目的作用域页打开时默认只装这个项目，全局列出但不勾;归项目仓库管的单独说明", async () => {
+  // Claude Code 在全局直接安装 cp-xi,在 proj-copy 里直接安装 cp-omicron;proj-copy 的仓库里还提交了一个不是库装的 team-copy。
+  for (const name of ["cp-xi", "cp-omicron"]) {
+    fs.mkdirSync(`${HOME}/code/copy-src2/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/copy-src2/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/copy-src2`);
+  await toast("已入库 2 个技能");
+  await settle();
+  const install = async (place, name) => {
+    await selectScope("Claude Code", place);
+    await card(name).locator('[role="switch"]').click();
+    await toast(`已安装「${name}」`);
+    await settle();
+  };
+  await install("全局", "cp-xi");
+  await install("proj-copy", "cp-omicron");
+  const project = `${HOME}/code/proj-copy`;
+  fs.mkdirSync(`${project}/.claude/skills/team-copy`, { recursive: true });
+  fs.writeFileSync(`${project}/.claude/skills/team-copy/SKILL.md`, '---\nname: team-copy\ndescription: "team"\n---\n');
+  const git = (...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "-C", project, ...args]);
+  git("init", "-q", "-b", "main");
+  git("add", "-f", ".claude/skills/team-copy");
+  git("commit", "-qm", "team");
+  await page.locator(".titlebar button[title^='刷新']").click();
+  await settle();
+
+  await selectScope("Copy Target", "proj-copy");
+  await page.locator(".copy-agent-open").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "照着其他 Agent 装到 Copy Target" }).waitFor();
+  await modal().locator(".copy-skill").first().waitFor();
+  await page.waitForFunction(() => !document.querySelector('[data-slot="dialog-content"]')?.textContent.includes("正在查看安装计划"));
+  assert.equal(await modal().locator(".copy-from").inputValue(), "claude-code", "默认照着在这个项目里可以照着装的最多的 Claude Code");
+  const globalPlace = modal().locator('.copy-place[data-place="0"]');
+  const projectPlace = modal().locator(".copy-place", { hasText: "proj-copy" });
+  const xi = globalPlace.locator('.copy-skill[data-name="cp-xi"] input[type="checkbox"]');
+  assert(await projectPlace.locator('.copy-skill[data-name="cp-omicron"] input[type="checkbox"]').isChecked(), "这个项目里的 cp-omicron 默认勾上");
+  assert(!(await xi.isChecked()), "全局的 cp-xi 列出但默认不勾");
+  assert.equal(await modal().locator(".copy-skill input:checked, .copy-group input:checked").count(), 1, "默认只勾这个项目里的一项");
+  const hint = await modal().textContent();
+  assert(hint.includes("再照着装一次，只会列出新多出来的") && !hint.includes("用组安装"), "提示说明再照着装一次，不让用户用组安装");
+  // 前面的场景组留下的项目里可能也有归项目仓库管的，只核对单独说明了。
+  assert(/\d+ 个技能归项目仓库管/.test(await modal().locator(".copy-repo").textContent()), "提交在仓库里的 team-copy 单独说明随项目仓库走");
+  // 点全局那一处的标题按默认规则整处勾上，再点一次取消。
+  await globalPlace.locator(".copy-place-toggle").click();
+  assert(await xi.isChecked(), "点全局的标题后 cp-xi 勾上");
+  await globalPlace.locator(".copy-place-toggle").click();
+  assert(!(await xi.isChecked()), "再点一次取消");
+  await page.screenshot({ path: path.join(SHOTS, "copy-agent-project.png") });
+  assert.equal((await modal().locator(".copy-confirm").textContent()).trim(), "安装 1 个技能", "直接确认只装这个项目里的一个");
+  await modal().locator(".copy-confirm").click();
+  // 前面的场景组留下的项目可能不在这台机器上，那时列出结果而不是只提示。
+  const done = page.locator('[data-slot="toast"][data-state="open"]', { hasText: "已照着 Claude Code 在 Copy Target 装上 1 个技能" });
+  const results = page.locator('[data-slot="dialog-content"]', { has: page.locator('[data-slot="dialog-title"]', { hasText: "照着 Claude Code 装到 Copy Target" }) });
+  await done.or(results).first().waitFor();
+  if (await results.count()) {
+    assert((await results.locator('[data-slot="badge"]', { hasText: "失败" }).count()) === 0, "不应有装失败的");
+    await btn(results, "知道了").click();
+  }
+  await settle();
+
+  assert(fs.existsSync(`${project}/.copy-target/skills/cp-omicron/SKILL.md`), "cp-omicron 装到这个项目里");
+  assert(!fs.existsSync(`${HOME}/.copy-target/skills/cp-xi`), "全局没有变");
+  assert(!fs.existsSync(`${project}/.copy-target/skills/team-copy`), "归项目仓库管的 team-copy 带不过来");
+});
+
 // ============ 照着另一个项目装 ============
 group("copy-project", []);
 await step("照着另一个项目装：在项目页照着它，各 Agent 装到这个项目里的同一个 Agent，组安装仍是组安装，已经装了的不列出，未纳管的按口径说出来", async () => {

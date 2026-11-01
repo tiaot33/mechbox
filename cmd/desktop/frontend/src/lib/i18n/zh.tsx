@@ -348,7 +348,7 @@ export const zh = {
     from: "照着",
     lead: (to: string) => `装到 ${to}，全局的装到全局，项目里的装到同一个项目`,
     once: (from: string, to: string) =>
-      `只装这一次：之后在 ${from} 新装的技能不会跟着装到 ${to}；想让几个 Agent 一直一样，用组安装。${to} 原有的安装都不动。`,
+      `只装这一次：之后在 ${from} 新装的技能不会跟着装到 ${to}；再照着装一次，只会列出新多出来的。${to} 原有的安装都不动。`,
     placeCount: (n: number) => `${n} 项`,
     missingPlace: "项目不在这台机器上，跳过",
     group: (name: string) => `组「${name}」`,
