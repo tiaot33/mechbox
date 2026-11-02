@@ -1,6 +1,6 @@
 // 统一工具栏：左 = 侧栏开关 + 当前页面的标题与个数;右 = 搜索、刷新与右栏开关。
 // 作用域在右栏点选，打开作用域页。
-// 整条是窗口拖动区，能点的元素显式 no-drag(见 layout.ts 的 titlebarClass)。
+// 外框(拖动区、红绿灯的位置、Windows 的窗口按钮)见 titlebar.tsx。
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useLoadedSnapshot, reloadLibrary } from "@/lib/library";
@@ -10,8 +10,8 @@ import { setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, use
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { Icon } from "./icons";
-import { titlebarClass } from "./layout";
-import { BusyMark, Count, TrafficLightSpace } from "./parts";
+import { BusyMark, Count } from "./parts";
+import { Titlebar } from "./titlebar";
 
 export function Toolbar() {
   const s = useLoadedSnapshot();
@@ -37,37 +37,39 @@ export function Toolbar() {
   }, []);
 
   return (
-    <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
-      <div className="flex min-w-0 items-center gap-2">
-        <TrafficLightSpace />
-        <Button variant="ghost" size="icon" className={cn(left && "text-foreground")} onClick={toggleLeft} title={t.toggleLeft}>
-          <Icon name="sidebarL" />
-        </Button>
-        <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
-          <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
-          {listing && <Count value={listing.total} />}
-          <BusyMark checks={!left} />
-        </span>
-      </div>
-      <div />
-      <div className="flex min-w-0 items-center justify-end gap-2">
-        <SearchInput
-          ref={search}
-          className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
-          icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
-          suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">{t.searchKey()}</kbd>}
-          placeholder={t.search}
-          value={text}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && setSearch("")}
-        />
-        <Button variant="ghost" size="icon" onClick={() => void reloadLibrary()} title={t.refresh}>
-          <Icon name="refresh" />
-        </Button>
-        <Button variant="ghost" size="icon" className={cn(right && "text-foreground")} onClick={toggleRight} title={t.toggleRight}>
-          <Icon name="sidebarR" />
-        </Button>
-      </div>
-    </header>
+    <Titlebar
+      left={
+        <>
+          <Button variant="ghost" size="icon" className={cn(left && "text-foreground")} onClick={toggleLeft} title={t.toggleLeft}>
+            <Icon name="sidebarL" />
+          </Button>
+          <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
+            <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
+            {listing && <Count value={listing.total} />}
+            <BusyMark checks={!left} />
+          </span>
+        </>
+      }
+      right={
+        <>
+          <SearchInput
+            ref={search}
+            className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
+            icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
+            suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">{t.searchKey()}</kbd>}
+            placeholder={t.search}
+            value={text}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setSearch("")}
+          />
+          <Button variant="ghost" size="icon" onClick={() => void reloadLibrary()} title={t.refresh}>
+            <Icon name="refresh" />
+          </Button>
+          <Button variant="ghost" size="icon" className={cn(right && "text-foreground")} onClick={toggleRight} title={t.toggleRight}>
+            <Icon name="sidebarR" />
+          </Button>
+        </>
+      }
+    />
   );
 }

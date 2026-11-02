@@ -92,7 +92,7 @@ func run(path string) error {
 			Backdrop: application.MacBackdropTranslucent,
 			TitleBar: application.MacTitleBarHiddenInset,
 		},
-		// 透明背景让 macOS 原生毛玻璃透出来;底色由前端的半透明层给出。Windows 上的底色见 setPlatformWindowOptions。
+		// 透明背景让 macOS 原生毛玻璃透出来;底色由前端的半透明层给出。Windows 上的标题栏与底色见 setPlatformWindowOptions。
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL:              "/",
 	}

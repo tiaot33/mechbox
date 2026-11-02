@@ -1,4 +1,4 @@
-// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记与红绿灯的位置、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
+// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
 import { useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { Badge } from "@/components/ui/badge";
@@ -213,6 +213,3 @@ export function BusyMark({ checks = false }: { checks?: boolean }) {
     />
   );
 }
-
-// TrafficLightSpace 是 macOS 上顶栏左端给红绿灯留的位置;其他平台有系统标题栏，窗口按钮不在顶栏里，不留。
-export const TrafficLightSpace = () => (platform() === "mac" ? <div className="w-16" /> : null);

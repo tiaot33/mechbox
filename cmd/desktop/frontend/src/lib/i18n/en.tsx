@@ -1265,6 +1265,10 @@ export const en = {
     refresh: "Refresh (re-read the Library and inspect installed skills against the disk)",
     toggleRight: "Show/hide Scope sidebar",
     searchKey: () => (platform() === "mac" ? "⌘K" : "Ctrl K"),
+    minimise: "Minimize",
+    maximise: "Maximize",
+    restore: "Restore Down",
+    close: "Close",
   },
 
   fromScope: {

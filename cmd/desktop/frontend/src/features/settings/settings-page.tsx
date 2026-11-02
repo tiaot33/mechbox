@@ -19,9 +19,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
 import { Icon } from "@/components/app/icons";
-import { bodyClass, centerClass, leftClass, titlebarClass } from "@/components/app/layout";
+import { bodyClass, centerClass, leftClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
-import { BusyMark, TrafficLightSpace } from "@/components/app/parts";
+import { BusyMark } from "@/components/app/parts";
+import { Titlebar } from "@/components/app/titlebar";
 import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
@@ -131,19 +132,20 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-      <header className={titlebarClass} style={{ "--wails-draggable": "drag" } as React.CSSProperties}>
-        <div className="flex min-w-0 items-center gap-2">
-          <TrafficLightSpace />
-          {/* 等排队的保存都完成再返回，主界面重读时拿到的是最后保存的设置(Agent 的显示勾选)。 */}
-          <Button variant="ghost" size="icon" onClick={() => void saving.current.then(onClose)} title={t.back}>
-            <Icon name="chevL" />
-          </Button>
-          <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
-            <b>{t.title}</b>
-            <BusyMark checks />
-          </span>
-        </div>
-      </header>
+      <Titlebar
+        left={
+          <>
+            {/* 等排队的保存都完成再返回，主界面重读时拿到的是最后保存的设置(Agent 的显示勾选)。 */}
+            <Button variant="ghost" size="icon" onClick={() => void saving.current.then(onClose)} title={t.back}>
+              <Icon name="chevL" />
+            </Button>
+            <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
+              <b>{t.title}</b>
+              <BusyMark checks />
+            </span>
+          </>
+        }
+      />
       <div className={bodyClass}>
         <aside className={cn(leftClass, "w-[210px] flex-none")}>
           <ul className="flex flex-col gap-0.5">
