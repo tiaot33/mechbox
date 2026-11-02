@@ -145,6 +145,14 @@ func quoteIdentifier(name string) string {
 }
 
 func OpenImage(ctx context.Context, data []byte) (*Image, error) {
+	l, err := currentLayout()
+	if err != nil {
+		return nil, fmt.Errorf("validate pulled library: %w", err)
+	}
+	return openImage(ctx, data, l)
+}
+
+func openImage(ctx context.Context, data []byte, l layout) (*Image, error) {
 	file, err := os.CreateTemp("", ".library-pull-*.db")
 	if err != nil {
 		return nil, fmt.Errorf("create pull file: %w", err)
@@ -161,7 +169,7 @@ func OpenImage(ctx context.Context, data []byte) (*Image, error) {
 	}
 	image.db, err = openDB(ctx, image.path)
 	if err == nil {
-		err = validateImage(ctx, image.db)
+		err = validateImage(ctx, image.db, l)
 	}
 	if err != nil {
 		image.Close()
@@ -173,7 +181,7 @@ func OpenImage(ctx context.Context, data []byte) (*Image, error) {
 	return image, nil
 }
 
-func validateImage(ctx context.Context, db *sql.DB) error {
+func validateImage(ctx context.Context, db *sql.DB, l layout) error {
 	var integrity string
 	if err := db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
@@ -181,7 +189,16 @@ func validateImage(ctx context.Context, db *sql.DB) error {
 	if integrity != "ok" {
 		return fmt.Errorf("%w: integrity=%q", ErrUnacceptable, integrity)
 	}
-	if err := validateSchema(ctx, db); err != nil {
+	version, err := requireIdentity(ctx, db, l)
+	if err != nil {
+		return fmt.Errorf("validate pulled library: %w", err)
+	}
+	if version < l.version() {
+		if err := upgrade(ctx, db, l.steps); err != nil {
+			return fmt.Errorf("validate pulled library: %w", err)
+		}
+	}
+	if err := validateSchema(ctx, db, l); err != nil {
 		return fmt.Errorf("validate pulled library: %w", err)
 	}
 	return nil
@@ -214,7 +231,7 @@ func (i *Image) Summary(ctx context.Context) (Summary, error) {
 }
 
 func (s *Store) Replace(ctx context.Context, image *Image) error {
-	if err := writeBuiltinAgents(ctx, image.db); err != nil {
+	if err := writeBuiltinAgents(ctx, image.db, s.layout); err != nil {
 		return wrap(err)
 	}
 	if _, err := image.db.ExecContext(ctx, `UPDATE replica SET token = ?`, newToken()); err != nil {

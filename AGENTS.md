@@ -8,7 +8,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 - `internal/library/` — `package library`:公开类型、公开方法与用户流程的编排。公开方法与其私有辅助函数按用户流程放在同一个文件里(`fetch.go`、`update.go`、`install.go` 等,对应关系见 doc.go);`library.go` 是实例生命周期与共享状态,`errors.go` 是公开错误类型与唯一的错误翻译点。
 - `internal/library/internal/` — 实现子包,每个外部系统一个:
-  - `store` — SQLite:建表与校验、事务、同步用的快照与整库替换;`schema.sql` 是唯一的 DDL 来源。
+  - `store` — SQLite:建表与校验、旧数据库的备份与逐版升级、事务、同步用的快照与整库替换;`schema.sql` 是唯一的 DDL 来源,`migrations/` 是从 v0.0.6 起每一版的升级。
   - `agentdir` — Agent 目录与已登记项目的全部路径与文件操作:用户主目录、由相对路径拼出作用域目录与技能文件夹、路径的规范化与比较、校验用户填的目录与项目路径，以及技能文件夹的暂存、移到位、撤销与读取。`library` 不直接用 `os` / `filepath` 处理这些路径。每个操作按路径选实现:路径在 `\\wsl.localhost\` 下的交给 `distro.go`(经 `wsl` 在那个发行版里执行命令),其余交给 `native.go`。
   - `source` — 来源的公共接口(`Kind`、`Snapshot`)、按类型分派与子包共用的错误;每种来源一个子包:`local`(本地目录)、`github`、`git`(GitLab 与其他 Git 服务)、`download`(直接下载)、`wellknown`(well-known 索引);`gitcmd` 是 Git 类来源共用的 git 命令,`discovery` 是各来源共用的候选发现规则与读取上限。
   - `market` — skills.sh 的搜索与审计接口。
@@ -39,6 +39,10 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 4. 在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。
 
 `PreviewFetchRequest` 只有一个输入,不加字段。更新、检查更新、展示与错误翻译都不用改。
+
+### 改表结构
+
+改 `schema.sql`(包括表内列上的注释)后，在仓库根目录运行 `go run ./internal/library/internal/store/migrationgen <这一步做了什么>` 生成 `migrations/` 里的下一版升级，看过后一起提交;命令停下来或提示删列、删表时，先读 [ADR 0003](docs/adr/0003-database-upgrades-step-by-step.md)。还没发布的升级要重做就删掉文件重新生成;已经发布的升级保持原样。
 
 ### 测试
 

@@ -37,7 +37,8 @@ type queries struct {
 
 type Store struct {
 	queries
-	db *sql.DB
+	db     *sql.DB
+	layout layout
 }
 
 type Tx struct {
@@ -45,6 +46,14 @@ type Tx struct {
 }
 
 func Open(path string) (*Store, error) {
+	l, err := currentLayout()
+	if err != nil {
+		return nil, fmt.Errorf("open library: %w", err)
+	}
+	return open(path, l)
+}
+
+func open(path string, l layout) (*Store, error) {
 	ctx := context.Background()
 	if err := restrictToOwner(path); err != nil {
 		return nil, fmt.Errorf("open library: %w", err)
@@ -53,12 +62,12 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open library: %w", wrap(err))
 	}
-	if err := initialize(ctx, db); err != nil {
+	if err := initialize(ctx, db, path, l); err != nil {
 		_ = db.Close()
 		return nil, wrap(err)
 	}
 	_, _ = db.Exec(`PRAGMA journal_mode = WAL`)
-	return newStore(db), nil
+	return &Store{queries: queries{db}, db: db, layout: l}, nil
 }
 
 func restrictToOwner(path string) error {
@@ -80,10 +89,6 @@ func restrictToOwner(path string) error {
 	return nil
 }
 
-func newStore(db *sql.DB) *Store {
-	return &Store{queries: queries{db}, db: db}
-}
-
 func openDB(ctx context.Context, path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_txlock=immediate&_secure_delete=on&_busy_timeout=%d", path, busyTimeout.Milliseconds()))
 	if err != nil {
@@ -97,24 +102,33 @@ func openDB(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func initialize(ctx context.Context, db *sql.DB) error {
+func initialize(ctx context.Context, db *sql.DB, path string, l layout) error {
 	var tableCount int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tableCount); err != nil {
 		return fmt.Errorf("inspect library: %w", err)
 	}
 	if tableCount > 0 {
-		if err := requireIdentity(ctx, db); err != nil {
+		version, err := requireIdentity(ctx, db, l)
+		if err != nil {
 			return fmt.Errorf("open library: %w", err)
 		}
+		if version < l.version() {
+			if err := backupBeforeUpgrade(ctx, db, path, version); err != nil {
+				return fmt.Errorf("back up library before upgrade: %w", wrap(err))
+			}
+			if err := upgrade(ctx, db, l.steps); err != nil {
+				return fmt.Errorf("open library: %w", err)
+			}
+		}
 	} else {
-		if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
+		if _, err := db.ExecContext(ctx, l.schema); err != nil {
 			return fmt.Errorf("initialize library: %w", err)
 		}
-		if _, err := db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, applicationID, schemaVersion)); err != nil {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id = %d; PRAGMA user_version = %d`, applicationID, l.version())); err != nil {
 			return fmt.Errorf("identify library: %w", err)
 		}
 	}
-	if err := writeBuiltinAgents(ctx, db); err != nil {
+	if err := writeBuiltinAgents(ctx, db, l); err != nil {
 		return fmt.Errorf("open library: %w", err)
 	}
 	return nil

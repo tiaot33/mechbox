@@ -3,6 +3,7 @@ package library_test
 import (
 	"bytes"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -167,29 +168,36 @@ func TestOpenRejectsLibraryMissingATable(t *testing.T) {
 	}
 }
 
-// 产品尚未发布,不迁移旧版本库:user_version 不是当前版本的库被拒绝,文件保持不变。
-func TestOpenRejectsOtherSchemaVersionsWithoutChangingTheFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lib.Close(); err != nil {
-		t.Fatal(err)
-	}
-	editLibraryFixture(t, path, `PRAGMA user_version = 9`)
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old, err := library.Open(path)
-	if err == nil {
-		_ = old.Close()
-	}
-	requireLibraryError(t, err, library.FailedPrecondition)
-	after, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("rejected Open changed the library file: %v", err)
+// v0.0.6(schema 版本 27)之前的库不升级,比本版应用新的库不认:两种都被拒绝,文件保持不变。
+func TestOpenRejectsUnsupportedSchemaVersionsWithoutChangingTheFile(t *testing.T) {
+	for _, version := range []int{24, 9999} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "library.db")
+			lib, err := library.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lib.Close(); err != nil {
+				t.Fatal(err)
+			}
+			editLibraryFixture(t, path, fmt.Sprintf(`PRAGMA user_version = %d`, version))
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			unsupported, err := library.Open(path)
+			if err == nil {
+				_ = unsupported.Close()
+			}
+			requireLibraryError(t, err, library.FailedPrecondition)
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("rejected Open changed the library file: %v", err)
+			}
+			if backups, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "library-v*.db")); len(backups) > 0 {
+				t.Fatalf("rejected Open left backups %v", backups)
+			}
+		})
 	}
 }
 

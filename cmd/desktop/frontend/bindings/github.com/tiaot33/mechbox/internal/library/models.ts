@@ -266,7 +266,8 @@ export enum CannotPullReason {
     CannotPullNewerApp = "newer_app",
 
     /**
-     * CannotPullOlderApp 这份备份来自较旧版本的应用:先在推送它的机器上升级应用,再推送一次。
+     * CannotPullOlderApp 这份备份来自 v0.0.6 之前的应用,本版不能升级它:先在推送它的机器上升级应用,再推送一次。
+     * v0.0.6 起的应用推送的备份,拉回时先升级到本版结构。
      */
     CannotPullOlderApp = "older_app",
 };

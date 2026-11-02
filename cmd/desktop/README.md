@@ -95,7 +95,7 @@ open bin/mechbox.app
 
 **自动发版。** main 上每合进 3 个标题是 `feat` / `fix` / `perf` 的 PR,`.github/workflows/auto-release.yml` 就在最高的正式版上把最后一位加 1(如 v0.0.4 → v0.0.5),先跑 `go test ./...`,通过后打 tag 并发布。`ci`、`docs`、`test`、`refactor` 等 PR 和不经 PR 直接推到 main 的提交不计数(规则见 `.github/scripts/next-version.sh`)。要改第一、二位时手动推 tag(如 v0.1.0),之后从它接着数。每次运行的摘要里写着基准版本、计数和发没发。
 
-- **数据库结构变了不自动发。** 基准版本之后 `schema.sql` 或 `schemaVersion` 改过时，自动发版只在摘要里提示、不打 tag:技能库不迁移旧数据库，用户更新后新版打不开原来的数据库，要人决定这一版怎么发，再手动推 tag。
+- **数据库结构变了照常发。** 新版打开旧版建的数据库时会先备份再升级(见 [ADR 0003](../../docs/adr/0003-database-upgrades-step-by-step.md)),升级对不对由发版前的 `go test` 检查。只有基准版本里已发布的升级文件被改动或删掉时(`.github/scripts/check-migrations.sh`),自动发版只在摘要里提示、不打 tag,改回去后下一次推送重新判断。
 - **tag 打了、版本没发出去时。** 计数以 tag 为准，不看 Release 有没有发成功，所以要手动补：问题不在代码(如 runner 临时出错)时，在 tag 上重跑 Release(`gh workflow run release.yml --ref v<版本>`);问题在代码时，删掉远端的这个 tag(`git push origin :refs/tags/v<版本>`),修好合进 main 后，下一次推送会重新判断，在新的提交上发同一个版本号。
 
 **手动发版。** 推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)与给 app 里的更新用的 `.zip`、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
