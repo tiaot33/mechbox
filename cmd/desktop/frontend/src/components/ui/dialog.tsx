@@ -5,12 +5,13 @@
 // - 从某个元素打开的(DialogMotion 给了 origin,如左栏"入库技能"):弹窗从那个元素的位置和大小放大出来，关掉时缩回去;
 //   同一个弹窗里换了一页(入库预览出来，宽度变了)时从上一页的大小形变过去，不再从头弹出;
 // - 在 toast 上按下、拖动不算点了弹窗外面，弹窗不关;
-// - Windows 上窗口没有系统标题栏，遮罩盖住了顶栏：遮罩顶上同样高的一条当窗口的拖动区，双击最大化或还原，按下不关弹窗
-//   (窗口按钮浮在遮罩上面，见 components/app/titlebar.tsx)。
+// - Windows 上窗口没有系统标题栏，遮罩盖住了顶栏：遮罩顶上和顶栏一样高的一条当窗口的拖动区(lib/window.ts 的 captionProps),
+//   按下不关弹窗(窗口按钮浮在遮罩上面，见 components/app/titlebar.tsx)。
 import { createContext, use, useCallback, useLayoutEffect, useRef, type ComponentProps } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { platform, toggleMaximiseOnCaption } from "@/lib/platform";
+import { platform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { captionProps } from "@/lib/window";
 
 function Dialog(props: ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -138,12 +139,7 @@ function DialogContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay ref={overlay} data-slot="dialog-overlay" className="fixed inset-0 z-50 animate-fade-in bg-scrim-strong">
         {platform() === "windows" && (
-          <div
-            className="absolute inset-x-0 top-0 h-[50px]"
-            style={{ "--wails-draggable": "drag" } as React.CSSProperties}
-            onPointerDown={(e) => e.stopPropagation()}
-            onDoubleClick={toggleMaximiseOnCaption}
-          />
+          <div className="absolute inset-x-0 top-0" {...captionProps()} onPointerDown={(e) => e.stopPropagation()} />
         )}
       </DialogPrimitive.Overlay>
       <DialogPrimitive.Content
