@@ -42,7 +42,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 
 ### 改表结构
 
-改 `schema.sql`(包括表内列上的注释)后，在仓库根目录运行 `go run ./internal/library/internal/store/migrationgen <这一步做了什么>` 生成 `migrations/` 里的下一版升级，看过后一起提交;命令停下来或提示删列、删表时，先读 [ADR 0003](docs/adr/0003-database-upgrades-step-by-step.md)。还没发布的升级要重做就删掉文件重新生成;已经发布的升级保持原样。
+改 `schema.sql`(包括表内列上的注释)后，在仓库根目录运行 `go run ./internal/library/internal/store/migrationgen <这一步做了什么>` 生成 `migrations/` 里的下一版升级，看过后一起提交;命令停下来或提示删列、删表时，先读 [ADR 0003](docs/adr/0003-database-upgrades-step-by-step.md)。还没发布的升级要重做就删掉文件重新生成;已经发布的升级保持原样。要放弃旧版本、删掉旧的升级文件时按 ADR 0003 的「挪起点」做。
 
 ### 测试
 

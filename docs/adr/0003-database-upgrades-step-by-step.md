@@ -19,6 +19,22 @@ Mechbox 已经在发版：main 上每合进几个改动就自动发一版，app 
 
 调研见 [SQLite 数据库升级：Atlas 与 goose](../research/sqlite-migrations-atlas-goose.md)。
 
+## 升级文件多了：挪起点
+
+升级文件默认全部保留：每个只有几 KB，打开数据库时只跑比它新的几步，CI 从起点一路升到最新也很快。Go 写的升级步骤只用传进来的事务和 SQL，不引用别的代码，留多久都不用维护。
+
+决定不再支持某个版本之前建的数据库时（时机跟产品节奏走，比如发 v0.1.0、1.0），手动挪一次起点。以挪到 `user_version` 40、对应发布版本 v0.3.0 为例：
+
+1. 用 `git show v0.3.0:internal/library/internal/store/schema.sql` 写出新的起点结构 `store/testdata/00040_schema.sql`，删掉旧的 `00027_schema.sql`；`schema.go` 里的 `oldestVersion` 改成 40，`baselineFile` 指向新文件。
+2. 把 `store/testdata/00027_data.sql` 换成 40 版的样例数据 `00040_data.sql`：用旧样例建 27 版数据库，跑完到 40 的升级，再导出每张表的数据。样例里每张表都要有行，测试会检查。
+3. 删掉 `store/migrations/` 里编号不超过 40 的升级文件。
+4. 改 `.github/scripts/check-migrations.sh`：它把删除已发布的升级文件当成错误，挪起点的这个 PR 里要允许删除编号不超过新起点的文件和旧的起点结构。
+5. 改本文和 `Open`、`CannotPullOlderApp`、`FailedPrecondition` 的 doc comment 里"哪些版本不升级"的说法，重新生成前端绑定。
+
+比 40 更早建的数据库从此和现在 v0.0.1 建的一样：拒绝打开、文件不动。用户可以先装一个中间版本（v0.3.0 起、挪起点之前的任一版）打开一次升到 40，再装新版。不采用 Chromium、Room 那样对太旧的版本直接清空重建：技能库里的数据只有用户自己有。
+
+也考虑过让新的大版本发布后由 CI 自动开挪起点的 PR，或在打包时按 tag 自动挪：前者为偶尔做一次的事多维护一套流程，后者打出的安装包和 main 上测过的代码不一样，都不采用。
+
 ## 后果
 
 - 改哪张表就整表复制一次，比如以后改存文件内容的 `blobs` 表，要把所有文件内容复制一遍。
