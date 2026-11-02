@@ -113,7 +113,7 @@ export const en = {
     statusMissing: "Folder missing",
     statusRootMissing: "Project not on this machine",
     revisionUnknown: "Revision unknown",
-    revisionSame: (revision: string) => `At ${revision}`,
+    revisionSame: (revision: string) => `Revision ${revision}`,
     revisionMixed: (r: Extract<RevisionSummary, { kind: "mixed" }>) =>
       [
         ...r.others.map((o) => `${and(o.names)} at ${o.revision}`),
@@ -611,6 +611,9 @@ export const en = {
   },
 
   list: {
+    newPublished: (names: string[]) => `New: ${names.join(", ")}`,
+    expandSection: "Expand",
+    collapseSection: "Collapse",
     emptyLibrary: "The Library is empty",
     originalTitle: (text: string) => `Original: ${text}`,
     emptyHint: "Fetch skills from a local directory, GitHub or the skill market.",
@@ -681,7 +684,6 @@ export const en = {
     hideNotHere: "Hide the ones not installed here",
     notHereBlock: (names: string[], more: boolean) =>
       `${count(names.length, more ? "more skill" : "skill")} in the Library not installed here: ${firstNames(names)}`,
-    hereCount: (n: number) => `${n} installed here`,
     groupOnly: (name: string, via: string[]) =>
       via.length > 1
         ? `“${name}” is installed via ${quoted(via)}. To stop using it here, uninstall those Groups' Group installs here, or remove it from those Groups.`

@@ -1108,7 +1108,8 @@ await step("组安装(摘要里的组开关)→ 随组安装 → 卸载组安装
   await page.locator(".gchip", { hasText: "前端调试" }).click();
   await toast("已卸载「前端调试」");
   await settle();
-  assert((await card("alpha").locator(".skill-state", { hasText: "未安装" }).count()) === 1, "卸载后 alpha 应未安装");
+  assert.equal(await card("alpha").locator('[role="switch"]').getAttribute("aria-checked"), "false", "卸载后 alpha 应未安装");
+  assert.equal(await card("alpha").locator(".skill-state").innerText(), "", "未安装不写状态");
 });
 
 await step("卡片开关卸载直接安装", async () => {
@@ -1222,12 +1223,12 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     assert((await card("alpha").count()) === 1, "库装的 alpha 照常列出");
     assert.equal(await page.locator('[data-section="scope-unmanaged"] .section-name').textContent(), "不在技能库里", "未纳管技能那一节叫不在技能库里");
     assert.equal(await npx.locator(".unmanaged-state").count(), 0, "节标题已经写了不在技能库里，最后一列不再写");
-    assert.deepStrictEqual(await npx.locator(".fetch-unmanaged").allTextContents(), ["入库"], "行首是入库按钮，行尾没有另一个入库");
+    assert.deepStrictEqual(await npx.locator(".fetch-unmanaged").allTextContents(), ["入库"], "行尾是入库按钮，只有一个");
     assert.equal(await npx.locator('[role="switch"], [data-slot="switch-mark"]').count(), 0, "不在技能库里的没有开关");
     // 指向的是解析后的真实路径;临时 HOME 在 /tmp 下(macOS 上是 /private/tmp 的符号链接),所以不按 ~ 缩写比较。
     const foot = await npx.locator(".unmanaged-status").textContent();
     assert(foot.startsWith("符号链接 → ") && foot.includes(`${fs.realpathSync(real)}`), `应写出符号链接指向哪里:${foot}`);
-    assert((await npx.getByRole("button").allTextContents()).join() === "入库,在 Finder 中显示", "只有入库与在 Finder 中显示，没有删除");
+    assert.deepStrictEqual((await npx.getByRole("button").allTextContents()).sort(), ["入库", "在 Finder 中显示"].sort(), "只有入库与在 Finder 中显示，没有删除");
     assert((await page.locator(".a-scope-sum .stat", { hasText: "不在技能库里" }).textContent()).includes("1"), "摘要应数出 1 个不在技能库里");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
     await btn(npx, "在 Finder 中显示").click();
@@ -1345,8 +1346,11 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
   try {
     await selectScope("Claude Code");
     await unmanaged("kit-a").waitFor();
-    assert.equal(await unmanaged("kit-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
-    // 行首的「入库」和来源都要能看全。
+    // 行里的来源和集合的节标题一样缩写(主目录下写成 ~),完整的在悬停提示里。
+    const kitLabel = unmanaged("kit-a").locator(".unmanaged-source-label");
+    assert.match(await kitLabel.textContent(), /^来自 .*sources\/team-kit$/, "卡片上写出认出的来源");
+    assert((await kitLabel.getAttribute("title")).includes(kit), "悬停提示里是完整的来源");
+    // 行尾的「入库」和来源都要能看全。
     const clipped = (el) => el.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
     assert(!(await clipped(unmanaged("kit-a").locator(".fetch-unmanaged"))), "「入库」没被截断");
     assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-source-label"))), "来源没被截断");
@@ -1420,7 +1424,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
   try {
     await selectScope("Claude Code");
-    const label = unmanaged("found-a").locator(".unmanaged-source-label", { hasText: `来自 ${site}` });
+    const label = unmanaged("found-a").locator(".unmanaged-source-label", { hasText: `来自 ${site.replace("https://", "")}` });
     await label.waitFor({ timeout: 20000 });
     assert((await label.getAttribute("title")).includes("在 skills.sh 上找到的同名技能"), "悬停提示写明是在 skills.sh 上找到的");
     await unmanaged("found-b").waitFor();
@@ -1476,9 +1480,11 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     fs.writeFileSync(path.join(folder, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
   }
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  // 行只占一行：同名的后果写在「同名」标签悬停提示的第一行，下面是另一处的文件夹。
   const note = async (item) => {
-    assert((await item.locator(".same-name-badge").count()) === 1, "应标同名");
-    return (await item.locator(".same-name-note").textContent()).trim();
+    const badge = item.locator(".same-name-badge");
+    assert((await badge.count()) === 1, "应标同名");
+    return (await badge.getAttribute("title")).split("\n")[0].trim();
   };
   try {
     await page.locator(".titlebar button[title^='刷新']").click();
@@ -1486,7 +1492,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
 
     // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
     await selectScope("Claude Code", "proj-a");
-    await card("gamma").locator(".same-name-note").waitFor();
+    await card("gamma").locator(".same-name-badge").waitFor();
     assert.equal(await note(card("gamma")), "全局也有 gamma（不在技能库里），Claude Code 用全局的那个，这里的不会生效");
     assert.equal(await note(unmanaged("alpha")), "全局也有 alpha（库装的），Claude Code 用全局的那个，这里的不会生效");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
@@ -1502,14 +1508,14 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     await idle();
 
     await selectScope("Claude Code");
-    await card("alpha").locator(".same-name-note").waitFor();
+    await card("alpha").locator(".same-name-badge").waitFor();
     assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
     assert.equal(await note(unmanaged("gamma")), "项目「proj-a」里也有 gamma，Claude Code 在那里用全局的这个");
     assert((await card("npx-tool").locator(".same-name-badge").count()) === 0, "Claude Code 的项目里没有 npx-tool,不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-global.png") });
 
     await selectScope("Codex", "proj-a");
-    await unmanaged("vendored-npx").locator(".same-name-note").waitFor();
+    await unmanaged("vendored-npx").locator(".same-name-badge").waitFor();
     assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool（库装的），Codex 里两份都会出现");
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
@@ -2380,7 +2386,7 @@ await step("拖放：集合的节标题 → 右栏作用域(把集合里的技�
   await selectScope("Codex", "proj-b");
   const here = page.locator(".a-list .skill-row", { has: page.locator('[role="switch"][aria-checked="true"]') });
   assert.deepStrictEqual((await here.locator(".skill-name").allTextContents()).sort(), ["alpha", "beta", "gamma"], "集合里的 3 个技能都装在这里");
-  assert.equal(await here.locator(".skill-state", { hasText: "直接安装" }).count(), 3, "都是直接安装");
+  assert.equal(await here.locator(".skill-state", { hasText: /\S/ }).count(), 0, "都是直接安装：状态列只写例外，直接安装不写");
   const dir = await scopeDir();
   for (const n of ["alpha", "beta", "gamma"]) assert(fs.existsSync(path.join(dir, n, "SKILL.md")), `磁盘上应有 ${dir}/${n}`);
   await clearScope();
