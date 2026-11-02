@@ -1,0 +1,44 @@
+# 仅在 PR 改了技能库的数据库结构、升级或它们的代码时检查数据库升级:
+# 已发布的升级(最高正式版 tag 里已有的)原样还在;从 v0.0.6 的结构跑完全部升级与 schema.sql 一致;v0.0.6 的数据升级后都在。
+# 改了 schema.sql 却没有生成升级时第二项失败，按报错运行 go run ./internal/library/internal/store/migrationgen <这一步做了什么>,把生成的文件一起提交。
+name: Schema
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/schema.yml'
+      - '.github/scripts/check-migrations.sh'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/library/internal/store/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  migrations:
+    name: 数据库升级
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: 已发布的升级没被改动
+        run: .github/scripts/check-migrations.sh
+
+      - name: 升级测试
+        run: go test ./internal/library/internal/store/...

@@ -266,7 +266,8 @@ export enum CannotPullReason {
     CannotPullNewerApp = "newer_app",
 
     /**
-     * CannotPullOlderApp 这份备份来自较旧版本的应用:先在推送它的机器上升级应用,再推送一次。
+     * CannotPullOlderApp 这份备份来自 v0.0.1 的应用(schema 版本 24),本版不能升级它:先在推送它的机器上升级应用,再推送一次。
+     * v0.0.2 起的应用推送的备份,拉回时先升级到本版结构。
      */
     CannotPullOlderApp = "older_app",
 };
@@ -479,7 +480,8 @@ export enum ErrorCode {
     /**
      * FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
      * (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;修改或删除内置 Agent;同一入库预览句柄的入库正在进行;
-     * Open 的文件不是 SQLite 文件,或不是本应用当前 schema 版本的库;同步拉回时选中的备份不能拉回;
+     * Open 的文件不是 SQLite 文件、应用标识不符、是 v0.0.1 建的或比本版应用新的 schema 版本、表结构不符,或旧库的升级失败;
+     * 同步拉回时选中的备份不能拉回;
      * 要用的 WSL 发行版打不开:没有这个发行版、WSL 没有响应或发行版里的命令进程中途退出)。
      * 组安装与加入成员时,占用和组内同名不使整个操作失败,而是放进被跳过成员的 GroupMemberResult.Error;
      * 加入成员时根目录不存在也是如此。重新安装时根目录不存在放进那一处的 ReinstallResult.Error。

@@ -61,8 +61,11 @@ func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func
 	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
 }
 
-// Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本;不是 SQLite 文件、应用标识、
-// schema 版本或表结构不符时返回 FailedPrecondition 且不改动内容;另一进程占着写锁超过等待上限返回 Busy。
+// Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本。旧版本应用(v0.0.2 起,schema 版本 27 起)建的库
+// 先在同一目录留一份备份(library.db 旁的 library-v<旧 schema 版本>.db,不自动删除;另一进程已经升级过时不再覆盖),
+// 再逐版升级到本版结构,里面的数据都留着。全部升级连同升级后的表结构校验在一个事务里,任何一步失败都整个回滚、库保持原样,
+// 返回 FailedPrecondition。不是 SQLite 文件、应用标识不符、v0.0.1 建的(schema 版本 24)或比本版应用新的 schema 版本、
+// 表结构不符时返回 FailedPrecondition 且不改动内容;另一进程占着写锁超过等待上限返回 Busy。
 // 数据库里明文存着 GitHub 令牌、AI 的 API Key 与 S3 密钥,所以打开时把数据库文件(连同 -wal、-shm)改成只有当前用户能读写(0600)。
 // 应用内置的 Agent 以本版应用为准:缺的补上,已有的名称和目录被覆盖,厂商换了读取目录时已有的库也随应用版本用上新目录;
 // 库里有、本版应用不认识的 Agent(例如从装了更新版本应用的机器同步来的)保持原样。

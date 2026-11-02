@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
@@ -110,11 +112,33 @@ func (a *AppService) afterShutdown() {
 
 func removeAppData(libraryPath string) error {
 	var errs []error
-	for _, path := range []string{libraryPath, libraryPath + "-wal", libraryPath + "-shm", libraryPath + "-journal"} {
+	paths := []string{libraryPath, libraryPath + "-wal", libraryPath + "-shm", libraryPath + "-journal"}
+	backups, err := upgradeBackups(libraryPath)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	for _, path := range append(paths, backups...) {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}
 	}
 	_ = os.Remove(filepath.Dir(libraryPath))
 	return errors.Join(errs...)
+}
+
+func upgradeBackups(libraryPath string) ([]string, error) {
+	dir, name := filepath.Split(libraryPath)
+	ext := filepath.Ext(name)
+	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(strings.TrimSuffix(name, ext)) + `-v[0-9]+` + regexp.QuoteMeta(ext) + `(-wal|-shm|-journal|\..+\.partial)?$`)
+	entries, err := os.ReadDir(filepath.Clean(dir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	var backups []string
+	for _, entry := range entries {
+		if pattern.MatchString(entry.Name()) {
+			backups = append(backups, filepath.Join(dir, entry.Name()))
+		}
+	}
+	return backups, nil
 }

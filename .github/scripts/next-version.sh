@@ -2,12 +2,12 @@
 # 判断 HEAD 该不该自动发一版。该发时在 stdout 输出新版本号(如 0.0.5),不该发时什么都不输出;判断经过写在 stderr。
 # 基准是按版本号排最高的正式版 tag(vX.Y.Z,不含预发布);从它往后数 main 上用户能感觉到的 PR,
 # 即标题是 feat / fix / perf、末尾带 (#PR 号) 的合并提交，满 3 个就在最后一位加 1。
-# 基准之后数据库结构变了(schema.sql 或 schemaVersion)不自动发：技能库不迁移旧数据库，新版打不开用户的数据库，要人来决定怎么发。
+# 基准里已发布的数据库升级被改动或删除时不自动发(见 check-migrations.sh):用户的数据库已经跑过它们，改了会让结构分叉;
+# 只改 schema.sql 并新增升级照常发，升级是否正确由之后的 go test 检查。
 # 没有任何正式版 tag 时报错退出。
 set -euo pipefail
 
 threshold=3
-store=internal/library/internal/store
 
 latest="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
 if [[ -z "$latest" ]]; then
@@ -23,9 +23,9 @@ if (( count < threshold )); then
   exit 0
 fi
 
-if ! git diff --quiet "$latest" HEAD -- "$store/schema.sql" ||
-  git diff "$latest" HEAD -- "$store/schema.go" | grep -qE '^[-+][[:space:]]*schemaVersion[[:space:]]*='; then
-  echo "基准 $latest 之后计数的 PR $count 个，但数据库结构变了($store 的 schema.sql 或 schemaVersion),不自动发版;这一版要手动推 tag 发布" >&2
+if ! migrations="$("$(dirname "$0")/check-migrations.sh" 2>&1)"; then
+  echo "$migrations" >&2
+  echo "基准 $latest 之后计数的 PR $count 个，但已发布的数据库升级被改动了，不自动发版;改回去后下一次推送重新判断" >&2
   exit 0
 fi
 
