@@ -1,6 +1,6 @@
 -- Library 的 SQLite 表结构,由 library.Open 嵌入执行。
 -- 建表后 Open 会设置 PRAGMA application_id 和 user_version,作为库文件的身份标识。
--- 这里是当前结构，新建的库直接执行它;user_version 是 27(v0.0.6)加上 migrations/ 里升级的个数。
+-- 这里是当前结构，新建的库直接执行它;user_version 是 27(v0.0.2 到 v0.0.6)加上 migrations/ 里升级的个数。
 -- 旧库(user_version 从 27 起)由 migrations/ 里的升级逐版升到这里;更早的不升级，拒绝打开。
 -- 改了这里(包括表内列上的注释)就在仓库根目录运行 go run ./internal/library/internal/store/migrationgen <这一步做了什么>,
 -- 生成从上一版升到这一版的升级，一起提交。已经发布过的升级不能再改。

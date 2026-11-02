@@ -33,6 +33,21 @@ func register(up func(context.Context, *sql.Tx) error) {
 	goSteps[path.Base(file)] = up
 }
 
+func candidate(name string) bool {
+	if name == "" || name[0] < '0' || name[0] > '9' || strings.HasSuffix(name, "_test.go") {
+		return false
+	}
+	return strings.HasSuffix(name, ".sql") || strings.HasSuffix(name, ".go")
+}
+
+func FileName(version int, name string) (string, error) {
+	file := fmt.Sprintf("%05d_%s.sql", version, name)
+	if !fileName.MatchString(file) {
+		return "", fmt.Errorf("migration name %q: use lowercase letters, digits and single underscores, like add_skill_pin", name)
+	}
+	return file, nil
+}
+
 func Load(after int) ([]Step, error) {
 	return load(files, goSteps, after)
 }
@@ -45,7 +60,7 @@ func load(fsys fs.FS, registered map[string]func(context.Context, *sql.Tx) error
 	var steps []Step
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == "migrations.go" || strings.HasSuffix(name, "_test.go") {
+		if !candidate(name) {
 			continue
 		}
 		match := fileName.FindStringSubmatch(name)

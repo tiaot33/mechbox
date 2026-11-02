@@ -169,7 +169,13 @@ func openImage(ctx context.Context, data []byte, l layout) (*Image, error) {
 	}
 	image.db, err = openDB(ctx, image.path)
 	if err == nil {
-		err = validateImage(ctx, image.db, l)
+		err = checkImage(ctx, image.db, l)
+	}
+	if err == nil {
+		err = upgrade(ctx, image.db, l.steps, l.validator())
+	}
+	if err == nil {
+		err = validateSchema(ctx, image.db, l)
 	}
 	if err != nil {
 		image.Close()
@@ -181,27 +187,16 @@ func openImage(ctx context.Context, data []byte, l layout) (*Image, error) {
 	return image, nil
 }
 
-func validateImage(ctx context.Context, db *sql.DB, l layout) error {
+func checkImage(ctx context.Context, db *sql.DB, l layout) error {
 	var integrity string
 	if err := db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
-		return fmt.Errorf("validate pulled library: %w", err)
+		return err
 	}
 	if integrity != "ok" {
 		return fmt.Errorf("%w: integrity=%q", ErrUnacceptable, integrity)
 	}
-	version, err := requireIdentity(ctx, db, l)
-	if err != nil {
-		return fmt.Errorf("validate pulled library: %w", err)
-	}
-	if version < l.version() {
-		if err := upgrade(ctx, db, l.steps); err != nil {
-			return fmt.Errorf("validate pulled library: %w", err)
-		}
-	}
-	if err := validateSchema(ctx, db, l); err != nil {
-		return fmt.Errorf("validate pulled library: %w", err)
-	}
-	return nil
+	_, err := requireIdentity(ctx, db, l)
+	return err
 }
 
 func (i *Image) Close() {

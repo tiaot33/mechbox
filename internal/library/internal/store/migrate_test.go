@@ -24,7 +24,11 @@ func readTestdata(t *testing.T, name string) string {
 }
 
 func baselineSchema(t *testing.T) string {
-	return readTestdata(t, fmt.Sprintf("%05d_schema.sql", oldestVersion))
+	t.Helper()
+	if want := fmt.Sprintf("testdata/%05d_schema.sql", oldestVersion); baselineFile != want {
+		t.Fatalf("baselineFile = %q; want %q to match oldestVersion", baselineFile, want)
+	}
+	return readTestdata(t, filepath.Base(baselineFile))
 }
 
 func testLayout(t *testing.T) layout {
@@ -39,14 +43,14 @@ func testLayout(t *testing.T) layout {
 func plannedLayout(t *testing.T, target string) layout {
 	t.Helper()
 	l := testLayout(t)
-	plan, err := planMigration(t.Context(), baselineSchema(t), target, l.steps)
+	plan, err := planMigration(t.Context(), baselineSchema(t), target, l)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.SQL == "" {
 		t.Fatal("planned migration is empty")
 	}
-	return layout{schema: target, steps: append(slices.Clip(l.steps), migrations.Step{Version: plan.Version, Name: "planned", SQL: plan.SQL})}
+	return layout{schema: target, steps: append(slices.Clip(l.steps), migrations.Step{Version: l.version() + 1, Name: "planned", SQL: plan.SQL})}
 }
 
 func writeOldestLibrary(t *testing.T, path string) {
@@ -197,7 +201,7 @@ func TestUpgradeFromOldestVersionReachesSchemaSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := upgrade(ctx, db, l.steps); err != nil {
+	if err := upgrade(ctx, db, l.steps, nil); err != nil {
 		t.Fatal(err)
 	}
 	expected, err := memoryDatabase(ctx, l.schema, 0)
@@ -330,45 +334,122 @@ func TestOpenBacksUpAndUpgradesAnOlderLibrary(t *testing.T) {
 
 func TestFailedUpgradeLeavesTheLibraryAsItWas(t *testing.T) {
 	for _, tc := range []struct {
-		name, sql string
+		name   string
+		edit   string
+		layout func(t *testing.T) layout
 	}{
-		{"statement fails halfway", "ALTER TABLE skills ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;\nINSERT INTO missing_table VALUES (1);"},
-		{"foreign keys broken", "DELETE FROM sources WHERE id = 1;"},
+		{name: "statement fails halfway", layout: func(t *testing.T) layout {
+			return brokenLayout(t, "ALTER TABLE skills ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;\nINSERT INTO missing_table VALUES (1);")
+		}},
+		{name: "foreign keys broken", layout: func(t *testing.T) layout {
+			return brokenLayout(t, "DELETE FROM sources WHERE id = 1;")
+		}},
+		{name: "old library does not match its schema", edit: "DROP INDEX skill_scopes_global_scope;", layout: func(t *testing.T) layout {
+			return plannedLayout(t, pinnedSchema(t))
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "library.db")
 			writeOldestLibrary(t, path)
-			l := testLayout(t)
-			broken := layout{schema: l.schema, steps: append(slices.Clip(l.steps), migrations.Step{Version: l.version() + 1, Name: "broken", SQL: tc.sql})}
-			s, err := open(path, broken)
+			if tc.edit != "" {
+				db := openRaw(t, path)
+				if _, err := db.Exec(tc.edit); err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := open(path, tc.layout(t))
 			if err == nil {
 				_ = s.Close()
-				t.Fatal("open succeeded; want the broken upgrade to fail")
+				t.Fatal("open succeeded; want the upgrade to fail")
 			}
 			if !errors.Is(err, ErrUnacceptable) {
 				t.Fatalf("open error = %v; want ErrUnacceptable", err)
 			}
-			db := openRaw(t, path)
-			var version int
-			if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != l.version() {
-				t.Fatalf("user_version after failed upgrade = %d, %v; want %d", version, err, l.version())
+			if after, err := os.ReadFile(path); err != nil || !reflect.DeepEqual(after, before) {
+				t.Fatalf("failed upgrade changed the library file: %v", err)
 			}
-			columns, err := tableColumns(t.Context(), db, "skills")
-			if err != nil || slices.ContainsFunc(columns, func(c tableColumn) bool { return c.name == "pinned" }) {
-				t.Fatalf("skills columns after failed upgrade = %v, %v; want no pinned", columns, err)
+			if tc.edit == "" {
+				s, err = open(path, testLayout(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = s.Close()
 			}
-			if got := selectColumns(t, db, "sources", []string{"id"}); !reflect.DeepEqual(got, []string{"1", "2"}) {
-				t.Fatalf("sources after failed upgrade = %q; want both kept", got)
-			}
-			if err := db.Close(); err != nil {
-				t.Fatal(err)
-			}
-			s, err = open(path, l)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_ = s.Close()
 		})
+	}
+}
+
+func brokenLayout(t *testing.T, statements string) layout {
+	t.Helper()
+	l := testLayout(t)
+	return layout{schema: l.schema, steps: append(slices.Clip(l.steps), migrations.Step{Version: l.version() + 1, Name: "broken", SQL: statements})}
+}
+
+func TestBackupIsNotOverwrittenOnceAnotherProcessUpgraded(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "library.db")
+	writeOldestLibrary(t, path)
+	l := plannedLayout(t, pinnedSchema(t))
+	s, err := open(path, l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	backupPath := filepath.Join(dir, fmt.Sprintf("library-v%d.db", oldestVersion))
+	before, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backupBeforeUpgrade(ctx, s.db, path, oldestVersion); err != nil {
+		t.Fatal(err)
+	}
+	if after, err := os.ReadFile(backupPath); err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("backup of version %d was overwritten by the upgraded library: %v", oldestVersion, err)
+	}
+	if partial, _ := filepath.Glob(filepath.Join(dir, "*.partial")); len(partial) > 0 {
+		t.Fatalf("partial backups left behind: %v", partial)
+	}
+}
+
+func TestOpenThroughFileURIBacksUpTheDatabaseFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "library.db")
+	writeOldestLibrary(t, path)
+	s, err := open("file:"+filepath.ToSlash(path), plannedLayout(t, pinnedSchema(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("library-v%d.db", oldestVersion))); err != nil {
+		t.Fatalf("no backup next to the database opened through a file: URI: %v", err)
+	}
+}
+
+func TestDatabaseFile(t *testing.T) {
+	for _, tc := range []struct {
+		path, want string
+		ok         bool
+	}{
+		{"/data/library.db", "/data/library.db", true},
+		{":memory:", "", false},
+		{"file::memory:?cache=shared", "", false},
+		{"file:/data/library.db?mode=memory", "", false},
+		{"file:/data/library.db?_txlock=immediate", "/data/library.db", true},
+		{"file:///data/library.db", "/data/library.db", true},
+		{"file:library.db", "library.db", true},
+	} {
+		got, ok := databaseFile(tc.path)
+		if want := filepath.FromSlash(tc.want); got != want || ok != tc.ok {
+			t.Errorf("databaseFile(%q) = %q, %v; want %q, %v", tc.path, got, ok, want, tc.ok)
+		}
 	}
 }
 
@@ -381,7 +462,7 @@ func TestUpgradeSkipsStepsAnotherProcessAlreadyRan(t *testing.T) {
 	}
 	defer db.Close()
 	for range 2 {
-		if err := upgrade(ctx, db, l.steps); err != nil {
+		if err := upgrade(ctx, db, l.steps, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -418,9 +499,15 @@ func TestOpenImageUpgradesBackupFromOlderVersion(t *testing.T) {
 
 func TestPlanMigrationRefusesWhatItCannotFill(t *testing.T) {
 	schema := strings.Replace(testLayout(t).schema, "    note TEXT NOT NULL DEFAULT '',", "    note TEXT NOT NULL DEFAULT '',\n    owner TEXT NOT NULL,", 1)
-	_, err := planMigration(t.Context(), baselineSchema(t), schema, testLayout(t).steps)
+	_, err := planMigration(t.Context(), baselineSchema(t), schema, testLayout(t))
 	if err == nil || !strings.Contains(err.Error(), "skills.owner") {
 		t.Fatalf("plan error = %v; want it to name skills.owner", err)
+	}
+	schema = strings.Replace(testLayout(t).schema, "    group_id INTEGER NOT NULL REFERENCES groups(id),", "    group_id INTEGER NOT NULL REFERENCES groups(id),\n    tenant TEXT NOT NULL,", 1)
+	schema = strings.Replace(schema, "PRIMARY KEY(skill_id, group_id)", "PRIMARY KEY(skill_id, group_id, tenant)", 1)
+	_, err = planMigration(t.Context(), baselineSchema(t), schema, testLayout(t))
+	if err == nil || !strings.Contains(err.Error(), "skill_groups.tenant") {
+		t.Fatalf("plan error = %v; want it to name the new primary key column skill_groups.tenant", err)
 	}
 }
 
@@ -430,7 +517,7 @@ func TestPlanMigrationWarnsAboutDroppedData(t *testing.T) {
 	start := strings.Index(schema, "CREATE TABLE IF NOT EXISTS rejected_renames")
 	end := start + strings.Index(schema[start:], ");") + 2
 	schema = schema[:start] + schema[end:]
-	plan, err := planMigration(t.Context(), baselineSchema(t), schema, testLayout(t).steps)
+	plan, err := planMigration(t.Context(), baselineSchema(t), schema, testLayout(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,8 +531,27 @@ func TestPlanMigrationWarnsAboutDroppedData(t *testing.T) {
 
 func TestPlanMigrationIsEmptyWhenSchemaIsUnchanged(t *testing.T) {
 	l := testLayout(t)
-	plan, err := planMigration(t.Context(), baselineSchema(t), l.schema, l.steps)
-	if err != nil || plan.SQL != "" || plan.Version != l.version()+1 {
-		t.Fatalf("plan = %+v, %v; want an empty plan for version %d", plan, err, l.version()+1)
+	plan, err := planMigration(t.Context(), baselineSchema(t), l.schema, l)
+	if err != nil || plan.SQL != "" {
+		t.Fatalf("plan = %+v, %v; want an empty plan", plan, err)
+	}
+}
+
+func TestPlanMigrationNamesTheNextFile(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{baselineFile: baselineSchema(t), "schema.sql": pinnedSchema(t)} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := PlanMigration(t.Context(), dir, "add_pins")
+	if want := filepath.Join("migrations", fmt.Sprintf("%05d_add_pins.sql", testLayout(t).version()+1)); err != nil || plan.File != want {
+		t.Fatalf("PlanMigration file = %q, %v; want %q", plan.File, err, want)
+	}
+	if _, err := PlanMigration(t.Context(), dir, "AddPins"); err == nil {
+		t.Fatal("PlanMigration accepted a name that Load would reject")
 	}
 }

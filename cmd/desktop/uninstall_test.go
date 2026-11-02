@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -189,7 +190,7 @@ func TestUninstallAppRetrySkipsFoldersAlreadyTrashed(t *testing.T) {
 
 func TestRemoveAppDataLeavesOtherFilesAlone(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"library.db", "library.db-wal", "notes.txt"} {
+	for _, name := range []string{"library.db", "library.db-wal", "notes.txt", "library-vacation.db", "library-v27.db.bak", "other-v27.db"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +199,31 @@ func TestRemoveAppDataLeavesOtherFilesAlone(t *testing.T) {
 		t.Fatalf("removeAppData: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "notes.txt" {
-		t.Fatalf("left in directory: %v, %v; want only notes.txt", entries, err)
+	var left []string
+	for _, entry := range entries {
+		left = append(left, entry.Name())
+	}
+	if want := []string{"library-v27.db.bak", "library-vacation.db", "notes.txt", "other-v27.db"}; err != nil || !slices.Equal(left, want) {
+		t.Fatalf("left in directory: %v, %v; want %v", left, err, want)
+	}
+}
+
+// 升级前留下的备份就是整个技能库(含明文令牌与密钥),卸载时和数据库一起删掉,目录也随之删除。
+func TestRemoveAppDataRemovesUpgradeBackups(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mechbox")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"library.db", "library.db-wal", "library-v27.db", "library-v28.db", "library-v28.db-wal", "library-v29.db.123456.partial"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := removeAppData(filepath.Join(dir, "library.db")); err != nil {
+		t.Fatalf("removeAppData: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		entries, _ := os.ReadDir(dir)
+		t.Fatalf("app data directory still there with %v: %v", entries, err)
 	}
 }

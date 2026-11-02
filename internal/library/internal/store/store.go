@@ -116,7 +116,7 @@ func initialize(ctx context.Context, db *sql.DB, path string, l layout) error {
 			if err := backupBeforeUpgrade(ctx, db, path, version); err != nil {
 				return fmt.Errorf("back up library before upgrade: %w", wrap(err))
 			}
-			if err := upgrade(ctx, db, l.steps); err != nil {
+			if err := upgrade(ctx, db, l.steps, l.validator()); err != nil {
 				return fmt.Errorf("open library: %w", err)
 			}
 		}

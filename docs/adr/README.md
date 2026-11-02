@@ -11,7 +11,7 @@
 
 - [0001 库的数据集中存在一个数据库里](0001-library-data-in-one-database.md)
 - [0002 每个版本完整保存，相同内容的文件只存一份](0002-versions-store-each-file-once.md)
-- [0003 数据库从 v0.0.6 起逐版升级，升级 SQL 由命令生成](0003-database-upgrades-step-by-step.md)
+- [0003 数据库从 schema 版本 27 起逐版升级，升级 SQL 由命令生成](0003-database-upgrades-step-by-step.md)
 
 ## 来源
 

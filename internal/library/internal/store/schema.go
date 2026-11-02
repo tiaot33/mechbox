@@ -17,6 +17,7 @@ import (
 const (
 	applicationID    = 1397443650
 	oldestVersion    = 27
+	baselineFile     = "testdata/00027_schema.sql"
 	builtinAgentsSQL = `
 		INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES
 			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills', '.claude'),
@@ -49,6 +50,12 @@ var currentLayout = sync.OnceValues(func() (layout, error) {
 	}
 	return layout{schema: schemaSQL, steps: steps}, nil
 })
+
+func (l layout) validator() func(context.Context, *sql.Tx) error {
+	return func(ctx context.Context, tx *sql.Tx) error {
+		return validateSchema(ctx, tx, l)
+	}
+}
 
 func writeBuiltinAgents(ctx context.Context, db *sql.DB, l layout) error {
 	tx, err := db.BeginTx(ctx, nil)

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -12,17 +14,34 @@ import (
 )
 
 type MigrationPlan struct {
-	Version  int
+	File     string
 	SQL      string
 	Warnings []string
 }
 
-func PlanMigration(ctx context.Context, baseline, target string) (MigrationPlan, error) {
+func PlanMigration(ctx context.Context, storeDir, name string) (MigrationPlan, error) {
 	l, err := currentLayout()
 	if err != nil {
 		return MigrationPlan{}, err
 	}
-	return planMigration(ctx, baseline, target, l.steps)
+	file, err := migrations.FileName(l.version()+1, name)
+	if err != nil {
+		return MigrationPlan{}, err
+	}
+	baseline, err := os.ReadFile(filepath.Join(storeDir, baselineFile))
+	if err != nil {
+		return MigrationPlan{}, err
+	}
+	target, err := os.ReadFile(filepath.Join(storeDir, "schema.sql"))
+	if err != nil {
+		return MigrationPlan{}, err
+	}
+	plan, err := planMigration(ctx, string(baseline), string(target), l)
+	if err != nil || plan.SQL == "" {
+		return plan, err
+	}
+	plan.File = filepath.Join("migrations", file)
+	return plan, nil
 }
 
 type schemaObject struct {
@@ -34,13 +53,13 @@ type tableColumn struct {
 	required bool
 }
 
-func planMigration(ctx context.Context, baseline, target string, steps []migrations.Step) (MigrationPlan, error) {
+func planMigration(ctx context.Context, baseline, target string, l layout) (MigrationPlan, error) {
 	from, err := memoryDatabase(ctx, baseline, oldestVersion)
 	if err != nil {
 		return MigrationPlan{}, fmt.Errorf("load baseline schema: %w", err)
 	}
 	defer from.Close()
-	if err := upgrade(ctx, from, steps); err != nil {
+	if err := upgrade(ctx, from, l.steps, nil); err != nil {
 		return MigrationPlan{}, err
 	}
 	to, err := memoryDatabase(ctx, target, 0)
@@ -48,14 +67,12 @@ func planMigration(ctx context.Context, baseline, target string, steps []migrati
 		return MigrationPlan{}, fmt.Errorf("load schema.sql: %w", err)
 	}
 	defer to.Close()
-	plan := MigrationPlan{Version: oldestVersion + len(steps) + 1}
 	statements, warnings, err := diffSchemas(ctx, from, to)
 	if err != nil || len(statements) == 0 {
-		return plan, err
+		return MigrationPlan{}, err
 	}
-	plan.SQL = strings.Join(statements, "\n\n") + "\n"
-	plan.Warnings = warnings
-	if err := upgrade(ctx, from, []migrations.Step{{Version: plan.Version, Name: "planned", SQL: plan.SQL}}); err != nil {
+	plan := MigrationPlan{SQL: strings.Join(statements, "\n\n") + "\n", Warnings: warnings}
+	if err := upgrade(ctx, from, []migrations.Step{{Version: l.version() + 1, Name: "planned", SQL: plan.SQL}}, nil); err != nil {
 		return MigrationPlan{}, fmt.Errorf("apply planned migration: %w", err)
 	}
 	got, err := schemaFingerprint(ctx, from)
@@ -210,7 +227,7 @@ func rebuildTable(ctx context.Context, from, to *sql.DB, table string, before, a
 		if slices.ContainsFunc(oldColumns, func(old tableColumn) bool { return old.name == column.name }) {
 			kept = append(kept, column.name)
 		} else if column.required {
-			return nil, nil, fmt.Errorf("新列 %s.%s 是 NOT NULL 又没有 DEFAULT,旧数据没法填，这一步要手写", table, column.name)
+			return nil, nil, fmt.Errorf("新列 %s.%s 是 NOT NULL 或主键，又没有 DEFAULT,旧数据没法填，这一步要手写", table, column.name)
 		}
 	}
 	for _, column := range oldColumns {
@@ -252,7 +269,7 @@ func autoincrement(statement string) bool {
 }
 
 func tableColumns(ctx context.Context, db *sql.DB, table string) ([]tableColumn, error) {
-	rows, err := db.QueryContext(ctx, `SELECT name, "notnull", dflt_value IS NULL, pk FROM pragma_table_info(?) ORDER BY cid`, table)
+	rows, err := db.QueryContext(ctx, `SELECT name, upper(type) = 'INTEGER', "notnull", dflt_value IS NULL, pk, (SELECT count(*) FROM pragma_table_info(?1) WHERE pk > 0) FROM pragma_table_info(?1) ORDER BY cid`, table)
 	if err != nil {
 		return nil, err
 	}
@@ -260,12 +277,13 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) ([]tableColumn,
 	var columns []tableColumn
 	for rows.Next() {
 		var column tableColumn
-		var notNull, noDefault bool
-		var pk int
-		if err := rows.Scan(&column.name, &notNull, &noDefault, &pk); err != nil {
+		var integer, notNull, noDefault bool
+		var pk, keyColumns int
+		if err := rows.Scan(&column.name, &integer, &notNull, &noDefault, &pk, &keyColumns); err != nil {
 			return nil, err
 		}
-		column.required = notNull && noDefault && pk == 0
+		rowid := integer && pk == 1 && keyColumns == 1
+		column.required = (notNull || pk > 0) && noDefault && !rowid
 		columns = append(columns, column)
 	}
 	return columns, rows.Err()

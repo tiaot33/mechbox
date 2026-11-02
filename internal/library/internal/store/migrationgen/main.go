@@ -6,15 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
-var stepName = regexp.MustCompile(`^[a-z0-9]+(?:_[a-z0-9]+)*$`)
-
 func main() {
-	if len(os.Args) != 2 || !stepName.MatchString(os.Args[1]) {
+	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "用法: go run ./internal/library/internal/store/migrationgen <这一步做了什么，小写字母、数字和下划线，如 add_skill_pin>")
 		os.Exit(2)
 	}
@@ -29,22 +26,7 @@ func run(name string) error {
 	if err != nil {
 		return err
 	}
-	baselines, err := filepath.Glob(filepath.Join(dir, "testdata", "[0-9][0-9][0-9][0-9][0-9]_schema.sql"))
-	if err != nil {
-		return err
-	}
-	if len(baselines) != 1 {
-		return fmt.Errorf("%s 下应正好有一份 NNNNN_schema.sql 起点结构，找到 %d 份", filepath.Join(dir, "testdata"), len(baselines))
-	}
-	baseline, err := os.ReadFile(baselines[0])
-	if err != nil {
-		return err
-	}
-	schema, err := os.ReadFile(filepath.Join(dir, "schema.sql"))
-	if err != nil {
-		return err
-	}
-	plan, err := store.PlanMigration(context.Background(), string(baseline), string(schema))
+	plan, err := store.PlanMigration(context.Background(), dir, name)
 	if err != nil {
 		return err
 	}
@@ -52,7 +34,7 @@ func run(name string) error {
 		fmt.Println("schema.sql 与跑完已有升级后的结构一致，不用新增升级")
 		return nil
 	}
-	file := filepath.Join(dir, "migrations", fmt.Sprintf("%05d_%s.sql", plan.Version, name))
+	file := filepath.Join(dir, plan.File)
 	if err := os.WriteFile(file, []byte(plan.SQL), 0o644); err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/store/migrations"
 )
 
-func upgrade(ctx context.Context, db *sql.DB, steps []migrations.Step) error {
+func upgrade(ctx context.Context, db *sql.DB, steps []migrations.Step, validate func(context.Context, *sql.Tx) error) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return wrap(err)
@@ -22,41 +23,46 @@ func upgrade(ctx context.Context, db *sql.DB, steps []migrations.Step) error {
 		return wrap(err)
 	}
 	defer conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA foreign_keys = ON`)
-	for _, step := range steps {
-		if err := upgradeStep(ctx, conn, step); err != nil {
-			err = wrap(err)
-			if !errors.Is(err, ErrBusy) {
-				err = fmt.Errorf("%w: %w", ErrUnacceptable, err)
-			}
-			return fmt.Errorf("upgrade library to schema version %d (%s): %w", step.Version, step.Name, err)
+	if err := upgradeSteps(ctx, conn, steps, validate); err != nil {
+		err = wrap(err)
+		if !errors.Is(err, ErrBusy) {
+			err = fmt.Errorf("%w: %w", ErrUnacceptable, err)
 		}
+		return fmt.Errorf("upgrade library: %w", err)
 	}
 	return nil
 }
 
-func upgradeStep(ctx context.Context, conn *sql.Conn, step migrations.Step) error {
+func upgradeSteps(ctx context.Context, conn *sql.Conn, steps []migrations.Step, validate func(context.Context, *sql.Tx) error) error {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var version int
-	if err := tx.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+	var from int
+	if err := tx.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&from); err != nil {
 		return err
 	}
-	if version >= step.Version {
+	version := from
+	for _, step := range steps {
+		if step.Version <= version {
+			continue
+		}
+		if step.Version != version+1 {
+			return fmt.Errorf("library is at schema version %d, next migration is %d", version, step.Version)
+		}
+		if step.Go != nil {
+			err = step.Go(ctx, tx)
+		} else {
+			_, err = tx.ExecContext(ctx, step.SQL)
+		}
+		if err != nil {
+			return fmt.Errorf("schema version %d (%s): %w", step.Version, step.Name, err)
+		}
+		version = step.Version
+	}
+	if version == from {
 		return nil
-	}
-	if version != step.Version-1 {
-		return fmt.Errorf("library is at schema version %d", version)
-	}
-	if step.Go != nil {
-		err = step.Go(ctx, tx)
-	} else {
-		_, err = tx.ExecContext(ctx, step.SQL)
-	}
-	if err != nil {
-		return err
 	}
 	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
@@ -67,44 +73,75 @@ func upgradeStep(ctx context.Context, conn *sql.Conn, step migrations.Step) erro
 		return err
 	}
 	if violated {
-		return errors.New("foreign key check failed")
+		return fmt.Errorf("foreign key check failed after upgrading from schema version %d to %d", from, version)
 	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, step.Version)); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
 		return err
+	}
+	if validate != nil {
+		if err := validate(ctx, tx); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
 
 func backupBeforeUpgrade(ctx context.Context, db *sql.DB, path string, version int) error {
-	if path == ":memory:" || strings.HasPrefix(path, "file:") {
+	file, ok := databaseFile(path)
+	if !ok {
 		return nil
 	}
-	ext := filepath.Ext(path)
-	target := fmt.Sprintf("%s-v%d%s", strings.TrimSuffix(path, ext), version, ext)
-	temp := target + ".partial"
-	_ = os.Remove(temp)
-	if err := restrictToOwner(temp); err != nil {
-		return err
-	}
-	err := copyDatabase(ctx, db, temp)
-	if err == nil {
-		err = os.Rename(temp, target)
-	}
+	ext := filepath.Ext(file)
+	target := fmt.Sprintf("%s-v%d%s", strings.TrimSuffix(file, ext), version, ext)
+	temp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*.partial")
 	if err != nil {
-		_ = os.Remove(temp)
 		return err
 	}
-	return nil
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	copied, err := copyDatabase(ctx, db, tempPath)
+	if err != nil || copied != version {
+		return err
+	}
+	return os.Rename(tempPath, target)
 }
 
-func copyDatabase(ctx context.Context, source *sql.DB, path string) error {
+func databaseFile(path string) (string, bool) {
+	if path == "" || path == ":memory:" {
+		return "", false
+	}
+	if !strings.HasPrefix(path, "file:") {
+		return path, true
+	}
+	uri, err := url.Parse(path)
+	if err != nil || uri.Query().Get("mode") == "memory" {
+		return "", false
+	}
+	file := uri.Path
+	if uri.Opaque != "" {
+		file = uri.Opaque
+	}
+	if file == "" || file == ":memory:" {
+		return "", false
+	}
+	if len(file) > 2 && file[0] == '/' && file[2] == ':' {
+		file = file[1:]
+	}
+	return filepath.FromSlash(file), true
+}
+
+func copyDatabase(ctx context.Context, source *sql.DB, path string) (int, error) {
 	destination, err := openDB(ctx, path)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if err := backup(ctx, destination, source); err != nil {
-		_ = destination.Close()
-		return err
+	var version int
+	err = backup(ctx, destination, source)
+	if err == nil {
+		err = destination.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version)
 	}
-	return destination.Close()
+	return version, errors.Join(err, destination.Close())
 }

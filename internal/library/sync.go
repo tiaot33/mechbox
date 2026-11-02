@@ -403,8 +403,8 @@ const (
 	CannotPullNotALibrary CannotPullReason = "not_a_library"
 	// CannotPullNewerApp 这份备份来自较新版本的应用:先把这台机器上的应用升级。
 	CannotPullNewerApp CannotPullReason = "newer_app"
-	// CannotPullOlderApp 这份备份来自 v0.0.6 之前的应用,本版不能升级它:先在推送它的机器上升级应用,再推送一次。
-	// v0.0.6 起的应用推送的备份,拉回时先升级到本版结构。
+	// CannotPullOlderApp 这份备份来自 v0.0.1 的应用(schema 版本 24),本版不能升级它:先在推送它的机器上升级应用,再推送一次。
+	// v0.0.2 起的应用推送的备份,拉回时先升级到本版结构。
 	CannotPullOlderApp CannotPullReason = "older_app"
 )
 
@@ -480,7 +480,7 @@ func (l *Library) downloadBackup(ctx context.Context, operation string, backup S
 //
 // 拉回后:
 //   - 技能、版本历史、组、安装记录、已登记项目都换成那份备份里的;本机原有、那份备份里没有的全部消失。
-//     那份备份是较旧版本(v0.0.6 起)的应用推送的,先升级到本版结构,数据都留着;S3 上的那份不变。
+//     那份备份是较旧版本(v0.0.2 起)的应用推送的,先升级到本版结构,数据都留着;S3 上的那份不变。
 //   - Agent 目录里的文件夹一个都不动,Agent 用的内容在用户重新安装之前不会变。本机原来装出去、
 //     那份备份里没有记录的文件夹留在原处,库不再管;那份备份记录的安装在本机可能还没有文件夹或内容不同,
 //     用 [Library.InspectSkillScopes] 查看、[Library.Reinstall] 装回。
