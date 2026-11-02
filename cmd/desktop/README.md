@@ -153,7 +153,7 @@ cmd/desktop/
 ├── main.go                 应用入口：窗口、单实例、错误编码
 ├── startup_error.go        启动失败时的系统提示框：原因与数据库位置，文案按系统语言(startup_error_<平台>.go 是各平台怎么弹:Windows 用 MessageBoxW,macOS 另起 osascript,
 │                           Linux 用 zenity 或 kdialog、都没装时不弹;server 模式见 startup_error_server.go,不弹)
-├── window_windows.go       Windows 的窗口外观:Windows 11 22H2 起用 Mica,更早的用不透明浅色底，固定浅色主题(其他平台与 server 模式见 window_other.go,不改)
+├── window_windows.go       Windows 的窗口外观：不要系统标题栏(窗口按钮在前端顶栏 titlebar.tsx 里),Windows 11 22H2 起用 Mica,更早的用不透明浅色底，固定浅色主题(其他平台与 server 模式见 window_other.go,不改)
 ├── library_service.go      绑定服务：生命周期、数据库位置(含 MECHBOX_LIBRARY)、环境信息（含应用版本）、配置状态
 ├── settings.go             应用设置：字段、默认值，与技能库应用设置(Library.AppSettings)之间的转换
 ├── app_service.go          绑定服务：应用设置，以及自动检查更新、Dock 角标、关闭窗口后留在菜单栏
@@ -177,9 +177,9 @@ cmd/desktop/
         ├── App.tsx         主界面：三栏布局与启动时的提示(第一次打开、WSL 发行版没能打开)
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)、少量全局样式与按状态切换的动画
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
-        ├── components/app/ 主界面：顶栏(toolbar)、左栏(left-sidebar)、中间列表(skill-list/:四种页面、分节与节标题、技能行与未纳管技能行、
+        ├── components/app/ 主界面：顶栏(toolbar,外框与 Windows 的窗口按钮在 titlebar)、左栏(left-sidebar)、中间列表(skill-list/:四种页面、分节与节标题、技能行与未纳管技能行、
         │                   作用域摘要与更新列表、勾选框与勾选后的操作栏)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
-        │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);layout.ts 是三栏与顶栏的公共样式
+        │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);layout.ts 是三栏的公共样式
         ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
         │                   install/ 安装、卸载、组安装、重新安装与照着装(照着其他 Agent、其他项目),update/ 检查更新、更新计划、更新、回滚与更新历史，
@@ -187,7 +187,7 @@ cmd/desktop/
         │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本)
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，diff.ts 更新计划里的逐行差异，
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
-                            content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏是否给红绿灯留位置),
+                            content.ts 技能文件内容解码与渲染，paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏的样子),window.ts 标题栏行为(拖动区、Windows 上的双击最大化与边缘调整大小),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)
 ```
 
@@ -218,6 +218,7 @@ cmd/desktop/
 - 悬停说明一般写 `title`;原生 `title` 在可拖动的元素(技能行、左栏的集合与组)上不出现，这些地方要悬停看截断的全文时用 `components/app/parts.tsx` 的 `Truncated`(放不下才弹 Tooltip)。shadcn 的组件代码复制进来后按本应用改过，改动写在各文件开头。
 - 颜色、圆角、阴影用 `index.css` 里的主题(`text-foreground`、`border-border`、`rounded-tile`、`bg-glass-overlay` 等),不写一次性的色值。
 - 毛玻璃来自窗口背后的系统材质(macOS 的毛玻璃,Windows 11 22H2 起的 Mica;更早的 Windows 是 `window_windows.go` 里的不透明浅色底),界面只用半透明白色让它透出来，档位见 `index.css`:`glass-tile`(三栏底板)、`glass-card`(摘要条与弹层里的卡片)、`glass-overlay`(抽屉、弹窗、弹层，另加 `backdrop-blur`,底下的内容糊掉而不是透出文字)。加 shadcn 组件时先把默认的不透明背景和深色遮罩换成这几档。
+- 顶栏(`components/app/titlebar.tsx`)就是窗口的标题栏：整条是拖动区，macOS 上左端给红绿灯留位置;Windows 上窗口没有系统标题栏，最右端画最小化、最大化、关闭三个按钮(照 Windows 11 的样子，字形用系统的 Segoe Fluent Icons),双击空白处最大化或还原，弹窗开着时也能用。Windows 上调整大小只能从窗口内侧边缘的几像素开始(Wails 前端运行时处理),窗口外侧没有系统的调整区。
 - 禁用的白底控件只把文字调淡，不整体降透明度，否则白色按钮会融进毛玻璃背景;蓝色主按钮禁用时降透明度。
 - 按钮的 `loading` 让文字留着占位、上面盖一个转圈，按钮宽度不变;弹窗贴着窗口上部出现，内容变高时只往下长。
 - 详情抽屉是非模态的 Radix Dialog,在主体区域里原地渲染、没有遮罩：抽屉开着时其他地方照常可用，点别的技能行切换、再点当前那一行关闭，Esc 或关闭按钮也能关。弹窗(`Modal`)是模态的，叠了几层时 Esc 只关最上面一层。
