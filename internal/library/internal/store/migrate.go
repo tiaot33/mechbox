@@ -139,9 +139,16 @@ func copyDatabase(ctx context.Context, source *sql.DB, path string) (int, error)
 		return 0, err
 	}
 	var version int
+	var mode string
 	err = backup(ctx, destination, source)
 	if err == nil {
 		err = destination.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version)
+	}
+	if err == nil {
+		err = destination.QueryRowContext(ctx, `PRAGMA journal_mode = DELETE`).Scan(&mode)
+	}
+	if err == nil && mode != "delete" {
+		err = fmt.Errorf("journal_mode stayed %q", mode)
 	}
 	return version, errors.Join(err, destination.Close())
 }

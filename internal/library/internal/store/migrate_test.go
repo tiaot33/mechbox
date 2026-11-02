@@ -250,11 +250,11 @@ func TestUpgradeKeepsEveryTableOfTheOldestVersion(t *testing.T) {
 	}
 }
 
-func pinnedSchema(t *testing.T) string {
+func probeSchema(t *testing.T) string {
 	t.Helper()
 	schema := testLayout(t).schema
 	for _, edit := range []struct{ old, new string }{
-		{"    note TEXT NOT NULL DEFAULT '',", "    note TEXT NOT NULL DEFAULT '',\n    pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0, 1)), -- 置顶"},
+		{"    note TEXT NOT NULL DEFAULT '',", "    note TEXT NOT NULL DEFAULT '',\n    test_probe INTEGER NOT NULL DEFAULT 0 CHECK(test_probe IN (0, 1)), -- 测试用的列"},
 		{"ON history_skills(skill_id);", "ON history_skills(skill_id, name);"},
 		{"    detect_path TEXT NOT NULL DEFAULT ''", "    detect_path TEXT NOT NULL DEFAULT '' -- 检测目录"},
 	} {
@@ -263,7 +263,7 @@ func pinnedSchema(t *testing.T) string {
 		}
 		schema = strings.Replace(schema, edit.old, edit.new, 1)
 	}
-	return schema + "\nCREATE TABLE IF NOT EXISTS pins (\n    id INTEGER PRIMARY KEY AUTOINCREMENT -- 置顶记录\n);\n"
+	return schema + "\nCREATE TABLE IF NOT EXISTS test_probes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT -- 测试用的表\n);\n"
 }
 
 func TestOpenBacksUpAndUpgradesAnOlderLibrary(t *testing.T) {
@@ -277,7 +277,14 @@ func TestOpenBacksUpAndUpgradesAnOlderLibrary(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	l := plannedLayout(t, pinnedSchema(t))
+	l := plannedLayout(t, probeSchema(t))
+	wal := openRaw(t, path)
+	if _, err := wal.Exec(`PRAGMA journal_mode = WAL`); err != nil {
+		t.Fatal(err)
+	}
+	if err := wal.Close(); err != nil {
+		t.Fatal(err)
+	}
 	s, err := open(path, l)
 	if err != nil {
 		t.Fatal(err)
@@ -295,8 +302,8 @@ func TestOpenBacksUpAndUpgradesAnOlderLibrary(t *testing.T) {
 	if got := sequences(t, s.db); got["skills"] != beforeSequences["skills"] {
 		t.Fatalf("skills sequence after rebuild = %d; want %d", got["skills"], beforeSequences["skills"])
 	}
-	if got := selectColumns(t, s.db, "skills", []string{"pinned"}); !reflect.DeepEqual(got, []string{"0", "0"}) {
-		t.Fatalf("new column pinned = %q; want the default for every skill", got)
+	if got := selectColumns(t, s.db, "skills", []string{"test_probe"}); !reflect.DeepEqual(got, []string{"0", "0"}) {
+		t.Fatalf("new column test_probe = %q; want the default for every skill", got)
 	}
 	var id int64
 	if err := s.db.QueryRowContext(ctx, `INSERT INTO skills (source_id, name) VALUES (1, 'delta') RETURNING id`).Scan(&id); err != nil || id != int64(beforeSequences["skills"]+1) {
@@ -312,6 +319,10 @@ func TestOpenBacksUpAndUpgradesAnOlderLibrary(t *testing.T) {
 		t.Fatalf("backup mode = %v; want 0600", mode)
 	}
 	backup := openRaw(t, backupPath)
+	var journal string
+	if err := backup.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&journal); err != nil || journal != "delete" {
+		t.Fatalf("backup journal_mode = %q, %v; want delete so the backup is a single file", journal, err)
+	}
 	if err := backup.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != oldestVersion {
 		t.Fatalf("backup user_version = %d, %v; want %d", version, err, oldestVersion)
 	}
@@ -339,13 +350,13 @@ func TestFailedUpgradeLeavesTheLibraryAsItWas(t *testing.T) {
 		layout func(t *testing.T) layout
 	}{
 		{name: "statement fails halfway", layout: func(t *testing.T) layout {
-			return brokenLayout(t, "ALTER TABLE skills ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;\nINSERT INTO missing_table VALUES (1);")
+			return brokenLayout(t, "ALTER TABLE skills ADD COLUMN test_probe INTEGER NOT NULL DEFAULT 0;\nINSERT INTO missing_table VALUES (1);")
 		}},
 		{name: "foreign keys broken", layout: func(t *testing.T) layout {
 			return brokenLayout(t, "DELETE FROM sources WHERE id = 1;")
 		}},
 		{name: "old library does not match its schema", edit: "DROP INDEX skill_scopes_global_scope;", layout: func(t *testing.T) layout {
-			return plannedLayout(t, pinnedSchema(t))
+			return plannedLayout(t, probeSchema(t))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,7 +408,7 @@ func TestBackupIsNotOverwrittenOnceAnotherProcessUpgraded(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "library.db")
 	writeOldestLibrary(t, path)
-	l := plannedLayout(t, pinnedSchema(t))
+	l := plannedLayout(t, probeSchema(t))
 	s, err := open(path, l)
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +434,7 @@ func TestOpenThroughFileURIBacksUpTheDatabaseFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "library.db")
 	writeOldestLibrary(t, path)
-	s, err := open("file:"+filepath.ToSlash(path), plannedLayout(t, pinnedSchema(t)))
+	s, err := open("file:"+filepath.ToSlash(path), plannedLayout(t, probeSchema(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +466,7 @@ func TestDatabaseFile(t *testing.T) {
 
 func TestUpgradeSkipsStepsAnotherProcessAlreadyRan(t *testing.T) {
 	ctx := t.Context()
-	l := plannedLayout(t, pinnedSchema(t))
+	l := plannedLayout(t, probeSchema(t))
 	db, err := memoryDatabase(ctx, baselineSchema(t), oldestVersion)
 	if err != nil {
 		t.Fatal(err)
@@ -481,7 +492,7 @@ func TestOpenImageUpgradesBackupFromOlderVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := plannedLayout(t, pinnedSchema(t))
+	l := plannedLayout(t, probeSchema(t))
 	image, err := openImage(ctx, data, l)
 	if err != nil {
 		t.Fatal(err)
@@ -539,7 +550,7 @@ func TestPlanMigrationIsEmptyWhenSchemaIsUnchanged(t *testing.T) {
 
 func TestPlanMigrationNamesTheNextFile(t *testing.T) {
 	dir := t.TempDir()
-	for name, content := range map[string]string{baselineFile: baselineSchema(t), "schema.sql": pinnedSchema(t)} {
+	for name, content := range map[string]string{baselineFile: baselineSchema(t), "schema.sql": probeSchema(t)} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -547,8 +558,8 @@ func TestPlanMigrationNamesTheNextFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	plan, err := PlanMigration(t.Context(), dir, "add_pins")
-	if want := filepath.Join("migrations", fmt.Sprintf("%05d_add_pins.sql", testLayout(t).version()+1)); err != nil || plan.File != want {
+	plan, err := PlanMigration(t.Context(), dir, "add_test_probe")
+	if want := filepath.Join("migrations", fmt.Sprintf("%05d_add_test_probe.sql", testLayout(t).version()+1)); err != nil || plan.File != want {
 		t.Fatalf("PlanMigration file = %q, %v; want %q", plan.File, err, want)
 	}
 	if _, err := PlanMigration(t.Context(), dir, "AddPins"); err == nil {
