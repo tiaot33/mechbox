@@ -2563,13 +2563,13 @@ await step("同步：未配置时推、拉置灰，去设置跳到同步分区",
 
 await step("设置页：分区、应用设置写进数据库、项目、关于", async () => {
   const sw = (label) => page.locator(".settings .set-row", { hasText: label }).locator('[role="switch"]');
-  const interval = (label) => btn(section("检查更新"), label);
+  const interval = (label) => btn(section("检查技能更新"), label);
   const open = async () => {
     await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
     await page.locator('.settings [role="switch"]').first().waitFor();
   };
   await open();
-  for (const name of ["GitHub", "同步", "检查更新", "通用", "Agent", "项目", "关于", "卸载 Mechbox"]) {
+  for (const name of ["GitHub", "同步", "检查技能更新", "通用", "Agent", "项目", "关于", "卸载 Mechbox"]) {
     assert((await section(name).count()) === 1, `应有分区「${name}」`);
   }
   assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/mechbox/library.db` }).count()) === 1, "关于应显示数据库位置");

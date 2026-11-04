@@ -3,7 +3,7 @@
 
 /**
  * AppService 是应用设置的绑定服务，并按设置在后台做事：自动检查更新、自动推送、Dock 角标、关闭窗口后留在菜单栏;
- * 另外每次启动时检查一次 Mechbox 有没有新版本(见 release.go)。
+ * 另外在启动时与运行期间每天检查一次 Mechbox 有没有新版本(见 release.go)。
  * 自动检查只读(检查更新不改技能，也不碰装出去的文件夹),结果不发系统通知，只体现在角标和侧栏计数上。
  * 自动推送按同步设置里的间隔把库推送成 S3 上这台机器的一份新备份，从不自动拉回;推送出的问题由 PushProblem 给出。
  * @module
@@ -19,7 +19,7 @@ import * as $models from "./models.js";
 
 /**
  * CheckRelease 读 GitHub Releases 上最新的正式版，比正在运行的版本新时返回它，已是最新时返回 nil;结果记下来，Release 随之改变。
- * 连不上、超时或被限流时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
+ * 读的是版本附带的 release.json,不经 GitHub API,不受 API 的限流。连不上或超时时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
  * 这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
  */
 export function CheckRelease(): $CancellablePromise<$models.Release | null> {
@@ -41,10 +41,11 @@ export function FirstOpen(): $CancellablePromise<boolean> {
  * 下载进度由 Wails 的 wails:updater:download-progress 事件给出。
  * 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;下载途中取消调用就停下，返回 Canceled。
  * app 退出后才装上新版，装没装上下次启动时由 Release 的 Failed 给出;
- * 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时返回 FailedPrecondition。
+ * version 是用户在对话框里看到、点了「更新」的那个版本;之后的检查找到了别的版本(对话框开着时后台又检查过)时不装，返回 FailedPrecondition。
+ * 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时也返回 FailedPrecondition。
  */
-export function InstallRelease(): $CancellablePromise<void> {
-    return $Call.ByID(2587457002);
+export function InstallRelease(version: string): $CancellablePromise<void> {
+    return $Call.ByID(2587457002, version);
 }
 
 /**

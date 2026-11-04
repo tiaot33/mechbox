@@ -130,7 +130,7 @@ jobs:
           - **Windows**:运行 `-setup.exe`。安装程序没有代码签名，SmartScreen 提示时点「更多信息 → 仍要运行」。
           - **Linux**:`.deb`(Ubuntu 24.04+ / Debian 13+)、`.rpm`(Fedora)、`.pkg.tar.zst`(Arch),或直接运行 `.AppImage`(`chmod +x` 后运行)。
 
-          `-macos-universal.zip` 供 app 里的更新使用，安装请用 `.dmg`。`SHA256SUMS.txt` 是各安装包的校验和。
+          `-macos-universal.zip` 供 app 里的更新使用，安装请用 `.dmg`。`SHA256SUMS.txt` 是各安装包的校验和。`release.json` 是 app 检查新版本时读的，不用下载。
           EOF
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
@@ -141,3 +141,13 @@ jobs:
             --notes-file notes.md \
             --generate-notes \
             "${flags[@]}"
+
+      # release.json 是 app 检查新版本时读的发布信息(cmd/desktop/release.go):发布后从 GitHub 读回这个版本(含生成的更新说明)
+      # 再作为附件传上去。app 从 releases/latest/download 下载它，不经 GitHub API,不占 API 的匿名额度。
+      - name: Release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            --jq '{tag_name, body, html_url, published_at, assets: [.assets[] | {name, browser_download_url, size}]}' > release.json
+          gh release upload "$GITHUB_REF_NAME" release.json --repo "$GITHUB_REPOSITORY"

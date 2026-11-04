@@ -928,7 +928,7 @@ export const en = {
     general: "General",
     agents: "Agents",
     projects: "Projects",
-    checks: "Update checks",
+    checks: "Skill update checks",
     github: "GitHub",
     ai: "AI",
     sync: "Sync",
@@ -1057,7 +1057,7 @@ export const en = {
       `${count(skills, "skill")} · ${count(groups, "Group")} · ${count(projects, "registered project")}`,
     cannotPull: "This backup can't be pulled.",
     pullWarning:
-      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that backup will disappear, and the GitHub token and AI settings entered in Settings, along with the Update checks, General (except the global directory) and Agents display settings, are replaced with what's in that backup; anything it lacks is cleared or reset to the default. This machine's Sync settings are kept. Folders in Agent directories aren't changed.",
+      "Pulling replaces this machine's whole Library: skills, Groups and projects that are here but not in that backup will disappear, and the GitHub token and AI settings entered in Settings, along with the Skill update checks, General (except the global directory) and Agents display settings, are replaced with what's in that backup; anything it lacks is cleared or reset to the default. This machine's Sync settings are kept. Folders in Agent directories aren't changed.",
     missingProjects: (names: string[]) =>
       `These projects aren't on this machine; after pulling, point them to their location here from the right sidebar: ${names.join(", ")}`,
   },
@@ -1082,7 +1082,7 @@ export const en = {
         ? "Mechbox isn't somewhere it can replace itself (no write permission to its folder, opened straight from the dmg or the Downloads folder, or on an external disk). Download the new version from the download page and install it again."
         : "The folder Mechbox is in can't be written to, so it can't update itself. Download the new version from the download page.",
     manualAsset: "This version has no installer this platform can apply directly. Download it from the download page.",
-    unreachable: "Couldn't reach GitHub, or too many requests were made. Try again later.",
+    unreachable: "Couldn't reach GitHub. Try again later.",
     invalid: "The downloaded installer doesn't match the checksum on the release page. Nothing was installed; the current version is unchanged.",
     failed: "The new version wasn't installed; the current version is unchanged.",
     unreadable: "Couldn't read what GitHub returned. Try again later.",
@@ -1091,6 +1091,8 @@ export const en = {
     check: "Check for new version",
     checking: "Checking…",
     upToDate: "Up to date",
+    latestAlready: "Mechbox is up to date",
+    busyInstalling: "A new version is being installed; the app restarts when it's done.",
     found: (version: string) => `New version ${version}`,
     view: "View",
     notChecked: "This build doesn't check for new versions",
