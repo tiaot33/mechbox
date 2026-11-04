@@ -1,5 +1,5 @@
-/* 样式入口:Tailwind 主题(原型的颜色、圆角、阴影，以及半透明表面的档位)与少量全局样式。
-   组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、渲染出来的 Markdown、拖放中的高亮，
+/* 样式入口:Tailwind 主题(原型的颜色、圆角、阴影，以及半透明表面的档位)、浮在内容上的表面的毛玻璃材质与少量全局样式。
+   组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、毛玻璃材质、渲染出来的 Markdown、拖放中的高亮，
    以及状态圈与 toast 按状态切换的动画。 */
 @import "tailwindcss";
 
@@ -44,12 +44,14 @@
   --color-group-strong: #6d28d9;
   --color-group-border: #ddd3fb;
 
-  /* 半透明表面的档位：毛玻璃来自窗口背后的系统材质(macOS 的毛玻璃,Windows 11 的 Mica),界面只用半透明白色让它透出来。
-     tile 是三栏的底板,card 是浮在底板上的技能卡片与摘要条,overlay 是浮在内容上的抽屉、弹窗与弹层，
-     overlay 另加 backdrop-blur,把底下的内容糊掉而不是透出文字。 */
+  /* 半透明表面的档位：铺在底板上的表面透出窗口背后的系统材质(macOS 的毛玻璃,Windows 11 的 Mica),界面只用半透明白色。
+     tile 是三栏的底板,card 是浮在底板上的技能卡片与摘要条。浮在内容上的表面(抽屉、弹窗、弹层、操作栏、toast)用下面的 glass 材质。
+     glass-row-* 是毛玻璃上高亮的一行：用浅蓝(与选中的技能行一致),不用灰色;选中的另描一圈白边(shadow-glass-row)。
+     不用更亮的一层白：这些表面的玻璃已经接近白色，白色高亮叠上去看不出来，键盘移动时找不到当前项。 */
   --color-glass-tile: rgba(255, 255, 255, 0.52);
   --color-glass-card: rgba(255, 255, 255, 0.78);
-  --color-glass-overlay: rgba(250, 250, 251, 0.86);
+  --color-glass-row-hover: color-mix(in srgb, var(--color-primary-soft) 75%, transparent);
+  --color-glass-row-selected: var(--color-primary-soft);
   --color-scrim: rgba(15, 23, 42, 0.12);
   --color-scrim-strong: rgba(15, 23, 42, 0.18);
 
@@ -64,6 +66,7 @@
   --shadow-dialog: 0 24px 60px rgba(15, 23, 42, 0.22);
   --shadow-popover: 0 16px 40px rgba(15, 23, 42, 0.18);
   --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-glass-row: inset 0 0 0 0.5px rgb(255 255 255 / 0.9);
 
   --animate-fade-in: fade-in 0.12s ease-out;
   --animate-dialog-in: dialog-in 0.14s ease-out;
@@ -157,6 +160,108 @@
     rgba(236, 239, 245, 0.6);
 }
 
+/* 毛玻璃材质：浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、吸顶的节标题、toast)加上 glass 类，
+   只换底色(background)、滤镜(backdrop-filter)、边缘(box-shadow)与字色(color)四样，结构、间距、圆角不变。
+   - 底色是一层白，浓度 = --glass-alpha × 设置里的浓度(--glass-tint,0–1.5,见 lib/glass.ts)× 悬停时提亮(--glass-lift),
+     上面左上角一团高光。这些表面底下都是列表的文字而不是图片，所以只有一档：浓到上面的字在最密的列表上也够对比度。
+   - 滤镜先模糊、提饱和度、略提亮，把底下的文字糊掉、颜色留住;浓度低于 1 时饱和度与提亮跟着变弱，到 0 只剩模糊、边缘与阴影。
+     在 Chromium 上最后再接一道把背景变成不透明的滤镜(--glass-solid,见 lib/glass.ts),不然窗口背后透明时，
+     没模糊的原内容会从玻璃底下透出来;静止的表面换成镜边折射(--glass-lens,lib/glass.ts 的 glassLens),它的输出同样不透明。
+   - 边缘：左上亮、右下弱一些的内描边，一圈 0.5px 的白与一圈 0.5px 的深色轮廓，加上沿边缘往里的柔光(上、左亮，下边略暗);
+     投影各表面沿用原来的档位，经 --glass-drop 传入。
+   - 字色：表面上的字一律用墨色(--glass-ink 标题与图标,--glass-ink-secondary 次要文字),把 foreground、foreground-secondary、
+     muted-foreground 换成墨色;subtle(禁用、占位)与各状态色(失败的红等)不变。
+   - 背后内容少、上面字也少的表面(操作栏、toast、提示)另加 glass-clear:模糊轻、白色淡，背后的颜色与形状透得出来。
+   - 系统要求减少透明度或开了强制颜色时，换成同样的白色不透明底，不模糊。
+   各项数值都用 @property 登记，浓度、提亮在状态之间平滑过渡。 */
+@property --glass-tint {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --glass-alpha {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.6;
+}
+@property --glass-lift {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --glass-ink {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(0 0 0 / 0.86);
+}
+@property --glass-ink-secondary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(60 60 67 / 0.76);
+}
+@property --glass-lens {
+  syntax: "*";
+  inherits: false;
+}
+
+@layer base {
+  :root {
+    --glass-blur: 24px;
+    --glass-edge:
+      inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.95), inset -1.5px -1.5px 1px -1px rgb(255 255 255 / 0.55),
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.3), 0 0 0 0.5px rgb(0 0 0 / 0.06);
+    transition: --glass-tint 240ms ease;
+  }
+}
+
+@utility glass {
+  --glass-k: min(1, var(--glass-tint));
+  --color-foreground: var(--glass-ink);
+  --color-foreground-secondary: var(--glass-ink-secondary);
+  --color-muted-foreground: var(--glass-ink-secondary);
+  border-color: transparent;
+  background:
+    radial-gradient(ellipse farthest-corner at 0 0, rgb(255 255 255 / calc(0.3 * var(--glass-k))), transparent 55%),
+    rgb(255 255 255 / min(1, calc(var(--glass-alpha) * var(--glass-tint) * var(--glass-lift))));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + 0.8 * var(--glass-k))) brightness(calc(1 + 0.06 * var(--glass-k)))
+    var(--glass-lens, var(--glass-solid,));
+  backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + 0.8 * var(--glass-k))) brightness(calc(1 + 0.06 * var(--glass-k)))
+    var(--glass-lens, var(--glass-solid,));
+  box-shadow:
+    var(--glass-edge),
+    inset 0 12px 14px -12px rgb(255 255 255 / calc(0.7 * var(--glass-k))),
+    inset 12px 0 14px -12px rgb(255 255 255 / calc(0.5 * var(--glass-k))),
+    inset 0 -12px 14px -12px rgb(0 0 0 / calc(0.05 * var(--glass-k))),
+    var(--glass-drop, 0 6px 24px rgb(0 0 0 / 0.08));
+  color: var(--glass-ink);
+  transition: --glass-lift 160ms ease;
+
+  @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+    background: rgb(255 255 255);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@utility glass-clear {
+  --glass-blur: 10px;
+  --glass-alpha: 0.35;
+}
+
+/* 这两处要压过 glass 的底色与边框，写在层外。
+   左栏点了集合或组，滚到的那一节的标题闪一下;失败的 toast 保留红边红字。 */
+.list-section > .section-head {
+  transition: background-color 0.6s ease-out;
+}
+.list-section[data-flash] > .section-head {
+  background: var(--color-primary-soft);
+  transition: none;
+}
+.swipe-toast[data-tone="error"] .swipe-toast-card {
+  border-color: var(--color-bad-border);
+  color: var(--color-bad-strong);
+}
+
 @layer components {
   /* 技能文件渲染出来的 Markdown:内容是注入的 HTML,只能按元素写样式。 */
   .md {
@@ -230,15 +335,6 @@
   }
   .a-list[data-page="all"] .list-section:last-of-type {
     min-height: 100cqh;
-  }
-
-  /* 左栏点了集合或组，滚到的那一节的标题闪一下。 */
-  .list-section > .section-head {
-    transition: background-color 0.6s ease-out;
-  }
-  .list-section[data-flash] > .section-head {
-    background: var(--color-primary-soft);
-    transition: none;
   }
 
   /* 拖放中：主体区域带 data-dragging(skill / group / collection),可放下的目标描虚线，悬停的目标高亮;
@@ -367,10 +463,6 @@
   }
   .swipe-toast[data-tone="error"] {
     --st-fuse: var(--color-bad);
-  }
-  .swipe-toast[data-tone="error"] .swipe-toast-card {
-    border-color: var(--color-bad-border);
-    color: var(--color-bad-strong);
   }
   .swipe-toast-lift {
     opacity: 1;

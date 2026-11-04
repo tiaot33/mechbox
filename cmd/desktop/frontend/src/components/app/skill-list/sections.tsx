@@ -60,7 +60,7 @@ export function Section({
       <div
         {...headProps}
         className={cn(
-          "section-head group/head sticky top-0 z-[1] -mx-1 flex min-h-9 min-w-0 items-center gap-2 rounded-lg bg-[rgba(246,247,249,0.92)] px-1 py-1 text-[12.5px] backdrop-blur-[8px]",
+          "section-head group/head sticky top-0 z-[1] -mx-1 flex min-h-9 min-w-0 items-center gap-2 glass rounded-lg px-1 py-1 text-[12.5px] [--glass-drop:0_0_#0000]",
           headProps?.className,
         )}
       >

@@ -133,6 +133,9 @@ func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Setti
 	if !settings.Language.valid() {
 		return Settings{}, fmt.Errorf("unknown language %q", settings.Language)
 	}
+	if !glassTintValid(settings.GlassTint) {
+		return Settings{}, fmt.Errorf("glass tint %v is outside 0 to %v", settings.GlassTint, maxGlassTint)
+	}
 	previous := a.Settings().WSLDistro
 	switched := settings.WSLDistro != previous
 	if switched {

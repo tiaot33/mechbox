@@ -47,7 +47,7 @@ function CommandItem({ className, ...props }: ComponentProps<typeof CommandPrimi
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "flex h-[28px] cursor-default items-center gap-2 rounded-[7px] px-2 text-xs outline-none select-none data-[selected=true]:bg-black/5",
+        "flex h-[28px] cursor-default items-center gap-2 rounded-[7px] px-2 text-xs outline-none select-none data-[selected=true]:bg-glass-row-hover",
         className,
       )}
       {...props}

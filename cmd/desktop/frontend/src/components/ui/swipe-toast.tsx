@@ -221,7 +221,7 @@ export function SwipeToast({
           aria-live="polite"
           aria-atomic="true"
           tabIndex={0}
-          className="swipe-toast-card pointer-events-auto relative flex cursor-grab touch-none items-center gap-2.5 overflow-hidden rounded-[14px] border border-border bg-white px-4 py-2 text-[12.5px] break-words whitespace-pre-line shadow-toast outline-none select-none data-[swiping]:cursor-grabbing"
+          className="swipe-toast-card pointer-events-auto relative flex cursor-grab touch-none items-center gap-2.5 overflow-hidden glass glass-clear rounded-[14px] border px-4 py-2 text-[12.5px] break-words whitespace-pre-line outline-none [--glass-drop:var(--shadow-toast)] hover:[--glass-lift:1.14] select-none data-[swiping]:cursor-grabbing"
           style={{ transform, opacity: fade }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}

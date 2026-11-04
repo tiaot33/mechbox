@@ -38,12 +38,13 @@ export function toLibraryError(err: unknown): LibraryError {
   return { code: ErrorCode.Internal, message: err instanceof Error ? err.message : String(err) };
 }
 
-// Snapshot 是主界面一次读出的全部只读数据;agentsShown、autoTranslate 来自应用设置，其余来自技能库。
+// Snapshot 是主界面一次读出的全部只读数据;agentsShown、autoTranslate、glassTint 来自应用设置，其余来自技能库。
 export interface Snapshot {
   info: AppInfo;
   agents: Agent[];
   agentsShown: Partial<Record<string, boolean>>;
   autoTranslate: boolean;
+  glassTint: number;
   projects: RegisteredProject[];
   skills: Skill[];
   collections: Collection[];
@@ -106,7 +107,7 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
   ]);
   findSources(unmanaged);
   const agentsShown = settings.agents_shown ?? {};
-  return { info, agents, agentsShown, autoTranslate: settings.auto_translate, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName };
+  return { info, agents, agentsShown, autoTranslate: settings.auto_translate, glassTint: settings.glass_tint, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName };
 }
 
 // snapshotQuery 一次读出主界面需要的全部只读数据。各部分互相引用(安装状态里的技能 ID、组成员等),

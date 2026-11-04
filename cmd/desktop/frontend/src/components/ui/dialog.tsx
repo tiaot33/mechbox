@@ -1,6 +1,6 @@
 // shadcn/ui 的 Dialog,按本应用改过：
 // - 贴着窗口上部(10vh)出现而不是垂直居中：内容变高(切换入库来源、预览结果出来)时只往下长，不上下跳;
-// - 表面是半透明白色加 backdrop-blur,遮罩是淡色，不用 shadcn 默认的不透明背景和深色遮罩;
+// - 表面是毛玻璃(index.css 的 glass),遮罩是淡色，不用 shadcn 默认的不透明背景和深色遮罩;
 // - 标题、关闭按钮、可滚动的主体与底部按钮行各有一个部件，弹窗外壳 Modal(lib/ui.tsx)把它们拼起来;
 // - 从某个元素打开的(DialogMotion 给了 origin,如左栏"入库技能"):弹窗从那个元素的位置和大小放大出来，关掉时缩回去;
 //   同一个弹窗里换了一页(入库预览出来，宽度变了)时从上一页的大小形变过去，不再从头弹出;
@@ -148,7 +148,7 @@ function DialogContent({
         data-closing={closing || undefined}
         aria-describedby={undefined}
         className={cn(
-          "fixed top-[10vh] left-1/2 z-50 flex max-h-[calc(90vh-40px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 flex-col rounded-tile border border-hairline bg-glass-overlay shadow-dialog outline-none backdrop-blur-xl backdrop-saturate-150",
+          "fixed top-[10vh] left-1/2 z-50 flex max-h-[calc(90vh-40px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 flex-col glass rounded-tile border outline-none [--glass-drop:var(--shadow-dialog)]",
           morphing ? "origin-top-left" : "animate-dialog-in",
           wide && "w-[760px]",
           className,

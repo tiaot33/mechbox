@@ -1,14 +1,14 @@
-// shadcn/ui 的 ContextMenu(右键菜单),按本应用改过：表面与弹层一致(半透明白色加 backdrop-blur),
-// 选项高亮用浅灰底，danger 的选项用红字;只保留用到的部分(选项、分隔线、子菜单)。
+// shadcn/ui 的 ContextMenu(右键菜单),按本应用改过：表面与弹层一致(毛玻璃),
+// 选项高亮用浅蓝底(子菜单开着时更深、描白边)，danger 的选项用红字;只保留用到的部分(选项、分隔线、子菜单)。
 import type { ComponentProps } from "react";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
 const surface =
-  "z-50 min-w-[160px] animate-pop-in rounded-[10px] border border-border bg-glass-overlay p-1 shadow-popover outline-none backdrop-blur-xl backdrop-saturate-150";
+  "z-50 min-w-[160px] animate-pop-in glass rounded-[10px] border p-1 outline-none [--glass-drop:var(--shadow-popover)]";
 
 const itemClass =
-  "flex h-[26px] cursor-default items-center gap-2 rounded-md px-2 text-xs outline-none select-none data-[disabled]:text-subtle data-[highlighted]:bg-black/[0.06] data-[state=open]:bg-black/[0.06]";
+  "flex h-[26px] cursor-default items-center gap-2 rounded-md px-2 text-xs outline-none select-none data-[disabled]:text-subtle data-[highlighted]:bg-glass-row-hover data-[state=open]:bg-glass-row-selected data-[state=open]:shadow-glass-row";
 
 function ContextMenu(props: ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;

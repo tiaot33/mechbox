@@ -947,6 +947,9 @@ export const en = {
     dockBadgeDesc: "Shows the number of skills with a new Version; skills from local directory Sources aren't counted.",
     language: "Language",
     languageDesc: "System controls such as dialog buttons and the right-click menu in text fields follow the system language, not this setting.",
+    glassTint: "Glass tint",
+    glassTintDesc:
+      "How dense the background of dialogs, drawers, menus, the selection bar and notifications is. Further left is clearer, down to just the blur and the edge; further right is more opaque.",
     followSystem: "System",
     wslDistro: "Global directories",
     wslDistroDesc:

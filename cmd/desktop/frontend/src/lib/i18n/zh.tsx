@@ -889,6 +889,8 @@ export const zh = {
     dockBadgeDesc: "显示有新版本的技能数，本地目录来源的技能不计入。",
     language: "语言",
     languageDesc: "系统对话框的按钮、输入框的右键菜单等系统控件跟随系统语言，不跟随这里的选择。",
+    glassTint: "毛玻璃浓度",
+    glassTintDesc: "弹窗、抽屉、菜单、操作栏和提示的底色有多浓。往左更透明，到最左只剩模糊和边缘；往右更不透明。",
     wslDistro: "全局目录",
     wslDistroDesc:
       "各 Agent 的全局目录在哪。选了 WSL 发行版时换成发行版主目录下的目录；之前装在 Windows 本机全局目录里的技能留在原处，不再管。",
