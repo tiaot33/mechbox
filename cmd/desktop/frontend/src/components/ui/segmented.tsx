@@ -1,8 +1,11 @@
-// 分段选择(入库来源、检查间隔、列表 / 卡片):一组按钮，选中的一项是白底。按钮用 aria-pressed 标出选中。
+// 分段选择(按集合 / 按组、语言、检查间隔、AI 接口、重新安装时文件夹不在了的那一处：不动 / 装回去 / 卸载):一组按钮，选中的一项是白底。按钮用 aria-pressed 标出选中。
 // 白底是垫在按钮下面的一块，换选中项时用不回弹的弹簧滑到新的一项(第一次出现时不滑;系统要求减少动态效果时直接跳过去)。
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+
+const raised = "bg-white shadow-segment";
+const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 interface SegmentedOption<T> {
   value: T;
@@ -27,7 +30,6 @@ function Segmented<T extends string | number>({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
-  const reduce = useReducedMotion();
   const index = options.findIndex((o) => o.value === value);
 
   useLayoutEffect(() => {
@@ -59,9 +61,9 @@ function Segmented<T extends string | number>({
           aria-hidden
           initial={false}
           animate={{ x: thumb.left, width: thumb.width }}
-          transition={reduce ? { duration: 0 } : { type: "spring", duration: 0.32, bounce: 0 }}
+          transition={reduced() ? { duration: 0 } : { type: "spring", duration: 0.32, bounce: 0 }}
           style={{ top: thumb.top, height: thumb.height }}
-          className="pointer-events-none absolute left-0 rounded bg-white shadow-[0_1px_2px_rgba(17,24,39,0.10),0_0_0_1px_rgba(17,24,39,0.04)]"
+          className={cn("pointer-events-none absolute left-0 rounded", raised)}
         />
       )}
       {options.map((o) => (
@@ -74,7 +76,7 @@ function Segmented<T extends string | number>({
           onClick={() => onChange(o.value)}
           className={cn(
             "relative h-[22px] rounded px-2.5 text-xs text-foreground-secondary transition-colors not-aria-pressed:hover:bg-black/5 hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
-            !thumb && "aria-pressed:bg-white aria-pressed:shadow-[0_1px_2px_rgba(17,24,39,0.10),0_0_0_1px_rgba(17,24,39,0.04)]",
+            !thumb && o.value === value && raised,
             iconOnly && "grid h-5 w-7 place-items-center px-0 [&_[data-slot=icon]]:size-[13px]",
           )}
         >
