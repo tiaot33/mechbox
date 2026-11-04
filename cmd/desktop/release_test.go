@@ -28,7 +28,7 @@ func (stubUpdaterHost) OnEvent(string, func(any)) func()                      { 
 func (stubUpdaterHost) OpenWindow(updater.WindowOptions) updater.WindowHandle { return nil }
 func (stubUpdaterHost) Quit()                                                 {}
 
-// fakeGitHub 是一个只有 releases/latest、安装包与 SHA256SUMS.txt 的 GitHub。
+// fakeGitHub 是一个只有最新版本附带的 release.json、安装包与 SHA256SUMS.txt 的 GitHub。
 type fakeGitHub struct {
 	server    *httptest.Server
 	tag       string
@@ -41,7 +41,7 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 	t.Helper()
 	g := &fakeGitHub{tag: tag, assets: assets}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /releases/latest/download/"+releaseManifest, func(w http.ResponseWriter, r *http.Request) {
 		if g.status != 0 {
 			w.WriteHeader(g.status)
 			return
@@ -88,7 +88,7 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 }
 
 func (g *fakeGitHub) releases(t *testing.T, current string, target installTarget) *releases {
-	return newReleases(g.server.URL+"/releases/latest", current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target })
+	return newReleases(g.server.URL+"/releases/latest/download/"+releaseManifest, current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target })
 }
 
 const testAsset = "Mechbox-1.2.0-macos-universal.zip"

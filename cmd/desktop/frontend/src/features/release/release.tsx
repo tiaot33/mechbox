@@ -1,4 +1,5 @@
-// Mechbox 的新版本：更新说明与更新的对话框，以及设置页「关于」里的「检查新版本」。左栏的新版本一行在 left-sidebar。
+// Mechbox 的新版本：更新说明与更新的对话框，设置页「关于」里的「检查新版本」，以及 macOS 顶部菜单「检查新版本…」的结果。
+// 左栏的新版本一行在 left-sidebar。
 // 检查、下载、校验与装上都在 Go 端(AppService.CheckRelease / InstallRelease);不能在 app 里直接装的(Release.manual)只打开下载页。
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -132,6 +133,22 @@ function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => 
       {error && <Notice tone="bad" className="whitespace-pre-line select-text">{error}</Notice>}
     </Modal>
   );
+}
+
+// checkReleaseFromMenu 是点了 macOS 顶部菜单的「检查新版本…」:检查时顶栏的状态圈转，有新版本时打开它的对话框，
+// 已是最新或没检查成时用 toast 说明。
+export async function checkReleaseFromMenu() {
+  const t = messages().release;
+  const latest = await ui.run(() => AppService.CheckRelease(), {
+    reload: false,
+    success: (found) => (found ? undefined : t.latestAlready),
+    onError: (err) => {
+      if (err.code !== ErrorCode.Canceled) ui.toast(releaseError(err, "check"), "error");
+      return true;
+    },
+  });
+  await invalidateRelease();
+  if (latest) openRelease(latest);
 }
 
 // ReleaseCheck 是「关于」里应用版本旁边的「检查新版本」与检查的结果;这个构建不检查新版本时只写一句说明。

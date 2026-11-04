@@ -141,3 +141,13 @@ jobs:
             --notes-file notes.md \
             --generate-notes \
             "${flags[@]}"
+
+      # release.json 是 app 检查新版本时读的发布信息(cmd/desktop/release.go):发布后从 GitHub 读回这个版本(含生成的更新说明)
+      # 再作为附件传上去。app 从 releases/latest/download 下载它，不经 GitHub API,不占 API 的匿名额度。
+      - name: Release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            --jq '{tag_name, body, html_url, published_at, assets: [.assets[] | {name, browser_download_url, size}]}' > release.json
+          gh release upload "$GITHUB_REF_NAME" release.json --repo "$GITHUB_REPOSITORY"

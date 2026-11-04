@@ -75,7 +75,7 @@ wails3 task dev:test-db
 HOME=/tmp/skills-dev GOMODCACHE=$(go env GOMODCACHE) GOCACHE=$(go env GOCACHE) wails3 dev
 ```
 
-**调试新版本。** 开发版与 server 模式不检查 Mechbox 的新版本(左栏不出现新版本，「关于」里写着这个版本不检查);设了 `MECHBOX_RELEASE_FEED=<地址>` 时读它，格式同 GitHub 的 `releases/latest` 接口，用本地的假发布页看界面。
+**调试新版本。** 开发版与 server 模式不检查 Mechbox 的新版本(左栏不出现新版本，「关于」里写着这个版本不检查);设了 `MECHBOX_RELEASE_FEED=<地址>` 时读它，格式同每个版本附带的 `release.json`(GitHub releases 接口返回内容里的 `tag_name`、`body`、`html_url`、`published_at`、`assets`),用本地的假发布页看界面。
 
 **用开发数据调试。** 在 app 里看界面、验证改动时，用 `wails3 task dev:seed` 生成的开发数据，再用 `wails3 task dev:seeded` 启动，不用每次自己造技能。数据里有什么、怎样重置，见 [测试改动](../../docs/testing.md) 的「在 app 里验证界面」。
 
@@ -130,7 +130,7 @@ open bin/mechbox.app
   - **路径输入**:入库框、登记项目与改项目位置、自定义 Agent 的全局目录里，`~/...` 是全局目录所在的主目录(选了发行版时是发行版的主目录)。装了 WSL 发行版时，`/` 开头的路径在全局目录选了发行版时当作那个发行版里的路径，选 Windows 本机时拦下(不猜是哪个发行版，提示用「选择…」或写成 `\\wsl.localhost\<发行版>\...`;自定义 Agent 的全局目录则提示先在设置里把全局目录换到发行版);没装 WSL 时照原样交给技能库。这几个输入框下面写出输入会被理解成哪里(「WSL · Ubuntu 里的 /home/...」或「Windows 本机的 C:\...」),只在装了 WSL 发行版的 Windows 上有。改项目位置时预填的原路径，用户改动之前不报错。
 - **界面语言**：设置页「通用」里选跟随系统(默认)、简体中文或 English,存在数据库的应用设置里(跟随系统时不写)。跟随系统时由 Go 端判断系统语言(`AppService.Language`):macOS 读系统设置里排第一的首选语言(`[NSLocale preferredLanguages]`,不用 WebView 的 `navigator.language`,它跟随 app bundle 声明的语言),Windows 读系统设置里排第一的显示语言(`GetUserPreferredUILanguages`,Windows 一般不设 `LANG` 等环境变量),其他平台与 server 模式读 `LC_ALL` / `LC_MESSAGES` / `LANG`;首选中文(含繁体)时用中文，其余用英文。前端等 Go 端给出语言再渲染，改了设置整个界面立即切换，菜单栏图标的菜单与 macOS 顶部菜单栏同时换文字。系统控件(目录选择框的按钮、输入框的右键菜单等)跟随系统语言，不跟随这里的选择;`Info.plist` 声明了 en 与 zh-Hans 两种本地化，系统控件才会按系统语言显示中文。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
-- **新版本**(`release.go`):正式版每次启动时读一次 GitHub Releases 上最新的正式版(`releases/latest`,不含预发布),比当前版本新时左栏出现新版本那一行;设置页「关于」里可以随时「检查新版本」。检查结果只在内存里，不写数据库;一次检查最多等 30 秒。更新说明从 GitHub 生成的 `## What's Changed` 开始显示，略过前面手动安装的说明。「更新」由 Wails 的 updater 下载本平台的安装包、按版本附带的 `SHA256SUMS.txt` 校验，然后按平台装上：
+- **新版本**(`release.go`):正式版启动时与之后每天读一次 GitHub Releases 上最新的正式版(不含预发布)附带的 `release.json`,没读成时隔一小时再试;比当前版本新时左栏出现新版本那一行。设置页「关于」里与 macOS 顶部菜单「Mechbox → 检查新版本…」可以随时检查，菜单里检查时有新版本直接打开新版本对话框，否则用 toast 说明结果。`release.json` 由发版工作流在发布后从 GitHub 读回这个版本再作为附件传上去;app 从 `releases/latest/download/release.json` 下载它，和下载安装包一样不经 GitHub API,不占 API 每小时 60 次的匿名额度(拉取技能、检查技能更新都先用这份额度),也不需要令牌。检查结果只在内存里，不写数据库;一次检查最多等 30 秒。更新说明从 GitHub 生成的 `## What's Changed` 开始显示，略过前面手动安装的说明。「更新」由 Wails 的 updater 下载本平台的安装包、按版本附带的 `SHA256SUMS.txt` 校验，然后按平台装上：
   - macOS 下载 `-macos-universal.zip`,Wails 另起一个自己做 helper,等 app 退出后先备份再替换 `.app`,用 `open -n` 启动新版，失败时还原备份。`.app` 所在文件夹不能写入时(没有权限，或直接从 dmg、被系统隔离运行的位置打开)只给下载页。
   - Windows 下载 `-setup.exe`,起一个隐藏的 PowerShell:等 app 退出后用管理员权限静默运行安装程序(`/S /D=<当前安装目录>`,弹一次 UAC),不管装没装成都再启动安装目录里的 `mechbox.exe`。
   - Linux 上从 AppImage 运行时(有 `APPIMAGE`)下载 `-linux-<架构>.AppImage` 换掉原文件，等 app 退出后启动它;deb、rpm、pkg.tar.zst 装的只给下载页。

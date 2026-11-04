@@ -871,7 +871,7 @@ export const zh = {
     general: "通用",
     agents: "Agent",
     projects: "项目",
-    checks: "检查更新",
+    checks: "检查技能更新",
     github: "GitHub",
     ai: "AI",
     sync: "同步",
@@ -991,7 +991,7 @@ export const zh = {
     counts: (skills: number, groups: number, projects: number) => `${skills} 个技能 · ${groups} 个组 · ${projects} 个已登记项目`,
     cannotPull: "这份备份不能拉回。",
     pullWarning:
-      "拉回会整体替换本机的技能库，本机有、那份备份里没有的技能、组和项目都会消失；设置页填的 GitHub 令牌、AI 设置，以及检查更新、通用（全局目录除外）与 Agent 显示这些设置，也换成那份备份里的，那份备份里没有的清空或回到默认；同步设置保留本机的。Agent 目录里的文件夹不会改动。",
+      "拉回会整体替换本机的技能库，本机有、那份备份里没有的技能、组和项目都会消失；设置页填的 GitHub 令牌、AI 设置，以及检查技能更新、通用（全局目录除外）与 Agent 显示这些设置，也换成那份备份里的，那份备份里没有的清空或回到默认；同步设置保留本机的。Agent 目录里的文件夹不会改动。",
     missingProjects: (names: string[]) => `这些项目不在这台机器上，拉回后在右栏改项目位置指到本机：${names.join("、")}`,
   },
 
@@ -1015,7 +1015,7 @@ export const zh = {
         ? "Mechbox 不在能直接替换的位置（所在文件夹没有写入权限、直接从 dmg 或下载文件夹里打开，或者放在外接磁盘上），不能在这里直接更新。请到下载页下载新版重新安装。"
         : "Mechbox 所在的文件夹不能写入，不能在这里直接更新。请到下载页下载新版。",
     manualAsset: "这个版本没有本平台能直接装的安装包，请到下载页下载。",
-    unreachable: "连不上 GitHub，或者请求太频繁被限制了，稍后再试。",
+    unreachable: "连不上 GitHub，稍后再试。",
     invalid: "下载的安装包和发布页上的校验值对不上，没有装上，当前版本不变。",
     failed: "没有装上新版，当前版本不变。",
     unreadable: "GitHub 返回的内容读不懂，稍后再试。",
@@ -1023,6 +1023,7 @@ export const zh = {
     check: "检查新版本",
     checking: "正在检查…",
     upToDate: "已是最新版本",
+    latestAlready: "Mechbox 已是最新版本",
     found: (version: string) => `有新版本 ${version}`,
     view: "查看",
     notChecked: "这个版本不检查新版本",

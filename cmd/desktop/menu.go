@@ -11,7 +11,7 @@ import (
 var nativeLabels = map[Language]map[string]string{
 	LanguageZh: {
 		"open": "打开 Mechbox", "quit": "退出 Mechbox",
-		"about": "关于 Mechbox", "services": "服务", "hide": "隐藏 Mechbox", "hideOthers": "隐藏其他", "showAll": "全部显示",
+		"about": "关于 Mechbox", "checkRelease": "检查新版本…", "services": "服务", "hide": "隐藏 Mechbox", "hideOthers": "隐藏其他", "showAll": "全部显示",
 		"file": "文件", "close": "关闭窗口",
 		"edit": "编辑", "undo": "撤销", "redo": "重做", "cut": "剪切", "copy": "拷贝", "paste": "粘贴",
 		"pasteAndMatchStyle": "粘贴并匹配样式", "delete": "删除", "selectAll": "全选",
@@ -22,7 +22,7 @@ var nativeLabels = map[Language]map[string]string{
 	},
 	LanguageEn: {
 		"open": "Open Mechbox", "quit": "Quit Mechbox",
-		"about": "About Mechbox", "services": "Services", "hide": "Hide Mechbox", "hideOthers": "Hide Others", "showAll": "Show All",
+		"about": "About Mechbox", "checkRelease": "Check for New Version…", "services": "Services", "hide": "Hide Mechbox", "hideOthers": "Hide Others", "showAll": "Show All",
 		"file": "File", "close": "Close Window",
 		"edit": "Edit", "undo": "Undo", "redo": "Redo", "cut": "Cut", "copy": "Copy", "paste": "Paste",
 		"pasteAndMatchStyle": "Paste and Match Style", "delete": "Delete", "selectAll": "Select All",
@@ -42,6 +42,8 @@ type nativeMenus struct {
 	language Language
 	labeled  []labeledItem
 	appMenu  *application.Menu
+
+	checkRelease func()
 }
 
 type labeledItem struct {
@@ -84,16 +86,20 @@ func (m *nativeMenus) submenu(key string, items ...*application.MenuItem) *appli
 	return m.label(application.NewSubmenu("", application.NewMenuFromItems(kept[0], kept[1:]...)), key)
 }
 
-// macMenu 是 macOS 顶部菜单栏：Wails 默认菜单里的各项，文字按界面语言。
+// macMenu 是 macOS 顶部菜单栏：Wails 默认菜单里的各项，文字按界面语言;这个构建检查新版本时，「关于」下面加「检查新版本…」。
 // 默认菜单里"帮助"只有一项把窗口导航到 wails.io 的"Learn More",这里不要。
 func (m *nativeMenus) macMenu() *application.Menu {
 	sep := application.NewMenuItemSeparator
-	app := application.NewSubmenu("Mechbox", application.NewMenuFromItems(
-		m.role(application.About, "about"), sep(),
+	items := []*application.MenuItem{m.role(application.About, "about")}
+	if check := m.releaseCheckItem(); check != nil {
+		items = append(items, check)
+	}
+	items = append(items, sep(),
 		m.role(application.ServicesMenu, "services"), sep(),
 		m.role(application.Hide, "hide"), m.role(application.HideOthers, "hideOthers"), m.role(application.ShowAll, "showAll"), sep(),
 		m.role(application.Quit, "quit"),
-	))
+	)
+	app := application.NewSubmenu("Mechbox", application.NewMenuFromItems(items[0], items[1:]...))
 	window := m.submenu("window",
 		m.role(application.Minimise, "minimise"), m.role(application.Zoom, "zoom"), sep(),
 		m.role(application.BringAllToFront, "front"),
@@ -116,6 +122,14 @@ func (m *nativeMenus) macMenu() *application.Menu {
 	)
 }
 
+func (m *nativeMenus) releaseCheckItem() *application.MenuItem {
+	check := m.checkRelease
+	if check == nil {
+		return nil
+	}
+	return m.label(application.NewMenuItem(""), "checkRelease").OnClick(func(*application.Context) { check() })
+}
+
 // setLanguage 换掉已经画出来的菜单项文字;顶部菜单栏整个重建一遍，菜单栏上的标题才会跟着变。
 func (m *nativeMenus) setLanguage(language Language) {
 	m.applyMu.Lock()
@@ -136,7 +150,9 @@ func (m *nativeMenus) setLanguage(language Language) {
 	}
 }
 
-func (m *nativeMenus) attach(app *application.App) {
+// attach 在 macOS 上装好顶部菜单栏;checkRelease 是点「检查新版本…」时做的事，为 nil 时不加这一项。
+func (m *nativeMenus) attach(app *application.App, checkRelease func()) {
+	m.checkRelease = checkRelease
 	if runtime.GOOS == "darwin" {
 		menu := m.macMenu()
 		m.mu.Lock()

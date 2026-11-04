@@ -257,7 +257,7 @@ export const wslDistroErrorQuery = queryOptions({
   queryFn: ({ signal }) => wails(signal, AppService.WSLDistroError()),
 });
 
-// releaseQuery 是检查 Mechbox 新版本的现状：Go 端启动时检查一次，检查完发 release-checked 事件，App 据此重读;
+// releaseQuery 是检查 Mechbox 新版本的现状：Go 端启动时与之后每天检查一次，检查完发 release-checked 事件，App 据此重读;
 // 设置页「关于」里手动检查之后由发起处重读。
 export const releaseQuery = queryOptions({
   queryKey: ["release"],

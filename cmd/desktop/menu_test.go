@@ -32,3 +32,20 @@ func TestNativeMenusFollowLanguage(t *testing.T) {
 		t.Fatalf("labels = %q, %q; want the English text", open.Label(), quit.Label())
 	}
 }
+
+func TestReleaseCheckMenuItemOnlyWhenTheBuildChecks(t *testing.T) {
+	var m nativeMenus
+	m.setLanguage(LanguageZh)
+	if item := m.releaseCheckItem(); item != nil {
+		t.Fatal("a build that doesn't check for new versions gets the menu item")
+	}
+	m.checkRelease = func() {}
+	item := m.releaseCheckItem()
+	if item == nil || item.Label() != "检查新版本…" {
+		t.Fatalf("item = %v; want the Chinese release check", item)
+	}
+	m.setLanguage(LanguageEn)
+	if got := item.Label(); got != "Check for New Version…" {
+		t.Fatalf("label = %q; want the English text", got)
+	}
+}
