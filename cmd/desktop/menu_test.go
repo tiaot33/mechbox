@@ -36,11 +36,10 @@ func TestNativeMenusFollowLanguage(t *testing.T) {
 func TestReleaseCheckMenuItemOnlyWhenTheBuildChecks(t *testing.T) {
 	var m nativeMenus
 	m.setLanguage(LanguageZh)
-	if item := m.releaseCheckItem(); item != nil {
+	if item := m.releaseCheckItem(nil); item != nil {
 		t.Fatal("a build that doesn't check for new versions gets the menu item")
 	}
-	m.checkRelease = func() {}
-	item := m.releaseCheckItem()
+	item := m.releaseCheckItem(func() {})
 	if item == nil || item.Label() != "检查新版本…" {
 		t.Fatalf("item = %v; want the Chinese release check", item)
 	}

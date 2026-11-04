@@ -1092,6 +1092,7 @@ export const en = {
     checking: "Checking…",
     upToDate: "Up to date",
     latestAlready: "Mechbox is up to date",
+    busyInstalling: "A new version is being installed; the app restarts when it's done.",
     found: (version: string) => `New version ${version}`,
     view: "View",
     notChecked: "This build doesn't check for new versions",

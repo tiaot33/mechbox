@@ -130,7 +130,7 @@ jobs:
           - **Windows**:运行 `-setup.exe`。安装程序没有代码签名，SmartScreen 提示时点「更多信息 → 仍要运行」。
           - **Linux**:`.deb`(Ubuntu 24.04+ / Debian 13+)、`.rpm`(Fedora)、`.pkg.tar.zst`(Arch),或直接运行 `.AppImage`(`chmod +x` 后运行)。
 
-          `-macos-universal.zip` 供 app 里的更新使用，安装请用 `.dmg`。`SHA256SUMS.txt` 是各安装包的校验和。
+          `-macos-universal.zip` 供 app 里的更新使用，安装请用 `.dmg`。`SHA256SUMS.txt` 是各安装包的校验和。`release.json` 是 app 检查新版本时读的，不用下载。
           EOF
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)

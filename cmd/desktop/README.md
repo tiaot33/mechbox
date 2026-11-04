@@ -27,7 +27,7 @@ Mechbox 的桌面端：Wails v3 应用，Go 进程直接持有技能库（Librar
 | 第一次打开、登记项目之后 | 在这台机器上第一次打开 app 时(记在数据库的应用设置里，换到新机器也一样;拉回一份没有这条记录的库也不会再当作第一次),直接打开各 Agent 全局目录里不是库装的技能的确认;每登记一个项目，打开这个项目里的。先写磁盘上什么都不改、Agent 用的和现在一样，再写唯一的代价(之后还用命令行工具更新，只能报为被手动改过);第一次打开时说明项目里的登记项目时再接、先不入库的之后可以从左栏"入库技能"再一次入库。按认出的来源(含在 skills.sh 上找到的，找到后补上)分组，内容一样的几处(含符号链接)合成一条，每条确认前都可以"改来源"(改链接或清空);在项目仓库里的、项目 skills-lock.json 记的默认不勾，勾上才提醒之后在 app 里更新会改动项目仓库里的文件(内容一样的几处里有这样的，和其余几处分成两条，用户自己的那几处照常勾上);同名但内容不一样的单列出来，每个只选一份，默认选用户自己的几份里最近修改的;读不出的列在"不能入库"里。按来源逐批入库，读来源时写出在等什么;一个失败不影响其余的，没入库的可以改来源链接重试或清空后不带来源入库。之后作用域摘要里淡淡写一句其中几个可以交给 app 管(在项目仓库里的不算),"全部入库…"再打开这个作用域的确认，不计入角标;左栏"入库技能"里随时可以对各 Agent 的全局目录和全部已登记项目再打开一次(每一处写明是哪个 Agent 的全局还是哪个项目) |
 | 拖放 | 技能行 → 右栏作用域 = 直接安装;技能行 → 左栏的组或组的节标题 = 加入;拖的是勾选着的一行时，勾选的几个技能一起安装、一起加入;组(左栏组行或组的节标题)→ 右栏作用域 = 组安装，之后加进组的也会装;集合 → 组 = 把集合里还不在组里的技能逐个加入;集合 → 集合、组 → 组(左栏的行或节标题)= 调整先后，按鼠标在目标的上半还是下半放到它前面或后面;集合(左栏集合行或集合的节标题)→ 右栏作用域 = 把集合里还没直接安装在那里的技能逐个直接安装，一次性的，之后入库的新技能不会自动装过去;被别的技能占着的跳过并说明，有不是库装的同名文件夹的合成一次询问跳过或覆盖，有没装上的列出结果 |
 | 左栏"同步" | 整库推送到 S3,成为这台机器的一份新备份(点了就推，库没变时不新建);从 S3 拉回：列出所有机器的备份、默认选最新的，再看那一份的同步计划(里面有什么、不能拉回的原因、哪些项目不在这台机器上)。左栏写着自动推送的间隔或「手动」 |
-| 左栏"设置" | 设置页(替换三栏，左边是分区目录):通用(关闭窗口后留在菜单栏、Dock 角标、语言：跟随系统 / 简体中文 / English、毛玻璃浓度:0–150%,拖动时立即生效，旁边的预览块跟着变;Windows 上装了 WSL 时还有全局目录：Windows 本机或某个 WSL 发行版)、Agent(显示勾选;添加、编辑、删除自定义 Agent,改目录时选择是否迁移)、项目(登记 / 改位置 / 注销，与右栏同一套弹窗)、检查更新(自动检查开关与间隔)、GitHub(个人访问令牌)与同步(服务地址、存储桶、文件夹、区域、Access Key ID、Secret Access Key、Session Token、保留份数、自动推送的间隔;都存在数据库里，只认这里填的，不读环境变量;下面写出这台机器的设备目录、上次推送时间与自动推送失败的原因)、关于(应用版本与「检查新版本」、数据库位置)、卸载 Mechbox(见下文"运行时行为") |
+| 左栏"设置" | 设置页(替换三栏，左边是分区目录):通用(关闭窗口后留在菜单栏、Dock 角标、语言：跟随系统 / 简体中文 / English、毛玻璃浓度:0–150%,拖动时立即生效，旁边的预览块跟着变;Windows 上装了 WSL 时还有全局目录：Windows 本机或某个 WSL 发行版)、Agent(显示勾选;添加、编辑、删除自定义 Agent,改目录时选择是否迁移)、项目(登记 / 改位置 / 注销，与右栏同一套弹窗)、检查技能更新(自动检查开关与间隔)、GitHub(个人访问令牌)与同步(服务地址、存储桶、文件夹、区域、Access Key ID、Secret Access Key、Session Token、保留份数、自动推送的间隔;都存在数据库里，只认这里填的，不读环境变量;下面写出这台机器的设备目录、上次推送时间与自动推送失败的原因)、关于(应用版本与「检查新版本」、数据库位置)、卸载 Mechbox(见下文"运行时行为") |
 | 新版本 | Mechbox 有新版本时左栏底部(同步上面)多一行「新版本」和版本号;点开是更新说明与「更新」,不能在 app 里直接装的只给「打开下载页」(见下文"运行时行为") |
 | 顶栏 | 当前页面的标题与个数、搜索(⌘K)、刷新(重新读取并对照磁盘巡检已安装的技能) |
 
@@ -98,9 +98,10 @@ open bin/mechbox.app
 - **数据库结构变了照常发。** 新版打开旧版建的数据库时会先备份再升级(见 [ADR 0003](../../docs/adr/0003-database-upgrades-step-by-step.md)),升级对不对由发版前的 `go test` 检查。只有基准版本里已发布的升级文件被改动或删掉时(`.github/scripts/check-migrations.sh`),自动发版只在摘要里提示、不打 tag,改回去后下一次推送重新判断。
 - **tag 打了、版本没发出去时。** 计数以 tag 为准，不看 Release 有没有发成功，所以要手动补：问题不在代码(如 runner 临时出错)时，在 tag 上重跑 Release(`gh workflow run release.yml --ref v<版本>`);问题在代码时，删掉远端的这个 tag(`git push origin :refs/tags/v<版本>`),修好合进 main 后，下一次推送会重新判断，在新的提交上发同一个版本号。
 
-**手动发版。** 推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)与给 app 里的更新用的 `.zip`、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
+**手动发版。** 推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)与给 app 里的更新用的 `.zip`、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`,发布后再传一份 `release.json`(app 检查新版本时读的发布信息)。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
 
 - 版本号以 tag 为准：构建前由 `.github/scripts/set-version.sh` 写进 `build/config.yml`(关于页显示的版本)、`Info.plist`、Windows 版本资源、NSIS 与 nfpm 配置，仓库里这几处的版本号不用手改。macOS 与 Windows 的版本字段只认数字，预发布后缀只留在 `config.yml` 与 Linux 包里。
+- **`release.json` 是 app 检查新版本依赖的约定**:app 从 `releases/latest/download/release.json` 读最新正式版附带的这份文件(`release.go` 的 `releaseManifest`),字段是 GitHub releases 接口返回内容里的 `tag_name`、`body`、`html_url`、`published_at` 与 `assets` 的 `name`、`browser_download_url`、`size`,由 workflow 的 Release manifest 一步生成。最新正式版上缺了它、改了名或少了字段，这之后装出去的 app 都查不到新版本(只报连不上 GitHub);这一步失败时，在 tag 上重跑 Release 不行(版本已存在),按 workflow 里的那两条命令手动生成并 `gh release upload v<版本> release.json` 补传。
 - **安装包的文件名是 app 里的更新依赖的约定**:`Mechbox-<版本>-macos-universal.zip`、`-windows-<架构>-setup.exe`、`-linux-<架构>.AppImage` 与 `SHA256SUMS.txt`,app 按这几个后缀找本平台的安装包和校验值(`release_<平台>.go` 的 `releaseTarget`)。改名、去掉其中一个，已经发出去的版本就找不到安装包，只能打开下载页;发布正文里 GitHub 生成的 `## What's Changed` 是 app 里显示的更新说明的开头。
 - 各平台的打包与安装包命名在 `Taskfile.yml` 的 `release` 任务里，workflow 在每个平台上只调它。在本机调试打包就在 `cmd/desktop` 下运行 `wails3 task release`(可加 `VERSION=<版本>`),打出本机系统、本机架构的安装包放进 `dist/`;它不写版本号，要和正式发布一致先跑 `set-version.sh`。
 - 在 Actions 页面选一个分支手动运行这个 workflow 只构建、不发布，安装包留在那次运行的 Artifacts 里，文件名里的版本是 `dev-<提交>`;选 tag 运行则和推 tag 一样发布。
@@ -111,7 +112,7 @@ open bin/mechbox.app
 
 - **技能库位置**：`<用户配置目录>/mechbox/library.db`，macOS 上是 `~/Library/Application Support/mechbox/library.db`;设了 `MECHBOX_LIBRARY` 时是它(本地调试用，见上文“开发”)。首次启动时创建目录，由 Library 初始化空库。它只依赖 `HOME`，所以从 Finder / Dock 启动也能找到。
 - **设置都在数据库里**(ADR 0011):设置页里的一切都由技能库存进数据库的 `config` 表，只认这里，不读环境变量，也不用系统钥匙串或设置文件。
-  - 应用设置：检查更新、通用(含毛玻璃浓度)与 Agent 的显示勾选，以及这台机器是否打开过 app(第一次打开时带用户入库已有的技能)。经 `Library.AppSettings` / `SetAppSettings` 整组读写，数据库里没有的项取默认值，加设置项就是给 `Settings` 加字段。随推送、拉回走，拉回后换成拉回的那份库里的，立即生效(界面语言随之切换);这台机器已经打开过 app 的记录保留。
+  - 应用设置：检查技能更新、通用(含毛玻璃浓度)与 Agent 的显示勾选，以及这台机器是否打开过 app(第一次打开时带用户入库已有的技能)。经 `Library.AppSettings` / `SetAppSettings` 整组读写，数据库里没有的项取默认值，加设置项就是给 `Settings` 加字段。随推送、拉回走，拉回后换成拉回的那份库里的，立即生效(界面语言随之切换);这台机器已经打开过 app 的记录保留。
   - GitHub 令牌(`Library.GitHubToken` / `SetGitHubToken`):随推送、拉回走，拉回后换成拉回的那个。没填时匿名访问，受限时再用 `gh` 的登录。
   - AI 设置(`Library.AISettings` / `SetAISettings`):接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key、模型，以及请求头(一行一个「名字: 值」)与请求体(合并进每个请求的 JSON 对象，用来设置思考深度这类参数),随推送、拉回走。「测试连接」(`Library.TestAISettings`)用表单上还没保存的那一组发一条很短的消息。
   - 自动翻译技能描述：AI 分区里的开关，是应用设置，默认打开。开着且填了模型时，主界面把快照里还没有界面语言译文的描述每 8 个一批交给 `Library.TranslateDescriptions`,翻完一批重读一次;中文界面下技能库跳过已经是中文的描述，其他语言交给模型判断。只因某一条描述没翻译成的(服务拒绝了这一条、回答被截断)提示是哪几个技能，这次不再交，其余照常翻译;连不上、超时、限流时提示一次，过一分钟自己再试;Key 被拒、模型不存在这类失败提示后停下，改了 AI 设置、在设置里把开关关掉再打开，或退出后重开时再试。
@@ -185,7 +186,7 @@ cmd/desktop/
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
         │                   install/ 安装、卸载、组安装、重新安装与照着装(照着其他 Agent、其他项目),update/ 检查更新、更新计划、更新、回滚与更新历史，
         │                   group/ 组，scope/ 已登记项目与自定义 Agent,skill/ 移除技能与继续保留，settings/ 设置页、同步与卸载 Mechbox,
-        │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本)
+        │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本、macOS 菜单「检查新版本…」的结果)
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，diff.ts 更新计划里的逐行差异，
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
                             content.ts 技能文件内容解码与渲染,glass.ts 毛玻璃浓度与边缘折射(有单元测试),paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏的样子),window.ts 标题栏行为(拖动区、Windows 上的双击最大化与边缘调整大小),

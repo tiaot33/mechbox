@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 
 	"github.com/wailsapp/wails/v3/pkg/updater"
@@ -158,7 +159,7 @@ func TestCheckReleaseWithoutInstallableAsset(t *testing.T) {
 		if err != nil || latest == nil || latest.Manual != c.want {
 			t.Fatalf("%+v: latest = %+v, err = %v", c.target, latest, err)
 		}
-		if err := r.install(t.Context(), func() {}); errorCode(err) != library.FailedPrecondition {
+		if err := r.install(t.Context(), "1.2.0", func() {}); errorCode(err) != library.FailedPrecondition {
 			t.Fatalf("%+v: install err = %v", c.target, err)
 		}
 	}
@@ -175,13 +176,13 @@ func TestInstallReleaseDownloadsVerifiesAndApplies(t *testing.T) {
 		q()
 		return errors.Join(err, os.RemoveAll(filepath.Dir(path)))
 	}
-	if err := r.install(t.Context(), func() {}); errorCode(err) != library.FailedPrecondition {
+	if err := r.install(t.Context(), "1.2.0", func() {}); errorCode(err) != library.FailedPrecondition {
 		t.Fatalf("install before check: err = %v", err)
 	}
 	if _, err := r.check(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.install(t.Context(), func() { quit = true }); err != nil {
+	if err := r.install(t.Context(), "1.2.0", func() { quit = true }); err != nil {
 		t.Fatal(err)
 	}
 	if string(staged) != "new image" || !quit {
@@ -190,7 +191,7 @@ func TestInstallReleaseDownloadsVerifiesAndApplies(t *testing.T) {
 	if pending, err := os.ReadFile(filepath.Join(r.stateDir, pendingFile)); err != nil || !strings.Contains(string(pending), `"version":"1.2.0"`) {
 		t.Fatalf("pending = %s, err = %v", pending, err)
 	}
-	if err := r.install(t.Context(), func() {}); errorCode(err) != library.Busy {
+	if err := r.install(t.Context(), "1.2.0", func() {}); errorCode(err) != library.Busy {
 		t.Fatalf("second install: err = %v", err)
 	}
 }
@@ -208,7 +209,7 @@ func TestInstallReleaseRejectsChecksumMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err := r.install(t.Context(), func() {}); errorCode(err) != library.SourceInvalid {
+		if err := r.install(t.Context(), "1.2.0", func() {}); errorCode(err) != library.SourceInvalid {
 			t.Fatalf("err = %v", err)
 		}
 	}
@@ -360,7 +361,7 @@ func TestInstallReleaseForgetsPendingWhenApplyFails(t *testing.T) {
 	if _, err := r.check(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.install(t.Context(), func() {}); errorCode(err) != library.Internal {
+	if err := r.install(t.Context(), "1.2.0", func() {}); errorCode(err) != library.Internal {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(r.stateDir, pendingFile)); !os.IsNotExist(err) {
@@ -380,7 +381,7 @@ func TestInstallReleaseCanBeCanceledDuringDownload(t *testing.T) {
 	before := partialDownloads()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := r.install(ctx, func() {}); errorCode(err) != library.Canceled {
+	if err := r.install(ctx, "1.2.0", func() {}); errorCode(err) != library.Canceled {
 		t.Fatalf("err = %v", err)
 	}
 	for dir := range partialDownloads() {
@@ -391,7 +392,51 @@ func TestInstallReleaseCanBeCanceledDuringDownload(t *testing.T) {
 	r.apply = func(_ context.Context, _ *updater.Updater, path, _ string, _ func()) error {
 		return os.RemoveAll(filepath.Dir(path))
 	}
-	if err := r.install(t.Context(), func() {}); err != nil {
+	if err := r.install(t.Context(), "1.2.0", func() {}); err != nil {
 		t.Fatalf("retry after cancel: %v", err)
+	}
+}
+
+func TestInstallReleaseOnlyInstallsTheVersionShown(t *testing.T) {
+	g := newFakeGitHub(t, "v1.2.0", map[string][]byte{"Mechbox-1.2.0-linux-amd64.AppImage": []byte("new image")})
+	r := g.releases(t, "1.1.0", installTarget{asset: "-linux-amd64.AppImage"})
+	applied := false
+	r.apply = func(context.Context, *updater.Updater, string, string, func()) error {
+		applied = true
+		return nil
+	}
+	if _, err := r.check(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.install(t.Context(), "1.1.5", func() {}); errorCode(err) != library.FailedPrecondition || !strings.Contains(err.Error(), "1.2.0") {
+		t.Fatalf("install an older dialog's version: err = %v", err)
+	}
+	if applied {
+		t.Fatal("installed a version the user didn't confirm")
+	}
+	if err := r.install(t.Context(), "1.2.0", func() {}); err != nil || !applied {
+		t.Fatalf("install the shown version: err = %v, applied = %v", err, applied)
+	}
+}
+
+func TestReleaseDue(t *testing.T) {
+	start := time.Date(2026, 11, 5, 9, 0, 0, 50_000_000, time.UTC)
+	cases := []struct {
+		name    string
+		now     time.Time
+		last    time.Time
+		checked bool
+		want    bool
+	}{
+		{"never checked", start, time.Time{}, false, true},
+		{"failed, within the hour", start.Add(59 * time.Minute), start, false, false},
+		{"failed, an hour later", start.Add(time.Hour), start, false, true},
+		{"checked, within the day", start.Add(23 * time.Hour), start, true, false},
+		{"checked, a day later", start.Add(24 * time.Hour), start, true, true},
+	}
+	for _, c := range cases {
+		if got := releaseDue(c.now, c.last, c.checked); got != c.want {
+			t.Errorf("%s: releaseDue = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

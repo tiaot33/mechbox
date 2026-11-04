@@ -1024,6 +1024,7 @@ export const zh = {
     checking: "正在检查…",
     upToDate: "已是最新版本",
     latestAlready: "Mechbox 已是最新版本",
+    busyInstalling: "正在装新版本，装完 app 会自动重启。",
     found: (version: string) => `有新版本 ${version}`,
     view: "查看",
     notChecked: "这个版本不检查新版本",

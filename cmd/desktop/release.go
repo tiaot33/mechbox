@@ -196,13 +196,13 @@ func (r *releases) check(ctx context.Context) (*Release, error) {
 	return latest, nil
 }
 
-func (r *releases) install(ctx context.Context, quit func()) error {
+func (r *releases) install(ctx context.Context, version string, quit func()) error {
 	if r == nil {
 		return &library.Error{Code: library.FailedPrecondition, Message: "this build does not check for new versions"}
 	}
 	r.mu.Lock()
 	latest, installing := r.latest, r.installing
-	if latest != nil && latest.Manual == "" && !installing {
+	if latest != nil && latest.Version == version && latest.Manual == "" && !installing {
 		r.installing = true
 	}
 	r.mu.Unlock()
@@ -211,6 +211,8 @@ func (r *releases) install(ctx context.Context, quit func()) error {
 		return &library.Error{Code: library.Busy, Message: "a new version is being installed"}
 	case latest == nil:
 		return &library.Error{Code: library.FailedPrecondition, Message: "no new version to install"}
+	case latest.Version != version:
+		return &library.Error{Code: library.FailedPrecondition, Message: fmt.Sprintf("the newest version is now %s, not %s", latest.Version, version)}
 	case latest.Manual != "":
 		return &library.Error{Code: library.FailedPrecondition, Message: fmt.Sprintf("version %s has to be installed from its download page (%s)", latest.Version, latest.Manual)}
 	}
@@ -566,9 +568,10 @@ func (a *AppService) CheckRelease(ctx context.Context) (*Release, error) {
 // 下载进度由 Wails 的 wails:updater:download-progress 事件给出。
 // 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;下载途中取消调用就停下，返回 Canceled。
 // app 退出后才装上新版，装没装上下次启动时由 Release 的 Failed 给出;
-// 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时返回 FailedPrecondition。
-func (a *AppService) InstallRelease(ctx context.Context) error {
-	return a.releases.install(ctx, func() { go a.app.Quit() })
+// version 是用户在对话框里看到、点了「更新」的那个版本;之后的检查找到了别的版本(对话框开着时后台又检查过)时不装，返回 FailedPrecondition。
+// 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时也返回 FailedPrecondition。
+func (a *AppService) InstallRelease(ctx context.Context, version string) error {
+	return a.releases.install(ctx, version, func() { go a.app.Quit() })
 }
 
 func (a *AppService) requestReleaseCheck() {
@@ -577,15 +580,13 @@ func (a *AppService) requestReleaseCheck() {
 }
 
 func (a *AppService) watchReleases(ctx context.Context) {
-	tick := time.NewTicker(releaseRetry)
+	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
-	var next time.Time
+	var last time.Time
+	checked := false
 	for {
-		if now := time.Now().Round(0); !now.Before(next) {
-			next = now.Add(releaseRetry)
-			if a.checkReleaseInBackground(ctx) {
-				next = now.Add(releaseCheckInterval)
-			}
+		if now := time.Now().Round(0); releaseDue(now, last, checked) {
+			last, checked = now, a.checkReleaseInBackground(ctx)
 		}
 		select {
 		case <-ctx.Done():
@@ -593,6 +594,17 @@ func (a *AppService) watchReleases(ctx context.Context) {
 		case <-tick.C:
 		}
 	}
+}
+
+func releaseDue(now, last time.Time, checked bool) bool {
+	if last.IsZero() {
+		return true
+	}
+	wait := releaseRetry
+	if checked {
+		wait = releaseCheckInterval
+	}
+	return now.Sub(last) >= wait
 }
 
 func (a *AppService) checkReleaseInBackground(ctx context.Context) bool {

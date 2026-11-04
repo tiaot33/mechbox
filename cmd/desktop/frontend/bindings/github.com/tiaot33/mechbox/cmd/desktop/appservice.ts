@@ -41,10 +41,11 @@ export function FirstOpen(): $CancellablePromise<boolean> {
  * 下载进度由 Wails 的 wails:updater:download-progress 事件给出。
  * 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;下载途中取消调用就停下，返回 Canceled。
  * app 退出后才装上新版，装没装上下次启动时由 Release 的 Failed 给出;
- * 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时返回 FailedPrecondition。
+ * version 是用户在对话框里看到、点了「更新」的那个版本;之后的检查找到了别的版本(对话框开着时后台又检查过)时不装，返回 FailedPrecondition。
+ * 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时也返回 FailedPrecondition。
  */
-export function InstallRelease(): $CancellablePromise<void> {
-    return $Call.ByID(2587457002);
+export function InstallRelease(version: string): $CancellablePromise<void> {
+    return $Call.ByID(2587457002, version);
 }
 
 /**

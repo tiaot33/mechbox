@@ -42,8 +42,6 @@ type nativeMenus struct {
 	language Language
 	labeled  []labeledItem
 	appMenu  *application.Menu
-
-	checkRelease func()
 }
 
 type labeledItem struct {
@@ -77,29 +75,29 @@ func (m *nativeMenus) role(role application.Role, key string) *application.MenuI
 }
 
 func (m *nativeMenus) submenu(key string, items ...*application.MenuItem) *application.MenuItem {
+	return m.label(application.NewSubmenu("", menuOf(items...)), key)
+}
+
+func menuOf(items ...*application.MenuItem) *application.Menu {
 	var kept []*application.MenuItem
 	for _, item := range items {
 		if item != nil {
 			kept = append(kept, item)
 		}
 	}
-	return m.label(application.NewSubmenu("", application.NewMenuFromItems(kept[0], kept[1:]...)), key)
+	return application.NewMenuFromItems(kept[0], kept[1:]...)
 }
 
 // macMenu 是 macOS 顶部菜单栏：Wails 默认菜单里的各项，文字按界面语言;这个构建检查新版本时，「关于」下面加「检查新版本…」。
 // 默认菜单里"帮助"只有一项把窗口导航到 wails.io 的"Learn More",这里不要。
-func (m *nativeMenus) macMenu() *application.Menu {
+func (m *nativeMenus) macMenu(checkRelease func()) *application.Menu {
 	sep := application.NewMenuItemSeparator
-	items := []*application.MenuItem{m.role(application.About, "about")}
-	if check := m.releaseCheckItem(); check != nil {
-		items = append(items, check)
-	}
-	items = append(items, sep(),
+	app := application.NewSubmenu("Mechbox", menuOf(
+		m.role(application.About, "about"), m.releaseCheckItem(checkRelease), sep(),
 		m.role(application.ServicesMenu, "services"), sep(),
 		m.role(application.Hide, "hide"), m.role(application.HideOthers, "hideOthers"), m.role(application.ShowAll, "showAll"), sep(),
 		m.role(application.Quit, "quit"),
-	)
-	app := application.NewSubmenu("Mechbox", application.NewMenuFromItems(items[0], items[1:]...))
+	))
 	window := m.submenu("window",
 		m.role(application.Minimise, "minimise"), m.role(application.Zoom, "zoom"), sep(),
 		m.role(application.BringAllToFront, "front"),
@@ -122,8 +120,7 @@ func (m *nativeMenus) macMenu() *application.Menu {
 	)
 }
 
-func (m *nativeMenus) releaseCheckItem() *application.MenuItem {
-	check := m.checkRelease
+func (m *nativeMenus) releaseCheckItem(check func()) *application.MenuItem {
 	if check == nil {
 		return nil
 	}
@@ -152,9 +149,8 @@ func (m *nativeMenus) setLanguage(language Language) {
 
 // attach 在 macOS 上装好顶部菜单栏;checkRelease 是点「检查新版本…」时做的事，为 nil 时不加这一项。
 func (m *nativeMenus) attach(app *application.App, checkRelease func()) {
-	m.checkRelease = checkRelease
 	if runtime.GOOS == "darwin" {
-		menu := m.macMenu()
+		menu := m.macMenu(checkRelease)
 		m.mu.Lock()
 		m.appMenu = menu
 		m.mu.Unlock()
