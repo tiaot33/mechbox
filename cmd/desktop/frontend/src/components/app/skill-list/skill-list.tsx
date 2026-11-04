@@ -1,4 +1,4 @@
-// 中间：四种页面，各回答一个问题，长得也不一样。
+// 中间：五种页面，各回答一个问题，长得也不一样。
 // - 技能库(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
 // - 更新(要处理的事):每个有要处理的更新的集合一行，下面是要处理的技能。
 // - 作用域(Agent 在这里看得到什么):分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能(和技能库页一样按集合或按组分节)、
@@ -23,8 +23,9 @@ import {
   type ScopeKey,
   type SkillSection,
 } from "@/lib/model";
-import { doneRestoreScroll, openScope, setArrange, setSearch, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { doneRestoreScroll, openScope, setArrange, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
+import { SearchLine } from "./search-line";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -53,7 +54,6 @@ export function SkillList() {
   if (listing.kind === "graph") {
     return (
       <main className={cn(centerClass, "relative")} data-page="graph">
-        <SearchLineBox results={listing.results} />
         <MentionGraphPage key={`${listing.set.kind}-${listing.set.id}`} set={listing.set} members={listing.members} />
       </main>
     );
@@ -77,32 +77,6 @@ export function SkillList() {
       </div>
       <PickBar listing={listing} />
     </main>
-  );
-}
-
-// SearchLineBox 是关系图页上的搜索行：图不滚动，搜索行放在图上面，搜到的技能不变淡。
-function SearchLineBox({ results }: { results: number }) {
-  const searching = useView((v) => !!v.search.trim());
-  if (!searching) return null;
-  return (
-    <div className="px-3.5 pt-3 [&>.search-line]:mb-0">
-      <SearchLine results={results} />
-    </div>
-  );
-}
-
-// SearchLine 写出正在搜什么、当前页里有几个结果，点"清除"回到不搜索。
-function SearchLine({ results }: { results: number }) {
-  const search = useView((v) => v.search.trim());
-  const t = useT().list;
-  if (!search) return null;
-  return (
-    <div className="search-line mb-2.5 flex items-center gap-2 text-[12px] text-muted-foreground">
-      <span>{t.searchResults(search, results)}</span>
-      <Button variant="link" className="text-[12px]" onClick={() => setSearch("")}>
-        {t.clearSearch}
-      </Button>
-    </div>
   );
 }
 
@@ -199,14 +173,14 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
-      <CollectionSection id={section.key} collection={c} count={count} pick={pick}>
+      <CollectionSection id={section.key} collection={c} count={count} pick={pick} showGraph={!scope}>
         {rows}
       </CollectionSection>
     );
   }
   const g = s.groups.find((x) => x.id === section.id)!;
   return (
-    <GroupSection id={section.key} group={g} count={count} pick={pick}>
+    <GroupSection id={section.key} group={g} count={count} pick={pick} showGraph={!scope}>
       {section.skills.length ? (
         rows
       ) : (
@@ -240,12 +214,14 @@ function CollectionSection({
   collection,
   count,
   pick,
+  showGraph,
   children,
 }: {
   id: string;
   collection: Collection;
   count?: string;
   pick: SkillID[];
+  showGraph: boolean;
   children: React.ReactNode;
 }) {
   const drop = useCollectionDrop(collection.id);
@@ -253,7 +229,7 @@ function CollectionSection({
     <Section
       id={id}
       pick={pick}
-      head={<CollectionHead collection={collection} count={count} graph={count === undefined} />}
+      head={<CollectionHead collection={collection} count={count} showGraph={showGraph} />}
       sub={<CollectionNews collection={collection} />}
       headProps={drop}
     >
@@ -267,17 +243,19 @@ function GroupSection({
   group,
   count,
   pick,
+  showGraph,
   children,
 }: {
   id: string;
   group: Group;
   count?: string;
   pick: SkillID[];
+  showGraph: boolean;
   children: React.ReactNode;
 }) {
   const drop = useGroupDrop(group.id);
   return (
-    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} graph={count === undefined} />} headProps={drop}>
+    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} showGraph={showGraph} />} headProps={drop}>
       {children}
     </Section>
   );

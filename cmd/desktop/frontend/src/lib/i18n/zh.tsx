@@ -1200,15 +1200,15 @@ export const zh = {
     back: (page: string) => `返回${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
       `${skills} 个技能，${mentions} 条提到${outside ? `，提到了${group ? "组外" : "其他集合"}的 ${outside} 个技能` : ""}`,
-    hint: "线从提到别人的技能指向被提到的技能。悬停技能或线看是谁提到谁，点技能打开详情",
+    hint: "线从提到别人的技能指向被提到的技能。悬停技能或线看是谁提到谁，点线固定原文，点技能打开详情",
     none: "这些技能之间没有互相提到，也没有提到库里其他技能。",
     loose: (n: number) => `和这里的技能都没有连线的 ${n} 个：`,
     reading: "正在读取技能文件…",
     failed: "没能读出技能之间的提到关系。",
     retry: "重试",
-    noSource: "没有来源",
     mentions: (from: string, to: string) => `「${from}」提到「${to}」`,
-    moreLines: (n: number) => `还有 ${n} 行`,
+    moreLines: (n: number) => `还有 ${n} 行，点一下这条线固定提示，就能滚动看全部`,
+    close: "关闭",
   },
 
   toolbar: {

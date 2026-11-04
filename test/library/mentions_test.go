@@ -124,6 +124,8 @@ func TestListMentionsSkipsPathsURLsFileNamesAndSelf(t *testing.T) {
 			"Copy docs/writing-plans/example.md into place.",
 			"Upstream: https://example.com/skills/writing-plans/SKILL.md",
 			"Open writing-plans.md for the template.",
+			"See [the template](/review.md) or $review.md, not a mention.",
+			"Notes live in docs/my-skills/writing-plans/example.md.",
 			"The single word review here is just a word.",
 		}, "\n") + "\n",
 		"writing-plans": "# writing-plans\n", "review": "# review\n",

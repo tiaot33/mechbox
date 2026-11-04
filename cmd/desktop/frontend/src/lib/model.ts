@@ -1003,6 +1003,7 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
+// 关系图页的 total 是集合或组里的技能数;它的搜索结果数要算上图里虚线框的技能，由关系图自己算(lib/graph 的 searchHits),这里的 results 不用。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
   | { kind: "updates"; skills: Skill[] }
@@ -1014,8 +1015,7 @@ export type PageListing = { total: number; results: number } & (
 export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order): PageListing {
   if (page.kind === "graph") {
     const members = graphMembers(s, page.set) ?? [];
-    const results = s.skills.filter((x) => members.includes(x.id) && matches(search, x)).length;
-    return { kind: "graph", set: page.set, members, total: members.length, results };
+    return { kind: "graph", set: page.set, members, total: members.length, results: members.length };
   }
   if (page.kind === "updates") {
     const todo = sortSkills(s, s.skills.filter(pending));

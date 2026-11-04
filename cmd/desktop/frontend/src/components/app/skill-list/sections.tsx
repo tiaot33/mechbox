@@ -109,7 +109,7 @@ function UseCounts({ skills }: { skills: Skill[] }) {
 
 // CollectionHead 是集合的节标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，
 // 看来源里的其他技能、历史、更新，技能库页上还有关系图;可以整个拖到作用域。
-export function CollectionHead({ collection, count, graph = false }: { collection: Collection; count?: string; graph?: boolean }) {
+export function CollectionHead({ collection, count, showGraph = false }: { collection: Collection; count?: string; showGraph?: boolean }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -141,7 +141,7 @@ export function CollectionHead({ collection, count, graph = false }: { collectio
         {facts.join(" · ")}
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        {graph && <GraphButton onClick={() => openGraph({ kind: "collection", id: collection.id })} />}
+        {showGraph && <GraphButton onClick={() => openGraph({ kind: "collection", id: collection.id })} />}
         <Button size="sm" variant="ghost" onClick={() => previewCollection(collection.id)} title={t.list.otherSkillsHint}>
           {t.drawer.otherSkills}
         </Button>
@@ -180,7 +180,7 @@ export function CollectionNews({ collection }: { collection: Collection }) {
 
 // GroupHead 是组的节标题：可以整组拖到作用域(组安装),写出组安装于哪些作用域(可以卸载),重命名与删除，技能库页上还有关系图。
 // 作用域页给 count,写装在这里几个;否则写组里几个技能。
-export function GroupHead({ group, count, graph = false }: { group: Group; count?: string; graph?: boolean }) {
+export function GroupHead({ group, count, showGraph = false }: { group: Group; count?: string; showGraph?: boolean }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const t = useT();
@@ -216,7 +216,7 @@ export function GroupHead({ group, count, graph = false }: { group: Group; count
         )}
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        {graph && <GraphButton onClick={() => openGraph({ kind: "group", id: group.id })} />}
+        {showGraph && <GraphButton onClick={() => openGraph({ kind: "group", id: group.id })} />}
         <Button size="sm" variant="ghost" onClick={() => renameGroup(group.id)}>
           {t.list.rename}
         </Button>

@@ -1269,16 +1269,16 @@ export const en = {
     openTitle: "See which of these skills mention each other",
     back: (page: string) => `Back to ${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
-      `${count(skills, "skill")}, ${count(mentions, "mention")}${outside ? `, mentioning ${count(outside, "skill")} ${group ? "outside the group" : "in other collections"}` : ""}`,
-    hint: "Arrows point from the skill that mentions to the skill mentioned. Hover a skill or an arrow to see who mentions whom; click a skill for its details",
+      `${count(skills, "skill")}, ${count(mentions, "mention")}${outside ? `, mentioning ${count(outside, "skill")} ${group ? "outside the Group" : "in other Collections"}` : ""}`,
+    hint: "Arrows point from the skill that mentions to the skill mentioned. Hover a skill or an arrow to see who mentions whom; click an arrow to pin its lines, click a skill for its details",
     none: "These skills don’t mention each other or any other skill in the Library.",
     loose: (n: number) => `${count(n, "skill")} not linked to any skill here:`,
     reading: "Reading skill files…",
     failed: "Couldn’t read which skills mention each other.",
     retry: "Retry",
-    noSource: "No Source",
     mentions: (from: string, to: string) => `“${from}” mentions “${to}”`,
-    moreLines: (n: number) => `${count(n, "more line")}`,
+    moreLines: (n: number) => `${count(n, "more line")}: click the arrow to pin this and scroll through them`,
+    close: "Close",
   },
 
   toolbar: {

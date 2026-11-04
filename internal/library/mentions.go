@@ -211,7 +211,7 @@ var skillToolQuote = regexp.MustCompile("Skill tool.{0,40}[\"`'“]$")
 
 func mentionedAt(line string, start, end int, name string) bool {
 	before, after := line[:start], line[end:]
-	if inURL(before) {
+	if inURL(before) || isFileName(after) {
 		return false
 	}
 	if strings.HasSuffix(before, "/") || strings.HasSuffix(before, "$") {
@@ -228,7 +228,7 @@ func mentionedAt(line string, start, end int, name string) bool {
 	if skillToolQuote.MatchString(before) && strings.ContainsAny(firstRune(after), "\"`'”") {
 		return true
 	}
-	if (strings.HasSuffix(before, "../") || strings.HasSuffix(before, "skills/")) && strings.HasPrefix(after, "/") {
+	if (strings.HasSuffix(before, "../") || skillsSegment(before)) && strings.HasPrefix(after, "/") {
 		return true
 	}
 	if strings.HasPrefix(after, "/SKILL.md") {
@@ -237,10 +237,16 @@ func mentionedAt(line string, start, end int, name string) bool {
 	if strings.HasSuffix(before, "/") || strings.HasSuffix(before, ".") || strings.HasPrefix(after, "/") {
 		return false
 	}
-	if len(after) >= 2 && after[0] == '.' && (after[1] >= 'a' && after[1] <= 'z' || after[1] >= 'A' && after[1] <= 'Z') {
-		return false
-	}
 	return strings.Contains(name, "-")
+}
+
+func isFileName(after string) bool {
+	return len(after) >= 2 && after[0] == '.' && (after[1] >= 'a' && after[1] <= 'z' || after[1] >= 'A' && after[1] <= 'Z')
+}
+
+func skillsSegment(before string) bool {
+	prefix, ok := strings.CutSuffix(before, "skills/")
+	return ok && (strings.HasSuffix(prefix, "/") || opensName(prefix))
 }
 
 func opensName(before string) bool {
