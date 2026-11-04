@@ -15,6 +15,7 @@ import { useAutoTranslate } from "@/features/skill/translate";
 import { useInstallFailureNotice } from "@/features/release/release";
 import { setDragGhost } from "@/components/app/dnd";
 import { invalidateRelease, invalidateSyncStatus, reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
+import { applyGlassTint } from "@/lib/glass";
 import { messages, useT } from "@/lib/i18n";
 import { ui, UIHost } from "@/lib/ui";
 import { closeDrawer, closeSettings, reconcile, useView } from "@/lib/view";
@@ -78,6 +79,12 @@ function Main() {
   useEffect(() => {
     if (loadedAt) void AppService.RefreshBadge();
   }, [loadedAt]);
+
+  // 毛玻璃浓度跟着应用设置(拉回了别的设置也一样);设置页里拖动时直接改，不等快照。
+  const glassTint = s?.glassTint;
+  useEffect(() => {
+    if (glassTint !== undefined) applyGlassTint(glassTint);
+  }, [glassTint]);
 
   // 快照变了以后校正界面上的选择(筛选指向的集合、组没了，作用域的项目或 Agent 被移除)。
   useEffect(() => {

@@ -15,7 +15,7 @@ import (
 
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 	got, done := settingsFrom(nil)
-	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true}
+	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1}
 	if !reflect.DeepEqual(got, want) || done {
 		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}
@@ -23,7 +23,7 @@ func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	want := Settings{
-		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn,
+		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, GlassTint: 0.35,
 		AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 	}
 	for _, opened := range []bool{false, true} {
@@ -38,7 +38,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 }
 
 func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
-	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{"})
+	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "glass_tint": "1.6"})
 	want := defaultSettings()
 	want.DockBadge = false
 	if !reflect.DeepEqual(got, want) {
@@ -49,7 +49,12 @@ func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
 func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 	lib := startLibrary(t)
 	service := startApp(t, lib)
-	for _, settings := range []Settings{{CheckInterval: "sometimes"}, {CheckInterval: CheckDaily, Language: "fr"}} {
+	for _, settings := range []Settings{
+		{CheckInterval: "sometimes"},
+		{CheckInterval: CheckDaily, Language: "fr"},
+		{CheckInterval: CheckDaily, GlassTint: 1.6},
+		{CheckInterval: CheckDaily, GlassTint: -0.1},
+	} {
 		if _, err := service.SaveSettings(t.Context(), settings); err == nil {
 			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)
 		}

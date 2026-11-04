@@ -2,7 +2,7 @@
 // 鼠标悬停、按住、用键盘聚焦或窗口在后台(最小化、切到别的应用)时引线停烧。往下拖过 40px 或往下一甩就关掉，拖得不够弹回原位，往上拖有阻尼。
 // 显隐阶段的样式(升起、收起、引线)在 index.css 的 .swipe-toast 里。
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import { animate, motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
 import { Button } from "./button";
 
 type CloseReason = "timeout" | "swipe" | "action" | "escape";
@@ -221,8 +221,8 @@ export function SwipeToast({
           aria-live="polite"
           aria-atomic="true"
           tabIndex={0}
-          className="swipe-toast-card pointer-events-auto relative flex cursor-grab touch-none items-center gap-2.5 overflow-hidden rounded-[14px] border border-border bg-white px-4 py-2 text-[12.5px] break-words whitespace-pre-line shadow-toast outline-none select-none data-[swiping]:cursor-grabbing"
-          style={{ transform, opacity: fade }}
+          className="swipe-toast-card pointer-events-auto relative flex cursor-grab touch-none items-center gap-2.5 overflow-hidden glass glass-clear rounded-[14px] border px-4 py-2 text-[12.5px] break-words whitespace-pre-line outline-none [--glass-drop:var(--shadow-toast)] hover:[--glass-lift:1.14] select-none data-[swiping]:cursor-grabbing"
+          style={{ transform, "--st-swipe": fade } as MotionStyle}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

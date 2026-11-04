@@ -1,4 +1,4 @@
-// shadcn/ui 的 Popover,表面与弹窗一致：半透明白色加 backdrop-blur。
+// shadcn/ui 的 Popover,表面与弹窗一致：毛玻璃(index.css 的 glass)。
 import type { ComponentProps } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,7 @@ function PopoverContent({ className, align = "center", sideOffset = 8, ...props 
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-40 animate-pop-in rounded-box border border-border bg-glass-overlay p-1.5 shadow-popover outline-none backdrop-blur-xl backdrop-saturate-150",
+          "z-40 animate-pop-in glass rounded-box border p-1.5 outline-none [--glass-drop:var(--shadow-popover)]",
           className,
         )}
         {...props}

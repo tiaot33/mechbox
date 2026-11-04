@@ -18,6 +18,9 @@ type Settings struct {
 	DockBadge     bool          `json:"dock_badge"`         // Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
 	AutoTranslate bool          `json:"auto_translate"`     // 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
 	Language      Language      `json:"language,omitempty"` // 界面语言;空字符串跟随系统
+	// GlassTint 是浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的白色浓度上:1 是设计的样子,
+	// 0 只剩模糊、边缘与阴影，最大 1.5。
+	GlassTint float64 `json:"glass_tint"`
 	// WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。
 	WSLDistro string `json:"wsl_distro,omitempty"`
 	// AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
@@ -52,10 +55,16 @@ func (i CheckInterval) valid() bool {
 	return timed || i == CheckOnOpen
 }
 
+const maxGlassTint = 1.5
+
+func glassTintValid(v float64) bool {
+	return v >= 0 && v <= maxGlassTint
+}
+
 const firstOpenDoneKey = "first_open_done"
 
 func defaultSettings() Settings {
-	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true}
+	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1}
 }
 
 func (s Settings) appValues(firstOpenDone bool) map[string]string {
@@ -66,6 +75,7 @@ func (s Settings) appValues(firstOpenDone bool) map[string]string {
 		"dock_badge":       strconv.FormatBool(s.DockBadge),
 		"auto_translate":   strconv.FormatBool(s.AutoTranslate),
 		"language":         string(s.Language),
+		"glass_tint":       strconv.FormatFloat(s.GlassTint, 'f', -1, 64),
 	}
 	if len(s.AgentsShown) > 0 {
 		shown, _ := json.Marshal(s.AgentsShown)
@@ -93,6 +103,9 @@ func settingsFrom(values map[string]string) (Settings, bool) {
 	}
 	if language := Language(values["language"]); language.valid() {
 		s.Language = language
+	}
+	if v, err := strconv.ParseFloat(values["glass_tint"], 64); err == nil && glassTintValid(v) {
+		s.GlassTint = v
 	}
 	var shown map[library.AgentCode]bool
 	if json.Unmarshal([]byte(values["agents_shown"]), &shown) == nil && len(shown) > 0 {

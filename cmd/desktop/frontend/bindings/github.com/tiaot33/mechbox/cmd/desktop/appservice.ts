@@ -64,6 +64,14 @@ export function PushProblem(): $CancellablePromise<$models.PushProblem | null> {
 }
 
 /**
+ * ReduceTransparency 返回系统是否要求减少透明度：macOS 上读系统设置里的「降低透明度」(WKWebView 不认 prefers-reduced-transparency);
+ * 其他平台返回 false,由前端的媒体查询判断。前端在启动和窗口重新获得焦点时问一次，为真时毛玻璃换成不透明的底。
+ */
+export function ReduceTransparency(): $CancellablePromise<boolean> {
+    return $Call.ByID(1899699758);
+}
+
+/**
  * RefreshBadge 按技能库现在的检查更新结论重设 Dock 角标;前端每次重读快照后调用。
  */
 export function RefreshBadge(): $CancellablePromise<void> {

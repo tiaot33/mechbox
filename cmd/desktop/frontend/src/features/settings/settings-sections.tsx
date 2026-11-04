@@ -1,6 +1,8 @@
 // 设置页里几个分区的内容：通用、项目、检查更新、关于。改了立即经设置页的 save 排队保存。
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
+import { applyGlassTint, useGlassOpaque } from "@/lib/glass";
 import { ui } from "@/lib/ui";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, wslDistroErrorQuery, wslDistrosQuery } from "@/lib/library";
@@ -14,6 +16,7 @@ import { Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
 import { WSLBadge } from "@/components/app/parts";
@@ -21,7 +24,7 @@ import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
 
-// GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、界面语言，以及 Windows 上装了 WSL 时的全局目录。
+// GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、界面语言、毛玻璃浓度，以及 Windows 上装了 WSL 时的全局目录。
 export function GeneralSection({
   settings,
   save,
@@ -70,6 +73,7 @@ export function GeneralSection({
         options={languages}
       />
     </SetRow>
+    <GlassTintRow value={settings.glass_tint} onCommit={(v) => save({ glass_tint: v })} />
     {(distros.length > 0 || settings.wsl_distro) && (
       <SetRow>
         <div className="grow">
@@ -197,6 +201,55 @@ export function AboutSection() {
     <dt>{t.databasePath}</dt>
     <dd className="font-mono text-[11px] break-all select-text">{s.info.library_path}</dd>
   </dl>
+  );
+}
+
+// GlassTintRow 是毛玻璃浓度：拖动时界面上的毛玻璃跟着变，松手才保存;保存失败退回原设置时也跟着退回。
+// 设置页上没有毛玻璃表面，旁边放一块预览：底下垫几行像列表的色条，上面一块玻璃写着当前浓度。
+// 系统要求减少透明度或开了强制颜色时，毛玻璃是不透明的底，浓度不起作用：滑块禁用，说明里写明原因。
+function GlassTintRow({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const t = useT().settings;
+  const [shown, setShown] = useState(value);
+  const opaque = useGlassOpaque();
+  useEffect(() => {
+    setShown(value);
+    applyGlassTint(value);
+  }, [value]);
+  return (
+    <SetRow className="glass-tint-row">
+      <div className="grow">
+        <div>{t.glassTint}</div>
+        <Hint className="mt-0.5">{opaque ? t.glassTintOpaque : t.glassTintDesc}</Hint>
+      </div>
+      <Slider
+        disabled={opaque}
+        valueText={`${Math.round(shown * 100)}%`}
+        className="w-[140px] shrink-0"
+        aria-label={t.glassTint}
+        min={0}
+        max={1.5}
+        step={0.05}
+        value={[shown]}
+        onValueChange={([v]) => {
+          setShown(v);
+          applyGlassTint(v);
+        }}
+        onValueCommit={([v]) => onCommit(v)}
+      />
+      <div
+        className="glass-tint-preview relative h-10 w-[120px] shrink-0 overflow-hidden rounded-lg bg-white shadow-[inset_0_0_0_0.5px_rgba(17,24,39,0.12)]"
+        aria-hidden
+      >
+        <span className="absolute top-2 left-2 h-1.5 w-12 rounded-full bg-foreground/80" />
+        <span className="absolute top-2 right-2 h-3 w-9 rounded-full bg-primary" />
+        <span className="absolute top-[18px] left-2 h-1.5 w-16 rounded-full bg-muted-foreground/70" />
+        <span className="absolute top-[28px] left-2 h-1.5 w-10 rounded-full bg-warn" />
+        <span className="absolute top-[28px] right-3 h-1.5 w-12 rounded-full bg-foreground/60" />
+        <span className="glass absolute inset-x-5 inset-y-1.5 grid place-items-center rounded-md border text-[11px] font-medium tabular-nums">
+          {Math.round(shown * 100)}%
+        </span>
+      </div>
+    </SetRow>
   );
 }
 

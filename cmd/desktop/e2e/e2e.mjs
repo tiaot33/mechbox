@@ -2594,7 +2594,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
