@@ -4,8 +4,9 @@
 // - 作用域(Agent 在这里看得到什么):分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能(和技能库页一样按集合或按组分节)、
 //   未纳管技能，以及项目里来自全局的;下面是库里没装在这里的技能，整块默认折成一行，点开同样按集合或按组分节。
 // - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
+// - 关系图(这些技能之间谁提到谁):一个集合或组的技能画成一张图，见 mention-graph。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Collection, Group, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -22,7 +23,8 @@ import {
   type ScopeKey,
   type SkillSection,
 } from "@/lib/model";
-import { openScope, setArrange, setSearch, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { doneRestoreScroll, openScope, setArrange, setSearch, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -39,11 +41,28 @@ import { flash } from "./flash";
 
 export function SkillList() {
   const listing = usePageListing();
+  const scroller = useRef<HTMLDivElement>(null);
+  const restore = useView((v) => v.restoreScroll);
+  // 从关系图页返回：列表滚回打开关系图之前的位置。
+  useLayoutEffect(() => {
+    if (restore === null || !scroller.current) return;
+    scroller.current.scrollTop = restore;
+    doneRestoreScroll();
+  }, [restore, listing?.kind]);
   if (!listing) return <main className={centerClass} />;
+  if (listing.kind === "graph") {
+    return (
+      <main className={cn(centerClass, "relative")} data-page="graph">
+        <SearchLineBox results={listing.results} />
+        <MentionGraphPage key={`${listing.set.kind}-${listing.set.id}`} set={listing.set} members={listing.members} />
+      </main>
+    );
+  }
   return (
     <main className={cn(centerClass, "relative")}>
       {/* 上边距放在里面一层：滚动区自己没有上内边距，吸顶的节标题才贴着底板上沿。换页时换一个滚动区，回到顶上。 */}
       <div
+        ref={scroller}
         key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
@@ -58,6 +77,17 @@ export function SkillList() {
       </div>
       <PickBar listing={listing} />
     </main>
+  );
+}
+
+// SearchLineBox 是关系图页上的搜索行：图不滚动，搜索行放在图上面，搜到的技能不变淡。
+function SearchLineBox({ results }: { results: number }) {
+  const searching = useView((v) => !!v.search.trim());
+  if (!searching) return null;
+  return (
+    <div className="px-3.5 pt-3 [&>.search-line]:mb-0">
+      <SearchLine results={results} />
+    </div>
   );
 }
 
@@ -223,7 +253,7 @@ function CollectionSection({
     <Section
       id={id}
       pick={pick}
-      head={<CollectionHead collection={collection} count={count} />}
+      head={<CollectionHead collection={collection} count={count} graph={count === undefined} />}
       sub={<CollectionNews collection={collection} />}
       headProps={drop}
     >
@@ -247,7 +277,7 @@ function GroupSection({
 }) {
   const drop = useGroupDrop(group.id);
   return (
-    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} />} headProps={drop}>
+    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} graph={count === undefined} />} headProps={drop}>
       {children}
     </Section>
   );

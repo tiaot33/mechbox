@@ -215,3 +215,29 @@ func (q queries) VersionsWithFile(ctx context.Context, path, fingerprint string)
 	}
 	return matches, nil
 }
+
+func (q queries) MarkdownFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
+	rows, err := q.q.QueryContext(ctx, `
+		SELECT version_files.path, blobs.content, version_files.mode
+		FROM version_files
+		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+		WHERE version_files.version_id = ? AND (lower(version_files.path) LIKE '%.md' OR lower(version_files.path) LIKE '%.markdown')
+		ORDER BY version_files.path
+	`, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("get markdown files: %w", wrap(err))
+	}
+	defer rows.Close()
+	var files []skillfile.File
+	for rows.Next() {
+		var file skillfile.File
+		if err := rows.Scan(&file.Path, &file.Content, &file.Mode); err != nil {
+			return nil, fmt.Errorf("get markdown files: %w", wrap(err))
+		}
+		files = append(files, file)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get markdown files: %w", wrap(err))
+	}
+	return files, nil
+}

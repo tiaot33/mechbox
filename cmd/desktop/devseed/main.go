@@ -92,10 +92,17 @@ func (s *seeder) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	superpowers, err := s.gitSource("obra-superpowers", "https://git.dev.test/obra/superpowers.git")
+	if err != nil {
+		return err
+	}
 	if err := s.commit(anthropics, "89dcaa3", "Add claude-academy-guide skill (#1554)"); err != nil {
 		return err
 	}
 	if err := s.commit(openai, "e6afb0d", "Fix imagegen skill placement under .system (#348)"); err != nil {
+		return err
+	}
+	if err := s.commit(superpowers, "22f0b46", "Release v7.0.2: brainstorming tuning, harness bootstrap fixes, SDD helper fixes (#2657)"); err != nil {
 		return err
 	}
 	webApp := filepath.Join(s.home, "code", "web-app")
@@ -113,7 +120,7 @@ func (s *seeder) run(ctx context.Context) error {
 	if err := s.requireIsolated(ctx); err != nil {
 		return err
 	}
-	return s.populate(ctx, anthropics, openai, webApp, oldProject)
+	return s.populate(ctx, anthropics, openai, superpowers, webApp, oldProject)
 }
 
 func (s *seeder) layoutHome(webApp, oldProject string) error {
@@ -164,7 +171,7 @@ func (s *seeder) requireIsolated(ctx context.Context) error {
 	return nil
 }
 
-func (s *seeder) populate(ctx context.Context, anthropics, openai gitSource, webApp, oldProject string) error {
+func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers gitSource, webApp, oldProject string) error {
 	settings, err := s.lib.AppSettings(ctx)
 	if err != nil {
 		return err
@@ -181,6 +188,9 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai gitSource, web
 		return err
 	}
 	if err := s.fetch(ctx, filepath.Join(s.home, "code", "my-skills"), "gh-fix-ci", "screenshot"); err != nil {
+		return err
+	}
+	if err := s.fetch(ctx, superpowers.input, superpowersSkills...); err != nil {
 		return err
 	}
 	if _, err := s.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: claude, Name: "internal-comms"}); err != nil {
@@ -217,6 +227,9 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai gitSource, web
 		return err
 	}
 	if err := s.group(ctx, "文档", nil, "doc", "openai-docs", "screenshot"); err != nil {
+		return err
+	}
+	if err := s.group(ctx, "写计划", nil, "brainstorming", "writing-plans", "executing-plans"); err != nil {
 		return err
 	}
 
@@ -257,6 +270,12 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai gitSource, web
 	}
 	_, err = s.lib.CheckUpdates(ctx, ids)
 	return err
+}
+
+var superpowersSkills = []string{
+	"brainstorming", "diagnosing-superpowers", "dispatching-parallel-agents", "executing-plans", "finishing-a-development-branch",
+	"receiving-code-review", "requesting-code-review", "subagent-driven-development", "systematic-debugging", "test-driven-development",
+	"using-git-worktrees", "using-superpowers", "verification-before-completion", "writing-plans", "writing-skills",
 }
 
 func (s *seeder) fetch(ctx context.Context, input string, names ...string) error {

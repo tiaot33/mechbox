@@ -19,6 +19,7 @@ import {
   type Scope,
   type SkillID,
   type UnmanagedSkill,
+  type MentionsFilter,
   type UpdateHistoryFilter,
   type VersionID,
 } from "@bindings/internal/library";
@@ -239,6 +240,13 @@ export const updateHistoryQuery = (filter: UpdateHistoryFilter) =>
   queryOptions({
     queryKey: ["update-history", filter],
     queryFn: ({ signal }) => list(wails(signal, LibraryService.ListUpdateHistory(filter))),
+  });
+
+// mentionsQuery 是关系图里集合或组的技能提到了哪些技能;技能入库、更新、移除之后随写操作重读。
+export const mentionsQuery = (filter: MentionsFilter) =>
+  queryOptions({
+    queryKey: ["mentions", filter],
+    queryFn: ({ signal }) => list(wails(signal, LibraryService.ListMentions(filter))),
   });
 
 // 这台机器上装的 WSL 发行版，与设置里选的发行版启动时没能打开的原因。

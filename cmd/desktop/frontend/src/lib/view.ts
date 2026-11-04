@@ -23,6 +23,7 @@ import {
   sortedCollections,
   sortedGroups,
   type Arrange,
+  type GraphSet,
   type Order,
   type Page,
   type PageListing,
@@ -72,6 +73,14 @@ interface ViewState {
   order: Order; // 用户拖出来的集合与组的先后，存在 localStorage,下次打开沿用
   settings: boolean;
   settingsSection: string | null; // 打开设置页时直接跳到的分区
+  back: Back | null; // 关系图页返回到哪一页、那一页滚到了哪里
+  restoreScroll: number | null; // 从关系图页返回后，列表要滚回去的位置;滚过去之后清掉
+}
+
+// Back 是打开关系图之前所在的页面与列表滚到的位置，返回时回到那里。
+export interface Back {
+  page: Page;
+  scroll: number;
 }
 
 const orderKey = "mechbox.order";
@@ -105,6 +114,8 @@ export const useView = create<ViewState>()(() => ({
   order: savedOrder(),
   settings: false,
   settingsSection: null,
+  back: null,
+  restoreScroll: null,
 }));
 
 const set = useView.setState;
@@ -133,6 +144,21 @@ function goTo(page: Page, extra: Partial<ViewState> = {}) {
   const changed = !samePage(get().page, page);
   set({ page, jump: null, flash: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
 }
+
+// openGraph 打开集合或组的关系图页(节标题上的「关系图」、左栏右键菜单);记下现在在哪一页、列表滚到了哪里，返回时回到那里。
+export function openGraph(set: GraphSet) {
+  const { page, back } = get();
+  const from = page.kind === "graph" ? back : { page, scroll: document.querySelector<HTMLElement>(".a-list")?.scrollTop ?? 0 };
+  goTo({ kind: "graph", set }, { back: from });
+}
+
+// closeGraph 从关系图页回到打开它之前的那一页，列表滚回原来的位置。
+export function closeGraph() {
+  const { back } = get();
+  goTo(back?.page ?? { kind: "all" }, { back: null, restoreScroll: back?.scroll ?? null });
+}
+
+export const doneRestoreScroll = () => set({ restoreScroll: null });
 
 // flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
 export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));

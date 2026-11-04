@@ -946,6 +946,43 @@ export enum MemberRemovalPolicy {
 };
 
 /**
+ * Mention 是一个技能的正文提到了库里另一个技能:关系图上从 From 指向 To 的一条线。
+ * From 总在要画的那组技能里;To 可以是库里其他集合的技能(关系图上用虚线框画出)。
+ */
+export interface Mention {
+    "from": SkillID;
+    "to": SkillID;
+
+    /**
+     * 提到对方的那几行原文,按文件路径、行的先后;同一个文件里相同的一行只列一次
+     */
+    "lines": MentionLine[] | null;
+}
+
+/**
+ * MentionLine 是 Mention.From 当前版本的一个 Markdown 文件里提到对方的一行。
+ */
+export interface MentionLine {
+    /**
+     * 技能内斜杠分隔的相对路径,如 SKILL.md
+     */
+    "path": string;
+
+    /**
+     * 这一行原文,去掉首尾空白
+     */
+    "text": string;
+}
+
+/**
+ * MentionsFilter 选出要画关系图的那组技能:画集合的传 CollectionID,画组的传 GroupID,两者只给一个。
+ */
+export interface MentionsFilter {
+    "collection_id"?: CollectionID;
+    "group_id"?: GroupID;
+}
+
+/**
  * MigrationOutcome 是改目录并迁移时,一处安装的结果。
  */
 export enum MigrationOutcome {

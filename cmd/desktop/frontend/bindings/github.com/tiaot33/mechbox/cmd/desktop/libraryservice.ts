@@ -153,6 +153,10 @@ export function ListGroups(): $CancellablePromise<library$0.Group[] | null> {
     return $Call.ByID(3063702138);
 }
 
+export function ListMentions(filter: library$0.MentionsFilter): $CancellablePromise<library$0.Mention[] | null> {
+    return $Call.ByID(3136146389, filter);
+}
+
 export function ListRegisteredProjects(): $CancellablePromise<library$0.RegisteredProject[] | null> {
     return $Call.ByID(2677723792);
 }

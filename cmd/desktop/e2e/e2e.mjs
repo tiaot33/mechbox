@@ -820,6 +820,23 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
   assert((await d.locator(".versions li").count()) === 1, "应有 1 个版本");
 });
 
+await step("关系图：集合的节标题打开关系图页，没有连线的技能收在下面、点了打开详情;返回技能库", async () => {
+  await closeDrawer();
+  const section = page.locator(".list-section", { has: page.locator(".section-head", { hasText: "my-skills" }) }).first();
+  await section.locator("button.graph-open").click();
+  await page.locator(".graph-page").waitFor();
+  await page.locator(".tb-crumb", { hasText: "my-skills" }).waitFor();
+  await page.locator(".graph-empty", { hasText: "这些技能之间没有互相提到" }).waitFor();
+  const loose = page.locator(".graph-loose-skill");
+  assert(JSON.stringify(await loose.allTextContents()) === JSON.stringify(["alpha", "beta", "gamma"]), "没有连线的三个技能收在图下方");
+  await loose.filter({ hasText: "alpha" }).click();
+  await drawer().locator(".md h3", { hasText: "alpha" }).waitFor();
+  await closeDrawer();
+  await page.locator("button.graph-back", { hasText: "返回技能库" }).click();
+  await page.locator('.a-list[data-page="all"]').waitFor();
+  assert((await page.locator(".graph-page").count()) === 0, "返回后不再是关系图页");
+});
+
 // ============ 分组 ============
 group("groups", ["fetch"]);
 await step("新建组(左栏 +)", async () => {
