@@ -157,6 +157,7 @@ cmd/desktop/
 ├── library_service.go      绑定服务：生命周期、数据库位置(含 MECHBOX_LIBRARY)、环境信息（含应用版本）、配置状态
 ├── settings.go             应用设置：字段、默认值，与技能库应用设置(Library.AppSettings)之间的转换
 ├── app_service.go          绑定服务：应用设置，以及自动检查更新、Dock 角标、关闭窗口后留在菜单栏
+├── transparency_darwin.go  系统是否要求减少透明度(macOS 读「降低透明度」,WKWebView 不认 prefers-reduced-transparency;其他平台见 transparency_other.go,交给前端的媒体查询)
 ├── language.go             界面语言：设置值与按系统语言解析(language_darwin.go 读 macOS 的首选语言,language_windows.go 读 Windows 的显示语言;其他平台与 server 模式见 language_other.go,读环境变量)
 ├── menu.go                 Go 这边画的菜单文字(菜单栏图标的菜单、macOS 顶部菜单栏),随界面语言切换
 ├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
@@ -175,7 +176,7 @@ cmd/desktop/
     ├── bindings/           wails3 生成的 TS 绑定与类型，入库，不手改
     └── src/
         ├── App.tsx         主界面：三栏布局与启动时的提示(第一次打开、WSL 发行版没能打开)
-        ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)、少量全局样式与按状态切换的动画
+        ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)、毛玻璃材质(glass / glass-clear)、少量全局样式与按状态切换的动画
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
         ├── components/app/ 主界面：顶栏(toolbar,外框与 Windows 的窗口按钮在 titlebar)、左栏(left-sidebar)、中间列表(skill-list/:四种页面、分节与节标题、技能行与未纳管技能行、
         │                   作用域摘要与更新列表、勾选框与勾选后的操作栏)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
@@ -218,10 +219,10 @@ cmd/desktop/
 - 悬停说明一般写 `title`;原生 `title` 在可拖动的元素(技能行、左栏的集合与组)上不出现，这些地方要悬停看截断的全文时用 `components/app/parts.tsx` 的 `Truncated`(放不下才弹 Tooltip)。shadcn 的组件代码复制进来后按本应用改过，改动写在各文件开头。
 - 颜色、圆角、阴影用 `index.css` 里的主题(`text-foreground`、`border-border`、`rounded-tile`、`bg-glass-card` 等),不写一次性的色值。
 - 铺在底板上的表面透出窗口背后的系统材质(macOS 的毛玻璃,Windows 11 22H2 起的 Mica;更早的 Windows 是 `window_windows.go` 里的不透明浅色底),只用半透明白色：`glass-tile`(三栏底板)、`glass-card`(摘要条与弹层里的卡片)。
-- 浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、吸顶的节标题、toast)用 `index.css` 的 `glass` 工具类：只换底色、滤镜、边缘与字色四样，投影经 `--glass-drop` 沿用各自原来的档位;背后内容少、上面字也少的(操作栏、toast、提示)另加 `glass-clear`,模糊轻、白色淡;表面上的 `text-foreground` 等换成墨色，状态色不变。浓度乘以设置里的毛玻璃浓度(`lib/glass.ts` 的 `applyGlassTint`)。静止、不小于 32px 的表面可以加 `ref={glassLens}`,在 Chromium(Windows 的 WebView2)上给边缘加折射;有动画或 `will-change` 的表面不加。窗口背后透明(透出 Mica),Chromium 把模糊后的背景叠在原内容上，结果半透明时没模糊的字会从玻璃底下透出来，所以启动时 `installGlass` 在 Chromium 上给所有玻璃接一个把背景变不透明的滤镜(`--glass-solid`)。玻璃的祖先不要加 `backdrop-filter`:在 Chromium 里它会截断背景，里面的玻璃模糊不到底下的内容(中间底板因此不加)。毛玻璃上高亮的一行用 `bg-glass-row-hover` / `bg-glass-row-selected`,不用灰色。加 shadcn 组件时先把默认的不透明背景和深色遮罩换成这些。
+- 浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、吸顶的节标题、toast)用 `index.css` 的 `glass` 工具类：只换底色、滤镜、边缘与字色四样，投影经 `--glass-drop` 沿用各自原来的档位;背后内容少、上面字也少的(操作栏、toast、提示)另加 `glass-clear`,模糊轻、白色淡;表面上的 `text-foreground` 等换成墨色，状态色不变。浓度乘以设置里的毛玻璃浓度(`lib/glass.ts` 的 `applyGlassTint`)。静止、不小于 32px 的表面可以加 `ref={glassLens}`,在 Chromium(Windows 的 WebView2)上给边缘加折射;有动画或 `will-change` 的表面不加。窗口背后透明(透出 Mica),Chromium 把模糊后的背景叠在原内容上，结果半透明时没模糊的字会从玻璃底下透出来，所以启动时 `installGlass` 在 Chromium 上给所有玻璃接一个把背景变不透明的滤镜(`--glass-solid`)。玻璃的祖先不要加 `backdrop-filter`:在 Chromium 里它会截断背景，里面的玻璃模糊不到底下的内容(中间底板因此不加)。毛玻璃上高亮的一行用 `bg-glass-row-hover` / `bg-glass-row-selected`,不用灰色。系统要求减少透明度或开了强制颜色时，玻璃换成不透明的白底，设置里的浓度滑块禁用;macOS 的 WKWebView 不认 `prefers-reduced-transparency`,由 `AppService.ReduceTransparency` 读系统设置，启动和窗口重新获得焦点时在根元素上标 `data-reduce-transparency`。加 shadcn 组件时先把默认的不透明背景和深色遮罩换成这些。
 - 顶栏(`components/app/titlebar.tsx`)就是窗口的标题栏：整条是拖动区，macOS 上左端给红绿灯留位置;Windows 上窗口没有系统标题栏，最右端画最小化、最大化、关闭三个按钮(照 Windows 11 的样子，字形用系统的 Segoe Fluent Icons),双击空白处最大化或还原，弹窗开着时也能用。Windows 上调整大小只能从窗口内侧边缘的几像素开始(Wails 前端运行时处理),窗口外侧没有系统的调整区。
 - 禁用的白底控件只把文字调淡，不整体降透明度，否则白色按钮会融进毛玻璃背景;蓝色主按钮禁用时降透明度。
 - 按钮的 `loading` 让文字留着占位、上面盖一个转圈，按钮宽度不变;弹窗贴着窗口上部出现，内容变高时只往下长。
 - 详情抽屉是非模态的 Radix Dialog,在主体区域里原地渲染、没有遮罩：抽屉开着时其他地方照常可用，点别的技能行切换、再点当前那一行关闭，Esc 或关闭按钮也能关。弹窗(`Modal`)是模态的，叠了几层时 Esc 只关最上面一层。
-- `index.css` 只放工具类管不到的：页面基础样式、窗口底色(`window-backdrop`)、渲染出来的 Markdown(`.md`)、拖放中的高亮(按 `data-dragging`、`data-drop-hover` 等属性),以及状态圈(`.status-mark`)与 toast(`.swipe-toast`)按状态切换的动画。
+- `index.css` 只放工具类管不到的：页面基础样式、窗口底色(`window-backdrop`)、毛玻璃材质(`@property` 登记的 token 与 `glass`、`glass-clear` 工具类，以及要压过 `glass` 的状态，集中写在层外)、渲染出来的 Markdown(`.md`)、拖放中的高亮(按 `data-dragging`、`data-drop-hover` 等属性),以及状态圈(`.status-mark`)与 toast(`.swipe-toast`)按状态切换的动画。
 - e2e 按两类钩子找元素：通用控件用 `data-slot`(`dialog-content`、`badge`、`list-row` 等)或角色(`role="switch"`、`aria-pressed`);应用自己的结构用类名(`skill-row`、`section-head`、`nav-item`、`set-row` 等)。这些类名不挂样式，改结构时保留。

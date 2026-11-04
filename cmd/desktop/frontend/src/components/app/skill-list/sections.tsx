@@ -137,7 +137,7 @@ export function CollectionHead({ collection, count }: { collection: Collection; 
         {local && <WSLBadge path={collection.source.label} />}
       </span>
       {count ? <Counts>{count}</Counts> : <UseCounts skills={skills} />}
-      <span className="min-w-0 grow truncate text-[11px] text-subtle" title={facts.join(" · ")}>
+      <span className="min-w-0 grow truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
         {facts.join(" · ")}
       </span>
       <span className="flex shrink-0 items-center gap-1">
@@ -211,7 +211,7 @@ export function GroupHead({ group, count }: { group: Group; count?: string }) {
             ))}
           </>
         ) : (
-          <span className="text-subtle">{t.list.notGroupInstalled}</span>
+          <span className="text-muted-foreground">{t.list.notGroupInstalled}</span>
         )}
       </span>
       <span className="flex shrink-0 items-center gap-1">

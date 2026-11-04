@@ -168,12 +168,13 @@
      在 Chromium 上最后再接一道把背景变成不透明的滤镜(--glass-solid,见 lib/glass.ts),不然窗口背后透明时，
      没模糊的原内容会从玻璃底下透出来;静止的表面换成镜边折射(--glass-lens,lib/glass.ts 的 glassLens),它的输出同样不透明。
    - 边缘：左上亮、右下弱一些的内描边，一圈 0.5px 的白与一圈 0.5px 的深色轮廓，加上沿边缘往里的柔光(上、左亮，下边略暗);
-     投影各表面沿用原来的档位，经 --glass-drop 传入。
+     投影各表面沿用原来的档位，经 --glass-drop 传入;拖放中的插入线这类状态经 --glass-state 叠在边缘上，不把边缘整个换掉。
    - 字色：表面上的字一律用墨色(--glass-ink 标题与图标,--glass-ink-secondary 次要文字),把 foreground、foreground-secondary、
      muted-foreground 换成墨色;subtle(禁用、占位)与各状态色(失败的红等)不变。
    - 背后内容少、上面字也少的表面(操作栏、toast、提示)另加 glass-clear:模糊轻、白色淡，背后的颜色与形状透得出来。
-   - 系统要求减少透明度或开了强制颜色时，换成同样的白色不透明底，不模糊。
-   各项数值都用 @property 登记，浓度、提亮在状态之间平滑过渡。 */
+   - 系统要求减少透明度或开了强制颜色时，换成同样的白色不透明底，不模糊。macOS 的 WKWebView 不认 prefers-reduced-transparency,
+     由根元素上的 data-reduce-transparency 标出(lib/glass.ts 问 Go 端)。
+   各项数值都用 @property 登记，浓度在状态之间平滑过渡;悬停时提亮的表面(操作栏、toast)自己加 --glass-lift 的过渡。 */
 @property --glass-tint {
   syntax: "<number>";
   inherits: true;
@@ -232,11 +233,16 @@
     inset 0 12px 14px -12px rgb(255 255 255 / calc(0.7 * var(--glass-k))),
     inset 12px 0 14px -12px rgb(255 255 255 / calc(0.5 * var(--glass-k))),
     inset 0 -12px 14px -12px rgb(0 0 0 / calc(0.05 * var(--glass-k))),
+    var(--glass-state, 0 0 #0000),
     var(--glass-drop, 0 6px 24px rgb(0 0 0 / 0.08));
   color: var(--glass-ink);
-  transition: --glass-lift 160ms ease;
 
   @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+    background: rgb(255 255 255);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-reduce-transparency] & {
     background: rgb(255 255 255);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -248,8 +254,8 @@
   --glass-alpha: 0.35;
 }
 
-/* 这两处要压过 glass 的底色与边框，写在层外。
-   左栏点了集合或组，滚到的那一节的标题闪一下;失败的 toast 保留红边红字。 */
+/* 要压过 glass 的底色、边框与字色的状态，集中写在层外(glass 在 utilities 层，components 层的规则压不过它):
+   左栏点了集合或组，滚到的那一节的标题闪一下;失败的 toast 保留红边红字;拖到节标题上时的浅蓝底与蓝字(插入线经 --glass-state)。 */
 .list-section > .section-head {
   transition: background-color 0.6s ease-out;
 }
@@ -260,6 +266,14 @@
 .swipe-toast[data-tone="error"] .swipe-toast-card {
   border-color: var(--color-bad-border);
   color: var(--color-bad-strong);
+}
+[data-dragging] .glass[data-drop-hover] {
+  background: var(--color-primary-soft);
+  --glass-ink: var(--color-primary);
+}
+[data-dragging] .glass[data-drop-hover][data-already] {
+  background: #f3f4f6;
+  --glass-ink: var(--color-foreground-secondary);
 }
 
 @layer components {
@@ -373,9 +387,11 @@
   }
   [data-dragging] [data-drop-order="before"] {
     box-shadow: inset 0 2px 0 var(--color-primary);
+    --glass-state: inset 0 2px 0 var(--color-primary);
   }
   [data-dragging] [data-drop-order="after"] {
     box-shadow: inset 0 -2px 0 var(--color-primary);
+    --glass-state: inset 0 -2px 0 var(--color-primary);
   }
 }
 
@@ -455,7 +471,14 @@
 }
 
 /* 可下滑关掉的 toast(components/ui/swipe-toast.tsx):升起、收起的阶段与底边的引线。
-   新出现时从底部升起(支持 @starting-style 时用它，否则等 data-mounted);收起时沉下去淡出。 */
+   新出现时从底部升起(支持 @starting-style 时用它，否则等 data-mounted);收起时沉下去淡出。
+   升降在外层(.swipe-toast-lift)做位移，淡入淡出放在卡片自己身上(--st-fade × 下滑时的 --st-swipe):
+   卡片是毛玻璃，祖先的 opacity 小于 1 时 Chromium 截断它看到的背景，过渡中会变成一块深灰。 */
+@property --st-fade {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
 @layer components {
   .swipe-toast {
     --st-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -465,33 +488,46 @@
     --st-fuse: var(--color-bad);
   }
   .swipe-toast-lift {
-    opacity: 1;
     transform: translateY(0);
+    transition: transform 400ms var(--st-ease-out);
+  }
+  .swipe-toast-card {
+    --st-fade: 1;
+    opacity: calc(var(--st-fade) * var(--st-swipe, 1));
     transition:
-      transform 400ms var(--st-ease-out),
-      opacity 240ms ease;
+      --st-fade 240ms ease,
+      --glass-lift 160ms ease;
   }
   @starting-style {
     .swipe-toast-lift {
-      opacity: 0;
       transform: translateY(100%);
+    }
+    .swipe-toast-card {
+      --st-fade: 0;
     }
   }
   .swipe-toast[data-mounted="false"] .swipe-toast-lift,
   .swipe-toast[data-phase="closing"] .swipe-toast-lift {
-    opacity: 0;
     transform: translateY(100%);
   }
+  .swipe-toast[data-mounted="false"] .swipe-toast-card,
+  .swipe-toast[data-phase="closing"] .swipe-toast-card,
+  .swipe-toast[data-phase="gone"] .swipe-toast-card {
+    --st-fade: 0;
+  }
   .swipe-toast[data-phase="closing"] .swipe-toast-lift {
+    transition: transform 280ms var(--st-ease-out);
+  }
+  .swipe-toast[data-phase="closing"] .swipe-toast-card {
     transition:
-      transform 280ms var(--st-ease-out),
-      opacity 200ms ease;
+      --st-fade 200ms ease,
+      --glass-lift 160ms ease;
   }
   .swipe-toast[data-phase="gone"] .swipe-toast-lift {
-    opacity: 0;
     visibility: hidden;
   }
-  .swipe-toast[data-instant] .swipe-toast-lift {
+  .swipe-toast[data-instant] .swipe-toast-lift,
+  .swipe-toast[data-instant] .swipe-toast-card {
     transition-duration: 0s;
   }
   .swipe-toast[data-phase="closing"] .swipe-toast-card,
@@ -526,7 +562,10 @@
   @media (prefers-reduced-motion: reduce) {
     .swipe-toast-lift {
       transform: none !important;
-      transition: opacity 200ms ease;
+      transition: none;
+    }
+    .swipe-toast-card {
+      transition: --st-fade 200ms ease;
     }
   }
 }

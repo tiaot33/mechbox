@@ -85,7 +85,7 @@ export function AgentPicker({ target, taken }: { target: InstallTarget; taken: s
       data-agent={a.code}
       className={cn(
         "agent-option flex items-center gap-2 rounded-md px-2 py-1 text-xs",
-        can(a.code) ? "cursor-pointer hover:bg-black/5" : "text-subtle",
+        can(a.code) ? "cursor-pointer hover:bg-glass-row-hover" : "text-subtle",
       )}
     >
       <input

@@ -10,10 +10,54 @@
 // 其他内核(macOS 的 WKWebView、Linux 的 WebKitGTK)保留只用 CSS 的毛玻璃。
 // 位移图按圆角和镜边宽度切成九块：四个角、四条边(一个像素宽，拉伸铺满)和中间(不动),同一组圆角与镜边只生成一次;
 // 表面大小变了只挪各块的位置，不重新生成。
+//
+// 不透明的底：系统要求减少透明度或开了强制颜色时，毛玻璃换成同样颜色的不透明底(index.css)。macOS 的 WKWebView 不认
+// prefers-reduced-transparency,改问 Go 端(AppService.ReduceTransparency),在根元素上加 data-reduce-transparency。
+import { useSyncExternalStore } from "react";
+import { AppService } from "@bindings/cmd/desktop";
 
-// applyGlassTint 把设置里的浓度(0–1.5,1 是设计的样子)写到根元素上，所有毛玻璃表面跟着平滑过渡。
-export function applyGlassTint(tint: number) {
-  document.documentElement.style.setProperty("--glass-tint", String(tint));
+// applyGlassTint 把设置里的浓度(0–1.5,1 是设计的样子)写到根元素上，所有毛玻璃表面跟着平滑过渡;
+// instant 时不过渡(启动时写入保存的浓度，免得先按 100% 画再变过去)。
+export function applyGlassTint(tint: number, instant = false) {
+  const root = document.documentElement;
+  if (instant) root.style.transition = "none";
+  root.style.setProperty("--glass-tint", String(tint));
+  if (instant) {
+    void getComputedStyle(root).getPropertyValue("--glass-tint");
+    root.style.removeProperty("transition");
+  }
+}
+
+const opaqueQuery = "(prefers-reduced-transparency: reduce), (forced-colors: active)";
+const opaqueListeners = new Set<() => void>();
+
+function syncReduceTransparency() {
+  AppService.ReduceTransparency().then(
+    (on) => {
+      const root = document.documentElement;
+      if (root.hasAttribute("data-reduce-transparency") === on) return;
+      root.toggleAttribute("data-reduce-transparency", on);
+      opaqueListeners.forEach((f) => f());
+    },
+    () => {},
+  );
+}
+
+function glassOpaque() {
+  return matchMedia(opaqueQuery).matches || document.documentElement.hasAttribute("data-reduce-transparency");
+}
+
+// useGlassOpaque 是毛玻璃现在是否显示为不透明的底(系统要求减少透明度或开了强制颜色),这时浓度不起作用。
+export function useGlassOpaque() {
+  return useSyncExternalStore((changed) => {
+    const query = matchMedia(opaqueQuery);
+    query.addEventListener("change", changed);
+    opaqueListeners.add(changed);
+    return () => {
+      query.removeEventListener("change", changed);
+      opaqueListeners.delete(changed);
+    };
+  }, glassOpaque);
 }
 
 // rimWidth 是镜边的宽度：卡片上 44px,窄的表面取短边的 1/3.5,不小于 4px。
@@ -21,10 +65,15 @@ export function rimWidth(width: number, height: number) {
   return Math.max(4, Math.min(44, Math.min(width, height) / 3.5));
 }
 
-// lensOffset 是离边缘 d 的一点往里看多远：贴边时最远(1.1 倍镜边宽),到镜边内沿减到 0,像厚玻璃的边。
+// maxShift 是镜边最远往里看多远(贴着边缘时):1.1 倍镜边宽。位移曲线、位移图的编码和滤镜的 scale 都按它算。
+function maxShift(rim: number) {
+  return 1.1 * rim;
+}
+
+// lensOffset 是离边缘 d 的一点往里看多远：贴边时最远(maxShift),到镜边内沿减到 0,像厚玻璃的边。
 export function lensOffset(d: number, rim: number) {
   if (d >= rim) return 0;
-  return 1.1 * rim * Math.pow(1 - Math.max(0, d) / rim, 2.6);
+  return maxShift(rim) * Math.pow(1 - Math.max(0, d) / rim, 2.6);
 }
 
 // tileSize 是角上那块的边长：圆角与镜边取大的。
@@ -56,7 +105,7 @@ export function lensTile(tile: LensTile, radius: number, rim: number) {
   const height = tile === "l" || tile === "r" ? 1 : k;
   const right = tile === "tr" || tile === "br" || tile === "r";
   const bottom = tile === "bl" || tile === "br" || tile === "b";
-  const max = 1.1 * rim;
+  const max = maxShift(rim);
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -83,8 +132,11 @@ function lensSupported() {
 
 const opaque = "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0 1";
 
-// installGlass 在 Chromium 上建 --glass-solid 用的滤镜，启动时调用一次。只调透明度、不用 feImage,有动画的表面也能用。
+// installGlass 在启动时调用一次：问一次系统是否要求减少透明度，窗口重新获得焦点时再问(去系统设置里切了开关再回来);
+// 在 Chromium 上建 --glass-solid 用的滤镜，只调透明度、不用 feImage,有动画的表面也能用。
 export function installGlass() {
+  syncReduceTransparency();
+  window.addEventListener("focus", syncReduceTransparency);
   if (!lensSupported()) return;
   const svg = svgElement("svg", { width: 0, height: 0, "aria-hidden": "true" }) as SVGSVGElement;
   svg.style.position = "absolute";
@@ -153,7 +205,7 @@ function buildFilter(svg: SVGSVGElement, id: string, urls: Record<LensTile, stri
   }
   const merge = svgElement("feMerge", { result: "map" }, filter);
   for (const name of ["flat", ...lensTiles]) svgElement("feMergeNode", { in: name }, merge);
-  const scale = 2 * 1.1 * rim;
+  const scale = 2 * maxShift(rim);
   channels.forEach((c, i) => {
     svgElement(
       "feDisplacementMap",

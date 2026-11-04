@@ -50,15 +50,15 @@ func (i CheckInterval) period() (time.Duration, bool) {
 	return 0, false
 }
 
+func (i CheckInterval) valid() bool {
+	_, timed := i.period()
+	return timed || i == CheckOnOpen
+}
+
 const maxGlassTint = 1.5
 
 func glassTintValid(v float64) bool {
 	return v >= 0 && v <= maxGlassTint
-}
-
-func (i CheckInterval) valid() bool {
-	_, timed := i.period()
-	return timed || i == CheckOnOpen
 }
 
 const firstOpenDoneKey = "first_open_done"

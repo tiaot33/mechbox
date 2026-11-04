@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
-import { applyGlassTint } from "@/lib/glass";
+import { applyGlassTint, useGlassOpaque } from "@/lib/glass";
 import { ui } from "@/lib/ui";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, wslDistroErrorQuery, wslDistrosQuery } from "@/lib/library";
@@ -206,9 +206,11 @@ export function AboutSection() {
 
 // GlassTintRow 是毛玻璃浓度：拖动时界面上的毛玻璃跟着变，松手才保存;保存失败退回原设置时也跟着退回。
 // 设置页上没有毛玻璃表面，旁边放一块预览：底下垫几行像列表的色条，上面一块玻璃写着当前浓度。
+// 系统要求减少透明度或开了强制颜色时，毛玻璃是不透明的底，浓度不起作用：滑块禁用，说明里写明原因。
 function GlassTintRow({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
   const t = useT().settings;
   const [shown, setShown] = useState(value);
+  const opaque = useGlassOpaque();
   useEffect(() => {
     setShown(value);
     applyGlassTint(value);
@@ -217,9 +219,11 @@ function GlassTintRow({ value, onCommit }: { value: number; onCommit: (v: number
     <SetRow className="glass-tint-row">
       <div className="grow">
         <div>{t.glassTint}</div>
-        <Hint className="mt-0.5">{t.glassTintDesc}</Hint>
+        <Hint className="mt-0.5">{opaque ? t.glassTintOpaque : t.glassTintDesc}</Hint>
       </div>
       <Slider
+        disabled={opaque}
+        valueText={`${Math.round(shown * 100)}%`}
         className="w-[140px] shrink-0"
         aria-label={t.glassTint}
         min={0}

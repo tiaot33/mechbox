@@ -51,7 +51,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[2] flex justify-center px-4">
-      <div ref={glassLens} className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 glass glass-clear rounded-xl border px-2 py-1.5 [--glass-drop:0_8px_28px_rgba(17,24,39,0.16)] hover:[--glass-lift:1.14]">
+      <div ref={glassLens} className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 glass glass-clear rounded-xl border px-2 py-1.5 [--glass-drop:0_8px_28px_rgba(17,24,39,0.16)] [transition:--glass-lift_160ms_ease] hover:[--glass-lift:1.14]">
         <span className="px-1.5 text-[12px] font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
         <Button size="sm" variant="ghost" onClick={() => void chooseAndInstall(ids, initial)}>
           <Icon name="plus" />

@@ -124,6 +124,12 @@ func (a *AppService) Language() Language {
 	return a.Settings().Language.resolve()
 }
 
+// ReduceTransparency 返回系统是否要求减少透明度：macOS 上读系统设置里的「降低透明度」(WKWebView 不认 prefers-reduced-transparency);
+// 其他平台返回 false,由前端的媒体查询判断。前端在启动和窗口重新获得焦点时问一次，为真时毛玻璃换成不透明的底。
+func (a *AppService) ReduceTransparency() bool {
+	return systemReducesTransparency()
+}
+
 // SaveSettings 保存设置并立即生效。前端每次传完整的设置，一次一次依次保存。
 // 改了全局目录所在的 WSL 发行版时先交给技能库，打不开就不保存、返回错误，技能库仍用原来的全局目录。
 func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Settings, error) {
