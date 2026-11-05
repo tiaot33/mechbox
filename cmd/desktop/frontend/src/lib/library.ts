@@ -58,8 +58,9 @@ export interface Snapshot {
 
 // ---------- 查询缓存 ----------
 
-// 缓存里的数据只在写操作之后(reloadLibrary)或用户点重试时重读：窗口重新获得焦点不重读，失败也不自动重试，
-// 免得 Go 端报的错被悄悄重试掉。
+// 缓存里的数据只在 reloadLibrary 时重读：写操作之后、用户点重试时，以及窗口切回前台时(App.tsx 的 focus 监听)。
+// TanStack 自己的 refetchOnWindowFocus 关着，失败也不自动重试，免得 Go 端报的错被悄悄重试掉；
+// 切回窗口时，上次读失败、界面还在用的查询会随 reloadLibrary 再读一次。
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false },

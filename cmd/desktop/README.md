@@ -192,7 +192,7 @@ cmd/desktop/
         │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本、macOS 菜单「检查新版本…」的结果)
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，graph.ts 关系图的圆点、连线与原文片段，graph-layout.ts 力导向布局与点了技能后的排法(都有单元测试),diff.ts 改了的文件与逐行差异(左右对比、行内对比，有单元测试),
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
-                            content.ts 技能文件内容解码与渲染,glass.ts 毛玻璃浓度与边缘折射(有单元测试),paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏的样子),window.ts 标题栏行为(拖动区、Windows 上的双击最大化与边缘调整大小),
+                            content.ts 技能文件内容解码与渲染,settled.ts 状态圈的结束结果与对勾或叉停留多久(有单元测试),glass.ts 毛玻璃浓度与边缘折射(有单元测试),paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏的样子),window.ts 标题栏行为(拖动区、Windows 上的双击最大化与边缘调整大小),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)
 ```
 

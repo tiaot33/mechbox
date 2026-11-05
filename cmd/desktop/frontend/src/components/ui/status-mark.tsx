@@ -20,7 +20,13 @@ export function useMarkStatus(running: boolean, settled: Settled | null): MarkSt
   return settled && settled.id !== dismissed ? (settled.failed ? "failed" : "done") : null;
 }
 
-const UI = { type: "spring", duration: 0.3, bounce: 0 } as const;
+// 结束时外圈合拢用 MARK_CLOSE_MS,合拢后再用 MARK_DRAW_MS 画出对勾或叉;MARK_DRAWN_MS 是从结束到对勾或叉画完。
+// CSS 里的描画延迟与时长经 style 的 --sm-draw-delay、--sm-draw 取这两个值。
+export const MARK_CLOSE_MS = 300;
+export const MARK_DRAW_MS = 260;
+export const MARK_DRAWN_MS = MARK_CLOSE_MS + MARK_DRAW_MS;
+
+const UI = { type: "spring", duration: MARK_CLOSE_MS / 1000, bounce: 0 } as const;
 const CHECK = "M7.5 12.25 10.5 15.25 16.75 8.75";
 const CROSS = "M8.5 8.5 15.5 15.5M15.5 8.5 8.5 15.5";
 const ARC = 0.68; // running 时弧占整圈的比例
@@ -99,7 +105,7 @@ export function StatusMark({
       width={size}
       height={size}
       aria-hidden
-      style={{ "--sm-stroke": strokeWidth } as React.CSSProperties}
+      style={{ "--sm-stroke": strokeWidth, "--sm-draw-delay": `${MARK_CLOSE_MS}ms`, "--sm-draw": `${MARK_DRAW_MS}ms` } as React.CSSProperties}
     >
       <circle className="status-mark-track" cx="12" cy="12" r={r} transform="rotate(-90 12 12)" />
       <circle ref={ring} className="status-mark-ring" cx="12" cy="12" r={r} transform="rotate(-90 12 12)" />

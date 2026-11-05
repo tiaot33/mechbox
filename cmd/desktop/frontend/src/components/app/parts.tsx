@@ -6,6 +6,7 @@ import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Spinner } from "@/components/ui/spinner";
 import { useMarkStatus } from "@/components/ui/status-mark";
+import { SETTLED_HOLD } from "@/lib/settled";
 import { useCheckMark } from "@/features/update/check";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useT } from "@/lib/i18n";
@@ -210,7 +211,8 @@ export function BusyMark({ checks = false }: { checks?: boolean }) {
       status={status}
       size={14}
       title={busy ? t.common.working : undefined}
-      className={cn("text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_1.1s_reverse_both]")}
+      className={cn("text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_reverse_both]")}
+      style={busy ? undefined : { animationDelay: `${SETTLED_HOLD - 200}ms` }}
     />
   );
 }
