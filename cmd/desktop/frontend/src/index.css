@@ -25,6 +25,9 @@
   --color-border-strong: #d1d5db;
   --color-border-subtle: #eceef1;
   --color-hairline: rgba(17, 24, 39, 0.07);
+  /* 渲染出来的 Markdown 里浅灰的底：代码块、表头与 mermaid 图的节点用 surface,图里第二层用 surface-alt。 */
+  --color-surface: #f6f7f9;
+  --color-surface-alt: #eef0f3;
 
   --color-primary: #0071e3;
   --color-primary-hover: #0066cc;
@@ -288,7 +291,7 @@
 }
 
 @layer components {
-  /* 技能文件渲染出来的 Markdown:内容是注入的 HTML,只能按元素写样式。 */
+  /* 技能文件与更新说明渲染出来的 Markdown(components/app/markdown.tsx):react-markdown 生成的元素没有类名，只能按元素写样式。 */
   .md {
     font-size: 12.5px;
     line-height: 1.6;
@@ -342,7 +345,7 @@
   .md pre {
     margin: 6px 0;
     padding: 8px 10px;
-    background: #f6f7f9;
+    background: var(--color-surface);
     border: 1px solid var(--color-border-subtle);
     border-radius: 8px;
     overflow-x: auto;
@@ -380,10 +383,6 @@
     margin: 0 6px 0 -16px;
     vertical-align: -1px;
   }
-  .md-table {
-    margin: 6px 0;
-    overflow-x: auto;
-  }
   /* anywhere 会把每列的最小宽度算成一个字，短的列被挤成一字一行;break-word 只在放不下时断开。 */
   .md table {
     border-collapse: collapse;
@@ -401,13 +400,10 @@
     white-space: nowrap;
     font-weight: 600;
     color: var(--color-foreground);
-    background: #f6f7f9;
+    background: var(--color-surface);
   }
-  .md-image-alt {
-    color: var(--color-muted-foreground);
-    font-style: italic;
-  }
-  /* 画出来的图:Pele 的配色走 --pele-* 变量,Graphviz 的 SVG 自带配色，按宽度缩小、不放大。 */
+  /* 画出来的图:Pele 的配色走 --pele-* 变量，按宽度排版;Graphviz 的 SVG 自带配色，按正文字号定宽(见 markdown.tsx 的 fitDot),
+     放不下时和表格一样横向滚动。 */
   .md-diagram {
     margin: 6px 0;
     padding: 8px;
@@ -415,23 +411,20 @@
     border-radius: 8px;
     background: #fff;
     overflow-x: auto;
-    text-align: center;
     --pele-font: var(--font-sans);
     --pele-font-mono: var(--font-mono);
     --pele-fg: var(--color-foreground);
     --pele-muted: var(--color-muted-foreground);
     --pele-line: var(--color-foreground-secondary);
-    --pele-surface: #f6f7f9;
-    --pele-surface-alt: #eef0f3;
+    --pele-surface: var(--color-surface);
+    --pele-surface-alt: var(--color-surface-alt);
     --pele-border: var(--color-border-strong);
     --pele-accent: var(--color-primary);
   }
   .md-diagram svg {
     max-width: 100%;
     height: auto;
-  }
-  .md-diagram-failed {
-    color: var(--color-muted-foreground);
+    margin: 0 auto;
   }
 
   /* 技能库页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */

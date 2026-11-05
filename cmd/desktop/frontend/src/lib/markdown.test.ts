@@ -10,6 +10,13 @@ describe("linkTarget", () => {
     expect(linkTarget("mailto:a@example.com")).toEqual({ url: "mailto:a@example.com" });
   });
 
+  it("外部网址里 Wails 当成 shell 元字符拒绝的字符写成百分号编码", () => {
+    expect(linkTarget("https://example.com/odata/People?$top=5")).toEqual({ url: "https://example.com/odata/People?%24top=5" });
+    expect(linkTarget("https://example.com/docs;version=2")).toEqual({ url: "https://example.com/docs%3Bversion=2" });
+    expect(linkTarget("https://example.com/a|b`c\\d<e>")).toEqual({ url: "https://example.com/a%7Cb%60c%5Cd%3Ce%3E" });
+    expect(linkTarget("https://example.com/?q=%24")).toEqual({ url: "https://example.com/?q=%24" });
+  });
+
   it("相对路径按当前文件所在目录解析到技能里的文件", () => {
     expect(linkTarget("references/flowcharts.md", "SKILL.md", files)).toEqual({ file: "references/flowcharts.md" });
     expect(linkTarget("./flowcharts.md#top", "references/a b.md", files)).toEqual({ file: "references/flowcharts.md" });

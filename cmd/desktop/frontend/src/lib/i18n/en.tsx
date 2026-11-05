@@ -50,6 +50,7 @@ export const en = {
     close: "Close",
     unknown: "Unknown",
     diagramFailed: "This diagram couldn't be drawn. Its source is shown below.",
+    openLinkFailed: (url: string) => `Couldn't open this link: ${url}`,
   },
 
   errors: {

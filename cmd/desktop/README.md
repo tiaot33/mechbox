@@ -184,7 +184,7 @@ cmd/desktop/
         │                   作用域摘要与更新列表、勾选框与勾选后的操作栏)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
         │                   关系图页的图(mention-graph/:SVG 画圆点和线,d3-zoom 平移缩放，线的原文提示),
         │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx),
-        │                   技能文件与更新说明的 Markdown(markdown.tsx:react-markdown + GFM,代码高亮,mermaid 图用 Pele、dot 图用 Graphviz 画);layout.ts 是三栏的公共样式
+        │                   技能文件与更新说明的 Markdown(markdown.tsx:react-markdown + GFM,代码高亮,mermaid 图用 Pele 画,dot 图用 Graphviz 在 graphviz.worker.ts 里画);layout.ts 是三栏的公共样式
         ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
         │                   install/ 安装、卸载、组安装、重新安装与照着装(照着其他 Agent、其他项目),update/ 检查更新、更新计划、更新、回滚与更新历史，以及比较弹窗(version-compare,版本历史、更新历史和更新计划都打开它)与文件差异(file-diff),

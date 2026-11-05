@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { Icon } from "@/components/app/icons";
-import { Markdown } from "@/components/app/markdown";
+import { Markdown, type SkillFiles } from "@/components/app/markdown";
 
 // useVersionFile 读某个版本里的一个文件:content 还没读到(或没选文件)时为 undefined,二进制或读取失败时为 null;
 // translation 是界面语言的译文，没有时为 undefined。
@@ -49,18 +49,30 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
   const shown = translation && !original ? translation : content;
   const isMarkdown = path.toLowerCase().endsWith(".md");
   const markdown = isMarkdown && !raw;
-  const paths = useMemo(() => files.map((f) => f.path), [files]);
+  const card = useRef<HTMLElement>(null);
   const select = useCallback((next: string) => {
     shownPath.current = next;
     setPath(next);
     setOriginal(false);
   }, []);
+  // 点了文档里指向技能内其他文件的链接：换成那个文件，并把卡片滚到顶，从新文件的开头看起。
+  const linked = useMemo<SkillFiles>(
+    () => ({
+      current: path,
+      all: files.map((f) => f.path),
+      open: (next) => {
+        select(next);
+        card.current?.scrollIntoView({ block: "start" });
+      },
+    }),
+    [path, files, select],
+  );
   const translate = async () => {
     const at = selected;
     if ((await translateFile(versionID, at, skillName)) && shownPath.current === at) setOriginal(false);
   };
   return (
-    <Card>
+    <Card ref={card}>
       <CardHeader title={t.files} note={t.filesNote(files.length)} />
       <div className="mb-2">
         <FileTree nodes={fileTree(files)} selected={path} onSelect={select} />
@@ -69,7 +81,7 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
         <Notice>{tt.common.binary}</Notice>
       ) : (
         <>
-          {markdown ? <Markdown text={shown} path={path} files={paths} onOpenFile={select} /> : <Code>{shown}</Code>}
+          {markdown ? <Markdown text={shown} files={linked} /> : <Code>{shown}</Code>}
           <div className="file-actions flex items-center gap-3">
             {isMarkdown && (
               <Button variant="link" onClick={() => setRaw(!raw)}>
