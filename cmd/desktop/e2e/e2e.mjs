@@ -854,6 +854,41 @@ await step("详情：点另一个技能切换，点勾选框和节标题不关�
   await card("gamma").locator(".pick-box").click();
 });
 
+await step("详情：换技能时收起上一个技能的版本文件;写备注、开着下拉框时点空白处不关;作用域页的摘要条不算空白", async () => {
+  await openDrawer("alpha");
+  await btn(drawer().locator(".versions"), "查看文件").click();
+  await drawer().locator("b", { hasText: "版本 1 的文件" }).waitFor();
+  await card("beta").click();
+  await drawer().locator('[data-slot="sheet-title"]', { hasText: /^beta$/ }).waitFor();
+  assert((await drawer().locator("b", { hasText: /的文件$/ }).count()) === 0, "换技能后不再显示上一个技能的版本文件");
+
+  const blank = () => page.locator('.a-list[data-page="all"]').click({ position: { x: 4, y: 4 } });
+  const isOpen = async () => (await drawer().getAttribute("data-state")) === "open";
+  await btn(drawer(), "添加备注").click();
+  await drawer().locator("textarea").fill("还没保存的备注");
+  await blank();
+  assert(await isOpen(), "写备注时点空白处不关详情");
+  assert((await drawer().locator("textarea").inputValue()) === "还没保存的备注", "备注草稿还在");
+  await btn(drawer(), "取消").click();
+
+  await drawer().locator(".agent-pick").click();
+  await page.locator(".agent-menu").waitFor();
+  await blank();
+  await page.locator(".agent-menu").waitFor({ state: "detached" });
+  assert(await isOpen(), "开着下拉框时点空白处只收起下拉框");
+  await blank();
+  await drawer().waitFor({ state: "detached" });
+
+  await selectScope("Claude Code");
+  await card("alpha").first().click();
+  await drawer().waitFor();
+  await page.locator(".a-scope-sum").first().click();
+  assert(await isOpen(), "点作用域页的摘要条不关详情");
+  await closeDrawer();
+  await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
+  await page.locator('.a-list[data-page="all"]').waitFor();
+});
+
 // ============ 分组 ============
 group("groups", ["fetch"]);
 await step("新建组(左栏 +)", async () => {

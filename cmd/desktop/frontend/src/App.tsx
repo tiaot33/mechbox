@@ -1,8 +1,7 @@
 // 主界面：三栏布局——左栏页面与集合、组，中间是当前页面(技能库 / 更新 / 作用域),右栏作用域，顶部统一工具栏;
 // 点技能行打开右侧详情抽屉;左栏"设置"把三栏换成设置页。界面状态在 lib/view,各栏自己取;
 // 写操作经 features/ 里的流程与 lib/ui 的 run 执行，完成后让查询缓存失效重读。
-import { useEffect, useRef, useState } from "react";
-import type { Skill } from "@bindings/internal/library";
+import { useEffect, useRef } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
 import { LeftSidebar } from "@/components/app/left-sidebar";
@@ -95,9 +94,6 @@ function Main() {
   }, [s]);
 
   const drawerSkill = s && drawer !== null ? s.skills.find((x) => x.id === drawer) : undefined;
-  // 抽屉关上时先播完退场动画再卸载：这期间仍画最后显示的那个技能。
-  const [shownSkill, setShownSkill] = useState<Skill>();
-  if (drawerSkill && drawerSkill !== shownSkill) setShownSkill(drawerSkill);
 
   if (s && settings) {
     return (
@@ -132,14 +128,7 @@ function Main() {
                 <ScopePanel />
               </ResizablePane>
             )}
-            {shownSkill && (
-              <SkillDrawer
-                skill={drawerSkill ?? shownSkill}
-                open={drawerSkill !== undefined}
-                onClose={closeDrawer}
-                onClosed={() => setShownSkill(undefined)}
-              />
-            )}
+            <SkillDrawer skill={drawerSkill} onClose={closeDrawer} />
           </>
         )}
       </div>

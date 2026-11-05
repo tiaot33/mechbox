@@ -40,13 +40,18 @@ import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRow
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
 
-// notBlank 是列表里不算空白的地方：技能行、节标题与各种控件。
-const notBlank = "article, .section-head, button, a, input, textarea, select, label, [role]";
+// notBlank 是列表里不算空白的地方：技能行、节标题、作用域页与项目页顶部的摘要条，以及各种控件。
+// 列表里新加能点的东西要用按钮、链接或带 role 的元素(或加进这里),否则点它也会关上技能详情。
+const notBlank = "article, .section-head, .a-scope-sum, button, a, input, textarea, select, label, [role]";
+
+// drawerBusy 是技能详情里正在写备注，或开着弹层(下拉框、菜单):这时点空白处只让输入框失焦、收起弹层，不关详情。
+const drawerBusy = () => !!document.querySelector('[data-slot="sheet-content"] textarea, [data-radix-popper-content-wrapper]');
 
 export function SkillList() {
   const listing = usePageListing();
   const scroller = useRef<HTMLDivElement>(null);
   const restore = useView((v) => v.restoreScroll);
+  const busy = useRef(false);
   // 从关系图页返回：列表滚回打开关系图之前的位置。
   useLayoutEffect(() => {
     if (restore === null || !scroller.current) return;
@@ -70,7 +75,12 @@ export function SkillList() {
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
-        onClick={(e) => !(e.target as Element).closest(notBlank) && closeDrawer()}
+        // 抽屉忙不忙在按下时看：松开前弹层已经收起了。选中了文字(拖选)也不关。
+        onPointerDownCapture={() => (busy.current = drawerBusy())}
+        onClick={(e) => {
+          if (busy.current || getSelection()?.isCollapsed === false || (e.target as Element).closest(notBlank)) return;
+          closeDrawer();
+        }}
       >
         <div className="pt-3">
           <SearchLine results={listing.results} />
