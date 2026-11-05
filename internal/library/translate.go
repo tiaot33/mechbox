@@ -1,22 +1,14 @@
 package library
 
 import (
-	"cmp"
 	"context"
-	"errors"
 	"regexp"
-	"slices"
 	"strings"
-	"sync"
 	"unicode"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/ai"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
-
-const translateConcurrency = 4
 
 var languageTag = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
 
@@ -97,43 +89,15 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 	if err != nil {
 		return result, err
 	}
-	var mu sync.Mutex
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(translateConcurrency)
-	for _, row := range todo {
-		if groupCtx.Err() != nil {
-			break
-		}
-		group.Go(func() error {
-			_, err := l.translate(groupCtx, settings, row, language)
-			mu.Lock()
-			defer mu.Unlock()
-			switch e := ErrorOf(typedError(err)); {
-			case err == nil:
-				result.Translated++
-			case errors.Is(err, store.ErrNotFound):
-			case e.Code == InvalidArgument && groupCtx.Err() == nil:
-				result.Failed = append(result.Failed, TranslationFailure{SkillID: SkillID(row.ID), Error: *e})
-			default:
-				return err
-			}
-			return nil
-		})
+	translated, failed, err := runPerSkill(ctx, todo, func(row store.Skill) int64 { return row.ID }, func(ctx context.Context, row store.Skill) error {
+		_, err := l.translate(ctx, settings, row, language)
+		return err
+	})
+	result.Translated = len(translated)
+	for _, f := range failed {
+		result.Failed = append(result.Failed, TranslationFailure{SkillID: f.skill, Error: f.err})
 	}
-	err = group.Wait()
-	if err == nil {
-		err = ctx.Err()
-	}
-	slices.SortFunc(result.Failed, func(a, b TranslationFailure) int { return cmp.Compare(a.SkillID, b.SkillID) })
 	return result, err
-}
-
-func (l *Library) aiSettings(ctx context.Context, operation string) (ai.Settings, error) {
-	stored, err := l.store.AISettings(ctx)
-	if err != nil {
-		return ai.Settings{}, err
-	}
-	return parseAISettings(operation, aiSettingsOf(stored))
 }
 
 func (l *Library) translate(ctx context.Context, settings ai.Settings, row store.Skill, language string) (string, error) {

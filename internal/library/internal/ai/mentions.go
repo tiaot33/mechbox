@@ -16,7 +16,7 @@ type MentionCandidate struct {
 }
 
 const judgePrompt = "You read numbered items taken from the Markdown files of an AI agent skill. " +
-	"Each item names another skill, gives its description, and quotes up to 3 lines where that name appears as a single word. " +
+	"Each item names another skill, gives its description, and quotes the lines where that name appears as a single word. " +
 	"For each item decide whether the lines refer to that skill: they tell the agent to use, run, load, read or hand off to it, " +
 	"or otherwise mean the skill itself. Answer no when the word only has its ordinary meaning, " +
 	"such as \"review this change\" or \"write a spec\" for skills named review or spec. " +
@@ -49,12 +49,15 @@ func judgeRequest(candidates []MentionCandidate) string {
 }
 
 func parseJudgments(answer string, n int) ([]bool, error) {
-	start, end := strings.Index(answer, "["), strings.LastIndex(answer, "]")
-	if start < 0 || end < start {
-		return nil, fmt.Errorf("%w: the answer is not a json array of item numbers: %q", ErrRejected, answer)
+	text := strings.TrimSpace(answer)
+	if fenced, ok := strings.CutPrefix(text, "```"); ok {
+		fenced = strings.TrimPrefix(fenced, "json")
+		if body, ok := strings.CutSuffix(strings.TrimSpace(fenced), "```"); ok {
+			text = strings.TrimSpace(body)
+		}
 	}
 	var numbers []int
-	if err := json.Unmarshal([]byte(answer[start:end+1]), &numbers); err != nil {
+	if err := json.Unmarshal([]byte(text), &numbers); err != nil || !strings.HasPrefix(text, "[") {
 		return nil, fmt.Errorf("%w: the answer is not a json array of item numbers: %q", ErrRejected, answer)
 	}
 	judgments := make([]bool, n)

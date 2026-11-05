@@ -27,6 +27,9 @@ type Library struct {
 
 	pushMu sync.Mutex
 
+	judgeMu sync.Mutex
+	judging map[mentionJudgmentKey]chan struct{}
+
 	previewMu sync.Mutex
 	previews  map[FetchPreviewID]*previewState
 	plans     map[UpdatePlanID]*planState

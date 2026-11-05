@@ -1,16 +1,14 @@
 package library_test
 
 import (
-	"database/sql"
-	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
@@ -298,9 +296,14 @@ func TestJudgeMentionsSkipsSkillsThatFailAndStopsOnOverallFailures(t *testing.T)
 	stub.takeCalls()
 
 	stub.rejectContaining("")
-	stub.replyWith(func(map[string]any) string { return "Item 1 is about the skill." })
-	if got, err := lib.JudgeMentions(t.Context(), filter); err != nil || len(got.Failed) != 1 || got.Failed[0].Error.Code != library.InvalidArgument {
-		t.Fatalf("JudgeMentions with an answer that is not an array = %+v, %v; want charlie failed with InvalidArgument", got, err)
+	for _, answer := range []string{"Item 1 is about the skill.", `{"not_mentioned": [1]}`, "I can't judge these. Reply format: []", "null"} {
+		stub.replyWith(func(map[string]any) string { return answer })
+		if got, err := lib.JudgeMentions(t.Context(), filter); err != nil || len(got.Failed) != 1 || got.Failed[0].Error.Code != library.InvalidArgument {
+			t.Fatalf("JudgeMentions with the answer %q = %+v, %v; want charlie failed with InvalidArgument", answer, got, err)
+		}
+		if n := unjudged(t, lib, filter); n != 1 {
+			t.Fatalf("Unjudged after the answer %q = %d; a bad answer must not be stored", answer, n)
+		}
 	}
 	stub.replyWith(func(map[string]any) string { return "[1, 2]" })
 	if got, err := lib.JudgeMentions(t.Context(), filter); err != nil || len(got.Failed) != 1 {
@@ -321,6 +324,13 @@ func TestJudgeMentionsSkipsSkillsThatFailAndStopsOnOverallFailures(t *testing.T)
 	if n := unjudged(t, lib, filter); n != 1 {
 		t.Fatalf("Unjudged after the overall failure = %d, want 1", n)
 	}
+
+	stub.respond(200)
+	stub.replyWith(func(map[string]any) string { return "```json\n[1]\n```" })
+	if got, err := lib.JudgeMentions(t.Context(), filter); err != nil || got.Judged != 1 {
+		t.Fatalf("JudgeMentions with the array in a code fence = %+v, %v; want charlie judged", got, err)
+	}
+	requireMentionPairs(t, mentionPairs(t, lib, filter), []string{"alpha -> review", "bravo -> review", "charlie -> review", "delta -> review"})
 }
 
 // 没填模型时有要判断的就返回 NotConfigured,不发请求,规则确定的线照画;没有要判断的不看 AI 设置。
@@ -375,58 +385,116 @@ func TestRemoveSkillWithMentionJudgments(t *testing.T) {
 	}
 }
 
-// 打开旧版本(最早支持升级的 schema 版本)建的数据库时升级到存判断结果的新结构:原来的技能都在,
-// 之后照常判断、存下结论。
-func TestJudgeMentionsAfterUpgradingAnOldDatabase(t *testing.T) {
-	fixtures := filepath.Join("..", "..", "internal", "library", "internal", "store", "testdata")
-	schemas, err := filepath.Glob(filepath.Join(fixtures, "*_schema.sql"))
-	if err != nil || len(schemas) != 1 {
-		t.Fatalf("baseline schemas = %v, %v; want exactly one", schemas, err)
-	}
-	version, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(schemas[0]), "_schema.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema, err := os.ReadFile(schemas[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(fixtures, fmt.Sprintf("%05d_data.sql", version)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "library.db")
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(string(schema) + string(data) + fmt.Sprintf("PRAGMA application_id = 1397443650; PRAGMA user_version = %d;", version)); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
+// 路径中间的一段不交给 AI,用反斜杠分隔的 Windows 路径也一样;反斜杠写的指向技能文件夹的路径照样算点名,
+// 名字前的反斜杠不当成斜杠命令,按路径的一段不算。
+func TestJudgeMentionsSkipsBackslashPaths(t *testing.T) {
+	root := mentionSource(t, map[string]string{
+		"entry": strings.Join([]string{
+			`Copy C:\work\review\guide.md first.`,
+			`Notes live in C:\work\writing-plans\example.md.`,
+			`Escaped \review is not a command.`,
+			`Load ..\writing-plans\SKILL.md next.`,
+		}, "\n") + "\n",
+		"review": "# review\n", "writing-plans": "# writing-plans\n",
+	})
+	lib := openTestLibrary(t)
+	skills := fetchMentionSource(t, lib, root)
+	filter := library.MentionsFilter{CollectionID: skills["entry"].CollectionID}
 
-	stub := newAIStub(t)
-	stub.replyWith(answerBySkillWord)
-	lib := openTestLibraryAt(t, path)
-	if _, err := os.Stat(filepath.Join(filepath.Dir(path), fmt.Sprintf("library-v%d.db", version))); err != nil {
-		t.Fatalf("backup of the old database: %v", err)
+	mentions, err := listMentions(t, lib, filter)
+	if err != nil {
+		t.Fatal(err)
 	}
-	old, err := lib.ListSkills(t.Context())
-	if err != nil || len(old) == 0 {
-		t.Fatalf("ListSkills after upgrading = %v, %v; want the old skills", old, err)
+	want := []library.Mention{{From: skills["entry"].ID, To: skills["writing-plans"].ID, Lines: []library.MentionLine{{Path: "SKILL.md", Text: `Load ..\writing-plans\SKILL.md next.`}}}}
+	if !reflect.DeepEqual(mentions, want) {
+		t.Fatalf("ListMentions = %#v; want only the path to the skill folder", mentions)
 	}
-	setAISettings(t, lib, library.AISettings{BaseURL: stub.url + "/v1", APIKey: "sk-test", Model: "model-test"})
-	entry := fetchSkillWithBody(t, lib, "entry", "Use the reviewer skill.\n")
-	fetchSkillWithBody(t, lib, "reviewer", "# reviewer\n")
-	filter := library.MentionsFilter{CollectionID: entry.CollectionID}
-	if got := judgeMentions(t, lib, filter); got.Judged != 1 {
-		t.Fatalf("JudgeMentions after upgrading = %+v; want 1 judged", got)
-	}
-	requireMentionPairs(t, mentionPairs(t, lib, filter), []string{"entry -> reviewer"})
 	if n := unjudged(t, lib, filter); n != 0 {
-		t.Fatalf("Unjudged = %d, want 0", n)
+		t.Fatalf("Unjudged = %d; want 0, a name after a backslash is a path segment", n)
 	}
+}
+
+// 判断途中数据库被同步拉回换掉了:回答不写进拉回的库,返回 Conflict,拉回的库里这一处还算没判断。
+func TestJudgeMentionsDropsAnswersAfterSyncPull(t *testing.T) {
+	stub := newS3Stub(t)
+	lib := stub.open(t)
+	ai := newAIStub(t)
+	setAISettings(t, lib, library.AISettings{BaseURL: ai.url + "/v1", APIKey: "sk-test", Model: "model-test"})
+	entry := fetchSkillWithBody(t, lib, "entry", "Use the review skill.\n")
+	fetchSkillWithBody(t, lib, "review", "# review\n")
+	filter := library.MentionsFilter{CollectionID: entry.CollectionID}
+	pushBackup(t, lib)
+
+	asked, release := make(chan struct{}), make(chan struct{})
+	ai.replyWith(func(map[string]any) string {
+		close(asked)
+		<-release
+		return "[1]"
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := lib.JudgeMentions(t.Context(), filter)
+		done <- err
+	}()
+	<-asked
+	pullLatest(t, lib)
+	close(release)
+	if err := <-done; !library.IsCode(err, library.Conflict) {
+		t.Fatalf("JudgeMentions across a sync pull = %v; want Conflict", err)
+	}
+	if n := unjudged(t, lib, filter); n != 1 {
+		t.Fatalf("Unjudged in the pulled library = %d; want 1, the answer must not be stored", n)
+	}
+}
+
+// 两张包含同一技能的关系图同时判断(如先开集合、没判断完又开组):同一版本的同一个名字只请求一次,
+// 后开的那张等先开的判断完再返回,两边都看到这一处已判断。
+func TestJudgeMentionsSharesJudgmentsInProgress(t *testing.T) {
+	lib, stub := judgingLibrary(t)
+	entry := fetchSkillWithBody(t, lib, "entry", "Use the review skill.\n")
+	fetchSkillWithBody(t, lib, "review", "# review\n")
+	group, err := lib.CreateGroup(t.Context(), "pair")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.AddSkillToGroup(t.Context(), group.ID, entry.ID); err != nil {
+		t.Fatal(err)
+	}
+	asked, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	stub.replyWith(func(body map[string]any) string {
+		once.Do(func() { close(asked) })
+		<-release
+		return answerBySkillWord(body)
+	})
+	first := make(chan error, 1)
+	go func() {
+		_, err := lib.JudgeMentions(t.Context(), library.MentionsFilter{CollectionID: entry.CollectionID})
+		first <- err
+	}()
+	<-asked
+	second := make(chan library.JudgeMentionsResult, 1)
+	go func() {
+		got, err := lib.JudgeMentions(t.Context(), library.MentionsFilter{GroupID: group.ID})
+		if err != nil {
+			t.Error(err)
+		}
+		second <- got
+	}()
+	select {
+	case got := <-second:
+		t.Fatalf("the group's JudgeMentions returned %+v before the collection's judgment finished", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if got := <-second; got.Judged != 0 {
+		t.Fatalf("the group's JudgeMentions = %+v; want nothing judged by itself", got)
+	}
+	if n := len(stub.takeCalls()); n != 1 {
+		t.Fatalf("%d requests, want 1", n)
+	}
+	requireMentionPairs(t, mentionPairs(t, lib, library.MentionsFilter{GroupID: group.ID}), []string{"entry -> review"})
 }

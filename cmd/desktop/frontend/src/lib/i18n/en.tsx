@@ -1285,11 +1285,15 @@ export const en = {
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
     fit: "Fit the whole graph",
-    judging: (n: number) => `Still checking whether ${count(n, "one-word skill name")} ${n === 1 ? "means" : "mean"} that skill; lines are added when done`,
+    judging: (n: number) => `Checking ${count(n, "place")} where a one-word skill name may mean that skill; lines are added when done`,
     unjudged: (n: number) =>
-      `${count(n, "one-word skill name")} (such as review or spec) ${n === 1 ? "isn’t" : "aren’t"} checked yet and ${n === 1 ? "has" : "have"} no line. Set up AI in Settings to check them`,
+      `${count(n, "place")} where a one-word skill name (such as review or spec) appears ${n === 1 ? "isn’t" : "aren’t"} checked yet and ${n === 1 ? "has" : "have"} no line. Set up AI in Settings to check them`,
     setUpAI: "Open Settings",
-    judgeStopped: (n: number) => `Checking stopped with ${count(n, "name")} left; what was checked is kept. It tries again next time you open the graph`,
+    judgeStopped: (n: number) => `Checking paused with ${count(n, "place")} left; what was checked is kept. You can retry in a moment`,
+    judgeNeedsSettings: (n: number) =>
+      `Checking stopped with ${count(n, "place")} left; what was checked is kept. Fix the AI settings and open the graph again to continue`,
+    noneByRules: (n: number) =>
+      `By the rules, these skills don’t mention each other; ${count(n, "place")} with a one-word skill name ${n === 1 ? "isn’t" : "aren’t"} checked yet.`,
     judgeSkipped: (names: string[]) => `Couldn’t check the names in ${quoted(names)}; lines for the rest were added. It tries again next time you open the graph`,
   },
 

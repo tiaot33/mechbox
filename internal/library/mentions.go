@@ -3,15 +3,11 @@ package library
 import (
 	"cmp"
 	"context"
-	"errors"
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/ai"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
@@ -51,10 +47,10 @@ type Mentions struct {
 //
 // 一行里出现库里另一个技能的名字(区分大小写,按完整的词,技能提到自己不算),并且:
 //   - 名字用了 Agent 点名技能的写法:斜杠命令 /name、Codex 的 $name、带插件前缀的 plugin:name、
-//     让 Agent 用 Skill tool 加载(Skill tool 后面引号里的名字),或指向对方技能文件夹的路径(../name/…、skills/name/…、name/SKILL.md);
+//     让 Agent 用 Skill tool 加载(Skill tool 后面引号里的名字),或指向对方技能文件夹的路径(../name/…、skills/name/…、name/SKILL.md,用反斜杠分隔的也算);
 //   - 或者名字由几个词用连字符连成(如 writing-plans),单独出现,有没有反引号都算;
 //
-// 就算提到。以下出现都不算:路径中间的一段、网址的一部分、文件名(如 name.md),以及公共段落里的:
+// 就算提到。以下出现都不算:路径中间的一段(斜杠或反斜杠分隔)、网址的一部分、文件名(如 name.md),以及公共段落里的:
 // 同一个集合里原样出现在超过一半(至少 3 个)技能里的一行,是作者给整套技能加的公共说明;没有来源的技能不按公共段落排除。
 //
 // 单个词的名字(如 review)没用点名写法时,规则分不清是不是在指那个技能,交给 AI 判断([Library.JudgeMentions]):
@@ -122,11 +118,13 @@ type MentionJudgmentFailure struct {
 // JudgeMentions 用数据库里的 AI 设置判断集合或组里还没判断的几处([Mentions].Unjudged),结论随技能的版本存进数据库:
 // 同一个版本只判断一次,之后 [Library.ListMentions] 直接用存下的结论;技能出了新版本只重判它自己,
 // 新入库了单个词名字的技能只判断出现这个名字的技能。只判断这组技能,不判断全库。
+// 别的调用(如另一张包含同一技能的关系图)正在判断的那几处不再发请求,等它判断完再返回,不计入这次的结果。
 //
 // 每个技能发一个请求,带上它要判断的每一处:被提到的技能的名字和描述,以及出现这个名字的前 3 行(不同的行);
 // 不发整份文件,也不发这个技能自己的名字和描述。最多同时发 4 个请求。
 // 只和一个技能有关的失败(InvalidArgument:服务拒绝了这一条、回答被截断、回答不是编号的 JSON 数组)记进 Failed,其余照常判断;
 // 整体性的失败(没填模型、连不上、超时、限流、Key 被拒、模型不存在)不再发新的请求,返回已判断的结果与这个错误,已判断的都已存下。
+// 判断途中数据库被同步拉回替换了时,回答不写进新的库,返回 Conflict。
 // 没有要判断的时不联网,也不看 AI 设置。参数错误同 [Library.ListMentions];AI 设置里没填模型返回 NotConfigured,
 // 服务的回答按 [Library.TestAISettings] 的规则归类。每个请求最多等 2 分钟。
 func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (result JudgeMentionsResult, err error) {
@@ -134,9 +132,37 @@ func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (res
 	read, unlock := l.sharedOperation(ctx)
 	scan, err := l.scanMentions(read, "judge mentions", filter)
 	var judgments map[int64]map[string]bool
+	var replica string
 	if err == nil {
 		judgments, err = l.store.MentionJudgments(read)
 	}
+	if err == nil {
+		replica, err = l.store.Replica(read)
+	}
+	unlock()
+	if err != nil {
+		return result, err
+	}
+	var waiting []mentionJudgmentKey
+	for _, from := range scan.rows {
+		for _, candidate := range scan.candidates[from.ID] {
+			if _, judged := judgments[from.VersionID][candidate.name]; !judged {
+				waiting = append(waiting, mentionJudgmentKey{from.VersionID, candidate.name})
+			}
+		}
+	}
+	claimed, others := l.claimJudgments(waiting)
+	defer func() {
+		if err == nil {
+			err = waitJudgments(ctx, others)
+		}
+	}()
+	defer l.releaseJudgments(claimed)
+	if len(claimed) == 0 {
+		return result, nil
+	}
+	read, unlock = l.sharedOperation(ctx)
+	judgments, err = l.store.MentionJudgments(read)
 	unlock()
 	if err != nil {
 		return result, err
@@ -147,14 +173,15 @@ func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (res
 	}
 	var todo []task
 	for _, from := range scan.rows {
-		var waiting []mentionCandidate
+		var mine []mentionCandidate
 		for _, candidate := range scan.candidates[from.ID] {
-			if _, judged := judgments[from.VersionID][candidate.name]; !judged {
-				waiting = append(waiting, candidate)
+			key := mentionJudgmentKey{from.VersionID, candidate.name}
+			if _, judged := judgments[from.VersionID][candidate.name]; claimed[key] != nil && !judged {
+				mine = append(mine, candidate)
 			}
 		}
-		if len(waiting) > 0 {
-			todo = append(todo, task{from: from, candidates: waiting})
+		if len(mine) > 0 {
+			todo = append(todo, task{from: from, candidates: mine})
 		}
 	}
 	if len(todo) == 0 {
@@ -166,38 +193,63 @@ func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (res
 	if err != nil {
 		return result, err
 	}
-	var mu sync.Mutex
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(translateConcurrency)
-	for _, job := range todo {
-		if groupCtx.Err() != nil {
-			break
-		}
-		group.Go(func() error {
-			err := l.judge(groupCtx, settings, job.from, job.candidates)
-			mu.Lock()
-			defer mu.Unlock()
-			switch e := ErrorOf(typedError(err)); {
-			case err == nil:
-				result.Judged += len(job.candidates)
-			case errors.Is(err, store.ErrNotFound):
-			case e.Code == InvalidArgument && groupCtx.Err() == nil:
-				result.Failed = append(result.Failed, MentionJudgmentFailure{SkillID: SkillID(job.from.ID), Error: *e})
-			default:
-				return err
-			}
-			return nil
-		})
+	judged, failed, err := runPerSkill(ctx, todo, func(job task) int64 { return job.from.ID }, func(ctx context.Context, job task) error {
+		return l.judge(ctx, settings, replica, job.from, job.candidates)
+	})
+	for _, job := range judged {
+		result.Judged += len(job.candidates)
 	}
-	err = group.Wait()
-	if err == nil {
-		err = ctx.Err()
+	for _, f := range failed {
+		result.Failed = append(result.Failed, MentionJudgmentFailure{SkillID: f.skill, Error: f.err})
 	}
-	slices.SortFunc(result.Failed, func(a, b MentionJudgmentFailure) int { return cmp.Compare(a.SkillID, b.SkillID) })
 	return result, err
 }
 
-func (l *Library) judge(ctx context.Context, settings ai.Settings, from store.Skill, candidates []mentionCandidate) error {
+type mentionJudgmentKey struct {
+	version int64
+	name    string
+}
+
+func (l *Library) claimJudgments(keys []mentionJudgmentKey) (claimed map[mentionJudgmentKey]chan struct{}, others []chan struct{}) {
+	l.judgeMu.Lock()
+	defer l.judgeMu.Unlock()
+	if l.judging == nil {
+		l.judging = map[mentionJudgmentKey]chan struct{}{}
+	}
+	claimed = map[mentionJudgmentKey]chan struct{}{}
+	for _, key := range keys {
+		if done, ok := l.judging[key]; ok {
+			others = append(others, done)
+			continue
+		}
+		done := make(chan struct{})
+		l.judging[key] = done
+		claimed[key] = done
+	}
+	return claimed, others
+}
+
+func (l *Library) releaseJudgments(claimed map[mentionJudgmentKey]chan struct{}) {
+	l.judgeMu.Lock()
+	defer l.judgeMu.Unlock()
+	for key, done := range claimed {
+		delete(l.judging, key)
+		close(done)
+	}
+}
+
+func waitJudgments(ctx context.Context, others []chan struct{}) error {
+	for _, done := range others {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+func (l *Library) judge(ctx context.Context, settings ai.Settings, replica string, from store.Skill, candidates []mentionCandidate) error {
 	asked := make([]ai.MentionCandidate, len(candidates))
 	for i, candidate := range candidates {
 		lines := make([]string, len(candidate.lines))
@@ -216,7 +268,12 @@ func (l *Library) judge(ctx context.Context, settings ai.Settings, from store.Sk
 	}
 	write, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	return l.store.SetMentionJudgments(write, from.VersionID, judgments, clockNow())
+	return l.store.InTx(write, func(tx *store.Tx) error {
+		if err := tx.RequireReplica(write, replica); err != nil {
+			return err
+		}
+		return tx.SetMentionJudgments(write, from.VersionID, judgments, clockNow())
+	})
 }
 
 const candidateLines = 3
@@ -415,11 +472,13 @@ const (
 )
 
 func mentionAt(line string, start, end int, name string) mentionKind {
+	command := line[:start]
+	line = strings.ReplaceAll(line, "\\", "/")
 	before, after := line[:start], line[end:]
 	if inURL(before) || isFileName(after) {
 		return mentionNone
 	}
-	if strings.HasSuffix(before, "/") || strings.HasSuffix(before, "$") {
+	if strings.HasSuffix(command, "/") || strings.HasSuffix(command, "$") {
 		if opensName(before[:len(before)-1]) {
 			return mentionRule
 		}

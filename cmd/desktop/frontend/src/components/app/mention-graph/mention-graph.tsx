@@ -7,7 +7,8 @@
 // 和谁都没有连线的技能不进图，收在图下方一行。快照变了而技能和线没变时不重新排，视野也不动;技能或线变了重新排，
 // 用户没自己移动过视野时把新排的图放进框里，移动过就保留视野。
 // 单个词的技能名没用点名写法时由 AI 判断(features/graph/judge.ts):先画规则确定的线，顶部写出还在判断几处，
-// 判断完重读、补上线并重新排一次(视野不动);没配 AI 时提示有几处没判断。
+// 判断完重读、补上线并重新排一次(视野按上面的规则);没配 AI 时提示有几处没判断，整体失败时按原因给「去设置」或「重试」。
+// 还有没判断的几处时，图是空的也不说「没有互相提到」。
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { select } from "d3-selection";
@@ -15,7 +16,7 @@ import "d3-transition";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { CollectionID, Mention, MentionsFilter, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import { aiSettingsQuery, mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
+import { mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
 import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHits, type GraphLink, type GraphNode, type MentionGraph, type Relation } from "@/lib/graph";
 import { focusLayout, forceLayout, radius, type Positions, type XY } from "@/lib/graph-layout";
 import { matches, type GraphSet } from "@/lib/model";
@@ -52,7 +53,7 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
   const tt = useT();
   const t = tt.graph;
   const search = useView((v) => v.search);
-  const judging = useJudgeMentions(filter, unjudged);
+  const { judging, retry } = useJudgeMentions(filter, unjudged);
   const graph = useMemo(() => mentionGraph(s, members, mentions), [s, members, mentions]);
   const outside = graph.nodes.filter((n) => n.outside).length;
   return (
@@ -64,13 +65,13 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
         <span className="shrink-0 font-medium text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
         <span className="min-w-0 truncate">{t.hint}</span>
       </div>
-      <JudgeLine judging={judging} unjudged={unjudged} />
+      <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
         <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-[10px] border border-hairline bg-white/55 text-[12px] text-muted-foreground shadow-tile">
           {members.length ? (
-            t.none
+            unjudged ? t.noneByRules(unjudged) : t.none
           ) : (
             <>
               <b className="font-medium text-foreground-secondary">{tt.list.emptyGroup}</b>
@@ -85,39 +86,49 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
 }
 
 // JudgeLine 是单个词的技能名交给 AI 判断的状态：判断中写出还有几处;没配 AI 时提示去设置;
-// 只因自己没判断成的技能和整体失败写出原因。都没有时不占位置。
-function JudgeLine({ judging, unjudged }: { judging: Judging; unjudged: number }) {
+// 只因自己没判断成的技能写出原因;整体失败时写出原因，要改 AI 设置的给「去设置」，过一会儿可能就好的给「重试」。都没有时不占位置。
+function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: number; retry: () => void }) {
   const s = useSnapshot();
   const t = useT().graph;
-  const ai = useQuery(aiSettingsQuery);
   let text: string;
   let reason: string | undefined;
-  let tone = "text-muted-foreground";
-  if (judging.state === "judging" || (judging.state === "idle" && unjudged > 0 && ai.data?.model)) {
-    text = t.judging(judging.state === "judging" ? judging.count : unjudged);
-  } else if (judging.state === "stopped") {
-    [text, reason, tone] = [t.judgeStopped(unjudged), judging.reason, "text-warn-strong"];
-  } else if (judging.state === "done" && judging.failed?.length) {
-    const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
-    [text, reason, tone] = [t.judgeSkipped(names), judging.reason, "text-warn-strong"];
-  } else if (unjudged > 0 && ai.isSuccess && !ai.data?.model) {
-    return (
-      <div className="graph-judge flex min-w-0 items-center gap-2 text-[11.5px] text-muted-foreground" data-state="unconfigured">
-        <span className="min-w-0">{t.unjudged(unjudged)}</span>
-        <Button variant="link" className="shrink-0 text-[11.5px]" onClick={() => openSettings("ai")}>
-          {t.setUpAI}
-        </Button>
-      </div>
-    );
-  } else {
-    return null;
+  let action: { label: string; run: () => void } | undefined;
+  switch (judging.state) {
+    case "judging":
+      text = t.judging(judging.count);
+      break;
+    case "unconfigured":
+      [text, action] = [t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai") }];
+      break;
+    case "stopped":
+      [text, reason] = [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason];
+      action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai") } : { label: t.retry, run: retry };
+      break;
+    case "done": {
+      if (!judging.failed?.length) return null;
+      const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
+      [text, reason] = [t.judgeSkipped(names), judging.reason];
+      break;
+    }
+    default:
+      return null;
   }
-  const busy = judging.state === "judging" || judging.state === "idle";
+  const warn = judging.state === "stopped" || judging.state === "done";
   return (
-    <div className={cn("graph-judge flex min-w-0 items-start gap-2 text-[11.5px]", tone)} data-state={busy ? "judging" : judging.state}>
-      {busy && <Spinner className="mt-[3px]" />}
+    <div
+      className={cn("graph-judge flex min-w-0 items-start gap-2 text-[11.5px]", warn ? "text-warn-strong" : "text-muted-foreground")}
+      data-state={judging.state}
+    >
+      {judging.state === "judging" && <Spinner className="mt-[3px]" />}
       <div className="flex min-w-0 flex-col select-text">
-        <span>{text}</span>
+        <span>
+          {text}
+          {action && (
+            <Button variant="link" className="graph-judge-action ml-2 text-[11.5px]" onClick={action.run}>
+              {action.label}
+            </Button>
+          )}
+        </span>
         {reason && <span className="whitespace-pre-line text-muted-foreground">{reason}</span>}
       </div>
     </div>
@@ -255,7 +266,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   }, []);
 
   // 技能或线变了(如 AI 判断完补上线)重新排之后：用户没自己拖动、滚轮或点缩放按钮移动过视野时，把新排的图放进框里;
-  // 移动过就保留用户当时的视野。点了技能时不动，回到全图时恢复点之前的视野。
+  // 移动过就保留用户当时的视野。点了技能时不动，回到全图时再按同样的规则(见下面)。
   const laidOut = useRef(key);
   useEffect(() => {
     if (laidOut.current === key) return;
@@ -276,12 +287,17 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   }, []);
 
   // 点了技能：记下全图时的视野，把它和上下游放进抽屉左边的那块;回到全图时恢复原来的视野。
+  // 点着技能期间全图重新排过(如 AI 判断完补上线)、点之前又没自己移动过视野时，回到全图把新排的图放进框里。
   const wasSelected = useRef<SkillID | null>(null);
+  const homeAt = useRef({ key, moved: false });
   useEffect(() => {
     const svg = svgRef.current;
     const z = zoomRef.current;
     if (!svg || !z || wasSelected.current === selected) return;
-    if (wasSelected.current === null) homeView.current = transform.current;
+    if (wasSelected.current === null) {
+      homeView.current = transform.current;
+      homeAt.current = { key, moved: viewMoved.current };
+    }
     wasSelected.current = selected;
     setTip(null);
     setHoverNode(null);
@@ -296,7 +312,10 @@ function Canvas({ graph }: { graph: MentionGraph }) {
       );
       select(svg).transition().duration(450).call(z.transform, next);
     } else if (homeView.current) {
-      select(svg).transition().duration(450).call(z.transform, homeView.current);
+      viewMoved.current = homeAt.current.moved;
+      const relaid = homeAt.current.key !== key && !homeAt.current.moved;
+      const next = relaid ? fitTransform([...home.values()], latest.current, home, area(box.current), false) : homeView.current;
+      select(svg).transition().duration(450).call(z.transform, next);
     }
   }, [selected, focus]);
 
