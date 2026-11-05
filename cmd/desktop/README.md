@@ -183,7 +183,8 @@ cmd/desktop/
         ├── components/app/ 主界面：顶栏(toolbar,外框与 Windows 的窗口按钮在 titlebar)、左栏(left-sidebar)、中间列表(skill-list/:五种页面、分节与节标题、技能行与未纳管技能行、搜索行、
         │                   作用域摘要与更新列表、勾选框与勾选后的操作栏)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、文件、版本历史几张卡片),
         │                   关系图页的图(mention-graph/:SVG 画圆点和线,d3-zoom 平移缩放，线的原文提示),
-        │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx);layout.ts 是三栏的公共样式
+        │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx)与符号链接说明(link-notes.tsx),
+        │                   技能文件与更新说明的 Markdown(markdown.tsx:react-markdown + GFM,代码高亮,mermaid 图用 Pele、dot 图用 Graphviz 画);layout.ts 是三栏的公共样式
         ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
         │                   install/ 安装、卸载、组安装、重新安装与照着装(照着其他 Agent、其他项目),update/ 检查更新、更新计划、更新、回滚与更新历史，以及比较弹窗(version-compare,版本历史、更新历史和更新计划都打开它)与文件差异(file-diff),
@@ -192,7 +193,7 @@ cmd/desktop/
         │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本、macOS 菜单「检查新版本…」的结果)
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，graph.ts 关系图的圆点、连线与原文片段，graph-layout.ts 力导向布局与点了技能后的排法(都有单元测试),diff.ts 改了的文件与逐行差异(左右对比、行内对比，有单元测试),
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，
-                            content.ts 技能文件内容解码与渲染,settled.ts 状态圈的结束结果与对勾或叉停留多久(有单元测试),glass.ts 毛玻璃浓度与边缘折射(有单元测试),paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏的样子),window.ts 标题栏行为(拖动区、Windows 上的双击最大化与边缘调整大小),
+                            content.ts 技能文件内容解码,markdown.ts Markdown 里链接的去向(有单元测试),settled.ts 状态圈的结束结果与对勾或叉停留多久(有单元测试),glass.ts 毛玻璃浓度与边缘折射(有单元测试),paths.ts 本地路径输入,platform.ts 当前平台(按平台换说法的文案、Windows 上路径的分隔符、顶栏的样子),window.ts 标题栏行为(拖动区、Windows 上的双击最大化与边缘调整大小),
                             i18n/ 界面语言(index.tsx 当前语言与 useT,zh.tsx 中文文案，en.tsx 英文文案)
 ```
 

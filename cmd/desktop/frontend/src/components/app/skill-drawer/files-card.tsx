@@ -1,8 +1,8 @@
 // 技能详情里的文件卡片：当前版本的文件树，选中后读取内容，SKILL.md 渲染成文档;Markdown 与纯文本文件可以用 AI 翻译成界面语言。
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileMode, type FileMetadata, type VersionID } from "@bindings/internal/library";
-import { decodeContent, formatSize, renderMarkdown } from "@/lib/content";
+import { decodeContent, formatSize } from "@/lib/content";
 import { useLanguage, useT } from "@/lib/i18n";
 import { aiSettingsQuery, versionFileQuery } from "@/lib/library";
 import { translateFile, useTranslatingFile } from "@/features/skill/translate";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { Icon } from "@/components/app/icons";
+import { Markdown } from "@/components/app/markdown";
 
 // useVersionFile 读某个版本里的一个文件:content 还没读到(或没选文件)时为 undefined,二进制或读取失败时为 null;
 // translation 是界面语言的译文，没有时为 undefined。
@@ -48,11 +49,12 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
   const shown = translation && !original ? translation : content;
   const isMarkdown = path.toLowerCase().endsWith(".md");
   const markdown = isMarkdown && !raw;
-  const select = (next: string) => {
+  const paths = useMemo(() => files.map((f) => f.path), [files]);
+  const select = useCallback((next: string) => {
     shownPath.current = next;
     setPath(next);
     setOriginal(false);
-  };
+  }, []);
   const translate = async () => {
     const at = selected;
     if ((await translateFile(versionID, at, skillName)) && shownPath.current === at) setOriginal(false);
@@ -67,7 +69,7 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
         <Notice>{tt.common.binary}</Notice>
       ) : (
         <>
-          {markdown ? <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(shown) }} /> : <Code>{shown}</Code>}
+          {markdown ? <Markdown text={shown} path={path} files={paths} onOpenFile={select} /> : <Code>{shown}</Code>}
           <div className="file-actions flex items-center gap-3">
             {isMarkdown && (
               <Button variant="link" onClick={() => setRaw(!raw)}>

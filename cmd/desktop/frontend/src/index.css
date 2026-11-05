@@ -2,6 +2,8 @@
    组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、毛玻璃材质、渲染出来的 Markdown、拖放中的高亮，
    以及状态圈与 toast 按状态切换的动画。 */
 @import "tailwindcss";
+/* Markdown 代码块的高亮配色;放进 components 层，下面 .md 里的规则才压得过它。 */
+@import "highlight.js/styles/github.css" layer(components);
 
 @source not "../dist";
 
@@ -346,10 +348,90 @@
     overflow-x: auto;
     line-height: 1.5;
   }
-  .md pre code {
+  .md pre code,
+  .md pre code.hljs {
     background: none;
     border: 0;
     padding: 0;
+    overflow: visible;
+  }
+  .md blockquote {
+    margin: 6px 0;
+    padding: 0 10px;
+    border-left: 3px solid var(--color-border-strong);
+    color: var(--color-muted-foreground);
+  }
+  .md hr {
+    margin: 10px 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .md del {
+    color: var(--color-muted-foreground);
+  }
+  .md li > ul,
+  .md li > ol {
+    margin: 2px 0;
+  }
+  .md li.task-list-item {
+    list-style: none;
+  }
+  .md li.task-list-item input {
+    margin: 0 6px 0 -16px;
+    vertical-align: -1px;
+  }
+  .md-table {
+    margin: 6px 0;
+    overflow-x: auto;
+  }
+  /* anywhere 会把每列的最小宽度算成一个字，短的列被挤成一字一行;break-word 只在放不下时断开。 */
+  .md table {
+    border-collapse: collapse;
+    font-size: 12px;
+    overflow-wrap: break-word;
+  }
+  .md th,
+  .md td {
+    padding: 4px 8px;
+    border: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .md th {
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--color-foreground);
+    background: #f6f7f9;
+  }
+  .md-image-alt {
+    color: var(--color-muted-foreground);
+    font-style: italic;
+  }
+  /* 画出来的图:Pele 的配色走 --pele-* 变量,Graphviz 的 SVG 自带配色，按宽度缩小、不放大。 */
+  .md-diagram {
+    margin: 6px 0;
+    padding: 8px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 8px;
+    background: #fff;
+    overflow-x: auto;
+    text-align: center;
+    --pele-font: var(--font-sans);
+    --pele-font-mono: var(--font-mono);
+    --pele-fg: var(--color-foreground);
+    --pele-muted: var(--color-muted-foreground);
+    --pele-line: var(--color-foreground-secondary);
+    --pele-surface: #f6f7f9;
+    --pele-surface-alt: #eef0f3;
+    --pele-border: var(--color-border-strong);
+    --pele-accent: var(--color-primary);
+  }
+  .md-diagram svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .md-diagram-failed {
+    color: var(--color-muted-foreground);
   }
 
   /* 技能库页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */

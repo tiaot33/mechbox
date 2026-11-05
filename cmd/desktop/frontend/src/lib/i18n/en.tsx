@@ -49,6 +49,7 @@ export const en = {
     ok: "OK",
     close: "Close",
     unknown: "Unknown",
+    diagramFailed: "This diagram couldn't be drawn. Its source is shown below.",
   },
 
   errors: {
