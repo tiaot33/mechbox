@@ -41,7 +41,7 @@
 //   - [Library.SetSkillNote] 给技能写备注,只供展示,不写进技能文件。
 //   - [Library.TranslateDescription] 用 AI 设置把描述翻译成界面语言(每次都重新翻译),[Library.TranslateDescriptions] 自动翻译
 //     还没有译文的;译文存进数据库,按语言放在 [Skill].DescriptionTranslations 上,技能更新后描述变了就不再给出旧译文。
-//     [Library.TranslateVersionFile] 把某个版本里的一个文本文件翻译成界面语言(每次都重新翻译);译文按文件内容存,
+//     [Library.TranslateVersionFile] 把某个版本里的一个 Markdown 或纯文本文件翻译成界面语言(每次都重新翻译,代码文件不翻译);译文按文件内容存,
 //     [Library.GetVersionFile] 读出的 File.Translations 按语言给出,技能更新后没改的文件、内容相同的文件都直接用它。
 //   - [Library.ListVersions]、[Library.GetVersion] 列出和读取版本;[Library.ListVersionFiles]、[Library.GetVersionFile] 按版本 ID
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。

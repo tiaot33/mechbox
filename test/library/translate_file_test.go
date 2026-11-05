@@ -3,6 +3,7 @@ package library_test
 import (
 	"maps"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,7 +74,8 @@ func TestTranslateVersionFileStoresTranslation(t *testing.T) {
 	}
 }
 
-// 译文按文件内容存:技能更新后没改的文件、旧版本里的同一份内容、别的技能里内容相同的文件都带这份译文;
+// 译文按文件内容存:技能更新后没改的文件、旧版本里的同一份内容、别的技能里内容相同的文件都带这份译文,
+// 内容相同的脚本不带(不翻译的文件不给译文);
 // 改过的文件没有,再翻译只换掉新内容的译文,旧版本的不变。
 func TestFileTranslationFollowsContent(t *testing.T) {
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
@@ -99,6 +101,14 @@ func TestFileTranslationFollowsContent(t *testing.T) {
 	if got := fileTranslations(t, lib, twin.VersionID, "SKILL.md"); got["zh"] != "# 格式化" {
 		t.Fatalf("translations of the same content in another skill = %v, want the stored one", got)
 	}
+	writeFile(t, filepath.Join(source, "scripts", "same.sh"), []byte(skillDocument("formatter", "# Formatter\n")), 0o755)
+	if _, err := updateSkill(t, lib, t.Context(), skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := fileTranslations(t, lib, currentVersion(t, lib, skill.ID), "scripts/same.sh"); got != nil {
+		t.Fatalf("translations of a script with the same content = %v, want none: scripts are not translated", got)
+	}
+	os.Remove(filepath.Join(source, "scripts", "same.sh"))
 
 	writeLocalSkill(t, source, "# Formatter v2\n")
 	if _, err := updateSkill(t, lib, t.Context(), skill.ID); err != nil {
@@ -121,14 +131,16 @@ func TestFileTranslationFollowsContent(t *testing.T) {
 }
 
 // 没填模型返回 NotConfigured,语言不是语言标签返回 InvalidArgument,版本或路径不存在返回 NotFound,
-// 二进制文件和只有空白的文件返回 FailedPrecondition(Details.Path),都不发请求。
+// 不是 Markdown 或纯文本的文件(脚本等代码文件)、二进制内容和只有空白的文件返回 FailedPrecondition(Details.Path),都不发请求。
 // 服务拒绝、回答被截断时按测试连接的规则归类,不存译文,原来的译文不变。
 func TestTranslateVersionFileErrors(t *testing.T) {
 	stub := newAIStub(t)
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "formatter", "# Formatter\n")
 	writeFile(t, filepath.Join(source, "logo.png"), []byte{0x89, 'P', 'N', 'G', 0xff, 0xfe}, 0o644)
+	writeFile(t, filepath.Join(source, "broken.md"), []byte{'#', ' ', 0xff, 0xfe}, 0o644)
 	writeFile(t, filepath.Join(source, "blank.md"), []byte(" \n\n"), 0o644)
+	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("# Run the formatter\nfmt .\n"), 0o755)
 	if _, err := updateSkill(t, lib, t.Context(), skill.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +158,7 @@ func TestTranslateVersionFileErrors(t *testing.T) {
 	if _, err := lib.TranslateVersionFile(t.Context(), version, "missing.md", "zh"); !library.IsCode(err, library.NotFound) || library.ErrorOf(err).Details.Path != "missing.md" {
 		t.Errorf("TranslateVersionFile of a missing path = %v, want NotFound with the path", err)
 	}
-	for _, path := range []string{"logo.png", "blank.md"} {
+	for _, path := range []string{"logo.png", "broken.md", "blank.md", "scripts/run.sh"} {
 		if _, err := lib.TranslateVersionFile(t.Context(), version, path, "zh"); !library.IsCode(err, library.FailedPrecondition) || library.ErrorOf(err).Details.Path != path {
 			t.Errorf("TranslateVersionFile(%s) = %v, want FailedPrecondition with the path", path, err)
 		}
@@ -170,5 +182,29 @@ func TestTranslateVersionFileErrors(t *testing.T) {
 	}
 	if got := fileTranslations(t, lib, version, "SKILL.md"); got["zh"] != "# 格式化" {
 		t.Fatalf("translations = %v; a failed translation must keep the old one", got)
+	}
+}
+
+// 文件列表标出能翻译的文件:Markdown(.md、.markdown)与纯文本(.txt),不区分大小写;脚本、图片等不能。
+func TestListVersionFilesMarksTranslatableFiles(t *testing.T) {
+	lib := openTestLibrary(t)
+	skill, source := fetchLocalSkill(t, lib, "formatter", "# Formatter\n")
+	for _, path := range []string{"references/guide.markdown", "NOTES.TXT", "scripts/run.py", "logo.png"} {
+		writeFile(t, filepath.Join(source, path), []byte("text\n"), 0o644)
+	}
+	if _, err := updateSkill(t, lib, t.Context(), skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	files, err := lib.ListVersionFiles(t.Context(), currentVersion(t, lib, skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = f.Translatable
+	}
+	want := map[string]bool{"SKILL.md": true, "references/guide.markdown": true, "NOTES.TXT": true, "scripts/run.py": false, "logo.png": false}
+	if !maps.Equal(got, want) {
+		t.Fatalf("translatable = %v, want %v", got, want)
 	}
 }

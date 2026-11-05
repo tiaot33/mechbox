@@ -677,7 +677,8 @@ export interface File {
 
     /**
      * Translations 是这份内容已存的译文,键是语言标签(如 zh、en),由 [Library.TranslateVersionFile] 存下;没有译文时为空。
-     * 按内容存:别的版本或技能里内容相同的文件也带同一份译文,内容变了就没有。只有 GetVersionFile 读出的带它。
+     * 按内容存:别的版本或技能里内容相同的文件也带同一份译文,内容变了就没有。只有 GetVersionFile 读出的、
+     * 能翻译的文件([FileMetadata].Translatable)带它。
      */
     "translations"?: { [_ in string]?: string } | null;
 }
@@ -700,6 +701,12 @@ export interface FileMetadata {
      * regular 或 executable
      */
     "mode": FileMode;
+
+    /**
+     * Translatable 为 true 表示能用 [Library.TranslateVersionFile] 翻译:Markdown(.md、.markdown)与纯文本(.txt)文件,不区分大小写。
+     * 脚本等代码文件不翻译。
+     */
+    "translatable"?: boolean;
 }
 
 /**

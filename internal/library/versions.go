@@ -42,7 +42,8 @@ type File struct {
 	Content []byte   `json:"content"`
 	Mode    FileMode `json:"mode"` // regular 或 executable
 	// Translations 是这份内容已存的译文,键是语言标签(如 zh、en),由 [Library.TranslateVersionFile] 存下;没有译文时为空。
-	// 按内容存:别的版本或技能里内容相同的文件也带同一份译文,内容变了就没有。只有 GetVersionFile 读出的带它。
+	// 按内容存:别的版本或技能里内容相同的文件也带同一份译文,内容变了就没有。只有 GetVersionFile 读出的、
+	// 能翻译的文件([FileMetadata].Translatable)带它。
 	Translations map[string]string `json:"translations,omitempty"`
 }
 
@@ -51,6 +52,9 @@ type FileMetadata struct {
 	Path string   `json:"path"` // 技能内斜杠分隔的相对路径
 	Size int64    `json:"size"` // 内容的字节数
 	Mode FileMode `json:"mode"` // regular 或 executable
+	// Translatable 为 true 表示能用 [Library.TranslateVersionFile] 翻译:Markdown(.md、.markdown)与纯文本(.txt)文件,不区分大小写。
+	// 脚本等代码文件不翻译。
+	Translatable bool `json:"translatable,omitzero"`
 }
 
 // VersionDiff 是从一个版本变到另一个版本改了哪些文件;三类各自按路径排序,没有时为空数组。
@@ -105,7 +109,7 @@ func (l *Library) ListVersionFiles(ctx context.Context, id VersionID) (files []F
 		return nil, err
 	}
 	for _, row := range rows {
-		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: FileMode(row.Mode)})
+		files = append(files, FileMetadata{Path: row.Path, Size: row.Size, Mode: FileMode(row.Mode), Translatable: translatable(row.Path)})
 	}
 	return files, nil
 }
@@ -123,11 +127,14 @@ func (l *Library) GetVersionFile(ctx context.Context, id VersionID, path string)
 	if !found {
 		return File{}, &Error{Code: NotFound, Message: "get version file: file not found", Details: ErrorDetails{Path: path}}
 	}
-	translations, err := l.store.FileTranslations(ctx, skillfile.Fingerprint(stored.Content))
-	if err != nil {
+	file = File{Path: stored.Path, Content: stored.Content, Mode: FileMode(stored.Mode)}
+	if !translatable(path) {
+		return file, nil
+	}
+	if file.Translations, err = l.store.FileTranslations(ctx, skillfile.Fingerprint(stored.Content)); err != nil {
 		return File{}, err
 	}
-	return File{Path: stored.Path, Content: stored.Content, Mode: FileMode(stored.Mode), Translations: translations}, nil
+	return file, nil
 }
 
 // DiffVersions 比较同一技能的两个版本,返回从 from 变到 to 改了哪些文件。两个参数不要求先后顺序:

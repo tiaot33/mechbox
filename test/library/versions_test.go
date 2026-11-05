@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -307,12 +308,13 @@ func TestVersionFilesReportMissingAndCanceled(t *testing.T) {
 	}
 }
 
-// requireVersionFiles 核对版本的文件列表与逐个读取:元数据按路径排序、大小等于内容字节数,单文件读取与 want 完全相同。
+// requireVersionFiles 核对版本的文件列表与逐个读取:元数据按路径排序、大小等于内容字节数、Markdown 与 .txt 文件标为能翻译,
+// 单文件读取与 want 完全相同。
 func requireVersionFiles(t *testing.T, lib *library.Library, id library.VersionID, want []library.File) {
 	t.Helper()
 	var wantMetadata []library.FileMetadata
 	for _, file := range want {
-		wantMetadata = append(wantMetadata, library.FileMetadata{Path: file.Path, Size: int64(len(file.Content)), Mode: file.Mode})
+		wantMetadata = append(wantMetadata, library.FileMetadata{Path: file.Path, Size: int64(len(file.Content)), Mode: file.Mode, Translatable: strings.HasSuffix(file.Path, ".md") || strings.HasSuffix(file.Path, ".txt")})
 		got, err := lib.GetVersionFile(t.Context(), id, file.Path)
 		if err != nil || !reflect.DeepEqual(got, file) {
 			t.Fatalf("GetVersionFile(%q) = %#v, %v; want %#v", file.Path, got, err, file)

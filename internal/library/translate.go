@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	pathpkg "path"
 	"regexp"
 	"strings"
 	"unicode"
@@ -115,11 +116,12 @@ func (l *Library) translate(ctx context.Context, settings ai.Settings, row store
 	return translation, nil
 }
 
-// TranslateVersionFile 用数据库里的 AI 设置把某个版本里的一个文本文件(SKILL.md 正文、参考文档、脚本等)翻译成 language,
+// TranslateVersionFile 用数据库里的 AI 设置把某个版本里的一个 Markdown 或纯文本文件(SKILL.md、参考文档)翻译成 language,
 // 存进数据库并返回译文;之后 [Library.GetVersionFile] 读出的 File.Translations 里就有它。已有译文时也重新翻译、覆盖。
 // 译文按文件内容存:技能更新后没改的文件、别的版本或技能里内容相同的文件都直接用它,内容变了就没有。
 // 版本与路径的含义同 GetVersionFile:版本或路径不存在返回 NotFound(路径不存在时带 Details.Path);
-// 文件不是 UTF-8 文本(二进制文件)或只有空白返回 FailedPrecondition(Details.Path);其余参数与错误同 [Library.TranslateDescription]。
+// 不能翻译的文件(不是 Markdown 或纯文本,见 [FileMetadata].Translatable)、不是 UTF-8 文本或只有空白时返回 FailedPrecondition(Details.Path),
+// 都不发请求;其余参数与错误同 [Library.TranslateDescription]。
 // 文件比描述长得多,回答以流式接收,连续 2 分钟没有新内容才算超时。
 func (l *Library) TranslateVersionFile(ctx context.Context, id VersionID, path, language string) (translation string, err error) {
 	defer func() { err = typedError(err) }()
@@ -141,6 +143,9 @@ func (l *Library) TranslateVersionFile(ctx context.Context, id VersionID, path, 
 	if err != nil {
 		return "", err
 	}
+	if !translatable(path) {
+		return "", preconditionError("translate file", "only markdown and plain text files can be translated", ErrorDetails{Path: path})
+	}
 	if !utf8.Valid(stored.Content) {
 		return "", preconditionError("translate file", "file is not text", ErrorDetails{Path: path})
 	}
@@ -158,6 +163,14 @@ func (l *Library) TranslateVersionFile(ctx context.Context, id VersionID, path, 
 		return "", err
 	}
 	return translation, nil
+}
+
+func translatable(path string) bool {
+	switch strings.ToLower(pathpkg.Ext(path)) {
+	case ".md", ".markdown", ".txt":
+		return true
+	}
+	return false
 }
 
 func validateLanguage(operation, language string) error {

@@ -1,4 +1,4 @@
-// 技能详情里的文件卡片：当前版本的文件树，选中后读取内容，SKILL.md 渲染成文档;文本文件可以用 AI 翻译成界面语言。
+// 技能详情里的文件卡片：当前版本的文件树，选中后读取内容，SKILL.md 渲染成文档;Markdown 与纯文本文件可以用 AI 翻译成界面语言。
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileMode, type FileMetadata, type VersionID } from "@bindings/internal/library";
@@ -30,7 +30,8 @@ export function useFileContent(versionID: VersionID | undefined, path: string): 
 }
 
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
-// 文本文件有界面语言的译文时显示译文，可以切到原文;「翻译」每次都用 AI 重新翻译，译文存进数据库。
+// Markdown 与纯文本文件(FileMetadata.translatable)有界面语言的译文时显示译文，可以切到原文;
+// 「翻译」每次都用 AI 重新翻译，译文存进数据库。脚本等代码文件不翻译。
 export function FilesCard({ versionID, files, skillName }: { versionID: VersionID; files: FileMetadata[]; skillName: string }) {
   const tt = useT();
   const t = tt.drawer;
@@ -40,7 +41,8 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
   const [original, setOriginal] = useState(false);
   // shownPath 是现在选中的文件：翻译要等好几分钟，翻完时用户可能已经换到别的文件了。
   const shownPath = useRef(path);
-  const selected = files.some((f) => f.path === path) ? path : "";
+  const meta = files.find((f) => f.path === path);
+  const selected = meta ? path : "";
   const { content, translation } = useVersionFile(versionID, selected);
   const translating = useTranslatingFile(versionID, selected);
   const shown = translation && !original ? translation : content;
@@ -77,7 +79,7 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
                 {original ? t.showTranslation : t.showOriginal}
               </Button>
             )}
-            {!!content?.trim() && (
+            {meta?.translatable && !!content?.trim() && (
               <Button
                 variant="link"
                 disabled={!ai}
