@@ -182,7 +182,7 @@ func (q queries) VersionDigests(ctx context.Context, versionID int64) (map[strin
 }
 
 func (q queries) VersionFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
-	return q.versionFiles(ctx, versionID, "get version files")
+	return q.versionFiles(ctx, versionID, "get version files", "")
 }
 
 type VersionMatch struct {
@@ -214,4 +214,8 @@ func (q queries) VersionsWithFile(ctx context.Context, path, fingerprint string)
 		return nil, fmt.Errorf("read versions: %w", wrap(err))
 	}
 	return matches, nil
+}
+
+func (q queries) MarkdownFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
+	return q.versionFiles(ctx, versionID, "get markdown files", `AND (lower(version_files.path) LIKE '%.md' OR lower(version_files.path) LIKE '%.markdown')`)
 }

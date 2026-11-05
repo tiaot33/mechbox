@@ -1266,6 +1266,27 @@ export const en = {
     scope: "The audit covers the content listed on skills.sh, which may not be this Version in the Library.",
   },
 
+  graph: {
+    open: "Graph",
+    openTitle: "See which of these skills mention each other",
+    back: (page: string) => `Back to ${page}`,
+    summary: (skills: number, mentions: number, outside: number, group: boolean) =>
+      `${count(skills, "skill")}, ${count(mentions, "mention")}${outside ? `, mentioning ${count(outside, "skill")} ${group ? "outside the Group" : "in other Collections"}` : ""}`,
+    hint: "Bigger dots are mentioned by more skills; arrows point to the skill mentioned. Hover a skill or a line to see who mentions whom, click a line to pin its text; click a skill to see only its neighbors and its details, click empty space or press Esc to go back",
+    none: "These skills don’t mention each other or any other skill in the Library.",
+    loose: (n: number) => `${count(n, "skill")} not linked to any skill here:`,
+    reading: "Reading skill files…",
+    failed: "Couldn’t read which skills mention each other.",
+    retry: "Retry",
+    mentions: (from: string, to: string) => `“${from}” mentions “${to}”`,
+    moreLines: (n: number) => `${count(n, "more line")}: click the arrow to pin this and scroll through them`,
+    close: "Close",
+    relation: { in: "Mentions it", out: "It mentions", both: "Mention each other" },
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    fit: "Fit the whole graph",
+  },
+
   toolbar: {
     toggleLeft: "Show/hide sidebar",
     search: "Search skills",

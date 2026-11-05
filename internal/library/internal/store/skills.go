@@ -174,7 +174,7 @@ func (q queries) GetCurrent(ctx context.Context, skillID int64) (Current, error)
 		return Current{}, fmt.Errorf("get skill version: %w", wrap(err))
 	}
 	var err error
-	if current.Files, err = q.versionFiles(ctx, current.VersionID, "get skill files"); err != nil {
+	if current.Files, err = q.versionFiles(ctx, current.VersionID, "get skill files", ""); err != nil {
 		return Current{}, err
 	}
 	return current, nil
@@ -197,18 +197,18 @@ func (q queries) Origin(ctx context.Context, versionID int64) (Origin, error) {
 		return Origin{}, fmt.Errorf("get origin version: %w", wrap(err))
 	}
 	var err error
-	if origin.Files, err = q.versionFiles(ctx, id, "get origin files"); err != nil {
+	if origin.Files, err = q.versionFiles(ctx, id, "get origin files", ""); err != nil {
 		return Origin{}, err
 	}
 	return origin, nil
 }
 
-func (q queries) versionFiles(ctx context.Context, versionID int64, operation string) ([]skillfile.File, error) {
+func (q queries) versionFiles(ctx context.Context, versionID int64, operation string, filter string) ([]skillfile.File, error) {
 	rows, err := q.q.QueryContext(ctx, `
 		SELECT version_files.path, blobs.content, version_files.mode
 		FROM version_files
 		JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-		WHERE version_files.version_id = ?
+		WHERE version_files.version_id = ? `+filter+`
 		ORDER BY version_files.path
 	`, versionID)
 	if err != nil {

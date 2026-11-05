@@ -1,11 +1,13 @@
 #!/bin/sh
-# 从 skills.sh 上的两个热门仓库导出开发数据(devseed)用的技能快照，写到本目录的 git/ 下，提交进仓库;之后生成开发数据不联网。
-# 只在要换素材时运行。每个快照是来源仓库在一个提交上的部分技能目录(原样，带各自的 LICENSE.txt,都是 Apache 2.0)。
+# 从 skills.sh 上的三个热门仓库导出开发数据(devseed)用的技能快照，写到本目录的 git/ 下，提交进仓库;之后生成开发数据不联网。
+# 只在要换素材时运行。每个快照是来源仓库在一个提交上的部分技能目录(原样):anthropics/skills 与 openai/skills 带各自的 LICENSE.txt,
+# 都是 Apache 2.0;obra/superpowers 的技能没有自己的许可证文件，带上仓库根目录的 LICENSE(MIT)。
 # 不克隆整个仓库：每个提交只浅拉取这一个提交、不带文件内容，稀疏检出时只下载要的几个目录。
 # devseed 按顺序把同一个仓库的快照提交成本地 Git 仓库，先按第一个快照入库，后面的快照造出更新:
 #   anthropics/skills:89dcaa3 → dbd4588,frontend-design 改动、claude-academy-guide 改名为 academy-guide、新技能 discernment-nudge。
 #   openai/skills:e6afb0d → 30444ae(openai-docs 改动并新增脚本，入库后先更新到这一版，留下更新历史)
 #                → b0401f0(openai-docs 再改动、sora 与 doc 在来源里删除、新技能 define-goal)。
+#   obra/superpowers:22f0b46,全部 15 个技能，技能之间互相提到，用来看关系图;只有这一个快照，不造更新。
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d /tmp/mechbox-pull.XXXXXX)
@@ -40,3 +42,7 @@ for commit in e6afb0d74cc75d220df2faf3dd6c635c2dc6a108 30444aed500c00c85294d1207
 	# shellcheck disable=SC2086
 	snapshot openai/skills $commit $openai
 done
+
+superpowers="LICENSE skills"
+# shellcheck disable=SC2086
+snapshot obra/superpowers 22f0b463e7a5e579904dd6211a520321035526f7 $superpowers

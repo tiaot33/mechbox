@@ -1,11 +1,12 @@
-// 中间：四种页面，各回答一个问题，长得也不一样。
+// 中间：五种页面，各回答一个问题，长得也不一样。
 // - 技能库(我有什么):永远是全部，按集合或按组分节;左栏点集合、组只是跳到那一节。
 // - 更新(要处理的事):每个有要处理的更新的集合一行，下面是要处理的技能。
 // - 作用域(Agent 在这里看得到什么):分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能(和技能库页一样按集合或按组分节)、
 //   未纳管技能，以及项目里来自全局的;下面是库里没装在这里的技能，整块默认折成一行，点开同样按集合或按组分节。
 // - 项目(这个项目里各 Agent 装了什么):每个装了技能的 Agent 一节，列出装在这里的技能与未纳管技能。
+// - 关系图(这些技能之间谁提到谁):一个集合或组的技能画成一张图，见 mention-graph。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Collection, Group, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -22,7 +23,9 @@ import {
   type ScopeKey,
   type SkillSection,
 } from "@/lib/model";
-import { openScope, setArrange, setSearch, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { doneRestoreScroll, openScope, setArrange, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
+import { SearchLine } from "./search-line";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -39,11 +42,27 @@ import { flash } from "./flash";
 
 export function SkillList() {
   const listing = usePageListing();
+  const scroller = useRef<HTMLDivElement>(null);
+  const restore = useView((v) => v.restoreScroll);
+  // 从关系图页返回：列表滚回打开关系图之前的位置。
+  useLayoutEffect(() => {
+    if (restore === null || !scroller.current) return;
+    scroller.current.scrollTop = restore;
+    doneRestoreScroll();
+  }, [restore, listing?.kind]);
   if (!listing) return <main className={centerClass} />;
+  if (listing.kind === "graph") {
+    return (
+      <main className={cn(centerClass, "relative")} data-page="graph">
+        <MentionGraphPage key={`${listing.set.kind}-${listing.set.id}`} set={listing.set} members={listing.members} />
+      </main>
+    );
+  }
   return (
     <main className={cn(centerClass, "relative")}>
       {/* 上边距放在里面一层：滚动区自己没有上内边距，吸顶的节标题才贴着底板上沿。换页时换一个滚动区，回到顶上。 */}
       <div
+        ref={scroller}
         key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
@@ -58,21 +77,6 @@ export function SkillList() {
       </div>
       <PickBar listing={listing} />
     </main>
-  );
-}
-
-// SearchLine 写出正在搜什么、当前页里有几个结果，点"清除"回到不搜索。
-function SearchLine({ results }: { results: number }) {
-  const search = useView((v) => v.search.trim());
-  const t = useT().list;
-  if (!search) return null;
-  return (
-    <div className="search-line mb-2.5 flex items-center gap-2 text-[12px] text-muted-foreground">
-      <span>{t.searchResults(search, results)}</span>
-      <Button variant="link" className="text-[12px]" onClick={() => setSearch("")}>
-        {t.clearSearch}
-      </Button>
-    </div>
   );
 }
 
@@ -169,14 +173,14 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
   if (section.kind === "collection") {
     const c = s.collections.find((x) => x.id === section.id)!;
     return (
-      <CollectionSection id={section.key} collection={c} count={count} pick={pick}>
+      <CollectionSection id={section.key} collection={c} count={count} pick={pick} showGraph={!scope}>
         {rows}
       </CollectionSection>
     );
   }
   const g = s.groups.find((x) => x.id === section.id)!;
   return (
-    <GroupSection id={section.key} group={g} count={count} pick={pick}>
+    <GroupSection id={section.key} group={g} count={count} pick={pick} showGraph={!scope}>
       {section.skills.length ? (
         rows
       ) : (
@@ -210,12 +214,14 @@ function CollectionSection({
   collection,
   count,
   pick,
+  showGraph,
   children,
 }: {
   id: string;
   collection: Collection;
   count?: string;
   pick: SkillID[];
+  showGraph: boolean;
   children: React.ReactNode;
 }) {
   const drop = useCollectionDrop(collection.id);
@@ -223,7 +229,7 @@ function CollectionSection({
     <Section
       id={id}
       pick={pick}
-      head={<CollectionHead collection={collection} count={count} />}
+      head={<CollectionHead collection={collection} count={count} showGraph={showGraph} />}
       sub={<CollectionNews collection={collection} />}
       headProps={drop}
     >
@@ -237,17 +243,19 @@ function GroupSection({
   group,
   count,
   pick,
+  showGraph,
   children,
 }: {
   id: string;
   group: Group;
   count?: string;
   pick: SkillID[];
+  showGraph: boolean;
   children: React.ReactNode;
 }) {
   const drop = useGroupDrop(group.id);
   return (
-    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} />} headProps={drop}>
+    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} showGraph={showGraph} />} headProps={drop}>
       {children}
     </Section>
   );

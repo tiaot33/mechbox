@@ -309,7 +309,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
    wails3 task dev:seeded
    ```
 
-   窗口打开后，左栏「技能库」有 10 个技能，「更新」有 5 个要处理的更新。
+   窗口打开后，左栏「技能库」有 25 个技能，「更新」有 5 个要处理的更新。
 
    Vite 的端口每次启动时自动选一个空闲的，别的工作区开着 `wails3 dev` 也不冲突。要固定端口时设 `WAILS_VITE_PORT`，如 `WAILS_VITE_PORT=9345 wails3 task dev:seeded`。
 
@@ -356,20 +356,21 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
 ### 开发数据里有什么
 
-技能来自 skills.sh 上的 anthropics/skills 和 openai/skills，是提交在 `cmd/desktop/testdata/dev/git/` 里的快照。`devseed` 把同一个仓库的几个快照依次提交成本地 Git 仓库。临时 `HOME` 的 `.gitconfig` 让 `https://git.dev.test/<owner>/skills.git` 指向这些仓库。`devseed` 先按旧快照入库，再提交新快照、检查更新，用两段真实的提交历史造出下面的状态：
+技能来自 skills.sh 上的 anthropics/skills、openai/skills 和 obra/superpowers，是提交在 `cmd/desktop/testdata/dev/git/` 里的快照。`devseed` 把同一个仓库的几个快照依次提交成本地 Git 仓库。临时 `HOME` 的 `.gitconfig` 让 `https://git.dev.test/<owner>/skills.git` 指向这些仓库。`devseed` 先按旧快照入库，再提交新快照、检查更新，用两段真实的提交历史造出下面的状态：
 
 | 方面 | 内容 |
 | --- | --- |
 | 集合 `git.dev.test/anthropics/skills` | frontend-design 有新版本；claude-academy-guide 可能改名为 academy-guide；来源里的新技能 discernment-nudge |
 | 集合 `git.dev.test/openai/skills` | 更新过一次，有历史可以回滚；openai-docs 有新版本并改动脚本；sora 和 doc 来源里已删除；新技能 define-goal |
+| 集合 `git.dev.test/obra/superpowers` | 全部 15 个技能，技能之间互相提到，用来看关系图：节标题上的「关系图」画出 33 条提到，其中 using-superpowers 提到了 anthropics 集合的 frontend-design(空心虚线圆);diagnosing-superpowers 和 receiving-code-review 没有连线，收在图下方 |
 | 集合 `~/code/my-skills` | 本地目录来源，两个技能 |
 | 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库 |
-| 组 | 「前端」组安装到 Codex 全局；「文档」没有安装 |
+| 组 | 「前端」组安装到 Codex 全局；「文档」没有安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆 |
 | 项目 | web-app 是 Git 仓库，里面提交了 `.claude/skills/playwright`，和 Claude Code 全局的 playwright 同名；old-project 不在这台机器上 |
 | 安装状态 | 当前版本；被手动改过（Claude Code 全局的 playwright）；文件夹不在了（Claude Code 全局的 sora）；项目不在这台机器上 |
 | 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills` |
 
-开发数据已经标记为打开过 app，启动时不弹第一次打开的确认。两个 `git.dev.test` 集合在界面上显示为「Git 仓库」，不是 GitHub。按 GitHub 来源入库只能跟踪真实的默认分支，造不出要处理的更新。
+开发数据已经标记为打开过 app，启动时不弹第一次打开的确认。三个 `git.dev.test` 集合在界面上显示为「Git 仓库」，不是 GitHub。按 GitHub 来源入库只能跟踪真实的默认分支，造不出要处理的更新。
 
 改了 `devseed/` 或快照以后，以重新生成的结果为准，同时改这张表。
 
@@ -391,7 +392,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
    cmd/desktop/testdata/dev/pull.sh
    ```
 
-   脚本对每个提交只浅拉取这一个提交，稀疏检出要的几个目录，写到 `testdata/dev/git/<仓库>/<提交号前 7 位>/`。两个仓库共 5 个提交，约 15 s。
+   脚本对每个提交只浅拉取这一个提交，稀疏检出要的几个目录，写到 `testdata/dev/git/<仓库>/<提交号前 7 位>/`。三个仓库共 6 个提交，约 20 s。
 
 3. 如果换了提交或技能，改 `cmd/desktop/devseed/main.go` 里对应的快照名和技能名。
 4. 生成开发数据，在 app 里核对：
@@ -402,4 +403,4 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
 5. 改[开发数据里有什么](#开发数据里有什么)这张表。
 
-快照必须带上每个技能自己的许可证文件。现在的快照都是 Apache 2.0，可以再分发。
+快照必须带上许可证文件：每个技能自己的，技能没有自己的就带仓库根目录的。anthropics/skills 和 openai/skills 是 Apache 2.0，obra/superpowers 是 MIT，都可以再分发。

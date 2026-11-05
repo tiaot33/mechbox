@@ -29,7 +29,7 @@ import {
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { jumpTo, openPage, openSettings, resetOrder, useCurrentPage, useSortedCollections, useSortedGroups, useView } from "@/lib/view";
+import { jumpTo, openGraph, openPage, openSettings, resetOrder, useCurrentPage, useSortedCollections, useSortedGroups, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -206,7 +206,7 @@ export function LeftSidebar() {
 }
 
 // CollectionRow 是左栏的一个集合：点了跳到那一节;拖到右栏作用域 = 逐个直接安装，拖到组上 = 加入该组，拖到别的集合上 = 调整先后;
-// 名字放不下时悬停显示全名;右键菜单是检查更新、更新、来源里的其他技能、更新历史与加入组。
+// 名字放不下时悬停显示全名;右键菜单是关系图、检查更新、更新、来源里的其他技能、更新历史与加入组。开着它的关系图时这一行标为选中。
 function CollectionRow({ collection: c }: { collection: Collection }) {
   const s = useSnapshot();
   const dnd = useDnD();
@@ -222,6 +222,7 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
   const max = inWSL ? pathMax - 10 : pathMax;
   const skills = collectionSkills(s, c);
   const checkStatus = useCheckMark(c.id);
+  const page = useCurrentPage();
   return (
     <li>
       <ContextMenu>
@@ -233,6 +234,7 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
             <button
               type="button"
               className={navItem({ kind: "section" })}
+              data-active={page.kind === "graph" && page.set.kind === "collection" && page.set.id === c.id}
               onClick={() => jumpTo({ kind: "collection", id: c.id })}
               draggable
               onDragStart={(e) => dnd.start(e, { kind: "collection", id: c.id }, tt.list.collectionDrag(label, skills.length))}
@@ -251,6 +253,8 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
+          <ContextMenuItem onSelect={() => openGraph({ kind: "collection", id: c.id })}>{tt.graph.open}</ContextMenuItem>
+          <ContextMenuSeparator />
           {!local && (
             <ContextMenuItem disabled={busy} onSelect={() => checkUpdates([c.id], c.id)}>
               {t.check}
@@ -285,12 +289,13 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
 }
 
 // GroupRow 是左栏的一个组：点了跳到那一节;拖到右栏作用域 = 组安装，拖到别的组上 = 调整先后，接受技能与集合(加入本组);
-// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单是重命名、删除与新建组。
+// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单是关系图、重命名、删除与新建组。开着它的关系图时这一行标为选中。
 function GroupRow({ group: g }: { group: Group }) {
   const dnd = useDnD();
   const drop = useGroupDrop(g.id);
   const tt = useT();
   const t = tt.sidebar;
+  const page = useCurrentPage();
   return (
     <li>
       <ContextMenu>
@@ -300,6 +305,7 @@ function GroupRow({ group: g }: { group: Group }) {
               role="button"
               tabIndex={0}
               className={navItem({ kind: "section" })}
+              data-active={page.kind === "graph" && page.set.kind === "group" && page.set.id === g.id}
               onClick={() => jumpTo({ kind: "group", id: g.id })}
               draggable
               onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, tt.list.groupDrag(g.name, g.members?.length ?? 0))}
@@ -338,6 +344,8 @@ function GroupRow({ group: g }: { group: Group }) {
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
+          <ContextMenuItem onSelect={() => openGraph({ kind: "group", id: g.id })}>{tt.graph.open}</ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => renameGroup(g.id)}>{t.renameWith}</ContextMenuItem>
           <ContextMenuItem danger onSelect={() => deleteGroup(g.id)}>
             {t.deleteGroupWith}

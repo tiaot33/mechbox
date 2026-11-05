@@ -528,7 +528,7 @@ export function hasUpdate(skill: Skill): boolean {
   return updateAvailable(skill) || !!renamedTo(skill);
 }
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 // Order 是用户在左栏或列表里拖出来的集合与组的先后，只记在这台机器的界面里;
 // 没排过的(还没拖过，或之后新入库的集合、新建的组)按默认顺序接在后面。
@@ -592,6 +592,7 @@ export function pickRange(rows: PickRow[], from: string, to: string): SkillID[] 
 
 // pageSkills 是这一页列出的库里的技能，勾选只留这些：项目页只列装在这个项目里的，其余页列出库里的全部。
 export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
+  if (page.kind === "graph") return new Set(graphMembers(s, page.set) ?? []);
   if (page.kind !== "project") return new Set(s.skills.map((x) => x.id));
   return new Set(projectAgents(s, page.project, "").flatMap((a) => a.skills.map((x) => x.id)));
 }
@@ -749,10 +750,19 @@ export function sourceShort(s: Snapshot, source: Source): string {
 }
 
 // ---------- 页面 ----------
-// 主界面中间有四种页面：技能库(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)、
-// 项目(这个项目里各 Agent 装了什么)。集合和组不是筛选，是技能库页里的分节;左栏点它们只是跳到那一节。
+// 主界面中间有五种页面：技能库(我有什么)、更新(要处理的事)、作用域(Agent 在这里看得到什么)、
+// 项目(这个项目里各 Agent 装了什么)，以及一个集合或组的关系图(这些技能之间谁提到谁)。
+// 集合和组不是筛选，是技能库页里的分节;左栏点它们只是跳到那一节，关系图从节标题或左栏右键菜单打开。
 
-export type Page = { kind: "all" } | { kind: "updates" } | { kind: "scope"; scope: ScopeKey } | { kind: "project"; project: ProjectID };
+// GraphSet 是关系图画的那组技能：一个集合或一个组。
+export type GraphSet = { kind: "collection"; id: CollectionID } | { kind: "group"; id: GroupID };
+
+export type Page =
+  | { kind: "all" }
+  | { kind: "updates" }
+  | { kind: "scope"; scope: ScopeKey }
+  | { kind: "project"; project: ProjectID }
+  | { kind: "graph"; set: GraphSet };
 
 // Arrange 是技能库页与作用域页按什么分节。
 export type Arrange = "collection" | "group";
@@ -760,10 +770,11 @@ export type Arrange = "collection" | "group";
 export function samePage(a: Page, b: Page): boolean {
   if (a.kind === "scope" && b.kind === "scope") return a.scope === b.scope;
   if (a.kind === "project" && b.kind === "project") return a.project === b.project;
+  if (a.kind === "graph" && b.kind === "graph") return a.set.kind === b.set.kind && a.set.id === b.set.id;
   return a.kind === b.kind;
 }
 
-// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页退回技能库。
+// resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页、集合或组已不在的关系图退回技能库。
 export function resolvePage(s: Snapshot, page: Page): Page {
   if (page.kind === "updates" && !anyUpdatable(s)) return { kind: "all" };
   if (page.kind === "scope") {
@@ -771,7 +782,22 @@ export function resolvePage(s: Snapshot, page: Page): Page {
     if ((sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) || !s.agents.some((a) => a.code === sc.agent)) return { kind: "all" };
   }
   if (page.kind === "project" && !s.projects.some((p) => p.id === page.project)) return { kind: "all" };
+  if (page.kind === "graph" && !graphMembers(s, page.set)) return { kind: "all" };
   return page;
+}
+
+// graphMembers 是关系图那组技能的 ID;集合或组已不在时为 undefined。
+export function graphMembers(s: Snapshot, set: GraphSet): SkillID[] | undefined {
+  const found = set.kind === "collection" ? s.collections.find((c) => c.id === set.id)?.skills : s.groups.find((g) => g.id === set.id)?.members;
+  if (found) return found;
+  return set.kind === "group" && s.groups.some((g) => g.id === set.id) ? [] : undefined;
+}
+
+// graphSetName 是关系图页的标题：集合写来源，组写组名。
+export function graphSetName(s: Snapshot, set: GraphSet): string {
+  if (set.kind === "group") return s.groups.find((g) => g.id === set.id)?.name ?? "";
+  const c = s.collections.find((x) => x.id === set.id);
+  return c ? sourceLabel(s, c.source) : "";
 }
 
 export function pageTitle(s: Snapshot, page: Page): string {
@@ -779,6 +805,7 @@ export function pageTitle(s: Snapshot, page: Page): string {
   if (page.kind === "updates") return m.updates;
   if (page.kind === "scope") return scopeLabel(s, parseScope(page.scope));
   if (page.kind === "project") return projectName(s, page.project);
+  if (page.kind === "graph") return graphSetName(s, page.set);
   return m.library;
 }
 
@@ -976,14 +1003,20 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
+// 关系图页的 total 是集合或组里的技能数;它的搜索结果数要算上图里虚线圆的技能，由关系图自己算(lib/graph 的 searchHits),这里的 results 不用。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
   | { kind: "updates"; skills: Skill[] }
   | { kind: "scope"; scope: ScopeKey; listing: ScopeListing; global: number }
   | { kind: "project"; project: ProjectID; agents: ProjectAgent[] }
+  | { kind: "graph"; set: GraphSet; members: SkillID[] }
 );
 
 export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order): PageListing {
+  if (page.kind === "graph") {
+    const members = graphMembers(s, page.set) ?? [];
+    return { kind: "graph", set: page.set, members, total: members.length, results: members.length };
+  }
   if (page.kind === "updates") {
     const todo = sortSkills(s, s.skills.filter(pending));
     const skills = todo.filter((x) => matches(search, x));
