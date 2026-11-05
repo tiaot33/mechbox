@@ -300,6 +300,11 @@ function Canvas({ graph }: { graph: MentionGraph }) {
           position: { x: p.x, y: p.y },
           width: p.width,
           height: p.height,
+          // 直接给出两端的连接点：悬停时节点对象换新,React Flow 不必重新量，连线也就不会被拆掉重建(重建会让点线的 click 丢掉)。
+          handles: [
+            { type: "target" as const, position: Position.Left, x: 0, y: p.height / 2 },
+            { type: "source" as const, position: Position.Right, x: p.width, y: p.height / 2 },
+          ],
           data: { node: n, dim, lit, open: drawer === n.skill.id },
         },
       ];
@@ -324,7 +329,6 @@ function Canvas({ graph }: { graph: MentionGraph }) {
             interactionWidth: 18,
             markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
             style: { stroke: color, strokeWidth: lit ? 1.8 : 1.2, opacity: focus && !lit ? 0.12 : 1, transition: "opacity .12s" },
-            zIndex: lit ? 1 : 0,
           },
         ];
       }),
@@ -366,7 +370,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
             toggleDrawer(Number(n.id));
           }}
           onPaneClick={() => setTip(null)}
-          onMoveStart={() => setTip((t) => (t?.pinned ? t : null))}
+          onMove={() => setTip((t) => (t?.pinned ? t : null))}
           onPaneMouseLeave={() => {
             setTip((t) => (t?.pinned ? t : null));
             setHoverNode(null);
@@ -437,13 +441,13 @@ function LinesTip({ mention, tip, box, onClose }: { mention: Mention; tip: Tip; 
         )}
       </div>
       {shown.map((l, i) => {
-        const snip = mentionSnippet(l.text, target);
+        const snip = tip.pinned ? mentionSnippet(l.text, target, 0, Infinity) : mentionSnippet(l.text, target);
         return (
           <div key={i} className="graph-tip-line min-w-0">
             <span className="font-mono text-[10px] text-subtle">{l.path}</span>
             <p className={cn("break-words text-foreground-secondary", !tip.pinned && "line-clamp-3")}>
-              {snip.cut && !tip.pinned && "…"}
-              {(tip.pinned ? [{ text: l.text, hit: false }] : snip.parts).map((p, j) =>
+              {snip.cut && "…"}
+              {snip.parts.map((p, j) =>
                 p.hit ? (
                   <mark key={j} className="rounded-[3px] bg-primary-soft px-0.5 font-semibold text-primary-strong">
                     {p.text}
