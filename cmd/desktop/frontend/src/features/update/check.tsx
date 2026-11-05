@@ -8,7 +8,8 @@ import { currentSnapshot } from "@/lib/library";
 import { deletedInSource, pending, renamedTo, sourceLabel, updateAvailable } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { showResults } from "@/components/app/results";
-import { useMarkStatus, type MarkStatus, type Settled } from "@/components/ui/status-mark";
+import { useMarkStatus, type MarkStatus } from "@/components/ui/status-mark";
+import type { Settled } from "@/lib/settled";
 
 // CheckOrigin 是检查从哪里发起:"all" 是左栏的检查更新按钮，否则是右键的那个集合。进度画在发起处，顶栏的状态圈不跟着转;
 // 左栏不显示时(收起、在设置页)由顶栏的状态圈补上。
@@ -35,7 +36,7 @@ export async function checkUpdates(collections: CollectionID[], origin: CheckOri
   useCheckStore.setState({ running: origin });
   const checks = await ui.run(() => LibraryService.CheckUpdates(collections), { busyMark: false });
   const failed = (checks ?? []).filter((c) => c.error);
-  useCheckStore.setState({ running: null, settled: { id: nextSettledID++, failed: !checks || failed.length > 0, origin } });
+  useCheckStore.setState({ running: null, settled: { id: nextSettledID++, failed: !checks || failed.length > 0, at: Date.now(), origin } });
   if (!checks) return;
   const skills = checks.flatMap((c) => c.skills ?? []).filter(pending);
   const available = skills.filter(updateAvailable).length;

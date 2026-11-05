@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import type { Settled } from "@/components/ui/status-mark";
+import type { Settled } from "@/lib/settled";
 import { SwipeToast } from "@/components/ui/swipe-toast";
 import { cn } from "./utils";
 import { describeError } from "./errors";
@@ -175,7 +175,7 @@ async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise
       const finished = s.finished || outcome !== "canceled";
       const failed = s.failed || outcome === "failed";
       if (marked > 0) return { pending, marked, finished, failed };
-      return { pending, marked, finished: false, failed: false, ...(finished && { settled: { id: nextSettledID++, failed } }) };
+      return { pending, marked, finished: false, failed: false, ...(finished && { settled: { id: nextSettledID++, failed, at: Date.now() } }) };
     });
     // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
     if (opts.reload !== false) void reloadLibrary();

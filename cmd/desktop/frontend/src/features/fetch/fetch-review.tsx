@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
+import { MARK_DRAWN_MS } from "@/components/ui/status-mark";
 import { AuditBadge } from "./audit";
 import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
@@ -95,7 +96,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     const ids = fetched.map((x) => x.id);
     ui.toast(t.fetched(ids.length), "ok", { label: t.installTo, onClick: () => void chooseAndInstall(ids, pageInstallTarget(useView.getState().page)) });
     setFetching("done");
-    await new Promise((r) => window.setTimeout(r, 450));
+    await new Promise((r) => window.setTimeout(r, MARK_DRAWN_MS + 100));
     onClose();
   };
 

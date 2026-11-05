@@ -81,6 +81,10 @@ function config() {
 }
 // appConfig 是 config 里应用自己的设置(app. 开头的项),去掉前缀。
 const appConfig = () => Object.fromEntries(Object.entries(config()).flatMap(([k, v]) => (k.startsWith("app.") ? [[k.slice(4), v]] : [])));
+// refocus 模拟窗口切回前台:app 这时重读技能库并对照磁盘巡检已安装的技能。
+async function refocus() {
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+}
 async function settle() {
   await idle();
   await unfold();
@@ -299,7 +303,7 @@ await step(FIRST_OPEN, async () => {
 
     // 在符号链接指向的真实文件夹里改一行：从 Claude Code 用这里的修改更新时，Codex 那一处是同一个文件夹，不算另一处被改过。
     fs.appendFileSync(path.join(agents, "first-pdf", "SKILL.md"), "\none more line\n");
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
     await openDrawer("first-pdf");
     await btn(drawer().locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }), "用这里的修改更新").click();
@@ -331,7 +335,7 @@ await step(FIRST_OPEN, async () => {
       await settle();
     }
     clearFirstFolders();
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
   }
 });
@@ -1108,7 +1112,7 @@ await step("入库技能里随时可以把各 Agent 全局和已登记项目里�
       await settle();
     }
     for (const dir of folders) fs.rmSync(dir, { recursive: true, force: true });
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
   }
 });
@@ -1272,7 +1276,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
   git("init", "-q", "-b", "main");
   git("add", ".claude/skills/team-skill");
   git("commit", "-qm", "team");
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
 
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
@@ -1408,7 +1412,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
   }
   const records = { version: 3, skills: Object.fromEntries(["kit-a", "kit-b"].map((name) => [name, { source: kit, sourceType: "local", sourceUrl: kit, skillFolderHash: "" }])) };
   fs.writeFileSync(path.join(HOME, ".agents", ".skill-lock.json"), JSON.stringify(records));
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
   try {
@@ -1466,7 +1470,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     }
     for (const name of ["kit-a", "kit-b", "kit-c"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
     fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
     await selectScope("Claude Code", "proj-a");
   }
@@ -1484,7 +1488,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
     fs.mkdirSync(path.join(claudeGlobal, name), { recursive: true });
     fs.writeFileSync(path.join(claudeGlobal, name, "SKILL.md"), content);
   }
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
   try {
@@ -1522,7 +1526,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
       await settle();
     }
     for (const name of Object.keys(folders)) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
     await selectScope("Claude Code", "proj-a");
   }
@@ -1550,7 +1554,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     return (await item.locator(".same-name-note").textContent()).trim();
   };
   try {
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
 
     // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
@@ -1589,7 +1593,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
   } finally {
     for (const [folder] of made) fs.rmSync(folder, { recursive: true, force: true });
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
     await selectScope("Claude Code", "proj-a");
   }
@@ -1597,10 +1601,10 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
 
 // ============ 重新安装 ============
 group("reinstall", ["same-name"]);
-await step("刷新发现被手动改过的文件夹 → 全部重新安装 → 逐处勾选覆盖", async () => {
+await step("切回窗口发现被手动改过的文件夹 → 全部重新安装 → 逐处勾选覆盖", async () => {
   const dir = await scopeDir();
   fs.writeFileSync(path.join(dir, "gamma", "SKILL.md"), "edited by hand\n");
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
   await page.locator('.a-scope-sum .stat[data-tone="warn"]', { hasText: "1" }).waitFor();
   assert((await card("gamma").locator('[data-slot="badge"]', { hasText: "被手动改过" }).count()) === 1, "gamma 应标被手动改过");
@@ -1616,7 +1620,7 @@ await step("刷新发现被手动改过的文件夹 → 全部重新安装 → �
 await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单条重新安装", async () => {
   const dir = await scopeDir();
   fs.rmSync(path.join(dir, "gamma"), { recursive: true });
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
   await openDrawer("gamma");
   const row = drawer().locator(".scope-table tbody tr", { hasText: "proj-a" });
@@ -1631,7 +1635,7 @@ await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单�
 await step("删除已安装的文件夹 → 全部重新安装：文件夹不在了的默认不动，可以装回去或卸载", async () => {
   const gone = path.join(await scopeDir(), "gamma");
   const refresh = async () => {
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
   };
   const reinstallAll = async () => {
@@ -1905,7 +1909,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
   const outsideBadge = '[data-slot="badge"]:text-is("指向 Agent 目录以外")';
   const refresh = async () => {
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
   };
   try {
@@ -2041,7 +2045,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
 await step("改了作者的技能：只看作者那边有没有新版，更新会换掉修改、默认不勾，能回滚、能跳过", async () => {
   const projDelta = path.join(`${HOME}/code/proj-a`, String(fs.readdirSync(`${HOME}/code/proj-a`, { recursive: true }).find((f) => String(f).endsWith("delta/SKILL.md"))));
   fs.writeFileSync(projDelta, projSkill("delta").replace("# delta v2", "# delta edited by hand"));
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
   await openDrawer("delta");
   await btn(drawer().locator(".scope-table tbody tr", { hasText: "proj-a" }), "用这里的修改更新").click();
@@ -2278,7 +2282,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
   const label = "git.pm.test/matt/skills";
   try {
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
     await selectScope("Codex");
     for (const name of names) {
@@ -2344,7 +2348,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
     }
     for (const name of names) fs.rmSync(path.join(codex, name), { recursive: true, force: true });
     fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
   }
 });
@@ -2360,7 +2364,7 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
   }
   const unmanaged = page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^review$/ }) });
   try {
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
     await selectScope("Claude Code");
     await btn(unmanaged, "入库").click();
@@ -2407,7 +2411,7 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
       await settle();
     }
     for (const dir of [claude, codex]) fs.rmSync(dir, { recursive: true, force: true });
-    await page.locator(".titlebar button[title^='刷新']").click();
+    await refocus();
     await settle();
   }
 });
@@ -3201,7 +3205,7 @@ await step("移除技能(同时删除已安装的文件夹)", async () => {
 
 await step("项目目录被移走 → 标记不在这台机器上 → 改项目位置", async () => {
   fs.renameSync(`${HOME}/code/proj-b`, `${HOME}/code/proj-b-moved`);
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
   const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
   await row.locator('[data-slot="badge"]', { hasText: "不在这台机器上" }).waitFor();
@@ -3532,7 +3536,7 @@ await step("照着另一个 Agent 装：全局和项目里的一次装上，组�
   await toast("已添加 Agent「Copy Target」");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
 
   await selectScope("Copy Target");
@@ -3601,7 +3605,7 @@ await step("照着另一个 Agent 装：从项目的作用域页打开时默认�
   git("init", "-q", "-b", "main");
   git("add", "-f", ".claude/skills/team-copy");
   git("commit", "-qm", "team");
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
 
   await selectScope("Copy Target", "proj-copy");
@@ -3694,7 +3698,7 @@ await step("照着另一个项目装：在项目页照着它，各 Agent 装到�
   git("init", "-q", "-b", "main");
   git("add", "-f", ".claude/skills/team-only");
   git("commit", "-qm", "team");
-  await page.locator(".titlebar button[title^='刷新']").click();
+  await refocus();
   await settle();
 
   await page.locator(".a-right .nav-item.proj", { hasText: "cq-to" }).click();
@@ -3844,7 +3848,7 @@ if (selected.list || process.env.E2E_PLAN_ONLY === "1") {
         await btn(modal(), "先不入库").click();
         await modal().waitFor({ state: "detached" });
         clearFirstFolders();
-        await page.locator(".titlebar button[title^='刷新']").click();
+        await refocus();
         await settle();
       }
       for (const s of selected.steps) {

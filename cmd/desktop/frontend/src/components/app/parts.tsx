@@ -6,6 +6,7 @@ import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Spinner } from "@/components/ui/spinner";
 import { useMarkStatus } from "@/components/ui/status-mark";
+import { SETTLED_HOLD } from "@/lib/settled";
 import { useCheckMark } from "@/features/update/check";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useT } from "@/lib/i18n";
@@ -195,7 +196,7 @@ export function Chip({
 }
 
 // BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈(ui.run 传了 busyMark: false 的除外)，
-// 全部结束后转动的弧合成整圈、画出对勾(有失败的画叉),停一下再淡出;只有被取消的写操作时直接消失。
+// 全部结束后转动的弧合成整圈，合拢后画出对勾(有失败的画叉),停一下再淡出;只有被取消的写操作时直接消失。
 // checks 为 true 时(左栏不显示)也画检查更新的进度，检查本来画在左栏上。
 export function BusyMark({ checks = false }: { checks?: boolean }) {
   const writes = useMarkStatus(useBusyMarkRunning(), useSettled());
@@ -208,8 +209,10 @@ export function BusyMark({ checks = false }: { checks?: boolean }) {
   return (
     <Spinner
       status={status}
+      size={14}
       title={busy ? t.common.working : undefined}
-      className={cn("text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_0.85s_reverse_both]")}
+      className={cn("text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_reverse_both]")}
+      style={busy ? undefined : { animationDelay: `${SETTLED_HOLD - 200}ms` }}
     />
   );
 }

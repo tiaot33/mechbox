@@ -1,30 +1,32 @@
-// 状态圈(照 React Bits 的 StatusMark 改写，只留图形):running 是转动的弧,done / failed 由弧合成整圈再画出对勾 / 叉。
+// 状态圈(照 React Bits 的 StatusMark 改写，只留图形):running 是转动的弧,done / failed 由弧合成整圈，合拢后再画出对勾 / 叉。
 // 状态之间是形变过渡，不是换图;各状态的颜色与对勾、叉的描画在 index.css 的 .status-mark 里。
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { animate, useMotionValue, useReducedMotion } from "motion/react";
+import { settledFresh, SETTLED_HOLD, type Settled } from "@/lib/settled";
 import { cn } from "@/lib/utils";
 
 export type MarkStatus = "running" | "done" | "failed";
 
-// Settled 是一次结束的结果;id 每次结束都换，用来只闪一下对勾或叉。
-export interface Settled {
-  id: number;
-  failed: boolean;
-}
-
 // useMarkStatus 把"进行中"与最近一次结束的结果换成状态圈该画的状态：进行中转圈，结束后画对勾或叉，停一下再收起(null)。
+// 对勾或叉只在结束后的 SETTLED_HOLD 之内画：状态圈后来才挂上(如从设置页回到主界面)时，不再补画早已结束的那次。
 export function useMarkStatus(running: boolean, settled: Settled | null): MarkStatus | null {
-  const [dismissed, setDismissed] = useState<number | null>(null);
+  const [dismissed, setDismissed] = useState<number | null>(() => (settled && !settledFresh(settled, Date.now()) ? settled.id : null));
   useEffect(() => {
     if (running || !settled) return;
-    const timer = window.setTimeout(() => setDismissed(settled.id), 1100);
+    const timer = window.setTimeout(() => setDismissed(settled.id), settled.at + SETTLED_HOLD - Date.now());
     return () => window.clearTimeout(timer);
   }, [running, settled]);
   if (running) return "running";
   return settled && settled.id !== dismissed ? (settled.failed ? "failed" : "done") : null;
 }
 
-const UI = { type: "spring", duration: 0.3, bounce: 0 } as const;
+// 结束时外圈合拢用 MARK_CLOSE_MS,合拢后再用 MARK_DRAW_MS 画出对勾或叉;MARK_DRAWN_MS 是从结束到对勾或叉画完。
+// CSS 里的描画延迟与时长经 style 的 --sm-draw-delay、--sm-draw 取这两个值。
+export const MARK_CLOSE_MS = 300;
+export const MARK_DRAW_MS = 260;
+export const MARK_DRAWN_MS = MARK_CLOSE_MS + MARK_DRAW_MS;
+
+const UI = { type: "spring", duration: MARK_CLOSE_MS / 1000, bounce: 0 } as const;
 const CHECK = "M7.5 12.25 10.5 15.25 16.75 8.75";
 const CROSS = "M8.5 8.5 15.5 15.5M15.5 8.5 8.5 15.5";
 const ARC = 0.68; // running 时弧占整圈的比例
@@ -103,7 +105,7 @@ export function StatusMark({
       width={size}
       height={size}
       aria-hidden
-      style={{ "--sm-stroke": strokeWidth } as React.CSSProperties}
+      style={{ "--sm-stroke": strokeWidth, "--sm-draw-delay": `${MARK_CLOSE_MS}ms`, "--sm-draw": `${MARK_DRAW_MS}ms` } as React.CSSProperties}
     >
       <circle className="status-mark-track" cx="12" cy="12" r={r} transform="rotate(-90 12 12)" />
       <circle ref={ring} className="status-mark-ring" cx="12" cy="12" r={r} transform="rotate(-90 12 12)" />

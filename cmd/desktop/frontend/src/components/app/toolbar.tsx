@@ -1,9 +1,9 @@
-// 统一工具栏：左 = 侧栏开关 + 当前页面的标题与个数(关系图页前面多一个返回按钮，回到打开它之前的那一页);右 = 搜索、刷新与右栏开关。
+// 统一工具栏：左 = 侧栏开关 + 当前页面的标题与个数(关系图页前面多一个返回按钮，回到打开它之前的那一页);右 = 搜索与右栏开关。
 // 作用域在右栏点选，打开作用域页。
 // 外框(拖动区、红绿灯的位置、Windows 的窗口按钮)见 titlebar.tsx。
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
-import { useLoadedSnapshot, reloadLibrary } from "@/lib/library";
+import { useLoadedSnapshot } from "@/lib/library";
 import { pageTitle } from "@/lib/model";
 import { cn } from "@/lib/utils";
 import { closeGraph, setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, useView } from "@/lib/view";
@@ -70,9 +70,6 @@ export function Toolbar() {
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setSearch("")}
           />
-          <Button variant="ghost" size="icon" onClick={() => void reloadLibrary()} title={t.refresh}>
-            <Icon name="refresh" />
-          </Button>
           <Button variant="ghost" size="icon" className={cn(right && "text-foreground")} onClick={toggleRight} title={t.toggleRight}>
             <Icon name="sidebarR" />
           </Button>

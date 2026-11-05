@@ -459,8 +459,8 @@
     stroke-dashoffset: 0;
     opacity: 1;
     transition:
-      stroke-dashoffset 240ms cubic-bezier(0.23, 1, 0.32, 1) 120ms,
-      opacity 0ms linear 120ms;
+      stroke-dashoffset var(--sm-draw) cubic-bezier(0.23, 1, 0.32, 1) var(--sm-draw-delay),
+      opacity 0ms linear var(--sm-draw-delay);
   }
   @media (prefers-reduced-motion: reduce) {
     .status-mark[data-indeterminate] .status-mark-ring {

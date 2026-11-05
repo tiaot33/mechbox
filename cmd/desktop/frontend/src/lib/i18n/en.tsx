@@ -1295,7 +1295,6 @@ export const en = {
   toolbar: {
     toggleLeft: "Show/hide sidebar",
     search: "Search skills",
-    refresh: "Refresh (re-read the Library and inspect installed skills against the disk)",
     toggleRight: "Show/hide Scope sidebar",
     searchKey: () => (platform() === "mac" ? "⌘K" : "Ctrl K"),
     minimise: "Minimize",
