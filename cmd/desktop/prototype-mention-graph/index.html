@@ -1,0 +1,315 @@
+<!doctype html>
+<!--
+  PROTOTYPE —— 一次性原型，不进 main。
+  问题：技能关系图做成知识图谱的样子，哪种画法看得清？
+  三种画法用底部的切换条切(?variant=A|B|C)，数据集用 ?data=0|1|2 切；数据是 superpowers、gstack 真实的「提到」关系。
+  打开方式：双击本文件。
+-->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · 技能关系图</title>
+<script src="d3.v7.min.js"></script>
+<script src="data.js"></script>
+<style>
+  :root { --fg:#111827; --fg2:#4b5563; --muted:#9ca3af; --line:#e5e7eb; --bg:#eef0f4; --panel:#fff; --out:#2563eb; --in:#ea580c; --both:#7c3aed; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { height:46px; display:flex; align-items:center; gap:14px; padding:0 18px; }
+  header .back { color:var(--fg2); font-size:12.5px; }
+  header h1 { font-size:14px; margin:0; }
+  header .sum { color:var(--fg2); font-size:12.5px; }
+  main { flex:1; display:flex; gap:10px; padding:0 10px 10px; min-height:0; }
+  #stage { flex:1; position:relative; background:var(--panel); border-radius:12px; overflow:hidden; box-shadow:0 0 0 1px rgba(0,0,0,.04); }
+  #stage svg { width:100%; height:100%; display:block; cursor:grab; }
+  #iso { position:absolute; left:12px; bottom:12px; right:12px; font-size:12px; color:var(--fg2); display:flex; flex-wrap:wrap; gap:6px; align-items:center; pointer-events:none; }
+  #iso span.chip { pointer-events:auto; background:#f3f4f6; border-radius:6px; padding:2px 8px; color:var(--fg); cursor:pointer; }
+  aside { width:300px; background:var(--panel); border-radius:12px; padding:16px; overflow:auto; box-shadow:0 0 0 1px rgba(0,0,0,.04); }
+  aside h2 { font-size:15px; margin:0 0 2px; }
+  aside h3 { font-size:12px; color:var(--fg2); margin:16px 0 6px; font-weight:600; }
+  aside .coll { color:var(--muted); font-size:12px; }
+  aside ul { list-style:none; padding:0; margin:0; }
+  aside li { padding:4px 0; border-bottom:1px solid #f3f4f6; cursor:pointer; }
+  aside li small { display:block; color:var(--fg2); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .legend div { display:flex; align-items:center; gap:8px; margin:5px 0; color:var(--fg2); font-size:12px; }
+  .sw { width:22px; height:3px; border-radius:2px; }
+  .dot { width:11px; height:11px; border-radius:50%; }
+  #tip { position:fixed; max-width:420px; background:rgba(255,255,255,.96); backdrop-filter:blur(8px); border-radius:10px; box-shadow:0 8px 28px rgba(15,23,42,.18), 0 0 0 1px rgba(0,0,0,.05); padding:10px 12px; font-size:12px; pointer-events:none; display:none; z-index:10; }
+  #tip b { font-weight:600; }
+  #tip pre { white-space:pre-wrap; margin:6px 0 0; font:11.5px/1.5 ui-monospace,Menlo,monospace; color:var(--fg2); background:#f6f7f9; border-radius:6px; padding:6px 8px; }
+  #tip mark { background:#fde68a; color:var(--fg); border-radius:2px; padding:0 1px; }
+  .node text { font-size:12.5px; fill:var(--fg); paint-order:stroke; stroke:#fff; stroke-width:4px; stroke-linejoin:round; pointer-events:none; }
+  .node text.sub { font-size:10.5px; fill:var(--muted); }
+  .node { cursor:pointer; }
+  .link { fill:none; }
+  .dim { opacity:.1; }
+  .hidden { opacity:0; pointer-events:none; }
+  #bar { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:#111827; color:#fff; border-radius:999px; padding:6px 8px; display:flex; gap:4px; align-items:center; box-shadow:0 8px 30px rgba(0,0,0,.3); z-index:20; font-size:12px; }
+  #bar button { background:transparent; color:#d1d5db; border:0; border-radius:999px; padding:6px 12px; cursor:pointer; font:inherit; }
+  #bar button.on { background:#fff; color:#111827; }
+  #bar .sep { width:1px; height:18px; background:#374151; margin:0 4px; }
+  #bar select { background:#1f2937; color:#fff; border:0; border-radius:999px; padding:5px 10px; font:inherit; }
+  #bar .tag { color:#fbbf24; padding:0 8px; font-weight:600; }
+  #hint { position:absolute; top:10px; left:12px; font-size:12px; color:var(--fg2); background:rgba(255,255,255,.85); padding:4px 8px; border-radius:6px; }
+</style>
+</head>
+<body>
+<header><span class="back">‹ 返回技能库</span><h1 id="title"></h1><span class="sum" id="sum"></span></header>
+<main>
+  <div id="stage"><svg id="svg"></svg><div id="hint"></div><div id="iso"></div></div>
+  <aside id="side"></aside>
+</main>
+<div id="tip"></div>
+<div id="bar"><span class="tag">PROTOTYPE</span>
+  <button data-v="A">A 力导向全图</button><button data-v="B">B 点一个技能就聚焦重排</button><button data-v="C">C 环形</button>
+  <span class="sep"></span><select id="ds"></select></div>
+<script>
+const P = new URLSearchParams(location.search);
+let variant = P.get('variant') || 'A', dsIdx = +(P.get('data') || 0);
+const PALETTE = ['#2563eb','#d97706','#059669','#db2777','#7c3aed'];
+const svg = d3.select('#svg'), tip = d3.select('#tip');
+
+function setParam() { const u = new URLSearchParams({variant, data: dsIdx}); history.replaceState(null, '', '?' + u); }
+d3.select('#ds').selectAll('option').data(DATASETS).join('option').attr('value', (d,i)=>i).text(d=>d.name);
+d3.select('#ds').property('value', dsIdx).on('change', e => { dsIdx = +e.target.value; setParam(); render(); });
+d3.selectAll('#bar button').on('click', function(){ variant = this.dataset.v; setParam(); render(); });
+
+function prep(ds) {
+  const nodes = ds.nodes.map(n => ({...n, in:0, out:0}));
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const pairKey = (a,b) => a < b ? a + '|' + b : b + '|' + a;
+  const links = new Map();
+  for (const e of ds.edges) {
+    byId.get(e.target).in++; byId.get(e.source).out++;
+    const k = pairKey(e.source, e.target);
+    if (!links.has(k)) links.set(k, {source:e.source, target:e.target, both:false, lines:{}});
+    const l = links.get(k);
+    if (l.source !== e.source) l.both = true;
+    l.lines[e.source + '→' + e.target] = e.lines;
+  }
+  const colls = [...new Set(nodes.map(n => n.collection))];
+  const color = c => PALETTE[colls.indexOf(c) % PALETTE.length];
+  const connected = new Set(ds.edges.flatMap(e => [e.source, e.target]));
+  const iso = nodes.filter(n => !connected.has(n.id));
+  const graphNodes = nodes.filter(n => connected.has(n.id));
+  return {nodes: graphNodes, links:[...links.values()], iso, color, colls, edges: ds.edges, byId};
+}
+const radius = n => 6 + 3.2 * Math.sqrt(n.in);
+
+function highlight(text, names) {
+  let h = text.replace(/[&<]/g, c => c === '&' ? '&amp;' : '&lt;');
+  for (const n of names) h = h.replace(new RegExp('(?<![a-z0-9-])' + n.replace(/-/g,'\\-') + '(?![a-z0-9-])', 'g'), '<mark>$&</mark>');
+  return h;
+}
+function showLinkTip(ev, l) {
+  const s = l.source.id ?? l.source, t = l.target.id ?? l.target;
+  let html = '';
+  for (const [dir, lines] of Object.entries(l.lines)) {
+    const [a, b] = dir.split('→');
+    html += `<div style="margin-top:4px"><b>${a}</b> 提到 <b>${b}</b></div>` + lines.map(x => `<pre>${highlight(x, [b])}</pre>`).join('');
+  }
+  tip.html(html).style('display','block');
+  moveTip(ev);
+}
+function moveTip(ev) { tip.style('left', Math.min(ev.clientX + 14, innerWidth - 440) + 'px').style('top', Math.min(ev.clientY + 14, innerHeight - 200) + 'px'); }
+const hideTip = () => tip.style('display','none');
+
+function side(G, sel) {
+  const el = d3.select('#side');
+  if (!sel) {
+    el.html(`<h2>怎么看</h2>
+      <div class="legend">
+        <div><span class="dot" style="background:#9ca3af"></span>圆点越大，被越多技能提到</div>
+        <div><span class="dot" style="border:1.5px dashed #9ca3af;background:#fff"></span>空心：不在这个集合或组里</div>
+        ${G.colls.map(c => `<div><span class="dot" style="background:${G.color(c)}"></span>${c}</div>`).join('')}
+        <div><span class="sw" style="background:#cbd5e1"></span>线：箭头指向被提到的技能，两头箭头是互相提到</div>
+      </div>
+      <h3>操作</h3><div style="color:#4b5563;font-size:12px">点技能看它提到谁、被谁提到；悬停线看原文；滚轮缩放、拖动画布或节点；点空白处或 Esc 取消选中。</div>
+      <h3>被提到最多</h3><ul>${[...G.nodes].sort((a,b)=>b.in-a.in).slice(0,8).map(n=>`<li data-id="${n.id}">${n.id} <small>被 ${n.in} 个技能提到</small></li>`).join('')}</ul>`);
+  } else {
+    const outs = G.edges.filter(e => e.source === sel.id), ins = G.edges.filter(e => e.target === sel.id);
+    el.html(`<h2>${sel.id}</h2><div class="coll">${sel.collection}${sel.external ? ' · 不在这里' : ''}</div>
+      <h3 style="color:var(--out)">它提到了 ${outs.length} 个</h3><ul>${outs.map(e=>`<li data-id="${e.target}">${e.target}<small>${e.lines[0].replace(/</g,'&lt;')}</small></li>`).join('') || '<li style="color:#9ca3af">没有</li>'}</ul>
+      <h3 style="color:var(--in)">被 ${ins.length} 个技能提到</h3><ul>${ins.map(e=>`<li data-id="${e.source}">${e.source}<small>${e.lines[0].replace(/</g,'&lt;')}</small></li>`).join('') || '<li style="color:#9ca3af">没有</li>'}</ul>
+      <div style="margin-top:14px;color:#9ca3af;font-size:11.5px">(实际 app 里这里是技能详情抽屉)</div>`);
+  }
+  el.selectAll('li[data-id]').on('click', function(){ window.__select && window.__select(this.dataset.id); });
+}
+
+function layoutForce(G, w, h) {
+  const nodes = G.nodes.map(n => ({...n}));
+  const links = G.links.map(l => ({...l}));
+  const sim = d3.forceSimulation(nodes).randomSource(d3.randomLcg(7))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(l => 60 + 4 * Math.sqrt(nodes.length)).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-380 - nodes.length * 4))
+    .force('collide', d3.forceCollide(d => Math.max(radius(d) + 10, d.id.length * 3.7 + 6)).strength(0.9))
+    .force('x', d3.forceX(w/2).strength(0.08)).force('y', d3.forceY(h/2).strength(0.12))
+    .stop();
+  for (let i = 0; i < 500; i++) sim.tick();
+  return {nodes, links};
+}
+
+function layoutCircle(G, w, h) {
+  // 环形：按集合，再按连通关系排序(从被提到最多的技能开始做 BFS)，让相关的挨着
+  const nodes = G.nodes.map(n => ({...n}));
+  const adj = new Map(nodes.map(n => [n.id, new Set()]));
+  for (const l of G.links) { adj.get(l.source).add(l.target); adj.get(l.target).add(l.source); }
+  const order = [], seen = new Set();
+  for (const c of G.colls) {
+    const pool = nodes.filter(n => n.collection === c).sort((a,b) => (b.in+b.out) - (a.in+a.out));
+    for (const start of pool) {
+      if (seen.has(start.id)) continue;
+      const q = [start.id]; seen.add(start.id);
+      while (q.length) { const v = q.shift(); order.push(v);
+        [...adj.get(v)].filter(x => !seen.has(x) && nodes.find(n=>n.id===x).collection === c).sort().forEach(x => { seen.add(x); q.push(x); }); }
+    }
+  }
+  const R = Math.max(150, Math.min(w, h) / 2 - 140);
+  order.forEach((id, i) => { const n = nodes.find(n => n.id === id); n.angle = i / order.length * 2 * Math.PI - Math.PI/2; n.x = w/2 + R * Math.cos(n.angle); n.y = h/2 + R * Math.sin(n.angle); });
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const links = G.links.map(l => ({...l, source: byId.get(l.source), target: byId.get(l.target)}));
+  return {nodes, links, R, cx: w/2, cy: h/2};
+}
+
+function render() {
+  d3.selectAll('#bar button').classed('on', function(){ return this.dataset.v === variant; });
+  const ds = DATASETS[dsIdx], G = prep(ds);
+  d3.select('#title').text(ds.name.replace(/^集合 |^组/, ''));
+  d3.select('#sum').text(`${ds.nodes.filter(n=>!n.external).length} 个技能，${ds.edges.length} 处提到` + (ds.nodes.some(n=>n.external) ? `，提到了这里以外的 ${ds.nodes.filter(n=>n.external).length} 个技能` : ''));
+  d3.select('#hint').text({A:'A：所有技能一张图，点技能高亮它的上下游', B:'B：点一个技能，只留它和上下游并重新排；在上下游里继续点可以一路走下去', C:'C：技能排成一圈，相关的挨着，线从圈里穿过'}[variant]);
+  d3.select('#iso').html(G.iso.length ? `和这里的技能都没有连线的 ${G.iso.length} 个：` + G.iso.map(n => `<span class="chip">${n.id}</span>`).join('') : '');
+  svg.selectAll('*').remove(); hideTip();
+  const box = svg.node().getBoundingClientRect(), w = box.width, h = box.height;
+
+  const defs = svg.append('defs');
+  for (const [k, c] of Object.entries({base:'#94a3b8', out:'#2563eb', in:'#ea580c', both:'#7c3aed'})) {
+    defs.append('marker').attr('id','end-'+k).attr('viewBox','0 -5 10 10').attr('refX',10).attr('markerWidth',7).attr('markerHeight',7).attr('orient','auto').append('path').attr('d','M0,-4.5L10,0L0,4.5Z').attr('fill',c);
+    defs.append('marker').attr('id','start-'+k).attr('viewBox','0 -5 10 10').attr('refX',0).attr('markerWidth',7).attr('markerHeight',7).attr('orient','auto').append('path').attr('d','M10,-4.5L0,0L10,4.5Z').attr('fill',c);
+  }
+  const root = svg.append('g');
+  const L = variant === 'C' ? layoutCircle(G, w, h) : layoutForce(G, w, h);
+  const many = L.nodes.length > 30;
+  const labelMin = many ? [...L.nodes].map(n=>n.in).sort((a,b)=>b-a)[Math.min(14, L.nodes.length-1)] : 0;
+
+  const linkSel = root.append('g').selectAll('path').data(L.links).join('path').attr('class','link')
+    .attr('stroke','#cbd5e1').attr('stroke-width', 1.3)
+    .attr('marker-end','url(#end-base)').attr('marker-start', d => d.both ? 'url(#start-base)' : null)
+    .on('mousemove', (ev, d) => showLinkTip(ev, d)).on('mouseleave', hideTip);
+  const hit = root.append('g').selectAll('path').data(L.links).join('path').attr('fill','none').attr('stroke','transparent').attr('stroke-width',10)
+    .on('mousemove', (ev, d) => showLinkTip(ev, d)).on('mouseleave', hideTip);
+
+  const nodeSel = root.append('g').selectAll('g').data(L.nodes).join('g').attr('class','node');
+  nodeSel.append('circle').attr('r', radius)
+    .attr('fill', d => d.external ? '#fff' : G.color(d.collection))
+    .attr('stroke', d => d.external ? G.color(d.collection) : '#fff').attr('stroke-width', d => d.external ? 1.8 : 2)
+    .attr('stroke-dasharray', d => d.external ? '3 2' : null);
+  const label = nodeSel.append('text').text(d => d.id);
+  nodeSel.filter(d => d.external).append('text').attr('class','sub').text(d => d.collection);
+
+  function placeLabels() {
+    if (variant === 'C') {
+      label.attr('text-anchor', d => Math.cos(d.angle) >= 0 ? 'start' : 'end')
+        .attr('transform', d => { const deg = d.angle * 180 / Math.PI, flip = Math.cos(d.angle) < 0; return `rotate(${flip ? deg + 180 : deg}) translate(${(flip ? -1 : 1) * (radius(d) + 6)},4)`; });
+      nodeSel.selectAll('text.sub').attr('text-anchor', d => Math.cos(d.angle) >= 0 ? 'start' : 'end')
+        .attr('transform', d => { const deg = d.angle * 180 / Math.PI, flip = Math.cos(d.angle) < 0; return `rotate(${flip ? deg + 180 : deg}) translate(${(flip ? -1 : 1) * (radius(d) + 6)},16)`; });
+    } else if (L.ego) {
+      label.transition().duration(450).attr('x', d => radius(d) + 6).attr('y', 4).attr('text-anchor','start');
+      nodeSel.selectAll('text.sub').attr('x', d => radius(d) + 6).attr('y', 17).attr('text-anchor','start');
+    } else {
+      label.transition().duration(450).attr('x', 0).attr('y', d => radius(d) + 14).attr('text-anchor','middle');
+      nodeSel.selectAll('text.sub').attr('x', 0).attr('y', d => radius(d) + 27).attr('text-anchor','middle');
+    }
+  }
+  function geom(l) {
+    const s = l.source, t = l.target, dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1;
+    const sx = s.x + dx / d * (radius(s) + 2), sy = s.y + dy / d * (radius(s) + 2);
+    const tx = t.x - dx / d * (radius(t) + 3), ty = t.y - dy / d * (radius(t) + 3);
+    if (variant === 'C') { const k = 0.35; const mx = L.cx + ((s.x + t.x)/2 - L.cx) * k, my = L.cy + ((s.y + t.y)/2 - L.cy) * k; return `M${sx},${sy}Q${mx},${my} ${tx},${ty}`; }
+    if (l.both) return `M${sx},${sy}L${tx},${ty}`;
+    const cx = (sx + tx)/2 - dy * 0.08, cy = (sy + ty)/2 + dx * 0.08;
+    return `M${sx},${sy}Q${cx},${cy} ${tx},${ty}`;
+  }
+  function draw() { nodeSel.attr('transform', d => `translate(${d.x},${d.y})`); linkSel.attr('d', geom); hit.attr('d', geom); }
+  placeLabels(); draw();
+
+  let k = 1, selected = null;
+  function labelVis() {
+    label.style('display', d => {
+      if (selected) return (d.id === selected.id || d.__rel) ? null : 'none';
+      return (!many || k > 1.35 || d.in >= labelMin) ? null : 'none';
+    });
+    nodeSel.selectAll('text.sub').style('display', d => (!many || k > 1.35 || selected && (d.__rel || d.id === selected.id)) ? null : 'none');
+  }
+
+  // 缩放：初始整张放进框里，但不小于 0.8，字始终看得清
+  const zoom = d3.zoom().scaleExtent([0.4, 4]).on('zoom', ev => { root.attr('transform', ev.transform); k = ev.transform.k; labelVis(); });
+  svg.call(zoom).on('dblclick.zoom', null);
+  function fit(nodes, animate, minK = 0.8) {
+    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+    const pad = variant === 'C' ? 130 : (L.ego ? 0 : 90), x0 = d3.min(xs) - pad, x1 = d3.max(xs) + pad + (L.ego ? 260 : 0), y0 = d3.min(ys) - (variant === 'C' ? 130 : 40), y1 = d3.max(ys) + (variant === 'C' ? 130 : 50);
+    const s = Math.max(minK, Math.min(1.15, Math.min(w / (x1 - x0), (h - 40) / (y1 - y0))));
+    const t = d3.zoomIdentity.translate(w/2 - s * (x0 + x1)/2, (h - 30)/2 - s * (y0 + y1)/2).scale(s);
+    (animate ? svg.transition().duration(500) : svg).call(zoom.transform, t);
+  }
+  fit(L.nodes, false, variant === 'C' ? 0.4 : 0.8);
+
+  // 拖动节点
+  nodeSel.call(d3.drag().on('drag', (ev, d) => { d.x = ev.x; d.y = ev.y; draw(); }));
+
+  function select(id) {
+    selected = id ? L.nodes.find(n => n.id === id) : null;
+    L.nodes.forEach(n => n.__rel = null);
+    if (!selected) {
+      nodeSel.classed('dim', false).classed('hidden', false); linkSel.classed('dim', false).classed('hidden', false); hit.classed('hidden', false);
+      linkSel.attr('stroke', '#cbd5e1').attr('stroke-width', 1.3).attr('marker-end','url(#end-base)').attr('marker-start', d => d.both ? 'url(#start-base)' : null);
+      if (variant === 'B' && L.home) { L.ego = false; placeLabels(); L.nodes.forEach(n => { n.x = L.home.get(n.id).x; n.y = L.home.get(n.id).y; }); animateTo(); fit(L.nodes, true); }
+      labelVis(); side(G, null); return;
+    }
+    const rel = l => l.source.id === selected.id ? (l.both ? 'both' : 'out') : l.target.id === selected.id ? (l.both ? 'both' : 'in') : null;
+    L.links.forEach(l => { const r = rel(l); if (r) { const other = l.source.id === selected.id ? l.target : l.source; other.__rel = r; } });
+    const keep = n => n.id === selected.id || n.__rel;
+    const cls = variant === 'B' ? 'hidden' : 'dim';
+    nodeSel.classed('dim', false).classed('hidden', false).classed(cls, d => !keep(d));
+    linkSel.classed('dim', false).classed('hidden', false).classed(cls, d => !rel(d));
+    hit.classed('hidden', d => !rel(d));
+    const col = {out:'#2563eb', in:'#ea580c', both:'#7c3aed'};
+    linkSel.filter(d => rel(d)).attr('stroke', d => col[rel(d)]).attr('stroke-width', 2)
+      .attr('marker-end', d => `url(#end-${rel(d)})`).attr('marker-start', d => d.both ? `url(#start-both)` : null);
+    if (variant === 'B') egoLayout();
+    labelVis(); side(G, selected);
+  }
+  window.__select = select;
+
+  // B：聚焦重排——选中的在中间，提到它的在左，它提到的在右，互相提到的在上
+  function egoLayout() {
+    if (!L.home) L.home = new Map(L.nodes.map(n => [n.id, {x:n.x, y:n.y}]));
+    const cx = w/2 - 40, cy = h/2 - 10;
+    const col = (arr, x) => arr.forEach((n, i) => { n.x = x; n.y = cy + (i - (arr.length - 1)/2) * 46; });
+    const ins = L.nodes.filter(n => n.__rel === 'in'), outs = L.nodes.filter(n => n.__rel === 'out'), both = L.nodes.filter(n => n.__rel === 'both');
+    L.ego = true; placeLabels();
+    selected.x = cx; selected.y = cy;
+    col(ins, cx - 260); col(outs, cx + 220);
+    both.forEach((n, i) => { n.x = cx - 120 + i * 300; n.y = cy - Math.max(ins.length, outs.length, 2) * 23 - 70; });
+    animateTo();
+    fit([selected, ...ins, ...outs, ...both], true, 0.9);
+  }
+  function animateTo() {
+    nodeSel.transition().duration(450).attr('transform', d => `translate(${d.x},${d.y})`);
+    linkSel.transition().duration(450).attr('d', geom); hit.attr('d', geom);
+  }
+
+  nodeSel.on('click', (ev, d) => { ev.stopPropagation(); select(selected && selected.id === d.id && variant !== 'B' ? null : d.id); })
+    .on('mouseenter', (ev, d) => { if (!selected) { const nb = new Set([d.id]); L.links.forEach(l => { if (l.source.id === d.id) nb.add(l.target.id); if (l.target.id === d.id) nb.add(l.source.id); });
+        nodeSel.classed('dim', n => !nb.has(n.id)); linkSel.classed('dim', l => l.source.id !== d.id && l.target.id !== d.id);
+        label.style('display', n => nb.has(n.id) || (!many || k > 1.35 || n.in >= labelMin) ? null : 'none'); } })
+    .on('mouseleave', () => { if (!selected) { nodeSel.classed('dim', false); linkSel.classed('dim', false); labelVis(); } });
+  svg.on('click', () => select(null));
+  d3.select(window).on('keydown', ev => { if (ev.key === 'Escape') select(null); });
+  d3.select('#iso').selectAll('.chip').on('click', () => {});
+  labelVis(); side(G, null);
+}
+render();
+window.addEventListener('resize', () => render());
+</script>
+</body>
+</html>
