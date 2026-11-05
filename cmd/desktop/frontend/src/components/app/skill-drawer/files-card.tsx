@@ -1,10 +1,11 @@
-// 技能详情里的文件卡片：当前版本的文件树，选中后读取内容，SKILL.md 渲染成文档。
+// 技能详情里的文件卡片：当前版本的文件树，选中后读取内容，SKILL.md 渲染成文档;文本文件可以用 AI 翻译成界面语言。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileMode, type FileMetadata, type VersionID } from "@bindings/internal/library";
 import { decodeContent, formatSize, renderMarkdown } from "@/lib/content";
-import { useT } from "@/lib/i18n";
-import { versionFileQuery } from "@/lib/library";
+import { currentLanguage, useT } from "@/lib/i18n";
+import { aiSettingsQuery, versionFileQuery } from "@/lib/library";
+import { translateFile } from "@/features/skill/translate";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,36 +22,67 @@ export function useFileContent(versionID: VersionID | undefined, path: string): 
 }
 
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
+// 文本文件有界面语言的译文时显示译文，可以切到原文;「翻译」每次都用 AI 重新翻译，译文存进数据库。
 export function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMetadata[] }) {
   const tt = useT();
   const t = tt.drawer;
+  const ai = !!useQuery(aiSettingsQuery).data?.model;
   const [path, setPath] = useState("SKILL.md");
   const [raw, setRaw] = useState(false);
-  const content = useFileContent(versionID, files.some((f) => f.path === path) ? path : "");
-  const markdown = path.toLowerCase().endsWith(".md") && !raw;
+  const [original, setOriginal] = useState(false);
+  const [translating, setTranslating] = useState<string[]>([]);
+  const selected = files.some((f) => f.path === path) ? path : "";
+  const file = useQuery({ ...versionFileQuery(versionID, selected), enabled: !!selected });
+  const content = !selected ? undefined : file.isError ? null : file.data && decodeContent(file.data.content);
+  const translated = (content && file.data?.translations?.[currentLanguage()]) || undefined;
+  const shown = translated && !original ? translated : content;
+  const isMarkdown = path.toLowerCase().endsWith(".md");
+  const markdown = isMarkdown && !raw;
+  const select = (next: string) => {
+    setPath(next);
+    setOriginal(false);
+  };
+  const translate = async () => {
+    const at = selected;
+    setTranslating((list) => [...list, at]);
+    const done = await translateFile(versionID, at);
+    setTranslating((list) => list.filter((x) => x !== at));
+    if (done && at === path) setOriginal(false);
+  };
   return (
     <Card>
       <CardHeader title={t.files} note={t.filesNote(files.length)} />
       <div className="mb-2">
-        <FileTree nodes={fileTree(files)} selected={path} onSelect={setPath} />
+        <FileTree nodes={fileTree(files)} selected={path} onSelect={select} />
       </div>
-      {content === undefined ? null : content === null ? (
+      {shown === undefined ? null : shown === null ? (
         <Notice>{tt.common.binary}</Notice>
-      ) : markdown ? (
-        <>
-          <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
-          <Button variant="link" onClick={() => setRaw(true)}>
-            {t.viewSource}
-          </Button>
-        </>
       ) : (
         <>
-          <Code>{content}</Code>
-          {path.toLowerCase().endsWith(".md") && (
-            <Button variant="link" onClick={() => setRaw(false)}>
-              {t.viewRendered}
-            </Button>
-          )}
+          {markdown ? <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(shown) }} /> : <Code>{shown}</Code>}
+          <div className="file-actions flex items-center gap-3">
+            {isMarkdown && (
+              <Button variant="link" onClick={() => setRaw(!raw)}>
+                {raw ? t.viewRendered : t.viewSource}
+              </Button>
+            )}
+            {translated && (
+              <Button variant="link" onClick={() => setOriginal(!original)}>
+                {original ? t.showTranslation : t.showOriginal}
+              </Button>
+            )}
+            {!!content?.trim() && (
+              <Button
+                variant="link"
+                disabled={!ai}
+                loading={translating.includes(selected)}
+                title={ai ? t.translateFileTitle : t.translateNeedsAI}
+                onClick={() => void translate()}
+              >
+                {translated ? t.retranslate : t.translate}
+              </Button>
+            )}
+          </div>
         </>
       )}
     </Card>

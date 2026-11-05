@@ -554,6 +554,8 @@ export const zh = {
     filesNote: (n: number) => `${n} 个 · 只读，内容来自技能库`,
     viewSource: "查看源码",
     viewRendered: "查看渲染",
+    translateFileTitle: "用 AI 把这个文件翻译成界面语言，译文存在数据库里；文件长时要等一会儿",
+    translateFileFailed: (path: string, reason: string) => `没能翻译 ${path}：${reason}`,
     executable: "可执行",
     versions: "版本历史",
     versionsNote: (n: number) => `${n} 个版本`,

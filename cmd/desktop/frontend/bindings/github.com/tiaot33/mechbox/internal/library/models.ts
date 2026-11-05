@@ -674,6 +674,12 @@ export interface File {
      * regular 或 executable
      */
     "mode": FileMode;
+
+    /**
+     * Translations 是这份内容已存的译文,键是语言标签(如 zh、en),由 [Library.TranslateVersionFile] 存下;没有译文时为空。
+     * 按内容存:别的版本或技能里内容相同的文件也带同一份译文,内容变了就没有。只有 GetVersionFile 读出的带它。
+     */
+    "translations"?: { [_ in string]?: string } | null;
 }
 
 /**

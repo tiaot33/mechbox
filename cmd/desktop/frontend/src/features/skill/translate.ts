@@ -1,9 +1,10 @@
 // 翻译技能描述：技能详情里点「翻译」每次都重新翻译;自动翻译在主界面后台把还没有译文的描述一批批交给技能库。
 // 译文由技能库存在数据库里，快照里的 Skill.description_translations 按界面语言取。
+// 技能文件夹里的文件只在「文件」卡片里手动翻译，译文按内容存，读文件时的 File.translations 按界面语言取。
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { ErrorCode, type Skill } from "@bindings/internal/library";
+import { ErrorCode, type Skill, type VersionID } from "@bindings/internal/library";
 import { aiError, describeError } from "@/lib/errors";
 import { currentLanguage, messages, useLanguage } from "@/lib/i18n";
 import { aiSettingsQuery, queryClient, reloadLibrary, snapshotQuery, toLibraryError, useLoadedSnapshot, type Snapshot } from "@/lib/library";
@@ -20,6 +21,23 @@ export async function translateDescription(skill: Skill): Promise<boolean> {
     },
   });
   return done !== undefined;
+}
+
+// translateFile 翻译某个版本里的一个文件;译文按内容存，内容相同的其他文件也有了，所以重读全部已读过的文件。
+export async function translateFile(versionID: VersionID, path: string): Promise<boolean> {
+  const t = messages().drawer;
+  const done = await ui.run(() => LibraryService.TranslateVersionFile(versionID, path, currentLanguage()), {
+    reload: false,
+    onError: (err) => {
+      const text = aiError(err);
+      if (!text) return false;
+      ui.toast(t.translateFileFailed(path, text), "error");
+      return true;
+    },
+  });
+  if (done === undefined) return false;
+  await queryClient.invalidateQueries({ queryKey: ["version-file"] });
+  return true;
 }
 
 // 自动翻译每批交几个技能：翻完一批重读一次，列表上的描述一批批换成译文。

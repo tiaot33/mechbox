@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,6 +123,22 @@ func translatePrompt(language string) string {
 		"Reply with the translation only, without quotes, notes or explanations. "+
 		"Keep code, commands, file names, product names and other proper nouns unchanged. "+
 		"If the text is already in that language, reply with it unchanged.", languageName(language))
+}
+
+func TranslateFile(ctx context.Context, settings Settings, path, text, language string) (string, error) {
+	if settings.Model == "" {
+		return "", ErrNotConfigured
+	}
+	return call(ctx, translateIdleTimeout, settings, translateFilePrompt(path, language), text)
+}
+
+func translateFilePrompt(path, language string) string {
+	return fmt.Sprintf("You translate the file %s from an AI agent skill into %s so that a person can read it. "+
+		"Reply with the translated file only, without notes or explanations, and do not wrap it in a code block. "+
+		"Translate the prose, headings, list items, table cells, and comments in code. "+
+		"Keep the structure unchanged: Markdown syntax, YAML front matter keys, line breaks, links and URLs, HTML tags, and placeholders. "+
+		"Keep code, commands, file names, paths, identifiers, product names and other proper nouns unchanged. "+
+		"If the text is already in that language, reply with it unchanged.", strconv.Quote(path), languageName(language))
 }
 
 func languageName(language string) string {

@@ -593,6 +593,8 @@ export const en = {
     filesNote: (n: number) => `${n} · read-only, from the Library`,
     viewSource: "View source",
     viewRendered: "View rendered",
+    translateFileTitle: "Translate this file into the interface language with AI; the translation is kept in the database. Long files take a while",
+    translateFileFailed: (path: string, reason: string) => `Couldn't translate ${path}: ${reason}`,
     executable: "Executable",
     versions: "Version history",
     versionsNote: (n: number) => count(n, "Version"),

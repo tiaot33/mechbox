@@ -5,8 +5,10 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/ai"
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -108,6 +110,51 @@ func (l *Library) translate(ctx context.Context, settings ai.Settings, row store
 	write, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	if err := l.store.SetTranslation(write, row.ID, language, row.Description, translation, clockNow()); err != nil {
+		return "", err
+	}
+	return translation, nil
+}
+
+// TranslateVersionFile 用数据库里的 AI 设置把某个版本里的一个文本文件(SKILL.md 正文、参考文档、脚本等)翻译成 language,
+// 存进数据库并返回译文;之后 [Library.GetVersionFile] 读出的 File.Translations 里就有它。已有译文时也重新翻译、覆盖。
+// 译文按文件内容存:技能更新后没改的文件、别的版本或技能里内容相同的文件都直接用它,内容变了就没有。
+// 版本与路径的含义同 GetVersionFile:版本或路径不存在返回 NotFound(路径不存在时带 Details.Path);
+// 文件不是 UTF-8 文本(二进制文件)或只有空白返回 FailedPrecondition(Details.Path);其余参数与错误同 [Library.TranslateDescription]。
+// 文件比描述长得多,回答以流式接收,连续 2 分钟没有新内容才算超时。
+func (l *Library) TranslateVersionFile(ctx context.Context, id VersionID, path, language string) (translation string, err error) {
+	defer func() { err = typedError(err) }()
+	if err := validateLanguage("translate file", language); err != nil {
+		return "", err
+	}
+	read, unlock := l.sharedOperation(ctx)
+	stored, found, err := l.store.GetVersionFile(read, int64(id), path)
+	if err != nil {
+		unlock()
+		return "", err
+	}
+	if !found {
+		unlock()
+		return "", &Error{Code: NotFound, Message: "translate file: file not found", Details: ErrorDetails{Path: path}}
+	}
+	settings, err := l.aiSettings(read, "translate file")
+	unlock()
+	if err != nil {
+		return "", err
+	}
+	if !utf8.Valid(stored.Content) {
+		return "", preconditionError("translate file", "file is not text", ErrorDetails{Path: path})
+	}
+	text := string(stored.Content)
+	if strings.TrimSpace(text) == "" {
+		return "", preconditionError("translate file", "file is empty", ErrorDetails{Path: path})
+	}
+	translation, err = ai.TranslateFile(ctx, settings, path, text, language)
+	if err != nil {
+		return "", err
+	}
+	write, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	if err := l.store.SetFileTranslation(write, skillfile.Fingerprint(stored.Content), language, translation, clockNow()); err != nil {
 		return "", err
 	}
 	return translation, nil
