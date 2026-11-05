@@ -1,9 +1,15 @@
 package library
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/ai"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
@@ -139,4 +145,51 @@ func parseAISettings(operation string, settings AISettings) (ai.Settings, error)
 		Provider: string(settings.Provider), BaseURL: settings.BaseURL, APIKey: settings.APIKey, Model: settings.Model,
 		Headers: headers, Body: body,
 	}, nil
+}
+
+const aiConcurrency = 4
+
+func (l *Library) aiSettings(ctx context.Context, operation string) (ai.Settings, error) {
+	stored, err := l.store.AISettings(ctx)
+	if err != nil {
+		return ai.Settings{}, err
+	}
+	return parseAISettings(operation, aiSettingsOf(stored))
+}
+
+type skillFailure struct {
+	skill SkillID
+	err   Error
+}
+
+func runPerSkill[T any](ctx context.Context, jobs []T, skill func(T) int64, call func(context.Context, T) error) (succeeded []T, failed []skillFailure, err error) {
+	var mu sync.Mutex
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(aiConcurrency)
+	for _, job := range jobs {
+		if groupCtx.Err() != nil {
+			break
+		}
+		group.Go(func() error {
+			err := call(groupCtx, job)
+			mu.Lock()
+			defer mu.Unlock()
+			switch e := ErrorOf(typedError(err)); {
+			case err == nil:
+				succeeded = append(succeeded, job)
+			case errors.Is(err, store.ErrNotFound):
+			case e.Code == InvalidArgument && groupCtx.Err() == nil:
+				failed = append(failed, skillFailure{skill: SkillID(skill(job)), err: *e})
+			default:
+				return err
+			}
+			return nil
+		})
+	}
+	err = group.Wait()
+	if err == nil {
+		err = ctx.Err()
+	}
+	slices.SortFunc(failed, func(a, b skillFailure) int { return cmp.Compare(a.skill, b.skill) })
+	return succeeded, failed, err
 }

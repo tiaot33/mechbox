@@ -242,11 +242,13 @@ export const updateHistoryQuery = (filter: UpdateHistoryFilter) =>
     queryFn: ({ signal }) => list(wails(signal, LibraryService.ListUpdateHistory(filter))),
   });
 
-// mentionsQuery 是关系图里集合或组的技能提到了哪些技能;技能入库、更新、移除之后随写操作重读。
+// mentionsQuery 是关系图里集合或组的技能提到了哪些技能，以及还有几处单个词的技能名没交给 AI 判断;
+// 技能入库、更新、移除之后随写操作重读，AI 判断完也重读。
 export const mentionsQuery = (filter: MentionsFilter) =>
   queryOptions({
     queryKey: ["mentions", filter],
-    queryFn: ({ signal }) => list(wails(signal, LibraryService.ListMentions(filter))),
+    queryFn: ({ signal }) =>
+      wails(signal, LibraryService.ListMentions(filter)).then((result) => ({ mentions: result.mentions ?? [], unjudged: result.unjudged })),
   });
 
 // 这台机器上装的 WSL 发行版，与设置里选的发行版启动时没能打开的原因。

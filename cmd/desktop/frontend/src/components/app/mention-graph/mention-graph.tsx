@@ -4,7 +4,11 @@
 // 技能多于 30 个时只写被提到最多的约 15 个名字，放大、悬停、选中时写出其余相关的名字。
 // 悬停技能高亮它和上下游;悬停线显示提到对方的那几行原文，点线把提示固定住。点技能只留它和上下游并重新排开
 // (提到它的在左、它提到的在右、互相提到的在上，三种颜色),同时打开详情抽屉;抽屉关上、点空白处或 Esc 回到全图原来的布局。
-// 和谁都没有连线的技能不进图，收在图下方一行。快照变了而技能和线没变时不重新排，视野也不动。
+// 和谁都没有连线的技能不进图，收在图下方一行。快照变了而技能和线没变时不重新排，视野也不动;技能或线变了重新排，
+// 用户没自己移动过视野时把新排的图放进框里，移动过就保留视野。
+// 单个词的技能名没用点名写法时由 AI 判断(features/graph/judge.ts):先画规则确定的线，顶部写出还在判断几处，
+// 判断完重读、补上线并重新排一次(视野按上面的规则);没配 AI 时提示有几处没判断，整体失败时按原因给「去设置」或「重试」。
+// 还有没判断的几处时，图是空的也不说「没有互相提到」。
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { select } from "d3-selection";
@@ -17,10 +21,12 @@ import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHi
 import { focusLayout, forceLayout, radius, type Positions, type XY } from "@/lib/graph-layout";
 import { matches, type GraphSet } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { toggleDrawer, closeDrawer, useView } from "@/lib/view";
+import { toggleDrawer, closeDrawer, openSettings, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/app/icons";
 import { SearchLine } from "@/components/app/skill-list/search-line";
+import { useJudgeMentions, type Judging } from "@/features/graph/judge";
 
 // MentionGraphPage 是关系图页的内容：members 是这个集合或组里的技能。
 export function MentionGraphPage({ set, members }: { set: GraphSet; members: SkillID[] }) {
@@ -39,14 +45,15 @@ export function MentionGraphPage({ set, members }: { set: GraphSet; members: Ski
     );
   }
   if (!query.data) return <Centered>{t.reading}</Centered>;
-  return <Loaded members={members} mentions={query.data} group={set.kind === "group"} />;
+  return <Loaded members={members} mentions={query.data.mentions} unjudged={query.data.unjudged} filter={filter} group={set.kind === "group"} />;
 }
 
-function Loaded({ members, mentions, group }: { members: SkillID[]; mentions: Mention[]; group: boolean }) {
+function Loaded({ members, mentions, unjudged, filter, group }: { members: SkillID[]; mentions: Mention[]; unjudged: number; filter: MentionsFilter; group: boolean }) {
   const s = useSnapshot();
   const tt = useT();
   const t = tt.graph;
   const search = useView((v) => v.search);
+  const { judging, retry } = useJudgeMentions(filter, unjudged);
   const graph = useMemo(() => mentionGraph(s, members, mentions), [s, members, mentions]);
   const outside = graph.nodes.filter((n) => n.outside).length;
   return (
@@ -58,12 +65,13 @@ function Loaded({ members, mentions, group }: { members: SkillID[]; mentions: Me
         <span className="shrink-0 font-medium text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
         <span className="min-w-0 truncate">{t.hint}</span>
       </div>
+      <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
         <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-[10px] border border-hairline bg-white/55 text-[12px] text-muted-foreground shadow-tile">
           {members.length ? (
-            t.none
+            unjudged ? t.noneByRules(unjudged) : t.none
           ) : (
             <>
               <b className="font-medium text-foreground-secondary">{tt.list.emptyGroup}</b>
@@ -73,6 +81,56 @@ function Loaded({ members, mentions, group }: { members: SkillID[]; mentions: Me
         </div>
       )}
       {graph.loose.length > 0 && <Loose skills={graph.loose} />}
+    </div>
+  );
+}
+
+// JudgeLine 是单个词的技能名交给 AI 判断的状态：判断中写出还有几处;没配 AI 时提示去设置;
+// 只因自己没判断成的技能写出原因;整体失败时写出原因，要改 AI 设置的给「去设置」，过一会儿可能就好的给「重试」。都没有时不占位置。
+function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: number; retry: () => void }) {
+  const s = useSnapshot();
+  const t = useT().graph;
+  let text: string;
+  let reason: string | undefined;
+  let action: { label: string; run: () => void } | undefined;
+  switch (judging.state) {
+    case "judging":
+      text = t.judging(judging.count);
+      break;
+    case "unconfigured":
+      [text, action] = [t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai") }];
+      break;
+    case "stopped":
+      [text, reason] = [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason];
+      action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai") } : { label: t.retry, run: retry };
+      break;
+    case "done": {
+      if (!judging.failed?.length) return null;
+      const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
+      [text, reason] = [t.judgeSkipped(names), judging.reason];
+      break;
+    }
+    default:
+      return null;
+  }
+  const warn = judging.state === "stopped" || judging.state === "done";
+  return (
+    <div
+      className={cn("graph-judge flex min-w-0 items-start gap-2 text-[11.5px]", warn ? "text-warn-strong" : "text-muted-foreground")}
+      data-state={judging.state}
+    >
+      {judging.state === "judging" && <Spinner className="mt-[3px]" />}
+      <div className="flex min-w-0 flex-col select-text">
+        <span>
+          {text}
+          {action && (
+            <Button variant="link" className="graph-judge-action ml-2 text-[11.5px]" onClick={action.run}>
+              {action.label}
+            </Button>
+          )}
+        </span>
+        {reason && <span className="whitespace-pre-line text-muted-foreground">{reason}</span>}
+      </div>
     </div>
   );
 }
@@ -153,6 +211,8 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
   const homeView = useRef<ZoomTransform | null>(null);
+  // viewMoved 是用户自己移动过视野(拖动、滚轮、缩放按钮);点「整张放进框里」后清掉。
+  const viewMoved = useRef(false);
   const latest = useRef(graph);
   latest.current = graph;
   const key = useMemo(() => layoutKey(graph), [graph]);
@@ -193,14 +253,28 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         transform.current = e.transform;
         viewRef.current?.setAttribute("transform", e.transform.toString());
         setZoomedIn(e.transform.k > zoomedInAt);
-        if (e.sourceEvent) setTip((t) => (t?.pinned ? t : null));
+        if (e.sourceEvent) {
+          viewMoved.current = true;
+          setTip((t) => (t?.pinned ? t : null));
+        }
       });
     svg.call(z).on("dblclick.zoom", null);
     zoomRef.current = z;
     svg.call(z.transform, fitTransform([...home.values()], latest.current, home, area(box.current), false));
     return () => void svg.on(".zoom", null);
-    // 只在挂载时放进框里一次;之后技能或线变了重新排，也保留用户当时的视野。
+    // 挂载时放进框里一次;技能或线变了重新排之后见下面。
   }, []);
+
+  // 技能或线变了(如 AI 判断完补上线)重新排之后：用户没自己拖动、滚轮或点缩放按钮移动过视野时，把新排的图放进框里;
+  // 移动过就保留用户当时的视野。点了技能时不动，回到全图时再按同样的规则(见下面)。
+  const laidOut = useRef(key);
+  useEffect(() => {
+    if (laidOut.current === key) return;
+    laidOut.current = key;
+    const z = zoomRef.current;
+    if (!z || viewMoved.current || selected !== null) return;
+    select(svgRef.current!).transition().duration(450).call(z.transform, fitTransform([...home.values()], latest.current, home, area(box.current), false));
+  }, [key, home]);
 
   // 框的高度决定点了技能后一列最多排几个。
   useEffect(() => {
@@ -213,12 +287,17 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   }, []);
 
   // 点了技能：记下全图时的视野，把它和上下游放进抽屉左边的那块;回到全图时恢复原来的视野。
+  // 点着技能期间全图重新排过(如 AI 判断完补上线)、点之前又没自己移动过视野时，回到全图把新排的图放进框里。
   const wasSelected = useRef<SkillID | null>(null);
+  const homeAt = useRef({ key, moved: false });
   useEffect(() => {
     const svg = svgRef.current;
     const z = zoomRef.current;
     if (!svg || !z || wasSelected.current === selected) return;
-    if (wasSelected.current === null) homeView.current = transform.current;
+    if (wasSelected.current === null) {
+      homeView.current = transform.current;
+      homeAt.current = { key, moved: viewMoved.current };
+    }
     wasSelected.current = selected;
     setTip(null);
     setHoverNode(null);
@@ -233,7 +312,10 @@ function Canvas({ graph }: { graph: MentionGraph }) {
       );
       select(svg).transition().duration(450).call(z.transform, next);
     } else if (homeView.current) {
-      select(svg).transition().duration(450).call(z.transform, homeView.current);
+      viewMoved.current = homeAt.current.moved;
+      const relaid = homeAt.current.key !== key && !homeAt.current.moved;
+      const next = relaid ? fitTransform([...home.values()], latest.current, home, area(box.current), false) : homeView.current;
+      select(svg).transition().duration(450).call(z.transform, next);
     }
   }, [selected, focus]);
 
@@ -297,10 +379,14 @@ function Canvas({ graph }: { graph: MentionGraph }) {
     toggleDrawer(d.id);
   };
 
-  const zoomBy = (k: number) => zoomRef.current && select(svgRef.current!).transition().duration(250).call(zoomRef.current.scaleBy, k);
+  const zoomBy = (k: number) => {
+    viewMoved.current = true;
+    if (zoomRef.current) select(svgRef.current!).transition().duration(250).call(zoomRef.current.scaleBy, k);
+  };
   const fit = () => {
     const z = zoomRef.current;
     if (!z) return;
+    viewMoved.current = false;
     const ids = focus ? [...focus.at.keys()] : [...home.keys()];
     const next = fitTransform(
       ids.map((id) => shown.get(id) ?? { x: 0, y: 0 }),

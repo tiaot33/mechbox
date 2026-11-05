@@ -133,6 +133,10 @@ export function InstallGroup(groupID: library$0.GroupID, scope: library$0.Scope,
     return $Call.ByID(1741483516, groupID, scope, opts);
 }
 
+export function JudgeMentions(filter: library$0.MentionsFilter): $CancellablePromise<library$0.JudgeMentionsResult> {
+    return $Call.ByID(2255590542, filter);
+}
+
 export function KeepDeletedSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(2236391569, id);
 }
@@ -153,7 +157,7 @@ export function ListGroups(): $CancellablePromise<library$0.Group[] | null> {
     return $Call.ByID(3063702138);
 }
 
-export function ListMentions(filter: library$0.MentionsFilter): $CancellablePromise<library$0.Mention[] | null> {
+export function ListMentions(filter: library$0.MentionsFilter): $CancellablePromise<library$0.Mentions> {
     return $Call.ByID(3136146389, filter);
 }
 

@@ -67,8 +67,12 @@ func (s *LibraryService) GetSkillAudit(ctx context.Context, id library.SkillID) 
 	return settle(s.lib.GetSkillAudit(ctx, id))(ctx)
 }
 
-func (s *LibraryService) ListMentions(ctx context.Context, filter library.MentionsFilter) ([]library.Mention, error) {
+func (s *LibraryService) ListMentions(ctx context.Context, filter library.MentionsFilter) (library.Mentions, error) {
 	return settle(s.lib.ListMentions(ctx, filter))(ctx)
+}
+
+func (s *LibraryService) JudgeMentions(ctx context.Context, filter library.MentionsFilter) (library.JudgeMentionsResult, error) {
+	return settle(s.lib.JudgeMentions(ctx, filter))(ctx)
 }
 
 func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, opts library.RemoveSkillOptions) error {

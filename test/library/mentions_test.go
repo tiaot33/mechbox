@@ -37,7 +37,7 @@ func fetchMentionSource(t *testing.T, lib *library.Library, root string) map[str
 // mentionPairs 把关系写成「提到的 -> 被提到的」,按字母排序,便于和期望比较。
 func mentionPairs(t *testing.T, lib *library.Library, filter library.MentionsFilter) []string {
 	t.Helper()
-	mentions, err := lib.ListMentions(t.Context(), filter)
+	mentions, err := listMentions(t, lib, filter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +55,13 @@ func mentionPairs(t *testing.T, lib *library.Library, filter library.MentionsFil
 	}
 	slices.Sort(pairs)
 	return pairs
+}
+
+// listMentions 只取关系图要画的线。
+func listMentions(t *testing.T, lib *library.Library, filter library.MentionsFilter) ([]library.Mention, error) {
+	t.Helper()
+	result, err := lib.ListMentions(t.Context(), filter)
+	return result.Mentions, err
 }
 
 func requireMentionPairs(t *testing.T, got, want []string) {
@@ -103,7 +110,7 @@ func TestListMentionsDrawsMultiWordNamesWrittenPlainly(t *testing.T) {
 	lib := openTestLibrary(t)
 	skills := fetchMentionSource(t, lib, root)
 
-	mentions, err := lib.ListMentions(t.Context(), library.MentionsFilter{CollectionID: skills["entry"].CollectionID})
+	mentions, err := listMentions(t, lib, library.MentionsFilter{CollectionID: skills["entry"].CollectionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +155,7 @@ func TestListMentionsReadsEveryMarkdownFileIncludingFrontmatter(t *testing.T) {
 	lib := openTestLibrary(t)
 	skills := fetchMentionSource(t, lib, root)
 
-	mentions, err := lib.ListMentions(t.Context(), library.MentionsFilter{CollectionID: skills["entry"].CollectionID})
+	mentions, err := listMentions(t, lib, library.MentionsFilter{CollectionID: skills["entry"].CollectionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +180,7 @@ func TestListMentionsListsEachDistinctLineOnce(t *testing.T) {
 	lib := openTestLibrary(t)
 	skills := fetchMentionSource(t, lib, root)
 
-	mentions, err := lib.ListMentions(t.Context(), library.MentionsFilter{CollectionID: skills["entry"].CollectionID})
+	mentions, err := listMentions(t, lib, library.MentionsFilter{CollectionID: skills["entry"].CollectionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +235,7 @@ func TestListMentionsReachesOtherCollectionsAndPrefersTheSameNameInThisSet(t *te
 		"other-thing": "# other-thing\n",
 	}))
 
-	mentions, err := lib.ListMentions(t.Context(), library.MentionsFilter{CollectionID: home["entry"].CollectionID})
+	mentions, err := listMentions(t, lib, library.MentionsFilter{CollectionID: home["entry"].CollectionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +256,7 @@ func TestListMentionsReachesOtherCollectionsAndPrefersTheSameNameInThisSet(t *te
 			t.Fatal(err)
 		}
 	}
-	mentions, err = lib.ListMentions(t.Context(), library.MentionsFilter{GroupID: group.ID})
+	mentions, err = listMentions(t, lib, library.MentionsFilter{GroupID: group.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +330,7 @@ func TestListMentionsRejectsBadFiltersAndMissingSets(t *testing.T) {
 		_, err := lib.ListMentions(t.Context(), filter)
 		requireLibraryError(t, err, library.NotFound)
 	}
-	mentions, err := lib.ListMentions(t.Context(), library.MentionsFilter{GroupID: group.ID})
+	mentions, err := listMentions(t, lib, library.MentionsFilter{GroupID: group.ID})
 	if err != nil || mentions == nil || len(mentions) != 0 {
 		t.Fatalf("ListMentions(empty group) = %#v, %v; want empty list", mentions, err)
 	}
