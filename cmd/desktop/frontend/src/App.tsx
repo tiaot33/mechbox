@@ -51,6 +51,12 @@ function Main() {
   // 上一次「更新」没装上时提示一次。
   useInstallFailureNotice();
 
+  // 窗口切回前台时重读技能库，对照磁盘巡检已安装的技能：用户在 Finder、终端里改了技能文件夹，切回来界面就跟上。
+  useEffect(() => {
+    const reload = () => void reloadLibrary();
+    window.addEventListener("focus", reload);
+    return () => window.removeEventListener("focus", reload);
+  }, []);
   // Go 端自动检查更新后通知重读，窗口关在菜单栏时也一样。
   useEffect(() => Events.On("updates-checked", () => void reloadLibrary()), []);
   // 自动推送之后(成功或失败)重读同步状态，设置页上的上次推送时间与失败原因随之更新。

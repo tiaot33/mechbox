@@ -1222,7 +1222,6 @@ export const zh = {
   toolbar: {
     toggleLeft: "显示/隐藏侧栏",
     search: "搜索技能",
-    refresh: "刷新（重新读取技能库并对照磁盘巡检已安装的技能）",
     toggleRight: "显示/隐藏作用域栏",
     searchKey: () => (platform() === "mac" ? "⌘K" : "Ctrl K"),
     minimise: "最小化",

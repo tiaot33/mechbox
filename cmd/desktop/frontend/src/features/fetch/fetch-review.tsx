@@ -95,7 +95,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     const ids = fetched.map((x) => x.id);
     ui.toast(t.fetched(ids.length), "ok", { label: t.installTo, onClick: () => void chooseAndInstall(ids, pageInstallTarget(useView.getState().page)) });
     setFetching("done");
-    await new Promise((r) => window.setTimeout(r, 450));
+    await new Promise((r) => window.setTimeout(r, 650));
     onClose();
   };
 

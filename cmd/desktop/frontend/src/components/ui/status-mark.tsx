@@ -1,23 +1,19 @@
-// 状态圈(照 React Bits 的 StatusMark 改写，只留图形):running 是转动的弧,done / failed 由弧合成整圈再画出对勾 / 叉。
+// 状态圈(照 React Bits 的 StatusMark 改写，只留图形):running 是转动的弧,done / failed 由弧合成整圈，合拢后再画出对勾 / 叉。
 // 状态之间是形变过渡，不是换图;各状态的颜色与对勾、叉的描画在 index.css 的 .status-mark 里。
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { animate, useMotionValue, useReducedMotion } from "motion/react";
+import { settledFresh, SETTLED_HOLD, type Settled } from "@/lib/settled";
 import { cn } from "@/lib/utils";
 
 export type MarkStatus = "running" | "done" | "failed";
 
-// Settled 是一次结束的结果;id 每次结束都换，用来只闪一下对勾或叉。
-export interface Settled {
-  id: number;
-  failed: boolean;
-}
-
 // useMarkStatus 把"进行中"与最近一次结束的结果换成状态圈该画的状态：进行中转圈，结束后画对勾或叉，停一下再收起(null)。
+// 对勾或叉只在结束后的 SETTLED_HOLD 之内画：状态圈后来才挂上(如从设置页回到主界面)时，不再补画早已结束的那次。
 export function useMarkStatus(running: boolean, settled: Settled | null): MarkStatus | null {
-  const [dismissed, setDismissed] = useState<number | null>(null);
+  const [dismissed, setDismissed] = useState<number | null>(() => (settled && !settledFresh(settled, Date.now()) ? settled.id : null));
   useEffect(() => {
     if (running || !settled) return;
-    const timer = window.setTimeout(() => setDismissed(settled.id), 1100);
+    const timer = window.setTimeout(() => setDismissed(settled.id), settled.at + SETTLED_HOLD - Date.now());
     return () => window.clearTimeout(timer);
   }, [running, settled]);
   if (running) return "running";
