@@ -140,7 +140,7 @@ export function ProjectsSection() {
   );
 }
 
-// ChecksSection 是检查更新分区：自动检查与检查间隔。
+// ChecksSection 是检查技能更新分区：自动检查与检查间隔。
 export function ChecksSection({ settings, save }: { settings: Settings; save: (change: Partial<Settings>) => void }) {
   const t = useT().settings;
   const intervals: { value: CheckInterval; label: string }[] = [

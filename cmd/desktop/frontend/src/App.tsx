@@ -12,7 +12,7 @@ import { SkillList } from "@/components/app/skill-list/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
 import { useAutoTranslate } from "@/features/skill/translate";
-import { useInstallFailureNotice } from "@/features/release/release";
+import { checkReleaseFromMenu, useInstallFailureNotice } from "@/features/release/release";
 import { setDragGhost } from "@/components/app/dnd";
 import { invalidateRelease, invalidateSyncStatus, reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
 import { applyGlassTint } from "@/lib/glass";
@@ -55,8 +55,10 @@ function Main() {
   useEffect(() => Events.On("updates-checked", () => void reloadLibrary()), []);
   // 自动推送之后(成功或失败)重读同步状态，设置页上的上次推送时间与失败原因随之更新。
   useEffect(() => Events.On("sync-pushed", () => void invalidateSyncStatus()), []);
-  // 启动时检查完 Mechbox 有没有新版本，左栏随之出现或去掉新版本那一行。
+  // Go 端在后台(启动时与之后每天)检查完 Mechbox 有没有新版本，左栏随之出现或去掉新版本那一行。
   useEffect(() => Events.On("release-checked", () => void invalidateRelease()), []);
+  // 点了 macOS 顶部菜单的「检查新版本…」:Go 端打开窗口后通知这里检查并显示结果。
+  useEffect(() => Events.On("release-check-requested", () => void checkReleaseFromMenu()), []);
 
   // 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能，一次确认全部入库。
   const firstOpen = useRef(false);

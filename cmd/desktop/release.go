@@ -23,11 +23,25 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-// releaseCheckedEvent 在启动时检查完新版本后发出，前端据此重读 Release。
+// releaseCheckedEvent 在后台检查完新版本后发出，前端据此重读 Release。
 const releaseCheckedEvent = "release-checked"
 
-// releaseFeed 是正式版检查新版本时读的 GitHub Releases 接口;只返回最新的正式版，不含预发布与草稿。
-var releaseFeed = "https://api.github.com/repos/tiaot33/mechbox/releases/latest"
+// releaseCheckRequestedEvent 在点了 macOS 顶部菜单的「检查新版本…」后发出，前端据此检查并显示结果。
+const releaseCheckRequestedEvent = "release-check-requested"
+
+// releaseManifest 是每个版本附带的发布信息，内容是 GitHub releases 接口返回的一部分(tag_name、body、html_url、published_at、assets);
+// 由发版工作流在发布后上传。
+const releaseManifest = "release.json"
+
+// releaseFeed 是正式版检查新版本时读的地址：最新正式版(不含预发布与草稿)附带的 release.json。
+// 它和下载安装包一样走 github.com 的下载地址，不占 GitHub API 每小时 60 次的匿名额度，也不需要令牌。
+var releaseFeed = "https://github.com/tiaot33/mechbox/releases/latest/download/" + releaseManifest
+
+// releaseCheckInterval 是运行期间检查新版本的间隔;关掉窗口留在菜单栏时 app 可能很久不退出。没检查成时隔 releaseRetry 再试。
+const (
+	releaseCheckInterval = 24 * time.Hour
+	releaseRetry         = time.Hour
+)
 
 // checksumsAsset 是每个版本附带的校验值文件，格式同 sha256sum 的输出。
 const checksumsAsset = "SHA256SUMS.txt"
@@ -182,13 +196,13 @@ func (r *releases) check(ctx context.Context) (*Release, error) {
 	return latest, nil
 }
 
-func (r *releases) install(ctx context.Context, quit func()) error {
+func (r *releases) install(ctx context.Context, version string, quit func()) error {
 	if r == nil {
 		return &library.Error{Code: library.FailedPrecondition, Message: "this build does not check for new versions"}
 	}
 	r.mu.Lock()
 	latest, installing := r.latest, r.installing
-	if latest != nil && latest.Manual == "" && !installing {
+	if latest != nil && latest.Version == version && latest.Manual == "" && !installing {
 		r.installing = true
 	}
 	r.mu.Unlock()
@@ -197,6 +211,8 @@ func (r *releases) install(ctx context.Context, quit func()) error {
 		return &library.Error{Code: library.Busy, Message: "a new version is being installed"}
 	case latest == nil:
 		return &library.Error{Code: library.FailedPrecondition, Message: "no new version to install"}
+	case latest.Version != version:
+		return &library.Error{Code: library.FailedPrecondition, Message: fmt.Sprintf("the newest version is now %s, not %s", latest.Version, version)}
 	case latest.Manual != "":
 		return &library.Error{Code: library.FailedPrecondition, Message: fmt.Sprintf("version %s has to be installed from its download page (%s)", latest.Version, latest.Manual)}
 	}
@@ -329,7 +345,7 @@ func (g *githubFeed) checksum(ctx context.Context, release githubRelease, name s
 		if asset.Name != checksumsAsset {
 			continue
 		}
-		resp, err := g.get(ctx, asset.URL, "")
+		resp, err := g.get(ctx, asset.URL)
 		if err != nil {
 			return nil, err
 		}
@@ -363,7 +379,7 @@ func (g *githubFeed) Download(ctx context.Context, release *updater.Release, dst
 	if url == "" {
 		return &library.Error{Code: library.FailedPrecondition, Message: "no installer to download"}
 	}
-	resp, err := g.get(ctx, url, "")
+	resp, err := g.get(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -390,7 +406,7 @@ func (g *githubFeed) Download(ctx context.Context, release *updater.Release, dst
 }
 
 func (g *githubFeed) getJSON(ctx context.Context, url string, v any) error {
-	resp, err := g.get(ctx, url, "application/vnd.github+json")
+	resp, err := g.get(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -401,15 +417,12 @@ func (g *githubFeed) getJSON(ctx context.Context, url string, v any) error {
 	return nil
 }
 
-func (g *githubFeed) get(ctx context.Context, url, accept string) (*http.Response, error) {
+func (g *githubFeed) get(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, &library.Error{Code: library.Internal, Message: err.Error(), Err: err}
 	}
 	req.Header.Set("User-Agent", "Mechbox")
-	if accept != "" {
-		req.Header.Set("Accept", accept)
-	}
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return nil, unreachable(ctx, err)
@@ -544,7 +557,7 @@ func (a *AppService) Release() ReleaseStatus {
 }
 
 // CheckRelease 读 GitHub Releases 上最新的正式版，比正在运行的版本新时返回它，已是最新时返回 nil;结果记下来，Release 随之改变。
-// 连不上、超时或被限流时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
+// 读的是版本附带的 release.json,不经 GitHub API,不受 API 的限流。连不上或超时时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
 // 这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
 func (a *AppService) CheckRelease(ctx context.Context) (*Release, error) {
 	return a.releases.check(ctx)
@@ -555,19 +568,54 @@ func (a *AppService) CheckRelease(ctx context.Context) (*Release, error) {
 // 下载进度由 Wails 的 wails:updater:download-progress 事件给出。
 // 下载失败返回 SourceUnreachable,校验不通过返回 SourceInvalid,当前版本都不变;下载途中取消调用就停下，返回 Canceled。
 // app 退出后才装上新版，装没装上下次启动时由 Release 的 Failed 给出;
-// 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时返回 FailedPrecondition。
-func (a *AppService) InstallRelease(ctx context.Context) error {
-	return a.releases.install(ctx, func() { go a.app.Quit() })
+// version 是用户在对话框里看到、点了「更新」的那个版本;之后的检查找到了别的版本(对话框开着时后台又检查过)时不装，返回 FailedPrecondition。
+// 没有新版本或新版本只能从下载页装(Release.Manual 不为空)时也返回 FailedPrecondition。
+func (a *AppService) InstallRelease(ctx context.Context, version string) error {
+	return a.releases.install(ctx, version, func() { go a.app.Quit() })
 }
 
-func (a *AppService) checkReleaseOnStartup(ctx context.Context) {
+func (a *AppService) requestReleaseCheck() {
+	a.showWindow()
+	go a.app.Event.Emit(releaseCheckRequestedEvent)
+}
+
+func (a *AppService) watchReleases(ctx context.Context) {
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	var last time.Time
+	checked := false
+	for {
+		if now := time.Now().Round(0); releaseDue(now, last, checked) {
+			last, checked = now, a.checkReleaseInBackground(ctx)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func releaseDue(now, last time.Time, checked bool) bool {
+	if last.IsZero() {
+		return true
+	}
+	wait := releaseRetry
+	if checked {
+		wait = releaseCheckInterval
+	}
+	return now.Sub(last) >= wait
+}
+
+func (a *AppService) checkReleaseInBackground(ctx context.Context) bool {
 	if _, err := a.releases.check(ctx); err != nil {
 		if ctx.Err() == nil {
 			a.warn(err, "check for new version")
 		}
-		return
+		return false
 	}
 	if ctx.Err() == nil && a.app != nil {
 		a.app.Event.Emit(releaseCheckedEvent)
 	}
+	return true
 }

@@ -1,4 +1,5 @@
-// Mechbox 的新版本：更新说明与更新的对话框，以及设置页「关于」里的「检查新版本」。左栏的新版本一行在 left-sidebar。
+// Mechbox 的新版本：更新说明与更新的对话框，设置页「关于」里的「检查新版本」，以及 macOS 顶部菜单「检查新版本…」的结果。
+// 左栏的新版本一行在 left-sidebar。
 // 检查、下载、校验与装上都在 Go 端(AppService.CheckRelease / InstallRelease);不能在 app 里直接装的(Release.manual)只打开下载页。
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import { AppService, ManualReason, type Release } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
 import { formatDate, formatSize, renderMarkdown } from "@/lib/content";
 import { describeError } from "@/lib/errors";
-import { invalidateRelease, releaseQuery, toLibraryError, useSnapshot, type LibraryError } from "@/lib/library";
+import { invalidateRelease, releaseQuery, toLibraryError, useLoadedSnapshot, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { platform } from "@/lib/platform";
 import { Modal, ui, useBusy } from "@/lib/ui";
@@ -23,6 +24,7 @@ type Progress = { written: number; total: number };
 // releaseError 说明检查或更新为什么没成：during 是 check 时只说读没读到，install 时还要说当前版本不变。
 function releaseError(err: LibraryError, during: "check" | "install"): string {
   const t = messages().release;
+  if (err.code === ErrorCode.Busy) return t.busyInstalling;
   if (err.code === ErrorCode.SourceUnreachable) return `${t.unreachable}\n${err.message}`;
   if (during === "check") return err.code === ErrorCode.SourceInvalid ? `${t.unreadable}\n${err.message}` : describeError(err);
   if (err.code === ErrorCode.SourceInvalid) return `${t.invalid}\n${err.message}`;
@@ -40,16 +42,27 @@ function manualText(reason: ManualReason): string {
   return t.manualAsset;
 }
 
-// openRelease 打开新版本的对话框：更新说明，以及「更新」或「打开下载页」。
+// releaseOpen 是新版本的对话框开没开着：左栏、菜单都能打开它，开着时不再叠一个。
+let releaseOpen = false;
+
+// openRelease 打开新版本的对话框：更新说明，以及「更新」或「打开下载页」;已经开着时什么都不做。
 export function openRelease(release: Release) {
-  void ui.open((close) => <ReleaseDialog release={release} onClose={close} />);
+  if (releaseOpen) return;
+  releaseOpen = true;
+  void ui.open((close) => <ReleaseDialog release={release} onClose={close} />).finally(() => {
+    releaseOpen = false;
+  });
 }
 
-function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => void }) {
+// 对话框开着时后台又检查到更晚的版本，就换成显示它;「更新」带上显示的版本，Go 端只装这一个。
+// 技能库快照可能还没读到(从 macOS 菜单打开时)，这时不写当前版本那一行。
+function ReleaseDialog({ release: opened, onClose }: { release: Release; onClose: () => void }) {
   const t = useT().release;
-  const s = useSnapshot();
+  const s = useLoadedSnapshot();
   const busy = useBusy();
-  const failed = useQuery(releaseQuery).data?.failed;
+  const status = useQuery(releaseQuery).data;
+  const failed = status?.failed;
+  const release = status?.latest ?? opened;
   const call = useRef<ReturnType<typeof AppService.InstallRelease> | null>(null);
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -71,7 +84,7 @@ function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => 
     setProgress(null);
     setError(undefined);
     try {
-      call.current = AppService.InstallRelease();
+      call.current = AppService.InstallRelease(release.version);
       await call.current;
     } catch (e) {
       const err = toLibraryError(e);
@@ -90,7 +103,7 @@ function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => 
     void call.current?.cancel();
     onClose();
   };
-  const status = !installing
+  const progressText = !installing
     ? undefined
     : downloading
       ? t.downloading(formatSize(progress.written), progress.total ? formatSize(progress.total) : "")
@@ -105,7 +118,7 @@ function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => 
       onClose={close}
       footer={
         <>
-          {status && <span className="release-status mr-auto text-[11px] text-muted-foreground">{status}</span>}
+          {progressText && <span className="release-status mr-auto text-[11px] text-muted-foreground">{progressText}</span>}
           <Button onClick={close} disabled={locked}>
             {installing ? t.stop : t.later}
           </Button>
@@ -121,7 +134,7 @@ function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => 
         </>
       }
     >
-      <Hint>{t.current(s.info.version, release.version, formatDate(release.published_at))}</Hint>
+      {s && <Hint>{t.current(s.info.version, release.version, formatDate(release.published_at))}</Hint>}
       {notes ? (
         <div className="md max-h-[45vh] overflow-auto select-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(notes) }} />
       ) : (
@@ -132,6 +145,20 @@ function ReleaseDialog({ release, onClose }: { release: Release; onClose: () => 
       {error && <Notice tone="bad" className="whitespace-pre-line select-text">{error}</Notice>}
     </Modal>
   );
+}
+
+// checkReleaseFromMenu 是点了 macOS 顶部菜单的「检查新版本…」:检查时顶栏的状态圈转，有新版本时打开它的对话框，
+// 已是最新或没检查成时用 toast 说明。新版本的对话框已经开着(含正在下载、装上)时只是把窗口带到前面，不再检查。
+export async function checkReleaseFromMenu() {
+  if (releaseOpen) return;
+  const t = messages().release;
+  const latest = await ui.run(() => AppService.CheckRelease(), {
+    reload: false,
+    success: (found) => (found ? undefined : t.latestAlready),
+    onError: (err) => (ui.toast(releaseError(err, "check"), "error"), true),
+  });
+  await invalidateRelease();
+  if (latest) openRelease(latest);
 }
 
 // ReleaseCheck 是「关于」里应用版本旁边的「检查新版本」与检查的结果;这个构建不检查新版本时只写一句说明。
