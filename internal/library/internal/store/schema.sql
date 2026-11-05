@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS blobs (
     content BLOB NOT NULL         -- 文件原始内容
 );
 
+-- 技能文件的译文:用 AI 把技能某个版本里的一个文本文件翻译成某种语言,存下来不再重复翻译。按文件内容存,不按版本和路径:
+-- 技能更新后没改的文件、别的技能或版本里内容相同的文件都直接用这份;内容变了就是另一个指纹,没有译文。
+-- 每份内容每种语言一条,重新翻译时覆盖。和 blobs 一样,技能移除后也留着。
+CREATE TABLE IF NOT EXISTS file_translations (
+    fingerprint TEXT NOT NULL REFERENCES blobs(fingerprint), -- 原文的内容指纹,指向 blobs 里的内容
+    language TEXT NOT NULL,                                  -- 译成的语言,BCP 47 语言标签,如 zh、en
+    translation TEXT NOT NULL,                               -- 译文
+    translated_at TEXT NOT NULL DEFAULT '',                  -- 翻译时间,RFC3339Nano
+    PRIMARY KEY(fingerprint, language)
+);
+
 -- 某个版本包含哪些文件:路径 → 内容指纹 + 文件模式。
 CREATE TABLE IF NOT EXISTS version_files (
     version_id INTEGER NOT NULL REFERENCES skill_versions(id), -- 文件所属的快照版本,关联 skill_versions.id

@@ -66,7 +66,7 @@ export const queryClient = new QueryClient({
   },
 });
 
-// stable 标记写操作后不用重读的查询：内容只由 key 决定(某个版本的文件),或者来自技能库以外(skills.sh 的审计)。
+// stable 标记写操作后不用重读的查询：内容只由 key 决定(某个版本的文件列表),或者来自技能库以外(skills.sh 的审计)。
 declare module "@tanstack/react-query" {
   interface Register {
     queryMeta: { stable?: boolean };
@@ -212,11 +212,11 @@ export const versionQuery = (id: VersionID) =>
 export const versionFilesQuery = (id: VersionID) =>
   queryOptions({ queryKey: ["version-files", id], queryFn: ({ signal }) => list(wails(signal, LibraryService.ListVersionFiles(id))), meta: stable });
 
+// versionFileQuery 读某个版本里的一个文件：内容不会变，但带着的译文会变(翻译、拉回),所以随写操作重读。
 export const versionFileQuery = (id: VersionID, path: string) =>
   queryOptions({
     queryKey: ["version-file", id, path],
     queryFn: ({ signal }) => wails(signal, LibraryService.GetVersionFile(id, path)),
-    meta: stable,
   });
 
 // versionsQuery 是一个技能的版本历史;更新、回滚、重新读取后有新版本，随写操作重读。

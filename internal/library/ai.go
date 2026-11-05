@@ -93,7 +93,7 @@ func (l *Library) SetAISettings(ctx context.Context, settings AISettings) (err e
 // 设置本身无效时返回 InvalidArgument(Details.Field 为 provider / base_url / headers / body / model;模型必填,API Key 可以留空);
 // 服务的回答按 HTTP 状态归类:401 / 403 为 Permission,404 与回答不是这种接口的响应(都是模型或服务地址不对)为 NotFound,
 // 连不上、超时、429 与 5xx,以及回答到一半服务发来错误事件或回答没说完流就结束了,为 SourceUnreachable,其他 4xx 与回答里没有文字为 InvalidArgument,
-// 回答被 max_tokens 截断(如思考用完了额度)为 InvalidArgument 且 Details.Field 为 max_tokens;
+// 回答被 max_tokens 截断(如思考用完了额度、文件的译文太长)为 InvalidArgument 且 Details.Field 为 max_tokens;
 // Message 里带服务原样给出的原因。
 func (l *Library) TestAISettings(ctx context.Context, settings AISettings) (err error) {
 	defer func() { err = typedError(err) }()

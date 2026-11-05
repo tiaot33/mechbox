@@ -346,6 +346,10 @@ export function TranslateDescriptions(language: string, ids: library$0.SkillID[]
     return $Call.ByID(3593578783, language, ids);
 }
 
+export function TranslateVersionFile(id: library$0.VersionID, path: string, language: string): $CancellablePromise<string> {
+    return $Call.ByID(4054996262, id, path, language);
+}
+
 export function Uninstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {
     return $Call.ByID(3701070568, id, scope);
 }

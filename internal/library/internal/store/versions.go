@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -218,4 +219,42 @@ func (q queries) VersionsWithFile(ctx context.Context, path, fingerprint string)
 
 func (q queries) MarkdownFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
 	return q.versionFiles(ctx, versionID, "get markdown files", `AND (lower(version_files.path) LIKE '%.md' OR lower(version_files.path) LIKE '%.markdown')`)
+}
+
+func (q queries) FileTranslations(ctx context.Context, fingerprint string) (map[string]string, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT language, translation FROM file_translations WHERE fingerprint = ?`, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("list file translations: %w", wrap(err))
+	}
+	defer rows.Close()
+	var translations map[string]string
+	for rows.Next() {
+		var language, translation string
+		if err := rows.Scan(&language, &translation); err != nil {
+			return nil, fmt.Errorf("list file translations: %w", wrap(err))
+		}
+		if translations == nil {
+			translations = map[string]string{}
+		}
+		translations[language] = translation
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list file translations: %w", wrap(err))
+	}
+	return translations, nil
+}
+
+func (q queries) SetFileTranslation(ctx context.Context, fingerprint, language, translation string, at time.Time) error {
+	result, err := q.q.ExecContext(ctx, `
+		INSERT INTO file_translations(fingerprint, language, translation, translated_at)
+		SELECT fingerprint, ?, ?, ? FROM blobs WHERE fingerprint = ?
+		ON CONFLICT(fingerprint, language) DO UPDATE SET translation = excluded.translation, translated_at = excluded.translated_at
+	`, language, translation, formatTime(at), fingerprint)
+	if err != nil {
+		return fmt.Errorf("set file translation: %w", wrap(err))
+	}
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
+		return fmt.Errorf("set file translation: %w", errors.Join(ErrNotFound, err))
+	}
+	return nil
 }
