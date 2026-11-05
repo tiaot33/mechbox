@@ -15,7 +15,7 @@ var languageTag = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
 // TranslateDescription 用数据库里的 AI 设置把技能当前版本的描述翻译成 language(BCP 47 语言标签,如界面语言 zh、en),
 // 存进数据库并返回译文;之后 [Skill].DescriptionTranslations 里就有它。已有译文时也重新翻译、覆盖(界面上点「翻译」)。
 // language 不是语言标签时返回 InvalidArgument(Details.Field 为 language);技能不存在返回 NotFound;描述为空返回 FailedPrecondition;
-// AI 设置里没填模型返回 NotConfigured;服务的回答按 [Library.TestAISettings] 的规则归类,回答被 max_tokens 截断时同样不存。最多等 2 分钟。
+// AI 设置里没填模型返回 NotConfigured;服务的回答按 [Library.TestAISettings] 的规则归类,回答被 max_tokens 截断时同样不存。连续 2 分钟没有新内容才算超时。
 func (l *Library) TranslateDescription(ctx context.Context, id SkillID, language string) (translation string, err error) {
 	defer func() { err = typedError(err) }()
 	if err := validateLanguage("translate description", language); err != nil {

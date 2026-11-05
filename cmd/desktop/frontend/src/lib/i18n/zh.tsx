@@ -1287,7 +1287,7 @@ export const zh = {
     headers: "请求头（可选）",
     headersPlaceholder: "每行一个，如 X-Title: Mechbox",
     body: "请求体（可选）",
-    bodyHint: "合并进每个请求的 JSON 对象，覆盖同名字段，用来设置思考深度这类参数：OpenAI 兼容的如 reasoning_effort，Anthropic 的如 thinking。Anthropic 请求的 max_tokens 是 4096，思考预算更大时在这里一并写上更大的 max_tokens。",
+    bodyHint: "合并进每个请求的 JSON 对象，覆盖同名字段，用来设置思考深度这类参数：OpenAI 兼容的如 reasoning_effort，Anthropic 的如 thinking。Anthropic 请求的 max_tokens 是 128000。",
     invalidHeaders: "请求头的格式不对：每行一个「名字: 值」",
     invalidBody: "请求体要是一个 JSON 对象",
     truncated: "回答被截断了：思考用完了 max_tokens，在请求体里写上更大的 max_tokens",

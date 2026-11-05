@@ -55,7 +55,7 @@ export interface AISettings {
      * Body 是合并进每个请求体的 JSON 对象,存的是用户填的原文。顶层的每个字段原样写进请求体,覆盖库自己填的同名字段,
      * 用来设置思考深度这类接口参数:OpenAI 兼容的接口如 {"reasoning_effort": "high"},
      * Anthropic 的接口如 {"thinking": {"type": "enabled", "budget_tokens": 2048}};库在 Anthropic 的请求里填的
-     * max_tokens 是 4096,思考预算更大时在这里一并写上更大的 max_tokens。
+     * max_tokens 是 128000,OpenAI 兼容的请求不带输出上限。
      */
     "body"?: string;
 }
