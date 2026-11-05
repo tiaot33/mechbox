@@ -540,7 +540,7 @@ export enum ErrorCode {
  */
 export interface ErrorDetails {
     /**
-     * InvalidArgument:与 JSON 字段名一致的参数名;AI 的回答被 max_tokens 截断(思考用完了额度)时为 max_tokens,要在 AI 设置的请求体里写上更大的 max_tokens
+     * InvalidArgument:与 JSON 字段名一致的参数名;AI 的回答被 max_tokens 截断(思考用完了额度、文件的译文太长)时为 max_tokens,要在 AI 设置的请求体里写上更大的 max_tokens
      */
     "field"?: string;
 

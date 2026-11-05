@@ -88,7 +88,8 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
 
             <InstallCard skill={skill} />
 
-            <FilesCard versionID={skill.version_id} files={files} />
+            {/* 换技能或技能换了版本时重新挂载：选中的文件、显示原文还是译文都回到默认。 */}
+            <FilesCard key={skill.version_id} versionID={skill.version_id} files={files} skillName={skill.name} />
             <VersionsCard name={skill.name} versions={versions} currentID={skill.version_id} />
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}

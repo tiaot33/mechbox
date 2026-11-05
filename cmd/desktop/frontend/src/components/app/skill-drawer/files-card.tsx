@@ -1,11 +1,11 @@
 // 技能详情里的文件卡片：当前版本的文件树，选中后读取内容，SKILL.md 渲染成文档;文本文件可以用 AI 翻译成界面语言。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileMode, type FileMetadata, type VersionID } from "@bindings/internal/library";
 import { decodeContent, formatSize, renderMarkdown } from "@/lib/content";
-import { currentLanguage, useT } from "@/lib/i18n";
+import { useLanguage, useT } from "@/lib/i18n";
 import { aiSettingsQuery, versionFileQuery } from "@/lib/library";
-import { translateFile } from "@/features/skill/translate";
+import { translateFile, useTranslatingFile } from "@/features/skill/translate";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,41 +13,47 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { Icon } from "@/components/app/icons";
 
-// useFileContent 读某个版本里一个文件的内容：还没读到(或没选文件)时为 undefined,二进制或读取失败时为 null。
-export function useFileContent(versionID: VersionID | undefined, path: string): string | null | undefined {
+// useVersionFile 读某个版本里的一个文件:content 还没读到(或没选文件)时为 undefined,二进制或读取失败时为 null;
+// translation 是界面语言的译文，没有时为 undefined。
+export function useVersionFile(versionID: VersionID | undefined, path: string): { content: string | null | undefined; translation?: string } {
+  const { language } = useLanguage();
   const q = useQuery({ ...versionFileQuery(versionID ?? 0, path), enabled: versionID !== undefined && !!path });
-  if (versionID === undefined || !path) return undefined;
-  if (q.isError) return null;
-  return q.data && decodeContent(q.data.content);
+  if (versionID === undefined || !path) return { content: undefined };
+  if (q.isError) return { content: null };
+  const content = q.data && decodeContent(q.data.content);
+  return { content, translation: (content && q.data?.translations?.[language]) || undefined };
+}
+
+// useFileContent 是 useVersionFile 的内容，给只看原文的地方用(历史版本的文件)。
+export function useFileContent(versionID: VersionID | undefined, path: string): string | null | undefined {
+  return useVersionFile(versionID, path).content;
 }
 
 // FilesCard 列出当前版本的文件;选中后按需读取内容。SKILL.md 默认展开并渲染。
 // 文本文件有界面语言的译文时显示译文，可以切到原文;「翻译」每次都用 AI 重新翻译，译文存进数据库。
-export function FilesCard({ versionID, files }: { versionID: VersionID; files: FileMetadata[] }) {
+export function FilesCard({ versionID, files, skillName }: { versionID: VersionID; files: FileMetadata[]; skillName: string }) {
   const tt = useT();
   const t = tt.drawer;
   const ai = !!useQuery(aiSettingsQuery).data?.model;
   const [path, setPath] = useState("SKILL.md");
   const [raw, setRaw] = useState(false);
   const [original, setOriginal] = useState(false);
-  const [translating, setTranslating] = useState<string[]>([]);
+  // shownPath 是现在选中的文件：翻译要等好几分钟，翻完时用户可能已经换到别的文件了。
+  const shownPath = useRef(path);
   const selected = files.some((f) => f.path === path) ? path : "";
-  const file = useQuery({ ...versionFileQuery(versionID, selected), enabled: !!selected });
-  const content = !selected ? undefined : file.isError ? null : file.data && decodeContent(file.data.content);
-  const translated = (content && file.data?.translations?.[currentLanguage()]) || undefined;
-  const shown = translated && !original ? translated : content;
+  const { content, translation } = useVersionFile(versionID, selected);
+  const translating = useTranslatingFile(versionID, selected);
+  const shown = translation && !original ? translation : content;
   const isMarkdown = path.toLowerCase().endsWith(".md");
   const markdown = isMarkdown && !raw;
   const select = (next: string) => {
+    shownPath.current = next;
     setPath(next);
     setOriginal(false);
   };
   const translate = async () => {
     const at = selected;
-    setTranslating((list) => [...list, at]);
-    const done = await translateFile(versionID, at);
-    setTranslating((list) => list.filter((x) => x !== at));
-    if (done && at === path) setOriginal(false);
+    if ((await translateFile(versionID, at, skillName)) && shownPath.current === at) setOriginal(false);
   };
   return (
     <Card>
@@ -66,7 +72,7 @@ export function FilesCard({ versionID, files }: { versionID: VersionID; files: F
                 {raw ? t.viewRendered : t.viewSource}
               </Button>
             )}
-            {translated && (
+            {translation && (
               <Button variant="link" onClick={() => setOriginal(!original)}>
                 {original ? t.showTranslation : t.showOriginal}
               </Button>
@@ -75,11 +81,11 @@ export function FilesCard({ versionID, files }: { versionID: VersionID; files: F
               <Button
                 variant="link"
                 disabled={!ai}
-                loading={translating.includes(selected)}
+                loading={translating}
                 title={ai ? t.translateFileTitle : t.translateNeedsAI}
                 onClick={() => void translate()}
               >
-                {translated ? t.retranslate : t.translate}
+                {translation ? t.retranslate : t.translate}
               </Button>
             )}
           </div>
