@@ -285,6 +285,7 @@ func (t *Tx) RemoveSkill(ctx context.Context, id int64) error {
 		`DELETE FROM rejected_renames WHERE skill_id = ?`,
 		`DELETE FROM rolled_back_renames WHERE skill_id = ?`,
 		`DELETE FROM description_translations WHERE skill_id = ?`,
+		`DELETE FROM mention_judgments WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
 		`UPDATE skills SET current_version_id = NULL WHERE id = ?`,
 		`DELETE FROM version_files WHERE version_id IN (SELECT id FROM skill_versions WHERE skill_id = ?)`,
 		`DELETE FROM skill_versions WHERE skill_id = ?`,

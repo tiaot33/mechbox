@@ -1215,6 +1215,11 @@ export const zh = {
     zoomIn: "放大",
     zoomOut: "缩小",
     fit: "整张放进框里",
+    judging: (n: number) => `还在判断 ${n} 处单个词的技能名是不是在指那个技能，判断完补上线`,
+    unjudged: (n: number) => `有 ${n} 处单个词的技能名(如 review、spec)没判断是不是在指那个技能，这些地方没画线;在设置里配好 AI 就能判断`,
+    setUpAI: "去设置",
+    judgeStopped: (n: number) => `判断停下了，已判断的保留，还有 ${n} 处没判断;下次打开关系图再试`,
+    judgeSkipped: (names: string[]) => `没能判断 ${names.map((n) => `「${n}」`).join("、")} 里的几处，其余照常补上了线;下次打开关系图再试`,
   },
 
   toolbar: {

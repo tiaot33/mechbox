@@ -105,6 +105,18 @@ CREATE TABLE IF NOT EXISTS version_files (
     PRIMARY KEY(version_id, path)
 );
 
+-- 关系图里交给 AI 判断的「提到」:一个技能版本的 Markdown 文件里出现了库里某个单个词的技能名(如 review),
+-- 又没用点名写法、规则分不清是不是在指那个技能时,把出现这个名字的几行交给 AI 判断,结论存在这里。
+-- 每个版本、每个名字一条:同一个版本只判断一次;技能出了新版本,新版本没有结论,重新判断;
+-- 新入库了一个单个词名字的技能,只有正文里出现这个名字的版本多出没有结论的名字。随技能一并删除。
+CREATE TABLE IF NOT EXISTS mention_judgments (
+    version_id INTEGER NOT NULL REFERENCES skill_versions(id), -- 正文里出现这个名字的技能版本
+    name TEXT NOT NULL,                                       -- 出现的单个词的技能名,区分大小写
+    mentioned INTEGER NOT NULL CHECK(mentioned IN (0, 1)),    -- 1 = AI 判断为在指那个技能,关系图上画线;0 = 只是普通的词
+    judged_at TEXT NOT NULL DEFAULT '',                       -- 判断时间,RFC3339Nano
+    PRIMARY KEY(version_id, name)
+);
+
 -- 手动创建的场景分组;与按来源自动形成的 Collection 相对(见 ADR 0006)。
 -- 名字 UNIQUE:界面按名字挑选,重名无法区分;写入时重名自动改为 name#N。
 CREATE TABLE IF NOT EXISTS groups (

@@ -35,7 +35,7 @@ func (l *Library) TranslateDescription(ctx context.Context, id SkillID, language
 		unlock()
 		return "", err
 	}
-	settings, err := l.translateSettings(read)
+	settings, err := l.aiSettings(read, "translate description")
 	unlock()
 	if err != nil {
 		return "", err
@@ -92,7 +92,7 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 		return result, nil
 	}
 	read, unlock = l.sharedOperation(ctx)
-	settings, err := l.translateSettings(read)
+	settings, err := l.aiSettings(read, "translate description")
 	unlock()
 	if err != nil {
 		return result, err
@@ -128,12 +128,12 @@ func (l *Library) TranslateDescriptions(ctx context.Context, language string, id
 	return result, err
 }
 
-func (l *Library) translateSettings(ctx context.Context) (ai.Settings, error) {
+func (l *Library) aiSettings(ctx context.Context, operation string) (ai.Settings, error) {
 	stored, err := l.store.AISettings(ctx)
 	if err != nil {
 		return ai.Settings{}, err
 	}
-	return parseAISettings("translate description", aiSettingsOf(stored))
+	return parseAISettings(operation, aiSettingsOf(stored))
 }
 
 func (l *Library) translate(ctx context.Context, settings ai.Settings, row store.Skill, language string) (string, error) {

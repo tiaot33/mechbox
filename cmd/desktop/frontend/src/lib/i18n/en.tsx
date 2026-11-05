@@ -1285,6 +1285,12 @@ export const en = {
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
     fit: "Fit the whole graph",
+    judging: (n: number) => `Still checking whether ${count(n, "one-word skill name")} ${n === 1 ? "means" : "mean"} that skill; lines are added when done`,
+    unjudged: (n: number) =>
+      `${count(n, "one-word skill name")} (such as review or spec) ${n === 1 ? "isn’t" : "aren’t"} checked yet and ${n === 1 ? "has" : "have"} no line. Set up AI in Settings to check them`,
+    setUpAI: "Open Settings",
+    judgeStopped: (n: number) => `Checking stopped with ${count(n, "name")} left; what was checked is kept. It tries again next time you open the graph`,
+    judgeSkipped: (names: string[]) => `Couldn’t check the names in ${quoted(names)}; lines for the rest were added. It tries again next time you open the graph`,
   },
 
   toolbar: {

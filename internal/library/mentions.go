@@ -3,12 +3,17 @@ package library
 import (
 	"cmp"
 	"context"
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/sync/errgroup"
+
+	"github.com/tiaot33/mechbox/internal/library/internal/ai"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -32,7 +37,15 @@ type MentionLine struct {
 	Text string `json:"text"` // 这一行原文,去掉首尾空白
 }
 
-// ListMentions 给出集合或组里的技能提到了库里哪些技能,用来画关系图;按 From、To 的 ID 升序。
+// Mentions 是一张关系图要画的线,以及还没交给 AI 判断的几处。
+type Mentions struct {
+	Mentions []Mention `json:"mentions"` // 按 From、To 的 ID 升序
+	// Unjudged 是还要交给 AI 判断的几处:这组技能里的一个技能(当前版本)的正文里出现了库里单个词的技能名,
+	// 又没用点名写法,也还没有判断结论。一个技能里同一个名字算一处。用 [Library.JudgeMentions] 判断;没配 AI 时界面据此提示。
+	Unjudged int `json:"unjudged"`
+}
+
+// ListMentions 给出集合或组里的技能提到了库里哪些技能,用来画关系图。
 // 现场读技能当前版本里的所有 Markdown 文件(.md、.markdown,包括 frontmatter),不联网,不写数据库;
 // 技能更新出新版本、入库、从库里移除后再调用,结果跟着变。
 //
@@ -41,28 +54,197 @@ type MentionLine struct {
 //     让 Agent 用 Skill tool 加载(Skill tool 后面引号里的名字),或指向对方技能文件夹的路径(../name/…、skills/name/…、name/SKILL.md);
 //   - 或者名字由几个词用连字符连成(如 writing-plans),单独出现,有没有反引号都算;
 //
-// 就算提到。单个词的名字(如 review)没用点名写法时不算。以下出现都不算:路径中间的一段、网址的一部分、
-// 文件名(如 name.md),以及公共段落里的:同一个集合里原样出现在超过一半(至少 3 个)技能里的一行,
-// 是作者给整套技能加的公共说明;没有来源的技能不按公共段落排除。
+// 就算提到。以下出现都不算:路径中间的一段、网址的一部分、文件名(如 name.md),以及公共段落里的:
+// 同一个集合里原样出现在超过一半(至少 3 个)技能里的一行,是作者给整套技能加的公共说明;没有来源的技能不按公共段落排除。
+//
+// 单个词的名字(如 review)没用点名写法时,规则分不清是不是在指那个技能,交给 AI 判断([Library.JudgeMentions]):
+// 一个技能里出现这个名字的地方算一处,已经靠规则连到这个名字的不算;判断为提到的也画线,Lines 是交给 AI 的那几行
+// (出现这个名字的前 3 行)。还没判断的计入 Unjudged,不画线。
 //
 // 库里有几个同名技能时,先连到这次集合或组里的那个,再是和提到它的技能同一个集合的,再是 ID 最小的。
 // 两个 ID 都没给或都给了返回 InvalidArgument(Details.Field 为 collection_id);集合或组不存在返回 NotFound。
-// 集合或组里没有技能、或谁都没提到别人时返回空列表。
-func (l *Library) ListMentions(ctx context.Context, filter MentionsFilter) (mentions []Mention, err error) {
+// 集合或组里没有技能、或谁都没提到别人时 Mentions 为空列表。
+func (l *Library) ListMentions(ctx context.Context, filter MentionsFilter) (result Mentions, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
+	scan, err := l.scanMentions(ctx, "list mentions", filter)
+	if err != nil {
+		return Mentions{}, err
+	}
+	judgments, err := l.store.MentionJudgments(ctx)
+	if err != nil {
+		return Mentions{}, err
+	}
+	found := scan.found
+	for _, from := range scan.rows {
+		for _, candidate := range scan.candidates[from.ID] {
+			mentioned, judged := judgments[from.VersionID][candidate.name]
+			if !judged {
+				result.Unjudged++
+				continue
+			}
+			if !mentioned {
+				continue
+			}
+			key := [2]int64{from.ID, candidate.target.ID}
+			if found[key] == nil {
+				found[key] = &Mention{From: SkillID(from.ID), To: SkillID(candidate.target.ID), Lines: []MentionLine{}}
+			}
+			found[key].Lines = append(found[key].Lines, candidate.lines...)
+		}
+	}
+	result.Mentions = []Mention{}
+	for _, mention := range found {
+		result.Mentions = append(result.Mentions, *mention)
+	}
+	slices.SortFunc(result.Mentions, func(a, b Mention) int {
+		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
+	})
+	return result, nil
+}
+
+// JudgeMentionsResult 是一次判断的结果。
+type JudgeMentionsResult struct {
+	// Judged 是这次判断并存下了几处(一个技能里的一个名字算一处),判断为提到的和不是的都算。
+	Judged int `json:"judged"`
+	// Failed 是因为这个技能本身没判断成的:服务拒绝了这一条、回答被 max_tokens 截断、回答不是要的格式。
+	// 其余技能照常判断;它的几处还算没判断,下次再判断。
+	Failed []MentionJudgmentFailure `json:"failed,omitempty"`
+}
+
+// MentionJudgmentFailure 是判断时没判断成的一个技能。
+type MentionJudgmentFailure struct {
+	SkillID SkillID `json:"skill_id"`
+	Error   Error   `json:"error"`
+}
+
+// JudgeMentions 用数据库里的 AI 设置判断集合或组里还没判断的几处([Mentions].Unjudged),结论随技能的版本存进数据库:
+// 同一个版本只判断一次,之后 [Library.ListMentions] 直接用存下的结论;技能出了新版本只重判它自己,
+// 新入库了单个词名字的技能只判断出现这个名字的技能。只判断这组技能,不判断全库。
+//
+// 每个技能发一个请求,带上它要判断的每一处:被提到的技能的名字和描述,以及出现这个名字的前 3 行(不同的行);
+// 不发整份文件,也不发这个技能自己的名字和描述。最多同时发 4 个请求。
+// 只和一个技能有关的失败(InvalidArgument:服务拒绝了这一条、回答被截断、回答不是编号的 JSON 数组)记进 Failed,其余照常判断;
+// 整体性的失败(没填模型、连不上、超时、限流、Key 被拒、模型不存在)不再发新的请求,返回已判断的结果与这个错误,已判断的都已存下。
+// 没有要判断的时不联网,也不看 AI 设置。参数错误同 [Library.ListMentions];AI 设置里没填模型返回 NotConfigured,
+// 服务的回答按 [Library.TestAISettings] 的规则归类。每个请求最多等 2 分钟。
+func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (result JudgeMentionsResult, err error) {
+	defer func() { err = typedError(err) }()
+	read, unlock := l.sharedOperation(ctx)
+	scan, err := l.scanMentions(read, "judge mentions", filter)
+	var judgments map[int64]map[string]bool
+	if err == nil {
+		judgments, err = l.store.MentionJudgments(read)
+	}
+	unlock()
+	if err != nil {
+		return result, err
+	}
+	type task struct {
+		from       store.Skill
+		candidates []mentionCandidate
+	}
+	var todo []task
+	for _, from := range scan.rows {
+		var waiting []mentionCandidate
+		for _, candidate := range scan.candidates[from.ID] {
+			if _, judged := judgments[from.VersionID][candidate.name]; !judged {
+				waiting = append(waiting, candidate)
+			}
+		}
+		if len(waiting) > 0 {
+			todo = append(todo, task{from: from, candidates: waiting})
+		}
+	}
+	if len(todo) == 0 {
+		return result, nil
+	}
+	read, unlock = l.sharedOperation(ctx)
+	settings, err := l.aiSettings(read, "judge mentions")
+	unlock()
+	if err != nil {
+		return result, err
+	}
+	var mu sync.Mutex
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(translateConcurrency)
+	for _, job := range todo {
+		if groupCtx.Err() != nil {
+			break
+		}
+		group.Go(func() error {
+			err := l.judge(groupCtx, settings, job.from, job.candidates)
+			mu.Lock()
+			defer mu.Unlock()
+			switch e := ErrorOf(typedError(err)); {
+			case err == nil:
+				result.Judged += len(job.candidates)
+			case errors.Is(err, store.ErrNotFound):
+			case e.Code == InvalidArgument && groupCtx.Err() == nil:
+				result.Failed = append(result.Failed, MentionJudgmentFailure{SkillID: SkillID(job.from.ID), Error: *e})
+			default:
+				return err
+			}
+			return nil
+		})
+	}
+	err = group.Wait()
+	if err == nil {
+		err = ctx.Err()
+	}
+	slices.SortFunc(result.Failed, func(a, b MentionJudgmentFailure) int { return cmp.Compare(a.SkillID, b.SkillID) })
+	return result, err
+}
+
+func (l *Library) judge(ctx context.Context, settings ai.Settings, from store.Skill, candidates []mentionCandidate) error {
+	asked := make([]ai.MentionCandidate, len(candidates))
+	for i, candidate := range candidates {
+		lines := make([]string, len(candidate.lines))
+		for j, line := range candidate.lines {
+			lines[j] = line.Text
+		}
+		asked[i] = ai.MentionCandidate{Name: candidate.name, Description: candidate.target.Description, Lines: lines}
+	}
+	answers, err := ai.JudgeMentions(ctx, settings, asked)
+	if err != nil {
+		return err
+	}
+	judgments := make(map[string]bool, len(candidates))
+	for i, candidate := range candidates {
+		judgments[candidate.name] = answers[i]
+	}
+	write, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	return l.store.SetMentionJudgments(write, from.VersionID, judgments, clockNow())
+}
+
+const candidateLines = 3
+
+type mentionCandidate struct {
+	name   string
+	target store.Skill
+	lines  []MentionLine
+}
+
+type mentionScan struct {
+	rows       []store.Skill
+	found      map[[2]int64]*Mention
+	candidates map[int64][]mentionCandidate
+}
+
+func (l *Library) scanMentions(ctx context.Context, operation string, filter MentionsFilter) (mentionScan, error) {
 	if (filter.CollectionID > 0) == (filter.GroupID > 0) || filter.CollectionID < 0 || filter.GroupID < 0 {
-		return nil, argumentError("list mentions", "collection_id", "exactly one of collection ID and group ID is required")
+		return mentionScan{}, argumentError(operation, "collection_id", "exactly one of collection ID and group ID is required")
 	}
 	rows, err := l.store.ListSkills(ctx)
 	if err != nil {
-		return nil, err
+		return mentionScan{}, err
 	}
 	inSet := map[int64]bool{}
 	if filter.CollectionID > 0 {
 		if _, err := l.store.GetCollectionSource(ctx, int64(filter.CollectionID)); err != nil {
-			return nil, err
+			return mentionScan{}, err
 		}
 		for _, row := range rows {
 			if row.Source.ID == int64(filter.CollectionID) {
@@ -71,11 +253,11 @@ func (l *Library) ListMentions(ctx context.Context, filter MentionsFilter) (ment
 		}
 	} else {
 		if _, err := l.store.GetGroup(ctx, int64(filter.GroupID)); err != nil {
-			return nil, err
+			return mentionScan{}, err
 		}
 		members, err := l.store.GroupMembers(ctx, int64(filter.GroupID))
 		if err != nil {
-			return nil, err
+			return mentionScan{}, err
 		}
 		for _, id := range members {
 			inSet[id] = true
@@ -95,7 +277,7 @@ func (l *Library) ListMentions(ctx context.Context, filter MentionsFilter) (ment
 		}
 		files, err := l.store.MarkdownFiles(ctx, row.VersionID)
 		if err != nil {
-			return nil, err
+			return mentionScan{}, err
 		}
 		for _, file := range files {
 			for line := range strings.SplitSeq(string(file.Content), "\n") {
@@ -111,43 +293,58 @@ func (l *Library) ListMentions(ctx context.Context, filter MentionsFilter) (ment
 	for _, row := range rows {
 		byName[row.Name] = append(byName[row.Name], row)
 	}
-	found := map[[2]int64]*Mention{}
+	scan := mentionScan{found: map[[2]int64]*Mention{}, candidates: map[int64][]mentionCandidate{}}
 	for _, from := range rows {
 		if !inSet[from.ID] {
 			continue
 		}
+		scan.rows = append(scan.rows, from)
 		seen := map[[2]int64]map[MentionLine]bool{}
+		ruled := map[string]bool{}
+		asked := map[string][]MentionLine{}
+		var names []string
 		for _, line := range lines[from.ID] {
 			if common[from.Source.ID][line.text] {
 				continue
 			}
 			for start, end := range nameRuns(line.text) {
 				name := line.text[start:end]
-				if name == from.Name || byName[name] == nil || !mentionedAt(line.text, start, end, name) {
+				if name == from.Name || byName[name] == nil {
 					continue
 				}
-				to := mentionTarget(byName[name], from, inSet)
-				key := [2]int64{from.ID, to.ID}
-				if found[key] == nil {
-					found[key] = &Mention{From: SkillID(from.ID), To: SkillID(to.ID), Lines: []MentionLine{}}
-					seen[key] = map[MentionLine]bool{}
-				}
 				entry := MentionLine{Path: line.path, Text: line.text}
-				if !seen[key][entry] {
-					seen[key][entry] = true
-					found[key].Lines = append(found[key].Lines, entry)
+				switch mentionAt(line.text, start, end, name) {
+				case mentionRule:
+					ruled[name] = true
+					to := mentionTarget(byName[name], from, inSet)
+					key := [2]int64{from.ID, to.ID}
+					if scan.found[key] == nil {
+						scan.found[key] = &Mention{From: SkillID(from.ID), To: SkillID(to.ID), Lines: []MentionLine{}}
+						seen[key] = map[MentionLine]bool{}
+					}
+					if !seen[key][entry] {
+						seen[key][entry] = true
+						scan.found[key].Lines = append(scan.found[key].Lines, entry)
+					}
+				case mentionAsk:
+					if asked[name] == nil {
+						names = append(names, name)
+					}
+					if len(asked[name]) < candidateLines && !slices.Contains(asked[name], entry) {
+						asked[name] = append(asked[name], entry)
+					}
 				}
 			}
 		}
+		for _, name := range names {
+			if !ruled[name] {
+				scan.candidates[from.ID] = append(scan.candidates[from.ID], mentionCandidate{
+					name: name, target: mentionTarget(byName[name], from, inSet), lines: asked[name],
+				})
+			}
+		}
 	}
-	mentions = []Mention{}
-	for _, mention := range found {
-		mentions = append(mentions, *mention)
-	}
-	slices.SortFunc(mentions, func(a, b Mention) int {
-		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
-	})
-	return mentions, nil
+	return scan, nil
 }
 
 type mentionSourceLine struct {
@@ -209,35 +406,46 @@ func isNameByte(b byte) bool {
 
 var skillToolQuote = regexp.MustCompile("Skill tool.{0,40}[\"`'“]$")
 
-func mentionedAt(line string, start, end int, name string) bool {
+type mentionKind int
+
+const (
+	mentionNone mentionKind = iota
+	mentionRule
+	mentionAsk
+)
+
+func mentionAt(line string, start, end int, name string) mentionKind {
 	before, after := line[:start], line[end:]
 	if inURL(before) || isFileName(after) {
-		return false
+		return mentionNone
 	}
 	if strings.HasSuffix(before, "/") || strings.HasSuffix(before, "$") {
 		if opensName(before[:len(before)-1]) {
-			return true
+			return mentionRule
 		}
 	}
 	if prefix, ok := strings.CutSuffix(before, ":"); ok {
 		trimmed := strings.TrimRightFunc(prefix, func(r rune) bool { return r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' })
 		if len(trimmed) < len(prefix) && (opensName(trimmed) || strings.HasSuffix(trimmed, "/")) {
-			return true
+			return mentionRule
 		}
 	}
 	if skillToolQuote.MatchString(before) && strings.ContainsAny(firstRune(after), "\"`'”") {
-		return true
+		return mentionRule
 	}
 	if (strings.HasSuffix(before, "../") || skillsSegment(before)) && strings.HasPrefix(after, "/") {
-		return true
+		return mentionRule
 	}
 	if strings.HasPrefix(after, "/SKILL.md") {
-		return true
+		return mentionRule
 	}
 	if strings.HasSuffix(before, "/") || strings.HasSuffix(before, ".") || strings.HasPrefix(after, "/") {
-		return false
+		return mentionNone
 	}
-	return strings.Contains(name, "-")
+	if strings.Contains(name, "-") {
+		return mentionRule
+	}
+	return mentionAsk
 }
 
 func isFileName(after string) bool {

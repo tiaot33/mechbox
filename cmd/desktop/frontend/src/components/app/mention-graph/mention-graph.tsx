@@ -5,6 +5,8 @@
 // 悬停技能高亮它和上下游;悬停线显示提到对方的那几行原文，点线把提示固定住。点技能只留它和上下游并重新排开
 // (提到它的在左、它提到的在右、互相提到的在上，三种颜色),同时打开详情抽屉;抽屉关上、点空白处或 Esc 回到全图原来的布局。
 // 和谁都没有连线的技能不进图，收在图下方一行。快照变了而技能和线没变时不重新排，视野也不动。
+// 单个词的技能名没用点名写法时由 AI 判断(features/graph/judge.ts):先画规则确定的线，顶部写出还在判断几处，
+// 判断完重读、补上线并重新排一次(视野不动);没配 AI 时提示有几处没判断。
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { select } from "d3-selection";
@@ -12,15 +14,17 @@ import "d3-transition";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { CollectionID, Mention, MentionsFilter, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import { mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
+import { aiSettingsQuery, mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
 import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHits, type GraphLink, type GraphNode, type MentionGraph, type Relation } from "@/lib/graph";
 import { focusLayout, forceLayout, radius, type Positions, type XY } from "@/lib/graph-layout";
 import { matches, type GraphSet } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { toggleDrawer, closeDrawer, useView } from "@/lib/view";
+import { toggleDrawer, closeDrawer, openSettings, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/app/icons";
 import { SearchLine } from "@/components/app/skill-list/search-line";
+import { useJudgeMentions, type Judging } from "@/features/graph/judge";
 
 // MentionGraphPage 是关系图页的内容：members 是这个集合或组里的技能。
 export function MentionGraphPage({ set, members }: { set: GraphSet; members: SkillID[] }) {
@@ -39,14 +43,15 @@ export function MentionGraphPage({ set, members }: { set: GraphSet; members: Ski
     );
   }
   if (!query.data) return <Centered>{t.reading}</Centered>;
-  return <Loaded members={members} mentions={query.data} group={set.kind === "group"} />;
+  return <Loaded members={members} mentions={query.data.mentions} unjudged={query.data.unjudged} filter={filter} group={set.kind === "group"} />;
 }
 
-function Loaded({ members, mentions, group }: { members: SkillID[]; mentions: Mention[]; group: boolean }) {
+function Loaded({ members, mentions, unjudged, filter, group }: { members: SkillID[]; mentions: Mention[]; unjudged: number; filter: MentionsFilter; group: boolean }) {
   const s = useSnapshot();
   const tt = useT();
   const t = tt.graph;
   const search = useView((v) => v.search);
+  const judging = useJudgeMentions(filter, unjudged);
   const graph = useMemo(() => mentionGraph(s, members, mentions), [s, members, mentions]);
   const outside = graph.nodes.filter((n) => n.outside).length;
   return (
@@ -58,6 +63,7 @@ function Loaded({ members, mentions, group }: { members: SkillID[]; mentions: Me
         <span className="shrink-0 font-medium text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
         <span className="min-w-0 truncate">{t.hint}</span>
       </div>
+      <JudgeLine judging={judging} unjudged={unjudged} />
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
@@ -73,6 +79,46 @@ function Loaded({ members, mentions, group }: { members: SkillID[]; mentions: Me
         </div>
       )}
       {graph.loose.length > 0 && <Loose skills={graph.loose} />}
+    </div>
+  );
+}
+
+// JudgeLine 是单个词的技能名交给 AI 判断的状态：判断中写出还有几处;没配 AI 时提示去设置;
+// 只因自己没判断成的技能和整体失败写出原因。都没有时不占位置。
+function JudgeLine({ judging, unjudged }: { judging: Judging; unjudged: number }) {
+  const s = useSnapshot();
+  const t = useT().graph;
+  const ai = useQuery(aiSettingsQuery);
+  let text: string;
+  let reason: string | undefined;
+  let tone = "text-muted-foreground";
+  if (judging.state === "judging" || (judging.state === "idle" && unjudged > 0 && ai.data?.model)) {
+    text = t.judging(judging.state === "judging" ? judging.count : unjudged);
+  } else if (judging.state === "stopped") {
+    [text, reason, tone] = [t.judgeStopped(unjudged), judging.reason, "text-warn-strong"];
+  } else if (judging.state === "done" && judging.failed?.length) {
+    const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
+    [text, reason, tone] = [t.judgeSkipped(names), judging.reason, "text-warn-strong"];
+  } else if (unjudged > 0 && ai.isSuccess && !ai.data?.model) {
+    return (
+      <div className="graph-judge flex min-w-0 items-center gap-2 text-[11.5px] text-muted-foreground" data-state="unconfigured">
+        <span className="min-w-0">{t.unjudged(unjudged)}</span>
+        <Button variant="link" className="shrink-0 text-[11.5px]" onClick={() => openSettings("ai")}>
+          {t.setUpAI}
+        </Button>
+      </div>
+    );
+  } else {
+    return null;
+  }
+  const busy = judging.state === "judging" || judging.state === "idle";
+  return (
+    <div className={cn("graph-judge flex min-w-0 items-start gap-2 text-[11.5px]", tone)} data-state={busy ? "judging" : judging.state}>
+      {busy && <Spinner className="mt-[3px]" />}
+      <div className="flex min-w-0 flex-col select-text">
+        <span>{text}</span>
+        {reason && <span className="whitespace-pre-line text-muted-foreground">{reason}</span>}
+      </div>
     </div>
   );
 }

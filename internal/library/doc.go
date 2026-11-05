@@ -46,7 +46,10 @@
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
 //
 // 关系图(mentions.go):[Library.ListMentions] 给出一个集合或组里的技能提到了库里哪些技能,每条带提到对方的那几行原文。
-// 现场读当前版本的 Markdown 文件按规则判断,不联网、不写数据库,技能更新、入库、移除后再调用就跟着变。
+// 现场读当前版本的 Markdown 文件按规则判断,不联网,技能更新、入库、移除后再调用就跟着变。
+// 单个词的技能名(如 review)没用点名写法时规则分不清,算作要交给 AI 判断的一处(一个技能里的一个名字),
+// 结果里给出还没判断的几处;[Library.JudgeMentions] 用 AI 设置判断这组技能里还没判断的,每个技能一个请求,
+// 结论按技能版本存进数据库,之后 ListMentions 直接用:同一个版本只判断一次,技能出了新版本只重判它自己。
 //
 // 更新(check.go、plan.go、update.go、history.go):
 //   - [Library.CheckUpdates] 按集合检查更新,结论写在集合里每个技能的 Skill.LastUpdateCheck 上,技能详情页的「有新版本」读它;

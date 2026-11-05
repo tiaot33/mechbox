@@ -524,7 +524,7 @@ export enum ErrorCode {
     Permission = "permission",
 
     /**
-     * NotConfigured 所需配置缺失(Sync 未配置 S3/凭证;翻译描述时 AI 设置里没填模型)。
+     * NotConfigured 所需配置缺失(Sync 未配置 S3/凭证;翻译描述、判断关系图里的提到时 AI 设置里没填模型)。
      * UI:引导到设置页。
      */
     NotConfigured = "not_configured",
@@ -925,6 +925,22 @@ export enum InstallPlanStatus {
 };
 
 /**
+ * JudgeMentionsResult 是一次判断的结果。
+ */
+export interface JudgeMentionsResult {
+    /**
+     * Judged 是这次判断并存下了几处(一个技能里的一个名字算一处),判断为提到的和不是的都算。
+     */
+    "judged": number;
+
+    /**
+     * Failed 是因为这个技能本身没判断成的:服务拒绝了这一条、回答被 max_tokens 截断、回答不是要的格式。
+     * 其余技能照常判断;它的几处还算没判断,下次再判断。
+     */
+    "failed"?: MentionJudgmentFailure[] | null;
+}
+
+/**
  * MemberRemovalPolicy 决定把技能移出组或删除组时,失去该组组安装的技能如何处理。与 FolderPolicy
  * 含义与默认值都不同:只影响因此没有直接安装或组安装留着的技能,默认保留。
  */
@@ -960,6 +976,14 @@ export interface Mention {
 }
 
 /**
+ * MentionJudgmentFailure 是判断时没判断成的一个技能。
+ */
+export interface MentionJudgmentFailure {
+    "skill_id": SkillID;
+    "error": Error;
+}
+
+/**
  * MentionLine 是 Mention.From 当前版本的一个 Markdown 文件里提到对方的一行。
  */
 export interface MentionLine {
@@ -972,6 +996,22 @@ export interface MentionLine {
      * 这一行原文,去掉首尾空白
      */
     "text": string;
+}
+
+/**
+ * Mentions 是一张关系图要画的线,以及还没交给 AI 判断的几处。
+ */
+export interface Mentions {
+    /**
+     * 按 From、To 的 ID 升序
+     */
+    "mentions": Mention[] | null;
+
+    /**
+     * Unjudged 是还要交给 AI 判断的几处:这组技能里的一个技能(当前版本)的正文里出现了库里单个词的技能名,
+     * 又没用点名写法,也还没有判断结论。一个技能里同一个名字算一处。用 [Library.JudgeMentions] 判断;没配 AI 时界面据此提示。
+     */
+    "unjudged": number;
 }
 
 /**

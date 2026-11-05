@@ -119,12 +119,13 @@ type aiCall struct {
 
 // aiStub 按 OpenAI 兼容的 Chat Completions 与 Anthropic 的 Messages 回答,回答的文字是 answer(默认 OK);
 // status 不是 200 时回答那个状态与一条错误。truncated 时回答的结束原因是被 max_tokens 截断;
-// 请求体里含有 reject 的请求回答 400(只拒绝某一条描述)。
+// 请求体里含有 reject 的请求回答 400(只拒绝某一条描述)。设了 answerFor 时回答的文字由它按请求体算出。
 type aiStub struct {
 	url       string
 	mu        sync.Mutex
 	status    int
 	answer    string
+	answerFor func(body map[string]any) string
 	truncated bool
 	reject    string
 	calls     []aiCall
@@ -154,7 +155,11 @@ func newAIStub(t *testing.T) *aiStub {
 		if stub.reject != "" && strings.Contains(string(data), stub.reject) {
 			status = http.StatusBadRequest
 		}
-		answer, _ := json.Marshal(stub.answer)
+		text := stub.answer
+		if stub.answerFor != nil {
+			text = stub.answerFor(raw)
+		}
+		answer, _ := json.Marshal(text)
 		finish, stop := "stop", "end_turn"
 		if stub.truncated {
 			finish, stop = "length", "max_tokens"
@@ -212,6 +217,12 @@ func (s *aiStub) reply(answer string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.answer = answer
+}
+
+func (s *aiStub) replyWith(answer func(body map[string]any) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.answerFor = answer
 }
 
 func (s *aiStub) respond(status int) {
