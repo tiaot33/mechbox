@@ -89,7 +89,7 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
             <InstallCard skill={skill} />
 
             <FilesCard versionID={skill.version_id} files={files} />
-            <VersionsCard versions={versions} currentID={skill.version_id} />
+            <VersionsCard name={skill.name} versions={versions} currentID={skill.version_id} />
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">

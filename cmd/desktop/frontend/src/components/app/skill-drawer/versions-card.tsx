@@ -1,7 +1,8 @@
-// 技能详情里的版本历史：与当前版本比较，查看旧版本的文件。
+// 技能详情里的版本历史：与当前版本比较(打开比较弹窗看逐行差异),查看旧版本的文件。
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import type { FileMetadata, SkillVersion, VersionDiff, VersionID } from "@bindings/internal/library";
+import type { FileMetadata, SkillVersion, VersionID } from "@bindings/internal/library";
+import { compareVersions } from "@/features/update/version-compare";
 import { formatDate } from "@/lib/content";
 import { useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
@@ -13,23 +14,20 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { Code, useFileContent } from "./files-card";
 
-// VersionsCard 列出版本历史(最新在前);可查看某个版本的文件，或与当前版本比较。
+// VersionsCard 列出版本历史(最新在前);可查看某个版本的文件，或与当前版本比较(打开比较弹窗)。
 // 版本按这个技能入库以来的先后编号(版本 1 是入库时的那一份),不用库里全局的版本 ID。
-export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]; currentID: VersionID }) {
+export function VersionsCard({ name, versions, currentID }: { name: string; versions: SkillVersion[]; currentID: VersionID }) {
   const ui = useUI();
   const tt = useT();
   const t = tt.drawer;
   const number = new Map(versions.map((v, i) => [v.id, i + 1]));
   const list = [...versions].reverse();
-  const [diff, setDiff] = useState<{ id: number; diff: VersionDiff } | null>(null);
   const [viewing, setViewing] = useState<{ id: VersionID; files: FileMetadata[] } | null>(null);
   const [viewPath, setViewPath] = useState("");
   const viewedText = useFileContent(viewing?.id, viewPath);
 
-  const compare = async (v: SkillVersion) => {
-    const d = await ui.run(() => LibraryService.DiffVersions(v.id, currentID), { reload: false });
-    if (d) setDiff({ id: v.id, diff: d });
-  };
+  const compare = (v: SkillVersion, origin: Element) =>
+    compareVersions({ title: t.compareTitle(name, number.get(v.id)), from: v.id, to: currentID, origin });
   const view = async (v: SkillVersion) => {
     const files = await ui.run(() => LibraryService.ListVersionFiles(v.id), { reload: false });
     if (files !== undefined) {
@@ -38,14 +36,6 @@ export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]
     }
   };
 
-  const changes = diff
-    ? [
-        ...(diff.diff.added ?? []).map((p) => ["added", t.added, p] as const),
-        ...(diff.diff.changed ?? []).map((p) => ["changed", t.changed, p] as const),
-        ...(diff.diff.deleted ?? []).map((p) => ["deleted", t.deleted, p] as const),
-      ]
-    : [];
-  const diffColor = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
   const notes = (v: SkillVersion) => [v.based_on ? t.basedOn(number.get(v.based_on)) : "", v.maybe_edited ? t.maybeEdited : ""].filter(Boolean);
 
   return (
@@ -66,7 +56,7 @@ export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]
             {v.id === currentID ? (
               <Badge tone="ok" className="justify-self-start">{t.current}</Badge>
             ) : (
-              <Button variant="link" className="justify-self-start" onClick={() => compare(v)}>
+              <Button variant="link" className="justify-self-start" onClick={(e) => void compare(v, e.currentTarget)}>
                 {t.compare}
               </Button>
             )}
@@ -76,23 +66,6 @@ export function VersionsCard({ versions, currentID }: { versions: SkillVersion[]
           </li>
         ))}
       </ol>
-      {diff && (
-        <Notice className="mt-2">
-          <div className="flex items-center gap-2">
-            <b>{t.versionToCurrent(number.get(diff.id))}</b>
-            <span className="grow" />
-            <Button variant="link" onClick={() => setDiff(null)}>
-              {t.collapse}
-            </Button>
-          </div>
-          {changes.map(([kind, label, p]) => (
-            <div key={kind + p} data-diff={kind} className={cn("font-mono text-[11px]", diffColor[kind])}>
-              {label} {p}
-            </div>
-          ))}
-          {changes.length === 0 && <div className="text-[11px]">{tt.common.sameContent}</div>}
-        </Notice>
-      )}
       {viewing && (
         <div className="mt-2 flex flex-col gap-1.5">
           <div className="flex items-center gap-2">

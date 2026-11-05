@@ -2,6 +2,7 @@
 // - 贴着窗口上部(10vh)出现而不是垂直居中：内容变高(切换入库来源、预览结果出来)时只往下长，不上下跳;
 // - 表面是毛玻璃(index.css 的 glass),遮罩是淡色，不用 shadcn 默认的不透明背景和深色遮罩;
 // - 标题、关闭按钮、可滚动的主体与底部按钮行各有一个部件，弹窗外壳 Modal(lib/ui.tsx)把它们拼起来;
+// - 默认 560px 宽,wide 是 760px,full 铺满窗口(上面让出顶栏);
 // - 从某个元素打开的(DialogMotion 给了 origin,如左栏"入库技能"):弹窗从那个元素的位置和大小放大出来，关掉时缩回去;
 //   同一个弹窗里换了一页(入库预览出来，宽度变了)时从上一页的大小形变过去，不再从头弹出;
 // - 在 toast 上按下、拖动不算点了弹窗外面，弹窗不关;
@@ -80,9 +81,10 @@ function DialogContent({
   className,
   children,
   wide = false,
+  full = false,
   onInteractOutside,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean }) {
+}: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean; full?: boolean }) {
   const motion = use(DialogMotionContext);
   const morphing = !!motion?.origin;
   const content = useRef<HTMLDivElement>(null);
@@ -151,6 +153,8 @@ function DialogContent({
           "fixed top-[10vh] left-1/2 z-50 flex max-h-[calc(90vh-40px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 flex-col glass rounded-tile border outline-none [--glass-drop:var(--shadow-dialog)]",
           morphing ? "origin-top-left" : "animate-dialog-in",
           wide && "w-[760px]",
+          // 铺满窗口(如版本比较):上面让出顶栏(高 50px,即 lib/window.ts 的 captionHeight),其余三边留 24px。
+          full && "top-[50px] bottom-6 max-h-none w-[calc(100vw-48px)]",
           className,
         )}
         onInteractOutside={(e) => {
