@@ -362,7 +362,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 | --- | --- |
 | 集合 `git.dev.test/anthropics/skills` | frontend-design 有新版本；claude-academy-guide 可能改名为 academy-guide；来源里的新技能 discernment-nudge |
 | 集合 `git.dev.test/openai/skills` | 更新过一次，有历史可以回滚；openai-docs 有新版本并改动脚本；sora 和 doc 来源里已删除；新技能 define-goal |
-| 集合 `git.dev.test/obra/superpowers` | 全部 15 个技能，技能之间互相提到，用来看关系图：节标题上的「关系图」画出 33 条提到，其中 using-superpowers 提到了 anthropics 集合的 frontend-design(空心虚线圆);diagnosing-superpowers 和 receiving-code-review 没有连线，收在图下方 |
+| 集合 `git.dev.test/obra/superpowers` | 全部 15 个技能，技能之间互相提到，用来看关系图：节标题上的「关系图」画出 33 条提到，其中 using-superpowers 提到了 anthropics 集合的 frontend-design(空心虚线圆);diagnosing-superpowers 和 receiving-code-review 没有连线，收在图下方;另有 4 处单个词的技能名(如 doc、brainstorming)要交给 AI 判断，没配 AI 时图上方提示去设置 |
 | 集合 `~/code/my-skills` | 本地目录来源，两个技能 |
 | 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库 |
 | 组 | 「前端」组安装到 Codex 全局；「文档」没有安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆 |

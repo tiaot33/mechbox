@@ -4,7 +4,8 @@
 // 技能多于 30 个时只写被提到最多的约 15 个名字，放大、悬停、选中时写出其余相关的名字。
 // 悬停技能高亮它和上下游;悬停线显示提到对方的那几行原文，点线把提示固定住。点技能只留它和上下游并重新排开
 // (提到它的在左、它提到的在右、互相提到的在上，三种颜色),同时打开详情抽屉;抽屉关上、点空白处或 Esc 回到全图原来的布局。
-// 和谁都没有连线的技能不进图，收在图下方一行。快照变了而技能和线没变时不重新排，视野也不动。
+// 和谁都没有连线的技能不进图，收在图下方一行。快照变了而技能和线没变时不重新排，视野也不动;技能或线变了重新排，
+// 用户没自己移动过视野时把新排的图放进框里，移动过就保留视野。
 // 单个词的技能名没用点名写法时由 AI 判断(features/graph/judge.ts):先画规则确定的线，顶部写出还在判断几处，
 // 判断完重读、补上线并重新排一次(视野不动);没配 AI 时提示有几处没判断。
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -199,6 +200,8 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
   const homeView = useRef<ZoomTransform | null>(null);
+  // viewMoved 是用户自己移动过视野(拖动、滚轮、缩放按钮);点「整张放进框里」后清掉。
+  const viewMoved = useRef(false);
   const latest = useRef(graph);
   latest.current = graph;
   const key = useMemo(() => layoutKey(graph), [graph]);
@@ -239,14 +242,28 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         transform.current = e.transform;
         viewRef.current?.setAttribute("transform", e.transform.toString());
         setZoomedIn(e.transform.k > zoomedInAt);
-        if (e.sourceEvent) setTip((t) => (t?.pinned ? t : null));
+        if (e.sourceEvent) {
+          viewMoved.current = true;
+          setTip((t) => (t?.pinned ? t : null));
+        }
       });
     svg.call(z).on("dblclick.zoom", null);
     zoomRef.current = z;
     svg.call(z.transform, fitTransform([...home.values()], latest.current, home, area(box.current), false));
     return () => void svg.on(".zoom", null);
-    // 只在挂载时放进框里一次;之后技能或线变了重新排，也保留用户当时的视野。
+    // 挂载时放进框里一次;技能或线变了重新排之后见下面。
   }, []);
+
+  // 技能或线变了(如 AI 判断完补上线)重新排之后：用户没自己拖动、滚轮或点缩放按钮移动过视野时，把新排的图放进框里;
+  // 移动过就保留用户当时的视野。点了技能时不动，回到全图时恢复点之前的视野。
+  const laidOut = useRef(key);
+  useEffect(() => {
+    if (laidOut.current === key) return;
+    laidOut.current = key;
+    const z = zoomRef.current;
+    if (!z || viewMoved.current || selected !== null) return;
+    select(svgRef.current!).transition().duration(450).call(z.transform, fitTransform([...home.values()], latest.current, home, area(box.current), false));
+  }, [key, home]);
 
   // 框的高度决定点了技能后一列最多排几个。
   useEffect(() => {
@@ -343,10 +360,14 @@ function Canvas({ graph }: { graph: MentionGraph }) {
     toggleDrawer(d.id);
   };
 
-  const zoomBy = (k: number) => zoomRef.current && select(svgRef.current!).transition().duration(250).call(zoomRef.current.scaleBy, k);
+  const zoomBy = (k: number) => {
+    viewMoved.current = true;
+    if (zoomRef.current) select(svgRef.current!).transition().duration(250).call(zoomRef.current.scaleBy, k);
+  };
   const fit = () => {
     const z = zoomRef.current;
     if (!z) return;
+    viewMoved.current = false;
     const ids = focus ? [...focus.at.keys()] : [...home.keys()];
     const next = fitTransform(
       ids.map((id) => shown.get(id) ?? { x: 0, y: 0 }),
