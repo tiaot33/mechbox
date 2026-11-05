@@ -126,7 +126,7 @@ type MentionJudgmentFailure struct {
 // 整体性的失败(没填模型、连不上、超时、限流、Key 被拒、模型不存在)不再发新的请求,返回已判断的结果与这个错误,已判断的都已存下。
 // 判断途中数据库被同步拉回替换了时,回答不写进新的库,返回 Conflict。
 // 没有要判断的时不联网,也不看 AI 设置。参数错误同 [Library.ListMentions];AI 设置里没填模型返回 NotConfigured,
-// 服务的回答按 [Library.TestAISettings] 的规则归类。每个请求最多等 2 分钟。
+// 服务的回答按 [Library.TestAISettings] 的规则归类。每个请求连续 2 分钟没有新内容才算超时。
 func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (result JudgeMentionsResult, err error) {
 	defer func() { err = typedError(err) }()
 	read, unlock := l.sharedOperation(ctx)

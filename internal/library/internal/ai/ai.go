@@ -16,6 +16,7 @@ import (
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/openai/openai-go/v3"
 	openaioption "github.com/openai/openai-go/v3/option"
+	openaissestream "github.com/openai/openai-go/v3/packages/ssestream"
 )
 
 const (
@@ -24,11 +25,11 @@ const (
 )
 
 const (
-	openAIBaseURL    = "https://api.openai.com/v1/"
-	testPrompt       = "Reply with OK."
-	testTimeout      = 60 * time.Second
-	translateTimeout = 2 * time.Minute
-	maxTokens        = 4096
+	openAIBaseURL        = "https://api.openai.com/v1/"
+	testPrompt           = "Reply with OK."
+	testIdleTimeout      = 60 * time.Second
+	translateIdleTimeout = 2 * time.Minute
+	maxTokens            = 128000
 )
 
 var (
@@ -38,6 +39,8 @@ var (
 	ErrRejected      = errors.New("ai service rejected the request")
 	ErrNotConfigured = errors.New("ai model not configured")
 	ErrTruncated     = errors.New("ai answer was cut off by max_tokens")
+	errNoEvents      = errors.New("the answer has no stream events")
+	errUnfinished    = fmt.Errorf("%w: the answer stream ended before the answer finished", ErrUnreachable)
 )
 
 type Header struct {
@@ -103,7 +106,7 @@ func ParseBody(text string) (map[string]any, error) {
 }
 
 func Test(ctx context.Context, settings Settings) error {
-	_, err := call(ctx, testTimeout, settings, "", testPrompt)
+	_, err := call(ctx, testIdleTimeout, settings, "", testPrompt)
 	return err
 }
 
@@ -111,7 +114,7 @@ func Translate(ctx context.Context, settings Settings, text, language string) (s
 	if settings.Model == "" {
 		return "", ErrNotConfigured
 	}
-	return call(ctx, translateTimeout, settings, translatePrompt(language), text)
+	return call(ctx, translateIdleTimeout, settings, translatePrompt(language), text)
 }
 
 func translatePrompt(language string) string {
@@ -136,20 +139,27 @@ func languageName(language string) string {
 	return "the language with BCP 47 tag " + language
 }
 
-func call(ctx context.Context, timeout time.Duration, settings Settings, system, prompt string) (string, error) {
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+func call(ctx context.Context, idle time.Duration, settings Settings, system, prompt string) (string, error) {
+	callCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	silent := fmt.Errorf("no new content for %s", idle)
+	timer := time.AfterFunc(idle, func() { cancel(silent) })
+	defer timer.Stop()
+	received := func() { timer.Reset(idle) }
 	var answer string
 	var err error
 	if settings.Provider == Anthropic {
-		answer, err = askAnthropic(callCtx, settings, system, prompt)
+		answer, err = askAnthropic(callCtx, received, settings, system, prompt)
 	} else {
-		answer, err = askOpenAI(callCtx, settings, system, prompt)
+		answer, err = askOpenAI(callCtx, received, settings, system, prompt)
 	}
 	if err == nil || ctx.Err() != nil {
 		return answer, err
 	}
-	if errors.Is(err, ErrRejected) || errors.Is(err, ErrTruncated) {
+	if context.Cause(callCtx) == silent {
+		return "", fmt.Errorf("%w: %s", ErrUnreachable, silent)
+	}
+	if errors.Is(err, ErrRejected) || errors.Is(err, ErrTruncated) || errors.Is(err, ErrUnreachable) {
 		return "", err
 	}
 	status, reason := describe(err)
@@ -171,7 +181,7 @@ func pathKey(key string) string {
 	return b.String()
 }
 
-func askOpenAI(ctx context.Context, settings Settings, system, prompt string) (string, error) {
+func askOpenAI(ctx context.Context, received func(), settings Settings, system, prompt string) (string, error) {
 	base := settings.BaseURL
 	if base == "" {
 		base = openAIBaseURL
@@ -192,18 +202,41 @@ func askOpenAI(ctx context.Context, settings Settings, system, prompt string) (s
 		messages = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(system)}, messages...)
 	}
 	chat := openai.NewChatCompletionService(opts...)
-	resp, err := chat.New(ctx, openai.ChatCompletionNewParams{Model: settings.Model, Messages: messages})
-	if err != nil {
+	stream := chat.NewStreaming(ctx, openai.ChatCompletionNewParams{Model: settings.Model, Messages: messages})
+	defer stream.Close()
+	var text strings.Builder
+	var finish string
+	chunks, choices := 0, 0
+	for stream.Next() {
+		received()
+		chunks++
+		for _, choice := range stream.Current().Choices {
+			if choice.Index != 0 {
+				continue
+			}
+			choices++
+			text.WriteString(choice.Delta.Content)
+			if choice.FinishReason != "" {
+				finish = choice.FinishReason
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
 		return "", err
 	}
-	if len(resp.Choices) == 0 {
+	if chunks == 0 {
+		return "", errNoEvents
+	}
+	if choices == 0 {
 		return "", fmt.Errorf("%w: the answer has no choices", ErrRejected)
 	}
-	choice := resp.Choices[0]
-	return answerText(choice.Message.Content, choice.FinishReason)
+	if finish == "" {
+		return "", errUnfinished
+	}
+	return answerText(text.String(), finish)
 }
 
-func askAnthropic(ctx context.Context, settings Settings, system, prompt string) (string, error) {
+func askAnthropic(ctx context.Context, received func(), settings Settings, system, prompt string) (string, error) {
 	opts := []anthropicoption.RequestOption{
 		anthropicoption.WithoutEnvironmentDefaults(),
 		anthropicoption.WithAPIKey(settings.APIKey),
@@ -227,9 +260,25 @@ func askAnthropic(ctx context.Context, settings Settings, system, prompt string)
 		params.System = []anthropic.TextBlockParam{{Text: system}}
 	}
 	client := anthropic.NewClient(opts...)
-	resp, err := client.Messages.New(ctx, params)
-	if err != nil {
+	stream := client.Messages.NewStreaming(ctx, params)
+	defer stream.Close()
+	var resp anthropic.Message
+	events := 0
+	for stream.Next() {
+		received()
+		events++
+		if err := resp.Accumulate(stream.Current()); err != nil {
+			return "", err
+		}
+	}
+	if err := stream.Err(); err != nil {
 		return "", err
+	}
+	if events == 0 {
+		return "", errNoEvents
+	}
+	if resp.StopReason == "" {
+		return "", errUnfinished
 	}
 	var text strings.Builder
 	for _, block := range resp.Content {
@@ -266,7 +315,13 @@ func describe(err error) (int, string) {
 		return apiErr.StatusCode, apiErr.Error() + ": " + apiErr.Message
 	}
 	if apiErr, ok := errors.AsType[*anthropic.Error](err); ok {
+		if apiErr.StatusCode == http.StatusOK {
+			return http.StatusInternalServerError, apiErr.Error()
+		}
 		return apiErr.StatusCode, apiErr.Error()
+	}
+	if streamErr, ok := errors.AsType[*openaissestream.StreamError](err); ok {
+		return http.StatusInternalServerError, streamErr.Error()
 	}
 	if _, ok := errors.AsType[net.Error](err); ok || errors.Is(err, context.DeadlineExceeded) {
 		return 0, err.Error()

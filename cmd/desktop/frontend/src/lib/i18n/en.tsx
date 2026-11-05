@@ -1360,7 +1360,7 @@ export const en = {
     headers: "Request headers (optional)",
     headersPlaceholder: "One per line, e.g. X-Title: Mechbox",
     body: "Request body (optional)",
-    bodyHint: "A JSON object merged into every request, replacing fields of the same name. Use it for parameters such as thinking depth: reasoning_effort for OpenAI-compatible APIs, thinking for Anthropic. Anthropic requests use max_tokens 4096; with a larger thinking budget, set a larger max_tokens here too.",
+    bodyHint: "A JSON object merged into every request, replacing fields of the same name. Use it for parameters such as thinking depth: reasoning_effort for OpenAI-compatible APIs, thinking for Anthropic. Anthropic requests use max_tokens 128000.",
     invalidHeaders: "Request headers must be one “Name: value” per line",
     invalidBody: "The request body must be a JSON object",
     truncated: "The answer was cut off: thinking used up max_tokens. Set a larger max_tokens in the request body",

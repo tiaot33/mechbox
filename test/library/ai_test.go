@@ -117,8 +117,8 @@ type aiCall struct {
 	body   map[string]any
 }
 
-// aiStub 按 OpenAI 兼容的 Chat Completions 与 Anthropic 的 Messages 回答,回答的文字是 answer(默认 OK);
-// status 不是 200 时回答那个状态与一条错误。truncated 时回答的结束原因是被 max_tokens 截断;
+// aiStub 按 OpenAI 兼容的 Chat Completions 与 Anthropic 的 Messages 的流式格式回答,回答的文字是 answer(默认 OK),
+// 分成两段内容发出;status 不是 200 时回答那个状态与一条错误。truncated 时回答的结束原因是被 max_tokens 截断;
 // 请求体里含有 reject 的请求回答 400(只拒绝某一条描述)。设了 answerFor 时回答的文字由它按请求体算出。
 type aiStub struct {
 	url       string
@@ -159,30 +159,68 @@ func newAIStub(t *testing.T) *aiStub {
 		if stub.answerFor != nil {
 			text = stub.answerFor(raw)
 		}
-		answer, _ := json.Marshal(text)
 		finish, stop := "stop", "end_turn"
 		if stub.truncated {
 			finish, stop = "length", "max_tokens"
 		}
 		stub.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
 		if status != http.StatusOK {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(status)
 			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"stub_error","message":"stub says no"}}`)
 			return
 		}
+		runes := []rune(text)
+		first, second := quoted(string(runes[:len(runes)/2])), quoted(string(runes[len(runes)/2:]))
+		w.Header().Set("Content-Type", "text/event-stream")
 		if strings.HasSuffix(r.URL.Path, "/messages") {
-			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"`+body.Model+`",`+
-				`"content":[{"type":"thinking","thinking":"hmm","signature":"s"},{"type":"text","text":`+string(answer)+`}],`+
-				`"stop_reason":"`+stop+`","usage":{"input_tokens":1,"output_tokens":1}}`)
+			_, _ = io.WriteString(w, sseEvents(
+				`message_start`, `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":`+quoted(body.Model)+
+					`,"content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":1}}}`,
+				`ping`, `{"type":"ping"}`,
+				`content_block_start`, `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}`,
+				`content_block_delta`, `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}`,
+				`content_block_stop`, `{"type":"content_block_stop","index":0}`,
+				`content_block_start`, `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+				`content_block_delta`, `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":`+first+`}}`,
+				`content_block_delta`, `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":`+second+`}}`,
+				`content_block_stop`, `{"type":"content_block_stop","index":1}`,
+				`message_delta`, `{"type":"message_delta","delta":{"stop_reason":"`+stop+`","stop_sequence":null},"usage":{"output_tokens":1}}`,
+				`message_stop`, `{"type":"message_stop"}`,
+			))
 			return
 		}
-		_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"`+body.Model+`",`+
-			`"choices":[{"index":0,"message":{"role":"assistant","content":`+string(answer)+`},"finish_reason":"`+finish+`"}]}`)
+		chunk := func(delta, finish string) string {
+			return `{"id":"chatcmpl-1","object":"chat.completion.chunk","created":0,"model":` + quoted(body.Model) +
+				`,"choices":[{"index":0,"delta":` + delta + `,"finish_reason":` + finish + `}]}`
+		}
+		_, _ = io.WriteString(w, sseEvents(
+			``, chunk(`{"role":"assistant","content":`+first+`}`, `null`),
+			``, chunk(`{"content":`+second+`}`, `null`),
+			``, chunk(`{}`, `"`+finish+`"`),
+			``, `[DONE]`,
+		))
 	}))
 	t.Cleanup(server.Close)
 	stub.url = server.URL
 	return stub
+}
+
+func quoted(text string) string {
+	data, _ := json.Marshal(text)
+	return string(data)
+}
+
+// sseEvents 把成对的事件名与数据拼成 text/event-stream 的正文;事件名为空时只写 data 行(OpenAI 兼容的接口)。
+func sseEvents(pairs ...string) string {
+	var b strings.Builder
+	for i := 0; i < len(pairs); i += 2 {
+		if pairs[i] != "" {
+			b.WriteString("event: " + pairs[i] + "\n")
+		}
+		b.WriteString("data: " + pairs[i+1] + "\n\n")
+	}
+	return b.String()
 }
 
 func (s *aiStub) take() []aiRequest {
@@ -231,8 +269,8 @@ func (s *aiStub) respond(status int) {
 	s.status = status
 }
 
-// 测试连接用传入的这一组(不必先保存)向服务发一条消息:OpenAI 兼容的接口发到服务地址下的 chat/completions,
-// 带 Bearer API Key;Anthropic 的接口发到 v1/messages,带 x-api-key。环境变量里的 Key、组织与令牌都不用;
+// 测试连接用传入的这一组(不必先保存)向服务发一条流式消息:OpenAI 兼容的接口发到服务地址下的 chat/completions,
+// 带 Bearer API Key,不带输出上限;Anthropic 的接口发到 v1/messages,带 x-api-key,max_tokens 是 128000。环境变量里的 Key、组织与令牌都不用;
 // API Key 留空(如 Ollama)也照样发,不带环境变量里的 Key。
 func TestAISettingsTestSendsMessageWithGivenSettings(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "env-openai-key")
@@ -261,8 +299,20 @@ func TestAISettingsTestSendsMessageWithGivenSettings(t *testing.T) {
 		if err := lib.TestAISettings(t.Context(), tc.settings); err != nil {
 			t.Fatalf("TestAISettings(%+v) = %v", tc.settings, err)
 		}
-		if got := stub.take(); len(got) != 1 || got[0] != tc.want {
-			t.Fatalf("requests for %s = %+v, want %+v", tc.settings.Provider, got, tc.want)
+		calls := stub.takeCalls()
+		if len(calls) != 1 || calls[0].aiRequest != tc.want {
+			t.Fatalf("requests for %s = %+v, want %+v", tc.settings.Provider, calls, tc.want)
+		}
+		body := calls[0].body
+		if body["stream"] != true {
+			t.Errorf("%s: body[stream] = %#v, want true", tc.settings.Provider, body["stream"])
+		}
+		if tc.settings.Provider == library.AIProviderAnthropic {
+			if body["max_tokens"] != float64(128000) {
+				t.Errorf("anthropic: body[max_tokens] = %#v, want 128000", body["max_tokens"])
+			}
+		} else if _, ok := body["max_tokens"]; ok || body["max_completion_tokens"] != nil {
+			t.Errorf("openai: body = %v, want no output limit", body)
 		}
 	}
 	aiSettingsAre(t, lib, noAISettings)

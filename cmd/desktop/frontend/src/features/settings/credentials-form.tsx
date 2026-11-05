@@ -208,7 +208,7 @@ const aiFields: AIField[] = ["provider", "base_url", "api_key", "model", "header
 // 请求体的示例按接口类型给：思考深度在两种接口里是不同的字段。
 const bodyExamples: Record<string, string> = {
   [AIProvider.AIProviderOpenAI]: `{"reasoning_effort": "high"}`,
-  [AIProvider.AIProviderAnthropic]: `{"thinking": {"type": "enabled", "budget_tokens": 8192}, "max_tokens": 16000}`,
+  [AIProvider.AIProviderAnthropic]: `{"thinking": {"type": "enabled", "budget_tokens": 8192}}`,
 };
 
 const trimAI = (s: AISettings): AISettings =>

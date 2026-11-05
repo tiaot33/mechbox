@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const judgeTimeout = 2 * time.Minute
+const judgeIdleTimeout = 2 * time.Minute
 
 type MentionCandidate struct {
 	Name, Description string
@@ -27,7 +27,7 @@ func JudgeMentions(ctx context.Context, settings Settings, candidates []MentionC
 	if settings.Model == "" {
 		return nil, ErrNotConfigured
 	}
-	answer, err := call(ctx, judgeTimeout, settings, judgePrompt, judgeRequest(candidates))
+	answer, err := call(ctx, judgeIdleTimeout, settings, judgePrompt, judgeRequest(candidates))
 	if err != nil {
 		return nil, err
 	}

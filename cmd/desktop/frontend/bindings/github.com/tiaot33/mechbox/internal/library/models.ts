@@ -55,7 +55,7 @@ export interface AISettings {
      * Body 是合并进每个请求体的 JSON 对象,存的是用户填的原文。顶层的每个字段原样写进请求体,覆盖库自己填的同名字段,
      * 用来设置思考深度这类接口参数:OpenAI 兼容的接口如 {"reasoning_effort": "high"},
      * Anthropic 的接口如 {"thinking": {"type": "enabled", "budget_tokens": 2048}};库在 Anthropic 的请求里填的
-     * max_tokens 是 4096,思考预算更大时在这里一并写上更大的 max_tokens。
+     * max_tokens 是 128000,OpenAI 兼容的请求不带输出上限。
      */
     "body"?: string;
 }
@@ -497,7 +497,7 @@ export enum ErrorCode {
 
     /**
      * SourceUnreachable 可重试的远端 / 网络 / 本地路径缺失故障(DNS、连接、超时、5xx、S3 非 2xx、缺 ETag、本地来源目录不存在,
-     * 测试 AI 设置时 AI 服务连不上、超时、429 或 5xx)。
+     * 调用 AI 服务时连不上、超时、429 或 5xx,或回答到一半服务发来错误事件、回答没说完流就结束了)。
      * 可重试。UI:提供"重试"。
      */
     SourceUnreachable = "source_unreachable",
