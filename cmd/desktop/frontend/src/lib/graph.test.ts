@@ -1,8 +1,9 @@
-// 关系图画哪些技能：只画有连线的，本集合或组以外的标出所在集合;悬停时高亮哪些;什么变了才重新排;搜索数几个;提示里的原文怎样截。
+// 关系图画哪些技能：只画有连线的，本集合或组以外的标出所在集合;互相提到合成一条线;圆点按被提到的次数;
+// 悬停与点技能时留哪些;哪些写出名字;什么变了才重新排;搜索数几个;提示里的原文怎样截。
 import { describe, expect, it } from "vitest";
 import { SourceType, type Collection, type Mention, type Skill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { edgeKey, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHits } from "./graph";
+import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, relations, searchHits } from "./graph";
 
 const github = (label: string) => ({ type: SourceType.SourceGitHub, label });
 const skill = (id: number, name: string, label = "obra/superpowers", description = "") =>
@@ -25,11 +26,24 @@ describe("mentionGraph", () => {
 
   it("提到的本集合或组以外的技能也画进来，标出所在集合;没有来源的写没有来源", () => {
     const g = mentionGraph(s, [1, 2, 3], [mention(1, 4), mention(2, 5)]);
-    expect(g.nodes.map((n) => [n.skill.name, n.outside, n.where])).toEqual([
-      ["entry", false, undefined],
-      ["orphan", true, "没有来源"],
-      ["shared-tool", true, "acme/tools"],
-      ["writing-plans", false, undefined],
+    expect(g.nodes.map((n) => [n.skill.name, n.outside, n.where, n.collection])).toEqual([
+      ["entry", false, undefined, 1],
+      ["orphan", true, "没有来源", null],
+      ["shared-tool", true, "acme/tools", 2],
+      ["writing-plans", false, undefined, 1],
+    ]);
+  });
+
+  it("互相提到只画一条线，两头都有箭头;圆点大小按被几个技能提到", () => {
+    const g = mentionGraph(s, [1, 2, 3], [mention(1, 2), mention(2, 1), mention(3, 2)]);
+    expect(g.links.map((l) => [l.from, l.to, l.both, l.mentions.length])).toEqual([
+      [1, 2, true, 2],
+      [3, 2, false, 1],
+    ]);
+    expect(g.nodes.map((n) => [n.skill.name, n.mentioned])).toEqual([
+      ["entry", 1],
+      ["loner", 0],
+      ["writing-plans", 2],
     ]);
   });
 
@@ -53,7 +67,7 @@ describe("layoutKey", () => {
 });
 
 describe("searchHits", () => {
-  it("虚线框里的技能和图下方没有连线的技能都算", () => {
+  it("虚线圆的技能和图下方没有连线的技能都算", () => {
     const g = mentionGraph(s, [1, 2, 3], [mention(1, 4)]);
     expect(searchHits(g, "frontend")).toBe(1);
     expect(searchHits(g, "loner")).toBe(1);
@@ -63,10 +77,36 @@ describe("searchHits", () => {
 
 describe("neighbours", () => {
   it("高亮它提到的、提到它的和相连的线", () => {
-    const edges = [mention(1, 2), mention(3, 1), mention(2, 4)];
-    const n = neighbours(edges, 1);
+    const g = mentionGraph(s, [1, 2, 3], [mention(1, 2), mention(3, 1), mention(2, 4)]);
+    const n = neighbours(g.links, 1);
     expect([...n.nodes].sort()).toEqual([1, 2, 3]);
-    expect([...n.edges].sort()).toEqual([edgeKey(mention(1, 2)), edgeKey(mention(3, 1))].sort());
+    expect([...n.links].sort()).toEqual(["1-2", "1-3"]);
+  });
+});
+
+describe("relations", () => {
+  it("点了一个技能：提到它的、它提到的、互相提到的分开", () => {
+    const g = mentionGraph(s, [1, 2, 3], [mention(1, 2), mention(2, 1), mention(3, 1), mention(1, 4)]);
+    expect([...relations(g.links, 1)].sort()).toEqual([
+      [2, "both"],
+      [3, "in"],
+      [4, "out"],
+    ]);
+  });
+});
+
+describe("labelled", () => {
+  const nodes = (counts: number[]) => counts.map((mentioned, i) => ({ skill: skill(i + 1, `s${i + 1}`), outside: false, collection: 1, mentioned }));
+
+  it("不超过 30 个技能时全部写出名字", () => {
+    expect(labelled(nodes(Array(30).fill(0))).size).toBe(30);
+  });
+
+  it("更多时只写被提到最多的约 15 个，和第 15 个一样多的也写", () => {
+    const counts = Array.from({ length: 40 }, (_, i) => (i < 14 ? 10 : i < 17 ? 3 : 0));
+    const shown = labelled(nodes(counts));
+    expect(shown.size).toBe(17);
+    expect(shown.has(18)).toBe(false);
   });
 });
 
