@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { lineDiff, splitRows } from "./diff";
+import { changedFiles, lineDiff, splitRows } from "./diff";
+
+describe("changedFiles", () => {
+  it("SKILL.md 排第一，不论它是修改、新增还是删除;其余按修改、新增、删除排", () => {
+    expect(changedFiles({ changed: ["scripts/x.sh"], added: ["SKILL.md", "a.md"], deleted: ["old.md"] })).toEqual([
+      { kind: "added", path: "SKILL.md" },
+      { kind: "changed", path: "scripts/x.sh" },
+      { kind: "added", path: "a.md" },
+      { kind: "deleted", path: "old.md" },
+    ]);
+  });
+
+  it("没有差异时为空", () => {
+    expect(changedFiles(null)).toEqual([]);
+  });
+});
 
 describe("splitRows", () => {
   it("没变的行两边并排，改掉的行删掉的在左、新增的在右", () => {

@@ -6,6 +6,7 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/internal/library";
 import { canInstall, defaultInstallOn } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
+import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
 import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
@@ -51,11 +52,10 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
     }).then((p) => {
       if (cancelled || !p) return;
       const item = p.skills?.[0];
-      const diff = item?.diff;
       setPlan(p);
       setInstallChoice(new Map());
       setConflict(false);
-      setPath(item?.risks?.[0]?.path ?? [...(diff?.changed ?? []), ...(diff?.added ?? []), ...(diff?.deleted ?? [])].sort((a, b) => Number(b === "SKILL.md") - Number(a === "SKILL.md"))[0] ?? "");
+      setPath(item?.risks?.[0]?.path ?? changedFiles(item?.diff)[0]?.path ?? "");
     });
     return () => {
       cancelled = true;

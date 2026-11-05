@@ -1,4 +1,16 @@
-// 看差异：按行比较一个文件的旧内容和新内容，没变的长段落折起来只留上下文;可以排成一列(行内对比)或左右两列(左右对比)。
+// 看差异：一次比较里改了哪些文件(SKILL.md 先看),按行比较一个文件的旧内容和新内容，没变的长段落折起来只留上下文;
+// 可以排成一列(行内对比)或左右两列(左右对比)。
+import type { VersionDiff } from "@bindings/internal/library";
+
+export type ChangeKind = "added" | "changed" | "deleted";
+
+// changedFiles 是一次比较里改了的文件：SKILL.md 排第一(不论是修改、新增还是删除),其余按修改、新增、删除排。
+// 第一项就是打开差异时默认先看的文件。
+export function changedFiles(diff: VersionDiff | null | undefined): { kind: ChangeKind; path: string }[] {
+  const of = (kind: ChangeKind, paths: string[] | null | undefined) => (paths ?? []).map((path) => ({ kind, path }));
+  const all = [...of("changed", diff?.changed), ...of("added", diff?.added), ...of("deleted", diff?.deleted)];
+  return all.sort((a, b) => Number(b.path === "SKILL.md") - Number(a.path === "SKILL.md"));
+}
 
 export type DiffLine = { kind: "same" | "add" | "del"; text: string } | { kind: "skip"; count: number };
 

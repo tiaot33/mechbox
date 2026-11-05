@@ -12,7 +12,7 @@ import { createContext, use, useCallback, useLayoutEffect, useRef, type Componen
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { platform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { captionProps } from "@/lib/window";
+import { captionHeight, captionProps } from "@/lib/window";
 
 function Dialog(props: ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -83,6 +83,7 @@ function DialogContent({
   wide = false,
   full = false,
   onInteractOutside,
+  style,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean; full?: boolean }) {
   const motion = use(DialogMotionContext);
@@ -149,12 +150,13 @@ function DialogContent({
         data-slot="dialog-content"
         data-closing={closing || undefined}
         aria-describedby={undefined}
+        style={full ? { top: captionHeight, ...style } : style}
         className={cn(
           "fixed top-[10vh] left-1/2 z-50 flex max-h-[calc(90vh-40px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 flex-col glass rounded-tile border outline-none [--glass-drop:var(--shadow-dialog)]",
           morphing ? "origin-top-left" : "animate-dialog-in",
           wide && "w-[760px]",
-          // 铺满窗口(如版本比较):上面让出顶栏(高 50px,即 lib/window.ts 的 captionHeight),其余三边留 24px。
-          full && "top-[50px] bottom-6 max-h-none w-[calc(100vw-48px)]",
+          // 铺满窗口(如版本比较):上面让出顶栏(top 见 style),其余三边留 24px。
+          full && "bottom-6 max-h-none w-[calc(100vw-48px)]",
           className,
         )}
         onInteractOutside={(e) => {

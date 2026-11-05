@@ -2,7 +2,6 @@
 // 更新记录可以回滚、重试没换上的地方;跳过的记录可以找回来再更新(打开更新计划，默认勾上那几个)。
 import { useEffect, useRef } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ReinstallOutcome,
@@ -17,7 +16,7 @@ import { confirmLinkedRequests } from "@/components/app/link-notes";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
+import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate } from "./update";
@@ -242,32 +241,26 @@ function Places({ record }: { record: UpdateRecord }) {
 function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolean }) {
   const t = useT().history;
   const name = skill.from_name ? `${skill.from_name} → ${skill.name}` : skill.name;
-  const reads = useRef(new Set<CancellablePromise<unknown>>());
-  const alive = useRef(true);
+  // 历史窗口关掉(这一行卸载)时中止还没读完的比较，不再弹出比较弹窗。
+  const aborter = useRef<AbortController | null>(null);
   useEffect(() => {
-    alive.current = true;
-    const pending = reads.current;
-    return () => {
-      alive.current = false;
-      for (const call of pending) void call.cancel();
-      pending.clear();
-    };
+    const controller = new AbortController();
+    aborter.current = controller;
+    return () => controller.abort();
   }, []);
-  // 弹窗标题下面写两个版本的来源版本与日期;读不到的一侧照常打开，只是少写那一侧。
+  // 弹窗标题下面写两个版本的来源版本与日期(和记录上方读的是同一份缓存);读不到的一侧照常打开，只是少写那一侧。
   const open = async (origin: Element) => {
-    const read = (id: number) => {
-      const call = LibraryService.GetVersion(id);
-      reads.current.add(call);
-      return call.then((v) => v, () => null).finally(() => reads.current.delete(call));
-    };
+    const signal = aborter.current?.signal;
+    const read = (id: number) => queryClient.fetchQuery(versionQuery(id)).catch(() => null);
     const [from, to] = await Promise.all([read(skill.from_version_id), read(skill.to_version_id)]);
-    if (!alive.current) return;
+    if (signal?.aborted) return;
     await compareVersions({
       title: t.compareTitle(name),
       note: t.fromTo(describe(from), describe(to)),
       from: skill.from_version_id,
       to: skill.to_version_id,
       origin,
+      signal,
     });
   };
   const describe = (v: SkillVersion | null) => (v ? [v.revision && shortRevision(v.revision), formatDate(v.created_at)].filter(Boolean).join(" · ") : "");
