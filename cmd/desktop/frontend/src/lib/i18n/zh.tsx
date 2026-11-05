@@ -49,6 +49,8 @@ export const zh = {
     ok: "确定",
     close: "关闭",
     unknown: "未知",
+    diagramFailed: "这张图画不出来，下面是它的源码。",
+    openLinkFailed: (url: string) => `打不开这个链接：${url}`,
   },
 
   errors: {

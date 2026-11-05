@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Browser, Events } from "@wailsio/runtime";
 import { AppService, ManualReason, type Release } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
-import { formatDate, formatSize, renderMarkdown } from "@/lib/content";
+import { formatDate, formatSize } from "@/lib/content";
+import { Markdown } from "@/components/app/markdown";
 import { describeError } from "@/lib/errors";
 import { invalidateRelease, releaseQuery, toLibraryError, useLoadedSnapshot, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
@@ -136,7 +137,7 @@ function ReleaseDialog({ release: opened, onClose }: { release: Release; onClose
     >
       {s && <Hint>{t.current(s.info.version, release.version, formatDate(release.published_at))}</Hint>}
       {notes ? (
-        <div className="md max-h-[45vh] overflow-auto select-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(notes) }} />
+        <Markdown text={notes} className="max-h-[45vh] overflow-auto select-text" />
       ) : (
         <Hint>{t.noNotes}</Hint>
       )}
