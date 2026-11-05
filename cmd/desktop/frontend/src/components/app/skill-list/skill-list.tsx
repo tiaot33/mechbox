@@ -23,7 +23,7 @@ import {
   type ScopeKey,
   type SkillSection,
 } from "@/lib/model";
-import { doneRestoreScroll, openScope, setArrange, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
+import { closeDrawer, doneRestoreScroll, openScope, setArrange, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
 import { SearchLine } from "./search-line";
 import { openFetch } from "@/features/fetch/fetch-dialog";
@@ -39,6 +39,9 @@ import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
 import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
+
+// notBlank 是列表里不算空白的地方：技能行、节标题与各种控件。
+const notBlank = "article, .section-head, button, a, input, textarea, select, label, [role]";
 
 export function SkillList() {
   const listing = usePageListing();
@@ -66,6 +69,8 @@ export function SkillList() {
         key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
+        // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
+        onClick={(e) => !(e.target as Element).closest(notBlank) && closeDrawer()}
       >
         <div className="pt-3">
           <SearchLine results={listing.results} />

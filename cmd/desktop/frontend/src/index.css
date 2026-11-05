@@ -73,6 +73,7 @@
   --animate-dialog-in: dialog-in 0.14s ease-out;
   --animate-pop-in: pop-in 0.14s ease-out;
   --animate-sheet-in: sheet-in 0.18s ease-out;
+  --animate-sheet-out: sheet-out 0.16s ease-in forwards;
 
   @keyframes fade-in {
     from {
@@ -94,6 +95,13 @@
   /* 抽屉只滑入不淡入：淡入时表面半透明，底下选中卡片的蓝框会透出来，像盖在抽屉上。 */
   @keyframes sheet-in {
     from {
+      transform: translateX(24px);
+    }
+  }
+  /* 关上时选中的那一行已不再标为选中，淡出不会透出蓝框。 */
+  @keyframes sheet-out {
+    to {
+      opacity: 0;
       transform: translateX(24px);
     }
   }
