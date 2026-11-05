@@ -1,6 +1,23 @@
-// 更新计划里看差异：按行比较库里的版本和来源里的新内容，没变的长段落折起来只留上下文。
+// 看差异：一次比较里改了哪些文件(SKILL.md 先看),按行比较一个文件的旧内容和新内容，没变的长段落折起来只留上下文;
+// 可以排成一列(行内对比)或左右两列(左右对比)。
+import type { VersionDiff } from "@bindings/internal/library";
+
+export type ChangeKind = "added" | "changed" | "deleted";
+
+// changedFiles 是一次比较里改了的文件：SKILL.md 排第一(不论是修改、新增还是删除),其余按修改、新增、删除排。
+// 第一项就是打开差异时默认先看的文件。
+export function changedFiles(diff: VersionDiff | null | undefined): { kind: ChangeKind; path: string }[] {
+  const of = (kind: ChangeKind, paths: string[] | null | undefined) => (paths ?? []).map((path) => ({ kind, path }));
+  const all = [...of("changed", diff?.changed), ...of("added", diff?.added), ...of("deleted", diff?.deleted)];
+  return all.sort((a, b) => Number(b.path === "SKILL.md") - Number(a.path === "SKILL.md"));
+}
 
 export type DiffLine = { kind: "same" | "add" | "del"; text: string } | { kind: "skip"; count: number };
+
+// SplitRow 是左右对比的一行：左边是旧内容(没变或删掉的行),右边是新内容(没变或新增的行),没有对应行的一侧为 undefined。
+export type SplitRow =
+  | { kind: "pair"; left?: { kind: "same" | "del"; text: string }; right?: { kind: "same" | "add"; text: string } }
+  | { kind: "skip"; count: number };
 
 // 两边行数相乘超过这个数就不逐行比较，整段当作删掉再加上，免得大文件卡住界面。
 const maxCells = 4_000_000;
@@ -77,4 +94,32 @@ function fold(lines: DiffLine[]): DiffLine[] {
     i = j - 1;
   }
   return out;
+}
+
+// splitRows 把 lineDiff 的结果排成左右两列：没变的行两边并排;一段连续的改动里，删掉的行和新增的行按先后一一并排，多出来的一侧对面留空。
+export function splitRows(lines: DiffLine[]): SplitRow[] {
+  const rows: SplitRow[] = [];
+  let dels: string[] = [];
+  let adds: string[] = [];
+  const flush = () => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
+      rows.push({
+        kind: "pair",
+        left: i < dels.length ? { kind: "del", text: dels[i] } : undefined,
+        right: i < adds.length ? { kind: "add", text: adds[i] } : undefined,
+      });
+    }
+    dels = [];
+    adds = [];
+  };
+  for (const line of lines) {
+    if (line.kind === "del") dels.push(line.text);
+    else if (line.kind === "add") adds.push(line.text);
+    else {
+      flush();
+      rows.push(line.kind === "skip" ? line : { kind: "pair", left: { kind: "same", text: line.text }, right: { kind: "same", text: line.text } });
+    }
+  }
+  flush();
+  return rows;
 }

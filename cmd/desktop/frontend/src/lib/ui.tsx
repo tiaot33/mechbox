@@ -239,23 +239,26 @@ export function UIHost() {
 }
 
 // Modal 是弹窗外壳：标题、关闭按钮、可滚动的主体与底部按钮行;点遮罩或按 Esc 关闭，叠了几层时只关最上面一层。
+// full 的弹窗铺满窗口，主体不滚动，由里面的内容自己分配高度、各自滚动。
 export function Modal({
   title,
   onClose,
   wide,
+  full,
   footer,
   children,
 }: {
   title: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  full?: boolean;
   footer?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent wide={wide}>
+      <DialogContent wide={wide} full={full}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogClose asChild>
@@ -264,7 +267,7 @@ export function Modal({
             </Button>
           </DialogClose>
         </DialogHeader>
-        <DialogBody>{children}</DialogBody>
+        <DialogBody className={cn(full && "grow overflow-hidden")}>{children}</DialogBody>
         {footer && <DialogFooter>{footer}</DialogFooter>}
       </DialogContent>
     </Dialog>

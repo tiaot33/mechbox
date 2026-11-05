@@ -14,6 +14,7 @@ import {
 } from "@bindings/internal/library";
 import { canInstall, defaultInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
+import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
 import { collectionName, folderKey, revisionSummary, revisionText, shortRevision, sourceLabel } from "@/lib/model";
@@ -147,8 +148,7 @@ export function UpdateDialog({
 
   const view = (p: PlannedSkill, path?: string) => {
     if (viewing?.id === p.skill.id && !path) return setViewing(null);
-    const diff = p.diff;
-    const first = path ?? p.risks?.[0]?.path ?? [...(diff?.changed ?? []), ...(diff?.added ?? []), ...(diff?.deleted ?? [])].sort((a, b) => Number(b === "SKILL.md") - Number(a === "SKILL.md"))[0];
+    const first = path ?? p.risks?.[0]?.path ?? changedFiles(p.diff)[0]?.path;
     setViewing({ id: p.skill.id, path: first ?? "" });
   };
 

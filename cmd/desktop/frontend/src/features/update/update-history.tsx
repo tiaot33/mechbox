@@ -1,8 +1,7 @@
 // 历史：集合(或某个技能)的每次更新、跳过、回滚各一条，最新的在前。
 // 更新记录可以回滚、重试没换上的地方;跳过的记录可以找回来再更新(打开更新计划，默认勾上那几个)。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ReinstallOutcome,
@@ -12,17 +11,17 @@ import {
   type SkillVersion,
   type UpdateHistoryFilter,
   type UpdateRecord,
-  type VersionDiff,
 } from "@bindings/internal/library";
 import { confirmLinkedRequests } from "@/components/app/link-notes";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
+import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate } from "./update";
 import { rollbackOutcome, rollbackUpdate } from "./rollback";
+import { compareVersions } from "./version-compare";
 import { cn } from "@/lib/utils";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -238,71 +237,40 @@ function Places({ record }: { record: UpdateRecord }) {
   );
 }
 
-// SkillLine 是记录里的一个技能;更新和回滚可以展开看从哪个版本换到哪个版本改了哪些文件(技能已移除时版本也不在了)。
+// SkillLine 是记录里的一个技能;更新和回滚可以打开比较弹窗看从哪个版本换到哪个版本改了什么(技能已移除时版本也不在了)。
 function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolean }) {
-  const ui = useUI();
-  const tt = useT();
-  const t = tt.history;
-  const [diff, setDiff] = useState<VersionDiff | null>(null);
-  const [versions, setVersions] = useState<(SkillVersion | null)[]>([]);
-  const alive = useRef(true);
-  const reads = useRef(new Set<CancellablePromise<unknown>>());
+  const t = useT().history;
+  const name = skill.from_name ? `${skill.from_name} → ${skill.name}` : skill.name;
+  // 历史窗口关掉(这一行卸载)时中止还没读完的比较，不再弹出比较弹窗。
+  const aborter = useRef<AbortController | null>(null);
   useEffect(() => {
-    alive.current = true;
-    const pending = reads.current;
-    return () => {
-      alive.current = false;
-      for (const call of pending) void call.cancel();
-      pending.clear();
-    };
+    const controller = new AbortController();
+    aborter.current = controller;
+    return () => controller.abort();
   }, []);
-  const track = <T,>(call: CancellablePromise<T>) => {
-    reads.current.add(call);
-    void call.finally(() => reads.current.delete(call)).catch(() => {});
-    return call;
+  // 弹窗标题下面写两个版本的来源版本与日期(和记录上方读的是同一份缓存);读不到的一侧照常打开，只是少写那一侧。
+  const open = async (origin: Element) => {
+    const signal = aborter.current?.signal;
+    const read = (id: number) => queryClient.fetchQuery(versionQuery(id)).catch(() => null);
+    const [from, to] = await Promise.all([read(skill.from_version_id), read(skill.to_version_id)]);
+    if (signal?.aborted) return;
+    await compareVersions({
+      title: t.compareTitle(name),
+      note: t.fromTo(describe(from), describe(to)),
+      from: skill.from_version_id,
+      to: skill.to_version_id,
+      origin,
+      signal,
+    });
   };
-  const toggle = async () => {
-    if (diff) return setDiff(null);
-    const d = await ui.run(() => track(LibraryService.DiffVersions(skill.from_version_id, skill.to_version_id)), { reload: false });
-    if (!d || !alive.current) return;
-    setDiff(d);
-    const read = (id: number) => track(LibraryService.GetVersion(id)).then((v) => v, () => null);
-    const both = await Promise.all([read(skill.from_version_id), read(skill.to_version_id)]);
-    if (alive.current) setVersions(both);
-  };
-  const describe = (v: SkillVersion | null | undefined) => (v ? [v.revision && shortRevision(v.revision), formatDate(v.created_at)].filter(Boolean).join(" · ") : "");
-  const files = diff
-    ? [
-        ...(diff.added ?? []).map((p) => ["added", t.added, p] as const),
-        ...(diff.changed ?? []).map((p) => ["changed", t.changed, p] as const),
-        ...(diff.deleted ?? []).map((p) => ["deleted", t.deleted, p] as const),
-      ]
-    : [];
-  const color = { added: "text-ok-strong", changed: "text-warn-strong", deleted: "text-bad-strong" };
+  const describe = (v: SkillVersion | null) => (v ? [v.revision && shortRevision(v.revision), formatDate(v.created_at)].filter(Boolean).join(" · ") : "");
   return (
-    <div>
-      <div className="flex items-center gap-2">
-        <b className="font-semibold">{skill.from_name ? `${skill.from_name} → ${skill.name}` : skill.name}</b>
-        {diffable && skill.from_version_id !== skill.to_version_id && (
-          <Button variant="link" onClick={toggle}>
-            {diff ? t.collapse : t.whatChanged}
-          </Button>
-        )}
-      </div>
-      {diff && (
-        <div className="pl-2">
-          {versions.length > 0 && (
-            <div className="text-[11px] text-muted-foreground">
-              {t.fromTo(describe(versions[0]), describe(versions[1]))}
-            </div>
-          )}
-          {files.map(([k, text, p]) => (
-            <div key={p} data-diff={k} className={cn("font-mono text-[11px]", color[k])}>
-              {text} {p}
-            </div>
-          ))}
-          {files.length === 0 && <div className="text-[11px] text-muted-foreground">{tt.common.sameContent}</div>}
-        </div>
+    <div className="flex items-center gap-2">
+      <b className="font-semibold">{name}</b>
+      {diffable && skill.from_version_id !== skill.to_version_id && (
+        <Button variant="link" onClick={(e) => void open(e.currentTarget)}>
+          {t.whatChanged}
+        </Button>
       )}
     </div>
   );
