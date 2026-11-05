@@ -497,7 +497,7 @@ export enum ErrorCode {
 
     /**
      * SourceUnreachable 可重试的远端 / 网络 / 本地路径缺失故障(DNS、连接、超时、5xx、S3 非 2xx、缺 ETag、本地来源目录不存在,
-     * 测试 AI 设置时 AI 服务连不上、超时、429 或 5xx)。
+     * 调用 AI 服务时连不上、超时、429 或 5xx,或回答到一半服务发来错误事件、回答没说完流就结束了)。
      * 可重试。UI:提供"重试"。
      */
     SourceUnreachable = "source_unreachable",

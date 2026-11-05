@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const testIdle = 200 * time.Millisecond
+const shortIdle = 200 * time.Millisecond
 
 // streamServer 按接口类型回答流式响应:先停 before,再逐个发出 events,每个之间停 gap。
 func streamServer(t *testing.T, before, gap time.Duration, events ...string) string {
@@ -85,13 +85,13 @@ func eventsFor(provider string, words ...string) []string {
 func TestCallKeepsWaitingWhileTheAnswerStreams(t *testing.T) {
 	words := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	for _, provider := range []string{OpenAI, Anthropic} {
-		url := streamServer(t, testIdle/2, testIdle/2, eventsFor(provider, words...)...)
+		url := streamServer(t, shortIdle/2, shortIdle/2, eventsFor(provider, words...)...)
 		start := time.Now()
-		answer, err := call(t.Context(), testIdle, settingsFor(provider, url), "", "hi")
+		answer, err := call(t.Context(), shortIdle, settingsFor(provider, url), "", "hi")
 		if err != nil || answer != strings.Join(words, "") {
 			t.Fatalf("%s: call = %q, %v, want the whole answer", provider, answer, err)
 		}
-		if elapsed := time.Since(start); elapsed < 3*testIdle {
+		if elapsed := time.Since(start); elapsed < 3*shortIdle {
 			t.Fatalf("%s: the stream took %s, want it to outlast the idle timeout", provider, elapsed)
 		}
 	}
@@ -101,16 +101,16 @@ func TestCallKeepsWaitingWhileTheAnswerStreams(t *testing.T) {
 func TestCallGivesUpWhenNothingArrives(t *testing.T) {
 	for _, provider := range []string{OpenAI, Anthropic} {
 		for name, url := range map[string]string{
-			"before answering": streamServer(t, 10*testIdle, 0, eventsFor(provider, "a")...),
-			"midway":           streamServer(t, 0, 10*testIdle, eventsFor(provider, "a")...),
+			"before answering": streamServer(t, 10*shortIdle, 0, eventsFor(provider, "a")...),
+			"midway":           streamServer(t, 0, 10*shortIdle, eventsFor(provider, "a")...),
 		} {
 			start := time.Now()
-			_, err := call(t.Context(), testIdle, settingsFor(provider, url), "", "hi")
+			_, err := call(t.Context(), shortIdle, settingsFor(provider, url), "", "hi")
 			if !errors.Is(err, ErrUnreachable) || !strings.Contains(err.Error(), "no new content") {
 				t.Errorf("%s silent %s: call = %v, want ErrUnreachable for no new content", provider, name, err)
 			}
-			if elapsed := time.Since(start); elapsed > 5*testIdle {
-				t.Errorf("%s silent %s: gave up after %s, want about %s", provider, name, elapsed, testIdle)
+			if elapsed := time.Since(start); elapsed > 5*shortIdle {
+				t.Errorf("%s silent %s: gave up after %s, want about %s", provider, name, elapsed, shortIdle)
 			}
 		}
 	}
@@ -123,9 +123,46 @@ func TestCallTreatsErrorEventsAsServiceFailures(t *testing.T) {
 		Anthropic: {anthropicEvents("a")[0], "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"stub overloaded\"}}"},
 	} {
 		url := streamServer(t, 0, 0, events...)
-		_, err := call(t.Context(), testIdle, settingsFor(provider, url), "", "hi")
+		_, err := call(t.Context(), shortIdle, settingsFor(provider, url), "", "hi")
 		if !errors.Is(err, ErrUnreachable) || !strings.Contains(err.Error(), "stub overloaded") {
 			t.Errorf("%s: call = %v, want ErrUnreachable with the service's reason", provider, err)
+		}
+	}
+}
+
+// 流正常结束，但没等到结束原因(回答没说完)时按连不上报错，不把半截回答当成功。
+func TestCallRejectsAnAnswerThatNeverFinishes(t *testing.T) {
+	for _, provider := range []string{OpenAI, Anthropic} {
+		events := eventsFor(provider, "half")
+		cut := 1
+		if provider == Anthropic {
+			cut = 3
+		}
+		url := streamServer(t, 0, 0, events[:cut]...)
+		answer, err := call(t.Context(), shortIdle, settingsFor(provider, url), "", "hi")
+		if !errors.Is(err, ErrUnreachable) || answer != "" {
+			t.Errorf("%s: call = %q, %v, want ErrUnreachable and no answer", provider, answer, err)
+		}
+	}
+}
+
+// 请求体里要了多个候选(如 n 为 2)时只拼第一个候选的内容，结束原因也只看它的。
+func TestCallKeepsOnlyTheFirstChoice(t *testing.T) {
+	chunk := func(index int, content, finish string) string {
+		return `data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":` +
+			string(rune('0'+index)) + `,"delta":{"content":"` + content + `"},"finish_reason":` + finish + `}]}`
+	}
+	for name, tc := range map[string]struct {
+		events []string
+		want   error
+	}{
+		"first finishes": {[]string{chunk(0, "[1", "null"), chunk(1, "[]", "null"), chunk(0, "]", `"stop"`), chunk(1, "", `"length"`), `data: [DONE]`}, nil},
+		"first truncated": {[]string{chunk(0, "[1", "null"), chunk(0, "", `"length"`), chunk(1, "[]", `"stop"`), `data: [DONE]`}, ErrTruncated},
+	} {
+		url := streamServer(t, 0, 0, tc.events...)
+		answer, err := call(t.Context(), shortIdle, settingsFor(OpenAI, url), "", "hi")
+		if tc.want == nil && (err != nil || answer != "[1]") || tc.want != nil && !errors.Is(err, tc.want) {
+			t.Errorf("%s: call = %q, %v, want the first choice's answer or %v", name, answer, err, tc.want)
 		}
 	}
 }

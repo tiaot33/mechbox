@@ -25,11 +25,11 @@ const (
 )
 
 const (
-	openAIBaseURL    = "https://api.openai.com/v1/"
-	testPrompt       = "Reply with OK."
-	testTimeout      = 60 * time.Second
-	translateTimeout = 2 * time.Minute
-	maxTokens        = 128000
+	openAIBaseURL        = "https://api.openai.com/v1/"
+	testPrompt           = "Reply with OK."
+	testIdleTimeout      = 60 * time.Second
+	translateIdleTimeout = 2 * time.Minute
+	maxTokens            = 128000
 )
 
 var (
@@ -40,6 +40,7 @@ var (
 	ErrNotConfigured = errors.New("ai model not configured")
 	ErrTruncated     = errors.New("ai answer was cut off by max_tokens")
 	errNoEvents      = errors.New("the answer has no stream events")
+	errUnfinished    = fmt.Errorf("%w: the answer stream ended before the answer finished", ErrUnreachable)
 )
 
 type Header struct {
@@ -105,7 +106,7 @@ func ParseBody(text string) (map[string]any, error) {
 }
 
 func Test(ctx context.Context, settings Settings) error {
-	_, err := call(ctx, testTimeout, settings, "", testPrompt)
+	_, err := call(ctx, testIdleTimeout, settings, "", testPrompt)
 	return err
 }
 
@@ -113,7 +114,7 @@ func Translate(ctx context.Context, settings Settings, text, language string) (s
 	if settings.Model == "" {
 		return "", ErrNotConfigured
 	}
-	return call(ctx, translateTimeout, settings, translatePrompt(language), text)
+	return call(ctx, translateIdleTimeout, settings, translatePrompt(language), text)
 }
 
 func translatePrompt(language string) string {
@@ -158,7 +159,7 @@ func call(ctx context.Context, idle time.Duration, settings Settings, system, pr
 	if context.Cause(callCtx) == silent {
 		return "", fmt.Errorf("%w: %s", ErrUnreachable, silent)
 	}
-	if errors.Is(err, ErrRejected) || errors.Is(err, ErrTruncated) {
+	if errors.Is(err, ErrRejected) || errors.Is(err, ErrTruncated) || errors.Is(err, ErrUnreachable) {
 		return "", err
 	}
 	status, reason := describe(err)
@@ -209,14 +210,15 @@ func askOpenAI(ctx context.Context, received func(), settings Settings, system, 
 	for stream.Next() {
 		received()
 		chunks++
-		chunk := stream.Current()
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		choices++
-		text.WriteString(chunk.Choices[0].Delta.Content)
-		if chunk.Choices[0].FinishReason != "" {
-			finish = chunk.Choices[0].FinishReason
+		for _, choice := range stream.Current().Choices {
+			if choice.Index != 0 {
+				continue
+			}
+			choices++
+			text.WriteString(choice.Delta.Content)
+			if choice.FinishReason != "" {
+				finish = choice.FinishReason
+			}
 		}
 	}
 	if err := stream.Err(); err != nil {
@@ -227,6 +229,9 @@ func askOpenAI(ctx context.Context, received func(), settings Settings, system, 
 	}
 	if choices == 0 {
 		return "", fmt.Errorf("%w: the answer has no choices", ErrRejected)
+	}
+	if finish == "" {
+		return "", errUnfinished
 	}
 	return answerText(text.String(), finish)
 }
@@ -271,6 +276,9 @@ func askAnthropic(ctx context.Context, received func(), settings Settings, syste
 	}
 	if events == 0 {
 		return "", errNoEvents
+	}
+	if resp.StopReason == "" {
+		return "", errUnfinished
 	}
 	var text strings.Builder
 	for _, block := range resp.Content {
