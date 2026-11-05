@@ -157,10 +157,11 @@ export function openGraph(set: GraphSet) {
 }
 
 // closeGraph 从关系图页回到打开它之前的那一页：列表滚回原来的位置，搜索与勾选也恢复;这期间移除了的、那一页不再列出的技能不再勾着。
+// 在关系图里打开的技能详情一并关上。
 export function closeGraph() {
   const { back } = get();
-  if (!back) return goTo({ kind: "all" }, { back: null });
-  goTo(back.page, { back: null, restoreScroll: back.scroll, search: back.search });
+  if (!back) return goTo({ kind: "all" }, { back: null, drawer: null });
+  goTo(back.page, { back: null, restoreScroll: back.scroll, search: back.search, drawer: null });
   const s = queryClient.getQueryData(snapshotQuery.queryKey);
   const listed = s ? pageSkills(s, resolvePage(s, back.page)) : new Set<SkillID>();
   set({ picked: new Set([...back.picked].filter((id) => listed.has(id))), anchor: back.anchor });

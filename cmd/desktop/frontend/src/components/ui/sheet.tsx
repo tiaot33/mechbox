@@ -1,7 +1,7 @@
 // shadcn/ui 的 Sheet,按本应用改过：
 // - 在原地渲染、绝对定位在主体区域里(不经 Portal 铺满窗口),顶栏不被遮罩盖住;
 // - 非模态、没有遮罩：抽屉开着时其他地方照常可用(点别的卡片切换、拖动卡片、用顶栏);
-//   按 Esc 或关闭按钮关闭，点抽屉外的地方不关闭;
+//   按 Esc 或关闭按钮关闭;点抽屉外的地方 Sheet 自己不关，列表与关系图里点空白处由页面关上;关闭时滑出并淡出，播完才卸载;
 // - 表面是毛玻璃(index.css 的 glass),底下的内容糊掉而不是透出文字。
 import type { ComponentProps } from "react";
 import { Dialog as SheetPrimitive } from "radix-ui";
@@ -26,7 +26,7 @@ function SheetContent({
     <SheetPrimitive.Content
       data-slot="sheet-content"
       className={cn(
-        "absolute z-6 flex animate-sheet-in flex-col overflow-hidden glass rounded-tile border outline-none [--glass-drop:var(--shadow-sheet)]",
+        "absolute z-6 flex animate-sheet-in flex-col data-[state=closed]:animate-sheet-out overflow-hidden glass rounded-tile border outline-none [--glass-drop:var(--shadow-sheet)]",
         className,
       )}
       onInteractOutside={(e) => {

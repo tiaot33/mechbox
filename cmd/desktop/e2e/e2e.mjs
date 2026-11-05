@@ -185,8 +185,11 @@ async function agentOptions(root) {
   await menu.waitFor({ state: "detached" });
   return names;
 }
+// closeDrawer 关上技能详情，等退场动画播完、抽屉从页面上移除;已在退场的不再点关闭。
 async function closeDrawer() {
-  if (await drawer().count()) await drawer().locator('[data-slot="sheet-close"]').click();
+  const open = page.locator('[data-slot="sheet-content"][data-state="open"]');
+  if (await open.count()) await open.locator('[data-slot="sheet-close"]').click();
+  await drawer().waitFor({ state: "detached" });
 }
 // scopeRow 是右栏里某个地方的某个 Agent 那一行;项目先展开，折在"其他 N 个 Agent"里的也展开。
 async function scopeRow(agentName, place = "全局") {
@@ -820,7 +823,7 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
   assert((await d.locator(".versions li").count()) === 1, "应有 1 个版本");
 });
 
-await step("关系图：集合的节标题打开关系图页，没有连线的技能收在下面、点了打开详情;返回技能库", async () => {
+await step("关系图：集合的节标题打开关系图页，没有连线的技能收在下面、点了打开详情;返回技能库时详情一并关上", async () => {
   await closeDrawer();
   const section = page.locator(".list-section", { has: page.locator(".section-head", { hasText: "my-skills" }) }).first();
   await section.locator("button.graph-open").click();
@@ -831,10 +834,59 @@ await step("关系图：集合的节标题打开关系图页，没有连线的�
   assert(JSON.stringify(await loose.allTextContents()) === JSON.stringify(["alpha", "beta", "gamma"]), "没有连线的三个技能收在图下方");
   await loose.filter({ hasText: "alpha" }).click();
   await drawer().locator(".md h3", { hasText: "alpha" }).waitFor();
-  await closeDrawer();
   await page.locator("button.graph-back", { hasText: "返回技能库" }).click();
   await page.locator('.a-list[data-page="all"]').waitFor();
   assert((await page.locator(".graph-page").count()) === 0, "返回后不再是关系图页");
+  await drawer().waitFor({ state: "detached" });
+});
+
+await step("详情：点另一个技能切换，点勾选框和节标题不关，点列表空白处关上、勾选保留", async () => {
+  await openDrawer("alpha");
+  await card("beta").click();
+  await drawer().locator('[data-slot="sheet-title"]', { hasText: /^beta$/ }).waitFor();
+  assert((await drawer().locator('[data-slot="sheet-description"]').count()) === 1, "换技能后只有新技能的描述");
+  await card("gamma").locator(".pick-box").click();
+  await page.locator(".section-head", { hasText: "my-skills" }).locator("text=my-skills").first().click();
+  assert((await drawer().getAttribute("data-state")) === "open", "点勾选框和节标题不关详情");
+  await page.locator('.a-list[data-page="all"]').click({ position: { x: 4, y: 4 } });
+  await drawer().waitFor({ state: "detached" });
+  assert((await card("gamma").getAttribute("data-picked")) !== null, "点空白处不清掉勾选");
+  await card("gamma").locator(".pick-box").click();
+});
+
+await step("详情：换技能时收起上一个技能的版本文件;写备注、开着下拉框时点空白处不关;作用域页的摘要条不算空白", async () => {
+  await openDrawer("alpha");
+  await btn(drawer().locator(".versions"), "查看文件").click();
+  await drawer().locator("b", { hasText: "版本 1 的文件" }).waitFor();
+  await card("beta").click();
+  await drawer().locator('[data-slot="sheet-title"]', { hasText: /^beta$/ }).waitFor();
+  assert((await drawer().locator("b", { hasText: /的文件$/ }).count()) === 0, "换技能后不再显示上一个技能的版本文件");
+
+  const blank = () => page.locator('.a-list[data-page="all"]').click({ position: { x: 4, y: 4 } });
+  const isOpen = async () => (await drawer().getAttribute("data-state")) === "open";
+  await btn(drawer(), "添加备注").click();
+  await drawer().locator("textarea").fill("还没保存的备注");
+  await blank();
+  assert(await isOpen(), "写备注时点空白处不关详情");
+  assert((await drawer().locator("textarea").inputValue()) === "还没保存的备注", "备注草稿还在");
+  await btn(drawer(), "取消").click();
+
+  await drawer().locator(".agent-pick").click();
+  await page.locator(".agent-menu").waitFor();
+  await blank();
+  await page.locator(".agent-menu").waitFor({ state: "detached" });
+  assert(await isOpen(), "开着下拉框时点空白处只收起下拉框");
+  await blank();
+  await drawer().waitFor({ state: "detached" });
+
+  await selectScope("Claude Code");
+  await card("alpha").first().click();
+  await drawer().waitFor();
+  await page.locator(".a-scope-sum").first().click();
+  assert(await isOpen(), "点作用域页的摘要条不关详情");
+  await closeDrawer();
+  await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
+  await page.locator('.a-list[data-page="all"]').waitFor();
 });
 
 // ============ 分组 ============
@@ -3134,7 +3186,7 @@ await step("移除技能(保留已安装的文件夹)", async () => {
   await toast("已移除");
   await settle();
   assert((await card("delta").count()) === 0, "卡片应消失");
-  assert((await drawer().count()) === 0, "抽屉应关闭");
+  await drawer().waitFor({ state: "detached" });
   assert(fs.existsSync(path.join(claudeGlobal, "delta")), "保留时磁盘上的 delta 应还在");
 });
 

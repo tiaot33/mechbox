@@ -128,7 +128,7 @@ function Main() {
                 <ScopePanel />
               </ResizablePane>
             )}
-            {drawerSkill && <SkillDrawer skill={drawerSkill} onClose={closeDrawer} />}
+            <SkillDrawer skill={drawerSkill} onClose={closeDrawer} />
           </>
         )}
       </div>

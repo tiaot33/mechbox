@@ -30,7 +30,15 @@ const noVersions: SkillVersion[] = [];
 // 抽屉宽度：拖左边缘调整，记在这台机器上。
 const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min: 420, max: 960 };
 
-export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => void }) {
+// SkillDrawer 是技能详情抽屉:skill 为空时关上。关上时先播完退场动画再卸载，这期间仍画最后显示的那个技能。
+export function SkillDrawer({ skill, onClose }: { skill: Skill | undefined; onClose: () => void }) {
+  const [shown, setShown] = useState(skill);
+  if (skill && skill !== shown) setShown(skill);
+  if (!shown) return null;
+  return <DrawerSheet skill={shown} open={!!skill} onClose={onClose} onExited={() => setShown(undefined)} />;
+}
+
+function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: boolean; onClose: () => void; onExited: () => void }) {
   const t = useT();
   const d = t.drawer;
   const id = skill.id;
@@ -46,10 +54,11 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
   const editingNote = noteEditing === id;
 
   return (
-    <Sheet open onOpenChange={(open) => !open && onClose()}>
+    <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
         className="top-0 right-2.5 bottom-2.5 max-w-[calc(100%-20px)]"
         style={{ width }}
+        onAnimationEnd={(e) => !open && e.target === e.currentTarget && onExited()}
         {...(!skill.description && { "aria-describedby": undefined })}
       >
         <ResizeHandle {...drawerWidth} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
@@ -74,12 +83,12 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
                 </Button>
               )}
             </div>
-            {skill.description && <Description key={id} skill={skill} />}
+            {skill.description && <Description key={`description-${id}`} skill={skill} />}
             <Notices skill={skill} onClose={onClose} />
             <Actions skill={skill} onAddNote={!skill.note && !editingNote ? () => setNoteEditing(id) : undefined} />
 
             {(skill.note || editingNote) && (
-              <NoteCard key={id} skill={skill} editing={editingNote} onEditing={(on) => setNoteEditing(on ? id : null)} />
+              <NoteCard key={`note-${id}`} skill={skill} editing={editingNote} onEditing={(on) => setNoteEditing(on ? id : null)} />
             )}
 
             <MetadataCard skill={skill} versions={versions} />
@@ -89,8 +98,8 @@ export function SkillDrawer({ skill, onClose }: { skill: Skill; onClose: () => v
             <InstallCard skill={skill} />
 
             {/* 换技能或技能换了版本时重新挂载：选中的文件、显示原文还是译文都回到默认。 */}
-            <FilesCard key={skill.version_id} versionID={skill.version_id} files={files} skillName={skill.name} />
-            <VersionsCard name={skill.name} versions={versions} currentID={skill.version_id} />
+            <FilesCard key={`files-${skill.version_id}`} versionID={skill.version_id} files={files} skillName={skill.name} />
+            <VersionsCard key={`versions-${id}`} name={skill.name} versions={versions} currentID={skill.version_id} />
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">
