@@ -63,7 +63,7 @@ export function SkillDiff({
           </Button>
         )}
       </div>
-      <ChangedFiles files={files} path={path} onPath={onPath} badge={badge} />
+      <ChangedFiles files={files} path={path} onPath={onPath} badge={badge} className="-mx-2" />
       {kind && <FileDiff path={path} kind={kind} read={read} onError={onError} />}
     </div>
   );
