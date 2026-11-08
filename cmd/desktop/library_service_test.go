@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,7 +209,7 @@ func TestSingleInstanceIDSameBeforeAndAfterCreatingDirectory(t *testing.T) {
 	}
 }
 
-// 不区分大小写的卷上，只有大小写不同的两个路径是同一把锁，建库前后都是;区分大小写的卷上仍是两把。
+// 不区分大小写的卷上，只有大小写不同的两个路径是同一把锁，建库前后都是、不管建出来的是哪种大小写;区分大小写的卷上仍是两把。
 func TestSingleInstanceIDFollowsVolumeCaseSensitivity(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "lib"), 0o700); err != nil {
@@ -216,20 +217,64 @@ func TestSingleInstanceIDFollowsVolumeCaseSensitivity(t *testing.T) {
 	}
 	_, err := os.Stat(filepath.Join(dir, "LIB"))
 	caseInsensitive := err == nil
-	lower := filepath.Join(dir, "lib", "library.db")
-	upper := filepath.Join(dir, "LIB", "library.db")
-
-	check := func(when string) {
-		t.Helper()
-		if same := singleInstanceID(lower) == singleInstanceID(upper); same != caseInsensitive {
-			t.Fatalf("%s: singleInstanceID(%q) == singleInstanceID(%q) is %v; want %v on this volume", when, lower, upper, same, caseInsensitive)
-		}
+	lower := filepath.Join(dir, "lib", "new", "library.db")
+	upper := filepath.Join(dir, "LIB", "NEW", "Library.DB")
+	before := singleInstanceID(lower)
+	if same := before == singleInstanceID(upper); same != caseInsensitive {
+		t.Fatalf("before creating the database: singleInstanceID(%q) == singleInstanceID(%q) is %v; want %v on this volume", lower, upper, same, caseInsensitive)
 	}
-	check("before creating the database")
-	if err := os.WriteFile(lower, nil, 0o600); err != nil {
+
+	if err := os.MkdirAll(filepath.Dir(upper), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	check("after creating the database")
+	if err := os.WriteFile(upper, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if after := singleInstanceID(lower); after != before {
+		t.Fatalf("singleInstanceID(%q) after creating it as %q = %q; want %q as before", lower, upper, after, before)
+	}
+	if same := singleInstanceID(lower) == singleInstanceID(upper); same != caseInsensitive {
+		t.Fatalf("after creating the database: singleInstanceID(%q) == singleInstanceID(%q) is %v; want %v on this volume", lower, upper, same, caseInsensitive)
+	}
+}
+
+// 真实技能库还没建出来时，开发版用大小写不同的写法指向它，建库前后都和装好的 app 是同一把锁(不区分大小写的卷上)。
+func TestSingleInstanceIDRecognizesRealLibraryBeforeItExists(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("APPDATA", filepath.Join(home, "AppData"))
+	real, err := realLibraryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(real, home) {
+		t.Fatalf("realLibraryPath() = %q; want it under the temporary home %q", real, home)
+	}
+	alias := filepath.Join(filepath.Dir(filepath.Dir(real)), strings.ToUpper(appDirName), "library.db")
+	want := bundleID
+	if caseSensitive(home) {
+		want = singleInstanceID(alias)
+		if want == bundleID {
+			t.Fatalf("singleInstanceID(%q) = bundleID on a case-sensitive volume", alias)
+		}
+	}
+
+	if got := singleInstanceID(alias); got != want {
+		t.Fatalf("singleInstanceID(%q) before creating the library = %q; want %q", alias, got, want)
+	}
+	if err := os.MkdirAll(filepath.Dir(alias), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(alias, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := singleInstanceID(alias); got != want {
+		t.Fatalf("singleInstanceID(%q) after creating the library = %q; want %q", alias, got, want)
+	}
+	if got := singleInstanceID(real); got != bundleID {
+		t.Fatalf("singleInstanceID(real library) after creating it through %q = %q; want bundleID", alias, got)
+	}
 }
 
 // 配置状态只看数据库里存的,环境变量里的令牌与 S3 设置不算。

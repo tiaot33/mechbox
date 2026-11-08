@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
@@ -118,13 +119,17 @@ func singleInstanceID(path string) string {
 	return bundleID + ".db" + hex.EncodeToString(sum[:8])
 }
 
-// resolveLibraryPath 把数据库位置规范成唯一的写法：已存在的部分解析掉符号链接、换成磁盘上的真实大小写(见 canonicalPath),
-// 还没建出来的目录与文件原样接在后面，所以建库前后得到同一个结果。
+// resolveLibraryPath 把数据库位置规范成唯一的写法：已存在的部分解析掉符号链接，还没建出来的目录与文件原样接在后面，所以建库前后得到同一个结果;
+// 所在的卷不区分大小写时整个路径换成小写，换一种大小写写法也得到同一个结果，不管磁盘上建出来的是哪种大小写。只用来比较，不用来打开文件。
 func resolveLibraryPath(path string) string {
 	existing, missing := path, ""
 	for {
-		if resolved, err := canonicalPath(existing); err == nil {
-			return filepath.Join(resolved, missing)
+		if resolved, err := filepath.EvalSymlinks(existing); err == nil {
+			path = filepath.Join(resolved, missing)
+			if !caseSensitive(resolved) {
+				path = strings.ToLower(path)
+			}
+			return path
 		}
 		parent := filepath.Dir(existing)
 		if parent == existing {
