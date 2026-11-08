@@ -1393,10 +1393,12 @@ export const en = {
   diff: {
     reading: (path: string) => `Reading ${path}…`,
     failed: (path: string) => `Couldn't read ${path}.`,
-    unchanged: (n: number) => `… ${count(n, "unchanged line")} …`,
+    unchanged: (n: number) => count(n, "unchanged line"),
     added: "Added",
     changed: "Changed",
     deleted: "Deleted",
+    toggleFiles: "Show/hide file list",
+    expand: (n: number) => `Show ${count(n, "line")}`,
     split: "Side by side",
     unified: "Inline",
   },

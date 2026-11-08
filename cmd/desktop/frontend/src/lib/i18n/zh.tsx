@@ -1319,10 +1319,12 @@ export const zh = {
   diff: {
     reading: (path: string) => `正在读取 ${path}…`,
     failed: (path: string) => `读取 ${path} 失败。`,
-    unchanged: (n: number) => `… ${n} 行没变 …`,
+    unchanged: (n: number) => `${n} 行没变`,
     added: "新增",
     changed: "修改",
     deleted: "删除",
+    toggleFiles: "显示/隐藏文件列表",
+    expand: (n: number) => `展开这 ${n} 行`,
     split: "左右对比",
     unified: "行内对比",
   },

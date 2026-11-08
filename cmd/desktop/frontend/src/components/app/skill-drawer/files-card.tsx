@@ -4,9 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { FileMode, type FileMetadata, type VersionID } from "@bindings/internal/library";
 import { decodeContent, formatSize } from "@/lib/content";
 import { useLanguage, useT } from "@/lib/i18n";
+import { fileTree, type TreeNode } from "@/lib/file-tree";
 import { aiSettingsQuery, versionFileQuery } from "@/lib/library";
-import { translateFile, useTranslatingFile } from "@/features/skill/translate";
 import { cn } from "@/lib/utils";
+import { translateFile, useTranslatingFile } from "@/features/skill/translate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -111,35 +112,7 @@ export function FilesCard({ versionID, files, skillName }: { versionID: VersionI
   );
 }
 
-type FileNode = { name: string; path: string; file?: FileMetadata; children: FileNode[] };
-
-// fileTree 按路径把文件排成目录树;同一层目录在前、文件在后，各自按名字排序。
-function fileTree(files: FileMetadata[]): FileNode[] {
-  const root: FileNode = { name: "", path: "", children: [] };
-  for (const f of files) {
-    const parts = f.path.split("/");
-    let dir = root;
-    parts.forEach((name, i) => {
-      const path = parts.slice(0, i + 1).join("/");
-      if (i === parts.length - 1) {
-        dir.children.push({ name, path, file: f, children: [] });
-        return;
-      }
-      let next = dir.children.find((c) => !c.file && c.name === name);
-      if (!next) {
-        next = { name, path, children: [] };
-        dir.children.push(next);
-      }
-      dir = next;
-    });
-  }
-  const sort = (nodes: FileNode[]) => {
-    nodes.sort((a, b) => Number(!!a.file) - Number(!!b.file) || a.name.localeCompare(b.name));
-    nodes.forEach((n) => sort(n.children));
-  };
-  sort(root.children);
-  return root.children;
-}
+type FileNode = TreeNode<FileMetadata>;
 
 // FileTree 渲染一层目录树;目录默认展开，点目录行折叠 / 展开，点文件行选中。
 function FileTree({ nodes, selected, onSelect }: { nodes: FileNode[]; selected: string; onSelect: (path: string) => void }) {
@@ -147,7 +120,7 @@ function FileTree({ nodes, selected, onSelect }: { nodes: FileNode[]; selected: 
   return (
     <div className="flex flex-col">
       {nodes.map((n) =>
-        n.file ? (
+        n.item ? (
           <button
             key={n.path}
             type="button"
@@ -160,8 +133,8 @@ function FileTree({ nodes, selected, onSelect }: { nodes: FileNode[]; selected: 
           >
             <Icon name="file" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="grow truncate font-mono text-[11.5px]">{n.name}</span>
-            {n.file.mode === FileMode.ModeExecutable && <Badge>{t.executable}</Badge>}
-            <span className="text-[11px] text-muted-foreground">{formatSize(n.file.size)}</span>
+            {n.item.mode === FileMode.ModeExecutable && <Badge>{t.executable}</Badge>}
+            <span className="text-[11px] text-muted-foreground">{formatSize(n.item.size)}</span>
           </button>
         ) : (
           <FileTreeDir key={n.path} node={n} selected={selected} onSelect={onSelect} />

@@ -1742,7 +1742,7 @@ await step("版本历史：两个版本、与当前比较(左右对比与行内�
   await btn(modal(), "左右对比").click();
   await diff("split").locator('[data-diff="add"]', { hasText: "# delta v2" }).waitFor();
   // 新增的文件只有一侧：不分两栏、铺满整宽，也不显示布局切换。
-  await modal().locator('[data-diff="added"]', { hasText: "scripts/setup.sh" }).click();
+  await modal().locator('[data-diff="added"][data-path="scripts/setup.sh"]').click();
   await diff("unified").locator('[data-diff="add"]', { hasText: "echo setup" }).waitFor();
   assert((await btn(modal(), "左右对比").count()) === 0, "只有一侧的文件不显示布局切换");
   await page.keyboard.press("Escape");
@@ -1761,7 +1761,7 @@ await step("历史与回滚：库和装过的地方回到旧版，回滚掉的�
   await record.first().getByText(/^从 [0-9a-f]{7} 换到 [0-9a-f]{7}$/).waitFor();
   await btn(record.first(), "改了什么").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "「delta」改了什么" }).waitFor();
-  await modal().locator('[data-diff="added"]', { hasText: "scripts/setup.sh" }).waitFor();
+  await modal().locator('[data-diff="added"][data-path="scripts/setup.sh"]').waitFor();
   await modal().getByText(/^从 [0-9a-f]{7} · .+ 换到 /).waitFor();
   await page.keyboard.press("Escape");
   await modal().locator('[data-slot="dialog-title"]', { hasText: "「delta」改了什么" }).waitFor({ state: "detached" });
@@ -2205,8 +2205,8 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await btn(modal().locator(".update-diff"), "放大查看").click();
   const big = () => modal().locator(".version-compare");
   await big().locator('[data-slot="file-diff"][data-layout="split"] [data-diff="add"]', { hasText: "Now with a script." }).waitFor();
-  await big().locator('[data-diff="added"]', { hasText: "scripts/x.sh" }).locator('[data-slot="badge"]').waitFor();
-  await big().locator('[data-diff="added"]', { hasText: "scripts/x.sh" }).click();
+  await big().locator('[data-diff="added"][data-path="scripts/x.sh"]').locator('[data-slot="badge"]').waitFor();
+  await big().locator('[data-diff="added"][data-path="scripts/x.sh"]').click();
   await big().locator('[data-slot="file-diff"][data-layout="unified"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
   await page.keyboard.press("Escape");
   await big().waitFor({ state: "detached" });
