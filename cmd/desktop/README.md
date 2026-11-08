@@ -139,7 +139,7 @@ open bin/mechbox.app
   - 下载失败、校验不通过时对话框里写出原因，当前版本不变，可以再点。下载途中可以停止(关掉对话框也一样),下载完进入校验、装上后对话框锁住;有写操作进行中时「更新」不能点。
   - 新版本在 app 退出后才装上，所以点「更新」时在数据库所在的目录里记下 `update-pending.json`(版本与安装记录的位置:macOS 是 Wails helper 的日志，Windows 是安装脚本写的 `update.log`,里面是安装程序的退出码)。下次启动时版本还不是它，就提示「上次没有装上」和记录的最后一行，打开新版本对话框时也写着。
   - 开发版与 server 模式见上文"开发"。
-- **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。实例按数据库区分：用 `MECHBOX_LIBRARY` 打开别的数据库的开发版窗口，可以和装好的 app、和别的数据库的窗口同时开着（见 [测试改动](../../docs/testing.md) 的「几个工作区同时开窗口」）；指向真实技能库的仍和装好的 app 共用一个实例。
+- **单实例**：同一时间只运行一个实例。再次启动时，新进程直接退出，把已有窗口带到前台（最小化了也会恢复）。单实例检查早于打开技能库，第二个进程不会碰库文件。实例按数据库区分：用 `MECHBOX_LIBRARY` 打开别的数据库的开发版窗口，可以和装好的 app、和别的数据库的窗口同时开着（见 [测试改动](../../docs/testing.md) 的「几个工作区同时开窗口」）；指向真实技能库的仍和装好的 app 共用一个实例。同一个数据库换一种路径写法(经过符号链接、在不区分大小写的卷上换了大小写)、建库前后都算同一个实例。
 - **启动失败**：打不开数据库等启动错误，先弹系统提示框写明原因与数据库位置，用户关掉后才退出;原因同时打到 stderr。
 
 ## 测试
@@ -153,6 +153,7 @@ open bin/mechbox.app
 ```
 cmd/desktop/
 ├── main.go                 应用入口：窗口、单实例、错误编码
+├── case_sensitive_darwin.go 单实例 ID 用的数据库位置所在的卷是否区分大小写(macOS 用 pathconf 的 _PC_CASE_SENSITIVE;其他平台见 case_sensitive_other.go,Windows 不区分、Linux 区分)
 ├── startup_error.go        启动失败时的系统提示框：原因与数据库位置，文案按系统语言(startup_error_<平台>.go 是各平台怎么弹:Windows 用 MessageBoxW,macOS 另起 osascript,
 │                           Linux 用 zenity 或 kdialog、都没装时不弹;server 模式见 startup_error_server.go,不弹)
 ├── window_windows.go       Windows 的窗口外观：不要系统标题栏(窗口按钮在前端顶栏 titlebar.tsx 里),Windows 11 22H2 起用 Mica,更早的用不透明浅色底，固定浅色主题(其他平台与 server 模式见 window_other.go,不改)
