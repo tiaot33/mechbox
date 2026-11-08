@@ -361,7 +361,7 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
     <div className="not-here mt-4 border-t border-hairline pt-2">
       <button
         type="button"
-        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-black/5 hover:text-foreground"
+        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-fill hover:text-foreground"
         aria-expanded={unfolded}
         disabled={searching}
         onClick={() => toggleUnfolded(id)}

@@ -27,7 +27,7 @@ export function AgentMark({ code, name, className }: { code?: AgentCode; name: s
   return (
     <span
       title={name}
-      className={cn("inline-grid size-3.5 shrink-0 place-items-center overflow-hidden rounded bg-white", className)}
+      className={cn("inline-grid size-3.5 shrink-0 place-items-center overflow-hidden rounded bg-mark", className)}
       style={{ color: brand ? ("color" in brand ? brand.color : undefined) : code ? `hsl(${hue} 55% 45%)` : "var(--color-subtle)" }}
     >
       {!brand ? (
@@ -69,7 +69,7 @@ export function PlaceAgentMark({ code, place, className }: { code: AgentCode; pl
   return (
     <span className="inline-flex shrink-0 -space-x-1" title={projectFolderNote(s, code, place)}>
       {named.slice(0, 3).map((a) => (
-        <AgentMark key={a.code} code={a.code} name={a.name} className={cn("ring-[1.5px] ring-white", className)} />
+        <AgentMark key={a.code} code={a.code} name={a.name} className={cn("ring-[1.5px] ring-mark-ring", className)} />
       ))}
     </span>
   );
@@ -79,7 +79,7 @@ export function Count({ value, className }: { value: number; className?: string 
   return (
     <span
       data-slot="count"
-      className={cn("min-w-5 shrink-0 rounded-[5px] bg-black/5 px-[5px] text-center font-mono text-[10.5px] text-muted-foreground", className)}
+      className={cn("min-w-5 shrink-0 rounded-[5px] bg-fill px-[5px] text-center font-mono text-[10.5px] text-muted-foreground", className)}
     >
       {value}
     </span>
@@ -183,7 +183,7 @@ export function Chip({
     <span
       data-slot="chip"
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-full border border-border bg-white px-[9px] text-[11.5px] whitespace-nowrap text-foreground-secondary",
+        "inline-flex h-6 items-center gap-1 rounded-full border border-border bg-control px-[9px] text-[11.5px] whitespace-nowrap text-foreground-secondary",
         small && "h-5 pr-[7px] pl-[3px] text-[11px]",
       )}
     >

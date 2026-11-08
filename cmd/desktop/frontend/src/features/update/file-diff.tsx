@@ -134,7 +134,7 @@ function Tree({
   const t = useT().diff;
   // 焦点框和按钮一样;选中的文件行不画：上下键换文件时焦点就在它上面，选中的底色已经标出来了。
   const row =
-    "flex h-7 w-full shrink-0 items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] outline-none hover:bg-black/[0.04] focus-visible:ring-3 focus-visible:ring-primary-soft active:bg-black/[0.07]";
+    "flex h-7 w-full shrink-0 items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] outline-none hover:bg-fill-subtle focus-visible:ring-3 focus-visible:ring-primary-soft active:bg-fill-strong";
   // 每深一层缩进 14px;目录行的箭头占在文件图标前面那一格，同一层的目录名和文件名对齐。
   const indent = { paddingLeft: 6 + depth * 14 };
   return nodes.map((n) => {
@@ -331,7 +331,7 @@ export function FileDiff({
   return (
     <div
       data-slot="file-diff-panel"
-      className={cn("flex flex-col overflow-hidden rounded-[10px] bg-white shadow-card", fill && "min-h-0 grow basis-0")}
+      className={cn("flex flex-col overflow-hidden rounded-[10px] bg-panel shadow-card", fill && "min-h-0 grow basis-0")}
     >
       {/* 标题条固定高度：换到不显示切换的文件时，下面的差异不上下跳。 */}
       <div className="flex h-10 shrink-0 items-center gap-2.5 border-b border-hairline pr-1.5 pl-3">
@@ -369,7 +369,7 @@ function Skip({ count, onExpand }: { count: number; onExpand: () => void }) {
     <button
       type="button"
       title={t.expand(count)}
-      className="col-span-full flex h-7 items-center gap-2 border-y border-hairline bg-surface px-3 text-left font-sans text-[11px] text-muted-foreground select-none first:border-t-0 last:border-b-0 hover:bg-primary-soft hover:text-primary active:bg-primary-soft/70"
+      className="col-span-full flex h-7 items-center gap-2 border-y border-hairline bg-surface px-3 text-left font-sans text-[11px] text-muted-foreground select-none first:border-t-0 last:border-b-0 hover:bg-primary-soft hover:text-primary-ink active:bg-primary-soft/70"
       onClick={onExpand}
     >
       <Icon name="expand" className="size-3 shrink-0" />
@@ -437,7 +437,7 @@ function Cell({
 // Row 是左右对比的一行：两侧各是行号与代码，同高;一侧没有对应行时那一侧留一块淡灰。
 function Row({ row, marks, onExpand }: { row: SplitRow; marks: Map<DiffLine, Segment[]>; onExpand: (skip: DiffLine) => void }) {
   if (row.kind === "skip") return <Skip count={row.count} onExpand={() => onExpand(row)} />;
-  const empty = "bg-black/[0.025]";
+  const empty = "bg-fill-faint";
   const divider = "border-l border-hairline";
   return (
     <>

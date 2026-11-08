@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 function Card({ className, ...props }: ComponentProps<"section">) {
   return (
-    <section data-slot="card" className={cn("rounded-card bg-white px-4 py-3.5 text-[12.5px] shadow-card", className)} {...props} />
+    <section data-slot="card" className={cn("rounded-card bg-panel px-4 py-3.5 text-[12.5px] shadow-card", className)} {...props} />
   );
 }
 

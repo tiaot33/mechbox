@@ -26,6 +26,31 @@ export interface AppInfo {
 }
 
 /**
+ * Appearance 是界面外观的设置值。
+ */
+export enum Appearance {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 跟随系统
+     */
+    AppearanceSystem = "",
+
+    /**
+     * 浅色
+     */
+    AppearanceLight = "light",
+
+    /**
+     * 深色
+     */
+    AppearanceDark = "dark",
+};
+
+/**
  * CheckInterval 是自动检查更新的间隔。
  */
 export enum CheckInterval {
@@ -223,10 +248,20 @@ export interface Settings {
     "language"?: Language;
 
     /**
-     * GlassTint 是浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的白色浓度上:1 是设计的样子,
-     * 0 只剩模糊、边缘与阴影，最大 1.5。
+     * 外观(浅色、深色);空字符串跟随系统
+     */
+    "appearance"?: Appearance;
+
+    /**
+     * GlassTint 是浅色外观下浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的底色浓度上:
+     * 1 是设计的样子,0 只剩模糊、边缘与阴影，最大 1.5。
      */
     "glass_tint": number;
+
+    /**
+     * GlassTintDark 是深色外观下的毛玻璃浓度，取值与 GlassTint 相同。
+     */
+    "glass_tint_dark": number;
 
     /**
      * WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。

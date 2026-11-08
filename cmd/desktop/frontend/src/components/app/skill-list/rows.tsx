@@ -58,7 +58,7 @@ const pickLibraryCols = "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minma
 const pickScopeCols = "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
 
 const rowClass =
-  "grid min-h-9 items-center gap-x-4 border-b border-[rgba(17,24,39,0.06)] px-3 py-1.5 text-[12px] last:border-b-0";
+  "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-[12px] last:border-b-0";
 
 // 最近几天内的变化用正文颜色，排查"最近是不是变过"时一眼看到。
 const recentDays = 7;
@@ -104,7 +104,7 @@ export function SkillRow(props: {
     <article
       ref={ref}
       className={cn(
-        "skill-row group/row cursor-grab transition-colors hover:bg-white/80 active:cursor-grabbing data-[flash]:bg-primary-soft",
+        "skill-row group/row cursor-grab transition-colors hover:bg-wash/80 active:cursor-grabbing data-[flash]:bg-primary-soft",
         rowClass,
         scope ? (props.pickable ? pickScopeCols : scopeCols) : props.pickable ? pickLibraryCols : libraryCols,
         picked && "bg-primary-soft/45 hover:bg-primary-soft/60",
@@ -180,7 +180,7 @@ export function SkillRow(props: {
           ))}
         {groups.length > 0 && (
           <span
-            className="max-w-24 shrink-[100] truncate rounded bg-black/5 px-[5px] py-px font-mono text-[9.5px] font-medium text-muted-foreground"
+            className="max-w-24 shrink-[100] truncate rounded bg-fill px-[5px] py-px font-mono text-[9.5px] font-medium text-muted-foreground"
             title={t.list.groupsTitle(groups.map((g) => g.name))}
           >
             {groups[0].name}
@@ -322,7 +322,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
       <span className="flex">
         <Button
           size="inline"
-          className="fetch-unmanaged h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] text-primary hover:border-primary hover:bg-primary-soft"
+          className="fetch-unmanaged h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] text-primary-ink hover:border-primary hover:bg-primary-soft"
           title={t.fetchTitle}
           onClick={() => void fetchUnmanaged(skill)}
         >

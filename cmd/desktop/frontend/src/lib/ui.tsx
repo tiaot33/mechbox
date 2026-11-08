@@ -306,7 +306,7 @@ export function ChoiceList({ choices, value, onChange }: { choices: Choice[]; va
       key={c.value}
       data-slot="choice"
       className={cn(
-        "flex cursor-pointer items-start gap-2 rounded-[9px] border border-border-subtle bg-white px-2.5 py-2",
+        "flex cursor-pointer items-start gap-2 rounded-[9px] border border-border-subtle bg-panel px-2.5 py-2",
         value === c.value && "border-primary-border bg-primary-soft",
       )}
     >

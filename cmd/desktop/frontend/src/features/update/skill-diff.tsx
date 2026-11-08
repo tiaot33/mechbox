@@ -54,7 +54,7 @@ export function SkillDiff({
       origin,
     });
   return (
-    <div className="update-diff flex flex-col gap-1.5 rounded-box border border-border-subtle bg-white/60 p-2.5">
+    <div className="update-diff flex flex-col gap-1.5 rounded-box border border-border-subtle bg-wash/60 p-2.5">
       <div className="flex items-center gap-2">
         <b className="grow text-[12px]">{title}</b>
         {diff && files.length > 0 && (

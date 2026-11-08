@@ -7,7 +7,7 @@ function Input({ className, ...props }: ComponentProps<"input">) {
     <input
       data-slot="input"
       className={cn(
-        "h-[30px] min-w-0 rounded-lg border border-border bg-white px-2.5 outline-none placeholder:text-subtle focus:border-primary-border focus:ring-3 focus:ring-primary-soft disabled:opacity-60",
+        "h-[30px] min-w-0 rounded-lg border border-border bg-control px-2.5 outline-none placeholder:text-subtle focus:border-primary-border focus:ring-3 focus:ring-primary-soft disabled:opacity-60",
         className,
       )}
       {...props}
@@ -25,7 +25,7 @@ function SearchInput({
     <label
       data-slot="search"
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md border border-border bg-white px-2 text-subtle transition-colors focus-within:border-primary",
+        "flex h-7 items-center gap-1.5 rounded-md border border-border bg-control px-2 text-subtle transition-colors focus-within:border-primary",
         className,
       )}
     >

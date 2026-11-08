@@ -61,7 +61,7 @@ function WindowControls() {
   }, []);
   const button =
     "grid w-[46px] place-items-center font-['Segoe_Fluent_Icons','Segoe_MDL2_Assets'] text-[10px] leading-none transition-colors duration-100";
-  const plain = cn(button, "hover:bg-black/[0.0373] active:bg-black/[0.0241] active:text-muted-foreground");
+  const plain = cn(button, "hover:bg-caption-hover active:bg-caption-press active:text-muted-foreground");
   return (
     <div
       data-no-drag

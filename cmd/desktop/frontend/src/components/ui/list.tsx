@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { Slot } from "radix-ui";
 import { cn } from "@/lib/utils";
 
-const box = "overflow-hidden rounded-box border border-border-subtle bg-white";
+const box = "overflow-hidden rounded-box border border-border-subtle bg-panel";
 
 function ListBox({ className, scroll = false, ...props }: ComponentProps<"div"> & { scroll?: boolean }) {
   if (scroll) return <ScrollListBox className={className} {...props} />;
@@ -50,7 +50,7 @@ function ListRow({
       className={cn(
         "flex min-w-0 items-center gap-2 border-t border-border-subtle px-3 py-2 first:border-t-0",
         compact && "gap-1.5 px-2.5 py-0.5 leading-5",
-        clickable && "cursor-pointer hover:bg-gray-50",
+        clickable && "cursor-pointer hover:bg-panel-hover",
         selected && "bg-primary-soft hover:bg-primary-soft",
         className,
       )}

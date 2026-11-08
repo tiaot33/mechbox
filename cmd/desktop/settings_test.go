@@ -15,7 +15,7 @@ import (
 
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 	got, done := settingsFrom(nil)
-	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1}
+	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1}
 	if !reflect.DeepEqual(got, want) || done {
 		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}
@@ -23,7 +23,7 @@ func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	want := Settings{
-		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, GlassTint: 0.35,
+		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, Appearance: AppearanceDark, GlassTint: 0.35, GlassTintDark: 1.2,
 		AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 	}
 	for _, opened := range []bool{false, true} {
@@ -35,10 +35,13 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if v := defaultSettings().appValues(false)["language"]; v != "" {
 		t.Fatalf("following the system language stores language %q; want nothing", v)
 	}
+	if v := defaultSettings().appValues(false)["appearance"]; v != "" {
+		t.Fatalf("following the system appearance stores appearance %q; want nothing", v)
+	}
 }
 
 func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
-	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "glass_tint": "1.6"})
+	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "glass_tint": "1.6", "appearance": "sepia", "glass_tint_dark": "-1"})
 	want := defaultSettings()
 	want.DockBadge = false
 	if !reflect.DeepEqual(got, want) {
@@ -54,6 +57,8 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 		{CheckInterval: CheckDaily, Language: "fr"},
 		{CheckInterval: CheckDaily, GlassTint: 1.6},
 		{CheckInterval: CheckDaily, GlassTint: -0.1},
+		{CheckInterval: CheckDaily, Appearance: "sepia"},
+		{CheckInterval: CheckDaily, GlassTintDark: 1.6},
 	} {
 		if _, err := service.SaveSettings(t.Context(), settings); err == nil {
 			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)

@@ -12,15 +12,18 @@ import (
 // 其余各项是技能库数据库里的应用设置(Library.AppSettings),和库里其他内容一样随推送、拉回走。
 // 加设置项就是加字段并在 appValues / settingsFrom 里加一项;数据库里没有的项取 defaultSettings 的值。
 type Settings struct {
-	AutoCheck     bool          `json:"auto_check"`         // 自动检查更新
-	CheckInterval CheckInterval `json:"check_interval"`     // 自动检查的间隔
-	StayInMenuBar bool          `json:"stay_in_menu_bar"`   // 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
-	DockBadge     bool          `json:"dock_badge"`         // Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
-	AutoTranslate bool          `json:"auto_translate"`     // 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
-	Language      Language      `json:"language,omitempty"` // 界面语言;空字符串跟随系统
-	// GlassTint 是浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的白色浓度上:1 是设计的样子,
-	// 0 只剩模糊、边缘与阴影，最大 1.5。
+	AutoCheck     bool          `json:"auto_check"`           // 自动检查更新
+	CheckInterval CheckInterval `json:"check_interval"`       // 自动检查的间隔
+	StayInMenuBar bool          `json:"stay_in_menu_bar"`     // 关闭窗口后留在菜单栏;关掉时关闭窗口就退出
+	DockBadge     bool          `json:"dock_badge"`           // Dock 角标显示计入角标的技能数(技能库的 UpdateCheck.Pending)
+	AutoTranslate bool          `json:"auto_translate"`       // 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
+	Language      Language      `json:"language,omitempty"`   // 界面语言;空字符串跟随系统
+	Appearance    Appearance    `json:"appearance,omitempty"` // 外观(浅色、深色);空字符串跟随系统
+	// GlassTint 是浅色外观下浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的底色浓度上:
+	// 1 是设计的样子,0 只剩模糊、边缘与阴影，最大 1.5。
 	GlassTint float64 `json:"glass_tint"`
+	// GlassTintDark 是深色外观下的毛玻璃浓度，取值与 GlassTint 相同。
+	GlassTintDark float64 `json:"glass_tint_dark"`
 	// WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。
 	WSLDistro string `json:"wsl_distro,omitempty"`
 	// AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
@@ -64,7 +67,7 @@ func glassTintValid(v float64) bool {
 const firstOpenDoneKey = "first_open_done"
 
 func defaultSettings() Settings {
-	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1}
+	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1}
 }
 
 func (s Settings) appValues(firstOpenDone bool) map[string]string {
@@ -75,7 +78,9 @@ func (s Settings) appValues(firstOpenDone bool) map[string]string {
 		"dock_badge":       strconv.FormatBool(s.DockBadge),
 		"auto_translate":   strconv.FormatBool(s.AutoTranslate),
 		"language":         string(s.Language),
+		"appearance":       string(s.Appearance),
 		"glass_tint":       strconv.FormatFloat(s.GlassTint, 'f', -1, 64),
+		"glass_tint_dark":  strconv.FormatFloat(s.GlassTintDark, 'f', -1, 64),
 	}
 	if len(s.AgentsShown) > 0 {
 		shown, _ := json.Marshal(s.AgentsShown)
@@ -104,9 +109,16 @@ func settingsFrom(values map[string]string) (Settings, bool) {
 	if language := Language(values["language"]); language.valid() {
 		s.Language = language
 	}
-	if v, err := strconv.ParseFloat(values["glass_tint"], 64); err == nil && glassTintValid(v) {
-		s.GlassTint = v
+	if appearance := Appearance(values["appearance"]); appearance.valid() {
+		s.Appearance = appearance
 	}
+	tint := func(name string, field *float64) {
+		if v, err := strconv.ParseFloat(values[name], 64); err == nil && glassTintValid(v) {
+			*field = v
+		}
+	}
+	tint("glass_tint", &s.GlassTint)
+	tint("glass_tint_dark", &s.GlassTintDark)
 	var shown map[library.AgentCode]bool
 	if json.Unmarshal([]byte(values["agents_shown"]), &shown) == nil && len(shown) > 0 {
 		s.AgentsShown = shown

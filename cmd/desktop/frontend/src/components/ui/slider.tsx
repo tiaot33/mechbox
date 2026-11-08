@@ -22,7 +22,7 @@ function Slider({
       <SliderPrimitive.Thumb
         aria-label={label}
         aria-valuetext={valueText}
-        className="block size-[15px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.2),0_0_0_0.5px_rgba(0,0,0,0.12)] outline-none focus-visible:ring-3 focus-visible:ring-primary-soft"
+        className="block size-[15px] rounded-full bg-knob shadow-[0_1px_2px_rgba(0,0,0,0.2),0_0_0_0.5px_rgba(0,0,0,0.12)] outline-none focus-visible:ring-3 focus-visible:ring-primary-soft"
       />
     </SliderPrimitive.Root>
   );
