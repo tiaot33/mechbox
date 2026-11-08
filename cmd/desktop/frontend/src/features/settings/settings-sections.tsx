@@ -240,7 +240,7 @@ function GlassTintRow({ dark, value, onCommit }: { dark: boolean; value: number;
     <SetRow className="glass-tint-row">
       <div className="grow">
         <div>{t.glassTint}</div>
-        <Hint className="mt-0.5">{opaque ? t.glassTintOpaque : t.glassTintDesc + t.glassTintTheme(dark)}</Hint>
+        <Hint className="mt-0.5">{opaque ? t.glassTintOpaque : t.glassTintDesc(dark)}</Hint>
       </div>
       <Slider
         disabled={opaque}

@@ -362,7 +362,7 @@ function SideButton({ onClick, children }: { onClick: (e: React.MouseEvent<HTMLB
   return (
     <button
       type="button"
-      className="side-btn mb-2.5 flex h-8 w-full items-center justify-center gap-[7px] rounded-lg border border-border bg-control text-[12.5px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors hover:border-border-strong hover:bg-gray-50 [&_[data-slot=icon]]:size-3"
+      className="side-btn mb-2.5 flex h-8 w-full items-center justify-center gap-[7px] rounded-lg border border-border bg-control text-[12.5px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors hover:border-border-strong hover:bg-panel-hover [&_[data-slot=icon]]:size-3"
       onClick={onClick}
     >
       {children}

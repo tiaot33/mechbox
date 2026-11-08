@@ -890,8 +890,8 @@ export const zh = {
     light: "浅色",
     dark: "深色",
     glassTint: "毛玻璃浓度",
-    glassTintDesc: "弹窗、抽屉、菜单、操作栏、提示和列表里节标题的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。",
-    glassTintTheme: (dark: boolean) => `浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
+    glassTintDesc: (dark: boolean) =>
+      `弹窗、抽屉、菜单、操作栏、提示和列表里节标题的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
     glassTintOpaque: "系统要求减少透明度或用了高对比度主题，毛玻璃现在显示为不透明的底，这一项不起作用。",
     wslDistro: "全局目录",
     wslDistroDesc:

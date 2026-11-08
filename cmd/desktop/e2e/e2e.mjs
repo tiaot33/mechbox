@@ -2693,7 +2693,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
@@ -2708,6 +2708,31 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await settle();
   await interval("每天").click();
   await settle();
+
+  // 外观：浅色、深色各存一个毛玻璃浓度。选深色、把深色的浓度调到 0,重新载入后仍是深色、浓度仍是深色的 0,
+  // 不被浅色的值(1)盖掉;之后改回跟随系统、深色浓度 100%。
+  const glassTint = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--glass-tint").trim());
+  const tintSlider = section("通用").getByRole("slider", { name: "毛玻璃浓度" });
+  await btn(section("通用").locator(".appearance-row"), "深色").click();
+  await settle();
+  await tintSlider.focus();
+  await page.keyboard.press("Home");
+  await settle();
+  assert.equal(appConfig().appearance, "dark", "外观应保存为深色");
+  assert.equal(appConfig().glass_tint_dark, "0", "深色的浓度应保存为 0");
+  assert.equal(appConfig().glass_tint, "1", "浅色的浓度不应跟着变");
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark", "重新载入后应仍是深色");
+  assert.equal(await glassTint(), "0", "重新载入后毛玻璃应用深色的浓度，不被浅色的盖掉");
+  await open();
+  for (let i = 0; i < 20; i++) await tintSlider.press("ArrowRight");
+  await settle();
+  await btn(section("通用").locator(".appearance-row"), "跟随系统").click();
+  await settle();
+  assert.equal(appConfig().glass_tint_dark, "1", "深色的浓度应改回 100%");
+  assert.equal(appConfig().appearance, undefined, "跟随系统时不存外观");
 
   // 项目分区：登记、改位置、注销走主界面同一套弹窗
   fs.mkdirSync(`${HOME}/code/proj-c`, { recursive: true });

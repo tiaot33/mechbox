@@ -548,15 +548,7 @@ func (a *AppService) attach(app *application.App, window *application.WebviewWin
 	}
 	a.menus.attach(app, checkRelease)
 	window.RegisterHook(events.Common.WindowClosing, a.windowClosing)
-	// Windows 上窗口显示出来才能设深浅色;系统切换深浅色时，跟随系统的窗口跟着变。
-	window.OnWindowEvent(events.Windows.WindowShow, func(*application.WindowEvent) {
-		a.applyAppearance(a.Settings().Appearance)
-	})
-	app.Event.OnApplicationEvent(events.Windows.SystemThemeChanged, func(*application.ApplicationEvent) {
-		if appearance := a.Settings().Appearance; appearance == AppearanceSystem {
-			a.applyAppearance(appearance)
-		}
-	})
+	a.watchAppearance(app, window)
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		if !event.Context().HasVisibleWindows() {
 			a.showWindow()

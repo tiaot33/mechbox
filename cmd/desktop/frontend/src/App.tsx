@@ -15,7 +15,6 @@ import { useAutoTranslate } from "@/features/skill/translate";
 import { checkReleaseFromMenu, useInstallFailureNotice } from "@/features/release/release";
 import { setDragGhost } from "@/components/app/dnd";
 import { invalidateRelease, invalidateSyncStatus, reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
-import { applyGlassTint } from "@/lib/glass";
 import { messages, useT } from "@/lib/i18n";
 import { ui, UIHost } from "@/lib/ui";
 import { closeDrawer, closeSettings, reconcile, useView } from "@/lib/view";
@@ -88,12 +87,6 @@ function Main() {
     if (loadedAt) void AppService.RefreshBadge();
   }, [loadedAt]);
 
-  // 毛玻璃浓度跟着应用设置(拉回了别的设置也一样);设置页里拖动时直接改，不等快照。
-  const glassTint = s?.glassTint;
-  useEffect(() => {
-    if (glassTint !== undefined) applyGlassTint(glassTint);
-  }, [glassTint]);
-
   // 快照变了以后校正界面上的选择(筛选指向的集合、组没了，作用域的项目或 Agent 被移除)。
   useEffect(() => {
     if (s) reconcile(s);
@@ -140,7 +133,7 @@ function Main() {
       </div>
       <div
         ref={setDragGhost}
-        className="fixed -top-[200px] left-0 rounded-full bg-primary px-3 py-[5px] text-xs font-semibold whitespace-nowrap text-white shadow-[0_4px_12px_rgba(0,113,227,0.35)]"
+        className="fixed -top-[200px] left-0 rounded-full bg-primary-solid px-3 py-[5px] text-xs font-semibold whitespace-nowrap text-white shadow-[0_4px_12px_rgba(0,113,227,0.35)]"
       />
     </div>
   );

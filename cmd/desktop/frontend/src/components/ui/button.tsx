@@ -15,7 +15,7 @@ const buttonVariants = cva(
         default:
           "rounded-full border border-border bg-control text-foreground hover:border-border-strong disabled:text-subtle disabled:hover:border-border",
         primary:
-          "rounded-full border border-primary bg-primary text-white hover:bg-primary-hover disabled:opacity-45 disabled:hover:bg-primary",
+          "rounded-full border border-primary-solid bg-primary-solid text-white hover:bg-primary-solid-hover disabled:opacity-45 disabled:hover:bg-primary-solid",
         danger:
           "rounded-full border border-border bg-control text-bad hover:border-bad-border disabled:text-subtle disabled:hover:border-border",
         ghost:

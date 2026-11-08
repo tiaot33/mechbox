@@ -73,6 +73,10 @@
   /* primary-ink 是写成字的主题蓝(链接、拖放中悬停的目标);浅色下与 primary 相同，深色下更亮，字才够对比度。 */
   --color-primary-ink: var(--color-primary);
   --color-primary-hover: #0066cc;
+  /* primary-solid 是上面写白字的实心蓝底(主按钮等);浅色下与 primary 相同，深色下更深，白字才够对比度
+     (primary 本身在深色下要够亮，开关、焦点圈、拖放描边在深底上才看得清)。 */
+  --color-primary-solid: var(--color-primary);
+  --color-primary-solid-hover: var(--color-primary-hover);
   --color-primary-soft: #e8f2fe;
   --color-primary-border: #b9d9fb;
   --color-primary-strong: #0a58b8;
@@ -228,6 +232,8 @@
     --color-primary: #0a84ff;
     --color-primary-ink: #6bb4ff;
     --color-primary-hover: #2a93ff;
+    --color-primary-solid: #0a6fdc;
+    --color-primary-solid-hover: #0961c2;
     --color-primary-soft: #224062;
     --color-primary-border: #2563a8;
     --color-primary-strong: #8cc4ff;
@@ -623,7 +629,7 @@
     }
   }
 
-  /* 代码高亮在深色下换成 GitHub Dark 的配色(浅色用上面引入的 github.css)。 */
+  /* 代码高亮在深色下换成 GitHub Dark 的配色(浅色用上面引入的 github.css);注释色调亮了一些，在代码块底上够对比度。 */
   :root[data-theme="dark"] .md {
     .hljs {
       color: #c9d1d9;
@@ -667,7 +673,7 @@
     .hljs-comment,
     .hljs-code,
     .hljs-formula {
-      color: #8b949e;
+      color: #a2aab4;
     }
     .hljs-name,
     .hljs-quote,
