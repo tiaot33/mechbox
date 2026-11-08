@@ -264,7 +264,7 @@ function FetchUnmanagedDialog({
             const first = plan[members[0]];
             return (
               <div key={key} className="fetch-unmanaged-group">
-                <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+                <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
                   <span className="min-w-0 truncate font-mono">
                     {key === noSource ? t.noSource : first.source_input}
                   </span>
@@ -305,7 +305,7 @@ function FetchUnmanagedDialog({
           <ListBox>
             {[...conflicts].map(([name, members]) => (
               <div key={name} className="fetch-unmanaged-conflict">
-                <div className="flex items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+                <div className="flex items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
                   {name}
                   {library.has(name) && <SameNameInLibrary name={name} sourced={members.some((i) => !!sourceOf(plan[i], links.get(i)).input)} />}
                 </div>

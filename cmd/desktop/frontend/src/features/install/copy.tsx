@@ -302,7 +302,7 @@ function PlaceRows({
   }
   return (
     <div className="copy-place" data-place={placeOf(p.to)} data-agent={p.to.agent}>
-      <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-xs font-semibold first:border-t-0">
+      <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-xs font-semibold first:border-t-0">
         {!p.missing && (
           <input
             ref={box}

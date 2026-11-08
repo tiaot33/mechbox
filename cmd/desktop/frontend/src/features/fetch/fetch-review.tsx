@@ -230,7 +230,7 @@ function GroupHeader({
   const fresh = members.filter((c) => !c.fetched);
   const picked = fresh.filter((c) => selected.has(c.name)).length;
   return (
-    <label className="sticky top-0 z-1 flex cursor-pointer items-center gap-1.5 border-t border-border-subtle bg-gray-50/95 px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+    <label className="sticky top-0 z-1 flex cursor-pointer items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
       <input
         type="checkbox"
         className="accent-primary"
@@ -261,7 +261,7 @@ function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate:
   };
   if (audit === undefined) {
     return (
-      <button type="button" className="shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary" onClick={load}>
+      <button type="button" className="shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary-ink" onClick={load}>
         {t.viewAudit}
       </button>
     );

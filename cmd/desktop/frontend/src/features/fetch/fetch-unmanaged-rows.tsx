@@ -28,7 +28,7 @@ function EditSourceButton({ onEdit }: { onEdit: () => void }) {
   return (
     <button
       type="button"
-      className="fetch-unmanaged-edit shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary"
+      className="fetch-unmanaged-edit shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary-ink"
       onClick={(e) => {
         e.preventDefault();
         onEdit();
@@ -92,7 +92,7 @@ export function PlannedRow({
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
           {inLibrary && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />}
           <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">{agents}</span>
-          <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-[11px] text-primary" />
+          <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-[11px] text-primary-ink" />
           <EditSourceButton onEdit={edit.onEdit} />
         </label>
       </ListRow>
@@ -134,7 +134,7 @@ export function ConflictRow({
             {p.modified_at ? t.modifiedAt(p.modified_at) : ""}
             {edit.link === undefined && p.source_input ? t.from(p.source_input) : ""}
           </span>
-          <ChangedSource planned={p} link={edit.link} className="min-w-0 truncate text-[11px] text-primary" />
+          <ChangedSource planned={p} link={edit.link} className="min-w-0 truncate text-[11px] text-primary-ink" />
           <EditSourceButton onEdit={edit.onEdit} />
         </label>
       </ListRow>

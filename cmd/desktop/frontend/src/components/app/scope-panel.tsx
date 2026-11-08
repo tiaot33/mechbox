@@ -167,7 +167,7 @@ export function ScopePanel() {
               >
                 <button
                   type="button"
-                  className="proj-toggle -m-1 grid size-[18px] shrink-0 place-items-center rounded hover:bg-black/5"
+                  className="proj-toggle -m-1 grid size-[18px] shrink-0 place-items-center rounded hover:bg-fill"
                   aria-label={open ? t.collapseProject : t.expandProject}
                   title={open ? t.collapseProject : t.expandProject}
                   onClick={(e) => {

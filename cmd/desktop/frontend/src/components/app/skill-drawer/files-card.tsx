@@ -126,8 +126,8 @@ function FileTree({ nodes, selected, onSelect }: { nodes: FileNode[]; selected: 
             type="button"
             title={n.path}
             className={cn(
-              "file-row flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 pl-[22px] text-left hover:bg-black/[0.04]",
-              n.path === selected && "bg-primary-soft text-primary hover:bg-primary-soft",
+              "file-row flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 pl-[22px] text-left hover:bg-fill-subtle",
+              n.path === selected && "bg-primary-soft text-primary-ink hover:bg-primary-soft",
             )}
             onClick={() => onSelect(n.path)}
           >
@@ -152,7 +152,7 @@ function FileTreeDir({ node, selected, onSelect }: { node: FileNode; selected: s
         type="button"
         title={node.path}
         aria-expanded={open}
-        className="dir-row flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1.5 text-left hover:bg-black/[0.04]"
+        className="dir-row flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1.5 text-left hover:bg-fill-subtle"
         onClick={() => setOpen(!open)}
       >
         <Icon name="chev" className={cn("size-2.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
@@ -172,7 +172,7 @@ export function Code({ children }: { children: string }) {
   return (
     <pre
       data-slot="code"
-      className="max-h-[360px] overflow-auto rounded-lg border border-border-subtle bg-[#f8f9fb] px-3 py-2.5 font-mono text-[11.5px] leading-[1.55] break-words whitespace-pre-wrap select-text"
+      className="max-h-[360px] overflow-auto rounded-lg border border-border-subtle bg-surface-soft px-3 py-2.5 font-mono text-[11.5px] leading-[1.55] break-words whitespace-pre-wrap select-text"
     >
       {children}
     </pre>

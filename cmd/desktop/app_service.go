@@ -91,6 +91,7 @@ func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOp
 		}
 	}
 	a.menus.setLanguage(a.settings.Language.resolve())
+	a.applyAppearance(a.settings.Appearance)
 	a.opened = true
 	loop, stop := context.WithCancel(context.Background())
 	a.stop = stop
@@ -139,8 +140,13 @@ func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Setti
 	if !settings.Language.valid() {
 		return Settings{}, fmt.Errorf("unknown language %q", settings.Language)
 	}
-	if !glassTintValid(settings.GlassTint) {
-		return Settings{}, fmt.Errorf("glass tint %v is outside 0 to %v", settings.GlassTint, maxGlassTint)
+	if !settings.Appearance.valid() {
+		return Settings{}, fmt.Errorf("unknown appearance %q", settings.Appearance)
+	}
+	for _, tint := range []float64{settings.GlassTint, settings.GlassTintDark} {
+		if !glassTintValid(tint) {
+			return Settings{}, fmt.Errorf("glass tint %v is outside 0 to %v", tint, maxGlassTint)
+		}
 	}
 	previous := a.Settings().WSLDistro
 	switched := settings.WSLDistro != previous
@@ -162,6 +168,7 @@ func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Setti
 		return Settings{}, err
 	}
 	a.menus.setLanguage(settings.Language.resolve())
+	a.applyAppearance(settings.Appearance)
 	a.poke()
 	a.refreshBadge(context.Background())
 	return settings, nil
@@ -245,6 +252,7 @@ func (a *AppService) reloadSettings(ctx context.Context) {
 		a.warn(a.saveSettings(ctx, settings, &keep), "settings unwritable, first open not kept after pull")
 	}
 	a.menus.setLanguage(settings.Language.resolve())
+	a.applyAppearance(settings.Appearance)
 	a.poke()
 	a.refreshBadge(ctx)
 	if a.app != nil {
@@ -540,6 +548,15 @@ func (a *AppService) attach(app *application.App, window *application.WebviewWin
 	}
 	a.menus.attach(app, checkRelease)
 	window.RegisterHook(events.Common.WindowClosing, a.windowClosing)
+	// Windows 上窗口显示出来才能设深浅色;系统切换深浅色时，跟随系统的窗口跟着变。
+	window.OnWindowEvent(events.Windows.WindowShow, func(*application.WindowEvent) {
+		a.applyAppearance(a.Settings().Appearance)
+	})
+	app.Event.OnApplicationEvent(events.Windows.SystemThemeChanged, func(*application.ApplicationEvent) {
+		if appearance := a.Settings().Appearance; appearance == AppearanceSystem {
+			a.applyAppearance(appearance)
+		}
+	})
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		if !event.Context().HasVisibleWindows() {
 			a.showWindow()

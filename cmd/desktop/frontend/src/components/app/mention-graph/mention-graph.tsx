@@ -69,7 +69,7 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
-        <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-[10px] border border-hairline bg-white/55 text-[12px] text-muted-foreground shadow-tile">
+        <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-[10px] border border-hairline bg-wash/55 text-[12px] text-muted-foreground shadow-tile">
           {members.length ? (
             unjudged ? t.noneByRules(unjudged) : t.none
           ) : (
@@ -151,7 +151,7 @@ function Loose({ skills }: { skills: Skill[] }) {
           key={x.id}
           type="button"
           className={cn(
-            "graph-loose-skill rounded-md border border-hairline bg-white/70 px-2 py-0.5 font-medium text-foreground-secondary hover:border-primary-border hover:text-primary-strong",
+            "graph-loose-skill rounded-md border border-hairline bg-wash/70 px-2 py-0.5 font-medium text-foreground-secondary hover:border-primary-border hover:text-primary-strong",
             !matches(search, x) && "opacity-35",
           )}
           onClick={() => toggleDrawer(x.id)}
@@ -179,10 +179,10 @@ function nameWidth(text: string): number {
 
 // 按集合着色：同一个集合在哪张图里都是同一种颜色(按左栏里集合的顺序取色);没有来源的技能是灰色。
 const palette = ["#3b82f6", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444", "#84cc16"];
-const noCollection = "#9ca3af";
+const noCollection = "var(--color-subtle)";
 // 点了一个技能时三种关系的颜色：提到它的、它提到的、互相提到的。
-const relationColor: Record<Relation, string> = { in: "#ea580c", out: "#2563eb", both: "#7c3aed" };
-const linkColor = "#c3cad5";
+const relationColor: Record<Relation, string> = { in: "var(--color-graph-in)", out: "var(--color-graph-out)", both: "var(--color-graph-both)" };
+const linkColor = "var(--color-graph-link)";
 const litColor = "var(--color-primary)";
 
 // 放大到这个倍数以上时写出全部名字。
@@ -399,7 +399,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   };
 
   return (
-    <div ref={box} className="graph-canvas relative min-h-0 flex-1 overflow-hidden rounded-[10px] border border-hairline bg-white/55 shadow-tile">
+    <div ref={box} className="graph-canvas relative min-h-0 flex-1 overflow-hidden rounded-[10px] border border-hairline bg-wash/55 shadow-tile">
       <svg
         ref={svgRef}
         className="graph-svg block size-full cursor-grab select-none active:cursor-grabbing"
@@ -508,13 +508,13 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                   {isSelected && <circle r={r + 4} fill="none" stroke="var(--color-primary)" strokeWidth={2} />}
                   <circle
                     r={r}
-                    fill={n.outside ? "#fff" : color}
-                    stroke={n.outside ? color : "#fff"}
+                    fill={n.outside ? "var(--color-halo)" : color}
+                    stroke={n.outside ? color : "var(--color-halo)"}
                     strokeWidth={n.outside ? 1.6 : 2}
                     strokeDasharray={n.outside ? "3 2" : undefined}
                   />
                   {showName && (
-                    <g className="graph-node-label" style={{ paintOrder: "stroke" }} stroke="#fff" strokeWidth={4} strokeLinejoin="round">
+                    <g className="graph-node-label" style={{ paintOrder: "stroke" }} stroke="var(--color-halo)" strokeWidth={4} strokeLinejoin="round">
                       <text
                         x={beside ? r + 7 : 0}
                         y={beside ? 4 : r + 14}
@@ -545,7 +545,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         </g>
       </svg>
       {focus && (
-        <div className="graph-legend pointer-events-none absolute top-2.5 left-3 flex gap-3 rounded-md bg-white/75 px-2 py-1 text-[11px] text-foreground-secondary">
+        <div className="graph-legend pointer-events-none absolute top-2.5 left-3 flex gap-3 rounded-md bg-wash/75 px-2 py-1 text-[11px] text-foreground-secondary">
           {(["in", "out", "both"] as const).map((r) => (
             <span key={r} className="flex items-center gap-1.5">
               <span className="h-[3px] w-4 rounded-full" style={{ background: relationColor[r] }} />
@@ -555,7 +555,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         </div>
       )}
       {/* 放在左下角：右侧会被详情抽屉盖住。 */}
-      <div className="graph-controls absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-md border border-hairline bg-white shadow-tile">
+      <div className="graph-controls absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-md border border-hairline bg-panel shadow-tile">
         {(
           [
             ["plus", t.zoomIn, () => zoomBy(1.25)],

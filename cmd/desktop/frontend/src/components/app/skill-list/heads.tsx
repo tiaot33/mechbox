@@ -107,15 +107,15 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
                 data-state={state}
                 aria-pressed={on}
                 className={cn(
-                  "gchip inline-flex h-6 items-center gap-1.5 rounded-md border border-border px-[9px] text-[11.5px] text-foreground-secondary transition-colors hover:border-border-strong hover:bg-white/70",
-                  on && "border-group-border bg-group-soft font-medium text-[#5b21b6] hover:border-group hover:bg-group-soft",
+                  "gchip inline-flex h-6 items-center gap-1.5 rounded-md border border-border px-[9px] text-[11.5px] text-foreground-secondary transition-colors hover:border-border-strong hover:bg-wash/70",
+                  on && "border-group-border bg-group-soft font-medium text-group-ink hover:border-group hover:bg-group-soft",
                 )}
                 onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
                 <i className={cn("size-[7px] rounded-full border-[1.5px] border-subtle", on && "border-group bg-group")} />
                 {g.name}
-                <span className={cn("font-mono text-[11px] text-subtle", on && "text-[#7c3aed]")}>
+                <span className={cn("font-mono text-[11px] text-subtle", on && "text-group-count")}>
                   {viaGroupCount(s, g, scope)}/{g.members?.length ?? 0}
                 </span>
               </button>
@@ -161,7 +161,7 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
 function Stat({ value, label, warn = false }: { value: number; label: string; warn?: boolean }) {
   return (
     <span className="stat text-xs text-foreground-secondary" data-tone={warn ? "warn" : undefined}>
-      <b className={cn("mr-0.5 text-sm", warn && "text-amber-600")}>{value}</b> {label}
+      <b className={cn("mr-0.5 text-sm", warn && "text-warn-ink")}>{value}</b> {label}
     </span>
   );
 }

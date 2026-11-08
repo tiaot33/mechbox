@@ -189,7 +189,7 @@ function Diagram({ language, source }: { language: DiagramLanguage; source: stri
     );
   return (
     <>
-      <div ref={ref} className="md-diagram" hidden={failed} />
+      <div ref={ref} className="md-diagram" data-language={language} hidden={failed} />
       {fallback}
     </>
   );

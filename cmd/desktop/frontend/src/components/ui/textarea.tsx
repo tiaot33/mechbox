@@ -7,7 +7,7 @@ function Textarea({ className, ...props }: ComponentProps<"textarea">) {
     <textarea
       data-slot="textarea"
       className={cn(
-        "min-w-0 resize-y rounded-lg border border-border bg-white px-2.5 py-1.5 outline-none placeholder:text-subtle focus:border-primary-border focus:ring-3 focus:ring-primary-soft disabled:opacity-60",
+        "min-w-0 resize-y rounded-lg border border-border bg-control px-2.5 py-1.5 outline-none placeholder:text-subtle focus:border-primary-border focus:ring-3 focus:ring-primary-soft disabled:opacity-60",
         className,
       )}
       {...props}

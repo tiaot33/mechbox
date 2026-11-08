@@ -362,7 +362,7 @@ function SideButton({ onClick, children }: { onClick: (e: React.MouseEvent<HTMLB
   return (
     <button
       type="button"
-      className="side-btn mb-2.5 flex h-8 w-full items-center justify-center gap-[7px] rounded-lg border border-border bg-white text-[12.5px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors hover:border-border-strong hover:bg-gray-50 [&_[data-slot=icon]]:size-3"
+      className="side-btn mb-2.5 flex h-8 w-full items-center justify-center gap-[7px] rounded-lg border border-border bg-control text-[12.5px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors hover:border-border-strong hover:bg-gray-50 [&_[data-slot=icon]]:size-3"
       onClick={onClick}
     >
       {children}
@@ -395,7 +395,7 @@ function SectionHead({
         <div className="nav-sec group/sec flex items-center justify-between pt-2.5 pr-0.5">
           <button
             type="button"
-            className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-md pr-1.5 pl-2 text-[11px] font-semibold text-muted-foreground hover:bg-black/[0.04] hover:text-foreground"
+            className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-md pr-1.5 pl-2 text-[11px] font-semibold text-muted-foreground hover:bg-fill-subtle hover:text-foreground"
             aria-expanded={!closed}
             onClick={() => onToggle((set) => toggled(set, id))}
           >
@@ -421,7 +421,7 @@ function ReleaseRow() {
       <button type="button" className={cn(navItem(), "release-row")} title={t.sidebarTitle(latest.version)} onClick={() => openRelease(latest)}>
         <Icon name="up" />
         <span className="grow">{t.sidebar}</span>
-        <span className="font-mono text-[11px] text-primary">{latest.version}</span>
+        <span className="font-mono text-[11px] text-primary-ink">{latest.version}</span>
       </button>
     </li>
   );

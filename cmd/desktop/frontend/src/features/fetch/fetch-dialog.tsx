@@ -337,7 +337,7 @@ function RefPicker({
         setOpen(false);
       }}
     >
-      <span className={cn("w-3 shrink-0 text-primary", name !== selected && "invisible")}>
+      <span className={cn("w-3 shrink-0 text-primary-ink", name !== selected && "invisible")}>
         <Icon name="check" className="size-3" />
       </span>
       <span className="grow truncate font-mono">{name}</span>

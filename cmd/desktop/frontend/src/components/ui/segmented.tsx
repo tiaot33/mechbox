@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const raised = "bg-white shadow-segment";
+const raised = "bg-raised shadow-segment";
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 interface SegmentedOption<T> {
@@ -54,7 +54,7 @@ function Segmented<T extends string | number>({
       ref={ref}
       role="group"
       data-slot="segmented"
-      className={cn("relative inline-flex items-center gap-px rounded-md border border-border bg-black/5 p-0.5", className)}
+      className={cn("relative inline-flex items-center gap-px rounded-md border border-border bg-fill p-0.5", className)}
     >
       {thumb && (
         <motion.span
@@ -75,7 +75,7 @@ function Segmented<T extends string | number>({
           disabled={disabled}
           onClick={() => onChange(o.value)}
           className={cn(
-            "relative h-[22px] rounded px-2.5 text-xs text-foreground-secondary transition-colors not-aria-pressed:hover:bg-black/5 hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
+            "relative h-[22px] rounded px-2.5 text-xs text-foreground-secondary transition-colors not-aria-pressed:hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
             !thumb && o.value === value && raised,
             iconOnly && "grid h-5 w-7 place-items-center px-0 [&_[data-slot=icon]]:size-[13px]",
           )}

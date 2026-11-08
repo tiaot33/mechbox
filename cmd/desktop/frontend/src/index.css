@@ -25,11 +25,53 @@
   --color-border-strong: #d1d5db;
   --color-border-subtle: #eceef1;
   --color-hairline: rgba(17, 24, 39, 0.07);
-  /* 渲染出来的 Markdown 里浅灰的底：代码块、表头与 mermaid 图的节点用 surface,图里第二层用 surface-alt。 */
+  /* 列表里行与行之间的分隔线。 */
+  --color-row-line: rgba(17, 24, 39, 0.06);
+  /* 渲染出来的 Markdown 里浅灰的底：代码块、表头与 mermaid 图的节点用 surface,图里第二层用 surface-alt;
+     文件预览的底用 surface-soft;行内代码用 code 与 code-ink。 */
   --color-surface: #f6f7f9;
   --color-surface-alt: #eef0f3;
+  --color-surface-soft: #f8f9fb;
+  --color-code: #f1f3f5;
+  --color-code-ink: #1f2937;
+
+  /* 不透明的表面：panel 是卡片、列表框、对比的两栏这类白底;control 是输入框、按钮、下拉框的底;
+     raised 是分段按钮里选中的那一段;knob 是开关与滑块的圆钮;mark 是 Agent 图标的底，深色下仍是浅色，纯黑的 logo 也看得清;
+     halo 是关系图里名字的描边与空心圆的填充，和图的底色一致。 */
+  --color-panel: #fff;
+  --color-panel-hover: oklch(98.5% 0.002 247.839);
+  --color-control: #fff;
+  --color-raised: #fff;
+  --color-knob: #fff;
+  --color-mark: #fff;
+  --color-mark-ring: #fff;
+  --color-halo: #fff;
+  /* 叠在内容上的一层：wash 是白色，按 /55、/80 这样取透明度，给半透明的行底、悬停与图例;
+     fill-* 是深色的一层，给悬停、按下、计数这类小块(faint 最淡，strong 最浓);sticky 是吸顶的组标题;
+     neutral-soft 是中性的标记与提示的底;nav-active 是左栏选中的一项;ripple 是按钮按下的涟漪。 */
+  --color-wash: #fff;
+  --color-fill-faint: rgb(0 0 0 / 0.025);
+  --color-fill-subtle: rgb(0 0 0 / 0.04);
+  --color-fill: rgb(0 0 0 / 0.05);
+  --color-fill-strong: rgb(0 0 0 / 0.07);
+  --color-sticky: color-mix(in oklab, oklch(98.5% 0.002 247.839) 95%, transparent);
+  --color-neutral-soft: oklch(96.7% 0.003 264.542);
+  --color-nav-active: rgba(17, 24, 39, 0.07);
+  --color-ripple: rgb(0 0 0 / 0.1);
+  /* Windows 标题栏按钮悬停、按下时的底(与系统标题栏一致)。 */
+  --color-caption-hover: rgb(0 0 0 / 0.0373);
+  --color-caption-press: rgb(0 0 0 / 0.0241);
+  --color-scrollbar: rgba(17, 24, 39, 0.14);
+  --color-scrollbar-hover: rgba(17, 24, 39, 0.28);
+  /* 关系图里没有被点亮的线;点了一个技能时三种关系的线：提到它的(in)、它提到的(out)、互相提到的(both)。 */
+  --color-graph-link: #c3cad5;
+  --color-graph-in: #ea580c;
+  --color-graph-out: #2563eb;
+  --color-graph-both: #7c3aed;
 
   --color-primary: #0071e3;
+  /* primary-ink 是写成字的主题蓝(链接、拖放中悬停的目标);浅色下与 primary 相同，深色下更亮，字才够对比度。 */
+  --color-primary-ink: var(--color-primary);
   --color-primary-hover: #0066cc;
   --color-primary-soft: #e8f2fe;
   --color-primary-border: #b9d9fb;
@@ -37,19 +79,26 @@
   --color-ok: #16a34a;
   --color-ok-soft: #ecfdf5;
   --color-ok-strong: #047857;
+  --color-ok-on-soft: oklch(43.2% 0.095 166.913);
   --color-warn: #f59e0b;
   --color-warn-soft: #fffbeb;
   --color-warn-strong: #b45309;
+  --color-warn-ink: oklch(66.6% 0.179 58.318);
+  --color-warn-on-soft: oklch(47.3% 0.137 46.201);
   --color-bad: #ef4444;
   --color-bad-soft: #fef2f2;
   --color-bad-strong: #b91c1c;
   --color-bad-border: #fecaca;
+  --color-bad-on-soft: oklch(44.4% 0.177 26.899);
   --color-group: #8b5cf6;
   --color-group-soft: #f3effe;
   --color-group-strong: #6d28d9;
   --color-group-border: #ddd3fb;
+  /* 选中的组筛选：名字用 group-ink,数字用 group-count。 */
+  --color-group-ink: #5b21b6;
+  --color-group-count: #7c3aed;
 
-  /* 半透明表面的档位：铺在底板上的表面透出窗口背后的系统材质(macOS 的毛玻璃,Windows 11 的 Mica),界面只用半透明白色。
+  /* 半透明表面的档位：铺在底板上的表面透出窗口背后的系统材质(macOS 的毛玻璃,Windows 11 的 Mica),界面只用半透明白色(深色下是很淡的白)。
      tile 是三栏的底板,card 是浮在底板上的技能卡片与摘要条。浮在内容上的表面(抽屉、弹窗、弹层、操作栏、toast)用下面的 glass 材质。
      glass-row-* 是毛玻璃上高亮的一行：用浅蓝(与选中的技能行一致),不用灰色;选中的另描一圈白边(shadow-glass-row)。
      不用更亮的一层白：这些表面的玻璃已经接近白色，白色高亮叠上去看不出来，键盘移动时找不到当前项。 */
@@ -64,15 +113,16 @@
   --radius-card: 16px;
   --radius-box: 12px;
 
-  --shadow-tile: 0 1px 2px rgba(17, 24, 39, 0.03);
-  --shadow-card: 0 4px 4px rgba(17, 24, 39, 0.05), 0 0 0 1px var(--color-hairline);
-  --shadow-raised: 0 4px 12px -4px rgba(17, 24, 39, 0.1);
-  --shadow-segment: 0 1px 2px rgba(17, 24, 39, 0.1), 0 0 0 1px rgba(17, 24, 39, 0.04);
-  --shadow-sheet: -12px 0 40px rgba(15, 23, 42, 0.14);
-  --shadow-dialog: 0 24px 60px rgba(15, 23, 42, 0.22);
-  --shadow-popover: 0 16px 40px rgba(15, 23, 42, 0.18);
-  --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.12);
-  --shadow-glass-row: inset 0 0 0 0.5px rgb(255 255 255 / 0.9);
+  /* 阴影的颜色经 --shade-* 给出(在下面的 :root 里，深色下更深):Tailwind 把阴影的值直接写进工具类，换 --shadow-* 本身不起作用。 */
+  --shadow-tile: 0 1px 2px var(--shade-tile);
+  --shadow-card: 0 4px 4px var(--shade-card), 0 0 0 1px var(--color-hairline);
+  --shadow-raised: 0 4px 12px -4px var(--shade-raised);
+  --shadow-segment: 0 1px 2px var(--shade-segment), 0 0 0 1px var(--shade-segment-edge);
+  --shadow-sheet: -12px 0 40px var(--shade-sheet);
+  --shadow-dialog: 0 24px 60px var(--shade-dialog);
+  --shadow-popover: 0 16px 40px var(--shade-popover);
+  --shadow-toast: 0 8px 24px var(--shade-toast);
+  --shadow-glass-row: inset 0 0 0 0.5px var(--glass-row-ring);
 
   --animate-fade-in: fade-in 0.12s ease-out;
   --animate-dialog-in: dialog-in 0.14s ease-out;
@@ -109,6 +159,116 @@
       opacity: 0;
       transform: translateX(24px);
     }
+  }
+}
+
+/* 外观：根元素上的 data-theme 是实际用的外观(light / dark,见 lib/theme.ts)。上面 @theme 里是浅色的值;
+   深色下这里换掉颜色、阴影的颜色与窗口底色，组件只用主题里的颜色，不分外观各写一份。
+   深色的层级照浅色排：越靠前的层越亮(窗口底 < 中间底板 < 列表行 < 卡片、控件、毛玻璃),凹进去的(代码块、标签底、吸顶的组标题)
+   比所在的面暗;相邻两层的亮度差(CIELAB 的 L*)与浅色相同，不用同一个白色透明度去叠，那样深底上的差会比浅底上大得多。 */
+@layer base {
+  :root {
+    color-scheme: light;
+    --shade-tile: rgba(17, 24, 39, 0.03);
+    --shade-card: rgba(17, 24, 39, 0.05);
+    --shade-raised: rgba(17, 24, 39, 0.1);
+    --shade-segment: rgba(17, 24, 39, 0.1);
+    --shade-segment-edge: rgba(17, 24, 39, 0.04);
+    --shade-sheet: rgba(15, 23, 42, 0.14);
+    --shade-dialog: rgba(15, 23, 42, 0.22);
+    --shade-popover: rgba(15, 23, 42, 0.18);
+    --shade-toast: rgba(0, 0, 0, 0.12);
+    --shade-pick: rgba(17, 24, 39, 0.16);
+    --shade-preview: rgba(17, 24, 39, 0.12);
+    --glass-row-ring: rgb(255 255 255 / 0.9);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-foreground: #ececf1;
+    --color-foreground-secondary: #c4c6cd;
+    --color-muted-foreground: #acafb7;
+    --color-subtle: #7a7d86;
+    --color-border: #4b4b50;
+    --color-border-strong: #57575c;
+    --color-border-subtle: #444449;
+    --color-hairline: rgb(255 255 255 / 0.08);
+    --color-row-line: rgb(255 255 255 / 0.06);
+    --color-surface: #37373c;
+    --color-surface-alt: #323237;
+    --color-surface-soft: #39393e;
+    --color-code: #343439;
+    --color-code-ink: #e3e4ea;
+
+    --color-panel: #3d3d42;
+    --color-panel-hover: #3b3b40;
+    --color-control: #414146;
+    --color-raised: #545459;
+    --color-knob: #f2f2f5;
+    --color-mark: #f2f2f5;
+    --color-mark-ring: #3d3d42;
+    --color-halo: #38383f;
+    --color-wash: rgb(255 255 255 / 0.042);
+    --color-fill-faint: rgb(255 255 255 / 0.025);
+    --color-fill-subtle: rgb(255 255 255 / 0.04);
+    --color-fill: rgb(255 255 255 / 0.05);
+    --color-fill-strong: rgb(255 255 255 / 0.07);
+    --color-sticky: rgb(57 57 62 / 0.95);
+    --color-neutral-soft: #35353a;
+    --color-nav-active: rgb(255 255 255 / 0.055);
+    --color-ripple: rgb(255 255 255 / 0.1);
+    --color-caption-hover: rgb(255 255 255 / 0.0605);
+    --color-caption-press: rgb(255 255 255 / 0.0419);
+    --color-scrollbar: rgb(255 255 255 / 0.18);
+    --color-scrollbar-hover: rgb(255 255 255 / 0.32);
+    --color-graph-link: #5a5e68;
+    --color-graph-in: #fb8c3c;
+    --color-graph-out: #5b9dff;
+    --color-graph-both: #b08cff;
+
+    --color-primary: #0a84ff;
+    --color-primary-ink: #6bb4ff;
+    --color-primary-hover: #2a93ff;
+    --color-primary-soft: #224062;
+    --color-primary-border: #2563a8;
+    --color-primary-strong: #8cc4ff;
+    --color-ok: #30d158;
+    --color-ok-soft: #2b4637;
+    --color-ok-strong: #5ee08a;
+    --color-ok-on-soft: #7ee8a2;
+    --color-warn: #ff9f0a;
+    --color-warn-soft: #4c3d2a;
+    --color-warn-strong: #ffc85a;
+    --color-warn-ink: #ffb340;
+    --color-warn-on-soft: #ffd27a;
+    --color-bad: #ff8f87;
+    --color-bad-soft: #4e3538;
+    --color-bad-strong: #ffa39c;
+    --color-bad-border: #764141;
+    --color-bad-on-soft: #ffb5af;
+    --color-group: #b8a1fb;
+    --color-group-soft: #433d58;
+    --color-group-strong: #c9b8ff;
+    --color-group-border: #5e5385;
+    --color-group-ink: #d6c9ff;
+    --color-group-count: #b9a3ff;
+
+    --color-glass-tile: rgb(255 255 255 / 0.075);
+    --color-glass-card: rgb(255 255 255 / 0.028);
+    --color-scrim: rgb(0 0 0 / 0.32);
+    --color-scrim-strong: rgb(0 0 0 / 0.42);
+
+    --shade-tile: rgb(0 0 0 / 0.2);
+    --shade-card: rgb(0 0 0 / 0.18);
+    --shade-raised: rgb(0 0 0 / 0.4);
+    --shade-segment: rgb(0 0 0 / 0.35);
+    --shade-segment-edge: rgb(255 255 255 / 0.06);
+    --shade-sheet: rgb(0 0 0 / 0.45);
+    --shade-dialog: rgb(0 0 0 / 0.55);
+    --shade-popover: rgb(0 0 0 / 0.5);
+    --shade-toast: rgb(0 0 0 / 0.4);
+    --shade-pick: rgb(0 0 0 / 0.45);
+    --shade-preview: rgb(255 255 255 / 0.1);
+    --glass-row-ring: rgb(255 255 255 / 0.18);
   }
 }
 
@@ -153,18 +313,18 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(17, 24, 39, 0.14);
+    background: var(--color-scrollbar);
     border: 3px solid transparent;
     border-radius: 999px;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(17, 24, 39, 0.28);
+    background-color: var(--color-scrollbar-hover);
   }
 }
 
-/* 窗口底色：整窗就是应用，背后是 macOS 的毛玻璃或 Windows 11 的 Mica,页面只铺一层带淡彩的半透明底色。
-   没有 Mica 的 Windows 上窗口是不透明的底色，与最底下这层同色(见 window_windows.go)。 */
+/* 窗口底色：整窗就是应用，背后是 macOS 的毛玻璃或 Windows 11 的 Mica,页面只铺一层带淡彩的半透明底色;深色下彩更暗、底更深。
+   没有 Mica 的 Windows 上窗口是不透明的底色，与最底下这层同色(浅色、深色各一份，见 window_windows.go 的 windowColour)。 */
 @utility window-backdrop {
   background:
     radial-gradient(circle at 12% 18%, rgba(215, 227, 248, 0.55) 0%, transparent 45%),
@@ -172,21 +332,33 @@
     radial-gradient(circle at 85% 85%, rgba(210, 238, 252, 0.55) 0%, transparent 45%),
     radial-gradient(circle at 15% 85%, rgba(230, 224, 248, 0.5) 0%, transparent 45%),
     rgba(236, 239, 245, 0.6);
+
+  :root[data-theme="dark"] & {
+    background:
+      radial-gradient(circle at 12% 18%, rgba(48, 66, 104, 0.22) 0%, transparent 45%),
+      radial-gradient(circle at 88% 15%, rgba(86, 52, 74, 0.18) 0%, transparent 40%),
+      radial-gradient(circle at 85% 85%, rgba(36, 72, 96, 0.2) 0%, transparent 45%),
+      radial-gradient(circle at 15% 85%, rgba(62, 50, 104, 0.2) 0%, transparent 45%),
+      rgba(26, 26, 30, 0.72);
+  }
 }
 
 /* 毛玻璃材质：浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、吸顶的节标题、toast)加上 glass 类，
    只换底色(background)、滤镜(backdrop-filter)、边缘(box-shadow)与字色(color)四样，结构、间距、圆角不变。
-   - 底色是一层白，浓度 = --glass-alpha × 设置里的浓度(--glass-tint,0–1.5,见 lib/glass.ts)× 悬停时提亮(--glass-lift),
-     上面左上角一团高光。这些表面底下都是列表的文字而不是图片，所以只有一档：浓到上面的字在最密的列表上也够对比度。
-   - 滤镜先模糊、提饱和度、略提亮，把底下的文字糊掉、颜色留住;浓度低于 1 时饱和度与提亮跟着变弱，到 0 只剩模糊、边缘与阴影。
+   - 底色是一层白(深色下是一层比卡片略亮的灰，和浅色一样浮在上面的表面比底下亮，不做成更暗的黑块),浓度 = --glass-alpha × 设置里的浓度(--glass-tint,0–1.5,浅色、深色各一个值，
+     见 lib/theme.ts)× 悬停时提亮(--glass-lift)。这些表面底下都是列表的文字而不是图片，所以只有一档：
+     浓到上面的字在最密的列表上也够对比度。
+   - 滤镜先模糊、提饱和度、略提亮(深色下略压暗到约 0.9),把底下的文字糊掉、颜色留住;
+     浓度低于 1 时饱和度与明暗跟着变弱，到 0 只剩模糊、边缘与阴影。
      在 Chromium 上最后再接一道把背景变成不透明的滤镜(--glass-solid,见 lib/glass.ts),不然窗口背后透明时，
-     没模糊的原内容会从玻璃底下透出来;静止的表面换成镜边折射(--glass-lens,lib/glass.ts 的 glassLens),它的输出同样不透明。
-   - 边缘：左上亮、右下弱一些的内描边，一圈 0.5px 的白与一圈 0.5px 的深色轮廓，加上沿边缘往里的柔光(上、左亮，下边略暗);
-     投影各表面沿用原来的档位，经 --glass-drop 传入;拖放中的插入线这类状态经 --glass-state 叠在边缘上，不把边缘整个换掉。
-   - 字色：表面上的字一律用墨色(--glass-ink 标题与图标,--glass-ink-secondary 次要文字),把 foreground、foreground-secondary、
+     没模糊的原内容会从玻璃底下透出来。
+   - 边缘：扁平，只有一圈均匀的 0.5px 轮廓线(浅色是淡的深色线，深色是淡的白线),不画斜面亮线、内侧柔光和高光:
+     这些在浅色下是白叠白看不出来，深色下会显出来，让表面像凸起的按钮。
+     投影各表面沿用原来的档位，经 --glass-drop 传入，深色下更深;拖放中的插入线这类状态经 --glass-state 叠在边缘上，不把边缘整个换掉。
+   - 字色：表面上的字一律用墨色(--glass-ink 标题与图标,--glass-ink-secondary 次要文字,深色下是浅色的墨),把 foreground、foreground-secondary、
      muted-foreground 换成墨色;subtle(禁用、占位)与各状态色(失败的红等)不变。
    - 背后内容少、上面字也少的表面(操作栏、toast、提示)另加 glass-clear:模糊轻、白色淡，背后的颜色与形状透得出来。
-   - 系统要求减少透明度或开了强制颜色时，换成同样的白色不透明底，不模糊。macOS 的 WKWebView 不认 prefers-reduced-transparency,
+   - 系统要求减少透明度或开了强制颜色时，换成同样颜色的不透明底(--glass-opaque),不模糊。macOS 的 WKWebView 不认 prefers-reduced-transparency,
      由根元素上的 data-reduce-transparency 标出(lib/glass.ts 问 Go 端)。
    各项数值都用 @property 登记，浓度在状态之间平滑过渡;悬停时提亮的表面(操作栏、toast)自己加 --glass-lift 的过渡。 */
 @property --glass-tint {
@@ -214,18 +386,27 @@
   inherits: true;
   initial-value: rgb(60 60 67 / 0.76);
 }
-@property --glass-lens {
-  syntax: "*";
-  inherits: false;
-}
 
 @layer base {
   :root {
     --glass-blur: 24px;
-    --glass-edge:
-      inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.95), inset -1.5px -1.5px 1px -1px rgb(255 255 255 / 0.55),
-      inset 0 0 0 0.5px rgb(255 255 255 / 0.3), 0 0 0 0.5px rgb(0 0 0 / 0.06);
+    --glass-base: 255 255 255;
+    --glass-sat: 0.8;
+    --glass-bright: 0.06;
+    --glass-opaque: rgb(255 255 255);
+    --glass-drop-default: 0 6px 24px rgb(0 0 0 / 0.08);
+    --glass-edge: 0 0 0 0.5px rgb(0 0 0 / 0.06);
     transition: --glass-tint 240ms ease;
+  }
+  :root[data-theme="dark"] {
+    --glass-base: 74 74 80;
+    --glass-sat: 0.6;
+    --glass-bright: -0.1;
+    --glass-opaque: rgb(62 62 68);
+    --glass-drop-default: 0 6px 24px rgb(0 0 0 / 0.35);
+    --glass-edge: inset 0 0 0 0.5px rgb(255 255 255 / 0.08);
+    --glass-ink: rgb(255 255 255 / 0.94);
+    --glass-ink-secondary: rgb(235 235 245 / 0.64);
   }
 }
 
@@ -235,29 +416,24 @@
   --color-foreground-secondary: var(--glass-ink-secondary);
   --color-muted-foreground: var(--glass-ink-secondary);
   border-color: transparent;
-  background:
-    radial-gradient(ellipse farthest-corner at 0 0, rgb(255 255 255 / calc(0.3 * var(--glass-k))), transparent 55%),
-    rgb(255 255 255 / min(1, calc(var(--glass-alpha) * var(--glass-tint) * var(--glass-lift))));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + 0.8 * var(--glass-k))) brightness(calc(1 + 0.06 * var(--glass-k)))
-    var(--glass-lens, var(--glass-solid,));
-  backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + 0.8 * var(--glass-k))) brightness(calc(1 + 0.06 * var(--glass-k)))
-    var(--glass-lens, var(--glass-solid,));
+  background: rgb(var(--glass-base) / min(1, calc(var(--glass-alpha) * var(--glass-tint) * var(--glass-lift))));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + var(--glass-sat) * var(--glass-k)))
+    brightness(calc(1 + var(--glass-bright) * var(--glass-k))) var(--glass-solid,);
+  backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + var(--glass-sat) * var(--glass-k)))
+    brightness(calc(1 + var(--glass-bright) * var(--glass-k))) var(--glass-solid,);
   box-shadow:
     var(--glass-edge),
-    inset 0 12px 14px -12px rgb(255 255 255 / calc(0.7 * var(--glass-k))),
-    inset 12px 0 14px -12px rgb(255 255 255 / calc(0.5 * var(--glass-k))),
-    inset 0 -12px 14px -12px rgb(0 0 0 / calc(0.05 * var(--glass-k))),
     var(--glass-state, 0 0 #0000),
-    var(--glass-drop, 0 6px 24px rgb(0 0 0 / 0.08));
+    var(--glass-drop, var(--glass-drop-default));
   color: var(--glass-ink);
 
   @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
-    background: rgb(255 255 255);
+    background: var(--glass-opaque);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
   :root[data-reduce-transparency] & {
-    background: rgb(255 255 255);
+    background: var(--glass-opaque);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -283,10 +459,10 @@
 }
 [data-dragging] .glass[data-drop-hover] {
   background: var(--color-primary-soft);
-  --glass-ink: var(--color-primary);
+  --glass-ink: var(--color-primary-ink);
 }
 [data-dragging] .glass[data-drop-hover][data-already] {
-  background: #f3f4f6;
+  background: var(--color-neutral-soft);
   --glass-ink: var(--color-foreground-secondary);
 }
 
@@ -331,16 +507,16 @@
     list-style: decimal;
   }
   .md a {
-    color: var(--color-primary);
+    color: var(--color-primary-ink);
   }
   .md code {
     font-family: var(--font-mono);
     font-size: 11.5px;
-    background: #f1f3f5;
+    background: var(--color-code);
     padding: 1px 5px;
     border-radius: 4px;
     border: 1px solid var(--color-border);
-    color: #1f2937;
+    color: var(--color-code-ink);
   }
   .md pre {
     margin: 6px 0;
@@ -409,7 +585,7 @@
     padding: 8px;
     border: 1px solid var(--color-border-subtle);
     border-radius: 8px;
-    background: #fff;
+    background: var(--color-panel);
     overflow-x: auto;
     --pele-font: var(--font-sans);
     --pele-font-mono: var(--font-mono);
@@ -425,6 +601,99 @@
     max-width: 100%;
     height: auto;
     margin: 0 auto;
+  }
+  /* Graphviz 默认的黑线、黑字与白底在深色下换成主题的字色与透明底;图里自己指定的颜色不动。 */
+  :root[data-theme="dark"] .md-diagram[data-language="dot"] svg {
+    [fill="white"],
+    [fill="#ffffff"] {
+      fill: transparent;
+    }
+    [stroke="black"],
+    [stroke="#000000"] {
+      stroke: var(--color-foreground-secondary);
+    }
+    [fill="black"],
+    [fill="#000000"] {
+      fill: var(--color-foreground-secondary);
+    }
+    text:not([fill]),
+    text[fill="black"],
+    text[fill="#000000"] {
+      fill: var(--color-foreground);
+    }
+  }
+
+  /* 代码高亮在深色下换成 GitHub Dark 的配色(浅色用上面引入的 github.css)。 */
+  :root[data-theme="dark"] .md {
+    .hljs {
+      color: #c9d1d9;
+    }
+    .hljs-doctag,
+    .hljs-keyword,
+    .hljs-meta .hljs-keyword,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-variable.language_ {
+      color: #ff7b72;
+    }
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.class_.inherited__,
+    .hljs-title.function_ {
+      color: #d2a8ff;
+    }
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-variable,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id {
+      color: #79c0ff;
+    }
+    .hljs-regexp,
+    .hljs-string,
+    .hljs-meta .hljs-string {
+      color: #a5d6ff;
+    }
+    .hljs-built_in,
+    .hljs-symbol {
+      color: #ffa657;
+    }
+    .hljs-comment,
+    .hljs-code,
+    .hljs-formula {
+      color: #8b949e;
+    }
+    .hljs-name,
+    .hljs-quote,
+    .hljs-selector-tag,
+    .hljs-selector-pseudo {
+      color: #7ee787;
+    }
+    .hljs-subst,
+    .hljs-emphasis,
+    .hljs-strong {
+      color: #c9d1d9;
+    }
+    .hljs-section {
+      color: #58a6ff;
+    }
+    .hljs-bullet {
+      color: #f2cc60;
+    }
+    .hljs-addition {
+      color: #aff5b4;
+      background-color: #033a16;
+    }
+    .hljs-deletion {
+      color: #ffdcd7;
+      background-color: #67060c;
+    }
   }
 
   /* 技能库页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */
@@ -462,10 +731,10 @@
   [data-dragging] [data-drop-hover] {
     background: var(--color-primary-soft);
     outline: 2px solid var(--color-primary);
-    color: var(--color-primary);
+    color: var(--color-primary-ink);
   }
   [data-dragging] [data-drop-hover][data-already] {
-    background: #f3f4f6;
+    background: var(--color-neutral-soft);
     outline-color: var(--color-subtle);
     color: var(--color-foreground-secondary);
   }

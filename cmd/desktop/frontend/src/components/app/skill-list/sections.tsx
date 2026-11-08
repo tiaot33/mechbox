@@ -66,7 +66,7 @@ export function Section({
       >
         <button
           type="button"
-          className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-black/5 hover:text-foreground"
+          className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-fill hover:text-foreground"
           aria-expanded={!collapsed}
           onClick={() => toggleSection(id)}
         >
@@ -76,7 +76,7 @@ export function Section({
         {head}
       </div>
       {sub}
-      {!collapsed && <div className="section-rows mt-1 rounded-[10px] border border-hairline bg-white/55 shadow-tile">{children}</div>}
+      {!collapsed && <div className="section-rows mt-1 rounded-[10px] border border-hairline bg-wash/55 shadow-tile">{children}</div>}
     </section>
   );
 }
@@ -268,7 +268,7 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
       {foldable && (
         <button
           type="button"
-          className="not-installed-fold flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-white/80 hover:text-foreground"
+          className="not-installed-fold flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-wash/80 hover:text-foreground"
           aria-expanded={unfolded}
           onClick={() => toggleUnfolded(id)}
         >

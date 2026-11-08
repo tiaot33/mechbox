@@ -944,9 +944,13 @@ export const en = {
     dockBadgeDesc: "Shows the number of skills with a new Version; skills from local directory Sources aren't counted.",
     language: "Language",
     languageDesc: "System controls such as dialog buttons and the right-click menu in text fields follow the system language, not this setting.",
+    appearance: "Appearance",
+    light: "Light",
+    dark: "Dark",
     glassTint: "Glass tint",
     glassTintDesc:
       "How dense the background of dialogs, drawers, menus, the selection bar, notifications and the list's section headers is. Further left is clearer, down to just the blur, the edge and the shadow; further right is more opaque.",
+    glassTintTheme: (dark: boolean) => ` Light and dark appearance each keep their own value; this adjusts the ${dark ? "dark" : "light"} one.`,
     glassTintOpaque:
       "Your system is set to reduce transparency or uses a contrast theme, so glass surfaces are shown opaque and this setting has no effect.",
     followSystem: "System",

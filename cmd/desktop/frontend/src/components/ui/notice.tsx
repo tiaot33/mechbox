@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 const noticeVariants = cva("rounded-[9px] px-3 py-2 text-xs leading-normal", {
   variants: {
     tone: {
-      neutral: "bg-gray-100 text-foreground-secondary",
-      warn: "bg-warn-soft text-amber-800",
-      bad: "bg-bad-soft text-red-800",
-      ok: "bg-ok-soft text-emerald-800",
+      neutral: "bg-neutral-soft text-foreground-secondary",
+      warn: "bg-warn-soft text-warn-on-soft",
+      bad: "bg-bad-soft text-bad-on-soft",
+      ok: "bg-ok-soft text-ok-on-soft",
     },
   },
   defaultVariants: { tone: "neutral" },

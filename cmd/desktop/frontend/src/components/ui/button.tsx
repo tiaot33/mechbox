@@ -13,14 +13,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "rounded-full border border-border bg-white text-foreground hover:border-border-strong disabled:text-subtle disabled:hover:border-border",
+          "rounded-full border border-border bg-control text-foreground hover:border-border-strong disabled:text-subtle disabled:hover:border-border",
         primary:
           "rounded-full border border-primary bg-primary text-white hover:bg-primary-hover disabled:opacity-45 disabled:hover:bg-primary",
         danger:
-          "rounded-full border border-border bg-white text-bad hover:border-bad-border disabled:text-subtle disabled:hover:border-border",
+          "rounded-full border border-border bg-control text-bad hover:border-bad-border disabled:text-subtle disabled:hover:border-border",
         ghost:
-          "rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent",
-        link: "font-normal text-primary hover:underline disabled:text-subtle disabled:no-underline",
+          "rounded-md text-muted-foreground hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent",
+        link: "font-normal text-primary-ink hover:underline disabled:text-subtle disabled:no-underline",
       },
       size: {
         default: "h-7 px-3 text-xs [&_[data-slot=icon]]:size-3",
@@ -47,7 +47,7 @@ function spawnRipple(e: React.PointerEvent<HTMLButtonElement>, light: boolean) {
   const r = b.getBoundingClientRect();
   const d = Math.hypot(r.width, r.height) * 2;
   const dot = document.createElement("span");
-  dot.className = cn("pointer-events-none absolute rounded-full", light ? "bg-white/40" : "bg-black/10");
+  dot.className = cn("pointer-events-none absolute rounded-full", light ? "bg-white/40" : "bg-ripple");
   Object.assign(dot.style, { width: `${d}px`, height: `${d}px`, left: `${e.clientX - r.left - d / 2}px`, top: `${e.clientY - r.top - d / 2}px` });
   b.append(dot);
   dot.animate([{ transform: "scale(0)", opacity: 1 }, { transform: "scale(1)", opacity: 0 }], {

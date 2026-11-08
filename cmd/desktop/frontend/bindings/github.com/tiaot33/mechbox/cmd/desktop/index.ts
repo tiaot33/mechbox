@@ -9,6 +9,7 @@ export {
 };
 
 export {
+    Appearance,
     CheckInterval,
     Language,
     ManualReason,
