@@ -107,7 +107,7 @@ func run(path string) error {
 
 // singleInstanceID 是单实例锁的 ID:打开真实技能库时是 bundleID,不管是装好的 app 还是用 MECHBOX_LIBRARY 指向它的开发版;
 // 打开别的数据库时按它的位置另取一个，让各工作区用各自开发数据的开发版窗口同时开着，互不把对方带到前台。
-// 位置先解析符号链接，同一个数据库换一种路径写法仍是同一把锁。
+// 位置先规范成唯一的写法(见 resolveLibraryPath),同一个数据库换一种路径写法、建库前后都是同一把锁。
 func singleInstanceID(path string) string {
 	path = resolveLibraryPath(path)
 	if real, err := realLibraryPath(); err == nil && resolveLibraryPath(real) == path {
@@ -118,15 +118,21 @@ func singleInstanceID(path string) string {
 	return bundleID + ".db" + hex.EncodeToString(sum[:8])
 }
 
-// resolveLibraryPath 解析数据库位置里的符号链接;数据库文件还不存在时只解析它所在的目录，目录也不存在时原样返回。
+// resolveLibraryPath 把数据库位置规范成唯一的写法：已存在的部分解析掉符号链接、换成磁盘上的真实大小写(见 canonicalPath),
+// 还没建出来的目录与文件原样接在后面，所以建库前后得到同一个结果。
 func resolveLibraryPath(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
+	existing, missing := path, ""
+	for {
+		if resolved, err := canonicalPath(existing); err == nil {
+			return filepath.Join(resolved, missing)
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return path
+		}
+		missing = filepath.Join(filepath.Base(existing), missing)
+		existing = parent
 	}
-	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
-		return filepath.Join(dir, filepath.Base(path))
-	}
-	return path
 }
 
 // marshalError 把绑定方法返回的任意 error 规范成 *library.Error 再编码，

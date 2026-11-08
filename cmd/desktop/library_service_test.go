@@ -186,6 +186,52 @@ func TestSingleInstanceIDFollowsDatabase(t *testing.T) {
 	}
 }
 
+// 数据库所在的目录还没建出来时，经符号链接写的路径算出的锁和建库以后一样。
+func TestSingleInstanceIDSameBeforeAndAfterCreatingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "a"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "a"), filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "link", "new", "nested", "library.db")
+	before := singleInstanceID(path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if after := singleInstanceID(path); after != before {
+		t.Fatalf("singleInstanceID after creating the database = %q; want %q as before", after, before)
+	}
+}
+
+// 不区分大小写的卷上，只有大小写不同的两个路径是同一把锁，建库前后都是;区分大小写的卷上仍是两把。
+func TestSingleInstanceIDFollowsVolumeCaseSensitivity(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "lib"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(dir, "LIB"))
+	caseInsensitive := err == nil
+	lower := filepath.Join(dir, "lib", "library.db")
+	upper := filepath.Join(dir, "LIB", "library.db")
+
+	check := func(when string) {
+		t.Helper()
+		if same := singleInstanceID(lower) == singleInstanceID(upper); same != caseInsensitive {
+			t.Fatalf("%s: singleInstanceID(%q) == singleInstanceID(%q) is %v; want %v on this volume", when, lower, upper, same, caseInsensitive)
+		}
+	}
+	check("before creating the database")
+	if err := os.WriteFile(lower, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check("after creating the database")
+}
+
 // 配置状态只看数据库里存的,环境变量里的令牌与 S3 设置不算。
 func TestConfigStatusOnlyCountsStoredSettings(t *testing.T) {
 	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN", "SKILLS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} {
