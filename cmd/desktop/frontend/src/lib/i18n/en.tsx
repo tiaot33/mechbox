@@ -1398,7 +1398,7 @@ export const en = {
     changed: "Changed",
     deleted: "Deleted",
     toggleFiles: "Show/hide file list",
-    expand: (n: number) => `Show these ${n} lines`,
+    expand: (n: number) => `Show ${count(n, "line")}`,
     split: "Side by side",
     unified: "Inline",
   },

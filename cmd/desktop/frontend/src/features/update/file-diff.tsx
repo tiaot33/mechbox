@@ -11,19 +11,18 @@ import { useT } from "@/lib/i18n";
 import { toLibraryError, type LibraryError } from "@/lib/library";
 import {
   changeTree,
-  inlineChanges,
+  changedWords,
   lineDiff,
-  numberLines,
   splitRows,
+  stepFile,
   unfold,
-  visibleFiles,
   type ChangeKind,
   type ChangeNode,
-  type NumberedLine,
+  type DiffLine,
   type Segment,
   type SplitRow,
 } from "@/lib/diff";
-import { cn } from "@/lib/utils";
+import { cn, toggled } from "@/lib/utils";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
@@ -57,8 +56,9 @@ const splitPath = (path: string) => {
   return [path.slice(0, cut), path.slice(cut)] as const;
 };
 
-// ChangedFiles 把改了的文件排成目录树(和技能详情的文件树一样，目录在前、文件在后，只有一个子目录的连续几层合成一行),
+// ChangedFiles 把改了的文件排成目录树(排法和技能详情的文件树一样，目录在前、文件在后;另外只有一个子目录的连续几层合成一行),
 // 目录默认展开，点目录行折叠 / 展开;点文件看它的差异，选中的一项高亮;焦点在列表里时上下键换到上一个 / 下一个看得见的文件。
+// 选中的文件从外面换了(点风险、换技能)时，它所在的目录折着就展开;换了一批文件(换技能)时目录都回到展开。
 // badge 给某个文件加标记(如更新计划里的风险)。
 export function ChangedFiles({
   files,
@@ -77,24 +77,38 @@ export function ChangedFiles({
   const tree = useMemo(() => changeTree(files), [files]);
   const [closed, setClosed] = useState<Set<string>>(() => new Set());
   const list = useRef<HTMLDivElement>(null);
-  const toggle = (dir: string) =>
-    setClosed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(dir)) next.add(dir);
-      return next;
-    });
+  const batch = files.map((f) => f.path).join("\n");
+  useEffect(() => setClosed(new Set()), [batch]);
+  useEffect(
+    () =>
+      setClosed((prev) => {
+        const above = [...prev].filter((dir) => path.startsWith(`${dir}/`));
+        if (above.length === 0) return prev;
+        const next = new Set(prev);
+        above.forEach((dir) => next.delete(dir));
+        return next;
+      }),
+    [path],
+  );
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    const order = visibleFiles(tree, closed);
-    const next = order[order.indexOf(path) + (e.key === "ArrowDown" ? 1 : -1)];
     e.preventDefault();
+    const next = stepFile(tree, closed, path, e.key === "ArrowDown" ? 1 : -1);
     if (!next) return;
     onPath(next);
     list.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(next)}"]`)?.focus();
   };
   return (
     <div ref={list} className={cn("flex flex-col", className)} onKeyDown={onKeyDown}>
-      <Tree nodes={tree} depth={0} path={path} closed={closed} onToggle={toggle} onPath={onPath} badge={badge} />
+      <Tree
+        nodes={tree}
+        depth={0}
+        path={path}
+        closed={closed}
+        onToggle={(dir) => setClosed((prev) => toggled(prev, dir))}
+        onPath={onPath}
+        badge={badge}
+      />
       {files.length === 0 && <span className="px-2 text-[11px] text-muted-foreground">{tt.common.sameContent}</span>}
     </div>
   );
@@ -118,9 +132,9 @@ function Tree({
   badge?: (path: string) => ReactNode;
 }) {
   const t = useT().diff;
-  // 不画焦点框：上下键换文件时选中的底色已经标出了焦点在哪。
+  // 焦点框和按钮一样;选中的文件行不画：上下键换文件时焦点就在它上面，选中的底色已经标出来了。
   const row =
-    "flex h-7 w-full shrink-0 items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] outline-none hover:bg-black/[0.04] focus-visible:outline-none active:bg-black/[0.07]";
+    "flex h-7 w-full shrink-0 items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] outline-none hover:bg-black/[0.04] focus-visible:ring-3 focus-visible:ring-primary-soft active:bg-black/[0.07]";
   // 每深一层缩进 14px;目录行的箭头占在文件图标前面那一格，同一层的目录名和文件名对齐。
   const indent = { paddingLeft: 6 + depth * 14 };
   return nodes.map((n) => {
@@ -128,12 +142,25 @@ function Tree({
       const open = !closed.has(n.path);
       return (
         <Fragment key={n.path}>
-          <button type="button" title={n.path} aria-expanded={open} className={row} style={indent} onClick={() => onToggle(n.path)}>
+          <button
+            type="button"
+            title={n.path}
+            aria-expanded={open}
+            className={row}
+            style={indent}
+            onClick={(e) => {
+              // WebKit 里点按钮不会让它拿到焦点，手动给：折起的目录里有选中的文件时，焦点留在这一行，上下键照样能换文件。
+              e.currentTarget.focus();
+              onToggle(n.path);
+            }}
+          >
             <Icon name="chev" className={cn("size-2.5 shrink-0 text-subtle transition-transform", open && "rotate-90")} />
             <Icon name="folder" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 grow truncate text-foreground-secondary">{n.name}</span>
           </button>
-          {open && <Tree nodes={n.children} depth={depth + 1} path={path} closed={closed} onToggle={onToggle} onPath={onPath} badge={badge} />}
+          {open && (
+            <Tree nodes={n.children} depth={depth + 1} path={path} closed={closed} onToggle={onToggle} onPath={onPath} badge={badge} />
+          )}
         </Fragment>
       );
     }
@@ -147,17 +174,22 @@ function Tree({
         data-path={n.path}
         aria-current={current || undefined}
         title={`${t[n.change]} ${n.path}`}
-        className={cn(row, current && "bg-glass-row-selected hover:bg-glass-row-selected active:bg-glass-row-selected")}
+        className={cn(
+          row,
+          current && "bg-glass-row-selected hover:bg-glass-row-selected focus-visible:ring-0 active:bg-glass-row-selected",
+        )}
         style={indent}
         onClick={(e) => {
-          // WebKit 里点按钮不会让它拿到焦点，手动给，之后上下键才换得了文件。
+          // 同上，手动给焦点，之后上下键才换得了文件。
           e.currentTarget.focus();
           onPath(n.path);
         }}
       >
         <span className="w-2.5 shrink-0" />
         <Icon name="file" className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className={cn("min-w-0 grow truncate", current && "font-medium", n.change === "deleted" && "text-muted-foreground line-through")}>
+        <span
+          className={cn("min-w-0 grow truncate", current && "font-medium", n.change === "deleted" && "text-muted-foreground line-through")}
+        >
           {n.name}
         </span>
         <span className="sr-only">{t[n.change]}</span>
@@ -220,13 +252,13 @@ export function FileDiff({
   const comparable = Array.isArray(texts) && texts[0] !== null && texts[1] !== null;
   const switchable = comparable && kind === "changed";
   const layout: Layout = switchable ? chosen : "unified";
-  const lines = useMemo(() => (comparable ? numberLines(lineDiff(texts[0]!, texts[1]!)) : null), [comparable, texts]);
-  const marks = useMemo(() => (lines ? inlineChanges(lines) : new Map<NumberedLine, Segment[]>()), [lines]);
+  const lines = useMemo(() => (comparable ? lineDiff(texts[0]!, texts[1]!) : null), [comparable, texts]);
+  const marks = useMemo(() => (lines ? changedWords(lines) : new Map<DiffLine, Segment[]>()), [lines]);
   // 点开的几段折起来的没变行;换了文件(行重新算过)就都收回去。
-  const [unfolded, setUnfolded] = useState<Set<NumberedLine>>(() => new Set());
+  const [unfolded, setUnfolded] = useState<Set<DiffLine>>(() => new Set());
   useEffect(() => setUnfolded(new Set()), [lines]);
   const shown = useMemo(() => (lines ? unfold(lines, texts![0]!, unfolded) : null), [lines, texts, unfolded]);
-  const expand = (skip: NumberedLine) => setUnfolded((prev) => new Set(prev).add(skip));
+  const expand = (skip: DiffLine) => setUnfolded((prev) => new Set(prev).add(skip));
   const [dir, name] = splitPath(path);
 
   let body: ReactNode;
@@ -268,12 +300,7 @@ export function FileDiff({
       >
         {layout === "unified" ? (
           <div
-            className={cn(
-              "grid",
-              gutters.old && gutters.new
-                ? "grid-cols-[auto_auto_minmax(0,1fr)]"
-                : "grid-cols-[auto_minmax(0,1fr)]",
-            )}
+            className={cn("grid", gutters.old && gutters.new ? "grid-cols-[auto_auto_minmax(0,1fr)]" : "grid-cols-[auto_minmax(0,1fr)]")}
           >
             {shown!.map((line, i) =>
               line.kind === "skip" ? (
@@ -352,7 +379,11 @@ function Skip({ count, onExpand }: { count: number; onExpand: () => void }) {
 }
 
 const lineTone = { same: "", add: "bg-ok/[0.08]", del: "bg-bad/[0.07]" };
-const gutterTone = { same: "text-subtle", add: "bg-ok/[0.14] text-ok-strong/70", del: "bg-bad/[0.12] text-bad-strong/70" };
+const gutterTone = {
+  same: "text-subtle",
+  add: "bg-ok/[0.14] text-ok-strong/70",
+  del: "bg-bad/[0.12] text-bad-strong/70",
+};
 const wordTone = { same: "bg-transparent", add: "bg-ok/25", del: "bg-bad/20" };
 
 // Num 是一格行号;n 为 undefined 时留空(如行内对比里新增的行没有旧行号)。
@@ -404,15 +435,7 @@ function Cell({
 }
 
 // Row 是左右对比的一行：两侧各是行号与代码，同高;一侧没有对应行时那一侧留一块淡灰。
-function Row({
-  row,
-  marks,
-  onExpand,
-}: {
-  row: SplitRow<NumberedLine>;
-  marks: Map<NumberedLine, Segment[]>;
-  onExpand: (skip: NumberedLine) => void;
-}) {
+function Row({ row, marks, onExpand }: { row: SplitRow; marks: Map<DiffLine, Segment[]>; onExpand: (skip: DiffLine) => void }) {
   if (row.kind === "skip") return <Skip count={row.count} onExpand={() => onExpand(row)} />;
   const empty = "bg-black/[0.025]";
   const divider = "border-l border-hairline";
