@@ -51,6 +51,7 @@ export const en = {
     unknown: "Unknown",
     diagramFailed: "This diagram couldn't be drawn. Its source is shown below.",
     openLinkFailed: (url: string) => `Couldn't open this link: ${url}`,
+    reveal: () => ({ mac: "Show in Finder", windows: "Show in File Explorer", linux: "Show in file manager" })[platform()],
   },
 
   errors: {
@@ -655,7 +656,6 @@ export const en = {
     from: (source: string) => `From ${source}`,
     linkTitle: (target: string) => `Symlink to ${target}`,
     link: (target: string) => `Symlink → ${target}`,
-    revealInFinder: "Show in Finder",
     fetchTitle: "Put it in the Library: the folder stays as it is; once fetched, you can turn it on or off, install it elsewhere, and take it along with Sync",
     fetch: "Fetch",
     sameName: "Same name",

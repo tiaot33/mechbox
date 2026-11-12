@@ -8,7 +8,7 @@ import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, configQuery, type LibraryError } from "@/lib/library";
-import { mergeProjectPlaces, projectName, scopeLabel, shortPath, wslTitle } from "@/lib/model";
+import { folderPresent, mergeProjectPlaces, projectName, scopeLabel, shortPath, wslTitle } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
   const byFolder = new Map<string, SkillScopeInspection>();
   for (const p of places ?? []) if (!byFolder.has(p.folder)) byFolder.set(p.folder, p);
   const unique = [...byFolder.values()];
-  const present = unique.filter((p) => p.status !== SkillScopeStatus.SkillScopeMissing && p.status !== SkillScopeStatus.SkillScopeRootMissing);
+  const present = unique.filter(folderPresent);
   const offMachine = unique.filter((p) => p.status === SkillScopeStatus.SkillScopeRootMissing).length;
   const modified = present.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
   const inGlobal = present.filter((p) => !p.scope.project_id).length;

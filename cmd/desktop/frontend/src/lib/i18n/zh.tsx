@@ -51,6 +51,7 @@ export const zh = {
     unknown: "未知",
     diagramFailed: "这张图画不出来，下面是它的源码。",
     openLinkFailed: (url: string) => `打不开这个链接：${url}`,
+    reveal: () => ({ mac: "在 Finder 中显示", windows: "在文件资源管理器中显示", linux: "在文件管理器中显示" })[platform()],
   },
 
   errors: {
@@ -615,7 +616,6 @@ export const zh = {
     from: (source: string) => `来自 ${source}`,
     linkTitle: (target: string) => `符号链接，指向 ${target}`,
     link: (target: string) => `符号链接 → ${target}`,
-    revealInFinder: "在 Finder 中显示",
     fetchTitle: "放进技能库：文件夹原样不动；入库以后能开关、装到别处、随同步带走",
     fetch: "入库",
     sameName: "同名",

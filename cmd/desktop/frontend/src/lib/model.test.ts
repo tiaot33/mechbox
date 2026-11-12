@@ -23,6 +23,7 @@ import {
   copyProjectSources,
   copySources,
   copyTarget,
+  folderPresent,
   homePath,
   missingFromGroup,
   moved,
@@ -112,6 +113,17 @@ describe("missingFromGroup", () => {
   it("集合为空或都已在组里时为空", () => {
     expect(missingFromGroup(s, 2, 7)).toEqual([]);
     expect(missingFromGroup(snapshot({ collections: [collection(1, "a/a", [11])], groups: [group(7, [11])] }), 1, 7)).toEqual([]);
+  });
+});
+
+describe("folderPresent", () => {
+  it("文件夹不在了、项目不在这台机器上的不算在磁盘上，其余都算", () => {
+    const present = (status: SkillScopeStatus) => folderPresent({ status });
+    expect(present(SkillScopeStatus.SkillScopeMissing)).toBe(false);
+    expect(present(SkillScopeStatus.SkillScopeRootMissing)).toBe(false);
+    expect(present(SkillScopeStatus.SkillScopeCurrent)).toBe(true);
+    expect(present(SkillScopeStatus.SkillScopeStale)).toBe(true);
+    expect(present(SkillScopeStatus.SkillScopeModified)).toBe(true);
   });
 });
 

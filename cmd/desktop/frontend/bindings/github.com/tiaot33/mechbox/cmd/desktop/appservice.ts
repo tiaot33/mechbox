@@ -94,11 +94,11 @@ export function RetryWSLDistro(): $CancellablePromise<void> {
 }
 
 /**
- * RevealInFinder 在 Finder 中选中 path(作用域里的技能文件夹等);是符号链接时选中链接本身。
- * server 模式与 macOS 以外的平台什么都不做。
+ * RevealInFileManager 在系统的文件管理器里显示 path(作用域里的技能文件夹等):macOS 在 Finder 中选中它,
+ * Windows 在文件资源管理器中选中它,是符号链接时选中链接本身;Linux 用 xdg-open 打开它所在的目录，不等文件管理器退出。server 模式什么都不做。
  */
-export function RevealInFinder(path: string): $CancellablePromise<void> {
-    return $Call.ByID(2957269020, path);
+export function RevealInFileManager(path: string): $CancellablePromise<void> {
+    return $Call.ByID(180266905, path);
 }
 
 /**

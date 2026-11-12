@@ -320,6 +320,10 @@ export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): Skill
 // folderKey 是装出去的实际文件夹:几个 Agent 共用一个目录时，它们的这一处是同一个文件夹，只能一起换、一起装回去或卸载。
 export const folderKey = (p: SkillScopeInspection) => `${p.skill_id}|${p.folder}`;
 
+// folderPresent 是这一处的技能文件夹在这台机器的磁盘上：文件夹不在了、项目不在这台机器上的都不算。
+export const folderPresent = (p: Pick<SkillScopeInspection, "status">) =>
+  p.status !== SkillScopeStatus.SkillScopeMissing && p.status !== SkillScopeStatus.SkillScopeRootMissing;
+
 export function needsReinstall(p: SkillScopeInspection): boolean {
   return p.status !== SkillScopeStatus.SkillScopeCurrent;
 }
