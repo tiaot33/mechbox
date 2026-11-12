@@ -79,9 +79,6 @@ export interface Back {
   anchor: string | null;
 }
 
-// 集合与组的先后以前存在 localStorage 里,现在存在技能库里(随推送、拉回走);清掉旧的那份。
-localStorage.removeItem("mechbox.order");
-
 export const useView = create<ViewState>()(() => ({
   page: { kind: "all" },
   arrange: "collection",

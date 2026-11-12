@@ -13,12 +13,12 @@ import { useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
 import {
   agentNameIn,
-  anyUpdatable,
   parseScope,
   placeOf,
   projectFolderNote,
   sectionKey,
   sourceLabel,
+  updatableCollections,
   type PageListing,
   type ScopeKey,
   type SkillSection,
@@ -281,7 +281,7 @@ function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>
   const t = useT().list;
   return (
     <>
-      {anyUpdatable(s) && <UpdatesHead />}
+      {updatableCollections(s).length > 0 && <UpdatesHead />}
       <Section id="updates" className="mt-3" head={<PlainHead name={t.updatesSkills} count={skills.length} />}>
         {skills.map((skill) => (
           <SkillRow key={skill.id} skill={skill} showSource />

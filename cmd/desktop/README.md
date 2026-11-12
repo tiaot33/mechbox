@@ -191,7 +191,7 @@ cmd/desktop/
         ├── features/       按用户的操作流程分目录，每个流程的写操作和它自己的弹窗放在一起:
         │                   fetch/ 入库(入库技能、技能市场、入库预览、未纳管技能入库、skills.sh 审计),
         │                   install/ 安装、卸载、组安装、重新安装与照着装(照着其他 Agent、其他项目),update/ 检查更新、更新计划、更新、回滚与更新历史，以及比较弹窗(version-compare,版本历史、更新历史和更新计划都打开它)与文件差异(file-diff),
-        │                   group/ 组，scope/ 已登记项目与自定义 Agent,skill/ 移除技能与继续保留，settings/ 设置页、同步与卸载 Mechbox,
+        │                   group/ 组，order/ 集合与组的先后(拖到同类的前后、恢复默认顺序、把旧版存在 localStorage 里的先后写进技能库),scope/ 已登记项目与自定义 Agent,skill/ 移除技能与继续保留，settings/ 设置页、同步与卸载 Mechbox,
         │                   graph/ 关系图里单个词的技能名交给 AI 判断(打开关系图时判断、判断状态、重试),
         │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本、macOS 菜单「检查新版本…」的结果)
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),model.ts 领域辅助，graph.ts 关系图的圆点、连线与原文片段，graph-layout.ts 力导向布局与点了技能后的排法(都有单元测试),diff.ts 改了的文件与逐行差异(左右对比、行内对比，有单元测试),

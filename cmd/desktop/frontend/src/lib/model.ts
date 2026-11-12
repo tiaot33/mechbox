@@ -542,6 +542,28 @@ export function isDefaultOrder(ids: number[]): boolean {
   return ids.every((id, i) => i === 0 || ids[i - 1] < id);
 }
 
+// LegacyOrder 是旧版存在 localStorage 里、用户拖出来的先后(集合与组的 ID)。
+export interface LegacyOrder {
+  collections: CollectionID[];
+  groups: GroupID[];
+}
+
+// legacyOrder 把旧版拖出来的先后换成要交给技能库的完整先后，照旧版的规则：拖过的在前，其余集合按来源名、组按 ID 接在后面。
+// 某一类没拖过(或拖过的都已不在库里)、或库里已经不是默认顺序(升级后又拖过)时，那一类不用写，为 undefined。
+export function legacyOrder(s: Snapshot, saved: LegacyOrder): { collections?: CollectionID[]; groups?: GroupID[] } {
+  const merged = (dragged: number[], rest: number[]) => {
+    const kept = dragged.filter((id) => rest.includes(id));
+    return kept.length ? [...kept, ...rest.filter((id) => !kept.includes(id))] : undefined;
+  };
+  const collections = s.collections.map((c) => c.id);
+  const groups = s.groups.map((g) => g.id);
+  const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source))).map((c) => c.id);
+  return {
+    collections: isDefaultOrder(collections) ? merged(saved.collections, byName) : undefined,
+    groups: isDefaultOrder(groups) ? merged(saved.groups, groups) : undefined,
+  };
+}
+
 // moved 是把 dragged 挪到 target 的前面(after 为 false)或后面之后的先后;target 不在 ids 里时不变。
 export function moved(ids: number[], dragged: number, target: number, after: boolean): number[] {
   if (dragged === target) return ids;
@@ -573,14 +595,14 @@ export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
   return new Set(projectAgents(s, page.project, "").flatMap((a) => a.skills.map((x) => x.id)));
 }
 
-// sortSkills 是列表里技能的顺序：先按来源(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
+// sortSkills 是列表里技能的顺序：先按来源，和左栏集合的先后一致(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
 export function sortSkills(s: Snapshot, skills: Skill[]): Skill[] {
-  const source = (x: Skill) => (noSource(x.source) ? "" : sourceLabel(s, x.source));
+  const at = new Map(s.collections.map((c, i) => [c.id, i]));
+  const source = (x: Skill) => (noSource(x.source) ? Infinity : (at.get(x.collection_id) ?? s.collections.length));
   const time = (x: Skill) => changedAt(x)?.date.getTime() ?? 0;
   return [...skills].sort(
     (a, b) =>
-      Number(noSource(a.source)) - Number(noSource(b.source)) ||
-      collator.compare(source(a), source(b)) ||
+      source(a) - source(b) ||
       collator.compare(a.name, b.name) ||
       time(b) - time(a),
   );
@@ -604,10 +626,6 @@ export function updatableCollections(s: Snapshot): Collection[] {
   return s.collections.filter((c) => collectionSkills(s, c).some(pending));
 }
 
-// anyUpdatable 是有没有 updatableCollections(更新页在不在),不关心先后。
-export function anyUpdatable(s: Snapshot): boolean {
-  return s.collections.some((c) => collectionSkills(s, c).some(pending));
-}
 
 // missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。
 export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
@@ -752,7 +770,7 @@ export function samePage(a: Page, b: Page): boolean {
 
 // resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页、集合或组已不在的关系图退回技能库。
 export function resolvePage(s: Snapshot, page: Page): Page {
-  if (page.kind === "updates" && !anyUpdatable(s)) return { kind: "all" };
+  if (page.kind === "updates" && !updatableCollections(s).length) return { kind: "all" };
   if (page.kind === "scope") {
     const sc = parseScope(page.scope);
     if ((sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) || !s.agents.some((a) => a.code === sc.agent)) return { kind: "all" };

@@ -26,6 +26,7 @@ import {
   folderPresent,
   homePath,
   isDefaultOrder,
+  legacyOrder,
   missingFromGroup,
   moved,
   pageSkills,
@@ -33,6 +34,7 @@ import {
   placeOf,
   projectAgents,
   scopeListing,
+  sortSkills,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
 } from "./model";
@@ -69,6 +71,34 @@ describe("isDefaultOrder", () => {
 
   it("拖过之后不是", () => {
     expect(isDefaultOrder([2, 1, 5])).toBe(false);
+  });
+});
+
+describe("legacyOrder", () => {
+  // 集合 1、2、3 按首次入库排，来源名是 zeta、alpha、beta。
+  const s = snapshot({ collections: [collection(1, "c/zeta"), collection(2, "a/alpha"), collection(3, "b/beta")], groups: [group(1), group(2), group(3)] });
+
+  it("拖过的在前，其余集合按来源名、组按 ID 接在后面", () => {
+    expect(legacyOrder(s, { collections: [3], groups: [3] })).toEqual({ collections: [3, 2, 1], groups: [3, 1, 2] });
+  });
+
+  it("没拖过、拖过的都已不在库里时那一类不写", () => {
+    expect(legacyOrder(s, { collections: [], groups: [9] })).toEqual({ collections: undefined, groups: undefined });
+  });
+
+  it("库里已经不是默认顺序(升级后又拖过)时不覆盖", () => {
+    const moved = snapshot({ collections: [collection(2, "a/alpha"), collection(1, "c/zeta")], groups: [group(2), group(1)] });
+    expect(legacyOrder(moved, { collections: [1], groups: [1] })).toEqual({ collections: undefined, groups: undefined });
+  });
+});
+
+describe("sortSkills", () => {
+  it("来源按左栏集合的先后，不按来源名;没有来源的在最后", () => {
+    const of = (id: number, name: string, collection_id: number, label: string) =>
+      ({ id, name, collection_id, source: collection_id ? { type: SourceType.SourceGitHub, label } : { type: SourceType.$zero, label: "" } }) as Skill;
+    const s = snapshot({ collections: [collection(2, "z/zeta"), collection(1, "a/alpha")] });
+    const skills = [of(1, "a1", 1, "a/alpha"), of(2, "none", 0, ""), of(3, "z1", 2, "z/zeta")];
+    expect(sortSkills(s, skills).map((x) => x.name)).toEqual(["z1", "a1", "none"]);
   });
 });
 

@@ -2485,7 +2485,7 @@ await step("拖放：组 → 右栏作用域(组安装)", async () => {
   await settle();
 });
 
-await step("拖放：集合 → 集合、组 → 组调整先后，列表分节跟着变，重新载入后还在;节标题右键恢复默认顺序", async () => {
+await step("拖放：集合 → 集合、组 → 组调整先后，列表分节跟着变，重新载入后还在;节标题右键恢复默认顺序;旧版存的先后写进技能库", async () => {
   await clearScope();
   const rows = (sec) =>
     page
@@ -2528,6 +2528,23 @@ await step("拖放：集合 → 集合、组 → 组调整先后，列表分节�
     assert(await page.locator('[data-slot="context-menu-item"]', { hasText: "恢复默认顺序" }).isDisabled(), `${sec}已是默认顺序时菜单项应不能点`);
     await page.keyboard.press("Escape");
   }
+
+  // 旧版把先后存在 localStorage 的 mechbox.order 里：升级后第一次打开时写进技能库，再删掉旧的那份。
+  const last = await page
+    .locator('.list-section[data-section^="collection-"]')
+    .last()
+    .getAttribute("data-section");
+  await page.evaluate((id) => localStorage.setItem("mechbox.order", JSON.stringify({ collections: [id], groups: [] })), Number(last.replace("collection-", "")));
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await until(async () => (await names("集合"))[0] === collections.at(-1), "旧版存的先后写进技能库");
+  await settle();
+  assert.equal(await page.evaluate(() => localStorage.getItem("mechbox.order")), null, "写进技能库后旧的那份应删掉");
+  assert.deepStrictEqual(await names("组"), groups, "旧版没拖过组时组的先后不变");
+  await page.locator(".a-left .nav-sec .sec-toggle", { hasText: /^集合\d+$/ }).click({ button: "right" });
+  await page.locator('[data-slot="context-menu-item"]', { hasText: "恢复默认顺序" }).click();
+  await settle();
+  assert.deepStrictEqual(await names("集合"), collections, "集合应恢复默认顺序");
 });
 
 await step("拖放：集合的节标题 → 右栏作用域(把集合里的技能逐个直接安装，一次性的)", async () => {
