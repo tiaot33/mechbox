@@ -1,7 +1,9 @@
 // 技能详情里的安装卡片：各作用域的安装与状态，以及"安装到…"。
+import { AppService } from "@bindings/cmd/desktop";
 import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
+import { ui } from "@/lib/ui";
 import {
   mergeProjectPlaces,
   needsReinstall,
@@ -27,10 +29,10 @@ import { Icon } from "@/components/app/icons";
 import { PlaceAgentMark } from "@/components/app/parts";
 
 // InstallCard 是各作用域的安装与状态：直接安装开关、经哪个组装上、是不是当前版本;不是当前版本的可以单条重新安装，
-// 被手动改过的可以"用这里的修改更新"。下面是"安装到…"。
+// 被手动改过的可以"用这里的修改更新"。文件夹在的地方，路径后面可以在文件管理器中显示。下面是"安装到…"。
 export function InstallCard({ skill }: { skill: Skill }) {
   const s = useSnapshot();
-  const d = useT().drawer;
+  const { drawer: d, common } = useT();
   const id = skill.id;
   const installed = mergeProjectPlaces(s, skillScopesOf(s, id));
   const stale = installed.filter(needsReinstall).length;
@@ -73,7 +75,21 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       <PlaceAgentMark code={p.scope.agent} place={placeOf(p.scope)} />
                       {scopeLabel(s, p.scope)}
                     </div>
-                    <div className="truncate font-mono text-[11px] text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</div>
+                    <div className="flex min-w-0 items-center gap-0.5">
+                      <span className="truncate font-mono text-[11px] text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</span>
+                      {p.status !== SkillScopeStatus.SkillScopeMissing && p.status !== SkillScopeStatus.SkillScopeRootMissing && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="reveal-in-finder shrink-0"
+                          title={common.reveal()}
+                          aria-label={common.reveal()}
+                          onClick={() => void ui.run(() => AppService.RevealInFinder(p.folder), { reload: false })}
+                        >
+                          <Icon name="folder" />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <span className="inline-flex flex-wrap gap-1">

@@ -240,6 +240,18 @@ const scopeDir = async () => {
 // folderOf 是开着的详情里，安装表上 where(如"Claude Code · 全局")那一行的技能文件夹路径。
 const folderOf = async (where) =>
   (await drawer().locator(".scope-table tbody tr", { hasText: where }).locator(".font-mono").textContent()).replace(/^~/, HOME);
+// recordReveals 记下之后前端调 RevealInFinder 传过去的路径(server 模式里它什么都不做);stop 停止记录。
+const recordReveals = () => {
+  const paths = [];
+  const id = Number(appMethodID("RevealInFinder"));
+  const onRequest = (r) => {
+    if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
+    const body = JSON.parse(r.postData() ?? "{}");
+    if (body.args?.methodID === id) paths.push(body.args.args[0]);
+  };
+  page.on("request", onRequest);
+  return { paths, stop: () => page.off("request", onRequest) };
+};
 
 // ============ 第一次打开 ============
 const FIRST_OPEN = "第一次打开：各 Agent 全局里不是库装的技能一次确认入库，磁盘不动;同名不一样的只入库较新的一份;读不成来源的清空后入库";
@@ -1280,14 +1292,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
   await settle();
 
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
-  const revealArgs = [];
-  const revealID = Number(appMethodID("RevealInFinder"));
-  const onRequest = (r) => {
-    if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
-    const body = JSON.parse(r.postData() ?? "{}");
-    if (body.args?.methodID === revealID) revealArgs.push(body.args.args[0]);
-  };
-  page.on("request", onRequest);
+  const reveals = recordReveals();
   try {
     await selectScope("Claude Code");
     const npx = unmanaged("npx-tool");
@@ -1305,7 +1310,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
     await btn(npx, "在 Finder 中显示").click();
     await idle();
-    assert.deepStrictEqual(revealArgs, [link], "在 Finder 中显示的是符号链接本身");
+    assert.deepStrictEqual(reveals.paths, [link], "在 Finder 中显示的是符号链接本身");
 
     await selectScope("Codex");
     await unmanaged("npx-tool").waitFor();
@@ -1323,7 +1328,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     assert((await page.locator(".unmanaged-row").count()) === 1, "搜索应只剩 my-draft");
     await page.getByPlaceholder("搜索技能").fill("");
   } finally {
-    page.off("request", onRequest);
+    reveals.stop();
     await selectScope("Claude Code", "proj-a");
     // 选中 proj-b 的作用域时右栏展开了它，收回去，后面的拖放步骤要从折叠的 proj-b 开始。
     const projRow = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
@@ -1617,7 +1622,7 @@ await step("切回窗口发现被手动改过的文件夹 → 全部重新安装
   assert(fs.readFileSync(path.join(dir, "gamma", "SKILL.md"), "utf8").includes("name: gamma"), "文件应恢复");
 });
 
-await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单条重新安装", async () => {
+await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单条重新安装;文件夹在的地方能在 Finder 中显示", async () => {
   const dir = await scopeDir();
   fs.rmSync(path.join(dir, "gamma"), { recursive: true });
   await refocus();
@@ -1625,10 +1630,20 @@ await step("删除已安装的文件夹 → 文件夹不在了 → 详情里单�
   await openDrawer("gamma");
   const row = drawer().locator(".scope-table tbody tr", { hasText: "proj-a" });
   assert((await row.locator('[data-slot="badge"]', { hasText: "文件夹不在了" }).count()) === 1, "应显示文件夹不在了");
+  assert.equal(await btn(row, "在 Finder 中显示").count(), 0, "文件夹不在了的地方没有在 Finder 中显示");
   await btn(row, "重新安装").click();
   await toast("已重新安装 1 处");
   await settle();
   assert(fs.existsSync(path.join(dir, "gamma", "SKILL.md")), "应已重新创建");
+  const reveals = recordReveals();
+  try {
+    await btn(row, "在 Finder 中显示").click();
+    await idle();
+    assert.deepStrictEqual(reveals.paths, [path.join(dir, "gamma")], "在 Finder 中显示的是这一处的技能文件夹");
+  } finally {
+    reveals.stop();
+  }
+  assert((await drawer().getAttribute("data-state")) === "open", "点在 Finder 中显示不关详情");
   await closeDrawer();
 });
 

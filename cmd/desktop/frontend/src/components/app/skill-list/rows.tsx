@@ -297,11 +297,11 @@ function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | 
 // UnmanagedRow 是作用域里一个不是库装的技能文件夹(未纳管技能):它不在技能库里，所以行首没有开关，是"入库"按钮;
 // 入库后这一行换成库里技能的一行，出现在它所属的那一节并闪一下。
 // 最后一列写"不在技能库里"(headed:作用域页"不在技能库里"一节里的，节标题已经写了，不再写;fromGlobal:"来自全局"一节里的，先写"来自全局"),
-// 提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在 Finder 中显示;符号链接在描述下写出指向哪里。
+// 提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在文件管理器中显示;符号链接在描述下写出指向哪里。
 // 不能拖动、不打开详情。
 export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { skill: UnmanagedSkill; fromGlobal?: boolean; headed?: boolean }) {
   const s = useSnapshot();
-  const t = useT().list;
+  const { list: t, common } = useT();
   const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
   // 来源记录认不出来源的，在 skills.sh 上找到来源后补上。
   const found = foundSource(useFoundSources(), skill);
@@ -360,7 +360,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           className="reveal-in-finder shrink-0 font-sans text-[11px]"
           onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
         >
-          {t.revealInFinder}
+          {common.reveal()}
         </Button>
       </div>
     </article>
