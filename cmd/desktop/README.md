@@ -166,7 +166,7 @@ cmd/desktop/
 ├── language.go             界面语言：设置值与按系统语言解析(language_darwin.go 读 macOS 的首选语言,language_windows.go 读 Windows 的显示语言;其他平台与 server 模式见 language_other.go,读环境变量)
 ├── menu.go                 Go 这边画的菜单文字(菜单栏图标的菜单、macOS 顶部菜单栏),随界面语言切换
 ├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
-├── reveal_*.go             在文件管理器中显示:macOS 的 Finder、Windows 的文件资源管理器、Linux 的 xdg-open(server 模式见 reveal_other.go,什么都不做)
+├── reveal_*.go             在文件管理器中显示:macOS 的 Finder、Windows 的文件资源管理器(reveal.go 拼命令行，路径含双引号时拒绝)、Linux 的 xdg-open(server 模式见 reveal_other.go,什么都不做)
 ├── uninstall.go            卸载 Mechbox：移走文件夹，退出后删数据库(uninstall_<平台>.go 是各平台怎么移文件夹、清系统数据;uninstall_darwin.go 清 ~/Library 并把 .app 移到废纸篓;server 模式见 uninstall_server.go,文件夹直接删除)
 ├── trash_windows.go        Windows 回收站(IFileOperation,驱动器没有回收站时中止);trash_freedesktop.go 是 Linux 的 freedesktop 回收站;trash_wsl.go 是 WSL 发行版里的回收站(trash_wsl_windows.go 经 wsl.exe 执行),trash_info.go 是两者共用的 .trashinfo
 ├── release.go              Mechbox 的新版本：读 GitHub Releases、比较版本、经 Wails 的 updater 下载校验(release_<平台>.go 是各平台怎么装上并重启;
