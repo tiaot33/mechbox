@@ -2527,6 +2527,8 @@ await step("拖放：集合 → 集合、组 → 组调整先后，列表分节�
     await page.locator(".a-left .nav-sec .sec-toggle", { hasText: new RegExp(`^${sec}\\d+$`) }).click({ button: "right" });
     assert(await page.locator('[data-slot="context-menu-item"]', { hasText: "恢复默认顺序" }).isDisabled(), `${sec}已是默认顺序时菜单项应不能点`);
     await page.keyboard.press("Escape");
+    // 等菜单退场动画结束，下一次右键开的菜单才是页面上唯一的一个。
+    await until(async () => (await page.locator('[data-slot="context-menu-content"]').count()) === 0, "右键菜单关掉");
   }
 
   // 旧版把先后存在 localStorage 的 mechbox.order 里：升级后第一次打开时写进技能库，再删掉旧的那份。
