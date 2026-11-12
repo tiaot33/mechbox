@@ -26,10 +26,12 @@ import {
   sourceLabel,
   wslTitle,
   type Page,
+  isDefaultOrder,
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { jumpTo, openGraph, openPage, openSettings, resetOrder, useCurrentPage, useSortedCollections, useSortedGroups, useView } from "@/lib/view";
+import { jumpTo, openGraph, openPage, openSettings, useCurrentPage } from "@/lib/view";
+import { resetOrder } from "@/features/order/order";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -67,7 +69,6 @@ export function LeftSidebar() {
   const ui = useUI();
   const busy = useBusy();
   const checkStatus = useCheckMark("all");
-  const order = useView((v) => v.order);
   const t = useT().sidebar;
   // 同步行写自动推送的间隔或「手动」;上一次推送出了问题时改写「推送失败」,不能指望用户自己去设置页看。
   const pushFailed = !!useQuery({ ...syncStatusQuery, enabled: config.sync }).data?.problem;
@@ -75,8 +76,8 @@ export function LeftSidebar() {
   const syncLabel = !config.sync ? t.notConfigured : pushFailed ? t.pushFailed : (config.auto_push && intervals[config.auto_push]) || t.manual;
   const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
-  const collections = useSortedCollections(s);
-  const groups = useSortedGroups(s);
+  const collections = s.collections;
+  const groups = s.groups;
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
@@ -129,7 +130,7 @@ export function LeftSidebar() {
         collapsed={collapsed}
         onToggle={setCollapsed}
         menu={
-          <ContextMenuItem disabled={!order.collections.length} onSelect={() => resetOrder("collection")}>
+          <ContextMenuItem disabled={isDefaultOrder(collections.map((c) => c.id))} onSelect={() => resetOrder("collection")}>
             {t.resetOrder}
           </ContextMenuItem>
         }
@@ -155,7 +156,7 @@ export function LeftSidebar() {
           <>
             <ContextMenuItem onSelect={() => createGroup()}>{t.newGroupWith}</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem disabled={!order.groups.length} onSelect={() => resetOrder("group")}>
+            <ContextMenuItem disabled={isDefaultOrder(groups.map((g) => g.id))} onSelect={() => resetOrder("group")}>
               {t.resetOrder}
             </ContextMenuItem>
           </>
@@ -212,7 +213,7 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
   const dnd = useDnD();
   const busy = useBusy();
   const drop = useCollectionDrop(c.id);
-  const groups = useSortedGroups(s);
+  const groups = s.groups;
   const tt = useT();
   const t = tt.sidebar;
   const label = sourceLabel(s, c.source);

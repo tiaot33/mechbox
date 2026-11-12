@@ -87,7 +87,7 @@ func (q queries) RenameGroup(ctx context.Context, id int64, name string) error {
 func (q queries) ListGroups(ctx context.Context) ([]Group, error) {
 	rows, err := q.q.QueryContext(ctx, `SELECT groups.id, groups.name, groups.created_at, skill_groups.skill_id
 		FROM groups LEFT JOIN skill_groups ON skill_groups.group_id = groups.id
-		ORDER BY groups.id, skill_groups.skill_id`)
+		ORDER BY groups.position = 0, groups.position, groups.id, skill_groups.skill_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list groups: %w", wrap(err))
 	}

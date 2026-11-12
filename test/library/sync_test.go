@@ -1330,3 +1330,34 @@ func TestSyncSettingsStayOnThisMachineAndAppSettingsTravel(t *testing.T) {
 		t.Fatalf("device after reopen = %q, want %q", device, pullingDevice)
 	}
 }
+
+// 拖出来的集合与组的先后存在库里:推送带上它,拉回后换成备份里的先后。
+func TestSyncCarriesCollectionAndGroupOrder(t *testing.T) {
+	ctx := t.Context()
+	stub := newS3Stub(t)
+	lib := stub.open(t)
+	a := fetchNamedSkill(t, lib, "alpha")
+	b := fetchNamedSkill(t, lib, "beta")
+	first := mustCreateGroup(t, lib, "first")
+	second := mustCreateGroup(t, lib, "second")
+	if err := lib.ReorderCollections(ctx, []library.CollectionID{b.CollectionID, a.CollectionID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ReorderGroups(ctx, []library.GroupID{second.ID, first.ID}); err != nil {
+		t.Fatal(err)
+	}
+	pushBackup(t, lib)
+
+	if err := lib.ReorderCollections(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.ReorderGroups(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	requireCollectionOrder(t, lib, a.CollectionID, b.CollectionID)
+	requireGroupOrder(t, lib, first.ID, second.ID)
+
+	pullLatest(t, lib)
+	requireCollectionOrder(t, lib, b.CollectionID, a.CollectionID)
+	requireGroupOrder(t, lib, second.ID, first.ID)
+}

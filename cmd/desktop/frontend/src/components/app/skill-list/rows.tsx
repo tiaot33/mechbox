@@ -37,7 +37,7 @@ import {
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { doneFlash, toggleDrawer, useSortedGroups, useView } from "@/lib/view";
+import { doneFlash, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
@@ -87,7 +87,7 @@ export function SkillRow(props: {
   const via = (place?.groups ?? []).map((id) => groupName(s, id));
   // 作用域页说这一处的同名后果;技能库页、更新页说它装出去的各处。
   const same = scope ? (here ? sameNameNote(s, scope, here.folder) : undefined) : skillSameNameNote(s, skill.id);
-  const groups = useSortedGroups(s).filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
+  const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
   const ref = useFlash(skill.id, scope);

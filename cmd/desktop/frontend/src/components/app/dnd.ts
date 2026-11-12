@@ -3,14 +3,15 @@
 // - 组(左栏组行或组的节标题)→ 右栏作用域 = 组安装，之后加进组的也会装;→ 另一个组 = 调整组的先后。
 // - 集合(左栏集合行或集合的节标题)→ 右栏作用域 = 把集合里的技能逐个直接安装，一次性的，之后入库的新技能不会自动装过去;
 //   → 组 = 把集合里的技能逐个加入该组;→ 另一个集合 = 调整集合的先后。
-// 调整先后时按鼠标在目标的上半还是下半，放到它前面或后面，左栏与列表的分节一起变(见 lib/view 的 reorder)。
+// 调整先后时按鼠标在目标的上半还是下半，放到它前面或后面，左栏与列表的分节一起变(见 features/order 的 reorder)。
 // 正在拖的东西(DragItem)记在界面状态(lib/view)里;拖动时跟着鼠标的标签是 App 里的一个元素，经 setDragGhost 登记。
 import type { CollectionID, GroupID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
 import { missingFromGroup, parseScope, scopeKey, skillScopeIn, type ScopeKey } from "@/lib/model";
 import { useBusy } from "@/lib/ui";
-import { endDrag, reorder, reveal, startDrag, useView, type DragItem } from "@/lib/view";
+import { endDrag, reveal, startDrag, useView, type DragItem } from "@/lib/view";
+import { reorder } from "@/features/order/order";
 import { addCollectionToGroup, addSkillsToGroup, addSkillToGroup } from "@/features/group/group";
 import { installCollection, installGroup, installSkill, installSkills } from "@/features/install/install";
 
@@ -64,7 +65,7 @@ export function useDnD() {
     dropOrder: (target: { kind: "collection"; id: CollectionID } | { kind: "group"; id: GroupID }, after: boolean) => {
       if (!item || item.kind !== target.kind || item.id === target.id) return;
       endDrag();
-      reorder(target.kind, item.id, target.id, after);
+      void reorder(target.kind, item.id, target.id, after);
     },
   };
 }

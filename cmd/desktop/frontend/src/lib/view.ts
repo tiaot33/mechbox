@@ -1,30 +1,24 @@
 // 主界面的界面状态：在哪一页(技能库 / 更新 / 作用域 / 项目)、技能库页按什么分节、搜索、左右栏、右栏的展开、
-// 列表里收起的节与展开的"没装的"、勾选的技能、左栏要跳到的那一节、详情抽屉、拖放、集合与组的先后与设置页。
+// 列表里收起的节与展开的"没装的"、勾选的技能、左栏要跳到的那一节、详情抽屉、拖放与设置页。
 // 各栏直接从这里取、改，不经 App 一层层传;改状态的操作是模块级函数，组件外(拖放、写操作流程)也能调用。
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { Collection, CollectionID, Group, GroupID, ProjectID, Scope, SkillID } from "@bindings/internal/library";
+import type { CollectionID, GroupID, ProjectID, Scope, SkillID } from "@bindings/internal/library";
 import { queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
-  moved,
-  noOrder,
   pageListing,
   pageSkills,
   pickRange,
   parseScope,
-  prunedOrder,
   placeOf,
   resolvePage,
   samePage,
   sectionKey,
-  sortedCollections,
-  sortedGroups,
   type Arrange,
   type GraphSet,
-  type Order,
   type Page,
   type PageListing,
   type PickRow,
@@ -70,7 +64,6 @@ interface ViewState {
   flash: Flash | null;
   drawer: SkillID | null;
   drag: DragItem | null;
-  order: Order; // 用户拖出来的集合与组的先后，存在 localStorage,下次打开沿用
   settings: boolean;
   settingsSection: string | null; // 打开设置页时直接跳到的分区
   back: Back | null; // 关系图页返回到哪一页、那一页滚到了哪里
@@ -86,17 +79,8 @@ export interface Back {
   anchor: string | null;
 }
 
-const orderKey = "mechbox.order";
-
-function savedOrder(): Order {
-  try {
-    const v = JSON.parse(localStorage.getItem(orderKey) ?? "null");
-    const ids = (x: unknown) => (Array.isArray(x) ? x.filter((id) => typeof id === "number") : []);
-    return v ? { collections: ids(v.collections), groups: ids(v.groups) } : noOrder;
-  } catch {
-    return noOrder;
-  }
-}
+// 集合与组的先后以前存在 localStorage 里,现在存在技能库里(随推送、拉回走);清掉旧的那份。
+localStorage.removeItem("mechbox.order");
 
 export const useView = create<ViewState>()(() => ({
   page: { kind: "all" },
@@ -114,7 +98,6 @@ export const useView = create<ViewState>()(() => ({
   flash: null,
   drawer: null,
   drag: null,
-  order: savedOrder(),
   settings: false,
   settingsSection: null,
   back: null,
@@ -241,57 +224,18 @@ export function reveal(scope: Scope) {
 export const startDrag = (item: DragItem) => set({ drag: item, right: true });
 export const endDrag = () => set({ drag: null });
 
-// reorder 把拖动的集合或组挪到另一个(target)的前面或后面(after),左栏与列表的分节一起变，记在这台机器上。
-export function reorder(kind: "collection" | "group", dragged: number, target: number, after: boolean) {
-  const s = queryClient.getQueryData(snapshotQuery.queryKey);
-  if (!s) return;
-  const { order } = get();
-  const next =
-    kind === "collection"
-      ? { ...order, collections: moved(sortedCollections(s, order.collections).map((c) => c.id), dragged, target, after) }
-      : { ...order, groups: moved(sortedGroups(s, order.groups).map((g) => g.id), dragged, target, after) };
-  saveOrder(next);
-}
-
-// resetOrder 把集合或组恢复成默认的先后(左栏节标题的右键菜单)。
-export function resetOrder(kind: "collection" | "group") {
-  const { order } = get();
-  saveOrder(kind === "collection" ? { ...order, collections: [] } : { ...order, groups: [] });
-}
-
-// forgetOrder 清掉拖出来的先后：拉取了别的库之后，旧库的 ID 套不到新库的集合与组上。
-export const forgetOrder = () => saveOrder(noOrder);
-
-function saveOrder(order: Order) {
-  localStorage.setItem(orderKey, JSON.stringify(order));
-  set({ order });
-}
-
-// useSortedCollections / useSortedGroups 是按用户拖出来的先后排好的集合与组;要列出它们的地方都用这两个，和左栏一致。
-export function useSortedCollections(s: Snapshot): Collection[] {
-  const order = useView((v) => v.order.collections);
-  return useMemo(() => sortedCollections(s, order), [s, order]);
-}
-
-export function useSortedGroups(s: Snapshot): Group[] {
-  const order = useView((v) => v.order.groups);
-  return useMemo(() => sortedGroups(s, order), [s, order]);
-}
-
 // reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、删除自定义 Agent、
 // 拉取了别的库)时退回技能库，并记下来，之后又有了更新也不会自己跳回去。
-// 拖出来的先后里已经不在库里的集合与组也在这时去掉;勾选的技能只留这一页还列着的(移除了的、项目页上卸载了的去掉),
+// 勾选的技能只留这一页还列着的(移除了的、项目页上卸载了的去掉),
 // 免得看不见的技能被带进下一次操作。
 export function reconcile(s: Snapshot) {
-  const { page, order, picked } = get();
+  const { page, picked } = get();
   const resolved = resolvePage(s, page);
   if (!samePage(resolved, page)) set({ page: resolved, picked: new Set(), anchor: null });
   else if (picked.size) {
     const listed = pageSkills(s, resolved);
     if ([...picked].some((id) => !listed.has(id))) set({ picked: new Set([...picked].filter((id) => listed.has(id))) });
   }
-  const pruned = prunedOrder(s, order);
-  if (pruned !== order) saveOrder(pruned);
 }
 
 // useCurrentPage 是校正后的页面(reconcile 随后把它记下来)。
@@ -305,8 +249,8 @@ export function useCurrentPage(): Page {
 export function usePageListing(): PageListing | undefined {
   const s = useLoadedSnapshot();
   const page = useCurrentPage();
-  const { arrange, search, order } = useView(useShallow((v) => ({ arrange: v.arrange, search: v.search, order: v.order })));
-  return useMemo(() => (s ? pageListing(s, page, arrange, search, order) : undefined), [s, page, arrange, search, order]);
+  const { arrange, search } = useView(useShallow((v) => ({ arrange: v.arrange, search: v.search })));
+  return useMemo(() => (s ? pageListing(s, page, arrange, search) : undefined), [s, page, arrange, search]);
 }
 
 // useScopeDirectory 是作用域页的 Agent 目录;不在作用域页或还没读到时为 undefined。

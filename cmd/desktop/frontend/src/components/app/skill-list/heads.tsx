@@ -20,7 +20,6 @@ import {
   type ScopeKey,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { useSortedGroups } from "@/lib/view";
 import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
 import { openCopyFromAgent, openCopyFromProject } from "@/features/install/copy";
 import { installGroup, uninstallGroup } from "@/features/install/install";
@@ -46,7 +45,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const unmanaged = unmanagedIn(s, scope).length;
   const notTaken = unmanagedIn(s, scope).filter(notTakenOver).length;
   const sc = parseScope(scope);
-  const groups = useSortedGroups(s);
+  const groups = s.groups;
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
   const c = useT().copy;
   const agent = agentNameIn(s, sc.agent, placeOf(sc));

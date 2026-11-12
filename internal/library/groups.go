@@ -73,7 +73,8 @@ func (l *Library) CreateGroup(ctx context.Context, name string) (group Group, er
 	return Group{ID: GroupID(id), Name: name, CreatedAt: createdAt, Members: []SkillID{}}, nil
 }
 
-// ListGroups 按组 ID 升序列出全部组及各自的成员;空组也在列。没有组时返回空列表。
+// ListGroups 按用户排的先后(ReorderGroups)列出全部组及各自的成员,没排过的(从没排过、恢复了默认顺序,或排过之后才新建的)
+// 按组 ID 升序接在后面;空组也在列。没有组时返回空列表。
 func (l *Library) ListGroups(ctx context.Context) (groups []Group, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -121,6 +122,34 @@ func (l *Library) RenameGroup(ctx context.Context, id GroupID, name string) (gro
 	}
 	current.Name = name
 	return current, nil
+}
+
+// ReorderGroups 按 ids 的先后排列组,左栏把一个组拖到另一个组前后时调用:ids 里的排在前面,
+// 没列出的按原来的先后接在后面;之后新建的组排在最后。ids 为空时恢复默认的先后,即组 ID 升序。
+// 先后存在数据库里,随推送、拉回走。ids 有重复或不是正数返回 InvalidArgument(Details.Field 为 ids),
+// 有组不存在返回 NotFound。
+func (l *Library) ReorderGroups(ctx context.Context, ids []GroupID) (err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	if err := validateOrder("reorder groups", ids); err != nil {
+		return err
+	}
+	return l.store.InTx(ctx, func(tx *store.Tx) error {
+		for _, id := range ids {
+			if _, err := tx.GetGroup(ctx, int64(id)); err != nil {
+				return err
+			}
+		}
+		if len(ids) == 0 {
+			return tx.SetGroupPositions(ctx, nil)
+		}
+		current, err := tx.GroupOrder(ctx)
+		if err != nil {
+			return err
+		}
+		return tx.SetGroupPositions(ctx, reordered(ids, current))
+	})
 }
 
 func uniqueGroupName(name string, taken map[string]int64) string {

@@ -534,40 +534,12 @@ export function hasUpdate(skill: Skill): boolean {
 
 export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-// Order 是用户在左栏或列表里拖出来的集合与组的先后，只记在这台机器的界面里;
-// 没排过的(还没拖过，或之后新入库的集合、新建的组)按默认顺序接在后面。
-export interface Order {
-  collections: CollectionID[];
-  groups: GroupID[];
-}
+// 集合与组的先后由技能库给出(ListCollections / ListGroups 按用户拖出来的先后列出),左栏、技能库页与作用域页的分节、
+// 更新列表、作用域摘要里的组都直接按快照里的顺序。
 
-export const noOrder: Order = { collections: [], groups: [] };
-
-// inOrder 把排过的按 order 的先后放前面，其余保持原来的先后接在后面。
-function inOrder<T extends { id: number }>(items: T[], order: number[]): T[] {
-  const at = new Map(order.map((id, i) => [id, i]));
-  const rank = (x: T) => at.get(x.id) ?? Infinity;
-  return [...items].sort((a, b) => (rank(a) === rank(b) ? 0 : rank(a) - rank(b)));
-}
-
-// sortedCollections 是集合的顺序：默认按来源名排，用户拖过的按拖出来的先后;左栏、技能库页与作用域页的分节、更新列表都按它。
-export function sortedCollections(s: Snapshot, order: CollectionID[]): Collection[] {
-  const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
-  return inOrder(byName, order);
-}
-
-// sortedGroups 是组的顺序：默认按技能库给的顺序，用户拖过的按拖出来的先后;左栏、分节与作用域摘要里的组都按它。
-export function sortedGroups(s: Snapshot, order: GroupID[]): Group[] {
-  return inOrder(s.groups, order);
-}
-
-// prunedOrder 去掉已经不在库里的集合与组(删掉了、移除了):技能库会复用删掉的 ID,不去掉的话新建的组会占到旧组的位置。
-// 没有要去掉的时原样返回。
-export function prunedOrder(s: Snapshot, order: Order): Order {
-  const live = (ids: number[], items: { id: number }[]) => ids.filter((id) => items.some((x) => x.id === id));
-  const collections = live(order.collections, s.collections);
-  const groups = live(order.groups, s.groups);
-  return collections.length === order.collections.length && groups.length === order.groups.length ? order : { collections, groups };
+// isDefaultOrder 是先后还是默认的:集合按首次入库、组按新建的先后,即 ID 升序;是的话「恢复默认顺序」不用点。
+export function isDefaultOrder(ids: number[]): boolean {
+  return ids.every((id, i) => i === 0 || ids[i - 1] < id);
 }
 
 // moved 是把 dragged 挪到 target 的前面(after 为 false)或后面之后的先后;target 不在 ids 里时不变。
@@ -628,8 +600,8 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
 }
 
 // updatableCollections 是有计入角标的技能的集合，和左栏同一个顺序。
-export function updatableCollections(s: Snapshot, order: CollectionID[]): Collection[] {
-  return sortedCollections(s, order).filter((c) => collectionSkills(s, c).some(pending));
+export function updatableCollections(s: Snapshot): Collection[] {
+  return s.collections.filter((c) => collectionSkills(s, c).some(pending));
 }
 
 // anyUpdatable 是有没有 updatableCollections(更新页在不在),不关心先后。
@@ -842,8 +814,8 @@ export interface SkillSection {
   all: Skill[];
 }
 
-// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域,notHere 是作用域页下面那块)。按集合时每个来源一节，按 sortedCollections 排，没有来源的合进最后的"没有来源";
-// 按组时每个组一节，按 sortedGroups 排，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
+// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域,notHere 是作用域页下面那块)。按集合时每个来源一节，按左栏集合的先后，没有来源的合进最后的"没有来源";
+// 按组时每个组一节，按左栏组的先后，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
 // 搜索时只留有结果的节;emptyGroups 时不搜索也列出空组，好往里拖技能。
 export function arrangeSkills(
   s: Snapshot,
@@ -854,8 +826,7 @@ export function arrangeSkills(
     emptyGroups = true,
     scope,
     notHere = false,
-    order,
-  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; notHere?: boolean; order: Order },
+  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; notHere?: boolean } = {},
 ): SkillSection[] {
   const hit = (x: Skill) => matches(search, x);
   const ids = new Set(all.map((x) => x.id));
@@ -866,13 +837,13 @@ export function arrangeSkills(
     sections.push({ key: sectionKey(kind, kind === "rest" ? arrange : id, scope, notHere), kind, id, skills: sorted.filter(hit), all: sorted });
   };
   if (arrange === "collection") {
-    for (const c of sortedCollections(s, order.collections)) {
+    for (const c of s.collections) {
       const skills = collectionSkills(s, c).filter((x) => ids.has(x.id));
       skills.forEach((x) => placed.add(x.id));
       push("collection", c.id, skills);
     }
   } else {
-    for (const g of sortedGroups(s, order.groups)) {
+    for (const g of s.groups) {
       const members = new Set(g.members ?? []);
       const skills = all.filter((x) => members.has(x.id));
       skills.forEach((x) => placed.add(x.id));
@@ -938,7 +909,7 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
   return (named.length ? named.map((a) => a.code) : [sc.agent]).map((code) => scopeKey(scopeOf(code, 0)));
 }
 
-export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string, order: Order): ScopeListing {
+export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
   const globalKeys = globalScopesSeenFrom(s, key);
@@ -958,10 +929,9 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
     emptyGroups: false,
     scope: key,
     notHere: true,
-    order,
   });
   return {
-    hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key, order }),
+    hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key }),
     hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
@@ -1016,7 +986,7 @@ export type PageListing = { total: number; results: number } & (
   | { kind: "graph"; set: GraphSet; members: SkillID[] }
 );
 
-export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order): PageListing {
+export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
   if (page.kind === "graph") {
     const members = graphMembers(s, page.set) ?? [];
     return { kind: "graph", set: page.set, members, total: members.length, results: members.length };
@@ -1027,8 +997,8 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
     return { kind: "updates", skills, total: todo.length, results: skills.length };
   }
   if (page.kind === "scope") {
-    const all = scopeListing(s, page.scope, arrange, "", order);
-    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search, order) : all;
+    const all = scopeListing(s, page.scope, arrange, "");
+    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search) : all;
     const global = (l: ScopeListing) => l.global.length + l.globalUnmanaged.length;
     const seen = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length + global(l);
     return {
@@ -1049,7 +1019,7 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
   }
   return {
     kind: "all",
-    sections: arrangeSkills(s, arrange, search, { order }),
+    sections: arrangeSkills(s, arrange, search),
     total: s.skills.length,
     results: s.skills.filter((x) => matches(search, x)).length,
   };

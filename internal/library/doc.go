@@ -37,6 +37,7 @@
 //
 // 查看库里的技能(skills.go、collections.go、versions.go、translate.go):
 //   - [Library.ListSkills] 列出技能;[Library.ListCollections] 列出集合:每个来源一个,带集合里的技能 ID。
+//     [Library.ReorderCollections] 调整集合的先后,ListCollections 按它列出;先后存在数据库里,随推送、拉回走。
 //   - [Library.GetSkill] 读取一个技能;[Library.GetSkillAudit] 查看它在 skills.sh 上的审计,可选。
 //   - [Library.SetSkillNote] 给技能写备注,只供展示,不写进技能文件。
 //   - [Library.TranslateDescription] 用 AI 设置把描述翻译成界面语言(每次都重新翻译),[Library.TranslateDescriptions] 自动翻译
@@ -75,7 +76,7 @@
 //
 // 分组(groups.go):
 //   - [Library.CreateGroup]、[Library.RenameGroup]、[Library.DeleteGroup] 管理分组。
-//   - [Library.ListGroups] 列出全部组及成员的技能 ID。
+//   - [Library.ListGroups] 列出全部组及成员的技能 ID;[Library.ReorderGroups] 调整组的先后,ListGroups 按它列出。
 //   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope。
 //
 // 设置 Agent(agents.go):

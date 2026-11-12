@@ -25,17 +25,14 @@ import {
   copyTarget,
   folderPresent,
   homePath,
+  isDefaultOrder,
   missingFromGroup,
   moved,
-  noOrder,
   pageSkills,
   pickRange,
   placeOf,
   projectAgents,
-  prunedOrder,
   scopeListing,
-  sortedCollections,
-  sortedGroups,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
 } from "./model";
@@ -64,42 +61,14 @@ describe("moved", () => {
   });
 });
 
-describe("sortedCollections", () => {
-  const s = snapshot({ collections: [collection(1, "c/zeta"), collection(2, "a/alpha"), collection(3, "b/beta")] });
-
-  it("没排过时按来源名排", () => {
-    expect(sortedCollections(s, []).map((c) => c.id)).toEqual([2, 3, 1]);
+describe("isDefaultOrder", () => {
+  it("ID 升序(首次入库、新建的先后)是默认顺序", () => {
+    expect(isDefaultOrder([])).toBe(true);
+    expect(isDefaultOrder([1, 2, 5])).toBe(true);
   });
 
-  it("排过的在前，新来的按来源名接在后面", () => {
-    expect(sortedCollections(s, [1]).map((c) => c.id)).toEqual([1, 2, 3]);
-    expect(sortedCollections(s, [3, 1]).map((c) => c.id)).toEqual([3, 1, 2]);
-  });
-
-  it("已经不在的集合不影响顺序", () => {
-    expect(sortedCollections(s, [9, 1, 8]).map((c) => c.id)).toEqual([1, 2, 3]);
-  });
-});
-
-describe("sortedGroups", () => {
-  it("排过的在前，其余按技能库给的顺序", () => {
-    const s = snapshot({ groups: [group(1), group(2), group(3)] });
-    expect(sortedGroups(s, []).map((g) => g.id)).toEqual([1, 2, 3]);
-    expect(sortedGroups(s, [3]).map((g) => g.id)).toEqual([3, 1, 2]);
-  });
-});
-
-describe("prunedOrder", () => {
-  const s = snapshot({ collections: [collection(1, "a/a")], groups: [group(2), group(3)] });
-
-  it("去掉已经不在库里的集合与组，复用 ID 的新组不会占到旧组的位置", () => {
-    expect(prunedOrder(s, { collections: [1, 5], groups: [4, 3, 2] })).toEqual({ collections: [1], groups: [3, 2] });
-  });
-
-  it("没有要去掉的时返回同一个对象", () => {
-    const order = { collections: [1], groups: [3] };
-    expect(prunedOrder(s, order)).toBe(order);
-    expect(prunedOrder(s, noOrder)).toBe(noOrder);
+  it("拖过之后不是", () => {
+    expect(isDefaultOrder([2, 1, 5])).toBe(false);
   });
 });
 
@@ -169,7 +138,7 @@ describe("scopeListing", () => {
   const ids = (x: { id: number }[]) => x.map((k) => k.id);
 
   it("分成上下两块：装在这里的与没装在这里的各自按集合分节，来自全局的不在两块里", () => {
-    const l = scopeListing(s, "claude-code@1", "collection", "", noOrder);
+    const l = scopeListing(s, "claude-code@1", "collection", "");
     expect(ids(l.hereSections)).toEqual([2, 3]);
     expect(l.hereSections.map((x) => ids(x.skills))).toEqual([[20], [30]]);
     expect(ids(l.global)).toEqual([10]);
@@ -179,20 +148,20 @@ describe("scopeListing", () => {
   });
 
   it("同一个集合在两块里各是一节，身份不同", () => {
-    const l = scopeListing(s, "claude-code@1", "collection", "", noOrder);
+    const l = scopeListing(s, "claude-code@1", "collection", "");
     const [here, notHere] = [l.hereSections.find((x) => x.id === 3)!, l.notHereSections.find((x) => x.id === 3)!];
     expect(here.key).not.toBe(notHere.key);
   });
 
   it("全局作用域没有来自全局的", () => {
-    const l = scopeListing(s, "claude-code@0", "collection", "", noOrder);
+    const l = scopeListing(s, "claude-code@0", "collection", "");
     expect(ids(l.hereSections)).toEqual([1]);
     expect(ids(l.notHereSections)).toEqual([1, 2, 3]);
     expect(l.global).toEqual([]);
   });
 
   it("搜索时两块都只留匹配的", () => {
-    const l = scopeListing(s, "claude-code@1", "collection", "2", noOrder);
+    const l = scopeListing(s, "claude-code@1", "collection", "2");
     expect(l.hereSections).toEqual([]);
     expect(ids(l.notHereSections)).toEqual([1, 3]);
     expect(l.hereCount).toBe(0);

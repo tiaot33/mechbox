@@ -265,6 +265,14 @@ export function RenameGroup(id: library$0.GroupID, name: string): $CancellablePr
     return $Call.ByID(1994858443, id, name);
 }
 
+export function ReorderCollections(ids: library$0.CollectionID[] | null): $CancellablePromise<void> {
+    return $Call.ByID(369416006, ids);
+}
+
+export function ReorderGroups(ids: library$0.GroupID[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3016330733, ids);
+}
+
 export function RetryUpdateInstalls(id: library$0.UpdateRecordID, installs: library$0.ReinstallRequest[] | null): $CancellablePromise<library$0.ReinstallResult[] | null> {
     return $Call.ByID(1004827641, id, installs);
 }
