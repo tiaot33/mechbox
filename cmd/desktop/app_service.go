@@ -266,11 +266,11 @@ func (a *AppService) warn(err error, message string) {
 	}
 }
 
-// RevealInFinder 在系统的文件管理器里显示 path(作用域里的技能文件夹等):macOS 在 Finder 中选中它,
-// Windows 在文件资源管理器中选中它,是符号链接时选中链接本身;Linux 用 xdg-open 打开它所在的目录。server 模式什么都不做。
-func (a *AppService) RevealInFinder(path string) error {
+// RevealInFileManager 在系统的文件管理器里显示 path(作用域里的技能文件夹等):macOS 在 Finder 中选中它,
+// Windows 在文件资源管理器中选中它,是符号链接时选中链接本身;Linux 用 xdg-open 打开它所在的目录，不等文件管理器退出。server 模式什么都不做。
+func (a *AppService) RevealInFileManager(path string) error {
 	if !filepath.IsAbs(path) {
-		return fmt.Errorf("reveal in finder: path must be absolute: %q", path)
+		return fmt.Errorf("reveal in file manager: path must be absolute: %q", path)
 	}
 	return reveal(path)
 }

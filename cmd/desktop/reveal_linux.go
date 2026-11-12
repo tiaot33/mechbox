@@ -8,5 +8,10 @@ import (
 )
 
 func reveal(path string) error {
-	return exec.Command("xdg-open", filepath.Dir(path)).Run()
+	cmd := exec.Command("xdg-open", filepath.Dir(path))
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
 }

@@ -5,6 +5,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
 import {
+  folderPresent,
   mergeProjectPlaces,
   needsReinstall,
   placeOf,
@@ -77,14 +78,14 @@ export function InstallCard({ skill }: { skill: Skill }) {
                     </div>
                     <div className="flex min-w-0 items-center gap-0.5">
                       <span className="truncate font-mono text-[11px] text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</span>
-                      {p.status !== SkillScopeStatus.SkillScopeMissing && p.status !== SkillScopeStatus.SkillScopeRootMissing && (
+                      {folderPresent(p) && (
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="reveal-in-finder shrink-0"
+                          className="reveal-folder shrink-0"
                           title={common.reveal()}
                           aria-label={common.reveal()}
-                          onClick={() => void ui.run(() => AppService.RevealInFinder(p.folder), { reload: false })}
+                          onClick={() => void ui.run(() => AppService.RevealInFileManager(p.folder), { reload: false })}
                         >
                           <Icon name="folder" />
                         </Button>

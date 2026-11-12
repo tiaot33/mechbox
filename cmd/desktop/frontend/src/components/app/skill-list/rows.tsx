@@ -357,8 +357,8 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         )}
         <Button
           variant="link"
-          className="reveal-in-finder shrink-0 font-sans text-[11px]"
-          onClick={() => void ui.run(() => AppService.RevealInFinder(skill.folder), { reload: false })}
+          className="reveal-folder shrink-0 font-sans text-[11px]"
+          onClick={() => void ui.run(() => AppService.RevealInFileManager(skill.folder), { reload: false })}
         >
           {common.reveal()}
         </Button>

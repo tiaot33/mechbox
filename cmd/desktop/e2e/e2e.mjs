@@ -240,10 +240,10 @@ const scopeDir = async () => {
 // folderOf 是开着的详情里，安装表上 where(如"Claude Code · 全局")那一行的技能文件夹路径。
 const folderOf = async (where) =>
   (await drawer().locator(".scope-table tbody tr", { hasText: where }).locator(".font-mono").textContent()).replace(/^~/, HOME);
-// recordReveals 记下之后前端调 RevealInFinder 传过去的路径(server 模式里它什么都不做);stop 停止记录。
+// recordReveals 记下之后前端调 RevealInFileManager 传过去的路径(server 模式里它什么都不做);stop 停止记录。
 const recordReveals = () => {
   const paths = [];
-  const id = Number(appMethodID("RevealInFinder"));
+  const id = Number(appMethodID("RevealInFileManager"));
   const onRequest = (r) => {
     if (r.method() !== "POST" || !r.url().includes("/wails/runtime")) return;
     const body = JSON.parse(r.postData() ?? "{}");
