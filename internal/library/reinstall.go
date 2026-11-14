@@ -3,7 +3,6 @@ package library
 import (
 	"context"
 	"errors"
-	"maps"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -60,7 +59,7 @@ const (
 	SkillScopeMissing     SkillScopeStatus = "missing"      // 技能文件夹不在了(包括整个 Agent 目录不在了),可能是用户有意删掉的,也可能是误删或这台机器还没装过;重新安装要明确同意才装回去
 	SkillScopeCurrent     SkillScopeStatus = "current"      // 和库里的当前版本完全一致
 	SkillScopeStale       SkillScopeStatus = "stale"        // 和库里某个旧版本完全一致;重新安装不用额外确认
-	SkillScopeModified    SkillScopeStatus = "modified"     // 和库里任何版本都对不上(包括多了、少了文件,或有不是普通文件的东西),即用户在这里改过;重新安装要明确同意覆盖
+	SkillScopeModified    SkillScopeStatus = "modified"     // 和库里任何版本都对不上(包括多了、少了文件,或有不是普通文件的东西),即用户在这里改过;重新安装要明确同意覆盖。Windows 本机的目录读不出可执行位,只比路径与内容
 )
 
 // SkillScopeInspection 是一处安装及其现在的状态。
@@ -256,15 +255,15 @@ func (l *Library) folderStatus(ctx context.Context, id SkillID, head int64, stat
 	case state.Err != nil:
 		return "", 0, state.Err
 	}
-	return l.matchVersion(ctx, id, head, digests(state.Files))
+	return l.matchVersion(ctx, id, head, digests(state.Files), agentdir.ModesKnown(state.Path))
 }
 
-func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk map[string]skillfile.Digest) (SkillScopeStatus, VersionID, error) {
+func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk map[string]skillfile.Digest, modesKnown bool) (SkillScopeStatus, VersionID, error) {
 	current, err := l.store.VersionDigests(ctx, currentVersionID)
 	if err != nil {
 		return "", 0, err
 	}
-	if maps.Equal(disk, current) {
+	if sameFiles(disk, current, modesKnown) {
 		return SkillScopeCurrent, VersionID(currentVersionID), nil
 	}
 
@@ -277,7 +276,7 @@ func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID
 		if err != nil {
 			return "", 0, err
 		}
-		if maps.Equal(disk, files) {
+		if sameFiles(disk, files, modesKnown) {
 			return SkillScopeStale, VersionID(versionID), nil
 		}
 	}

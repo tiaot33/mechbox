@@ -101,3 +101,25 @@ func TestSimilarity(t *testing.T) {
 		})
 	}
 }
+
+func TestAdoptModes(t *testing.T) {
+	files := []File{
+		{Path: "SKILL.md", Content: []byte("doc"), Mode: ModeRegular},
+		{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: ModeRegular},
+		{Path: "new.sh", Content: []byte("#!/bin/sh\n"), Mode: ModeRegular},
+	}
+	reference := []File{
+		{Path: "SKILL.md", Mode: ModeRegular},
+		{Path: "scripts/run.sh", Mode: ModeExecutable},
+	}
+	adopted := AdoptModes(files, reference)
+	want := []Mode{ModeRegular, ModeExecutable, ModeRegular}
+	for i, file := range adopted {
+		if file.Mode != want[i] || string(file.Content) != string(files[i].Content) {
+			t.Fatalf("AdoptModes()[%d] = %+v; want mode %s and the same content", i, file, want[i])
+		}
+	}
+	if files[1].Mode != ModeRegular {
+		t.Fatalf("AdoptModes changed its input: %+v", files[1])
+	}
+}

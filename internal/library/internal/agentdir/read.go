@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"runtime"
 	"slices"
 	"syscall"
 	"time"
@@ -130,6 +131,11 @@ func ReadFiles(ctx context.Context, root string, maxFiles int, maxBytes int64) (
 		return nil, err
 	}
 	return read.Files, read.Err
+}
+
+func ModesKnown(path string) bool {
+	_, inDistro := on(path).(distro)
+	return inDistro || runtime.GOOS != "windows"
 }
 
 func LinkTarget(path string) string {

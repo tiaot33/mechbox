@@ -5,7 +5,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { create } from "zustand";
-import type { File } from "@bindings/internal/library";
+import { FileMode, type File } from "@bindings/internal/library";
 import { decodeContent } from "@/lib/content";
 import { useT } from "@/lib/i18n";
 import { toLibraryError, type LibraryError } from "@/lib/library";
@@ -206,6 +206,7 @@ function Tree({
 
 // FileDiff 是 path 这个文件的差异，kind 是它改了什么：新增的只读改动后，删除的只读改动前;只有一侧的文件不分两栏，铺满整宽。
 // 外面是一块白底的面板：上面一条写文件、增删了几行和布局切换，下面是带行号的逐行差异，改掉的行里再标出改了哪几个词。
+// 修改的文件可执行权限变了时(加上或去掉),在差异上面单独说明;内容没变、只改了权限时也说清楚，免得看起来像什么都没改(issue #324)。
 // read 要在调用方保持不变(换了才重读)。读取失败时先交给 onError,它返回 true 表示已处理(如更新计划已失效)。
 // 布局切换只在两侧都能逐行比较时显示;fill 为 true 时面板撑满外面给的高度(比较弹窗),否则差异最高 360px、内容短时按内容的高度。
 export function FileDiff({
@@ -225,6 +226,8 @@ export function FileDiff({
   const t = tt.diff;
   const chosen = useLayoutStore((s) => s.layout);
   const [texts, setTexts] = useState<[string | null, string | null] | "error" | undefined>(undefined);
+  // 两侧文件是否可执行;没有那一侧(新增、删除)时为 undefined。
+  const [executable, setExecutable] = useState<[boolean | undefined, boolean | undefined]>([undefined, undefined]);
   // 左右对比时拖选只选按下的那一栏，复制出来不会新旧交错。
   const [side, setSide] = useState<"left" | "right" | null>(null);
   const report = useRef(onError);
@@ -233,10 +236,17 @@ export function FileDiff({
   useEffect(() => {
     let cancelled = false;
     setTexts(undefined);
+    setExecutable([undefined, undefined]);
     const calls = [kind === "added" ? undefined : read.before(path), kind === "deleted" ? undefined : read.after(path)];
-    const text = (call: CancellablePromise<File> | undefined) => (call ? call.then((f) => decodeContent(f.content)) : Promise.resolve(""));
-    Promise.all([text(calls[0]), text(calls[1])]).then(
-      ([a, b]) => !cancelled && setTexts([a, b]),
+    const file = (call: CancellablePromise<File> | undefined) => call ?? Promise.resolve(undefined);
+    const text = (f: File | undefined) => (f ? decodeContent(f.content) : "");
+    const runnable = (f: File | undefined) => (f ? f.mode === FileMode.ModeExecutable : undefined);
+    Promise.all([file(calls[0]), file(calls[1])]).then(
+      ([a, b]) => {
+        if (cancelled) return;
+        setTexts([text(a), text(b)]);
+        setExecutable([runnable(a), runnable(b)]);
+      },
       (e) => {
         if (cancelled) return;
         setTexts("error");
@@ -327,6 +337,9 @@ export function FileDiff({
 
   const added = lines?.filter((l) => l.kind === "add").length ?? 0;
   const deleted = lines?.filter((l) => l.kind === "del").length ?? 0;
+  // 可执行权限变了时，变成了什么:true 是加上，false 是去掉;没变或只有一侧时为 undefined。
+  const modeChange = kind === "changed" && executable[0] !== undefined && executable[0] !== executable[1] ? executable[1] : undefined;
+  const sameText = lines !== null && added === 0 && deleted === 0;
 
   return (
     <div
@@ -357,6 +370,12 @@ export function FileDiff({
           />
         )}
       </div>
+      {modeChange !== undefined && (
+        <Notice data-slot="mode-change" tone={modeChange ? "warn" : "neutral"} className="m-2 mb-0 shrink-0">
+          {sameText && t.sameText}
+          {modeChange ? t.executableAdded : t.executableRemoved}
+        </Notice>
+      )}
       {body}
     </div>
   );

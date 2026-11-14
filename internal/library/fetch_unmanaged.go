@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -159,7 +158,7 @@ func (l *Library) fetchIfMatched(ctx context.Context, operation string, requeste
 		}
 		folders = append(folders, folder)
 	}
-	matched, _, err := matchingSkill(ctx, l.store, folders[0].files, folderScopes(folders))
+	matched, _, err := matchingSkill(ctx, l.store, folders[0].files, folderScopes(folders), agentdir.ModesKnown(folders[0].path))
 	if err != nil || matched == 0 {
 		return FetchUnmanagedResult{}, false, err
 	}
@@ -207,7 +206,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 
 func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFolder) (FetchUnmanagedResult, error) {
 	folder := folders[0]
-	matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders))
+	matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders), agentdir.ModesKnown(folder.path))
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
@@ -295,8 +294,13 @@ func sourceField(err error) error {
 }
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
+	for i := range folders {
+		if !agentdir.ModesKnown(folders[i].path) {
+			folders[i].files = skillfile.AdoptModes(folders[i].files, sourced.skill.Files)
+		}
+	}
 	folder := folders[0]
-	if matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders)); err != nil {
+	if matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders), agentdir.ModesKnown(folder.path)); err != nil {
 		return FetchUnmanagedResult{}, err
 	} else if matched != 0 {
 		return l.fetchWithoutSource(ctx, folders)
@@ -461,7 +465,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		files, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state.Files, state.Err)
 		reads[i] = planned{sum: skillfile.Sum(files), parsed: parsed, modified: state.Modified, err: err}
 		if err == nil {
-			found, err := recognize(ctx, l.store, files, []store.Scope{entries[i].found.target.record()}, latests)
+			found, err := recognize(ctx, l.store, files, []store.Scope{entries[i].found.target.record()}, latests, agentdir.ModesKnown(entries[i].Folder))
 			if err != nil {
 				return err
 			}
@@ -710,7 +714,7 @@ func folderScopes(folders []unmanagedFolder) []store.Scope {
 	return scopes
 }
 
-func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope) (int64, int64, error) {
+func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope, modesKnown bool) (int64, int64, error) {
 	disk := digests(files)
 	manifest, ok := disk["SKILL.md"]
 	if !ok {
@@ -735,7 +739,7 @@ next:
 		if err != nil {
 			return 0, 0, err
 		}
-		if maps.Equal(disk, version) {
+		if sameFiles(disk, version, modesKnown) {
 			return match.SkillID, match.VersionID, nil
 		}
 	}
@@ -748,8 +752,8 @@ type recognition struct {
 	sourceLatestOf SkillID
 }
 
-func recognize(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope, latests []store.SourceLatest) (recognition, error) {
-	skillID, versionID, err := matchingSkill(ctx, reader, files, scopes)
+func recognize(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope, latests []store.SourceLatest, modesKnown bool) (recognition, error) {
+	skillID, versionID, err := matchingSkill(ctx, reader, files, scopes, modesKnown)
 	if err != nil || skillID != 0 {
 		return recognition{skillID: SkillID(skillID), versionID: VersionID(versionID)}, err
 	}

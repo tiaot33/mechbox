@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"time"
 
@@ -414,15 +413,15 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
-	disk := digests(files)
-	if maps.Equal(disk, digests(current.files)) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
+	disk, modesKnown := digests(files), agentdir.ModesKnown(folder)
+	if sameFiles(disk, digests(current.files), modesKnown) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
 		return RollbackCurrent, nil
 	}
 	updatedFiles, err := l.store.VersionDigests(ctx, update.To)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	if err == nil && maps.Equal(disk, updatedFiles) || maps.Equal(disk, digests(current.files)) {
+	if err == nil && sameFiles(disk, updatedFiles, modesKnown) || sameFiles(disk, digests(current.files), modesKnown) {
 		if folderName != skill.Name {
 			if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
 				return "", err

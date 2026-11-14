@@ -49,6 +49,20 @@ func Equal(first, second []File) bool {
 	})
 }
 
+func AdoptModes(files, reference []File) []File {
+	modes := make(map[string]Mode, len(reference))
+	for _, file := range reference {
+		modes[file.Path] = file.Mode
+	}
+	adopted := slices.Clone(files)
+	for i, file := range adopted {
+		if mode, ok := modes[file.Path]; ok {
+			adopted[i].Mode = mode
+		}
+	}
+	return adopted
+}
+
 func Fingerprint(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])

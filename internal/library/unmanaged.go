@@ -171,7 +171,7 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 			return nil
 		}
 		entry := &entries[indexes[index]]
-		found, err := recognize(ctx, l.store, state.Files, []store.Scope{entry.found.target.record()}, latests)
+		found, err := recognize(ctx, l.store, state.Files, []store.Scope{entry.found.target.record()}, latests, agentdir.ModesKnown(state.Path))
 		if err != nil {
 			return err
 		}
@@ -594,7 +594,7 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 		if err != nil {
 			return nil
 		}
-		recognized, err := recognize(ctx, l.store, files, []store.Scope{targets[i].record()}, latests)
+		recognized, err := recognize(ctx, l.store, files, []store.Scope{targets[i].record()}, latests, agentdir.ModesKnown(state.Path))
 		if err != nil {
 			return err
 		}

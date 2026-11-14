@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -291,6 +292,10 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 		return scopeEdit{}, unmodified
 	}
 	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
+	modesKnown := agentdir.ModesKnown(folder)
+	if !modesKnown {
+		files = skillfile.AdoptModes(files, current.files)
+	}
 	switch {
 	case errors.Is(err, agentdir.ErrIrregularFile):
 		return scopeEdit{}, preconditionError(operation, "the installed folder has entries that are not regular files", ErrorDetails{Path: folder})
@@ -299,7 +304,7 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	case err != nil:
 		return scopeEdit{}, err
 	}
-	if status, _, err := l.matchVersion(ctx, id, current.versionID, digests(files)); err != nil {
+	if status, _, err := l.matchVersion(ctx, id, current.versionID, digests(files), modesKnown); err != nil {
 		return scopeEdit{}, err
 	} else if status != SkillScopeModified {
 		return scopeEdit{}, unmodified
@@ -510,6 +515,13 @@ func digests(files []skillfile.File) map[string]skillfile.Digest {
 		result[file.Path] = skillfile.Digest{Fingerprint: skillfile.Fingerprint(file.Content), Mode: file.Mode}
 	}
 	return result
+}
+
+func sameFiles(disk, version map[string]skillfile.Digest, modesKnown bool) bool {
+	if modesKnown {
+		return maps.Equal(disk, version)
+	}
+	return maps.EqualFunc(disk, version, func(a, b skillfile.Digest) bool { return a.Fingerprint == b.Fingerprint })
 }
 
 func diffDigests(from, to map[string]skillfile.Digest) VersionDiff {
