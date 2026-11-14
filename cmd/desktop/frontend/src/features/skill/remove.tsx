@@ -34,7 +34,7 @@ export async function removeSkill(id: SkillID) {
 
 
 // removeSkills 从库里移除勾选的技能(底部操作栏的"移除技能"):和移除一个一样问一次已安装的文件夹删掉还是保留，
-// 一批只问一次，写出一共会删几处、其中几处被改过。有失败的才列出结果。返回 false 表示用户取消了。
+// 一批只问一次，写出一共会删几处、其中几处被改过。有失败的才列出结果。返回是否至少移除了一个：取消了、都失败了时是 false。
 export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
   const places = s.skillScopes.filter((p) => ids.includes(p.skill_id));
@@ -53,7 +53,7 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const rows = await runEach(ids, (id) => LibraryService.RemoveSkill(id, { folders: policy }), (id) => skillName(s, id));
   if (rows.length) await showResults(t.removeSkillsTitle(ids.length), rows);
   else ui.toast(t.removedSkills(ids.length));
-  return true;
+  return rows.length < ids.length;
 }
 
 // folderChoices 是移除技能时已安装的文件夹删掉还是保留;removeDesc 写出删掉会涉及几处。

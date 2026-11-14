@@ -177,6 +177,12 @@ export function setPicked(ids: SkillID[], on: boolean, anchor: string | null = g
 
 export const clearPicked = () => set({ picked: new Set(), anchor: null });
 
+// clearPickedAfter 跑一个对勾选的技能的操作(操作栏、拖勾选着的行):至少做成一处就清空勾选;
+// 取消了或一处都没做成(op 返回 false)时勾选留着，好重试或换一个操作。
+export function clearPickedAfter(op: Promise<boolean>) {
+  void op.then((done) => done && clearPicked());
+}
+
 // openScope 打开作用域页，右栏同步展开到那一行;再点一次正打开的作用域回到技能库。
 export function openScope(key: ScopeKey) {
   const { page } = get();

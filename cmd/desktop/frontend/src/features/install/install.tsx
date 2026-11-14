@@ -120,7 +120,7 @@ export async function installSkillTo(id: SkillID, scopes: Scope[]) {
 
 // installSkills 把勾选的技能装到 scopes(底部操作栏的"安装到…"可以勾选几个 Agent;拖勾选着的几行到作用域是一处):
 // 和集合一样逐个直接安装，已经直接安装在那里的不再装;都已装在那里时只提示。scopes 在同一个地方(全局或同一个项目)。
-// 返回 false 表示用户在询问里取消了，勾选留着。
+// 返回是否至少装上了一处：取消了、都已装在那里、一处都没装上时是 false。
 export async function installSkills(ids: SkillID[], scopes: Scope[]): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
@@ -131,7 +131,7 @@ export async function installSkills(ids: SkillID[], scopes: Scope[]): Promise<bo
   );
   if (!items.length) {
     ui.toast(t.pickedAllThere(where));
-    return true;
+    return false;
   }
   const n = new Set(items.map((x) => x.skill.id)).size;
   return installEach(items, t.pickedInstallTitle(n, where), t.pickedInstalled(n, where));
@@ -148,13 +148,13 @@ function scopesLabel(s: Snapshot, scopes: Scope[]): string {
 // installEach 逐处直接安装(一处是一个技能装到一个 Agent):先逐处看安装计划，被别的技能占用的跳过并说明原因;
 // 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。一处装不上(含看安装计划就出错)不影响其余的。
 // 有没装上的才列出结果，否则只提示 done。装到几个 Agent 时，询问与结果里每一处写出是哪个 Agent。
-// 返回 false 表示用户在询问里取消了，什么都没装。
+// 返回是否至少装上了一处：取消了、一处都没装上时是 false。
 async function installEach(items: { skill: Skill; scope: Scope }[], title: string, done: string): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
-  if (!items.length) return true;
+  if (!items.length) return false;
   const settled = await ui.run(() => Promise.allSettled(items.map((x) => LibraryService.PlanInstall(x.skill.id, x.scope))), { reload: false });
-  if (!settled) return true;
+  if (!settled) return false;
   const several = new Set(items.map((x) => scopeKey(x.scope))).size > 1;
   const label = (skill: Skill, scope: Scope) => (several ? `${skill.name} · ${scopeLabel(s, scope)}` : skill.name);
   const rows: ResultRow[] = [];
@@ -212,7 +212,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
   } else {
     ui.toast(done);
   }
-  return true;
+  return installed > 0;
 }
 
 export async function uninstallSkill(id: SkillID, scope: Scope) {
@@ -259,7 +259,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
 
 // uninstallSkills 从 scopes 卸载勾选的技能(底部操作栏的"从这里卸载",项目页是项目里的各个 Agent):撤销它们的直接安装。
 // 一批卸载先确认一次：会删掉几个文件夹、其中几处被改过，全局共用的文件夹还有哪些 Agent 在用，别处链接指着的先换上独立的一份。
-// 只随组安装的跳过并说明;有跳过或失败的才列出结果。返回 false 表示没有卸载：没有可卸载的，或用户取消了。
+// 只随组安装的跳过并说明;有跳过或失败的才列出结果。返回是否至少卸载了一处：没有可卸载的、取消了、都失败了时是 false。
 export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: string): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
@@ -315,7 +315,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
   }, { failed: () => rows.some((r) => r.tone === "bad") });
   if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
   else ui.toast(t.uninstalledPicked(done, where));
-  return true;
+  return done > 0;
 }
 
 export async function installGroup(groupID: GroupID, scope: Scope) {

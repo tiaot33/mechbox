@@ -136,7 +136,7 @@ export function pageInstallTarget(page: Page): Initial {
 
 // chooseAndInstall 是勾选后操作栏、入库完成提示上的"安装到…":先选装到哪里，再把这些技能一起装到勾上的各个 Agent。
 // initial 是默认选的地方与 Agent(见 pageInstallTarget)。刚入库的技能可能还不在快照里(入库后的重读还没完成),
-// 先等重读完，免得按快照筛掉它们、什么都没装。返回 false 表示用户取消了，什么都没装。
+// 先等重读完，免得按快照筛掉它们、什么都没装。返回是否至少装上了一处(见 installSkills)。
 export async function chooseAndInstall(ids: SkillID[], initial: Initial = {}): Promise<boolean> {
   if (!ids.every((id) => currentSnapshot().skills.some((x) => x.id === id))) await reloadLibrary();
   const scopes = await ui.open<Scope[]>((close) => <InstallToDialog ids={ids} initial={initial} close={close} />);

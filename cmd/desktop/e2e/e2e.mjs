@@ -2595,7 +2595,7 @@ await step("移出分组(有组安装时询问去留)", async () => {
   await clearScope();
 });
 
-await step("勾选几个技能一起操作：节标题全选、Shift 勾一段，一起安装、加入新建的组、拖到作用域、从这里卸载、移出组;做完、换页、Esc 清空，取消的留着", async () => {
+await step("勾选几个技能一起操作：节标题全选、Shift 勾一段，一起安装、加入新建的组、拖到作用域、从这里卸载、移出组;做成后、换页、Esc 清空，取消的、一处都没做成的留着", async () => {
   const mine = () => page.locator('.list-section[data-section*="collection-"]', { has: page.locator(".section-name", { hasText: "my-skills" }) });
   const bar = page.locator(".pick-bar");
   const picked = async (n) => bar.locator("span", { hasText: `已选 ${n} 个` }).waitFor({ timeout: 5000 });
@@ -2660,16 +2660,52 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
 
   await uninstallHere();
 
-  // 拖勾选着的一行 = 拖勾选的全部。
+  // 一处都没装上(proj-b 里 Codex 的目录写不进去):勾选留着，好重试。
   await clearScope();
   await mine().locator(".section-pick").click();
   await picked(3);
+  fs.mkdirSync(codexB(), { recursive: true });
+  fs.chmodSync(codexB(), 0o555);
+  try {
+    await btn(bar, "安装到…").click();
+    await modal().locator(".install-picked select").nth(0).selectOption({ label: "proj-b" });
+    await pickAgents(modal(), ["Codex"]);
+    await btn(modal(), "安装").click();
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "把 3 个技能装到 Codex · proj-b" }).waitFor();
+    await btn(modal(), "知道了").click();
+    await modal().waitFor({ state: "detached" });
+  } finally {
+    fs.chmodSync(codexB(), 0o755);
+  }
+  await picked(3);
+  for (const n of names) assert(!fs.existsSync(path.join(codexB(), n)), `${n} 不应装进写不进去的目录`);
+
+  // 拖勾选着的一行 = 拖勾选的全部;勾选还留着，直接拖过去重试。
   await card("alpha").dragTo(await scopeRow("Codex", "proj-b"));
   await toast("已把 3 个技能装到 Codex · proj-b");
   await settle();
   await cleared("拖到作用域");
   for (const n of names) assert(fs.existsSync(path.join(codexB(), n, "SKILL.md")), `拖放后磁盘上应有 proj-b 的 ${n}`);
   await uninstallHere();
+
+  // 只勾了一个时拖这一行也是对勾选的操作，做成后同样清空。
+  await clearScope();
+  await card("alpha").locator(".pick-box").click();
+  await picked(1);
+  await card("alpha").dragTo(await scopeRow("Codex", "proj-b"));
+  await toast("已把 1 个技能装到 Codex · proj-b");
+  await settle();
+  await cleared("拖只勾了一个的行");
+  assert(fs.existsSync(path.join(codexB(), "alpha", "SKILL.md")), "拖放后磁盘上应有 proj-b 的 alpha");
+  await selectScope("Codex", "proj-b");
+  await card("alpha").locator(".pick-box").click();
+  await picked(1);
+  await btn(bar, "从这里卸载").click();
+  await btn(modal(), "卸载").click();
+  await toast("已从 Codex · proj-b 卸载 1 处直接安装");
+  await settle();
+  await cleared("卸载一个");
+  assert(!fs.existsSync(path.join(codexB(), "alpha")), "alpha 应已从 proj-b 卸载");
 
   await clearScope();
   await mine().locator(".section-pick").click();

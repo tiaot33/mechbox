@@ -1,12 +1,12 @@
 // 勾选了技能以后，列表底部的操作栏：一起安装到某处、从这里卸载(作用域页、项目页)、加入组、移出组、从库里移除;
-// 各操作的弹窗与写操作在 features/ 里。操作做完清空勾选，在弹窗里取消的留着，好换一个操作;
+// 各操作的弹窗与写操作在 features/ 里。操作至少做成一处就清空勾选，取消了或一处都没做成的留着(见 clearPickedAfter);
 // 按 Esc 或点"取消选择"也清空，换页时也清空。
 import { useEffect } from "react";
 import type { Scope } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { parseScope, projectAgents, projectName, scopeKey, scopeLabel, skillScopeIn, type PageListing } from "@/lib/model";
-import { clearPicked, useCurrentPage, useView } from "@/lib/view";
+import { clearPicked, clearPickedAfter, useCurrentPage, useView } from "@/lib/view";
 import { pickGroup } from "@/features/group/group";
 import { uninstallSkills } from "@/features/install/install";
 import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
@@ -20,8 +20,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
   const page = useCurrentPage();
   const t = useT().list;
   const ids = [...picked];
-  // act 跑一个对勾选的操作，做完(含部分失败)清空勾选;返回 false 是用户取消了，勾选留着。
-  const act = (run: () => Promise<boolean>) => () => void run().then((done) => done && clearPicked());
+  const act = (run: () => Promise<boolean>) => () => clearPickedAfter(run());
 
   // Esc 清空勾选;弹窗、详情抽屉开着时 Esc 先关它们，输入框里的 Esc 留给输入框。
   useEffect(() => {

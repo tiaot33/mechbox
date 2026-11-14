@@ -1,6 +1,6 @@
 // 拖放：左 = 整理进哪个组，右 = 安装到哪个作用域。
-// - 技能行 → 右栏作用域 = 直接安装;技能行 → 左栏的组或组的节标题 = 加入该组。拖的是勾选着的一行时，勾选的几个技能一起装、一起加入，
-//   做完清空勾选(在询问里取消的留着)。
+// - 技能行 → 右栏作用域 = 直接安装;技能行 → 左栏的组或组的节标题 = 加入该组。拖的是勾选着的一行时(只勾了它一个也是),
+//   勾选的技能一起装、一起加入，和操作栏一样至少做成一处就清空勾选(见 clearPickedAfter)。
 // - 组(左栏组行或组的节标题)→ 右栏作用域 = 组安装，之后加进组的也会装;→ 另一个组 = 调整组的先后。
 // - 集合(左栏集合行或集合的节标题)→ 右栏作用域 = 把集合里的技能逐个直接安装，一次性的，之后入库的新技能不会自动装过去;
 //   → 组 = 把集合里的技能逐个加入该组;→ 另一个集合 = 调整集合的先后。
@@ -11,7 +11,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
 import { missingFromGroup, parseScope, scopeKey, skillScopeIn, type ScopeKey } from "@/lib/model";
 import { useBusy } from "@/lib/ui";
-import { clearPicked, endDrag, reveal, startDrag, useView, type DragItem } from "@/lib/view";
+import { clearPickedAfter, endDrag, reveal, startDrag, useView, type DragItem } from "@/lib/view";
 import { reorder } from "@/features/order/order";
 import { addCollectionToGroup, addSkillsToGroup, addSkillToGroup } from "@/features/group/group";
 import { installCollection, installGroup, installSkill, installSkills } from "@/features/install/install";
@@ -46,7 +46,7 @@ export function useDnD() {
       // 拖动中临时展开的地方拖完会收回，放下的那一行保持展开，好看到装上的结果。
       reveal(sc);
       if (item.kind === "skill") void installSkill(item.id, sc);
-      else if (item.kind === "skills") void installSkills(item.ids, [sc]).then((done) => done && clearPicked());
+      else if (item.kind === "skills") clearPickedAfter(installSkills(item.ids, [sc]));
       else if (item.kind === "group") void installGroup(item.id, sc);
       else void installCollection(item.id, sc);
     },
@@ -56,7 +56,7 @@ export function useDnD() {
         void addSkillToGroup(id, item.id);
       } else if (item?.kind === "skills") {
         endDrag();
-        void addSkillsToGroup(id, item.ids).then(clearPicked);
+        clearPickedAfter(addSkillsToGroup(id, item.ids));
       } else if (item?.kind === "collection") {
         endDrag();
         void addCollectionToGroup(id, item.id);
