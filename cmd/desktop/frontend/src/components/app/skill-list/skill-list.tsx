@@ -16,6 +16,7 @@ import {
   parseScope,
   placeOf,
   projectFolderNote,
+  scopeLabel,
   sectionKey,
   sourceLabel,
   updatableCollections,
@@ -27,6 +28,7 @@ import { closeDrawer, doneRestoreScroll, openScope, setArrange, toggleUnfolded, 
 import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
 import { SearchLine } from "./search-line";
 import { openFetch } from "@/features/fetch/fetch-dialog";
+import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Icon, SourceIcon } from "@/components/app/icons";
@@ -319,7 +321,26 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
             <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
           {l.hereUnmanaged.length > 0 && (
-            <Section id="scope-unmanaged" head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}>
+            <Section
+              id="scope-unmanaged"
+              head={
+                <>
+                  <PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />
+                  {/* 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。 */}
+                  {!search && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="fetch-all-unmanaged shrink-0"
+                      title={t.fetchAllTitle}
+                      onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)) }, false)}
+                    >
+                      {t.fetchAll}
+                    </Button>
+                  )}
+                </>
+              }
+            >
               {l.hereUnmanaged.map((u) => (
                 <UnmanagedRow key={u.folder} skill={u} headed />
               ))}
@@ -386,7 +407,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
   const project = s.projects.find((p) => p.id === page.project)!;
   return (
     <>
-      <ProjectSummary project={project} total={page.total} />
+      <ProjectSummary project={project} total={page.total} unmanaged={page.unmanaged} />
       {page.agents.map((a) => (
         <Section
           key={a.scope}

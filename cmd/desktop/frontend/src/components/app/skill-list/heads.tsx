@@ -7,7 +7,6 @@ import {
   agentNameIn,
   groupStateIn,
   needsReinstall,
-  notTakenOver,
   parseScope,
   placeOf,
   projectName,
@@ -21,7 +20,7 @@ import {
   type ScopeKey,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
+import { offerFetchProject } from "@/features/fetch/fetch-unmanaged-all";
 import { openCopyFromAgent, openCopyFromProject } from "@/features/install/copy";
 import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
@@ -47,7 +46,6 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const split = splitIdentical(unmanagedIn(s, scope));
   const unmanaged = split.unmanaged.length;
   const identical = split.identical.length;
-  const notTaken = unmanagedIn(s, scope).filter(notTakenOver).length;
   const sc = parseScope(scope);
   const groups = s.groups;
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
@@ -86,18 +84,6 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
           </Button>
         )}
       </div>
-      {notTaken > 0 && (
-        <div className="unmanaged-hint flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{t.notTaken(notTaken)}</span>
-          <Button
-            variant="link"
-            className="fetch-all-unmanaged text-[11px]"
-            onClick={() => void offerFetchUnmanaged(s.agents, [sc], { kind: "scope", label: scopeLabel(s, sc) }, false)}
-          >
-            {t.fetchAll}
-          </Button>
-        </div>
-      )}
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">{t.groups}</span>
@@ -132,8 +118,9 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
 }
 
 // ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录，
+// 其中不在技能库里的几个与全部入库(范围和登记项目后弹出的那次一样，是各 Agent 在这个项目里),
 // 以及照着其他项目装(别的已登记项目里装了库里的技能时才有)。
-export function ProjectSummary({ project, total }: { project: RegisteredProject; total: number }) {
+export function ProjectSummary({ project, total, unmanaged }: { project: RegisteredProject; total: number; unmanaged: number }) {
   const s = useSnapshot();
   const t = useT().list;
   const c = useT().copy;
@@ -157,6 +144,20 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
         <span className="max-w-[360px] truncate font-mono text-[11px] select-text" title={wslTitle(project.path)}>
           {shortPath(s, project.path)}
         </span>
+        <span className="grow" />
+        {unmanaged > 0 && (
+          <>
+            <Stat value={unmanaged} label={t.statNotInLibrary} />
+            <Button
+              size="sm"
+              className="fetch-all-unmanaged"
+              title={t.fetchAllTitle}
+              onClick={() => void offerFetchProject(s.agents, project, false)}
+            >
+              {t.fetchAll}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
