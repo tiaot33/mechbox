@@ -78,6 +78,15 @@ var priorityDirs = []string{
 	".roo/skills", ".trae/skills", ".windsurf/skills", ".zcode/skills", ".zencoder/skills",
 }
 
+func Excluded(name string) bool {
+	for part := range strings.SplitSeq(name, "/") {
+		if slices.Contains(excludedDirs, part) {
+			return true
+		}
+	}
+	return false
+}
+
 type step struct {
 	dir    string
 	file   string

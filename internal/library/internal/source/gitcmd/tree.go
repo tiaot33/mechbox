@@ -18,7 +18,11 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 )
 
-var errTreeOutput = errors.New("read git tree: unexpected git output")
+var (
+	errTreeOutput = errors.New("read git tree: unexpected git output")
+	errTreePath   = errors.New("read git tree: invalid path")
+	errBlobFetch  = errors.New("fetch git blobs")
+)
 
 type treeEntry struct {
 	mode fs.FileMode
@@ -27,9 +31,11 @@ type treeEntry struct {
 
 type treeView struct {
 	repository string
+	partial    bool
 	root       string
 	entries    map[string]treeEntry
 	dirs       map[string][]discovery.Entry
+	fetched    map[string]bool
 }
 
 type treeFile struct {
@@ -38,20 +44,22 @@ type treeFile struct {
 	mode skillfile.Mode
 }
 
-func readTree(ctx context.Context, repository string) (*treeView, error) {
+func readTree(ctx context.Context, repository string, partial bool) (*treeView, error) {
 	root, err := Run(ctx, "-C", repository, "rev-parse", "HEAD^{tree}")
 	if err != nil {
 		return nil, err
 	}
-	listing, err := output(ctx, nil, "-C", repository, "ls-tree", "-r", "-t", "-z", "--full-tree", "HEAD")
+	listing, err := runStdout(ctx, nil, "-C", repository, "ls-tree", "-r", "-t", "-z", "--full-tree", "HEAD")
 	if err != nil {
 		return nil, err
 	}
 	view := &treeView{
 		repository: repository,
+		partial:    partial,
 		root:       strings.ToLower(strings.TrimSpace(string(root))),
 		entries:    map[string]treeEntry{},
 		dirs:       map[string][]discovery.Entry{".": {}},
+		fetched:    map[string]bool{},
 	}
 	for record := range strings.SplitSeq(string(listing), "\x00") {
 		if record == "" {
@@ -59,8 +67,11 @@ func readTree(ctx context.Context, repository string) (*treeView, error) {
 		}
 		meta, name, ok := strings.Cut(record, "\t")
 		fields := strings.Fields(meta)
-		if !ok || len(fields) != 3 || name == "" {
+		if !ok || len(fields) != 3 {
 			return nil, errTreeOutput
+		}
+		if name == "." || !fs.ValidPath(name) {
+			return nil, errTreePath
 		}
 		var mode fs.FileMode
 		switch fields[0] {
@@ -171,17 +182,65 @@ func (v *treeView) skillFiles(root string) ([]treeFile, error) {
 	return files, nil
 }
 
+func (v *treeView) prefetch(ctx context.Context, root string) error {
+	manifests := path.Join(root, ".claude-plugin")
+	var oids []string
+	for name, entry := range v.entries {
+		if !entry.mode.IsRegular() || (root != "." && !strings.HasPrefix(name, root+"/")) {
+			continue
+		}
+		if path.Dir(name) == manifests {
+			oids = append(oids, entry.oid)
+		}
+		if !strings.EqualFold(path.Base(name), "SKILL.md") || discovery.Excluded(name) {
+			continue
+		}
+		oids = append(oids, entry.oid)
+		files, err := v.skillFiles(path.Dir(name))
+		if err != nil {
+			continue
+		}
+		for _, file := range files {
+			oids = append(oids, file.oid)
+		}
+	}
+	return v.fetch(ctx, oids)
+}
+
+func (v *treeView) fetch(ctx context.Context, oids []string) error {
+	if !v.partial {
+		return nil
+	}
+	var missing []string
+	for _, oid := range oids {
+		if !v.fetched[oid] {
+			missing = append(missing, oid)
+		}
+	}
+	missing = slices.Compact(slices.Sorted(slices.Values(missing)))
+	if len(missing) == 0 {
+		return nil
+	}
+	request := strings.Join(missing, "\n") + "\n"
+	if _, err := runStdout(ctx, strings.NewReader(request), "-C", v.repository, "-c", "fetch.negotiationAlgorithm=noop",
+		"fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", "origin"); err != nil {
+		return fmt.Errorf("%w: %w", errBlobFetch, err)
+	}
+	for _, oid := range missing {
+		v.fetched[oid] = true
+	}
+	return nil
+}
+
 func (v *treeView) blobs(ctx context.Context, oids []string) (map[string][]byte, error) {
 	oids = slices.Compact(slices.Sorted(slices.Values(oids)))
 	if len(oids) == 0 {
 		return map[string][]byte{}, nil
 	}
-	request := strings.Join(oids, "\n") + "\n"
-	if _, err := output(ctx, strings.NewReader(request), "-C", v.repository, "-c", "fetch.negotiationAlgorithm=noop",
-		"fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", "origin"); err != nil {
+	if err := v.fetch(ctx, oids); err != nil {
 		return nil, err
 	}
-	batch, err := output(ctx, strings.NewReader(request), "-C", v.repository, "cat-file", "--batch")
+	batch, err := runStdout(ctx, strings.NewReader(strings.Join(oids, "\n")+"\n"), "-C", v.repository, "cat-file", "--batch")
 	if err != nil {
 		return nil, err
 	}

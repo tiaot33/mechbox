@@ -1,7 +1,9 @@
 package library_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/cgi"
@@ -10,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -485,5 +488,75 @@ func TestGitSourceDownloadsOnlySkillFiles(t *testing.T) {
 				t.Fatalf("run.sh = %#v, %v", script, err)
 			}
 		})
+	}
+}
+
+// 服务器支持只拉目录结构、但不让按 SHA 取单个文件时(老的协议 v0 服务器),退回完整克隆，入库照样成功。
+func TestGitSourceFallsBackWhenServerRefusesBlobRequests(t *testing.T) {
+	config := isolateGit(t)
+	runGit(t, t.TempDir(), "config", "--file", config, "protocol.version", "0")
+	repository := t.TempDir()
+	runGit(t, repository, "init", "-b", "main")
+	writeFile(t, filepath.Join(repository, "skills", "alpha", "SKILL.md"), []byte(skillDocument("alpha", "first")), 0o644)
+	writeFile(t, filepath.Join(repository, "skills", "alpha", "notes.md"), []byte("notes\n"), 0o644)
+	commitGit(t, repository, "initial")
+	runGit(t, repository, "config", "uploadpack.allowFilter", "true")
+	redirectRemote(t, config, repository, "https://gitlab.com/group/legacy.git")
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://gitlab.com/group/legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := fetchSkills(t, lib, preview, []string{"alpha"})
+	notes, err := lib.GetVersionFile(t.Context(), fetched[0].VersionID, "notes.md")
+	if err != nil || string(notes.Content) != "notes\n" {
+		t.Fatalf("notes.md = %#v, %v", notes, err)
+	}
+}
+
+// Git 树里有名为 . 的目录项时，入库预览报错，不会在技能目录里无限递归。
+func TestGitSourceRejectsDotEntryInTree(t *testing.T) {
+	config := isolateGit(t)
+	repository := t.TempDir()
+	runGit(t, repository, "init", "-b", "main")
+	writeFile(t, filepath.Join(repository, "skills", "alpha", "SKILL.md"), []byte(skillDocument("alpha", "first")), 0o644)
+	commitGit(t, repository, "initial")
+	object := func(kind string, content []byte) []byte {
+		t.Helper()
+		command := exec.Command("git", "-C", repository, "hash-object", "-w", "--literally", "-t", kind, "--stdin")
+		command.Stdin = bytes.NewReader(content)
+		output, err := command.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := hex.DecodeString(strings.TrimSpace(string(output)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	entry := func(mode, name string, id []byte) []byte {
+		return append([]byte(mode+" "+name+"\x00"), id...)
+	}
+	output, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD:skills/alpha", "HEAD:skills/alpha/SKILL.md").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := strings.Fields(string(output))
+	inner, _ := hex.DecodeString(ids[0])
+	blob, _ := hex.DecodeString(ids[1])
+	alpha := object("tree", slices.Concat(entry("40000", ".", inner), entry("100644", "SKILL.md", blob)))
+	skills := object("tree", entry("40000", "alpha", alpha))
+	root := object("tree", entry("40000", "skills", skills))
+	commit, err := exec.Command("git", "-C", repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit-tree", hex.EncodeToString(root), "-m", "dot").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "update-ref", "refs/heads/main", strings.TrimSpace(string(commit)))
+	runGit(t, repository, "config", "uploadpack.allowFilter", "true")
+	redirectRemote(t, config, repository, "https://gitlab.com/group/dot.git")
+	lib := openTestLibrary(t)
+	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://gitlab.com/group/dot"}); err == nil {
+		t.Fatal("PreviewFetch accepted a tree with a . entry")
 	}
 }

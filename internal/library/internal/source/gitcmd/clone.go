@@ -3,6 +3,7 @@ package gitcmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,7 +27,15 @@ type Checkout struct {
 	Diagnostics []discovery.Diagnostic
 }
 
-func Clone(ctx context.Context, remotes []string, ref, subpath string) (result Checkout, err error) {
+func Clone(ctx context.Context, remotes []string, ref, subpath string) (Checkout, error) {
+	result, err := clone(ctx, remotes, ref, subpath, true)
+	if errors.Is(err, errBlobFetch) && ctx.Err() == nil {
+		return clone(ctx, remotes, ref, subpath, false)
+	}
+	return result, err
+}
+
+func clone(ctx context.Context, remotes []string, ref, subpath string, partial bool) (result Checkout, err error) {
 	if FullCommit.MatchString(ref) {
 		ref = strings.ToLower(ref)
 	}
@@ -39,8 +48,12 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 	if err := ValidateRef(ctx, ref); err != nil {
 		return result, err
 	}
-	clone := func(remote string) error {
-		_, err := Run(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", "--filter=blob:none", "--no-checkout", "--origin", "origin", "--branch", ref, "--", remote, repository)
+	filter := "--no-filter"
+	if partial {
+		filter = "--filter=blob:none"
+	}
+	cloneFrom := func(remote string) error {
+		_, err := Run(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", filter, "--no-checkout", "--origin", "origin", "--branch", ref, "--", remote, repository)
 		if err != nil && ctx.Err() == nil && FullCommit.MatchString(ref) {
 			if removeErr := os.RemoveAll(repository); removeErr != nil {
 				return removeErr
@@ -51,7 +64,7 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 			if _, remoteErr := Run(ctx, "-C", repository, "remote", "add", "--", "origin", remote); remoteErr != nil {
 				return remoteErr
 			}
-			if _, fetchErr := Run(ctx, "-C", repository, "fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:none", "origin", ref); fetchErr != nil {
+			if _, fetchErr := Run(ctx, "-C", repository, "fetch", "--quiet", "--no-tags", "--depth", "1", filter, "origin", ref); fetchErr != nil {
 				return fetchErr
 			}
 			_, err = Run(ctx, "-C", repository, "update-ref", "--no-deref", "HEAD", "FETCH_HEAD")
@@ -65,7 +78,7 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 				return result, err
 			}
 		}
-		err = clone(remote)
+		err = cloneFrom(remote)
 		if err == nil || ctx.Err() != nil {
 			break
 		}
@@ -82,7 +95,7 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 	if err != nil {
 		return result, err
 	}
-	view, err := readTree(ctx, repository)
+	view, err := readTree(ctx, repository, partial)
 	if err != nil {
 		return result, err
 	}
@@ -102,6 +115,9 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 			}
 			current = path.Join(current, component)
 		}
+	}
+	if err := view.prefetch(ctx, current); err != nil {
+		return result, err
 	}
 	listed := map[string][]treeFile{}
 	candidates, diagnostics, err := discovery.Scan(ctx, view, current, func(candidate discovery.Candidate, _ string, _ []byte) error {

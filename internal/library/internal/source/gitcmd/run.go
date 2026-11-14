@@ -35,7 +35,7 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 	return run(ctx, nil, true, args...)
 }
 
-func output(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+func runStdout(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
 	return run(ctx, stdin, false, args...)
 }
 
