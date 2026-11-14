@@ -1,13 +1,13 @@
 // 技能详情里的安装卡片：各作用域的安装与状态，以及"安装到…"。
 import { AppService } from "@bindings/cmd/desktop";
 import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
-import { messages, useT } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
 import {
-  copiesOf,
-  folderNotes,
+  identicalsOf,
   folderPresent,
+  identicalState,
   mergeProjectPlaces,
   needsReinstall,
   placeOf,
@@ -41,7 +41,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
   const id = skill.id;
   const installed = mergeProjectPlaces(s, skillScopesOf(s, id));
   const stale = installed.filter(needsReinstall).length;
-  const copies = copiesOf(s, id);
+  const copies = identicalsOf(s, id);
   return (
     <Card>
       <CardHeader title={d.install} note={d.installNote(installed.length, stale)} />
@@ -145,7 +145,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
               );
             })}
             {copies.map((u) => (
-              <tr key={u.folder} className="copy-place">
+              <tr key={u.folder} className="identical-place">
                 <td />
                 <td>
                   <div className="flex items-center gap-1.5">
@@ -167,16 +167,15 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   </div>
                 </td>
                 <td>
-                  <span
-                    className="copy-notes text-[11px] text-muted-foreground"
-                    title={[d.copyTitle, ...folderNotes(u).map((x) => x.title), ...(u.link_target ? [messages().list.linkTitle(u.link_target)] : [])].join("\n")}
-                  >
-                    {[d.copy, ...folderNotes(u).map((x) => x.text)].join(" · ")}
+                  <span className="identical-notes text-[11px] text-muted-foreground" title={identicalState(skill, u).title}>
+                    {identicalState(skill, u).text}
                   </span>
                 </td>
                 <td>
-                  {u.version_id !== skill.version_id && <Badge tone="warn">{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>}{" "}
-                  <Button variant="link" className="take-over" onClick={() => void fetchUnmanaged(u)} title={d.copyTitle}>
+                  {identicalState(skill, u).stale && (
+                    <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
+                  )}{" "}
+                  <Button variant="link" className="take-over" onClick={() => void fetchUnmanaged(u)} title={identicalState(skill, u).title}>
                     {d.takeOver}
                   </Button>
                 </td>

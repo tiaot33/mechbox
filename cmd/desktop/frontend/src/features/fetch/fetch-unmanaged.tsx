@@ -24,8 +24,12 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
   const t = messages().actions;
   const place = scopeLabel(s, skill.scope);
   const library = s.skills.find((x) => x.id === skill.skill_id);
+  const from = library && (noSource(library.source) ? messages().model.noSource : sourceLabel(s, library.source));
+  // 和库里的旧版本一样时说清入库后是旧版本，之后更新、重新安装会换成当前版本。
   const same = library
-    ? t.fetchCopy(library.name, noSource(library.source) ? messages().model.noSource : sourceLabel(s, library.source), place)
+    ? skill.version_id === library.version_id
+      ? t.fetchIdentical(library.name, from!, place)
+      : t.fetchIdenticalOld(library.name, from!, place)
     : undefined;
   // 库里已有同名的技能时确认里说出来：内容不同不合并，入库后会有两个同名的。
   const twins = library
@@ -70,7 +74,8 @@ function FetchUnmanagedDialog({
   // 确认框开着时才在 skills.sh 上找到来源的，用户还没动过链接就补上。
   const found = foundSource(useFoundSources(), skill);
   const [edited, setLink] = useState<string>();
-  const link = edited ?? skill.source_input ?? found ?? "";
+  // 和库里某个技能一样的不问来源，也不带来源：入库只补记安装。
+  const link = same ? "" : (edited ?? skill.source_input ?? found ?? "");
   const [error, setError] = useState<LibraryError>();
   const [busy, setBusy] = useState(false);
   const input = link.trim();

@@ -593,7 +593,8 @@ export type FetchPreviewID = string;
 
 /**
  * FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
- * SourceInput 为空时作为没有来源的技能入库;给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
+ * 内容和库里某个版本完全一致时只给那个技能补记安装,SourceInput 不起作用;否则 SourceInput 为空时作为没有来源的技能入库,
+ * 给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
  */
 export interface FetchUnmanagedRequest {
     "scope": Scope;
@@ -1166,7 +1167,7 @@ export interface PlannedUnmanagedSkill {
 
     /**
      * SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能:
-     * 入库只给它补记各处安装,界面按它所在的集合分组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
+     * 入库只给它补记各处安装,界面把这些单独列成一组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
      * 按来源入库会返回 AlreadyExists,所以默认不勾,界面引导用更新换上这一版。
      */
     "skill_id"?: SkillID;
@@ -1787,7 +1788,8 @@ export interface SkillScopeInspection {
     /**
      * SourceLatest 只在 modified 时可能为 true:这里的内容和来源里这个技能现在的那一版完全一致(最近一次检查更新或更新计划看到的、
      * 比库里新的那一版),是在库外更新到了作者现在这一版,不是用户的修改。界面据此不说「用户改过」,引导用更新把库里的技能换成这一版;
-     * 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。
+     * 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。用目录里的修改更新的计划(PlanUpdateFromScope)里为 false:
+     * 那次换上的是那一处的修改,这一处照样算被改过。
      */
     "source_latest"?: boolean;
 

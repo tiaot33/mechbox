@@ -277,7 +277,7 @@ await step(FIRST_OPEN, async () => {
     const lead = await modal().locator(".fetch-unmanaged-lead").textContent();
     assert(lead.includes("在各 Agent 的全局目录里发现 4 个不是库装的技能") && lead.includes("磁盘上什么都不改，Agent 用的和现在一样"), `开头应先说磁盘不动:${lead}`);
     const text = await modal().textContent();
-    assert(text.includes("之后如果还用命令行工具更新这些技能，app 只能把它们报为被手动改过"), `确认前写清代价:${text}`);
+    assert(text.includes("更新到作者的新版时 app 会认出来") && text.includes("改成别的内容，会报为被手动改过"), `确认前写清代价:${text}`);
     assert(text.includes("项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库"), "第一次打开时说明项目里的之后再接，先不入库的去哪里再入库");
     assert((await modal().locator(".fetch-unmanaged-team").count()) === 0, "全局里没有项目仓库的提醒");
     // 符号链接和它指向的真实文件夹内容一样，合成一条，两个 Agent 都列出。
@@ -1348,7 +1348,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     await btn(unmanaged("npx-tool"), "入库").click();
     await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「npx-tool」" }).waitFor();
     const text = await modal().textContent();
-    assert(text.includes("入库就是把它交给 app 管") && text.includes("之后如果还用命令行工具更新它，app 只能把它报为被手动改过"), `确认时应写清由谁管:${text}`);
+    assert(text.includes("入库就是把它交给 app 管") && text.includes("更新到作者的新版时，app 会认出来") && text.includes("app 会把它报为被手动改过"), `确认时应写清由谁管:${text}`);
     assert(!text.includes("项目仓库"), "不在项目仓库里的不提仓库");
     await btn(modal(), "入库").click();
     await toast("「npx-tool」已放进技能库，Claude Code · 全局 里的文件夹原样没动");
@@ -1373,7 +1373,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     await selectScope("Codex");
     assert((await unmanaged("npx-tool").count()) === 0, "和库里一样的不列在不在技能库里");
     const copy = page.locator('.in-use .skill-row[data-name="npx-tool"]');
-    assert((await copy.locator(".copy-state").textContent()).includes("不是 app 装的"), "写明不是 app 装的");
+    assert((await copy.locator(".identical-state").textContent()).includes("不是 app 装的"), "写明不是 app 装的");
     await btn(copy, "入库").click();
     const same = await modal().textContent();
     assert(same.includes("一模一样") && same.includes("不会多出一个技能"), `确认里说清只补记安装:${same}`);

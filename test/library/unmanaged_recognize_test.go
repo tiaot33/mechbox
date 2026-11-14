@@ -159,6 +159,34 @@ func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
 	}
 }
 
+func TestCopyOfALibrarySkillIsFetchedWithoutReadingTheGivenSource(t *testing.T) {
+	ctx := t.Context()
+	f := newRecognizeFixture(t)
+	f.publish(t, "https://author.example", "alpha", "v1")
+	alpha := f.fetch(t, "https://author.example", "alpha")
+	project := f.project(t)
+	f.write(t, f.codex, "alpha", "v1")
+	f.write(t, project, "alpha", "v1")
+	// 用户填的链接连不上:内容和库里的一样,照样只补记安装,不去读它。
+	f.site.fail("https://down.example/.well-known/agent-skills/index.json", 500)
+	result, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: f.codex, Name: "alpha", SourceInput: "https://down.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.Skill.ID != alpha.ID {
+		t.Fatalf("fetched = %#v", result)
+	}
+	results := fetchUnmanagedSkills(t, f.lib, library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{
+		{Folders: []library.FolderInScope{{Scope: project, Name: "alpha"}}, SourceInput: "https://down.example"},
+	}})
+	if results[0].Error != nil || !results[0].Matched || results[0].Skill.ID != alpha.ID {
+		t.Fatalf("batch = %#v", results[0])
+	}
+	if got := f.site.requested("down.example/.well-known/agent-skills/index.json"); got != 0 {
+		t.Fatalf("read the given source %d times, want none", got)
+	}
+}
+
 func TestUnmanagedCopyOfAnOlderVersionIsThatVersion(t *testing.T) {
 	ctx := t.Context()
 	f := newRecognizeFixture(t)
@@ -226,6 +254,14 @@ func TestCopyUpdatedOutsideTheLibraryToTheAuthorsVersionIsANewVersion(t *testing
 	}
 	if claude := inspections[f.claude]; claude.Status != library.SkillScopeModified || claude.SourceLatest {
 		t.Fatalf("claude = %#v, want the user's edit", claude)
+	}
+	// 用 Claude Code 全局的修改更新时,换上的是那份修改:Codex 全局照样算被改过,不标作者的新版。
+	edit, err := f.lib.PlanUpdateFromScope(ctx, alpha.ID, f.claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edit.Installs) != 1 || edit.Installs[0].Scope != f.codex || edit.Installs[0].Status != library.SkillScopeModified || edit.Installs[0].SourceLatest {
+		t.Fatalf("plan from scope installs = %#v", edit.Installs)
 	}
 	// 跟着作者走就是更新:更新计划里那一处同样标出。
 	plan, err := f.lib.PlanUpdate(ctx, alpha.CollectionID)

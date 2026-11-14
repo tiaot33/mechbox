@@ -8,7 +8,7 @@ import { platform } from "@/lib/platform";
 // firstNames 是折起来的那行里列出的前三个名字。
 const firstNames = (names: string[]) => `${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`;
 
-const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : k === "copy" ? "和库里的一样、不是 app 装的" : "不在技能库里")).join("、");
+const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : k === "identical" ? "和库里的一样、不是 app 装的" : "不在技能库里")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
 const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}${w.total > 2 ? ` 等 ${w.total} 处` : ""}` : "没装在任何地方");
@@ -334,11 +334,14 @@ export const zh = {
     fetched: (name: string, place: string) => `「${name}」已放进技能库，${place} 里的文件夹原样没动；之后可以在 ${place} 开关它、装到别处`,
     installElsewhere: "装到别处…",
     fetchTitle: (name: string) => `入库「${name}」`,
-    fetchCopy: (name: string, source: string, place: string) =>
+    reinstallSourceLatest: "这里是作者的新版（在 app 外更新的）。覆盖会换回库里的版本；想跟上作者，用「更新」",
+    fetchIdenticalOld: (name: string, source: string, place: string) =>
+      `这份和库里「${name}」（${source}）的一个旧版本一模一样：入库只记下它也装在 ${place}，不会多出一个技能。入库后这里显示为旧版本，之后更新、重新安装会换成当前版本。`,
+    fetchIdentical: (name: string, source: string, place: string) =>
       `这份和库里的「${name}」（${source}）一模一样：入库只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
     fetch: "入库",
     fetchHandOver: (place: string) => `入库就是把它交给 app 管。${place} 里的文件夹原样不动，Agent 用到的内容不变。`,
-    fetchCliCost: "之后如果还用命令行工具更新它，app 只能把它报为被手动改过。",
+    fetchCliCost: "之后如果还用命令行工具更新它：更新到作者的新版时，app 会认出来，在 app 里点「更新」就能对上；改成别的内容，app 会把它报为被手动改过。",
     fetchInRepository: "它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。",
     sourceLink: "来源链接",
     sourceLinkPlaceholder: "owner/repo、Git 地址或链接",
@@ -368,6 +371,8 @@ export const zh = {
     checking: "正在查看安装计划…",
     edited: (from: string, to: string, names: string[]) =>
       `${names.map((n) => `「${n}」`).join("、")} 在 ${from} 里被手动改过：${to} 装的是库里的版本，不是改过的那份。想让 ${to} 也用上修改，先在技能详情里对 ${from} 那一处「用这里的修改更新」，再照着装。`,
+    newer: (from: string, to: string, names: string[]) =>
+      `${names.map((n) => `「${n}」`).join("、")} 在 ${from} 里是作者的新版（在 app 外更新的）：${to} 装的是库里的版本。想让 ${to} 也用上新版，先在技能详情里「更新」，再照着装。`,
     unmanaged: (from: string, n: number) => `${from} 里还有 ${n} 个未纳管技能，不在库里，带不过来；入库以后才能照着装。`,
     confirm: (skills: number, groups: number, overwrites: number) =>
       `安装${[skills ? ` ${skills} 个技能` : "", groups ? ` ${groups} 个组` : ""].filter(Boolean).join("和")}${overwrites ? `（覆盖 ${overwrites} 个文件夹）` : ""}`,
@@ -543,8 +548,6 @@ export const zh = {
     updateFromHere: "用这里的修改更新",
     updateToLatest: "更新",
     updateToLatestHint: "这里已经是作者的新版（在 app 外更新的）。用更新把库里的技能也换成这一版",
-    copy: "不是 app 装的",
-    copyTitle: "这里的文件夹和库里的这个技能一模一样，但不是 app 装的。入库只记下它装在这里，之后由 app 管、跟着它更新",
     takeOver: "入库",
     notInstalled: "还没有安装到任何作用域。",
     switchHint: (): ReactNode => (
@@ -630,9 +633,9 @@ export const zh = {
     agentDirectory: "Agent 目录",
     statInstalled: "已安装",
     statNotInLibrary: "不在技能库里",
-    statCopies: "不是 app 装的",
-    copyHere: "不是 app 装的",
-    copyHereTitle: (name: string) => `这里的文件夹和库里的「${name}」一模一样，但不是 app 装的。点「入库」只记下它装在这里、交给 app 管，文件夹原样不动`,
+    statIdentical: "不是 app 装的",
+    identicalHere: "不是 app 装的",
+    identicalHereTitle: (name: string) => `这里的文件夹和库里的「${name}」一模一样，但不是 app 装的。点「入库」只记下它装在这里、交给 app 管，文件夹原样不动`,
     takeOver: "入库",
     sameAsLibrary: (name: string) => `和库里的「${name}」一样`,
     sourceLatestOf: (name: string) => `库里「${name}」的新版`,
@@ -825,7 +828,7 @@ export const zh = {
     title: "把你在用的技能交给 app 管",
     notNow: "先不入库",
     fetchN: (n: number) => `入库 ${n} 个`,
-    cost: "入库就是交给 app 管：之后如果还用命令行工具更新这些技能，app 只能把它们报为被手动改过。",
+    cost: "入库就是交给 app 管：之后如果还用命令行工具更新这些技能，更新到作者的新版时 app 会认出来，在 app 里点「更新」就能对上；改成别的内容，会报为被手动改过。",
     projectsLater: "项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库。",
     noSource: "没有来源",
     groupCount: (n: number) => `· ${n} 个`,

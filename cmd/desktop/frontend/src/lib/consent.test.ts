@@ -189,6 +189,12 @@ describe("重新安装", () => {
     expect(r.keptMissing).toBe(1);
   });
 
+  it("在 app 外更新到作者新版的那一处，勾上覆盖时照样带覆盖：重新安装是换回库里的版本", () => {
+    const latest = place(1, global(codex), SkillScopeStatus.SkillScopeModified, { source_latest: true });
+    const r = planReinstall([latest], false, { overwrite: new Set([overwriteKey(latest)]), missing: new Map() });
+    expect(r.requests).toEqual([{ skill_id: 1, scope: global(codex), overwrite: true }]);
+  });
+
   it("勾上的被改过的地方才覆盖，选装回去的才装回去", () => {
     const { targets } = reinstallTargets(inspected, false);
     const chosen: ReinstallChoices = { overwrite: new Set([overwriteKey(modified)]), missing: new Map([[folderKey(missing), "putBack"]]) };

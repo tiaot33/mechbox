@@ -64,7 +64,7 @@ export function PlannedRow({
   picked,
   onToggle,
   home,
-  inLibrary,
+  sameNameInLibrary,
   agents,
   edit,
 }: {
@@ -72,7 +72,7 @@ export function PlannedRow({
   picked: boolean;
   onToggle: () => void;
   home: string;
-  inLibrary: boolean;
+  sameNameInLibrary: boolean; // 库里已有同名的技能(内容可能不同)
   agents: string;
   edit: SourceEdit;
 }) {
@@ -95,7 +95,7 @@ export function PlannedRow({
               {t.sourceLatest}
             </Badge>
           ) : (
-            inLibrary && !p.skill_id && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />
+            sameNameInLibrary && !p.skill_id && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />
           )}
           <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">{agents}</span>
           {!p.skill_id && (
@@ -112,6 +112,7 @@ export function PlannedRow({
 }
 
 // ConflictRow 是同名不同内容的几份里的一份：单选，选中这份就只入库这份;写明在哪几个 Agent 里、什么时候改的、认出的来源。
+// 和库里某个技能一样的标出已经在技能库里(入库只补记安装，不改来源),库里技能在来源里的新版标出作者的新版。
 export function ConflictRow({
   planned: p,
   group,
@@ -139,13 +140,27 @@ export function ConflictRow({
           {p.in_repository && <Badge tone="warn">{t.inRepository}</Badge>}
           {!p.in_repository && p.in_project_lock && <Badge tone="warn">{t.inLock}</Badge>}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
+          {!!p.skill_id && (
+            <Badge className="fetch-unmanaged-in-library" title={t.inLibraryNote}>
+              {t.inLibrary}
+            </Badge>
+          )}
+          {!!p.source_latest_of && (
+            <Badge tone="warn" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
+              {t.sourceLatest}
+            </Badge>
+          )}
           <span className="grow" />
           <span className="shrink-0 text-[11px] text-muted-foreground">
             {p.modified_at ? t.modifiedAt(p.modified_at) : ""}
             {edit.link === undefined && p.source_input ? t.from(p.source_input) : ""}
           </span>
-          <ChangedSource planned={p} link={edit.link} className="min-w-0 truncate text-[11px] text-primary-ink" />
-          <EditSourceButton onEdit={edit.onEdit} />
+          {!p.skill_id && (
+            <>
+              <ChangedSource planned={p} link={edit.link} className="min-w-0 truncate text-[11px] text-primary-ink" />
+              <EditSourceButton onEdit={edit.onEdit} />
+            </>
+          )}
         </label>
       </ListRow>
       <SourceEditor edit={edit} />

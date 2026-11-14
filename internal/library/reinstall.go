@@ -72,7 +72,8 @@ type SkillScopeInspection struct {
 	VersionID VersionID `json:"version_id,omitzero"`
 	// SourceLatest 只在 modified 时可能为 true:这里的内容和来源里这个技能现在的那一版完全一致(最近一次检查更新或更新计划看到的、
 	// 比库里新的那一版),是在库外更新到了作者现在这一版,不是用户的修改。界面据此不说「用户改过」,引导用更新把库里的技能换成这一版;
-	// 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。
+	// 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。用目录里的修改更新的计划(PlanUpdateFromScope)里为 false:
+	// 那次换上的是那一处的修改,这一处照样算被改过。
 	SourceLatest bool `json:"source_latest,omitzero"`
 	// LinkTarget 在技能文件夹本身是符号链接时(如 npx skills 的布局)给出它指向的地方:解析了各级符号链接的真实文件夹,
 	// 链接指向不存在之处时是链接里写的路径(相对路径按链接所在的目录展开);不是符号链接时为空。

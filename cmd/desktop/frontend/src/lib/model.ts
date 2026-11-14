@@ -229,14 +229,28 @@ export function unmanagedIn(s: Snapshot, key: ScopeKey): UnmanagedSkill[] {
   return s.unmanaged.filter((u) => scopeKey(u.scope) === key);
 }
 
-// copyIn 是作用域里内容和库里这个技能完全一样、但不是库装的那个文件夹(技能库认出它就是这个技能，见 UnmanagedSkill.skill_id);
+// identicalIn 是作用域里内容和库里这个技能完全一样、但不是库装的那个文件夹(技能库认出它就是这个技能，见 UnmanagedSkill.skill_id);
 // 作用域页、项目页把它显示成库里这个技能的一行，点"入库"只补记安装。
-export function copyIn(s: Snapshot, key: ScopeKey, skillID: SkillID): UnmanagedSkill | undefined {
+export function identicalIn(s: Snapshot, key: ScopeKey, skillID: SkillID): UnmanagedSkill | undefined {
   return unmanagedIn(s, key).find((u) => u.skill_id === skillID);
 }
 
-// copiesOf 是各作用域里这个技能的、不是库装的文件夹(见 copyIn)。
-export function copiesOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
+// identicalState 是这个技能那一份不是库装的文件夹(identicalIn)怎么说：不是 app 装的，接着写归谁管、指向哪里(folderNotes),
+// 符号链接时 title 里写出指向哪里;stale 表示和库里的旧版本一样。作用域页的行和技能详情的安装表都用它。
+export function identicalState(skill: Skill, u: UnmanagedSkill): { text: string; title: string; stale: boolean } {
+  const t = messages().list;
+  const notes = [{ text: t.identicalHere, title: t.identicalHereTitle(skill.name) }, ...folderNotes(u)];
+  const titles = [...notes.map((x) => x.title), ...(u.link_target ? [t.linkTitle(u.link_target)] : [])];
+  return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
+}
+
+// splitIdentical 把作用域里的未纳管文件夹分开：identical 是和库里某个技能一样的(就是那个技能),unmanaged 是其余的。
+export function splitIdentical(list: UnmanagedSkill[]): { identical: UnmanagedSkill[]; unmanaged: UnmanagedSkill[] } {
+  return { identical: list.filter((u) => !!u.skill_id), unmanaged: list.filter((u) => !u.skill_id) };
+}
+
+// identicalsOf 是各作用域里这个技能的、不是库装的文件夹(见 identicalIn)。
+export function identicalsOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
   return s.unmanaged.filter((u) => u.skill_id === skillID);
 }
 
@@ -250,7 +264,7 @@ export const repoOwned = (u: Pick<Ownership, "in_repository" | "in_project_lock"
 export const notTakenOver = (u: Ownership) => !repoOwned(u) && !u.link_outside;
 
 // folderNotes 是未纳管文件夹归谁管、指向哪里的标注，写在行的最后一列：提交在项目仓库里或记在 skills-lock.json 里、
-// 指向 Agent 目录以外。"不在技能库里"的一行和显示成库里技能一行的副本(copyIn)都写这几条。
+// 指向 Agent 目录以外。"不在技能库里"的一行和显示成库里技能一行的副本(identicalIn)都写这几条。
 export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">): { text: string; title: string }[] {
   const t = messages().list;
   return [
@@ -267,8 +281,8 @@ export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">):
 // 按 Agent 已知的规则说出后果(Claude Code 里全局的生效，Codex 里两份都会出现),没有已知规则的只说同名。
 // 同名按 SKILL.md 里的 name,两处的文件夹名可以不同。folder 是这个作用域里那个技能文件夹;没有同名时返回 undefined。
 // title 列出另一处的文件夹。
-// copy 是和库里某个技能一样、但不是库装的那一份(见 copyIn):它就是库里的技能，不说"不在技能库里"。
-export type SameNameKind = "managed" | "copy" | "unmanaged";
+// copy 是和库里某个技能一样、但不是库装的那一份(见 identicalIn):它就是库里的技能，不说"不在技能库里"。
+export type SameNameKind = "managed" | "identical" | "unmanaged";
 
 export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
   const m = messages().model;
@@ -281,7 +295,7 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
     if (pairs.length === 0) return undefined;
     const copied = (folder: string) => s.unmanaged.some((u) => u.folder === folder && !!u.skill_id);
     const kinds = [
-      ...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : copied(p.global.folder) ? "copy" : "unmanaged"))),
+      ...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : copied(p.global.folder) ? "identical" : "unmanaged"))),
     ];
     const name = pairs[0].name;
     const text = {
@@ -389,12 +403,14 @@ export function viaGroupCount(s: Snapshot, group: Group, key: ScopeKey): number 
 
 // CopyPlace 是照装时装到的一处(to)。groups 是照着的那一处有、这里还没有的组安装，skills 是那一处直接安装、这里还没装的技能;
 // edited 是要装过来的技能里(含随组装过来的),那一处被手动改过的：装的是库里的版本，不是改过的那份。
+// newer 是那一处在 app 外更新到了作者新版的：装的同样是库里的版本，先更新才能用上作者的新版。
 // missing 是 to 所在的项目不在这台机器上，这一处装不了。
 export interface CopyPlace {
   to: Scope;
   groups: Group[];
   skills: Skill[];
   edited: Skill[];
+  newer: Skill[];
   missing: boolean;
 }
 
@@ -425,9 +441,11 @@ function copyPlace(s: Snapshot, from: Scope, to: Scope): CopyPlace[] {
   const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
   if (!groups.length && !skills.length) return [];
   const coming = new Set([...skills.map((x) => x.id), ...groups.flatMap((g) => g.members ?? [])]);
-  const edited = skillsOf(there.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && coming.has(p.skill_id)).map((p) => p.skill_id));
+  const modified = there.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && coming.has(p.skill_id));
+  const edited = skillsOf(modified.filter((p) => !p.source_latest).map((p) => p.skill_id));
+  const newer = skillsOf(modified.filter((p) => p.source_latest).map((p) => p.skill_id));
   const missing = !!s.projects.find((p) => p.id === placeOf(to))?.missing;
-  return [{ to, groups, skills, edited, missing }];
+  return [{ to, groups, skills, edited, newer, missing }];
 }
 
 export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): CopyPlace[] {
@@ -939,7 +957,7 @@ export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Da
 // 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到，不再出现在别处)。
 // 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
 // 下面是库里没装在这里的技能，同样按集合或组分节(notHereSections);notHereSkills 是其中的技能，按节的先后、一个技能只算一次。
-// 搜索时都只留匹配的;hereCount 是装在这里的库里的技能个数。
+// 搜索时都只留匹配的;hereCount 是上面那块里库里的技能个数，含和库里一样、不是库装的那几个(identicalIn)。
 export interface ScopeListing {
   hereSections: SkillSection[];
   hereUnmanaged: UnmanagedSkill[];
@@ -960,8 +978,9 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
 
 export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
-  // 和库里某个技能一样的未纳管文件夹(copyIn)就是那个技能：列在上面库里的技能里，不进"不在技能库里"。
-  const hereIDs = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...unmanagedIn(s, key).flatMap((u) => (u.skill_id ? [u.skill_id] : []))]);
+  // 和库里某个技能一样的未纳管文件夹(identicalIn)就是那个技能：列在上面库里的技能里，不进"不在技能库里"。
+  const split = splitIdentical(unmanagedIn(s, key));
+  const hereIDs = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...split.identical.map((u) => u.skill_id!)]);
   const globalKeys = globalScopesSeenFrom(s, key);
   const globalIDs = new Set(
     s.skillScopes.filter((p) => globalKeys.includes(scopeKey(p.scope)) && !hereIDs.has(p.skill_id)).map((p) => p.skill_id),
@@ -982,9 +1001,7 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   });
   return {
     hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key }),
-    hereUnmanaged: unmanagedIn(s, key)
-      .filter((u) => !u.skill_id && hit(u))
-      .sort(byName),
+    hereUnmanaged: split.unmanaged.filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
     notHereSections,
@@ -1015,12 +1032,10 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
   return mergeProjectAgents(s, used)
     .map((agent) => {
       const key = scopeKey(scopeOf(agent.code, project));
-      const copies = unmanagedIn(s, key).filter((u) => !!u.skill_id);
-      const ids = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...copies.map((u) => u.skill_id!)]);
+      const split = splitIdentical(unmanagedIn(s, key));
+      const ids = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...split.identical.map((u) => u.skill_id!)]);
       const skills = sortSkills(s, s.skills.filter((x) => ids.has(x.id)));
-      const unmanaged = unmanagedIn(s, key)
-        .filter((u) => !u.skill_id)
-        .sort(byName);
+      const unmanaged = split.unmanaged.sort(byName);
       return { scope: key, agent, skills: skills.filter(hit), unmanaged: unmanaged.filter(hit), all: skills.length + unmanaged.length };
     })
     .filter((x) => x.skills.length + x.unmanaged.length > 0);

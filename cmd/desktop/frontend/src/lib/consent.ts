@@ -129,10 +129,11 @@ export function planReinstall(targets: SkillScopeInspection[], single: boolean, 
   };
   const missing = single ? [] : targets.filter((p) => p.status === SkillScopeStatus.SkillScopeMissing);
   const modified = targets.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
+  // 重新安装是换回库里的当前版本：勾上的被改过的一律带覆盖，包括在 app 外更新到作者新版的那一处。
   const requests: ReinstallRequest[] = targets.filter(wanted).map((p) => ({
     skill_id: p.skill_id,
     scope: p.scope,
-    overwrite: consented(p),
+    overwrite: p.status === SkillScopeStatus.SkillScopeModified || p.status === SkillScopeStatus.SkillScopeMissing,
   }));
   return {
     requests,

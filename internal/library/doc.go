@@ -123,7 +123,7 @@
 //     其余标为 [SkillVersion].MaybeEdited,更新计划提示会换掉修改。
 //   - [Library.PlanFetchUnmanaged] 是第一次打开 app(各 Agent 的全局)、登记一个项目之后(这个项目)一次确认全部入库前的确认:
 //     内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里、记在 skills-lock.json 里
-//     或是指向 Agent 目录以外的符号链接([UnmanagedSkill].LinkOutside)的默认不勾。
+//     或是指向 Agent 目录以外的符号链接([UnmanagedSkill].LinkOutside)、或是库里技能在来源里的新版([UnmanagedSkill].SourceLatestOf)的默认不勾。
 //     不记哪些作用域看过,每次都是现查。
 //   - [Library.FetchUnmanagedSkills] 按确认的勾选整批入库,每个技能的规则和 FetchUnmanaged 相同;同一个来源只读一次,
 //     一个技能失败不影响其余的,结果逐条返回。

@@ -330,15 +330,16 @@ export function useFoundSources(): FoundSources {
 }
 
 // foundSource 是在 skills.sh 上给这个未纳管技能找到的来源;来源记录认得出、还没找完或没找到时为 undefined。
+// 认出是库里哪个技能的(和它一样，或是它在来源里的新版)跟着那个技能的来源，之前找到的来源不再用。
 export function foundSource(sources: FoundSources, skill: UnmanagedSkill): string | undefined {
-  if (skill.source_input) return undefined;
+  if (skill.source_input || skill.skill_id || skill.source_latest_of) return undefined;
   return sources.get(folderKey(skill.scope, skill.name)) || undefined;
 }
 
 // withFoundSource 给来源记录认不出来源的那一条补上在 skills.sh 上找到的来源(取第一处找到的),
 // 和来源记录认出的一样预填、分组。
 export function withFoundSource(sources: FoundSources, planned: PlannedUnmanagedSkill): PlannedUnmanagedSkill {
-  if (planned.source_input || planned.error) return planned;
+  if (planned.source_input || planned.error || planned.skill_id || planned.source_latest_of) return planned;
   for (const folder of planned.folders ?? []) {
     const input = foundSource(sources, folder);
     if (input) return { ...planned, source_input: input, source_ref: undefined };

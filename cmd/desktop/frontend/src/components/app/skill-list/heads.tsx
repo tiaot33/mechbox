@@ -14,6 +14,7 @@ import {
   scopeLabel,
   shortPath,
   skillScopesIn,
+  splitIdentical,
   unmanagedIn,
   viaGroupCount,
   wslTitle,
@@ -43,8 +44,9 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
   // 和库里某个技能一样的文件夹就是那个技能，不算"不在技能库里",单独数。
-  const unmanaged = unmanagedIn(s, scope).filter((u) => !u.skill_id).length;
-  const copies = unmanagedIn(s, scope).filter((u) => !!u.skill_id).length;
+  const split = splitIdentical(unmanagedIn(s, scope));
+  const unmanaged = split.unmanaged.length;
+  const identical = split.identical.length;
   const notTaken = unmanagedIn(s, scope).filter(notTakenOver).length;
   const sc = parseScope(scope);
   const groups = s.groups;
@@ -73,7 +75,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         </span>
         <span className="grow" />
         <Stat value={installed.length} label={t.statInstalled} />
-        {copies > 0 && <Stat value={copies} label={t.statCopies} />}
+        {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
         <Stat value={issues} label={t.statStale} warn={issues > 0} />

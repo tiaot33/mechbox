@@ -391,6 +391,19 @@ describe("照着装", () => {
       expect(copyFromAgent(s, claude, codex)[0].edited.map((x) => x.id)).toEqual([1, 4]);
     });
 
+    it("原来那一处是在 app 外更新到的作者新版时不算改过，另列出来提示先更新", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude), { status: SkillScopeStatus.SkillScopeModified, source_latest: true }),
+          installed(3, at(claude), { status: SkillScopeStatus.SkillScopeModified }),
+        ],
+      });
+      const [place] = copyFromAgent(s, claude, codex);
+      expect(place.edited.map((x) => x.id)).toEqual([3]);
+      expect(place.newer.map((x) => x.id)).toEqual([1]);
+    });
+
     it("项目不在这台机器上的那一处标出来", () => {
       const s = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
       expect(copyFromAgent(s, claude, codex)).toMatchObject([{ to: { project_id: 2 }, missing: true }]);
