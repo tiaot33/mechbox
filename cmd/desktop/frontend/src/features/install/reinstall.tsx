@@ -183,6 +183,7 @@ function ReinstallDialog({
                         {shortPath(s, p.folder)}
                       </div>
                       {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
+                      {p.source_latest && <div className="reinstall-source-latest text-[11px] text-warn-strong">{t.actions.reinstallSourceLatest}</div>}
                     </div>
                   </label>
                 </ListRow>

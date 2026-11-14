@@ -243,6 +243,7 @@ func (l *Library) PlanUpdateFromScope(ctx context.Context, skill SkillID, scope 
 	}
 	for _, inspection := range inspections {
 		if !agentdir.SameFolder(inspection.Folder, edit.folder) {
+			inspection.SourceLatest = false
 			plan.Installs = append(plan.Installs, inspection)
 		}
 	}

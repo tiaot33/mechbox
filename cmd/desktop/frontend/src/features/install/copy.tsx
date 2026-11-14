@@ -184,6 +184,7 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
   const coming = (p: CopyPlace, id: number) =>
     checked.has(skillKey(p, id)) || p.groups.some((g) => checked.has(groupKey(p, g.id)) && (g.members ?? []).includes(id));
   const edited = [...new Set(places.flatMap((p) => p.edited.filter((x) => coming(p, x.id)).map((x) => x.name)))];
+  const newer = [...new Set(places.flatMap((p) => p.newer.filter((x) => coming(p, x.id)).map((x) => x.name)))];
   const overwrites = plans ? copyOverwriteCount(plans, checked, overwrite) : 0;
   // togglePlace 是一处标题上的勾选：有勾上的就全部取消;一个都没勾时按 copyDefaults 整处勾上(不管这一处打开时默认勾不勾，
   // 不替用户勾上要覆盖的)。
@@ -258,6 +259,11 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
       {edited.length > 0 && (
         <Notice tone="warn" className="copy-edited">
           {t.edited(fromName, kind.toName, edited)}
+        </Notice>
+      )}
+      {newer.length > 0 && (
+        <Notice tone="warn" className="copy-newer">
+          {t.newer(fromName, kind.toName, newer)}
         </Notice>
       )}
       {left.unmanaged.length > 0 && <Notice className="copy-unmanaged">{t.unmanaged(fromName, left.unmanaged.length)}</Notice>}

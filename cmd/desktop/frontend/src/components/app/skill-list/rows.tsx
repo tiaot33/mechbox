@@ -6,12 +6,15 @@
 // 技能库页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { useEffect, useRef } from "react";
 import { AppService } from "@bindings/cmd/desktop";
-import type { Skill, SkillID, SkillScopeInspection, UnmanagedSkill } from "@bindings/internal/library";
+import { SkillScopeStatus, type Skill, type SkillID, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { foundSource, useFoundSources, useSnapshot } from "@/lib/library";
 import {
   changedAt,
+  identicalIn,
   deletedInSource,
+  folderNotes,
+  identicalState,
   globalScopesSeenFrom,
   groupName,
   hasUpdate,
@@ -60,11 +63,15 @@ const pickScopeCols = "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_mi
 const rowClass =
   "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-[12px] last:border-b-0";
 
+// rowButtonClass 是行首那一格里的小按钮(入库、更新),和开关一样大小。
+const rowButtonClass = "h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] whitespace-nowrap text-primary-ink hover:border-primary hover:bg-primary-soft";
+
 // 最近几天内的变化用正文颜色，排查"最近是不是变过"时一眼看到。
 const recentDays = 7;
 
 // SkillRow 是库里一个技能的一行。scope 为空时是技能库页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
 // 开头一格表示 Agent 在这里用不用(见下),最后一列写是谁装的;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
+// 这里有一份和它一模一样、不是库装的文件夹时(identicalIn),开头一格是"入库",最后一列写不是 app 装的。
 // pickable 的行最前面有勾选框(技能库页、作用域页与项目页;更新页不能勾选)。
 export function SkillRow(props: {
   skill: Skill;
@@ -81,12 +88,15 @@ export function SkillRow(props: {
   const picked = useView((v) => v.picked.has(skill.id));
   const t = useT();
   const here = scope && !props.fromGlobal ? skillScopeIn(s, skill.id, scope) : undefined;
+  // 这里有一份和它一模一样、不是库装的文件夹：就是这个技能，行首是"入库"。
+  const identical = scope && !here && !props.fromGlobal ? identicalIn(s, scope, skill.id) : undefined;
   // 最后一列说的那一处：来自全局的是全局那一处，否则是这里。
   const place =
     scope && props.fromGlobal ? globalScopesSeenFrom(s, scope).map((key) => skillScopeIn(s, skill.id, key)).find(Boolean) : here;
   const via = (place?.groups ?? []).map((id) => groupName(s, id));
   // 作用域页说这一处的同名后果;技能库页、更新页说它装出去的各处。
-  const same = scope ? (here ? sameNameNote(s, scope, here.folder) : undefined) : skillSameNameNote(s, skill.id);
+  const folder = here?.folder ?? identical?.folder;
+  const same = scope ? (folder ? sameNameNote(s, scope, folder) : undefined) : skillSameNameNote(s, skill.id);
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
@@ -130,6 +140,8 @@ export function SkillRow(props: {
           {/* 开 = Agent 在这里用着：直接安装是蓝色，只随组安装是紫色，来自全局是灰色、不能点;关 = 没装在这里。 */}
           {props.fromGlobal ? (
             <SwitchMark title={t.list.sectionGlobalTitle} />
+          ) : identical ? (
+            <TakeOverButton identical={identical} name={skill.name} />
           ) : (
             <Switch
               checked={!!here}
@@ -143,7 +155,7 @@ export function SkillRow(props: {
       <div className="flex min-w-0 items-center gap-1.5">
         {/* 名字优先：放不下时先截后面的标记。 */}
         <span
-          className={cn("skill-name min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !props.fromGlobal && "font-medium text-foreground-secondary")}
+          className={cn("skill-name min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !identical && !props.fromGlobal && "font-medium text-foreground-secondary")}
           title={skill.note || undefined}
         >
           {skill.name}
@@ -220,13 +232,27 @@ export function SkillRow(props: {
           </p>
         )}
         {/* 库里同名的几个技能(内容不同，不合并)写出各装在哪里，免得只能靠描述分辨。 */}
+        {/* 这里那一份是符号链接时写出指向哪里，和"不在技能库里"的一行一样。 */}
+        {identical?.link_target && (
+          <p className="identical-link truncate text-[10.5px] text-subtle" title={t.list.linkTitle(identical.link_target)}>
+            {t.list.link(shortPath(s, identical.link_target))}
+          </p>
+        )}
         {twins.length > 0 && (
           <p className="dup-name-note truncate text-[10.5px] text-muted-foreground" title={t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id))}>
             {t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id))}
           </p>
         )}
       </div>
-      {scope ? <ScopeState place={place} via={via} fromGlobal={!!props.fromGlobal} /> : <Where skill={skill} />}
+      {scope ? (
+        identical ? (
+          <IdenticalState identical={identical} skill={skill} />
+        ) : (
+          <ScopeState place={place} via={via} fromGlobal={!!props.fromGlobal} />
+        )
+      ) : (
+        <Where skill={skill} />
+      )}
       {!scope && <Changed skill={skill} />}
     </article>
   );
@@ -286,16 +312,62 @@ function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | 
         {text}
       </span>
       {place && needsReinstall(place) && (
-        <Badge tone={skillScopeStatus(place.status).tone} className="font-sans">
-          {skillScopeStatus(place.status).label}
+        <Badge tone={skillScopeStatus(place.status, place.source_latest).tone} className="font-sans">
+          {skillScopeStatus(place.status, place.source_latest).label}
         </Badge>
       )}
     </span>
   );
 }
 
+// TakeOverButton 是和库里技能一模一样、不是库装的那一处的"入库":入库只补记安装，文件夹原样不动。
+function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: string }) {
+  const t = useT().list;
+  return (
+    <Button
+      size="inline"
+      className={cn("take-over", rowButtonClass)}
+      title={t.identicalHereTitle(name)}
+      onClick={() => void fetchUnmanaged(identical)}
+    >
+      {t.takeOver}
+    </Button>
+  );
+}
+
+// IdenticalState 是那一处的最后一列：不是 app 装的，接着写归谁管、是不是指向 Agent 目录以外(folderNotes);
+// 和库里的旧版本一样时标出来，下面是在文件管理器中显示。
+function IdenticalState({ identical, skill }: { identical: UnmanagedSkill; skill: Skill }) {
+  const { common } = useT();
+  const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
+  const state = identicalState(skill, identical);
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-0.5">
+      <span className="skill-state identical-state flex max-w-full min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground" title={state.title}>
+        <span className="min-w-0 truncate">{state.text}</span>
+        {state.stale && (
+          <Badge tone={stale.tone} className="font-sans">
+            {stale.label}
+          </Badge>
+        )}
+      </span>
+      <Button
+        variant="link"
+        className="reveal-folder shrink-0 font-sans text-[11px]"
+        onClick={(e) => {
+          e.stopPropagation();
+          void ui.run(() => AppService.RevealInFileManager(identical.folder), { reload: false });
+        }}
+      >
+        {common.reveal()}
+      </Button>
+    </div>
+  );
+}
+
 // UnmanagedRow 是作用域里一个不是库装的技能文件夹(未纳管技能):它不在技能库里，所以行首没有开关，是"入库"按钮;
-// 入库后这一行换成库里技能的一行，出现在它所属的那一节并闪一下。
+// 入库后这一行换成库里技能的一行，出现在它所属的那一节并闪一下。和库里某个技能一样的(一般显示成那个技能的一行，见 SkillRow;
+// 这里只剩"来自全局"一节里的)行首是"入库";是库里某个技能在来源里的新版的，行首是"更新",打开那个技能的更新计划。
 // 最后一列写"不在技能库里"(headed:作用域页"不在技能库里"一节里的，节标题已经写了，不再写;fromGlobal:"来自全局"一节里的，先写"来自全局"),
 // 提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在文件管理器中显示;符号链接在描述下写出指向哪里。
 // 不能拖动、不打开详情。
@@ -306,28 +378,45 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
   // 来源记录认不出来源的，在 skills.sh 上找到来源后补上。
   const found = foundSource(useFoundSources(), skill);
   const source = skill.source_input || found;
+  // 和库里某个技能一样的(就是那个技能)、库里某个技能的新版(在 app 外更新过)各有自己的说法和操作。
+  const library = s.skills.find((x) => x.id === skill.skill_id);
+  const newer = s.skills.find((x) => x.id === skill.source_latest_of);
   const state = [
     fromGlobal ? { text: t.fromGlobal, title: t.sectionGlobalTitle } : undefined,
-    headed ? undefined : { text: t.notInLibrary, title: t.notInLibraryTitle },
-    skill.in_repository
-      ? { text: t.inRepository, title: t.inRepositoryTitle }
-      : skill.in_project_lock
-        ? { text: t.inLock, title: t.inLockTitle }
-        : undefined,
-    skill.link_outside ? { text: t.linkOutside, title: t.linkOutsideTitle(skill.link_target ?? "") } : undefined,
+    library
+      ? { text: t.sameAsLibrary(library.name), title: t.identicalHereTitle(library.name) }
+      : newer
+        ? { text: t.sourceLatestOf(newer.name), title: t.sourceLatestOfTitle(newer.name) }
+        : headed
+          ? undefined
+          : { text: t.notInLibrary, title: t.notInLibraryTitle },
+    ...folderNotes(skill),
   ].filter((x) => !!x);
   return (
     <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>
       <span />
       <span className="flex">
-        <Button
-          size="inline"
-          className="fetch-unmanaged h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] text-primary-ink hover:border-primary hover:bg-primary-soft"
-          title={t.fetchTitle}
-          onClick={() => void fetchUnmanaged(skill)}
-        >
-          {t.fetch}
-        </Button>
+        {library ? (
+          <TakeOverButton identical={skill} name={library.name} />
+        ) : newer ? (
+          <Button
+            size="inline"
+            className={cn("update-to-latest", rowButtonClass)}
+            title={t.sourceLatestOfTitle(newer.name)}
+            onClick={() => void openUpdate(newer.collection_id, { focus: newer.id })}
+          >
+            {t.update}
+          </Button>
+        ) : (
+          <Button
+            size="inline"
+            className={cn("fetch-unmanaged", rowButtonClass)}
+            title={t.fetchTitle}
+            onClick={() => void fetchUnmanaged(skill)}
+          >
+            {t.fetch}
+          </Button>
+        )}
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold">{skill.name}</span>

@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 
 export const noSource = "";
 
+// identicalGroup 是和库里某个技能一样的那一组的键(不会和来源的键撞上):入库只补记安装，不带来源。
+export const identicalGroup = "\u0000library";
+
 // sourceKey 把来源与分支合成一个键：同一个来源只读一次，结果也按它分组。
 export function sourceKey(input?: string, ref?: string): string {
   return input ? `${input}\n${ref ?? ""}` : noSource;

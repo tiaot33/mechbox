@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
+  SameNameRule,
   ScopeKind,
   SkillScopeStatus,
   SourceType,
@@ -23,6 +24,7 @@ import {
   copyProjectSources,
   copySources,
   copyTarget,
+  folderNotes,
   folderPresent,
   homePath,
   isDefaultOrder,
@@ -33,6 +35,7 @@ import {
   pickRange,
   placeOf,
   projectAgents,
+  sameNameNote,
   scopeListing,
   sortSkills,
   uncopiedProjectUnmanaged,
@@ -190,6 +193,16 @@ describe("scopeListing", () => {
     expect(l.global).toEqual([]);
   });
 
+  it("和库里某个技能一样的未纳管文件夹就是那个技能：列在上面库里的技能里，不进不在技能库里", () => {
+    const copy = { ...unmanaged("a2", "claude-code", 1), skill_id: 11, version_id: 1 };
+    const other = unmanaged("mine", "claude-code", 1);
+    const l = scopeListing({ ...s, unmanaged: [copy, other] }, "claude-code@1", "collection", "");
+    expect(l.hereSections.map((x) => ids(x.skills))).toEqual([[11], [20], [30]]);
+    expect(l.hereUnmanaged.map((u) => u.name)).toEqual(["mine"]);
+    expect(l.notHereSkills.map((x) => x.name)).toEqual(["c2"]);
+    expect(l.hereCount).toBe(3);
+  });
+
   it("搜索时两块都只留匹配的", () => {
     const l = scopeListing(s, "claude-code@1", "collection", "2");
     expect(l.hereSections).toEqual([]);
@@ -221,6 +234,14 @@ describe("projectAgents", () => {
     expect(agents[0].unmanaged.map((u) => u.name)).toEqual(["mine"]);
     expect(agents[1].skills.map((x) => x.name)).toEqual(["alpha", "zeta"]);
     expect(agents.map((a) => a.all)).toEqual([1, 2]);
+  });
+
+  it("和库里某个技能一样的未纳管文件夹算作那个技能，不另算一个", () => {
+    const copy = { ...unmanaged("beta", "claude-code", 1), skill_id: 12, version_id: 1 };
+    const agents = projectAgents({ ...s, unmanaged: [...s.unmanaged, copy] }, 1, "");
+    expect(agents[0].skills.map((x) => x.name)).toEqual(["beta"]);
+    expect(agents[0].unmanaged.map((u) => u.name)).toEqual(["mine"]);
+    expect(agents[0].all).toBe(2);
   });
 
   it("搜索时只留有结果的节，all 不随搜索变", () => {
@@ -368,6 +389,19 @@ describe("照着装", () => {
         groupInstalls: [{ group_id: 7, scope: at(claude) }] as GroupInstall[],
       });
       expect(copyFromAgent(s, claude, codex)[0].edited.map((x) => x.id)).toEqual([1, 4]);
+    });
+
+    it("原来那一处是在 app 外更新到的作者新版时不算改过，另列出来提示先更新", () => {
+      const s = snapshot({
+        ...base,
+        skillScopes: [
+          installed(1, at(claude), { status: SkillScopeStatus.SkillScopeModified, source_latest: true }),
+          installed(3, at(claude), { status: SkillScopeStatus.SkillScopeModified }),
+        ],
+      });
+      const [place] = copyFromAgent(s, claude, codex);
+      expect(place.edited.map((x) => x.id)).toEqual([3]);
+      expect(place.newer.map((x) => x.id)).toEqual([1]);
     });
 
     it("项目不在这台机器上的那一处标出来", () => {
@@ -554,5 +588,34 @@ describe("照着装", () => {
       expect(left.unmanaged.map((u) => u.name)).toEqual(["mine", "also-mine"]);
       expect(left.repo.map((u) => u.name)).toEqual(["team", "locked"]);
     });
+  });
+});
+
+describe("folderNotes", () => {
+  it("写出归项目仓库管的、指向 Agent 目录以外的;副本和不在技能库里的一行写同样的几条", () => {
+    const plain = unmanaged("x", "claude-code");
+    expect(folderNotes(plain)).toEqual([]);
+    const notes = folderNotes({ ...plain, in_repository: true, in_project_lock: true, link_outside: true, link_target: "/home/code/x" });
+    expect(notes.map((x) => x.text)).toEqual(["在项目仓库里", "指向 Agent 目录以外"]);
+    expect(notes[1].title).toContain("/home/code/x");
+    expect(folderNotes({ ...plain, in_project_lock: true }).map((x) => x.text)).toEqual(["记在 skills-lock.json 里"]);
+  });
+});
+
+describe("sameNameNote", () => {
+  it("全局那一份是和库里一样、不是 app 装的副本时，不说不在技能库里", () => {
+    const pair = { agent: "claude-code", project_id: 1, name: "x", global: { folder: "/home/.claude/skills/x" }, project: { folder: "/home/proj/.claude/skills/x" } };
+    const base = {
+      agents: [{ ...agent("claude-code", ".claude/skills"), same_name: SameNameRule.SameNameUnknown }],
+      projects: [{ id: 1, name: "proj", path: "/home/proj" }] as Snapshot["projects"],
+      sameName: [pair],
+    };
+    const copy = { ...unmanaged("x", "claude-code"), folder: pair.global.folder, skill_id: 3, version_id: 1 };
+    expect(sameNameNote(snapshot({ ...base, unmanaged: [copy] } as Partial<Snapshot>), "claude-code@1", pair.project.folder)?.text).toBe(
+      "全局也有同名的 x（和库里的一样、不是 app 装的）",
+    );
+    expect(sameNameNote(snapshot({ ...base, unmanaged: [{ ...copy, skill_id: undefined }] } as Partial<Snapshot>), "claude-code@1", pair.project.folder)?.text).toBe(
+      "全局也有同名的 x（不在技能库里）",
+    );
   });
 });

@@ -18,17 +18,29 @@ import { Notice } from "@/components/ui/notice";
 // 完成后提示它已放进技能库、文件夹原样没动，带"装到别处…";列表里它那一行换成库里技能的一行，滚到看得见的地方闪一下。
 // 确认时写清代价：之后还用命令行工具更新它，app 只能报为被手动改过;提交在项目仓库里的，之后在 app 里更新会改动仓库里的文件。
 // 来源链接预填 npx skills 来源记录里认出的来源，认不出时预填在 skills.sh 上找到的来源，用户可以改或清空;清空就是没有来源的技能。
-// 内容和库里某个技能的某个版本一致时，技能库只给那个技能补记这一处安装。
+// 内容和库里某个技能的某个版本一致时(skill.skill_id),它就是那个技能：不问来源，确认里说清只补记这一处安装、不会多出一个技能。
 export async function fetchUnmanaged(skill: UnmanagedSkill) {
   const s = currentSnapshot();
   const t = messages().actions;
   const place = scopeLabel(s, skill.scope);
+  const library = s.skills.find((x) => x.id === skill.skill_id);
+  const from = library && (noSource(library.source) ? messages().model.noSource : sourceLabel(s, library.source));
+  // 和库里的旧版本一样时说清入库后是旧版本，之后更新、重新安装会换成当前版本。
+  const same = library
+    ? skill.version_id === library.version_id
+      ? t.fetchIdentical(library.name, from!, place)
+      : t.fetchIdenticalOld(library.name, from!, place)
+    : undefined;
   // 库里已有同名的技能时确认里说出来：内容不同不合并，入库后会有两个同名的。
-  const twins = s.skills
-    .filter((x) => x.name === skill.name)
-    .map((x) => t.twin(noSource(x.source) ? messages().model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id)));
+  const twins = library
+    ? []
+    : s.skills
+        .filter((x) => x.name === skill.name)
+        .map((x) => t.twin(noSource(x.source) ? messages().model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id)));
   const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
-  const r = await ui.open<FetchUnmanagedResult>((close) => <FetchUnmanagedDialog place={place} skill={skill} twins={twins} outside={outside} close={close} />);
+  const r = await ui.open<FetchUnmanagedResult>((close) => (
+    <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} close={close} />
+  ));
   if (!r) return;
   // 说清它已在技能库里、文件夹没动，给下一步"装到别处…";它那一行换成库里技能的一行，闪一下。
   const message = r.matched
@@ -45,12 +57,15 @@ function FetchUnmanagedDialog({
   place,
   skill,
   twins,
+  same,
   outside,
   close,
 }: {
   place: string;
   skill: UnmanagedSkill;
   twins: string[];
+  same?: string; // 和库里某个技能一模一样时的说明：不问来源
+
   outside?: string; // 指向 Agent 目录以外的符号链接时的说明
   close: (value?: FetchUnmanagedResult) => void;
 }) {
@@ -59,7 +74,8 @@ function FetchUnmanagedDialog({
   // 确认框开着时才在 skills.sh 上找到来源的，用户还没动过链接就补上。
   const found = foundSource(useFoundSources(), skill);
   const [edited, setLink] = useState<string>();
-  const link = edited ?? skill.source_input ?? found ?? "";
+  // 和库里某个技能一样的不问来源，也不带来源：入库只补记安装。
+  const link = same ? "" : (edited ?? skill.source_input ?? found ?? "");
   const [error, setError] = useState<LibraryError>();
   const [busy, setBusy] = useState(false);
   const input = link.trim();
@@ -90,6 +106,7 @@ function FetchUnmanagedDialog({
       }
     >
       <Hint>{t.actions.fetchHandOver(place)}</Hint>
+      {same && <Hint className="unmanaged-same-as">{same}</Hint>}
       <Hint>{t.actions.fetchCliCost}</Hint>
       {skill.in_repository && <Notice tone="warn">{t.actions.fetchInRepository}</Notice>}
       {outside && (
@@ -102,18 +119,22 @@ function FetchUnmanagedDialog({
           {t.actions.sameNameTwins(skill.name, twins, sameNameFetchNote(skill.name, !!input))}
         </Notice>
       )}
-      <Field label={t.actions.sourceLink}>
-        <Input
-          className="unmanaged-source font-mono"
-          value={link}
-          placeholder={t.actions.sourceLinkPlaceholder}
-          onChange={(e) => setLink(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void submit()}
-        />
-      </Field>
-      <Hint className="unmanaged-source-note">
-        {input ? t.actions.sourceNote(input === found, `${input}${ref ? ` · ${ref}` : ""}`) : t.actions.noSourceNote}
-      </Hint>
+      {!same && (
+        <>
+          <Field label={t.actions.sourceLink}>
+            <Input
+              className="unmanaged-source font-mono"
+              value={link}
+              placeholder={t.actions.sourceLinkPlaceholder}
+              onChange={(e) => setLink(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void submit()}
+            />
+          </Field>
+          <Hint className="unmanaged-source-note">
+            {input ? t.actions.sourceNote(input === found, `${input}${ref ? ` · ${ref}` : ""}`) : t.actions.noSourceNote}
+          </Hint>
+        </>
+      )}
       {error && (
         <Notice tone="bad" className="unmanaged-error whitespace-pre-line">
           {unmanagedSourceError(error, skill.name)}

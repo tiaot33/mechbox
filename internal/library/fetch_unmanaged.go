@@ -18,7 +18,8 @@ import (
 )
 
 // FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
-// SourceInput 为空时作为没有来源的技能入库;给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
+// 内容和库里某个版本完全一致时只给那个技能补记安装,SourceInput 不起作用;否则 SourceInput 为空时作为没有来源的技能入库,
+// 给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
 type FetchUnmanagedRequest struct {
 	Scope Scope  `json:"scope"`
 	Name  string `json:"name"` // UnmanagedSkill.Name,即技能文件夹名
@@ -44,14 +45,17 @@ type FetchUnmanagedResult struct {
 // 入库之后,用户在库外(如命令行工具)再改这个文件夹,巡检报为 modified;提交在项目仓库里的文件夹也能入库,
 // 之后在 app 里更新、重新安装它会改动仓库里的文件。确认框据此提醒。
 //
-// 没有 SourceInput 时:内容和库里某个技能的某个版本完全一致(文件路径、内容与可执行位都相同)时,不新建技能,只给那个技能补记这一处安装
-// (Matched;和它的当前版本一致的优先,其次是最新的旧版本,巡检相应为 current 或 stale);已经装在这个作用域的技能不算。
-// 否则新建一个没有来源的技能(见 Skill),名字取 SKILL.md frontmatter 的 name,描述取 description。
+// 内容和库里某个技能的某个版本完全一致(文件路径、内容与可执行位都相同,即 UnmanagedSkill.SkillID 不为 0)时,不论带不带 SourceInput、
+// 带的是哪个来源,都不新建技能,只给那个技能补记这一处安装(Matched;和它的当前版本一致的优先,其次是最新的旧版本,
+// 巡检相应为 current 或 stale);已经装在这个作用域的技能不算。同一个技能不会因为用了另一个来源链接入库而在库里多出一个。
+// 这时不读 SourceInput 给的来源(连不上也不影响),不记下这个来源,也不进它的集合。
 //
-// 有 SourceInput 时,先按入库预览的规则识别并读取来源(联网期间不持库锁),在来源里按 SKILL.md 的 name 取这个技能,
+// 没有 SourceInput、内容又和库里的哪个版本都对不上时,新建一个没有来源的技能(见 Skill),名字取 SKILL.md frontmatter 的 name,描述取 description。
+//
+// 有 SourceInput、内容和库里的哪个版本都对不上时,先按入库预览的规则识别并读取来源(联网期间不持库锁),在来源里按 SKILL.md 的 name 取这个技能,
 // 再进这个来源的集合(库里已有这个来源时进已有的集合),和入库一样按整个来源记下当时有哪些技能,都算用户见过:
-//   - 集合里已有同名技能:内容和它的某个版本完全一致时只补记这一处安装(Matched),否则返回 AlreadyExists。
-//     这里只在这个技能里找内容一致的版本,不跨到别的集合或没有来源的技能。
+//   - 集合里已有同名技能:返回 AlreadyExists。它可能是这个技能在来源里现在的那一版(UnmanagedSkill.SourceLatestOf),
+//     这时用更新把库里的技能换成这一版,之后这一处就和库里的当前版本一致。
 //   - 内容和来源里的一致:新技能的版本就是来源里的那一版,带来源版本(Skill.Revision),检查更新照常。
 //   - 内容和来源里的不一样:新技能的版本就是磁盘上的内容。下面说的来源记录是 npx skills 的来源记录(见 UnmanagedSkill.SourceInput),
 //     只在请求里的来源就是来源记录认出的来源时用它:
@@ -92,6 +96,9 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 			return FetchUnmanagedResult{}, err
 		}
 		return l.fetchWithoutSource(ctx, []unmanagedFolder{folder})
+	}
+	if result, matched, err := l.fetchIfMatched(ctx, operation, []FolderInScope{{Scope: req.Scope, Name: req.Name}}); err != nil || matched {
+		return result, err
 	}
 	before, err := l.lockedUnmanagedFolder(ctx, operation, req)
 	if err != nil {
@@ -138,6 +145,28 @@ type unmanagedFolder struct {
 	parsed discovery.Candidate
 }
 
+func (l *Library) fetchIfMatched(ctx context.Context, operation string, requested []FolderInScope) (FetchUnmanagedResult, bool, error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	folders := make([]unmanagedFolder, 0, len(requested))
+	for _, each := range requested {
+		folder, err := l.unmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: each.Scope, Name: each.Name})
+		if err != nil {
+			return FetchUnmanagedResult{}, false, err
+		}
+		if len(folders) > 0 && !skillfile.Equal(folder.files, folders[0].files) {
+			return FetchUnmanagedResult{}, false, preconditionError(operation, "the folders have different content", ErrorDetails{Path: folder.path})
+		}
+		folders = append(folders, folder)
+	}
+	matched, _, err := matchingSkill(ctx, l.store, folders[0].files, folderScopes(folders))
+	if err != nil || matched == 0 {
+		return FetchUnmanagedResult{}, false, err
+	}
+	result, err := l.fetchWithoutSource(ctx, folders)
+	return result, err == nil, err
+}
+
 func (l *Library) lockedUnmanagedFolder(ctx context.Context, operation string, req FetchUnmanagedRequest) (unmanagedFolder, error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -178,7 +207,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 
 func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFolder) (FetchUnmanagedResult, error) {
 	folder := folders[0]
-	matched, err := matchingSkill(ctx, l.store, folder.files, folders, 0)
+	matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders))
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
@@ -267,6 +296,11 @@ func sourceField(err error) error {
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
 	folder := folders[0]
+	if matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders)); err != nil {
+		return FetchUnmanagedResult{}, err
+	} else if matched != 0 {
+		return l.fetchWithoutSource(ctx, folders)
+	}
 	untouched, editedLatest := false, false
 	records := l.sourceRecords()
 	for _, each := range folders {
@@ -281,7 +315,6 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	}
 	name := sourced.skill.Name
 	var row store.Skill
-	var matched bool
 	err := l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		sourceID, err := tx.UpsertSource(ctx, sourced.record)
@@ -296,35 +329,27 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 			return err
 		}
 		if id != 0 {
-			found, err := matchingSkill(ctx, tx, folder.files, folders, id)
-			if err != nil {
+			return existsError(operation, "the collection already has a skill with this name and different content", ErrorDetails{SkillID: SkillID(id), Name: name})
+		}
+		version := store.NewVersion{Description: folder.parsed.Description, Files: folder.files, CreatedAt: now}
+		switch {
+		case skillfile.Equal(folder.files, sourced.skill.Files):
+			version.State, version.Revision = string(sourced.skill.State), sourced.revision
+		case editedLatest && !untouched:
+			base := store.NewVersion{Description: sourced.skill.Description, Files: sourced.skill.Files, State: string(sourced.skill.State), Revision: sourced.revision, CreatedAt: now}
+			if id, version.Base, err = tx.InsertSkill(ctx, sourceID, name, base); err != nil {
 				return err
 			}
-			if found == 0 {
-				return existsError(operation, "the collection already has a skill with this name and different content", ErrorDetails{SkillID: SkillID(id), Name: name})
-			}
-			matched = true
-		} else {
-			version := store.NewVersion{Description: folder.parsed.Description, Files: folder.files, CreatedAt: now}
-			switch {
-			case skillfile.Equal(folder.files, sourced.skill.Files):
-				version.State, version.Revision = string(sourced.skill.State), sourced.revision
-			case editedLatest && !untouched:
-				base := store.NewVersion{Description: sourced.skill.Description, Files: sourced.skill.Files, State: string(sourced.skill.State), Revision: sourced.revision, CreatedAt: now}
-				if id, version.Base, err = tx.InsertSkill(ctx, sourceID, name, base); err != nil {
-					return err
-				}
-				version.Revision = sourced.revision
-			default:
-				version.MaybeEdited = !untouched
-			}
-			if id == 0 {
-				if id, _, err = tx.InsertSkill(ctx, sourceID, name, version); err != nil {
-					return err
-				}
-			} else if _, err = tx.AddVersion(ctx, id, version); err != nil {
+			version.Revision = sourced.revision
+		default:
+			version.MaybeEdited = !untouched
+		}
+		if id == 0 {
+			if id, _, err = tx.InsertSkill(ctx, sourceID, name, version); err != nil {
 				return err
 			}
+		} else if _, err = tx.AddVersion(ctx, id, version); err != nil {
+			return err
 		}
 		if err := recordFetchedFolders(ctx, tx, id, folders, now); err != nil {
 			return err
@@ -339,7 +364,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
-	return FetchUnmanagedResult{Skill: skill, Matched: matched}, nil
+	return FetchUnmanagedResult{Skill: skill}, nil
 }
 
 // PlanFetchUnmanagedRequest 指定整批入库要看哪些作用域。
@@ -358,9 +383,15 @@ type PlannedUnmanagedSkill struct {
 	// 一个技能在一个作用域里只记一处安装,所以每个作用域至多一处:同一个作用域里内容一样的另一个文件夹是另一条。
 	Folders []UnmanagedSkill `json:"folders"`
 	// SourceInput 与 SourceRef 是从来源记录认出的来源(见 UnmanagedSkill.SourceInput),取第一处认出的;入库确认里预填,
-	// 界面按它分组,认不出的单独一组。
+	// 界面按它分组,认不出的单独一组。SkillID 不为 0 时为空。
 	SourceInput string `json:"source_input,omitempty"`
 	SourceRef   string `json:"source_ref,omitempty"`
+	// SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能:
+	// 入库只给它补记各处安装,界面把这些单独列成一组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
+	// 按来源入库会返回 AlreadyExists,所以默认不勾,界面引导用更新换上这一版。
+	SkillID        SkillID   `json:"skill_id,omitzero"`
+	VersionID      VersionID `json:"version_id,omitzero"`
+	SourceLatestOf SkillID   `json:"source_latest_of,omitzero"`
 	// InRepository、InProjectLock 表示其中有一处提交在项目仓库里、记在项目根目录的 skills-lock.json 里
 	// (见 UnmanagedSkill 的同名字段)。两者都归项目仓库管,默认不勾。
 	InRepository  bool `json:"in_repository,omitzero"`
@@ -372,8 +403,8 @@ type PlannedUnmanagedSkill struct {
 	// Conflict 表示计划里还有同名的另一条(内容不一样,或同一个作用域里内容一样的另一个文件夹)。同名的几条只该入库一条:
 	// 默认勾最近修改的那条,其余的入库后仍是未纳管技能,之后想要再入库。
 	Conflict bool `json:"conflict,omitzero"`
-	// Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里、不是指向 Agent 目录以外的符号链接,
-	// 同名冲突时又是最近修改的那条。
+	// Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里、不是指向 Agent 目录以外的符号链接、
+	// 不是库里技能在来源里现在的那一版(SourceLatestOf),同名冲突时又是最近修改的那条。
 	Selected bool `json:"selected,omitzero"`
 	// Error 是这个文件夹不能入库的原因,错误码同 FetchUnmanaged 读文件夹时的错误(文件夹名不能用为 InvalidArgument,
 	// 文件夹里有不是普通文件的东西为 FailedPrecondition,SKILL.md 不是有效的技能描述或超出读取上限为 SourceInvalid,
@@ -403,11 +434,16 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	if err != nil {
 		return nil, err
 	}
+	latests, err := l.store.SourceLatests(ctx)
+	if err != nil {
+		return nil, err
+	}
 	type planned struct {
-		sum      string
-		parsed   discovery.Candidate
-		modified time.Time
-		err      error
+		sum        string
+		parsed     discovery.Candidate
+		modified   time.Time
+		recognized recognition
+		err        error
 	}
 	reads := make([]planned, len(entries))
 	var paths []string
@@ -424,6 +460,14 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		i := indexes[index]
 		files, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state.Files, state.Err)
 		reads[i] = planned{sum: skillfile.Sum(files), parsed: parsed, modified: state.Modified, err: err}
+		if err == nil {
+			found, err := recognize(ctx, l.store, files, []store.Scope{entries[i].found.target.record()}, latests)
+			if err != nil {
+				return err
+			}
+			reads[i].recognized = found
+			entries[i].recognized(found)
+		}
 		return nil
 	})
 	if err != nil {
@@ -453,15 +497,17 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			if modified.After(planned.ModifiedAt) {
 				planned.ModifiedAt = modified
 			}
-			if planned.SourceInput == "" {
+			if planned.SourceInput == "" && planned.SkillID == 0 {
 				planned.SourceInput, planned.SourceRef = entry.SourceInput, entry.SourceRef
 			}
 			continue
 		}
 		byContent[sum] = append(byContent[sum], len(plan))
+		recognized := reads[i].recognized
 		plan = append(plan, PlannedUnmanagedSkill{
 			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
 			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
+			SkillID: recognized.skillID, VersionID: recognized.versionID, SourceLatestOf: recognized.sourceLatestOf,
 			InRepository: entry.InRepository, InProjectLock: entry.InProjectLock, LinkOutside: entry.LinkOutside, ModifiedAt: modified,
 		})
 	}
@@ -482,7 +528,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	}
 	for index := range plan {
 		planned := &plan[index]
-		planned.Selected = planned.Error == nil && !planned.InRepository && !planned.InProjectLock && !planned.LinkOutside && newest[planned.Name] == index
+		planned.Selected = planned.Error == nil && !planned.InRepository && !planned.InProjectLock && !planned.LinkOutside && planned.SourceLatestOf == 0 && newest[planned.Name] == index
 	}
 	slices.SortStableFunc(plan, func(a, b PlannedUnmanagedSkill) int {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), b.ModifiedAt.Compare(a.ModifiedAt))
@@ -523,8 +569,8 @@ type FetchedUnmanagedSkill struct {
 }
 
 // FetchUnmanagedSkills 一次确认把几个不是库装的技能入库,每个技能的规则和 FetchUnmanaged 相同:磁盘上什么都不改,
-// 读出的内容成为库里的版本,记为装在各处;带来源的进这个来源的集合,
-// 不带来源时和库里某个版本完全一致只补记安装。
+// 读出的内容成为库里的版本,记为装在各处;和库里某个版本完全一致的,不论带不带来源都只补记安装,也不读它带的来源;
+// 其余带来源的进这个来源的集合。
 // 同一个来源(SourceInput 与 SourceRef 都相同)只识别、读取一次,读来源期间不持库锁。一个技能失败不影响其余的:
 // 每个技能各自成功或失败,结果按请求顺序逐条返回,失败的写在 FetchedUnmanagedSkill.Error 里,用户可以改来源或清空后单独重试。
 // 同名不同内容的几份都勾上时照样逐个入库,规则同 FetchUnmanaged(带同一来源的后一份返回 AlreadyExists),只勾一份由调用方决定。
@@ -557,9 +603,19 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 	}
 	results = make([]FetchedUnmanagedSkill, len(req.Skills))
 	names := make([]string, len(req.Skills))
+	matched := make([]bool, len(req.Skills))
 	for index, item := range req.Skills {
 		results[index].Folders = item.Folders
 		if strings.TrimSpace(item.SourceInput) == "" {
+			continue
+		}
+		fetched, ok, err := l.fetchIfMatched(ctx, operation, item.Folders)
+		if err != nil {
+			results[index].Error = ErrorOf(err)
+			continue
+		}
+		if ok {
+			results[index].Skill, results[index].Matched, matched[index] = fetched.Skill, fetched.Matched, true
 			continue
 		}
 		first := item.Folders[0]
@@ -576,7 +632,7 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 	sourced := make([]sourcedSkill, len(req.Skills))
 	for index, item := range req.Skills {
 		input := strings.TrimSpace(item.SourceInput)
-		if input == "" || results[index].Error != nil {
+		if input == "" || results[index].Error != nil || matched[index] {
 			continue
 		}
 		key := sourceKey{input, item.SourceRef}
@@ -596,7 +652,7 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	for index, item := range req.Skills {
-		if results[index].Error != nil {
+		if results[index].Error != nil || matched[index] {
 			continue
 		}
 		fetched, err := l.fetchUnmanagedItem(ctx, operation, item, names[index], sourced[index])
@@ -646,25 +702,30 @@ func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders [
 	return nil
 }
 
-func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, folders []unmanagedFolder, only int64) (int64, error) {
+func folderScopes(folders []unmanagedFolder) []store.Scope {
+	scopes := make([]store.Scope, len(folders))
+	for i, folder := range folders {
+		scopes[i] = folder.target.record()
+	}
+	return scopes
+}
+
+func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope) (int64, int64, error) {
 	disk := digests(files)
 	manifest, ok := disk["SKILL.md"]
 	if !ok {
-		return 0, nil
+		return 0, 0, nil
 	}
 	matches, err := reader.VersionsWithFile(ctx, "SKILL.md", manifest.Fingerprint)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 next:
 	for _, match := range matches {
-		if only != 0 && match.SkillID != only {
-			continue
-		}
-		for _, folder := range folders {
-			place, err := reader.PlaceSkillScopes(ctx, match.SkillID, folder.target.record())
+		for _, scope := range scopes {
+			place, err := reader.PlaceSkillScopes(ctx, match.SkillID, scope)
 			if err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			if len(place) > 0 {
 				continue next
@@ -672,13 +733,33 @@ next:
 		}
 		version, err := reader.VersionDigests(ctx, match.VersionID)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		if maps.Equal(disk, version) {
-			return match.SkillID, nil
+			return match.SkillID, match.VersionID, nil
 		}
 	}
-	return 0, nil
+	return 0, 0, nil
+}
+
+type recognition struct {
+	skillID        SkillID
+	versionID      VersionID
+	sourceLatestOf SkillID
+}
+
+func recognize(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope, latests []store.SourceLatest) (recognition, error) {
+	skillID, versionID, err := matchingSkill(ctx, reader, files, scopes)
+	if err != nil || skillID != 0 {
+		return recognition{skillID: SkillID(skillID), versionID: VersionID(versionID)}, err
+	}
+	sum := skillfile.Sum(files)
+	for _, latest := range latests {
+		if latest.Content == sum {
+			return recognition{sourceLatestOf: SkillID(latest.SkillID)}, nil
+		}
+	}
+	return recognition{}, nil
 }
 
 type sourceRecords struct {

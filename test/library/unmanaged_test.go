@@ -214,7 +214,8 @@ func TestInspectSkillScopesFollowsSymlinkedInstalledFolder(t *testing.T) {
 	}
 	requireInspection(t, lib, library.SkillScopeCurrent, skill.VersionID)
 	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: library.GlobalScope(library.AgentCodex), Name: skill.Name, Description: "", Folder: real},
+		// 内容就是库里的 pdf:认作它。
+		{Scope: library.GlobalScope(library.AgentCodex), Name: skill.Name, Description: "", Folder: real, SkillID: skill.ID, VersionID: skill.VersionID},
 	})
 
 	// 链接指向的内容被改过才是 modified;指向不存在之处也算改过。
@@ -262,7 +263,7 @@ func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T)
 		t.Fatal(err)
 	}
 	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: claude, Name: "pdf", Folder: filepath.Join(claudeDirectory, "pdf")},
+		{Scope: claude, Name: "pdf", Folder: filepath.Join(claudeDirectory, "pdf"), SkillID: skill.ID, VersionID: skill.VersionID},
 	})
 }
 

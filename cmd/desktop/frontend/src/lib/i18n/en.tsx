@@ -17,7 +17,7 @@ const keptPlaces = (edited: number, missing: number) => [
   edited ? `${count(edited, "place")} you edited left alone` : "",
   missing ? `${count(missing, "missing folder")} left alone` : "",
 ];
-const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : "not in the Library")));
+const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : k === "identical" ? "same as the Library, not installed by the app" : "not in the Library")));
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));
@@ -113,6 +113,7 @@ export const en = {
     statusCurrent: "Current",
     statusStale: "Old Version",
     statusModified: "Edited by hand",
+    statusSourceLatest: "Author’s newer version",
     statusMissing: "Folder missing",
     statusRootMissing: "Project not on this machine",
     revisionUnknown: "Revision unknown",
@@ -365,9 +366,14 @@ export const en = {
       `“${name}” is now in the Library; the folder in ${place} is left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
     installElsewhere: "Install elsewhere…",
     fetchTitle: (name: string) => `Fetch “${name}”`,
+    reinstallSourceLatest: "This place has the author’s newer version (updated outside the app). Overwriting puts back the version in the Library; to follow the author, use “Update”",
+    fetchIdenticalOld: (name: string, source: string, place: string) =>
+      `This copy is identical to an older version of “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added. It then shows as an old version here, and updating or reinstalling replaces it with the current version.`,
+    fetchIdentical: (name: string, source: string, place: string) =>
+      `This copy is identical to “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
     fetch: "Fetch",
     fetchHandOver: (place: string) => `Fetching hands it over to the app. The folder in ${place} stays exactly as it is, and the Agent sees the same content.`,
-    fetchCliCost: "If you keep updating it with a command-line tool afterwards, the app can only report it as edited by hand.",
+    fetchCliCost: "If you keep updating it with a command-line tool afterwards: when it is updated to the author’s newer version, the app recognizes it, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
     fetchInRepository: "It's committed in the project repository. Updating it in the app later changes files in the project repository.",
     sourceLink: "Source link",
     sourceLinkPlaceholder: "owner/repo, Git URL or link",
@@ -398,6 +404,8 @@ export const en = {
     checking: "Checking the install plan…",
     edited: (from: string, to: string, names: string[]) =>
       `${quoted(names)} ${names.length === 1 ? "was" : "were"} edited by hand in ${from}: ${to} gets the Library's version, not the edited copy. To use the edits in ${to} too, first use “Update with these edits” on ${from} in the skill details, then copy.`,
+    newer: (from: string, to: string, names: string[]) =>
+      `${quoted(names)} ${names.length === 1 ? "has" : "have"} the author's newer version in ${from} (updated outside the app): ${to} gets the Library's version. To use the newer version in ${to} too, first use “Update” in the skill details, then copy.`,
     unmanaged: (from: string, n: number) =>
       `${from} also has ${count(n, "unmanaged skill")}. They aren't in the Library, so they can't be copied; fetch them first.`,
     confirm: (skills: number, groups: number, overwrites: number) =>
@@ -576,6 +584,9 @@ export const en = {
     reinstall: "Reinstall",
     updateFromHereHint: "Make the content here the Library's new Version and place it everywhere else it's installed",
     updateFromHere: "Update with these edits",
+    updateToLatest: "Update",
+    updateToLatestHint: "This place already has the author’s newer version (updated outside the app). Update the skill in the Library to this version too",
+    takeOver: "Fetch",
     notInstalled: "Not installed in any Scope yet.",
     switchHint: (): ReactNode => (
       <>
@@ -662,6 +673,14 @@ export const en = {
     agentDirectory: "Agent directory",
     statInstalled: "installed",
     statNotInLibrary: "not in the Library",
+    statIdentical: "not installed by the app",
+    identicalHere: "Not installed by the app",
+    identicalHereTitle: (name: string) => `The folder here is identical to “${name}” in the Library, but the app did not install it. Click “Fetch” to only record that it is installed here and let the app manage it; the folder stays as it is`,
+    takeOver: "Fetch",
+    sameAsLibrary: (name: string) => `Same as “${name}” in the Library`,
+    sourceLatestOf: (name: string) => `Newer version of “${name}”`,
+    sourceLatestOfTitle: (name: string) =>
+      `This is the author’s newer version, updated outside the app. Click “Update” to bring “${name}” in the Library to this version; then this copy matches the Library, and fetching it only records where it is installed`,
     statGlobal: "from global",
     statStale: "to reinstall",
     reinstallAll: "Reinstall all",
@@ -819,6 +838,7 @@ export const en = {
     changesOf: (name: string) => `Changes in ${name}`,
     enlarge: "Open larger",
     modifiedHere: "You edited it here; the new Version will overwrite your edits",
+    alreadyLatest: "Already this version here (updated outside the app); nothing to replace",
     notPlaced: "The checked skills aren't installed anywhere yet; only the Library is updated.",
     rootMissing: "Project not on this machine; can't install",
     folderMissing: "Folder missing, maybe you deleted it; check to put it back",
@@ -858,7 +878,7 @@ export const en = {
     title: "Hand the skills you use over to the app",
     notNow: "Not now",
     fetchN: (n: number) => `Fetch ${n}`,
-    cost: "Fetching hands them over to the app: if you keep updating these skills with a command-line tool afterwards, the app can only report them as edited by hand.",
+    cost: "Fetching hands them over to the app: if you keep updating these skills with a command-line tool afterwards, updates to the author’s newer version are recognized, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
     projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the sidebar.",
     noSource: "No Source",
     groupCount: (n: number) => `· ${n}`,
@@ -876,6 +896,11 @@ export const en = {
     unusableReason: (name: string, reason: string) => `${name}: ${reason}`,
     sameNameTitle: (name: string, note: string) => `The Library already has a skill named “${name}”. ${note}`,
     sameName: "Same name in Library",
+    inLibrary: "Already in the Library",
+    inLibraryNote: "Identical to a skill in the Library; fetching only records where it is installed, no second skill is added",
+    sourceLatest: "Author’s newer version",
+    sourceLatestTitle: (name: string) =>
+      `The author’s newer version of “${name}” in the Library, updated outside the app. No need to fetch it: update “${name}” in the Library to this version, and this copy will match it`,
     fetched: (n: number, matched: number) =>
       `Fetched ${count(n, "skill")}; the app manages ${n === 1 ? "it" : "them"} now` +
       (!matched

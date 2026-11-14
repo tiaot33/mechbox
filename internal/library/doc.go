@@ -108,10 +108,14 @@
 //   - [Library.ListUnmanagedSkills] 列出各作用域的技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
 //     提交在项目仓库里的),和 [Library.ListSkillScopes] 放在一起,就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。
 //     npx skills 的来源记录里记了来源的,带出认出的来源([UnmanagedSkill].SourceInput),入库确认里预填。
-//   - [Library.FindUnmanagedSources] 给来源记录认不出来源的去 skills.sh 按名字搜,内容大部分相同的当作认出的来源,
-//     和来源记录认出的一样预填、整批确认按它分组。它要联网,列出与整批计划都不等它:界面列出之后在后台调用,结果到了再补上。
+//     同时按内容认出它是库里哪个技能的哪一版([UnmanagedSkill].SkillID),或是库里哪个技能在来源里现在的那一版
+//     ([UnmanagedSkill].SourceLatestOf,在库外更新过,用更新换上);同一个技能就是一个技能,不因为放在别处、用别的链接找到而多出一个。
+//     认来源的优先级:库里内容完全一样的技能,其次来源记录,最后 skills.sh 比对上的来源。
+//   - [Library.FindUnmanagedSources] 给来源记录认不出来源、也不是库里技能的去 skills.sh 按名字搜,内容大部分相同的当作认出的来源,
+//     几个都比对上时库里已经在跟的来源优先;和来源记录认出的一样预填、整批确认按它分组。它要联网,列出与整批计划都不等它:
+//     界面列出之后在后台调用,结果到了再补上。
 //   - [Library.FetchUnmanaged] 把其中一个入库:磁盘上什么都不改,读出的内容成为库里的版本,记为装在这个作用域;
-//     不带来源时,和库里某个版本完全一致只给那个技能补记安装,否则是没有来源的技能,不在集合里、不检查更新,
+//     和库里某个版本完全一致时不论带不带来源都只给那个技能补记安装;不带来源、又对不上时是没有来源的技能,不在集合里、不检查更新,
 //     之后用 [Library.PlanUpdateFromScope] 拿目录里的修改更新。带来源时进这个来源的集合,照常检查更新、更新、回滚:
 //     和来源里的一样就是来源里的那一版;不一样时版本就是磁盘上的内容、来源版本未知,第一次检查更新就报有新版本,
 //     能用来源记录里的哈希确认是当初装的原样时是作者的旧版;来源记录里的哈希对不上磁盘、却等于来源现在的那份时,
@@ -119,7 +123,7 @@
 //     其余标为 [SkillVersion].MaybeEdited,更新计划提示会换掉修改。
 //   - [Library.PlanFetchUnmanaged] 是第一次打开 app(各 Agent 的全局)、登记一个项目之后(这个项目)一次确认全部入库前的确认:
 //     内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里、记在 skills-lock.json 里
-//     或是指向 Agent 目录以外的符号链接([UnmanagedSkill].LinkOutside)的默认不勾。
+//     或是指向 Agent 目录以外的符号链接([UnmanagedSkill].LinkOutside)、或是库里技能在来源里的新版([UnmanagedSkill].SourceLatestOf)的默认不勾。
 //     不记哪些作用域看过,每次都是现查。
 //   - [Library.FetchUnmanagedSkills] 按确认的勾选整批入库,每个技能的规则和 FetchUnmanaged 相同;同一个来源只读一次,
 //     一个技能失败不影响其余的,结果逐条返回。
@@ -128,6 +132,7 @@
 //
 // 巡检与重新安装(reinstall.go):
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。
+//     改过的那一处和来源里现在的那一版一样时([SkillScopeInspection].SourceLatest),是在库外更新到了作者的新版,用更新换上。
 //   - [Library.Reinstall] 把用户选中的几处换成技能的当前版本;改过的那一处要单独同意覆盖,文件夹不在了的那一处
 //     (可能是用户有意删掉的)要单独同意装回去;不想要了就用 [Library.Uninstall] 卸载。
 //     想留下改过的那一处的修改,用 [Library.PlanUpdateFromScope] 再 [Library.Update]。
