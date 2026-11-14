@@ -291,7 +291,10 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 		return scopeEdit{}, unmodified
 	}
 	state, err := agentdir.ReadFolder(ctx, folder, maxFetchFiles, maxFetchSize)
-	switch {
+	if err != nil {
+		return scopeEdit{}, err
+	}
+	switch err := state.Err; {
 	case errors.Is(err, agentdir.ErrIrregularFile):
 		return scopeEdit{}, preconditionError(operation, "the installed folder has entries that are not regular files", ErrorDetails{Path: folder})
 	case errors.Is(err, agentdir.ErrTooLarge):

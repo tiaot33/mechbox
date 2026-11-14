@@ -74,7 +74,7 @@ type SkillScopeInspection struct {
 	// SourceLatest 只在 modified 时可能为 true:这里的内容和来源里这个技能现在的那一版完全一致(最近一次检查更新或更新计划看到的、
 	// 比库里新的那一版),是在库外更新到了作者现在这一版,不是用户的修改。界面据此不说「用户改过」,引导用更新把库里的技能换成这一版;
 	// 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。用目录里的修改更新的计划(PlanUpdateFromScope)里为 false:
-	// 那次换上的是那一处的修改,这一处照样算被改过。
+	// 那次换上的是那一处的修改,这一处照样算被改过。Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
 	SourceLatest bool `json:"source_latest,omitzero"`
 	// LinkTarget 在技能文件夹本身是符号链接时(如 npx skills 的布局)给出它指向的地方:解析了各级符号链接的真实文件夹,
 	// 链接指向不存在之处时是链接里写的路径(相对路径按链接所在的目录展开);不是符号链接时为空。
@@ -176,7 +176,7 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		}
 		inspections[i].Status, inspections[i].VersionID, inspections[i].LinkTarget = status, versionID, state.LinkTarget
 		if content, ok := latest[skillScopes[i].SkillID]; ok && status == SkillScopeModified && state.Err == nil {
-			sum, err := l.diskSum(ctx, heads[i], diskOf(state))
+			sum, err := diskOf(state).sum(ctx, l.store, heads[i])
 			if err != nil {
 				return err
 			}
@@ -295,15 +295,22 @@ func (d diskFiles) as(reference map[string]skillfile.Digest) []skillfile.File {
 	return skillfile.WithModesOf(d.files, reference)
 }
 
-func (l *Library) diskSum(ctx context.Context, versionID int64, disk diskFiles) (string, error) {
-	if !disk.noModes {
-		return skillfile.Sum(disk.files), nil
+func (d diskFiles) sum(ctx context.Context, reader versionReader, versionID int64) (string, error) {
+	if !d.noModes {
+		return skillfile.Sum(d.files), nil
 	}
-	reference, err := l.store.VersionDigests(ctx, versionID)
+	reference, err := reader.VersionDigests(ctx, versionID)
 	if err != nil {
 		return "", err
 	}
-	return skillfile.Sum(disk.as(reference)), nil
+	return skillfile.Sum(d.as(reference)), nil
+}
+
+func (d diskFiles) or(other diskFiles) diskFiles {
+	if d.noModes && !other.noModes {
+		return other
+	}
+	return d
 }
 
 func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk diskFiles) (SkillScopeStatus, VersionID, error) {

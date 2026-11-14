@@ -104,24 +104,24 @@ func TestDistroReadMatchesNative(t *testing.T) {
 	if _, ok := modes[".git/HEAD"]; ok {
 		t.Error("ignored .git read")
 	}
-	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/dangling")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+	if err := folderErr(ctx, unc(filepath.Join(home, ".claude/skills/dangling")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("dangling: %v", err)
 	}
-	if _, err := ReadFolder(ctx, unc(filepath.Join(home, "missing")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+	if err := folderErr(ctx, unc(filepath.Join(home, "missing")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("missing: %v", err)
 	}
-	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 1, 1<<20); !errors.Is(err, ErrTooLarge) {
+	if err := folderErr(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 1, 1<<20); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("too many files: %v", err)
 	}
 	write(t, filepath.Join(home, ".agents/skills/shared/.git/objects/big"), strings.Repeat("x", 4096), 0o644)
-	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1024); err != nil {
+	if err := folderErr(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1024); err != nil {
 		t.Errorf("ignored folders count toward the limit: %v", err)
 	}
-	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 10); !errors.Is(err, ErrTooLarge) {
+	if err := folderErr(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 10); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("too many bytes: %v", err)
 	}
 	symlink(t, "/etc/hosts", filepath.Join(home, ".claude/skills/own/link"))
-	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/own")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+	if err := folderErr(ctx, unc(filepath.Join(home, ".claude/skills/own")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("inner symlink: %v", err)
 	}
 }
@@ -427,4 +427,12 @@ func TestDistroCommitted(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, map[string]bool{"tracked": true}) {
 		t.Fatalf("Committed = %v %v", got, err)
 	}
+}
+
+func folderErr(ctx context.Context, root string, maxFiles int, maxBytes int64) error {
+	state, err := ReadFolder(ctx, root, maxFiles, maxBytes)
+	if err != nil {
+		return err
+	}
+	return state.Err
 }

@@ -407,6 +407,9 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 		return RollbackMissing, nil
 	}
 	state, err := agentdir.ReadFolder(ctx, folder, maxFetchFiles, maxFetchSize)
+	if err == nil {
+		err = state.Err
+	}
 	if errors.Is(err, agentdir.ErrIrregularFile) || errors.Is(err, agentdir.ErrTooLarge) {
 		return RollbackModified, nil
 	}

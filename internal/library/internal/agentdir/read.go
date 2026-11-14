@@ -134,10 +134,7 @@ func ReadFolder(ctx context.Context, root string, maxFiles int, maxBytes int64) 
 		read = state
 		return nil
 	})
-	if err != nil {
-		return FolderState{}, err
-	}
-	return read, read.Err
+	return read, err
 }
 
 func LinkTarget(path string) string {

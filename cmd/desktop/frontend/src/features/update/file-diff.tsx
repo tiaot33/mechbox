@@ -14,7 +14,6 @@ import {
   changedWords,
   lineDiff,
   modeChange,
-  sameContent,
   splitRows,
   stepFile,
   unfold,
@@ -340,7 +339,8 @@ export function FileDiff({
   const deleted = lines?.filter((l) => l.kind === "del").length ?? 0;
   const [before, after] = Array.isArray(files) ? files : [undefined, undefined];
   const mode = modeChange(before, after);
-  const onlyMode = before !== undefined && after !== undefined && sameContent(before, after);
+  // 内容一字没变:直接比 base64,二进制文件也成立。
+  const onlyMode = before !== undefined && after !== undefined && before.content === after.content;
 
   return (
     <div

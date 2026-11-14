@@ -30,15 +30,6 @@ func installExample(t *testing.T, lib *library.Library, scopes ...library.Scope)
 	return skill
 }
 
-func scopeFolder(t *testing.T, lib *library.Library, scope library.Scope, name string) string {
-	t.Helper()
-	directory, err := lib.ScopeDirectory(t.Context(), scope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Join(directory, name)
-}
-
 func requireExecutableScript(t *testing.T, lib *library.Library, version library.VersionID) {
 	t.Helper()
 	file, err := lib.GetVersionFile(t.Context(), version, "scripts/run.sh")
@@ -54,15 +45,9 @@ func TestInspectWithoutFileModesComparesOnlyContent(t *testing.T) {
 	skill := installExample(t, lib, claude)
 	withoutFileModes(t)
 
-	inspections, err := lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{SkillID: skill.ID})
-	if err != nil || len(inspections) != 1 || inspections[0].Status != library.SkillScopeCurrent {
-		t.Fatalf("inspections = %#v, %v; want current although the script reads as not executable", inspections, err)
-	}
-	writeFile(t, filepath.Join(scopeFolder(t, lib, claude, "alpha"), "SKILL.md"), []byte(skillDocument("alpha", "edited")), 0o644)
-	inspections, err = lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{SkillID: skill.ID})
-	if err != nil || len(inspections) != 1 || inspections[0].Status != library.SkillScopeModified {
-		t.Fatalf("inspections = %#v, %v; want modified after a content edit", inspections, err)
-	}
+	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeCurrent)
+	writeFile(t, filepath.Join(filepath.Join(scopeDirectory(t, lib, claude), "alpha"), "SKILL.md"), []byte(skillDocument("alpha", "edited")), 0o644)
+	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeModified)
 }
 
 func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testing.T) {
@@ -73,7 +58,7 @@ func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testin
 	skill := installExample(t, lib, claude, codex)
 	withoutFileModes(t)
 
-	writeFile(t, filepath.Join(scopeFolder(t, lib, claude, "alpha"), "SKILL.md"), []byte(skillDocument("alpha", "edited")), 0o644)
+	writeFile(t, filepath.Join(filepath.Join(scopeDirectory(t, lib, claude), "alpha"), "SKILL.md"), []byte(skillDocument("alpha", "edited")), 0o644)
 	plan, err := lib.PlanUpdateFromScope(ctx, skill.ID, claude)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +72,7 @@ func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testin
 	}
 	updated := result.Skills[0].Skill.VersionID
 	requireExecutableScript(t, lib, updated)
-	if info, err := os.Stat(filepath.Join(scopeFolder(t, lib, codex, "alpha"), "scripts", "run.sh")); err != nil || info.Mode().Perm()&0o111 == 0 {
+	if info, err := os.Stat(filepath.Join(filepath.Join(scopeDirectory(t, lib, codex), "alpha"), "scripts", "run.sh")); err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("codex script = %v, %v; want it written executable", info, err)
 	}
 
@@ -100,17 +85,9 @@ func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testin
 			t.Fatalf("rollback installs = %#v; want every place put back, none taken as modified", rollback.Installs)
 		}
 	}
-	inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{SkillID: skill.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
 	// 回滚只换回那次更新装过的地方;取内容的那一处留着那份修改,是库里的旧版本,不算用户改过。
-	want := map[library.AgentCode]library.SkillScopeStatus{library.AgentClaudeCode: library.SkillScopeStale, library.AgentCodex: library.SkillScopeCurrent}
-	for _, inspection := range inspections {
-		if inspection.Status != want[inspection.Scope.Agent] {
-			t.Fatalf("inspections = %#v; want %v", inspections, want)
-		}
-	}
+	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeStale)
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
 }
 
 func TestUnmanagedCopyWithoutFileModesIsRecognized(t *testing.T) {
@@ -119,18 +96,13 @@ func TestUnmanagedCopyWithoutFileModesIsRecognized(t *testing.T) {
 	ctx := t.Context()
 	claude, codex := library.GlobalScope(library.AgentClaudeCode), library.GlobalScope(library.AgentCodex)
 	skill := installExample(t, lib, claude)
-	copied := scopeFolder(t, lib, codex, "alpha")
+	copied := filepath.Join(scopeDirectory(t, lib, codex), "alpha")
 	writeFile(t, filepath.Join(copied, "SKILL.md"), []byte(skillDocument("alpha", "# alpha\n")), 0o644)
 	writeFile(t, filepath.Join(copied, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o644)
 	withoutFileModes(t)
 
-	unmanaged, err := lib.ListUnmanagedSkills(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	index := slices.IndexFunc(unmanaged, func(found library.UnmanagedSkill) bool { return found.Scope == codex })
-	if index < 0 || unmanaged[index].SkillID != skill.ID {
-		t.Fatalf("unmanaged = %#v; want the codex copy recognized as skill %d", unmanaged, skill.ID)
+	if found := unmanagedIn(t, lib, codex, "alpha"); found.SkillID != skill.ID {
+		t.Fatalf("unmanaged = %#v; want the codex copy recognized as skill %d", found, skill.ID)
 	}
 	fetched, err := lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: codex, Name: "alpha"})
 	if err != nil || !fetched.Matched || fetched.Skill.ID != skill.ID {
@@ -146,7 +118,7 @@ func TestFetchUnmanagedWithSourceWithoutFileModesTakesSourceModes(t *testing.T) 
 	writeLocalSkill(t, source, "# alpha\n")
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 	claude := library.GlobalScope(library.AgentClaudeCode)
-	copied := scopeFolder(t, lib, claude, "alpha")
+	copied := filepath.Join(scopeDirectory(t, lib, claude), "alpha")
 	writeLocalSkill(t, copied, "# alpha\n")
 	writeFile(t, filepath.Join(copied, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o644)
 	withoutFileModes(t)
@@ -180,22 +152,65 @@ func TestSourceLatestWithoutFileModesIsRecognized(t *testing.T) {
 	}
 	writeLocalSkill(t, source, "# alpha, newer\n")
 	requireCheck(t, lib, skill.ID, library.UpdateAvailable, false, false)
-	for _, folder := range []string{scopeFolder(t, lib, claude, "alpha"), scopeFolder(t, lib, codex, "alpha")} {
+	for _, folder := range []string{filepath.Join(scopeDirectory(t, lib, claude), "alpha"), filepath.Join(scopeDirectory(t, lib, codex), "alpha")} {
 		writeLocalSkill(t, folder, "# alpha, newer\n")
 		writeFile(t, filepath.Join(folder, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o644)
 	}
 	withoutFileModes(t)
 
-	inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{SkillID: skill.ID})
-	if err != nil || len(inspections) != 1 || inspections[0].Status != library.SkillScopeModified || !inspections[0].SourceLatest {
-		t.Fatalf("inspections = %#v, %v; want the place updated outside the app recognized as the source's latest", inspections, err)
+	if inspection := requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeModified); !inspection.SourceLatest {
+		t.Fatalf("inspection = %#v; want the place updated outside the app recognized as the source's latest", inspection)
 	}
-	unmanaged, err := lib.ListUnmanagedSkills(ctx)
+	if found := unmanagedIn(t, lib, codex, "alpha"); found.SourceLatestOf != skill.ID {
+		t.Fatalf("unmanaged = %#v; want the codex copy recognized as the source's latest of skill %d", found, skill.ID)
+	}
+}
+
+// Windows 本机的一份读不出可执行位,只按内容认作库里的技能;WSL 里同样内容、可执行位和库里不同的一份不是那个技能。
+// 整批入库的计划不能借着前一份把后一份也并进「库里的技能」,入库时也不能因此多出一个技能。
+func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	claude, codex := library.GlobalScope(library.AgentClaudeCode), library.GlobalScope(library.AgentCodex)
+	skill := installExample(t, lib, claude)
+	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	index := slices.IndexFunc(unmanaged, func(found library.UnmanagedSkill) bool { return found.Scope == codex })
-	if index < 0 || unmanaged[index].SourceLatestOf != skill.ID {
-		t.Fatalf("unmanaged = %#v; want the codex copy recognized as the source's latest of skill %d", unmanaged, skill.ID)
+	for _, folder := range []string{filepath.Join(scopeDirectory(t, lib, codex), "alpha"), filepath.Join(root, ".claude", "skills", "alpha")} {
+		writeLocalSkill(t, folder, "# alpha\n")
+		writeFile(t, filepath.Join(folder, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o644)
+	}
+	project, err := lib.RegisterProject(ctx, wslPath(t, root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inProject := library.ProjectScope(library.AgentClaudeCode, project.ID)
+	withoutFileModes(t)
+
+	plan, err := lib.PlanFetchUnmanaged(ctx, library.PlanFetchUnmanagedRequest{Scopes: []library.Scope{codex, inProject}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recognized := map[library.Scope]library.SkillID{}
+	for _, planned := range plan {
+		for _, folder := range planned.Folders {
+			recognized[folder.Scope] = planned.SkillID
+		}
+		if len(planned.Folders) != 1 {
+			t.Fatalf("plan = %#v; want the Windows copy and the WSL copy with other modes apart", plan)
+		}
+	}
+	if recognized[codex] != skill.ID || recognized[inProject] != 0 {
+		t.Fatalf("recognized = %v; want only the Windows copy taken as skill %d", recognized, skill.ID)
+	}
+	results, err := lib.FetchUnmanagedSkills(ctx, library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{{Scope: codex, Name: "alpha"}}}}})
+	if err != nil || len(results) != 1 || results[0].Error != nil || !results[0].Matched || results[0].Skill.ID != skill.ID {
+		t.Fatalf("FetchUnmanagedSkills = %#v, %v; want the Windows copy recorded as skill %d", results, err, skill.ID)
+	}
+	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 1 {
+		t.Fatalf("skills = %#v, %v; want no new skill", skills, err)
 	}
 }

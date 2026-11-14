@@ -132,12 +132,11 @@ type unmanagedFolder struct {
 }
 
 func representative(folders []unmanagedFolder) diskFiles {
-	for _, folder := range folders {
-		if !folder.disk.noModes {
-			return folder.disk
-		}
+	disk := folders[0].disk
+	for _, folder := range folders[1:] {
+		disk = disk.or(folder.disk)
 	}
-	return folders[0].disk
+	return disk
 }
 
 func (l *Library) fetchIfMatched(ctx context.Context, operation string, requested []FolderInScope) (FetchUnmanagedResult, bool, error) {
@@ -485,9 +484,13 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			disks = append(disks, disk)
 			continue
 		}
-		key := skillfile.ContentSum(disk.files)
+		recognized := reads[i].recognized
+		key := disk.digests["SKILL.md"].Fingerprint
 		same := slices.IndexFunc(byContent[key], func(index int) bool {
-			return disks[index].sameAs(disk) && !slices.ContainsFunc(plan[index].Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
+			planned := plan[index]
+			return disks[index].sameAs(disk) &&
+				planned.SkillID == recognized.skillID && planned.VersionID == recognized.versionID && planned.SourceLatestOf == recognized.sourceLatestOf &&
+				!slices.ContainsFunc(planned.Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
 		})
 		if same >= 0 {
 			planned := &plan[byContent[key][same]]
@@ -505,7 +508,6 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		}
 		byContent[key] = append(byContent[key], len(plan))
 		disks = append(disks, disk)
-		recognized := reads[i].recognized
 		plan = append(plan, PlannedUnmanagedSkill{
 			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
 			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
@@ -754,14 +756,10 @@ func recognize(ctx context.Context, reader versionReader, disk diskFiles, scopes
 	if err != nil || skillID != 0 {
 		return recognition{skillID: SkillID(skillID), versionID: VersionID(versionID)}, err
 	}
-	sum := skillfile.Sum(disk.files)
 	for _, latest := range latests {
-		if disk.noModes {
-			reference, err := reader.VersionDigests(ctx, latest.VersionID)
-			if err != nil {
-				return recognition{}, err
-			}
-			sum = skillfile.Sum(disk.as(reference))
+		sum, err := disk.sum(ctx, reader, latest.VersionID)
+		if err != nil {
+			return recognition{}, err
 		}
 		if latest.Content == sum {
 			return recognition{sourceLatestOf: SkillID(latest.SkillID)}, nil

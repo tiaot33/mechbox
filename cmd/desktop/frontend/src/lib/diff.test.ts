@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FileMode, type File } from "@bindings/internal/library";
-import { changeTree, changedFiles, changedWords, lineDiff, modeChange, sameContent, splitRows, stepFile, treeFiles, unfold } from "./diff";
+import { changeTree, changedFiles, changedWords, lineDiff, modeChange, splitRows, stepFile, treeFiles, unfold } from "./diff";
 
 describe("changedFiles", () => {
   it("SKILL.md 排第一，不论它是修改、新增还是删除;其余按修改、新增、删除排", () => {
@@ -279,7 +279,7 @@ describe("stepFile", () => {
 });
 
 describe("modeChange", () => {
-  const file = (mode: FileMode, content = "IyEvYmluL3NoCg=="): File => ({ path: "scripts/run.sh", content, mode }) as File;
+  const file = (mode: FileMode): File => ({ path: "scripts/run.sh", content: "IyEvYmluL3NoCg==", mode }) as File;
 
   it("加上、去掉可执行权限分别标出", () => {
     expect(modeChange(file(FileMode.ModeRegular), file(FileMode.ModeExecutable))).toBe("executable-added");
@@ -290,10 +290,5 @@ describe("modeChange", () => {
     expect(modeChange(file(FileMode.ModeExecutable), file(FileMode.ModeExecutable))).toBeUndefined();
     expect(modeChange(undefined, file(FileMode.ModeExecutable))).toBeUndefined();
     expect(modeChange(file(FileMode.ModeExecutable), undefined)).toBeUndefined();
-  });
-
-  it("sameContent 按原始内容比，二进制文件也一样", () => {
-    expect(sameContent(file(FileMode.ModeRegular), file(FileMode.ModeExecutable))).toBe(true);
-    expect(sameContent(file(FileMode.ModeRegular, "AAEC"), file(FileMode.ModeRegular, "AAED"))).toBe(false);
   });
 });

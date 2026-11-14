@@ -17,11 +17,6 @@ export function modeChange(before: File | undefined, after: File | undefined): M
   return now ? "executable-added" : "executable-removed";
 }
 
-// sameContent 是改动前后的内容是否一字不差：直接比 base64,二进制文件也成立。
-export function sameContent(before: File, after: File): boolean {
-  return before.content === after.content;
-}
-
 // changedFiles 是一次比较里改了的文件：SKILL.md 排第一(不论是修改、新增还是删除),其余按修改、新增、删除排。
 // 第一项就是打开差异时默认先看的文件。
 export function changedFiles(diff: VersionDiff | null | undefined): { kind: ChangeKind; path: string }[] {

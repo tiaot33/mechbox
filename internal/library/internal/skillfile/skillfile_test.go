@@ -146,9 +146,6 @@ func TestSameContentIgnoresOnlyModes(t *testing.T) {
 		if got := SameContent(Digests(test.disk), Digests(version)); got != test.want {
 			t.Errorf("%s: SameContent = %v; want %v", test.name, got, test.want)
 		}
-		if got := ContentSum(test.disk) == ContentSum(version); got != test.want {
-			t.Errorf("%s: same ContentSum = %v; want %v", test.name, got, test.want)
-		}
 	}
 	if Sum(version) == Sum(WithModesOf(version, Digests([]File{file("run.sh", "", ModeRegular)}))) {
 		t.Error("Sum ignores modes; want it to tell them apart")

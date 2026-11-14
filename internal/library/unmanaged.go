@@ -57,6 +57,7 @@ type UnmanagedSkill struct {
 	// SourceLatestOf 不为 0 时,文件夹的内容和库里这个技能在来源里现在的那一版完全一致(最近一次检查更新看到的、比库里新的那一版):
 	// 是这个技能的新版,在库外更新过。按来源入库会因集合里已有同名技能返回 AlreadyExists;界面引导用更新(PlanUpdate、Update)
 	// 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
+	// Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
 	SourceLatestOf SkillID `json:"source_latest_of,omitzero"`
 }
 
@@ -349,7 +350,7 @@ func validFolderName(name string) bool {
 
 func readSkillFolder(ctx context.Context, operation, path, name string) (diskFiles, discovery.Candidate, error) {
 	state, err := agentdir.ReadFolder(ctx, path, maxFetchFiles, maxFetchSize)
-	if err != nil && state.Err == nil {
+	if err != nil {
 		return diskFiles{}, discovery.Candidate{}, err
 	}
 	return parseSkillFolder(operation, path, name, state)
