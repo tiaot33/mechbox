@@ -1,4 +1,5 @@
-// 更新计划里"装出去的地方":勾选这次一起换成新版的地方;用户改过的、文件夹不在了的默认不勾并写明原因。
+// 更新计划里"装出去的地方":勾选这次一起换成新版的地方;用户改过的、文件夹不在了的默认不勾并写明原因;
+// 在 app 外已经换成了这一版的写明不用再换。
 import { SkillScopeStatus, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { canInstall, placeKey } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
@@ -45,7 +46,12 @@ export function Places({
               <label key={placeKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
                 <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
-                {p.status === SkillScopeStatus.SkillScopeModified && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeModified &&
+                  (p.source_latest ? (
+                    <span className="update-place-latest text-[11px] text-muted-foreground">{t.alreadyLatest}</span>
+                  ) : (
+                    <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>
+                  ))}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="warn">{t.folderMissing}</Badge>}
                 {sharedWithNote(p).length > 0 && (

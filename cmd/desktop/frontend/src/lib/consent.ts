@@ -3,7 +3,8 @@
 // - 用户改过的地方、文件夹不在了的地方默认不动，勾上(或选"装回去")才覆盖、才装回去。
 // - 用户改过的技能有变化时默认不勾，跳过的改动、来源里已删除的技能、推测出的改名都不默认勾。
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
-// - 整批入库时，归项目仓库管的、指向 Agent 目录以外的默认不接，用户自己的照常默认勾上。
+// - 整批入库时，归项目仓库管的、指向 Agent 目录以外的、库里技能在来源里的新版默认不接，用户自己的照常默认勾上。
+// - 更新时，在 app 外已经更新到作者新版的那一处照常勾上、不算覆盖用户的修改。
 // - 照着另一个 Agent、另一个项目装时，有不是库装的同名文件夹的默认不覆盖，勾上才覆盖。
 // - 从项目的作用域页照着另一个 Agent 装时，全局和其他项目默认不勾，只装这个项目。
 import {
@@ -39,13 +40,15 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
 // canInstall 是能装到的地方：项目不在这台机器上的不能勾。
 export const canInstall = (p: SkillScopeInspection) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
 
-// defaultInstallOn 是装出去的地方的默认勾选：用户改过的、文件夹不在了的(可能是用户有意删掉的)不勾，勾上才覆盖、才装回去。
-export const defaultInstallOn = (p: SkillScopeInspection) =>
-  canInstall(p) && p.status !== SkillScopeStatus.SkillScopeModified && p.status !== SkillScopeStatus.SkillScopeMissing;
+// edited 是用户在这里改过的一处：被改过、又不是在 app 外更新到了作者的新版(source_latest)。
+const edited = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest;
 
-// consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。
-export const consented = (p: SkillScopeInspection) =>
-  p.status === SkillScopeStatus.SkillScopeModified || p.status === SkillScopeStatus.SkillScopeMissing;
+// defaultInstallOn 是装出去的地方的默认勾选：用户改过的、文件夹不在了的(可能是用户有意删掉的)不勾，勾上才覆盖、才装回去。
+// 在 app 外已经更新到作者新版的照常勾上：库换成这一版之后它就是当前版本，不会被覆盖。
+export const defaultInstallOn = (p: SkillScopeInspection) => canInstall(p) && !edited(p) && p.status !== SkillScopeStatus.SkillScopeMissing;
+
+// consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。作者新版的那一处不用同意覆盖。
+export const consented = (p: SkillScopeInspection) => edited(p) || p.status === SkillScopeStatus.SkillScopeMissing;
 
 // plannedInstalls 是勾选的技能装出去的各处;更新计划只列有变化(或推测出改名)的技能。
 export function plannedInstalls(plan: UpdatePlan, checked: Set<SkillID>): SkillScopeInspection[] {
@@ -66,7 +69,8 @@ export interface UpdateInstalls {
 export function updateInstalls(plan: UpdatePlan, checked: Set<SkillID>, installOn: (p: SkillScopeInspection) => boolean): UpdateInstalls {
   const places = plannedInstalls(plan, checked);
   const written = (p: SkillScopeInspection) => canInstall(p) && installOn(p);
-  const kept = (status: SkillScopeStatus) => new Set(places.filter((p) => p.status === status && !installOn(p)).map(folderKey)).size;
+  const kept = (status: SkillScopeStatus) =>
+    new Set(places.filter((p) => p.status === status && !p.source_latest && !installOn(p)).map(folderKey)).size;
   return {
     places,
     written,
@@ -187,7 +191,8 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
       link_outside: folders.some((f) => f.link_outside),
     }));
   });
-  const ownEntry = (p: PlannedUnmanagedSkill) => !p.error && notTakenOver(p);
+  // 库里技能在来源里的新版(在 app 外更新过)不用入库，用更新换上，默认不勾。
+  const ownEntry = (p: PlannedUnmanagedSkill) => !p.error && notTakenOver(p) && !p.source_latest_of;
   const time = (p: PlannedUnmanagedSkill) => (p.modified_at ? Date.parse(p.modified_at) : 0);
   const newest = new Map<string, PlannedUnmanagedSkill>();
   for (const p of split) {

@@ -735,7 +735,8 @@ export enum FileMode {
 export interface FindUnmanagedSourcesRequest {
     /**
      * Folders 是 ListUnmanagedSkills 列出的条目,按作用域与文件夹名指定,重复的只算一次。
-     * 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的,和已经不是未纳管技能、不在了的一样,不找也不报错。
+     * 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的、按内容认出是库里哪个技能的(SkillID 或 SourceLatestOf 不为 0),
+     * 和已经不是未纳管技能、不在了的一样,不找也不报错。
      */
     "folders": FolderInScope[] | null;
 }
@@ -1158,10 +1159,19 @@ export interface PlannedUnmanagedSkill {
 
     /**
      * SourceInput 与 SourceRef 是从来源记录认出的来源(见 UnmanagedSkill.SourceInput),取第一处认出的;入库确认里预填,
-     * 界面按它分组,认不出的单独一组。
+     * 界面按它分组,认不出的单独一组。SkillID 不为 0 时为空。
      */
     "source_input"?: string;
     "source_ref"?: string;
+
+    /**
+     * SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能:
+     * 入库只给它补记各处安装,界面按它所在的集合分组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
+     * 按来源入库会返回 AlreadyExists,所以默认不勾,界面引导用更新换上这一版。
+     */
+    "skill_id"?: SkillID;
+    "version_id"?: VersionID;
+    "source_latest_of"?: SkillID;
 
     /**
      * InRepository、InProjectLock 表示其中有一处提交在项目仓库里、记在项目根目录的 skills-lock.json 里
@@ -1187,8 +1197,8 @@ export interface PlannedUnmanagedSkill {
     "conflict"?: boolean;
 
     /**
-     * Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里、不是指向 Agent 目录以外的符号链接,
-     * 同名冲突时又是最近修改的那条。
+     * Selected 是默认是否勾选:没有 Error、不在项目仓库里、没记在 skills-lock.json 里、不是指向 Agent 目录以外的符号链接、
+     * 不是库里技能在来源里现在的那一版(SourceLatestOf),同名冲突时又是最近修改的那条。
      */
     "selected"?: boolean;
 
@@ -1775,6 +1785,13 @@ export interface SkillScopeInspection {
     "version_id"?: VersionID;
 
     /**
+     * SourceLatest 只在 modified 时可能为 true:这里的内容和来源里这个技能现在的那一版完全一致(最近一次检查更新或更新计划看到的、
+     * 比库里新的那一版),是在库外更新到了作者现在这一版,不是用户的修改。界面据此不说「用户改过」,引导用更新把库里的技能换成这一版;
+     * 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。
+     */
+    "source_latest"?: boolean;
+
+    /**
      * LinkTarget 在技能文件夹本身是符号链接时(如 npx skills 的布局)给出它指向的地方:解析了各级符号链接的真实文件夹,
      * 链接指向不存在之处时是链接里写的路径(相对路径按链接所在的目录展开);不是符号链接时为空。
      * 库第一次写这一处时(更新、重新安装、回滚)照常写成独立的文件夹,不写进链接指向的地方,之后这一处是独立的一份;
@@ -2220,6 +2237,7 @@ export interface UnmanagedSkill {
      * 全局作用域读 ~/.agents/.skill-lock.json(不跟随 XDG_STATE_HOME,只认 version 3 及以上),
      * 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
      * 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
+     * SkillID 不为 0 时为空:它就是库里的那个技能,跟着那个技能的来源,来源记录让位于它。
      */
     "source_input"?: string;
 
@@ -2233,6 +2251,22 @@ export interface UnmanagedSkill {
      * 和 InRepository 一样归项目仓库管。只出现在项目作用域。
      */
     "in_project_lock"?: boolean;
+
+    /**
+     * SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
+     * 和当前版本一致的优先,其次是最新的旧版本。它就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
+     * 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
+     * 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
+     */
+    "skill_id"?: SkillID;
+    "version_id"?: VersionID;
+
+    /**
+     * SourceLatestOf 不为 0 时,文件夹的内容和库里这个技能在来源里现在的那一版完全一致(最近一次检查更新看到的、比库里新的那一版):
+     * 是这个技能的新版,在库外更新过。按来源入库会因集合里已有同名技能返回 AlreadyExists;界面引导用更新(PlanUpdate、Update)
+     * 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
+     */
+    "source_latest_of"?: SkillID;
 }
 
 /**

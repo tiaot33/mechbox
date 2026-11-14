@@ -58,7 +58,7 @@ export function SourceEditor({ edit }: { edit: SourceEdit }) {
 }
 
 // PlannedRow 是按来源分组里的一条：勾选才入库;标出在项目仓库里的、项目 skills-lock.json 记录的、指向 Agent 目录以外的、
-// 库里已有同名的，写明在哪几个 Agent 里，可以改来源。
+// 库里已有同名的、库里技能在来源里的新版，写明在哪几个 Agent 里，可以改来源。和库里某个技能一样的就是那个技能，不改来源。
 export function PlannedRow({
   planned: p,
   picked,
@@ -90,10 +90,20 @@ export function PlannedRow({
             </Badge>
           )}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
-          {inLibrary && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />}
+          {p.source_latest_of ? (
+            <Badge tone="warn" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
+              {t.sourceLatest}
+            </Badge>
+          ) : (
+            inLibrary && !p.skill_id && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />
+          )}
           <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">{agents}</span>
-          <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-[11px] text-primary-ink" />
-          <EditSourceButton onEdit={edit.onEdit} />
+          {!p.skill_id && (
+            <>
+              <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-[11px] text-primary-ink" />
+              <EditSourceButton onEdit={edit.onEdit} />
+            </>
+          )}
         </label>
       </ListRow>
       <SourceEditor edit={edit} />

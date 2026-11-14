@@ -13,6 +13,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/market"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
+	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
 // UnmanagedSkill 是作用域的技能目录里一个不是库装的技能文件夹:这个作用域里没有安装记录用它。它可能是命令行工具
@@ -40,12 +41,23 @@ type UnmanagedSkill struct {
 	// 全局作用域读 ~/.agents/.skill-lock.json(不跟随 XDG_STATE_HOME,只认 version 3 及以上),
 	// 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
 	// 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
+	// SkillID 不为 0 时为空:它就是库里的那个技能,跟着那个技能的来源,来源记录让位于它。
 	SourceInput string `json:"source_input,omitempty"`
 	// SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
 	SourceRef string `json:"source_ref,omitempty"`
 	// InProjectLock 表示项目根目录的 skills-lock.json 记了这个技能(认不认得出来源都算):技能是团队约定装的,文件夹本身不一定提交了,
 	// 和 InRepository 一样归项目仓库管。只出现在项目作用域。
 	InProjectLock bool `json:"in_project_lock,omitzero"`
+	// SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
+	// 和当前版本一致的优先,其次是最新的旧版本。它就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
+	// 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
+	// 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
+	SkillID   SkillID   `json:"skill_id,omitzero"`
+	VersionID VersionID `json:"version_id,omitzero"`
+	// SourceLatestOf 不为 0 时,文件夹的内容和库里这个技能在来源里现在的那一版完全一致(最近一次检查更新看到的、比库里新的那一版):
+	// 是这个技能的新版,在库外更新过。按来源入库会因集合里已有同名技能返回 AlreadyExists;界面引导用更新(PlanUpdate、Update)
+	// 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
+	SourceLatestOf SkillID `json:"source_latest_of,omitzero"`
 }
 
 // ListUnmanagedSkills 列出各作用域(每个 Agent 的全局,以及每个 Agent 在每个已登记项目里)的技能目录里
@@ -56,12 +68,17 @@ type UnmanagedSkill struct {
 // 插件里的技能、企业托管目录、Codex 的 ADMIN / SYSTEM 技能和没有登记的项目都不在范围内。
 // 只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那个作用域没有结果;几个 Agent 共用一个目录时,
 // 每个 Agent 各列一条。结果按 Agent、作用域(全局在前,项目按 ID)、Name 排序。
+// 按内容认出它是库里的哪个技能、哪一版(SkillID、VersionID),或是库里哪个技能在来源里现在的那一版(SourceLatestOf);
+// 为此只读 SKILL.md 和库里某个版本相同、或技能名和有新版本的库里技能相同的那几个文件夹的全部内容。不联网。
 func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSkill, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	found, err := l.unmanagedSkills(ctx, nil)
 	if err != nil {
+		return nil, err
+	}
+	if err := l.recognizeUnmanaged(ctx, found); err != nil {
 		return nil, err
 	}
 	skills = []UnmanagedSkill{}
@@ -122,6 +139,52 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
 	return entries, nil
+}
+
+func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEntry) error {
+	latests, err := l.store.SourceLatests(ctx)
+	if err != nil {
+		return err
+	}
+	names := map[string]bool{}
+	for _, latest := range latests {
+		names[latest.Name] = true
+	}
+	manifests, err := l.store.ManifestFingerprints(ctx)
+	if err != nil {
+		return err
+	}
+	var paths []string
+	var indexes []int
+	for i, entry := range entries {
+		if !validFolderName(entry.Name) {
+			continue
+		}
+		if !manifests[skillfile.Fingerprint(entry.found.SkillMD)] && !names[skillName(entry.found.Folder)] {
+			continue
+		}
+		paths = append(paths, entry.Folder)
+		indexes = append(indexes, i)
+	}
+	return agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		if !state.Exists || state.Err != nil {
+			return nil
+		}
+		entry := &entries[indexes[index]]
+		found, err := recognize(ctx, l.store, state.Files, []store.Scope{entry.found.target.record()}, latests)
+		if err != nil {
+			return err
+		}
+		entry.recognized(found)
+		return nil
+	})
+}
+
+func (u *UnmanagedSkill) recognized(found recognition) {
+	u.SkillID, u.VersionID, u.SourceLatestOf = found.skillID, found.versionID, found.sourceLatestOf
+	if found.skillID != 0 {
+		u.SourceInput, u.SourceRef = "", ""
+	}
 }
 
 func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
@@ -312,7 +375,8 @@ func parseSkillFolder(operation, path, name string, files []skillfile.File, err 
 // FindUnmanagedSourcesRequest 指定要去 skills.sh 找来源的未纳管技能。
 type FindUnmanagedSourcesRequest struct {
 	// Folders 是 ListUnmanagedSkills 列出的条目,按作用域与文件夹名指定,重复的只算一次。
-	// 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的,和已经不是未纳管技能、不在了的一样,不找也不报错。
+	// 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的、按内容认出是库里哪个技能的(SkillID 或 SourceLatestOf 不为 0),
+	// 和已经不是未纳管技能、不在了的一样,不找也不报错。
 	Folders []FolderInScope `json:"folders"`
 }
 
@@ -328,8 +392,10 @@ type FoundUnmanagedSource struct {
 
 // FindUnmanagedSources 给来源记录认不出来源的未纳管技能去 skills.sh 找来源:按 SKILL.md 里的 name 搜索,只看名字和它相同、
 // 能转成入库预览输入的结果(规则同 SearchSkills),读出来源里这个技能的文件,和磁盘上的内容比较相似度,
-// 得分不低于 60% 的取得分最高的那个,一样高时取 skills.sh 排在前面的。相似度的算法和推测来源里改名的技能相同:
+// 得分不低于 60% 的几个里只取优先级最高的一个:库里已经在跟的来源(有技能的集合)在前,几个都在跟时按集合的先后(ListCollections 的顺序);
+// 再按得分从高到低,一样高时取 skills.sh 排在前面的。相似度的算法和推测来源里改名的技能相同:
 // 同路径的文件按非空行的重合比例算分(SKILL.md 不算 name 那一行),相加后除以两边文件数中较多的那个。
+// 已经认出是库里哪个技能的(UnmanagedSkill.SkillID 或 SourceLatestOf 不为 0)不找:它跟着库里那个技能的来源。
 // 用找到的来源入库(FetchUnmanaged、FetchUnmanagedSkills)时,内容和来源里的一致就是来源里的那一版,不一致时和用户自己给的来源一样,
 // 版本标为 SkillVersion.MaybeEdited。
 // 它要联网,ListUnmanagedSkills 与 PlanFetchUnmanaged 不等它:界面列出之后在后台调用,结果到了再补上。
@@ -379,16 +445,20 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 	}
 	type sourceSkill struct{ input, name string }
 	fetched := map[sourceSkill][]skillfile.File{}
+	opened := map[string]store.Source{}
 	reads := make(parallelLimit, maxSourceReads)
 	for input, names := range wanted {
 		wg.Go(func() {
 			reads.do(ctx, func() {
-				opened, err := l.openSource(ctx, input, "")
+				source, err := l.openSource(ctx, input, "")
 				if err != nil {
 					return
 				}
+				mu.Lock()
+				opened[input] = store.Source{Type: source.target.Type, Locator: source.target.Locator}
+				mu.Unlock()
 				for _, name := range names {
-					skills, err := opened.snapshot.Fetch(ctx, []string{name})
+					skills, err := source.snapshot.Fetch(ctx, []string{name})
 					if err != nil || len(skills) != 1 {
 						continue
 					}
@@ -403,23 +473,54 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	followed, err := l.followedRanks(ctx, opened)
+	if err != nil {
+		return nil, err
+	}
 	found = []FoundUnmanagedSource{}
 	for _, folder := range folders {
-		best, score := "", 0.0
+		type candidate struct {
+			input string
+			rank  int
+			score float64
+		}
+		var best *candidate
 		for _, input := range searched[folder.name] {
 			files, ok := fetched[sourceSkill{input, folder.name}]
 			if !ok {
 				continue
 			}
-			if each := skillfile.Similarity(folder.files, files); each >= renameSimilarity && each > score {
-				best, score = input, each
+			each := candidate{input: input, rank: followed[input], score: skillfile.Similarity(folder.files, files)}
+			if each.score >= renameSimilarity && (best == nil || each.rank < best.rank || each.rank == best.rank && each.score > best.score) {
+				best = &each
 			}
 		}
-		if best != "" {
-			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Name: folder.Name, SourceInput: best})
+		if best != nil {
+			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Name: folder.Name, SourceInput: best.input})
 		}
 	}
 	return found, nil
+}
+
+func (l *Library) followedRanks(ctx context.Context, opened map[string]store.Source) (map[string]int, error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	order, err := l.store.SourceOrder(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ranks := make(map[string]int, len(opened))
+	for input, source := range opened {
+		id, err := l.store.FollowedSource(ctx, source.Type, source.Locator)
+		if err != nil {
+			return nil, err
+		}
+		ranks[input] = len(order)
+		if index := slices.Index(order, id); id != 0 && index >= 0 {
+			ranks[input] = index
+		}
+	}
+	return ranks, nil
 }
 
 const (
@@ -471,6 +572,7 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 		listed[FolderInScope{Scope: entry.Scope, Name: entry.Name}] = entry
 	}
 	var found []FolderInScope
+	var targets []resolvedScope
 	var paths []string
 	for _, folder := range requested {
 		entry, ok := listed[folder]
@@ -479,12 +581,24 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 		}
 		delete(listed, folder)
 		found = append(found, folder)
+		targets = append(targets, entry.found.target)
 		paths = append(paths, entry.Folder)
+	}
+	latests, err := l.store.SourceLatests(ctx)
+	if err != nil {
+		return nil, err
 	}
 	read := make([]*sourcelessFolder, len(found))
 	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
 		files, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state.Files, state.Err)
-		if err == nil {
+		if err != nil {
+			return nil
+		}
+		recognized, err := recognize(ctx, l.store, files, []store.Scope{targets[i].record()}, latests)
+		if err != nil {
+			return err
+		}
+		if recognized == (recognition{}) {
 			read[i] = &sourcelessFolder{FolderInScope: found[i], name: parsed.Name, files: files}
 		}
 		return nil

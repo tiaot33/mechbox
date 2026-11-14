@@ -17,6 +17,7 @@ import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library"
 import { fetchPlan } from "@/lib/consent";
 import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -27,6 +28,7 @@ import {
   SameNameInLibrary,
   fetchedMessage,
   foldersOf,
+  inLibrary,
   noSource,
   outsideTarget,
   sourceKey,
@@ -149,18 +151,16 @@ function FetchUnmanagedDialog({
   const groups = new Map<string, number[]>();
   for (const i of usable) {
     const p = plan[i];
+    // 和库里某个技能一样的就是那个技能，单独一组：入库只记下装在哪里。
+    const key = p.skill_id ? inLibrary : sourceKey(p.source_input, p.source_ref);
     if (p.conflict)
       conflicts.set(p.name, [...(conflicts.get(p.name) ?? []), i]);
     else
-      groups.set(sourceKey(p.source_input, p.source_ref), [
-        ...(groups.get(sourceKey(p.source_input, p.source_ref)) ?? []),
-        i,
-      ]);
+      groups.set(key, [...(groups.get(key) ?? []), i]);
   }
-  // 有来源的组在前，没有来源的在最后。
-  const ordered = [...groups].sort(([a], [b]) =>
-    a === noSource ? 1 : b === noSource ? -1 : a.localeCompare(b),
-  );
+  // 有来源的组在前，已经在技能库里的其次，没有来源的在最后。
+  const rank = (key: string) => (key === noSource ? 2 : key === inLibrary ? 1 : 0);
+  const ordered = [...groups].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
 
   const toggle = (i: number) =>
     setPicked((set) => {
@@ -265,8 +265,8 @@ function FetchUnmanagedDialog({
             return (
               <div key={key} className="fetch-unmanaged-group">
                 <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
-                  <span className="min-w-0 truncate font-mono">
-                    {key === noSource ? t.noSource : first.source_input}
+                  <span className={cn("min-w-0 truncate", key !== inLibrary && "font-mono")}>
+                    {key === noSource ? t.noSource : key === inLibrary ? t.inLibrary : first.source_input}
                   </span>
                   {first.source_ref && (
                     <span className="shrink-0 font-normal text-muted-foreground">
@@ -278,7 +278,7 @@ function FetchUnmanagedDialog({
                   </span>
                   <span className="grow" />
                   <span className="shrink-0 font-normal text-muted-foreground">
-                    {key === noSource ? t.noSourceNote : t.sourceNote}
+                    {key === noSource ? t.noSourceNote : key === inLibrary ? t.inLibraryNote : t.sourceNote}
                   </span>
                 </div>
                 {members.map((i) => (

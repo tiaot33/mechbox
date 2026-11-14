@@ -111,6 +111,7 @@ export const zh = {
     statusCurrent: "最新",
     statusStale: "旧版本",
     statusModified: "被手动改过",
+    statusSourceLatest: "作者的新版",
     statusMissing: "文件夹不在了",
     statusRootMissing: "项目不在这台机器上",
     revisionUnknown: "来源版本未知",
@@ -333,6 +334,8 @@ export const zh = {
     fetched: (name: string, place: string) => `「${name}」已放进技能库，${place} 里的文件夹原样没动；之后可以在 ${place} 开关它、装到别处`,
     installElsewhere: "装到别处…",
     fetchTitle: (name: string) => `入库「${name}」`,
+    fetchCopy: (name: string, source: string, place: string) =>
+      `这份和库里的「${name}」（${source}）一模一样：入库只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
     fetch: "入库",
     fetchHandOver: (place: string) => `入库就是把它交给 app 管。${place} 里的文件夹原样不动，Agent 用到的内容不变。`,
     fetchCliCost: "之后如果还用命令行工具更新它，app 只能把它报为被手动改过。",
@@ -538,6 +541,11 @@ export const zh = {
     reinstall: "重新安装",
     updateFromHereHint: "把这里的内容作为库里的新版本，并换到装着它的其他地方",
     updateFromHere: "用这里的修改更新",
+    updateToLatest: "更新",
+    updateToLatestHint: "这里已经是作者的新版（在 app 外更新的）。用更新把库里的技能也换成这一版",
+    copy: "不是 app 装的",
+    copyTitle: "这里的文件夹和库里的这个技能一模一样，但不是 app 装的。入库只记下它装在这里，之后由 app 管、跟着它更新",
+    takeOver: "入库",
     notInstalled: "还没有安装到任何作用域。",
     switchHint: (): ReactNode => (
       <>
@@ -622,6 +630,14 @@ export const zh = {
     agentDirectory: "Agent 目录",
     statInstalled: "已安装",
     statNotInLibrary: "不在技能库里",
+    statCopies: "不是 app 装的",
+    copyHere: "不是 app 装的",
+    copyHereTitle: (name: string) => `这里的文件夹和库里的「${name}」一模一样，但不是 app 装的。点「入库」只记下它装在这里、交给 app 管，文件夹原样不动`,
+    takeOver: "入库",
+    sameAsLibrary: (name: string) => `和库里的「${name}」一样`,
+    sourceLatestOf: (name: string) => `库里「${name}」的新版`,
+    sourceLatestOfTitle: (name: string) =>
+      `这里是作者的新版，在 app 外更新过。点「更新」把库里的「${name}」换成这一版，之后这一份就和库里的一样，再入库只记下装在这里`,
     statGlobal: "来自全局",
     statStale: "需重新安装",
     reinstallAll: "全部重新安装",
@@ -772,6 +788,7 @@ export const zh = {
     changesOf: (name: string) => `${name} 的改动`,
     enlarge: "放大查看",
     modifiedHere: "你在这里改过，换新版会覆盖你的修改",
+    alreadyLatest: "这里已经是这一版（在 app 外更新的），不用再换",
     notPlaced: "勾选的技能还没有装到任何地方，只更新技能库。",
     rootMissing: "项目不在这台机器上，装不上",
     folderMissing: "文件夹不在了，可能是你删掉的；勾上会装回去",
@@ -826,6 +843,11 @@ export const zh = {
     unusableReason: (name: string, reason: string) => `${name}：${reason}`,
     sameNameTitle: (name: string, note: string) => `库里已经有叫「${name}」的技能。${note}`,
     sameName: "库里已有同名",
+    inLibrary: "已经在技能库里",
+    inLibraryNote: "内容和库里的一样，入库只记下装在这里，不会多出技能",
+    sourceLatest: "作者的新版",
+    sourceLatestTitle: (name: string) =>
+      `库里「${name}」的新版，在 app 外更新过。不用入库：去「更新」把库里的「${name}」换成这一版，这一份就和库里的一样了`,
     fetched: (n: number, matched: number) =>
       `已入库 ${n} 个技能，交给 app 管了` + (matched ? `；其中 ${matched} 个和库里已有的一样，只记下了装在这里` : ""),
   },

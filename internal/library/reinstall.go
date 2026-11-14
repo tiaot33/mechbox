@@ -70,6 +70,10 @@ type SkillScopeInspection struct {
 	// VersionID 是和磁盘上一致的库内版本:current 时是当前版本,stale 时是那个旧版本,其他状态为零值。
 	// 可用 GetVersion 查它对应的来源版本。
 	VersionID VersionID `json:"version_id,omitzero"`
+	// SourceLatest 只在 modified 时可能为 true:这里的内容和来源里这个技能现在的那一版完全一致(最近一次检查更新或更新计划看到的、
+	// 比库里新的那一版),是在库外更新到了作者现在这一版,不是用户的修改。界面据此不说「用户改过」,引导用更新把库里的技能换成这一版;
+	// 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。
+	SourceLatest bool `json:"source_latest,omitzero"`
 	// LinkTarget 在技能文件夹本身是符号链接时(如 npx skills 的布局)给出它指向的地方:解析了各级符号链接的真实文件夹,
 	// 链接指向不存在之处时是链接里写的路径(相对路径按链接所在的目录展开);不是符号链接时为空。
 	// 库第一次写这一处时(更新、重新安装、回滚)照常写成独立的文件夹,不写进链接指向的地方,之后这一处是独立的一份;
@@ -153,14 +157,25 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		folders = append(folders, folder)
 		indexes = append(indexes, i)
 	}
+	latests, err := l.store.SourceLatests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	latest := make(map[SkillID]string, len(latests))
+	for _, each := range latests {
+		latest[SkillID(each.SkillID)] = each.Content
+	}
 	states := make([]agentdir.FolderState, len(skillScopes))
-	err := agentdir.ReadFolders(ctx, folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+	err = agentdir.ReadFolders(ctx, folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
 		i := indexes[index]
 		status, versionID, err := l.folderStatus(ctx, skillScopes[i].SkillID, heads[i], state)
 		if err != nil {
 			return err
 		}
 		inspections[i].Status, inspections[i].VersionID, inspections[i].LinkTarget = status, versionID, state.LinkTarget
+		if content, ok := latest[skillScopes[i].SkillID]; ok && status == SkillScopeModified && state.Err == nil {
+			inspections[i].SourceLatest = skillfile.Sum(state.Files) == content
+		}
 		state.Files = nil
 		states[i] = state
 		return nil

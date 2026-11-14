@@ -229,6 +229,17 @@ export function unmanagedIn(s: Snapshot, key: ScopeKey): UnmanagedSkill[] {
   return s.unmanaged.filter((u) => scopeKey(u.scope) === key);
 }
 
+// copyIn 是作用域里内容和库里这个技能完全一样、但不是库装的那个文件夹(技能库认出它就是这个技能，见 UnmanagedSkill.skill_id);
+// 作用域页、项目页把它显示成库里这个技能的一行，点"入库"只补记安装。
+export function copyIn(s: Snapshot, key: ScopeKey, skillID: SkillID): UnmanagedSkill | undefined {
+  return unmanagedIn(s, key).find((u) => u.skill_id === skillID);
+}
+
+// copiesOf 是各作用域里这个技能的、不是库装的文件夹(见 copyIn)。
+export function copiesOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
+  return s.unmanaged.filter((u) => u.skill_id === skillID);
+}
+
 type Ownership = Pick<UnmanagedSkill, "in_repository" | "in_project_lock" | "link_outside">;
 
 // repoOwned 是归项目仓库管的未纳管技能：提交在项目仓库里，或记在项目的 skills-lock.json 里。
@@ -328,8 +339,10 @@ export function needsReinstall(p: SkillScopeInspection): boolean {
   return p.status !== SkillScopeStatus.SkillScopeCurrent;
 }
 
-export function skillScopeStatus(status: SkillScopeStatus): { label: string; tone: "ok" | "warn" | "bad" } {
+// sourceLatest 为 true(见 SkillScopeInspection.source_latest)时被改过的那一处是在 app 外更新到了作者的新版，不说"被手动改过"。
+export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false): { label: string; tone: "ok" | "warn" | "bad" } {
   const m = messages();
+  if (status === SkillScopeStatus.SkillScopeModified && sourceLatest) return { label: m.model.statusSourceLatest, tone: "warn" };
   return {
     [SkillScopeStatus.SkillScopeCurrent]: { label: m.model.statusCurrent, tone: "ok" as const },
     [SkillScopeStatus.SkillScopeStale]: { label: m.model.statusStale, tone: "warn" as const },
@@ -929,7 +942,8 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
 
 export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
-  const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
+  // 和库里某个技能一样的未纳管文件夹(copyIn)就是那个技能：列在上面库里的技能里，不进"不在技能库里"。
+  const hereIDs = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...unmanagedIn(s, key).flatMap((u) => (u.skill_id ? [u.skill_id] : []))]);
   const globalKeys = globalScopesSeenFrom(s, key);
   const globalIDs = new Set(
     s.skillScopes.filter((p) => globalKeys.includes(scopeKey(p.scope)) && !hereIDs.has(p.skill_id)).map((p) => p.skill_id),
@@ -950,7 +964,9 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   });
   return {
     hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key }),
-    hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
+    hereUnmanaged: unmanagedIn(s, key)
+      .filter((u) => !u.skill_id && hit(u))
+      .sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
     notHereSections,
@@ -981,9 +997,12 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
   return mergeProjectAgents(s, used)
     .map((agent) => {
       const key = scopeKey(scopeOf(agent.code, project));
-      const ids = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
+      const copies = unmanagedIn(s, key).filter((u) => !!u.skill_id);
+      const ids = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...copies.map((u) => u.skill_id!)]);
       const skills = sortSkills(s, s.skills.filter((x) => ids.has(x.id)));
-      const unmanaged = unmanagedIn(s, key).sort(byName);
+      const unmanaged = unmanagedIn(s, key)
+        .filter((u) => !u.skill_id)
+        .sort(byName);
       return { scope: key, agent, skills: skills.filter(hit), unmanaged: unmanaged.filter(hit), all: skills.length + unmanaged.length };
     })
     .filter((x) => x.skills.length + x.unmanaged.length > 0);

@@ -98,6 +98,10 @@ describe("装出去的地方默认勾哪些", () => {
     expect(defaultInstallOn(place(1, global(claude), SkillScopeStatus.SkillScopeStale))).toBe(true);
   });
 
+  it("在 app 外更新到作者新版的地方照常勾上：它不是用户的修改", () => {
+    expect(defaultInstallOn(place(1, global(claude), SkillScopeStatus.SkillScopeModified, { source_latest: true }))).toBe(true);
+  });
+
   it("用户改过的、文件夹不在了的、项目不在这台机器上的默认不勾", () => {
     expect(defaultInstallOn(place(1, global(claude), SkillScopeStatus.SkillScopeModified))).toBe(false);
     expect(defaultInstallOn(place(1, global(claude), SkillScopeStatus.SkillScopeMissing))).toBe(false);
@@ -131,6 +135,14 @@ describe("一次更新要换的地方", () => {
     ]);
     expect(u.keptEdited).toBe(0);
     expect(u.keptMissing).toBe(0);
+  });
+
+  it("在 app 外已经是作者新版的地方默认换、不带覆盖，也不算留着用户的修改", () => {
+    const latest = plan([planned(1, PlannedChange.PlannedChanged)], [place(1, global(codex), SkillScopeStatus.SkillScopeModified, { source_latest: true })]);
+    const u = updateInstalls(latest, new Set([1]), defaultInstallOn);
+    expect(u.requests).toEqual([{ skill_id: 1, scope: global(codex), overwrite: false }]);
+    expect(u.keptEdited).toBe(0);
+    expect(updateInstalls(latest, new Set([1]), () => false).keptEdited).toBe(0);
   });
 
   it("项目不在这台机器上的地方勾上了也不换", () => {
@@ -258,6 +270,12 @@ describe("整批入库的默认勾选", () => {
     expect(fetchPlan([mine, team]).map((p) => !!p.selected)).toEqual([true, false]);
     const older = planned([folder(global(codex))], { conflict: true, modified_at: "2026-09-01T00:00:00Z" });
     expect(fetchPlan([older, mine, team]).map((p) => !!p.selected)).toEqual([false, true, false]);
+  });
+
+  it("库里技能在来源里的新版不勾：用更新换上，不用入库;和库里一样的照常勾上", () => {
+    const newer = planned([folder(global(claude))], { source_latest_of: 3 });
+    const same = planned([folder(global(codex))], { skill_id: 3, version_id: 9 });
+    expect(fetchPlan([newer, same]).map((p) => !!p.selected)).toEqual([false, true]);
   });
 
   it("都是团队的、指向外面的或读不出的都不勾，也不拆", () => {

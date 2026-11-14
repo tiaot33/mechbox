@@ -217,6 +217,26 @@ func (q queries) VersionsWithFile(ctx context.Context, path, fingerprint string)
 	return matches, nil
 }
 
+func (q queries) ManifestFingerprints(ctx context.Context) (map[string]bool, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT DISTINCT fingerprint FROM version_files WHERE path = 'SKILL.md'`)
+	if err != nil {
+		return nil, fmt.Errorf("list manifest fingerprints: %w", wrap(err))
+	}
+	defer rows.Close()
+	fingerprints := map[string]bool{}
+	for rows.Next() {
+		var fingerprint string
+		if err := rows.Scan(&fingerprint); err != nil {
+			return nil, fmt.Errorf("read manifest fingerprint: %w", wrap(err))
+		}
+		fingerprints[fingerprint] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list manifest fingerprints: %w", wrap(err))
+	}
+	return fingerprints, nil
+}
+
 func (q queries) MarkdownFiles(ctx context.Context, versionID int64) ([]skillfile.File, error) {
 	return q.versionFiles(ctx, versionID, "get markdown files", `AND (lower(version_files.path) LIKE '%.md' OR lower(version_files.path) LIKE '%.markdown')`)
 }

@@ -34,7 +34,7 @@ export const barClass = "a-scope-sum flex flex-col gap-2 rounded-[10px] border b
 export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
 // ScopeSummary 是作用域页顶部的摘要：这个目录里有几个技能(全局写"全局目录里有",项目写"在项目里能用",含来自全局的;
-// 其中已安装、不在技能库里、来自全局各几个，和下面的上一块一致)、
+// 其中已安装、和库里一样但不是 app 装的、不在技能库里、来自全局各几个，和下面的上一块一致)、
 // Agent 目录、健康状态、全部重新安装，每个组的整组开关，
 // 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有;项目的作用域页上默认只装这个项目)。
 export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeKey; directory: string | undefined; sees: number; global: number }) {
@@ -42,7 +42,9 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const t = useT().list;
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
-  const unmanaged = unmanagedIn(s, scope).length;
+  // 和库里某个技能一样的文件夹就是那个技能，不算"不在技能库里",单独数。
+  const unmanaged = unmanagedIn(s, scope).filter((u) => !u.skill_id).length;
+  const copies = unmanagedIn(s, scope).filter((u) => !!u.skill_id).length;
   const notTaken = unmanagedIn(s, scope).filter(notTakenOver).length;
   const sc = parseScope(scope);
   const groups = s.groups;
@@ -71,6 +73,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         </span>
         <span className="grow" />
         <Stat value={installed.length} label={t.statInstalled} />
+        {copies > 0 && <Stat value={copies} label={t.statCopies} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
         <Stat value={issues} label={t.statStale} warn={issues > 0} />

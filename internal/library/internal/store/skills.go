@@ -237,6 +237,42 @@ func (q queries) RequireSkill(ctx context.Context, id int64) error {
 	return nil
 }
 
+type SourceLatest struct {
+	SkillID int64
+	Name    string
+	Content string
+}
+
+func (q queries) SourceLatests(ctx context.Context) ([]SourceLatest, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT id, name, update_check_content FROM skills WHERE update_check_status = 'available' AND update_check_content != '' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list source latest contents: %w", wrap(err))
+	}
+	defer rows.Close()
+	var latests []SourceLatest
+	for rows.Next() {
+		var latest SourceLatest
+		if err := rows.Scan(&latest.SkillID, &latest.Name, &latest.Content); err != nil {
+			return nil, fmt.Errorf("read source latest content: %w", wrap(err))
+		}
+		latests = append(latests, latest)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list source latest contents: %w", wrap(err))
+	}
+	return latests, nil
+}
+
+func (q queries) FollowedSource(ctx context.Context, sourceType string, locator []byte) (int64, error) {
+	var id int64
+	if err := q.q.QueryRowContext(ctx, `
+		SELECT coalesce((SELECT id FROM sources WHERE type = ? AND locator = ? AND EXISTS (SELECT 1 FROM skills WHERE skills.source_id = sources.id)), 0)
+	`, sourceType, locator).Scan(&id); err != nil {
+		return 0, fmt.Errorf("find source: %w", wrap(err))
+	}
+	return id, nil
+}
+
 func (t *Tx) UpsertSource(ctx context.Context, source Source) (int64, error) {
 	if _, err := t.q.ExecContext(ctx, `
 		INSERT INTO sources(type, locator) VALUES (?, ?)
