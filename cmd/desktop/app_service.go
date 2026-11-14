@@ -148,6 +148,9 @@ func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Setti
 			return Settings{}, fmt.Errorf("glass tint %v is outside 0 to %v", tint, maxGlassTint)
 		}
 	}
+	if !foldBelowValid(settings.FoldBelow) {
+		return Settings{}, fmt.Errorf("fold threshold %d is outside %d to %d", settings.FoldBelow, minFoldBelow, maxFoldBelow)
+	}
 	previous := a.Settings().WSLDistro
 	switched := settings.WSLDistro != previous
 	if switched {

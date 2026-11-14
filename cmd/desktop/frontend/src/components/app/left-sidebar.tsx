@@ -3,10 +3,11 @@
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，先后由技能库给出(默认按首次入库的先后，拖过的按拖出来的先后),只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
 // 集合、组各自拖到同类的行上调整先后，和列表的分节一起变，右键节标题可以恢复默认顺序。两种行名字放不下时悬停显示全名，右键有各自的菜单。
-import { useState } from "react";
+// 「集合」标题上可以一键把技能少于设置里那个数的集合收进最后一行(和设置页「通用」里的开关是同一项),点那一行再列出。
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ConfigStatus } from "@bindings/cmd/desktop";
-import { SyncInterval, type Collection, type Group } from "@bindings/internal/library";
+import { SyncInterval, type Collection, type CollectionID, type Group } from "@bindings/internal/library";
 import { useSnapshot, configQuery, releaseQuery, syncStatusQuery } from "@/lib/library";
 import { checkUpdates, useCheckMark } from "@/features/update/check";
 import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
@@ -17,6 +18,7 @@ import { useT } from "@/lib/i18n";
 import {
   checkableCollections,
   collectionSkills,
+  foldCollections,
   hasUpdate,
   isLocal,
   pending,
@@ -30,8 +32,19 @@ import {
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { jumpTo, openGraph, openPage, openSettings, useCurrentPage } from "@/lib/view";
+import {
+  foldUnfolded,
+  jumpTo,
+  openGraph,
+  openPage,
+  openSettings,
+  smallCollectionsKey,
+  toggleUnfolded,
+  useCurrentPage,
+  useView,
+} from "@/lib/view";
 import { resetOrder } from "@/features/order/order";
+import { setFoldCollections } from "@/features/settings/fold";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -80,6 +93,19 @@ export function LeftSidebar() {
   const groups = s.groups;
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // 开着折叠时，技能少的集合收在最后一行;smallOpen 是点开了那一行，记在界面状态里，进设置页、隐藏左栏再回来时还在。
+  // 折叠从关到开时(左栏按钮、右键菜单或设置页)收起，免得点开过的那些直接排在末尾、像是没折。
+  const { shown, folded } = foldCollections(s);
+  const smallOpen = useView((v) => v.unfolded.has(smallCollectionsKey));
+  const foldWas = useRef(s.foldCollections);
+  useEffect(() => {
+    if (s.foldCollections && !foldWas.current) foldUnfolded(smallCollectionsKey);
+    foldWas.current = s.foldCollections;
+  }, [s.foldCollections]);
+  const toggleFold = () => void setFoldCollections(!s.foldCollections);
+  const foldLabel = s.foldCollections ? t.unfoldSmall : t.foldSmall(s.foldBelow);
+  // 开着折叠时，拖动调整先后只在同一段里(技能多的、技能少的各一段):左栏总把技能少的排在最后，跨段放下的位置和画的线对不上。
+  const segment = (c: Collection) => (folded.length === 0 ? undefined : folded.includes(c) ? folded.map((x) => x.id) : shown.map((x) => x.id));
   const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
     <li key={target.kind}>
       <button
@@ -130,18 +156,37 @@ export function LeftSidebar() {
         collapsed={collapsed}
         onToggle={setCollapsed}
         menu={
-          <ContextMenuItem disabled={isDefaultOrder(collections.map((c) => c.id))} onSelect={() => resetOrder("collection")}>
-            {t.resetOrder}
-          </ContextMenuItem>
+          <>
+            <ContextMenuItem onSelect={toggleFold}>{foldLabel}</ContextMenuItem>
+            <ContextMenuItem onSelect={() => openSettings("general")}>{t.foldSettings}</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={isDefaultOrder(collections.map((c) => c.id))} onSelect={() => resetOrder("collection")}>
+              {t.resetOrder}
+            </ContextMenuItem>
+          </>
         }
       >
+        {collections.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn("fold-small", !s.foldCollections && "opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100")}
+            title={foldLabel}
+            aria-pressed={s.foldCollections}
+            onClick={toggleFold}
+          >
+            <Icon name={s.foldCollections ? "expand" : "fold"} />
+          </Button>
+        )}
         <span className="pr-1.5 text-[10px] font-medium text-subtle">{t.bySource}</span>
       </SectionHead>
       {!collapsed.has("collections") && (
         <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
-          {collections.map((c) => (
-            <CollectionRow key={c.id} collection={c} />
+          {shown.map((c) => (
+            <CollectionRow key={c.id} collection={c} segment={segment(c)} />
           ))}
+          {smallOpen && folded.map((c) => <CollectionRow key={c.id} collection={c} segment={segment(c)} />)}
+          {folded.length > 0 && <SmallCollectionsRow folded={folded} open={smallOpen} onToggle={() => toggleUnfolded(smallCollectionsKey)} />}
         </ul>
       )}
       {collections.length === 0 && !collapsed.has("collections") && <Hint className="mt-1 px-3">{t.noCollections}</Hint>}
@@ -206,13 +251,14 @@ export function LeftSidebar() {
   );
 }
 
-// CollectionRow 是左栏的一个集合：点了跳到那一节;拖到右栏作用域 = 逐个直接安装，拖到组上 = 加入该组，拖到别的集合上 = 调整先后;
+// CollectionRow 是左栏的一个集合：点了跳到那一节;拖到右栏作用域 = 逐个直接安装，拖到组上 = 加入该组，拖到别的集合上 = 调整先后
+// (segment 是开着折叠时它所在的那段，只接受同一段里拖来的);
 // 名字放不下时悬停显示全名;右键菜单是关系图、检查更新、更新、来源里的其他技能、更新历史与加入组。开着它的关系图时这一行标为选中。
-function CollectionRow({ collection: c }: { collection: Collection }) {
+function CollectionRow({ collection: c, segment }: { collection: Collection; segment?: CollectionID[] }) {
   const s = useSnapshot();
   const dnd = useDnD();
   const busy = useBusy();
-  const drop = useCollectionDrop(c.id);
+  const drop = useCollectionDrop(c.id, segment);
   const groups = s.groups;
   const tt = useT();
   const t = tt.sidebar;
@@ -285,6 +331,28 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
           </ContextMenuSub>
         </ContextMenuContent>
       </ContextMenu>
+    </li>
+  );
+}
+
+// SmallCollectionsRow 是开着折叠时左栏集合的最后一行：收着技能少于设置里那个数的集合，点了在它上面列出、再点收起。
+// 悬停写出折叠的规则、点了是列出还是收起，以及是哪几个来源。
+function SmallCollectionsRow({ folded, open, onToggle }: { folded: Collection[]; open: boolean; onToggle: () => void }) {
+  const s = useSnapshot();
+  const t = useT().sidebar;
+  return (
+    <li>
+      <button
+        type="button"
+        className={cn(navItem({ kind: "section" }), "small-collections text-muted-foreground")}
+        aria-expanded={open}
+        title={t.smallCollectionsTitle(s.foldBelow, open, folded.map((c) => sourceLabel(s, c.source)))}
+        onClick={onToggle}
+      >
+        <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", open && "rotate-90")} />
+        <span className="grow truncate">{open ? t.hideSmall : t.smallCollections(folded.length)}</span>
+        {!open && <NavCount value={folded.reduce((n, c) => n + (c.skills?.length ?? 0), 0)} />}
+      </button>
     </li>
   );
 }

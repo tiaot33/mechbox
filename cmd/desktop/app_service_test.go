@@ -112,7 +112,7 @@ func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
 	if got := first.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
 		t.Fatalf("first start = %+v; want defaults", got)
 	}
-	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
+	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, FoldCollections: true, FoldBelow: 2, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
 	if _, err := first.SaveSettings(t.Context(), want); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}

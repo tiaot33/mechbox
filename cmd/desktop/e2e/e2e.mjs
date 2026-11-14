@@ -14,6 +14,12 @@ const URL = process.env.E2E_URL;
 const ZIP_URL = process.env.E2E_ZIP_URL;
 const ZIP_DIR = process.env.E2E_ZIP_DIR;
 const SHOTS = process.env.E2E_SHOTS;
+// shownPath 是界面写出的解析后的真实路径：在主目录下的写成 ~/...。临时 HOME 在 /tmp 下:macOS 上 /tmp 是 /private/tmp 的符号链接，
+// 解析后不在 HOME 下，界面写完整路径;Linux 上解析后仍在 HOME 下，写成 ~/...。
+const shownPath = (p) => {
+  const real = fs.realpathSync(p);
+  return real.startsWith(`${HOME}/`) ? `~${real.slice(HOME.length)}` : real;
+};
 const NETWORK = process.env.E2E_NETWORK === "1";
 // GITHUB_TOKEN 是联网步骤开始时填进设置页的 GitHub 令牌;应用只认设置页填的，不读环境变量。
 const GITHUB_TOKEN = process.env.E2E_GITHUB_TOKEN ?? "";
@@ -1331,9 +1337,8 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     assert.equal(await npx.locator(".unmanaged-state").count(), 0, "节标题已经写了不在技能库里，最后一列不再写");
     assert.deepStrictEqual(await npx.locator(".fetch-unmanaged").allTextContents(), ["入库"], "行首是入库按钮，行尾没有另一个入库");
     assert.equal(await npx.locator('[role="switch"], [data-slot="switch-mark"]').count(), 0, "不在技能库里的没有开关");
-    // 指向的是解析后的真实路径;临时 HOME 在 /tmp 下(macOS 上是 /private/tmp 的符号链接),所以不按 ~ 缩写比较。
     const foot = await npx.locator(".unmanaged-status").textContent();
-    assert(foot.startsWith("符号链接 → ") && foot.includes(`${fs.realpathSync(real)}`), `应写出符号链接指向哪里:${foot}`);
+    assert(foot.startsWith("符号链接 → ") && foot.includes(shownPath(real)), `应写出符号链接指向哪里:${foot}`);
     assert((await npx.getByRole("button").allTextContents()).join() === "入库,在 Finder 中显示", "只有入库与在 Finder 中显示，没有删除");
     assert((await page.locator(".a-scope-sum .stat", { hasText: "不在技能库里" }).textContent()).includes("1"), "摘要应数出 1 个不在技能库里");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
@@ -1980,7 +1985,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     assert.equal(await modal().locator(".fetch-unmanaged-link-outside").count(), 0, "没勾时不说");
     await ownRow.locator("input[type=checkbox]").check();
     const note = await modal().locator(".fetch-unmanaged-link-outside").textContent();
-    assert(note.includes(fs.realpathSync(authored)) && note.includes("之后在 app 里更新它，会把链接换成独立的一份"), `勾上时写清后果:${note}`);
+    assert(note.includes(shownPath(authored)) && note.includes("之后在 app 里更新它，会把链接换成独立的一份"), `勾上时写清后果:${note}`);
     await page.screenshot({ path: path.join(SHOTS, "fetch-unmanaged-link-outside.png") });
     await btn(modal(), "先不入库").click();
     await btn(unmanaged("link-own"), "入库").click();
@@ -2014,7 +2019,7 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await btn(row("proj-a"), "用这里的修改更新").click();
     const linked = modal().locator(".update-place", { hasText: "Claude Code · 全局" }).locator(".update-place-link");
     await linked.waitFor({ timeout: 15000 });
-    assert.equal(await linked.textContent(), `这次会换成独立的一份（现在是指向 ${fs.realpathSync(real)} 的符号链接）`, "写明原来指向哪里");
+    assert.equal(await linked.textContent(), `这次会换成独立的一份（现在是指向 ${shownPath(real)} 的符号链接）`, "写明原来指向哪里");
     const codexPlace = modal().locator(".update-place", { hasText: "Codex · 全局" });
     assert.equal(await codexPlace.locator(".update-place-link").count(), 0, "真实文件夹不说");
     // 去掉链着它的那一处:换 Codex 之前，Claude Code 全局先换成独立的一份、保持现在的内容，在 Codex 那一行说出来。
@@ -2852,6 +2857,52 @@ await step("左栏分节折叠与展开", async () => {
   assert(await page.locator(".a-left .nav-item", { hasText: "my-skills" }).isVisible(), "展开后集合条目应可见");
 });
 
+await step("左栏一键折叠技能少的来源，点最后一行列出;设置里改上限与开关", async () => {
+  const row = (name) => page.locator(".a-left .nav-item", { hasText: name });
+  const small = page.locator(".a-left .small-collections");
+  await page.locator(".a-left .nav-sec", { hasText: "集合" }).hover();
+  await page.locator(".a-left button.fold-small").click();
+  await until(async () => (await small.count()) === 1, "出现收着技能少的来源的那一行");
+  assert((await row("delta.zip").count()) === 0, "只有一个技能的 delta.zip 应收起来");
+  assert((await row("my-skills").count()) === 1, "3 个技能的 my-skills 不少于 3 个，照常列出");
+  await small.click();
+  assert((await row("delta.zip").count()) === 1, "点开后列出 delta.zip");
+  await small.click();
+  assert((await row("delta.zip").count()) === 0, "再点收起");
+  // 点开以后关掉折叠再打开：点开过的收回去，不是排在末尾照样列出。
+  await small.click();
+  await page.locator(".a-left button.fold-small").click();
+  await until(async () => (await small.count()) === 0, "关掉折叠后没有最后那一行");
+  await page.locator(".a-left .nav-sec", { hasText: "集合" }).hover();
+  await page.locator(".a-left button.fold-small").click();
+  await until(async () => (await small.count()) === 1, "再打开折叠");
+  assert.equal(await small.getAttribute("aria-expanded"), "false", "再打开折叠时那一行是收着的");
+  assert((await row("delta.zip").count()) === 0, "再打开折叠时 delta.zip 收起来");
+  await settle();
+  assert.equal(appConfig().fold_collections, "true", "左栏的开关应保存进应用设置");
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await until(async () => (await small.count()) === 1, "重新载入后仍折叠");
+
+  // 设置页「通用」:这时没有一个集合有 4 个技能，上限改成 4 就全都不够数，不折(免得只剩一行「另外 K 个」);关掉开关后全部列出。
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  const fold = page.locator(".settings .set-row", { hasText: "折叠技能少的来源" }).locator('[role="switch"]');
+  assert.equal(await fold.getAttribute("aria-checked"), "true", "设置页的开关和左栏是同一项");
+  await page.locator(".settings .fold-below-row select").selectOption("4");
+  await settle();
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  assert((await small.count()) === 0 && (await row("my-skills").count()) === 1 && (await row("delta.zip").count()) === 1, "没有一个集合够数时不折");
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  await page.locator(".settings .fold-below-row select").selectOption("3");
+  await fold.click();
+  await settle();
+  assert(await page.locator(".settings .fold-below-row select").isDisabled(), "关掉折叠后上限不可选");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  assert((await small.count()) === 0 && (await row("delta.zip").count()) === 1, "关掉后每个集合都列出");
+});
+
 await step("同步：未配置时推、拉置灰，去设置跳到同步分区", async () => {
   await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
   assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置 S3" }).count()) === 1, "应提示未配置");
@@ -2897,7 +2948,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", fold_collections: "false", fold_below: "3", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();

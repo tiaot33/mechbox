@@ -38,6 +38,7 @@ import {
   sameNameNote,
   scopeListing,
   sortSkills,
+  foldCollections,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
 } from "./model";
@@ -102,6 +103,30 @@ describe("sortSkills", () => {
     const s = snapshot({ collections: [collection(2, "z/zeta"), collection(1, "a/alpha")] });
     const skills = [of(1, "a1", 1, "a/alpha"), of(2, "none", 0, ""), of(3, "z1", 2, "z/zeta")];
     expect(sortSkills(s, skills).map((x) => x.name)).toEqual(["z1", "a1", "none"]);
+  });
+});
+
+describe("foldCollections", () => {
+  const collections = [collection(1, "a/a", [10]), collection(2, "b/b", [11, 12, 13]), collection(3, "c/c", []), collection(4, "d/d", [14, 15])];
+  const ids = (list: Collection[]) => list.map((c) => c.id);
+
+  it("开着时技能少于 foldBelow 个的折起来，两边都保持原来的先后", () => {
+    const { shown, folded } = foldCollections({ collections, foldCollections: true, foldBelow: 2 });
+    expect(ids(shown)).toEqual([2, 4]);
+    expect(ids(folded)).toEqual([1, 3]);
+    expect(ids(foldCollections({ collections, foldCollections: true, foldBelow: 3 }).folded)).toEqual([1, 3, 4]);
+  });
+
+  it("关着时全部照常列出", () => {
+    const { shown, folded } = foldCollections({ collections, foldCollections: false, foldBelow: 3 });
+    expect(ids(shown)).toEqual([1, 2, 3, 4]);
+    expect(folded).toEqual([]);
+  });
+
+  it("没有一个集合够数时不折，免得只剩一行「另外 K 个」", () => {
+    const { shown, folded } = foldCollections({ collections, foldCollections: true, foldBelow: 4 });
+    expect(ids(shown)).toEqual([1, 2, 3, 4]);
+    expect(folded).toEqual([]);
   });
 });
 
