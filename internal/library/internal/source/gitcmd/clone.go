@@ -1,9 +1,9 @@
 package gitcmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 )
@@ -26,7 +27,15 @@ type Checkout struct {
 	Diagnostics []discovery.Diagnostic
 }
 
-func Clone(ctx context.Context, remotes []string, ref, subpath string) (result Checkout, err error) {
+func Clone(ctx context.Context, remotes []string, ref, subpath string) (Checkout, error) {
+	result, err := clone(ctx, remotes, ref, subpath, true)
+	if errors.Is(err, errBlobFetch) && ctx.Err() == nil {
+		return clone(ctx, remotes, ref, subpath, false)
+	}
+	return result, err
+}
+
+func clone(ctx context.Context, remotes []string, ref, subpath string, partial bool) (result Checkout, err error) {
 	if FullCommit.MatchString(ref) {
 		ref = strings.ToLower(ref)
 	}
@@ -39,8 +48,12 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 	if err := ValidateRef(ctx, ref); err != nil {
 		return result, err
 	}
-	clone := func(remote string) error {
-		_, err := Run(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", "--branch", ref, "--", remote, repository)
+	filter := "--no-filter"
+	if partial {
+		filter = "--filter=blob:none"
+	}
+	cloneFrom := func(remote string) error {
+		_, err := Run(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", filter, "--no-checkout", "--origin", "origin", "--branch", ref, "--", remote, repository)
 		if err != nil && ctx.Err() == nil && FullCommit.MatchString(ref) {
 			if removeErr := os.RemoveAll(repository); removeErr != nil {
 				return removeErr
@@ -48,10 +61,13 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 			if _, initErr := Run(ctx, "init", "--quiet", repository); initErr != nil {
 				return initErr
 			}
-			if _, fetchErr := Run(ctx, "-C", repository, "fetch", "--quiet", "--depth", "1", "--", remote, ref); fetchErr != nil {
+			if _, remoteErr := Run(ctx, "-C", repository, "remote", "add", "--", "origin", remote); remoteErr != nil {
+				return remoteErr
+			}
+			if _, fetchErr := Run(ctx, "-C", repository, "fetch", "--quiet", "--no-tags", "--depth", "1", filter, "origin", ref); fetchErr != nil {
 				return fetchErr
 			}
-			_, err = Run(ctx, "-C", repository, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+			_, err = Run(ctx, "-C", repository, "update-ref", "--no-deref", "HEAD", "FETCH_HEAD")
 		}
 		return MissingRef(err, ref)
 	}
@@ -62,7 +78,7 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 				return result, err
 			}
 		}
-		err = clone(remote)
+		err = cloneFrom(remote)
 		if err == nil || ctx.Err() != nil {
 			break
 		}
@@ -79,54 +95,66 @@ func Clone(ctx context.Context, remotes []string, ref, subpath string) (result C
 	if err != nil {
 		return result, err
 	}
-	fsys := os.DirFS(repository)
+	view, err := readTree(ctx, repository, partial)
+	if err != nil {
+		return result, err
+	}
 	current := "."
 	if subpath != "" && subpath != "." {
 		for component := range strings.SplitSeq(subpath, "/") {
-			entries, err := fs.ReadDir(fsys, current)
+			entries, err := view.ReadDir(current)
 			if err != nil {
 				return result, err
 			}
-			index := slices.IndexFunc(entries, func(entry fs.DirEntry) bool { return entry.Name() == component })
+			index := slices.IndexFunc(entries, func(entry discovery.Entry) bool { return entry.Name == component })
 			if index < 0 {
 				return result, &source.NotFoundError{What: source.MissingSubpath}
 			}
-			if !entries[index].IsDir() {
+			if !entries[index].Mode.IsDir() {
 				return result, &source.InputError{Reason: "source subpath must contain only real directories"}
 			}
 			current = path.Join(current, component)
 		}
 	}
-	found, diagnostics, err := discovery.ScanFS(ctx, fsys, current, nil)
+	if err := view.prefetch(ctx, current); err != nil {
+		return result, err
+	}
+	listed := map[string][]treeFile{}
+	candidates, diagnostics, err := discovery.Scan(ctx, view, current, func(candidate discovery.Candidate, _ string, _ []byte) error {
+		files, err := view.skillFiles(candidate.Path)
+		listed[candidate.Path] = files
+		return err
+	})
 	result.Commit = strings.TrimSpace(string(output))
 	if err != nil {
 		return result, err
 	}
+	var oids []string
+	for _, candidate := range candidates {
+		for _, file := range listed[candidate.Path] {
+			oids = append(oids, file.oid)
+		}
+	}
+	blobs, err := view.blobs(ctx, oids)
+	if err != nil {
+		return result, err
+	}
 	result.Diagnostics = diagnostics
-	for _, skill := range found {
-		tree, err := treeSHA(ctx, repository, skill.Path)
+	for _, candidate := range candidates {
+		tree, err := view.treeSHA(candidate.Path)
 		if err != nil {
 			return Checkout{}, err
 		}
-		result.Skills = append(result.Skills, Skill{Skill: skill, Tree: tree})
+		files := make([]skillfile.File, len(listed[candidate.Path]))
+		for i, file := range listed[candidate.Path] {
+			files[i] = skillfile.File{Path: file.path, Content: bytes.Clone(blobs[file.oid]), Mode: file.mode}
+			if files[i].Content == nil {
+				files[i].Content = []byte{}
+			}
+		}
+		result.Skills = append(result.Skills, Skill{Skill: discovery.Skill{Candidate: candidate, Files: files}, Tree: tree})
 	}
 	return result, nil
-}
-
-func treeSHA(ctx context.Context, repository, skillPath string) (string, error) {
-	spec := "HEAD^{tree}"
-	if skillPath != "" && skillPath != "." {
-		spec = "HEAD:" + skillPath
-	}
-	output, err := Run(ctx, "-C", repository, "rev-parse", spec)
-	if err != nil {
-		return "", err
-	}
-	sha := strings.ToLower(strings.TrimSpace(string(output)))
-	if !FullCommit.MatchString(sha) {
-		return "", errors.New("read git tree: invalid skill directory tree SHA")
-	}
-	return sha, nil
 }
 
 func Commits(ctx context.Context, remotes []string, since, head string) ([]source.Commit, error) {
