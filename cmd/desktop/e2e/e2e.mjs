@@ -139,6 +139,8 @@ async function unfold() {
   }
 }
 const btn = (scope, name) => scope.getByRole("button", { name, exact: true });
+// unmanagedHead 是作用域页「不在技能库里」那一节的标题，上面有「全部入库…」。
+const unmanagedHead = () => page.locator('.a-list .list-section[data-section="scope-unmanaged"] .section-head');
 // section 是设置页里标题为 name 的分区。
 const section = (name) => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${name}$`) }) });
 async function openFetch() {
@@ -326,11 +328,10 @@ await step(FIRST_OPEN, async () => {
     await btn(modal(), "取消").click();
     await closeDrawer();
 
-    // 没选的那份仍是未纳管技能：作用域里淡淡提一句，从这里可以再全部入库。
+    // 没选的那份仍是未纳管技能：作用域里「不在技能库里」那一节的标题上可以再全部入库，摘要里不另放一行提示。
     await selectScope("Claude Code");
-    const hint = page.locator(".unmanaged-hint");
-    assert((await hint.textContent()).includes("其中 1 个可以交给 app 管"), `作用域里提一句:${await hint.textContent()}`);
-    await btn(hint, "全部入库…").click();
+    assert.equal(await page.locator(".unmanaged-hint").count(), 0, "摘要里不另放一行提示");
+    await btn(unmanagedHead(), "全部入库…").click();
     await modal().locator(".fetch-unmanaged-lead", { hasText: "在 Claude Code · 全局 里发现 1 个不是库装的技能" }).waitFor();
     await btn(modal(), "先不入库").click();
   } finally {
@@ -1041,7 +1042,30 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     const lint = page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^lint-rules$/ }) });
     await lint.waitFor();
     assert.equal(await lint.locator(".unmanaged-state").textContent(), "记在 skills-lock.json 里", "最后一列写出记在 skills-lock.json 里");
-    assert((await page.locator(".unmanaged-hint").count()) === 0, "归项目仓库管的不算进还有几个没入库");
+    // 只剩归项目仓库管的，节标题上照样能一次入库：确认里默认不勾，组标题上一次勾上整组(提醒照常写出)，再点一次整组取消。
+    await btn(unmanagedHead(), "全部入库…").click();
+    await modal().locator(".fetch-unmanaged-lead", { hasText: "发现 2 个不是库装的技能" }).waitFor({ timeout: 15000 });
+    assert(!(await checked("lint-rules")) && !(await checked("team-rules")), "归项目仓库管的默认不勾");
+    const lockGroup = modal().locator(".fetch-unmanaged-group", { has: page.locator(".fetch-unmanaged-name", { hasText: /^lint-rules$/ }) });
+    const toggle = lockGroup.locator(".fetch-unmanaged-group-toggle");
+    assert(!(await toggle.isChecked()), "组里一个都没勾时组标题不勾");
+    await toggle.click();
+    assert((await checked("lint-rules")) && !(await checked("team-rules")), "组标题只勾上这一组");
+    assert((await modal().locator(".fetch-unmanaged-team").textContent()).includes("「lint-rules」归项目仓库管"), "整组勾上时照常提醒");
+    assert.equal(await btn(modal(), "入库 1 个").count(), 1, "确认按钮数上整组勾上的");
+    await page.screenshot({ path: path.join(SHOTS, "fetch-unmanaged-group-toggle.png") });
+    await toggle.click();
+    assert(!(await checked("lint-rules")), "再点一次整组取消");
+    await btn(modal(), "先不入库").click();
+    // 项目页顶部写出项目里有几个不在技能库里，也能一次入库，范围是各 Agent 在这个项目里。
+    await page.locator(".a-right .nav-item.proj", { hasText: "team-proj" }).click();
+    await page.locator('.a-list[data-page="project"]').waitFor();
+    const sum = page.locator(".a-list .a-scope-sum");
+    assert((await sum.textContent()).includes("2 不在技能库里"), `项目摘要写出不在技能库里的个数:${await sum.textContent()}`);
+    await page.screenshot({ path: path.join(SHOTS, "project-fetch-all.png") });
+    await btn(sum, "全部入库…").click();
+    await modal().locator(".fetch-unmanaged-lead", { hasText: "在项目「team-proj」里发现 2 个不是库装的技能" }).waitFor({ timeout: 15000 });
+    await btn(modal(), "先不入库").click();
     await clearScope();
   } finally {
     for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
@@ -1940,12 +1964,9 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await unmanaged("link-own").waitFor();
     assert.equal(await unmanaged("link-own").locator(".unmanaged-state").textContent(), "指向 Agent 目录以外", "指向 Agent 目录以外的写在最后一列");
     assert.equal(await unmanaged("link-tdd").locator(".unmanaged-state").count(), 0, "指向另一个 Agent 目录的不写");
-    const cards = await page.locator(".unmanaged-row").count();
-    const hint = await page.locator(".unmanaged-hint").textContent();
-    assert(hint.includes(`其中 ${cards - 1} 个可以交给 app 管`), `还有几个没入库不算指向 Agent 目录以外的:${hint}`);
 
     // 一次确认入库：默认不勾，勾上才写清之后在 app 里更新会换掉链接。
-    await btn(page.locator(".unmanaged-hint"), "全部入库…").click();
+    await btn(unmanagedHead(), "全部入库…").click();
     const ownRow = modal().locator('[data-slot="list-row"]', { hasText: "link-own" });
     await ownRow.waitFor();
     assert(!(await ownRow.locator("input[type=checkbox]").isChecked()), "指向 Agent 目录以外的默认不勾");

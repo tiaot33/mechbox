@@ -684,7 +684,7 @@ export const en = {
     statGlobal: "from global",
     statStale: "to reinstall",
     reinstallAll: "Reinstall all",
-    notTaken: (n: number) => `${n} of them can be handed over to the app; Agents use them as usual.`,
+    fetchAllTitle: "Fetch the skills here that aren't in the Library in one go: check them one by one or by group when you confirm; the folders stay as they are",
     fetchAll: "Fetch all…",
     groups: "Groups",
     groupChipTitle: (name: string, on: boolean) =>
@@ -882,6 +882,7 @@ export const en = {
     projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the sidebar.",
     noSource: "No Source",
     groupCount: (n: number) => `· ${n}`,
+    groupToggle: (group: string) => `Check or uncheck everything in “${group}”`,
     noSourceNote: "No update checks; after editing in the Agent directory, update with those edits",
     sourceNote: "Will follow it for update checks",
     conflicts: "Same name, different content—fetch only one of each",
