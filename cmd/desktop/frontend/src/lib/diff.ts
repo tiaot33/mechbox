@@ -1,9 +1,26 @@
 // 看差异：一次比较里改了哪些文件(SKILL.md 先看、排成目录树),按行比较一个文件的旧内容和新内容，没变的长段落折起来只留上下文;
 // 可以排成一列(行内对比)或左右两列(左右对比);每行标出它在旧内容、新内容里的行号，改掉的一行和替换它的一行再标出改了哪几个词。
-import type { VersionDiff } from "@bindings/internal/library";
+import { FileMode, type File, type VersionDiff } from "@bindings/internal/library";
 import { fileTree, type TreeNode } from "./file-tree";
 
 export type ChangeKind = "added" | "changed" | "deleted";
+
+// ModeChange 是一个文件改动前后可执行权限的变化：加上或去掉。
+export type ModeChange = "executable-added" | "executable-removed";
+
+// modeChange 比较改动前后同一个文件的可执行权限;只有一侧(新增、删除的文件)或没变时为 undefined。
+export function modeChange(before: File | undefined, after: File | undefined): ModeChange | undefined {
+  if (!before || !after) return undefined;
+  const was = before.mode === FileMode.ModeExecutable;
+  const now = after.mode === FileMode.ModeExecutable;
+  if (was === now) return undefined;
+  return now ? "executable-added" : "executable-removed";
+}
+
+// sameContent 是改动前后的内容是否一字不差：直接比 base64,二进制文件也成立。
+export function sameContent(before: File, after: File): boolean {
+  return before.content === after.content;
+}
 
 // changedFiles 是一次比较里改了的文件：SKILL.md 排第一(不论是修改、新增还是删除),其余按修改、新增、删除排。
 // 第一项就是打开差异时默认先看的文件。

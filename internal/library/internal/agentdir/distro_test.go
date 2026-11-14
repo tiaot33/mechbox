@@ -93,9 +93,9 @@ func TestDistroReadMatchesNative(t *testing.T) {
 			t.Errorf("state(%s) = %+v, want %+v", folder, got[0], want[0])
 		}
 	}
-	files, _ := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1<<20)
+	state, _ := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1<<20)
 	modes := map[string]skillfile.Mode{}
-	for _, file := range files {
+	for _, file := range state.Files {
 		modes[file.Path] = file.Mode
 	}
 	if modes["scripts/run.sh"] != skillfile.ModeExecutable || modes["SKILL.md"] != skillfile.ModeRegular {
@@ -104,24 +104,24 @@ func TestDistroReadMatchesNative(t *testing.T) {
 	if _, ok := modes[".git/HEAD"]; ok {
 		t.Error("ignored .git read")
 	}
-	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/dangling")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/dangling")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("dangling: %v", err)
 	}
-	if _, err := ReadFiles(ctx, unc(filepath.Join(home, "missing")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+	if _, err := ReadFolder(ctx, unc(filepath.Join(home, "missing")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("missing: %v", err)
 	}
-	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 1, 1<<20); !errors.Is(err, ErrTooLarge) {
+	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 1, 1<<20); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("too many files: %v", err)
 	}
 	write(t, filepath.Join(home, ".agents/skills/shared/.git/objects/big"), strings.Repeat("x", 4096), 0o644)
-	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1024); err != nil {
+	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 1024); err != nil {
 		t.Errorf("ignored folders count toward the limit: %v", err)
 	}
-	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 10); !errors.Is(err, ErrTooLarge) {
+	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/shared")), 100, 10); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("too many bytes: %v", err)
 	}
 	symlink(t, "/etc/hosts", filepath.Join(home, ".claude/skills/own/link"))
-	if _, err := ReadFiles(ctx, unc(filepath.Join(home, ".claude/skills/own")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
+	if _, err := ReadFolder(ctx, unc(filepath.Join(home, ".claude/skills/own")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("inner symlink: %v", err)
 	}
 }
@@ -339,7 +339,7 @@ func TestDistroChange(t *testing.T) {
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("executable not kept: %v %v", info, err)
 	}
-	if got, err := ReadFiles(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); err != nil || !skillfile.Equal(got, files) {
+	if got, err := ReadFolder(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); err != nil || !skillfile.Equal(got.Files, files) {
 		t.Fatalf("written files = %v %v", got, err)
 	}
 	if entries, _ := os.ReadDir(skills); len(entries) != 1 {
@@ -358,8 +358,8 @@ func TestDistroChange(t *testing.T) {
 	if err := change.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := ReadFiles(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); !skillfile.Equal(got, files) {
-		t.Fatalf("rollback did not restore: %v", got)
+	if got, _ := ReadFolder(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); !skillfile.Equal(got.Files, files) {
+		t.Fatalf("rollback did not restore: %v", got.Files)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude/skills/own/SKILL.md")); err != nil {
 		t.Fatalf("rollback did not restore removal: %v", err)

@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -52,6 +53,7 @@ type ReinstallResult struct {
 // SkillScopeStatus 是一处安装现在的状态,每种状态对应界面上的一个动作。判定按下列顺序,前一条命中即停:
 // root_missing、missing,然后与库里的版本比对。技能文件夹本身是符号链接时(如 npx skills 的布局),比对它指向的文件夹里的内容,
 // 链接指向不存在之处算 modified;链接本身见 SkillScopeInspection.LinkTarget。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+// 「一致」指文件路径、内容与可执行位都相同;Windows 本机的目录读不出可执行位,那里只比路径与内容(见包说明「实现」一节)。
 type SkillScopeStatus string
 
 const (
@@ -59,7 +61,7 @@ const (
 	SkillScopeMissing     SkillScopeStatus = "missing"      // 技能文件夹不在了(包括整个 Agent 目录不在了),可能是用户有意删掉的,也可能是误删或这台机器还没装过;重新安装要明确同意才装回去
 	SkillScopeCurrent     SkillScopeStatus = "current"      // 和库里的当前版本完全一致
 	SkillScopeStale       SkillScopeStatus = "stale"        // 和库里某个旧版本完全一致;重新安装不用额外确认
-	SkillScopeModified    SkillScopeStatus = "modified"     // 和库里任何版本都对不上(包括多了、少了文件,或有不是普通文件的东西),即用户在这里改过;重新安装要明确同意覆盖。Windows 本机的目录读不出可执行位,只比路径与内容
+	SkillScopeModified    SkillScopeStatus = "modified"     // 和库里任何版本都对不上(包括多了、少了文件,或有不是普通文件的东西),即用户在这里改过;重新安装要明确同意覆盖
 )
 
 // SkillScopeInspection 是一处安装及其现在的状态。
@@ -174,7 +176,11 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		}
 		inspections[i].Status, inspections[i].VersionID, inspections[i].LinkTarget = status, versionID, state.LinkTarget
 		if content, ok := latest[skillScopes[i].SkillID]; ok && status == SkillScopeModified && state.Err == nil {
-			inspections[i].SourceLatest = skillfile.Sum(state.Files) == content
+			sum, err := l.diskSum(ctx, heads[i], diskOf(state))
+			if err != nil {
+				return err
+			}
+			inspections[i].SourceLatest = sum == content
 		}
 		state.Files = nil
 		states[i] = state
@@ -255,15 +261,57 @@ func (l *Library) folderStatus(ctx context.Context, id SkillID, head int64, stat
 	case state.Err != nil:
 		return "", 0, state.Err
 	}
-	return l.matchVersion(ctx, id, head, digests(state.Files), agentdir.ModesKnown(state.Path))
+	return l.matchVersion(ctx, id, head, diskOf(state))
 }
 
-func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk map[string]skillfile.Digest, modesKnown bool) (SkillScopeStatus, VersionID, error) {
+type diskFiles struct {
+	files   []skillfile.File
+	digests map[string]skillfile.Digest
+	noModes bool
+}
+
+func diskOf(state agentdir.FolderState) diskFiles {
+	return diskFiles{files: state.Files, digests: skillfile.Digests(state.Files), noModes: state.NoModes}
+}
+
+func (d diskFiles) same(version map[string]skillfile.Digest) bool {
+	if d.noModes {
+		return skillfile.SameContent(d.digests, version)
+	}
+	return maps.Equal(d.digests, version)
+}
+
+func (d diskFiles) sameAs(other diskFiles) bool {
+	if d.noModes || other.noModes {
+		return skillfile.SameContent(d.digests, other.digests)
+	}
+	return maps.Equal(d.digests, other.digests)
+}
+
+func (d diskFiles) as(reference map[string]skillfile.Digest) []skillfile.File {
+	if !d.noModes {
+		return d.files
+	}
+	return skillfile.WithModesOf(d.files, reference)
+}
+
+func (l *Library) diskSum(ctx context.Context, versionID int64, disk diskFiles) (string, error) {
+	if !disk.noModes {
+		return skillfile.Sum(disk.files), nil
+	}
+	reference, err := l.store.VersionDigests(ctx, versionID)
+	if err != nil {
+		return "", err
+	}
+	return skillfile.Sum(disk.as(reference)), nil
+}
+
+func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk diskFiles) (SkillScopeStatus, VersionID, error) {
 	current, err := l.store.VersionDigests(ctx, currentVersionID)
 	if err != nil {
 		return "", 0, err
 	}
-	if sameFiles(disk, current, modesKnown) {
+	if disk.same(current) {
 		return SkillScopeCurrent, VersionID(currentVersionID), nil
 	}
 
@@ -276,7 +324,7 @@ func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID
 		if err != nil {
 			return "", 0, err
 		}
-		if sameFiles(disk, files, modesKnown) {
+		if disk.same(files) {
 			return SkillScopeStale, VersionID(versionID), nil
 		}
 	}

@@ -379,11 +379,11 @@ func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.H
 }
 
 func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Have) (bool, source.Skill, error) {
-	status, state, err := snapshot.Check(ctx, have)
+	state, unchanged, err := snapshot.Check(ctx, have)
 	if err != nil {
 		return false, source.Skill{}, unreadableSkill(ctx, snapshot, have.Name, err)
 	}
-	if status == source.Unchanged {
+	if unchanged {
 		return false, source.Skill{Name: have.Name, Files: have.Files, State: state}, nil
 	}
 	fetched, err := snapshot.Fetch(ctx, []string{have.Name})

@@ -180,14 +180,14 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 	return result, nil
 }
 
-func (s *snapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+func (s *snapshot) Check(ctx context.Context, have source.Have) (source.State, bool, error) {
 	if s.notModified && decodeState(have.State) == s.sent {
-		return source.Unchanged, have.State, nil
+		return have.State, true, nil
 	}
 	if _, err := s.Fetch(ctx, []string{have.Name}); err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
-	return source.Unknown, nil, nil
+	return nil, false, nil
 }
 
 func (s *snapshot) load(ctx context.Context) error {

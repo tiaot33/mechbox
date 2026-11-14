@@ -163,6 +163,8 @@ func prunePattern() string {
 
 func (d distro) key() string { return "wsl:" + strings.ToLower(d.name) }
 
+func (distro) modes() bool { return true }
+
 func (d distro) linux(p string) string {
 	_, linux, ok := wsl.Split(p)
 	if !ok {

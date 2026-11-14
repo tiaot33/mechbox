@@ -406,22 +406,23 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	} else if !exists {
 		return RollbackMissing, nil
 	}
-	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
+	state, err := agentdir.ReadFolder(ctx, folder, maxFetchFiles, maxFetchSize)
 	if errors.Is(err, agentdir.ErrIrregularFile) || errors.Is(err, agentdir.ErrTooLarge) {
 		return RollbackModified, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	disk, modesKnown := digests(files), agentdir.ModesKnown(folder)
-	if sameFiles(disk, digests(current.files), modesKnown) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
+	disk := diskOf(state)
+	currentFiles := skillfile.Digests(current.files)
+	if disk.same(currentFiles) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
 		return RollbackCurrent, nil
 	}
 	updatedFiles, err := l.store.VersionDigests(ctx, update.To)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	if err == nil && sameFiles(disk, updatedFiles, modesKnown) || sameFiles(disk, digests(current.files), modesKnown) {
+	if err == nil && disk.same(updatedFiles) || disk.same(currentFiles) {
 		if folderName != skill.Name {
 			if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
 				return "", err

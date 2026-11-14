@@ -14,20 +14,12 @@ type Locator []byte
 
 type State []byte
 
-type Status int
-
-const (
-	Unknown Status = iota
-	Unchanged
-	Changed
-)
-
 type Snapshot interface {
 	Revision() string
 	Candidates(ctx context.Context) ([]discovery.Candidate, []discovery.Diagnostic, error)
 	Names(ctx context.Context) ([]string, error)
 	Fetch(ctx context.Context, names []string) ([]Skill, error)
-	Check(ctx context.Context, have Have) (Status, State, error)
+	Check(ctx context.Context, have Have) (state State, unchanged bool, err error)
 	Commits(ctx context.Context, since string) ([]Commit, error)
 }
 

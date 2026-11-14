@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -49,18 +50,39 @@ func Equal(first, second []File) bool {
 	})
 }
 
-func AdoptModes(files, reference []File) []File {
-	modes := make(map[string]Mode, len(reference))
-	for _, file := range reference {
-		modes[file.Path] = file.Mode
+func Digests(files []File) map[string]Digest {
+	result := make(map[string]Digest, len(files))
+	for _, file := range files {
+		result[file.Path] = Digest{Fingerprint: Fingerprint(file.Content), Mode: file.Mode}
 	}
+	return result
+}
+
+func SameContent(a, b map[string]Digest) bool {
+	return maps.EqualFunc(a, b, func(x, y Digest) bool { return x.Fingerprint == y.Fingerprint })
+}
+
+func WithModesOf(files []File, reference map[string]Digest) []File {
 	adopted := slices.Clone(files)
 	for i, file := range adopted {
-		if mode, ok := modes[file.Path]; ok {
-			adopted[i].Mode = mode
+		if digest, ok := reference[file.Path]; ok {
+			adopted[i].Mode = digest.Mode
 		}
 	}
 	return adopted
+}
+
+func SameModes(files, others []File) bool {
+	modes := make(map[string]Mode, len(others))
+	for _, file := range others {
+		modes[file.Path] = file.Mode
+	}
+	for _, file := range files {
+		if mode, ok := modes[file.Path]; ok && mode != file.Mode {
+			return false
+		}
+	}
+	return true
 }
 
 func Fingerprint(content []byte) string {
@@ -73,6 +95,15 @@ func Sum(files []File) string {
 	hash := sha256.New()
 	for _, file := range sorted {
 		fmt.Fprintf(hash, "%s\x00%s\x00%s\n", file.Path, file.Mode, Fingerprint(file.Content))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func ContentSum(files []File) string {
+	sorted := slices.SortedFunc(slices.Values(files), func(a, b File) int { return strings.Compare(a.Path, b.Path) })
+	hash := sha256.New()
+	for _, file := range sorted {
+		fmt.Fprintf(hash, "%s\x00%s\n", file.Path, Fingerprint(file.Content))
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }

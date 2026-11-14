@@ -3,6 +3,7 @@
 // 新增界面文案时两份一起写。
 import type { ReactNode } from "react";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
+import type { ModeChange } from "@/lib/diff";
 import { platform } from "@/lib/platform";
 
 // firstNames 是折起来的那行里列出的前三个名字。
@@ -1349,9 +1350,11 @@ export const zh = {
     reading: (path: string) => `正在读取 ${path}…`,
     failed: (path: string) => `读取 ${path} 失败。`,
     unchanged: (n: number) => `${n} 行没变`,
-    sameText: "文件内容没变，只改了权限：",
-    executableAdded: "这次加上了可执行权限，Agent 可以直接把它当作程序运行。",
-    executableRemoved: "这次去掉了可执行权限，不能再直接把它当作程序运行。",
+    modeChanged: (change: ModeChange, onlyMode: boolean) =>
+      (onlyMode ? "文件内容没变，只改了权限：" : "") +
+      (change === "executable-added"
+        ? "这次加上了可执行权限，Agent 可以直接把它当作程序运行。"
+        : "这次去掉了可执行权限，不能再直接把它当作程序运行。"),
     added: "新增",
     changed: "修改",
     deleted: "删除",

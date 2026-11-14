@@ -558,29 +558,24 @@ func (s *githubSnapshot) Fetch(ctx context.Context, names []string) ([]source.Sk
 	return result, nil
 }
 
-func (s *githubSnapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+func (s *githubSnapshot) Check(ctx context.Context, have source.Have) (source.State, bool, error) {
 	state := decodeGitHubState(have.State)
 	if state.Commit != "" && state.Commit == s.ref {
-		return source.Unchanged, have.State, nil
+		return have.State, true, nil
 	}
 	if err := s.discover(ctx); err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
 	remote, err := selectSkills(s.skills, []string{have.Name})
 	if err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
 	tree := remote[0].gitTreeSHA
-	switch {
-	case state.Tree == "" || tree == "":
+	if state.Tree == "" || tree == "" || state.Tree != tree {
 		s.rememberGitBlobs(have.Files)
-		return source.Unknown, nil, nil
-	case state.Tree == tree:
-		return source.Unchanged, encodeGitHubState(s.ref, tree), nil
-	default:
-		s.rememberGitBlobs(have.Files)
-		return source.Changed, nil, nil
+		return nil, false, nil
 	}
+	return encodeGitHubState(s.ref, tree), true, nil
 }
 
 func (s *githubSnapshot) discover(ctx context.Context) error {
