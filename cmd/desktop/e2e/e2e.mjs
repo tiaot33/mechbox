@@ -1331,9 +1331,12 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
     assert.equal(await npx.locator(".unmanaged-state").count(), 0, "节标题已经写了不在技能库里，最后一列不再写");
     assert.deepStrictEqual(await npx.locator(".fetch-unmanaged").allTextContents(), ["入库"], "行首是入库按钮，行尾没有另一个入库");
     assert.equal(await npx.locator('[role="switch"], [data-slot="switch-mark"]').count(), 0, "不在技能库里的没有开关");
-    // 指向的是解析后的真实路径;临时 HOME 在 /tmp 下(macOS 上是 /private/tmp 的符号链接),所以不按 ~ 缩写比较。
+    // 指向的是解析后的真实路径，在主目录下的写成 ~/...。临时 HOME 在 /tmp 下:macOS 上 /tmp 是 /private/tmp 的符号链接，
+    // 解析后不在 HOME 下，写完整路径;Linux 上解析后仍在 HOME 下，写成 ~/...。
+    const target = fs.realpathSync(real);
+    const shown = target.startsWith(`${HOME}/`) ? `~${target.slice(HOME.length)}` : target;
     const foot = await npx.locator(".unmanaged-status").textContent();
-    assert(foot.startsWith("符号链接 → ") && foot.includes(`${fs.realpathSync(real)}`), `应写出符号链接指向哪里:${foot}`);
+    assert(foot.startsWith("符号链接 → ") && foot.includes(shown), `应写出符号链接指向哪里:${foot}`);
     assert((await npx.getByRole("button").allTextContents()).join() === "入库,在 Finder 中显示", "只有入库与在 Finder 中显示，没有删除");
     assert((await page.locator(".a-scope-sum .stat", { hasText: "不在技能库里" }).textContent()).includes("1"), "摘要应数出 1 个不在技能库里");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-claude-global.png") });
