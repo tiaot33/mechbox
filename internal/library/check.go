@@ -158,7 +158,7 @@ func (l *Library) readCollection(ctx context.Context, id CollectionID) (*collect
 		}
 	} else {
 		for {
-			read.checked = checkSkills(ctx, read.snapshot, haves(read.states), true)
+			read.checked = checkSkills(ctx, read.snapshot, haves(read.states))
 			keepEdits(read.checked, read.states)
 			read.revision = read.snapshot.Revision()
 			read.listed = nil
@@ -361,7 +361,7 @@ func keepEdits(checked []checkedSkill, states []currentVersion) {
 	}
 }
 
-func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.Have, needFiles bool) []checkedSkill {
+func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.Have) []checkedSkill {
 	for {
 		revision := snapshot.Revision()
 		results := make([]checkedSkill, len(haves))
@@ -370,7 +370,7 @@ func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.H
 				results[i].err = err
 				continue
 			}
-			results[i].changed, results[i].latest, results[i].err = checkSnapshot(ctx, snapshot, have, needFiles)
+			results[i].changed, results[i].latest, results[i].err = checkSnapshot(ctx, snapshot, have)
 		}
 		if snapshot.Revision() == revision {
 			return results
@@ -378,23 +378,20 @@ func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.H
 	}
 }
 
-func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Have, needFiles bool) (bool, source.Skill, error) {
-	status, state, err := snapshot.Check(ctx, have)
+func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Have) (bool, source.Skill, error) {
+	state, unchanged, err := snapshot.Check(ctx, have)
 	if err != nil {
 		return false, source.Skill{}, unreadableSkill(ctx, snapshot, have.Name, err)
 	}
-	switch {
-	case status == source.Unchanged:
+	if unchanged {
 		return false, source.Skill{Name: have.Name, Files: have.Files, State: state}, nil
-	case status == source.Changed && !needFiles:
-		return true, source.Skill{}, nil
 	}
 	fetched, err := snapshot.Fetch(ctx, []string{have.Name})
 	if err != nil {
 		return false, source.Skill{}, unreadableSkill(ctx, snapshot, have.Name, err)
 	}
 	latest := fetched[0]
-	return status == source.Changed || !skillfile.Equal(have.Files, latest.Files), latest, nil
+	return !skillfile.Equal(have.Files, latest.Files), latest, nil
 }
 
 func unreadableSkill(ctx context.Context, snapshot source.Snapshot, name string, err error) error {

@@ -86,6 +86,8 @@
 
 WSL 相关的测试不需要 Windows。测试把环境变量 `MECHBOX_TEST_WSL_SHELL` 设成本机的 `sh`，让本机的 shell 充当 WSL 发行版，所以在 macOS 和 Linux 上照常运行。
 
+Windows 本机的目录读不出可执行位，相关的测试也不需要 Windows。测试设上环境变量 `MECHBOX_TEST_NO_FILE_MODES`，本机的目录就像在 Windows 上一样，读出的文件一律是普通文件（见 `test/library/library_modes_test.go`）。
+
 ## 写 Go 测试
 
 ### 放在哪里

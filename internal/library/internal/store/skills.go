@@ -238,13 +238,14 @@ func (q queries) RequireSkill(ctx context.Context, id int64) error {
 }
 
 type SourceLatest struct {
-	SkillID int64
-	Name    string
-	Content string
+	SkillID   int64
+	VersionID int64
+	Name      string
+	Content   string
 }
 
 func (q queries) SourceLatests(ctx context.Context) ([]SourceLatest, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT id, name, update_check_content FROM skills WHERE update_check_status = 'available' AND update_check_content != '' ORDER BY id`)
+	rows, err := q.q.QueryContext(ctx, `SELECT id, current_version_id, name, update_check_content FROM skills WHERE update_check_status = 'available' AND update_check_content != '' ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list source latest contents: %w", wrap(err))
 	}
@@ -252,7 +253,7 @@ func (q queries) SourceLatests(ctx context.Context) ([]SourceLatest, error) {
 	var latests []SourceLatest
 	for rows.Next() {
 		var latest SourceLatest
-		if err := rows.Scan(&latest.SkillID, &latest.Name, &latest.Content); err != nil {
+		if err := rows.Scan(&latest.SkillID, &latest.VersionID, &latest.Name, &latest.Content); err != nil {
 			return nil, fmt.Errorf("read source latest content: %w", wrap(err))
 		}
 		latests = append(latests, latest)

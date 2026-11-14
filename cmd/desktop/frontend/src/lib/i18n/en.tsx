@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 import type { Messages } from ".";
 import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
+import type { ModeChange } from "@/lib/diff";
 import { platform } from "@/lib/platform";
 
 const and = (items: string[]) => new Intl.ListFormat("en", { type: "conjunction" }).format(items);
@@ -1423,6 +1424,11 @@ export const en = {
     reading: (path: string) => `Reading ${path}…`,
     failed: (path: string) => `Couldn't read ${path}.`,
     unchanged: (n: number) => count(n, "unchanged line"),
+    modeChanged: (change: ModeChange, onlyMode: boolean) =>
+      (onlyMode ? "The contents are unchanged; only the permission changed. " : "") +
+      (change === "executable-added"
+        ? "It is now executable, so an Agent can run it directly as a program."
+        : "It is no longer executable, so it can't be run directly as a program."),
     added: "Added",
     changed: "Changed",
     deleted: "Deleted",

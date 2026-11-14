@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"time"
 
@@ -407,22 +406,26 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	} else if !exists {
 		return RollbackMissing, nil
 	}
-	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
+	state, err := agentdir.ReadFolder(ctx, folder, maxFetchFiles, maxFetchSize)
+	if err == nil {
+		err = state.Err
+	}
 	if errors.Is(err, agentdir.ErrIrregularFile) || errors.Is(err, agentdir.ErrTooLarge) {
 		return RollbackModified, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	disk := digests(files)
-	if maps.Equal(disk, digests(current.files)) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
+	disk := diskOf(state)
+	currentFiles := skillfile.Digests(current.files)
+	if disk.same(currentFiles) && folderName == skill.Name && agentdir.LinkTarget(folder) == "" {
 		return RollbackCurrent, nil
 	}
 	updatedFiles, err := l.store.VersionDigests(ctx, update.To)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	if err == nil && maps.Equal(disk, updatedFiles) || maps.Equal(disk, digests(current.files)) {
+	if err == nil && disk.same(updatedFiles) || disk.same(currentFiles) {
 		if folderName != skill.Name {
 			if err := l.requireFreeFolder(ctx, operation, skill, target); err != nil {
 				return "", err

@@ -48,7 +48,7 @@ type UnmanagedSkill struct {
 	// InProjectLock 表示项目根目录的 skills-lock.json 记了这个技能(认不认得出来源都算):技能是团队约定装的,文件夹本身不一定提交了,
 	// 和 InRepository 一样归项目仓库管。只出现在项目作用域。
 	InProjectLock bool `json:"in_project_lock,omitzero"`
-	// SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
+	// SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
 	// 和当前版本一致的优先,其次是最新的旧版本。它就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
 	// 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
 	// 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
@@ -57,6 +57,7 @@ type UnmanagedSkill struct {
 	// SourceLatestOf 不为 0 时,文件夹的内容和库里这个技能在来源里现在的那一版完全一致(最近一次检查更新看到的、比库里新的那一版):
 	// 是这个技能的新版,在库外更新过。按来源入库会因集合里已有同名技能返回 AlreadyExists;界面引导用更新(PlanUpdate、Update)
 	// 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
+	// Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
 	SourceLatestOf SkillID `json:"source_latest_of,omitzero"`
 }
 
@@ -171,7 +172,7 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 			return nil
 		}
 		entry := &entries[indexes[index]]
-		found, err := recognize(ctx, l.store, state.Files, []store.Scope{entry.found.target.record()}, latests)
+		found, err := recognize(ctx, l.store, diskOf(state), []store.Scope{entry.found.target.record()}, latests)
 		if err != nil {
 			return err
 		}
@@ -347,29 +348,32 @@ func validFolderName(name string) bool {
 	return discovery.ValidName(name) && !strings.HasPrefix(name, ".")
 }
 
-func readSkillFolder(ctx context.Context, operation, path, name string) ([]skillfile.File, discovery.Candidate, error) {
-	files, err := agentdir.ReadFiles(ctx, path, maxFetchFiles, maxFetchSize)
-	return parseSkillFolder(operation, path, name, files, err)
+func readSkillFolder(ctx context.Context, operation, path, name string) (diskFiles, discovery.Candidate, error) {
+	state, err := agentdir.ReadFolder(ctx, path, maxFetchFiles, maxFetchSize)
+	if err != nil {
+		return diskFiles{}, discovery.Candidate{}, err
+	}
+	return parseSkillFolder(operation, path, name, state)
 }
 
-func parseSkillFolder(operation, path, name string, files []skillfile.File, err error) ([]skillfile.File, discovery.Candidate, error) {
-	switch {
+func parseSkillFolder(operation, path, name string, state agentdir.FolderState) (diskFiles, discovery.Candidate, error) {
+	switch err := state.Err; {
 	case errors.Is(err, agentdir.ErrIrregularFile):
-		return nil, discovery.Candidate{}, preconditionError(operation, "the folder has entries that are not regular files", ErrorDetails{Path: path})
+		return diskFiles{}, discovery.Candidate{}, preconditionError(operation, "the folder has entries that are not regular files", ErrorDetails{Path: path})
 	case errors.Is(err, agentdir.ErrTooLarge):
-		return nil, discovery.Candidate{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+		return diskFiles{}, discovery.Candidate{}, &Error{Code: SourceInvalid, Message: operation + ": " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
 	case err != nil:
-		return nil, discovery.Candidate{}, err
+		return diskFiles{}, discovery.Candidate{}, err
 	}
-	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
+	index := slices.IndexFunc(state.Files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
 	if index < 0 {
-		return nil, discovery.Candidate{}, &Error{Code: NotFound, Message: operation + ": the folder has no SKILL.md", Details: ErrorDetails{Path: path}}
+		return diskFiles{}, discovery.Candidate{}, &Error{Code: NotFound, Message: operation + ": the folder has no SKILL.md", Details: ErrorDetails{Path: path}}
 	}
-	parsed, err := discovery.ParseSkillMD(files[index].Content, name)
+	parsed, err := discovery.ParseSkillMD(state.Files[index].Content, name)
 	if err != nil {
-		return nil, discovery.Candidate{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md: " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
+		return diskFiles{}, discovery.Candidate{}, &Error{Code: SourceInvalid, Message: operation + ": SKILL.md: " + err.Error(), Details: ErrorDetails{Path: path}, Err: err}
 	}
-	return files, parsed, nil
+	return diskOf(state), parsed, nil
 }
 
 // FindUnmanagedSourcesRequest 指定要去 skills.sh 找来源的未纳管技能。
@@ -590,16 +594,16 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 	}
 	read := make([]*sourcelessFolder, len(found))
 	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
-		files, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state.Files, state.Err)
+		disk, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state)
 		if err != nil {
 			return nil
 		}
-		recognized, err := recognize(ctx, l.store, files, []store.Scope{targets[i].record()}, latests)
+		recognized, err := recognize(ctx, l.store, disk, []store.Scope{targets[i].record()}, latests)
 		if err != nil {
 			return err
 		}
 		if recognized == (recognition{}) {
-			read[i] = &sourcelessFolder{FolderInScope: found[i], name: parsed.Name, files: files}
+			read[i] = &sourcelessFolder{FolderInScope: found[i], name: parsed.Name, files: disk.files}
 		}
 		return nil
 	})

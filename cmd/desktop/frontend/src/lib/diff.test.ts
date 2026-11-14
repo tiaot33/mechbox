@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { changeTree, changedFiles, changedWords, lineDiff, splitRows, stepFile, treeFiles, unfold } from "./diff";
+import { FileMode, type File } from "@bindings/internal/library";
+import { changeTree, changedFiles, changedWords, lineDiff, modeChange, splitRows, stepFile, treeFiles, unfold } from "./diff";
 
 describe("changedFiles", () => {
   it("SKILL.md 排第一，不论它是修改、新增还是删除;其余按修改、新增、删除排", () => {
@@ -274,5 +275,20 @@ describe("stepFile", () => {
   it("当前文件所在的目录折起来了，照样从它的位置往前或往后找", () => {
     expect(stepFile(tree, new Set(["middle"]), "middle/b.txt", 1)).toBe("zeta/d.txt");
     expect(stepFile(tree, new Set(["middle"]), "middle/b.txt", -1)).toBe("alpha/a.txt");
+  });
+});
+
+describe("modeChange", () => {
+  const file = (mode: FileMode): File => ({ path: "scripts/run.sh", content: "IyEvYmluL3NoCg==", mode }) as File;
+
+  it("加上、去掉可执行权限分别标出", () => {
+    expect(modeChange(file(FileMode.ModeRegular), file(FileMode.ModeExecutable))).toBe("executable-added");
+    expect(modeChange(file(FileMode.ModeExecutable), file(FileMode.ModeRegular))).toBe("executable-removed");
+  });
+
+  it("没变或只有一侧时没有变化", () => {
+    expect(modeChange(file(FileMode.ModeExecutable), file(FileMode.ModeExecutable))).toBeUndefined();
+    expect(modeChange(undefined, file(FileMode.ModeExecutable))).toBeUndefined();
+    expect(modeChange(file(FileMode.ModeExecutable), undefined)).toBeUndefined();
   });
 });

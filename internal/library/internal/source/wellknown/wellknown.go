@@ -424,22 +424,22 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 	return result, nil
 }
 
-func (s *snapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+func (s *snapshot) Check(ctx context.Context, have source.Have) (source.State, bool, error) {
 	e, err := s.find(have.Name)
 	if err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
 	var stored state
 	if len(have.State) > 0 {
 		_ = json.Unmarshal(have.State, &stored)
 	}
 	if e.digest != "" && stored.Digest == e.digest {
-		return source.Unchanged, have.State, nil
+		return have.State, true, nil
 	}
 	if _, err := s.Fetch(ctx, []string{have.Name}); err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
-	return source.Unknown, nil, nil
+	return nil, false, nil
 }
 
 func (s *snapshot) fetch(ctx context.Context, e entry, budget *discovery.Budget) (source.Skill, error) {

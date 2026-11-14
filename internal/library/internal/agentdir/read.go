@@ -44,6 +44,7 @@ type FolderState struct {
 	Resolves   bool
 	LinkTarget string
 	Files      []skillfile.File
+	NoModes    bool
 	Modified   time.Time
 	Err        error
 	key        string
@@ -110,7 +111,14 @@ func inspect(ctx context.Context, folders []string, read *limits, visit func(int
 		for i, index := range indexes {
 			paths[i] = folders[index]
 		}
-		err := on(paths[0]).inspect(ctx, paths, read, func(i int, state FolderState) error {
+		system := on(paths[0])
+		err := system.inspect(ctx, paths, read, func(i int, state FolderState) error {
+			if !system.modes() {
+				state.NoModes = true
+				for j := range state.Files {
+					state.Files[j].Mode = skillfile.ModeRegular
+				}
+			}
 			return visit(indexes[i], state)
 		})
 		if err != nil {
@@ -120,16 +128,13 @@ func inspect(ctx context.Context, folders []string, read *limits, visit func(int
 	return nil
 }
 
-func ReadFiles(ctx context.Context, root string, maxFiles int, maxBytes int64) ([]skillfile.File, error) {
+func ReadFolder(ctx context.Context, root string, maxFiles int, maxBytes int64) (FolderState, error) {
 	var read FolderState
 	err := ReadFolders(ctx, []string{root}, maxFiles, maxBytes, func(_ int, state FolderState) error {
 		read = state
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return read.Files, read.Err
+	return read, err
 }
 
 func LinkTarget(path string) string {

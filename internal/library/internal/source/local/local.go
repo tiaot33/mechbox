@@ -201,9 +201,9 @@ func (s *snapshot) Fetch(_ context.Context, names []string) ([]source.Skill, err
 	return result, nil
 }
 
-func (s *snapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+func (s *snapshot) Check(ctx context.Context, have source.Have) (source.State, bool, error) {
 	if _, err := s.Fetch(ctx, []string{have.Name}); err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
-	return source.Unknown, nil, nil
+	return nil, false, nil
 }

@@ -22,6 +22,8 @@ type native struct{}
 
 func (native) key() string { return "" }
 
+func (native) modes() bool { return nativeModes() }
+
 func (native) join(root, relative string) string {
 	return filepath.Join(root, filepath.FromSlash(relative))
 }

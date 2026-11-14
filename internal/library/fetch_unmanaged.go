@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -45,7 +44,7 @@ type FetchUnmanagedResult struct {
 // 入库之后,用户在库外(如命令行工具)再改这个文件夹,巡检报为 modified;提交在项目仓库里的文件夹也能入库,
 // 之后在 app 里更新、重新安装它会改动仓库里的文件。确认框据此提醒。
 //
-// 内容和库里某个技能的某个版本完全一致(文件路径、内容与可执行位都相同,即 UnmanagedSkill.SkillID 不为 0)时,不论带不带 SourceInput、
+// 内容和库里某个技能的某个版本完全一致(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容;即 UnmanagedSkill.SkillID 不为 0)时,不论带不带 SourceInput、
 // 带的是哪个来源,都不新建技能,只给那个技能补记这一处安装(Matched;和它的当前版本一致的优先,其次是最新的旧版本,
 // 巡检相应为 current 或 stale);已经装在这个作用域的技能不算。同一个技能不会因为用了另一个来源链接入库而在库里多出一个。
 // 这时不读 SourceInput 给的来源(连不上也不影响),不记下这个来源,也不进它的集合。
@@ -124,25 +123,20 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 	return l.fetchWithSource(ctx, operation, []unmanagedFolder{folder}, sourced, input, req.SourceRef)
 }
 
-func sameModes(files, others []skillfile.File) bool {
-	modes := make(map[string]skillfile.Mode, len(others))
-	for _, file := range others {
-		modes[file.Path] = file.Mode
-	}
-	for _, file := range files {
-		if mode, ok := modes[file.Path]; ok && mode != file.Mode {
-			return false
-		}
-	}
-	return true
-}
-
 type unmanagedFolder struct {
 	target resolvedScope
 	name   string
 	path   string
-	files  []skillfile.File
+	disk   diskFiles
 	parsed discovery.Candidate
+}
+
+func representative(folders []unmanagedFolder) diskFiles {
+	disk := folders[0].disk
+	for _, folder := range folders[1:] {
+		disk = disk.or(folder.disk)
+	}
+	return disk
 }
 
 func (l *Library) fetchIfMatched(ctx context.Context, operation string, requested []FolderInScope) (FetchUnmanagedResult, bool, error) {
@@ -154,12 +148,12 @@ func (l *Library) fetchIfMatched(ctx context.Context, operation string, requeste
 		if err != nil {
 			return FetchUnmanagedResult{}, false, err
 		}
-		if len(folders) > 0 && !skillfile.Equal(folder.files, folders[0].files) {
+		if len(folders) > 0 && !folder.disk.sameAs(folders[0].disk) {
 			return FetchUnmanagedResult{}, false, preconditionError(operation, "the folders have different content", ErrorDetails{Path: folder.path})
 		}
 		folders = append(folders, folder)
 	}
-	matched, _, err := matchingSkill(ctx, l.store, folders[0].files, folderScopes(folders))
+	matched, _, err := matchingSkill(ctx, l.store, representative(folders), folderScopes(folders))
 	if err != nil || matched == 0 {
 		return FetchUnmanagedResult{}, false, err
 	}
@@ -198,16 +192,16 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: skillScope.SkillID})
 		}
 	}
-	files, parsed, err := readSkillFolder(ctx, operation, path, req.Name)
+	disk, parsed, err := readSkillFolder(ctx, operation, path, req.Name)
 	if err != nil {
 		return unmanagedFolder{}, err
 	}
-	return unmanagedFolder{target: target, name: req.Name, path: path, files: files, parsed: parsed}, nil
+	return unmanagedFolder{target: target, name: req.Name, path: path, disk: disk, parsed: parsed}, nil
 }
 
 func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFolder) (FetchUnmanagedResult, error) {
-	folder := folders[0]
-	matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders))
+	folder, disk := folders[0], representative(folders)
+	matched, _, err := matchingSkill(ctx, l.store, disk, folderScopes(folders))
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
@@ -216,7 +210,7 @@ func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFol
 		now := clockNow()
 		id := matched
 		if id == 0 {
-			inserted, _, err := tx.InsertSkill(ctx, 0, folder.parsed.Name, store.NewVersion{Description: folder.parsed.Description, Files: folder.files, CreatedAt: now})
+			inserted, _, err := tx.InsertSkill(ctx, 0, folder.parsed.Name, store.NewVersion{Description: folder.parsed.Description, Files: disk.files, CreatedAt: now})
 			if err != nil {
 				return err
 			}
@@ -295,8 +289,10 @@ func sourceField(err error) error {
 }
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
-	folder := folders[0]
-	if matched, _, err := matchingSkill(ctx, l.store, folder.files, folderScopes(folders)); err != nil {
+	folder, disk := folders[0], representative(folders)
+	reference := skillfile.Digests(sourced.skill.Files)
+	files := disk.as(reference)
+	if matched, _, err := matchingSkill(ctx, l.store, disk, folderScopes(folders)); err != nil {
 		return FetchUnmanagedResult{}, err
 	} else if matched != 0 {
 		return l.fetchWithoutSource(ctx, folders)
@@ -308,9 +304,10 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 			if !entry.recognized || entry.input != input || entry.ref != ref {
 				continue
 			}
-			matches := entry.Matches(each.files)
+			eachFiles := each.disk.as(reference)
+			matches := entry.Matches(eachFiles)
 			untouched = untouched || matches
-			editedLatest = editedLatest || !matches && entry.Matches(sourced.skill.Files) && sameModes(each.files, sourced.skill.Files)
+			editedLatest = editedLatest || !matches && entry.Matches(sourced.skill.Files) && skillfile.SameModes(eachFiles, sourced.skill.Files)
 		}
 	}
 	name := sourced.skill.Name
@@ -331,9 +328,9 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 		if id != 0 {
 			return existsError(operation, "the collection already has a skill with this name and different content", ErrorDetails{SkillID: SkillID(id), Name: name})
 		}
-		version := store.NewVersion{Description: folder.parsed.Description, Files: folder.files, CreatedAt: now}
+		version := store.NewVersion{Description: folder.parsed.Description, Files: files, CreatedAt: now}
 		switch {
-		case skillfile.Equal(folder.files, sourced.skill.Files):
+		case skillfile.Equal(files, sourced.skill.Files):
 			version.State, version.Revision = string(sourced.skill.State), sourced.revision
 		case editedLatest && !untouched:
 			base := store.NewVersion{Description: sourced.skill.Description, Files: sourced.skill.Files, State: string(sourced.skill.State), Revision: sourced.revision, CreatedAt: now}
@@ -373,7 +370,7 @@ type PlanFetchUnmanagedRequest struct {
 	Scopes []Scope `json:"scopes"`
 }
 
-// PlannedUnmanagedSkill 是整批入库计划里的一个技能:这几个作用域里内容完全一致(文件路径、内容与可执行位都相同)的
+// PlannedUnmanagedSkill 是整批入库计划里的一个技能:这几个作用域里内容完全一致(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)的
 // 不是库装的技能文件夹合成一条,入库成库里的一个技能,各处都记为安装。
 type PlannedUnmanagedSkill struct {
 	// Name 是 SKILL.md 里的 name;Error 不为空时是文件夹名。
@@ -439,7 +436,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		return nil, err
 	}
 	type planned struct {
-		sum        string
+		disk       diskFiles
 		parsed     discovery.Candidate
 		modified   time.Time
 		recognized recognition
@@ -458,10 +455,10 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	}
 	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
 		i := indexes[index]
-		files, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state.Files, state.Err)
-		reads[i] = planned{sum: skillfile.Sum(files), parsed: parsed, modified: state.Modified, err: err}
+		disk, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state)
+		reads[i] = planned{disk: disk, parsed: parsed, modified: state.Modified, err: err}
 		if err == nil {
-			found, err := recognize(ctx, l.store, files, []store.Scope{entries[i].found.target.record()}, latests)
+			found, err := recognize(ctx, l.store, disk, []store.Scope{entries[i].found.target.record()}, latests)
 			if err != nil {
 				return err
 			}
@@ -475,21 +472,28 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	}
 	plan = []PlannedUnmanagedSkill{}
 	byContent := map[string][]int{}
+	var disks []diskFiles
 	for i, entry := range entries {
-		sum, parsed, modified, err := reads[i].sum, reads[i].parsed, reads[i].modified, reads[i].err
+		disk, parsed, modified, err := reads[i].disk, reads[i].parsed, reads[i].modified, reads[i].err
 		if err != nil {
 			failure := ErrorOf(err)
 			if failure.Details.Path == "" {
 				failure.Details.Path = entry.Folder
 			}
 			plan = append(plan, PlannedUnmanagedSkill{Name: entry.Name, Description: entry.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill}, Error: failure})
+			disks = append(disks, disk)
 			continue
 		}
-		same := slices.IndexFunc(byContent[sum], func(index int) bool {
-			return !slices.ContainsFunc(plan[index].Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
+		recognized := reads[i].recognized
+		key := disk.digests["SKILL.md"].Fingerprint
+		same := slices.IndexFunc(byContent[key], func(index int) bool {
+			planned := plan[index]
+			return disks[index].sameAs(disk) &&
+				planned.SkillID == recognized.skillID && planned.VersionID == recognized.versionID && planned.SourceLatestOf == recognized.sourceLatestOf &&
+				!slices.ContainsFunc(planned.Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
 		})
 		if same >= 0 {
-			planned := &plan[byContent[sum][same]]
+			planned := &plan[byContent[key][same]]
 			planned.Folders = append(planned.Folders, entry.UnmanagedSkill)
 			planned.InRepository = planned.InRepository || entry.InRepository
 			planned.InProjectLock = planned.InProjectLock || entry.InProjectLock
@@ -502,8 +506,8 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			}
 			continue
 		}
-		byContent[sum] = append(byContent[sum], len(plan))
-		recognized := reads[i].recognized
+		byContent[key] = append(byContent[key], len(plan))
+		disks = append(disks, disk)
 		plan = append(plan, PlannedUnmanagedSkill{
 			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
 			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
@@ -672,7 +676,7 @@ func (l *Library) fetchUnmanagedItem(ctx context.Context, operation string, item
 		if err != nil {
 			return FetchUnmanagedResult{}, err
 		}
-		if len(folders) > 0 && !skillfile.Equal(folder.files, folders[0].files) {
+		if len(folders) > 0 && !folder.disk.sameAs(folders[0].disk) {
 			return FetchUnmanagedResult{}, preconditionError(operation, "the folders have different content", ErrorDetails{Path: folder.path})
 		}
 		folders = append(folders, folder)
@@ -710,9 +714,8 @@ func folderScopes(folders []unmanagedFolder) []store.Scope {
 	return scopes
 }
 
-func matchingSkill(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope) (int64, int64, error) {
-	disk := digests(files)
-	manifest, ok := disk["SKILL.md"]
+func matchingSkill(ctx context.Context, reader versionReader, disk diskFiles, scopes []store.Scope) (int64, int64, error) {
+	manifest, ok := disk.digests["SKILL.md"]
 	if !ok {
 		return 0, 0, nil
 	}
@@ -735,7 +738,7 @@ next:
 		if err != nil {
 			return 0, 0, err
 		}
-		if maps.Equal(disk, version) {
+		if disk.same(version) {
 			return match.SkillID, match.VersionID, nil
 		}
 	}
@@ -748,13 +751,16 @@ type recognition struct {
 	sourceLatestOf SkillID
 }
 
-func recognize(ctx context.Context, reader versionReader, files []skillfile.File, scopes []store.Scope, latests []store.SourceLatest) (recognition, error) {
-	skillID, versionID, err := matchingSkill(ctx, reader, files, scopes)
+func recognize(ctx context.Context, reader versionReader, disk diskFiles, scopes []store.Scope, latests []store.SourceLatest) (recognition, error) {
+	skillID, versionID, err := matchingSkill(ctx, reader, disk, scopes)
 	if err != nil || skillID != 0 {
 		return recognition{skillID: SkillID(skillID), versionID: VersionID(versionID)}, err
 	}
-	sum := skillfile.Sum(files)
 	for _, latest := range latests {
+		sum, err := disk.sum(ctx, reader, latest.VersionID)
+		if err != nil {
+			return recognition{}, err
+		}
 		if latest.Content == sum {
 			return recognition{sourceLatestOf: SkillID(latest.SkillID)}, nil
 		}

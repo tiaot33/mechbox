@@ -194,26 +194,22 @@ func (s *snapshot) Fetch(ctx context.Context, names []string) ([]source.Skill, e
 	return result, nil
 }
 
-func (s *snapshot) Check(ctx context.Context, have source.Have) (source.Status, source.State, error) {
+func (s *snapshot) Check(ctx context.Context, have source.Have) (source.State, bool, error) {
 	stored := decodeState(have.State)
 	if stored.Commit != "" && stored.Commit == s.head {
-		return source.Unchanged, have.State, nil
+		return have.State, true, nil
 	}
 	if err := s.clone(ctx); err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
 	skill, err := s.find(have.Name)
 	if err != nil {
-		return source.Unknown, nil, err
+		return nil, false, err
 	}
-	switch {
-	case stored.Tree == "":
-		return source.Unknown, nil, nil
-	case stored.Tree == skill.Tree:
-		return source.Unchanged, encodeState(s.head, skill.Tree), nil
-	default:
-		return source.Changed, nil, nil
+	if stored.Tree == "" || stored.Tree != skill.Tree {
+		return nil, false, nil
 	}
+	return encodeState(s.head, skill.Tree), true, nil
 }
 
 func (s *snapshot) Commits(ctx context.Context, since string) ([]source.Commit, error) {

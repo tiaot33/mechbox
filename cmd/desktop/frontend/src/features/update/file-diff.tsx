@@ -13,6 +13,7 @@ import {
   changeTree,
   changedWords,
   lineDiff,
+  modeChange,
   splitRows,
   stepFile,
   unfold,
@@ -206,6 +207,7 @@ function Tree({
 
 // FileDiff 是 path 这个文件的差异，kind 是它改了什么：新增的只读改动后，删除的只读改动前;只有一侧的文件不分两栏，铺满整宽。
 // 外面是一块白底的面板：上面一条写文件、增删了几行和布局切换，下面是带行号的逐行差异，改掉的行里再标出改了哪几个词。
+// 修改的文件可执行权限变了时(加上或去掉),在差异上面单独说明;内容一字没变、只改了权限时也说清楚，免得看起来像什么都没改(issue #324)。
 // read 要在调用方保持不变(换了才重读)。读取失败时先交给 onError,它返回 true 表示已处理(如更新计划已失效)。
 // 布局切换只在两侧都能逐行比较时显示;fill 为 true 时面板撑满外面给的高度(比较弹窗),否则差异最高 360px、内容短时按内容的高度。
 export function FileDiff({
@@ -224,7 +226,8 @@ export function FileDiff({
   const tt = useT();
   const t = tt.diff;
   const chosen = useLayoutStore((s) => s.layout);
-  const [texts, setTexts] = useState<[string | null, string | null] | "error" | undefined>(undefined);
+  // 读到的改动前后两侧;新增的文件没有前一侧，删除的没有后一侧。
+  const [files, setFiles] = useState<[File | undefined, File | undefined] | "error" | undefined>(undefined);
   // 左右对比时拖选只选按下的那一栏，复制出来不会新旧交错。
   const [side, setSide] = useState<"left" | "right" | null>(null);
   const report = useRef(onError);
@@ -232,14 +235,14 @@ export function FileDiff({
 
   useEffect(() => {
     let cancelled = false;
-    setTexts(undefined);
+    setFiles(undefined);
     const calls = [kind === "added" ? undefined : read.before(path), kind === "deleted" ? undefined : read.after(path)];
-    const text = (call: CancellablePromise<File> | undefined) => (call ? call.then((f) => decodeContent(f.content)) : Promise.resolve(""));
-    Promise.all([text(calls[0]), text(calls[1])]).then(
-      ([a, b]) => !cancelled && setTexts([a, b]),
+    const file = (call: CancellablePromise<File> | undefined) => call ?? Promise.resolve(undefined);
+    Promise.all([file(calls[0]), file(calls[1])]).then(
+      ([a, b]) => !cancelled && setFiles([a, b]),
       (e) => {
         if (cancelled) return;
-        setTexts("error");
+        setFiles("error");
         report.current?.(toLibraryError(e));
       },
     );
@@ -248,6 +251,13 @@ export function FileDiff({
       calls.forEach((c) => void c?.cancel());
     };
   }, [path, kind, read]);
+
+  // 两侧的文本;没有的那一侧是空文本，二进制文件为 null。
+  const texts = useMemo((): [string | null, string | null] | "error" | undefined => {
+    if (!Array.isArray(files)) return files;
+    const text = (f: File | undefined) => (f ? decodeContent(f.content) : "");
+    return [text(files[0]), text(files[1])];
+  }, [files]);
 
   const comparable = Array.isArray(texts) && texts[0] !== null && texts[1] !== null;
   const switchable = comparable && kind === "changed";
@@ -327,6 +337,10 @@ export function FileDiff({
 
   const added = lines?.filter((l) => l.kind === "add").length ?? 0;
   const deleted = lines?.filter((l) => l.kind === "del").length ?? 0;
+  const [before, after] = Array.isArray(files) ? files : [undefined, undefined];
+  const mode = modeChange(before, after);
+  // 内容一字没变:直接比 base64,二进制文件也成立。
+  const onlyMode = before !== undefined && after !== undefined && before.content === after.content;
 
   return (
     <div
@@ -357,6 +371,11 @@ export function FileDiff({
           />
         )}
       </div>
+      {mode && (
+        <Notice tone={mode === "executable-added" ? "warn" : "neutral"} className="mode-change m-2 mb-0 shrink-0">
+          {t.modeChanged(mode, onlyMode)}
+        </Notice>
+      )}
       {body}
     </div>
   );

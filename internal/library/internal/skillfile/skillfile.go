@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -47,6 +48,41 @@ func Equal(first, second []File) bool {
 	return slices.EqualFunc(first, second, func(a, b File) bool {
 		return a.Path == b.Path && a.Mode == b.Mode && bytes.Equal(a.Content, b.Content)
 	})
+}
+
+func Digests(files []File) map[string]Digest {
+	result := make(map[string]Digest, len(files))
+	for _, file := range files {
+		result[file.Path] = Digest{Fingerprint: Fingerprint(file.Content), Mode: file.Mode}
+	}
+	return result
+}
+
+func SameContent(a, b map[string]Digest) bool {
+	return maps.EqualFunc(a, b, func(x, y Digest) bool { return x.Fingerprint == y.Fingerprint })
+}
+
+func WithModesOf(files []File, reference map[string]Digest) []File {
+	adopted := slices.Clone(files)
+	for i, file := range adopted {
+		if digest, ok := reference[file.Path]; ok {
+			adopted[i].Mode = digest.Mode
+		}
+	}
+	return adopted
+}
+
+func SameModes(files, others []File) bool {
+	modes := make(map[string]Mode, len(others))
+	for _, file := range others {
+		modes[file.Path] = file.Mode
+	}
+	for _, file := range files {
+		if mode, ok := modes[file.Path]; ok && mode != file.Mode {
+			return false
+		}
+	}
+	return true
 }
 
 func Fingerprint(content []byte) string {

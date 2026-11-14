@@ -167,14 +167,14 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 		case checked.err != nil && renamed:
 			planned.Change, planned.RenamedTo = PlannedDeleted, guess.latest.Name
 			item.latest, item.content, item.renameTo = guess.latest, guess.content, guess.latest.Name
-			diff := diffDigests(digests(read.states[i].files), digests(item.latest.Files))
+			diff := diffDigests(skillfile.Digests(read.states[i].files), skillfile.Digests(item.latest.Files))
 			planned.Diff = &diff
 			planned.Risks = updateRisks(read.states[i].files, item.latest.Files)
 		case checked.err != nil:
 			planned.Change = PlannedDeleted
 		case checked.changed:
 			planned.Change = PlannedChanged
-			diff := diffDigests(digests(read.states[i].files), digests(item.latest.Files))
+			diff := diffDigests(skillfile.Digests(read.states[i].files), skillfile.Digests(item.latest.Files))
 			planned.Diff = &diff
 			planned.Risks = updateRisks(read.states[i].files, item.latest.Files)
 			item.content = skillfile.Sum(item.latest.Files)
@@ -225,7 +225,7 @@ func (l *Library) PlanUpdateFromScope(ctx context.Context, skill SkillID, scope 
 		return UpdatePlan{}, err
 	}
 	from := edit.target.scope()
-	diff := diffDigests(digests(edit.current.files), digests(edit.latest.Files))
+	diff := diffDigests(skillfile.Digests(edit.current.files), skillfile.Digests(edit.latest.Files))
 	plan = UpdatePlan{
 		CollectionID: edit.skill.CollectionID,
 		Source:       edit.skill.Source,
@@ -290,8 +290,11 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	} else if !exists {
 		return scopeEdit{}, unmodified
 	}
-	files, err := agentdir.ReadFiles(ctx, folder, maxFetchFiles, maxFetchSize)
-	switch {
+	state, err := agentdir.ReadFolder(ctx, folder, maxFetchFiles, maxFetchSize)
+	if err != nil {
+		return scopeEdit{}, err
+	}
+	switch err := state.Err; {
 	case errors.Is(err, agentdir.ErrIrregularFile):
 		return scopeEdit{}, preconditionError(operation, "the installed folder has entries that are not regular files", ErrorDetails{Path: folder})
 	case errors.Is(err, agentdir.ErrTooLarge):
@@ -299,11 +302,13 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	case err != nil:
 		return scopeEdit{}, err
 	}
-	if status, _, err := l.matchVersion(ctx, id, current.versionID, digests(files)); err != nil {
+	disk := diskOf(state)
+	if status, _, err := l.matchVersion(ctx, id, current.versionID, disk); err != nil {
 		return scopeEdit{}, err
 	} else if status != SkillScopeModified {
 		return scopeEdit{}, unmodified
 	}
+	files := disk.as(skillfile.Digests(current.files))
 	index := slices.IndexFunc(files, func(file skillfile.File) bool { return file.Path == "SKILL.md" })
 	if index < 0 {
 		return scopeEdit{}, &Error{Code: SourceInvalid, Message: operation + ": the installed folder has no SKILL.md", Details: ErrorDetails{Path: folder}}
@@ -502,14 +507,6 @@ func (l *Library) SkipUpdate(ctx context.Context, req SkipRequest) (err error) {
 		_, err := tx.AddRecord(ctx, skip)
 		return err
 	})
-}
-
-func digests(files []skillfile.File) map[string]skillfile.Digest {
-	result := make(map[string]skillfile.Digest, len(files))
-	for _, file := range files {
-		result[file.Path] = skillfile.Digest{Fingerprint: skillfile.Fingerprint(file.Content), Mode: file.Mode}
-	}
-	return result
 }
 
 func diffDigests(from, to map[string]skillfile.Digest) VersionDiff {

@@ -601,3 +601,49 @@ func TestLateCheckDoesNotWriteToTheSameSkillFetchedAgain(t *testing.T) {
 		t.Fatalf("skill fetched again after the late check = %#v, %v; want no conclusion", skill.LastUpdateCheck, err)
 	}
 }
+
+// 来源里技能目录的 tree 变了、但变的只是不进库的文件(如 .DS_Store)时,检查更新与更新计划都按文件比较,算没变化。
+func TestCheckUpdatesIgnoresTreeChangesOutsideSkillFiles(t *testing.T) {
+	sources := []struct {
+		name string
+		// setup 准备好来源,返回仓库、技能目录、入库预览的输入和技能名。
+		setup func(t *testing.T) (repository, dir, input, name string)
+	}{
+		{"github", func(t *testing.T) (string, string, string, string) {
+			repository, _ := githubRemote(t)
+			return repository, repository, "owner/repo", "example"
+		}},
+		{"gitlab", func(t *testing.T) (string, string, string, string) {
+			config := isolateGit(t)
+			repository := skillRepository(t)
+			runGit(t, repository, "rm", "--quiet", "SKILL.md")
+			commitGit(t, repository, "Move every skill under skills")
+			redirectRemote(t, config, repository, "https://gitlab.com/group/repo.git")
+			return repository, filepath.Join(repository, "skills", "alpha"), "https://gitlab.com/group/repo", "alpha"
+		}},
+	}
+	for _, source := range sources {
+		t.Run(source.name, func(t *testing.T) {
+			ctx := t.Context()
+			repository, dir, input, name := source.setup(t)
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			skill := fetchSkills(t, lib, preview, []string{name})[0]
+			writeFile(t, filepath.Join(dir, ".DS_Store"), []byte("finder"), 0o644)
+			writeFile(t, filepath.Join(dir, "__pycache__", "helper.pyc"), []byte("bytecode"), 0o644)
+			commitGit(t, repository, "Commit files the library ignores")
+
+			requireCheck(t, lib, skill.ID, library.UpdateCurrent, false, false)
+			plan, err := lib.PlanUpdate(ctx, skill.CollectionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if planned := plannedSkill(t, plan, skill.ID); planned.Change != library.PlannedUnchanged || planned.Diff != nil {
+				t.Fatalf("planned = %#v; want unchanged without a diff", planned)
+			}
+		})
+	}
+}
