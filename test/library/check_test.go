@@ -601,3 +601,43 @@ func TestLateCheckDoesNotWriteToTheSameSkillFetchedAgain(t *testing.T) {
 		t.Fatalf("skill fetched again after the late check = %#v, %v; want no conclusion", skill.LastUpdateCheck, err)
 	}
 }
+
+// 来源里技能目录的 tree 变了、但变的只是不进库的文件(如 .DS_Store)时,检查更新与更新计划都按文件比较,算没变化。
+func TestCheckUpdatesIgnoresTreeChangesOutsideSkillFiles(t *testing.T) {
+	for _, kind := range []string{"github", "gitlab"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := t.Context()
+			var repository, dir, input, name string
+			if kind == "github" {
+				repository, _ = githubRemote(t)
+				dir, input, name = repository, "owner/repo", "example"
+			} else {
+				config := isolateGit(t)
+				repository = skillRepository(t)
+				runGit(t, repository, "rm", "--quiet", "SKILL.md")
+				commitGit(t, repository, "Move every skill under skills")
+				redirectRemote(t, config, repository, "https://gitlab.com/group/repo.git")
+				dir, input, name = filepath.Join(repository, "skills", "alpha"), "https://gitlab.com/group/repo", "alpha"
+			}
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			skill := fetchSkills(t, lib, preview, []string{name})[0]
+			writeFile(t, filepath.Join(dir, ".DS_Store"), []byte("finder"), 0o644)
+			writeFile(t, filepath.Join(dir, "__pycache__", "helper.pyc"), []byte("bytecode"), 0o644)
+			runGit(t, repository, "add", "--force", ".")
+			commitGit(t, repository, "Commit files the library ignores")
+
+			requireCheck(t, lib, skill.ID, library.UpdateCurrent, false, false)
+			plan, err := lib.PlanUpdate(ctx, skill.CollectionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if planned := plannedSkill(t, plan, skill.ID); planned.Change != library.PlannedUnchanged || planned.Diff != nil {
+				t.Fatalf("planned = %#v; want unchanged without a diff", planned)
+			}
+		})
+	}
+}
