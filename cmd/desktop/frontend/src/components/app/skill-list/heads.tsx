@@ -7,11 +7,12 @@ import {
   agentNameIn,
   groupStateIn,
   needsReinstall,
-  notTakenOver,
   parseScope,
   placeOf,
+  projectAgents,
   projectName,
   scopeLabel,
+  scopeOf,
   shortPath,
   skillScopesIn,
   unmanagedIn,
@@ -43,7 +44,6 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const installed = skillScopesIn(s, scope);
   const issues = installed.filter(needsReinstall).length;
   const unmanaged = unmanagedIn(s, scope).length;
-  const notTaken = unmanagedIn(s, scope).filter(notTakenOver).length;
   const sc = parseScope(scope);
   const groups = s.groups;
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
@@ -81,18 +81,6 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
           </Button>
         )}
       </div>
-      {notTaken > 0 && (
-        <div className="unmanaged-hint flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{t.notTaken(notTaken)}</span>
-          <Button
-            variant="link"
-            className="fetch-all-unmanaged text-[11px]"
-            onClick={() => void offerFetchUnmanaged(s.agents, [sc], { kind: "scope", label: scopeLabel(s, sc) }, false)}
-          >
-            {t.fetchAll}
-          </Button>
-        </div>
-      )}
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">{t.groups}</span>
@@ -127,6 +115,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
 }
 
 // ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录，
+// 其中不在技能库里的几个与全部入库(范围和登记项目后弹出的那次一样，是各 Agent 在这个项目里),
 // 以及照着其他项目装(别的已登记项目里装了库里的技能时才有)。
 export function ProjectSummary({ project, total }: { project: RegisteredProject; total: number }) {
   const s = useSnapshot();
@@ -134,6 +123,7 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
   const c = useT().copy;
   const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
+  const unmanaged = new Set(projectAgents(s, project.id, "").flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
   return (
     <div className={barClass}>
       <div className="flex min-w-0 items-center gap-2.5">
@@ -152,6 +142,20 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
         <span className="max-w-[360px] truncate font-mono text-[11px] select-text" title={wslTitle(project.path)}>
           {shortPath(s, project.path)}
         </span>
+        <span className="grow" />
+        {unmanaged > 0 && (
+          <>
+            <Stat value={unmanaged} label={t.statNotInLibrary} />
+            <Button
+              size="sm"
+              className="fetch-all-unmanaged"
+              title={t.fetchAllTitle}
+              onClick={() => void offerFetchUnmanaged(s.agents, s.agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project }, false)}
+            >
+              {t.fetchAll}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

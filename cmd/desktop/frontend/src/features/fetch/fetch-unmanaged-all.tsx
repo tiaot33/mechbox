@@ -1,7 +1,7 @@
 // 一次确认把作用域里不是库装的技能全部入库：第一次打开 app 时看各 Agent 的全局，登记一个项目之后看这个项目;
-// 之后随时能从入库技能里对各 Agent 的全局和全部已登记项目再打开，也能从作用域里那一行淡淡的提示打开这一处。
-// 磁盘上什么都不改;按认出的来源分组，同名不同内容的单列出来只选一份，一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
-import { useMemo, useState } from "react";
+// 之后随时能从入库技能里对各 Agent 的全局和全部已登记项目再打开，也能从作用域里「不在技能库里」那一节的标题、项目页的摘要打开这一处。
+// 磁盘上什么都不改;按认出的来源分组(组标题上一次勾上或取消整组),同名不同内容的单列出来只选一份，一个技能失败不影响其余的，读不成来源的可以改链接或清空后重试。
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
@@ -14,7 +14,7 @@ import {
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library";
-import { fetchPlan } from "@/lib/consent";
+import { fetchPlan, toggleFetchGroup } from "@/lib/consent";
 import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -265,6 +265,12 @@ function FetchUnmanagedDialog({
             return (
               <div key={key} className="fetch-unmanaged-group">
                 <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+                  <GroupToggle
+                    label={key === noSource ? t.noSource : (first.source_input ?? "")}
+                    on={members.filter((i) => picked.has(i)).length}
+                    of={members.length}
+                    onToggle={() => setPicked((set) => toggleFetchGroup(set, members))}
+                  />
                   <span className="min-w-0 truncate font-mono">
                     {key === noSource ? t.noSource : first.source_input}
                   </span>
@@ -358,5 +364,24 @@ function FetchUnmanagedDialog({
         />
       )}
     </Modal>
+  );
+}
+
+// GroupToggle 是一组标题上的勾选框：勾了一部分时显示为半选。
+function GroupToggle({ label, on, of, onToggle }: { label: string; on: number; of: number; onToggle: () => void }) {
+  const t = useT().unmanaged;
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = on > 0 && on < of;
+  });
+  return (
+    <input
+      ref={box}
+      type="checkbox"
+      className="fetch-unmanaged-group-toggle shrink-0 accent-primary"
+      aria-label={t.groupToggle(label)}
+      checked={on > 0}
+      onChange={onToggle}
+    />
   );
 }

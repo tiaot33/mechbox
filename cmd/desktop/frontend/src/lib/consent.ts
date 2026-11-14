@@ -197,6 +197,18 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
   return split.map((p) => ({ ...p, selected: ownEntry(p) && (!p.conflict || newest.get(p.name) === p) }));
 }
 
+// toggleFetchGroup 是整批入库确认里一组(同一来源，或没有来源)标题上的勾选：组里有勾上的就整组取消;
+// 一个都没勾时整组勾上，默认不接的(在项目仓库里的、指向 Agent 目录以外的)也勾上：用户自己点的，提醒照常写出来。
+export function toggleFetchGroup(picked: ReadonlySet<number>, members: number[]): Set<number> {
+  const next = new Set(picked);
+  const any = members.some((i) => next.has(i));
+  for (const i of members) {
+    if (any) next.delete(i);
+    else next.add(i);
+  }
+  return next;
+}
+
 // ---------- 照着装(照着另一个 Agent、另一个项目) ----------
 
 // copyable 是照装时这一项能不能勾：被另一个技能占用的、组里同名的装不了。

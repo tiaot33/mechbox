@@ -31,6 +31,7 @@ import {
   planReinstall,
   refreshRequests,
   reinstallTargets,
+  toggleFetchGroup,
   updateInstalls,
   type ReinstallChoices,
 } from "./consent";
@@ -266,6 +267,18 @@ describe("整批入库的默认勾选", () => {
     const plan = fetchPlan([outside, broken]);
     expect(plan).toHaveLength(2);
     expect(plan.map((p) => !!p.selected)).toEqual([false, false]);
+  });
+
+  it("组标题上的勾选：一个都没勾时整组勾上，包括默认不接的;有勾上的就整组取消，别的组不动", () => {
+    // 第 0、1 条是同一来源的一组，其中第 1 条在项目仓库里(默认不勾);第 2 条在另一组。
+    const team = planned([folder(project(claude, 7), { in_repository: true })]);
+    const plan = fetchPlan([planned([folder(project(claude, 7))]), team, planned([folder(global(codex))])]);
+    const defaults = new Set(plan.flatMap((p, i) => (p.selected ? [i] : [])));
+    expect([...defaults]).toEqual([0, 2]);
+    const none = toggleFetchGroup(defaults, [0, 1]);
+    expect([...none]).toEqual([2]);
+    expect([...toggleFetchGroup(none, [0, 1])].sort()).toEqual([0, 1, 2]);
+    expect([...defaults]).toEqual([0, 2]);
   });
 });
 
