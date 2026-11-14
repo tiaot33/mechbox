@@ -16,7 +16,6 @@ import { describeError } from "@/lib/errors";
 import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
 import { folderPlaces, groupName, missingFromGroup, scopeKey, skillName, sourceLabel } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
-import { useSortedGroups } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -255,7 +254,7 @@ function GroupDialog({ ids, mode, close }: { ids: SkillID[]; mode: "add" | "remo
   const s = useSnapshot();
   const t = useT();
   const has = (members: SkillID[] | null | undefined, id: SkillID) => !!members?.includes(id);
-  const groups = useSortedGroups(s).filter((g) => mode === "add" || ids.some((id) => has(g.members, id)));
+  const groups = s.groups.filter((g) => mode === "add" || ids.some((id) => has(g.members, id)));
   const full = (members: SkillID[] | null | undefined) => ids.every((id) => has(members, id));
   const first = mode === "add" ? (groups.find((g) => !full(g.members))?.id ?? "new") : groups[0]?.id;
   const [value, setValue] = useState<GroupID | "new" | undefined>(first);

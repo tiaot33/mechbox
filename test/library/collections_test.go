@@ -114,3 +114,73 @@ func TestMarkNotInterestedValidatesInput(t *testing.T) {
 		t.Fatalf("invalid name = %v", err)
 	}
 }
+
+// 拖出来的先后:排过的在前,没列出的按原来的先后接在后面;之后入库的新来源排在最后;
+// 集合因最后一个技能移除而消失、再入库时回到原来的位置(仍在它原先后面的集合之前);传空恢复首次入库的先后。
+func TestReorderCollectionsListsCollectionsInTheChosenOrder(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	a := fetchNamedSkill(t, lib, "alpha")
+	b := fetchNamedSkill(t, lib, "beta")
+	c, cSource := fetchLocalSkill(t, lib, "gamma", "# gamma\n")
+	requireCollectionOrder(t, lib, a.CollectionID, b.CollectionID, c.CollectionID)
+
+	if err := lib.ReorderCollections(ctx, []library.CollectionID{c.CollectionID, a.CollectionID}); err != nil {
+		t.Fatal(err)
+	}
+	requireCollectionOrder(t, lib, c.CollectionID, a.CollectionID, b.CollectionID)
+
+	d := fetchNamedSkill(t, lib, "delta")
+	requireCollectionOrder(t, lib, c.CollectionID, a.CollectionID, b.CollectionID, d.CollectionID)
+
+	if err := lib.RemoveSkill(ctx, c.ID, library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireCollectionOrder(t, lib, a.CollectionID, b.CollectionID, d.CollectionID)
+	if err := lib.ReorderCollections(ctx, []library.CollectionID{d.CollectionID}); err != nil {
+		t.Fatal(err)
+	}
+	requireCollectionOrder(t, lib, d.CollectionID, a.CollectionID, b.CollectionID)
+	again, err := fetchLocalDir(ctx, lib, cSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.CollectionID != c.CollectionID {
+		t.Fatalf("refetched collection = %d, want %d", again.CollectionID, c.CollectionID)
+	}
+	requireCollectionOrder(t, lib, d.CollectionID, c.CollectionID, a.CollectionID, b.CollectionID)
+
+	if err := lib.ReorderCollections(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	requireCollectionOrder(t, lib, a.CollectionID, b.CollectionID, c.CollectionID, d.CollectionID)
+}
+
+// 重复、不是正数或不存在的集合整次拒绝,先后不变。
+func TestReorderCollectionsValidatesInput(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	a := fetchNamedSkill(t, lib, "alpha")
+	b := fetchNamedSkill(t, lib, "beta")
+	requireErrorDetails(t, lib.ReorderCollections(ctx, []library.CollectionID{b.CollectionID, b.CollectionID}), library.InvalidArgument, library.ErrorDetails{Field: "ids"})
+	requireErrorDetails(t, lib.ReorderCollections(ctx, []library.CollectionID{b.CollectionID, 0}), library.InvalidArgument, library.ErrorDetails{Field: "ids"})
+	if err := lib.ReorderCollections(ctx, []library.CollectionID{b.CollectionID, 9999}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("missing collection = %v", err)
+	}
+	requireCollectionOrder(t, lib, a.CollectionID, b.CollectionID)
+}
+
+func requireCollectionOrder(t *testing.T, lib *library.Library, want ...library.CollectionID) {
+	t.Helper()
+	collections, err := lib.ListCollections(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]library.CollectionID, len(collections))
+	for i, collection := range collections {
+		got[i] = collection.ID
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("collection order = %v, want %v", got, want)
+	}
+}

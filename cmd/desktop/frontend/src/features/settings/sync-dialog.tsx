@@ -11,7 +11,7 @@ import { describeError } from "@/lib/errors";
 import { invalidateSyncStatus, syncSettingsQuery, type LibraryError } from "@/lib/library";
 import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { clearPicked, forgetOrder, openSettings } from "@/lib/view";
+import { clearPicked, openSettings } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -90,8 +90,7 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
     });
     setWorking(null);
     if (done) {
-      // 拉回的是另一份库：旧库的 ID 会套到新库的别的技能上，先后与勾选都作废。
-      forgetOrder();
+      // 拉回的是另一份库：旧库的 ID 会套到新库的别的技能上，勾选作废。
       clearPicked();
       setPull(null);
       setPulled(true);

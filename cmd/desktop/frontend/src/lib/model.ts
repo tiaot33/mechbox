@@ -534,40 +534,34 @@ export function hasUpdate(skill: Skill): boolean {
 
 export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-// Order 是用户在左栏或列表里拖出来的集合与组的先后，只记在这台机器的界面里;
-// 没排过的(还没拖过，或之后新入库的集合、新建的组)按默认顺序接在后面。
-export interface Order {
+// 集合与组的先后由技能库给出(ListCollections / ListGroups 按用户拖出来的先后列出),左栏、技能库页与作用域页的分节、
+// 更新列表、作用域摘要里的组都直接按快照里的顺序。
+
+// isDefaultOrder 是先后还是默认的:集合按首次入库、组按新建的先后,即 ID 升序;是的话「恢复默认顺序」不用点。
+export function isDefaultOrder(ids: number[]): boolean {
+  return ids.every((id, i) => i === 0 || ids[i - 1] < id);
+}
+
+// LegacyOrder 是旧版存在 localStorage 里、用户拖出来的先后(集合与组的 ID)。
+export interface LegacyOrder {
   collections: CollectionID[];
   groups: GroupID[];
 }
 
-export const noOrder: Order = { collections: [], groups: [] };
-
-// inOrder 把排过的按 order 的先后放前面，其余保持原来的先后接在后面。
-function inOrder<T extends { id: number }>(items: T[], order: number[]): T[] {
-  const at = new Map(order.map((id, i) => [id, i]));
-  const rank = (x: T) => at.get(x.id) ?? Infinity;
-  return [...items].sort((a, b) => (rank(a) === rank(b) ? 0 : rank(a) - rank(b)));
-}
-
-// sortedCollections 是集合的顺序：默认按来源名排，用户拖过的按拖出来的先后;左栏、技能库页与作用域页的分节、更新列表都按它。
-export function sortedCollections(s: Snapshot, order: CollectionID[]): Collection[] {
-  const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source)));
-  return inOrder(byName, order);
-}
-
-// sortedGroups 是组的顺序：默认按技能库给的顺序，用户拖过的按拖出来的先后;左栏、分节与作用域摘要里的组都按它。
-export function sortedGroups(s: Snapshot, order: GroupID[]): Group[] {
-  return inOrder(s.groups, order);
-}
-
-// prunedOrder 去掉已经不在库里的集合与组(删掉了、移除了):技能库会复用删掉的 ID,不去掉的话新建的组会占到旧组的位置。
-// 没有要去掉的时原样返回。
-export function prunedOrder(s: Snapshot, order: Order): Order {
-  const live = (ids: number[], items: { id: number }[]) => ids.filter((id) => items.some((x) => x.id === id));
-  const collections = live(order.collections, s.collections);
-  const groups = live(order.groups, s.groups);
-  return collections.length === order.collections.length && groups.length === order.groups.length ? order : { collections, groups };
+// legacyOrder 把旧版拖出来的先后换成要交给技能库的完整先后，照旧版的规则：拖过的在前，其余集合按来源名、组按 ID 接在后面。
+// 某一类没拖过(或拖过的都已不在库里)、或库里已经不是默认顺序(升级后又拖过)时，那一类不用写，为 undefined。
+export function legacyOrder(s: Snapshot, saved: LegacyOrder): { collections?: CollectionID[]; groups?: GroupID[] } {
+  const merged = (dragged: number[], rest: number[]) => {
+    const kept = dragged.filter((id) => rest.includes(id));
+    return kept.length ? [...kept, ...rest.filter((id) => !kept.includes(id))] : undefined;
+  };
+  const collections = s.collections.map((c) => c.id);
+  const groups = s.groups.map((g) => g.id);
+  const byName = [...s.collections].sort((a, b) => collator.compare(sourceLabel(s, a.source), sourceLabel(s, b.source))).map((c) => c.id);
+  return {
+    collections: isDefaultOrder(collections) ? merged(saved.collections, byName) : undefined,
+    groups: isDefaultOrder(groups) ? merged(saved.groups, groups) : undefined,
+  };
 }
 
 // moved 是把 dragged 挪到 target 的前面(after 为 false)或后面之后的先后;target 不在 ids 里时不变。
@@ -601,14 +595,14 @@ export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
   return new Set(projectAgents(s, page.project, "").flatMap((a) => a.skills.map((x) => x.id)));
 }
 
-// sortSkills 是列表里技能的顺序：先按来源(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
+// sortSkills 是列表里技能的顺序：先按来源，和左栏集合的先后一致(没有来源的在最后),同一来源里按名字，同名的最近变化的在前。
 export function sortSkills(s: Snapshot, skills: Skill[]): Skill[] {
-  const source = (x: Skill) => (noSource(x.source) ? "" : sourceLabel(s, x.source));
+  const at = new Map(s.collections.map((c, i) => [c.id, i]));
+  const source = (x: Skill) => (noSource(x.source) ? Infinity : (at.get(x.collection_id) ?? s.collections.length));
   const time = (x: Skill) => changedAt(x)?.date.getTime() ?? 0;
   return [...skills].sort(
     (a, b) =>
-      Number(noSource(a.source)) - Number(noSource(b.source)) ||
-      collator.compare(source(a), source(b)) ||
+      source(a) - source(b) ||
       collator.compare(a.name, b.name) ||
       time(b) - time(a),
   );
@@ -628,14 +622,10 @@ export function collectionName(s: Snapshot, collectionID: CollectionID): string 
 }
 
 // updatableCollections 是有计入角标的技能的集合，和左栏同一个顺序。
-export function updatableCollections(s: Snapshot, order: CollectionID[]): Collection[] {
-  return sortedCollections(s, order).filter((c) => collectionSkills(s, c).some(pending));
+export function updatableCollections(s: Snapshot): Collection[] {
+  return s.collections.filter((c) => collectionSkills(s, c).some(pending));
 }
 
-// anyUpdatable 是有没有 updatableCollections(更新页在不在),不关心先后。
-export function anyUpdatable(s: Snapshot): boolean {
-  return s.collections.some((c) => collectionSkills(s, c).some(pending));
-}
 
 // missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。
 export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
@@ -780,7 +770,7 @@ export function samePage(a: Page, b: Page): boolean {
 
 // resolvePage 把已没有更新的更新页、项目或 Agent 已被移除的作用域页、项目已被注销的项目页、集合或组已不在的关系图退回技能库。
 export function resolvePage(s: Snapshot, page: Page): Page {
-  if (page.kind === "updates" && !anyUpdatable(s)) return { kind: "all" };
+  if (page.kind === "updates" && !updatableCollections(s).length) return { kind: "all" };
   if (page.kind === "scope") {
     const sc = parseScope(page.scope);
     if ((sc.project_id && !s.projects.some((p) => p.id === sc.project_id)) || !s.agents.some((a) => a.code === sc.agent)) return { kind: "all" };
@@ -842,8 +832,8 @@ export interface SkillSection {
   all: Skill[];
 }
 
-// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域,notHere 是作用域页下面那块)。按集合时每个来源一节，按 sortedCollections 排，没有来源的合进最后的"没有来源";
-// 按组时每个组一节，按 sortedGroups 排，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
+// arrangeSkills 把技能分节(skills 默认是库里的全部;scope 是作用域页，节的身份带上作用域,notHere 是作用域页下面那块)。按集合时每个来源一节，按左栏集合的先后，没有来源的合进最后的"没有来源";
+// 按组时每个组一节，按左栏组的先后，一个技能在几个组里就出现几次，不在任何组里的合进"没有归组"。节里的技能按 sortSkills 排。
 // 搜索时只留有结果的节;emptyGroups 时不搜索也列出空组，好往里拖技能。
 export function arrangeSkills(
   s: Snapshot,
@@ -854,8 +844,7 @@ export function arrangeSkills(
     emptyGroups = true,
     scope,
     notHere = false,
-    order,
-  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; notHere?: boolean; order: Order },
+  }: { skills?: Skill[]; emptyGroups?: boolean; scope?: ScopeKey; notHere?: boolean } = {},
 ): SkillSection[] {
   const hit = (x: Skill) => matches(search, x);
   const ids = new Set(all.map((x) => x.id));
@@ -866,13 +855,13 @@ export function arrangeSkills(
     sections.push({ key: sectionKey(kind, kind === "rest" ? arrange : id, scope, notHere), kind, id, skills: sorted.filter(hit), all: sorted });
   };
   if (arrange === "collection") {
-    for (const c of sortedCollections(s, order.collections)) {
+    for (const c of s.collections) {
       const skills = collectionSkills(s, c).filter((x) => ids.has(x.id));
       skills.forEach((x) => placed.add(x.id));
       push("collection", c.id, skills);
     }
   } else {
-    for (const g of sortedGroups(s, order.groups)) {
+    for (const g of s.groups) {
       const members = new Set(g.members ?? []);
       const skills = all.filter((x) => members.has(x.id));
       skills.forEach((x) => placed.add(x.id));
@@ -938,7 +927,7 @@ export function globalScopesSeenFrom(s: Snapshot, key: ScopeKey): ScopeKey[] {
   return (named.length ? named.map((a) => a.code) : [sc.agent]).map((code) => scopeKey(scopeOf(code, 0)));
 }
 
-export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string, order: Order): ScopeListing {
+export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const hereIDs = new Set(skillScopesIn(s, key).map((p) => p.skill_id));
   const globalKeys = globalScopesSeenFrom(s, key);
@@ -958,10 +947,9 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
     emptyGroups: false,
     scope: key,
     notHere: true,
-    order,
   });
   return {
-    hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key, order }),
+    hereSections: arrangeSkills(s, arrange, search, { skills: here, emptyGroups: false, scope: key }),
     hereUnmanaged: unmanagedIn(s, key).filter(hit).sort(byName),
     global: sortSkills(s, s.skills.filter((x) => globalIDs.has(x.id) && hit(x))),
     globalUnmanaged: globalUnmanaged.filter(hit).sort(byName),
@@ -1016,7 +1004,7 @@ export type PageListing = { total: number; results: number } & (
   | { kind: "graph"; set: GraphSet; members: SkillID[] }
 );
 
-export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string, order: Order): PageListing {
+export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
   if (page.kind === "graph") {
     const members = graphMembers(s, page.set) ?? [];
     return { kind: "graph", set: page.set, members, total: members.length, results: members.length };
@@ -1027,8 +1015,8 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
     return { kind: "updates", skills, total: todo.length, results: skills.length };
   }
   if (page.kind === "scope") {
-    const all = scopeListing(s, page.scope, arrange, "", order);
-    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search, order) : all;
+    const all = scopeListing(s, page.scope, arrange, "");
+    const listing = search.trim() ? scopeListing(s, page.scope, arrange, search) : all;
     const global = (l: ScopeListing) => l.global.length + l.globalUnmanaged.length;
     const seen = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length + global(l);
     return {
@@ -1049,7 +1037,7 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
   }
   return {
     kind: "all",
-    sections: arrangeSkills(s, arrange, search, { order }),
+    sections: arrangeSkills(s, arrange, search),
     total: s.skills.length,
     results: s.skills.filter((x) => matches(search, x)).length,
   };

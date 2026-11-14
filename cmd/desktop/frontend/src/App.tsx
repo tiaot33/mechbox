@@ -14,6 +14,7 @@ import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
 import { useAutoTranslate } from "@/features/skill/translate";
 import { checkReleaseFromMenu, useInstallFailureNotice } from "@/features/release/release";
 import { setDragGhost } from "@/components/app/dnd";
+import { adoptLegacyOrder } from "@/features/order/order";
 import { invalidateRelease, invalidateSyncStatus, reloadLibrary, toLibraryError, useLoadedSnapshot, useSnapshotQuery, type LibraryError } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
 import { ui, UIHost } from "@/lib/ui";
@@ -87,9 +88,11 @@ function Main() {
     if (loadedAt) void AppService.RefreshBadge();
   }, [loadedAt]);
 
-  // 快照变了以后校正界面上的选择(筛选指向的集合、组没了，作用域的项目或 Agent 被移除)。
+  // 快照变了以后校正界面上的选择(筛选指向的集合、组没了，作用域的项目或 Agent 被移除);升级后第一次读到时把旧版存的先后写进技能库。
   useEffect(() => {
-    if (s) reconcile(s);
+    if (!s) return;
+    reconcile(s);
+    void adoptLegacyOrder(s);
   }, [s]);
 
   const drawerSkill = s && drawer !== null ? s.skills.find((x) => x.id === drawer) : undefined;

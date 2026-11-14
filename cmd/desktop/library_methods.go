@@ -173,12 +173,20 @@ func (s *LibraryService) ListCollections(ctx context.Context) ([]library.Collect
 	return settle(s.lib.ListCollections(ctx))(ctx)
 }
 
+func (s *LibraryService) ReorderCollections(ctx context.Context, ids []library.CollectionID) error {
+	return settleErr(ctx, s.lib.ReorderCollections(ctx, ids))
+}
+
 func (s *LibraryService) CreateGroup(ctx context.Context, name string) (library.Group, error) {
 	return settle(s.lib.CreateGroup(ctx, name))(ctx)
 }
 
 func (s *LibraryService) ListGroups(ctx context.Context) ([]library.Group, error) {
 	return settle(s.lib.ListGroups(ctx))(ctx)
+}
+
+func (s *LibraryService) ReorderGroups(ctx context.Context, ids []library.GroupID) error {
+	return settleErr(ctx, s.lib.ReorderGroups(ctx, ids))
 }
 
 func (s *LibraryService) RenameGroup(ctx context.Context, id library.GroupID, name string) (library.Group, error) {

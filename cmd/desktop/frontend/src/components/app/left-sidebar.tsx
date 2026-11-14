@@ -1,6 +1,6 @@
 // 左栏：入库 / 市场入口;页面——技能库 / 更新;集合(按来源)与组是技能库页里的节，点了跳到那一节;
 // 底部同步与设置，Mechbox 有新版本时上面多一行新版本。
-// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，默认按来源名排，只有一个技能的也列出。
+// "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，先后由技能库给出(默认按首次入库的先后，拖过的按拖出来的先后),只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
 // 集合、组各自拖到同类的行上调整先后，和列表的分节一起变，右键节标题可以恢复默认顺序。两种行名字放不下时悬停显示全名，右键有各自的菜单。
 import { useState } from "react";
@@ -26,10 +26,12 @@ import {
   sourceLabel,
   wslTitle,
   type Page,
+  isDefaultOrder,
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
-import { jumpTo, openGraph, openPage, openSettings, resetOrder, useCurrentPage, useSortedCollections, useSortedGroups, useView } from "@/lib/view";
+import { jumpTo, openGraph, openPage, openSettings, useCurrentPage } from "@/lib/view";
+import { resetOrder } from "@/features/order/order";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -67,7 +69,6 @@ export function LeftSidebar() {
   const ui = useUI();
   const busy = useBusy();
   const checkStatus = useCheckMark("all");
-  const order = useView((v) => v.order);
   const t = useT().sidebar;
   // 同步行写自动推送的间隔或「手动」;上一次推送出了问题时改写「推送失败」,不能指望用户自己去设置页看。
   const pushFailed = !!useQuery({ ...syncStatusQuery, enabled: config.sync }).data?.problem;
@@ -75,8 +76,8 @@ export function LeftSidebar() {
   const syncLabel = !config.sync ? t.notConfigured : pushFailed ? t.pushFailed : (config.auto_push && intervals[config.auto_push]) || t.manual;
   const updates = s.skills.filter(pending).length;
   const checkable = checkableCollections(s);
-  const collections = useSortedCollections(s);
-  const groups = useSortedGroups(s);
+  const collections = s.collections;
+  const groups = s.groups;
   // 收起的分节(collections / groups)。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const pageRow = (target: Page, icon: React.ReactNode, label: string, count: number, title?: string) => (
@@ -129,7 +130,7 @@ export function LeftSidebar() {
         collapsed={collapsed}
         onToggle={setCollapsed}
         menu={
-          <ContextMenuItem disabled={!order.collections.length} onSelect={() => resetOrder("collection")}>
+          <ContextMenuItem disabled={isDefaultOrder(collections.map((c) => c.id))} onSelect={() => resetOrder("collection")}>
             {t.resetOrder}
           </ContextMenuItem>
         }
@@ -155,7 +156,7 @@ export function LeftSidebar() {
           <>
             <ContextMenuItem onSelect={() => createGroup()}>{t.newGroupWith}</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem disabled={!order.groups.length} onSelect={() => resetOrder("group")}>
+            <ContextMenuItem disabled={isDefaultOrder(groups.map((g) => g.id))} onSelect={() => resetOrder("group")}>
               {t.resetOrder}
             </ContextMenuItem>
           </>
@@ -212,7 +213,7 @@ function CollectionRow({ collection: c }: { collection: Collection }) {
   const dnd = useDnD();
   const busy = useBusy();
   const drop = useCollectionDrop(c.id);
-  const groups = useSortedGroups(s);
+  const groups = s.groups;
   const tt = useT();
   const t = tt.sidebar;
   const label = sourceLabel(s, c.source);

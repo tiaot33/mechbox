@@ -2485,6 +2485,70 @@ await step("拖放：组 → 右栏作用域(组安装)", async () => {
   await settle();
 });
 
+await step("拖放：集合 → 集合、组 → 组调整先后，列表分节跟着变，重新载入后还在;节标题右键恢复默认顺序;旧版存的先后写进技能库", async () => {
+  await clearScope();
+  const rows = (sec) =>
+    page
+      .locator(".a-left .nav-sec", { has: page.locator(".sec-toggle", { hasText: new RegExp(`^${sec}\\d+$`) }) })
+      .locator("xpath=following-sibling::ul[1]")
+      .locator(":scope > li");
+  const names = (sec) => rows(sec).evaluateAll((lis) => lis.map((li) => li.querySelector(".truncate").textContent));
+  const sections = () => page.locator('.list-section[data-section^="collection-"] .section-name').allTextContents();
+  const collections = await names("集合");
+  const groups = await names("组");
+  assert(collections.length >= 2 && groups.length >= 2, `要有两个以上的集合和组:${collections} / ${groups}`);
+  const front = (list) => [list.at(-1), ...list.slice(0, -1)];
+  // 拖到第一行的上半，放到它前面。
+  const dragLastToFront = async (sec) => {
+    await rows(sec).last().dragTo(rows(sec).first(), { targetPosition: { x: 20, y: 2 } });
+    await settle();
+  };
+
+  await dragLastToFront("集合");
+  assert.deepStrictEqual(await names("集合"), front(collections), "最后一个集合应挪到最前");
+  assert.equal((await sections())[0], collections.at(-1), "列表的第一节应跟着变");
+  await dragLastToFront("组");
+  assert.deepStrictEqual(await names("组"), front(groups), "最后一个组应挪到最前");
+
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await settle();
+  assert.deepStrictEqual(await names("集合"), front(collections), "重新载入后集合的先后应还在");
+  assert.deepStrictEqual(await names("组"), front(groups), "重新载入后组的先后应还在");
+
+  for (const [sec, want] of [
+    ["集合", collections],
+    ["组", groups],
+  ]) {
+    await page.locator(".a-left .nav-sec .sec-toggle", { hasText: new RegExp(`^${sec}\\d+$`) }).click({ button: "right" });
+    await page.locator('[data-slot="context-menu-item"]', { hasText: "恢复默认顺序" }).click();
+    await settle();
+    assert.deepStrictEqual(await names(sec), want, `${sec}应恢复默认顺序`);
+    await page.locator(".a-left .nav-sec .sec-toggle", { hasText: new RegExp(`^${sec}\\d+$`) }).click({ button: "right" });
+    assert(await page.locator('[data-slot="context-menu-item"]', { hasText: "恢复默认顺序" }).isDisabled(), `${sec}已是默认顺序时菜单项应不能点`);
+    await page.keyboard.press("Escape");
+    // 等菜单退场动画结束，下一次右键开的菜单才是页面上唯一的一个。
+    await until(async () => (await page.locator('[data-slot="context-menu-content"]').count()) === 0, "右键菜单关掉");
+  }
+
+  // 旧版把先后存在 localStorage 的 mechbox.order 里：升级后第一次打开时写进技能库，再删掉旧的那份。
+  const last = await page
+    .locator('.list-section[data-section^="collection-"]')
+    .last()
+    .getAttribute("data-section");
+  await page.evaluate((id) => localStorage.setItem("mechbox.order", JSON.stringify({ collections: [id], groups: [] })), Number(last.replace("collection-", "")));
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await until(async () => (await names("集合"))[0] === collections.at(-1), "旧版存的先后写进技能库");
+  await settle();
+  assert.equal(await page.evaluate(() => localStorage.getItem("mechbox.order")), null, "写进技能库后旧的那份应删掉");
+  assert.deepStrictEqual(await names("组"), groups, "旧版没拖过组时组的先后不变");
+  await page.locator(".a-left .nav-sec .sec-toggle", { hasText: /^集合\d+$/ }).click({ button: "right" });
+  await page.locator('[data-slot="context-menu-item"]', { hasText: "恢复默认顺序" }).click();
+  await settle();
+  assert.deepStrictEqual(await names("集合"), collections, "集合应恢复默认顺序");
+});
+
 await step("拖放：集合的节标题 → 右栏作用域(把集合里的技能逐个直接安装，一次性的)", async () => {
   await clearScope();
   const handle = page.locator('.list-section[data-section^="collection-"]', { has: page.locator(".section-name", { hasText: "my-skills" }) }).locator(".collection-handle");

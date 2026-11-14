@@ -967,3 +967,69 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 		})
 	}
 }
+
+// 拖出来的先后:排过的在前,没列出的按原来的先后接在后面;之后新建的组排在最后,删掉的组不再占位置;传空恢复组 ID 升序。
+func TestReorderGroupsListsGroupsInTheChosenOrder(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	a := mustCreateGroup(t, lib, "a")
+	b := mustCreateGroup(t, lib, "b")
+	c := mustCreateGroup(t, lib, "c")
+	requireGroupOrder(t, lib, a.ID, b.ID, c.ID)
+
+	if err := lib.ReorderGroups(ctx, []library.GroupID{c.ID, a.ID}); err != nil {
+		t.Fatal(err)
+	}
+	requireGroupOrder(t, lib, c.ID, a.ID, b.ID)
+
+	d := mustCreateGroup(t, lib, "d")
+	requireGroupOrder(t, lib, c.ID, a.ID, b.ID, d.ID)
+
+	if err := lib.DeleteGroup(ctx, a.ID, library.DeleteGroupOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireGroupOrder(t, lib, c.ID, b.ID, d.ID)
+
+	if err := lib.ReorderGroups(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	requireGroupOrder(t, lib, b.ID, c.ID, d.ID)
+}
+
+// 重复、不是正数或不存在的组整次拒绝,先后不变。
+func TestReorderGroupsValidatesInput(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	a := mustCreateGroup(t, lib, "a")
+	b := mustCreateGroup(t, lib, "b")
+	requireErrorDetails(t, lib.ReorderGroups(ctx, []library.GroupID{b.ID, b.ID}), library.InvalidArgument, library.ErrorDetails{Field: "ids"})
+	requireErrorDetails(t, lib.ReorderGroups(ctx, []library.GroupID{b.ID, -1}), library.InvalidArgument, library.ErrorDetails{Field: "ids"})
+	if err := lib.ReorderGroups(ctx, []library.GroupID{b.ID, 9999}); !library.IsCode(err, library.NotFound) {
+		t.Fatalf("missing group = %v", err)
+	}
+	requireGroupOrder(t, lib, a.ID, b.ID)
+}
+
+func mustCreateGroup(t *testing.T, lib *library.Library, name string) library.Group {
+	t.Helper()
+	group, err := lib.CreateGroup(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return group
+}
+
+func requireGroupOrder(t *testing.T, lib *library.Library, want ...library.GroupID) {
+	t.Helper()
+	groups, err := lib.ListGroups(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]library.GroupID, len(groups))
+	for i, group := range groups {
+		got[i] = group.ID
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("group order = %v, want %v", got, want)
+	}
+}
