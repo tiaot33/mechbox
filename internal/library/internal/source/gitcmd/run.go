@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -31,6 +32,14 @@ func timeout() time.Duration {
 }
 
 func Run(ctx context.Context, args ...string) ([]byte, error) {
+	return run(ctx, nil, true, args...)
+}
+
+func output(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	return run(ctx, stdin, false, args...)
+}
+
+func run(ctx context.Context, stdin io.Reader, combined bool, args ...string) ([]byte, error) {
 	ssh, err := sshCommand(ctx)
 	if err != nil {
 		return nil, err
@@ -52,10 +61,20 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 		"GIT_LFS_SKIP_SMUDGE=1",
 		"GIT_ALLOW_PROTOCOL=https:http:ssh:git:file",
 	)
+	command.Stdin = stdin
 	command.WaitDelay = time.Second
 	process.Hide(command)
 	process.KillTreeOnCancel(command)
-	output, err := command.CombinedOutput()
+	var result, detail []byte
+	if combined {
+		result, err = command.CombinedOutput()
+		detail = result
+	} else {
+		result, err = command.Output()
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+			detail = exit.Stderr
+		}
+	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -63,9 +82,9 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("git: %w: %w", ErrTimeout, source.ErrUnreachable)
 	}
 	if err != nil {
-		return nil, commandError(output)
+		return nil, commandError(detail)
 	}
-	return output, nil
+	return result, nil
 }
 
 func Remote(ctx context.Context, remotes []string, args []string, patterns ...string) ([]byte, error) {

@@ -437,3 +437,53 @@ func TestPreviewGitDistinguishesFailureReasonsWithoutExposingCredentials(t *test
 		})
 	}
 }
+
+// 技能只占大仓库的一小部分时，入库只下载技能的文件：服务端把和技能无关的大文件删掉了，整库克隆会失败，入库仍要成功。
+func TestGitSourceDownloadsOnlySkillFiles(t *testing.T) {
+	config := isolateGit(t)
+	repository := t.TempDir()
+	runGit(t, repository, "init", "-b", "main")
+	writeFile(t, filepath.Join(repository, "skills", "alpha", "SKILL.md"), []byte(skillDocument("alpha", "first")), 0o644)
+	writeFile(t, filepath.Join(repository, "skills", "alpha", "scripts", "run.sh"), []byte("#!/bin/sh\necho alpha\n"), 0o755)
+	writeFile(t, filepath.Join(repository, "assets", "video.bin"), []byte(strings.Repeat("unrelated ", 10000)), 0o644)
+	commitGit(t, repository, "initial")
+	runGit(t, repository, "config", "uploadpack.allowFilter", "true")
+	runGit(t, repository, "config", "uploadpack.allowAnySHA1InWant", "true")
+	output, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD", "HEAD:assets/video.bin").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := strings.Fields(string(output))
+	if err := os.Remove(filepath.Join(repository, ".git", "objects", ids[1][:2], ids[1][2:])); err != nil {
+		t.Fatal(err)
+	}
+	redirectRemote(t, config, repository, "https://gitlab.com/group/large.git")
+	for _, ref := range []string{"main", ids[0]} {
+		t.Run(ref, func(t *testing.T) {
+			lib := openTestLibrary(t)
+			preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://gitlab.com/group/large", Ref: ref})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := candidateNames(preview); !reflect.DeepEqual(got, []string{"alpha"}) {
+				t.Fatalf("candidates = %v", got)
+			}
+			fetched := fetchSkills(t, lib, preview, []string{"alpha"})
+			files, err := lib.ListVersionFiles(t.Context(), fetched[0].VersionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]library.FileMode{}
+			for _, file := range files {
+				got[file.Path] = file.Mode
+			}
+			if want := map[string]library.FileMode{"SKILL.md": library.ModeRegular, "scripts/run.sh": library.ModeExecutable}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("files = %v; want %v", got, want)
+			}
+			script, err := lib.GetVersionFile(t.Context(), fetched[0].VersionID, "scripts/run.sh")
+			if err != nil || string(script.Content) != "#!/bin/sh\necho alpha\n" {
+				t.Fatalf("run.sh = %#v, %v", script, err)
+			}
+		})
+	}
+}
