@@ -235,7 +235,7 @@ type Ownership = Pick<UnmanagedSkill, "in_repository" | "in_project_lock" | "lin
 export const repoOwned = (u: Pick<Ownership, "in_repository" | "in_project_lock">) => !!(u.in_repository || u.in_project_lock);
 
 // notTakenOver 是还没交给 app 管的、用户自己的未纳管技能：归项目仓库管的、符号链接指向 Agent 目录以外的(作者有意留在自己目录里的)不算。
-// 作用域摘要里"还没交给 app 管"的数、整批入库时默认勾哪些、照装时说带不过来的，都按它。
+// 整批入库时默认勾哪些、照装时说哪些要先入库才带得过去，都按它。
 export const notTakenOver = (u: Ownership) => !repoOwned(u) && !u.link_outside;
 
 // sameNameNote 说明作用域里的一个技能文件夹和同一个 Agent 全局 / 某个已登记项目里的文件夹同名时会怎样:
@@ -425,13 +425,13 @@ export function copySources(s: Snapshot, to: AgentCode, at: Place): Agent[] {
 // copyItems 是照装时一处要装的项数：每个组安装、每个直接安装的技能各算一项。
 export const copyItems = (p: CopyPlace) => p.groups.length + p.skills.length;
 
-// UncopiedUnmanaged 是照装带不过去的未纳管技能，和作用域页同一个口径(见 splitUncopied)。
+// UncopiedUnmanaged 是照装带不过去的未纳管技能(见 splitUncopied)。
 export interface UncopiedUnmanaged {
   unmanaged: UnmanagedSkill[];
   repo: UnmanagedSkill[];
 }
 
-// splitUncopied 把照装带不过去的未纳管技能按作用域页的口径分开:unmanaged 是还没交给 app 管的(notTakenOver),
+// splitUncopied 把照装带不过去的未纳管技能分开:unmanaged 是还没交给 app 管的(notTakenOver),
 // 入库以后才能照着装;repo 是归项目仓库管的，随项目仓库走;指向 Agent 目录以外的两边都不算。
 function splitUncopied(left: UnmanagedSkill[]): UncopiedUnmanaged {
   return { unmanaged: left.filter(notTakenOver), repo: left.filter((u) => repoOwned(u) && !u.link_outside) };
@@ -993,14 +993,14 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
 // 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
-// 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个);
+// 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个;unmanaged 是其中不在技能库里的，同样不随搜索变);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 // 关系图页的 total 是集合或组里的技能数;它的搜索结果数要算上图里虚线圆的技能，由关系图自己算(lib/graph 的 searchHits),这里的 results 不用。
 export type PageListing = { total: number; results: number } & (
   | { kind: "all"; sections: SkillSection[] }
   | { kind: "updates"; skills: Skill[] }
   | { kind: "scope"; scope: ScopeKey; listing: ScopeListing; global: number }
-  | { kind: "project"; project: ProjectID; agents: ProjectAgent[] }
+  | { kind: "project"; project: ProjectID; agents: ProjectAgent[]; unmanaged: number }
   | { kind: "graph"; set: GraphSet; members: SkillID[] }
 );
 
@@ -1031,9 +1031,10 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
   if (page.kind === "project") {
     const agents = projectAgents(s, page.project, search);
     // 几个 Agent 都装了的技能只算一个;未纳管技能各是各的文件夹。
-    const count = (list: ProjectAgent[]) =>
-      new Set(list.flatMap((a) => a.skills.map((x) => x.id))).size + new Set(list.flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
-    return { kind: "project", project: page.project, agents, total: count(projectAgents(s, page.project, "")), results: count(agents) };
+    const folders = (list: ProjectAgent[]) => new Set(list.flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
+    const count = (list: ProjectAgent[]) => new Set(list.flatMap((a) => a.skills.map((x) => x.id))).size + folders(list);
+    const all = projectAgents(s, page.project, "");
+    return { kind: "project", project: page.project, agents, unmanaged: folders(all), total: count(all), results: count(agents) };
   }
   return {
     kind: "all",

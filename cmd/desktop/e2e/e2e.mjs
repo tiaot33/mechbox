@@ -986,7 +986,7 @@ await step("重复登记同一项目报错", async () => {
   await modal().getByRole("button", { name: "取消" }).click();
 });
 
-await step("登记项目后：一次确认入库项目里不是库装的技能，项目仓库里的默认不勾;确认前清空认出的来源", async () => {
+await step("登记项目后：一次确认入库项目里不是库装的技能，项目仓库里的默认不勾;确认前清空认出的来源;之后在作用域节标题、项目页摘要上再全部入库，确认里按来源整批勾选", async () => {
   const projC = path.join(HOME, "code", "team-proj");
   const dir = path.join(projC, ".claude", "skills");
   const docs = { "team-rules": "committed by the team", "proj-notes": "my project notes", "locked-tool": "installed by the lock file", "lint-rules": "also in the lock file" };
@@ -1037,12 +1037,17 @@ await step("登记项目后：一次确认入库项目里不是库装的技能�
     await closeDrawer();
     assert((await card("team-rules").count()) === 0, "没勾的不入库");
     assert.deepStrictEqual(disk(), before, "入库时磁盘上什么都没动");
-    // 没入库的 lint-rules 记在 skills-lock.json 里:卡片上和确认列表一样标出来，所以作用域里不提「还有几个没入库」。
+    // 没入库的 lint-rules 记在 skills-lock.json 里:卡片上和确认列表一样标出来。
     await selectScope("Claude Code", "team-proj");
     const lint = page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^lint-rules$/ }) });
     await lint.waitFor();
     assert.equal(await lint.locator(".unmanaged-state").textContent(), "记在 skills-lock.json 里", "最后一列写出记在 skills-lock.json 里");
-    // 只剩归项目仓库管的，节标题上照样能一次入库：确认里默认不勾，组标题上一次勾上整组(提醒照常写出)，再点一次整组取消。
+    // 搜索时节里只列搜到的，节标题上不放整个作用域的「全部入库…」。
+    await page.getByPlaceholder("搜索技能").fill("lint");
+    await page.locator(".unmanaged-row", { hasText: "team-rules" }).waitFor({ state: "detached" });
+    assert.equal(await btn(unmanagedHead(), "全部入库…").count(), 0, "搜索时不放全部入库");
+    await page.getByPlaceholder("搜索技能").fill("");
+    // 只剩归项目仓库管的，节标题上照样能一次入库：确认里默认不勾，来源标题上一次勾上那一批(提醒照常写出)，再点一次全部取消。
     await btn(unmanagedHead(), "全部入库…").click();
     await modal().locator(".fetch-unmanaged-lead", { hasText: "发现 2 个不是库装的技能" }).waitFor({ timeout: 15000 });
     assert(!(await checked("lint-rules")) && !(await checked("team-rules")), "归项目仓库管的默认不勾");

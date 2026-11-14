@@ -9,10 +9,8 @@ import {
   needsReinstall,
   parseScope,
   placeOf,
-  projectAgents,
   projectName,
   scopeLabel,
-  scopeOf,
   shortPath,
   skillScopesIn,
   unmanagedIn,
@@ -21,7 +19,7 @@ import {
   type ScopeKey,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
+import { offerFetchProject } from "@/features/fetch/fetch-unmanaged-all";
 import { openCopyFromAgent, openCopyFromProject } from "@/features/install/copy";
 import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
@@ -117,13 +115,12 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
 // ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录，
 // 其中不在技能库里的几个与全部入库(范围和登记项目后弹出的那次一样，是各 Agent 在这个项目里),
 // 以及照着其他项目装(别的已登记项目里装了库里的技能时才有)。
-export function ProjectSummary({ project, total }: { project: RegisteredProject; total: number }) {
+export function ProjectSummary({ project, total, unmanaged }: { project: RegisteredProject; total: number; unmanaged: number }) {
   const s = useSnapshot();
   const t = useT().list;
   const c = useT().copy;
   const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
-  const unmanaged = new Set(projectAgents(s, project.id, "").flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
   return (
     <div className={barClass}>
       <div className="flex min-w-0 items-center gap-2.5">
@@ -150,7 +147,7 @@ export function ProjectSummary({ project, total }: { project: RegisteredProject;
               size="sm"
               className="fetch-all-unmanaged"
               title={t.fetchAllTitle}
-              onClick={() => void offerFetchUnmanaged(s.agents, s.agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project }, false)}
+              onClick={() => void offerFetchProject(s.agents, project, false)}
             >
               {t.fetchAll}
             </Button>

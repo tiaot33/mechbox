@@ -52,7 +52,13 @@ export async function offerFirstOpen(agents: Agent[]) {
 // offerProject 在登记一个项目之后，把用户带到这个项目里各 Agent 目录下不是库装的技能;没有就什么都不做。
 export async function offerProject(project: RegisteredProject) {
   const agents = (await LibraryService.ListAgents().catch(() => null)) ?? [];
-  await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project });
+  await offerFetchProject(agents, project);
+}
+
+// offerFetchProject 打开项目里各 Agent 目录下不是库装的技能的整批入库确认(登记项目后、项目页摘要上的"全部入库…");
+// quiet 为 false 时(用户自己点的)没有可入库的也告诉一声。
+export async function offerFetchProject(agents: Agent[], project: RegisteredProject, quiet = true) {
+  await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, project.id)), { kind: "project", project }, quiet);
 }
 
 // planEverywhere 为各 Agent 的全局目录和全部已登记项目生成整批入库的计划，返回打开确认的函数;
