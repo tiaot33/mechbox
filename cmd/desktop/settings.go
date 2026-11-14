@@ -28,7 +28,7 @@ type Settings struct {
 	WSLDistro string `json:"wsl_distro,omitempty"`
 	// FoldCollections 把左栏「集合」里技能少于 FoldBelow 个的集合收进最后一行，点开再列出;关掉时每个集合都列出。
 	FoldCollections bool `json:"fold_collections"`
-	// FoldBelow 是左栏折起来的集合的技能数上限(不含),取值 2 到 100,默认 3。
+	// FoldBelow 是左栏折起来的集合的技能数上限(不含),取值 2 到 10,默认 3。
 	FoldBelow int `json:"fold_below"`
 	// AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
 	// 显示只影响选择安装位置的地方，已经装了技能的 Agent 装出去的地方照常列出。
@@ -70,7 +70,7 @@ func glassTintValid(v float64) bool {
 
 const (
 	minFoldBelow = 2
-	maxFoldBelow = 100
+	maxFoldBelow = 10
 )
 
 func foldBelowValid(n int) bool {

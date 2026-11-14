@@ -122,6 +122,12 @@ describe("foldCollections", () => {
     expect(ids(shown)).toEqual([1, 2, 3, 4]);
     expect(folded).toEqual([]);
   });
+
+  it("没有一个集合够数时不折，免得只剩一行「另外 K 个」", () => {
+    const { shown, folded } = foldCollections({ collections, foldCollections: true, foldBelow: 4 });
+    expect(ids(shown)).toEqual([1, 2, 3, 4]);
+    expect(folded).toEqual([]);
+  });
 });
 
 describe("missingFromGroup", () => {

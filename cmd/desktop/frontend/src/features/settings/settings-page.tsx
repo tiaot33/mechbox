@@ -27,6 +27,7 @@ import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
+import { foldSaved } from "./fold";
 
 // 分区按文案里的键排，标题取当前语言的文案。
 const sections = ["general", "agents", "projects", "checks", "github", "ai", "sync", "about", "uninstall"] as const;
@@ -50,10 +51,19 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     setSettings(value);
   };
 
+  // 左栏刚点的折叠还没写完时，等它写完再读，免得之后整组写回时盖掉(见 features/settings/fold)。
   useEffect(() => {
-    const call = AppService.Settings();
-    call.then(show, () => {});
-    return () => void call.cancel();
+    let closed = false;
+    let call: ReturnType<typeof AppService.Settings> | undefined;
+    void foldSaved().then(() => {
+      if (closed) return;
+      call = AppService.Settings();
+      call.then(show, () => {});
+    });
+    return () => {
+      closed = true;
+      call?.cancel();
+    };
   }, []);
   // 拉回后重读:排在进行中的保存之后，读到的是 Go 端换好的那一组。
   useEffect(

@@ -274,7 +274,7 @@ export interface Settings {
     "fold_collections": boolean;
 
     /**
-     * FoldBelow 是左栏折起来的集合的技能数上限(不含),取值 2 到 100,默认 3。
+     * FoldBelow 是左栏折起来的集合的技能数上限(不含),取值 2 到 10,默认 3。
      */
     "fold_below": number;
 

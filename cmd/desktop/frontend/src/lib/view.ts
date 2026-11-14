@@ -57,7 +57,7 @@ interface ViewState {
   expanded: ReadonlySet<Place>; // 右栏展开的项目
   moreAgents: ReadonlySet<Place>; // 右栏展开了"其他 Agent"的地方
   flipped: ReadonlySet<string>; // 列表里收起、展开和默认相反的节(默认展开的被收起了，默认收起的被展开了)
-  unfolded: ReadonlySet<string>; // 列表里展开了"没装的"的节，以及展开了下面那块(没装在这里的)的作用域页(`${作用域}:not-here`)
+  unfolded: ReadonlySet<string>; // 列表里展开了"没装的"的节，展开了下面那块(没装在这里的)的作用域页(`${作用域}:not-here`),以及左栏点开了技能少的来源(smallCollectionsKey)
   picked: ReadonlySet<SkillID>; // 列表里勾选的技能，底部的操作栏对它们一起操作;换页时清空
   anchor: string | null; // 上一次单独勾选或取消的那一行(PickRow.key),按住 Shift 勾选时从它勾到点的那一行
   jump: Jump | null;
@@ -115,6 +115,15 @@ export const toggleProject = (place: Place) => set((v) => ({ expanded: toggled(v
 export const toggleMoreAgents = (place: Place) => set((v) => ({ moreAgents: toggled(v.moreAgents, place) }));
 export const toggleSection = (key: string) => set((v) => ({ flipped: toggled(v.flipped, key) }));
 export const toggleUnfolded = (key: string) => set((v) => ({ unfolded: toggled(v.unfolded, key) }));
+// smallCollectionsKey 记左栏开着折叠时点开了技能少的来源;打开折叠时收起(foldUnfolded)。
+export const smallCollectionsKey = "left:small-collections";
+export const foldUnfolded = (key: string) =>
+  set((v) => {
+    if (!v.unfolded.has(key)) return {};
+    const unfolded = new Set(v.unfolded);
+    unfolded.delete(key);
+    return { unfolded };
+  });
 export const openSettings = (section: string | null = null) => set({ settings: true, settingsSection: section });
 export const closeSettings = () => set({ settings: false });
 

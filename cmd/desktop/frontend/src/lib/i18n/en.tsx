@@ -1143,7 +1143,8 @@ export const en = {
     unfoldSmall: "Show all Sources",
     foldSettings: "Folding settings…",
     smallCollections: (k: number) => count(k, "more Source", "more Sources"),
-    smallCollectionsTitle: (n: number, names: string[]) => `Sources with fewer than ${count(n, "skill")}; click to list them:\n${names.join("\n")}`,
+    smallCollectionsTitle: (n: number, open: boolean, names: string[]) =>
+      `Sources with fewer than ${count(n, "skill")}; click to ${open ? "hide" : "list"} them:\n${names.join("\n")}`,
     hideSmall: "Hide small Sources",
     groups: "Groups",
     newGroup: "New Group",

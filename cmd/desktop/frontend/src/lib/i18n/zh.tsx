@@ -1075,7 +1075,8 @@ export const zh = {
     unfoldSmall: "列出全部来源",
     foldSettings: "折叠设置…",
     smallCollections: (k: number) => `另外 ${k} 个来源`,
-    smallCollectionsTitle: (n: number, names: string[]) => `技能少于 ${n} 个的来源，点开列出：\n${names.join("\n")}`,
+    smallCollectionsTitle: (n: number, open: boolean, names: string[]) =>
+      `技能少于 ${n} 个的来源，${open ? "点了收起" : "点开列出"}：\n${names.join("\n")}`,
     hideSmall: "收起技能少的来源",
     groups: "组",
     newGroup: "新建组",

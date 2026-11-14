@@ -61,7 +61,7 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 		func(s *Settings) { s.Appearance = "sepia" },
 		func(s *Settings) { s.GlassTintDark = 1.6 },
 		func(s *Settings) { s.FoldBelow = 1 },
-		func(s *Settings) { s.FoldBelow = 101 },
+		func(s *Settings) { s.FoldBelow = 11 },
 	} {
 		settings := defaultSettings()
 		change(&settings)

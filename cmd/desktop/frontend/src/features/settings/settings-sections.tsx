@@ -87,13 +87,11 @@ export function GeneralSection({
         disabled={!settings.fold_collections}
         onChange={(e) => save({ fold_below: Number(e.target.value) })}
       >
-        {[...new Set([...foldBelowOptions, settings.fold_below])]
-          .sort((a, b) => a - b)
-          .map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
+        {foldBelowOptions.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
       </NativeSelect>
     </SetRow>
     <SetRow className="language-row">
@@ -154,8 +152,8 @@ export function GeneralSection({
   );
 }
 
-// 左栏折叠集合时可选的技能数上限(不含),在 Go 端允许的 2–100 之内;存着别的数时也列出来。
-const foldBelowOptions = [2, 3, 4, 5, 6, 8, 10];
+// 左栏折叠集合时可选的技能数上限(不含):2 到 10,和 Go 端允许的一样。
+const foldBelowOptions = Array.from({ length: 9 }, (_, i) => i + 2);
 
 // ProjectsSection 是项目分区：已登记的项目，可以改位置、注销;项目目录不在这台机器上时带标记。
 export function ProjectsSection() {

@@ -137,9 +137,11 @@ export function orderProps(canDrop: boolean, onDrop: (after: boolean) => void) {
 }
 
 // useCollectionDrop 让集合(左栏集合行、集合的节标题)接受拖来的另一个集合(调整先后)。
-export function useCollectionDrop(id: CollectionID) {
+// segment 是这一行所在的那段(左栏开着折叠时，技能多的、技能少的各是一段):给了就只接受同一段里拖来的，免得放下的位置和画的线对不上。
+export function useCollectionDrop(id: CollectionID, segment?: readonly CollectionID[]) {
   const dnd = useDnD();
-  return orderProps(dnd.item?.kind === "collection" && dnd.item.id !== id, (after) => dnd.dropOrder({ kind: "collection", id }, after));
+  const item = dnd.item?.kind === "collection" ? dnd.item : undefined;
+  return orderProps(!!item && item.id !== id && (!segment || segment.includes(item.id)), (after) => dnd.dropOrder({ kind: "collection", id }, after));
 }
 
 // useGroupDrop 让组(左栏组行、组的节标题)接受拖来的技能或集合(加入该组)与另一个组(调整先后)。
