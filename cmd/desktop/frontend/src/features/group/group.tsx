@@ -135,12 +135,13 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
 
 // removeSkillsFromGroup 把勾选的技能里在组里的移出组(底部操作栏的"移出组…"):组有组安装时和移出一个成员一样，
 // 先问只随本组安装的留着(改为直接安装)还是一并卸载，一批只问一次。有失败的才列出结果。
-export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]) {
+// 返回 false 表示没有移出：都不在组里，或用户取消了。
+export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
   const ids = picked.filter((id) => s.groups.find((g) => g.id === groupID)?.members?.includes(id));
-  if (!ids.length) return;
+  if (!ids.length) return false;
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
@@ -156,7 +157,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
       choices: removalChoices(),
       confirm: t.removeFromGroup,
     });
-    if (!choice) return;
+    if (!choice) return false;
     policy = choice as MemberRemovalPolicy;
   }
   const rows = await runEach(
@@ -166,6 +167,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   );
   if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
   else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
+  return true;
 }
 
 // createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。
@@ -241,12 +243,16 @@ function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScop
 }
 
 // pickGroup 是勾选后操作栏的"加入组…""移出组…":选一个组，把勾选的技能加入(也可以新建一个组)或移出。
-export async function pickGroup(ids: SkillID[], mode: "add" | "remove") {
+// 返回 false 表示用户在选组、给新组起名或确认时取消了。
+export async function pickGroup(ids: SkillID[], mode: "add" | "remove"): Promise<boolean> {
   const chosen = await ui.open<GroupID | "new">((close) => <GroupDialog ids={ids} mode={mode} close={close} />);
-  if (chosen === undefined) return;
-  if (chosen === "new") await createGroup(ids);
-  else if (mode === "add") await addSkillsToGroup(chosen, ids);
-  else await removeSkillsFromGroup(chosen, ids);
+  if (chosen === undefined) return false;
+  if (chosen === "new") return !!(await createGroup(ids));
+  if (mode === "add") {
+    await addSkillsToGroup(chosen, ids);
+    return true;
+  }
+  return removeSkillsFromGroup(chosen, ids);
 }
 
 // GroupDialog 选组：加入时列出全部组(勾选的都已在里面的选不了)和"新建组…";移出时只列有勾选的技能在里面的组。

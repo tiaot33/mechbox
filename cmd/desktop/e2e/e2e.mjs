@@ -2595,10 +2595,14 @@ await step("移出分组(有组安装时询问去留)", async () => {
   await clearScope();
 });
 
-await step("勾选几个技能一起操作：节标题全选、Shift 勾一段，一起安装、加入新建的组、拖到作用域、从这里卸载、移出组;换页、Esc 清空", async () => {
+await step("勾选几个技能一起操作：节标题全选、Shift 勾一段，一起安装、加入新建的组、拖到作用域、从这里卸载、移出组;做完、换页、Esc 清空，取消的留着", async () => {
   const mine = () => page.locator('.list-section[data-section*="collection-"]', { has: page.locator(".section-name", { hasText: "my-skills" }) });
   const bar = page.locator(".pick-bar");
   const picked = async (n) => bar.locator("span", { hasText: `已选 ${n} 个` }).waitFor({ timeout: 5000 });
+  const cleared = async (what) => {
+    await bar.waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+    assert((await bar.count()) === 0, `${what}后勾选清空`);
+  };
   const codexB = () => path.join(HOME, "code", "proj-b", ".agents", "skills");
   const names = ["alpha", "beta", "gamma"];
   const uninstallHere = async () => {
@@ -2611,6 +2615,7 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
     await btn(modal(), "卸载").click();
     await toast("已从 Codex · proj-b 卸载 3 处直接安装");
     await settle();
+    await cleared("从这里卸载");
     for (const n of names) assert(!fs.existsSync(path.join(codexB(), n)), `${n} 应已从 proj-b 卸载`);
   };
 
@@ -2630,16 +2635,28 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
   await btn(modal(), "安装").click();
   await toast("已把 3 个技能装到 Codex · proj-b");
   await settle();
+  await cleared("安装到…");
   for (const n of names) assert(fs.existsSync(path.join(codexB(), n, "SKILL.md")), `磁盘上应有 proj-b 的 ${n}`);
 
-  await btn(bar, "加入组…").click();
-  await modal().locator(".group-picked select").selectOption({ label: "新建组…" });
-  await btn(modal(), "下一步").click();
+  await mine().locator(".section-pick").click();
+  await picked(3);
+  const newGroup = async () => {
+    await btn(bar, "加入组…").click();
+    await modal().locator(".group-picked select").selectOption({ label: "新建组…" });
+    await btn(modal(), "下一步").click();
+    await modal().locator('[data-slot="input"]').waitFor();
+  };
+  await newGroup();
+  await page.keyboard.press("Escape"); // 起名时取消：什么都没做，勾选留着
+  await modal().waitFor({ state: "detached" });
+  await picked(3);
+  await newGroup();
   await modal().locator('[data-slot="input"]').fill("批量");
   await btn(modal(), "创建").click();
   await toast("已创建组「批量」");
   await settle();
   await page.locator(".a-left .nav-item", { hasText: "批量" }).locator("text=3").waitFor({ timeout: 5000 });
+  await cleared("加入组");
 
   await uninstallHere();
 
@@ -2650,6 +2667,7 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
   await card("alpha").dragTo(await scopeRow("Codex", "proj-b"));
   await toast("已把 3 个技能装到 Codex · proj-b");
   await settle();
+  await cleared("拖到作用域");
   for (const n of names) assert(fs.existsSync(path.join(codexB(), n, "SKILL.md")), `拖放后磁盘上应有 proj-b 的 ${n}`);
   await uninstallHere();
 
@@ -2665,6 +2683,10 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
   await btn(modal(), "移出").click(); // 组没有组安装：选好组就直接移出，不再问
   await toast("已把 3 个技能移出「批量」");
   await settle();
+  await cleared("移出组");
+
+  await mine().locator(".section-pick").click();
+  await picked(3);
   await page.keyboard.press("Escape");
   assert((await bar.count()) === 0, "Esc 清空勾选");
 
