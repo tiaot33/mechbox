@@ -56,7 +56,8 @@ export async function addCollectionToGroup(groupID: GroupID, collectionID: Colle
 }
 
 // addSkillsToGroup 把勾选的技能里还不在组里的加入组(底部操作栏的"加入组…"、拖勾选着的一行到组上);都已在组里时只提示。
-export async function addSkillsToGroup(groupID: GroupID, picked: SkillID[]) {
+// 返回是否至少加入了一个：都已在组里、都失败了时是 false。
+export async function addSkillsToGroup(groupID: GroupID, picked: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
@@ -64,21 +65,21 @@ export async function addSkillsToGroup(groupID: GroupID, picked: SkillID[]) {
   const ids = picked.filter((id) => !members.includes(id));
   if (!ids.length) {
     ui.toast(t.pickedAlreadyInGroup(group));
-    return;
+    return false;
   }
-  await addEachToGroup(groupID, ids, {
+  return addEachToGroup(groupID, ids, {
     title: (added, total) => t.pickedAddedToGroupTitle(group, added, total),
     done: (n, scopes) => t.pickedAddedToGroup(n, group, scopes),
   });
 }
 
 // addEachToGroup 把技能逐个加入组：每个技能各是一次写操作，一个失败不影响其余的;有失败或有作用域没装上时
-// 逐个列出已加入、被跳过、失败的技能，否则只提示加入了几个(done,scopes 是该组已组安装的作用域数)。
+// 逐个列出已加入、被跳过、失败的技能，否则只提示加入了几个(done,scopes 是该组已组安装的作用域数)。返回是否至少加入了一个。
 async function addEachToGroup(
   groupID: GroupID,
   ids: SkillID[],
   text: { title: (added: number, total: number) => string; done: (n: number, scopes: number) => string },
-) {
+): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
   const outcomes = await ui.run(async () => {
@@ -92,12 +93,12 @@ async function addEachToGroup(
     }
     return all;
   }, { failed: (all) => all.some((o) => o.error) });
-  if (!outcomes) return;
+  if (!outcomes) return false;
   const added = outcomes.filter((o) => !o.error);
   const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
   if (added.length === ids.length && !skipped) {
     ui.toast(text.done(ids.length, s.groupInstalls.filter((a) => a.group_id === groupID).length));
-    return;
+    return true;
   }
   const rows = outcomes.flatMap((o): ResultRow[] => {
     if (o.error) return [{ label: skillName(s, o.id), outcome: t.failed, tone: "bad", reason: describeError(o.error) }];
@@ -105,6 +106,7 @@ async function addEachToGroup(
     return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "ok" }];
   });
   await showResults(text.title(added.length, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
+  return added.length > 0;
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
@@ -135,12 +137,13 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
 
 // removeSkillsFromGroup 把勾选的技能里在组里的移出组(底部操作栏的"移出组…"):组有组安装时和移出一个成员一样，
 // 先问只随本组安装的留着(改为直接安装)还是一并卸载，一批只问一次。有失败的才列出结果。
-export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]) {
+// 返回是否至少移出了一个：都不在组里、取消了、都失败了时是 false。
+export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
   const ids = picked.filter((id) => s.groups.find((g) => g.id === groupID)?.members?.includes(id));
-  if (!ids.length) return;
+  if (!ids.length) return false;
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
@@ -156,7 +159,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
       choices: removalChoices(),
       confirm: t.removeFromGroup,
     });
-    if (!choice) return;
+    if (!choice) return false;
     policy = choice as MemberRemovalPolicy;
   }
   const rows = await runEach(
@@ -166,9 +169,11 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   );
   if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
   else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
+  return rows.length < ids.length;
 }
 
 // createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。
+// 返回建好的组与加进去了几个技能;没建成时是 undefined。
 export async function createGroup(withSkills: SkillID[] = []) {
   const t = messages().actions;
   const name = await ui.prompt({ title: t.newGroup, label: t.newGroupLabel, confirm: t.create });
@@ -177,12 +182,16 @@ export async function createGroup(withSkills: SkillID[] = []) {
     success: (g) => (g.name !== name ? t.groupCreatedAs(g.name) : t.groupCreated(g.name)),
     reload: !withSkills.length,
   });
+  let added = 0;
   if (group && withSkills.length) {
     await ui.run(async () => {
-      for (const id of withSkills) await LibraryService.AddSkillToGroup(group.id, id);
+      for (const id of withSkills) {
+        await LibraryService.AddSkillToGroup(group.id, id);
+        added++;
+      }
     });
   }
-  return group;
+  return group && { group, added };
 }
 
 export async function renameGroup(groupID: GroupID) {
@@ -241,12 +250,12 @@ function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScop
 }
 
 // pickGroup 是勾选后操作栏的"加入组…""移出组…":选一个组，把勾选的技能加入(也可以新建一个组)或移出。
-export async function pickGroup(ids: SkillID[], mode: "add" | "remove") {
+// 返回是否至少加入、移出了一个(新建组时只建成了组、一个都没加进去也是 false);选组、给新组起名、确认时取消了是 false。
+export async function pickGroup(ids: SkillID[], mode: "add" | "remove"): Promise<boolean> {
   const chosen = await ui.open<GroupID | "new">((close) => <GroupDialog ids={ids} mode={mode} close={close} />);
-  if (chosen === undefined) return;
-  if (chosen === "new") await createGroup(ids);
-  else if (mode === "add") await addSkillsToGroup(chosen, ids);
-  else await removeSkillsFromGroup(chosen, ids);
+  if (chosen === undefined) return false;
+  if (chosen === "new") return ((await createGroup(ids))?.added ?? 0) > 0;
+  return mode === "add" ? addSkillsToGroup(chosen, ids) : removeSkillsFromGroup(chosen, ids);
 }
 
 // GroupDialog 选组：加入时列出全部组(勾选的都已在里面的选不了)和"新建组…";移出时只列有勾选的技能在里面的组。

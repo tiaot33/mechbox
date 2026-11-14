@@ -119,7 +119,7 @@ export function SkillRow(props: {
       draggable
       onDragStart={(e) => {
         const all = useView.getState().picked;
-        if (picked && all.size > 1) dnd.start(e, { kind: "skills", ids: [...all] }, t.list.pickedDrag(all.size));
+        if (picked) dnd.start(e, { kind: "skills", ids: [...all] }, all.size > 1 ? t.list.pickedDrag(all.size) : skill.name);
         else dnd.start(e, { kind: "skill", id: skill.id }, skill.name);
       }}
       onDragEnd={dnd.end}

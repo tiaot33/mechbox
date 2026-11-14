@@ -104,6 +104,9 @@ export const useView = create<ViewState>()(() => ({
 const set = useView.setState;
 const get = useView.getState;
 
+// pickRound 在勾选换了一批时加一：勾、取消、清空、换页;快照变了以后去掉不再列出的技能不算。见 clearPickedAfter。
+let pickRound = 0;
+
 export const setSearch = (search: string) => set({ search });
 export const setArrange = (arrange: Arrange) => set({ arrange });
 export const toggleLeft = () => set((v) => ({ left: !v.left }));
@@ -125,6 +128,7 @@ export const openPage = (page: Page) => goTo(page);
 // goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节、要闪的那一行作废。
 function goTo(page: Page, extra: Partial<ViewState> = {}) {
   const changed = !samePage(get().page, page);
+  if (changed) pickRound++;
   set({ page, jump: null, flash: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
 }
 
@@ -144,6 +148,7 @@ export function closeGraph() {
   goTo(back.page, { back: null, restoreScroll: back.scroll, search: back.search, drawer: null });
   const s = queryClient.getQueryData(snapshotQuery.queryKey);
   const listed = s ? pageSkills(s, resolvePage(s, back.page)) : new Set<SkillID>();
+  pickRound++;
   set({ picked: new Set([...back.picked].filter((id) => listed.has(id))), anchor: back.anchor });
 }
 
@@ -165,6 +170,7 @@ export function togglePick(row: PickRow, rows?: PickRow[]) {
 
 // setPicked 把几个技能一起勾上或取消(节标题上的勾选框)。
 export function setPicked(ids: SkillID[], on: boolean, anchor: string | null = get().anchor) {
+  pickRound++;
   set((v) => {
     const next = new Set(v.picked);
     for (const id of ids) {
@@ -175,7 +181,18 @@ export function setPicked(ids: SkillID[], on: boolean, anchor: string | null = g
   });
 }
 
-export const clearPicked = () => set({ picked: new Set(), anchor: null });
+export const clearPicked = () => {
+  pickRound++;
+  set({ picked: new Set(), anchor: null });
+};
+
+// clearPickedAfter 跑一个对勾选的技能的操作(操作栏、拖勾选着的行):至少做成一处就清空勾选;
+// 取消了或一处都没做成(op 返回 false)时勾选留着，好重试或换一个操作。
+// 写操作进行时还能换页、改勾选;做完时勾选已不是发起时那一批的，不去清。
+export function clearPickedAfter(op: Promise<boolean>) {
+  const round = pickRound;
+  void op.then((done) => done && round === pickRound && clearPicked());
+}
 
 // openScope 打开作用域页，右栏同步展开到那一行;再点一次正打开的作用域回到技能库。
 export function openScope(key: ScopeKey) {
@@ -228,8 +245,10 @@ export const endDrag = () => set({ drag: null });
 export function reconcile(s: Snapshot) {
   const { page, picked } = get();
   const resolved = resolvePage(s, page);
-  if (!samePage(resolved, page)) set({ page: resolved, picked: new Set(), anchor: null });
-  else if (picked.size) {
+  if (!samePage(resolved, page)) {
+    pickRound++;
+    set({ page: resolved, picked: new Set(), anchor: null });
+  } else if (picked.size) {
     const listed = pageSkills(s, resolved);
     if ([...picked].some((id) => !listed.has(id))) set({ picked: new Set([...picked].filter((id) => listed.has(id))) });
   }

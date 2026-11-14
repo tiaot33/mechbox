@@ -1,11 +1,12 @@
 // 勾选了技能以后，列表底部的操作栏：一起安装到某处、从这里卸载(作用域页、项目页)、加入组、移出组、从库里移除;
-// 各操作的弹窗与写操作在 features/ 里。按 Esc 或点"取消选择"清空勾选;换页时也清空。
+// 各操作的弹窗与写操作在 features/ 里。操作至少做成一处就清空勾选，取消了或一处都没做成的留着(见 clearPickedAfter);
+// 按 Esc 或点"取消选择"也清空，换页时也清空。
 import { useEffect } from "react";
 import type { Scope } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { parseScope, projectAgents, projectName, scopeKey, scopeLabel, skillScopeIn, type PageListing } from "@/lib/model";
-import { clearPicked, useCurrentPage, useView } from "@/lib/view";
+import { clearPicked, clearPickedAfter, useCurrentPage, useView } from "@/lib/view";
 import { pickGroup } from "@/features/group/group";
 import { uninstallSkills } from "@/features/install/install";
 import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
@@ -19,6 +20,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
   const page = useCurrentPage();
   const t = useT().list;
   const ids = [...picked];
+  const act = (run: () => Promise<boolean>) => () => clearPickedAfter(run());
 
   // Esc 清空勾选;弹窗、详情抽屉开着时 Esc 先关它们，输入框里的 Esc 留给输入框。
   useEffect(() => {
@@ -52,25 +54,25 @@ export function PickBar({ listing }: { listing: PageListing }) {
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[2] flex justify-center px-4">
       <div className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 glass glass-clear rounded-xl border px-2 py-1.5 [--glass-drop:0_8px_28px_var(--shade-pick)] [transition:--glass-lift_160ms_ease] hover:[--glass-lift:1.14]">
         <span className="px-1.5 text-[12px] font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
-        <Button size="sm" variant="ghost" onClick={() => void chooseAndInstall(ids, initial)}>
+        <Button size="sm" variant="ghost" onClick={act(() => chooseAndInstall(ids, initial))}>
           <Icon name="plus" />
           {t.pickInstallTo}
         </Button>
         {canUninstall && (
-          <Button size="sm" variant="ghost" onClick={() => void uninstallSkills(ids, here!.scopes, here!.where)}>
+          <Button size="sm" variant="ghost" onClick={act(() => uninstallSkills(ids, here!.scopes, here!.where))}>
             {listing.kind === "project" ? t.pickUninstallProject : t.pickUninstallHere}
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={() => void pickGroup(ids, "add")}>
+        <Button size="sm" variant="ghost" onClick={act(() => pickGroup(ids, "add"))}>
           <Icon name="layers" />
           {t.pickAddToGroup}
         </Button>
         {inGroups && (
-          <Button size="sm" variant="ghost" onClick={() => void pickGroup(ids, "remove")}>
+          <Button size="sm" variant="ghost" onClick={act(() => pickGroup(ids, "remove"))}>
             {t.pickRemoveFromGroup}
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="text-bad-strong" onClick={() => void removeSkills(ids)}>
+        <Button size="sm" variant="ghost" className="text-bad-strong" onClick={act(() => removeSkills(ids))}>
           {t.pickRemove}
         </Button>
         <Button size="icon-sm" variant="ghost" className="ml-0.5" title={t.pickClear} aria-label={t.pickClear} onClick={clearPicked}>
