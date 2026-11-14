@@ -8,7 +8,7 @@ import { platform } from "@/lib/platform";
 // firstNames 是折起来的那行里列出的前三个名字。
 const firstNames = (names: string[]) => `${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`;
 
-const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : "不在技能库里")).join("、");
+const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : k === "copy" ? "和库里的一样、不是 app 装的" : "不在技能库里")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
 const where = (w: InstalledWhere) => (w.total ? `装在 ${w.places.join("、")}${w.total > 2 ? ` 等 ${w.total} 处` : ""}` : "没装在任何地方");

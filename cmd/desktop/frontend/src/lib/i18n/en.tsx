@@ -17,7 +17,7 @@ const keptPlaces = (edited: number, missing: number) => [
   edited ? `${count(edited, "place")} you edited left alone` : "",
   missing ? `${count(missing, "missing folder")} left alone` : "",
 ];
-const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : "not in the Library")));
+const kinds = (list: SameNameKind[]) => and(list.map((k) => (k === "managed" ? "installed by the Library" : k === "copy" ? "same as the Library, not installed by the app" : "not in the Library")));
 // projectsHave 是"Project “a” also has" / "Projects “a” and “b” also have"。
 const projectsHave = (projects: string[]) => `${projects.length === 1 ? "Project" : "Projects"} ${quoted(projects)} also ${projects.length === 1 ? "has" : "have"}`;
 const quoted = (names: string[]) => and(names.map((n) => `“${n}”`));

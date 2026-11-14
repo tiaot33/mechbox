@@ -13,6 +13,7 @@ import {
   changedAt,
   copyIn,
   deletedInSource,
+  folderNotes,
   globalScopesSeenFrom,
   groupName,
   hasUpdate,
@@ -227,6 +228,12 @@ export function SkillRow(props: {
           </p>
         )}
         {/* 库里同名的几个技能(内容不同，不合并)写出各装在哪里，免得只能靠描述分辨。 */}
+        {/* 这里那一份是符号链接时写出指向哪里，和"不在技能库里"的一行一样。 */}
+        {copy?.link_target && (
+          <p className="copy-link truncate text-[10.5px] text-subtle" title={t.list.linkTitle(copy.link_target)}>
+            {t.list.link(shortPath(s, copy.link_target))}
+          </p>
+        )}
         {twins.length > 0 && (
           <p className="dup-name-note truncate text-[10.5px] text-muted-foreground" title={t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id))}>
             {t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id))}
@@ -324,14 +331,19 @@ function TakeOverButton({ copy, name }: { copy: UnmanagedSkill; name: string }) 
   );
 }
 
-// CopyState 是那一处的最后一列：不是 app 装的;和库里的旧版本一样时标出来，下面是在文件管理器中显示。
+// CopyState 是那一处的最后一列：不是 app 装的，接着写归谁管、是不是指向 Agent 目录以外(folderNotes);
+// 和库里的旧版本一样时标出来，下面是在文件管理器中显示。
 function CopyState({ copy, skill }: { copy: UnmanagedSkill; skill: Skill }) {
   const { list: t, common } = useT();
   const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
+  const state = [{ text: t.copyHere, title: t.copyHereTitle(skill.name) }, ...folderNotes(copy)];
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
-      <span className="skill-state copy-state flex max-w-full min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground" title={t.copyHereTitle(skill.name)}>
-        <span className="min-w-0 truncate">{t.copyHere}</span>
+      <span
+        className="skill-state copy-state flex max-w-full min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+        title={state.map((x) => x.title).join("\n")}
+      >
+        <span className="min-w-0 truncate">{state.map((x) => x.text).join(" · ")}</span>
         {copy.version_id !== skill.version_id && (
           <Badge tone={stale.tone} className="font-sans">
             {stale.label}
@@ -377,12 +389,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         : headed
           ? undefined
           : { text: t.notInLibrary, title: t.notInLibraryTitle },
-    skill.in_repository
-      ? { text: t.inRepository, title: t.inRepositoryTitle }
-      : skill.in_project_lock
-        ? { text: t.inLock, title: t.inLockTitle }
-        : undefined,
-    skill.link_outside ? { text: t.linkOutside, title: t.linkOutsideTitle(skill.link_target ?? "") } : undefined,
+    ...folderNotes(skill),
   ].filter((x) => !!x);
   return (
     <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>

@@ -249,11 +249,26 @@ export const repoOwned = (u: Pick<Ownership, "in_repository" | "in_project_lock"
 // 作用域摘要里"还没交给 app 管"的数、整批入库时默认勾哪些、照装时说带不过来的，都按它。
 export const notTakenOver = (u: Ownership) => !repoOwned(u) && !u.link_outside;
 
+// folderNotes 是未纳管文件夹归谁管、指向哪里的标注，写在行的最后一列：提交在项目仓库里或记在 skills-lock.json 里、
+// 指向 Agent 目录以外。"不在技能库里"的一行和显示成库里技能一行的副本(copyIn)都写这几条。
+export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">): { text: string; title: string }[] {
+  const t = messages().list;
+  return [
+    u.in_repository
+      ? { text: t.inRepository, title: t.inRepositoryTitle }
+      : u.in_project_lock
+        ? { text: t.inLock, title: t.inLockTitle }
+        : undefined,
+    u.link_outside ? { text: t.linkOutside, title: t.linkOutsideTitle(u.link_target ?? "") } : undefined,
+  ].filter((x) => !!x);
+}
+
 // sameNameNote 说明作用域里的一个技能文件夹和同一个 Agent 全局 / 某个已登记项目里的文件夹同名时会怎样:
 // 按 Agent 已知的规则说出后果(Claude Code 里全局的生效，Codex 里两份都会出现),没有已知规则的只说同名。
 // 同名按 SKILL.md 里的 name,两处的文件夹名可以不同。folder 是这个作用域里那个技能文件夹;没有同名时返回 undefined。
 // title 列出另一处的文件夹。
-export type SameNameKind = "managed" | "unmanaged";
+// copy 是和库里某个技能一样、但不是库装的那一份(见 copyIn):它就是库里的技能，不说"不在技能库里"。
+export type SameNameKind = "managed" | "copy" | "unmanaged";
 
 export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
   const m = messages().model;
@@ -264,7 +279,10 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   if (scope.project_id) {
     const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.project_id === scope.project_id && p.project.folder === folder);
     if (pairs.length === 0) return undefined;
-    const kinds = [...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : "unmanaged")))];
+    const copied = (folder: string) => s.unmanaged.some((u) => u.folder === folder && !!u.skill_id);
+    const kinds = [
+      ...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : copied(p.global.folder) ? "copy" : "unmanaged"))),
+    ];
     const name = pairs[0].name;
     const text = {
       [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),

@@ -1,11 +1,12 @@
 // 技能详情里的安装卡片：各作用域的安装与状态，以及"安装到…"。
 import { AppService } from "@bindings/cmd/desktop";
 import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
-import { useT } from "@/lib/i18n";
+import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
 import {
   copiesOf,
+  folderNotes,
   folderPresent,
   mergeProjectPlaces,
   needsReinstall,
@@ -166,7 +167,12 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   </div>
                 </td>
                 <td>
-                  <span className="text-[11px] text-muted-foreground" title={d.copyTitle}>{d.copy}</span>
+                  <span
+                    className="copy-notes text-[11px] text-muted-foreground"
+                    title={[d.copyTitle, ...folderNotes(u).map((x) => x.title), ...(u.link_target ? [messages().list.linkTitle(u.link_target)] : [])].join("\n")}
+                  >
+                    {[d.copy, ...folderNotes(u).map((x) => x.text)].join(" · ")}
+                  </span>
                 </td>
                 <td>
                   {u.version_id !== skill.version_id && <Badge tone="warn">{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>}{" "}
