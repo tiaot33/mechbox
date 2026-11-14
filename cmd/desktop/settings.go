@@ -26,6 +26,10 @@ type Settings struct {
 	GlassTintDark float64 `json:"glass_tint_dark"`
 	// WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。
 	WSLDistro string `json:"wsl_distro,omitempty"`
+	// FoldCollections 把左栏「集合」里技能少于 FoldBelow 个的集合收进最后一行，点开再列出;关掉时每个集合都列出。
+	FoldCollections bool `json:"fold_collections"`
+	// FoldBelow 是左栏折起来的集合的技能数上限(不含),取值 2 到 100,默认 3。
+	FoldBelow int `json:"fold_below"`
 	// AgentsShown 记下用户勾选过的 Agent 显示与否，按 Agent 代码;没勾选过的 Agent 按默认：检测到的和自定义的显示，其余不显示。
 	// 显示只影响选择安装位置的地方，已经装了技能的 Agent 装出去的地方照常列出。
 	AgentsShown map[library.AgentCode]bool `json:"agents_shown,omitempty"`
@@ -64,10 +68,19 @@ func glassTintValid(v float64) bool {
 	return v >= 0 && v <= maxGlassTint
 }
 
+const (
+	minFoldBelow = 2
+	maxFoldBelow = 100
+)
+
+func foldBelowValid(n int) bool {
+	return n >= minFoldBelow && n <= maxFoldBelow
+}
+
 const firstOpenDoneKey = "first_open_done"
 
 func defaultSettings() Settings {
-	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1}
+	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1, FoldBelow: 3}
 }
 
 func (s Settings) appValues(firstOpenDone bool) map[string]string {
@@ -81,6 +94,8 @@ func (s Settings) appValues(firstOpenDone bool) map[string]string {
 		"appearance":       string(s.Appearance),
 		"glass_tint":       strconv.FormatFloat(s.GlassTint, 'f', -1, 64),
 		"glass_tint_dark":  strconv.FormatFloat(s.GlassTintDark, 'f', -1, 64),
+		"fold_collections": strconv.FormatBool(s.FoldCollections),
+		"fold_below":       strconv.Itoa(s.FoldBelow),
 	}
 	if len(s.AgentsShown) > 0 {
 		shown, _ := json.Marshal(s.AgentsShown)
@@ -103,6 +118,10 @@ func settingsFrom(values map[string]string) (Settings, bool) {
 	flag("stay_in_menu_bar", &s.StayInMenuBar)
 	flag("dock_badge", &s.DockBadge)
 	flag("auto_translate", &s.AutoTranslate)
+	flag("fold_collections", &s.FoldCollections)
+	if n, err := strconv.Atoi(values["fold_below"]); err == nil && foldBelowValid(n) {
+		s.FoldBelow = n
+	}
 	if interval := CheckInterval(values["check_interval"]); interval.valid() {
 		s.CheckInterval = interval
 	}

@@ -25,7 +25,8 @@ import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
 
-// GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、界面语言、外观、毛玻璃浓度，以及 Windows 上装了 WSL 时的全局目录。
+// GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、左栏折叠技能少的来源、界面语言、外观、毛玻璃浓度，
+// 以及 Windows 上装了 WSL 时的全局目录。
 export function GeneralSection({
   settings,
   save,
@@ -71,6 +72,30 @@ export function GeneralSection({
       on={settings.dock_badge}
       onChange={(on) => save({ dock_badge: on })}
     />
+    <SettingRow
+      label={t.foldCollections}
+      desc={t.foldCollectionsDesc}
+      on={settings.fold_collections}
+      onChange={(on) => save({ fold_collections: on })}
+    />
+    <SetRow className={cn("fold-below-row", !settings.fold_collections && "text-muted-foreground")}>
+      <div className="grow">{t.foldBelow}</div>
+      <NativeSelect
+        className="shrink-0"
+        aria-label={t.foldBelow}
+        value={settings.fold_below}
+        disabled={!settings.fold_collections}
+        onChange={(e) => save({ fold_below: Number(e.target.value) })}
+      >
+        {[...new Set([...foldBelowOptions, settings.fold_below])]
+          .sort((a, b) => a - b)
+          .map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+      </NativeSelect>
+    </SetRow>
     <SetRow className="language-row">
       <div className="grow">
         <div>{t.language}</div>
@@ -128,6 +153,9 @@ export function GeneralSection({
   </>
   );
 }
+
+// 左栏折叠集合时可选的技能数上限(不含),在 Go 端允许的 2–100 之内;存着别的数时也列出来。
+const foldBelowOptions = [2, 3, 4, 5, 6, 8, 10];
 
 // ProjectsSection 是项目分区：已登记的项目，可以改位置、注销;项目目录不在这台机器上时带标记。
 export function ProjectsSection() {

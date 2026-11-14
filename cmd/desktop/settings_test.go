@@ -15,7 +15,7 @@ import (
 
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 	got, done := settingsFrom(nil)
-	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1}
+	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1, FoldBelow: 3}
 	if !reflect.DeepEqual(got, want) || done {
 		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}
@@ -24,6 +24,7 @@ func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 func TestSettingsRoundTrip(t *testing.T) {
 	want := Settings{
 		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, Appearance: AppearanceDark, GlassTint: 0.35, GlassTintDark: 1.2,
+		FoldCollections: true, FoldBelow: 5,
 		AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 	}
 	for _, opened := range []bool{false, true} {
@@ -41,7 +42,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 }
 
 func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
-	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "glass_tint": "1.6", "appearance": "sepia", "glass_tint_dark": "-1"})
+	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "glass_tint": "1.6", "appearance": "sepia", "glass_tint_dark": "-1", "fold_collections": "yes", "fold_below": "1"})
 	want := defaultSettings()
 	want.DockBadge = false
 	if !reflect.DeepEqual(got, want) {
@@ -52,14 +53,18 @@ func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
 func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 	lib := startLibrary(t)
 	service := startApp(t, lib)
-	for _, settings := range []Settings{
-		{CheckInterval: "sometimes"},
-		{CheckInterval: CheckDaily, Language: "fr"},
-		{CheckInterval: CheckDaily, GlassTint: 1.6},
-		{CheckInterval: CheckDaily, GlassTint: -0.1},
-		{CheckInterval: CheckDaily, Appearance: "sepia"},
-		{CheckInterval: CheckDaily, GlassTintDark: 1.6},
+	for _, change := range []func(*Settings){
+		func(s *Settings) { s.CheckInterval = "sometimes" },
+		func(s *Settings) { s.Language = "fr" },
+		func(s *Settings) { s.GlassTint = 1.6 },
+		func(s *Settings) { s.GlassTint = -0.1 },
+		func(s *Settings) { s.Appearance = "sepia" },
+		func(s *Settings) { s.GlassTintDark = 1.6 },
+		func(s *Settings) { s.FoldBelow = 1 },
+		func(s *Settings) { s.FoldBelow = 101 },
 	} {
+		settings := defaultSettings()
+		change(&settings)
 		if _, err := service.SaveSettings(t.Context(), settings); err == nil {
 			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)
 		}

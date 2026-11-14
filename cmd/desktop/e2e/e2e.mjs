@@ -2852,6 +2852,43 @@ await step("左栏分节折叠与展开", async () => {
   assert(await page.locator(".a-left .nav-item", { hasText: "my-skills" }).isVisible(), "展开后集合条目应可见");
 });
 
+await step("左栏一键折叠技能少的来源，点最后一行列出;设置里改上限与开关", async () => {
+  const row = (name) => page.locator(".a-left .nav-item", { hasText: name });
+  const small = page.locator(".a-left .small-collections");
+  await page.locator(".a-left .nav-sec", { hasText: "集合" }).hover();
+  await page.locator(".a-left button.fold-small").click();
+  await until(async () => (await small.count()) === 1, "出现收着技能少的来源的那一行");
+  assert((await row("delta.zip").count()) === 0, "只有一个技能的 delta.zip 应收起来");
+  assert((await row("my-skills").count()) === 1, "3 个技能的 my-skills 不少于 3 个，照常列出");
+  await small.click();
+  assert((await row("delta.zip").count()) === 1, "点开后列出 delta.zip");
+  await small.click();
+  assert((await row("delta.zip").count()) === 0, "再点收起");
+  await settle();
+  assert.equal(appConfig().fold_collections, "true", "左栏的开关应保存进应用设置");
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await until(async () => (await small.count()) === 1, "重新载入后仍折叠");
+
+  // 设置页「通用」:上限改成 4,my-skills 也收起来;关掉开关后全部列出。
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  const fold = page.locator(".settings .set-row", { hasText: "折叠技能少的来源" }).locator('[role="switch"]');
+  assert.equal(await fold.getAttribute("aria-checked"), "true", "设置页的开关和左栏是同一项");
+  await page.locator(".settings .fold-below-row select").selectOption("4");
+  await settle();
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  assert((await row("my-skills").count()) === 0, "上限为 4 时 my-skills 也收起来");
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  await page.locator(".settings .fold-below-row select").selectOption("3");
+  await fold.click();
+  await settle();
+  assert(await page.locator(".settings .fold-below-row select").isDisabled(), "关掉折叠后上限不可选");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  assert((await small.count()) === 0 && (await row("delta.zip").count()) === 1, "关掉后每个集合都列出");
+});
+
 await step("同步：未配置时推、拉置灰，去设置跳到同步分区", async () => {
   await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
   assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置 S3" }).count()) === 1, "应提示未配置");
@@ -2897,7 +2934,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", fold_collections: "false", fold_below: "3", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();

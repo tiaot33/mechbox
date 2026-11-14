@@ -662,6 +662,14 @@ export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
   return s.skills.filter((x) => ids.has(x.id));
 }
 
+// foldCollections 把左栏的集合分成照常列出的与折起来的：开着折叠时，技能少于 foldBelow 个的集合折起来，两边都保持原来的先后;
+// 关着时全部照常列出。
+export function foldCollections(s: Pick<Snapshot, "collections" | "foldCollections" | "foldBelow">): { shown: Collection[]; folded: Collection[] } {
+  if (!s.foldCollections) return { shown: s.collections, folded: [] };
+  const small = (c: Collection) => (c.skills?.length ?? 0) < s.foldBelow;
+  return { shown: s.collections.filter((c) => !small(c)), folded: s.collections.filter(small) };
+}
+
 // collectionName 是更新计划、更新提示里集合的名字：只有一个技能时用技能名(和更新页的集合行一致),否则是来源名。
 export function collectionName(s: Snapshot, collectionID: CollectionID): string {
   const c = s.collections.find((x) => x.id === collectionID);
