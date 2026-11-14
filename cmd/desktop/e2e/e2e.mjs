@@ -2650,6 +2650,29 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
   await page.keyboard.press("Escape"); // 起名时取消：什么都没做，勾选留着
   await modal().waitFor({ state: "detached" });
   await picked(3);
+  // 组建成了、技能一个都没加进去：勾选留着。
+  const failAdd = async (route) =>
+    isCall(route.request(), methodID("AddSkillToGroup"))
+      ? route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ message: "e2e 注入的失败", cause: { code: "internal", message: "e2e 注入的失败" } }) })
+      : route.continue();
+  await page.route("**/wails/runtime*", failAdd);
+  try {
+    await newGroup();
+    await modal().locator('[data-slot="input"]').fill("空组");
+    await btn(modal(), "创建").click();
+    await page.locator('[data-slot="toast"][data-state="open"][data-tone="error"]', { hasText: "e2e 注入的失败" }).waitFor({ timeout: 15000 });
+    await settle();
+  } finally {
+    await page.unroute("**/wails/runtime*", failAdd);
+  }
+  await picked(3);
+  const emptyGroup = page.locator(".a-left .nav-item", { hasText: "空组" });
+  await emptyGroup.hover();
+  await emptyGroup.locator(".row-actions button[title='删除组']").click();
+  await btn(modal(), "删除组").click();
+  await toast("已删除组");
+  await settle();
+  await picked(3);
   await newGroup();
   await modal().locator('[data-slot="input"]').fill("批量");
   await btn(modal(), "创建").click();
@@ -2681,10 +2704,20 @@ await step("勾选几个技能一起操作：节标题全选、Shift 勾一段�
   for (const n of names) assert(!fs.existsSync(path.join(codexB(), n)), `${n} 不应装进写不进去的目录`);
 
   // 拖勾选着的一行 = 拖勾选的全部;勾选还留着，直接拖过去重试。
-  await card("alpha").dragTo(await scopeRow("Codex", "proj-b"));
+  // 装的时候又改了勾选(取消 gamma):做完不去清用户新改的勾选。
+  const install = await holdCall(methodID("Install"));
+  try {
+    await card("alpha").dragTo(await scopeRow("Codex", "proj-b"));
+    await install.requested();
+    await card("gamma").locator(".pick-box").click();
+    await picked(2);
+    await install.release();
+  } finally {
+    await install.close();
+  }
   await toast("已把 3 个技能装到 Codex · proj-b");
   await settle();
-  await cleared("拖到作用域");
+  await picked(2);
   for (const n of names) assert(fs.existsSync(path.join(codexB(), n, "SKILL.md")), `拖放后磁盘上应有 proj-b 的 ${n}`);
   await uninstallHere();
 

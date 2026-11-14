@@ -173,6 +173,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
 }
 
 // createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。
+// 返回建好的组与加进去了几个技能;没建成时是 undefined。
 export async function createGroup(withSkills: SkillID[] = []) {
   const t = messages().actions;
   const name = await ui.prompt({ title: t.newGroup, label: t.newGroupLabel, confirm: t.create });
@@ -181,12 +182,16 @@ export async function createGroup(withSkills: SkillID[] = []) {
     success: (g) => (g.name !== name ? t.groupCreatedAs(g.name) : t.groupCreated(g.name)),
     reload: !withSkills.length,
   });
+  let added = 0;
   if (group && withSkills.length) {
     await ui.run(async () => {
-      for (const id of withSkills) await LibraryService.AddSkillToGroup(group.id, id);
+      for (const id of withSkills) {
+        await LibraryService.AddSkillToGroup(group.id, id);
+        added++;
+      }
     });
   }
-  return group;
+  return group && { group, added };
 }
 
 export async function renameGroup(groupID: GroupID) {
@@ -245,11 +250,11 @@ function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScop
 }
 
 // pickGroup 是勾选后操作栏的"加入组…""移出组…":选一个组，把勾选的技能加入(也可以新建一个组)或移出。
-// 返回是否做成了：新建了组，或至少加入、移出了一个;选组、给新组起名、确认时取消了是 false。
+// 返回是否至少加入、移出了一个(新建组时只建成了组、一个都没加进去也是 false);选组、给新组起名、确认时取消了是 false。
 export async function pickGroup(ids: SkillID[], mode: "add" | "remove"): Promise<boolean> {
   const chosen = await ui.open<GroupID | "new">((close) => <GroupDialog ids={ids} mode={mode} close={close} />);
   if (chosen === undefined) return false;
-  if (chosen === "new") return !!(await createGroup(ids));
+  if (chosen === "new") return ((await createGroup(ids))?.added ?? 0) > 0;
   return mode === "add" ? addSkillsToGroup(chosen, ids) : removeSkillsFromGroup(chosen, ids);
 }
 
