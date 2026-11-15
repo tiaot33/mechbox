@@ -7,6 +7,7 @@ import type { Snapshot } from "@/lib/library";
 import { scopeLabel, skillName } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
@@ -14,7 +15,7 @@ import { Notice } from "@/components/ui/notice";
 export interface ResultRow {
   label: string;
   outcome: string;
-  tone: "ok" | "warn" | "bad";
+  tone: Tone;
   reason?: string;
 }
 
@@ -36,7 +37,7 @@ export function showResults(title: string, rows: ResultRow[], note?: string) {
           <ListRow key={i}>
             <div className="min-w-0 grow">
               <div>{r.label}</div>
-              {r.reason && <div className="text-xs whitespace-pre-line text-muted-foreground">{r.reason}</div>}
+              {r.reason && <div className="text-body whitespace-pre-line text-muted-foreground">{r.reason}</div>}
             </div>
             <Badge tone={r.tone}>{r.outcome}</Badge>
           </ListRow>
@@ -49,8 +50,8 @@ export function showResults(title: string, rows: ResultRow[], note?: string) {
 function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"] } | undefined {
   const t = messages().actions;
   return {
-    [GroupMemberOutcome.MemberInstalled]: { text: t.memberInstalled, tone: "ok" as const },
-    [GroupMemberOutcome.MemberAlreadyInstalled]: { text: t.memberAlready, tone: "ok" as const },
+    [GroupMemberOutcome.MemberInstalled]: { text: t.memberInstalled, tone: "plain" as const },
+    [GroupMemberOutcome.MemberAlreadyInstalled]: { text: t.memberAlready, tone: "plain" as const },
     [GroupMemberOutcome.MemberSkipped]: { text: t.memberSkipped, tone: "warn" as const },
   }[outcome];
 }
@@ -59,7 +60,7 @@ export function memberRows(s: Snapshot, results: GroupMemberResult[]): ResultRow
   return results.map((r) => ({
     label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
     outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
-    tone: memberOutcome(r.outcome)?.tone ?? "warn",
+    tone: memberOutcome(r.outcome)?.tone ?? "info",
     reason: r.error ? describeError(r.error) : undefined,
   }));
 }
@@ -85,7 +86,7 @@ export async function runEach<T>(items: T[], call: (item: T) => Promise<unknown>
         try {
           await call(item);
         } catch (e) {
-          rows.push({ label: label(item), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+          rows.push({ label: label(item), outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
         }
       }
     },
@@ -99,7 +100,7 @@ export function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {
   return {
     label: `${skillName(s, r.skill_id)} · ${scopeLabel(s, r.scope)}`,
     outcome: messages().actions.failed,
-    tone: "bad",
+    tone: "critical",
     reason: r.error ? describeError(r.error) : undefined,
   };
 }

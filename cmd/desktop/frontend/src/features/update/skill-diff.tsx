@@ -41,7 +41,7 @@ export function SkillDiff({
     [versionID, plan.id, item.skill.id],
   );
   const risk = useMemo(() => new Map((item.risks ?? []).map((r) => [r.path, riskLabel(r)])), [item.risks]);
-  const badge = (p: string) => risk.has(p) && <Badge tone="bad">{risk.get(p)}</Badge>;
+  const badge = (p: string) => risk.has(p) && <Badge tone="warn">{risk.get(p)}</Badge>;
   const title = t.changesOf(item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name);
   const enlarge = (diff: VersionDiff, origin: Element) =>
     openCompare({
@@ -54,11 +54,11 @@ export function SkillDiff({
       origin,
     });
   return (
-    <div className="update-diff flex flex-col gap-1.5 rounded-box border border-border-subtle bg-wash/60 p-2.5">
+    <div className="update-diff flex flex-col gap-1.5 rounded-card border border-border bg-panel p-2.5">
       <div className="flex items-center gap-2">
-        <b className="grow text-[12px]">{title}</b>
+        <b className="grow text-body">{title}</b>
         {diff && files.length > 0 && (
-          <Button variant="link" onClick={(e) => void enlarge(diff, e.currentTarget)}>
+          <Button variant="ghost" size="inline" onClick={(e) => void enlarge(diff, e.currentTarget)}>
             {t.enlarge}
           </Button>
         )}

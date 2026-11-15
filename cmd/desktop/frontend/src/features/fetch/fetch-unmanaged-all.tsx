@@ -236,7 +236,7 @@ function FetchUnmanagedDialog({
       footer={
         <>
           {progress && (
-            <span className="fetch-unmanaged-progress text-[11px] text-muted-foreground">
+            <span className="fetch-unmanaged-progress text-caption text-muted-foreground">
               {progress}
             </span>
           )}
@@ -257,7 +257,7 @@ function FetchUnmanagedDialog({
         </>
       }
     >
-      <p className="fetch-unmanaged-lead text-[13px] font-semibold">
+      <p className="fetch-unmanaged-lead text-body font-semibold">
         {t.lead(lead)}
       </p>
       <Hint>{t.cost}</Hint>
@@ -270,7 +270,7 @@ function FetchUnmanagedDialog({
             const first = plan[members[0]];
             return (
               <div key={key} className="fetch-unmanaged-group">
-                <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+                <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-row-line bg-panel px-2.5 py-1 text-caption font-semibold text-foreground-secondary first:border-t-0">
                   <GroupToggle
                     label={key === noSource ? t.noSource : key === identicalGroup ? t.inLibrary : (first.source_input ?? "")}
                     on={members.filter((i) => picked.has(i)).length}
@@ -312,12 +312,12 @@ function FetchUnmanagedDialog({
       )}
       {conflicts.size > 0 && (
         <div className="fetch-unmanaged-conflicts flex flex-col gap-1.5">
-          <b className="text-xs">{t.conflicts}</b>
+          <b className="text-body">{t.conflicts}</b>
           <Hint>{t.conflictsHint}</Hint>
           <ListBox>
             {[...conflicts].map(([name, members]) => (
               <div key={name} className="fetch-unmanaged-conflict">
-                <div className="flex items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+                <div className="flex items-center gap-1.5 border-t border-row-line bg-panel px-2.5 py-1 text-caption font-semibold text-foreground-secondary first:border-t-0">
                   {name}
                   {library.has(name) && <SameNameInLibrary name={name} sourced={members.some((i) => !!sourceOf(plan[i], links.get(i)).input)} />}
                 </div>
@@ -351,12 +351,12 @@ function FetchUnmanagedDialog({
         </div>
       )}
       {team.length > 0 && (
-        <Notice tone="warn" className="fetch-unmanaged-team">
+        <Notice alert className="fetch-unmanaged-team">
           {t.team(team.map((p) => p.name))}
         </Notice>
       )}
       {outside.map((p) => (
-        <Notice key={p.name} tone="warn" className="fetch-unmanaged-link-outside">
+        <Notice key={p.name} alert className="fetch-unmanaged-link-outside">
           {t.outsideNote(p.name, outsideLinkNote(homePath(home, outsideTarget(p))))}
         </Notice>
       ))}

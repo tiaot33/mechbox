@@ -101,7 +101,7 @@ export function UpdateDialog({
       <Modal title={t.title(label)} wide onClose={onClose}>
         {failed ? (
           <>
-            <Notice tone="bad" className="whitespace-pre-line">
+            <Notice alert className="whitespace-pre-line">
               {t.planFailed}
               {"\n"}
               {describeError(failed)}
@@ -215,11 +215,8 @@ export function UpdateDialog({
       }
     >
       {conflict && (
-        <Notice tone="warn" className="flex items-center gap-2">
-          <span className="grow">{t.conflict}</span>
-          <Button size="sm" onClick={replan}>
-            {t.replan}
-          </Button>
+        <Notice alert action={<Button onClick={replan}>{t.replan}</Button>}>
+          {t.conflict}
         </Notice>
       )}
       <Hint>
@@ -251,7 +248,7 @@ export function UpdateDialog({
             <span className="grow text-muted-foreground">
               {t.folded(folded.map((p) => p.skill.name))}
             </span>
-            <Button variant="link" onClick={() => setExpanded(true)}>
+            <Button variant="ghost" size="inline" onClick={() => setExpanded(true)}>
               {t.expand}
             </Button>
           </ListRow>
@@ -286,7 +283,7 @@ export function UpdateDialog({
         {skills.length === 0 && <ListRow className="text-muted-foreground">{t.empty}</ListRow>}
       </ListBox>
       {splitting && (
-        <Notice tone="warn">
+        <Notice alert>
           {t.splitting(checked.size <= 3 ? [...checked].map(name) : checked.size, label)}
         </Notice>
       )}

@@ -1,10 +1,10 @@
-// 分段选择(按集合 / 按组、语言、检查间隔、AI 接口、重新安装时文件夹不在了的那一处：不动 / 装回去 / 卸载):一组按钮，选中的一项是白底。按钮用 aria-pressed 标出选中。
-// 白底是垫在按钮下面的一块，换选中项时用不回弹的弹簧滑到新的一项(第一次出现时不滑;系统要求减少动态效果时直接跳过去)。
+// 分段选择(按集合 / 按组、语言、检查间隔、AI 接口、重新安装时文件夹不在了的那一处：不动 / 装回去 / 卸载):一组按钮，选中的一项垫着 raised 底(不用绿色)。按钮用 aria-pressed 标出选中。
+// 选中的底(raised)是垫在按钮下面的一块，换选中项时用不回弹的弹簧滑到新的一项(第一次出现时不滑;系统要求减少动态效果时直接跳过去)。
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const raised = "bg-raised shadow-segment";
+const raised = "bg-segment shadow-control";
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 interface SegmentedOption<T> {
@@ -54,7 +54,7 @@ function Segmented<T extends string | number>({
       ref={ref}
       role="group"
       data-slot="segmented"
-      className={cn("relative inline-flex items-center gap-px rounded-md border border-border bg-fill p-0.5", className)}
+      className={cn("relative inline-flex h-6 items-center gap-px rounded-control bg-control p-0.5", className)}
     >
       {thumb && (
         <motion.span
@@ -63,7 +63,7 @@ function Segmented<T extends string | number>({
           animate={{ x: thumb.left, width: thumb.width }}
           transition={reduced() ? { duration: 0 } : { type: "spring", duration: 0.32, bounce: 0 }}
           style={{ top: thumb.top, height: thumb.height }}
-          className={cn("pointer-events-none absolute left-0 rounded", raised)}
+          className={cn("pointer-events-none absolute left-0 rounded-[5px]", raised)}
         />
       )}
       {options.map((o) => (
@@ -75,9 +75,9 @@ function Segmented<T extends string | number>({
           disabled={disabled}
           onClick={() => onChange(o.value)}
           className={cn(
-            "relative h-[22px] rounded px-2.5 text-xs text-foreground-secondary transition-colors not-aria-pressed:hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
+            "relative h-5 rounded-[5px] px-2.5 pb-px text-body text-foreground-secondary transition-colors not-aria-pressed:hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
             !thumb && o.value === value && raised,
-            iconOnly && "grid h-5 w-7 place-items-center px-0 [&_[data-slot=icon]]:size-[13px]",
+            iconOnly && "grid h-5 w-7 place-items-center px-0 pb-0 [&_[data-slot=icon]]:size-[13px]",
           )}
         >
           {o.label}

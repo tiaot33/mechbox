@@ -19,7 +19,8 @@ import {
   wslTitle,
 } from "@/lib/model";
 import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -41,7 +42,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
   return (
     <Card>
       <CardHeader title={d.metadata} />
-      <dl className="meta grid grid-cols-[72px_1fr] [&:lang(en)]:grid-cols-[96px_1fr] items-center gap-x-3.5 gap-y-2.5 [&_dt]:font-medium [&_dt]:text-muted-foreground">
+      <dl className="meta grid grid-cols-[72px_1fr] [&:lang(en)]:grid-cols-[96px_1fr] items-center gap-x-3.5 gap-y-2.5 [&_dt]:text-muted-foreground">
         <dt>{d.collection}</dt>
         {noSource(skill.source) ? (
           <dd className="text-muted-foreground" title={d.noSourceHint}>
@@ -112,9 +113,9 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
                   <Badge tone={checkStatus(check.status).tone}>
                     {check.renamed_to ? d.maybeRenamedTo(check.renamed_to) : checkStatus(check.status).label}
                   </Badge>{" "}
-                  {check.skipped && <span className="text-[11px] text-muted-foreground">{d.skipped}</span>}
-                  {updateAvailable(skill) && skill.edited && <span className="text-[11px] text-muted-foreground">{d.replacesEdits}</span>}
-                  <span className="text-[11px] text-muted-foreground">{formatDate(check.checked_at)}</span>
+                  {check.skipped && <span className="text-caption text-muted-foreground">{d.skipped}</span>}
+                  {updateAvailable(skill) && skill.edited && <span className="text-caption text-muted-foreground">{d.replacesEdits}</span>}
+                  <span className="text-caption text-muted-foreground">{formatDate(check.checked_at)}</span>
                 </>
               ) : (
                 <span className="text-muted-foreground">{d.neverChecked}</span>
@@ -130,7 +131,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             </Chip>
           ))}
           <NativeSelect
-            className="chip-add h-6 rounded-full px-2 text-[11.5px] text-muted-foreground"
+            className="chip-add h-6 rounded-control px-2 text-caption text-muted-foreground"
             value=""
             onChange={(e) => {
               const v = e.target.value;
@@ -155,11 +156,11 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
 function checkStatus(status: UpdateCheckStatus): { label: string; tone: Tone } {
   const t = messages().drawer;
   const known: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
-    [UpdateCheckStatus.UpdateAvailable]: { label: t.checkAvailable, tone: "warn" },
-    [UpdateCheckStatus.UpdateCurrent]: { label: t.checkCurrent, tone: "ok" },
-    [UpdateCheckStatus.UpdateDeleted]: { label: t.checkDeleted, tone: "neutral" },
-    [UpdateCheckStatus.UpdateFailed]: { label: t.checkFailed, tone: "bad" },
-    [UpdateCheckStatus.$zero]: { label: t.checkCurrent, tone: "ok" },
+    [UpdateCheckStatus.UpdateAvailable]: { label: t.checkAvailable, tone: "info" },
+    [UpdateCheckStatus.UpdateCurrent]: { label: t.checkCurrent, tone: "plain" },
+    [UpdateCheckStatus.UpdateDeleted]: { label: t.checkDeleted, tone: "info" },
+    [UpdateCheckStatus.UpdateFailed]: { label: t.checkFailed, tone: "critical" },
+    [UpdateCheckStatus.$zero]: { label: t.checkCurrent, tone: "plain" },
   };
   return known[status];
 }

@@ -1,20 +1,21 @@
-// 白底圆角卡片(详情抽屉与设置页的分区):标题在左，说明或操作在右。
+// 技能详情抽屉里的分区：不是浮起的卡片，没有底色、边框和投影，和上一个分区之间用一条线和间距分开;标题在左，说明或操作在右。
+// 设置页的分区是另一个样子(标题下面一块灰底的圆角区域),写在设置页里，不用这个组件。
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 function Card({ className, ...props }: ComponentProps<"section">) {
   return (
-    <section data-slot="card" className={cn("rounded-card bg-panel px-4 py-3.5 text-[12.5px] shadow-card", className)} {...props} />
+    <section data-slot="card" className={cn("mx-2 border-t border-row-line pt-4 pb-2 text-body first:border-t-0 first:pt-1", className)} {...props} />
   );
 }
 
 function CardHeader({ title, note, className }: { title: ReactNode; note?: ReactNode; className?: string }) {
   return (
     <div data-slot="card-header" className={cn("mb-2.5 flex items-baseline justify-between gap-3", className)}>
-      <span data-slot="card-title" className="text-[13.5px] font-semibold">
+      <span data-slot="card-title" className="text-heading">
         {title}
       </span>
-      {note && <span className="text-[11.5px] text-muted-foreground">{note}</span>}
+      {note && <span className="text-caption text-muted-foreground">{note}</span>}
     </div>
   );
 }

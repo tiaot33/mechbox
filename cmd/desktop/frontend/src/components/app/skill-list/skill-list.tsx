@@ -30,12 +30,13 @@ import { openFetch } from "@/features/fetch/fetch-dialog";
 import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { Icon, SourceIcon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
+import { SourceIcon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { nameIndent, SkillRow, UnmanagedRow } from "./rows";
+import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow } from "./rows";
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
@@ -87,7 +88,7 @@ export function SkillList() {
       <div
         ref={scroller}
         key={page}
-        className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
+        className={cn("a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15", nameIndentVars)}
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
         // 抽屉忙不忙在按下时看：松开前弹层已经收起了。选中了文字(拖选)也不关。
@@ -116,7 +117,7 @@ function EmptyLibrary() {
   const t = useT().list;
   return (
     <ListEmpty>
-      <b className="text-sm text-foreground">{t.emptyLibrary}</b>
+      <b className="text-heading text-foreground">{t.emptyLibrary}</b>
       <span>{t.emptyHint}</span>
       <Button variant="primary" className="mt-1.5" onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
         <Icon name="plus" />
@@ -155,7 +156,8 @@ function ArrangeBar({ children }: { children?: React.ReactNode }) {
   const arrange = useView((v) => v.arrange);
   const t = useT().list;
   return (
-    <div className="mb-2.5 flex items-center gap-2">
+    // 和下面各节的名字、技能名在同一条线上。
+    <div className={cn("mb-1.5 flex items-center gap-2", nameIndent)}>
       <Segmented
         className="arrange-seg"
         value={arrange}
@@ -194,7 +196,7 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
     const look = sectionLook(s, t, section, section.key === sectionKey("rest", "collection", scope, notHere));
     const count = notHere ? section.all.length : scope ? t.hereCount(section.all.length) : section.skills.length;
     return (
-      <Section id={section.key} pick={pick} head={<PlainHead {...look} count={count} />}>
+      <Section id={section.key} icon={look.icon} pick={pick} head={<PlainHead name={look.name} title={look.title} count={count} />}>
         {rows}
       </Section>
     );
@@ -215,7 +217,7 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
         rows
       ) : (
         <EmptyRows>
-          <b className="mr-1.5 font-medium text-foreground-secondary">{t.emptyGroup}</b>
+          <b className="mr-1.5 font-semibold text-foreground-secondary">{t.emptyGroup}</b>
           {t.emptyGroupHint}
         </EmptyRows>
       )}
@@ -233,7 +235,7 @@ function sectionLook(
   const c = section.kind === "collection" ? s.collections.find((x) => x.id === section.id) : undefined;
   if (c) return { icon: <SourceIcon type={c.source.type} className="size-3.5 text-muted-foreground" />, name: sourceLabel(s, c.source) };
   const g = section.kind === "group" ? s.groups.find((x) => x.id === section.id) : undefined;
-  if (g) return { icon: <Icon name="layers" className="size-3.5 text-group" />, name: g.name };
+  if (g) return { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: g.name };
   return rest
     ? { icon: <Icon name="folder" className="size-3.5 text-muted-foreground" />, name: t.restCollection, title: t.restCollectionTitle }
     : { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: t.restGroup };
@@ -269,27 +271,27 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
       {(l.hereSections.length > 0 || l.notHereSkills.length > 0) && (
-        <div className="mt-3">
+        <div className="mt-2.5">
           <ArrangeBar>
-            {!search && !l.hereCount && !l.hereUnmanaged.length && <span className="min-w-0 text-[11.5px] text-muted-foreground">{t.nothingHere}</span>}
+            {!search && !l.hereCount && !l.hereUnmanaged.length && <span className="min-w-0 text-caption text-muted-foreground">{t.nothingHere}</span>}
           </ArrangeBar>
         </div>
       )}
       {/* 上面：Agent 在这里看得到的。块里第一节没有上边距，由块自己补上。 */}
       {inUse && (
-        <div className="in-use mt-3">
+        <div className="in-use mt-1">
           {l.hereSections.map((x) => (
             <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
           {l.hereUnmanaged.length > 0 && (
             <Section
               id="scope-unmanaged"
+              icon={<Icon name="inbox" className="size-3.5 text-muted-foreground" />}
               head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}
               actions={
                 // 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。
                 !search && (
                   <Button
-                    size="sm"
                     variant="ghost"
                     className="fetch-all-unmanaged shrink-0"
                     title={t.fetchAllTitle}
@@ -308,6 +310,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           {project && global > 0 && (
             <Section
               id="scope-global"
+              icon={<Icon name="globe" className="size-3.5 text-muted-foreground" />}
               defaultCollapsed
               pick={l.global.map((x) => x.id)}
               head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}
@@ -338,16 +341,19 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
   const unfolded = useView((v) => v.unfolded.has(id)) || searching;
   const names = l.notHereSkills.map((x) => x.name);
   return (
-    <div className="not-here mt-4 border-t border-hairline pt-2">
+    <div className="not-here mt-3 border-t border-row-line pt-1">
       <button
         type="button"
-        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-fill hover:text-foreground"
+        className="not-installed-fold not-here-fold flex h-8 w-full min-w-0 items-center gap-4 rounded-control px-3 text-left text-body text-muted-foreground hover:bg-fill hover:text-foreground"
         aria-expanded={unfolded}
         disabled={searching}
         onClick={() => toggleUnfolded(id)}
       >
-        <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
-        <span className="truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
+        {/* 箭头在勾选框那一列，文字和上面各节的名字在同一条线上。 */}
+        <span className={cn("flex shrink-0 justify-center", pickColumn)}>
+          <Icon name="chev" className={cn("size-2.5 transition-transform", unfolded && "rotate-90")} />
+        </span>
+        <span className="ml-[calc(var(--name-indent)-42px)] truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
       </button>
       {unfolded &&
         l.notHereSections.map((x) => (
@@ -372,16 +378,16 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           key={a.scope}
           id={`project-${page.project}:${a.scope}`}
           pick={a.skills.map((x) => x.id)}
+          icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
           head={
             <PlainHead
-              icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
               name={agentNameIn(s, a.agent.code, page.project)}
               count={t.skillCount(a.all)}
               title={projectFolderNote(s, a.agent.code, page.project)}
             />
           }
           actions={
-            <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
+            <Button variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
               {t.openScope}
             </Button>
           }
@@ -401,7 +407,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
 
 // EmptyRows 是一节里没有行时的说明;aligned 时(行首有勾选框那一列的节)和技能名对齐。
 function EmptyRows({ aligned = true, children }: { aligned?: boolean; children: React.ReactNode }) {
-  return <p className={cn("py-3 pr-3 text-[11.5px] text-muted-foreground", aligned ? nameIndent : "pl-3")}>{children}</p>;
+  return <p className={cn("py-3 pr-3 text-caption text-muted-foreground", aligned ? nameIndent : "pl-3")}>{children}</p>;
 }
 
 // 空状态放在列表区的视觉中部，用上边距定位。

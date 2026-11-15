@@ -58,7 +58,7 @@ export async function installSkill(id: SkillID, scope: Scope) {
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
         title: t.untrackedTitle,
-        body: <Notice tone="warn">{t.untrackedBody(shortPath(s, plan.folder), plan.name)}</Notice>,
+        body: <Notice alert>{t.untrackedBody(shortPath(s, plan.folder), plan.name)}</Notice>,
         confirm: t.overwriteInstall,
         danger: true,
       });
@@ -161,7 +161,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
   const planned = items.flatMap((x, i) => {
     const r = settled[i];
     if (r.status === "fulfilled") return [{ ...x, plan: r.value }];
-    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(r.reason)) });
+    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(r.reason)) });
     return [];
   });
   const untracked = planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
@@ -170,7 +170,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     const choice = await ui.confirm({
       title,
       body: (
-        <Notice tone="warn">
+        <Notice alert>
           {several
             ? t.untrackedPlaces(untracked.length, untracked.map((x) => label(x.skill, x.scope)))
             : t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}
@@ -185,6 +185,8 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     if (!choice) return false;
     overwrite = choice === "overwrite";
   }
+  let installed = 0;
+  let failed = false;
   await ui.run(async () => {
     for (const { skill, scope, plan } of planned) {
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
@@ -199,14 +201,15 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
       }
       try {
         await LibraryService.Install(skill.id, scope, { overwrite: isUntracked });
-        rows.push({ label: row, outcome: t.memberInstalled, tone: "ok" });
+        rows.push({ label: row, outcome: t.memberInstalled, tone: "plain" });
+        installed++;
       } catch (e) {
-        rows.push({ label: row, outcome: t.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+        rows.push({ label: row, outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
+        failed = true;
       }
     }
-  }, { failed: () => rows.some((r) => r.tone === "bad") });
-  const installed = rows.filter((r) => r.tone === "ok").length;
-  if (rows.some((r) => r.tone !== "ok")) {
+  }, { failed: () => failed });
+  if (installed < rows.length) {
     const rest = rows.length - installed;
     await showResults(title, rows, several ? t.installedPlaces(installed, rest) : t.installedSummary(installed, rest));
   } else {
@@ -230,7 +233,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
       body: (
         <>
           {shared.length > 0 && (
-            <Notice tone="warn">
+            <Notice alert>
               {t.uninstallShared(
                 shortPath(s, place.folder),
                 shared.map((code) => agentName(s, code)),
@@ -282,7 +285,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
         <Hint>{t.uninstallPickedHint(new Set(deleted.map(folderKey)).size, lostEdits(deleted), viaGroup.length)}</Hint>
         {shared.length > 0 && (
           <>
-            <Notice tone="warn">{t.uninstallPickedShared}</Notice>
+            <Notice alert>{t.uninstallPickedShared}</Notice>
             <SharedFolders places={shared} />
           </>
         )}
@@ -300,6 +303,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
     reason: t.onlyViaGroup,
   }));
   let done = 0;
+  let failed = false;
   await ui.run(async () => {
     for (const p of direct) {
       try {
@@ -309,10 +313,11 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
         const err = toLibraryError(e);
         // 全局共用一个文件夹的几处：卸载其中一处时其余几处的直接安装一起撤了。
         if (err.code === ErrorCode.NotFound) continue;
-        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.failed, tone: "bad", reason: describeError(err) });
+        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.failed, tone: "critical", reason: describeError(err) });
+        failed = true;
       }
     }
-  }, { failed: () => rows.some((r) => r.tone === "bad") });
+  }, { failed: () => failed });
   if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
   else ui.toast(t.uninstalledPicked(done, where));
   return done > 0;
@@ -333,7 +338,7 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
     const choice = await ui.confirm({
       title: t.groupInstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
       body: (
-        <Notice tone="warn">
+        <Notice alert>
           {t.groupUntracked(
             untracked.length,
             untracked.map((m) => m.name),
@@ -387,7 +392,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
         <>
           {removed.length > 0 && (
             <>
-              <Notice tone="warn">{t.groupUninstallShared(removed.length)}</Notice>
+              <Notice alert>{t.groupUninstallShared(removed.length)}</Notice>
               <SharedFolders places={removed} />
             </>
           )}

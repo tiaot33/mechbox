@@ -25,9 +25,10 @@ import {
   type LibraryError,
 } from "@/lib/library";
 import { messages, useT } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Tipped } from "@/components/app/parts";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -169,7 +170,7 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
       <div className="flex min-w-0 items-start gap-2">
         <Field label={<Tipped tip={t.autoPushHint}>{t.autoPush}</Tipped>} className="flex-1">
           <NativeSelect
-            className="h-8 max-w-none"
+            className="max-w-none"
             value={draft.auto_push ?? ""}
             onChange={(e) => setDraft((d) => ({ ...d, auto_push: e.target.value as SyncInterval }))}
           >
@@ -216,7 +217,7 @@ export function SyncStatusLine({ folder }: { folder: string }) {
         {t.deviceFolder(path)} · {status.last_pushed_at ? t.lastPushed(formatDate(status.last_pushed_at)) : t.neverPushed}
       </Hint>
       {problem?.error && (
-        <Notice tone="warn">
+        <Notice alert>
           {(problem.uploaded ? t.removeFailed : t.pushFailed)(formatDate(problem.at), describeError(problem.error as LibraryError))}
         </Notice>
       )}
@@ -275,7 +276,7 @@ function AIForm({ saved }: { saved: AISettings }) {
       }
     >
       <div className="flex flex-col items-start gap-1">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-body text-muted-foreground">
           <Tipped tip={t.aiHint}>{t.provider}</Tipped>
         </span>
         <Segmented
@@ -346,9 +347,10 @@ function SaveForm<T>({
         {children}
       </fieldset>
       <div className="flex items-center gap-2">
-        <Hint className="save-pending grow text-foreground-secondary">{dirty && !saving ? t.unsaved : null}</Hint>
+        <span className="grow" />
+        {dirty && !saving && <span className="save-pending text-caption text-foreground-secondary">{t.unsaved}</span>}
         {actions}
-        <Button type="submit" variant="primary" disabled={!dirty} loading={saving}>
+        <Button type="submit" disabled={!dirty} loading={saving}>
           {t.save}
         </Button>
       </div>
@@ -365,11 +367,11 @@ function Advanced({ filled, children }: { filled: boolean; children: React.React
     <>
       <button
         type="button"
-        className="advanced-toggle inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+        className="advanced-toggle inline-flex items-center gap-1 self-start text-caption text-muted-foreground hover:text-foreground"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <Icon name={open ? "down" : "chev"} className="size-3" />
+        <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
         {t.advanced}
       </button>
       {open && children}

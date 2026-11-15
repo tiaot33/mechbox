@@ -48,24 +48,24 @@ export function Places({
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
                 {p.status === SkillScopeStatus.SkillScopeModified &&
                   (p.source_latest ? (
-                    <span className="update-place-latest text-[11px] text-muted-foreground">{t.alreadyLatest}</span>
+                    <span className="update-place-latest text-caption text-muted-foreground">{t.alreadyLatest}</span>
                   ) : (
                     <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>
                   ))}
-                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="bad">{t.rootMissing}</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="warn">{t.folderMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="critical">{t.rootMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="critical">{t.folderMissing}</Badge>}
                 {sharedWithNote(p).length > 0 && (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-caption text-muted-foreground">
                     {t.sharedFolder(sharedWithNote(p).map((code) => agentName(s, code)))}
                   </span>
                 )}
                 {p.link_target && on(p) && (
-                  <span className="update-place-link min-w-0 text-[11px] break-all text-muted-foreground" title={p.link_target}>
+                  <span className="update-place-link min-w-0 text-caption break-all text-muted-foreground" title={p.link_target}>
                     {linkNote(s, p.link_target)}
                   </span>
                 )}
                 {on(p) && unchecked(p).length > 0 && (
-                  <span className="update-place-kept min-w-0 text-[11px] text-muted-foreground">
+                  <span className="update-place-kept min-w-0 text-caption text-muted-foreground">
                     {t.linkedHere(mergeProjectPlaces(s, unchecked(p).map((scope) => ({ scope }))).map((x) => scopeLabel(s, x.scope)))}
                   </span>
                 )}

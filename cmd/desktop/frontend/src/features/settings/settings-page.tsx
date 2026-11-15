@@ -17,8 +17,7 @@ import { useView } from "@/lib/view";
 import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { bodyClass, centerClass, leftClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
 import { BusyMark, Tipped } from "@/components/app/parts";
@@ -133,11 +132,17 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     useView.setState({ settingsSection: null });
   }, [wanted, settings]);
 
+  // 一个分区：标题在上，下面是一块浅灰底的圆角区域，里面一行一个设置(照 macOS 的设置页);标题和行里的字在同一条线上。
   const card = (section: Section, note: React.ReactNode, children: React.ReactNode, tip?: React.ReactNode) => (
-    <Card key={section} className="scroll-mt-4" ref={(el) => void (refs.current[section] = el)}>
-      <CardHeader title={<Tipped tip={tip}>{t[section]}</Tipped>} note={note} />
-      {children}
-    </Card>
+    <section key={section} data-slot="card" className="scroll-mt-4 text-body" ref={(el) => void (refs.current[section] = el)}>
+      <div data-slot="card-header" className="mb-1.5 flex min-h-6 items-center justify-between gap-3 px-3">
+        <span data-slot="card-title" className="text-heading">
+          <Tipped tip={tip}>{t[section]}</Tipped>
+        </span>
+        {note && <span className="text-caption text-muted-foreground">{note}</span>}
+      </div>
+      <div className="set-group rounded-card bg-fill px-3">{children}</div>
+    </section>
   );
   const register = () => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} onClose={close} />);
 
@@ -150,7 +155,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             <Button variant="ghost" size="icon" onClick={() => void saving.current.then(onClose)} title={t.back}>
               <Icon name="chevL" />
             </Button>
-            <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
+            <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-body font-semibold whitespace-nowrap">
               <b>{t.title}</b>
               <BusyMark checks />
             </span>
@@ -181,7 +186,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             onKeyDown={release}
             onPointerDown={release}
           >
-            <div className="settings mx-auto flex max-w-[680px] flex-col gap-3 px-5 pt-4 pb-15">
+            <div className="settings mx-auto flex max-w-[680px] flex-col gap-6 px-5 pt-5 pb-15">
               {card(
                 "general",
                 null,
@@ -212,29 +217,29 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 null,
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
-              {card("github", t.tokenInLibrary, <GitHubSection />)}
+              {card("github", t.tokenInLibrary, <div className="py-3"><GitHubSection /></div>)}
               {card(
                 "ai",
                 t.aiInLibrary,
                 <>
                   {settings && <TranslateSection settings={settings} save={save} />}
                   {/* 上面的开关改了就生效，和下面要点保存的表单用分隔线分开。 */}
-                  <div className="mt-1 border-t border-border-subtle pt-3">
+                  <div className="border-t border-row-line py-3">
                     <AISection />
                   </div>
                 </>,
               )}
-              {card("sync", t.syncOnThisMachine, <SyncSection />, credentialsT.syncHint)}
+              {card("sync", t.syncOnThisMachine, <div className="py-3"><SyncSection /></div>, credentialsT.syncHint)}
               {card(
                 "about",
                 null,
                 <>
                   <AboutSection />
-                  <SetRow className="uninstall-row mt-3">
+                  <SetRow className="uninstall-row border-t! border-row-line">
                     <Tipped className="grow" tip={t.uninstallDesc()}>
                       {t.uninstall}
                     </Tipped>
-                    <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
+                    <Button onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
                       {t.uninstallButton}
                     </Button>
                   </SetRow>

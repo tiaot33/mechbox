@@ -1,4 +1,4 @@
-// 比较弹窗：铺满窗口(不透明的浅灰底),左边是改了的文件列表、右边是选中文件的差异，各是一块撑满到底的白底面板(文件列表可以用标题前的按钮收起，每次打开都展开;差异可以左右对比或行内对比);
+// 比较弹窗：铺满窗口(不透明),左边是改了的文件列表、右边是选中文件的差异，各是一块撑满到底的白底面板(文件列表可以用标题前的按钮收起，每次打开都展开;差异可以左右对比或行内对比);
 // 两个版本内容相同时只说明内容相同。
 // 技能详情的版本历史(某个版本与当前比较)、更新历史(一次更新或回滚改了什么)和更新计划里的差异(放大查看)都打开它。
 import { useMemo, useState, type ReactNode } from "react";
@@ -9,7 +9,7 @@ import { useT } from "@/lib/i18n";
 import type { LibraryError } from "@/lib/library";
 import { Modal, ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ChangedFiles, FileDiff, type FileReaders } from "./file-diff";
@@ -94,20 +94,20 @@ function Compare({ opts, onClose }: { opts: CompareOptions; onClose: () => void 
     >
       {opts.note && <Hint className="px-1.5">{opts.note}</Hint>}
       <div className="version-compare flex min-h-0 grow basis-0 gap-1.5">
-        {/* 文件列表和差异面板是并排的两块白底面板;文件列表随窗口略微变宽，长路径少截断。收起时差异面板铺满整宽。 */}
+        {/* 文件列表和差异面板是并排的两块不透明的面板;文件列表随窗口略微变宽，长路径少截断。收起时差异面板铺满整宽。 */}
         {shown && !empty && (
           <ChangedFiles
             files={files}
             path={path}
             onPath={setPath}
             badge={opts.badge}
-            className="w-[clamp(200px,20%,280px)] shrink-0 overflow-y-auto rounded-[10px] bg-panel p-1.5 shadow-card"
+            className="w-[clamp(200px,20%,280px)] shrink-0 overflow-y-auto rounded-card border border-border bg-panel p-1.5"
           />
         )}
         <div className="flex min-w-0 grow flex-col">
           {/* 两个版本内容相同时没有文件可看，在这里直接说明。 */}
           {empty ? (
-            <div className="flex grow items-center justify-center rounded-[10px] bg-panel text-[12px] text-muted-foreground shadow-card">
+            <div className="flex grow items-center justify-center rounded-card border border-border bg-panel text-body text-muted-foreground">
               {tt.common.sameContent}
             </div>
           ) : (

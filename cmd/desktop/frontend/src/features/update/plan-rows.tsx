@@ -24,19 +24,19 @@ export function ChangedRow({ p, checked, viewed, locked, onCheck, onView, onSkip
       <label className="flex min-w-0 grow cursor-pointer items-center gap-1.5">
         <input type="checkbox" className="shrink-0 accent-primary" checked={checked} onChange={(e) => onCheck(e.target.checked)} />
         <b className="font-semibold whitespace-nowrap">{p.skill.name}</b>
-        {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="warn">{t.changed}</Badge>}
-        {(p.risks?.length ?? 0) > 0 && <Badge tone="bad">{riskSummary(p.risks ?? [])}</Badge>}
+        {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="info">{t.changed}</Badge>}
+        {(p.risks?.length ?? 0) > 0 && <Badge tone="warn">{riskSummary(p.risks ?? [])}</Badge>}
         {p.edited && (
-          <span className="update-edited min-w-0 truncate text-[11px] text-muted-foreground" title={t.editedTitle}>
+          <span className="update-edited min-w-0 truncate text-caption text-muted-foreground" title={t.editedTitle}>
             {t.edited}
           </span>
         )}
       </label>
-      <Button variant="link" onClick={onView}>
+      <Button size="sm" onClick={onView}>
         {viewed ? t.hideDiff : t.showDiff}
       </Button>
       {!p.skipped && (
-        <Button variant="link" disabled={locked} onClick={onSkip} title={t.skipTitle}>
+        <Button size="sm" disabled={locked} onClick={onSkip} title={t.skipTitle}>
           {t.skip}
         </Button>
       )}
@@ -54,15 +54,15 @@ export function RenameRow({ p, yes, viewed, locked, onCheck, onReject, onView, o
           {t.renameQuestion(<b className="font-semibold">{p.skill.name}</b>, <b className="font-semibold">{p.renamed_to}</b>)}
           {p.skipped && <Badge className="ml-1.5">{t.skipped}</Badge>}
         </div>
-        <div className="text-[11px] text-muted-foreground">
+        <div className="text-caption text-muted-foreground">
           {yes ? t.renameYes(p.renamed_to) : t.renameNo(p.renamed_to)}
           {p.edited && <span className="update-edited">{t.renameEdited}</span>}
         </div>
       </div>
       {yes ? (
         <>
-          <Badge tone="accent">{t.sameOne}</Badge>
-          <Button variant="link" disabled={locked} onClick={() => onCheck(false)}>
+          <Badge>{t.sameOne}</Badge>
+          <Button size="sm" disabled={locked} onClick={() => onCheck(false)}>
             {t.undo}
           </Button>
         </>
@@ -76,11 +76,11 @@ export function RenameRow({ p, yes, viewed, locked, onCheck, onReject, onView, o
           </Button>
         </>
       )}
-      <Button variant="link" onClick={onView}>
+      <Button size="sm" onClick={onView}>
         {viewed ? t.hideDiff : t.showDiff}
       </Button>
       {!p.skipped && (
-        <Button variant="link" disabled={locked} onClick={onSkip}>
+        <Button size="sm" disabled={locked} onClick={onSkip}>
           {t.skip}
         </Button>
       )}
@@ -96,14 +96,13 @@ export function DeletedRow({ p, source, locked, onRemoved }: { p: PlannedSkill; 
     <ListRow className="update-deleted">
       <div className="min-w-0 grow">
         <b className="font-semibold">{p.skill.name}</b>
-        <span className="ml-1.5 text-[11px] text-muted-foreground">{t.deletedHere(source)}</span>
+        <span className="ml-1.5 text-caption text-muted-foreground">{t.deletedHere(source)}</span>
       </div>
       {kept || p.skill.kept_deleted ? (
         <Badge>{t.keptDeleted}</Badge>
       ) : (
         <>
           <Button
-            size="sm"
             disabled={locked}
             onClick={async () => {
               if (await removeSkill(p.skill.id)) onRemoved();
@@ -112,7 +111,6 @@ export function DeletedRow({ p, source, locked, onRemoved }: { p: PlannedSkill; 
             {t.remove}
           </Button>
           <Button
-            size="sm"
             disabled={locked}
             onClick={async () => {
               if (await keepDeleted(p.skill.id)) setKept(true);

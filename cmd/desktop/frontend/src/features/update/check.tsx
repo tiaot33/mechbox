@@ -50,7 +50,7 @@ export async function checkUpdates(collections: CollectionID[], origin: CheckOri
       failed.map((c) => ({
         label: c.source?.label ? sourceLabel(s, c.source) : t.collectionFallback(c.collection_id),
         outcome: t.checkFailed,
-        tone: "bad" as const,
+        tone: "critical" as const,
         reason: describeError(c.error!),
       })),
       t.checkFailedNote(summary, failed.length),

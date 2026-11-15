@@ -1,5 +1,5 @@
-// 毛玻璃表面：设置里的浓度，以及 Chromium 上不透明的背景。
-// 材质本身(底色、滤镜、边缘、表面上的字色)在 index.css 的 glass 工具类里;这里只做 CSS 写不出来的几件事。
+// 毛玻璃表面:Chromium 上不透明的背景，以及系统要求减少透明度时的不透明底。
+// 材质本身(底色、滤镜、边缘)在 index.css 的 glass 工具类里;这里只做 CSS 写不出来的几件事。
 //
 // 不透明的背景：窗口背后是透明的(透出 Mica 或 macOS 的毛玻璃),网页里的背景本身是半透明的;Chromium 把模糊后的背景叠在原内容上面，
 // 结果半透明，没模糊的原内容就从玻璃底下透出来(右栏直接铺在窗口底色上，最明显)。所以在 backdrop-filter 最后再接一个
@@ -7,51 +7,13 @@
 //
 // 不透明的底：系统要求减少透明度或开了强制颜色时，毛玻璃换成同样颜色的不透明底(index.css)。macOS 的 WKWebView 不认
 // prefers-reduced-transparency,改问 Go 端(AppService.ReduceTransparency),在根元素上加 data-reduce-transparency。
-import { useSyncExternalStore } from "react";
 import { AppService } from "@bindings/cmd/desktop";
-
-// applyGlassTint 把浓度(0–1.5,1 是设计的样子)写到根元素上，所有毛玻璃表面跟着平滑过渡;instant 时不过渡。
-// 用哪个外观的浓度由 lib/theme.ts 定。
-export function applyGlassTint(tint: number, instant = false) {
-  const root = document.documentElement;
-  if (instant) root.style.transition = "none";
-  root.style.setProperty("--glass-tint", String(tint));
-  if (instant) {
-    void getComputedStyle(root).getPropertyValue("--glass-tint");
-    root.style.removeProperty("transition");
-  }
-}
-
-const opaqueQuery = "(prefers-reduced-transparency: reduce), (forced-colors: active)";
-const opaqueListeners = new Set<() => void>();
 
 function syncReduceTransparency() {
   AppService.ReduceTransparency().then(
-    (on) => {
-      const root = document.documentElement;
-      if (root.hasAttribute("data-reduce-transparency") === on) return;
-      root.toggleAttribute("data-reduce-transparency", on);
-      opaqueListeners.forEach((f) => f());
-    },
+    (on) => document.documentElement.toggleAttribute("data-reduce-transparency", on),
     () => {},
   );
-}
-
-function glassOpaque() {
-  return matchMedia(opaqueQuery).matches || document.documentElement.hasAttribute("data-reduce-transparency");
-}
-
-// useGlassOpaque 是毛玻璃现在是否显示为不透明的底(系统要求减少透明度或开了强制颜色),这时浓度不起作用。
-export function useGlassOpaque() {
-  return useSyncExternalStore((changed) => {
-    const query = matchMedia(opaqueQuery);
-    query.addEventListener("change", changed);
-    opaqueListeners.add(changed);
-    return () => {
-      query.removeEventListener("change", changed);
-      opaqueListeners.delete(changed);
-    };
-  }, glassOpaque);
 }
 
 // 只有 Chromium 画 backdrop-filter 里的 url();Firefox、WebKit 能解析但什么也不画，所以另看内核。

@@ -1,18 +1,16 @@
 // shadcn/ui 的 ContextMenu(右键菜单),按本应用改过：表面与弹层一致(毛玻璃),
-// 选项高亮用浅蓝底(子菜单开着时更深、描白边)，danger 的选项用红字;只保留用到的部分(选项、分隔线、子菜单)。
+// 选项高亮用悬停的灰底(子菜单开着时也是),破坏性的选项(移除)和别的选项一样;只保留用到的部分(选项、分隔线、子菜单)。
 import type { ComponentProps } from "react";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
 const surface =
-  "z-50 min-w-[160px] animate-pop-in glass rounded-[10px] border p-1 outline-none [--glass-drop:var(--shadow-popover)]";
+  "z-50 min-w-[160px] animate-pop-in glass rounded-card border p-1 outline-none [--glass-drop:var(--shadow-popover)]";
 
 const itemClass =
-  "flex h-[26px] cursor-default items-center gap-2 rounded-md px-2 text-xs outline-none select-none data-[disabled]:text-subtle data-[highlighted]:bg-glass-row-hover data-[state=open]:bg-glass-row-selected data-[state=open]:shadow-glass-row";
+  "flex h-[26px] cursor-default items-center gap-2 rounded-control px-2 text-body outline-none select-none data-[disabled]:text-subtle data-[highlighted]:bg-fill data-[state=open]:bg-fill";
 
-const dangerClass = "text-bad-strong";
-
-const separatorClass = "mx-1 my-1 h-px bg-hairline";
+const separatorClass = "mx-1 my-1 h-px bg-row-line";
 
 const subSurface = cn(surface, "max-h-72 overflow-y-auto");
 
@@ -41,11 +39,11 @@ function ContextMenuContent({ className, ...props }: ComponentProps<typeof Conte
   );
 }
 
-function ContextMenuItem({ className, danger = false, ...props }: ComponentProps<typeof ContextMenuPrimitive.Item> & { danger?: boolean }) {
+function ContextMenuItem({ className, ...props }: ComponentProps<typeof ContextMenuPrimitive.Item>) {
   return (
     <ContextMenuPrimitive.Item
       data-slot="context-menu-item"
-      className={cn(itemClass, danger && dangerClass, className)}
+      className={cn(itemClass, className)}
       {...props}
     />
   );
@@ -80,7 +78,6 @@ function ContextMenuSubContent({ className, ...props }: ComponentProps<typeof Co
 export {
   surface as menuSurface,
   itemClass as menuItemClass,
-  dangerClass as menuDangerClass,
   separatorClass as menuSeparatorClass,
   subSurface as menuSubSurface,
   SubChevron as MenuSubChevron,

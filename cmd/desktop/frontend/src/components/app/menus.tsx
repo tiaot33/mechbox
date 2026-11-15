@@ -29,7 +29,7 @@ import {
 export type MenuEntry =
   | "separator"
   | { label: string; sub: MenuEntry[] }
-  | { label: string; onSelect: () => void; danger?: boolean; disabled?: boolean; note?: string };
+  | { label: string; onSelect: () => void; disabled?: boolean; note?: string };
 
 // useCollectionMenu 是一个集合的菜单：关系图(graph 为 true 时)、检查更新与更新(本地目录来源没有)、看来源里的其他技能、更新历史、加入组。
 export function useCollectionMenu(c: Collection, { graph }: { graph: boolean }): MenuEntry[] {
@@ -71,7 +71,7 @@ export function useGroupMenu(g: Group, { graph, newGroup = false }: { graph: boo
   return [
     ...(graph ? [{ label: tt.graph.open, onSelect: () => openGraph({ kind: "group", id: g.id }) }, "separator" as const] : []),
     { label: t.renameWith, onSelect: () => renameGroup(g.id) },
-    { label: t.deleteGroupWith, danger: true, onSelect: () => deleteGroup(g.id) },
+    { label: t.deleteGroupWith, onSelect: () => deleteGroup(g.id) },
     ...(newGroup ? ["separator" as const, { label: t.newGroupWith, onSelect: () => createGroup() }] : []),
   ];
 }
@@ -94,9 +94,9 @@ function Entries({ entries, kit }: { entries: MenuEntry[]; kit: (typeof kits)[ke
         </SubContent>
       </Sub>
     ) : (
-      <Item key={i} danger={m.danger} disabled={m.disabled} onSelect={m.onSelect}>
+      <Item key={i} disabled={m.disabled} onSelect={m.onSelect}>
         {m.note ? <span className="min-w-0 grow truncate">{m.label}</span> : m.label}
-        {m.note && <span className="shrink-0 text-[10px] text-subtle">{m.note}</span>}
+        {m.note && <span className="shrink-0 text-caption text-muted-foreground">{m.note}</span>}
       </Item>
     ),
   );

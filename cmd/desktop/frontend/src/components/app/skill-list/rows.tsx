@@ -23,6 +23,7 @@ import {
   needsReinstall,
   parseScope,
   pending,
+  reinstallLevel,
   renamedTo,
   sameNameInLibrary,
   sameNameNote,
@@ -30,6 +31,7 @@ import {
   skillSameNameNote,
   shortPath,
   skillScopeIn,
+  skillScopesOf,
   skillScopeStatus,
   sourceKindLabel,
   sourceLabel,
@@ -44,13 +46,14 @@ import { doneFlash, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { Badge } from "@/components/ui/badge";
+import { AlertDot, Badge, Dot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
+import { Icon } from "@/components/ui/icon";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
-import { SameNameBadge, SameNameLine } from "./same-name";
+import { SameNameBadge, sameNameAlert } from "./same-name";
 import { flash } from "./flash";
 
 // 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
@@ -84,21 +87,22 @@ const layouts = {
     date: "",
   },
 };
-// 行首勾选框那一列(上面列宽里的 14px):行的左内边距 12(px-3)+ 这一列 14 + 列间距 16 = 42。
-// 节标题、「没装的」折叠行、节标题下的说明行用 pickColumn 留出同一列，或用 nameIndent 直接缩进到技能名。
+// 技能名那条线离行的左边多远，记在列表容器的 --name-indent 上(nameIndentVars),一页里所有文字都从这条线开始:
+// 技能库页是 42:行的左内边距 12(px-3)+ 勾选框那一列 14 + 列间距 16;作用域页、项目页的行多一列开关，是 88(再加开关 30 + 列间距 16)。
+// 节标题、「没装的」折叠行用 pickColumn 留出勾选框那一列，再按 --name-indent 把文字推到这条线上;摘要、说明行用 nameIndent 直接缩进。
+export const nameIndentVars = "[--name-indent:42px] data-[page=project]:[--name-indent:88px] data-[page=scope]:[--name-indent:88px]";
 export const pickColumn = "w-3.5";
-export const nameIndent = "pl-[42px]";
+export const nameIndent = "pl-(--name-indent)";
 
 // span 是窄的时候跨两层的格子(勾选框、开关)。
 const span = "@max-[600px]/list:row-span-2";
 
+// 行高固定：宽的时候一层(32 px),窄的时候两层(48 px)。行里的每一格都只有一行字，放不下就截断;
+// 多出来的说明(同名的后果、符号链接指向哪里、库里同名的几个各装在哪)收进图标或文字的悬停提示。
 const rowClass =
-  "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-[12px] last:border-b-0 @max-[600px]/list:gap-y-0.5";
+  "grid h-8 content-center items-center gap-x-4 border-b border-row-line px-3 text-body last:border-b-0 @max-[600px]/list:h-12 @max-[600px]/list:gap-y-0";
 
-// rowButtonClass 是行首那一格里的小按钮(入库、更新),和开关一样大小。
-const rowButtonClass = "h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] whitespace-nowrap text-primary-ink hover:border-primary hover:bg-primary-soft";
-
-// 最近几天内的变化用正文颜色，排查"最近是不是变过"时一眼看到。
+// 最近几天内的变化用次要档，更早的用标注档;日期本身写成「今天」「3 天前」,近的一眼能认出来。
 const recentDays = 7;
 
 // SkillRow 是库里一个技能的一行。scope 为空时是技能库页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
@@ -171,7 +175,7 @@ export function SkillRow(props: {
       {props.pickable && <PickBox id={skill.id} className={span} />}
       {scope && (
         <span onClick={(e) => e.stopPropagation()} className={cn("flex", span)}>
-          {/* 开 = Agent 在这里用着：直接安装是蓝色，只随组安装是紫色，来自全局是灰色、不能点;关 = 没装在这里。 */}
+          {/* 开 = Agent 在这里用着：直接安装是绿色，只随组安装和来自全局是灰色(来自全局的不能点);关 = 没装在这里。 */}
           {props.fromGlobal ? (
             <SwitchMark title={t.list.sectionGlobalTitle} />
           ) : identical ? (
@@ -186,49 +190,43 @@ export function SkillRow(props: {
           )}
         </span>
       )}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-        {/* 名字放得下时写全;后面的标记放不下就折到下一行，有新版本、同名这类要处理的事不被截掉。 */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+        {/* 一行：名字放不下时截断，后面的提醒只画图标(不被截掉),再后面是组名。 */}
         <span
-          className={cn("skill-name max-w-full min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !identical && !props.fromGlobal && "font-medium text-foreground-secondary")}
+          className={cn("skill-name min-w-0 truncate text-body font-semibold", scope && !here && !identical && !props.fromGlobal && "font-normal text-foreground-secondary")}
           title={skill.note || undefined}
         >
           {skill.name}
         </span>
-        {same && <SameNameBadge note={same} />}
-        {/* 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。 */}
-        {skill.edited && (
-          <span className="has-edits shrink-0 text-[10px] text-subtle" title={t.list.hasEditsTitle}>
-            {t.list.hasEdits}
+        {/* 这一行的提醒合成一个圆点(按最重的一级),鼠标停住时逐条列出;有可以更新的时点圆点打开所在集合的更新计划。 */}
+        <AlertDot
+          items={[
+            same && sameNameAlert(same, t.list.sameName),
+            // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
+            skill.edited && { tone: "info", label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
+            // 计入角标的才标出来。
+            pending(skill) &&
+              hasUpdate(skill) && {
+                tone: "info",
+                label: renamedTo(skill) ? t.list.maybeRenamed : t.list.newVersion,
+                tip: renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle,
+                onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }),
+              },
+            deletedInSource(skill) && !skill.kept_deleted && { tone: "info", label: t.list.deleted, tip: t.list.deletedTitle },
+            // 有新版本、但更新会换掉用户的修改：更新计划里它默认不勾。
+            pending(skill) && updateAvailable(skill) && skill.edited && { tone: "warn", label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
+            // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨。
+            twins.length > 0 && { tone: "info", label: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)), className: "dup-name-note" },
+          ]}
+        />
+        {deletedInSource(skill) && skill.kept_deleted && (
+          <span className="shrink-0 text-caption text-muted-foreground" title={t.list.keptDeletedTitle}>
+            {t.list.keptDeleted}
           </span>
         )}
-        {/* 计入角标的才标出来;点标签直接打开所在集合的更新计划。 */}
-        {pending(skill) && hasUpdate(skill) && (
-          <Badge asChild tone="warn" className="px-[5px] py-0 text-[9.5px]">
-            <button
-              type="button"
-              title={renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle}
-              onClick={(e) => {
-                e.stopPropagation();
-                void openUpdate(skill.collection_id, { focus: skill.id });
-              }}
-            >
-              {renamedTo(skill) ? t.list.maybeRenamed : t.list.newVersion}
-            </button>
-          </Badge>
-        )}
-        {deletedInSource(skill) &&
-          (skill.kept_deleted ? (
-            <span className="shrink-0 text-[10px] text-subtle" title={t.list.keptDeletedTitle}>
-              {t.list.keptDeleted}
-            </span>
-          ) : (
-            <Badge title={t.list.deletedTitle}>{t.list.deleted}</Badge>
-          ))}
         {groups.length > 0 && (
-          <span
-            className="max-w-24 shrink-[100] truncate rounded bg-fill px-[5px] py-px font-mono text-[9.5px] font-medium text-muted-foreground"
-            title={t.list.groupsTitle(groups.map((g) => g.name))}
-          >
+          // 组名不是状态，不套标签的框：只是标注档的灰字，和前面「要处理」的标签分得开。
+          <span className="skill-groups max-w-24 min-w-0 shrink-[100] truncate text-caption text-muted-foreground" title={t.list.groupsTitle(groups.map((g) => g.name))}>
             {groups[0].name}
             {groups.length > 1 && ` +${groups.length - 1}`}
           </span>
@@ -249,34 +247,15 @@ export function SkillRow(props: {
             )
           }
         >
-          <p className="skill-desc truncate text-[11.5px] text-muted-foreground">
+          <p className="skill-desc truncate text-small text-muted-foreground">
             {props.showSource && (
-              <span className="text-subtle" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
+              <span className="text-muted-foreground" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
                 {sourceShort(s, skill.source)} ·{" "}
               </span>
             )}
             {translated ?? skill.description}
           </p>
         </Truncated>
-        {same && <SameNameLine note={same} />}
-        {/* 有新版本、但更新会换掉用户的修改：直接写出来，更新计划里它默认不勾。 */}
-        {pending(skill) && updateAvailable(skill) && skill.edited && (
-          <p className="update-edited-note truncate text-[10.5px] text-warn-strong" title={t.list.editedTitle}>
-            {t.list.edited}
-          </p>
-        )}
-        {/* 库里同名的几个技能(内容不同，不合并)写出各装在哪里，免得只能靠描述分辨。 */}
-        {/* 这里那一份是符号链接时写出指向哪里，和"不在技能库里"的一行一样。 */}
-        {identical?.link_target && (
-          <p className="identical-link truncate text-[10.5px] text-subtle" title={t.list.linkTitle(identical.link_target)}>
-            {t.list.link(shortPath(s, identical.link_target))}
-          </p>
-        )}
-        {twins.length > 0 && (
-          <p className="dup-name-note truncate text-[10.5px] text-muted-foreground" title={t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id))}>
-            {t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id))}
-          </p>
-        )}
       </div>
       <div className={cn("flex min-w-0", layout.where)}>
         {scope ? (
@@ -314,15 +293,18 @@ function useFlash(id: SkillID, scope: ScopeKey | undefined) {
   return ref;
 }
 
-// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时标黄。
+// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时用提醒的圆点(按最重的那一处的级别)和主要档的字标出，
+// 装着的用次要档，不抢技能名的注意力。
 function Where({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const t = useT().list;
   const w = installedSummary(s, skill.id);
+  const level = reinstallLevel(skillScopesOf(s, skill.id));
   return (
-    <span className="skill-where flex min-w-0 items-center gap-1.5 text-[11.5px]" title={w.title || undefined}>
-      {w.bad && <i className="size-1.5 shrink-0 rounded-full bg-warn" />}
-      <span className={cn("truncate", w.text ? "text-foreground-secondary" : "text-subtle", w.bad && "text-warn-strong")}>
+    // 圆点画在这一列左边的列间距里：有没有圆点，文字都从同一条线开始。
+    <span className="skill-where relative flex min-w-0 items-center text-caption" title={w.title || undefined}>
+      {level && <Dot tone={level} className="absolute top-1/2 -left-3 -translate-y-1/2" />}
+      <span className={cn("truncate", w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground")}>
         {w.text || t.notInstalled}
       </span>
     </span>
@@ -335,7 +317,7 @@ function Changed({ skill }: { skill: Skill }) {
   if (!c) return <span />;
   const recent = (Date.now() - c.date.getTime()) / 864e5 < recentDays;
   return (
-    <span className={cn("skill-changed truncate text-right text-[11px]", recent ? "text-foreground-secondary" : "text-subtle")} title={c.date.toLocaleString()}>
+    <span className={cn("skill-changed truncate text-right text-caption tabular-nums", recent ? "text-foreground-secondary" : "text-muted-foreground")} title={c.date.toLocaleString()}>
       {t.changed(c.kind, c.date)}
     </span>
   );
@@ -347,8 +329,8 @@ function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | 
   const t = useT().list;
   const text = fromGlobal ? t.fromGlobal : place ? t.hereState(place.direct, via) : t.notInstalled;
   return (
-    <span className="skill-state flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-      <span className={cn("min-w-0 truncate", !place && !fromGlobal && "text-subtle")} title={text}>
+    <span className="skill-state flex min-w-0 items-center gap-1.5 text-caption text-muted-foreground">
+      <span className="min-w-0 truncate" title={text}>
         {text}
       </span>
       {place && needsReinstall(place) && (
@@ -365,8 +347,9 @@ function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: 
   const t = useT().list;
   return (
     <Button
-      size="inline"
-      className={cn("take-over", rowButtonClass)}
+      size="sm"
+      variant="pill"
+      className="take-over"
       title={t.identicalHereTitle(name)}
       onClick={() => void fetchUnmanaged(identical)}
     >
@@ -378,12 +361,15 @@ function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: 
 // IdenticalState 是那一处的最后一列：不是 app 装的，接着写归谁管、是不是指向 Agent 目录以外(folderNotes);
 // 和库里的旧版本一样时标出来，下面是在文件管理器中显示。
 function IdenticalState({ identical, skill }: { identical: UnmanagedSkill; skill: Skill }) {
-  const { common } = useT();
+  const { common, list } = useT();
   const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
   const state = identicalState(skill, identical);
   return (
-    <div className="flex min-w-0 flex-col items-start gap-0.5">
-      <span className="skill-state identical-state flex max-w-full min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground" title={state.title}>
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span
+        className="skill-state identical-state flex min-w-0 items-center gap-1.5 text-caption text-muted-foreground"
+        title={identical.link_target ? `${state.title}\n${list.linkTitle(identical.link_target)}` : state.title}
+      >
         <span className="min-w-0 truncate">{state.text}</span>
         {state.stale && (
           <Badge tone={stale.tone} className="font-sans">
@@ -391,17 +377,24 @@ function IdenticalState({ identical, skill }: { identical: UnmanagedSkill; skill
           </Badge>
         )}
       </span>
-      <Button
-        variant="link"
-        className="reveal-folder shrink-0 font-sans text-[11px]"
+      <RevealButton
+        label={common.reveal()}
         onClick={(e) => {
           e.stopPropagation();
           void ui.run(() => AppService.RevealInFileManager(identical.folder), { reload: false });
         }}
-      >
-        {common.reveal()}
-      </Button>
+      />
     </div>
+  );
+}
+
+// RevealButton 是行尾的「在文件管理器中显示」:行高固定，只画文件夹图标，文字在悬停提示里(也留在 DOM 里给读屏)。
+function RevealButton({ label, onClick }: { label: string; onClick: (e: React.MouseEvent) => void }) {
+  return (
+    <Button variant="ghost" size="icon-sm" className="reveal-folder shrink-0" title={label} onClick={onClick}>
+      <Icon name="folder" />
+      <span className="sr-only">{label}</span>
+    </Button>
   );
 }
 
@@ -432,6 +425,13 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           : { text: t.notInLibrary, title: t.notInLibraryTitle },
     ...folderNotes(skill),
   ].filter((x) => !!x);
+  // 行高固定，来源和符号链接指向哪里不占一行：写在描述的悬停提示里，同一份留在 DOM 里给读屏(className 是测试钩子)。
+  // 没有描述时描述那一格直接写来源和链接(来源是怎么认出来的那句 detail 只在提示里),不留一块悬停不到的空白。
+  const notes = [
+    source && { text: t.from(source), className: "unmanaged-source-label" },
+    source && { text: found ? t.foundTitle(found) : t.recordedTitle(source), className: "unmanaged-source-how", detail: true },
+    skill.link_target && { text: t.link(shortPath(s, skill.link_target)), className: "unmanaged-status" },
+  ].filter((x): x is { text: string; className: string; detail?: boolean } => !!x);
   return (
     <article className={cn("unmanaged-row", rowClass, layouts.pickScope.cols)} data-name={skill.name}>
       <span className={span} />
@@ -440,8 +440,9 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           <TakeOverButton identical={skill} name={library.name} />
         ) : newer ? (
           <Button
-            size="inline"
-            className={cn("update-to-latest", rowButtonClass)}
+            size="sm"
+            variant="pill"
+            className="update-to-latest"
             title={t.sourceLatestOfTitle(newer.name)}
             onClick={() => void openUpdate(newer.collection_id, { focus: newer.id })}
           >
@@ -449,8 +450,9 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           </Button>
         ) : (
           <Button
-            size="inline"
-            className={cn("fetch-unmanaged", rowButtonClass)}
+            size="sm"
+            variant="pill"
+            className="fetch-unmanaged"
             title={t.fetchTitle}
             onClick={() => void fetchUnmanaged(skill)}
           >
@@ -459,38 +461,28 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         )}
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
-        <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold">{skill.name}</span>
+        <span className="unmanaged-name min-w-0 truncate text-body font-semibold">{skill.name}</span>
         {same && <SameNameBadge note={same} />}
       </div>
       <div className={cn("min-w-0", layouts.pickScope.desc)}>
-        <Truncated tip={skill.description}>
-          <p className="unmanaged-desc truncate text-[11.5px] text-muted-foreground">{skill.description}</p>
+        <Truncated always={notes.length > 0} tip={[skill.description, ...notes.map((x) => x.text)].filter(Boolean).join("\n")}>
+          <p className="unmanaged-desc truncate text-small text-muted-foreground">
+            {skill.description || notes.filter((x) => !x.detail).map((x) => x.text).join(" · ")}
+          </p>
         </Truncated>
-        {same && <SameNameLine note={same} />}
-        {source && (
-          <p className="unmanaged-source-label truncate text-[10.5px] text-muted-foreground" title={found ? t.foundTitle(found) : t.recordedTitle(source)}>
-            {t.from(source)}
+        {notes.map((x) => (
+          <p key={x.className} className={cn(x.className, "sr-only")}>
+            {x.text}
           </p>
-        )}
-        {skill.link_target && (
-          <p className="unmanaged-status truncate text-[10.5px] text-subtle" title={t.linkTitle(skill.link_target)}>
-            {t.link(shortPath(s, skill.link_target))}
-          </p>
-        )}
+        ))}
       </div>
-      <div className={cn("flex min-w-0 flex-col items-start gap-0.5", span)}>
+      <div className={cn("flex min-w-0 items-center gap-1.5", span)}>
         {state.length > 0 && (
-          <span className="skill-state unmanaged-state max-w-full min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
+          <span className="skill-state unmanaged-state min-w-0 truncate text-caption text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
             {state.map((x) => x.text).join(" · ")}
           </span>
         )}
-        <Button
-          variant="link"
-          className="reveal-folder shrink-0 font-sans text-[11px]"
-          onClick={() => void ui.run(() => AppService.RevealInFileManager(skill.folder), { reload: false })}
-        >
-          {common.reveal()}
-        </Button>
+        <RevealButton label={common.reveal()} onClick={() => void ui.run(() => AppService.RevealInFileManager(skill.folder), { reload: false })} />
       </div>
     </article>
   );

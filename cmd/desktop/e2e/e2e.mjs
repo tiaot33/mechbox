@@ -1456,12 +1456,13 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     fs.mkdirSync(path.join(kit, name), { recursive: true });
     fs.writeFileSync(path.join(kit, name, "SKILL.md"), doc(name, "v1"));
   }
-  const folders = { "kit-a": doc("kit-a", "v1"), "kit-b": doc("kit-b", "edited"), "kit-c": doc("kit-c", "mine") };
+  // kit-d 的 SKILL.md 没有描述，来源记录里有来源。
+  const folders = { "kit-a": doc("kit-a", "v1"), "kit-b": doc("kit-b", "edited"), "kit-c": doc("kit-c", "mine"), "kit-d": "---\nname: kit-d\n---\nno description\n" };
   for (const [name, content] of Object.entries(folders)) {
     fs.mkdirSync(path.join(claudeGlobal, name), { recursive: true });
     fs.writeFileSync(path.join(claudeGlobal, name, "SKILL.md"), content);
   }
-  const records = { version: 3, skills: Object.fromEntries(["kit-a", "kit-b"].map((name) => [name, { source: kit, sourceType: "local", sourceUrl: kit, skillFolderHash: "" }])) };
+  const records = { version: 3, skills: Object.fromEntries(["kit-a", "kit-b", "kit-d"].map((name) => [name, { source: kit, sourceType: "local", sourceUrl: kit, skillFolderHash: "" }])) };
   fs.writeFileSync(path.join(HOME, ".agents", ".skill-lock.json"), JSON.stringify(records));
   await refocus();
   await settle();
@@ -1470,12 +1471,17 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await selectScope("Claude Code");
     await unmanaged("kit-a").waitFor();
     assert.equal(await unmanaged("kit-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
-    // 行首的「入库」和来源都要能看全。
+    // 行首的「入库」要能看全;行高固定，来源不占一行，写在描述的悬停提示里(提示和上面核对的留在 DOM 里的那一份由同一份数据生成)。
     const clipped = (el) => el.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
     assert(!(await clipped(unmanaged("kit-a").locator(".fetch-unmanaged"))), "「入库」没被截断");
-    assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-source-label"))), "来源没被截断");
+    // 每一行一样高：有来源的和没有来源的行高相同。
+    const rowHeight = (name) => unmanaged(name).evaluate((e) => e.getBoundingClientRect().height);
+    assert.equal(await rowHeight("kit-a"), await rowHeight("kit-c"), "有没有来源，行高都一样");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-source-label.png") });
     assert((await unmanaged("kit-c").locator(".unmanaged-source-label").count()) === 0, "认不出的不写来源");
+    // 没有描述的：描述那一格直接写来源，不留一块悬停不到的空白。
+    assert.equal(await unmanaged("kit-d").locator(".unmanaged-desc").textContent(), `来自 ${kit}`, "没有描述时描述那一格写来源");
+    assert((await unmanaged("kit-d").locator(".unmanaged-desc").evaluate((e) => e.getBoundingClientRect().height)) > 0, "没有描述的行也有能悬停的地方");
 
     await btn(unmanaged("kit-a"), "入库").click();
     await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「kit-a」" }).waitFor();
@@ -1519,7 +1525,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
       await toast("已移除");
       await settle();
     }
-    for (const name of ["kit-a", "kit-b", "kit-c"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
+    for (const name of ["kit-a", "kit-b", "kit-c", "kit-d"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
     fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
     await refocus();
     await settle();
@@ -1546,7 +1552,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
     await selectScope("Claude Code");
     const label = unmanaged("found-a").locator(".unmanaged-source-label", { hasText: `来自 ${site}` });
     await label.waitFor({ timeout: 20000 });
-    assert((await label.getAttribute("title")).includes("在 skills.sh 上找到的同名技能"), "悬停提示写明是在 skills.sh 上找到的");
+    assert((await unmanaged("found-a").locator(".unmanaged-source-how").textContent()).includes("在 skills.sh 上找到的同名技能"), "悬停提示写明是在 skills.sh 上找到的");
     await unmanaged("found-b").waitFor();
     assert((await unmanaged("found-b").locator(".unmanaged-source-label").count()) === 0, "只是同名、内容不同的不写来源");
 
@@ -1600,9 +1606,11 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     fs.writeFileSync(path.join(folder, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
   }
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const sameNameTip = '.same-name-badge [data-slot="badge-tip"]';
   const note = async (item) => {
     assert((await item.locator(".same-name-badge").count()) === 1, "应标同名");
-    return (await item.locator(".same-name-note").textContent()).trim();
+    // 同名的后果写在圆点的悬停提示里;提示里显示的和留在 DOM 里的是同一份，第一行是后果，后面是哪个文件夹。
+    return (await item.locator(sameNameTip).textContent()).split("\n")[0].trim();
   };
   try {
     await refocus();
@@ -1610,7 +1618,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
 
     // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
     await selectScope("Claude Code", "proj-a");
-    await card("gamma").locator(".same-name-note").waitFor();
+    await card("gamma").locator(sameNameTip).waitFor();
     assert.equal(await note(card("gamma")), "全局也有 gamma（不在技能库里），Claude Code 用全局的那个，这里的不会生效");
     assert.equal(await note(unmanaged("alpha")), "全局也有 alpha（库装的），Claude Code 用全局的那个，这里的不会生效");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
@@ -1626,14 +1634,14 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     await idle();
 
     await selectScope("Claude Code");
-    await card("alpha").locator(".same-name-note").waitFor();
+    await card("alpha").locator(sameNameTip).waitFor();
     assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
     assert.equal(await note(unmanaged("gamma")), "项目「proj-a」里也有 gamma，Claude Code 在那里用全局的这个");
     assert((await card("npx-tool").locator(".same-name-badge").count()) === 0, "Claude Code 的项目里没有 npx-tool,不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-global.png") });
 
     await selectScope("Codex", "proj-a");
-    await unmanaged("vendored-npx").locator(".same-name-note").waitFor();
+    await unmanaged("vendored-npx").locator(sameNameTip).waitFor();
     assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool（库装的），Codex 里两份都会出现");
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
@@ -1776,10 +1784,18 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await checkUpdates("1 个技能有新版本");
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
-  assert((await card("delta").locator('[data-slot="badge"][data-tone="warn"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
+  assert((await card("delta").locator('[data-slot="badge"][data-tone="info"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
+  // 名字后面的提醒圆点是按钮：键盘聚焦后按回车，打开这个技能所在集合的更新计划。
+  await card("delta").locator('button[data-slot="alert-dot"]').focus();
+  await page.keyboard.press("Enter");
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "更新" }).waitFor();
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
-  await row.locator(".update-risk", { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  // 读出风险的那一行，「更新」退回普通按钮，不比风险标签抢眼。
+  assert.equal(await row.locator(".update-direct").getAttribute("data-variant"), "default", "有风险的来源，「更新」不是绿胶囊");
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
   assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
@@ -2195,7 +2211,7 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新 pair.zip" }).waitFor();
   assert(await planRow("update-skill", "eta").locator("input[type=checkbox]").isChecked(), "eta 应勾上");
   await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化（theta）" }).waitFor();
-  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
+  await modal().locator('[data-slot="notice"][data-alert]', { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
   await btn(modal(), "更新 1 个").click();
   await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
@@ -2252,7 +2268,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await updatesNav().click();
   const row = page.locator(".update-row", { hasText: "trio.zip" });
   await row.getByText("lambda 可能改名为 lambda-kit", { exact: false }).waitFor();
-  await row.locator(".update-risk", { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "查看").click();
   await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
   await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
@@ -2949,7 +2965,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", fold_collections: "false", fold_below: "3", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", fold_collections: "false", fold_below: "3", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
@@ -2965,29 +2981,18 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await interval("每天").click();
   await settle();
 
-  // 外观：浅色、深色各存一个毛玻璃浓度。选深色、把深色的浓度调到 0,重新载入后仍是深色、浓度仍是深色的 0,
-  // 不被浅色的值(1)盖掉;之后改回跟随系统、深色浓度 100%。
-  const glassTint = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--glass-tint").trim());
-  const tintSlider = section("通用").getByRole("slider", { name: "毛玻璃浓度" });
+  // 外观：选深色，重新载入后仍是深色;设置里没有毛玻璃浓度这一项。之后改回跟随系统。
+  assert.equal(await section("通用").getByRole("slider").count(), 0, "设置里不应再有毛玻璃浓度的滑块");
   await btn(section("通用").locator(".appearance-row"), "深色").click();
   await settle();
-  await tintSlider.focus();
-  await page.keyboard.press("Home");
-  await settle();
   assert.equal(appConfig().appearance, "dark", "外观应保存为深色");
-  assert.equal(appConfig().glass_tint_dark, "0", "深色的浓度应保存为 0");
-  assert.equal(appConfig().glass_tint, "1", "浅色的浓度不应跟着变");
   await page.reload();
   await page.waitForSelector(".a-list");
   await page.waitForTimeout(400);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark", "重新载入后应仍是深色");
-  assert.equal(await glassTint(), "0", "重新载入后毛玻璃应用深色的浓度，不被浅色的盖掉");
   await open();
-  for (let i = 0; i < 20; i++) await tintSlider.press("ArrowRight");
-  await settle();
   await btn(section("通用").locator(".appearance-row"), "跟随系统").click();
   await settle();
-  assert.equal(appConfig().glass_tint_dark, "1", "深色的浓度应改回 100%");
   assert.equal(appConfig().appearance, undefined, "跟随系统时不存外观");
 
   // 项目分区：登记、改位置、注销走主界面同一套弹窗
@@ -3099,7 +3104,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await page.waitForSelector(".a-list");
   await sidebarSays("推送失败", "重新载入后侧栏应仍显示推送失败");
   await sidebarSync().click();
-  assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
+  assert((await modal().locator('[data-slot="notice"][data-alert]', { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
   await modal().locator('[data-slot="notice"]', { hasText: "推送失败，S3 上没有新备份" }).waitFor({ timeout: 5000 }).catch(() => assert.fail("同步弹窗应写出上一次推送失败的原因"));
   await btn(modal(), "从 S3 拉回…").click();
   await toast("", "error");
@@ -3456,7 +3461,7 @@ await step("组安装遇到外来文件夹：选择跳过，结果列出被跳�
   fs.mkdirSync(path.join(dir, "delta"), { recursive: true });
   fs.writeFileSync(path.join(dir, "delta", "x.txt"), "hand made");
   await page.locator(".gchip", { hasText: "前端调试" }).click();
-  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "delta" }).waitFor();
+  await modal().locator('[data-slot="notice"][data-alert]', { hasText: "delta" }).waitFor();
   await modal().locator('[data-slot="choice"]', { hasText: "跳过这些成员" }).click();
   await btn(modal(), "安装").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "组安装「前端调试」" }).waitFor();
@@ -3509,7 +3514,8 @@ await step("项目目录被移走 → 标记不在这台机器上 → 改项目�
   await refocus();
   await settle();
   const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-  await row.locator('[data-slot="badge"]', { hasText: "不在这台机器上" }).waitFor();
+  // 作用域栏很窄：只画「严重」一级的图标，「不在这台机器上」留在 DOM 里、写在悬停提示里。
+  await row.locator('.proj-missing[data-tone="critical"]', { hasText: "不在这台机器上" }).waitFor();
   await row.hover();
   await row.locator(".row-actions button[title='改项目位置']").click();
   await modal().locator('[data-slot="input"]').fill(`${HOME}/code/proj-b-moved`);
@@ -3518,7 +3524,7 @@ await step("项目目录被移走 → 标记不在这台机器上 → 改项目�
   await settle();
   const moved = page.locator(".a-right .nav-item.proj", { hasText: "proj-b-moved" });
   assert((await moved.count()) === 1, "项目名应随新位置变化");
-  assert((await moved.locator('[data-slot="badge"]', { hasText: "不在这台机器上" }).count()) === 0, "改位置后不应再标不在这台机器上");
+  assert((await moved.locator(".proj-missing").count()) === 0, "改位置后不应再标不在这台机器上");
 });
 
 await step("注销项目(删除项目里已安装的文件夹)", async () => {

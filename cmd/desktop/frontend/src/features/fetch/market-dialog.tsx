@@ -11,7 +11,7 @@ import { SearchInput } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { FetchReview } from "./fetch-review";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 
 export function MarketDialog({ onClose }: { onClose: () => void }) {
   const ui = useUI();
@@ -65,17 +65,17 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="text-[13px] font-semibold text-foreground hover:text-primary-ink"
+                      className="text-body font-semibold text-foreground hover:text-primary hover:underline"
                       title={t.viewOnSite(s.name)}
                       onClick={() => void Browser.OpenURL(s.detail_url)}
                     >
                       {s.name}
                     </button>
-                    {s.installs != null && <span className="text-[11px] text-muted-foreground">{t.installs(s.installs)}</span>}
+                    {s.installs != null && <span className="text-caption text-muted-foreground">{t.installs(s.installs)}</span>}
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">{s.preview.input}</div>
+                  <div className="truncate font-mono text-caption text-muted-foreground">{s.preview.input}</div>
                 </div>
-                <Button size="sm" variant="primary" disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
+                <Button disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
                   {t.fetch}
                 </Button>
               </ListRow>

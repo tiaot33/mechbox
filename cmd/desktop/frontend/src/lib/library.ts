@@ -40,7 +40,7 @@ export function toLibraryError(err: unknown): LibraryError {
 }
 
 // Snapshot 是主界面一次读出的全部只读数据;agentsShown、autoTranslate、foldCollections、foldBelow 来自应用设置，其余来自技能库。
-// 外观与毛玻璃浓度不在这里，由 lib/theme.ts 按设置写到根元素上。
+// 外观不在这里，由 lib/theme.ts 按设置写到根元素上。
 export interface Snapshot {
   info: AppInfo;
   agents: Agent[];

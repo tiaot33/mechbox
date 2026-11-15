@@ -678,7 +678,6 @@ export const zh = {
     sectionMore: "更多操作",
     expandSection: "展开这一节",
     collapseSection: "收起这一节",
-    updateCount: (n: number) => `更新 ${n} 个`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent} 全局目录里有 ${n} 个技能`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} 在 ${project} 里能用 ${n} 个技能`,
     sectionGlobal: "来自全局",
@@ -918,10 +917,6 @@ export const zh = {
     appearance: "外观",
     light: "浅色",
     dark: "深色",
-    glassTint: "毛玻璃浓度",
-    glassTintDesc: (dark: boolean) =>
-      `弹窗、抽屉、菜单、操作栏和提示的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
-    glassTintOpaque: "系统要求减少透明度或用了高对比度主题，毛玻璃现在显示为不透明的底，这一项不起作用。",
     wslDistro: "全局目录",
     wslDistroDesc:
       "各 Agent 的全局目录在哪。选了 WSL 发行版时换成发行版主目录下的目录；之前装在 Windows 本机全局目录里的技能留在原处，不再管。",

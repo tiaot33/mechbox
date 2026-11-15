@@ -721,7 +721,6 @@ export const en = {
     sectionMore: "More actions",
     expandSection: "Expand this section",
     collapseSection: "Collapse this section",
-    updateCount: (n: number) => `Update ${n}`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent}'s global directory has ${count(n, "skill")}`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} can use ${count(n, "skill")} in ${project}`,
     sectionGlobal: "From global",
@@ -977,11 +976,6 @@ export const en = {
     appearance: "Appearance",
     light: "Light",
     dark: "Dark",
-    glassTint: "Glass tint",
-    glassTintDesc: (dark: boolean) =>
-      `How dense the background of dialogs, drawers, menus, the selection bar and notifications is. Further left is clearer, down to just the blur, the edge and the shadow; further right is more opaque. Light and dark appearance each keep their own value; this adjusts the ${dark ? "dark" : "light"} one.`,
-    glassTintOpaque:
-      "Your system is set to reduce transparency or uses a contrast theme, so glass surfaces are shown opaque and this setting has no effect.",
     followSystem: "System",
     wslDistro: "Global directories",
     wslDistroDesc:

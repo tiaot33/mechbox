@@ -215,6 +215,7 @@ export interface ReleaseStatus {
  * Settings 是设置页里的应用设置。WSLDistro 存在技能库里、只属于这台机器(Library.SetWSLDistro);
  * 其余各项是技能库数据库里的应用设置(Library.AppSettings),和库里其他内容一样随推送、拉回走。
  * 加设置项就是加字段并在 appValues / settingsFrom 里加一项;数据库里没有的项取 defaultSettings 的值。
+ * 去掉的设置项(如原来的毛玻璃浓度 glass_tint、glass_tint_dark)留在旧数据库里时读的时候不认，下次保存整组替换时就没了。
  */
 export interface Settings {
     /**
@@ -251,17 +252,6 @@ export interface Settings {
      * 外观(浅色、深色);空字符串跟随系统
      */
     "appearance"?: Appearance;
-
-    /**
-     * GlassTint 是浅色外观下浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的底色浓度上:
-     * 1 是设计的样子,0 只剩模糊、边缘与阴影，最大 1.5。
-     */
-    "glass_tint": number;
-
-    /**
-     * GlassTintDark 是深色外观下的毛玻璃浓度，取值与 GlassTint 相同。
-     */
-    "glass_tint_dark": number;
 
     /**
      * WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。

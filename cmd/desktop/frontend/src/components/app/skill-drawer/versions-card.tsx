@@ -44,23 +44,23 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
       {/* 各行按列对齐：每行固定六格，没有的留空，"当前"和"与当前比较"占同一格。 */}
       <ol className="versions grid grid-cols-[auto_auto_auto_minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1.5">
         {list.map((v) => (
-          <li key={v.id} className="col-span-full grid grid-cols-subgrid items-center text-xs">
-            <span className="font-medium">{t.versionN(number.get(v.id))}</span>
+          <li key={v.id} className="col-span-full grid grid-cols-subgrid items-center text-body">
+            <span className="font-semibold">{t.versionN(number.get(v.id))}</span>
             <span>{formatDate(v.created_at)}</span>
             {/* 用目录里的修改更新进来的版本沿用所基于版本的来源版本，再写一遍像是没变：不写，说明占这两格。 */}
-            {!v.based_on && <span className="font-mono text-[11px] text-muted-foreground">{v.revision?.slice(0, 12)}</span>}
+            {!v.based_on && <span className="font-mono text-caption text-muted-foreground">{v.revision?.slice(0, 12)}</span>}
             {/* 放不下时截断，悬停看全。 */}
-            <span className={cn("truncate text-[11px] text-muted-foreground", v.based_on && "col-span-2")} title={notes(v).join(" ")}>
+            <span className={cn("truncate text-caption text-muted-foreground", v.based_on && "col-span-2")} title={notes(v).join(" ")}>
               {notes(v).join(" ")}
             </span>
             {v.id === currentID ? (
-              <Badge tone="ok" className="justify-self-start">{t.current}</Badge>
+              <Badge className="justify-self-start">{t.current}</Badge>
             ) : (
-              <Button variant="link" className="justify-self-start" onClick={(e) => void compare(v, e.currentTarget)}>
+              <Button variant="ghost" size="inline" className="justify-self-start" onClick={(e) => void compare(v, e.currentTarget)}>
                 {t.compare}
               </Button>
             )}
-            <Button variant="link" onClick={() => view(v)}>
+            <Button variant="ghost" size="inline" onClick={() => view(v)}>
               {t.viewFiles}
             </Button>
           </li>
@@ -69,7 +69,7 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
       {viewing && (
         <div className="mt-2 flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
-            <b className="text-[11px]">{t.versionFiles(number.get(viewing.id))}</b>
+            <b className="text-caption">{t.versionFiles(number.get(viewing.id))}</b>
             <NativeSelect value={viewPath} onChange={(e) => setViewPath(e.target.value)}>
               {viewing.files.map((f) => (
                 <option key={f.path} value={f.path}>
@@ -78,7 +78,7 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
               ))}
             </NativeSelect>
             <span className="grow" />
-            <Button variant="link" onClick={() => setViewing(null)}>
+            <Button variant="ghost" size="inline" onClick={() => setViewing(null)}>
               {t.collapse}
             </Button>
           </div>

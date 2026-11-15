@@ -129,12 +129,12 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           {c.fetched ? (
             <Badge title={t.alreadyTitle}>{t.already}</Badge>
           ) : c.new ? (
-            <Badge tone="accent" title={t.newTitle}>
+            <Badge tone="info" title={t.newTitle}>
               {t.new}
             </Badge>
           ) : null}
-          <span className="min-w-0 grow truncate font-mono text-[11px] text-muted-foreground">{rel !== c.name ? rel : ""}</span>
-          {c.plugin_name && <span className="shrink-0 text-[11px] text-subtle">{c.plugin_name}</span>}
+          <span className="min-w-0 grow truncate font-mono text-caption text-muted-foreground">{rel !== c.name ? rel : ""}</span>
+          {c.plugin_name && <span className="shrink-0 text-caption text-muted-foreground">{c.plugin_name}</span>}
           {github && <Audit previewID={preview.id} candidate={c} />}
         </label>
       </ListRow>
@@ -148,9 +148,9 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onBack}>{t.back}</Button>
+          <Button disabled={fetching !== null} onClick={onBack}>{t.back}</Button>
           <span className="grow" />
-          <span className="text-[11px] text-muted-foreground">{t.selected(selected.size, fresh.length)}</span>
+          <span className="text-caption text-muted-foreground">{t.selected(selected.size, fresh.length)}</span>
           <Button
             variant="primary"
             ripple
@@ -164,9 +164,9 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
         </>
       }
     >
-      <div className="fetch-source flex min-w-0 items-center gap-2 text-xs">
+      <div className="fetch-source flex min-w-0 items-center gap-2 text-body">
         <span className="shrink-0 text-muted-foreground">{t.recognizedAs}</span>
-        <Badge tone="accent" className="shrink-0">
+        <Badge className="shrink-0">
           {sourceKindName(preview.source.type) ?? preview.source.type}
         </Badge>
         <span className="min-w-0 truncate font-mono" title={preview.source.label}>
@@ -176,18 +176,18 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
         {preview.source.ref && <span className="shrink-0 text-muted-foreground">{t.branch(preview.source.ref)}</span>}
       </div>
       {tokenMissing && (
-        <Notice tone="warn">{t.noToken}</Notice>
+        <Notice alert>{t.noToken}</Notice>
       )}
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-2 text-caption text-muted-foreground">
         <span>
           {t.candidates(candidates.length)}
           {preview.revision ? ` · ${preview.revision.slice(0, 12)}` : ""}
         </span>
         <span className="grow" />
-        <Button variant="link" onClick={() => setSelected(new Set(fresh.map((c) => c.name)))}>
+        <Button variant="ghost" size="inline" onClick={() => setSelected(new Set(fresh.map((c) => c.name)))}>
           {t.selectAll}
         </Button>
-        <Button variant="link" onClick={() => setSelected(new Set())}>
+        <Button variant="ghost" size="inline" onClick={() => setSelected(new Set())}>
           {t.selectNone}
         </Button>
       </div>
@@ -205,7 +205,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           )}
         </ListBox>
       ) : (
-        <Notice tone="warn">{t.noCandidates}</Notice>
+        <Notice alert>{t.noCandidates}</Notice>
       )}
       <Diagnostics
         summary={t.diagnostics(preview.diagnostics?.length)}
@@ -230,7 +230,7 @@ function GroupHeader({
   const fresh = members.filter((c) => !c.fetched);
   const picked = fresh.filter((c) => selected.has(c.name)).length;
   return (
-    <label className="sticky top-0 z-1 flex cursor-pointer items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary first:border-t-0">
+    <label className="sticky top-0 z-1 flex cursor-pointer items-center gap-1.5 border-t border-row-line bg-panel px-2.5 py-1 text-caption font-semibold text-foreground-secondary first:border-t-0">
       <input
         type="checkbox"
         className="accent-primary"
@@ -261,7 +261,7 @@ function Audit({ previewID, candidate }: { previewID: FetchPreviewID; candidate:
   };
   if (audit === undefined) {
     return (
-      <button type="button" className="shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary-ink" onClick={load}>
+      <button type="button" className="shrink-0 text-caption whitespace-nowrap text-muted-foreground hover:text-foreground" onClick={load}>
         {t.viewAudit}
       </button>
     );

@@ -119,7 +119,7 @@ function ReleaseDialog({ release: opened, onClose }: { release: Release; onClose
       onClose={close}
       footer={
         <>
-          {progressText && <span className="release-status mr-auto text-[11px] text-muted-foreground">{progressText}</span>}
+          {progressText && <span className="release-status mr-auto text-caption text-muted-foreground">{progressText}</span>}
           <Button onClick={close} disabled={locked}>
             {installing ? t.stop : t.later}
           </Button>
@@ -141,9 +141,9 @@ function ReleaseDialog({ release: opened, onClose }: { release: Release; onClose
       ) : (
         <Hint>{t.noNotes}</Hint>
       )}
-      {failed?.version === release.version && <Notice tone="warn">{t.lastFailed(failed.version, failed.reason ?? "")}</Notice>}
-      {manual ? <Notice tone="warn">{manual}</Notice> : <Hint>{platform() === "windows" ? t.uac : t.restartNote}</Hint>}
-      {error && <Notice tone="bad" className="whitespace-pre-line select-text">{error}</Notice>}
+      {failed?.version === release.version && <Notice alert>{t.lastFailed(failed.version, failed.reason ?? "")}</Notice>}
+      {manual ? <Notice alert>{manual}</Notice> : <Hint>{platform() === "windows" ? t.uac : t.restartNote}</Hint>}
+      {error && <Notice alert className="whitespace-pre-line select-text">{error}</Notice>}
     </Modal>
   );
 }
@@ -189,7 +189,7 @@ export function ReleaseCheck() {
   return (
     <div className="release-check flex flex-col items-start gap-1.5">
       <div className="flex items-center gap-2">
-        <Button size="sm" loading={checking} disabled={checking} onClick={() => void check()}>
+        <Button loading={checking} disabled={checking} onClick={() => void check()}>
           {checking ? t.checking : t.check}
         </Button>
         {latest ? (
@@ -203,7 +203,7 @@ export function ReleaseCheck() {
           checked && !error && <span className="release-up-to-date text-muted-foreground">{t.upToDate}</span>
         )}
       </div>
-      {error && <Notice tone="bad" className="whitespace-pre-line select-text">{error}</Notice>}
+      {error && <Notice alert className="whitespace-pre-line select-text">{error}</Notice>}
     </div>
   );
 }

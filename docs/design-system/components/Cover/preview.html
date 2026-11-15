@@ -1,0 +1,45 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Mechbox</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--tile); color:var(--foreground); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .pane { rx:var(--radius-tile); }
+  .ink { fill:var(--solid); }
+  .green { fill:var(--primary); }
+  .tint { fill:var(--primary-soft); }
+  .dot { fill:var(--on-primary); }
+  .words { position:absolute; left:24px; bottom:24px; max-width:440px; }
+  .name { margin:0; font-size:100px; line-height:.9; font-weight:600; letter-spacing:-.02em; color:var(--foreground); }
+  .tag { margin:var(--space-12) 0 0 var(--space-4); font-size:13px; line-height:18px; color:var(--muted-foreground); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      primary 216×278 bled off the top (the one hue, largest) · solid 104×168 (black; white in dark) · primary-soft 128×216 bleeding off the right edge (the selected-row tint) — about 37% of 960×288
+  arrangement the app's three panes side by side with pane-gap (8px) gutters, bottoms on one line 24px above the edge, tops staggered
+  pattern     dot grid, from "标识符用等宽" and the fixed spacing scale: 8×6 dots at a space-16 pitch cut into the centre pane in on-primary
+  scales      sides in space-8 multiples; gutters pane-gap; pitch space-16; dot radius space-2; corners radius-tile
+-->
+<rect class="ink pane" x="16" y="96" width="104" height="168" rx="14"/>
+<rect class="green pane" x="128" y="-14" width="216" height="278" rx="14"/>
+<rect class="tint pane" x="352" y="48" width="160" height="216" rx="14"/>
+<circle class="dot" cx="152" cy="152" r="2"/><circle class="dot" cx="168" cy="152" r="2"/><circle class="dot" cx="184" cy="152" r="2"/><circle class="dot" cx="200" cy="152" r="2"/><circle class="dot" cx="216" cy="152" r="2"/><circle class="dot" cx="232" cy="152" r="2"/><circle class="dot" cx="248" cy="152" r="2"/><circle class="dot" cx="264" cy="152" r="2"/><circle class="dot" cx="152" cy="168" r="2"/><circle class="dot" cx="168" cy="168" r="2"/><circle class="dot" cx="184" cy="168" r="2"/><circle class="dot" cx="200" cy="168" r="2"/><circle class="dot" cx="216" cy="168" r="2"/><circle class="dot" cx="232" cy="168" r="2"/><circle class="dot" cx="248" cy="168" r="2"/><circle class="dot" cx="264" cy="168" r="2"/><circle class="dot" cx="152" cy="184" r="2"/><circle class="dot" cx="168" cy="184" r="2"/><circle class="dot" cx="184" cy="184" r="2"/><circle class="dot" cx="200" cy="184" r="2"/><circle class="dot" cx="216" cy="184" r="2"/><circle class="dot" cx="232" cy="184" r="2"/><circle class="dot" cx="248" cy="184" r="2"/><circle class="dot" cx="264" cy="184" r="2"/><circle class="dot" cx="152" cy="200" r="2"/><circle class="dot" cx="168" cy="200" r="2"/><circle class="dot" cx="184" cy="200" r="2"/><circle class="dot" cx="200" cy="200" r="2"/><circle class="dot" cx="216" cy="200" r="2"/><circle class="dot" cx="232" cy="200" r="2"/><circle class="dot" cx="248" cy="200" r="2"/><circle class="dot" cx="264" cy="200" r="2"/><circle class="dot" cx="152" cy="216" r="2"/><circle class="dot" cx="168" cy="216" r="2"/><circle class="dot" cx="184" cy="216" r="2"/><circle class="dot" cx="200" cy="216" r="2"/><circle class="dot" cx="216" cy="216" r="2"/><circle class="dot" cx="232" cy="216" r="2"/><circle class="dot" cx="248" cy="216" r="2"/><circle class="dot" cx="264" cy="216" r="2"/><circle class="dot" cx="152" cy="232" r="2"/><circle class="dot" cx="168" cy="232" r="2"/><circle class="dot" cx="184" cy="232" r="2"/><circle class="dot" cx="200" cy="232" r="2"/><circle class="dot" cx="216" cy="232" r="2"/><circle class="dot" cx="232" cy="232" r="2"/><circle class="dot" cx="248" cy="232" r="2"/><circle class="dot" cx="264" cy="232" r="2"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Mechbox</h1>
+<p class="tag">界面只用黑、白、绿。</p>
+</div>
+</div>
+</body>
+</html>

@@ -17,19 +17,16 @@ import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 
-// AgentMark 是 Agent 图标：白底方块里画按名字认出的品牌图标;认不出时画机器人，按代码稳定取色,Agent 再多也分得开。
-// 还没有代码(添加 Agent 时的预览)且认不出时用灰色，保存后才有颜色。
-export function AgentMark({ code, name, className }: { code?: AgentCode; name: string; className?: string }) {
+// AgentMark 是 Agent 图标：白底方块里画按名字认出的品牌图标(保留品牌原色);认不出时画灰色的机器人。
+export function AgentMark({ name, className }: { name: string; className?: string }) {
   const brand = agentBrand(name);
-  let hue = 0;
-  for (const c of code ?? "") hue = (hue * 31 + c.charCodeAt(0)) % 360;
   return (
     <span
       title={name}
-      className={cn("inline-grid size-3.5 shrink-0 place-items-center overflow-hidden rounded bg-mark", className)}
-      style={{ color: brand ? ("color" in brand ? brand.color : undefined) : code ? `hsl(${hue} 55% 45%)` : "var(--color-subtle)" }}
+      className={cn("inline-grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-[4px] bg-mark", className)}
+      style={{ color: brand ? ("color" in brand ? brand.color : undefined) : "var(--color-subtle)" }}
     >
       {!brand ? (
         <Bot />
@@ -66,11 +63,11 @@ function Bot() {
 export function PlaceAgentMark({ code, place, className }: { code: AgentCode; place: Place; className?: string }) {
   const s = useSnapshot();
   const named = place ? projectNamed(s, code) : [];
-  if (!named.length) return <AgentMark code={code} name={agentName(s, code)} className={className} />;
+  if (!named.length) return <AgentMark name={agentName(s, code)} className={className} />;
   return (
     <span className="inline-flex shrink-0 -space-x-1" title={projectFolderNote(s, code, place)}>
       {named.slice(0, 3).map((a) => (
-        <AgentMark key={a.code} code={a.code} name={a.name} className={cn("ring-[1.5px] ring-mark-ring", className)} />
+        <AgentMark key={a.code} name={a.name} className={cn("ring-[1.5px] ring-panel", className)} />
       ))}
     </span>
   );
@@ -80,7 +77,7 @@ export function Count({ value, className }: { value: number; className?: string 
   return (
     <span
       data-slot="count"
-      className={cn("min-w-5 shrink-0 rounded-[5px] bg-fill px-[5px] text-center font-mono text-[10.5px] text-muted-foreground", className)}
+      className={cn("min-w-5 shrink-0 rounded-pill bg-count px-[5px] text-center text-caption text-muted-foreground tabular-nums", className)}
     >
       {value}
     </span>
@@ -190,13 +187,13 @@ export function Diagnostics({ summary, items }: { summary: string; items: { key:
   if (!items.length) return null;
   return (
     <details>
-      <summary className="cursor-pointer text-[11px] text-muted-foreground">{summary}</summary>
+      <Summary className="text-caption text-muted-foreground">{summary}</Summary>
       <ListBox className="mt-1.5">
         {items.map((d) => (
           <ListRow key={d.key}>
-            <span className="font-mono text-[11px]">{d.key}</span>
+            <span className="font-mono text-caption">{d.key}</span>
             <span className="grow" />
-            <span className="text-[11px] text-muted-foreground">{d.reason}</span>
+            <span className="text-caption text-muted-foreground">{d.reason}</span>
           </ListRow>
         ))}
       </ListBox>
@@ -204,7 +201,17 @@ export function Diagnostics({ summary, items }: { summary: string; items: { key:
   );
 }
 
-// Chip 是带 × 的小胶囊(技能所属的组、组安装到的作用域),点 × 移除。
+// Summary 是 <details> 的标题行：不用浏览器默认的三角，换成和别处展开收起一样的箭头(展开时转向下)。
+export function Summary({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <summary className={cn("flex w-fit cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden", className)}>
+      <Icon name="chev" className="size-2.5 shrink-0 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90" />
+      {children}
+    </summary>
+  );
+}
+
+// Chip 是带 × 的小标签(技能所属的组、组安装到的作用域),点 × 移除;和「要处理」的标签一样是中性的：浅色下细边，深色下半透明的浅底。
 export function Chip({
   children,
   onRemove,
@@ -220,12 +227,12 @@ export function Chip({
     <span
       data-slot="chip"
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-full border border-border bg-control px-[9px] text-[11.5px] whitespace-nowrap text-foreground-secondary",
-        small && "h-5 pr-[7px] pl-[3px] text-[11px]",
+        "inline-flex h-6 items-center gap-1 rounded-control border border-tag-border bg-tag px-2 text-caption whitespace-nowrap text-foreground-secondary",
+        small && "h-5 pr-1.5 pl-[3px]",
       )}
     >
       {children}
-      <button type="button" className="text-[13px] leading-none text-subtle hover:text-foreground" title={removeTitle} onClick={onRemove}>
+      <button type="button" className="text-body leading-none text-muted-foreground hover:text-foreground" title={removeTitle} onClick={onRemove}>
         ×
       </button>
     </span>

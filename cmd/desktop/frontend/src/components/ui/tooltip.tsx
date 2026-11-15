@@ -24,7 +24,7 @@ function TooltipContent({ className, sideOffset = 6, ...props }: ComponentProps<
         sideOffset={sideOffset}
         collisionPadding={8}
         className={cn(
-          "z-50 max-w-[360px] animate-pop-in glass glass-clear rounded-lg border px-2.5 py-1.5 text-[11.5px] leading-[1.45] whitespace-pre-line text-foreground select-text [--glass-drop:var(--shadow-popover)]",
+          "z-50 max-w-[360px] animate-pop-in glass glass-clear rounded-card border px-2.5 py-1.5 text-caption whitespace-pre-line text-foreground select-text [--glass-drop:var(--shadow-popover)]",
           className,
         )}
         {...props}

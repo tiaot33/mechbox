@@ -20,16 +20,17 @@ import {
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/app/icons";
 import { InfoTip } from "@/components/app/parts";
 import { barClass, barRowClass } from "./heads";
 
 // UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
-// 风险(改动了脚本等)是用户审阅时最先要看的：用「必须处理」那一档的标签紧跟在名字后面，按钮都用普通的，标签不比按钮弱;
-// 来源版本和哪些技能有变化写在第二行。整页只有「全部更新」是主要按钮。
+// 风险(改动了脚本等)是用户审阅时最先要看的：用「注意」一级的标签紧跟在名字后面;读出风险的那一行，「更新」是普通的灰按钮，
+// 不比风险标签抢眼;没读出风险的才是绿胶囊。「全部更新」同理：要更新的来源里有一个读出了风险，它就是普通按钮。
+// 来源版本和哪些技能有变化写在第二行。
 // 更新会换哪些地方的说明在第一行按钮前的提示里;最后一行只在有两个以上能直接更新的集合时出现，放「全部更新」。
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 export function UpdatesHead() {
@@ -40,7 +41,7 @@ export function UpdatesHead() {
   const risks = usePlanRisks(s, collections);
   const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
   return (
-    <div className={barClass}>
+    <div className={cn(barClass, "px-3")}>
       {collections.map((c, i) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
@@ -63,33 +64,31 @@ export function UpdatesHead() {
           <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-b border-row-line pb-2">
             <div className={barRowClass}>
               {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
-              <b className="max-w-1/2 min-w-0 shrink-0 truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+              <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
               {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
               {risk && (
-                <Badge tone="bad" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
+                <Badge tone="warn" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
                   <span className="truncate">{risk}</span>
                 </Badge>
               )}
               <span className="grow" />
               {i === 0 && <InfoTip tip={t.updatesFooter} />}
               {plain.length === 0 && edited.length > 0 ? (
-                <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
-                  <Icon name="up" />
+                <Button onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
                   {t.updateEdited}
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => openUpdate(c.id)}>
+                <Button onClick={() => openUpdate(c.id)}>
                   {t.view}
                 </Button>
               )}
               {plain.length > 0 && (
-                <Button size="sm" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
-                  <Icon name="up" />
+                <Button variant={risk ? "default" : "pill"} className="update-direct" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
                   {t.update}
                 </Button>
               )}
             </div>
-            <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
+            <span className="min-w-0 truncate text-caption text-muted-foreground" title={facts.join(" · ")}>
               {facts.join(" · ")}
             </span>
           </div>
@@ -98,8 +97,7 @@ export function UpdatesHead() {
       {direct.length > 1 && (
         <div className={barRowClass}>
           <span className="grow" />
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
-            <Icon name="up" />
+          <Button variant={direct.some((c) => risks.get(c.id)) ? "default" : "pill"} disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
             {t.updateAll}
           </Button>
         </div>

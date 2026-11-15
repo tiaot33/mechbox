@@ -15,7 +15,7 @@ import { MarketDialog } from "@/features/fetch/market-dialog";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { StatusMark } from "@/components/ui/status-mark";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 import { BusyMark, Count } from "./parts";
 import { Titlebar } from "./titlebar";
 
@@ -52,12 +52,12 @@ export function Toolbar() {
             <Icon name="sidebarL" />
           </Button>
           {s && page.kind === "graph" && (
-            <Button variant="ghost" size="sm" className="graph-back ml-1 shrink-0 gap-0.5 pl-1.5" onClick={closeGraph}>
+            <Button variant="ghost" className="graph-back ml-1 shrink-0 gap-0.5 pl-1.5" onClick={closeGraph}>
               <Icon name="chevL" />
               {tt.graph.back(pageTitle(s, back?.page ?? { kind: "all" }))}
             </Button>
           )}
-          <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
+          <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-body font-semibold whitespace-nowrap">
             <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
             {listing && <Count value={listing.total} />}
             {/* 从左栏集合右键发起的检查画在那一行上;左栏收起时由这里补上。顶栏按钮发起的画在按钮上。 */}
@@ -70,9 +70,9 @@ export function Toolbar() {
           {s && <Actions />}
           <SearchInput
             ref={search}
-            className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
+            className="min-w-[110px] flex-[0_1_240px] text-caption"
             icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
-            suffix={<kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-subtle">{t.searchKey()}</kbd>}
+            suffix={<kbd className="rounded-[4px] border border-border px-1 font-sans text-caption text-muted-foreground">{t.searchKey()}</kbd>}
             placeholder={t.search}
             value={text}
             onChange={(e) => setSearch(e.target.value)}
@@ -87,7 +87,7 @@ export function Toolbar() {
   );
 }
 
-// Actions 是顶栏右边的动作：检查更新(检查中与检查完在按钮上标出)、入库技能、技能市场。用轻按钮，和左栏的页面分开。
+// Actions 是顶栏右边的动作：检查更新(检查中与检查完在按钮上标出)、入库技能、技能市场。用轻按钮，和左栏的页面分开;和同一行的搜索框、侧栏开关一样高。
 function Actions() {
   const s = useSnapshot();
   const ui = useUI();
@@ -97,17 +97,16 @@ function Actions() {
   const t = useT().toolbar;
   return (
     <>
-      <Button variant="ghost" size="sm" className="tb-check shrink-0" disabled={!checkable.length || busy} onClick={() => checkUpdates(checkable)} title={t.checkTitle}>
+      <Button variant="ghost" className="tb-check shrink-0" disabled={!checkable.length || busy} onClick={() => checkUpdates(checkable)} title={t.checkTitle}>
         {checkStatus ? <StatusMark status={checkStatus} size={12} /> : <Icon name="refresh" />}
         {t.check}
       </Button>
-      <Button variant="ghost" size="sm" className="tb-fetch shrink-0" onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
+      <Button variant="ghost" className="tb-fetch shrink-0" onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
         <Icon name="plus" />
         {t.fetch}
       </Button>
       <Button
         variant="ghost"
-        size="sm"
         className="tb-market shrink-0"
         onClick={(e) => ui.open((close) => <MarketDialog onClose={close} />, { origin: e.currentTarget })}
       >

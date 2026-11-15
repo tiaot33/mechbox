@@ -35,20 +35,24 @@ export function AgentSection({
         const on = agentShown(shown, a);
         return (
           <SetRow key={a.code}>
-            <AgentMark code={a.code} name={a.name} />
-            <div className="min-w-0 grow">
-              <div className="flex items-center gap-1.5">
-                {a.name}
-                {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
-              </div>
-              <div className="truncate font-mono text-[11px] text-muted-foreground select-text">
-                {t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
-              </div>
-            </div>
+            <AgentMark name={a.name} />
+            {/* 一行：名字、检测到没有，后面是它的两个目录(放不下就截断，悬停看全)。 */}
+            <span className="shrink-0">{a.name}</span>
+            {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
+            <span
+              className="min-w-0 grow truncate font-mono text-caption text-muted-foreground select-text"
+              title={t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
+            >
+              {t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
+            </span>
             {a.custom && (
               <>
-                <Button onClick={() => void edit(a)}>{t.edit}</Button>
-                <Button onClick={() => void deleteAgent(a)}>{t.delete}</Button>
+                <Button variant="ghost" onClick={() => void edit(a)}>
+                  {t.edit}
+                </Button>
+                <Button variant="ghost" onClick={() => void deleteAgent(a)}>
+                  {t.delete}
+                </Button>
               </>
             )}
             {shown !== undefined && (
@@ -137,7 +141,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
       <Field label={t.name}>
         {/* 图标按名字认，边输入边预览。 */}
         <div className="flex min-w-0 items-center gap-2">
-          <AgentMark code={agent?.code} name={name} className="size-6 rounded-md" />
+          <AgentMark name={name} className="size-6 rounded-control" />
           <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         {error("name")}

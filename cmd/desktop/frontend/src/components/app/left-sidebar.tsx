@@ -13,6 +13,7 @@ import { useSnapshot, configQuery, releaseQuery, syncStatusQuery } from "@/lib/l
 import { useCheckMark } from "@/features/update/check";
 import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
+import { pressKeys } from "@/lib/keys";
 import { useT } from "@/lib/i18n";
 import {
   collectionSkills,
@@ -50,11 +51,12 @@ import {
 } from "@/components/ui/context-menu";
 import { Hint } from "@/components/ui/field";
 import { StatusMark } from "@/components/ui/status-mark";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 import { leftClass } from "./layout";
 import { NavCount, navItem } from "./nav";
 import { ContextMenuEntries, useCollectionMenu, useGroupMenu } from "./menus";
 import { TailPath, tailPath, Truncated, WSLBadge } from "./parts";
+import { Badge } from "@/components/ui/badge";
 import { isWSLPath } from "@/lib/paths";
 import { platform } from "@/lib/platform";
 import { SyncDialog } from "@/features/settings/sync-dialog";
@@ -146,10 +148,10 @@ export function LeftSidebar() {
             <Icon name={s.foldCollections ? "expand" : "fold"} />
           </Button>
         )}
-        <span className="pr-1.5 text-[10px] font-medium text-subtle">{t.bySource}</span>
+        <span className="pr-[10px] text-caption text-muted-foreground">{t.bySource}</span>
       </SectionHead>
       {!collapsed.has("collections") && (
-        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
+        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[22px]">
           {shown.map((c) => (
             <CollectionRow key={c.id} collection={c} segment={segment(c)} />
           ))}
@@ -186,7 +188,7 @@ export function LeftSidebar() {
         </Button>
       </SectionHead>
       {!collapsed.has("groups") && (
-        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
+        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[22px]">
           {groups.map((g) => (
             <GroupRow key={g.id} group={g} />
           ))}
@@ -202,7 +204,7 @@ export function LeftSidebar() {
             <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog onClose={close} />)}>
               <Icon name="cloud" />
               <span className="grow">{t.sync}</span>
-              <span className={cn("text-[11px] text-muted-foreground", pushFailed && "text-warn-strong")}>{syncLabel}</span>
+              {pushFailed ? <Badge tone="critical">{syncLabel}</Badge> : <span className="text-caption text-muted-foreground">{syncLabel}</span>}
             </button>
           </li>
         )}
@@ -215,9 +217,9 @@ export function LeftSidebar() {
         </li>
       </ul>
       {import.meta.env.DEV && (
-        <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-[11px] text-subtle" title={s.info.library_path}>
+        <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-caption text-muted-foreground" title={s.info.library_path}>
           <Icon name="database" className="size-[11px]" />
-          <TailPath path={shortPath(s, s.info.library_path)} max={28} className="grow font-mono text-[10px]" />
+          <TailPath path={shortPath(s, s.info.library_path)} max={28} className="grow font-mono text-caption" />
         </div>
       )}
     </aside>
@@ -252,7 +254,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
           <ContextMenuTrigger asChild>
             <button
               type="button"
-              className={navItem({ kind: "section" })}
+              className={navItem({ kind: "item" })}
               data-active={page.kind === "graph" && page.set.kind === "collection" && page.set.id === c.id}
               onClick={() => jumpTo({ kind: "collection", id: c.id })}
               draggable
@@ -288,7 +290,7 @@ function SmallCollectionsRow({ folded, open, onToggle }: { folded: Collection[];
     <li>
       <button
         type="button"
-        className={cn(navItem({ kind: "section" }), "small-collections text-muted-foreground")}
+        className={cn(navItem({ kind: "item" }), "small-collections text-muted-foreground")}
         aria-expanded={open}
         title={t.smallCollectionsTitle(s.foldBelow, open, folded.map((c) => sourceLabel(s, c.source)))}
         onClick={onToggle}
@@ -318,9 +320,10 @@ function GroupRow({ group: g }: { group: Group }) {
             <div
               role="button"
               tabIndex={0}
-              className={navItem({ kind: "section" })}
+              className={navItem({ kind: "item" })}
               data-active={page.kind === "graph" && page.set.kind === "group" && page.set.id === g.id}
               onClick={() => jumpTo({ kind: "group", id: g.id })}
+              onKeyDown={pressKeys(() => jumpTo({ kind: "group", id: g.id }))}
               draggable
               onDragStart={(e) => dnd.start(e, { kind: "group", id: g.id }, tt.list.groupDrag(g.name, g.members?.length ?? 0))}
               onDragEnd={dnd.end}
@@ -390,13 +393,16 @@ function SectionHead({
         <div className="nav-sec group/sec flex items-center justify-between pt-2.5 pr-0.5">
           <button
             type="button"
-            className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-md pr-1.5 pl-2 text-[11px] font-semibold text-muted-foreground hover:bg-fill-subtle hover:text-foreground"
+            className="sec-toggle flex h-7 min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-caption font-semibold text-muted-foreground hover:bg-fill hover:text-foreground"
             aria-expanded={!closed}
             onClick={() => onToggle((set) => toggled(set, id))}
           >
-            <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
+            {/* 箭头占图标那一列(14px),名字和「技能库」的字、下面各行的字在同一条线上。 */}
+            <span className="grid w-3.5 shrink-0 place-items-center">
+              <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
+            </span>
             <span>{name}</span>
-            <span className="ml-0.5 font-mono text-[10px] font-medium text-subtle">{count}</span>
+            <span className="-ml-0.5 text-caption font-normal text-muted-foreground tabular-nums">{count}</span>
           </button>
           {children}
         </div>
@@ -416,7 +422,7 @@ function ReleaseRow() {
       <button type="button" className={cn(navItem(), "release-row")} title={t.sidebarTitle(latest.version)} onClick={() => openRelease(latest)}>
         <Icon name="up" />
         <span className="grow">{t.sidebar}</span>
-        <span className="font-mono text-[11px] text-primary-ink">{latest.version}</span>
+        <Badge tone="info" className="font-mono">{latest.version}</Badge>
       </button>
     </li>
   );

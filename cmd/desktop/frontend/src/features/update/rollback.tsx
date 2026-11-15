@@ -3,7 +3,6 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
   RollbackOutcome,
-  type RollbackInstall,
   type Scope,
   type SkillID,
   type UpdateRecordID,
@@ -14,7 +13,8 @@ import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
 import { mergeProjectPlaces, scopeLabel, skillName } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -24,20 +24,20 @@ import { LinkWriteNotes } from "@/components/app/link-notes";
 export function rollbackOutcome(outcome: string): { text: string; tone: Tone } {
   const t = messages().update;
   const known: Record<string, { text: string; tone: Tone }> = {
-    [RollbackOutcome.RollbackReinstalled]: { text: t.rollbackReinstalled, tone: "ok" },
-    [RollbackOutcome.RollbackCurrent]: { text: t.rollbackCurrent, tone: "ok" },
-    [RollbackOutcome.RollbackReinstalledSince]: { text: t.rollbackReinstalledSince, tone: "warn" },
+    [RollbackOutcome.RollbackReinstalled]: { text: t.rollbackReinstalled, tone: "plain" },
+    [RollbackOutcome.RollbackCurrent]: { text: t.rollbackCurrent, tone: "plain" },
+    [RollbackOutcome.RollbackReinstalledSince]: { text: t.rollbackReinstalledSince, tone: "plain" },
     [RollbackOutcome.RollbackModified]: { text: t.rollbackModified, tone: "warn" },
-    [RollbackOutcome.RollbackMissing]: { text: t.rollbackMissing, tone: "warn" },
-    [RollbackOutcome.RollbackRootMissing]: { text: t.rollbackRootMissing, tone: "warn" },
-    [RollbackOutcome.RollbackUninstalled]: { text: t.rollbackUninstalled, tone: "neutral" },
-    [RollbackOutcome.RollbackRemoved]: { text: t.rollbackRemoved, tone: "neutral" },
-    [RollbackOutcome.RollbackFailed]: { text: t.rollbackFailed, tone: "bad" },
+    [RollbackOutcome.RollbackMissing]: { text: t.rollbackMissing, tone: "critical" },
+    [RollbackOutcome.RollbackRootMissing]: { text: t.rollbackRootMissing, tone: "critical" },
+    [RollbackOutcome.RollbackUninstalled]: { text: t.rollbackUninstalled, tone: "plain" },
+    [RollbackOutcome.RollbackRemoved]: { text: t.rollbackRemoved, tone: "plain" },
+    [RollbackOutcome.RollbackFailed]: { text: t.rollbackFailed, tone: "critical" },
   };
-  return known[outcome] ?? { text: t.rollbackUnknown, tone: "warn" };
+  return known[outcome] ?? { text: t.rollbackUnknown, tone: "info" };
 }
 
-const putBack = (r: RollbackInstall) => r.outcome === RollbackOutcome.RollbackReinstalled || r.outcome === RollbackOutcome.RollbackCurrent;
+export const putBack = (r: { outcome: string }) => r.outcome === RollbackOutcome.RollbackReinstalled || r.outcome === RollbackOutcome.RollbackCurrent;
 
 // rollbackUpdate 回滚一次更新：库换回那次更新之前的版本，那次装过的地方(places)按磁盘内容核对后装回;没装回的列出原因。
 // 那次装过的地方现在是符号链接的，装回时换成独立的一份，确认前现查一次说出来。
@@ -106,7 +106,7 @@ export async function rollbackUpdate(record: UpdateRecordID, places: { skill_id:
               <div>
                 {name(r.skill_id)} · {scopeLabel(s, r.scope)}
               </div>
-              {r.error && <div className="text-xs whitespace-pre-line text-muted-foreground">{describeError(r.error)}</div>}
+              {r.error && <div className="text-body whitespace-pre-line text-muted-foreground">{describeError(r.error)}</div>}
             </div>
             <Badge tone={rollbackOutcome(r.outcome).tone}>{rollbackOutcome(r.outcome).text}</Badge>
           </ListRow>

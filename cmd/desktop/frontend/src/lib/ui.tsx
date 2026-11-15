@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { ErrorCode } from "@bindings/internal/library";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -287,7 +287,7 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
       footer={
         <>
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant={opts.danger ? "danger" : "primary"} onClick={() => close(choice)} autoFocus>
+          <Button variant={opts.danger ? "solid" : "primary"} onClick={() => close(choice)} autoFocus>
             {opts.confirm ?? t.common.ok}
           </Button>
         </>
@@ -299,21 +299,32 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
   );
 }
 
-// ChoiceList 是弹窗里的单选项，确认框与自己画的弹窗(如卸载 Mechbox)共用。
-export function ChoiceList({ choices, value, onChange }: { choices: Choice[]; value: string; onChange: (value: string) => void }) {
+// ChoiceList 是弹窗里的单选项，确认框与自己画的弹窗(如卸载 Mechbox)共用;disabled 时(已经开始做了)选不了。
+export function ChoiceList({
+  choices,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  choices: Choice[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
   return choices.map((c) => (
     <label
       key={c.value}
       data-slot="choice"
       className={cn(
-        "flex cursor-pointer items-start gap-2 rounded-[9px] border border-border-subtle bg-panel px-2.5 py-2",
-        value === c.value && "border-primary-border bg-primary-soft",
+        "flex cursor-pointer items-start gap-2 rounded-card border border-border bg-panel px-2.5 py-2 hover:bg-fill",
+        value === c.value && "border-primary bg-primary-soft hover:bg-primary-soft",
+        disabled && "cursor-default opacity-60 hover:bg-panel",
       )}
     >
-      <input type="radio" className="mt-[3px] accent-primary" checked={value === c.value} onChange={() => onChange(c.value)} />
+      <input type="radio" className="mt-[3px] accent-primary" checked={value === c.value} disabled={disabled} onChange={() => onChange(c.value)} />
       <div>
         <b className="block font-semibold">{c.label}</b>
-        {c.desc && <span className="text-xs text-muted-foreground">{c.desc}</span>}
+        {c.desc && <span className="text-body text-muted-foreground">{c.desc}</span>}
       </div>
     </label>
   ));

@@ -27,7 +27,7 @@ import { cn, toggled } from "@/lib/utils";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 
 type Layout = "split" | "unified";
 
@@ -44,11 +44,11 @@ const setLayout = (layout: Layout) => {
   useLayoutStore.setState({ layout });
 };
 
-// 目录树里新增、删除的文件在行尾标 + / −(删除的文件名再划掉);修改是最常见的，不标。
+// 目录树里新增、删除的文件在行尾标 + / −(新增用绿色，删除用灰色、文件名再划掉);修改是最常见的，不标。
 const changeMark: Record<ChangeKind, { glyph: string; className: string } | undefined> = {
-  added: { glyph: "+", className: "text-ok-strong" },
+  added: { glyph: "+", className: "text-primary" },
   changed: undefined,
-  deleted: { glyph: "−", className: "text-bad-strong" },
+  deleted: { glyph: "−", className: "text-muted-foreground" },
 };
 
 // splitPath 把路径拆成所在目录(带结尾的 /,在根上为空)和文件名。
@@ -110,7 +110,7 @@ export function ChangedFiles({
         onPath={onPath}
         badge={badge}
       />
-      {files.length === 0 && <span className="px-2 text-[11px] text-muted-foreground">{tt.common.sameContent}</span>}
+      {files.length === 0 && <span className="px-2 text-caption text-muted-foreground">{tt.common.sameContent}</span>}
     </div>
   );
 }
@@ -135,7 +135,7 @@ function Tree({
   const t = useT().diff;
   // 焦点框和按钮一样;选中的文件行不画：上下键换文件时焦点就在它上面，选中的底色已经标出来了。
   const row =
-    "flex h-7 w-full shrink-0 items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] outline-none hover:bg-fill-subtle focus-visible:ring-3 focus-visible:ring-primary-soft active:bg-fill-strong";
+    "flex h-7 w-full shrink-0 items-center gap-1.5 rounded-control pr-2 text-left text-body outline-none hover:bg-fill focus-visible:ring-3 focus-visible:ring-primary-soft";
   // 每深一层缩进 14px;目录行的箭头占在文件图标前面那一格，同一层的目录名和文件名对齐。
   const indent = { paddingLeft: 6 + depth * 14 };
   return nodes.map((n) => {
@@ -177,7 +177,7 @@ function Tree({
         title={`${t[n.change]} ${n.path}`}
         className={cn(
           row,
-          current && "bg-glass-row-selected hover:bg-glass-row-selected focus-visible:ring-0 active:bg-glass-row-selected",
+          current && "bg-primary-soft hover:bg-primary-soft focus-visible:ring-0 active:bg-primary-soft",
         )}
         style={indent}
         onClick={(e) => {
@@ -189,7 +189,7 @@ function Tree({
         <span className="w-2.5 shrink-0" />
         <Icon name="file" className="size-3.5 shrink-0 text-muted-foreground" />
         <span
-          className={cn("min-w-0 grow truncate", current && "font-medium", n.change === "deleted" && "text-muted-foreground line-through")}
+          className={cn("min-w-0 grow truncate", current && "font-semibold", n.change === "deleted" && "text-muted-foreground line-through")}
         >
           {n.name}
         </span>
@@ -206,7 +206,7 @@ function Tree({
 }
 
 // FileDiff 是 path 这个文件的差异，kind 是它改了什么：新增的只读改动后，删除的只读改动前;只有一侧的文件不分两栏，铺满整宽。
-// 外面是一块白底的面板：上面一条写文件、增删了几行和布局切换，下面是带行号的逐行差异，改掉的行里再标出改了哪几个词。
+// 外面是一块不透明的面板：上面一条写文件、增删了几行和布局切换，下面是带行号的逐行差异，改掉的行里再标出改了哪几个词。
 // 修改的文件可执行权限变了时(加上或去掉),在差异上面单独说明;内容一字没变、只改了权限时也说清楚，免得看起来像什么都没改(issue #324)。
 // read 要在调用方保持不变(换了才重读)。读取失败时先交给 onError,它返回 true 表示已处理(如更新计划已失效)。
 // 布局切换只在两侧都能逐行比较时显示;fill 为 true 时面板撑满外面给的高度(比较弹窗),否则差异最高 360px、内容短时按内容的高度。
@@ -274,14 +274,14 @@ export function FileDiff({
   let body: ReactNode;
   if (texts === undefined) {
     body = (
-      <div className="flex items-center gap-1.5 p-3 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-1.5 p-3 text-caption text-muted-foreground">
         <Spinner /> {t.reading(path)}
       </div>
     );
   } else if (texts === "error") {
     body = (
       <div className="p-3">
-        <Notice tone="bad">{t.failed(path)}</Notice>
+        <Notice alert>{t.failed(path)}</Notice>
       </div>
     );
   } else if (!lines) {
@@ -298,7 +298,7 @@ export function FileDiff({
         data-slot="file-diff"
         data-layout={layout}
         className={cn(
-          "overflow-auto font-mono text-[12px] leading-5 select-text",
+          "overflow-auto font-mono text-body-long select-text",
           fill ? "min-h-0 grow" : "max-h-[360px]",
           layout === "split" && side === "left" && "[&_[data-side=right]]:select-none",
           layout === "split" && side === "right" && "[&_[data-side=left]]:select-none",
@@ -345,19 +345,19 @@ export function FileDiff({
   return (
     <div
       data-slot="file-diff-panel"
-      className={cn("flex flex-col overflow-hidden rounded-[10px] bg-panel shadow-card", fill && "min-h-0 grow basis-0")}
+      className={cn("flex flex-col overflow-hidden rounded-card border border-border bg-panel", fill && "min-h-0 grow basis-0")}
     >
       {/* 标题条固定高度：换到不显示切换的文件时，下面的差异不上下跳。 */}
-      <div className="flex h-10 shrink-0 items-center gap-2.5 border-b border-hairline pr-1.5 pl-3">
-        <span className="flex min-w-0 grow items-baseline text-[12.5px]" title={path}>
+      <div className="flex h-10 shrink-0 items-center gap-2.5 border-b border-row-line pr-1.5 pl-3">
+        <span className="flex min-w-0 grow items-baseline text-body" title={path}>
           {dir && <span className="min-w-0 shrink truncate text-muted-foreground">{dir}</span>}
           <span className="min-w-0 shrink-0 truncate font-semibold">{name}</span>
         </span>
         {(added > 0 || deleted > 0) && (
-          <span className="shrink-0 font-mono text-[11px] tabular-nums">
-            {added > 0 && <span className="text-ok-strong">+{added}</span>}
+          <span className="shrink-0 font-mono text-caption tabular-nums">
+            {added > 0 && <span className="text-primary">+{added}</span>}
             {added > 0 && deleted > 0 && " "}
-            {deleted > 0 && <span className="text-bad-strong">−{deleted}</span>}
+            {deleted > 0 && <span className="text-muted-foreground">−{deleted}</span>}
           </span>
         )}
         {switchable && (
@@ -372,7 +372,7 @@ export function FileDiff({
         )}
       </div>
       {mode && (
-        <Notice tone={mode === "executable-added" ? "warn" : "neutral"} className="mode-change m-2 mb-0 shrink-0">
+        <Notice alert={mode === "executable-added"} className="mode-change m-2 mb-0 shrink-0">
           {t.modeChanged(mode, onlyMode)}
         </Notice>
       )}
@@ -388,7 +388,7 @@ function Skip({ count, onExpand }: { count: number; onExpand: () => void }) {
     <button
       type="button"
       title={t.expand(count)}
-      className="col-span-full flex h-7 items-center gap-2 border-y border-hairline bg-surface px-3 text-left font-sans text-[11px] text-muted-foreground select-none first:border-t-0 last:border-b-0 hover:bg-primary-soft hover:text-primary-ink active:bg-primary-soft/70"
+      className="col-span-full flex h-7 items-center gap-2 border-y border-row-line bg-fill px-3 text-left font-sans text-caption text-muted-foreground select-none first:border-t-0 last:border-b-0 hover:bg-foreground/[0.08] hover:text-foreground active:bg-foreground/[0.11]"
       onClick={onExpand}
     >
       <Icon name="expand" className="size-3 shrink-0" />
@@ -397,24 +397,25 @@ function Skip({ count, onExpand }: { count: number; onExpand: () => void }) {
   );
 }
 
-const lineTone = { same: "", add: "bg-ok/[0.08]", del: "bg-bad/[0.07]" };
+// 新增的行用绿色，删除的行用灰色加删除线;行号也照此。
+const lineTone = { same: "", add: "bg-primary/[0.08]", del: "bg-fill" };
 const gutterTone = {
-  same: "text-subtle",
-  add: "bg-ok/[0.14] text-ok-strong/70",
-  del: "bg-bad/[0.12] text-bad-strong/70",
+  same: "text-muted-foreground",
+  add: "bg-primary/[0.14] text-primary",
+  del: "bg-foreground/[0.08] text-muted-foreground",
 };
-const wordTone = { same: "bg-transparent", add: "bg-ok/25", del: "bg-bad/20" };
+const wordTone = { same: "bg-transparent", add: "bg-primary/25", del: "bg-foreground/[0.12]" };
 
 // Num 是一格行号;n 为 undefined 时留空(如行内对比里新增的行没有旧行号)。
 function Num({ kind, n, side, className }: { kind: "same" | "add" | "del"; n?: number; side?: "left" | "right"; className?: string }) {
   return (
-    <div data-side={side} className={cn("min-w-[4ch] px-2 text-right text-[11px] tabular-nums select-none", gutterTone[kind], className)}>
+    <div data-side={side} className={cn("min-w-[4ch] px-2 text-right text-caption tabular-nums select-none", gutterTone[kind], className)}>
       {n}
     </div>
   );
 }
 
-// Cell 是一行代码：增删的行底色淡淡标出，行首是 +/-,改掉的词再深一层;字一律是正文颜色，长行自动换行。side 标出左右对比里在哪一栏。
+// Cell 是一行代码：增删的行底色淡淡标出，行首是 +/-,改掉的词再深一层;新增的行字是正文颜色，删除的行是灰色加删除线，长行自动换行。side 标出左右对比里在哪一栏。
 function Cell({
   kind,
   text,
@@ -431,16 +432,16 @@ function Cell({
       <span
         className={cn(
           "w-3 shrink-0 text-center select-none",
-          kind === "add" ? "text-ok-strong" : kind === "del" ? "text-bad-strong" : "text-transparent",
+          kind === "add" ? "text-primary" : kind === "del" ? "text-muted-foreground" : "text-transparent",
         )}
       >
         {kind === "add" ? "+" : kind === "del" ? "-" : " "}
       </span>
-      <span className="min-w-0 grow">
+      <span className={cn("min-w-0 grow", kind === "del" && "text-muted-foreground line-through")}>
         {segments
           ? segments.map((seg, i) =>
               seg.changed ? (
-                <mark key={i} className={cn("rounded-[3px] box-decoration-clone text-inherit", wordTone[kind])}>
+                <mark key={i} className={cn("rounded-[4px] box-decoration-clone text-inherit", wordTone[kind])}>
                   {seg.text}
                 </mark>
               ) : (
@@ -456,8 +457,8 @@ function Cell({
 // Row 是左右对比的一行：两侧各是行号与代码，同高;一侧没有对应行时那一侧留一块淡灰。
 function Row({ row, marks, onExpand }: { row: SplitRow; marks: Map<DiffLine, Segment[]>; onExpand: (skip: DiffLine) => void }) {
   if (row.kind === "skip") return <Skip count={row.count} onExpand={() => onExpand(row)} />;
-  const empty = "bg-fill-faint";
-  const divider = "border-l border-hairline";
+  const empty = "bg-fill";
+  const divider = "border-l border-row-line";
   return (
     <>
       {row.left ? (

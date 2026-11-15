@@ -227,7 +227,7 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
         </>
       }
     >
-      <div className="flex items-center gap-2 text-[13px]">
+      <div className="flex items-center gap-2 text-body">
         <span className="shrink-0 text-muted-foreground">{t.from}</span>
         <NativeSelect className="copy-from" value={from} onChange={(e) => setFrom(e.target.value)}>
           {kind.sources.map((x) => (
@@ -257,12 +257,12 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
       </ListBox>
       {!plans && <Hint>{t.checking}</Hint>}
       {edited.length > 0 && (
-        <Notice tone="warn" className="copy-edited">
+        <Notice alert className="copy-edited">
           {t.edited(fromName, kind.toName, edited)}
         </Notice>
       )}
       {newer.length > 0 && (
-        <Notice tone="warn" className="copy-newer">
+        <Notice alert className="copy-newer">
           {t.newer(fromName, kind.toName, newer)}
         </Notice>
       )}
@@ -308,7 +308,7 @@ function PlaceRows({
   }
   return (
     <div className="copy-place" data-place={placeOf(p.to)} data-agent={p.to.agent}>
-      <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-border-subtle bg-sticky px-2.5 py-1 text-xs font-semibold first:border-t-0">
+      <div className="sticky top-0 z-1 flex min-w-0 items-center gap-1.5 border-t border-row-line bg-panel px-2.5 py-1 text-body font-semibold first:border-t-0">
         {!p.missing && (
           <input
             ref={box}
@@ -344,7 +344,7 @@ function PlaceRows({
           ))}
           {[...bySource].map(([label, skills]) => (
             <div key={label}>
-              <div className="px-2.5 pt-1 pl-6 font-mono text-[11px] text-muted-foreground">{label}</div>
+              <div className="px-2.5 pt-1 pl-6 font-mono text-caption text-muted-foreground">{label}</div>
               {skills.map((x) => (
                 <SkillRow
                   key={x.id}
@@ -391,7 +391,7 @@ function SkillRow({
           </Badge>
         )}
         {reason && (
-          <Badge tone="bad" title={reason}>
+          <Badge tone="warn" title={reason}>
             {t.blocked}
           </Badge>
         )}
@@ -431,10 +431,10 @@ function GroupRow({
         <label>
           <input type="checkbox" className="shrink-0 accent-primary" checked={on} disabled={!members} onChange={onToggle} />
           <b className="shrink-0 font-semibold whitespace-nowrap">{t.group(group.name)}</b>
-          {members && <span className="shrink-0 text-[11px] text-muted-foreground">{t.groupMembers(coming.length)}</span>}
-          <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">{t.groupStanding(scopeLabel(s, place.to))}</span>
+          {members && <span className="shrink-0 text-caption text-muted-foreground">{t.groupMembers(coming.length)}</span>}
+          <span className="min-w-0 grow truncate text-caption text-muted-foreground">{t.groupStanding(scopeLabel(s, place.to))}</span>
           {reason && (
-            <Badge tone="bad" title={reason}>
+            <Badge tone="warn" title={reason}>
               {t.blocked}
             </Badge>
           )}
@@ -444,12 +444,12 @@ function GroupRow({
         <ListRow asChild compact clickable selected={overwrite} className="copy-overwrite pl-10">
           <label>
             <input type="checkbox" className="shrink-0 accent-primary" checked={overwrite} onChange={onOverwrite} />
-            <span className="min-w-0 text-[11.5px]">{t.groupOverwrite(untracked.map((x) => x.name))}</span>
+            <span className="min-w-0 text-caption">{t.groupOverwrite(untracked.map((x) => x.name))}</span>
           </label>
         </ListRow>
       )}
       {on && blocked.length > 0 && (
-        <ListRow compact className="pl-10 text-[11.5px] text-muted-foreground">
+        <ListRow compact className="pl-10 text-caption text-muted-foreground">
           {t.groupBlocked(blocked.map((x) => x.name))}
         </ListRow>
       )}
@@ -474,8 +474,11 @@ async function runCopy(
   const installed = new Set<string>();
   let groups = 0;
   const skip = (label: string, reason: string) => rows.push({ label, outcome: a.memberSkipped, tone: "warn", reason });
-  const fail = (label: string, e: unknown) =>
-    rows.push({ label, outcome: a.failed, tone: "bad", reason: describeError(toLibraryError(e)) });
+  let failed = false;
+  const fail = (label: string, e: unknown) => {
+    rows.push({ label, outcome: a.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
+    failed = true;
+  };
   await ui.run(
     async () => {
       for (const p of places) {
@@ -528,7 +531,7 @@ async function runCopy(
         }
       }
     },
-    { failed: () => rows.some((r) => r.tone === "bad") },
+    { failed: () => failed },
   );
   if (rows.length) await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed.size, rows.length));
   else ui.toast(t.done(fromName, toName, installed.size, groups));

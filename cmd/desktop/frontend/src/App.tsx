@@ -124,7 +124,7 @@ function Main() {
                 <LeftSidebar />
               </ResizablePane>
             )}
-            {/* 技能详情放得下时是列表和作用域栏之间的一栏，见 DrawerDock。 */}
+            {/* 技能详情从最右侧浮出，盖在列表和作用域栏上面，见 DrawerDock。 */}
             <DrawerDock
               skill={drawerSkill}
               onClose={closeDrawer}
@@ -143,7 +143,7 @@ function Main() {
       </div>
       <div
         ref={setDragGhost}
-        className="fixed -top-[200px] left-0 rounded-full bg-primary-solid px-3 py-[5px] text-xs font-semibold whitespace-nowrap text-white shadow-[0_4px_12px_rgba(0,113,227,0.35)]"
+        className="fixed -top-[200px] left-0 rounded-control bg-primary px-3 py-[5px] text-body font-semibold whitespace-nowrap text-on-primary shadow-raised"
       />
     </div>
   );
@@ -158,7 +158,7 @@ async function offerDistroRetry() {
     const distro = settings.wsl_distro ?? "";
     const choice = await ui.confirm({
       title: t.distroUnavailable(distro),
-      body: <Notice tone="warn">{t.distroUnavailableBody(reason)}</Notice>,
+      body: <Notice alert>{t.distroUnavailableBody(reason)}</Notice>,
       choices: [
         { value: "retry", label: t.retryDistro, desc: t.retryDistroDesc },
         { value: "windows", label: t.useWindowsHome, desc: t.useWindowsHomeDesc },
@@ -189,7 +189,7 @@ function LoadError({ error, onRetry }: { error: LibraryError; onRetry: () => voi
   return (
     <main className={centerClass}>
       <div className="flex flex-col items-center gap-1.5 pt-[22vh] text-muted-foreground">
-        <b className="text-sm text-foreground">{t.loadFailed}</b>
+        <b className="text-heading text-foreground">{t.loadFailed}</b>
         <span className="select-text">{error.message}</span>
         <Button className="mt-1.5" onClick={onRetry}>
           {t.retry}

@@ -122,9 +122,9 @@ function FailedPlaces({ outcomes, close }: { outcomes: UpdateOutcome[]; close: (
               <div>
                 {skillName(s, r.skill_id)} · {scopeLabel(s, r.scope)}
               </div>
-              {r.error && <div className="text-xs whitespace-pre-line text-muted-foreground">{describeError(r.error)}</div>}
+              {r.error && <div className="text-body whitespace-pre-line text-muted-foreground">{describeError(r.error)}</div>}
             </div>
-            <Badge tone="bad">{t.notPlaced}</Badge>
+            <Badge tone="critical">{t.notPlaced}</Badge>
           </ListRow>
         ))}
       </ListBox>

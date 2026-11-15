@@ -15,7 +15,7 @@ import (
 
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 	got, done := settingsFrom(nil)
-	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1, FoldBelow: 3}
+	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, FoldBelow: 3}
 	if !reflect.DeepEqual(got, want) || done {
 		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}
@@ -23,7 +23,7 @@ func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	want := Settings{
-		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, Appearance: AppearanceDark, GlassTint: 0.35, GlassTintDark: 1.2,
+		AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, Appearance: AppearanceDark,
 		FoldCollections: true, FoldBelow: 5,
 		AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 	}
@@ -42,11 +42,40 @@ func TestSettingsRoundTrip(t *testing.T) {
 }
 
 func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
-	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "glass_tint": "1.6", "appearance": "sepia", "glass_tint_dark": "-1", "fold_collections": "yes", "fold_below": "1"})
+	got, _ := settingsFrom(map[string]string{"dock_badge": "false", "auto_check": "maybe", "check_interval": "sometimes", "language": "fr", "agents_shown": "{", "appearance": "sepia", "fold_collections": "yes", "fold_below": "1"})
 	want := defaultSettings()
 	want.DockBadge = false
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("settingsFrom = %+v; want %+v", got, want)
+	}
+}
+
+func TestSettingsFromOldDatabaseIgnoreAndDropGlassTint(t *testing.T) {
+	lib := startLibrary(t)
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"dock_badge": "false", "glass_tint": "0.4", "glass_tint_dark": "1.2"}); err != nil {
+		t.Fatal(err)
+	}
+	service := startApp(t, lib)
+	want := defaultSettings()
+	want.DockBadge = false
+	got := service.Settings()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Settings() with an old glass tint stored = %+v; want %+v", got, want)
+	}
+	if _, err := service.SaveSettings(t.Context(), got); err != nil {
+		t.Fatal(err)
+	}
+	values, err := lib.lib.AppSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"glass_tint", "glass_tint_dark"} {
+		if v, ok := values[name]; ok {
+			t.Fatalf("after saving, app settings still hold %s = %q", name, v)
+		}
+	}
+	if values["dock_badge"] != "false" {
+		t.Fatalf("after saving, dock_badge = %q; want the old value kept", values["dock_badge"])
 	}
 }
 
@@ -56,10 +85,7 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 	for _, change := range []func(*Settings){
 		func(s *Settings) { s.CheckInterval = "sometimes" },
 		func(s *Settings) { s.Language = "fr" },
-		func(s *Settings) { s.GlassTint = 1.6 },
-		func(s *Settings) { s.GlassTint = -0.1 },
 		func(s *Settings) { s.Appearance = "sepia" },
-		func(s *Settings) { s.GlassTintDark = 1.6 },
 		func(s *Settings) { s.FoldBelow = 1 },
 		func(s *Settings) { s.FoldBelow = 11 },
 	} {

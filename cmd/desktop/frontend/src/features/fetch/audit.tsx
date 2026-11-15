@@ -5,7 +5,8 @@ import { AuditAvailability, AuditStatus, type AuditEntry, type SkillAudit, type 
 import { skillAuditQuery } from "@/lib/library";
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";
@@ -16,18 +17,18 @@ function verdict(entries: AuditEntry[]): { tone: Tone; text: string } {
   const fail = entries.filter((e) => e.status === AuditStatus.AuditFail).length;
   const warn = entries.filter((e) => e.status === AuditStatus.AuditWarn).length;
   const t = messages().audit;
-  if (fail) return { tone: "bad", text: t.failed(fail) };
+  if (fail) return { tone: "critical", text: t.failed(fail) };
   if (warn) return { tone: "warn", text: t.warned(warn) };
-  return { tone: "ok", text: t.passed(entries.length) };
+  return { tone: "plain", text: t.passed(entries.length) };
 }
 
 // statusBadge 是一个合作方结论的标签;skills.sh 以后加的新结论原样显示。
 function statusBadge(status: string): { label: string; tone: Tone } | undefined {
   const t = messages().audit;
   const known: Record<string, { label: string; tone: Tone }> = {
-    [AuditStatus.AuditPass]: { label: t.pass, tone: "ok" },
+    [AuditStatus.AuditPass]: { label: t.pass, tone: "plain" },
     [AuditStatus.AuditWarn]: { label: t.warn, tone: "warn" },
-    [AuditStatus.AuditFail]: { label: t.fail, tone: "bad" },
+    [AuditStatus.AuditFail]: { label: t.fail, tone: "critical" },
   };
   return known[status];
 }
@@ -87,7 +88,7 @@ export function AuditCard({ skillID }: { skillID: SkillID }) {
       ) : audit.availability === AuditAvailability.AuditUnavailable ? (
         <p className="text-muted-foreground">
           {t.unavailableLong}{" "}
-          <Button variant="link" onClick={() => void q.refetch()}>
+          <Button variant="ghost" size="inline" onClick={() => void q.refetch()}>
             {t.retry}
           </Button>
         </p>
@@ -98,19 +99,19 @@ export function AuditCard({ skillID }: { skillID: SkillID }) {
           <Badge tone={summary!.tone} className="mb-2">
             {summary!.text}
           </Badge>
-          <table className="w-full border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-top">
+          <table className="w-full border-collapse text-body [&_td]:border-b [&_td]:border-row-line [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-top">
             <tbody>
               {entries.map((e) => {
-                const st = statusBadge(e.status) ?? { label: e.status, tone: "neutral" as Tone };
+                const st = statusBadge(e.status) ?? { label: e.status, tone: "plain" as const };
                 return (
                   <tr key={e.slug || e.provider}>
-                    <td className="font-medium whitespace-nowrap">{e.provider}</td>
+                    <td className="whitespace-nowrap">{e.provider}</td>
                     <td>
                       <Badge tone={st.tone}>{st.label}</Badge>
                     </td>
                     <td className="w-full">
                       <div>{e.summary}</div>
-                      <div className="text-[11px] text-muted-foreground">
+                      <div className="text-caption text-muted-foreground">
                         {[e.risk_level && t.risk(e.risk_level), t.auditedAt(formatDate(e.audited_at))].filter(Boolean).join(" · ")}
                       </div>
                     </td>
