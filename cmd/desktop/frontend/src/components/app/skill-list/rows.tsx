@@ -55,13 +55,31 @@ import { flash } from "./flash";
 
 // 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
-const libraryCols = "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
-const scopeCols = "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
-const pickLibraryCols = "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px]";
-const pickScopeCols = "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)]";
+// 列表窄了(开着技能详情)时描述挪到名字下面，名字、装在哪(在这里的状态)和日期仍然看得全;列表的宽度按 .a-list 这个容器算。
+// 窄的时候除名字和描述外的格子跨两行、上下居中;描述放在名字那一列的第二行(desc 是每种列宽下它该放的位置)。
+const layouts = {
+  library: {
+    cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(64px,120px)_64px]",
+    desc: "@max-[600px]/list:col-start-1 @max-[600px]/list:row-start-2",
+  },
+  pickLibrary: {
+    cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(64px,120px)_64px]",
+    desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
+  },
+  scope: {
+    cols: "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[30px_minmax(0,1fr)_minmax(80px,140px)]",
+    desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
+  },
+  pickScope: {
+    cols: "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[14px_30px_minmax(0,1fr)_minmax(80px,140px)]",
+    desc: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2",
+  },
+};
+// span 是窄的时候跨两行的格子(勾选框、开关、装在哪、日期)。
+const span = "@max-[600px]/list:row-span-2";
 
 const rowClass =
-  "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-[12px] last:border-b-0";
+  "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-[12px] last:border-b-0 @max-[600px]/list:gap-y-0.5";
 
 // rowButtonClass 是行首那一格里的小按钮(入库、更新),和开关一样大小。
 const rowButtonClass = "h-[18px] rounded-[5px] border-primary-border px-1 text-[10.5px] whitespace-nowrap text-primary-ink hover:border-primary hover:bg-primary-soft";
@@ -110,13 +128,15 @@ export function SkillRow(props: {
     void (here ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
   };
 
+  const layout = layouts[scope ? (props.pickable ? "pickScope" : "scope") : props.pickable ? "pickLibrary" : "library"];
+
   return (
     <article
       ref={ref}
       className={cn(
-        "skill-row group/row cursor-grab transition-colors hover:bg-wash/80 active:cursor-grabbing data-[flash]:bg-primary-soft",
+        "skill-row group/row cursor-grab transition-colors hover:bg-fill active:cursor-grabbing data-[flash]:bg-primary-soft",
         rowClass,
-        scope ? (props.pickable ? pickScopeCols : scopeCols) : props.pickable ? pickLibraryCols : libraryCols,
+        layout.cols,
         picked && "bg-primary-soft/45 hover:bg-primary-soft/60",
         selected && "bg-primary-soft hover:bg-primary-soft",
       )}
@@ -134,9 +154,9 @@ export function SkillRow(props: {
       }}
       onDragEnd={dnd.end}
     >
-      {props.pickable && <PickBox id={skill.id} />}
+      {props.pickable && <PickBox id={skill.id} className={span} />}
       {scope && (
-        <span onClick={(e) => e.stopPropagation()} className="flex">
+        <span onClick={(e) => e.stopPropagation()} className={cn("flex", span)}>
           {/* 开 = Agent 在这里用着：直接安装是蓝色，只随组安装是紫色，来自全局是灰色、不能点;关 = 没装在这里。 */}
           {props.fromGlobal ? (
             <SwitchMark title={t.list.sectionGlobalTitle} />
@@ -152,10 +172,10 @@ export function SkillRow(props: {
           )}
         </span>
       )}
-      <div className="flex min-w-0 items-center gap-1.5">
-        {/* 名字优先：放不下时先截后面的标记。 */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+        {/* 放不下时先截组标签，再截名字(至少留几个字);有新版本、同名这类标记是要处理的事，不被挤掉。 */}
         <span
-          className={cn("skill-name min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !identical && !props.fromGlobal && "font-medium text-foreground-secondary")}
+          className={cn("skill-name min-w-12 truncate text-[12.5px] font-semibold", scope && !here && !identical && !props.fromGlobal && "font-medium text-foreground-secondary")}
           title={skill.note || undefined}
         >
           {skill.name}
@@ -200,7 +220,7 @@ export function SkillRow(props: {
           </span>
         )}
       </div>
-      <div className="min-w-0">
+      <div className={cn("min-w-0", layout.desc)}>
         {/* 有界面语言的译文时显示译文，鼠标停住总能看到原文;没有译文时和原来一样，截断了才提示。 */}
         <Truncated
           always={!!translated}
@@ -244,16 +264,22 @@ export function SkillRow(props: {
           </p>
         )}
       </div>
-      {scope ? (
-        identical ? (
-          <IdenticalState identical={identical} skill={skill} />
+      <div className={cn("flex min-w-0", span)}>
+        {scope ? (
+          identical ? (
+            <IdenticalState identical={identical} skill={skill} />
+          ) : (
+            <ScopeState place={place} via={via} fromGlobal={!!props.fromGlobal} />
+          )
         ) : (
-          <ScopeState place={place} via={via} fromGlobal={!!props.fromGlobal} />
-        )
-      ) : (
-        <Where skill={skill} />
+          <Where skill={skill} />
+        )}
+      </div>
+      {!scope && (
+        <div className={cn("flex min-w-0 justify-end", span)}>
+          <Changed skill={skill} />
+        </div>
       )}
-      {!scope && <Changed skill={skill} />}
     </article>
   );
 }
@@ -393,9 +419,9 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
     ...folderNotes(skill),
   ].filter((x) => !!x);
   return (
-    <article className={cn("unmanaged-row", rowClass, pickScopeCols)} data-name={skill.name}>
-      <span />
-      <span className="flex">
+    <article className={cn("unmanaged-row", rowClass, layouts.pickScope.cols)} data-name={skill.name}>
+      <span className={span} />
+      <span className={cn("flex", span)}>
         {library ? (
           <TakeOverButton identical={skill} name={library.name} />
         ) : newer ? (
@@ -422,7 +448,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         <span className="unmanaged-name min-w-0 truncate text-[12.5px] font-semibold">{skill.name}</span>
         {same && <SameNameBadge note={same} />}
       </div>
-      <div className="min-w-0">
+      <div className={cn("min-w-0", layouts.pickScope.desc)}>
         <Truncated tip={skill.description}>
           <p className="unmanaged-desc truncate text-[11.5px] text-muted-foreground">{skill.description}</p>
         </Truncated>
@@ -438,7 +464,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           </p>
         )}
       </div>
-      <div className="flex min-w-0 flex-col items-start gap-0.5">
+      <div className={cn("flex min-w-0 flex-col items-start gap-0.5", span)}>
         {state.length > 0 && (
           <span className="skill-state unmanaged-state max-w-full min-w-0 truncate text-[11px] text-muted-foreground" title={state.map((x) => x.title).join("\n")}>
             {state.map((x) => x.text).join(" · ")}

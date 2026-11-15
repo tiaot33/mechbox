@@ -1,7 +1,7 @@
 // 主界面：三栏布局——左栏页面与集合、组，中间是当前页面(技能库 / 更新 / 作用域),右栏作用域，顶部统一工具栏;
 // 点技能行打开右侧详情抽屉;左栏"设置"把三栏换成设置页。界面状态在 lib/view,各栏自己取;
 // 写操作经 features/ 里的流程与 lib/ui 的 run 执行，完成后让查询缓存失效重读。
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService } from "@bindings/cmd/desktop";
 import { LeftSidebar } from "@/components/app/left-sidebar";
@@ -21,7 +21,7 @@ import { ui, UIHost } from "@/lib/ui";
 import { closeDrawer, closeSettings, reconcile, useView } from "@/lib/view";
 import { Notice } from "@/components/ui/notice";
 import { bodyClass, centerClass } from "@/components/app/layout";
-import { ResizablePane } from "@/components/app/resizable";
+import { ResizablePane, useWidth } from "@/components/app/resizable";
 import { Button } from "@/components/ui/button";
 import "./index.css";
 
@@ -96,6 +96,9 @@ function Main() {
   }, [s]);
 
   const drawerSkill = s && drawer !== null ? s.skills.find((x) => x.id === drawer) : undefined;
+  // 列表和技能详情合起来的宽度：详情按它决定占多宽、放不下时改成浮在列表上。
+  const [center, setCenter] = useState<HTMLDivElement | null>(null);
+  const room = useWidth(center);
 
   if (s && settings) {
     return (
@@ -124,13 +127,16 @@ function Main() {
                 <LeftSidebar />
               </ResizablePane>
             )}
-            <SkillList />
+            {/* 技能详情是列表和作用域栏之间的一栏：开着时作用域栏照样看得到、能往上拖，列表让出位置、每行的关键信息不被盖住。 */}
+            <div ref={setCenter} className="relative flex min-w-0 flex-1 gap-2">
+              <SkillList />
+              <SkillDrawer skill={drawerSkill} room={room} onClose={closeDrawer} />
+            </div>
             {right && (
               <ResizablePane side="right" storageKey="mechbox.right-width" defaultWidth={270} min={220} max={440}>
                 <ScopePanel />
               </ResizablePane>
             )}
-            <SkillDrawer skill={drawerSkill} onClose={closeDrawer} />
           </>
         )}
       </div>

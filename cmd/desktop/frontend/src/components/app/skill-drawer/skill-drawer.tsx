@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType, type FileMetadata, type Skill, type SkillID, type SkillVersion } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { aiSettingsQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
 import { deletedInSource, hasUpdate, isLocal, pending, renamedTo, skillScopesOf, sourceLabel, translatedDescription } from "@/lib/model";
 import { AuditCard } from "@/features/fetch/audit";
@@ -28,17 +29,24 @@ const noFiles: FileMetadata[] = [];
 const noVersions: SkillVersion[] = [];
 
 // 抽屉宽度：拖左边缘调整，记在这台机器上。
-const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min: 420, max: 960 };
+const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min: 380, max: 960 };
+
+// 抽屉和列表并排时列表至少留这么宽：技能名、装在哪(在这里的状态)和日期都看得全(描述挪到名字下面，见 rows.tsx)。
+const listMin = 460;
+// 抽屉和列表之间的间距，和三栏之间一样。
+const gap = 8;
 
 // SkillDrawer 是技能详情抽屉:skill 为空时关上。关上时先播完退场动画再卸载，这期间仍画最后显示的那个技能。
-export function SkillDrawer({ skill, onClose }: { skill: Skill | undefined; onClose: () => void }) {
+// room 是列表和抽屉合起来的宽度。放得下时抽屉是列表右边的一栏(列表让出位置，作用域栏不被盖住);
+// 放不下(窗口窄)时浮在列表右侧，仍不盖住作用域栏。记下的宽度超出能给的宽度时按能给的显示。
+export function SkillDrawer({ skill, room, onClose }: { skill: Skill | undefined; room: number; onClose: () => void }) {
   const [shown, setShown] = useState(skill);
   if (skill && skill !== shown) setShown(skill);
   if (!shown) return null;
-  return <DrawerSheet skill={shown} open={!!skill} onClose={onClose} onExited={() => setShown(undefined)} />;
+  return <DrawerSheet skill={shown} room={room} open={!!skill} onClose={onClose} onExited={() => setShown(undefined)} />;
 }
 
-function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: boolean; onClose: () => void; onExited: () => void }) {
+function DrawerSheet({ skill, room, open, onClose, onExited }: { skill: Skill; room: number; open: boolean; onClose: () => void; onExited: () => void }) {
   const t = useT();
   const d = t.drawer;
   const id = skill.id;
@@ -48,7 +56,11 @@ function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: b
   // 版本历史随写操作重读。
   const versions = useQuery(versionsQuery(id)).data ?? noVersions;
 
-  const [width, setWidth] = useStoredWidth(drawerWidth);
+  const [stored, setWidth] = useStoredWidth(drawerWidth);
+  const beside = room - gap - listMin;
+  const docked = beside >= drawerWidth.min;
+  const max = Math.max(drawerWidth.min, docked ? beside : room);
+  const width = Math.min(stored, max);
   // 正在写备注的技能：换了技能就不在写了。
   const [noteEditing, setNoteEditing] = useState<SkillID | null>(null);
   const editingNote = noteEditing === id;
@@ -56,12 +68,13 @@ function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: b
   return (
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
-        className="top-0 right-2.5 bottom-2.5 max-w-[calc(100%-20px)]"
+        className={cn("max-w-full", docked ? "relative shrink-0" : "top-0 right-0 bottom-0")}
         style={{ width }}
+        data-docked={docked || undefined}
         onAnimationEnd={(e) => !open && e.target === e.currentTarget && onExited()}
         {...(!skill.description && { "aria-describedby": undefined })}
       >
-        <ResizeHandle {...drawerWidth} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
+        <ResizeHandle {...drawerWidth} max={max} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
         <SheetHeader className="h-11 pr-3 pl-3.5 text-[11px] font-semibold text-muted-foreground">
           <span className="grow">{d.title}</span>
           <SheetClose asChild>

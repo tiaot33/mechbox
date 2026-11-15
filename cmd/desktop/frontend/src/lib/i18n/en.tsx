@@ -718,6 +718,9 @@ export const en = {
     searchResults: (text: string, n: number) => `Search “${text}”: ${count(n, "result")}`,
     clearSearch: "Clear",
     updatesSkills: "Skills to handle",
+    sectionMore: "More actions",
+    expandSection: "Expand this section",
+    collapseSection: "Collapse this section",
     updateCount: (n: number) => `Update ${n}`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent}'s global directory has ${count(n, "skill")}`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} can use ${count(n, "skill")} in ${project}`,
@@ -859,8 +862,8 @@ export const en = {
     done: "Done",
     leftHint: (n: number) =>
       n === 1
-        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it later from “Fetch skills” in the sidebar."
-        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them later from “Fetch skills” in the sidebar.`,
+        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it later from “Fetch skills” in the toolbar."
+        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them later from “Fetch skills” in the toolbar.`,
     linkPlaceholder: "owner/repo, Git URL or link; leave empty for no Source",
     retry: "Retry",
     fetchWithoutSource: "Fetch without Source",
@@ -880,7 +883,7 @@ export const en = {
     notNow: "Not now",
     fetchN: (n: number) => `Fetch ${n}`,
     cost: "Fetching hands them over to the app: if you keep updating these skills with a command-line tool afterwards, updates to the author’s newer version are recognized, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
-    projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the sidebar.",
+    projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the toolbar.",
     noSource: "No Source",
     groupCount: (n: number) => `· ${n}`,
     groupToggle: (source: string) => `Check or uncheck everything under “${source}”`,
@@ -1130,13 +1133,9 @@ export const en = {
   },
 
   sidebar: {
-    fetch: "Fetch skills",
-    market: "Skill market",
     library: "Library",
     updates: "Updates",
     updatesTitle: "Updates to handle: skills with a new Version, deleted in the Source, or maybe renamed; matches the Dock badge",
-    checkTitle: "Check every Source for new Versions (read-only; local directory Sources aren't checked)",
-    check: "Check for updates",
     collections: "Collections",
     bySource: "By Source",
     noCollections: "Skills you fetch are grouped into Collections by Source automatically.",
@@ -1167,8 +1166,8 @@ export const en = {
     pushDaily: "Pushes daily",
     pushWeekly: "Pushes weekly",
     pushFailed: "Push failed",
-    notConfigured: "Not set up",
     settings: "Settings",
+    settingsTitle: (library: string) => `Database: ${library}`,
   },
 
   review: {
@@ -1336,6 +1335,10 @@ export const en = {
   },
 
   toolbar: {
+    fetch: "Fetch skills",
+    market: "Skill market",
+    checkTitle: "Check every Source for new Versions (read-only; local directory Sources aren't checked)",
+    check: "Check for updates",
     toggleLeft: "Show/hide sidebar",
     search: "Search skills",
     toggleRight: "Show/hide Scope sidebar",

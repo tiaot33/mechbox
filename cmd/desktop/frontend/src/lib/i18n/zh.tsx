@@ -675,6 +675,9 @@ export const zh = {
     searchResults: (text: string, n: number) => `搜索「${text}」：${n} 个结果`,
     clearSearch: "清除",
     updatesSkills: "要处理的技能",
+    sectionMore: "更多操作",
+    expandSection: "展开这一节",
+    collapseSection: "收起这一节",
     updateCount: (n: number) => `更新 ${n} 个`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent} 全局目录里有 ${n} 个技能`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} 在 ${project} 里能用 ${n} 个技能`,
@@ -811,7 +814,7 @@ export const zh = {
     leftTitle: "还有几个没入库",
     done: "完成",
     leftHint: (n: number) =>
-      `下面 ${n} 个没入库，仍是未纳管技能，Agent 照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库；也可以先放着，之后在左栏「入库技能」里再入库。`,
+      `下面 ${n} 个没入库，仍是未纳管技能，Agent 照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库；也可以先放着，之后在顶栏「入库技能」里再入库。`,
     linkPlaceholder: "owner/repo、Git 地址或链接；留空就是没有来源",
     retry: "重试",
     fetchWithoutSource: "不带来源入库",
@@ -830,7 +833,7 @@ export const zh = {
     notNow: "先不入库",
     fetchN: (n: number) => `入库 ${n} 个`,
     cost: "入库就是交给 app 管：之后如果还用命令行工具更新这些技能，更新到作者的新版时 app 会认出来，在 app 里点「更新」就能对上；改成别的内容，会报为被手动改过。",
-    projectsLater: "项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库。",
+    projectsLater: "项目里的技能，登记项目时再接；先不入库的，之后可以在顶栏「入库技能」里再一次入库。",
     noSource: "没有来源",
     groupCount: (n: number) => `· ${n} 个`,
     groupToggle: (source: string) => `勾选或取消「${source}」下的全部`,
@@ -1062,13 +1065,9 @@ export const zh = {
   },
 
   sidebar: {
-    fetch: "入库技能",
-    market: "技能市场",
     library: "技能库",
     updates: "更新",
     updatesTitle: "要处理的更新：有新版本、来源里已删除或可能改了名的技能；和 Dock 角标一致",
-    checkTitle: "检查各来源是否有新版本（只读，本地目录来源不检查）",
-    check: "检查更新",
     collections: "集合",
     bySource: "按来源",
     noCollections: "入库技能后，按来源自动归成集合。",
@@ -1099,8 +1098,8 @@ export const zh = {
     pushDaily: "每天推送",
     pushWeekly: "每周推送",
     pushFailed: "推送失败",
-    notConfigured: "未配置",
     settings: "设置",
+    settingsTitle: (library: string) => `数据库：${library}`,
   },
 
   review: {
@@ -1263,6 +1262,10 @@ export const zh = {
   },
 
   toolbar: {
+    fetch: "入库技能",
+    market: "技能市场",
+    checkTitle: "检查各来源是否有新版本（只读，本地目录来源不检查）",
+    check: "检查更新",
     toggleLeft: "显示/隐藏侧栏",
     search: "搜索技能",
     toggleRight: "显示/隐藏作用域栏",

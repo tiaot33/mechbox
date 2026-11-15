@@ -16,12 +16,12 @@ const listRows = () =>
   [...document.querySelectorAll<HTMLElement>(".a-list .skill-row[data-skill-id]")].map((el) => pickRow(el, Number(el.dataset.skillId)));
 
 // PickBox 是一行开头的勾选框。
-export function PickBox({ id }: { id: SkillID }) {
+export function PickBox({ id, className }: { id: SkillID; className?: string }) {
   const picked = useView((v) => v.picked.has(id));
   const any = useView((v) => v.picked.size > 0);
   const t = useT().list;
   return (
-    <span className="flex" onClick={(e) => e.stopPropagation()}>
+    <span className={cn("flex", className)} onClick={(e) => e.stopPropagation()}>
       <input
         type="checkbox"
         className={cn("pick-box", boxClass, !any && "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100")}

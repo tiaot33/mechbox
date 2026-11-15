@@ -1,6 +1,9 @@
 // 列表的分节：技能库页与作用域页都按集合或按组分节，作用域页另有未纳管技能与(项目里)来自全局的两节，以及下面那块没装在这里的。
 // 节标题可以收起;集合与组的节标题可以拖到右栏作用域(集合 = 把它的技能逐个直接安装，组 = 组安装),
-// 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。集合的更新、历史与来源里的新技能放在集合的节标题上，组的重命名、删除与组安装于放在组的节标题上。
+// 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。
+// 节标题上只常驻名字、统计和要处理的事(集合的更新、来源里的新技能，组安装于哪些作用域);关系图、看来源里的其他技能、历史、
+// 组的重命名与删除这类不常用的收在标题右边的「⋯」里，右键节标题是同一个菜单。
+// 节标题和技能行对齐：标题的勾选框和行首的勾选框在同一列，后面的图标和行里的技能名对齐;收起箭头在最右边。
 import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -26,18 +29,27 @@ import { deleteGroup, renameGroup } from "@/features/group/group";
 import { uninstallGroup } from "@/features/install/install";
 import { openHistory, openUpdate } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
-import { useDnD } from "@/components/app/dnd";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useCollectionDrop, useDnD, useGroupDrop } from "@/components/app/dnd";
 import { Icon, SourceIcon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark, WSLBadge } from "@/components/app/parts";
 import { SectionPick } from "./pick";
 
-// Section 是一节：标题 + 一块行;给了 pick 时标题上有勾选框，一次勾上这一节的这些技能。defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;
-// 收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
+// MenuEntry 是节标题菜单里的一项("separator" 是分隔线);同一份既画在「⋯」里，也画在右键菜单里。
+export type MenuEntry = { label: string; onSelect: () => void; danger?: boolean; className?: string } | "separator";
+
+// Section 是一节：标题 + 一块行。标题左边留一列和行首的勾选框对齐(gutter;更新页的行不能勾选，不留),
+// 给了 pick 时这一列是勾选框，一次勾上这一节的这些技能;actions 是标题右边常驻的(要处理的事),menu 是收起来的不常用的动作。
+// defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
 export function Section({
   id,
   head,
+  actions,
+  menu,
   sub,
   defaultCollapsed = false,
+  gutter = true,
   className,
   headProps,
   pick,
@@ -45,8 +57,11 @@ export function Section({
 }: {
   id: string;
   head: React.ReactNode;
+  actions?: React.ReactNode;
+  menu?: MenuEntry[];
   sub?: React.ReactNode; // 标题下面的一行(集合里来源新发布的技能)
   defaultCollapsed?: boolean;
+  gutter?: boolean;
   className?: string;
   headProps?: React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, unknown>;
   pick?: SkillID[];
@@ -55,46 +70,85 @@ export function Section({
   const flipped = useView((v) => v.flipped.has(id));
   const searching = useView((v) => !!v.search.trim());
   const collapsed = !searching && defaultCollapsed !== flipped;
-  return (
-    <section className={cn("list-section mt-3 first:mt-0", className)} data-section={id}>
-      <div
-        {...headProps}
-        className={cn(
-          "section-head group/head sticky top-0 z-[1] -mx-1 flex min-h-9 min-w-0 items-center gap-2 glass rounded-lg px-1 py-1 text-[12.5px] [--glass-drop:0_0_#0000]",
-          headProps?.className,
-        )}
+  const t = useT().list;
+  const bar = (
+    <div
+      {...headProps}
+      className={cn(
+        // 吸顶时底下的行滚过去，标题用内容区的不透明底色挡住。
+        "section-head group/head sticky top-0 z-[1] flex min-h-9 min-w-0 items-center gap-2 border-b border-row-line px-3 py-1 text-[12.5px] not-data-drop-hover:bg-[var(--color-tile,var(--color-panel))]",
+        headProps?.className,
+      )}
+    >
+      {gutter && <span className="mr-2 flex w-3.5 shrink-0">{pick && <SectionPick ids={pick} />}</span>}
+      <span className="flex min-w-0 grow items-center gap-2">{head}</span>
+      {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
+      {menu && <SectionMenu entries={menu} />}
+      <button
+        type="button"
+        className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-fill hover:text-foreground"
+        aria-expanded={!collapsed}
+        title={collapsed ? t.expandSection : t.collapseSection}
+        onClick={() => toggleSection(id)}
       >
-        <button
-          type="button"
-          className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-fill hover:text-foreground"
-          aria-expanded={!collapsed}
-          onClick={() => toggleSection(id)}
-        >
-          <Icon name="down" className={cn("size-2.5 transition-transform", collapsed && "-rotate-90")} />
-        </button>
-        {pick && <SectionPick ids={pick} />}
-        {head}
-      </div>
+        <Icon name="down" className={cn("size-2.5 transition-transform", collapsed && "-rotate-90")} />
+      </button>
+    </div>
+  );
+  return (
+    <section className={cn("list-section mt-4 first:mt-0", className)} data-section={id}>
+      {menu ? (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>{bar}</ContextMenuTrigger>
+          <ContextMenuContent>
+            {menu.map((m, i) =>
+              m === "separator" ? (
+                <ContextMenuSeparator key={i} />
+              ) : (
+                <ContextMenuItem key={i} danger={m.danger} onSelect={m.onSelect}>
+                  {m.label}
+                </ContextMenuItem>
+              ),
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        bar
+      )}
       {sub}
-      {!collapsed && <div className="section-rows mt-1 rounded-[10px] border border-hairline bg-wash/55 shadow-tile">{children}</div>}
+      {!collapsed && <div className="section-rows">{children}</div>}
     </section>
+  );
+}
+
+// SectionMenu 是节标题右边的「⋯」:点开是这一节不常用的动作，和右键节标题的菜单一样。
+function SectionMenu({ entries }: { entries: MenuEntry[] }) {
+  const t = useT().list;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" className="section-more" title={t.sectionMore} aria-label={t.sectionMore}>
+          <Icon name="more" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        {entries.map((m, i) =>
+          m === "separator" ? (
+            <DropdownMenuSeparator key={i} />
+          ) : (
+            <DropdownMenuItem key={i} danger={m.danger} className={m.className} onSelect={m.onSelect}>
+              {m.label}
+            </DropdownMenuItem>
+          ),
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 // Counts 是节标题上淡色的数字说明。
 function Counts({ children }: { children: React.ReactNode }) {
   return <span className="shrink-0 text-[11px] text-muted-foreground">{children}</span>;
-}
-
-// DragHandle 是可拖的节标题前的把手。
-function DragHandle() {
-  return (
-    <span className="grid shrink-0 grid-cols-[repeat(2,3px)] gap-0.5 opacity-50 group-hover/head:opacity-100" aria-hidden>
-      {Array.from({ length: 6 }, (_, i) => (
-        <i key={i} className="size-[3px] rounded-full bg-muted-foreground" />
-      ))}
-    </span>
-  );
 }
 
 // inUse 是一节里算作在用的技能：装在至少一个地方的。技能库页节标题的个数和行的先后都按它。
@@ -107,11 +161,26 @@ function UseCounts({ skills }: { skills: Skill[] }) {
   return <Counts>{t.inUse(inUse(s, skills).length, skills.length)}</Counts>;
 }
 
-// CollectionHead 是集合的节标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，
-// 看来源里的其他技能、历史、更新，技能库页上还有关系图;可以整个拖到作用域。
-export function CollectionHead({ collection, count, showGraph = false }: { collection: Collection; count?: string; showGraph?: boolean }) {
+// CollectionSection 是集合的一节。标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，有更新时右边是「更新」;
+// 「⋯」里是关系图(技能库页)、看来源里的其他技能与历史。标题可以整个拖到作用域，也接受拖来的集合(调整先后);标题下面是来源里新发布的技能。
+export function CollectionSection({
+  id,
+  collection,
+  count,
+  pick,
+  showGraph = false,
+  children,
+}: {
+  id: string;
+  collection: Collection;
+  count?: string;
+  pick: SkillID[];
+  showGraph?: boolean;
+  children: React.ReactNode;
+}) {
   const s = useSnapshot();
   const dnd = useDnD();
+  const drop = useCollectionDrop(collection.id);
   const t = useT();
   const skills = collectionSkills(s, collection);
   const todo = skills.filter(pending).length;
@@ -120,7 +189,12 @@ export function CollectionHead({ collection, count, showGraph = false }: { colle
   const local = isLocal(collection.source);
   const label = sourceLabel(s, collection.source);
   const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : ""].filter(Boolean);
-  return (
+  const menu: MenuEntry[] = [
+    ...(showGraph ? [{ label: t.graph.open, className: "graph-open", onSelect: () => openGraph({ kind: "collection", id: collection.id }) }, "separator" as const] : []),
+    { label: t.sidebar.otherSkills, onSelect: () => previewCollection(collection.id) },
+    { label: t.sidebar.history, onSelect: () => openHistory({ collection_id: collection.id }, t.list.historyTitle(label)) },
+  ];
+  const head = (
     <>
       <span
         className="collection-handle flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing"
@@ -129,64 +203,79 @@ export function CollectionHead({ collection, count, showGraph = false }: { colle
         onDragEnd={dnd.end}
         title={t.list.collectionDragTitle(skills.length)}
       >
-        <DragHandle />
-        <SourceIcon type={collection.source.type} className="size-3.5 text-muted-foreground" />
+        <SourceIcon type={collection.source.type} className="size-3.5 shrink-0 text-muted-foreground" />
         <b className="section-name truncate font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
           {label}
         </b>
         {local && <WSLBadge path={collection.source.label} />}
       </span>
       {count ? <Counts>{count}</Counts> : <UseCounts skills={skills} />}
-      <span className="min-w-0 grow truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
+      <span className="min-w-0 grow shrink-[100] truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
         {facts.join(" · ")}
-      </span>
-      <span className="flex shrink-0 items-center gap-1">
-        {showGraph && <GraphButton onClick={() => openGraph({ kind: "collection", id: collection.id })} />}
-        <Button size="sm" variant="ghost" onClick={() => previewCollection(collection.id)} title={t.list.otherSkillsHint}>
-          {t.drawer.otherSkills}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => openHistory({ collection_id: collection.id }, t.list.historyTitle(label))}>
-          {t.list.history}
-        </Button>
-        {!local && skills.some(hasUpdate) && (
-          <Button size="sm" variant={todo ? "primary" : "default"} onClick={() => openUpdate(collection.id)}>
-            <Icon name="up" />
-            {todo ? t.list.updateCount(todo) : t.list.update}
-          </Button>
-        )}
       </span>
     </>
   );
+  const actions = !local && skills.some(hasUpdate) && (
+    <Button size="sm" onClick={() => openUpdate(collection.id)}>
+      <Icon name="up" />
+      {todo ? t.list.updateCount(todo) : t.list.update}
+    </Button>
+  );
+  return (
+    <Section id={id} pick={pick} head={head} actions={actions || undefined} menu={menu} sub={<CollectionNews collection={collection} />} headProps={drop}>
+      {children}
+    </Section>
+  );
 }
 
-// CollectionNews 是集合节标题下的一行：来源里新发布的技能，去入库或不感兴趣。
-export function CollectionNews({ collection }: { collection: Collection }) {
+// CollectionNews 是集合节标题下的一行：来源里新发布的技能，去入库或不感兴趣。和技能名对齐。
+function CollectionNews({ collection }: { collection: Collection }) {
   const s = useSnapshot();
   const t = useT();
   const fresh = collection.new_skills ?? [];
   if (!fresh.length) return null;
   return (
-    <div className="collection-new flex min-w-0 items-center gap-2 px-8 pt-0.5 pb-1 text-[11px] text-muted-foreground">
+    <div className="collection-new flex min-w-0 items-center gap-3 border-b border-row-line py-1 pr-3 pl-[42px] text-[11px] text-muted-foreground">
       <span className="min-w-0 grow truncate">{t.drawer.newSkills(sourceLabel(s, collection.source), fresh)}</span>
-      <Button variant="link" onClick={() => previewNewSkills(collection.id)}>
+      <Button variant="link" className="text-[11px]" onClick={() => previewNewSkills(collection.id)}>
         {t.drawer.goFetch}
       </Button>
-      <Button variant="link" onClick={() => notInterested(collection.id, fresh)}>
+      <Button variant="ghost" size="sm" onClick={() => notInterested(collection.id, fresh)}>
         {t.drawer.notInterested}
       </Button>
     </div>
   );
 }
 
-// GroupHead 是组的节标题：可以整组拖到作用域(组安装),写出组安装于哪些作用域(可以卸载),重命名与删除，技能库页上还有关系图。
-// 作用域页给 count,写装在这里几个;否则写组里几个技能。
-export function GroupHead({ group, count, showGraph = false }: { group: Group; count?: string; showGraph?: boolean }) {
+// GroupSection 是组的一节。标题：组名、几个技能(作用域页给 count,写装在这里几个)、组安装于哪些作用域(可以卸载);
+// 「⋯」里是关系图(技能库页)、重命名与删除。标题可以整组拖到作用域(组安装),也接受技能与集合(加入该组)、拖来的组(调整先后)。
+export function GroupSection({
+  id,
+  group,
+  count,
+  pick,
+  showGraph = false,
+  children,
+}: {
+  id: string;
+  group: Group;
+  count?: string;
+  pick: SkillID[];
+  showGraph?: boolean;
+  children: React.ReactNode;
+}) {
   const s = useSnapshot();
   const dnd = useDnD();
+  const drop = useGroupDrop(group.id);
   const t = useT();
   const scopes = s.groupInstalls.filter((a) => a.group_id === group.id).map((a) => a.scope);
   const size = group.members?.length ?? 0;
-  return (
+  const menu: MenuEntry[] = [
+    ...(showGraph ? [{ label: t.graph.open, className: "graph-open", onSelect: () => openGraph({ kind: "group", id: group.id }) }, "separator" as const] : []),
+    { label: t.sidebar.renameWith, onSelect: () => renameGroup(group.id) },
+    { label: t.sidebar.deleteGroupWith, danger: true, onSelect: () => deleteGroup(group.id) },
+  ];
+  const head = (
     <>
       <span
         className="group-handle flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing"
@@ -195,12 +284,11 @@ export function GroupHead({ group, count, showGraph = false }: { group: Group; c
         onDragEnd={dnd.end}
         title={t.list.groupDragTitle(size)}
       >
-        <DragHandle />
-        <Icon name="layers" className="size-3.5 text-group" />
+        <Icon name="layers" className="size-3.5 shrink-0 text-group" />
         <b className="section-name truncate font-semibold">{group.name}</b>
       </span>
       <Counts>{count ?? t.list.skillCount(size)}</Counts>
-      <span className="ml-1 inline-flex min-w-0 grow items-center gap-1 overflow-hidden text-[11px] whitespace-nowrap text-muted-foreground">
+      <span className="ml-1 inline-flex min-w-0 grow shrink-[100] items-center gap-1 overflow-hidden text-[11px] whitespace-nowrap text-muted-foreground">
         {scopes.length ? (
           <>
             {t.list.groupInstalledIn}
@@ -215,27 +303,12 @@ export function GroupHead({ group, count, showGraph = false }: { group: Group; c
           <span className="text-muted-foreground">{t.list.notGroupInstalled}</span>
         )}
       </span>
-      <span className="flex shrink-0 items-center gap-1">
-        {showGraph && <GraphButton onClick={() => openGraph({ kind: "group", id: group.id })} />}
-        <Button size="sm" variant="ghost" onClick={() => renameGroup(group.id)}>
-          {t.list.rename}
-        </Button>
-        <Button size="sm" variant="ghost" className="text-bad-strong" onClick={() => deleteGroup(group.id)}>
-          {t.list.deleteGroup}
-        </Button>
-      </span>
     </>
   );
-}
-
-// GraphButton 是节标题上打开这个集合或组的关系图的按钮。
-function GraphButton({ onClick }: { onClick: () => void }) {
-  const t = useT().graph;
   return (
-    <Button size="sm" variant="ghost" className="graph-open" onClick={onClick} title={t.openTitle}>
-      <Icon name="graph" />
-      {t.open}
-    </Button>
+    <Section id={id} pick={pick} head={head} menu={menu} headProps={drop}>
+      {children}
+    </Section>
   );
 }
 
@@ -268,11 +341,14 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
       {foldable && (
         <button
           type="button"
-          className="not-installed-fold flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-wash/80 hover:text-foreground"
+          className="not-installed-fold flex w-full min-w-0 items-center gap-4 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-fill hover:text-foreground"
           aria-expanded={unfolded}
           onClick={() => toggleUnfolded(id)}
         >
-          <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
+          {/* 箭头在勾选框那一列，文字和技能名对齐。 */}
+          <span className="flex w-3.5 shrink-0 justify-center">
+            <Icon name="chev" className={cn("size-2.5 transition-transform", unfolded && "rotate-90")} />
+          </span>
           <span className="truncate">{label}</span>
         </button>
       )}

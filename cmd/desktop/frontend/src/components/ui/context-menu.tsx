@@ -63,6 +63,9 @@ function ContextMenuSubContent({ className, ...props }: ComponentProps<typeof Co
   );
 }
 
+// 菜单的表面与选项样式，下拉菜单(dropdown-menu.tsx)共用。
+export { surface as menuSurface, itemClass as menuItemClass };
+
 export {
   ContextMenu,
   ContextMenuContent,

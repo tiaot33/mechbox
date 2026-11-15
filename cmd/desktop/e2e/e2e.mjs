@@ -145,12 +145,17 @@ async function unfold() {
   }
 }
 const btn = (scope, name) => scope.getByRole("button", { name, exact: true });
+// sectionMenu 点节标题右边的「⋯」,选菜单里的一项(关系图、看来源里的其他技能、更新历史、组的重命名与删除收在这里)。
+async function sectionMenu(head, item) {
+  await head.locator("button.section-more").click();
+  await page.locator('[data-slot="dropdown-menu-item"]', { hasText: item }).click();
+}
 // unmanagedHead 是作用域页「不在技能库里」那一节的标题，上面有「全部入库…」。
 const unmanagedHead = () => page.locator('.a-list .list-section[data-section="scope-unmanaged"] .section-head');
 // section 是设置页里标题为 name 的分区。
 const section = (name) => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${name}$`) }) });
 async function openFetch() {
-  await page.locator(".side-btn", { hasText: "入库技能" }).click();
+  await page.locator(".titlebar .tb-fetch").click();
 }
 // previewLocal 对本地目录做入库预览，等到候选列表出现。
 async function previewLocal(dir) {
@@ -286,7 +291,7 @@ await step(FIRST_OPEN, async () => {
     assert(lead.includes("在各 Agent 的全局目录里发现 4 个不是库装的技能") && lead.includes("磁盘上什么都不改，Agent 用的和现在一样"), `开头应先说磁盘不动:${lead}`);
     const text = await modal().textContent();
     assert(text.includes("更新到作者的新版时 app 会认出来") && text.includes("改成别的内容，会报为被手动改过"), `确认前写清代价:${text}`);
-    assert(text.includes("项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库"), "第一次打开时说明项目里的之后再接，先不入库的去哪里再入库");
+    assert(text.includes("项目里的技能，登记项目时再接；先不入库的，之后可以在顶栏「入库技能」里再一次入库"), "第一次打开时说明项目里的之后再接，先不入库的去哪里再入库");
     assert((await modal().locator(".fetch-unmanaged-team").count()) === 0, "全局里没有项目仓库的提醒");
     // 符号链接和它指向的真实文件夹内容一样，合成一条，两个 Agent 都列出。
     const group = modal().locator(".fetch-unmanaged-group", { hasText: "没有来源" });
@@ -849,7 +854,7 @@ await step("详情：文件列表、可执行位、SKILL.md 渲染与源码", as
 await step("关系图：集合的节标题打开关系图页，没有连线的技能收在下面、点了打开详情;返回技能库时详情一并关上", async () => {
   await closeDrawer();
   const section = page.locator(".list-section", { has: page.locator(".section-head", { hasText: "my-skills" }) }).first();
-  await section.locator("button.graph-open").click();
+  await sectionMenu(section.locator(".section-head"), "关系图");
   await page.locator(".graph-page").waitFor();
   await page.locator(".tb-crumb", { hasText: "my-skills" }).waitFor();
   await page.locator(".graph-empty", { hasText: "这些技能之间没有互相提到" }).waitFor();
@@ -1751,7 +1756,7 @@ const projSkill = (name) => {
   return found ? fs.readFileSync(path.join(projDir, String(found)), "utf8") : "";
 };
 const checkUpdates = async (text) => {
-  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
+  await page.locator(".titlebar .tb-check").click();
   await toast(text);
   await settle();
 };
@@ -1774,7 +1779,7 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   assert((await card("delta").locator('[data-slot="badge"][data-tone="warn"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
-  await row.getByText("⚠ 新增 1 个脚本").waitFor({ timeout: 15000 });
+  await row.locator(".update-risk", { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
   assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
@@ -2247,7 +2252,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await updatesNav().click();
   const row = page.locator(".update-row", { hasText: "trio.zip" });
   await row.getByText("lambda 可能改名为 lambda-kit", { exact: false }).waitFor();
-  await row.getByText("⚠ 新增 1 个脚本").waitFor({ timeout: 15000 });
+  await row.locator(".update-risk", { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "查看").click();
   await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
   await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
@@ -2293,7 +2298,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   assert((await trioHead.locator(".collection-new").count()) === 0, "不感兴趣的新技能不再在集合上提");
   // 有变化只算来源里有新内容的(跳过了的 kappa 也算),来源里已删除的 mu 不算。
   await trioHead.locator(".section-head").getByText("· 1 个有变化", { exact: false }).waitFor();
-  await btn(trioHead.locator(".section-head"), "看来源里的其他技能").click();
+  await sectionMenu(trioHead.locator(".section-head"), "看来源里的其他技能");
   await modal().locator('[data-slot="list-row"]', { hasText: "nu" }).waitFor({ timeout: 20000 });
   await page.keyboard.press("Escape");
   await page.locator(".a-left .nav-item", { hasText: "技能库" }).click();
@@ -2840,7 +2845,7 @@ await step("左栏集合跳到那一节 → 看来源里的其他技能", async 
   await unfold();
   assert((await mine.locator(".skill-row").count()) === 3, "my-skills 那一节应有 3 个技能");
   assert((await page.locator('.a-list[data-page="all"]').count()) === 1, "仍在技能库页");
-  await btn(mine.locator(".section-head"), "看来源里的其他技能").click();
+  await sectionMenu(mine.locator(".section-head"), "看来源里的其他技能");
   await modal().locator('[data-slot="dialog-title"]', { hasText: "入库预览" }).waitFor({ timeout: 20000 });
   assert((await modal().locator('[data-slot="list-row"] [data-slot="badge"]', { hasText: "已入库" }).count()) === 3, "已入库的候选应标出来");
   await page.keyboard.press("Escape");
@@ -2903,16 +2908,9 @@ await step("左栏一键折叠技能少的来源，点最后一行列出;设置�
   assert((await small.count()) === 0 && (await row("delta.zip").count()) === 1, "关掉后每个集合都列出");
 });
 
-await step("同步：未配置时推、拉置灰，去设置跳到同步分区", async () => {
-  await page.locator(".a-left .nav-item", { hasText: "同步" }).click();
-  assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置 S3" }).count()) === 1, "应提示未配置");
-  assert(await btn(modal(), "推送到 S3").isDisabled(), "未配置时推送置灰");
-  assert(await btn(modal(), "从 S3 拉回…").isDisabled(), "未配置时拉回置灰");
-  await btn(modal(), "去设置").click();
-  await page.locator(".settings").waitFor();
-  await page.waitForFunction(() => document.querySelector('[data-active="true"]')?.textContent === "同步", null, { timeout: 5000 });
-  await page.locator("button[title='返回技能库']").click();
-  await page.locator(".a-list").waitFor();
+await step("同步：未配置时左栏不显示同步那一行", async () => {
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).waitFor();
+  assert.equal(await page.locator(".a-left .nav-item", { hasText: "同步" }).count(), 0, "未配置时左栏不常驻同步");
 });
 
 await step("设置页：分区、应用设置写进数据库、项目、关于", async () => {
@@ -3025,11 +3023,16 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   const sidebarSays = async (text, message) => {
     await sidebarSync().filter({ hasText: text }).waitFor({ timeout: 5000 }).catch(() => assert.fail(message));
   };
+  // 没配置好同步时侧栏没有同步那一行(回到主界面后侧栏重读配置状态，等它消失)
+  const sidebarHidesSync = async (message) => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).waitFor();
+    await sidebarSync().waitFor({ state: "detached", timeout: 5000 }).catch(() => assert.fail(message));
+  };
   const open = async () => {
     await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
     await field("GitHub", "个人访问令牌").waitFor();
   };
-  await sidebarSays("未配置", "没填同步设置时侧栏应显示未配置");
+  await sidebarHidesSync("没填同步设置时侧栏不显示同步");
   await open();
   assert(await btn(section("GitHub"), "保存").isDisabled(), "没改时不能保存");
   assert((await field("GitHub", "个人访问令牌").getAttribute("type")) === "password", "令牌输入框应遮住内容");
@@ -3045,7 +3048,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await settle();
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
-  await sidebarSays("未配置", "只填了存储桶时应仍显示未配置");
+  await sidebarHidesSync("只填了存储桶时仍是未配置，侧栏不显示同步");
 
   await open();
   await field("同步", "服务地址").fill(endpoint);
@@ -3112,7 +3115,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   assert(!Object.keys(config()).some((k) => k === "github_token" || isSyncSetting(k)), "清空后数据库里不应再有令牌与同步设置");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
-  await sidebarSays("未配置", "清空后侧栏应回到未配置");
+  await sidebarHidesSync("清空后回到未配置，侧栏不再显示同步");
 });
 
 await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 编辑迁移 / 删除、共用目录卸载", async () => {
@@ -3450,7 +3453,7 @@ await step("组安装遇到外来文件夹：选择跳过，结果列出被跳�
 await step("检查更新失败：来源读不到，列出没读成的来源", async () => {
   fs.renameSync(`${ZIP_DIR}/delta.zip`, `${ZIP_DIR}/delta.zip.bak`);
   try {
-    await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
+    await page.locator(".titlebar .tb-check").click();
     await modal().locator('[data-slot="dialog-title"]', { hasText: "检查更新" }).waitFor();
     assert((await modal().locator('[data-slot="list-row"]', { hasText: "delta.zip" }).locator('[data-slot="badge"]', { hasText: "检查失败" }).count()) === 1, "delta.zip 应检查失败");
     await btn(modal(), "知道了").click();
@@ -3529,7 +3532,7 @@ await step("[网络] 填上 E2E_GITHUB_TOKEN 给的 GitHub 令牌", async () => 
   await page.waitForSelector(".a-list");
 });
 await step("[网络] 技能市场搜索 → 入库", async () => {
-  await page.locator(".side-btn", { hasText: "技能市场" }).click();
+  await page.locator(".titlebar .tb-market").click();
   await modal().locator("input").fill("frontend design");
   await btn(modal(), "搜索").click();
   await modal().locator('[data-slot="list-row"]').first().waitFor({ timeout: 30000 });
@@ -3664,7 +3667,7 @@ await step("[网络] GitHub 入库(owner/repo@技能名)", async () => {
   // 打开详情就查 skills.sh 的审计;anthropics/skills 的 pdf 在 skills.sh 上有合作方的结论。
   await drawer().locator(".skill-audit tr").first().waitFor({ timeout: 30000 });
   await closeDrawer();
-  await page.locator(".a-left .nav-item", { hasText: "检查更新" }).click();
+  await page.locator(".titlebar .tb-check").click();
   await toast("没有要处理的更新");
   await settle();
 });
@@ -4122,7 +4125,9 @@ if (selected.list || process.env.E2E_PLAN_ONLY === "1") {
 
       await page.goto(URL);
       await page.waitForSelector(".a-list");
-      assert((await page.locator(".a-left div[title]").evaluateAll((nodes) => nodes.map((n) => n.title))).includes(LIBRARY), "应用必须打开本次运行的临时数据库");
+      // 左栏「设置」那一行悬停写出数据库位置(发布版的左栏不常驻它)。
+      const settingsTitle = await page.locator(".a-left .nav-item", { hasText: "设置" }).getAttribute("title");
+      assert.equal(settingsTitle, `数据库：${LIBRARY}`, "应用必须打开本次运行的临时数据库");
       assert(fs.realpathSync(LIBRARY).startsWith(fs.realpathSync(HOME) + path.sep), "数据库必须位于临时 HOME 内");
       if (!selected.steps.some((s) => s.group === "first-open")) {
         await btn(modal(), "先不入库").click();

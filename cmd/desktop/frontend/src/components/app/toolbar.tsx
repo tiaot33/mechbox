@@ -1,14 +1,20 @@
-// 统一工具栏：左 = 侧栏开关 + 当前页面的标题与个数(关系图页前面多一个返回按钮，回到打开它之前的那一页);右 = 搜索与右栏开关。
+// 统一工具栏：左 = 侧栏开关 + 当前页面的标题与个数(关系图页前面多一个返回按钮，回到打开它之前的那一页);
+// 右 = 动作(检查更新、入库技能、技能市场)、搜索与右栏开关。左栏只放页面与集合、组，动作都在这里。
 // 作用域在右栏点选，打开作用域页。
 // 外框(拖动区、红绿灯的位置、Windows 的窗口按钮)见 titlebar.tsx。
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useLoadedSnapshot } from "@/lib/library";
-import { pageTitle } from "@/lib/model";
+import { checkableCollections, pageTitle } from "@/lib/model";
+import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { closeGraph, setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, useView } from "@/lib/view";
+import { checkUpdates, useCheckMark } from "@/features/update/check";
+import { openFetch } from "@/features/fetch/fetch-dialog";
+import { MarketDialog } from "@/features/fetch/market-dialog";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
+import { StatusMark } from "@/components/ui/status-mark";
 import { Icon } from "./icons";
 import { BusyMark, Count } from "./parts";
 import { Titlebar } from "./titlebar";
@@ -54,12 +60,13 @@ export function Toolbar() {
           <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
             {listing && <Count value={listing.total} />}
-            <BusyMark checks={!left} />
+            <BusyMark />
           </span>
         </>
       }
       right={
         <>
+          {s && <Actions />}
           <SearchInput
             ref={search}
             className="h-[26px] min-w-[110px] flex-[0_1_240px] px-[7px] text-[11.5px]"
@@ -76,5 +83,36 @@ export function Toolbar() {
         </>
       }
     />
+  );
+}
+
+// Actions 是顶栏右边的动作：检查更新(检查中与检查完在按钮上标出)、入库技能、技能市场。用轻按钮，和左栏的页面分开。
+function Actions() {
+  const s = useLoadedSnapshot()!;
+  const ui = useUI();
+  const busy = useBusy();
+  const checkStatus = useCheckMark("all");
+  const checkable = checkableCollections(s);
+  const t = useT().toolbar;
+  return (
+    <>
+      <Button variant="ghost" size="sm" className="tb-check shrink-0" disabled={!checkable.length || busy} onClick={() => checkUpdates(checkable)} title={t.checkTitle}>
+        {checkStatus ? <StatusMark status={checkStatus} size={12} /> : <Icon name="refresh" />}
+        {t.check}
+      </Button>
+      <Button variant="ghost" size="sm" className="tb-fetch shrink-0" onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
+        <Icon name="plus" />
+        {t.fetch}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="tb-market shrink-0"
+        onClick={(e) => ui.open((close) => <MarketDialog onClose={close} />, { origin: e.currentTarget })}
+      >
+        <Icon name="tag" />
+        {t.market}
+      </Button>
+    </>
   );
 }
