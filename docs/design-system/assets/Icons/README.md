@@ -9,4 +9,4 @@
 - `info`:新增〔暂定〕。圆圈里的 i,给 InfoTip(悬停看大段说明)。笔画 2、圆头，和 `alert` 同规格;墨色用 `muted-foreground`,悬停时 `foreground`。
 - 5 个来源图标,按来源类型取:`SourceGitHub`、`SourceGit`(同一个图形)、`SourceURL`、`SourceWellKnown`(同一个图形)、`SourceLocal`(和 `folder` 相同)。
 - `bot`:认不出的 Agent 的机器人图标,来自 `parts.tsx`。用 `subtle` 的灰色。
-- `alert`:新增〔暂定〕。三角感叹号,给 Notice、错误文字和失败的 toast;标签和列表里的提醒不用图标,用圆点。现有的图标里没有警示类图标。
+- `alert`:新增〔暂定〕。三角感叹号,给错误文字和失败的 toast;提醒(标签、列表、Notice)用三级各自的实心图标,见 Badge。现有的图标里没有警示类图标。

@@ -4,13 +4,16 @@ export const levels = ["critical", "warn", "info"] as const;
 
 export type Level = (typeof levels)[number];
 
-// Tone 是标签的四种样子：三级提醒，加上只是信息的 plain。
-export type Tone = Level | "plain";
+// Mark 是有图标的几种：三级提醒，加上不算提醒的「更新」(有新版本、可能改名),它用主题绿的图标，不和三级混在一起。
+export type Mark = Level | "update";
+
+// Tone 是标签的样子：有图标的几种，加上只是信息的 plain。
+export type Tone = Mark | "plain";
 
 export function worstLevel(tones: readonly (Tone | undefined)[]): Level | undefined {
   return levels.find((l) => tones.includes(l));
 }
 
-export function byLevel(a: Level, b: Level): number {
-  return levels.indexOf(a) - levels.indexOf(b);
+export function byLevel(a: Mark, b: Mark): number {
+  return levels.indexOf(a as Level) - levels.indexOf(b as Level);
 }

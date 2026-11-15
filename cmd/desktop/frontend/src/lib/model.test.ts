@@ -27,7 +27,11 @@ import {
   folderNotes,
   folderPresent,
   homePath,
+  installedSummary,
   isDefaultOrder,
+  needsReinstall,
+  reinstallAlerts,
+  reinstallLevel,
   legacyOrder,
   missingFromGroup,
   moved,
@@ -151,6 +155,53 @@ describe("folderPresent", () => {
     expect(present(SkillScopeStatus.SkillScopeCurrent)).toBe(true);
     expect(present(SkillScopeStatus.SkillScopeStale)).toBe(true);
     expect(present(SkillScopeStatus.SkillScopeModified)).toBe(true);
+  });
+});
+
+describe("项目不在这台机器上", () => {
+  const scope = { kind: ScopeKind.ScopeProject, agent: AgentCode.AgentClaudeCode, project_id: 2 } as Scope;
+  const place = (skill_id: number, status: SkillScopeStatus) => ({ skill_id, scope, folder: `f${skill_id}`, direct: true, status }) as SkillScopeInspection;
+
+  it("装在那里的技能不算要重新安装，不带提醒;提醒只在项目上", () => {
+    const off = place(1, SkillScopeStatus.SkillScopeRootMissing);
+    expect(needsReinstall(off)).toBe(false);
+    expect(reinstallLevel([off])).toBeUndefined();
+    const s = snapshot({
+      agents: [{ code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" }] as Agent[],
+      projects: [{ id: 2, name: "old", missing: true }] as RegisteredProject[],
+      skills: [{ id: 1, name: "s1" }] as Skill[],
+      skillScopes: [off],
+    });
+    expect(installedSummary(s, 1).bad).toBe(false);
+  });
+
+  it("技能库页的一行：同一个原因的几处合成一条，说明里逐行写出;在 app 外更新到作者新版的归为更新;项目不在这台机器上的不出现", () => {
+    const at = (agent: AgentCode, project_id = 0) =>
+      (project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent }) as Scope;
+    const p = (scope: Scope, status: SkillScopeStatus, source_latest = false) =>
+      ({ skill_id: 1, scope, folder: `${scope.agent}${scope.project_id ?? 0}`, direct: true, status, source_latest }) as SkillScopeInspection;
+    const s = snapshot({
+      agents: [
+        { code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" },
+        { code: AgentCode.AgentCodex, name: "Codex", global_directory: "/home/.agents/skills", project_directory: ".agents/skills" },
+      ] as Agent[],
+      projects: [{ id: 2, name: "old", missing: true }, { id: 3, name: "web" }] as RegisteredProject[],
+      skills: [{ id: 1, name: "s1" }] as Skill[],
+      skillScopes: [
+        p(at(AgentCode.AgentClaudeCode), SkillScopeStatus.SkillScopeMissing),
+        p(at(AgentCode.AgentCodex), SkillScopeStatus.SkillScopeMissing),
+        p(at(AgentCode.AgentClaudeCode, 3), SkillScopeStatus.SkillScopeModified, true),
+        p(at(AgentCode.AgentClaudeCode, 2), SkillScopeStatus.SkillScopeRootMissing),
+        p(at(AgentCode.AgentCodex, 3), SkillScopeStatus.SkillScopeCurrent),
+      ],
+    });
+    const alerts = reinstallAlerts(s, 1);
+    expect(alerts.map((a) => a.tone)).toEqual(["critical", "update"]);
+    expect(alerts[0].tip.split("\n")).toHaveLength(2);
+  });
+
+  it("同一个技能在别处文件夹不在了，照样是严重", () => {
+    expect(reinstallLevel([place(1, SkillScopeStatus.SkillScopeRootMissing), place(1, SkillScopeStatus.SkillScopeMissing)])).toBe("critical");
   });
 });
 

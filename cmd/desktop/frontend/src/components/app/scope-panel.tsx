@@ -91,7 +91,7 @@ export function ScopePanel() {
           <span className="grow truncate" title={projectFolderNote(s, agent.code, place)}>
             {agentNameIn(s, agent.code, place)}
           </span>
-          {/* 这里有要重新安装的技能：提醒的圆点，按最重的那一处的级别。 */}
+          {/* 这里有要重新安装的技能：提醒的图标，按最重的那一处的级别。 */}
           {level && <Dot tone={level} title={t.issues(issues)} />}
           <NavCount value={installed.length} accent />
         </button>
@@ -184,7 +184,7 @@ export function ScopePanel() {
                 <span className="min-w-0 truncate">{projectName(s, p.id)}</span>
                 <WSLBadge path={p.path} />
                 <span className="grow" />
-                {/* 栏很窄：只画「严重」一级的圆点，「不在这台机器上」写在悬停提示里，不把项目名挤没。 */}
+                {/* 栏很窄：只画「严重」一级的图标，「不在这台机器上」写在悬停提示里，不把项目名挤没。 */}
                 {p.missing && (
                   <AlertDot items={[{ tone: "critical", label: t.missing, tip: t.missingBadgeTitle, className: "proj-missing" }]} />
                 )}

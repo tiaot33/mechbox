@@ -1,7 +1,7 @@
 /* 样式入口:Tailwind 主题(设计系统 docs/design-system/tokens.json 的颜色、字号、圆角、阴影与毛玻璃参数)、浮在内容上的表面的毛玻璃材质与少量全局样式。
    组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、毛玻璃材质、渲染出来的 Markdown、拖放中的高亮，
    以及状态圈与 toast 按状态切换的动画。
-   主题先清空 Tailwind 自带的颜色、字号与圆角，只留设计系统里的档位：黑、白、灰之外，绿只给动作与选中，红、橙、蓝只给三级提醒(严重、注意、提示)的小圆点和字;
+   主题先清空 Tailwind 自带的颜色、字号与圆角，只留设计系统里的档位：黑、白、灰之外，绿只给动作与选中，红、橙、蓝只给三级提醒(严重、注意、提示)的图标和字;
    字号五档，圆角三档加胶囊形。
    浅色和深色不是同一套样子换个颜色，各自定样子(见 control、tag、count 与三级提醒几组变量)。 */
 @import "tailwindcss";
@@ -56,13 +56,12 @@
   --color-primary-soft: rgba(21, 128, 61, 0.12);
   /* on-primary-soft 是淡绿底上的绿字(淡绿按钮),浅色下比 primary 深一点，11 px 也够对比度。 */
   --color-on-primary-soft: #166534;
-  /* 提醒分三级，每级一种颜色、一种圆点;颜色不用在别处。提醒不抢眼：没有底色和边框，只是一个 6 px 的小圆点，地方够时后面跟一行字。
-     <级> 是圆点的颜色，<级>-fg 是跟在后面的字。浅色下颜色压深一些(白底上看得清),深色下提亮。
-     - critical(严重，红，实心点外面一圈 critical-halo 的淡晕):已经坏了，不处理就用不了。
-     - warn(注意，橙，实心点):有风险或有冲突，不处理可能丢东西或用错。
-     - info(提示，蓝，空心圈):有一件可以做的事，放着也没事;后面的字用次要档的灰，不上色。 */
+  /* 提醒分三级，每级一种颜色、一个实心小图标;颜色不用在别处。提醒没有底色和边框，只是一个 12 px 的图标，地方够时后面跟一行字。
+     <级> 是图标的颜色，<级>-fg 是跟在后面的字。浅色下颜色压深一些(白底上看得清),深色下提亮。
+     - critical(严重，红，圆里一个叉):已经坏了，不处理就用不了。
+     - warn(注意，橙，三角里一个叹号):有风险或有冲突，不处理可能丢东西或用错。
+     - info(提示，蓝，圆里一个 i):有一件可以做的事，放着也没事;后面的字用次要档的灰，不上色。 */
   --color-critical: #d92d20;
-  --color-critical-halo: rgba(217, 45, 32, 0.22);
   --color-critical-fg: #b42318;
   --color-warn: #d97706;
   --color-warn-fg: #92400e;
@@ -102,6 +101,10 @@
   --color-scrollbar: rgba(0, 0, 0, 0.14);
   --color-scrollbar-hover: rgba(0, 0, 0, 0.28);
   --color-graph-link: rgba(0, 0, 0, 0.18);
+  /* 关系图是数据图，不受「只有绿和提醒色」的限制：圆点按集合取色，点了一个技能时三种关系各一种颜色。 */
+  --color-graph-in: #ea580c;
+  --color-graph-out: #2563eb;
+  --color-graph-both: #7c3aed;
 
   /* 圆角三档加胶囊形:control 给按钮、输入框、搜索框、下拉框、分段选择，排在一行的控件都是这一档(24 px 高配 7 px 圆角，照 macOS 的比例);
      card 给列表框、菜单、弹层、提示、toast;tile 给中间的底板、弹窗、技能详情抽屉;pill 给开关、计数和「更新」「入库」的绿胶囊按钮。 */
@@ -188,7 +191,6 @@
     --color-primary-soft: rgba(48, 209, 88, 0.16);
     --color-on-primary-soft: #30d158;
     --color-critical: #ff5a4f;
-    --color-critical-halo: rgba(255, 90, 79, 0.3);
     --color-critical-fg: #ff8a80;
     --color-warn: #ff9f0a;
     --color-warn-fg: #ffb340;
@@ -215,6 +217,9 @@
     --color-scrollbar: rgb(255 255 255 / 0.18);
     --color-scrollbar-hover: rgb(255 255 255 / 0.32);
     --color-graph-link: rgb(255 255 255 / 0.22);
+    --color-graph-in: #fb8c3c;
+    --color-graph-out: #5b9dff;
+    --color-graph-both: #b08cff;
 
     --shade-tile: rgb(0 0 0 / 0.2);
     --shade-raised: rgb(0 0 0 / 0.4);

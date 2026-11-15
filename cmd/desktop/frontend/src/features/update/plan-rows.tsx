@@ -24,7 +24,7 @@ export function ChangedRow({ p, checked, viewed, locked, onCheck, onView, onSkip
       <label className="flex min-w-0 grow cursor-pointer items-center gap-1.5">
         <input type="checkbox" className="shrink-0 accent-primary" checked={checked} onChange={(e) => onCheck(e.target.checked)} />
         <b className="font-semibold whitespace-nowrap">{p.skill.name}</b>
-        {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="info">{t.changed}</Badge>}
+        {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="update">{t.changed}</Badge>}
         {(p.risks?.length ?? 0) > 0 && <Badge tone="warn">{riskSummary(p.risks ?? [])}</Badge>}
         {p.edited && (
           <span className="update-edited min-w-0 truncate text-caption text-muted-foreground" title={t.editedTitle}>

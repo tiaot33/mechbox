@@ -422,7 +422,7 @@ function ReleaseRow() {
       <button type="button" className={cn(navItem(), "release-row")} title={t.sidebarTitle(latest.version)} onClick={() => openRelease(latest)}>
         <Icon name="up" />
         <span className="grow">{t.sidebar}</span>
-        <Badge tone="info" className="font-mono">{latest.version}</Badge>
+        <Badge className="font-mono">{latest.version}</Badge>
       </button>
     </li>
   );

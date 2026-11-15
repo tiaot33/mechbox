@@ -1,39 +1,59 @@
-// 小标签：状态与提醒。提醒分三级，每级一种颜色、一种圆点(浅色、深色各自定，见 index.css 的 critical / warn / info),不抢眼：
-// 没有底色和边框，只是一个小圆点加一行字。
-// - critical(严重):已经坏了，不处理就用不了(文件夹不在了、项目不在这台机器上、操作失败)。红，实心圆点外面一圈淡红的晕;字是红色、半粗;
-// - warn(注意):有风险或有冲突，不处理可能丢东西或用错(被手动改过、更新改动了脚本、需要重新安装、同名、更新会换掉你的修改)。橙，实心圆点;字是橙色;
-// - info(提示):有一件可以做的事，放着也没事(有新版本、可能改名、来源里已删除)。蓝，空心的圆圈;字是次要档的灰色;
-// - plain(平常):只是信息(已是最新、未安装、「直接安装」这类标记)。灰字，没有圆点。
-// 三种样子：带文字的标签(Badge:圆点 + 字);Dot 是单独的圆点，给自己排版的地方用;
-// AlertDot 是占地小的地方(列表的行、侧栏)用的：一处的一条或几条提醒只画一个圆点，文字在悬停提示里。
+// 小标签：状态与提醒。提醒分三级，每级一种颜色、一个实心小图标(浅色、深色的颜色各自定，见 index.css 的 critical / warn / info),
+// 没有底色和边框，只是一个图标加一行字。
+// - critical(严重):已经坏了，不处理就用不了(文件夹不在了、项目不在这台机器上、操作失败)。红色的圆里一个叉;字是红色、半粗;
+// - warn(注意):有风险或有冲突，不处理可能丢东西或用错(被手动改过、更新改动了脚本、需要重新安装、同名、更新会换掉你的修改)。橙色的三角里一个叹号;字是橙色;
+// - info(提示):有一件可以做的事，放着也没事(有你的修改、来源里已删除、库里有几个同名的)。蓝色的圆里一个 i;字是次要档的灰色;
+// - update(更新):不是提醒，是来源里有新版本可以更新(有新版本、可能改名、在 app 外更新到了作者的新版)。绿色(primary)的圆里一个向上的箭头;字是次要档的灰色。
+//   它不用红橙蓝，和三级提醒分开画：列表的一行里提醒一个图标、更新一个图标。
+// - plain(平常):只是信息(已是最新、未安装、「直接安装」这类标记)。灰字，没有图标。
+// 三种样子：带文字的标签(Badge:图标 + 字);Dot 是单独的图标，给自己排版的地方用;
+// AlertDot 是占地小的地方(列表的行、侧栏)用的：一处的一条或几条提醒只画一个图标，文字在悬停提示里;更新另用一个 AlertDot。
 import type { ComponentProps } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { byLevel, type Level, type Tone } from "@/lib/level";
+import { byLevel, type Mark, type Tone } from "@/lib/level";
 import { cn } from "@/lib/utils";
 
-const badgeVariants = cva("inline-flex shrink-0 items-center gap-1 text-caption whitespace-nowrap tabular-nums", {
+const badgeVariants = cva("inline-flex shrink-0 items-center gap-1.5 text-caption whitespace-nowrap tabular-nums", {
   variants: {
     tone: {
       critical: "font-semibold text-critical-fg",
       warn: "text-warn-fg",
       info: "text-foreground-secondary",
+      update: "text-foreground-secondary",
       plain: "text-muted-foreground",
     } satisfies Record<Tone, string>,
   },
   defaultVariants: { tone: "plain" },
 });
 
-const dotShape: Record<Level, string> = {
-  critical: "bg-critical shadow-[0_0_0_2px_var(--color-critical-halo)]",
-  warn: "bg-warn",
-  info: "border-[1.5px] border-info",
+// 三级各一个实心小图标(照 SF Symbols 的 xmark.circle.fill / exclamationmark.triangle.fill / info.circle.fill),更新是 arrow.up.circle.fill(主题绿);
+// 里面的符号是镂空的，透出底下的颜色，浅色深色都不用另画一份。
+const dotPath: Record<Mark, string> = {
+  critical: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-2.47 3.47L8 6.94l2.47-2.47 1.06 1.06L9.06 8l2.47 2.47-1.06 1.06L8 9.06l-2.47 2.47-1.06-1.06L6.94 8 4.47 5.53Z",
+  warn: "M6.7 2.2a1.5 1.5 0 0 1 2.6 0l5.6 9.8a1.5 1.5 0 0 1-1.3 2.25H2.4a1.5 1.5 0 0 1-1.3-2.25ZM7.15 5.6l.25 4.2h1.2l.25-4.2ZM8 10.85a.95.95 0 1 0 0 1.9.95.95 0 0 0 0-1.9Z",
+  info: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 2.9a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM7.15 7v5h1.7V7Z",
+  update: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 3.2L4.6 7.6l1.06 1.06 1.59-1.59v4.73h1.5V7.07l1.59 1.59L11.4 7.6Z",
 };
 
-// Dot 是提醒的小圆点：6 px,三级形状不同(空心圈、实心点、带晕的实心点),不只靠颜色分。
-function Dot({ tone, className, ...props }: ComponentProps<"i"> & { tone: Level }) {
-  return <i data-slot="dot" data-tone={tone} className={cn("block size-1.5 shrink-0 rounded-full", dotShape[tone], className)} {...props} />;
+const dotColor: Record<Mark, string> = { critical: "text-critical", warn: "text-warn", info: "text-info", update: "text-primary" };
+
+// Dot 是提醒或更新的小图标:12 px,形状各不相同(圆里一个叉、三角里一个叹号、圆里一个 i、圆里一个向上的箭头),不只靠颜色分。
+function Dot({ tone, className, title, ...props }: ComponentProps<"svg"> & { tone: Mark; title?: string }) {
+  return (
+    <svg
+      data-slot="dot"
+      data-tone={tone}
+      viewBox="0 0 16 16"
+      aria-hidden={title ? undefined : true}
+      className={cn("block size-3 shrink-0", dotColor[tone], className)}
+      {...props}
+    >
+      {title && <title>{title}</title>}
+      <path fill="currentColor" fillRule="evenodd" d={dotPath[tone]} />
+    </svg>
+  );
 }
 
 function Badge({ className, tone, asChild = false, children, ...props }: ComponentProps<"span"> & VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
@@ -41,23 +61,23 @@ function Badge({ className, tone, asChild = false, children, ...props }: Compone
   const level = tone && tone !== "plain" ? tone : null;
   return (
     <Comp data-slot="badge" data-tone={tone ?? "plain"} className={cn(badgeVariants({ tone }), className)} {...props}>
-      {level && <Dot tone={level} className={cn(level === "critical" && "mx-0.5")} />}
+      {level && <Dot tone={level} />}
       <Slot.Slottable>{children}</Slot.Slottable>
     </Comp>
   );
 }
 
-// Alert 是一条提醒：级别、一句话(label)、补充说明(tip);className 是测试钩子;onClick 是这条提醒能直接做的那件事(有新版本时打开更新计划)。
-type Alert = { tone: Level; label: string; tip?: string; className?: string; onClick?: () => void };
+// Alert 是一条提醒或更新：级别、一句话(label)、补充说明(tip);className 是测试钩子;onClick 是它能直接做的那件事(有新版本时打开更新计划)。
+type Alert = { tone: Mark; label: string; tip?: string; className?: string; onClick?: () => void };
 
-// AlertDot 把一处的一条或几条提醒合成一个圆点：圆点按最重的一级画，鼠标停住时从重到轻逐条列出(圆点 + 一句话 + 说明)。
+// AlertDot 把一处的一条或几条提醒合成一个图标：图标按最重的一级画，鼠标停住时从重到轻逐条列出(图标 + 一句话 + 说明)。
 // 提示里的每一条同时留在 DOM 里(读屏和测试读到的和提示里显示的是同一份),界面上不占地方。
-// 有带 onClick 的一条时整个圆点是按钮，点它(或聚焦后按回车、空格)做那件事。
+// 有带 onClick 的一条时整个图标是按钮，点它(或聚焦后按回车、空格)做那件事。
 function AlertDot({ items, className }: { items: (Alert | false | null | undefined | "")[]; className?: string }) {
   const alerts = items.filter((x): x is Alert => !!x).sort((a, b) => byLevel(a.tone, b.tone));
   if (!alerts.length) return null;
   const act = alerts.find((x) => x.onClick)?.onClick;
-  const box = cn("relative inline-grid size-3.5 shrink-0 place-items-center rounded-full outline-none", className);
+  const box = cn("relative inline-grid size-4 shrink-0 place-items-center rounded-full outline-none", className);
   const inner = (
     <>
       <Dot tone={alerts[0].tone} />
@@ -92,8 +112,8 @@ function AlertDot({ items, className }: { items: (Alert | false | null | undefin
       </TooltipTrigger>
       <TooltipContent className="flex flex-col gap-1.5">
         {alerts.map((a) => (
-          <div key={a.label} className="grid grid-cols-[14px_1fr] items-baseline">
-            <Dot tone={a.tone} className="translate-y-[-1px] self-center justify-self-start" />
+          <div key={a.label} className="grid grid-cols-[18px_1fr] items-baseline">
+            <Dot tone={a.tone} className="self-center justify-self-start" />
             <b className="font-semibold">{a.label}</b>
             {a.tip && <div className="col-start-2 text-foreground-secondary">{a.tip}</div>}
           </div>

@@ -156,7 +156,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
 function checkStatus(status: UpdateCheckStatus): { label: string; tone: Tone } {
   const t = messages().drawer;
   const known: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
-    [UpdateCheckStatus.UpdateAvailable]: { label: t.checkAvailable, tone: "info" },
+    [UpdateCheckStatus.UpdateAvailable]: { label: t.checkAvailable, tone: "update" },
     [UpdateCheckStatus.UpdateCurrent]: { label: t.checkCurrent, tone: "plain" },
     [UpdateCheckStatus.UpdateDeleted]: { label: t.checkDeleted, tone: "info" },
     [UpdateCheckStatus.UpdateFailed]: { label: t.checkFailed, tone: "critical" },

@@ -1,8 +1,8 @@
-// 提示条(对应 shadcn/ui 的 Alert):灰底，次要档的字，成段的行高。要提醒的(alert:有风险、失败)在前面加橙色的警示图标，不换底色，
+// 提示条(对应 shadcn/ui 的 Alert):灰底，次要档的字，成段的行高。要提醒的(alert:有风险、失败)在前面加「注意」一级的橙色三角图标，不换底色，
 // 首句用半粗的主要档文字：传入的是文字(一段，或几段文字拼成的)时按句拆出首句;传入的是自己排版的元素时不拆。
 // action 是排在右边的按钮(「重新生成」「查看」):文字占左边，按钮上下居中。
 import { Children, type ComponentProps, type ReactNode } from "react";
-import { Icon } from "@/components/ui/icon";
+import { Dot } from "@/components/ui/badge";
 import { splitLead } from "@/lib/lead";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +26,7 @@ function Notice({ className, alert = false, action, children, ...props }: Compon
       className={cn("relative rounded-card bg-fill px-3 py-2 text-body-long text-foreground-secondary", alert && "pl-8", action && "flex items-center gap-2", className)}
       {...props}
     >
-      {alert && <Icon name="alert" className="absolute top-[11px] left-3 text-warn" />}
+      {alert && <Dot tone="warn" className="absolute top-[11px] left-3" />}
       {action ? <span className="min-w-0 grow">{body}</span> : body}
       {action}
     </div>
