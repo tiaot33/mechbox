@@ -20,7 +20,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
-import { WSLBadge } from "@/components/app/parts";
+import { InfoTip, WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
@@ -95,10 +95,7 @@ export function GeneralSection({
       </NativeSelect>
     </SetRow>
     <SetRow className="language-row">
-      <div className="grow">
-        <div>{t.language}</div>
-        <Hint className="mt-0.5">{t.languageDesc}</Hint>
-      </div>
+      <Label className="grow" text={t.language} tip={t.languageDesc} />
       <Segmented
         className="shrink-0"
         value={settings.language ?? Language.LanguageSystem}
@@ -256,7 +253,7 @@ export function AboutSection() {
 // GlassTintRow 是现在这个外观下的毛玻璃浓度(浅色、深色各存一个值):拖动时界面上的毛玻璃跟着变，松手才保存;
 // 保存失败退回原设置时也跟着退回(GeneralSection 按显示的设置写上浓度)。
 // 设置页上没有毛玻璃表面，旁边放一块预览：底下垫几行像列表的色条，上面一块玻璃写着当前浓度。
-// 系统要求减少透明度或开了强制颜色时，毛玻璃是不透明的底，浓度不起作用：滑块禁用，说明里写明原因。
+// 系统要求减少透明度或开了强制颜色时，毛玻璃是不透明的底，浓度不起作用：滑块禁用，标签下面写明原因(平时的说明在提示里)。
 function GlassTintRow({ dark, value, onCommit }: { dark: boolean; value: number; onCommit: (v: number) => void }) {
   const t = useT().settings;
   const [shown, setShown] = useState(value);
@@ -265,8 +262,8 @@ function GlassTintRow({ dark, value, onCommit }: { dark: boolean; value: number;
   return (
     <SetRow className="glass-tint-row">
       <div className="grow">
-        <div>{t.glassTint}</div>
-        <Hint className="mt-0.5">{opaque ? t.glassTintOpaque : t.glassTintDesc(dark)}</Hint>
+        <Label text={t.glassTint} tip={t.glassTintDesc(dark)} />
+        {opaque && <Hint className="mt-0.5">{t.glassTintOpaque}</Hint>}
       </div>
       <Slider
         disabled={opaque}
@@ -300,13 +297,20 @@ function GlassTintRow({ dark, value, onCommit }: { dark: boolean; value: number;
   );
 }
 
+// Label 是设置项的名字，说明放在后面「i」图标的提示里。
+function Label({ text, tip, className }: { text: string; tip: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex items-center gap-1.5", className)}>
+      {text}
+      <InfoTip tip={tip} />
+    </div>
+  );
+}
+
 function SettingRow({ label, desc, on, onChange }: { label: string; desc: string; on: boolean; onChange: (on: boolean) => void }) {
   return (
     <SetRow>
-      <div className="grow">
-        <div>{label}</div>
-        <Hint className="mt-0.5">{desc}</Hint>
-      </div>
+      <Label className="grow" text={label} tip={desc} />
       <Switch checked={on} onCheckedChange={onChange} />
     </SetRow>
   );

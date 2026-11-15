@@ -3,7 +3,8 @@
 // 拉回后 Go 端换成拉回来的设置并发 settings-reloaded 事件，这里随之重读。
 // 通用里的全局目录(Windows 上装了 WSL 时才出现)只属于这台机器，拉回不变;改了以后重读快照，界面换成新的全局目录。
 // GitHub 令牌、AI 设置与同步设置也存在数据库里，点保存才存入(见 credentials-form.tsx);AI 分区里的自动翻译开关是应用设置，改了立即保存。
-// Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 见 uninstall-dialog。
+// 目录按保存方式分组：改了就生效的在上，GitHub、AI、同步三个要点保存的在下，再下面是关于。
+// Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 在关于分区的最后一行，不进目录，见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService, type Settings } from "@bindings/cmd/desktop";
@@ -17,11 +18,10 @@ import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { Hint } from "@/components/ui/field";
 import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
-import { BusyMark } from "@/components/app/parts";
+import { BusyMark, InfoTip } from "@/components/app/parts";
 import { Titlebar } from "@/components/app/titlebar";
 import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
@@ -29,14 +29,15 @@ import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, Translate
 import { UninstallDialog } from "./uninstall-dialog";
 import { foldSaved } from "./fold";
 
-// 分区按文案里的键排，标题取当前语言的文案。
-const sections = ["general", "agents", "projects", "checks", "github", "ai", "sync", "about", "uninstall"] as const;
+// 分区按文案里的键排，标题取当前语言的文案;目录里一组一段。
+const groups = [["general", "agents", "projects", "checks"], ["github", "ai", "sync"], ["about"]] as const;
+const sections = groups.flat();
 type Section = (typeof sections)[number];
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
-  const t = useT().settings;
+  const { settings: t, agents: agentsT, credentials: credentialsT } = useT();
   const { setLanguage } = useLanguage();
   const [settings, setSettings] = useState<Settings>();
   const [current, setCurrent] = useState<Section>(sections[0]);
@@ -132,9 +133,21 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     useView.setState({ settingsSection: null });
   }, [wanted, settings]);
 
-  const card = (section: Section, note: React.ReactNode, children: React.ReactNode) => (
+  const card = (section: Section, note: React.ReactNode, children: React.ReactNode, tip?: React.ReactNode) => (
     <Card key={section} className="scroll-mt-4" ref={(el) => void (refs.current[section] = el)}>
-      <CardHeader title={t[section]} note={note} />
+      <CardHeader
+        title={
+          tip ? (
+            <span className="inline-flex items-center gap-1.5">
+              {t[section]}
+              <InfoTip tip={tip} />
+            </span>
+          ) : (
+            t[section]
+          )
+        }
+        note={note}
+      />
       {children}
     </Card>
   );
@@ -158,15 +171,17 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
       />
       <div className={bodyClass}>
         <aside className={cn(leftClass, "w-[210px] flex-none")}>
-          <ul className="flex flex-col gap-0.5">
-            {sections.map((section) => (
-              <li key={section}>
-                <button type="button" className={navItem()} data-active={current === section} onClick={() => go(section)}>
-                  <span className="grow">{t[section]}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {groups.map((group) => (
+            <ul key={group[0]} className="flex flex-col gap-0.5 [&+&]:mt-3.5">
+              {group.map((section) => (
+                <li key={section}>
+                  <button type="button" className={navItem()} data-active={current === section} onClick={() => go(section)}>
+                    <span className="grow">{t[section]}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ))}
         </aside>
         <main className={centerClass}>
           <div
@@ -194,6 +209,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                   shown={settings && (settings.agents_shown ?? null)}
                   onShown={(a, on) => save({ agents_shown: { ...latest.current?.agents_shown, [a.code]: on } })}
                 />,
+                agentsT.shownHint,
               )}
               {card(
                 "projects",
@@ -213,25 +229,29 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 "ai",
                 t.aiInLibrary,
                 <>
-                  <AISection />
                   {settings && <TranslateSection settings={settings} save={save} />}
+                  {/* 上面的开关改了就生效，和下面要点保存的表单用分隔线分开。 */}
+                  <div className="mt-1 border-t border-border-subtle pt-3">
+                    <AISection />
+                  </div>
                 </>,
               )}
-              {card("sync", t.syncOnThisMachine, <SyncSection />)}
+              {card("sync", t.syncOnThisMachine, <SyncSection />, credentialsT.syncHint)}
               {card(
                 "about",
                 null,
-                <AboutSection />,
-              )}
-              {card(
-                "uninstall",
-                null,
-                <SetRow>
-                  <Hint className="grow">{t.uninstallDesc()}</Hint>
-                  <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
-                    {t.uninstallButton}
-                  </Button>
-                </SetRow>,
+                <>
+                  <AboutSection />
+                  <SetRow className="uninstall-row mt-3">
+                    <div className="flex grow items-center gap-1.5">
+                      {t.uninstall}
+                      <InfoTip tip={t.uninstallDesc()} />
+                    </div>
+                    <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
+                      {t.uninstallButton}
+                    </Button>
+                  </SetRow>
+                </>,
               )}
             </div>
           </div>

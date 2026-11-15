@@ -1,4 +1,4 @@
-// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、诊断列表，以及集合切换。
+// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、说明的悬停提示、诊断列表，以及集合切换。
 import { useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
+import { Icon } from "./icons";
 
 // AgentMark 是 Agent 图标：白底方块里画按名字认出的品牌图标;认不出时画机器人，按代码稳定取色,Agent 再多也分得开。
 // 还没有代码(添加 Agent 时的预览)且认不出时用灰色，保存后才有颜色。
@@ -142,6 +143,31 @@ export function Truncated({ tip, always = false, children }: { tip: React.ReactN
       {/* asChild 时 ref 落在 children 上，不一定是 button。 */}
       <TooltipTrigger asChild ref={ref as React.Ref<HTMLButtonElement>}>
         {children}
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// InfoTip 是标签后面的「i」图标，悬停或键盘聚焦时用提示显示大段说明;界面上只留标签，说明不占地方。
+// 触发的元素是能聚焦的 span 而不是 button:Field 是 label,里面的 button 会顶替输入框成为被标注的控件。
+export function InfoTip({ tip, className }: { tip: React.ReactNode; className?: string }) {
+  const t = useT().common;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          role="img"
+          data-slot="info-tip"
+          aria-label={t.info}
+          className={cn(
+            "inline-grid size-3.5 shrink-0 cursor-help place-items-center rounded-full align-[-2px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-primary-soft",
+            className,
+          )}
+        >
+          <Icon name="info" className="size-3.5" />
+        </span>
       </TooltipTrigger>
       <TooltipContent>{tip}</TooltipContent>
     </Tooltip>

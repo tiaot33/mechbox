@@ -2,6 +2,8 @@
 // GitHub 令牌、AI 设置和库里其他内容一样随推送、拉回走;同步设置只属于这台机器，推送时不带，拉回时保留。填完点保存才存入。
 // 同步分区还有保留份数与自动推送的间隔(定时推送由 Go 端做),下面写出这台机器的备份放在哪、上次推送的时间与自动推送失败的原因。
 // AI 分区的「测试连接」用表单上的内容，不用先保存;请求头、请求体是用户填的原文，库解析，格式不对时保存与测试都报出来。
+// 表单改过还没保存时，保存按钮旁写明要点保存，和设置页上改了就生效的开关分开;不常改的高级项收在「高级」里，填过时默认展开。
+// 各项的说明放在标签后面「i」图标的提示里。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
@@ -24,6 +26,8 @@ import {
 import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/app/icons";
+import { InfoTip } from "@/components/app/parts";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -72,20 +76,27 @@ const defaultKeep = 10;
 
 type SyncField = Exclude<keyof SyncSettings, "keep" | "auto_push">;
 
+// 同步设置里常填的连接项排在外面;文件夹、Session Token 和保留份数(在 SyncForm 里)收在「高级」里。
 const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] => {
   const t = messages().credentials;
   return [
     [{ key: "endpoint", label: t.endpoint }],
     [
       { key: "bucket", label: t.bucket },
-      { key: "folder", label: t.folder },
       { key: "region", label: t.region },
     ],
     [
       { key: "access_key_id", label: t.accessKeyId },
       { key: "secret_access_key", label: t.secretAccessKey, secret: true },
     ],
-    [{ key: "session_token", label: t.sessionToken, secret: true }],
+  ];
+};
+
+const advancedSyncFields = (): { key: SyncField; label: string; secret?: boolean }[] => {
+  const t = messages().credentials;
+  return [
+    { key: "folder", label: t.folder },
+    { key: "session_token", label: t.sessionToken, secret: true },
   ];
 };
 
@@ -102,9 +113,8 @@ function GitHubForm({ saved }: { saved: string }) {
         void invalidateGitHubToken();
         void invalidateConfig();
       }}
-      hint={t.tokenHint}
     >
-      <Field label={t.token}>
+      <Field label={<Tipped text={t.token} tip={t.tokenHint} />}>
         <TextInput secret value={token} onChange={setToken} />
       </Field>
     </SaveForm>
@@ -114,10 +124,11 @@ function GitHubForm({ saved }: { saved: string }) {
 function SyncForm({ saved }: { saved: SyncSettings }) {
   const t = useT().credentials;
   const fields = syncFields();
+  const advanced = advancedSyncFields();
   const [draft, setDraft] = useState<SyncSettings>(saved);
   const value = (s: SyncSettings, key: SyncField) => s[key] ?? "";
   const dirty =
-    fields.flat().some(({ key }) => value(draft, key) !== value(saved, key)) ||
+    [...fields.flat(), ...advanced].some(({ key }) => value(draft, key) !== value(saved, key)) ||
     (draft.keep ?? 0) !== (saved.keep ?? 0) ||
     (draft.auto_push ?? "") !== (saved.auto_push ?? "");
   const intervals = [
@@ -136,7 +147,6 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
         void invalidateSyncStatus();
         void invalidateConfig();
       }}
-      hint={t.syncHint}
       footer={<SyncStatusLine folder={saved.folder ?? ""} />}
     >
       {fields.map((row) => (
@@ -149,18 +159,7 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
         </div>
       ))}
       <div className="flex min-w-0 items-start gap-2">
-        <Field label={t.keep} className="flex-1">
-          <Input
-            className="font-mono"
-            type="number"
-            min={1}
-            placeholder={String(defaultKeep)}
-            value={draft.keep ? String(draft.keep) : ""}
-            onChange={(e) => setDraft((d) => ({ ...d, keep: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
-          />
-          <Hint>{t.keepHint(defaultKeep)}</Hint>
-        </Field>
-        <Field label={t.autoPush} className="flex-1">
+        <Field label={<Tipped text={t.autoPush} tip={t.autoPushHint} />} className="flex-1">
           <NativeSelect
             className="h-8 max-w-none"
             value={draft.auto_push ?? ""}
@@ -172,9 +171,31 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
               </option>
             ))}
           </NativeSelect>
-          <Hint>{t.autoPushHint}</Hint>
         </Field>
+        <div className="flex-1" />
       </div>
+      <Advanced filled={advanced.some(({ key }) => value(saved, key)) || !!saved.keep}>
+        <div className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
+          {advanced.map((f) => (
+            <Field key={f.key} label={f.label} className="flex-1">
+              <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
+            </Field>
+          ))}
+        </div>
+        <div className="flex min-w-0 items-start gap-2">
+          <Field label={<Tipped text={t.keep} tip={t.keepHint(defaultKeep)} />} className="flex-1">
+            <Input
+              className="font-mono"
+              type="number"
+              min={1}
+              placeholder={String(defaultKeep)}
+              value={draft.keep ? String(draft.keep) : ""}
+              onChange={(e) => setDraft((d) => ({ ...d, keep: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
+            />
+          </Field>
+          <div className="flex-1" />
+        </div>
+      </Advanced>
     </SaveForm>
   );
 }
@@ -245,7 +266,6 @@ function AIForm({ saved }: { saved: AISettings }) {
         setDraft(trimAI(draft));
         void invalidateAISettings();
       }}
-      hint={t.aiHint}
       actions={
         <Button disabled={!testable} loading={testing} title={testable ? undefined : t.testNeeds} onClick={() => void test()}>
           {t.test}
@@ -253,7 +273,9 @@ function AIForm({ saved }: { saved: AISettings }) {
       }
     >
       <div className="flex flex-col items-start gap-1">
-        <span className="text-xs text-muted-foreground">{t.provider}</span>
+        <span className="text-xs text-muted-foreground">
+          <Tipped text={t.provider} tip={t.aiHint} />
+        </span>
         <Segmented
           value={provider}
           onChange={set("provider")}
@@ -274,13 +296,14 @@ function AIForm({ saved }: { saved: AISettings }) {
           <TextInput value={draft.model ?? ""} onChange={set("model")} />
         </Field>
       </div>
-      <Field label={t.headers}>
-        <TextArea rows={2} value={draft.headers ?? ""} onChange={set("headers")} placeholder={t.headersPlaceholder} />
-      </Field>
-      <Field label={t.body}>
-        <TextArea rows={3} value={draft.body ?? ""} onChange={set("body")} placeholder={bodyExamples[provider]} />
-        <Hint>{t.bodyHint}</Hint>
-      </Field>
+      <Advanced filled={!!saved.headers || !!saved.body}>
+        <Field label={t.headers}>
+          <TextArea rows={2} value={draft.headers ?? ""} onChange={set("headers")} placeholder={t.headersPlaceholder} />
+        </Field>
+        <Field label={<Tipped text={t.body} tip={t.bodyHint} />}>
+          <TextArea rows={3} value={draft.body ?? ""} onChange={set("body")} placeholder={bodyExamples[provider]} />
+        </Field>
+      </Advanced>
     </SaveForm>
   );
 }
@@ -291,7 +314,6 @@ function SaveForm<T>({
   success,
   onError,
   onSaved,
-  hint,
   actions,
   footer,
   children,
@@ -301,7 +323,6 @@ function SaveForm<T>({
   success: string;
   onError?: (err: LibraryError) => boolean;
   onSaved: (value: T) => void;
-  hint: string;
   actions?: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
@@ -323,7 +344,7 @@ function SaveForm<T>({
         {children}
       </fieldset>
       <div className="flex items-center gap-2">
-        <Hint className="grow">{hint}</Hint>
+        <Hint className="save-pending grow text-foreground-secondary">{dirty && !saving ? t.unsaved : null}</Hint>
         {actions}
         <Button type="submit" variant="primary" disabled={!dirty} loading={saving}>
           {t.save}
@@ -331,6 +352,36 @@ function SaveForm<T>({
       </div>
       {footer}
     </form>
+  );
+}
+
+// Advanced 是表单里的「高级」:点一下展开或收起不常改的项;填过时默认展开，免得填了的值藏起来。
+function Advanced({ filled, children }: { filled: boolean; children: React.ReactNode }) {
+  const t = useT().credentials;
+  const [open, setOpen] = useState(filled);
+  return (
+    <>
+      <button
+        type="button"
+        className="advanced-toggle inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name={open ? "down" : "chev"} className="size-3" />
+        {t.advanced}
+      </button>
+      {open && children}
+    </>
+  );
+}
+
+// Tipped 是字段标题，说明放在后面「i」图标的提示里。
+function Tipped({ text, tip }: { text: string; tip: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {text}
+      <InfoTip tip={tip} />
+    </span>
   );
 }
 

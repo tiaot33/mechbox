@@ -2921,9 +2921,12 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
     await page.locator('.settings [role="switch"]').first().waitFor();
   };
   await open();
-  for (const name of ["GitHub", "同步", "检查技能更新", "通用", "Agent", "项目", "关于", "卸载 Mechbox"]) {
+  for (const name of ["GitHub", "同步", "检查技能更新", "通用", "Agent", "项目", "关于"]) {
     assert((await section(name).count()) === 1, `应有分区「${name}」`);
   }
+  // 卸载不和平常的分区并列：目录里没有它，在关于分区的最后一行
+  assert((await page.locator(".nav-item", { hasText: "卸载 Mechbox" }).count()) === 0, "目录里不应有卸载 Mechbox");
+  assert((await btn(section("关于"), "卸载 Mechbox…").count()) === 1, "关于分区里应有卸载 Mechbox");
   assert((await section("关于").locator(".kv", { hasText: `${HOME}/Library/Application Support/mechbox/library.db` }).count()) === 1, "关于应显示数据库位置");
   assert(/^\d+\.\d+\.\d+/.test((await section("关于").locator("dd").first().textContent()).trim()), "关于应显示应用版本");
   assert((await section("Agent").locator(".set-row", { hasText: "Codex" }).count()) === 1, "应列出 Codex");
@@ -3036,10 +3039,14 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await open();
   assert(await btn(section("GitHub"), "保存").isDisabled(), "没改时不能保存");
   assert((await field("GitHub", "个人访问令牌").getAttribute("type")) === "password", "令牌输入框应遮住内容");
+  const pending = (name) => section(name).locator(".save-pending", { hasText: "有改动，点保存才生效" });
+  assert((await pending("GitHub").count()) === 0, "没改时不提示要保存");
   await field("GitHub", "个人访问令牌").fill("ghp_e2e_token");
+  assert((await pending("GitHub").count()) === 1, "改了还没保存时应提示点保存才生效");
   await btn(section("GitHub"), "保存").click();
   await toast("已保存 GitHub 令牌");
   await settle();
+  assert((await pending("GitHub").count()) === 0, "保存后不再提示要保存");
 
   // 只填存储桶时缺密钥，仍是未配置
   await field("同步", /^存储桶$/).fill("e2e-bucket");
@@ -3054,6 +3061,9 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await field("同步", "服务地址").fill(endpoint);
   await field("同步", "Access Key ID").fill("AKIDE2E");
   await field("同步", "Secret Access Key").fill("e2e-secret");
+  // 文件夹、保留份数是高级项，没填过时收着，点「高级」才出现
+  assert((await field("同步", "文件夹").count()) === 0, "没填过时高级项应收着");
+  await btn(section("同步"), "高级").click();
   await field("同步", "文件夹").fill(" /team/mechbox/ ");
   await field("同步", "保留份数").fill("5");
   await section("同步").locator('[data-slot="field"]', { hasText: "自动推送" }).locator("select").selectOption({ label: "每天" });
@@ -3099,7 +3109,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   assert((await field("GitHub", "个人访问令牌").inputValue()) === "ghp_e2e_token", "重新载入后令牌应仍在");
   assert((await field("同步", /^存储桶$/).inputValue()) === "e2e-bucket", "重新载入后存储桶应仍在");
   assert((await field("同步", "Secret Access Key").inputValue()) === "e2e-secret", "重新载入后密钥应仍在");
-  assert((await field("同步", "文件夹").inputValue()) === "team/mechbox", "文件夹应去掉首尾的 / 存下");
+  assert((await field("同步", "文件夹").inputValue()) === "team/mechbox", "文件夹应去掉首尾的 / 存下；填过的高级项默认展开");
   assert((await section("同步").getByText(/这台机器的备份放在 team\/mechbox\/.+-[0-9a-f]{6}\//).count()) === 1, "应写出这台机器的设备目录");
 
   // 全部清空：从数据库删掉，回到未配置
@@ -4044,7 +4054,7 @@ await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出
   fs.writeFileSync(`${skillsDir}/hand-made/SKILL.md`, '---\nname: hand-made\ndescription: "mine"\n---\n');
 
   await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
-  await btn(section("卸载 Mechbox"), "卸载 Mechbox…").click();
+  await btn(section("关于"), "卸载 Mechbox…").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "卸载 Mechbox" }).waitFor();
   await modal().locator('[data-slot="choice"]', { hasText: "保留已安装的文件夹" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "sigma · Claude Code · 全局" }).count()) === 1, "被改过的 sigma 应列出来");
