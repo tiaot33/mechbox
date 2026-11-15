@@ -90,7 +90,7 @@ export function ScopePanel() {
             {agentNameIn(s, agent.code, place)}
           </span>
           {issues > 0 && (
-            <i className="size-1.5 shrink-0 rounded-full bg-solid" title={t.issues(issues)} />
+            <i className="size-1.5 shrink-0 rounded-full bg-muted-foreground" title={t.issues(issues)} />
           )}
           <NavCount value={installed.length} accent />
         </button>

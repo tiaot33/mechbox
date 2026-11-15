@@ -98,7 +98,7 @@ const rowClass =
 // rowButtonClass 是行首那一格里的小按钮(入库、更新),和开关一样高，样子是普通按钮。
 const rowButtonClass = "h-[18px] rounded-control px-1.5 text-caption whitespace-nowrap text-foreground";
 
-// 最近几天内的变化用正文颜色，排查"最近是不是变过"时一眼看到。
+// 最近几天内的变化用次要档，更早的用标注档;日期本身写成「今天」「3 天前」,近的一眼能认出来。
 const recentDays = 7;
 
 // SkillRow 是库里一个技能的一行。scope 为空时是技能库页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
@@ -249,7 +249,7 @@ export function SkillRow(props: {
             )
           }
         >
-          <p className="skill-desc truncate text-small text-foreground-secondary">
+          <p className="skill-desc truncate text-small text-muted-foreground">
             {props.showSource && (
               <span className="text-muted-foreground" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
                 {sourceShort(s, skill.source)} ·{" "}
@@ -314,15 +314,15 @@ function useFlash(id: SkillID, scope: ScopeKey | undefined) {
   return ref;
 }
 
-// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时用实心圆点和主要档的字标出。
+// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时用灰色圆点和主要档的字标出，装着的用次要档，不抢技能名的注意力。
 function Where({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const t = useT().list;
   const w = installedSummary(s, skill.id);
   return (
     <span className="skill-where flex min-w-0 items-center gap-1.5 text-caption" title={w.title || undefined}>
-      {w.bad && <i className="size-1.5 shrink-0 rounded-full bg-solid" />}
-      <span className={cn("truncate", w.text ? "text-foreground" : "text-muted-foreground", w.bad && "font-semibold")}>
+      {w.bad && <i className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
+      <span className={cn("truncate", w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground")}>
         {w.text || t.notInstalled}
       </span>
     </span>
@@ -335,7 +335,7 @@ function Changed({ skill }: { skill: Skill }) {
   if (!c) return <span />;
   const recent = (Date.now() - c.date.getTime()) / 864e5 < recentDays;
   return (
-    <span className={cn("skill-changed truncate text-right text-caption tabular-nums", recent ? "text-foreground" : "text-muted-foreground")} title={c.date.toLocaleString()}>
+    <span className={cn("skill-changed truncate text-right text-caption tabular-nums", recent ? "text-foreground-secondary" : "text-muted-foreground")} title={c.date.toLocaleString()}>
       {t.changed(c.kind, c.date)}
     </span>
   );
@@ -464,7 +464,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
       </div>
       <div className={cn("min-w-0", layouts.pickScope.desc)}>
         <Truncated tip={skill.description}>
-          <p className="unmanaged-desc truncate text-small text-foreground-secondary">{skill.description}</p>
+          <p className="unmanaged-desc truncate text-small text-muted-foreground">{skill.description}</p>
         </Truncated>
         {same && <SameNameLine note={same} />}
         {source && (

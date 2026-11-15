@@ -113,7 +113,7 @@ textarea.mb-input{height:auto;padding:var(--space-6) var(--space-10);resize:vert
 .mb-skill:first-child{border-top:0}
 .mb-skill[data-selected]{background:var(--primary-soft)}
 .mb-skill-name{font:600 13px/18px var(--font-sans);color:var(--foreground)}
-.mb-skill-desc{font:400 12px/16px var(--font-sans);color:var(--foreground-secondary)}
+.mb-skill-desc{font:400 12px/16px var(--font-sans);color:var(--muted-foreground)}
 
 /* 不透明的表面:Dialog、Sheet(9.2) */
 .mb-dialog{display:flex;flex-direction:column;width:100%;border:1px solid var(--border);border-radius:var(--radius-tile);background:var(--tile);box-shadow:var(--shadow-dialog);min-width:0}

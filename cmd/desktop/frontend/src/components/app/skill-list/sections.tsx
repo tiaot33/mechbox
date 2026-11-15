@@ -219,7 +219,7 @@ function CollectionNews({ collection }: { collection: Collection }) {
       <Button variant="link" className="text-caption" onClick={() => previewNewSkills(collection.id)}>
         {t.drawer.goFetch}
       </Button>
-      <Button variant="ghost" size="inline" onClick={() => notInterested(collection.id, fresh)}>
+      <Button variant="ghost" size="inline" className="text-caption" onClick={() => notInterested(collection.id, fresh)}>
         {t.drawer.notInterested}
       </Button>
     </div>
