@@ -630,14 +630,13 @@ function linkPath(a: XY, b: XY, ra: number, rb: number, both: boolean, labels?: 
 
 type Area = { left: number; top: number; width: number; height: number };
 
-// area 是框里能看到图的那块：点了技能时右边被详情抽屉盖住，只用抽屉左边的部分。
+// area 是框里能看到图的那块：点了技能时，详情抽屉浮在图上(窗口窄)就只用抽屉左边的部分;抽屉和图并排时整块都能用。
 function area(el: HTMLDivElement | null, besideDrawer = false): Area {
   if (!el) return { left: 0, top: 0, width: 800, height: 600 };
   const r = el.getBoundingClientRect();
   let right = r.width;
   const sheet = besideDrawer ? document.querySelector<HTMLElement>('[data-slot="sheet-content"]') : null;
-  const parent = sheet?.offsetParent?.getBoundingClientRect();
-  if (sheet && parent) right = Math.max(r.width * 0.4, Math.min(r.width, parent.right - 10 - sheet.offsetWidth - 16 - r.left));
+  if (sheet) right = Math.max(r.width * 0.4, Math.min(r.width, sheet.getBoundingClientRect().left - 16 - r.left));
   return { left: 0, top: 0, width: right, height: r.height };
 }
 

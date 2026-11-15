@@ -1,8 +1,20 @@
 // 可拖动调宽：左右两栏(ResizablePane)与技能详情抽屉共用。拖动柄拖动调整宽度，双击恢复默认宽度，
 // 方向键每次调 16px。宽度只属于这台机器的界面，存在 localStorage,下次打开沿用。
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+
+// useWidth 是一个元素当前的宽度，随窗口和两栏的宽度变;元素还没挂上时为 0。
+export function useWidth(el: HTMLElement | null) {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  return width;
+}
 
 interface WidthOptions {
   storageKey: string;

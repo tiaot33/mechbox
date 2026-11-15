@@ -7,7 +7,7 @@ import { AppService } from "@bindings/cmd/desktop";
 import { LeftSidebar } from "@/components/app/left-sidebar";
 import { ScopePanel } from "@/components/app/scope-panel";
 import { SettingsPage } from "@/features/settings/settings-page";
-import { SkillDrawer } from "@/components/app/skill-drawer/skill-drawer";
+import { DrawerDock } from "@/components/app/skill-drawer/skill-drawer";
 import { SkillList } from "@/components/app/skill-list/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
@@ -124,13 +124,20 @@ function Main() {
                 <LeftSidebar />
               </ResizablePane>
             )}
-            <SkillList />
-            {right && (
-              <ResizablePane side="right" storageKey="mechbox.right-width" defaultWidth={270} min={220} max={440}>
-                <ScopePanel />
-              </ResizablePane>
-            )}
-            <SkillDrawer skill={drawerSkill} onClose={closeDrawer} />
+            {/* 技能详情放得下时是列表和作用域栏之间的一栏，见 DrawerDock。 */}
+            <DrawerDock
+              skill={drawerSkill}
+              onClose={closeDrawer}
+              aside={
+                right && (
+                  <ResizablePane side="right" storageKey="mechbox.right-width" defaultWidth={270} min={220} max={440}>
+                    <ScopePanel />
+                  </ResizablePane>
+                )
+              }
+            >
+              <SkillList />
+            </DrawerDock>
           </>
         )}
       </div>

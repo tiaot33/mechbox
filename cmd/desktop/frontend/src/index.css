@@ -349,7 +349,7 @@
   }
 }
 
-/* 毛玻璃材质：浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、吸顶的节标题、toast)加上 glass 类，
+/* 毛玻璃材质：浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、toast)加上 glass 类，
    只换底色(background)、滤镜(backdrop-filter)、边缘(box-shadow)与字色(color)四样，结构、间距、圆角不变。
    - 底色是一层白(深色下是一层比卡片略亮的灰，和浅色一样浮在上面的表面比底下亮，不做成更暗的黑块),浓度 = --glass-alpha × 设置里的浓度(--glass-tint,0–1.5,浅色、深色各一个值，
      见 lib/theme.ts)× 悬停时提亮(--glass-lift)。这些表面底下都是列表的文字而不是图片，所以只有一档：
@@ -360,7 +360,7 @@
      没模糊的原内容会从玻璃底下透出来。
    - 边缘：扁平，只有一圈均匀的 0.5px 轮廓线(浅色是淡的深色线，深色是淡的白线),不画斜面亮线、内侧柔光和高光:
      这些在浅色下是白叠白看不出来，深色下会显出来，让表面像凸起的按钮。
-     投影各表面沿用原来的档位，经 --glass-drop 传入，深色下更深;拖放中的插入线这类状态经 --glass-state 叠在边缘上，不把边缘整个换掉。
+     投影各表面沿用原来的档位，经 --glass-drop 传入，深色下更深。
    - 字色：表面上的字一律用墨色(--glass-ink 标题与图标,--glass-ink-secondary 次要文字,深色下是浅色的墨),把 foreground、foreground-secondary、
      muted-foreground 换成墨色;subtle(禁用、占位)与各状态色(失败的红等)不变。
    - 背后内容少、上面字也少的表面(操作栏、toast、提示)另加 glass-clear:模糊轻、白色淡，背后的颜色与形状透得出来。
@@ -429,7 +429,6 @@
     brightness(calc(1 + var(--glass-bright) * var(--glass-k))) var(--glass-solid,);
   box-shadow:
     var(--glass-edge),
-    var(--glass-state, 0 0 #0000),
     var(--glass-drop, var(--glass-drop-default));
   color: var(--glass-ink);
 
@@ -450,8 +449,8 @@
   --glass-alpha: 0.35;
 }
 
-/* 要压过 glass 的底色、边框与字色的状态，集中写在层外(glass 在 utilities 层，components 层的规则压不过它):
-   左栏点了集合或组，滚到的那一节的标题闪一下;失败的 toast 保留红边红字;拖到节标题上时的浅蓝底与蓝字(插入线经 --glass-state)。 */
+/* 要压过工具类(utilities 层)的底色、边框与字色的状态，集中写在层外(components 层的规则压不过它):
+   左栏点了集合或组，滚到的那一节的标题闪一下(压过节标题的不透明底色);失败的 toast 保留红边红字(压过 glass)。 */
 .list-section > .section-head {
   transition: background-color 0.6s ease-out;
 }
@@ -462,14 +461,6 @@
 .swipe-toast[data-tone="error"] .swipe-toast-card {
   border-color: var(--color-bad-border);
   color: var(--color-bad-strong);
-}
-[data-dragging] .glass[data-drop-hover] {
-  background: var(--color-primary-soft);
-  --glass-ink: var(--color-primary-ink);
-}
-[data-dragging] .glass[data-drop-hover][data-already] {
-  background: var(--color-neutral-soft);
-  --glass-ink: var(--color-foreground-secondary);
 }
 
 @layer components {
@@ -702,9 +693,10 @@
     }
   }
 
-  /* 技能库页最后一节至少一屏高：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */
+  /* 列表是名为 list 的尺寸容器：技能行按它的宽度换成两层(rows.tsx 的 @max-[600px]/list);
+     技能库页最后一节至少一屏高(100cqh)：左栏点了靠后的集合或组，那一节也能滚到底板顶上。 */
   .a-list {
-    container-type: size;
+    container: list / size;
   }
   .a-list[data-page="all"] .list-section:last-of-type {
     min-height: 100cqh;
@@ -746,11 +738,9 @@
   }
   [data-dragging] [data-drop-order="before"] {
     box-shadow: inset 0 2px 0 var(--color-primary);
-    --glass-state: inset 0 2px 0 var(--color-primary);
   }
   [data-dragging] [data-drop-order="after"] {
     box-shadow: inset 0 -2px 0 var(--color-primary);
-    --glass-state: inset 0 -2px 0 var(--color-primary);
   }
 }
 

@@ -7,7 +7,6 @@
 // - 关系图(这些技能之间谁提到谁):一个集合或组的技能画成一张图，见 mention-graph。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type { Collection, Group, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
@@ -36,9 +35,8 @@ import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { SkillRow, UnmanagedRow } from "./rows";
-import { useCollectionDrop, useGroupDrop } from "@/components/app/dnd";
-import { CollectionHead, CollectionNews, GroupHead, PlainHead, Section, SkillRows } from "./sections";
+import { nameIndent, SkillRow, UnmanagedRow } from "./rows";
+import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
 
@@ -60,6 +58,21 @@ export function SkillList() {
     scroller.current.scrollTop = restore;
     doneRestoreScroll();
   }, [restore, listing?.kind]);
+  const page = !listing ? "" : listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind;
+  // 技能详情并排打开或关上时列表变窄、变宽，跨过 600px 时每行在一层和两层之间换，行高跟着变:
+  // 把选中的那一行(刚点开详情的)留在视口里，不让它被挤出去。宽度按容器的内容宽度算，和 rows.tsx 的容器查询一致。
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let narrow: boolean | null = null;
+    const observer = new ResizeObserver(([entry]) => {
+      const now = entry.contentRect.width < 600;
+      if (narrow !== null && now !== narrow) el.querySelector(".skill-row[data-selected]")?.scrollIntoView({ block: "nearest" });
+      narrow = now;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [page]);
   if (!listing) return <main className={centerClass} />;
   if (listing.kind === "graph") {
     return (
@@ -73,7 +86,7 @@ export function SkillList() {
       {/* 上边距放在里面一层：滚动区自己没有上内边距，吸顶的节标题才贴着底板上沿。换页时换一个滚动区，回到顶上。 */}
       <div
         ref={scroller}
-        key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
+        key={page}
         className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
@@ -226,69 +239,17 @@ function sectionLook(
     : { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: t.restGroup };
 }
 
-function CollectionSection({
-  id,
-  collection,
-  count,
-  pick,
-  showGraph,
-  children,
-}: {
-  id: string;
-  collection: Collection;
-  count?: string;
-  pick: SkillID[];
-  showGraph: boolean;
-  children: React.ReactNode;
-}) {
-  const drop = useCollectionDrop(collection.id);
-  return (
-    <Section
-      id={id}
-      pick={pick}
-      head={<CollectionHead collection={collection} count={count} showGraph={showGraph} />}
-      sub={<CollectionNews collection={collection} />}
-      headProps={drop}
-    >
-      {children}
-    </Section>
-  );
-}
-
-function GroupSection({
-  id,
-  group,
-  count,
-  pick,
-  showGraph,
-  children,
-}: {
-  id: string;
-  group: Group;
-  count?: string;
-  pick: SkillID[];
-  showGraph: boolean;
-  children: React.ReactNode;
-}) {
-  const drop = useGroupDrop(group.id);
-  return (
-    <Section id={id} pick={pick} head={<GroupHead group={group} count={count} showGraph={showGraph} />} headProps={drop}>
-      {children}
-    </Section>
-  );
-}
-
 function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>["skills"] }) {
   const s = useSnapshot();
   const t = useT().list;
   return (
     <>
       {updatableCollections(s).length > 0 && <UpdatesHead />}
-      <Section id="updates" className="mt-3" head={<PlainHead name={t.updatesSkills} count={skills.length} />}>
+      <Section id="updates" className="mt-4" gutter={false} head={<PlainHead name={t.updatesSkills} count={skills.length} />}>
         {skills.map((skill) => (
           <SkillRow key={skill.id} skill={skill} showSource />
         ))}
-        {skills.length === 0 && <EmptyRows>{t.noMatch}</EmptyRows>}
+        {skills.length === 0 && <EmptyRows aligned={false}>{t.noMatch}</EmptyRows>}
       </Section>
     </>
   );
@@ -323,22 +284,20 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           {l.hereUnmanaged.length > 0 && (
             <Section
               id="scope-unmanaged"
-              head={
-                <>
-                  <PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />
-                  {/* 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。 */}
-                  {!search && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="fetch-all-unmanaged shrink-0"
-                      title={t.fetchAllTitle}
-                      onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)) }, false)}
-                    >
-                      {t.fetchAll}
-                    </Button>
-                  )}
-                </>
+              head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}
+              actions={
+                // 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。
+                !search && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="fetch-all-unmanaged shrink-0"
+                    title={t.fetchAllTitle}
+                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)) }, false)}
+                  >
+                    {t.fetchAll}
+                  </Button>
+                )
               }
             >
               {l.hereUnmanaged.map((u) => (
@@ -414,17 +373,17 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           id={`project-${page.project}:${a.scope}`}
           pick={a.skills.map((x) => x.id)}
           head={
-            <>
-              <PlainHead
-                icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
-                name={agentNameIn(s, a.agent.code, page.project)}
-                count={t.skillCount(a.all)}
-                title={projectFolderNote(s, a.agent.code, page.project)}
-              />
-              <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
-                {t.openScope}
-              </Button>
-            </>
+            <PlainHead
+              icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
+              name={agentNameIn(s, a.agent.code, page.project)}
+              count={t.skillCount(a.all)}
+              title={projectFolderNote(s, a.agent.code, page.project)}
+            />
+          }
+          actions={
+            <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
+              {t.openScope}
+            </Button>
           }
         >
           {a.skills.map((skill) => (
@@ -440,8 +399,9 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
   );
 }
 
-function EmptyRows({ children }: { children: React.ReactNode }) {
-  return <p className="px-3 py-3 text-[11.5px] text-muted-foreground">{children}</p>;
+// EmptyRows 是一节里没有行时的说明;aligned 时(行首有勾选框那一列的节)和技能名对齐。
+function EmptyRows({ aligned = true, children }: { aligned?: boolean; children: React.ReactNode }) {
+  return <p className={cn("py-3 pr-3 text-[11.5px] text-muted-foreground", aligned ? nameIndent : "pl-3")}>{children}</p>;
 }
 
 // 空状态放在列表区的视觉中部，用上边距定位。

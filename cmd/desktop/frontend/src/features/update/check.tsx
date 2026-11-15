@@ -11,8 +11,8 @@ import { showResults } from "@/components/app/results";
 import { useMarkStatus, type MarkStatus } from "@/components/ui/status-mark";
 import type { Settled } from "@/lib/settled";
 
-// CheckOrigin 是检查从哪里发起:"all" 是左栏的检查更新按钮，否则是右键的那个集合。进度画在发起处，顶栏的状态圈不跟着转;
-// 左栏不显示时(收起、在设置页)由顶栏的状态圈补上。
+// CheckOrigin 是检查从哪里发起:"all" 是顶栏的检查更新按钮，否则是左栏右键的那个集合。进度画在发起处，顶栏标题旁的状态圈不跟着转;
+// 从集合发起、左栏又不显示时(收起、在设置页),由顶栏标题旁的状态圈补上。
 export type CheckOrigin = "all" | CollectionID;
 
 // 进行中的检查与最近一次结束的结果，各带发起处。
@@ -22,10 +22,11 @@ const useCheckStore = create<{ running: CheckOrigin | null; settled: (Settled & 
 }));
 let nextSettledID = 1;
 
-// useCheckMark 是检查的状态圈该画的状态：只看从 origin 发起的检查，不给时看所有检查;没有要画的时是 null。
-export function useCheckMark(origin?: CheckOrigin): MarkStatus | null {
-  const running = useCheckStore((s) => s.running !== null && (origin === undefined || s.running === origin));
-  const settled = useCheckStore((s) => (s.settled && (origin === undefined || s.settled.origin === origin) ? s.settled : null));
+// useCheckMark 是检查的状态圈该画的状态：只看从 origin 发起的检查,"collections" 看从任一集合发起的，不给时看所有检查;没有要画的时是 null。
+export function useCheckMark(origin?: CheckOrigin | "collections"): MarkStatus | null {
+  const from = (o: CheckOrigin) => origin === undefined || (origin === "collections" ? o !== "all" : o === origin);
+  const running = useCheckStore((s) => s.running !== null && from(s.running));
+  const settled = useCheckStore((s) => (s.settled && from(s.settled.origin) ? s.settled : null));
   return useMarkStatus(running, settled);
 }
 

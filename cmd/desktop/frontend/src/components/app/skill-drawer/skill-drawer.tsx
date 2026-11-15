@@ -3,8 +3,9 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType, type FileMetadata, type Skill, type SkillID, type SkillVersion } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { aiSettingsQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
-import { deletedInSource, hasUpdate, isLocal, pending, renamedTo, skillScopesOf, sourceLabel, translatedDescription } from "@/lib/model";
+import { deletedInSource, hasUpdate, isLocal, renamedTo, skillScopesOf, sourceLabel, translatedDescription } from "@/lib/model";
 import { AuditCard } from "@/features/fetch/audit";
 import { reinstall } from "@/features/install/reinstall";
 import { saveNote } from "@/features/skill/note";
@@ -18,7 +19,7 @@ import { Notice } from "@/components/ui/notice";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Icon } from "@/components/app/icons";
-import { ResizeHandle, useStoredWidth } from "@/components/app/resizable";
+import { ResizeHandle, useStoredWidth, useWidth } from "@/components/app/resizable";
 import { FilesCard } from "./files-card";
 import { InstallCard } from "./install-card";
 import { MetadataCard } from "./metadata-card";
@@ -30,15 +31,66 @@ const noVersions: SkillVersion[] = [];
 // 抽屉宽度：拖左边缘调整，记在这台机器上。
 const drawerWidth = { storageKey: "mechbox.drawer-width", defaultWidth: 540, min: 420, max: 960 };
 
+// 抽屉和列表并排时列表至少留这么宽：技能名、装在哪(在这里的状态)和日期都看得全(列表窄了时每行两层，见 rows.tsx)。
+const listMin = 440;
+// 抽屉浮在列表上时，列表左边至少还露出这么宽(行首的勾选框和技能名)。
+const peek = 220;
+// 列表、抽屉、作用域栏之间的间距(gap-2),和三栏之间一样。
+const gap = 8;
+
+// Placement 是抽屉放在哪：beside 是列表和作用域栏之间的一栏;overList 浮在列表右侧，不盖作用域栏;
+// overAll 连作用域栏一起盖住(窗口太窄，只盖列表的话列表就露不出来了)。right 是浮起时离右边的距离，width 是能给的最大宽度。
+type Placement = { kind: "beside" | "overList" | "overAll"; right: number; max: number };
+
+function place(total: number, aside: number): Placement {
+  const room = aside ? total - aside - gap : total; // 列表加抽屉能用的宽度
+  if (room - gap - listMin >= drawerWidth.min) return { kind: "beside", right: 0, max: room - gap - listMin };
+  if (room - peek >= drawerWidth.min) return { kind: "overList", right: total - room, max: room - peek };
+  return { kind: "overAll", right: 0, max: Math.max(drawerWidth.min, total - peek) };
+}
+
+// DrawerDock 是列表、技能详情抽屉与作用域栏(aside)这一段:按这一段和作用域栏的宽度决定抽屉放在哪(见 Placement)。
+// 放得下时抽屉是列表和作用域栏之间的一栏：作用域栏照样看得到、能往上拖，列表让出位置、每行的关键信息不被盖住。
+// 记下的宽度超出能给的宽度时按能给的显示。
+export function DrawerDock({ skill, onClose, aside, children }: { skill: Skill | undefined; onClose: () => void; aside: React.ReactNode; children: React.ReactNode }) {
+  const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  const [side, setSide] = useState<HTMLDivElement | null>(null);
+  const total = useWidth(dock);
+  const asideWidth = useWidth(side);
+  return (
+    <div ref={setDock} className="relative flex min-w-0 flex-1 gap-2">
+      {children}
+      <SkillDrawer skill={skill} placement={place(total, aside ? asideWidth : 0)} onClose={onClose} />
+      {aside && (
+        <div ref={setSide} className="flex shrink-0">
+          {aside}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // SkillDrawer 是技能详情抽屉:skill 为空时关上。关上时先播完退场动画再卸载，这期间仍画最后显示的那个技能。
-export function SkillDrawer({ skill, onClose }: { skill: Skill | undefined; onClose: () => void }) {
+function SkillDrawer({ skill, placement, onClose }: { skill: Skill | undefined; placement: Placement; onClose: () => void }) {
   const [shown, setShown] = useState(skill);
   if (skill && skill !== shown) setShown(skill);
   if (!shown) return null;
-  return <DrawerSheet skill={shown} open={!!skill} onClose={onClose} onExited={() => setShown(undefined)} />;
+  return <DrawerSheet skill={shown} placement={placement} open={!!skill} onClose={onClose} onExited={() => setShown(undefined)} />;
 }
 
-function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: boolean; onClose: () => void; onExited: () => void }) {
+function DrawerSheet({
+  skill,
+  placement,
+  open,
+  onClose,
+  onExited,
+}: {
+  skill: Skill;
+  placement: Placement;
+  open: boolean;
+  onClose: () => void;
+  onExited: () => void;
+}) {
   const t = useT();
   const d = t.drawer;
   const id = skill.id;
@@ -48,7 +100,9 @@ function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: b
   // 版本历史随写操作重读。
   const versions = useQuery(versionsQuery(id)).data ?? noVersions;
 
-  const [width, setWidth] = useStoredWidth(drawerWidth);
+  const [stored, setWidth] = useStoredWidth(drawerWidth);
+  const { kind, right, max } = placement;
+  const width = Math.min(stored, max);
   // 正在写备注的技能：换了技能就不在写了。
   const [noteEditing, setNoteEditing] = useState<SkillID | null>(null);
   const editingNote = noteEditing === id;
@@ -56,12 +110,12 @@ function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: b
   return (
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
-        className="top-0 right-2.5 bottom-2.5 max-w-[calc(100%-20px)]"
-        style={{ width }}
+        className={cn("max-w-full", kind === "beside" ? "relative shrink-0" : "top-0 bottom-0")}
+        style={kind === "beside" ? { width } : { width, right }}
         onAnimationEnd={(e) => !open && e.target === e.currentTarget && onExited()}
         {...(!skill.description && { "aria-describedby": undefined })}
       >
-        <ResizeHandle {...drawerWidth} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
+        <ResizeHandle {...drawerWidth} max={max} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
         <SheetHeader className="h-11 pr-3 pl-3.5 text-[11px] font-semibold text-muted-foreground">
           <span className="grow">{d.title}</span>
           <SheetClose asChild>
@@ -77,7 +131,8 @@ function DrawerSheet({ skill, open, onClose, onExited }: { skill: Skill; open: b
                 {skill.name}
               </SheetTitle>
               {hasUpdate(skill) && (
-                <Button variant={pending(skill) ? "primary" : "default"} onClick={() => openUpdate(skill.collection_id, { focus: id })}>
+                // 普通按钮：更新页上和「全部更新」同屏时，主要按钮只有那一个。
+                <Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>
                   <Icon name="up" />
                   {d.update}
                 </Button>

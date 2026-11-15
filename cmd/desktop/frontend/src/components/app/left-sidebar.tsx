@@ -1,5 +1,6 @@
-// 左栏：入库 / 市场入口;页面——技能库 / 更新;集合(按来源)与组是技能库页里的节，点了跳到那一节;
-// 底部同步与设置，Mechbox 有新版本时上面多一行新版本。
+// 左栏只放能去的地方：页面——技能库 / 更新;集合(按来源)与组是技能库页里的节，点了跳到那一节;底部设置。
+// 动作(入库技能、技能市场、检查更新)在顶栏。平时用不到的不常驻：同步配置好了才有那一行(推、拉的入口，推送失败时写出来),
+// Mechbox 有新版本时多一行新版本;数据库位置只在开发版里写在最底下(分辨窗口属于哪个工作区),平时在设置的「关于」里。
 // "更新"的计数和 Dock 角标同一套规则：计入角标的技能数(技能库的 UpdateCheck.pending);集合每个来源一行，先后由技能库给出(默认按首次入库的先后，拖过的按拖出来的先后),只有一个技能的也列出。
 // 集合行可拖到右栏作用域(把集合里的技能逐个直接安装)或组上(加入该组);组行可拖到右栏作用域(组安装),也接受技能与集合(加入该组);
 // 集合、组各自拖到同类的行上调整先后，和列表的分节一起变，右键节标题可以恢复默认顺序。两种行名字放不下时悬停显示全名，右键有各自的菜单。
@@ -9,33 +10,27 @@ import { useQuery } from "@tanstack/react-query";
 import type { ConfigStatus } from "@bindings/cmd/desktop";
 import { SyncInterval, type Collection, type CollectionID, type Group } from "@bindings/internal/library";
 import { useSnapshot, configQuery, releaseQuery, syncStatusQuery } from "@/lib/library";
-import { checkUpdates, useCheckMark } from "@/features/update/check";
-import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
-import { previewCollection } from "@/features/fetch/preview";
-import { openHistory, openUpdate } from "@/features/update/update";
+import { useCheckMark } from "@/features/update/check";
+import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { useT } from "@/lib/i18n";
 import {
-  checkableCollections,
   collectionSkills,
   foldCollections,
-  hasUpdate,
   isLocal,
   pending,
   shortPath,
-  missingFromGroup,
   sourceKindLabel,
   sourceLabel,
   wslTitle,
   type Page,
   isDefaultOrder,
 } from "@/lib/model";
-import { useBusy, useUI } from "@/lib/ui";
+import { useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
 import {
   foldUnfolded,
   jumpTo,
-  openGraph,
   openPage,
   openSettings,
   smallCollectionsKey,
@@ -51,18 +46,14 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Hint } from "@/components/ui/field";
 import { StatusMark } from "@/components/ui/status-mark";
-import { openFetch } from "@/features/fetch/fetch-dialog";
 import { Icon } from "./icons";
 import { leftClass } from "./layout";
-import { MarketDialog } from "@/features/fetch/market-dialog";
 import { NavCount, navItem } from "./nav";
+import { ContextMenuEntries, useCollectionMenu, useGroupMenu } from "./menus";
 import { TailPath, tailPath, Truncated, WSLBadge } from "./parts";
 import { isWSLPath } from "@/lib/paths";
 import { platform } from "@/lib/platform";
@@ -80,15 +71,12 @@ export function LeftSidebar() {
   // 设置页保存 GitHub 令牌或同步设置后让它失效重读，保存晚于回到主界面完成时也一样。
   const config = useQuery(configQuery).data ?? noConfig;
   const ui = useUI();
-  const busy = useBusy();
-  const checkStatus = useCheckMark("all");
   const t = useT().sidebar;
   // 同步行写自动推送的间隔或「手动」;上一次推送出了问题时改写「推送失败」,不能指望用户自己去设置页看。
   const pushFailed = !!useQuery({ ...syncStatusQuery, enabled: config.sync }).data?.problem;
   const intervals: Record<string, string> = { [SyncInterval.SyncHourly]: t.pushHourly, [SyncInterval.SyncDaily]: t.pushDaily, [SyncInterval.SyncWeekly]: t.pushWeekly };
-  const syncLabel = !config.sync ? t.notConfigured : pushFailed ? t.pushFailed : (config.auto_push && intervals[config.auto_push]) || t.manual;
+  const syncLabel = pushFailed ? t.pushFailed : (config.auto_push && intervals[config.auto_push]) || t.manual;
   const updates = s.skills.filter(pending).length;
-  const checkable = checkableCollections(s);
   const collections = s.collections;
   const groups = s.groups;
   // 收起的分节(collections / groups)。
@@ -124,29 +112,9 @@ export function LeftSidebar() {
 
   return (
     <aside className={leftClass}>
-      <SideButton onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
-        <Icon name="plus" />
-        <span>{t.fetch}</span>
-      </SideButton>
-      <SideButton onClick={(e) => ui.open((close) => <MarketDialog onClose={close} />, { origin: e.currentTarget })}>
-        <Icon name="tag" />
-        <span>{t.market}</span>
-      </SideButton>
       <ul className="flex flex-col gap-0.5">
         {pageRow({ kind: "all" }, <Icon name="bolt" />, t.library, s.skills.length)}
         {updates > 0 && pageRow({ kind: "updates" }, <Icon name="up" />, t.updates, updates, t.updatesTitle)}
-        <li>
-          <button
-            type="button"
-            className={navItem()}
-            disabled={!checkable.length || busy}
-            onClick={() => checkUpdates(checkable)}
-            title={t.checkTitle}
-          >
-            {checkStatus ? <StatusMark status={checkStatus} size={14} className="text-muted-foreground" /> : <Icon name="refresh" />}
-            <span className="grow">{t.check}</span>
-          </button>
-        </li>
       </ul>
 
       <SectionHead
@@ -229,37 +197,40 @@ export function LeftSidebar() {
       <div className="grow" />
       <ul className="flex flex-col gap-0.5">
         <ReleaseRow />
+        {config.sync && (
+          <li>
+            <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog onClose={close} />)}>
+              <Icon name="cloud" />
+              <span className="grow">{t.sync}</span>
+              <span className={cn("text-[11px] text-muted-foreground", pushFailed && "text-warn-strong")}>{syncLabel}</span>
+            </button>
+          </li>
+        )}
         <li>
-          <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog config={config} onClose={close} />)}>
-            <Icon name="cloud" />
-            <span className="grow">{t.sync}</span>
-            <span className={cn("text-[11px] text-muted-foreground", pushFailed && "text-warn-strong")}>{syncLabel}</span>
-          </button>
-        </li>
-        <li>
-          <button type="button" className={navItem()} onClick={() => openSettings()}>
+          {/* 悬停写出数据库位置：发布版里左栏不常驻它，分辨窗口用的是哪个数据库时停在这里看。 */}
+          <button type="button" className={navItem()} title={t.settingsTitle(s.info.library_path)} onClick={() => openSettings()}>
             <Icon name="gear" />
             <span className="grow">{t.settings}</span>
           </button>
         </li>
       </ul>
-      <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-[11px] text-subtle" title={s.info.library_path}>
-        <Icon name="database" className="size-[11px]" />
-        <TailPath path={shortPath(s, s.info.library_path)} max={28} className="grow font-mono text-[10px]" />
-      </div>
+      {import.meta.env.DEV && (
+        <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-[11px] text-subtle" title={s.info.library_path}>
+          <Icon name="database" className="size-[11px]" />
+          <TailPath path={shortPath(s, s.info.library_path)} max={28} className="grow font-mono text-[10px]" />
+        </div>
+      )}
     </aside>
   );
 }
 
 // CollectionRow 是左栏的一个集合：点了跳到那一节;拖到右栏作用域 = 逐个直接安装，拖到组上 = 加入该组，拖到别的集合上 = 调整先后
 // (segment 是开着折叠时它所在的那段，只接受同一段里拖来的);
-// 名字放不下时悬停显示全名;右键菜单是关系图、检查更新、更新、来源里的其他技能、更新历史与加入组。开着它的关系图时这一行标为选中。
+// 名字放不下时悬停显示全名;右键菜单和列表里这个集合的节标题是同一份(见 menus.tsx)。开着它的关系图时这一行标为选中。
 function CollectionRow({ collection: c, segment }: { collection: Collection; segment?: CollectionID[] }) {
   const s = useSnapshot();
   const dnd = useDnD();
-  const busy = useBusy();
   const drop = useCollectionDrop(c.id, segment);
-  const groups = s.groups;
   const tt = useT();
   const t = tt.sidebar;
   const label = sourceLabel(s, c.source);
@@ -270,6 +241,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
   const skills = collectionSkills(s, c);
   const checkStatus = useCheckMark(c.id);
   const page = useCurrentPage();
+  const menu = useCollectionMenu(c, { graph: true });
   return (
     <li>
       <ContextMenu>
@@ -300,35 +272,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => openGraph({ kind: "collection", id: c.id })}>{tt.graph.open}</ContextMenuItem>
-          <ContextMenuSeparator />
-          {!local && (
-            <ContextMenuItem disabled={busy} onSelect={() => checkUpdates([c.id], c.id)}>
-              {t.check}
-            </ContextMenuItem>
-          )}
-          {!local && skills.some(hasUpdate) && <ContextMenuItem onSelect={() => openUpdate(c.id)}>{t.update}</ContextMenuItem>}
-          <ContextMenuItem onSelect={() => previewCollection(c.id)}>{t.otherSkills}</ContextMenuItem>
-          <ContextMenuItem onSelect={() => openHistory({ collection_id: c.id }, tt.list.historyTitle(label))}>{t.history}</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>{t.addToGroup}</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {groups.map((g) => {
-                const already = missingFromGroup(s, c.id, g.id).length === 0;
-                return (
-                  <ContextMenuItem key={g.id} disabled={already || busy} onSelect={() => addCollectionToGroup(g.id, c.id)}>
-                    <span className="min-w-0 grow truncate">{g.name}</span>
-                    {already && <span className="shrink-0 text-[10px] text-subtle">{tt.layout.alreadyThere}</span>}
-                  </ContextMenuItem>
-                );
-              })}
-              {s.groups.length > 0 && <ContextMenuSeparator />}
-              <ContextMenuItem disabled={busy} onSelect={() => createGroup(c.skills ?? [])}>
-                {t.newGroupWith}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          <ContextMenuEntries entries={menu} />
         </ContextMenuContent>
       </ContextMenu>
     </li>
@@ -358,13 +302,14 @@ function SmallCollectionsRow({ folded, open, onToggle }: { folded: Collection[];
 }
 
 // GroupRow 是左栏的一个组：点了跳到那一节;拖到右栏作用域 = 组安装，拖到别的组上 = 调整先后，接受技能与集合(加入本组);
-// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单是关系图、重命名、删除与新建组。开着它的关系图时这一行标为选中。
+// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单和列表里这个组的节标题是同一份，另加新建组(见 menus.tsx)。开着它的关系图时这一行标为选中。
 function GroupRow({ group: g }: { group: Group }) {
   const dnd = useDnD();
   const drop = useGroupDrop(g.id);
   const tt = useT();
   const t = tt.sidebar;
   const page = useCurrentPage();
+  const menu = useGroupMenu(g, { graph: true, newGroup: true });
   return (
     <li>
       <ContextMenu>
@@ -413,29 +358,10 @@ function GroupRow({ group: g }: { group: Group }) {
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => openGraph({ kind: "group", id: g.id })}>{tt.graph.open}</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => renameGroup(g.id)}>{t.renameWith}</ContextMenuItem>
-          <ContextMenuItem danger onSelect={() => deleteGroup(g.id)}>
-            {t.deleteGroupWith}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => createGroup()}>{t.newGroupWith}</ContextMenuItem>
+          <ContextMenuEntries entries={menu} />
         </ContextMenuContent>
       </ContextMenu>
     </li>
-  );
-}
-
-function SideButton({ onClick, children }: { onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      className="side-btn mb-2.5 flex h-8 w-full items-center justify-center gap-[7px] rounded-lg border border-border bg-control text-[12.5px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors hover:border-border-strong hover:bg-panel-hover [&_[data-slot=icon]]:size-3"
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }
 

@@ -546,7 +546,6 @@ export const en = {
     noteHint: "Notes live only in the database, not in the skill's files, and travel with Sync. In lists, hover over the skill's name to see it.",
     noteSaved: "Note saved",
     otherSkillsHint: "Read the Source it was fetched from again to see what else the author has published",
-    otherSkills: "See other skills in the Source",
     newSkills: (source: string, names: string[]) => `${source} published ${count(names.length, "new skill")} (${names.join(", ")})`,
     goFetch: "Fetch",
     notInterested: "Not interested",
@@ -718,6 +717,9 @@ export const en = {
     searchResults: (text: string, n: number) => `Search “${text}”: ${count(n, "result")}`,
     clearSearch: "Clear",
     updatesSkills: "Skills to handle",
+    sectionMore: "More actions",
+    expandSection: "Expand this section",
+    collapseSection: "Collapse this section",
     updateCount: (n: number) => `Update ${n}`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent}'s global directory has ${count(n, "skill")}`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} can use ${count(n, "skill")} in ${project}`,
@@ -756,8 +758,6 @@ export const en = {
     groupInstalledIn: "Group installed in",
     uninstallGroupHere: "Uninstall the Group install in this Scope",
     notGroupInstalled: "Not Group installed in any Scope yet",
-    rename: "Rename",
-    deleteGroup: "Delete Group",
     changedSkills: (names: string[]) => `${and(names)} changed`,
     newVersionEdited: "New Version; updating replaces your edits",
     changedSkillsEdited: (names: string[]) => `${and(names)} changed; updating replaces your edits`,
@@ -773,9 +773,7 @@ export const en = {
     updateAll: "Update all",
     revisionMove: (from: string, to: string) => `${from} → ${to}`,
     revisionLatest: (from: string, to: string) => `${from} · latest ${to}`,
-    otherSkillsHint: "Read the Source it was fetched from again to see what else the author has published",
     historyTitle: (label: string) => `History of ${label}`,
-    history: "History",
   },
 
   plan: {
@@ -859,8 +857,8 @@ export const en = {
     done: "Done",
     leftHint: (n: number) =>
       n === 1
-        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it later from “Fetch skills” in the sidebar."
-        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them later from “Fetch skills” in the sidebar.`,
+        ? "The skill below wasn't fetched and stays unmanaged; Agents use it as usual. You can change the Source link and retry, or clear the link to fetch it as a skill with no Source; or leave it for now and fetch it later from “Fetch skills” in the toolbar."
+        : `The ${count(n, "skill")} below weren't fetched and stay unmanaged; Agents use them as usual. You can change the Source link and retry, or clear the link to fetch as a skill with no Source; or leave them for now and fetch them later from “Fetch skills” in the toolbar.`,
     linkPlaceholder: "owner/repo, Git URL or link; leave empty for no Source",
     retry: "Retry",
     fetchWithoutSource: "Fetch without Source",
@@ -880,7 +878,7 @@ export const en = {
     notNow: "Not now",
     fetchN: (n: number) => `Fetch ${n}`,
     cost: "Fetching hands them over to the app: if you keep updating these skills with a command-line tool afterwards, updates to the author’s newer version are recognized, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
-    projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the sidebar.",
+    projectsLater: "Skills in projects are picked up when you register the project. Anything you don't fetch now can be fetched later from “Fetch skills” in the toolbar.",
     noSource: "No Source",
     groupCount: (n: number) => `· ${n}`,
     groupToggle: (source: string) => `Check or uncheck everything under “${source}”`,
@@ -980,7 +978,7 @@ export const en = {
     dark: "Dark",
     glassTint: "Glass tint",
     glassTintDesc: (dark: boolean) =>
-      `How dense the background of dialogs, drawers, menus, the selection bar, notifications and the list's section headers is. Further left is clearer, down to just the blur, the edge and the shadow; further right is more opaque. Light and dark appearance each keep their own value; this adjusts the ${dark ? "dark" : "light"} one.`,
+      `How dense the background of dialogs, drawers, menus, the selection bar and notifications is. Further left is clearer, down to just the blur, the edge and the shadow; further right is more opaque. Light and dark appearance each keep their own value; this adjusts the ${dark ? "dark" : "light"} one.`,
     glassTintOpaque:
       "Your system is set to reduce transparency or uses a contrast theme, so glass surfaces are shown opaque and this setting has no effect.",
     followSystem: "System",
@@ -1072,11 +1070,8 @@ export const en = {
     back: "Back",
     pullConfirm: "Pull and replace this machine's Library",
     intro: "Pushing stores the whole Library on S3 as a backup of this machine; pulling replaces this machine's Library with a backup from any machine, to reproduce the same setup on another machine. Pushing can run automatically at an interval set in Settings; pulling is always manual.",
-    notConfigured:
-      "S3 isn't configured: fill in the bucket, Access Key ID and Secret Access Key in the Sync section of Settings.",
     pushTo: "Push to S3",
     pullFrom: "Pull from S3…",
-    openSettings: "Open Settings",
     pulled:
       "Switched to this backup from S3. Folders in Agent directories weren't touched: for projects marked “Not on this machine” on the right, first point them to their location on this machine; then check each Scope's status and use “Reinstall all” as needed.",
     noBackups: (location: string) =>
@@ -1130,13 +1125,9 @@ export const en = {
   },
 
   sidebar: {
-    fetch: "Fetch skills",
-    market: "Skill market",
     library: "Library",
     updates: "Updates",
     updatesTitle: "Updates to handle: skills with a new Version, deleted in the Source, or maybe renamed; matches the Dock badge",
-    checkTitle: "Check every Source for new Versions (read-only; local directory Sources aren't checked)",
-    check: "Check for updates",
     collections: "Collections",
     bySource: "By Source",
     noCollections: "Skills you fetch are grouped into Collections by Source automatically.",
@@ -1167,8 +1158,8 @@ export const en = {
     pushDaily: "Pushes daily",
     pushWeekly: "Pushes weekly",
     pushFailed: "Push failed",
-    notConfigured: "Not set up",
     settings: "Settings",
+    settingsTitle: (library: string) => `Database: ${library}`,
   },
 
   review: {
@@ -1306,7 +1297,6 @@ export const en = {
 
   graph: {
     open: "Graph",
-    openTitle: "See which of these skills mention each other",
     back: (page: string) => `Back to ${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
       `${count(skills, "skill")}, ${count(mentions, "mention")}${outside ? `, mentioning ${count(outside, "skill")} ${group ? "outside the Group" : "in other Collections"}` : ""}`,
@@ -1336,6 +1326,10 @@ export const en = {
   },
 
   toolbar: {
+    fetch: "Fetch skills",
+    market: "Skill market",
+    checkTitle: "Check every Source for new Versions (read-only; local directory Sources aren't checked)",
+    check: "Check for updates",
     toggleLeft: "Show/hide sidebar",
     search: "Search skills",
     toggleRight: "Show/hide Scope sidebar",

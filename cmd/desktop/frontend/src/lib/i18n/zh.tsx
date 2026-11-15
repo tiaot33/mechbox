@@ -509,7 +509,6 @@ export const zh = {
     noteHint: "备注只存在数据库里，不写进技能文件，随同步走；在列表里鼠标停在技能名字上也能看到。",
     noteSaved: "已保存备注",
     otherSkillsHint: "按入库时的来源重新读取，看看作者还发布了哪些技能",
-    otherSkills: "看来源里的其他技能",
     newSkills: (source: string, names: string[]) => `${source} 新发布了 ${names.length} 个技能（${names.join("、")}）`,
     goFetch: "去入库",
     notInterested: "不感兴趣",
@@ -675,6 +674,9 @@ export const zh = {
     searchResults: (text: string, n: number) => `搜索「${text}」：${n} 个结果`,
     clearSearch: "清除",
     updatesSkills: "要处理的技能",
+    sectionMore: "更多操作",
+    expandSection: "展开这一节",
+    collapseSection: "收起这一节",
     updateCount: (n: number) => `更新 ${n} 个`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent} 全局目录里有 ${n} 个技能`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} 在 ${project} 里能用 ${n} 个技能`,
@@ -713,8 +715,6 @@ export const zh = {
     groupInstalledIn: "组安装于",
     uninstallGroupHere: "卸载这个作用域的组安装",
     notGroupInstalled: "尚未组安装到任何作用域",
-    rename: "重命名",
-    deleteGroup: "删除组",
     changedSkills: (names: string[]) => `${names.join("、")} 有变化`,
     newVersionEdited: "有新版本，更新会换掉你的修改",
     changedSkillsEdited: (names: string[]) => `${names.join("、")} 有变化，更新会换掉你的修改`,
@@ -729,9 +729,7 @@ export const zh = {
     updateAll: "全部更新",
     revisionMove: (from: string, to: string) => `${from} → ${to}`,
     revisionLatest: (from: string, to: string) => `${from} · 最新 ${to}`,
-    otherSkillsHint: "按入库时的来源重新读取，看看作者又发布了哪些技能",
     historyTitle: (label: string) => `${label} 的历史`,
-    history: "历史",
   },
 
   plan: {
@@ -811,7 +809,7 @@ export const zh = {
     leftTitle: "还有几个没入库",
     done: "完成",
     leftHint: (n: number) =>
-      `下面 ${n} 个没入库，仍是未纳管技能，Agent 照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库；也可以先放着，之后在左栏「入库技能」里再入库。`,
+      `下面 ${n} 个没入库，仍是未纳管技能，Agent 照常在用。可以改来源链接重试，或清空链接作为没有来源的技能入库；也可以先放着，之后在顶栏「入库技能」里再入库。`,
     linkPlaceholder: "owner/repo、Git 地址或链接；留空就是没有来源",
     retry: "重试",
     fetchWithoutSource: "不带来源入库",
@@ -830,7 +828,7 @@ export const zh = {
     notNow: "先不入库",
     fetchN: (n: number) => `入库 ${n} 个`,
     cost: "入库就是交给 app 管：之后如果还用命令行工具更新这些技能，更新到作者的新版时 app 会认出来，在 app 里点「更新」就能对上；改成别的内容，会报为被手动改过。",
-    projectsLater: "项目里的技能，登记项目时再接；先不入库的，之后可以在左栏「入库技能」里再一次入库。",
+    projectsLater: "项目里的技能，登记项目时再接；先不入库的，之后可以在顶栏「入库技能」里再一次入库。",
     noSource: "没有来源",
     groupCount: (n: number) => `· ${n} 个`,
     groupToggle: (source: string) => `勾选或取消「${source}」下的全部`,
@@ -921,7 +919,7 @@ export const zh = {
     dark: "深色",
     glassTint: "毛玻璃浓度",
     glassTintDesc: (dark: boolean) =>
-      `弹窗、抽屉、菜单、操作栏、提示和列表里节标题的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
+      `弹窗、抽屉、菜单、操作栏和提示的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
     glassTintOpaque: "系统要求减少透明度或用了高对比度主题，毛玻璃现在显示为不透明的底，这一项不起作用。",
     wslDistro: "全局目录",
     wslDistroDesc:
@@ -1009,11 +1007,8 @@ export const zh = {
     back: "返回",
     pullConfirm: "拉回并替换本机的库",
     intro: "推送把整个技能库存到 S3，成为这台机器的一份备份；拉回用任一台机器的一份备份替换本机的库，在另一台机器上还原同样的配置。推送可以在设置里按间隔自动进行，拉回始终手动。",
-    notConfigured:
-      "未配置 S3：在设置页的同步分区填写存储桶、Access Key ID 和 Secret Access Key。",
     pushTo: "推送到 S3",
     pullFrom: "从 S3 拉回…",
-    openSettings: "去设置",
     pulled: '已换成 S3 上的这份备份。Agent 目录里的文件夹没有动：右栏里标着"不在这台机器上"的项目，先改项目位置指到本机；再在各作用域查看状态，按需"全部重新安装"。',
     noBackups: (location: string) => `${location} 里还没有备份。另一台机器推送过的话，核对两台机器同步设置里的存储桶与文件夹是否一致。`,
     chooseBackup: "选一份备份拉回，默认是别的机器最新推送的那份：",
@@ -1062,13 +1057,9 @@ export const zh = {
   },
 
   sidebar: {
-    fetch: "入库技能",
-    market: "技能市场",
     library: "技能库",
     updates: "更新",
     updatesTitle: "要处理的更新：有新版本、来源里已删除或可能改了名的技能；和 Dock 角标一致",
-    checkTitle: "检查各来源是否有新版本（只读，本地目录来源不检查）",
-    check: "检查更新",
     collections: "集合",
     bySource: "按来源",
     noCollections: "入库技能后，按来源自动归成集合。",
@@ -1099,8 +1090,8 @@ export const zh = {
     pushDaily: "每天推送",
     pushWeekly: "每周推送",
     pushFailed: "推送失败",
-    notConfigured: "未配置",
     settings: "设置",
+    settingsTitle: (library: string) => `数据库：${library}`,
   },
 
   review: {
@@ -1236,7 +1227,6 @@ export const zh = {
 
   graph: {
     open: "关系图",
-    openTitle: "看这些技能之间谁提到了谁",
     back: (page: string) => `返回${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
       `${skills} 个技能，${mentions} 条提到${outside ? `，提到了${group ? "组外" : "其他集合"}的 ${outside} 个技能` : ""}`,
@@ -1263,6 +1253,10 @@ export const zh = {
   },
 
   toolbar: {
+    fetch: "入库技能",
+    market: "技能市场",
+    checkTitle: "检查各来源是否有新版本（只读，本地目录来源不检查）",
+    check: "检查更新",
     toggleLeft: "显示/隐藏侧栏",
     search: "搜索技能",
     toggleRight: "显示/隐藏作用域栏",

@@ -88,7 +88,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
 
   const goSync = () => {
     onClose();
-    if (config) void ui.open((close) => <SyncDialog config={config} onClose={close} />);
+    void ui.open((close) => <SyncDialog onClose={close} />);
   };
 
   const working = phase.kind === "working" || phase.kind === "done";

@@ -18,15 +18,17 @@ import {
   updateAvailable,
 } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
-import { cn } from "@/lib/utils";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
 import { barClass, barRowClass } from "./heads";
 
 // UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
+// 风险(改动了脚本等)是用户审阅时最先要看的：用「必须处理」那一档的标签紧跟在名字后面，按钮都用普通的，标签不比按钮弱;
+// 来源版本和哪些技能有变化写在第二行。整页只有「全部更新」是主要按钮。
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 export function UpdatesHead() {
   const s = useSnapshot();
@@ -56,32 +58,37 @@ export function UpdatesHead() {
           todo.some(deletedInSource) ? t.deletedSkills(names(todo.filter(deletedInSource))) : "",
         ].filter(Boolean);
         return (
-          <div key={c.id} className={cn(barRowClass, "update-row")}>
-            <b className="truncate [&:lang(en)]:shrink-0">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
-            <span className="min-w-0 grow truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
+          <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-b border-row-line pb-2">
+            <div className={barRowClass}>
+              {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
+              <b className="max-w-1/2 min-w-0 shrink-0 truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+              {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
+              {risk && (
+                <Badge tone="bad" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
+                  <span className="truncate">{risk}</span>
+                </Badge>
+              )}
+              <span className="grow" />
+              {plain.length === 0 && edited.length > 0 ? (
+                <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
+                  <Icon name="up" />
+                  {t.updateEdited}
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => openUpdate(c.id)}>
+                  {t.view}
+                </Button>
+              )}
+              {plain.length > 0 && (
+                <Button size="sm" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
+                  <Icon name="up" />
+                  {t.update}
+                </Button>
+              )}
+            </div>
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
               {facts.join(" · ")}
             </span>
-            {risk && (
-              <span className="shrink-0 text-[11px] text-warn-strong" title={t.riskTitle}>
-                ⚠ {risk}
-              </span>
-            )}
-            {plain.length === 0 && edited.length > 0 ? (
-              <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
-                <Icon name="up" />
-                {t.updateEdited}
-              </Button>
-            ) : (
-              <Button size="sm" onClick={() => openUpdate(c.id)}>
-                {t.view}
-              </Button>
-            )}
-            {plain.length > 0 && (
-              <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
-                <Icon name="up" />
-                {t.update}
-              </Button>
-            )}
           </div>
         );
       })}
