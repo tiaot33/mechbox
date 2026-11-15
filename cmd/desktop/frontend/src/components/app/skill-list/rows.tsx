@@ -96,7 +96,7 @@ const rowClass =
   "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-body last:border-b-0 @max-[600px]/list:gap-y-0.5";
 
 // rowButtonClass 是行首那一格里的小按钮(入库、更新),和开关一样高，样子是普通按钮。
-const rowButtonClass = "h-[18px] rounded-control px-1.5 text-caption whitespace-nowrap text-foreground";
+const rowButtonClass = "h-[18px] rounded-pill px-2 text-caption whitespace-nowrap text-foreground";
 
 // 最近几天内的变化用次要档，更早的用标注档;日期本身写成「今天」「3 天前」,近的一眼能认出来。
 const recentDays = 7;

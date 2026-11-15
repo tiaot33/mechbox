@@ -70,6 +70,10 @@
   --color-track: #d4d4d4;
   --color-knob: #fff;
   --color-raised: #fff;
+  /* control 是普通按钮、下拉框和分段选择里选中那一段的面：比底板略浮起的白(深色下是浅一些的灰),hover / active 是悬停和按下时的面。 */
+  --color-control: #fff;
+  --color-control-hover: #f6f6f6;
+  --color-control-active: #ececec;
   --color-scrim: rgba(0, 0, 0, 0.18);
   /* 只有两处保留原色:mark 是 Agent 品牌图标的底，深色下仍是浅色，纯黑的 logo 也看得清;caption-close 是 Windows 上关闭窗口按钮悬停时的红，
      上面写白字(white)。 */
@@ -101,6 +105,10 @@
   --shadow-toast: 0 8px 24px var(--shade-toast);
   --shadow-pick: 0 8px 28px var(--shade-pick);
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.2);
+  /* 浮起的控件(普通按钮、下拉框、分段选择选中的一段):一圈很细的边加一点投影，深色下顶上多一道淡亮线。 */
+  --shadow-control: inset 0 0.5px 0 var(--shade-control-highlight), 0 0 0 0.5px var(--shade-control-edge), 0 1px 2px var(--shade-control);
+  /* 主要按钮：同样的细边与投影，顶上一道淡亮线，看起来是一块有厚度的面。 */
+  --shadow-primary: inset 0 0.5px 0 rgba(255, 255, 255, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.14);
 
   --animate-fade-in: fade-in 0.12s ease-out;
   --animate-dialog-in: dialog-in 0.14s ease-out;
@@ -155,6 +163,9 @@
     --shade-popover: rgba(15, 23, 42, 0.18);
     --shade-toast: rgba(0, 0, 0, 0.12);
     --shade-pick: rgba(17, 24, 39, 0.16);
+    --shade-control: rgba(0, 0, 0, 0.08);
+    --shade-control-edge: rgba(0, 0, 0, 0.14);
+    --shade-control-highlight: rgba(255, 255, 255, 0);
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
@@ -179,6 +190,9 @@
     --color-track: #585858;
     --color-knob: #f2f2f2;
     --color-raised: #555;
+    --color-control: #434345;
+    --color-control-hover: #4c4c4f;
+    --color-control-active: #57575a;
     --color-scrim: rgba(0, 0, 0, 0.42);
     --color-mark: #f2f2f5;
     --color-caption-hover: rgb(255 255 255 / 0.0605);
@@ -198,6 +212,9 @@
     --shade-popover: rgb(0 0 0 / 0.5);
     --shade-toast: rgb(0 0 0 / 0.4);
     --shade-pick: rgb(0 0 0 / 0.45);
+    --shade-control: rgb(0 0 0 / 0.3);
+    --shade-control-edge: rgb(0 0 0 / 0.45);
+    --shade-control-highlight: rgb(255 255 255 / 0.1);
   }
 }
 

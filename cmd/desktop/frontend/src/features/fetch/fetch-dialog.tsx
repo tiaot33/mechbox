@@ -358,7 +358,7 @@ function RefPicker({
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild disabled={!ready || locked}>
-            <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger h-[30px] w-72 max-w-full justify-between rounded-control px-2.5 font-normal">
+            <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger w-72 max-w-full justify-between px-3 font-normal">
               {ready ? (
                 <span className="truncate font-mono">{selected || t.defaultBranch}</span>
               ) : (

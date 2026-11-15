@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const raised = "bg-raised shadow-segment";
+const raised = "bg-control shadow-control";
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 interface SegmentedOption<T> {
@@ -54,7 +54,7 @@ function Segmented<T extends string | number>({
       ref={ref}
       role="group"
       data-slot="segmented"
-      className={cn("relative inline-flex h-7 items-center gap-px rounded-control border border-border bg-fill p-0.5", className)}
+      className={cn("relative inline-flex h-7 items-center gap-px rounded-pill bg-fill p-0.5", className)}
     >
       {thumb && (
         <motion.span
@@ -63,7 +63,7 @@ function Segmented<T extends string | number>({
           animate={{ x: thumb.left, width: thumb.width }}
           transition={reduced() ? { duration: 0 } : { type: "spring", duration: 0.32, bounce: 0 }}
           style={{ top: thumb.top, height: thumb.height }}
-          className={cn("pointer-events-none absolute left-0 rounded-[4px]", raised)}
+          className={cn("pointer-events-none absolute left-0 rounded-pill", raised)}
         />
       )}
       {options.map((o) => (
@@ -75,9 +75,9 @@ function Segmented<T extends string | number>({
           disabled={disabled}
           onClick={() => onChange(o.value)}
           className={cn(
-            "relative h-[22px] rounded-[4px] px-2.5 text-body text-foreground-secondary transition-colors not-aria-pressed:hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
+            "relative h-6 rounded-pill px-3 text-body text-foreground-secondary transition-colors not-aria-pressed:hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent aria-pressed:text-foreground",
             !thumb && o.value === value && raised,
-            iconOnly && "grid h-5 w-7 place-items-center px-0 [&_[data-slot=icon]]:size-[13px]",
+            iconOnly && "grid h-6 w-8 place-items-center px-0 [&_[data-slot=icon]]:size-[13px]",
           )}
         >
           {o.label}

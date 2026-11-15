@@ -25,7 +25,7 @@ function SearchInput({
     <label
       data-slot="search"
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded-control border border-border bg-panel px-2 text-body text-subtle transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary-soft",
+        "flex h-7 items-center gap-1.5 rounded-pill border border-border bg-panel px-3 text-body text-subtle transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary-soft",
         className,
       )}
     >
