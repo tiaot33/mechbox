@@ -23,7 +23,8 @@ import { openUpdate } from "./update";
 import { putBack, rollbackOutcome, rollbackUpdate } from "./rollback";
 import { compareVersions } from "./version-compare";
 import { cn } from "@/lib/utils";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -160,13 +161,12 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {update && !rolledBack && failed.length > 0 && (
-          <Button size="sm" onClick={retry}>
+          <Button onClick={retry}>
             {t.retryFailed}
           </Button>
         )}
         {update && !rolledBack && (
           <Button
-            size="sm"
             onClick={() => void rollbackUpdate(record.id, record.installs ?? [])}
           >
             {t.rollback}
@@ -174,7 +174,6 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
         )}
         {record.kind === UpdateRecordKind.UpdateRecordSkip && s.collections.some((c) => c.id === record.collection_id) && (
           <Button
-            size="sm"
             onClick={() => openUpdate(record.collection_id, { select: skills.map((x) => x.skill_id) })}
             title={t.reviewTitle}
           >

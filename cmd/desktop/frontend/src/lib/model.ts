@@ -21,6 +21,7 @@ import {
   type UnmanagedSkill,
 } from "@bindings/internal/library";
 import { currentLanguage, messages } from "./i18n";
+import { worstLevel, type Level, type Tone } from "./level";
 import type { Snapshot } from "./library";
 import { isWSLPath, windowsHome, wslLocation, wslRest } from "./paths";
 import { platform } from "./platform";
@@ -373,13 +374,12 @@ export function needsReinstall(p: SkillScopeInspection): boolean {
 
 // reinstallLevel 是几处安装里要重新安装的那些最重到哪一级提醒(列表里「装在哪」一列和作用域栏的小圆点按它上色):
 // 有文件夹不在了、项目不在这台机器上的是严重，有被手动改过、版本落后的是注意，只有在 app 外更新到了作者新版的是提示;都不用重新安装时没有。
-export function reinstallLevel(places: SkillScopeInspection[]): "critical" | "warn" | "info" | undefined {
-  const tones = places.filter(needsReinstall).map((p) => skillScopeStatus(p.status, p.source_latest).tone);
-  return (["critical", "warn", "info"] as const).find((l) => tones.includes(l));
+export function reinstallLevel(places: SkillScopeInspection[]): Level | undefined {
+  return worstLevel(places.filter(needsReinstall).map((p) => skillScopeStatus(p.status, p.source_latest).tone));
 }
 
 // sourceLatest 为 true(见 SkillScopeInspection.source_latest)时被改过的那一处是在 app 外更新到了作者的新版，不说"被手动改过"。
-export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false): { label: string; tone: "critical" | "warn" | "info" | "plain" } {
+export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false): { label: string; tone: Tone } {
   const m = messages();
   if (status === SkillScopeStatus.SkillScopeModified && sourceLatest) return { label: m.model.statusSourceLatest, tone: "info" };
   return {

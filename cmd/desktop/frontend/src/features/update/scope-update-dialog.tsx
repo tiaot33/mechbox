@@ -132,11 +132,8 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
       }
     >
       {conflict && (
-        <Notice alert className="flex items-center gap-2">
-          <span className="grow">{t.conflict}</span>
-          <Button size="sm" onClick={replan}>
-            {t.reread}
-          </Button>
+        <Notice alert action={<Button onClick={replan}>{t.reread}</Button>}>
+          {t.conflict}
         </Notice>
       )}
       <Hint>{t.becomes(place, skill.name)}</Hint>

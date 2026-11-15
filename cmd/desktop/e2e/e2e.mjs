@@ -1456,12 +1456,13 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     fs.mkdirSync(path.join(kit, name), { recursive: true });
     fs.writeFileSync(path.join(kit, name, "SKILL.md"), doc(name, "v1"));
   }
-  const folders = { "kit-a": doc("kit-a", "v1"), "kit-b": doc("kit-b", "edited"), "kit-c": doc("kit-c", "mine") };
+  // kit-d 的 SKILL.md 没有描述，来源记录里有来源。
+  const folders = { "kit-a": doc("kit-a", "v1"), "kit-b": doc("kit-b", "edited"), "kit-c": doc("kit-c", "mine"), "kit-d": "---\nname: kit-d\n---\nno description\n" };
   for (const [name, content] of Object.entries(folders)) {
     fs.mkdirSync(path.join(claudeGlobal, name), { recursive: true });
     fs.writeFileSync(path.join(claudeGlobal, name, "SKILL.md"), content);
   }
-  const records = { version: 3, skills: Object.fromEntries(["kit-a", "kit-b"].map((name) => [name, { source: kit, sourceType: "local", sourceUrl: kit, skillFolderHash: "" }])) };
+  const records = { version: 3, skills: Object.fromEntries(["kit-a", "kit-b", "kit-d"].map((name) => [name, { source: kit, sourceType: "local", sourceUrl: kit, skillFolderHash: "" }])) };
   fs.writeFileSync(path.join(HOME, ".agents", ".skill-lock.json"), JSON.stringify(records));
   await refocus();
   await settle();
@@ -1470,7 +1471,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await selectScope("Claude Code");
     await unmanaged("kit-a").waitFor();
     assert.equal(await unmanaged("kit-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
-    // 行首的「入库」要能看全;行高固定，来源不占一行，写在描述的悬停提示里(上面核对的是留在 DOM 里的那一份)。
+    // 行首的「入库」要能看全;行高固定，来源不占一行，写在描述的悬停提示里(提示和上面核对的留在 DOM 里的那一份由同一份数据生成)。
     const clipped = (el) => el.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
     assert(!(await clipped(unmanaged("kit-a").locator(".fetch-unmanaged"))), "「入库」没被截断");
     // 每一行一样高：有来源的和没有来源的行高相同。
@@ -1478,6 +1479,9 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     assert.equal(await rowHeight("kit-a"), await rowHeight("kit-c"), "有没有来源，行高都一样");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-source-label.png") });
     assert((await unmanaged("kit-c").locator(".unmanaged-source-label").count()) === 0, "认不出的不写来源");
+    // 没有描述的：描述那一格直接写来源，不留一块悬停不到的空白。
+    assert.equal(await unmanaged("kit-d").locator(".unmanaged-desc").textContent(), `来自 ${kit}`, "没有描述时描述那一格写来源");
+    assert((await unmanaged("kit-d").locator(".unmanaged-desc").evaluate((e) => e.getBoundingClientRect().height)) > 0, "没有描述的行也有能悬停的地方");
 
     await btn(unmanaged("kit-a"), "入库").click();
     await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「kit-a」" }).waitFor();
@@ -1521,7 +1525,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
       await toast("已移除");
       await settle();
     }
-    for (const name of ["kit-a", "kit-b", "kit-c"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
+    for (const name of ["kit-a", "kit-b", "kit-c", "kit-d"]) fs.rmSync(path.join(claudeGlobal, name), { recursive: true, force: true });
     fs.rmSync(path.join(HOME, ".agents", ".skill-lock.json"), { force: true });
     await refocus();
     await settle();
@@ -1548,7 +1552,7 @@ await step("[离线] 未纳管技能在 skills.sh 上找来源：认不出来源
     await selectScope("Claude Code");
     const label = unmanaged("found-a").locator(".unmanaged-source-label", { hasText: `来自 ${site}` });
     await label.waitFor({ timeout: 20000 });
-    assert((await label.getAttribute("title")).includes("在 skills.sh 上找到的同名技能"), "悬停提示写明是在 skills.sh 上找到的");
+    assert((await unmanaged("found-a").locator(".unmanaged-source-how").textContent()).includes("在 skills.sh 上找到的同名技能"), "悬停提示写明是在 skills.sh 上找到的");
     await unmanaged("found-b").waitFor();
     assert((await unmanaged("found-b").locator(".unmanaged-source-label").count()) === 0, "只是同名、内容不同的不写来源");
 
@@ -1602,9 +1606,11 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     fs.writeFileSync(path.join(folder, "SKILL.md"), `---\nname: ${name}\ndescription: "${description}"\n---\n`);
   }
   const unmanaged = (name) => page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: new RegExp(`^${name}$`) }) });
+  const sameNameTip = '.same-name-badge [data-slot="badge-tip"]';
   const note = async (item) => {
     assert((await item.locator(".same-name-badge").count()) === 1, "应标同名");
-    return (await item.locator(".same-name-note").textContent()).trim();
+    // 同名的后果写在圆点的悬停提示里;提示里显示的和留在 DOM 里的是同一份，第一行是后果，后面是哪个文件夹。
+    return (await item.locator(sameNameTip).textContent()).split("\n")[0].trim();
   };
   try {
     await refocus();
@@ -1612,7 +1618,7 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
 
     // 排查「gamma 在这个项目里表现得不像我装的版本」:在项目的作用域里直接看到全局那个生效。
     await selectScope("Claude Code", "proj-a");
-    await card("gamma").locator(".same-name-note").waitFor();
+    await card("gamma").locator(sameNameTip).waitFor();
     assert.equal(await note(card("gamma")), "全局也有 gamma（不在技能库里），Claude Code 用全局的那个，这里的不会生效");
     assert.equal(await note(unmanaged("alpha")), "全局也有 alpha（库装的），Claude Code 用全局的那个，这里的不会生效");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
@@ -1628,14 +1634,14 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     await idle();
 
     await selectScope("Claude Code");
-    await card("alpha").locator(".same-name-note").waitFor();
+    await card("alpha").locator(sameNameTip).waitFor();
     assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
     assert.equal(await note(unmanaged("gamma")), "项目「proj-a」里也有 gamma，Claude Code 在那里用全局的这个");
     assert((await card("npx-tool").locator(".same-name-badge").count()) === 0, "Claude Code 的项目里没有 npx-tool,不标");
     await page.screenshot({ path: path.join(SHOTS, "same-name-claude-global.png") });
 
     await selectScope("Codex", "proj-a");
-    await unmanaged("vendored-npx").locator(".same-name-note").waitFor();
+    await unmanaged("vendored-npx").locator(sameNameTip).waitFor();
     assert.equal(await note(unmanaged("vendored-npx")), "全局也有 npx-tool（库装的），Codex 里两份都会出现");
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
@@ -1779,9 +1785,17 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
   assert((await card("delta").locator('[data-slot="badge"][data-tone="info"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
+  // 名字后面的提醒圆点是按钮：键盘聚焦后按回车，打开这个技能所在集合的更新计划。
+  await card("delta").locator('button[data-slot="alert-dot"]').focus();
+  await page.keyboard.press("Enter");
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "更新" }).waitFor();
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
   await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  // 读出风险的那一行，「更新」退回普通按钮，不比风险标签抢眼。
+  assert.equal(await row.locator(".update-direct").getAttribute("data-variant"), "default", "有风险的来源，「更新」不是绿胶囊");
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
   assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");

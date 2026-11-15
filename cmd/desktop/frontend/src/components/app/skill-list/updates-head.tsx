@@ -28,8 +28,9 @@ import { barClass, barRowClass } from "./heads";
 
 // UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
-// 风险(改动了脚本等)是用户审阅时最先要看的：用「必须处理」那一档的标签紧跟在名字后面，按钮都用普通的，标签不比按钮弱;
-// 来源版本和哪些技能有变化写在第二行。整页只有「全部更新」是主要按钮。
+// 风险(改动了脚本等)是用户审阅时最先要看的：用「注意」一级的标签紧跟在名字后面;读出风险的那一行，「更新」是普通的灰按钮，
+// 不比风险标签抢眼;没读出风险的才是绿胶囊。「全部更新」同理：要更新的来源里有一个读出了风险，它就是普通按钮。
+// 来源版本和哪些技能有变化写在第二行。
 // 更新会换哪些地方的说明在第一行按钮前的提示里;最后一行只在有两个以上能直接更新的集合时出现，放「全部更新」。
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 export function UpdatesHead() {
@@ -73,16 +74,16 @@ export function UpdatesHead() {
               <span className="grow" />
               {i === 0 && <InfoTip tip={t.updatesFooter} />}
               {plain.length === 0 && edited.length > 0 ? (
-                <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
+                <Button onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
                   {t.updateEdited}
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => openUpdate(c.id)}>
+                <Button onClick={() => openUpdate(c.id)}>
                   {t.view}
                 </Button>
               )}
               {plain.length > 0 && (
-                <Button variant="pill" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
+                <Button variant={risk ? "default" : "pill"} className="update-direct" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
                   {t.update}
                 </Button>
               )}
@@ -96,7 +97,7 @@ export function UpdatesHead() {
       {direct.length > 1 && (
         <div className={barRowClass}>
           <span className="grow" />
-          <Button variant="pill" disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
+          <Button variant={direct.some((c) => risks.get(c.id)) ? "default" : "pill"} disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
             {t.updateAll}
           </Button>
         </div>

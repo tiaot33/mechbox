@@ -9,7 +9,7 @@ import { useT } from "@/lib/i18n";
 import type { LibraryError } from "@/lib/library";
 import { Modal, ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ChangedFiles, FileDiff, type FileReaders } from "./file-diff";

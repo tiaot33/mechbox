@@ -260,7 +260,6 @@ export function SwipeToast({
           <span className="min-w-0 grow text-center">{children}</span>
           {actionLabel && (
             <Button
-              size="sm"
               className="-my-1 -mr-1 shrink-0"
               onClick={() => {
                 latest.current.onAction?.();

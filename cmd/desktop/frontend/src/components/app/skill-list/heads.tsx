@@ -20,13 +20,14 @@ import {
   wslTitle,
   type ScopeKey,
 } from "@/lib/model";
+import type { Level } from "@/lib/level";
 import { cn } from "@/lib/utils";
 import { offerFetchProject } from "@/features/fetch/fetch-unmanaged-all";
 import { openCopyFromAgent, openCopyFromProject } from "@/features/install/copy";
 import { installGroup, uninstallGroup } from "@/features/install/install";
 import { reinstall } from "@/features/install/reinstall";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { WSLBadge } from "@/components/app/parts";
 import { Badge } from "@/components/ui/badge";
 import { nameIndent } from "./rows";
@@ -88,10 +89,10 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
-        {issues > 0 && <Stat value={issues} label={t.statStale} warn={reinstallLevel(installed) ?? "warn"} />}
+        {issues > 0 && <Stat value={issues} label={t.statStale} level={reinstallLevel(installed) ?? "warn"} />}
       </div>
       {s.groups.length > 0 && (
-        <div className="flex h-6 items-center gap-1.5 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="shrink-0 text-caption text-muted-foreground">{t.groups}</span>
           {groups.map((g) => {
             const state = groupStateIn(s, g, scope);
@@ -162,12 +163,12 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
   );
 }
 
-// warn 是这一项要提醒时的级别(需重新安装的按最重的那一处)。
-function Stat({ value, label, warn }: { value: number; label: string; warn?: "critical" | "warn" | "info" }) {
+// level 是这一项要提醒时的级别(需重新安装的按最重的那一处)。
+function Stat({ value, label, level }: { value: number; label: string; level?: Level }) {
   return (
-    <span className="stat shrink-0 whitespace-nowrap" data-tone={warn ? "warn" : undefined}>
-      {warn ? (
-        <Badge tone={warn}>
+    <span className="stat shrink-0 whitespace-nowrap" data-tone={level}>
+      {level ? (
+        <Badge tone={level}>
           {value} {label}
         </Badge>
       ) : (

@@ -33,7 +33,8 @@ const buttonVariants = cva(
       size: {
         // 字比行框的中线低半个像素(中文字形偏下),底下垫 1 px 把它托回正中。
         default: "h-6 px-2.5 pb-px text-body [&_[data-slot=icon]]:size-3",
-        sm: "h-6 px-2 pb-px text-body [&_[data-slot=icon]]:size-3",
+        // 小一号(20 px、标注字号):列表行里的按钮(行首的「入库」「更新」、跟在状态后面的动作)。
+        sm: "h-5 px-2 text-caption [&_[data-slot=icon]]:size-3",
         icon: "size-6 [&_[data-slot=icon]]:size-3.5",
         "icon-sm": "size-5 [&_[data-slot=icon]]:size-3",
         inline: "h-auto p-0 text-body",

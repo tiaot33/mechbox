@@ -189,7 +189,7 @@ export function ReleaseCheck() {
   return (
     <div className="release-check flex flex-col items-start gap-1.5">
       <div className="flex items-center gap-2">
-        <Button size="sm" loading={checking} disabled={checking} onClick={() => void check()}>
+        <Button loading={checking} disabled={checking} onClick={() => void check()}>
           {checking ? t.checking : t.check}
         </Button>
         {latest ? (

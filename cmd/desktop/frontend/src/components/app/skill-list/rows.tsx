@@ -46,15 +46,14 @@ import { doneFlash, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { Badge, Dot, type Level } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AlertDot, Badge, Dot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
-import { SameNameBadge, SameNameLine, sameNameTip } from "./same-name";
+import { SameNameBadge, sameNameAlert } from "./same-name";
 import { flash } from "./flash";
 
 // 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
@@ -88,10 +87,12 @@ const layouts = {
     date: "",
   },
 };
-// 行首勾选框那一列(上面列宽里的 14px):行的左内边距 12(px-3)+ 这一列 14 + 列间距 16 = 42。
-// 节标题、「没装的」折叠行、节标题下的说明行用 pickColumn 留出同一列，或用 nameIndent 直接缩进到技能名。
+// 技能名那条线离行的左边多远，记在列表容器的 --name-indent 上(nameIndentVars),一页里所有文字都从这条线开始:
+// 技能库页是 42:行的左内边距 12(px-3)+ 勾选框那一列 14 + 列间距 16;作用域页、项目页的行多一列开关，是 88(再加开关 30 + 列间距 16)。
+// 节标题、「没装的」折叠行用 pickColumn 留出勾选框那一列，再按 --name-indent 把文字推到这条线上;摘要、说明行用 nameIndent 直接缩进。
+export const nameIndentVars = "[--name-indent:42px] data-[page=project]:[--name-indent:88px] data-[page=scope]:[--name-indent:88px]";
 export const pickColumn = "w-3.5";
-export const nameIndent = "pl-[42px]";
+export const nameIndent = "pl-(--name-indent)";
 
 // span 是窄的时候跨两层的格子(勾选框、开关)。
 const span = "@max-[600px]/list:row-span-2";
@@ -100,9 +101,6 @@ const span = "@max-[600px]/list:row-span-2";
 // 多出来的说明(同名的后果、符号链接指向哪里、库里同名的几个各装在哪)收进图标或文字的悬停提示。
 const rowClass =
   "grid h-8 content-center items-center gap-x-4 border-b border-row-line px-3 text-body last:border-b-0 @max-[600px]/list:h-12 @max-[600px]/list:gap-y-0";
-
-// rowButtonClass 是行首那一格里的小按钮(入库、更新):绿色的胶囊，和节标题上的「更新」一个样子，小一号。
-const rowButtonClass = "h-5 px-2 text-caption whitespace-nowrap";
 
 // 最近几天内的变化用次要档，更早的用标注档;日期本身写成「今天」「3 天前」,近的一眼能认出来。
 const recentDays = 7;
@@ -201,9 +199,9 @@ export function SkillRow(props: {
           {skill.name}
         </span>
         {/* 这一行的提醒合成一个圆点(按最重的一级),鼠标停住时逐条列出;有可以更新的时点圆点打开所在集合的更新计划。 */}
-        <RowAlerts
+        <AlertDot
           items={[
-            same && { tone: "warn", label: t.list.sameName, tip: sameNameTip(same), className: "same-name-badge" },
+            same && sameNameAlert(same, t.list.sameName),
             // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
             skill.edited && { tone: "info", label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
             // 计入角标的才标出来。
@@ -258,9 +256,6 @@ export function SkillRow(props: {
             {translated ?? skill.description}
           </p>
         </Truncated>
-        {same && <SameNameLine note={same} />}
-        {/* 这里那一份是符号链接时指向哪里：留给读屏，界面上写在最后一列的提示里。 */}
-        {identical?.link_target && <p className="identical-link sr-only">{t.list.link(shortPath(s, identical.link_target))}</p>}
       </div>
       <div className={cn("flex min-w-0", layout.where)}>
         {scope ? (
@@ -352,9 +347,9 @@ function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: 
   const t = useT().list;
   return (
     <Button
-      size="inline"
+      size="sm"
       variant="pill"
-      className={cn("take-over", rowButtonClass)}
+      className="take-over"
       title={t.identicalHereTitle(name)}
       onClick={() => void fetchUnmanaged(identical)}
     >
@@ -390,49 +385,6 @@ function IdenticalState({ identical, skill }: { identical: UnmanagedSkill; skill
         }}
       />
     </div>
-  );
-}
-
-// RowAlert 是一行上的一条提醒;RowAlerts 把一行的几条合成一个圆点：圆点按最重的一级画，鼠标停住时从重到轻逐条列出(圆点 + 文字 + 说明)。
-// 每一条的文字都留在 DOM 里(读屏和测试读得到),界面上不占地方。有带 onClick 的一条时(有新版本),点圆点做那件事。
-type RowAlert = { tone: Level; label: string; tip?: string; className?: string; onClick?: () => void };
-
-function RowAlerts({ items }: { items: (RowAlert | false | undefined | "" | null)[] }) {
-  const order: Level[] = ["critical", "warn", "info"];
-  const alerts = items.filter((x): x is RowAlert => !!x).sort((a, b) => order.indexOf(a.tone) - order.indexOf(b.tone));
-  if (!alerts.length) return null;
-  const act = alerts.find((x) => x.onClick)?.onClick;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className={cn("row-alerts relative inline-grid size-3.5 shrink-0 place-items-center outline-none", act && "cursor-pointer")}
-          role={act ? "button" : undefined}
-          tabIndex={act ? 0 : undefined}
-          onClick={(e) => {
-            if (!act) return;
-            e.stopPropagation();
-            act();
-          }}
-        >
-          <Dot tone={alerts[0].tone} />
-          {alerts.map((a) => (
-            <span key={a.label} data-slot="badge" data-tone={a.tone} className={cn("sr-only", a.className)}>
-              {a.label}
-            </span>
-          ))}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent className="flex flex-col gap-1.5">
-        {alerts.map((a) => (
-          <div key={a.label} className="grid grid-cols-[14px_1fr] items-baseline">
-            <Dot tone={a.tone} className="translate-y-[-1px] self-center justify-self-start" />
-            <b className="font-semibold">{a.label}</b>
-            {a.tip && <div className="col-start-2 text-foreground-secondary">{a.tip}</div>}
-          </div>
-        ))}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -473,6 +425,13 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           : { text: t.notInLibrary, title: t.notInLibraryTitle },
     ...folderNotes(skill),
   ].filter((x) => !!x);
+  // 行高固定，来源和符号链接指向哪里不占一行：写在描述的悬停提示里，同一份留在 DOM 里给读屏(className 是测试钩子)。
+  // 没有描述时描述那一格直接写来源和链接(来源是怎么认出来的那句 detail 只在提示里),不留一块悬停不到的空白。
+  const notes = [
+    source && { text: t.from(source), className: "unmanaged-source-label" },
+    source && { text: found ? t.foundTitle(found) : t.recordedTitle(source), className: "unmanaged-source-how", detail: true },
+    skill.link_target && { text: t.link(shortPath(s, skill.link_target)), className: "unmanaged-status" },
+  ].filter((x): x is { text: string; className: string; detail?: boolean } => !!x);
   return (
     <article className={cn("unmanaged-row", rowClass, layouts.pickScope.cols)} data-name={skill.name}>
       <span className={span} />
@@ -481,9 +440,9 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           <TakeOverButton identical={skill} name={library.name} />
         ) : newer ? (
           <Button
-            size="inline"
+            size="sm"
             variant="pill"
-            className={cn("update-to-latest", rowButtonClass)}
+            className="update-to-latest"
             title={t.sourceLatestOfTitle(newer.name)}
             onClick={() => void openUpdate(newer.collection_id, { focus: newer.id })}
           >
@@ -491,9 +450,9 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
           </Button>
         ) : (
           <Button
-            size="inline"
+            size="sm"
             variant="pill"
-            className={cn("fetch-unmanaged", rowButtonClass)}
+            className="fetch-unmanaged"
             title={t.fetchTitle}
             onClick={() => void fetchUnmanaged(skill)}
           >
@@ -506,27 +465,16 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         {same && <SameNameBadge note={same} />}
       </div>
       <div className={cn("min-w-0", layouts.pickScope.desc)}>
-        {/* 一行：描述放不下就截断，来源和符号链接指向哪里写在悬停提示里(也留在 DOM 里给读屏)。 */}
-        <Truncated
-          always={!!source || !!skill.link_target}
-          tip={[
-            skill.description,
-            source && t.from(source),
-            source && (found ? t.foundTitle(found) : t.recordedTitle(source)),
-            skill.link_target && t.link(shortPath(s, skill.link_target)),
-          ]
-            .filter(Boolean)
-            .join("\n")}
-        >
-          <p className="unmanaged-desc truncate text-small text-muted-foreground">{skill.description}</p>
-        </Truncated>
-        {same && <SameNameLine note={same} />}
-        {source && (
-          <p className="unmanaged-source-label sr-only" title={found ? t.foundTitle(found) : t.recordedTitle(source)}>
-            {t.from(source)}
+        <Truncated always={notes.length > 0} tip={[skill.description, ...notes.map((x) => x.text)].filter(Boolean).join("\n")}>
+          <p className="unmanaged-desc truncate text-small text-muted-foreground">
+            {skill.description || notes.filter((x) => !x.detail).map((x) => x.text).join(" · ")}
           </p>
-        )}
-        {skill.link_target && <p className="unmanaged-status sr-only">{t.link(shortPath(s, skill.link_target))}</p>}
+        </Truncated>
+        {notes.map((x) => (
+          <p key={x.className} className={cn(x.className, "sr-only")}>
+            {x.text}
+          </p>
+        ))}
       </div>
       <div className={cn("flex min-w-0 items-center gap-1.5", span)}>
         {state.length > 0 && (

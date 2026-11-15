@@ -215,11 +215,8 @@ export function UpdateDialog({
       }
     >
       {conflict && (
-        <Notice alert className="flex items-center gap-2">
-          <span className="grow">{t.conflict}</span>
-          <Button size="sm" onClick={replan}>
-            {t.replan}
-          </Button>
+        <Notice alert action={<Button onClick={replan}>{t.replan}</Button>}>
+          {t.conflict}
         </Notice>
       )}
       <Hint>

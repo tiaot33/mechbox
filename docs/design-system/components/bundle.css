@@ -17,11 +17,12 @@
 .mb-ic{width:14px;height:14px;flex:none;display:inline-block}
 .mb-ic-sm{width:11px;height:11px}
 
-/* Button:四档轻重(主要、强调、普通、轻),高 24,灰底、没有边框和投影,圆角和输入框、下拉框一样是 radius-control(8.1)。mb-btn-tinted 是强调:灰底加半粗的绿字 */
+/* Button:五档轻重(主要、绿胶囊、强调、普通、轻),高 24,灰底、没有边框和投影,圆角和输入框、下拉框一样是 radius-control(8.1)。mb-btn-tinted 是强调:灰底加半粗的绿字;mb-btn-pill 是绿胶囊,只给「更新」「入库」;mb-btn-sm 是列表行里的小一号 */
 .mb-btn{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;gap:5px;height:var(--control);padding:0 var(--space-12);border:1px solid transparent;border-radius:var(--radius-control);background:var(--control);box-shadow:none;transition:transform .15s;color:var(--foreground);font:400 13px/18px var(--font-sans);white-space:nowrap;cursor:pointer;outline:none}
 .mb-btn:hover{background:var(--control-hover)}
 .mb-btn:active{background:var(--control-active);transform:scale(.97)}
-.mb-btn-sm{height:var(--control-sm);padding:0 var(--space-10)}
+.mb-btn-sm{height:var(--control-sm);padding:0 var(--space-8);font-size:11px;line-height:16px}
+.mb-btn-pill,.mb-btn-pill:hover{border-radius:var(--radius-pill);background:var(--primary);border-color:transparent;color:var(--on-primary);box-shadow:none}
 .mb-btn-primary,.mb-btn-primary:hover{background:var(--primary);border-color:transparent;color:var(--on-primary);box-shadow:none}
 .mb-btn-tinted,.mb-btn-tinted:hover{background:var(--control);border-color:transparent;box-shadow:none;color:var(--on-primary-soft);font-weight:600}
 .mb-btn-solid,.mb-btn-solid:hover{background:var(--solid);border-color:transparent;color:var(--on-solid);box-shadow:none}
@@ -104,7 +105,7 @@ textarea.mb-input{height:auto;padding:var(--space-6) var(--space-10);resize:vert
 .mb-seg button{height:24px;padding:0 var(--space-12);border:0;border-radius:4.5px;background:transparent;color:var(--foreground-secondary);font:400 13px/18px var(--font-sans);cursor:pointer}
 .mb-seg button[aria-pressed="true"]{background:var(--control);box-shadow:var(--shadow-control);color:var(--foreground)}
 
-/* Switch、Slider */
+/* Switch */
 .mb-switch{position:relative;display:inline-flex;flex:none;align-items:center;width:30px;height:17px;border-radius:var(--radius-pill);background:var(--track)}
 .mb-switch::after{content:"";width:13px;height:13px;border-radius:var(--radius-pill);background:var(--knob);box-shadow:var(--shadow-knob);transform:translateX(2px)}
 .mb-switch[data-on]{background:var(--primary)}
@@ -112,10 +113,6 @@ textarea.mb-input{height:auto;padding:var(--space-6) var(--space-10);resize:vert
 .mb-switch[data-held]{background:color-mix(in srgb,var(--subtle) 80%,transparent)}
 .mb-switch[data-held]::after{transform:translateX(15px)}
 .mb-switch[data-off]{opacity:.45}
-.mb-slider{position:relative;display:flex;align-items:center;height:17px;min-width:120px;flex:1}
-.mb-slider-track{position:relative;flex:1;height:4px;border-radius:var(--radius-pill);background:var(--track);overflow:hidden}
-.mb-slider-range{position:absolute;inset:0 auto 0 0;background:var(--primary)}
-.mb-slider-thumb{position:absolute;width:15px;height:15px;margin-left:-7.5px;border-radius:var(--radius-pill);background:var(--knob);box-shadow:0 1px 2px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.12)}
 
 /* ListBox、ListRow、SkillRow */
 .mb-list{overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-card);background:var(--panel);min-width:0}

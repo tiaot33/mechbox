@@ -30,12 +30,13 @@ import { openFetch } from "@/features/fetch/fetch-dialog";
 import { offerFetchUnmanaged } from "@/features/fetch/fetch-unmanaged-all";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { Icon, SourceIcon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
+import { SourceIcon } from "@/components/app/icons";
 import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { nameIndent, pickColumn, SkillRow, UnmanagedRow } from "./rows";
+import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow } from "./rows";
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
@@ -87,7 +88,7 @@ export function SkillList() {
       <div
         ref={scroller}
         key={page}
-        className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
+        className={cn("a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15", nameIndentVars)}
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
         // 抽屉忙不忙在按下时看：松开前弹层已经收起了。选中了文字(拖选)也不关。
@@ -291,7 +292,6 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
                 // 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。
                 !search && (
                   <Button
-                    size="sm"
                     variant="ghost"
                     className="fetch-all-unmanaged shrink-0"
                     title={t.fetchAllTitle}
@@ -353,7 +353,7 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
         <span className={cn("flex shrink-0 justify-center", pickColumn)}>
           <Icon name="chev" className={cn("size-2.5 transition-transform", unfolded && "rotate-90")} />
         </span>
-        <span className="truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
+        <span className="ml-[calc(var(--name-indent)-42px)] truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
       </button>
       {unfolded &&
         l.notHereSections.map((x) => (
@@ -387,7 +387,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
             />
           }
           actions={
-            <Button size="sm" variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
+            <Button variant="ghost" className="shrink-0" onClick={() => openScope(a.scope)} title={t.openScopeTitle}>
               {t.openScope}
             </Button>
           }

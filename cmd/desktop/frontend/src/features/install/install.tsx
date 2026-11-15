@@ -60,6 +60,7 @@ export async function installSkill(id: SkillID, scope: Scope) {
         title: t.untrackedTitle,
         body: <Notice alert>{t.untrackedBody(shortPath(s, plan.folder), plan.name)}</Notice>,
         confirm: t.overwriteInstall,
+        danger: true,
       });
       if (!ok) return;
       overwrite = true;

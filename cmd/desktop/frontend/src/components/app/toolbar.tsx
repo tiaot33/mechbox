@@ -15,7 +15,7 @@ import { MarketDialog } from "@/features/fetch/market-dialog";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { StatusMark } from "@/components/ui/status-mark";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 import { BusyMark, Count } from "./parts";
 import { Titlebar } from "./titlebar";
 
@@ -52,7 +52,7 @@ export function Toolbar() {
             <Icon name="sidebarL" />
           </Button>
           {s && page.kind === "graph" && (
-            <Button variant="ghost" size="sm" className="graph-back ml-1 shrink-0 gap-0.5 pl-1.5" onClick={closeGraph}>
+            <Button variant="ghost" className="graph-back ml-1 shrink-0 gap-0.5 pl-1.5" onClick={closeGraph}>
               <Icon name="chevL" />
               {tt.graph.back(pageTitle(s, back?.page ?? { kind: "all" }))}
             </Button>

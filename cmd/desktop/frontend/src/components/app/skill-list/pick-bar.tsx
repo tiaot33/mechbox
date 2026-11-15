@@ -12,7 +12,7 @@ import { uninstallSkills } from "@/features/install/install";
 import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { removeSkills } from "@/features/skill/remove";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 
 export function PickBar({ listing }: { listing: PageListing }) {
   const s = useSnapshot();
@@ -54,25 +54,25 @@ export function PickBar({ listing }: { listing: PageListing }) {
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[2] flex justify-center px-4">
       <div className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 glass glass-clear rounded-card border px-2 py-1.5 [--glass-drop:var(--shadow-pick)] [transition:--glass-lift_160ms_ease] hover:[--glass-lift:1.14]">
         <span className="px-1.5 text-body font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
-        <Button size="sm" variant="ghost" onClick={act(() => chooseAndInstall(ids, initial))}>
+        <Button variant="ghost" onClick={act(() => chooseAndInstall(ids, initial))}>
           <Icon name="plus" />
           {t.pickInstallTo}
         </Button>
         {canUninstall && (
-          <Button size="sm" variant="ghost" onClick={act(() => uninstallSkills(ids, here!.scopes, here!.where))}>
+          <Button variant="ghost" onClick={act(() => uninstallSkills(ids, here!.scopes, here!.where))}>
             {listing.kind === "project" ? t.pickUninstallProject : t.pickUninstallHere}
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={act(() => pickGroup(ids, "add"))}>
+        <Button variant="ghost" onClick={act(() => pickGroup(ids, "add"))}>
           <Icon name="layers" />
           {t.pickAddToGroup}
         </Button>
         {inGroups && (
-          <Button size="sm" variant="ghost" onClick={act(() => pickGroup(ids, "remove"))}>
+          <Button variant="ghost" onClick={act(() => pickGroup(ids, "remove"))}>
             {t.pickRemoveFromGroup}
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={act(() => removeSkills(ids))}>
+        <Button variant="ghost" onClick={act(() => removeSkills(ids))}>
           {t.pickRemove}
         </Button>
         <Button size="icon-sm" variant="ghost" className="ml-0.5" title={t.pickClear} aria-label={t.pickClear} onClick={clearPicked}>

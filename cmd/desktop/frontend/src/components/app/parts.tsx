@@ -17,7 +17,7 @@ import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 
 // AgentMark 是 Agent 图标：白底方块里画按名字认出的品牌图标(保留品牌原色);认不出时画灰色的机器人。
 export function AgentMark({ name, className }: { name: string; className?: string }) {

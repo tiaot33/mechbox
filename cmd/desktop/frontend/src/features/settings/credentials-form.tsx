@@ -28,7 +28,7 @@ import { messages, useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Tipped } from "@/components/app/parts";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";

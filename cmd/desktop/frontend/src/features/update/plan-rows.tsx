@@ -32,11 +32,11 @@ export function ChangedRow({ p, checked, viewed, locked, onCheck, onView, onSkip
           </span>
         )}
       </label>
-      <Button variant="ghost" size="inline" onClick={onView}>
+      <Button size="sm" onClick={onView}>
         {viewed ? t.hideDiff : t.showDiff}
       </Button>
       {!p.skipped && (
-        <Button variant="ghost" size="inline" disabled={locked} onClick={onSkip} title={t.skipTitle}>
+        <Button size="sm" disabled={locked} onClick={onSkip} title={t.skipTitle}>
           {t.skip}
         </Button>
       )}
@@ -62,7 +62,7 @@ export function RenameRow({ p, yes, viewed, locked, onCheck, onReject, onView, o
       {yes ? (
         <>
           <Badge>{t.sameOne}</Badge>
-          <Button variant="ghost" size="inline" disabled={locked} onClick={() => onCheck(false)}>
+          <Button size="sm" disabled={locked} onClick={() => onCheck(false)}>
             {t.undo}
           </Button>
         </>
@@ -76,11 +76,11 @@ export function RenameRow({ p, yes, viewed, locked, onCheck, onReject, onView, o
           </Button>
         </>
       )}
-      <Button variant="ghost" size="inline" onClick={onView}>
+      <Button size="sm" onClick={onView}>
         {viewed ? t.hideDiff : t.showDiff}
       </Button>
       {!p.skipped && (
-        <Button variant="ghost" size="inline" disabled={locked} onClick={onSkip}>
+        <Button size="sm" disabled={locked} onClick={onSkip}>
           {t.skip}
         </Button>
       )}
@@ -103,7 +103,6 @@ export function DeletedRow({ p, source, locked, onRemoved }: { p: PlannedSkill; 
       ) : (
         <>
           <Button
-            size="sm"
             disabled={locked}
             onClick={async () => {
               if (await removeSkill(p.skill.id)) onRemoved();
@@ -112,7 +111,6 @@ export function DeletedRow({ p, source, locked, onRemoved }: { p: PlannedSkill; 
             {t.remove}
           </Button>
           <Button
-            size="sm"
             disabled={locked}
             onClick={async () => {
               if (await keepDeleted(p.skill.id)) setKept(true);

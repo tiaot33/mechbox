@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect, SelectButton } from "@/components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { installSkills } from "./install";
 
 type Initial = { place?: Place; agent?: AgentCode };
@@ -103,7 +103,7 @@ export function AgentPicker({ target, taken }: { target: InstallTarget; taken: s
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <SelectButton className="agent-pick" title={names.length ? t.model.agentNames(names) : undefined}>
-          <span className={cn("agent-pick-names min-w-0 grow", !names.length && "text-muted-foreground")}>
+          <span className={cn("agent-pick-names min-w-0 grow truncate", !names.length && "text-muted-foreground")}>
             {names.length ? t.model.agentNames(names) : t.drawer.pickAgents}
           </span>
           <Icon name="down" className="size-3 shrink-0 text-muted-foreground" />

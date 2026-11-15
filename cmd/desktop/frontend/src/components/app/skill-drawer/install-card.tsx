@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { PlaceAgentMark, Tipped } from "@/components/app/parts";
 
 // InstallCard 是各作用域的安装与状态：直接安装开关、经哪个组装上、是不是当前版本;不是当前版本的可以单条重新安装，
@@ -107,38 +107,27 @@ export function InstallCard({ skill }: { skill: Skill }) {
                     </span>
                   </td>
                   <td>
-                    <Badge tone={st.tone}>{st.label}</Badge>
-                    {needsReinstall(p) && (
-                      <>
-                        {" "}
-                        <Button
-                          variant="ghost" size="inline"
-                          onClick={() => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
-                        >
+                    {/* 状态在上，能做的事是跟在后面的小按钮(灰底):和状态的字分得开，一眼看得出能点。 */}
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge tone={st.tone} className="mr-0.5">
+                        {st.label}
+                      </Badge>
+                      {needsReinstall(p) && (
+                        <Button size="sm" onClick={() => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}>
                           {d.reinstall}
                         </Button>
-                      </>
-                    )}
-                    {p.status === SkillScopeStatus.SkillScopeModified && p.source_latest && (
-                      <>
-                        {" "}
-                        <Button variant="ghost" size="inline" onClick={() => void openUpdate(skill.collection_id, { focus: id })} title={d.updateToLatestHint}>
+                      )}
+                      {p.status === SkillScopeStatus.SkillScopeModified && p.source_latest && (
+                        <Button size="sm" onClick={() => void openUpdate(skill.collection_id, { focus: id })} title={d.updateToLatestHint}>
                           {d.updateToLatest}
                         </Button>
-                      </>
-                    )}
-                    {p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest && (
-                      <>
-                        {" "}
-                        <Button
-                          variant="ghost" size="inline"
-                          onClick={() => updateFromScope(skill, p.scope)}
-                          title={d.updateFromHereHint}
-                        >
+                      )}
+                      {p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest && (
+                        <Button size="sm" onClick={() => updateFromScope(skill, p.scope)} title={d.updateFromHereHint}>
                           {d.updateFromHere}
                         </Button>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -174,7 +163,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   {identicalState(skill, u).stale && (
                     <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
                   )}{" "}
-                  <Button variant="ghost" size="inline" className="take-over" onClick={() => void fetchUnmanaged(u)} title={identicalState(skill, u).title}>
+                  <Button variant="pill" size="sm" className="take-over" onClick={() => void fetchUnmanaged(u)} title={identicalState(skill, u).title}>
                     {d.takeOver}
                   </Button>
                 </td>

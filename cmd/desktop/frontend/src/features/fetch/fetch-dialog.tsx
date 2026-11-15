@@ -21,7 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Spinner } from "@/components/ui/spinner";
 import { FetchReview } from "./fetch-review";
 import { planEverywhere } from "./fetch-unmanaged-all";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 
 // pickDirectory 打开系统目录选择框;取消时返回空串。
 export async function pickDirectory(title: string): Promise<string> {
@@ -192,7 +192,7 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
       <div className="fetch-existing flex items-center gap-1.5 border-t border-row-line pt-2.5 text-caption text-muted-foreground">
         <span>{t.existingHint}</span>
         <span className="grow" />
-        <Button size="sm" className="shrink-0" disabled={working} loading={scanning} onClick={() => void fetchExisting()}>
+        <Button className="shrink-0" disabled={working} loading={scanning} onClick={() => void fetchExisting()}>
           {t.existing}
         </Button>
       </div>

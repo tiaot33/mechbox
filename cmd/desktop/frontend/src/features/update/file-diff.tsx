@@ -27,7 +27,7 @@ import { cn, toggled } from "@/lib/utils";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 
 type Layout = "split" | "unified";
 

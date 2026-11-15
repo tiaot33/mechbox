@@ -11,7 +11,7 @@ import { SearchInput } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { FetchReview } from "./fetch-review";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 
 export function MarketDialog({ onClose }: { onClose: () => void }) {
   const ui = useUI();
@@ -75,7 +75,7 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="truncate font-mono text-caption text-muted-foreground">{s.preview.input}</div>
                 </div>
-                <Button size="sm" disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
+                <Button disabled={fetching !== null && fetching !== s.id} loading={fetching === s.id} onClick={() => pick(s)}>
                   {t.fetch}
                 </Button>
               </ListRow>

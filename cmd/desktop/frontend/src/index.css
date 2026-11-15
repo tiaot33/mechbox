@@ -104,7 +104,7 @@
   --color-graph-link: rgba(0, 0, 0, 0.18);
 
   /* 圆角三档加胶囊形:control 给按钮、输入框、搜索框、下拉框、分段选择，排在一行的控件都是这一档(24 px 高配 7 px 圆角，照 macOS 的比例);
-     card 给列表框、菜单、弹层、提示、toast;tile 给中间的底板、弹窗、技能详情抽屉;pill 只给开关和计数。 */
+     card 给列表框、菜单、弹层、提示、toast;tile 给中间的底板、弹窗、技能详情抽屉;pill 给开关、计数和「更新」「入库」的绿胶囊按钮。 */
   --radius-control: 7px;
   --radius-card: 10px;
   --radius-tile: 14px;
@@ -303,7 +303,8 @@
 /* 毛玻璃材质：只给五种浮在内容上的小表面(右键菜单、弹层、提示、toast、勾选后的操作栏)加 glass 类，
    只换底色(background)、滤镜(backdrop-filter)与边缘(box-shadow),结构、间距、圆角与字色不变。
    - 底色是一层白(深色下是 tile 的深灰),浓度是固定的 --glass-alpha(glass 0.6,glass-clear 0.35)× 悬停时提亮(--glass-lift)。
-   - 滤镜先模糊、略提亮(深色下略压暗),把底下的文字糊掉;不提高饱和度(--glass-saturate 为 1),背后的颜色不会在表面上染出色块。
+   - 滤镜先模糊、去色(--glass-saturate 为 0)、略提亮(深色下略压暗):底下的文字糊掉，只留明暗;
+     背后是绿色的按钮、开关或选中的行时，表面上不会染出一块绿。
      在 Chromium 上最后再接一道把背景变成不透明的滤镜(--glass-solid,见 lib/glass.ts),不然窗口背后透明时，
      没模糊的原内容会从玻璃底下透出来。
    - 边缘：一圈均匀的 0.5px 轮廓线(--glass-edge)。投影各表面沿用原来的档位，经 --glass-drop 传入;
@@ -326,7 +327,7 @@
 @layer base {
   :root {
     --glass-blur: 24px;
-    --glass-saturate: 1;
+    --glass-saturate: 0;
     --glass-base: 255 255 255;
     --glass-bright: 0.06;
     --glass-drop-default: 0 6px 24px rgb(0 0 0 / 0.08);

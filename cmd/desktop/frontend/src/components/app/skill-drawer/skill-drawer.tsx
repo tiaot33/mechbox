@@ -18,7 +18,7 @@ import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { ResizeHandle, useStoredWidth, useWidth } from "@/components/app/resizable";
 import { FilesCard } from "./files-card";
 import { InstallCard } from "./install-card";
@@ -246,29 +246,24 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   return (
     <>
     {renamedTo(skill) && (
-      <Notice alert className="mx-2 mb-2.5 flex items-center gap-2">
-        <span className="grow">
-          {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
-        </span>
-        <Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>
-          {d.view}
-        </Button>
+      <Notice alert className="mx-2 mb-2.5" action={<Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>{d.view}</Button>}>
+        {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
       </Notice>
     )}
     {deletedInSource(skill) &&
       (skill.kept_deleted ? (
         <Hint className="px-2">{d.keptDeleted(sourceLabel(s, skill.source))}</Hint>
       ) : (
-        <Notice className="mx-2 mb-2.5 flex items-center gap-2">
-          <span className="grow">
-            {d.deletedInSource(sourceLabel(s, skill.source), skill.name)}
-          </span>
-          <Button onClick={async () => (await removeSkill(id)) && onClose()}>
-            {d.remove}
-          </Button>
-          <Button onClick={() => keepDeleted(id)}>
-            {d.keep}
-          </Button>
+        <Notice
+          className="mx-2 mb-2.5"
+          action={
+            <>
+              <Button onClick={async () => (await removeSkill(id)) && onClose()}>{d.remove}</Button>
+              <Button onClick={() => keepDeleted(id)}>{d.keep}</Button>
+            </>
+          }
+        >
+          {d.deletedInSource(sourceLabel(s, skill.source), skill.name)}
         </Notice>
       ))}
     </>

@@ -5,7 +5,8 @@ import { AuditAvailability, AuditStatus, type AuditEntry, type SkillAudit, type 
 import { skillAuditQuery } from "@/lib/library";
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Hint } from "@/components/ui/field";

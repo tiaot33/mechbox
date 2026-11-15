@@ -19,7 +19,8 @@ import {
   wslTitle,
 } from "@/lib/model";
 import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";

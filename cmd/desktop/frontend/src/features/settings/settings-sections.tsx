@@ -17,7 +17,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Tipped, WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
@@ -113,10 +113,9 @@ export function GeneralSection({
     </SetRow>
     {(distros.length > 0 || settings.wsl_distro) && (
       <SetRow>
-        <div className="grow">
-          <div>{t.wslDistro}</div>
-          <Hint className="mt-0.5">{t.wslDistroDesc}</Hint>
-        </div>
+        <Tipped className="grow" tip={t.wslDistroDesc}>
+          {t.wslDistro}
+        </Tipped>
         <NativeSelect
           className="shrink-0 max-w-[180px]"
           value={settings.wsl_distro ?? ""}
@@ -132,11 +131,15 @@ export function GeneralSection({
       </SetRow>
     )}
     {distroError && settings.wsl_distro && (
-      <SetRow>
-        <Notice alert className="grow">
+      // 打不开发行版的提示有几句话：这一行不套固定行高，随内容长高;在灰底的分组里，提示条自己不再铺底。
+      <SetRow className="h-auto min-h-10 py-2">
+        <Notice
+          alert
+          className="grow bg-transparent py-0 pr-0 pl-5 [&>[data-slot=icon]]:top-[3px] [&>[data-slot=icon]]:left-0"
+          action={<Button onClick={onRetryDistro}>{t.retryDistro}</Button>}
+        >
           {t.distroFallback(settings.wsl_distro, distroError)}
         </Notice>
-        <Button onClick={onRetryDistro}>{t.retryDistro}</Button>
       </SetRow>
     )}
   </>

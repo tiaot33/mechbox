@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Hint } from "@/components/ui/field";
 import { StatusMark } from "@/components/ui/status-mark";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 import { leftClass } from "./layout";
 import { NavCount, navItem } from "./nav";
 import { ContextMenuEntries, useCollectionMenu, useGroupMenu } from "./menus";
@@ -254,7 +254,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
           <ContextMenuTrigger asChild>
             <button
               type="button"
-              className={navItem({ kind: "section" })}
+              className={navItem({ kind: "item" })}
               data-active={page.kind === "graph" && page.set.kind === "collection" && page.set.id === c.id}
               onClick={() => jumpTo({ kind: "collection", id: c.id })}
               draggable
@@ -290,7 +290,7 @@ function SmallCollectionsRow({ folded, open, onToggle }: { folded: Collection[];
     <li>
       <button
         type="button"
-        className={cn(navItem({ kind: "section" }), "small-collections text-muted-foreground")}
+        className={cn(navItem({ kind: "item" }), "small-collections text-muted-foreground")}
         aria-expanded={open}
         title={t.smallCollectionsTitle(s.foldBelow, open, folded.map((c) => sourceLabel(s, c.source)))}
         onClick={onToggle}
@@ -320,7 +320,7 @@ function GroupRow({ group: g }: { group: Group }) {
             <div
               role="button"
               tabIndex={0}
-              className={navItem({ kind: "section" })}
+              className={navItem({ kind: "item" })}
               data-active={page.kind === "graph" && page.set.kind === "group" && page.set.id === g.id}
               onClick={() => jumpTo({ kind: "group", id: g.id })}
               onKeyDown={pressKeys(() => jumpTo({ kind: "group", id: g.id }))}

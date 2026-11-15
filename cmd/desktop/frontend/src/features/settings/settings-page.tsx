@@ -17,8 +17,7 @@ import { useView } from "@/lib/view";
 import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { bodyClass, centerClass, leftClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
 import { BusyMark, Tipped } from "@/components/app/parts";
@@ -135,10 +134,15 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
   // 一个分区：标题在上，下面是一块浅灰底的圆角区域，里面一行一个设置(照 macOS 的设置页);标题和行里的字在同一条线上。
   const card = (section: Section, note: React.ReactNode, children: React.ReactNode, tip?: React.ReactNode) => (
-    <Card key={section} className="mx-0 scroll-mt-4 border-t-0 pt-0 pb-0 first:pt-0" ref={(el) => void (refs.current[section] = el)}>
-      <CardHeader className="mb-1.5 min-h-6 items-center px-3" title={<Tipped tip={tip}>{t[section]}</Tipped>} note={note} />
+    <section key={section} data-slot="card" className="scroll-mt-4 text-body" ref={(el) => void (refs.current[section] = el)}>
+      <div data-slot="card-header" className="mb-1.5 flex min-h-6 items-center justify-between gap-3 px-3">
+        <span data-slot="card-title" className="text-heading">
+          <Tipped tip={tip}>{t[section]}</Tipped>
+        </span>
+        {note && <span className="text-caption text-muted-foreground">{note}</span>}
+      </div>
       <div className="set-group rounded-card bg-fill px-3">{children}</div>
-    </Card>
+    </section>
   );
   const register = () => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} onClose={close} />);
 

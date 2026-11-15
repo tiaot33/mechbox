@@ -6,19 +6,14 @@ import { cn } from "@/lib/utils";
 import { Count } from "./parts";
 
 export const navItem = cva(
-  "nav-item group flex w-full min-w-0 items-center text-left text-foreground-secondary transition-colors hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent [&_[data-slot=icon]]:text-muted-foreground data-[active=true]:[&_[data-slot=icon]]:text-foreground disabled:[&_[data-slot=icon]]:text-subtle",
+  "nav-item group flex h-7 w-full min-w-0 items-center gap-2 rounded-control px-2 text-left text-body text-foreground-secondary transition-colors hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent data-[active=true]:font-semibold data-[active=true]:text-foreground [&_[data-slot=icon]]:text-muted-foreground data-[active=true]:[&_[data-slot=icon]]:text-foreground disabled:[&_[data-slot=icon]]:text-subtle",
   {
     variants: {
       kind: {
-        // 左栏顶层：技能库、更新、检查更新、同步、设置;设置页的分区目录
-        main: "h-7 gap-2 rounded-control px-2 text-body data-[active=true]:bg-fill data-[active=true]:font-semibold data-[active=true]:text-foreground",
-        // 左栏分节里的集合与组
-        section:
-          "h-7 gap-2 rounded-control px-2 text-body data-[active=true]:bg-primary-soft data-[active=true]:font-semibold data-[active=true]:text-foreground",
-        // 右栏：地方下的 Agent 与项目
-        tree: "h-7 gap-2 rounded-control px-2 text-body data-[active=true]:bg-primary-soft data-[active=true]:font-semibold data-[active=true]:text-foreground",
-        // 右栏项目下的 Agent
-        nested: "h-7 gap-2 rounded-control px-2 text-body data-[active=true]:bg-primary-soft data-[active=true]:font-semibold data-[active=true]:text-foreground",
+        // 选中是灰底：左栏顶层(技能库、更新、检查更新、同步、设置)和设置页的分区目录
+        main: "data-[active=true]:bg-fill",
+        // 选中是淡绿底：左栏分节里的集合与组，右栏的 Agent 与项目
+        item: "data-[active=true]:bg-primary-soft",
       },
     },
     defaultVariants: { kind: "main" },

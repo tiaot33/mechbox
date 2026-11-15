@@ -110,11 +110,14 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
       <Hint>{t.what()}</Hint>
       {config &&
         (config.sync ? (
-          <Notice className="flex items-center gap-2">
-            <span className="grow">{t.syncKept}</span>
-            <Button size="sm" disabled={working} onClick={goSync}>
-              {t.goSync}
-            </Button>
+          <Notice
+            action={
+              <Button disabled={working} onClick={goSync}>
+                {t.goSync}
+              </Button>
+            }
+          >
+            {t.syncKept}
           </Notice>
         ) : (
           <Notice alert>{t.noSync}</Notice>

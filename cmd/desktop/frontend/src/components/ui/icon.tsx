@@ -40,7 +40,7 @@ const icons = {
   database: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>',
 };
 
-export type IconName = keyof typeof icons;
+type IconName = keyof typeof icons;
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   return <Glyph svg={icons[name]} className={className} />;

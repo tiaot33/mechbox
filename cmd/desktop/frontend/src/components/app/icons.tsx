@@ -1,8 +1,6 @@
-// 来源类型的图标;通用图标在 components/ui/icon,这里一并转出。
+// 来源类型的图标;通用图标在 components/ui/icon。
 import { SourceType } from "@bindings/internal/library";
 import { Glyph } from "@/components/ui/icon";
-
-export { Icon, type IconName } from "@/components/ui/icon";
 
 const sourceIcons: Record<SourceType, string> = {
   [SourceType.SourceGitHub]: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-10.5 6"/></svg>',

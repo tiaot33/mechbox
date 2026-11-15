@@ -37,10 +37,10 @@ import { unregisterProject } from "@/features/scope/projects";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { alreadyInScope, dropProps, useDnD } from "./dnd";
-import { Icon } from "./icons";
+import { Icon } from "@/components/ui/icon";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
-import { Badge, Dot } from "@/components/ui/badge";
+import { AlertDot, Dot } from "@/components/ui/badge";
 import { PlaceAgentMark, WSLBadge } from "./parts";
 
 export function ScopePanel() {
@@ -80,7 +80,7 @@ export function ScopePanel() {
       <li key={key}>
         <button
           type="button"
-          className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub")}
+          className={cn(navItem({ kind: "item" }), "sub")}
           data-active={isSelected(agent, place)}
           data-already={already ? tl.alreadyThere : undefined}
           onClick={() => openScope(isSelected(agent, place) && scope ? scope : key)}
@@ -113,7 +113,7 @@ export function ScopePanel() {
           <li>
             <button
               type="button"
-              className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub more text-body text-muted-foreground")}
+              className={cn(navItem({ kind: "item" }), "sub more text-muted-foreground")}
               onClick={() => toggleMoreAgents(place)}
               {...aimProps(`m${place}`, more)}
             >
@@ -161,7 +161,7 @@ export function ScopePanel() {
                 role="button"
                 tabIndex={0}
                 aria-expanded={open}
-                className={cn(navItem({ kind: "tree" }), "proj", current && "font-semibold text-foreground")}
+                className={cn(navItem({ kind: "item" }), "proj", current && "font-semibold text-foreground")}
                 data-active={active}
                 onClick={() => openProject(p.id)}
                 onKeyDown={pressKeys(() => openProject(p.id))}
@@ -186,9 +186,7 @@ export function ScopePanel() {
                 <span className="grow" />
                 {/* 栏很窄：只画「严重」一级的圆点，「不在这台机器上」写在悬停提示里，不把项目名挤没。 */}
                 {p.missing && (
-                  <Badge tone="critical" compact className="proj-missing" tip={t.missingBadgeTitle}>
-                    {t.missing}
-                  </Badge>
+                  <AlertDot items={[{ tone: "critical", label: t.missing, tip: t.missingBadgeTitle, className: "proj-missing" }]} />
                 )}
                 {!open && (
                   <span className="inline-flex items-center gap-[3px] group-hover:hidden">

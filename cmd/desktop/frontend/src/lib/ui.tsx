@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { ErrorCode } from "@bindings/internal/library";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

@@ -119,7 +119,7 @@ function ReinstallDialog({
             </Button>
           )}
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant="primary" onClick={() => close({ overwrite, missing: choices })} autoFocus>
+          <Button variant={overwrite.size ? "solid" : "primary"} onClick={() => close({ overwrite, missing: choices })} autoFocus>
             {missing.length ? t.common.ok : overwrite.size ? t.actions.reinstallOverwrite(overwrite.size) : t.actions.reinstall}
           </Button>
         </>

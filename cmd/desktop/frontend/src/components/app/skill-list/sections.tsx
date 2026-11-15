@@ -32,7 +32,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/component
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ContextMenuEntries, DropdownMenuEntries, useCollectionMenu, useGroupMenu, type MenuEntry } from "@/components/app/menus";
 import { useCollectionDrop, useDnD, useGroupDrop } from "@/components/app/dnd";
-import { Icon, SourceIcon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
+import { SourceIcon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark, WSLBadge } from "@/components/app/parts";
 import { SectionPick } from "./pick";
 import { nameIndent, pickColumn } from "./rows";
@@ -83,7 +84,7 @@ export function Section({
       )}
     >
       {gutter && (
-        <span className={cn("relative mr-2 flex h-3.5 shrink-0 items-center justify-end", pickColumn)}>
+        <span className={cn("relative mr-[calc(var(--name-indent)-34px)] flex h-3.5 shrink-0 items-center justify-end", pickColumn)}>
           {icon && (
             <span className={cn("section-icon flex shrink-0", pickable && (picking ? "invisible" : "group-hover/head:invisible group-focus-within/head:invisible"))}>
               {icon}
@@ -346,7 +347,7 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
           <span className={cn("flex shrink-0 justify-center", pickColumn)}>
             <Icon name="chev" className={cn("size-2.5 transition-transform", unfolded && "rotate-90")} />
           </span>
-          <span className="truncate">{label}</span>
+          <span className="ml-[calc(var(--name-indent)-42px)] truncate">{label}</span>
         </button>
       )}
     </>

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { Markdown, type SkillFiles } from "@/components/app/markdown";
 
 // useVersionFile 读某个版本里的一个文件:content 还没读到(或没选文件)时为 undefined,二进制或读取失败时为 null;

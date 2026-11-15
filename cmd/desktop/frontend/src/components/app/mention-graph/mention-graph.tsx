@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { toggleDrawer, closeDrawer, openSettings, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Icon } from "@/components/app/icons";
+import { Icon } from "@/components/ui/icon";
 import { SearchLine } from "@/components/app/skill-list/search-line";
 import { useJudgeMentions, type Judging } from "@/features/graph/judge";
 
