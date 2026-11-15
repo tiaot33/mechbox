@@ -1,5 +1,6 @@
 // shadcn/ui 的 Button,按设计系统分三档轻重：主要(primary,实心绿，一屏或一个弹窗里只有一个)、普通(default,浅灰底、没有边框)、
-// 轻(ghost,没有边框、次要档的灰字，顶栏、列表行内与「跳过」「不感兴趣」这类动作)。破坏性不是另一档：平时用普通;
+// 轻(ghost,没有边框、次要档的灰字，顶栏、列表行内与「跳过」「不感兴趣」这类动作);
+// 淡绿(tinted,淡绿底、绿字)给列表里反复出现、又要一眼看到的动作(节标题上的「更新」),比主要按钮轻。破坏性不是另一档：平时用普通;
 // 确认删除的弹窗里，确认按钮用实心强调(solid)。文字链接(link)只用于去别的地方，动作用轻按钮。
 // loading 时文字留着占位、上面盖一个转圈，按钮宽度不变;done 时转圈合成对勾(给操作完成后停一下再关弹窗的按钮用)。
 // ripple 的按钮按下时缩一点，从按下的位置漾开一圈。
@@ -18,6 +19,8 @@ const buttonVariants = cva(
           "rounded-control border border-transparent bg-fill text-foreground hover:bg-foreground/10 disabled:text-subtle disabled:hover:bg-fill",
         primary:
           "rounded-control border border-primary bg-primary text-on-primary hover:bg-primary/88 disabled:opacity-45 disabled:hover:bg-primary",
+        tinted:
+          "rounded-control border border-transparent bg-primary-soft text-on-primary-soft hover:bg-primary/20 disabled:opacity-45 disabled:hover:bg-primary-soft",
         solid:
           "rounded-control border border-transparent bg-solid text-on-solid hover:bg-solid/85 focus-visible:border-transparent disabled:opacity-45 disabled:hover:bg-solid",
         ghost:

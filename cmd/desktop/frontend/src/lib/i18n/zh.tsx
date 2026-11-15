@@ -678,7 +678,6 @@ export const zh = {
     sectionMore: "更多操作",
     expandSection: "展开这一节",
     collapseSection: "收起这一节",
-    updateCount: (n: number) => `更新 ${n} 个`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent} 全局目录里有 ${n} 个技能`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} 在 ${project} 里能用 ${n} 个技能`,
     sectionGlobal: "来自全局",

@@ -20,6 +20,7 @@
 .mb-btn:hover{background:color-mix(in srgb,var(--foreground) 10%,transparent)}
 .mb-btn-sm{height:var(--control-sm);padding:0 var(--space-10)}
 .mb-btn-primary,.mb-btn-primary:hover{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.mb-btn-tinted,.mb-btn-tinted:hover{background:var(--primary-soft);border-color:transparent;color:var(--on-primary-soft)}
 .mb-btn-solid,.mb-btn-solid:hover{background:var(--solid);border-color:var(--solid);color:var(--on-solid)}
 .mb-btn-light{border-color:transparent;background:transparent;color:var(--foreground-secondary)}
 .mb-btn-light:hover{background:var(--fill)}
@@ -51,7 +52,8 @@
 /* Badge:三档(6.1) */
 .mb-badge{display:inline-flex;flex:none;align-items:center;gap:3px;height:16px;padding:0 5px;border:1px solid transparent;border-radius:var(--radius-control);font:400 11px/14px var(--font-sans);white-space:nowrap;color:var(--muted-foreground)}
 .mb-badge-plain{padding:0}
-.mb-badge-do{background:var(--fill);color:var(--foreground)}
+.mb-badge-do{background:var(--primary-soft);color:var(--on-primary-soft)}
+.mb-group-tag{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:var(--radius-control);background:var(--group-soft);color:var(--group);font:400 11px/14px var(--font-sans);white-space:nowrap}
 .mb-badge-must{background:color-mix(in srgb,var(--foreground) 12%,transparent);color:var(--foreground);font-weight:600}
 
 /* Notice:灰底;要提醒的加图标和半粗的首句 */

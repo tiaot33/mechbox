@@ -124,7 +124,7 @@ function Main() {
                 <LeftSidebar />
               </ResizablePane>
             )}
-            {/* 技能详情放得下时是列表和作用域栏之间的一栏，见 DrawerDock。 */}
+            {/* 技能详情从最右侧浮出，盖在列表和作用域栏上面，见 DrawerDock。 */}
             <DrawerDock
               skill={drawerSkill}
               onClose={closeDrawer}

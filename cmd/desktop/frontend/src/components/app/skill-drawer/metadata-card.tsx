@@ -125,7 +125,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
         <dt>{d.groups}</dt>
         <dd className="flex flex-wrap items-center gap-1.5">
           {groups.map((g) => (
-            <Chip key={g.id} removeTitle={d.removeFromGroup} onRemove={() => removeSkillFromGroup(g.id, id)}>
+            <Chip key={g.id} group removeTitle={d.removeFromGroup} onRemove={() => removeSkillFromGroup(g.id, id)}>
               {g.name}
             </Chip>
           ))}

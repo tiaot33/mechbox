@@ -211,17 +211,19 @@ export function Summary({ className, children }: { className?: string; children:
   );
 }
 
-// Chip 是带 × 的小胶囊(技能所属的组、组安装到的作用域),点 × 移除。
+// Chip 是带 × 的小胶囊(技能所属的组、组安装到的作用域),点 × 移除;group 时用组的紫色。
 export function Chip({
   children,
   onRemove,
   removeTitle,
   small = false,
+  group = false,
 }: {
   children: React.ReactNode;
   onRemove: () => void;
   removeTitle: string;
   small?: boolean;
+  group?: boolean;
 }) {
   return (
     <span
@@ -229,6 +231,7 @@ export function Chip({
       className={cn(
         "inline-flex h-6 items-center gap-1 rounded-control border border-border bg-panel px-2 text-caption whitespace-nowrap text-foreground-secondary",
         small && "h-5 pr-1.5 pl-[3px]",
+        group && "border-transparent bg-group-soft text-group",
       )}
     >
       {children}

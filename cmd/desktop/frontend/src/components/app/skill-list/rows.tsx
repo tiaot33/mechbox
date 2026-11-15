@@ -226,7 +226,7 @@ export function SkillRow(props: {
           ))}
         {groups.length > 0 && (
           <span
-            className="max-w-24 shrink-[100] truncate text-caption text-muted-foreground"
+            className="max-w-24 shrink-[100] truncate rounded-control bg-group-soft px-1.5 py-px text-caption text-group"
             title={t.list.groupsTitle(groups.map((g) => g.name))}
           >
             {groups[0].name}

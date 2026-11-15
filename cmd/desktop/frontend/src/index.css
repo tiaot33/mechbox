@@ -52,6 +52,11 @@
   --color-primary: #15803d;
   --color-on-primary: #fff;
   --color-primary-soft: rgba(21, 128, 61, 0.12);
+  /* on-primary-soft 是淡绿底上的绿字(「要处理」的标签、淡绿按钮),浅色下比 primary 深一点，11 px 也够对比度。 */
+  --color-on-primary-soft: #166534;
+  /* 组的颜色：列表里技能名后面的组名标签。界面上唯一的第二种色相，只给组用。 */
+  --color-group: #6d28d9;
+  --color-group-soft: rgba(109, 40, 217, 0.1);
   /* 实心强调：「必须处理」的标签与确认删除的按钮。 */
   --color-solid: #000;
   --color-on-solid: #fff;
@@ -162,6 +167,9 @@
     --color-primary: #30d158;
     --color-on-primary: #000;
     --color-primary-soft: rgba(48, 209, 88, 0.16);
+    --color-on-primary-soft: #30d158;
+    --color-group: #c4a7ff;
+    --color-group-soft: rgba(196, 167, 255, 0.16);
     --color-solid: #fff;
     --color-on-solid: #000;
     --color-border: rgba(255, 255, 255, 0.14);

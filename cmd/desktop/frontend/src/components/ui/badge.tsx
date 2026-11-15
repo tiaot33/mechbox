@@ -1,6 +1,6 @@
 // 小标签：状态与标记，按轻重分三档，不靠色相区分。
 // - must(必须处理):有风险或已经坏了(改动了脚本、被手动改过、文件夹不在了、需要重新安装、操作失败),较深的灰底、半粗字加警示图标;
-// - todo(要处理):有一件可以做的事(有新版本、可能改名、同名、来源里已删除),浅灰底、主要档的字，不描边;
+// - todo(要处理):有一件可以做的事(有新版本、可能改名、同名、来源里已删除),淡绿底、绿字，不描边;
 // - plain(平常):只是信息(已是最新、未安装、组名、「直接安装」这类标记),灰字，没有边框和底色。
 import type { ComponentProps } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -12,7 +12,7 @@ const badgeVariants = cva("inline-flex shrink-0 items-center gap-[3px] rounded-c
   variants: {
     tone: {
       must: "bg-foreground/12 px-1.5 py-px font-semibold text-foreground",
-      todo: "bg-fill px-1.5 py-px text-foreground",
+      todo: "bg-primary-soft px-1.5 py-px text-on-primary-soft",
       plain: "text-muted-foreground",
     },
   },

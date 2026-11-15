@@ -11,7 +11,6 @@ import {
   collectionSkills,
   hasUpdate,
   isLocal,
-  pending,
   placeOf,
   projectName,
   revisionSummary,
@@ -94,7 +93,7 @@ export function Section({
     </div>
   );
   return (
-    <section className={cn("list-section mt-4 first:mt-0", className)} data-section={id}>
+    <section className={cn("list-section mt-8 first:mt-0", className)} data-section={id}>
       {menu ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>{bar}</ContextMenuTrigger>
@@ -166,7 +165,6 @@ export function CollectionSection({
   const drop = useCollectionDrop(collection.id);
   const t = useT();
   const skills = collectionSkills(s, collection);
-  const todo = skills.filter(pending).length;
   // "有变化"只算来源里有新内容的技能(跳过了的也算);来源里已删除、推测出改名的不算。
   const changed = skills.filter(updateAvailable).length;
   const local = isLocal(collection.source);
@@ -195,9 +193,9 @@ export function CollectionSection({
     </>
   );
   const actions = !local && skills.some(hasUpdate) && (
-    <Button size="sm" onClick={() => openUpdate(collection.id)}>
+    <Button size="sm" variant="tinted" onClick={() => openUpdate(collection.id)}>
       <Icon name="up" />
-      {todo ? t.list.updateCount(todo) : t.list.update}
+      {t.list.update}
     </Button>
   );
   return (

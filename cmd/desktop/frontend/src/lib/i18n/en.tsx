@@ -721,7 +721,6 @@ export const en = {
     sectionMore: "More actions",
     expandSection: "Expand this section",
     collapseSection: "Collapse this section",
-    updateCount: (n: number) => `Update ${n}`,
     scopeSeesGlobal: (agent: string, n: number) => `${agent}'s global directory has ${count(n, "skill")}`,
     scopeSeesProject: (agent: string, project: string, n: number) => `${agent} can use ${count(n, "skill")} in ${project}`,
     sectionGlobal: "From global",
