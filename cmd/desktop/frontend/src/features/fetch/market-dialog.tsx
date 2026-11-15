@@ -65,7 +65,7 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="font-mono text-body font-semibold text-foreground hover:text-primary hover:underline"
+                      className="text-body font-semibold text-foreground hover:text-primary hover:underline"
                       title={t.viewOnSite(s.name)}
                       onClick={() => void Browser.OpenURL(s.detail_url)}
                     >

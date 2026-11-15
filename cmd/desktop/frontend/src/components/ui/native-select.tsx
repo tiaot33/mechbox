@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 const selectBox =
-  "min-w-0 rounded-control border border-border-control bg-panel px-2 text-body text-foreground outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft disabled:border-border disabled:text-subtle";
+  "min-w-0 rounded-control border border-border bg-panel px-2 text-body text-foreground outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft disabled:border-border disabled:text-subtle";
 
 function NativeSelect({ className, ...props }: ComponentProps<"select">) {
   return <select data-slot="native-select" className={cn(selectBox, "h-7 max-w-[150px]", className)} {...props} />;

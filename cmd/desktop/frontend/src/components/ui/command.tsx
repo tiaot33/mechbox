@@ -13,7 +13,7 @@ function CommandInput({ className, ...props }: ComponentProps<typeof CommandPrim
     <CommandPrimitive.Input
       data-slot="command-input"
       className={cn(
-        "mb-1 h-7 min-w-0 rounded-control border border-border-control bg-panel px-2.5 text-body outline-none placeholder:text-subtle focus:border-primary focus:ring-3 focus:ring-primary-soft",
+        "mb-1 h-7 min-w-0 rounded-control border border-border bg-panel px-2.5 text-body outline-none placeholder:text-subtle focus:border-primary focus:ring-3 focus:ring-primary-soft",
         className,
       )}
       {...props}

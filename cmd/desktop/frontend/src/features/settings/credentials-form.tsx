@@ -27,7 +27,6 @@ import {
 import { messages, useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useUI } from "@/lib/ui";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
 import { Tipped } from "@/components/app/parts";
@@ -348,13 +347,8 @@ function SaveForm<T>({
         {children}
       </fieldset>
       <div className="flex items-center gap-2">
-        <span className="grow">
-          {dirty && !saving && (
-            <Badge tone="todo" className="save-pending">
-              {t.unsaved}
-            </Badge>
-          )}
-        </span>
+        <span className="grow" />
+        {dirty && !saving && <span className="save-pending text-caption text-foreground-secondary">{t.unsaved}</span>}
         {actions}
         <Button type="submit" disabled={!dirty} loading={saving}>
           {t.save}

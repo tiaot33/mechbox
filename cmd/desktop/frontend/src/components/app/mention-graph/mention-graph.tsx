@@ -569,7 +569,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         </div>
       )}
       {/* 放在左下角：右侧会被详情抽屉盖住。 */}
-      <div className="graph-controls absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-control border border-border-control bg-panel shadow-tile">
+      <div className="graph-controls absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-control border border-border bg-panel shadow-tile">
         {(
           [
             ["plus", t.zoomIn, () => zoomBy(1.25)],

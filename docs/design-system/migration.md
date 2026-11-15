@@ -7,7 +7,7 @@
 | `primary` 一组,8 个 | 主要按钮、选中、开关、链接、焦点圈 | `primary`、`on-primary`、`primary-soft` |
 | `ok` 一组,4 个 | 已是最新、完成的对勾 | 平常档的灰字 `muted-foreground`;对勾用 `foreground` |
 | `warn` 一组,5 个 | 有新版本、可能改名、同名、改动脚本、需要重新安装 | 按 Badge 的三档分到「要处理」或「必须处理」 |
-| `bad` 一组,5 个 | 失败、被手动改过、文件夹不在了、移除 | 「必须处理」(`solid`、`on-solid`);移除用普通按钮,确认时用实心强调 |
+| `bad` 一组,5 个 | 失败、被手动改过、文件夹不在了、移除 | 「必须处理」(较深的灰底、半粗字加图标);移除用普通按钮，确认时用实心强调 |
 | `group` 一组,6 个 | 组的标签、随组安装的开关和标记 | 平常档;开关是灰色开着(`subtle` 的 80%) |
 | `foreground`、`foreground-secondary`、`muted-foreground`、`subtle` | 四档文字 | 同名变量,色值换成按对比度定的新值 |
 
@@ -15,7 +15,7 @@
 
 | 旧变量 | 换成什么 |
 | --- | --- |
-| `border`、`border-strong`、`border-subtle`、`hairline` | 控件的边框用 `border-control`;表面的边用 `border`;分隔线用 `row-line` |
+| `border`、`border-strong`、`border-subtle`、`hairline` | 输入框等控件和表面的边都用 `border`,普通按钮不描边;分隔线用 `row-line` |
 | `row-line` | `row-line` |
 | `fill-faint`、`fill-subtle`、`fill`、`fill-strong`、`neutral-soft`、`nav-active` | `fill` |
 | `panel`、`control` | `panel` |

@@ -183,7 +183,7 @@ export function CollectionSection({
         title={t.list.collectionDragTitle(skills.length)}
       >
         <SourceIcon type={collection.source.type} className="size-3.5 shrink-0 text-muted-foreground" />
-        <b className="section-name truncate font-mono font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
+        <b className="section-name truncate font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
           {label}
         </b>
         {local && <WSLBadge path={collection.source.label} />}

@@ -96,7 +96,7 @@ const rowClass =
   "grid min-h-9 items-center gap-x-4 border-b border-row-line px-3 py-1.5 text-body last:border-b-0 @max-[600px]/list:gap-y-0.5";
 
 // rowButtonClass 是行首那一格里的小按钮(入库、更新),和开关一样高，样子是普通按钮。
-const rowButtonClass = "h-[18px] rounded-control border-border-control px-1 text-caption whitespace-nowrap text-foreground hover:bg-fill";
+const rowButtonClass = "h-[18px] rounded-control px-1.5 text-caption whitespace-nowrap text-foreground";
 
 // 最近几天内的变化用正文颜色，排查"最近是不是变过"时一眼看到。
 const recentDays = 7;
@@ -189,7 +189,7 @@ export function SkillRow(props: {
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
         {/* 名字放得下时写全;后面的标记放不下就折到下一行，有新版本、同名这类要处理的事不被截掉。 */}
         <span
-          className={cn("skill-name max-w-full min-w-0 truncate font-mono text-body font-semibold", scope && !here && !identical && !props.fromGlobal && "font-normal text-foreground-secondary")}
+          className={cn("skill-name max-w-full min-w-0 truncate text-body font-semibold", scope && !here && !identical && !props.fromGlobal && "font-normal text-foreground-secondary")}
           title={skill.note || undefined}
         >
           {skill.name}
@@ -249,7 +249,7 @@ export function SkillRow(props: {
             )
           }
         >
-          <p className="skill-desc truncate text-body text-foreground-secondary">
+          <p className="skill-desc truncate text-small text-foreground-secondary">
             {props.showSource && (
               <span className="text-muted-foreground" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
                 {sourceShort(s, skill.source)} ·{" "}
@@ -459,12 +459,12 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         )}
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
-        <span className="unmanaged-name min-w-0 truncate font-mono text-body font-semibold">{skill.name}</span>
+        <span className="unmanaged-name min-w-0 truncate text-body font-semibold">{skill.name}</span>
         {same && <SameNameBadge note={same} />}
       </div>
       <div className={cn("min-w-0", layouts.pickScope.desc)}>
         <Truncated tip={skill.description}>
-          <p className="unmanaged-desc truncate text-body text-foreground-secondary">{skill.description}</p>
+          <p className="unmanaged-desc truncate text-small text-foreground-secondary">{skill.description}</p>
         </Truncated>
         {same && <SameNameLine note={same} />}
         {source && (

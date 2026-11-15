@@ -128,7 +128,7 @@ function DrawerSheet({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-2 px-2.5 pt-3.5 pb-4">
             <div className="flex items-center gap-2.5 px-2">
-              <SheetTitle className="flex-1 font-mono text-title" title={skill.note || undefined}>
+              <SheetTitle className="flex-1 text-title" title={skill.note || undefined}>
                 {skill.name}
               </SheetTitle>
               {hasUpdate(skill) && (

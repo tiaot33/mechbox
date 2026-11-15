@@ -98,8 +98,8 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
                 data-state={state}
                 aria-pressed={on}
                 className={cn(
-                  "gchip inline-flex h-6 items-center gap-1.5 rounded-control border border-border-control px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
-                  on && "border-foreground font-semibold text-foreground",
+                  "gchip inline-flex h-6 items-center gap-1.5 rounded-control border border-border px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
+                  on && "border-transparent bg-fill font-semibold text-foreground",
                 )}
                 onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}

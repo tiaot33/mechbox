@@ -54,7 +54,7 @@ function Segmented<T extends string | number>({
       ref={ref}
       role="group"
       data-slot="segmented"
-      className={cn("relative inline-flex h-7 items-center gap-px rounded-control border border-border-control bg-fill p-0.5", className)}
+      className={cn("relative inline-flex h-7 items-center gap-px rounded-control border border-border bg-fill p-0.5", className)}
     >
       {thumb && (
         <motion.span

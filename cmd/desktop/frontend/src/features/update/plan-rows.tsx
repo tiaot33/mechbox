@@ -23,7 +23,7 @@ export function ChangedRow({ p, checked, viewed, locked, onCheck, onView, onSkip
     <ListRow compact selected={checked} className="update-skill">
       <label className="flex min-w-0 grow cursor-pointer items-center gap-1.5">
         <input type="checkbox" className="shrink-0 accent-primary" checked={checked} onChange={(e) => onCheck(e.target.checked)} />
-        <b className="font-mono font-semibold whitespace-nowrap">{p.skill.name}</b>
+        <b className="font-semibold whitespace-nowrap">{p.skill.name}</b>
         {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="todo">{t.changed}</Badge>}
         {(p.risks?.length ?? 0) > 0 && <Badge tone="must">{riskSummary(p.risks ?? [])}</Badge>}
         {p.edited && (
@@ -51,7 +51,7 @@ export function RenameRow({ p, yes, viewed, locked, onCheck, onReject, onView, o
     <ListRow selected={yes} className="update-rename">
       <div className="min-w-0 grow">
         <div>
-          {t.renameQuestion(<b className="font-mono font-semibold">{p.skill.name}</b>, <b className="font-mono font-semibold">{p.renamed_to}</b>)}
+          {t.renameQuestion(<b className="font-semibold">{p.skill.name}</b>, <b className="font-semibold">{p.renamed_to}</b>)}
           {p.skipped && <Badge className="ml-1.5">{t.skipped}</Badge>}
         </div>
         <div className="text-caption text-muted-foreground">
@@ -95,7 +95,7 @@ export function DeletedRow({ p, source, locked, onRemoved }: { p: PlannedSkill; 
   return (
     <ListRow className="update-deleted">
       <div className="min-w-0 grow">
-        <b className="font-mono font-semibold">{p.skill.name}</b>
+        <b className="font-semibold">{p.skill.name}</b>
         <span className="ml-1.5 text-caption text-muted-foreground">{t.deletedHere(source)}</span>
       </div>
       {kept || p.skill.kept_deleted ? (

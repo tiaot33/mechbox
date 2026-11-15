@@ -20,8 +20,8 @@
     "SF Mono", "JetBrains Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", monospace;
 
-  /* 字号四档，行高跟着字号:title 是技能详情里的技能名(等宽，字距收紧),heading 是弹窗与卡片标题，body 是正文与控件上的字，
-     body-long 是成段的文字，caption 是日期、计数、状态标签这类标注。字重只用常规(400)与半粗(600)。 */
+  /* 字号五档，行高跟着字号:title 是技能详情里的技能名(字距收紧),heading 是弹窗与卡片标题，body 是正文与控件上的字，
+     body-long 是成段的文字，small 是列表里技能名下面的描述，caption 是日期、计数、状态标签这类标注。字重只用常规(400)与半粗(600)。 */
   --text-title: 22px;
   --text-title--line-height: 28px;
   --text-title--font-weight: 600;
@@ -33,6 +33,8 @@
   --text-body--line-height: 18px;
   --text-body-long: 13px;
   --text-body-long--line-height: 20px;
+  --text-small: 12px;
+  --text-small--line-height: 16px;
   --text-caption: 11px;
   --text-caption--line-height: 14px;
 
@@ -53,7 +55,7 @@
   /* 实心强调：「必须处理」的标签与确认删除的按钮。 */
   --color-solid: #000;
   --color-on-solid: #fff;
-  /* border 只分开两块表面;border-control 标出可以操作的控件(普通按钮、输入框、下拉框、分段选择);row-line 是行与行之间的线。 */
+  /* border 只分开两块表面;border-control 是控件的强调边框(拖放时可放下的目标、复选框);输入框、下拉框、分段选择用 border,普通按钮用 fill 的浅灰底、不描边;row-line 是行与行之间的线。 */
   --color-border: rgba(0, 0, 0, 0.12);
   --color-border-control: rgba(0, 0, 0, 0.42);
   --color-row-line: rgba(0, 0, 0, 0.07);

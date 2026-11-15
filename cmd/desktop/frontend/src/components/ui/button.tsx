@@ -1,4 +1,4 @@
-// shadcn/ui 的 Button,按设计系统分三档轻重：主要(primary,实心绿，一屏或一个弹窗里只有一个)、普通(default,灰色边框、没有底色)、
+// shadcn/ui 的 Button,按设计系统分三档轻重：主要(primary,实心绿，一屏或一个弹窗里只有一个)、普通(default,浅灰底、没有边框)、
 // 轻(ghost,没有边框、次要档的灰字，顶栏、列表行内与「跳过」「不感兴趣」这类动作)。破坏性不是另一档：平时用普通;
 // 确认删除的弹窗里，确认按钮用实心强调(solid)。文字链接(link)只用于去别的地方，动作用轻按钮。
 // loading 时文字留着占位、上面盖一个转圈，按钮宽度不变;done 时转圈合成对勾(给操作完成后停一下再关弹窗的按钮用)。
@@ -15,7 +15,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "rounded-control border border-border-control text-foreground hover:bg-fill disabled:border-border disabled:text-subtle disabled:hover:bg-transparent",
+          "rounded-control border border-transparent bg-fill text-foreground hover:bg-foreground/10 disabled:text-subtle disabled:hover:bg-fill",
         primary:
           "rounded-control border border-primary bg-primary text-on-primary hover:bg-primary/88 disabled:opacity-45 disabled:hover:bg-primary",
         solid:

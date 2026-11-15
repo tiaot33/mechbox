@@ -262,7 +262,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
               onDragEnd={dnd.end}
               {...drop}
             >
-              {local ? <span className="min-w-0 truncate font-mono">{tailPath(label, max)}</span> : <span className="grow truncate font-mono">{label}</span>}
+              {local ? <span className="min-w-0 truncate">{tailPath(label, max)}</span> : <span className="grow truncate">{label}</span>}
               {local && <WSLBadge path={c.source.label} compact />}
               {local && <span className="grow" />}
               {checkStatus ? (

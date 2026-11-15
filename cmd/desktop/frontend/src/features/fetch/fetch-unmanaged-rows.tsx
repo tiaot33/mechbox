@@ -82,7 +82,7 @@ export function PlannedRow({
       <ListRow asChild compact clickable selected={picked} className="pl-6">
         <label title={p.description || undefined}>
           <input type="checkbox" className="shrink-0 accent-primary" checked={picked} onChange={onToggle} />
-          <b className="fetch-unmanaged-name shrink-0 font-mono font-semibold whitespace-nowrap">{p.name}</b>
+          <b className="fetch-unmanaged-name shrink-0 font-semibold whitespace-nowrap">{p.name}</b>
           {p.in_repository && <Badge tone="todo">{t.inRepository}</Badge>}
           {!p.in_repository && p.in_project_lock && (
             <Badge tone="todo" title={t.inLockTitle}>

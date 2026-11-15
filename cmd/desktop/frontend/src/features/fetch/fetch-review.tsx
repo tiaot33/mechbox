@@ -125,7 +125,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
             disabled={!!c.fetched}
             onChange={() => toggle(c.name)}
           />
-          <b className="shrink-0 font-mono font-semibold whitespace-nowrap">{c.name}</b>
+          <b className="shrink-0 font-semibold whitespace-nowrap">{c.name}</b>
           {c.fetched ? (
             <Badge title={t.alreadyTitle}>{t.already}</Badge>
           ) : c.new ? (
