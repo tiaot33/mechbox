@@ -20,7 +20,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
-import { InfoTip, WSLBadge } from "@/components/app/parts";
+import { Tipped, WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
@@ -95,7 +95,9 @@ export function GeneralSection({
       </NativeSelect>
     </SetRow>
     <SetRow className="language-row">
-      <Label className="grow" text={t.language} tip={t.languageDesc} />
+      <Tipped className="grow" tip={t.languageDesc}>
+        {t.language}
+      </Tipped>
       <Segmented
         className="shrink-0"
         value={settings.language ?? Language.LanguageSystem}
@@ -262,7 +264,7 @@ function GlassTintRow({ dark, value, onCommit }: { dark: boolean; value: number;
   return (
     <SetRow className="glass-tint-row">
       <div className="grow">
-        <Label text={t.glassTint} tip={t.glassTintDesc(dark)} />
+        <Tipped tip={t.glassTintDesc(dark)}>{t.glassTint}</Tipped>
         {opaque && <Hint className="mt-0.5">{t.glassTintOpaque}</Hint>}
       </div>
       <Slider
@@ -297,20 +299,12 @@ function GlassTintRow({ dark, value, onCommit }: { dark: boolean; value: number;
   );
 }
 
-// Label 是设置项的名字，说明放在后面「i」图标的提示里。
-function Label({ text, tip, className }: { text: string; tip: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex items-center gap-1.5", className)}>
-      {text}
-      <InfoTip tip={tip} />
-    </div>
-  );
-}
-
 function SettingRow({ label, desc, on, onChange }: { label: string; desc: string; on: boolean; onChange: (on: boolean) => void }) {
   return (
     <SetRow>
-      <Label className="grow" text={label} tip={desc} />
+      <Tipped className="grow" tip={desc}>
+        {label}
+      </Tipped>
       <Switch checked={on} onCheckedChange={onChange} />
     </SetRow>
   );

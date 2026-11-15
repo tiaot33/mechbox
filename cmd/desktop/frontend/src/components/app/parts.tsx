@@ -1,4 +1,4 @@
-// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、说明的悬停提示、诊断列表，以及集合切换。
+// 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、说明的悬停提示与带提示的标签、诊断列表，以及集合切换。
 import { useRef, useState } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { Badge } from "@/components/ui/badge";
@@ -162,7 +162,7 @@ export function InfoTip({ tip, className }: { tip: React.ReactNode; className?: 
           data-slot="info-tip"
           aria-label={t.info}
           className={cn(
-            "inline-grid size-3.5 shrink-0 cursor-help place-items-center rounded-full align-[-2px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-primary-soft",
+            "inline-grid size-3.5 shrink-0 cursor-help place-items-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-primary-soft",
             className,
           )}
         >
@@ -171,6 +171,17 @@ export function InfoTip({ tip, className }: { tip: React.ReactNode; className?: 
       </TooltipTrigger>
       <TooltipContent>{tip}</TooltipContent>
     </Tooltip>
+  );
+}
+
+// Tipped 是后面跟着「i」图标的标签(设置项、字段标题、卡片标题、一句说明):大段说明放在提示里，界面上只留标签。
+// tip 为空时只有文字。
+export function Tipped({ tip, className, children }: { tip?: React.ReactNode; className?: string; children: React.ReactNode }) {
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+      {children}
+      {tip && <InfoTip tip={tip} />}
+    </span>
   );
 }
 

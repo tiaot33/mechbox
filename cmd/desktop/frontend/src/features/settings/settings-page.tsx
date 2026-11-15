@@ -21,7 +21,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Icon } from "@/components/app/icons";
 import { bodyClass, centerClass, leftClass } from "@/components/app/layout";
 import { navItem } from "@/components/app/nav";
-import { BusyMark, InfoTip } from "@/components/app/parts";
+import { BusyMark, Tipped } from "@/components/app/parts";
 import { Titlebar } from "@/components/app/titlebar";
 import { SetRow } from "@/components/app/set-row";
 import { AISection, GitHubSection, SyncSection } from "./credentials-form";
@@ -135,19 +135,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
   const card = (section: Section, note: React.ReactNode, children: React.ReactNode, tip?: React.ReactNode) => (
     <Card key={section} className="scroll-mt-4" ref={(el) => void (refs.current[section] = el)}>
-      <CardHeader
-        title={
-          tip ? (
-            <span className="inline-flex items-center gap-1.5">
-              {t[section]}
-              <InfoTip tip={tip} />
-            </span>
-          ) : (
-            t[section]
-          )
-        }
-        note={note}
-      />
+      <CardHeader title={<Tipped tip={tip}>{t[section]}</Tipped>} note={note} />
       {children}
     </Card>
   );
@@ -243,10 +231,9 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 <>
                   <AboutSection />
                   <SetRow className="uninstall-row mt-3">
-                    <div className="flex grow items-center gap-1.5">
+                    <Tipped className="grow" tip={t.uninstallDesc()}>
                       {t.uninstall}
-                      <InfoTip tip={t.uninstallDesc()} />
-                    </div>
+                    </Tipped>
                     <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
                       {t.uninstallButton}
                     </Button>

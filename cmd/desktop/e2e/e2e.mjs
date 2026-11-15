@@ -3110,6 +3110,14 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   assert((await field("同步", /^存储桶$/).inputValue()) === "e2e-bucket", "重新载入后存储桶应仍在");
   assert((await field("同步", "Secret Access Key").inputValue()) === "e2e-secret", "重新载入后密钥应仍在");
   assert((await field("同步", "文件夹").inputValue()) === "team/mechbox", "文件夹应去掉首尾的 / 存下；填过的高级项默认展开");
+  // 规整后和存着的一样(只多了首尾的 /):保存后不再显示有改动
+  await field("同步", "文件夹").fill("team/mechbox/");
+  assert((await pending("同步").count()) === 1, "改了文件夹应提示要保存");
+  await btn(section("同步"), "保存").click();
+  await toast("已保存同步设置");
+  await settle();
+  await pending("同步").waitFor({ state: "detached", timeout: 5000 }).catch(() => assert.fail("规整后和存着的一样时，保存后不应再提示要保存"));
+  assert((await field("同步", "文件夹").inputValue()) === "team/mechbox", "保存后输入框换成规整后的值");
   assert((await section("同步").getByText(/这台机器的备份放在 team\/mechbox\/.+-[0-9a-f]{6}\//).count()) === 1, "应写出这台机器的设备目录");
 
   // 全部清空：从数据库删掉，回到未配置

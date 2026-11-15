@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/app/icons";
-import { InfoTip, PlaceAgentMark } from "@/components/app/parts";
+import { PlaceAgentMark, Tipped } from "@/components/app/parts";
 
 // InstallCard 是各作用域的安装与状态：直接安装开关、经哪个组装上、是不是当前版本;不是当前版本的可以单条重新安装，
 // 被手动改过的可以"用这里的修改更新";改成了作者新版的(在 app 外更新过)说清楚，给"更新"。
@@ -43,19 +43,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
   const copies = identicalsOf(s, id);
   return (
     <Card>
-      <CardHeader
-        title={
-          installed.length > 0 ? (
-            <span className="inline-flex items-center gap-1.5">
-              {d.install}
-              <InfoTip tip={d.switchHint()} />
-            </span>
-          ) : (
-            d.install
-          )
-        }
-        note={d.installNote(installed.length, stale)}
-      />
+      <CardHeader title={<Tipped tip={installed.length > 0 && d.switchHint()}>{d.install}</Tipped>} note={d.installNote(installed.length, stale)} />
       {installed.length + copies.length > 0 && (
         <table className="scope-table w-full table-fixed border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
           {/* 固定列宽：换一个技能时来源、状态两列不左右跳。 */}

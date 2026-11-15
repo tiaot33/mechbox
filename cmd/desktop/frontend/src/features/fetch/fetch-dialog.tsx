@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { FieldError, Hint } from "@/components/ui/field";
-import { InfoTip, PathWhere } from "@/components/app/parts";
+import { PathWhere, Tipped } from "@/components/app/parts";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -152,9 +152,8 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
         </>
       }
     >
-      <Hint className="flex items-center gap-1">
-        {t.paste}
-        <InfoTip tip={t.hint} />
+      <Hint>
+        <Tipped tip={t.hint}>{t.paste}</Tipped>
       </Hint>
       <div className="flex min-w-0 items-center gap-2">
         <Input

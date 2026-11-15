@@ -18,6 +18,7 @@ import {
   invalidateGitHubToken,
   invalidateSyncSettings,
   invalidateSyncStatus,
+  queryClient,
   syncSettingsQuery,
   syncStatusQuery,
   toLibraryError,
@@ -27,7 +28,7 @@ import { messages, useT } from "@/lib/i18n";
 import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
-import { InfoTip } from "@/components/app/parts";
+import { Tipped } from "@/components/app/parts";
 import { Field, Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -76,8 +77,10 @@ const defaultKeep = 10;
 
 type SyncField = Exclude<keyof SyncSettings, "keep" | "auto_push">;
 
+type SyncInput = { key: SyncField; label: string; secret?: boolean };
+
 // 同步设置里常填的连接项排在外面;文件夹、Session Token 和保留份数(在 SyncForm 里)收在「高级」里。
-const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] => {
+const syncFields = (): SyncInput[][] => {
   const t = messages().credentials;
   return [
     [{ key: "endpoint", label: t.endpoint }],
@@ -92,7 +95,7 @@ const syncFields = (): { key: SyncField; label: string; secret?: boolean }[][] =
   ];
 };
 
-const advancedSyncFields = (): { key: SyncField; label: string; secret?: boolean }[] => {
+const advancedSyncFields = (): SyncInput[] => {
   const t = messages().credentials;
   return [
     { key: "folder", label: t.folder },
@@ -114,7 +117,7 @@ function GitHubForm({ saved }: { saved: string }) {
         void invalidateConfig();
       }}
     >
-      <Field label={<Tipped text={t.token} tip={t.tokenHint} />}>
+      <Field label={<Tipped tip={t.tokenHint}>{t.token}</Tipped>}>
         <TextInput secret value={token} onChange={setToken} />
       </Field>
     </SaveForm>
@@ -137,29 +140,34 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
     { value: SyncInterval.SyncDaily, label: t.autoPushDaily },
     { value: SyncInterval.SyncWeekly, label: t.autoPushWeekly },
   ];
+  const row = (inputs: SyncInput[]) => (
+    <div key={inputs[0].key} className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
+      {inputs.map((f) => (
+        <Field key={f.key} label={f.label} className="flex-1">
+          <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
+        </Field>
+      ))}
+    </div>
+  );
   return (
     <SaveForm
       dirty={dirty}
       save={() => LibraryService.SetSyncSettings(draft)}
       success={t.syncSaved}
       onSaved={() => {
-        void invalidateSyncSettings();
+        // 库会去掉首尾空白和文件夹首尾的 /;规整后和原来存的一样时表单不重挂载，换成重读到的值，免得一直显示有改动。
+        void invalidateSyncSettings().then(() => {
+          const fresh = queryClient.getQueryData(syncSettingsQuery.queryKey);
+          if (fresh) setDraft(fresh);
+        });
         void invalidateSyncStatus();
         void invalidateConfig();
       }}
       footer={<SyncStatusLine folder={saved.folder ?? ""} />}
     >
-      {fields.map((row) => (
-        <div key={row[0].key} className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
-          {row.map((f) => (
-            <Field key={f.key} label={f.label} className="flex-1">
-              <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
-            </Field>
-          ))}
-        </div>
-      ))}
+      {fields.map(row)}
       <div className="flex min-w-0 items-start gap-2">
-        <Field label={<Tipped text={t.autoPush} tip={t.autoPushHint} />} className="flex-1">
+        <Field label={<Tipped tip={t.autoPushHint}>{t.autoPush}</Tipped>} className="flex-1">
           <NativeSelect
             className="h-8 max-w-none"
             value={draft.auto_push ?? ""}
@@ -175,15 +183,9 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
         <div className="flex-1" />
       </div>
       <Advanced filled={advanced.some(({ key }) => value(saved, key)) || !!saved.keep}>
-        <div className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
-          {advanced.map((f) => (
-            <Field key={f.key} label={f.label} className="flex-1">
-              <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
-            </Field>
-          ))}
-        </div>
+        {row(advanced)}
         <div className="flex min-w-0 items-start gap-2">
-          <Field label={<Tipped text={t.keep} tip={t.keepHint(defaultKeep)} />} className="flex-1">
+          <Field label={<Tipped tip={t.keepHint(defaultKeep)}>{t.keep}</Tipped>} className="flex-1">
             <Input
               className="font-mono"
               type="number"
@@ -274,7 +276,7 @@ function AIForm({ saved }: { saved: AISettings }) {
     >
       <div className="flex flex-col items-start gap-1">
         <span className="text-xs text-muted-foreground">
-          <Tipped text={t.provider} tip={t.aiHint} />
+          <Tipped tip={t.aiHint}>{t.provider}</Tipped>
         </span>
         <Segmented
           value={provider}
@@ -300,7 +302,7 @@ function AIForm({ saved }: { saved: AISettings }) {
         <Field label={t.headers}>
           <TextArea rows={2} value={draft.headers ?? ""} onChange={set("headers")} placeholder={t.headersPlaceholder} />
         </Field>
-        <Field label={<Tipped text={t.body} tip={t.bodyHint} />}>
+        <Field label={<Tipped tip={t.bodyHint}>{t.body}</Tipped>}>
           <TextArea rows={3} value={draft.body ?? ""} onChange={set("body")} placeholder={bodyExamples[provider]} />
         </Field>
       </Advanced>
@@ -372,16 +374,6 @@ function Advanced({ filled, children }: { filled: boolean; children: React.React
       </button>
       {open && children}
     </>
-  );
-}
-
-// Tipped 是字段标题，说明放在后面「i」图标的提示里。
-function Tipped({ text, tip }: { text: string; tip: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      {text}
-      <InfoTip tip={tip} />
-    </span>
   );
 }
 

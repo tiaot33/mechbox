@@ -30,7 +30,7 @@ import { barClass, barRowClass } from "./heads";
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
 // 风险(改动了脚本等)是用户审阅时最先要看的：用「必须处理」那一档的标签紧跟在名字后面，按钮都用普通的，标签不比按钮弱;
 // 来源版本和哪些技能有变化写在第二行。整页只有「全部更新」是主要按钮。
-// 更新会换哪些地方的说明在最后一行「全部更新」旁的提示里。
+// 更新会换哪些地方的说明在第一行按钮前的提示里;最后一行只在有两个以上能直接更新的集合时出现，放「全部更新」。
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 export function UpdatesHead() {
   const s = useSnapshot();
@@ -41,7 +41,7 @@ export function UpdatesHead() {
   const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
   return (
     <div className={barClass}>
-      {collections.map((c) => {
+      {collections.map((c, i) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
         const todo = skills.filter(pending);
@@ -71,6 +71,7 @@ export function UpdatesHead() {
                 </Badge>
               )}
               <span className="grow" />
+              {i === 0 && <InfoTip tip={t.updatesFooter} />}
               {plain.length === 0 && edited.length > 0 ? (
                 <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
                   <Icon name="up" />
@@ -94,16 +95,15 @@ export function UpdatesHead() {
           </div>
         );
       })}
-      <div className={barRowClass}>
-        <span className="grow" />
-        <InfoTip tip={t.updatesFooter} />
-        {direct.length > 1 && (
+      {direct.length > 1 && (
+        <div className={barRowClass}>
+          <span className="grow" />
           <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
             <Icon name="up" />
             {t.updateAll}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
