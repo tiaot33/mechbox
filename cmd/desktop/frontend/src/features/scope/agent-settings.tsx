@@ -1,4 +1,4 @@
-// 设置页的 Agent 分区：每个 Agent 的显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走),以及自定义 Agent 的添加、编辑、删除。
+// 设置页的 Agent 分区：每个 Agent 的显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走),以及自定义 Agent 的添加、编辑、删除。显示勾选的说明在设置页分区标题的提示里。
 // 内置 Agent 的名称和目录由应用维护，只能勾选显示。
 import { useRef, useState } from "react";
 import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/library";
@@ -11,7 +11,7 @@ import { insideHome, isWSLPath, resolveLocalPath } from "@/lib/paths";
 import { Modal, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, Hint } from "@/components/ui/field";
+import { Field, FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { pickDirectory } from "@/features/fetch/fetch-dialog";
@@ -31,7 +31,6 @@ export function AgentSection({
   const edit = (agent: Agent) => ui.open((close) => <AgentDialog agent={agent} onClose={close} />);
   return (
     <>
-      <Hint className="mb-1">{t.shownHint}</Hint>
       {s.agents.map((a) => {
         const on = agentShown(shown, a);
         return (
