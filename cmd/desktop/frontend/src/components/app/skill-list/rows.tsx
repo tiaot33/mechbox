@@ -314,14 +314,14 @@ function useFlash(id: SkillID, scope: ScopeKey | undefined) {
   return ref;
 }
 
-// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时用灰色圆点和主要档的字标出，装着的用次要档，不抢技能名的注意力。
+// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时用绿色圆点和主要档的字标出，装着的用次要档，不抢技能名的注意力。
 function Where({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const t = useT().list;
   const w = installedSummary(s, skill.id);
   return (
     <span className="skill-where flex min-w-0 items-center gap-1.5 text-caption" title={w.title || undefined}>
-      {w.bad && <i className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
+      {w.bad && <i className="size-1.5 shrink-0 rounded-full bg-primary" />}
       <span className={cn("truncate", w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground")}>
         {w.text || t.notInstalled}
       </span>
