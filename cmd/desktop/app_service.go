@@ -143,11 +143,6 @@ func (a *AppService) SaveSettings(ctx context.Context, settings Settings) (Setti
 	if !settings.Appearance.valid() {
 		return Settings{}, fmt.Errorf("unknown appearance %q", settings.Appearance)
 	}
-	for _, tint := range []float64{settings.GlassTint, settings.GlassTintDark} {
-		if !glassTintValid(tint) {
-			return Settings{}, fmt.Errorf("glass tint %v is outside 0 to %v", tint, maxGlassTint)
-		}
-	}
 	if !foldBelowValid(settings.FoldBelow) {
 		return Settings{}, fmt.Errorf("fold threshold %d is outside %d to %d", settings.FoldBelow, minFoldBelow, maxFoldBelow)
 	}

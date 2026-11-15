@@ -1,0 +1,16 @@
+<!-- @dsCard group="动作" height=196 width=880 -->
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>Button</title></head>
+<body style="margin:0">
+<div class="mb-pair"><div class="mb-stage">
+<span class="mb-note">三档:主要、普通、轻;文字链接只用于去别的地方</span>
+<button class="mb-btn mb-btn-primary">安装</button><button class="mb-btn">检查更新</button><button class="mb-btn mb-btn-light">跳过</button><a class="mb-link">去入库</a>
+<span class="mb-note">24 px、图标按钮、禁用、焦点</span>
+<button class="mb-btn mb-btn-sm">重新安装</button><button class="mb-btn mb-btn-light mb-btn-sm">看差异</button><button class="mb-btn mb-btn-light mb-btn-icon" title="刷新"><svg class="mb-ic" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button><button class="mb-btn" disabled>检查更新</button><button class="mb-btn mb-focus">取消</button>
+<span class="mb-note">进行中、完成;确认删除用实心强调</span>
+<button class="mb-btn mb-btn-primary mb-btn-busy"><span class="mb-btn-text">安装</span><svg class="mb-mark mb-mark-sm mb-mark-run" viewBox="0 0 24 24" aria-hidden="true"><circle class="mb-mark-track" cx="12" cy="12" r="8.5" stroke-width="3"/><circle class="mb-mark-ring" cx="12" cy="12" r="8.5" stroke-width="3" stroke-dasharray="36.32 17.09"/></svg></button><button class="mb-btn mb-btn-primary mb-btn-busy"><span class="mb-btn-text">安装</span><svg class="mb-mark mb-mark-sm" viewBox="0 0 24 24" aria-hidden="true"><circle class="mb-mark-disc" cx="12" cy="12" r="8.5" stroke-width="3"/><path d="M7.5 12.25 10.5 15.25 16.75 8.75" stroke-width="3"/></svg></button><button class="mb-btn mb-btn-solid">移除</button>
+</div></div>
+<script>(function(){var s=document.querySelector('.mb-stage'),d=s.cloneNode(true);s.setAttribute('data-theme','light');d.setAttribute('data-theme','dark');s.parentNode.appendChild(d)})()</script>
+</body>
+</html>

@@ -52,8 +52,8 @@ export function PickBar({ listing }: { listing: PageListing }) {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[2] flex justify-center px-4">
-      <div className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 glass glass-clear rounded-xl border px-2 py-1.5 [--glass-drop:0_8px_28px_var(--shade-pick)] [transition:--glass-lift_160ms_ease] hover:[--glass-lift:1.14]">
-        <span className="px-1.5 text-[12px] font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
+      <div className="pick-bar pointer-events-auto flex max-w-full min-w-0 flex-wrap items-center gap-1 glass glass-clear rounded-card border px-2 py-1.5 [--glass-drop:var(--shadow-pick)] [transition:--glass-lift_160ms_ease] hover:[--glass-lift:1.14]">
+        <span className="px-1.5 text-body font-semibold whitespace-nowrap">{t.pickedCount(picked.size)}</span>
         <Button size="sm" variant="ghost" onClick={act(() => chooseAndInstall(ids, initial))}>
           <Icon name="plus" />
           {t.pickInstallTo}
@@ -72,7 +72,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
             {t.pickRemoveFromGroup}
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="text-bad-strong" onClick={act(() => removeSkills(ids))}>
+        <Button size="sm" variant="ghost" onClick={act(() => removeSkills(ids))}>
           {t.pickRemove}
         </Button>
         <Button size="icon-sm" variant="ghost" className="ml-0.5" title={t.pickClear} aria-label={t.pickClear} onClick={clearPicked}>

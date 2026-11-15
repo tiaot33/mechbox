@@ -11,6 +11,7 @@ import (
 // Settings 是设置页里的应用设置。WSLDistro 存在技能库里、只属于这台机器(Library.SetWSLDistro);
 // 其余各项是技能库数据库里的应用设置(Library.AppSettings),和库里其他内容一样随推送、拉回走。
 // 加设置项就是加字段并在 appValues / settingsFrom 里加一项;数据库里没有的项取 defaultSettings 的值。
+// 去掉的设置项(如原来的毛玻璃浓度 glass_tint、glass_tint_dark)留在旧数据库里时读的时候不认，下次保存整组替换时就没了。
 type Settings struct {
 	AutoCheck     bool          `json:"auto_check"`           // 自动检查更新
 	CheckInterval CheckInterval `json:"check_interval"`       // 自动检查的间隔
@@ -19,11 +20,6 @@ type Settings struct {
 	AutoTranslate bool          `json:"auto_translate"`       // 填了 AI 设置时，自动把技能描述翻译成界面语言(Library.TranslateDescriptions)
 	Language      Language      `json:"language,omitempty"`   // 界面语言;空字符串跟随系统
 	Appearance    Appearance    `json:"appearance,omitempty"` // 外观(浅色、深色);空字符串跟随系统
-	// GlassTint 是浅色外观下浮在内容上的表面(弹窗、抽屉、菜单、操作栏、toast 等)的毛玻璃浓度，乘在设计的底色浓度上:
-	// 1 是设计的样子,0 只剩模糊、边缘与阴影，最大 1.5。
-	GlassTint float64 `json:"glass_tint"`
-	// GlassTintDark 是深色外观下的毛玻璃浓度，取值与 GlassTint 相同。
-	GlassTintDark float64 `json:"glass_tint_dark"`
 	// WSLDistro 是各 Agent 的全局目录所在的 WSL 发行版;空字符串为这台机器本身(Windows 本机)。只在 Windows 上可选。
 	WSLDistro string `json:"wsl_distro,omitempty"`
 	// FoldCollections 把左栏「集合」里技能少于 FoldBelow 个的集合收进最后一行，点开再列出;关掉时每个集合都列出。
@@ -62,12 +58,6 @@ func (i CheckInterval) valid() bool {
 	return timed || i == CheckOnOpen
 }
 
-const maxGlassTint = 1.5
-
-func glassTintValid(v float64) bool {
-	return v >= 0 && v <= maxGlassTint
-}
-
 const (
 	minFoldBelow = 2
 	maxFoldBelow = 10
@@ -80,7 +70,7 @@ func foldBelowValid(n int) bool {
 const firstOpenDoneKey = "first_open_done"
 
 func defaultSettings() Settings {
-	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, GlassTint: 1, GlassTintDark: 1, FoldBelow: 3}
+	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, FoldBelow: 3}
 }
 
 func (s Settings) appValues(firstOpenDone bool) map[string]string {
@@ -92,8 +82,6 @@ func (s Settings) appValues(firstOpenDone bool) map[string]string {
 		"auto_translate":   strconv.FormatBool(s.AutoTranslate),
 		"language":         string(s.Language),
 		"appearance":       string(s.Appearance),
-		"glass_tint":       strconv.FormatFloat(s.GlassTint, 'f', -1, 64),
-		"glass_tint_dark":  strconv.FormatFloat(s.GlassTintDark, 'f', -1, 64),
 		"fold_collections": strconv.FormatBool(s.FoldCollections),
 		"fold_below":       strconv.Itoa(s.FoldBelow),
 	}
@@ -131,13 +119,6 @@ func settingsFrom(values map[string]string) (Settings, bool) {
 	if appearance := Appearance(values["appearance"]); appearance.valid() {
 		s.Appearance = appearance
 	}
-	tint := func(name string, field *float64) {
-		if v, err := strconv.ParseFloat(values[name], 64); err == nil && glassTintValid(v) {
-			*field = v
-		}
-	}
-	tint("glass_tint", &s.GlassTint)
-	tint("glass_tint_dark", &s.GlassTintDark)
 	var shown map[library.AgentCode]bool
 	if json.Unmarshal([]byte(values["agents_shown"]), &shown) == nil && len(shown) > 0 {
 		s.AgentsShown = shown

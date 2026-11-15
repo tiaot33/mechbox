@@ -1776,10 +1776,10 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await checkUpdates("1 个技能有新版本");
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
-  assert((await card("delta").locator('[data-slot="badge"][data-tone="warn"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
+  assert((await card("delta").locator('[data-slot="badge"][data-tone="todo"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
-  await row.locator(".update-risk", { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  await row.locator('.update-risk[data-tone="must"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
   assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
@@ -2195,7 +2195,7 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新 pair.zip" }).waitFor();
   assert(await planRow("update-skill", "eta").locator("input[type=checkbox]").isChecked(), "eta 应勾上");
   await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化（theta）" }).waitFor();
-  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
+  await modal().locator('[data-slot="notice"][data-alert]', { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
   await btn(modal(), "更新 1 个").click();
   await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
@@ -2252,7 +2252,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await updatesNav().click();
   const row = page.locator(".update-row", { hasText: "trio.zip" });
   await row.getByText("lambda 可能改名为 lambda-kit", { exact: false }).waitFor();
-  await row.locator(".update-risk", { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  await row.locator('.update-risk[data-tone="must"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "查看").click();
   await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
   await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
@@ -2949,7 +2949,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", glass_tint: "1", glass_tint_dark: "1", fold_collections: "false", fold_below: "3", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", fold_collections: "false", fold_below: "3", first_open_done: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
@@ -2965,29 +2965,18 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await interval("每天").click();
   await settle();
 
-  // 外观：浅色、深色各存一个毛玻璃浓度。选深色、把深色的浓度调到 0,重新载入后仍是深色、浓度仍是深色的 0,
-  // 不被浅色的值(1)盖掉;之后改回跟随系统、深色浓度 100%。
-  const glassTint = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--glass-tint").trim());
-  const tintSlider = section("通用").getByRole("slider", { name: "毛玻璃浓度" });
+  // 外观：选深色，重新载入后仍是深色;设置里没有毛玻璃浓度这一项。之后改回跟随系统。
+  assert.equal(await section("通用").getByRole("slider").count(), 0, "设置里不应再有毛玻璃浓度的滑块");
   await btn(section("通用").locator(".appearance-row"), "深色").click();
   await settle();
-  await tintSlider.focus();
-  await page.keyboard.press("Home");
-  await settle();
   assert.equal(appConfig().appearance, "dark", "外观应保存为深色");
-  assert.equal(appConfig().glass_tint_dark, "0", "深色的浓度应保存为 0");
-  assert.equal(appConfig().glass_tint, "1", "浅色的浓度不应跟着变");
   await page.reload();
   await page.waitForSelector(".a-list");
   await page.waitForTimeout(400);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark", "重新载入后应仍是深色");
-  assert.equal(await glassTint(), "0", "重新载入后毛玻璃应用深色的浓度，不被浅色的盖掉");
   await open();
-  for (let i = 0; i < 20; i++) await tintSlider.press("ArrowRight");
-  await settle();
   await btn(section("通用").locator(".appearance-row"), "跟随系统").click();
   await settle();
-  assert.equal(appConfig().glass_tint_dark, "1", "深色的浓度应改回 100%");
   assert.equal(appConfig().appearance, undefined, "跟随系统时不存外观");
 
   // 项目分区：登记、改位置、注销走主界面同一套弹窗
@@ -3099,7 +3088,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await page.waitForSelector(".a-list");
   await sidebarSays("推送失败", "重新载入后侧栏应仍显示推送失败");
   await sidebarSync().click();
-  assert((await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
+  assert((await modal().locator('[data-slot="notice"][data-alert]', { hasText: "未配置" }).count()) === 0, "填好同步设置后不应提示未配置");
   await modal().locator('[data-slot="notice"]', { hasText: "推送失败，S3 上没有新备份" }).waitFor({ timeout: 5000 }).catch(() => assert.fail("同步弹窗应写出上一次推送失败的原因"));
   await btn(modal(), "从 S3 拉回…").click();
   await toast("", "error");
@@ -3456,7 +3445,7 @@ await step("组安装遇到外来文件夹：选择跳过，结果列出被跳�
   fs.mkdirSync(path.join(dir, "delta"), { recursive: true });
   fs.writeFileSync(path.join(dir, "delta", "x.txt"), "hand made");
   await page.locator(".gchip", { hasText: "前端调试" }).click();
-  await modal().locator('[data-slot="notice"][data-tone="warn"]', { hasText: "delta" }).waitFor();
+  await modal().locator('[data-slot="notice"][data-alert]', { hasText: "delta" }).waitFor();
   await modal().locator('[data-slot="choice"]', { hasText: "跳过这些成员" }).click();
   await btn(modal(), "安装").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "组安装「前端调试」" }).waitFor();

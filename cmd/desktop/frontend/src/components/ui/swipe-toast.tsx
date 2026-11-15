@@ -3,6 +3,7 @@
 // 显隐阶段的样式(升起、收起、引线)在 index.css 的 .swipe-toast 里。
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
+import { Icon } from "@/components/ui/icon";
 import { Button } from "./button";
 
 type CloseReason = "timeout" | "swipe" | "action" | "escape";
@@ -221,7 +222,7 @@ export function SwipeToast({
           aria-live="polite"
           aria-atomic="true"
           tabIndex={0}
-          className="swipe-toast-card pointer-events-auto relative flex cursor-grab touch-none items-center gap-2.5 overflow-hidden glass glass-clear rounded-[14px] border px-4 py-2 text-[12.5px] break-words whitespace-pre-line outline-none [--glass-drop:var(--shadow-toast)] hover:[--glass-lift:1.14] select-none data-[swiping]:cursor-grabbing"
+          className="swipe-toast-card pointer-events-auto relative flex cursor-grab touch-none items-center gap-2.5 overflow-hidden glass glass-clear rounded-card border px-4 py-2 text-body break-words whitespace-pre-line outline-none [--glass-drop:var(--shadow-toast)] hover:[--glass-lift:1.14] select-none data-[swiping]:cursor-grabbing"
           style={{ transform, "--st-swipe": fade } as MotionStyle}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -255,11 +256,12 @@ export function SwipeToast({
             }
           }}
         >
+          {tone === "error" && <Icon name="alert" className="shrink-0" />}
           <span className="min-w-0 grow text-center">{children}</span>
           {actionLabel && (
             <Button
-              variant="link"
-              className="shrink-0"
+              size="sm"
+              className="-my-1 -mr-1 shrink-0"
               onClick={() => {
                 latest.current.onAction?.();
                 close("action");

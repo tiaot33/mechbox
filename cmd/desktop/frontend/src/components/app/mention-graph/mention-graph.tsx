@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { select } from "d3-selection";
 import "d3-transition";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
-import type { CollectionID, Mention, MentionsFilter, Skill, SkillID } from "@bindings/internal/library";
+import type { Mention, MentionsFilter, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
 import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHits, type GraphLink, type GraphNode, type MentionGraph, type Relation } from "@/lib/graph";
@@ -36,7 +36,7 @@ export function MentionGraphPage({ set, members }: { set: GraphSet; members: Ski
   if (query.isError) {
     return (
       <Centered>
-        <b className="text-sm text-foreground">{t.failed}</b>
+        <b className="text-heading text-foreground">{t.failed}</b>
         <span className="select-text">{toLibraryError(query.error).message}</span>
         <Button className="mt-1.5" onClick={() => void query.refetch()}>
           {t.retry}
@@ -61,20 +61,20 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
       <div className="[&>.search-line]:mb-0">
         <SearchLine results={searchHits(graph, search)} />
       </div>
-      <div className="graph-summary flex min-w-0 items-center gap-2 text-[11.5px] text-muted-foreground">
-        <span className="shrink-0 font-medium text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
+      <div className="graph-summary flex min-w-0 items-center gap-2 text-caption text-muted-foreground">
+        <span className="shrink-0 text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
         <span className="min-w-0 truncate">{t.hint}</span>
       </div>
       <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
-        <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-[10px] border border-hairline bg-wash/55 text-[12px] text-muted-foreground shadow-tile">
+        <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-card border border-border bg-panel text-body text-muted-foreground shadow-tile">
           {members.length ? (
             unjudged ? t.noneByRules(unjudged) : t.none
           ) : (
             <>
-              <b className="font-medium text-foreground-secondary">{tt.list.emptyGroup}</b>
+              <b className="font-semibold text-foreground-secondary">{tt.list.emptyGroup}</b>
               <span>{tt.list.emptyGroupHint}</span>
             </>
           )}
@@ -92,17 +92,17 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
   const t = useT().graph;
   let text: string;
   let reason: string | undefined;
-  let action: { label: string; run: () => void } | undefined;
+  let action: { label: string; run: () => void; away?: boolean } | undefined;
   switch (judging.state) {
     case "judging":
       text = t.judging(judging.count);
       break;
     case "unconfigured":
-      [text, action] = [t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai") }];
+      [text, action] = [t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
       break;
     case "stopped":
       [text, reason] = [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason];
-      action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai") } : { label: t.retry, run: retry };
+      action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai"), away: true } : { label: t.retry, run: retry };
       break;
     case "done": {
       if (!judging.failed?.length) return null;
@@ -116,7 +116,7 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
   const warn = judging.state === "stopped" || judging.state === "done";
   return (
     <div
-      className={cn("graph-judge flex min-w-0 items-start gap-2 text-[11.5px]", warn ? "text-warn-strong" : "text-muted-foreground")}
+      className={cn("graph-judge flex min-w-0 items-start gap-2 text-caption", warn ? "text-foreground" : "text-muted-foreground")}
       data-state={judging.state}
     >
       {judging.state === "judging" && <Spinner className="mt-[3px]" />}
@@ -124,7 +124,7 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
         <span>
           {text}
           {action && (
-            <Button variant="link" className="graph-judge-action ml-2 text-[11.5px]" onClick={action.run}>
+            <Button variant={action.away ? "link" : "ghost"} size="inline" className="graph-judge-action ml-2 text-caption" onClick={action.run}>
               {action.label}
             </Button>
           )}
@@ -136,7 +136,7 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="flex flex-col items-center justify-center gap-1.5 pt-[22vh] text-[12px] text-muted-foreground">{children}</div>;
+  return <div className="flex flex-col items-center justify-center gap-1.5 pt-[22vh] text-body text-muted-foreground">{children}</div>;
 }
 
 // Loose 是图下方的一行：和这里的技能都没有连线的，点了同样打开详情。
@@ -144,14 +144,14 @@ function Loose({ skills }: { skills: Skill[] }) {
   const t = useT().graph;
   const search = useView((v) => v.search);
   return (
-    <div className="graph-loose flex max-h-[30%] min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto text-[11.5px] text-muted-foreground">
+    <div className="graph-loose flex max-h-[30%] min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto text-caption text-muted-foreground">
       <span className="shrink-0">{t.loose(skills.length)}</span>
       {skills.map((x) => (
         <button
           key={x.id}
           type="button"
           className={cn(
-            "graph-loose-skill rounded-md border border-hairline bg-wash/70 px-2 py-0.5 font-medium text-foreground-secondary hover:border-primary-border hover:text-primary-strong",
+            "graph-loose-skill rounded-control border border-border bg-panel px-2 py-0.5 text-foreground-secondary hover:bg-fill hover:text-foreground",
             !matches(search, x) && "opacity-35",
           )}
           onClick={() => toggleDrawer(x.id)}
@@ -165,8 +165,8 @@ function Loose({ skills }: { skills: Skill[] }) {
 }
 
 // 名字的字号与字重：量宽和画出来用同一份，字体取界面实际用的。
-const nameFont = { fontSize: 12.5, fontWeight: 500 };
-const whereFont = { fontSize: 10.5, fontWeight: 400 };
+const nameFont = { fontSize: 13, fontWeight: 400 };
+const whereFont = { fontSize: 11, fontWeight: 400 };
 
 let canvas: HTMLCanvasElement | undefined;
 function nameWidth(text: string): number {
@@ -177,11 +177,16 @@ function nameWidth(text: string): number {
   return ctx.measureText(text).width;
 }
 
-// 按集合着色：同一个集合在哪张图里都是同一种颜色(按左栏里集合的顺序取色);没有来源的技能是灰色。
-const palette = ["#3b82f6", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444", "#84cc16"];
+// 圆点只用灰度：集合里的技能是标注档的灰，没有来源的技能是禁用档的浅灰。
+const collectionColor = "var(--color-muted-foreground)";
 const noCollection = "var(--color-subtle)";
-// 点了一个技能时三种关系的颜色：提到它的、它提到的、互相提到的。
-const relationColor: Record<Relation, string> = { in: "var(--color-graph-in)", out: "var(--color-graph-out)", both: "var(--color-graph-both)" };
+// 点了一个技能时三种关系的线都用主要档的颜色，靠线型区分：它提到的是实线，提到它的是虚线，互相提到的是点线。
+const relationColor = "var(--color-foreground)";
+const relationStroke: Record<Relation, { width: number; dash?: string; cap?: "round" }> = {
+  out: { width: 2 },
+  in: { width: 2, dash: "5 3" },
+  both: { width: 2.4, dash: "0.5 3.5", cap: "round" },
+};
 const linkColor = "var(--color-graph-link)";
 const litColor = "var(--color-primary)";
 
@@ -201,7 +206,6 @@ interface Tip {
 // Canvas 是图本身：SVG 画圆点和线,d3-zoom 负责拖动画布与滚轮、捏合缩放;圆点可以拖动。
 function Canvas({ graph }: { graph: MentionGraph }) {
   const t = useT().graph;
-  const s = useSnapshot();
   const search = useView((v) => v.search);
   const drawer = useView((v) => v.drawer);
   const markers = useId().replace(/:/g, "");
@@ -327,10 +331,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [tip?.pinned]);
 
-  const colorOf = useMemo(() => {
-    const index = new Map<CollectionID, number>(s.collections.map((c, i) => [c.id, i]));
-    return (n: GraphNode) => (n.collection === null ? noCollection : palette[(index.get(n.collection) ?? 0) % palette.length]);
-  }, [s.collections]);
+  const colorOf = (n: GraphNode) => (n.collection === null ? noCollection : collectionColor);
   const linkByKey = useMemo(() => new Map(graph.links.map((l) => [l.key, l])), [graph]);
   const tipLink = tip ? linkByKey.get(tip.key) : undefined;
   const named = useMemo(() => labelled(graph.nodes), [graph]);
@@ -399,7 +400,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   };
 
   return (
-    <div ref={box} className="graph-canvas relative min-h-0 flex-1 overflow-hidden rounded-[10px] border border-hairline bg-wash/55 shadow-tile">
+    <div ref={box} className="graph-canvas relative min-h-0 flex-1 overflow-hidden rounded-card border border-border bg-panel shadow-tile">
       <svg
         ref={svgRef}
         className="graph-svg block size-full cursor-grab select-none active:cursor-grabbing"
@@ -414,7 +415,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         }}
       >
         <defs>
-          {Object.entries({ base: linkColor, lit: litColor, ...relationColor }).map(([name, color]) => (
+          {Object.entries({ base: linkColor, lit: litColor, rel: relationColor }).map(([name, color]) => (
             <g key={name}>
               <marker id={`${markers}-end-${name}`} viewBox="0 -5 10 10" refX={10} markerWidth={7} markerHeight={7} orient="auto">
                 <path d="M0,-4.5L10,0L0,4.5Z" fill={color} />
@@ -436,8 +437,8 @@ function Canvas({ graph }: { graph: MentionGraph }) {
               const rel = focus && (l.from === selected || l.to === selected) ? focus.relation.get(l.from === selected ? l.to : l.from) : undefined;
               const hidden = focus !== null && !rel;
               const isLit = !!lit?.links.has(l.key);
-              const kind = rel ?? (isLit ? "lit" : "base");
-              const color = rel ? relationColor[rel] : isLit ? litColor : linkColor;
+              const kind = rel ? "rel" : isLit ? "lit" : "base";
+              const color = rel ? relationColor : isLit ? litColor : linkColor;
               const d = linkPath(a, b, radius(na), radius(nb), l.both, focus ? [nameWidth(na.skill.name), nameWidth(nb.skill.name)] : undefined);
               const dim = !hidden && !rel && ((lit && !isLit) || (searching && !matches(search, na.skill) && !matches(search, nb.skill)));
               return (
@@ -452,7 +453,9 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                     d={d}
                     fill="none"
                     stroke={color}
-                    strokeWidth={rel || isLit ? 2 : 1.3}
+                    strokeWidth={rel ? relationStroke[rel].width : isLit ? 2 : 1.3}
+                    strokeDasharray={rel && relationStroke[rel].dash}
+                    strokeLinecap={rel && relationStroke[rel].cap}
                     markerEnd={`url(#${markers}-end-${kind})`}
                     markerStart={l.both ? `url(#${markers}-start-${kind})` : undefined}
                   />
@@ -508,19 +511,19 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                   {isSelected && <circle r={r + 4} fill="none" stroke="var(--color-primary)" strokeWidth={2} />}
                   <circle
                     r={r}
-                    fill={n.outside ? "var(--color-halo)" : color}
-                    stroke={n.outside ? color : "var(--color-halo)"}
+                    fill={n.outside ? "var(--color-panel)" : color}
+                    stroke={n.outside ? color : "var(--color-panel)"}
                     strokeWidth={n.outside ? 1.6 : 2}
                     strokeDasharray={n.outside ? "3 2" : undefined}
                   />
                   {showName && (
-                    <g className="graph-node-label" style={{ paintOrder: "stroke" }} stroke="var(--color-halo)" strokeWidth={4} strokeLinejoin="round">
+                    <g className="graph-node-label" style={{ paintOrder: "stroke" }} stroke="var(--color-panel)" strokeWidth={4} strokeLinejoin="round">
                       <text
                         x={beside ? r + 7 : 0}
                         y={beside ? 4 : r + 14}
                         textAnchor={beside ? "start" : "middle"}
                         fill={n.outside ? "var(--color-foreground-secondary)" : "var(--color-foreground)"}
-                        style={{ ...nameFont, fontWeight: isSelected ? 650 : nameFont.fontWeight }}
+                        style={{ ...nameFont, fontWeight: isSelected ? 600 : nameFont.fontWeight }}
                       >
                         {n.skill.name}
                       </text>
@@ -545,17 +548,28 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         </g>
       </svg>
       {focus && (
-        <div className="graph-legend pointer-events-none absolute top-2.5 left-3 flex gap-3 rounded-md bg-wash/75 px-2 py-1 text-[11px] text-foreground-secondary">
+        <div className="graph-legend pointer-events-none absolute top-2.5 left-3 flex gap-3 rounded-control bg-panel px-2 py-1 text-caption text-foreground-secondary">
           {(["in", "out", "both"] as const).map((r) => (
             <span key={r} className="flex items-center gap-1.5">
-              <span className="h-[3px] w-4 rounded-full" style={{ background: relationColor[r] }} />
+              <svg aria-hidden width="18" height="4" className="overflow-visible">
+                <line
+                  x1="1"
+                  y1="2"
+                  x2="17"
+                  y2="2"
+                  stroke={relationColor}
+                  strokeWidth={relationStroke[r].width}
+                  strokeDasharray={relationStroke[r].dash}
+                  strokeLinecap={relationStroke[r].cap}
+                />
+              </svg>
               {t.relation[r]}
             </span>
           ))}
         </div>
       )}
       {/* 放在左下角：右侧会被详情抽屉盖住。 */}
-      <div className="graph-controls absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-md border border-hairline bg-panel shadow-tile">
+      <div className="graph-controls absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-control border border-border-control bg-panel shadow-tile">
         {(
           [
             ["plus", t.zoomIn, () => zoomBy(1.25)],
@@ -566,7 +580,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
           <button
             key={icon}
             type="button"
-            className={`graph-${icon} flex size-7 items-center justify-center border-b border-hairline text-foreground-secondary last:border-b-0 hover:bg-primary-soft hover:text-primary-strong`}
+            className={`graph-${icon} flex size-7 items-center justify-center border-b border-row-line text-foreground-secondary last:border-b-0 hover:bg-fill hover:text-foreground`}
             title={label}
             aria-label={label}
             onClick={act}
@@ -696,7 +710,7 @@ function LinesTip({ link, tip, box, onClose }: { link: GraphLink; tip: Tip; box:
   return (
     <div
       className={cn(
-        "graph-tip absolute z-10 flex w-[400px] flex-col gap-1.5 glass glass-clear rounded-lg border px-3 py-2.5 text-[11.5px] leading-[1.45] text-foreground [--glass-drop:var(--shadow-popover)]",
+        "graph-tip absolute z-10 flex w-[400px] flex-col gap-1.5 glass glass-clear rounded-card border px-3 py-2.5 text-caption text-foreground [--glass-drop:var(--shadow-popover)]",
         tip.pinned ? "max-h-[60%] overflow-y-auto select-text" : "pointer-events-none",
       )}
       data-pinned={tip.pinned || undefined}
@@ -710,9 +724,9 @@ function LinesTip({ link, tip, box, onClose }: { link: GraphLink; tip: Tip; box:
       {sections.map(({ m, shown }, k) => {
         const target = name(m.to);
         return (
-          <div key={k} className={cn("flex flex-col gap-1.5", k > 0 && "mt-1 border-t border-hairline pt-2")}>
+          <div key={k} className={cn("flex flex-col gap-1.5", k > 0 && "mt-1 border-t border-row-line pt-2")}>
             <div className="flex items-start gap-2">
-              <b className="min-w-0 grow text-[12px] font-semibold">{t.mentions(name(m.from), target)}</b>
+              <b className="min-w-0 grow text-body font-semibold">{t.mentions(name(m.from), target)}</b>
               {tip.pinned && k === 0 && (
                 <button type="button" className="graph-tip-close shrink-0 text-muted-foreground hover:text-foreground" title={t.close} onClick={onClose}>
                   <Icon name="close" className="size-3" />
@@ -723,12 +737,12 @@ function LinesTip({ link, tip, box, onClose }: { link: GraphLink; tip: Tip; box:
               const snip = tip.pinned ? mentionSnippet(l.text, target, 0, Infinity) : mentionSnippet(l.text, target);
               return (
                 <div key={i} className="graph-tip-line min-w-0">
-                  <span className="font-mono text-[10px] text-subtle">{l.path}</span>
+                  <span className="font-mono text-caption text-muted-foreground">{l.path}</span>
                   <p className={cn("break-words text-foreground-secondary", !tip.pinned && "line-clamp-3")}>
                     {snip.cut && "…"}
                     {snip.parts.map((p, j) =>
                       p.hit ? (
-                        <mark key={j} className="rounded-[3px] bg-primary-soft px-0.5 font-semibold text-primary-strong">
+                        <mark key={j} className="rounded-[4px] bg-primary-soft px-0.5 font-semibold text-foreground">
                           {p.text}
                         </mark>
                       ) : (

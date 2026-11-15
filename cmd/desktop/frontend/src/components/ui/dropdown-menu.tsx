@@ -2,7 +2,7 @@
 import type { ComponentProps } from "react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
-import { MenuSubChevron, menuDangerClass, menuItemClass, menuSeparatorClass, menuSubSurface, menuSurface } from "./context-menu";
+import { MenuSubChevron, menuItemClass, menuSeparatorClass, menuSubSurface, menuSurface } from "./context-menu";
 
 function DropdownMenu(props: ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" modal={false} {...props} />;
@@ -27,8 +27,8 @@ function DropdownMenuContent({ className, align = "end", sideOffset = 4, ...prop
   );
 }
 
-function DropdownMenuItem({ className, danger = false, ...props }: ComponentProps<typeof DropdownMenuPrimitive.Item> & { danger?: boolean }) {
-  return <DropdownMenuPrimitive.Item data-slot="dropdown-menu-item" className={cn(menuItemClass, danger && menuDangerClass, className)} {...props} />;
+function DropdownMenuItem({ className, ...props }: ComponentProps<typeof DropdownMenuPrimitive.Item>) {
+  return <DropdownMenuPrimitive.Item data-slot="dropdown-menu-item" className={cn(menuItemClass, className)} {...props} />;
 }
 
 function DropdownMenuSeparator({ className, ...props }: ComponentProps<typeof DropdownMenuPrimitive.Separator>) {

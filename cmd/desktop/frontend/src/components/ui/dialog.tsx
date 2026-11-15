@@ -1,6 +1,6 @@
 // shadcn/ui 的 Dialog,按本应用改过：
 // - 贴着窗口上部(10vh)出现而不是垂直居中：内容变高(切换入库来源、预览结果出来)时只往下长，不上下跳;
-// - 表面是毛玻璃(index.css 的 glass),遮罩是淡色，不用 shadcn 默认的不透明背景和深色遮罩;铺满窗口的(full)是用来读内容的，用不透明的浅灰底;
+// - 表面不透明(tile),遮罩是淡色;
 // - 标题、关闭按钮、可滚动的主体与底部按钮行各有一个部件，弹窗外壳 Modal(lib/ui.tsx)把它们拼起来;
 // - 默认 560px 宽,wide 是 760px,full 铺满窗口(上面让出顶栏);
 // - 从某个元素打开的(DialogMotion 给了 origin,如顶栏"入库技能"):弹窗从那个元素的位置和大小放大出来，关掉时缩回去;
@@ -140,7 +140,7 @@ function DialogContent({
 
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay ref={overlay} data-slot="dialog-overlay" className="fixed inset-0 z-50 animate-fade-in bg-scrim-strong">
+      <DialogPrimitive.Overlay ref={overlay} data-slot="dialog-overlay" className="fixed inset-0 z-50 animate-fade-in bg-scrim">
         {platform() === "windows" && (
           <div className="absolute inset-x-0 top-0" {...captionProps()} onPointerDown={(e) => e.stopPropagation()} />
         )}
@@ -153,7 +153,7 @@ function DialogContent({
         style={full ? { top: captionHeight, ...style } : style}
         className={cn(
           "fixed top-[10vh] left-1/2 z-50 flex max-h-[calc(90vh-40px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 flex-col rounded-tile border outline-none",
-          full ? "border-hairline bg-surface shadow-dialog" : "glass [--glass-drop:var(--shadow-dialog)]",
+          "bg-tile shadow-dialog",
           morphing ? "origin-top-left" : "animate-dialog-in",
           wide && "w-[760px]",
           // 铺满窗口(如版本比较):上面让出顶栏(top 见 style),其余三边留 24px。
@@ -177,7 +177,7 @@ function DialogHeader({ className, ...props }: ComponentProps<"div">) {
 }
 
 function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title data-slot="dialog-title" className={cn("flex-1 text-[15px] font-bold", className)} {...props} />;
+  return <DialogPrimitive.Title data-slot="dialog-title" className={cn("flex-1 text-heading", className)} {...props} />;
 }
 
 // 子元素不被压缩：否则 overflow 隐藏的块会被挤扁、内容被裁掉，主体反而滚不起来。
@@ -195,7 +195,7 @@ function DialogFooter({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-footer"
-      className={cn("flex items-center justify-end gap-2 border-t border-border-subtle px-4 pt-2.5 pb-3.5", className)}
+      className={cn("flex items-center justify-end gap-2 border-t border-row-line px-4 pt-2.5 pb-3.5", className)}
       {...props}
     />
   );

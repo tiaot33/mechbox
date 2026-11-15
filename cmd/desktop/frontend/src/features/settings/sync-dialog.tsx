@@ -112,7 +112,7 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
             <span className="grow" />
             {pull.backups.length > 0 && (
               <Button
-                variant="danger"
+                variant="primary"
                 disabled={!plan?.can_pull || (working !== null && working !== "run")}
                 loading={working === "run"}
                 onClick={execute}
@@ -136,7 +136,7 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
         </div>
       )}
       {!pull && <SyncStatusLine folder={settings?.folder ?? ""} />}
-      {pulled && <Notice tone="ok">{t.pulled}</Notice>}
+      {pulled && <Notice>{t.pulled}</Notice>}
       {pull && pull.backups.length === 0 && <Notice>{t.noBackups([settings?.bucket, settings?.folder].filter(Boolean).join("/") || "S3")}</Notice>}
       {pull && pull.backups.length > 0 && (
         <>
@@ -151,21 +151,21 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
                 className="sync-backup"
                 onClick={() => b.id !== pull.selected && working !== "run" && void choose(pull.backups, b.id)}
               >
-                <span className="min-w-0 truncate font-mono text-xs">{b.device}</span>
+                <span className="min-w-0 truncate font-mono text-body">{b.device}</span>
                 {b.this_device && <Badge>{t.thisDevice}</Badge>}
                 <span className="grow" />
-                <span className="shrink-0 text-xs text-muted-foreground">{formatDate(b.pushed_at)}</span>
+                <span className="shrink-0 text-body text-muted-foreground">{formatDate(b.pushed_at)}</span>
               </ListRow>
             ))}
           </ListBox>
           {plan?.can_pull && (
-            <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-xs [&_dt]:text-muted-foreground">
+            <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-body [&_dt]:text-muted-foreground">
               <dt>{t.contents}</dt>
               <dd>{t.counts(plan.skills, plan.groups, plan.projects?.length ?? 0)}</dd>
             </dl>
           )}
-          {plan && !plan.can_pull && <Notice tone="bad">{cannotPull(plan.cannot_pull ?? "") ?? t.cannotPull}</Notice>}
-          {plan?.can_pull && <Notice tone="warn">{t.pullWarning}</Notice>}
+          {plan && !plan.can_pull && <Notice alert>{cannotPull(plan.cannot_pull ?? "") ?? t.cannotPull}</Notice>}
+          {plan?.can_pull && <Notice alert>{t.pullWarning}</Notice>}
           {missing.length > 0 && <Notice>{t.missingProjects(missing.map((p) => p.name))}</Notice>}
         </>
       )}

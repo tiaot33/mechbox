@@ -20,7 +20,7 @@ import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQu
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate } from "./update";
-import { rollbackOutcome, rollbackUpdate } from "./rollback";
+import { putBack, rollbackOutcome, rollbackUpdate } from "./rollback";
 import { compareVersions } from "./version-compare";
 import { cn } from "@/lib/utils";
 import { Badge, type Tone } from "@/components/ui/badge";
@@ -29,15 +29,16 @@ import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
+import { Summary } from "@/components/app/parts";
 
-function kindText(kind: string): { text: string; tone: Tone } | undefined {
+function kindText(kind: string): string {
   const t = messages().history;
-  const known: Record<string, { text: string; tone: Tone }> = {
-    [UpdateRecordKind.UpdateRecordUpdate]: { text: t.update, tone: "accent" },
-    [UpdateRecordKind.UpdateRecordSkip]: { text: t.skip, tone: "neutral" },
-    [UpdateRecordKind.UpdateRecordRollback]: { text: t.rollback, tone: "warn" },
+  const known: Record<string, string> = {
+    [UpdateRecordKind.UpdateRecordUpdate]: t.update,
+    [UpdateRecordKind.UpdateRecordSkip]: t.skip,
+    [UpdateRecordKind.UpdateRecordRollback]: t.rollback,
   };
-  return known[kind];
+  return known[kind] ?? kind;
 }
 
 export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
@@ -60,7 +61,7 @@ export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistor
     >
       {failed ? (
         <>
-          <Notice tone="bad" className="whitespace-pre-line">
+          <Notice alert className="whitespace-pre-line">
             {t.readFailed}
             {"\n"}
             {describeError(failed)}
@@ -90,7 +91,6 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
   const s = useSnapshot();
   const ui = useUI();
   const t = useT().history;
-  const kind = kindText(record.kind) ?? { text: record.kind, tone: "neutral" as Tone };
   const skills = record.skills ?? [];
   const installs = record.installs ?? [];
   // 项目里共用一个文件夹的几处合成一处计数，和下面列出的一致。
@@ -115,7 +115,7 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
     update && places.length > 0 && t.reinstalled(places.length - mergeProjectPlaces(s, failed).length, mergeProjectPlaces(s, failed).length),
     rollback &&
       places.length > 0 &&
-      t.putBack(places.filter((i) => rollbackOutcome(i.outcome).tone === "ok").length, places.length),
+      t.putBack(places.filter(putBack).length, places.length),
   ].filter(Boolean);
 
   const retry = async () => {
@@ -129,11 +129,9 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
 
   return (
     <ListRow className={cn("update-record items-start", rolledBack && "opacity-70")}>
-      <Badge tone={kind.tone} className="mt-px">
-        {kind.text}
-      </Badge>
+      <Badge className="mt-px">{kindText(record.kind)}</Badge>
       <div className="flex min-w-0 grow flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 text-caption text-muted-foreground">
           <span className="text-foreground">{formatDate(record.created_at)}</span>
           {facts.map((f) => (
             <span key={String(f)}>{f}</span>
@@ -148,10 +146,10 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
         {installs.length > 0 && <Places record={record} />}
         {(record.commits?.length ?? 0) > 0 && (
           <details>
-            <summary className="cursor-pointer text-[11px] text-muted-foreground">{t.commits(record.commits!.length)}</summary>
+            <Summary className="text-caption text-muted-foreground">{t.commits(record.commits!.length)}</Summary>
             <div className="mt-1 flex flex-col gap-0.5">
               {record.commits!.map((c) => (
-                <div key={c.sha} className="flex gap-2 text-[11px]" title={c.message}>
+                <div key={c.sha} className="flex gap-2 text-caption" title={c.message}>
                   <span className="shrink-0 font-mono text-muted-foreground">{c.sha.slice(0, 7)}</span>
                   <span className="min-w-0 truncate">{c.message.split("\n")[0]}</span>
                 </div>
@@ -201,9 +199,9 @@ function useFromRevisions(record: UpdateRecord | undefined): string[] {
 function reinstallText(outcome: string): { text: string; tone: Tone } | undefined {
   const t = messages().history;
   const known: Record<string, { text: string; tone: Tone }> = {
-    [ReinstallOutcome.Reinstalled]: { text: t.placedOk, tone: "ok" },
-    [ReinstallOutcome.ReinstallCurrent]: { text: t.placedCurrent, tone: "ok" },
-    [ReinstallOutcome.ReinstallFailed]: { text: t.placedFailed, tone: "bad" },
+    [ReinstallOutcome.Reinstalled]: { text: t.placedOk, tone: "plain" },
+    [ReinstallOutcome.ReinstallCurrent]: { text: t.placedCurrent, tone: "plain" },
+    [ReinstallOutcome.ReinstallFailed]: { text: t.placedFailed, tone: "must" },
   };
   return known[outcome];
 }
@@ -216,15 +214,15 @@ function Places({ record }: { record: UpdateRecord }) {
   const names = new Map((record.skills ?? []).map((x) => [x.skill_id, x.name]));
   const name = (i: RecordedInstall) => names.get(i.skill_id) ?? s.skills.find((x) => x.id === i.skill_id)?.name ?? `#${i.skill_id}`;
   const outcome = (i: RecordedInstall) =>
-    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText(i.outcome) ?? { text: i.outcome, tone: "warn" as Tone });
+    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText(i.outcome) ?? { text: i.outcome, tone: "todo" as Tone });
   return (
     <details className="update-places">
-      <summary className="cursor-pointer text-[11px] text-muted-foreground">
+      <Summary className="text-caption text-muted-foreground">
         {t.places(record.kind === UpdateRecordKind.UpdateRecordRollback, mergeProjectPlaces(s, installs).length)}
-      </summary>
+      </Summary>
       <div className="mt-1 flex flex-col gap-0.5">
         {mergeProjectPlaces(s, installs).map((i) => (
-          <div key={`${i.skill_id}|${i.scope.agent}|${i.scope.project_id ?? 0}`} className="flex items-center gap-2 text-[11px]">
+          <div key={`${i.skill_id}|${i.scope.agent}|${i.scope.project_id ?? 0}`} className="flex items-center gap-2 text-caption">
             <span className="min-w-0 truncate">
               {name(i)} · {scopeLabel(s, i.scope)}
             </span>
@@ -268,7 +266,7 @@ function SkillLine({ skill, diffable }: { skill: RecordedSkill; diffable: boolea
     <div className="flex items-center gap-2">
       <b className="font-semibold">{name}</b>
       {diffable && skill.from_version_id !== skill.to_version_id && (
-        <Button variant="link" onClick={(e) => void open(e.currentTarget)}>
+        <Button variant="ghost" size="inline" onClick={(e) => void open(e.currentTarget)}>
           {t.whatChanged}
         </Button>
       )}

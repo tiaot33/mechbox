@@ -108,14 +108,14 @@ function FetchUnmanagedDialog({
       <Hint>{t.actions.fetchHandOver(place)}</Hint>
       {same && <Hint className="unmanaged-same-as">{same}</Hint>}
       <Hint>{t.actions.fetchCliCost}</Hint>
-      {skill.in_repository && <Notice tone="warn">{t.actions.fetchInRepository}</Notice>}
+      {skill.in_repository && <Notice alert>{t.actions.fetchInRepository}</Notice>}
       {outside && (
-        <Notice tone="warn" className="unmanaged-link-outside">
+        <Notice alert className="unmanaged-link-outside">
           {outside}
         </Notice>
       )}
       {twins.length > 0 && (
-        <Notice tone="warn" className="unmanaged-same-name">
+        <Notice alert className="unmanaged-same-name">
           {t.actions.sameNameTwins(skill.name, twins, sameNameFetchNote(skill.name, !!input))}
         </Notice>
       )}
@@ -136,7 +136,7 @@ function FetchUnmanagedDialog({
         </>
       )}
       {error && (
-        <Notice tone="bad" className="unmanaged-error whitespace-pre-line">
+        <Notice alert className="unmanaged-error whitespace-pre-line">
           {unmanagedSourceError(error, skill.name)}
         </Notice>
       )}

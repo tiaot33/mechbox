@@ -63,10 +63,10 @@ export function UpdatesHead() {
           <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-b border-row-line pb-2">
             <div className={barRowClass}>
               {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
-              <b className="max-w-1/2 min-w-0 shrink-0 truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+              <b className="max-w-1/2 min-w-0 shrink-0 truncate font-mono font-semibold">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
               {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
               {risk && (
-                <Badge tone="bad" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
+                <Badge tone="must" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
                   <span className="truncate">{risk}</span>
                 </Badge>
               )}
@@ -89,7 +89,7 @@ export function UpdatesHead() {
                 </Button>
               )}
             </div>
-            <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
+            <span className="min-w-0 truncate text-caption text-muted-foreground" title={facts.join(" · ")}>
               {facts.join(" · ")}
             </span>
           </div>

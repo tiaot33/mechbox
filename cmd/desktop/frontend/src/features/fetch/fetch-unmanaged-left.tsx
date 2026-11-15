@@ -66,7 +66,7 @@ export function LeftDialog({
       }
     >
       {fetched.length > 0 && (
-        <Notice tone="ok">{fetchedMessage(fetched)}</Notice>
+        <Notice>{fetchedMessage(fetched)}</Notice>
       )}
       <Hint>{t.leftHint(failed.length)}</Hint>
       <ListBox scroll className="fetch-unmanaged-failed">
@@ -74,11 +74,11 @@ export function LeftDialog({
           <ListRow key={f.key} className="flex-col items-stretch gap-1.5">
             <div className="flex min-w-0 items-center gap-2">
               <b className="font-semibold">{f.planned.name}</b>
-              <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+              <span className="min-w-0 truncate text-caption text-muted-foreground">
                 {agentNames(f.planned)}
               </span>
             </div>
-            <p className="fetch-unmanaged-error text-[11.5px] whitespace-pre-line text-bad">
+            <p className="fetch-unmanaged-error text-caption whitespace-pre-line text-foreground">
               {unmanagedSourceError(f.error, f.planned.name)}
             </p>
             <div className="flex min-w-0 items-center gap-2">

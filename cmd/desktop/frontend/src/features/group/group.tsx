@@ -101,9 +101,9 @@ async function addEachToGroup(
     return true;
   }
   const rows = outcomes.flatMap((o): ResultRow[] => {
-    if (o.error) return [{ label: skillName(s, o.id), outcome: t.failed, tone: "bad", reason: describeError(o.error) }];
+    if (o.error) return [{ label: skillName(s, o.id), outcome: t.failed, tone: "must", reason: describeError(o.error) }];
     if (o.results.length) return memberRows(s, o.results);
-    return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "ok" }];
+    return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "plain" }];
   });
   await showResults(text.title(added.length, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
   return added.length > 0;

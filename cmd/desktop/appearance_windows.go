@@ -10,9 +10,9 @@ import (
 // windowColour 是没有 Mica 时窗口的不透明底色，浅色、深色各一份，与 index.css 里 window-backdrop 最底下那层同色。
 func windowColour(dark bool) application.RGBA {
 	if dark {
-		return application.NewRGB(26, 26, 30)
+		return application.NewRGB(28, 28, 28)
 	}
-	return application.NewRGB(236, 239, 245)
+	return application.NewRGB(236, 236, 236)
 }
 
 // setNativeAppearance 按外观设窗口的深浅色(Mica 与标题栏跟着变)和没有 Mica 时的不透明底色;跟随系统时看系统的「应用模式」。

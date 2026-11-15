@@ -60,7 +60,7 @@ function WindowControls() {
     };
   }, []);
   const button =
-    "grid w-[46px] place-items-center font-['Segoe_Fluent_Icons','Segoe_MDL2_Assets'] text-[10px] leading-none transition-colors duration-100";
+    "grid w-[46px] place-items-center font-['Segoe_Fluent_Icons','Segoe_MDL2_Assets'] text-caption leading-none transition-colors duration-100";
   const plain = cn(button, "hover:bg-caption-hover active:bg-caption-press active:text-muted-foreground");
   return (
     <div
@@ -78,7 +78,7 @@ function WindowControls() {
       <button
         type="button"
         tabIndex={-1}
-        className={cn(button, "hover:bg-[#c42b1c] hover:text-white active:bg-[#c42b1c]/90 active:text-white/70")}
+        className={cn(button, "hover:bg-caption-close hover:text-white active:bg-caption-close/90 active:text-white/70")}
         title={t.close}
         onClick={() => void Window.Close()}
       >

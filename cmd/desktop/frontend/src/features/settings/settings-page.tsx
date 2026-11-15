@@ -150,7 +150,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             <Button variant="ghost" size="icon" onClick={() => void saving.current.then(onClose)} title={t.back}>
               <Icon name="chevL" />
             </Button>
-            <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
+            <span className="tb-crumb ml-1 inline-flex items-center gap-1.5 text-body font-semibold whitespace-nowrap">
               <b>{t.title}</b>
               <BusyMark checks />
             </span>
@@ -234,7 +234,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                     <Tipped className="grow" tip={t.uninstallDesc()}>
                       {t.uninstall}
                     </Tipped>
-                    <Button variant="danger" onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
+                    <Button onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
                       {t.uninstallButton}
                     </Button>
                   </SetRow>

@@ -5,7 +5,7 @@ export function SetRow({ className, children }: { className?: string; children: 
   return (
     <div
       className={cn(
-        "set-row flex items-center gap-3 border-t border-border-subtle py-2 text-[12.5px] [[data-slot=card-header]+&]:border-t-0 [[data-slot=card-header]+&]:pt-0",
+        "set-row flex items-center gap-3 border-t border-row-line py-2 text-body [[data-slot=card-header]+&]:border-t-0 [[data-slot=card-header]+&]:pt-0",
         className,
       )}
     >

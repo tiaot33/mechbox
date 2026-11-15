@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 export function SameNameBadge({ note }: { note: { title: string } }) {
   const t = useT().list;
   return (
-    <Badge tone="warn" className="same-name-badge" title={note.title}>
+    <Badge tone="todo" className="same-name-badge" title={note.title}>
       {t.sameName}
     </Badge>
   );
@@ -15,7 +15,7 @@ export function SameNameBadge({ note }: { note: { title: string } }) {
 
 export function SameNameLine({ note }: { note: { text: string; title: string } }) {
   return (
-    <p className="same-name-note truncate text-[10.5px] text-warn-strong" title={note.title}>
+    <p className="same-name-note truncate text-caption text-foreground" title={note.title}>
       {note.text}
     </p>
   );

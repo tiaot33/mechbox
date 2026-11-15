@@ -27,9 +27,10 @@ import { reinstall } from "@/features/install/reinstall";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
 import { WSLBadge } from "@/components/app/parts";
+import { Badge } from "@/components/ui/badge";
 
 // 列表顶部的摘要条(作用域摘要、更新列表)共用的外观。
-export const barClass = "a-scope-sum flex flex-col gap-2 rounded-[10px] border border-hairline bg-glass-card px-3 py-2.5 shadow-tile";
+export const barClass = "a-scope-sum flex flex-col gap-2 rounded-card border border-border bg-panel px-3 py-2.5 shadow-tile";
 
 export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
@@ -54,7 +55,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   return (
     <div className={barClass}>
       <div className="flex min-w-0 items-center gap-2.5">
-        <b className="scope-sees min-w-0 truncate text-[13px] font-semibold">
+        <b className="scope-sees min-w-0 truncate text-body font-semibold">
           {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), sees) : t.scopeSeesGlobal(agent, sees)}
         </b>
         <span className="grow" />
@@ -66,9 +67,9 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         )}
       </div>
       <div className={barRowClass}>
-        <span className="text-[11px] text-muted-foreground">{t.agentDirectory}</span>
+        <span className="text-caption text-muted-foreground">{t.agentDirectory}</span>
         <WSLBadge path={directory} />
-        <span className="max-w-[360px] truncate font-mono text-[11px] select-text" title={wslTitle(directory)}>
+        <span className="max-w-[360px] truncate font-mono text-caption select-text" title={wslTitle(directory)}>
           {directory ? shortPath(s, directory) : "…"}
         </span>
         <span className="grow" />
@@ -86,7 +87,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
       </div>
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">{t.groups}</span>
+          <span className="text-caption text-muted-foreground">{t.groups}</span>
           {groups.map((g) => {
             const state = groupStateIn(s, g, scope);
             const on = state === "on";
@@ -97,15 +98,15 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
                 data-state={state}
                 aria-pressed={on}
                 className={cn(
-                  "gchip inline-flex h-6 items-center gap-1.5 rounded-md border border-border px-[9px] text-[11.5px] text-foreground-secondary transition-colors hover:border-border-strong hover:bg-wash/70",
-                  on && "border-group-border bg-group-soft font-medium text-group-ink hover:border-group hover:bg-group-soft",
+                  "gchip inline-flex h-6 items-center gap-1.5 rounded-control border border-border-control px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
+                  on && "border-foreground font-semibold text-foreground",
                 )}
                 onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
-                <i className={cn("size-[7px] rounded-full border-[1.5px] border-subtle", on && "border-group bg-group")} />
+                <i className={cn("size-[7px] rounded-full border-[1.5px] border-muted-foreground", on && "border-foreground bg-foreground")} />
                 {g.name}
-                <span className={cn("font-mono text-[11px] text-subtle", on && "text-group-count")}>
+                <span className={cn("font-mono text-caption font-normal text-muted-foreground tabular-nums", on && "text-foreground")}>
                   {viaGroupCount(s, g, scope)}/{g.members?.length ?? 0}
                 </span>
               </button>
@@ -129,7 +130,7 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
   return (
     <div className={barClass}>
       <div className="flex min-w-0 items-center gap-2.5">
-        <b className="project-sum min-w-0 truncate text-[13px] font-semibold">{t.projectHas(name, total)}</b>
+        <b className="project-sum min-w-0 truncate text-body font-semibold">{t.projectHas(name, total)}</b>
         <span className="grow" />
         {others && (
           <Button size="sm" className="copy-project-open shrink-0" title={c.projectOpenTitle(name)} onClick={() => openCopyFromProject(project.id)}>
@@ -139,9 +140,9 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
         )}
       </div>
       <div className={barRowClass}>
-        <span className="text-[11px] text-muted-foreground">{t.projectDirectory}</span>
+        <span className="text-caption text-muted-foreground">{t.projectDirectory}</span>
         <WSLBadge path={project.path} />
-        <span className="max-w-[360px] truncate font-mono text-[11px] select-text" title={wslTitle(project.path)}>
+        <span className="max-w-[360px] truncate font-mono text-caption select-text" title={wslTitle(project.path)}>
           {shortPath(s, project.path)}
         </span>
         <span className="grow" />
@@ -165,8 +166,16 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
 
 function Stat({ value, label, warn = false }: { value: number; label: string; warn?: boolean }) {
   return (
-    <span className="stat text-xs text-foreground-secondary" data-tone={warn ? "warn" : undefined}>
-      <b className={cn("mr-0.5 text-sm", warn && "text-warn-ink")}>{value}</b> {label}
+    <span className="stat text-body text-foreground-secondary" data-tone={warn ? "warn" : undefined}>
+      {warn ? (
+        <Badge tone="must">
+          {value} {label}
+        </Badge>
+      ) : (
+        <>
+          <b className="mr-0.5 font-semibold text-foreground tabular-nums">{value}</b> {label}
+        </>
+      )}
     </span>
   );
 }

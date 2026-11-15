@@ -116,7 +116,7 @@ function EmptyLibrary() {
   const t = useT().list;
   return (
     <ListEmpty>
-      <b className="text-sm text-foreground">{t.emptyLibrary}</b>
+      <b className="text-heading text-foreground">{t.emptyLibrary}</b>
       <span>{t.emptyHint}</span>
       <Button variant="primary" className="mt-1.5" onClick={(e) => void openFetch(s.info.home_dir, e.currentTarget)}>
         <Icon name="plus" />
@@ -215,7 +215,7 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
         rows
       ) : (
         <EmptyRows>
-          <b className="mr-1.5 font-medium text-foreground-secondary">{t.emptyGroup}</b>
+          <b className="mr-1.5 font-semibold text-foreground-secondary">{t.emptyGroup}</b>
           {t.emptyGroupHint}
         </EmptyRows>
       )}
@@ -233,7 +233,7 @@ function sectionLook(
   const c = section.kind === "collection" ? s.collections.find((x) => x.id === section.id) : undefined;
   if (c) return { icon: <SourceIcon type={c.source.type} className="size-3.5 text-muted-foreground" />, name: sourceLabel(s, c.source) };
   const g = section.kind === "group" ? s.groups.find((x) => x.id === section.id) : undefined;
-  if (g) return { icon: <Icon name="layers" className="size-3.5 text-group" />, name: g.name };
+  if (g) return { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: g.name };
   return rest
     ? { icon: <Icon name="folder" className="size-3.5 text-muted-foreground" />, name: t.restCollection, title: t.restCollectionTitle }
     : { icon: <Icon name="layers" className="size-3.5 text-muted-foreground" />, name: t.restGroup };
@@ -271,7 +271,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
       {(l.hereSections.length > 0 || l.notHereSkills.length > 0) && (
         <div className="mt-3">
           <ArrangeBar>
-            {!search && !l.hereCount && !l.hereUnmanaged.length && <span className="min-w-0 text-[11.5px] text-muted-foreground">{t.nothingHere}</span>}
+            {!search && !l.hereCount && !l.hereUnmanaged.length && <span className="min-w-0 text-caption text-muted-foreground">{t.nothingHere}</span>}
           </ArrangeBar>
         </div>
       )}
@@ -338,10 +338,10 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
   const unfolded = useView((v) => v.unfolded.has(id)) || searching;
   const names = l.notHereSkills.map((x) => x.name);
   return (
-    <div className="not-here mt-4 border-t border-hairline pt-2">
+    <div className="not-here mt-4 border-t border-row-line pt-2">
       <button
         type="button"
-        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-fill hover:text-foreground"
+        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-control px-1 py-1.5 text-left text-body text-muted-foreground hover:bg-fill hover:text-foreground"
         aria-expanded={unfolded}
         disabled={searching}
         onClick={() => toggleUnfolded(id)}
@@ -401,7 +401,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
 
 // EmptyRows 是一节里没有行时的说明;aligned 时(行首有勾选框那一列的节)和技能名对齐。
 function EmptyRows({ aligned = true, children }: { aligned?: boolean; children: React.ReactNode }) {
-  return <p className={cn("py-3 pr-3 text-[11.5px] text-muted-foreground", aligned ? nameIndent : "pl-3")}>{children}</p>;
+  return <p className={cn("py-3 pr-3 text-caption text-muted-foreground", aligned ? nameIndent : "pl-3")}>{children}</p>;
 }
 
 // 空状态放在列表区的视觉中部，用上边距定位。

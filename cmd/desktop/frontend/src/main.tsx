@@ -19,7 +19,7 @@ window.addEventListener("unhandledrejection", (e) => {
 installGlass();
 
 // 等 Go 端定下界面语言再渲染，免得先闪一下另一种语言;读不到时用英文，和 Go 端认不出系统语言时一样。
-// 外观与毛玻璃浓度也在渲染前写上，免得先按浅色、100% 画再变过去。
+// 外观也在渲染前写上，免得先按浅色画再变过去。
 void Promise.all([AppService.Language().then(toLanguage).catch((): Language => "en"), installTheme()])
   .then(([language]) =>
     createRoot(document.getElementById("root")!).render(

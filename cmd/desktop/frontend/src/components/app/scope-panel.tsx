@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Agent, RegisteredProject } from "@bindings/internal/library";
+import { pressKeys } from "@/lib/keys";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
@@ -89,7 +90,7 @@ export function ScopePanel() {
             {agentNameIn(s, agent.code, place)}
           </span>
           {issues > 0 && (
-            <i className="size-1.5 shrink-0 rounded-full bg-warn" title={t.issues(issues)} />
+            <i className="size-1.5 shrink-0 rounded-full bg-solid" title={t.issues(issues)} />
           )}
           <NavCount value={installed.length} accent />
         </button>
@@ -111,7 +112,7 @@ export function ScopePanel() {
           <li>
             <button
               type="button"
-              className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub more text-xs text-muted-foreground")}
+              className={cn(navItem({ kind: place ? "nested" : "tree" }), "sub more text-body text-muted-foreground")}
               onClick={() => toggleMoreAgents(place)}
               {...aimProps(`m${place}`, more)}
             >
@@ -121,7 +122,7 @@ export function ScopePanel() {
           </li>
         )}
         {shown.length === 0 && rest.length === 0 && (
-          <li className="px-2 py-1 text-[11.5px] text-muted-foreground">{t.noAgents}</li>
+          <li className="px-2 py-1 text-caption text-muted-foreground">{t.noAgents}</li>
         )}
       </>
     );
@@ -162,12 +163,13 @@ export function ScopePanel() {
                 className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
                 data-active={active}
                 onClick={() => openProject(p.id)}
+                onKeyDown={pressKeys(() => openProject(p.id))}
                 title={p.missing ? t.missingTitle(where) : where}
                 {...aimProps(`p${p.id}`, open)}
               >
                 <button
                   type="button"
-                  className="proj-toggle -m-1 grid size-[18px] shrink-0 place-items-center rounded hover:bg-fill"
+                  className="proj-toggle -m-1 grid size-[18px] shrink-0 place-items-center rounded-control hover:bg-fill"
                   aria-label={open ? t.collapseProject : t.expandProject}
                   title={open ? t.collapseProject : t.expandProject}
                   onClick={(e) => {
@@ -182,7 +184,7 @@ export function ScopePanel() {
                 <WSLBadge path={p.path} />
                 <span className="grow" />
                 {p.missing && (
-                  <Badge tone="warn" title={t.missingBadgeTitle}>
+                  <Badge tone="must" title={t.missingBadgeTitle}>
                     {t.missing}
                   </Badge>
                 )}
@@ -298,7 +300,7 @@ function RailHead({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="nav-sec group/sec flex h-[26px] items-center justify-between pr-0.5 pl-2 text-[11px] font-semibold text-muted-foreground not-first:mt-2.5 first:mt-1">
+    <div className="nav-sec group/sec flex h-[26px] items-center justify-between pr-0.5 pl-2 text-caption font-semibold text-muted-foreground not-first:mt-2.5 first:mt-1">
       <span className="inline-flex min-w-0 items-center gap-[5px]">
         <Icon name={icon} className="size-[11px]" />
         {label}

@@ -75,7 +75,7 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
       } catch (e) {
         const err = toLibraryError(e);
         if (err.code === ErrorCode.Canceled) throw e;
-        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.notUninstalled, tone: "bad", reason: describeError(err) });
+        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.notUninstalled, tone: "must", reason: describeError(err) });
       }
     }
     return { results, rows, uninstalled };
@@ -119,7 +119,7 @@ function ReinstallDialog({
             </Button>
           )}
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant={overwrite.size ? "danger" : "primary"} onClick={() => close({ overwrite, missing: choices })} autoFocus>
+          <Button variant="primary" onClick={() => close({ overwrite, missing: choices })} autoFocus>
             {missing.length ? t.common.ok : overwrite.size ? t.actions.reinstallOverwrite(overwrite.size) : t.actions.reinstall}
           </Button>
         </>
@@ -127,7 +127,7 @@ function ReinstallDialog({
     >
       {folders.length > 0 && (
         <>
-          <Notice tone="warn">{t.actions.missingNotice(folders.length)}</Notice>
+          <Notice alert>{t.actions.missingNotice(folders.length)}</Notice>
           <ListBox>
             {folders.map(([key, places]) => {
               const p = places[0];
@@ -139,14 +139,14 @@ function ReinstallDialog({
                     <div>
                       {t.actions.missingPlace(skillName(s, p.skill_id), mergeProjectPlaces(s, places).map((x) => scopeLabel(s, x.scope)))}
                     </div>
-                    <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+                    <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(p.folder)}>
                       {shortPath(s, p.folder)}
                     </div>
                     {shared.length > 0 && (
-                      <div className="text-[11px] text-muted-foreground">{t.actions.missingShared(shared.map((code) => agentName(s, code)))}</div>
+                      <div className="text-caption text-muted-foreground">{t.actions.missingShared(shared.map((code) => agentName(s, code)))}</div>
                     )}
                     {groups.length > 0 && (
-                      <div className="text-[11px] text-muted-foreground">{t.actions.missingGrouped(groups.map((g) => groupName(s, g)))}</div>
+                      <div className="text-caption text-muted-foreground">{t.actions.missingGrouped(groups.map((g) => groupName(s, g)))}</div>
                     )}
                   </div>
                   <Segmented
@@ -167,7 +167,7 @@ function ReinstallDialog({
       )}
       {modified.length > 0 && (
         <>
-          <Notice tone="warn">{t.actions.modifiedNotice}</Notice>
+          <Notice alert>{t.actions.modifiedNotice}</Notice>
           <ListBox>
             {mergeProjectPlaces(s, modified).map((p) => {
               const key = overwriteKey(p);
@@ -179,11 +179,11 @@ function ReinstallDialog({
                       <div>
                         {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
                       </div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+                      <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(p.folder)}>
                         {shortPath(s, p.folder)}
                       </div>
-                      {p.link_target && <div className="text-[11px] break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
-                      {p.source_latest && <div className="reinstall-source-latest text-[11px] text-warn-strong">{t.actions.reinstallSourceLatest}</div>}
+                      {p.link_target && <div className="text-caption break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
+                      {p.source_latest && <div className="reinstall-source-latest text-caption text-foreground">{t.actions.reinstallSourceLatest}</div>}
                     </div>
                   </label>
                 </ListRow>

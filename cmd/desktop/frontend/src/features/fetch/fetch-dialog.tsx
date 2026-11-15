@@ -185,11 +185,11 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
         }}
       />
       {failure && (
-        <Notice tone="bad" className="fetch-failure whitespace-pre-line">
+        <Notice alert className="fetch-failure whitespace-pre-line">
           {failure}
         </Notice>
       )}
-      <div className="fetch-existing flex items-center gap-1.5 border-t border-border-subtle pt-2.5 text-[11px] text-muted-foreground">
+      <div className="fetch-existing flex items-center gap-1.5 border-t border-row-line pt-2.5 text-caption text-muted-foreground">
         <span>{t.existingHint}</span>
         <span className="grow" />
         <Button size="sm" className="shrink-0" disabled={working} loading={scanning} onClick={() => void fetchExisting()}>
@@ -339,26 +339,26 @@ function RefPicker({
         setOpen(false);
       }}
     >
-      <span className={cn("w-3 shrink-0 text-primary-ink", name !== selected && "invisible")}>
+      <span className={cn("w-3 shrink-0 text-primary", name !== selected && "invisible")}>
         <Icon name="check" className="size-3" />
       </span>
       <span className="grow truncate font-mono">{name}</span>
-      {kind === "b" && name === ready?.default_branch && <span className="text-[11px] text-muted-foreground">{t.defaultBranch}</span>}
+      {kind === "b" && name === ready?.default_branch && <span className="text-caption text-muted-foreground">{t.defaultBranch}</span>}
     </CommandItem>
   );
   return (
     <div className="fetch-refs flex min-w-0 flex-col gap-1">
-      <span id={labelId} className="text-xs text-muted-foreground">
+      <span id={labelId} className="text-body text-muted-foreground">
         {t.refs}
       </span>
       {refs.status === "failed" ? (
-        <Notice tone="warn" className="refs-failure whitespace-pre-line">
+        <Notice alert className="refs-failure whitespace-pre-line">
           {t.refsFailed(refs.reason)}
         </Notice>
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild disabled={!ready || locked}>
-            <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger h-[30px] w-72 max-w-full justify-between rounded-lg px-2.5 font-normal">
+            <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger h-[30px] w-72 max-w-full justify-between rounded-control px-2.5 font-normal">
               {ready ? (
                 <span className="truncate font-mono">{selected || t.defaultBranch}</span>
               ) : (

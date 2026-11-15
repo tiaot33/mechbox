@@ -1,9 +1,9 @@
-// 弹窗里的白底列表：候选、作用域、结果逐行列出。行可以是可勾选的 label(clickable),选中时淡蓝底。
+// 弹窗里的列表框：候选、作用域、结果逐行列出。行可以是可勾选的 label(clickable),悬停灰底，选中时淡绿底。
 import { useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { Slot } from "radix-ui";
 import { cn } from "@/lib/utils";
 
-const box = "overflow-hidden rounded-box border border-border-subtle bg-panel";
+const box = "overflow-hidden rounded-card border border-border bg-panel";
 
 function ListBox({ className, scroll = false, ...props }: ComponentProps<"div"> & { scroll?: boolean }) {
   if (scroll) return <ScrollListBox className={className} {...props} />;
@@ -48,9 +48,9 @@ function ListRow({
     <Comp
       data-slot="list-row"
       className={cn(
-        "flex min-w-0 items-center gap-2 border-t border-border-subtle px-3 py-2 first:border-t-0",
+        "flex min-w-0 items-center gap-2 border-t border-row-line px-3 py-2 first:border-t-0",
         compact && "gap-1.5 px-2.5 py-0.5 leading-5",
-        clickable && "cursor-pointer hover:bg-panel-hover",
+        clickable && "cursor-pointer hover:bg-fill",
         selected && "bg-primary-soft hover:bg-primary-soft",
         className,
       )}

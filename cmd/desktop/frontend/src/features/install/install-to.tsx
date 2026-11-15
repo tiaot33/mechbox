@@ -78,14 +78,14 @@ export function AgentPicker({ target, taken }: { target: InstallTarget; taken: s
   const [open, setOpen] = useState(false);
   const { place, used, rest, can } = target;
   const names = target.agents.map((code) => agentNameIn(s, code, place));
-  const heading = (text: string) => <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground">{text}</div>;
+  const heading = (text: string) => <div className="px-2 pt-1.5 pb-0.5 text-caption font-semibold text-muted-foreground">{text}</div>;
   const row = (a: Agent) => (
     <label
       key={a.code}
       data-agent={a.code}
       className={cn(
-        "agent-option flex items-center gap-2 rounded-md px-2 py-1 text-xs",
-        can(a.code) ? "cursor-pointer hover:bg-glass-row-hover" : "text-subtle",
+        "agent-option flex items-center gap-2 rounded-control px-2 py-1 text-body",
+        can(a.code) ? "cursor-pointer hover:bg-fill" : "text-subtle",
       )}
     >
       <input
@@ -96,7 +96,7 @@ export function AgentPicker({ target, taken }: { target: InstallTarget; taken: s
         onChange={() => target.toggle(a.code)}
       />
       <span className="min-w-0 grow truncate">{agentNameIn(s, a.code, place)}</span>
-      {!can(a.code) && <span className="shrink-0 text-[11px]">{taken}</span>}
+      {!can(a.code) && <span className="shrink-0 text-caption">{taken}</span>}
     </label>
   );
   return (

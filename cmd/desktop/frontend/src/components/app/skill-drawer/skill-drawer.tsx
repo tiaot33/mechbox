@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType, type FileMetadata, type Skill, type SkillID, type SkillVersion } from "@bindings/internal/library";
+import { editingAfter } from "@/lib/editing";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { aiSettingsQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
@@ -116,7 +117,7 @@ function DrawerSheet({
         {...(!skill.description && { "aria-describedby": undefined })}
       >
         <ResizeHandle {...drawerWidth} max={max} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
-        <SheetHeader className="h-11 pr-3 pl-3.5 text-[11px] font-semibold text-muted-foreground">
+        <SheetHeader className="h-11 pr-3 pl-3.5 text-caption font-semibold text-muted-foreground">
           <span className="grow">{d.title}</span>
           <SheetClose asChild>
             <Button variant="ghost" size="icon" aria-label={t.common.close}>
@@ -127,7 +128,7 @@ function DrawerSheet({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-2 px-2.5 pt-3.5 pb-4">
             <div className="flex items-center gap-2.5 px-2">
-              <SheetTitle className="flex-1 text-[18px] font-bold tracking-[-0.01em]" title={skill.note || undefined}>
+              <SheetTitle className="flex-1 font-mono text-title" title={skill.note || undefined}>
                 {skill.name}
               </SheetTitle>
               {hasUpdate(skill) && (
@@ -143,7 +144,7 @@ function DrawerSheet({
             <Actions skill={skill} onAddNote={!skill.note && !editingNote ? () => setNoteEditing(id) : undefined} />
 
             {(skill.note || editingNote) && (
-              <NoteCard key={`note-${id}`} skill={skill} editing={editingNote} onEditing={(on) => setNoteEditing(on ? id : null)} />
+              <NoteCard key={`note-${id}`} skill={skill} editing={editingNote} onEditing={(on) => setNoteEditing((cur) => editingAfter(cur, id, on))} />
             )}
 
             <MetadataCard skill={skill} versions={versions} />
@@ -158,7 +159,7 @@ function DrawerSheet({
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">
-              <Button size="sm" variant="danger" onClick={async () => (await removeSkill(id)) && onClose()}>
+              <Button size="sm" onClick={async () => (await removeSkill(id)) && onClose()}>
                 {d.removeSkill}
               </Button>
             </div>
@@ -183,18 +184,18 @@ function Description({ skill }: { skill: Skill }) {
   };
   return (
     <div className="-mt-1 flex flex-col items-start gap-1 px-2">
-      <SheetDescription className="text-[12.5px] leading-[1.45] text-foreground-secondary">
+      <SheetDescription className="text-body-long text-foreground-secondary">
         {translated && !original ? translated : skill.description}
       </SheetDescription>
       <div className="flex items-center gap-3">
         {translated && (
-          <Button variant="link" className="text-[11px]" onClick={() => setOriginal(!original)}>
+          <Button variant="ghost" size="inline" className="text-caption" onClick={() => setOriginal(!original)}>
             {original ? d.showTranslation : d.showOriginal}
           </Button>
         )}
         <Button
-          variant="link"
-          className="text-[11px]"
+          variant="ghost" size="inline"
+          className="text-caption"
           disabled={!ai}
           loading={translating}
           title={ai ? d.translateTitle : d.translateNeedsAI}
@@ -229,7 +230,7 @@ function NoteCard({ skill, editing, onEditing }: { skill: Skill; editing: boolea
         title={d.note}
         note={
           !editing && (
-            <Button variant="link" className="text-[11.5px]" onClick={edit}>
+            <Button variant="ghost" size="inline" className="text-caption" onClick={edit}>
               {d.editNote}
             </Button>
           )
@@ -250,7 +251,7 @@ function NoteCard({ skill, editing, onEditing }: { skill: Skill; editing: boolea
             <Button size="sm" disabled={saving} onClick={() => onEditing(false)}>
               {t.common.cancel}
             </Button>
-            <Button size="sm" variant="primary" loading={saving} disabled={draft.trim() === saved} onClick={() => void save()}>
+            <Button size="sm" loading={saving} disabled={draft.trim() === saved} onClick={() => void save()}>
               {d.saveNote}
             </Button>
           </div>
@@ -270,7 +271,7 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   return (
     <>
     {renamedTo(skill) && (
-      <Notice tone="warn" className="mb-2.5 flex items-center gap-2">
+      <Notice alert className="mb-2.5 flex items-center gap-2">
         <span className="grow">
           {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
         </span>

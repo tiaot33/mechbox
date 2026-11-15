@@ -89,7 +89,7 @@ export function LinkedPlaces({ places }: { places: SkillScopeInspection[] }) {
             <div>
               {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
             </div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground" title={p.link_target}>
+            <div className="truncate font-mono text-caption text-muted-foreground" title={p.link_target}>
               {shortPath(s, p.folder)} → {shortPath(s, p.link_target!)}
             </div>
           </div>
@@ -111,11 +111,11 @@ export function SharedFolders({ places }: { places: SkillScopeInspection[] }) {
             <div>
               {skillName(s, p.skill_id)} · {p.scope.project_id ? projectName(s, p.scope.project_id) : t.model.global}
             </div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+            <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(p.folder)}>
               {shortPath(s, p.folder)}
             </div>
           </div>
-          <span className="text-[11px] text-muted-foreground">{t.actions.sharedBy((p.shared_with ?? []).map((code) => agentName(s, code)))}</span>
+          <span className="text-caption text-muted-foreground">{t.actions.sharedBy((p.shared_with ?? []).map((code) => agentName(s, code)))}</span>
         </ListRow>
       ))}
     </ListBox>

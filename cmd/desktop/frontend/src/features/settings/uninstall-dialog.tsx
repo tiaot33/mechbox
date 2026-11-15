@@ -101,7 +101,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
           <Button disabled={working} onClick={onClose}>
             {t.cancel}
           </Button>
-          <Button variant="danger" disabled={!places || phase.kind === "done"} loading={phase.kind === "working"} onClick={() => void execute()}>
+          <Button variant="solid" disabled={!places || phase.kind === "done"} loading={phase.kind === "working"} onClick={() => void execute()}>
             {phase.kind === "failed" ? t.retry : t.uninstall}
           </Button>
         </>
@@ -117,7 +117,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
             </Button>
           </Notice>
         ) : (
-          <Notice tone="warn">{t.noSync}</Notice>
+          <Notice alert>{t.noSync}</Notice>
         ))}
       {!places ? (
         <Hint>
@@ -134,14 +134,14 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
                 offMachine,
               )}
             </Hint>
-            <ChoiceList choices={choices} value={folders} onChange={setFolders} />
+            <ChoiceList choices={choices} value={folders} onChange={setFolders} disabled={working} />
             {moving > 0 && (
               <Hint>{t.adopted(inProjects > 0)}</Hint>
             )}
             {movingInDistro > 0 && <Hint>{t.distroTrash(movingInDistro)}</Hint>}
             {modified.length > 0 && (
               <>
-                <Notice tone="warn">
+                <Notice alert>
                   {t.modified(modified.length, folders === UninstallFolders.FoldersTrash)}
                 </Notice>
                 <ListBox>
@@ -151,7 +151,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
                         <div>
                           {s.skills.find((x) => x.id === p.skill_id)?.name ?? `#${p.skill_id}`} · {scopeLabel(s, p.scope)}
                         </div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground" title={wslTitle(p.folder)}>
+                        <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(p.folder)}>
                           {shortPath(s, p.folder)}
                         </div>
                       </div>
@@ -165,11 +165,11 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
       )}
       {phase.kind === "working" && <Hint>{moving > 0 ? t.trashing(moving) : t.uninstalling}</Hint>}
       {phase.kind === "failed" && (
-        <Notice tone="bad" className="whitespace-pre-line">
+        <Notice alert className="whitespace-pre-line">
           {t.failed(describeError(phase.error), phase.trashing)}
         </Notice>
       )}
-      {phase.kind === "done" && <Notice tone="ok">{t.done}</Notice>}
+      {phase.kind === "done" && <Notice>{t.done}</Notice>}
     </Modal>
   );
 }

@@ -45,7 +45,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
     <Card>
       <CardHeader title={<Tipped tip={installed.length > 0 && d.switchHint()}>{d.install}</Tipped>} note={d.installNote(installed.length, stale)} />
       {installed.length + copies.length > 0 && (
-        <table className="scope-table w-full table-fixed border-collapse text-xs [&_td]:border-b [&_td]:border-border-subtle [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
+        <table className="scope-table w-full table-fixed border-collapse text-body [&_td]:border-b [&_td]:border-row-line [&_td]:px-1.5 [&_td]:py-[7px] [&_td]:align-middle">
           {/* 固定列宽：换一个技能时来源、状态两列不左右跳。 */}
           <colgroup>
             <col className="w-14" />
@@ -54,7 +54,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
             <col className="w-32" />
           </colgroup>
           <thead>
-            <tr className="[&_th]:border-b [&_th]:border-border-subtle [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-[11px] [&_th]:font-medium [&_th]:text-muted-foreground">
+            <tr className="[&_th]:border-b [&_th]:border-row-line [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-caption [&_th]:font-normal [&_th]:text-muted-foreground">
               <th className="whitespace-nowrap">{d.directColumn}</th>
               <th>{d.scope}</th>
               <th>{d.source}</th>
@@ -81,7 +81,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       {scopeLabel(s, p.scope)}
                     </div>
                     <div className="flex min-w-0 items-center gap-0.5">
-                      <span className="truncate font-mono text-[11px] text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</span>
+                      <span className="truncate font-mono text-caption text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</span>
                       {folderPresent(p) && (
                         <Button
                           variant="ghost"
@@ -98,9 +98,9 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   </td>
                   <td>
                     <span className="inline-flex flex-wrap gap-1">
-                      {p.direct && <Badge tone="accent">{d.direct}</Badge>}
+                      {p.direct && <Badge>{d.direct}</Badge>}
                       {(p.groups ?? []).map((g) => (
-                        <Badge key={g} tone="group">
+                        <Badge key={g}>
                           {d.viaGroup(s.groups.find((x) => x.id === g)?.name)}
                         </Badge>
                       ))}
@@ -112,7 +112,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       <>
                         {" "}
                         <Button
-                          variant="link"
+                          variant="ghost" size="inline"
                           onClick={() => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}
                         >
                           {d.reinstall}
@@ -122,7 +122,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                     {p.status === SkillScopeStatus.SkillScopeModified && p.source_latest && (
                       <>
                         {" "}
-                        <Button variant="link" onClick={() => void openUpdate(skill.collection_id, { focus: id })} title={d.updateToLatestHint}>
+                        <Button variant="ghost" size="inline" onClick={() => void openUpdate(skill.collection_id, { focus: id })} title={d.updateToLatestHint}>
                           {d.updateToLatest}
                         </Button>
                       </>
@@ -131,7 +131,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       <>
                         {" "}
                         <Button
-                          variant="link"
+                          variant="ghost" size="inline"
                           onClick={() => updateFromScope(skill, p.scope)}
                           title={d.updateFromHereHint}
                         >
@@ -152,7 +152,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                     {scopeLabel(s, u.scope)}
                   </div>
                   <div className="flex min-w-0 items-center gap-0.5">
-                    <span className="truncate font-mono text-[11px] text-muted-foreground" title={u.folder}>{shortPath(s, u.folder)}</span>
+                    <span className="truncate font-mono text-caption text-muted-foreground" title={u.folder}>{shortPath(s, u.folder)}</span>
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -166,7 +166,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   </div>
                 </td>
                 <td>
-                  <span className="identical-notes text-[11px] text-muted-foreground" title={identicalState(skill, u).title}>
+                  <span className="identical-notes text-caption text-muted-foreground" title={identicalState(skill, u).title}>
                     {identicalState(skill, u).text}
                   </span>
                 </td>
@@ -174,7 +174,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   {identicalState(skill, u).stale && (
                     <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
                   )}{" "}
-                  <Button variant="link" className="take-over" onClick={() => void fetchUnmanaged(u)} title={identicalState(skill, u).title}>
+                  <Button variant="ghost" size="inline" className="take-over" onClick={() => void fetchUnmanaged(u)} title={identicalState(skill, u).title}>
                     {d.takeOver}
                   </Button>
                 </td>
@@ -199,18 +199,18 @@ function InstallTo({ skillID }: { skillID: number }) {
   const placeName = target.place ? projectName(s, target.place) : t.model.global;
   return (
     <div className="install-to mt-2.5 flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] text-muted-foreground">{t.drawer.installTo}</span>
+      <span className="text-caption text-muted-foreground">{t.drawer.installTo}</span>
       <PlaceSelect target={target} />
       {target.selectable ? (
         <>
           <AgentPicker target={target} taken={t.drawer.hasIt} />
-          <Button size="sm" variant="primary" disabled={!target.scopes.length} onClick={() => void installSkillTo(skillID, target.scopes)}>
+          <Button disabled={!target.scopes.length} onClick={() => void installSkillTo(skillID, target.scopes)}>
             <Icon name="plus" />
             {t.drawer.install}
           </Button>
         </>
       ) : (
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-caption text-muted-foreground">
           {target.options.length ? t.drawer.allInstalled(placeName) : t.drawer.noAgents(placeName)}
         </span>
       )}

@@ -74,7 +74,7 @@ export function Section({
       {...headProps}
       className={cn(
         // 吸顶时底下的行滚过去，标题用内容区的不透明底色挡住。
-        "section-head group/head sticky top-0 z-[1] flex min-h-9 min-w-0 items-center gap-2 border-b border-row-line px-3 py-1 text-[12.5px] not-data-drop-hover:bg-[var(--color-tile,var(--color-panel))]",
+        "section-head group/head sticky top-0 z-[1] flex min-h-9 min-w-0 items-center gap-2 border-b border-row-line px-3 py-1 text-body bg-tile",
         headProps?.className,
       )}
     >
@@ -84,7 +84,7 @@ export function Section({
       {menu && <SectionMenu entries={menu} />}
       <button
         type="button"
-        className="sec-toggle grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-fill hover:text-foreground"
+        className="sec-toggle grid size-5 shrink-0 place-items-center rounded-control text-muted-foreground hover:bg-fill hover:text-foreground"
         aria-expanded={!collapsed}
         title={collapsed ? t.expandSection : t.collapseSection}
         onClick={() => toggleSection(id)}
@@ -131,7 +131,7 @@ function SectionMenu({ entries }: { entries: MenuEntry[] }) {
 // Counts 是节标题上淡色的数字说明。
 function Counts({ children }: { children: React.ReactNode }) {
   // 放不下时比名字先截短(名字是认出这一节的依据)，比后面的来源版本晚截。
-  return <span className="min-w-0 shrink-[30] truncate text-[11px] text-muted-foreground">{children}</span>;
+  return <span className="min-w-0 shrink-[30] truncate text-caption text-muted-foreground">{children}</span>;
 }
 
 // inUse 是一节里算作在用的技能：装在至少一个地方的。技能库页节标题的个数和行的先后都按它。
@@ -183,13 +183,13 @@ export function CollectionSection({
         title={t.list.collectionDragTitle(skills.length)}
       >
         <SourceIcon type={collection.source.type} className="size-3.5 shrink-0 text-muted-foreground" />
-        <b className="section-name truncate font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
+        <b className="section-name truncate font-mono font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
           {label}
         </b>
         {local && <WSLBadge path={collection.source.label} />}
       </span>
       {count ? <Counts>{count}</Counts> : <UseCounts skills={skills} />}
-      <span className="min-w-0 grow shrink-[100] truncate text-[11px] text-muted-foreground" title={facts.join(" · ")}>
+      <span className="min-w-0 grow shrink-[100] truncate text-caption text-muted-foreground" title={facts.join(" · ")}>
         {facts.join(" · ")}
       </span>
     </>
@@ -214,12 +214,12 @@ function CollectionNews({ collection }: { collection: Collection }) {
   const fresh = collection.new_skills ?? [];
   if (!fresh.length) return null;
   return (
-    <div className={cn("collection-new flex min-w-0 items-center gap-3 border-b border-row-line py-1 pr-3 text-[11px] text-muted-foreground", nameIndent)}>
+    <div className={cn("collection-new flex min-w-0 items-center gap-3 border-b border-row-line py-1 pr-3 text-caption text-muted-foreground", nameIndent)}>
       <span className="min-w-0 grow truncate">{t.drawer.newSkills(sourceLabel(s, collection.source), fresh)}</span>
-      <Button variant="link" className="text-[11px]" onClick={() => previewNewSkills(collection.id)}>
+      <Button variant="link" className="text-caption" onClick={() => previewNewSkills(collection.id)}>
         {t.drawer.goFetch}
       </Button>
-      <Button variant="ghost" size="sm" onClick={() => notInterested(collection.id, fresh)}>
+      <Button variant="ghost" size="inline" onClick={() => notInterested(collection.id, fresh)}>
         {t.drawer.notInterested}
       </Button>
     </div>
@@ -259,11 +259,11 @@ export function GroupSection({
         onDragEnd={dnd.end}
         title={t.list.groupDragTitle(size)}
       >
-        <Icon name="layers" className="size-3.5 shrink-0 text-group" />
+        <Icon name="layers" className="size-3.5 shrink-0 text-muted-foreground" />
         <b className="section-name truncate font-semibold">{group.name}</b>
       </span>
       <Counts>{count ?? t.list.skillCount(size)}</Counts>
-      <span className="ml-1 inline-flex min-w-0 grow shrink-[100] items-center gap-1 overflow-hidden text-[11px] whitespace-nowrap text-muted-foreground">
+      <span className="ml-1 inline-flex min-w-0 grow shrink-[100] items-center gap-1 overflow-hidden text-caption whitespace-nowrap text-muted-foreground">
         {scopes.length ? (
           <>
             {t.list.groupInstalledIn}
@@ -316,7 +316,7 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
       {foldable && (
         <button
           type="button"
-          className="not-installed-fold flex w-full min-w-0 items-center gap-4 px-3 py-2 text-left text-[11.5px] text-muted-foreground hover:bg-fill hover:text-foreground"
+          className="not-installed-fold flex w-full min-w-0 items-center gap-4 px-3 py-2 text-left text-caption text-muted-foreground hover:bg-fill hover:text-foreground"
           aria-expanded={unfolded}
           onClick={() => toggleUnfolded(id)}
         >

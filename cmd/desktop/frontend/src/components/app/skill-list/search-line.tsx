@@ -8,9 +8,9 @@ export function SearchLine({ results }: { results: number }) {
   const t = useT().list;
   if (!search) return null;
   return (
-    <div className="search-line mb-2.5 flex items-center gap-2 text-[12px] text-muted-foreground">
+    <div className="search-line mb-2.5 flex items-center gap-2 text-body text-muted-foreground">
       <span>{t.searchResults(search, results)}</span>
-      <Button variant="link" className="text-[12px]" onClick={() => setSearch("")}>
+      <Button variant="ghost" size="inline" className="text-body" onClick={() => setSearch("")}>
         {t.clearSearch}
       </Button>
     </div>

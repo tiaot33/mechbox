@@ -1,0 +1,11 @@
+# ScopeSummary
+
+列表顶部的摘要:作用域页和项目页最上面的一条,写这里有几个技能、Agent 目录、各项计数和每个组的整组开关。
+
+- 不透明(9.2):`panel` 底,`border` 边框,圆角 `radius-card`,`shadow-tile`。
+- 第一行的一句话用 `body-strong`;右边的动作用 24 px 的普通按钮。这一条里没有主要按钮。
+- 计数:数字用半粗的 `foreground`,后面的字用 `foreground-secondary`。有需要重新安装的技能时,这一项换成「必须处理」的标签(实心底加图标),不用橙色。
+- 目录是标识符,用 `mono-caption`;前面的小标题用 `caption`。
+- 组的整组开关:高 24 px,`border-control` 边框。装上的用 `foreground` 的边框、半粗的字和实心圆点;没装的用空心圆点。不用紫色〔暂定〕。
+
+你提供:那句话、目录、各项计数、组和它们的状态。

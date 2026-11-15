@@ -21,7 +21,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Places } from "./places";
 import { SkillDiff } from "./skill-diff";
 
-const sectionClass = "mt-1 text-[13.5px] font-semibold";
+const sectionClass = "mt-1 text-body font-semibold";
 
 export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; scope: Scope; onClose: () => void }) {
   const s = useSnapshot();
@@ -71,7 +71,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
       <Modal title={title} wide onClose={onClose}>
         {failed ? (
           <>
-            <Notice tone="bad" className="whitespace-pre-line">
+            <Notice alert className="whitespace-pre-line">
               {t.readFailed}
               {"\n"}
               {describeError(failed)}
@@ -132,7 +132,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
       }
     >
       {conflict && (
-        <Notice tone="warn" className="flex items-center gap-2">
+        <Notice alert className="flex items-center gap-2">
           <span className="grow">{t.conflict}</span>
           <Button size="sm" onClick={replan}>
             {t.reread}
@@ -141,11 +141,11 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
       )}
       <Hint>{t.becomes(place, skill.name)}</Hint>
       {risks.length > 0 && (
-        <Notice tone="warn" className="flex flex-col gap-0.5">
+        <Notice alert className="flex flex-col gap-0.5">
           {risks.map((r) => (
             <button key={r.path} type="button" className="update-risk flex items-center gap-2 text-left hover:underline" onClick={() => setPath(r.path)}>
               <span>{riskLabel(r)}</span>
-              <span className="min-w-0 truncate font-mono text-[11px]">{r.path}</span>
+              <span className="min-w-0 truncate font-mono text-caption">{r.path}</span>
             </button>
           ))}
         </Notice>

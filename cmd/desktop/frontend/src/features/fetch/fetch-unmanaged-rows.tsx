@@ -28,7 +28,7 @@ function EditSourceButton({ onEdit }: { onEdit: () => void }) {
   return (
     <button
       type="button"
-      className="fetch-unmanaged-edit shrink-0 text-[11px] whitespace-nowrap text-subtle hover:text-primary-ink"
+      className="fetch-unmanaged-edit shrink-0 text-caption whitespace-nowrap text-muted-foreground hover:text-foreground"
       onClick={(e) => {
         e.preventDefault();
         onEdit();
@@ -82,25 +82,25 @@ export function PlannedRow({
       <ListRow asChild compact clickable selected={picked} className="pl-6">
         <label title={p.description || undefined}>
           <input type="checkbox" className="shrink-0 accent-primary" checked={picked} onChange={onToggle} />
-          <b className="fetch-unmanaged-name shrink-0 font-semibold whitespace-nowrap">{p.name}</b>
-          {p.in_repository && <Badge tone="warn">{t.inRepository}</Badge>}
+          <b className="fetch-unmanaged-name shrink-0 font-mono font-semibold whitespace-nowrap">{p.name}</b>
+          {p.in_repository && <Badge tone="todo">{t.inRepository}</Badge>}
           {!p.in_repository && p.in_project_lock && (
-            <Badge tone="warn" title={t.inLockTitle}>
+            <Badge tone="todo" title={t.inLockTitle}>
               {t.inLock}
             </Badge>
           )}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
           {p.source_latest_of ? (
-            <Badge tone="warn" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
+            <Badge tone="todo" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
               {t.sourceLatest}
             </Badge>
           ) : (
             sameNameInLibrary && !p.skill_id && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />
           )}
-          <span className="min-w-0 grow truncate text-[11px] text-muted-foreground">{agents}</span>
+          <span className="min-w-0 grow truncate text-caption text-muted-foreground">{agents}</span>
           {!p.skill_id && (
             <>
-              <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-[11px] text-primary-ink" />
+              <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-caption text-foreground" />
               <EditSourceButton onEdit={edit.onEdit} />
             </>
           )}
@@ -137,8 +137,8 @@ export function ConflictRow({
         <label title={p.description || undefined}>
           <input type="radio" name={`conflict-${group}`} className="shrink-0 accent-primary" checked={picked} onChange={onPick} />
           <span className="min-w-0 truncate">{agents}</span>
-          {p.in_repository && <Badge tone="warn">{t.inRepository}</Badge>}
-          {!p.in_repository && p.in_project_lock && <Badge tone="warn">{t.inLock}</Badge>}
+          {p.in_repository && <Badge tone="todo">{t.inRepository}</Badge>}
+          {!p.in_repository && p.in_project_lock && <Badge tone="todo">{t.inLock}</Badge>}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
           {!!p.skill_id && (
             <Badge className="fetch-unmanaged-in-library" title={t.inLibraryNote}>
@@ -146,18 +146,18 @@ export function ConflictRow({
             </Badge>
           )}
           {!!p.source_latest_of && (
-            <Badge tone="warn" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
+            <Badge tone="todo" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
               {t.sourceLatest}
             </Badge>
           )}
           <span className="grow" />
-          <span className="shrink-0 text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-caption text-muted-foreground">
             {p.modified_at ? t.modifiedAt(p.modified_at) : ""}
             {edit.link === undefined && p.source_input ? t.from(p.source_input) : ""}
           </span>
           {!p.skill_id && (
             <>
-              <ChangedSource planned={p} link={edit.link} className="min-w-0 truncate text-[11px] text-primary-ink" />
+              <ChangedSource planned={p} link={edit.link} className="min-w-0 truncate text-caption text-foreground" />
               <EditSourceButton onEdit={edit.onEdit} />
             </>
           )}

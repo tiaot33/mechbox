@@ -1,13 +1,16 @@
-/* 样式入口:Tailwind 主题(原型的颜色、圆角、阴影，以及半透明表面的档位)、浮在内容上的表面的毛玻璃材质与少量全局样式。
+/* 样式入口:Tailwind 主题(设计系统 docs/design-system/tokens.json 的颜色、字号、圆角、阴影与毛玻璃参数)、浮在内容上的表面的毛玻璃材质与少量全局样式。
    组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、毛玻璃材质、渲染出来的 Markdown、拖放中的高亮，
-   以及状态圈与 toast 按状态切换的动画。 */
+   以及状态圈与 toast 按状态切换的动画。
+   主题先清空 Tailwind 自带的颜色、字号与圆角，只留设计系统里的档位：界面只用黑、白、绿，字号四档，圆角三档加胶囊形。 */
 @import "tailwindcss";
-/* Markdown 代码块的高亮配色;放进 components 层，下面 .md 里的规则才压得过它。 */
-@import "highlight.js/styles/github.css" layer(components);
 
 @source not "../dist";
 
 @theme {
+  --color-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+
   /* 系统字体:macOS 的 SF 与苹方,Windows 的 Segoe UI 与微软雅黑。西文字体都没有中文字形，等宽字体里的中文也落到苹方或微软雅黑，
      不然 Windows 上会落到新宋体。 */
   --font-sans:
@@ -17,116 +20,80 @@
     "SF Mono", "JetBrains Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", monospace;
 
-  --color-foreground: #111827;
-  --color-foreground-secondary: #4b5563;
-  --color-muted-foreground: #6b7280;
-  --color-subtle: #9ca3af;
-  --color-border: #e5e7eb;
-  --color-border-strong: #d1d5db;
-  --color-border-subtle: #eceef1;
-  --color-hairline: rgba(17, 24, 39, 0.07);
-  /* 列表里行与行之间的分隔线。 */
-  --color-row-line: rgba(17, 24, 39, 0.06);
-  /* 渲染出来的 Markdown 里浅灰的底：代码块、表头与 mermaid 图的节点用 surface,图里第二层用 surface-alt;
-     文件预览的底用 surface-soft;行内代码用 code 与 code-ink。 */
-  --color-surface: #f6f7f9;
-  --color-surface-alt: #eef0f3;
-  --color-surface-soft: #f8f9fb;
-  --color-code: #f1f3f5;
-  --color-code-ink: #1f2937;
+  /* 字号四档，行高跟着字号:title 是技能详情里的技能名(等宽，字距收紧),heading 是弹窗与卡片标题，body 是正文与控件上的字，
+     body-long 是成段的文字，caption 是日期、计数、状态标签这类标注。字重只用常规(400)与半粗(600)。 */
+  --text-title: 22px;
+  --text-title--line-height: 28px;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: -0.02em;
+  --text-heading: 15px;
+  --text-heading--line-height: 20px;
+  --text-heading--font-weight: 600;
+  --text-body: 13px;
+  --text-body--line-height: 18px;
+  --text-body-long: 13px;
+  --text-body-long--line-height: 20px;
+  --text-caption: 11px;
+  --text-caption--line-height: 14px;
 
-  /* 不透明的表面：panel 是卡片、列表框、对比的两栏这类白底;control 是输入框、按钮、下拉框的底;
-     raised 是分段按钮里选中的那一段;knob 是开关与滑块的圆钮;mark 是 Agent 图标的底，深色下仍是浅色，纯黑的 logo 也看得清;
-     halo 是关系图里名字的描边与空心圆的填充，和图的底色一致。 */
+  /* 四档文字：主要、次要、标注、禁用，每档在两种外观下取同一个对比度。要读的字最淡到 muted-foreground,
+     subtle 只给禁用的控件与占位文字。 */
+  --color-foreground: #1f1f1f;
+  --color-foreground-secondary: #494949;
+  --color-muted-foreground: #595959;
+  --color-subtle: #949494;
+  /* tile 是内容区的底(中间的底板、弹窗、技能详情抽屉、吸顶的节标题);panel 是浮起的表面(卡片、列表框、输入框)。 */
+  --color-tile: #fff;
   --color-panel: #fff;
-  --color-panel-hover: oklch(98.5% 0.002 247.839);
-  --color-control: #fff;
-  --color-raised: #fff;
+  /* 唯一的绿：实心的主要按钮、开着的开关、选中、焦点圈、去别处的文字链接、文件差异里的新增。不表示「已完成」「已是最新」。
+     on-primary 是压在它上面的字;primary-soft 是选中的行的淡绿底与焦点圈外的光圈。 */
+  --color-primary: #15803d;
+  --color-on-primary: #fff;
+  --color-primary-soft: rgba(21, 128, 61, 0.12);
+  /* 实心强调：「必须处理」的标签与确认删除的按钮。 */
+  --color-solid: #000;
+  --color-on-solid: #fff;
+  /* border 只分开两块表面;border-control 标出可以操作的控件(普通按钮、输入框、下拉框、分段选择);row-line 是行与行之间的线。 */
+  --color-border: rgba(0, 0, 0, 0.12);
+  --color-border-control: rgba(0, 0, 0, 0.42);
+  --color-row-line: rgba(0, 0, 0, 0.07);
+  /* 悬停的底、菜单的高亮项、Notice 的灰底、分段选择的槽、计数与代码块的底。 */
+  --color-fill: rgba(0, 0, 0, 0.05);
+  /* track 是开关关着的槽;knob 是圆钮;raised 是分段选择里选中的一段;scrim 是弹窗背后的遮罩。 */
+  --color-track: #d4d4d4;
   --color-knob: #fff;
+  --color-raised: #fff;
+  --color-scrim: rgba(0, 0, 0, 0.18);
+  /* 只有两处保留原色:mark 是 Agent 品牌图标的底，深色下仍是浅色，纯黑的 logo 也看得清;caption-close 是 Windows 上关闭窗口按钮悬停时的红，
+     上面写白字(white)。 */
   --color-mark: #fff;
-  --color-mark-ring: #fff;
-  --color-halo: #fff;
-  /* 叠在内容上的一层：wash 是白色，按 /55、/80 这样取透明度，给半透明的行底、悬停与图例;
-     fill-* 是深色的一层，给悬停、按下、计数这类小块(faint 最淡，strong 最浓);sticky 是吸顶的组标题;
-     neutral-soft 是中性的标记与提示的底;nav-active 是左栏选中的一项;ripple 是按钮按下的涟漪。 */
-  --color-wash: #fff;
-  --color-fill-faint: rgb(0 0 0 / 0.025);
-  --color-fill-subtle: rgb(0 0 0 / 0.04);
-  --color-fill: rgb(0 0 0 / 0.05);
-  --color-fill-strong: rgb(0 0 0 / 0.07);
-  --color-sticky: color-mix(in oklab, oklch(98.5% 0.002 247.839) 95%, transparent);
-  --color-neutral-soft: oklch(96.7% 0.003 264.542);
-  --color-nav-active: rgba(17, 24, 39, 0.07);
-  --color-ripple: rgb(0 0 0 / 0.1);
-  /* Windows 标题栏按钮悬停、按下时的底(与系统标题栏一致)。 */
+  --color-caption-close: #c42b1c;
+  --color-white: #fff;
+  /* Windows 标题栏按钮悬停、按下时的底(与系统标题栏一致);滚动条的滑块;关系图里没点亮的线。 */
   --color-caption-hover: rgb(0 0 0 / 0.0373);
   --color-caption-press: rgb(0 0 0 / 0.0241);
-  --color-scrollbar: rgba(17, 24, 39, 0.14);
-  --color-scrollbar-hover: rgba(17, 24, 39, 0.28);
-  /* 关系图里没有被点亮的线;点了一个技能时三种关系的线：提到它的(in)、它提到的(out)、互相提到的(both)。 */
-  --color-graph-link: #c3cad5;
-  --color-graph-in: #ea580c;
-  --color-graph-out: #2563eb;
-  --color-graph-both: #7c3aed;
+  --color-scrollbar: rgba(0, 0, 0, 0.14);
+  --color-scrollbar-hover: rgba(0, 0, 0, 0.28);
+  --color-graph-link: rgba(0, 0, 0, 0.18);
 
-  --color-primary: #0071e3;
-  /* primary-ink 是写成字的主题蓝(链接、拖放中悬停的目标);浅色下与 primary 相同，深色下更亮，字才够对比度。 */
-  --color-primary-ink: var(--color-primary);
-  --color-primary-hover: #0066cc;
-  /* primary-solid 是上面写白字的实心蓝底(主按钮等);浅色下与 primary 相同，深色下更深，白字才够对比度
-     (primary 本身在深色下要够亮，开关、焦点圈、拖放描边在深底上才看得清)。 */
-  --color-primary-solid: var(--color-primary);
-  --color-primary-solid-hover: var(--color-primary-hover);
-  --color-primary-soft: #e8f2fe;
-  --color-primary-border: #b9d9fb;
-  --color-primary-strong: #0a58b8;
-  --color-ok: #16a34a;
-  --color-ok-soft: #ecfdf5;
-  --color-ok-strong: #047857;
-  --color-ok-on-soft: oklch(43.2% 0.095 166.913);
-  --color-warn: #f59e0b;
-  --color-warn-soft: #fffbeb;
-  --color-warn-strong: #b45309;
-  --color-warn-ink: oklch(66.6% 0.179 58.318);
-  --color-warn-on-soft: oklch(47.3% 0.137 46.201);
-  --color-bad: #ef4444;
-  --color-bad-soft: #fef2f2;
-  --color-bad-strong: #b91c1c;
-  --color-bad-border: #fecaca;
-  --color-bad-on-soft: oklch(44.4% 0.177 26.899);
-  --color-group: #8b5cf6;
-  --color-group-soft: #f3effe;
-  --color-group-strong: #6d28d9;
-  --color-group-border: #ddd3fb;
-  /* 选中的组筛选：名字用 group-ink,数字用 group-count。 */
-  --color-group-ink: #5b21b6;
-  --color-group-count: #7c3aed;
-
-  /* 半透明表面的档位：铺在底板上的表面透出窗口背后的系统材质(macOS 的毛玻璃,Windows 11 的 Mica),界面只用半透明白色(深色下是很淡的白)。
-     tile 是三栏的底板,card 是浮在底板上的技能卡片与摘要条。浮在内容上的表面(抽屉、弹窗、弹层、操作栏、toast)用下面的 glass 材质。
-     glass-row-* 是毛玻璃上高亮的一行：用浅蓝(与选中的技能行一致),不用灰色;选中的另描一圈白边(shadow-glass-row)。
-     不用更亮的一层白：这些表面的玻璃已经接近白色，白色高亮叠上去看不出来，键盘移动时找不到当前项。 */
-  --color-glass-tile: rgba(255, 255, 255, 0.52);
-  --color-glass-card: rgba(255, 255, 255, 0.78);
-  --color-glass-row-hover: color-mix(in srgb, var(--color-primary-soft) 75%, transparent);
-  --color-glass-row-selected: var(--color-primary-soft);
-  --color-scrim: rgba(15, 23, 42, 0.12);
-  --color-scrim-strong: rgba(15, 23, 42, 0.18);
-
+  /* 圆角三档加胶囊形:control 给按钮、输入框、下拉框、分段选择、标签;card 给卡片、列表框、菜单、弹层、提示、toast;
+     tile 给中间的底板、弹窗、技能详情抽屉;pill 只给开关和计数。 */
+  --radius-control: 6px;
+  --radius-card: 10px;
   --radius-tile: 14px;
-  --radius-card: 16px;
-  --radius-box: 12px;
+  --radius-pill: 9999px;
 
   /* 阴影的颜色经 --shade-* 给出(在下面的 :root 里，深色下更深):Tailwind 把阴影的值直接写进工具类，换 --shadow-* 本身不起作用。 */
   --shadow-tile: 0 1px 2px var(--shade-tile);
-  --shadow-card: 0 4px 4px var(--shade-card), 0 0 0 1px var(--color-hairline);
+  --shadow-card: 0 4px 4px var(--shade-card), 0 0 0 1px var(--shade-card-edge);
   --shadow-raised: 0 4px 12px -4px var(--shade-raised);
   --shadow-segment: 0 1px 2px var(--shade-segment), 0 0 0 1px var(--shade-segment-edge);
   --shadow-sheet: -12px 0 40px var(--shade-sheet);
   --shadow-dialog: 0 24px 60px var(--shade-dialog);
   --shadow-popover: 0 16px 40px var(--shade-popover);
   --shadow-toast: 0 8px 24px var(--shade-toast);
-  --shadow-glass-row: inset 0 0 0 0.5px var(--glass-row-ring);
+  --shadow-pick: 0 8px 28px var(--shade-pick);
+  --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.2);
 
   --animate-fade-in: fade-in 0.12s ease-out;
   --animate-dialog-in: dialog-in 0.14s ease-out;
@@ -151,13 +118,12 @@
       transform: translateY(-4px);
     }
   }
-  /* 抽屉只滑入不淡入：淡入时表面半透明，底下选中卡片的蓝框会透出来，像盖在抽屉上。 */
+  /* 抽屉只滑入不淡入。 */
   @keyframes sheet-in {
     from {
       transform: translateX(24px);
     }
   }
-  /* 关上时选中的那一行已不再标为选中，淡出不会透出蓝框。 */
   @keyframes sheet-out {
     to {
       opacity: 0;
@@ -167,14 +133,13 @@
 }
 
 /* 外观：根元素上的 data-theme 是实际用的外观(light / dark,见 lib/theme.ts)。上面 @theme 里是浅色的值;
-   深色下这里换掉颜色、阴影的颜色与窗口底色，组件只用主题里的颜色，不分外观各写一份。
-   深色的层级照浅色排：越靠前的层越亮(窗口底 < 中间底板 < 列表行 < 卡片、控件、毛玻璃),凹进去的(代码块、标签底、吸顶的组标题)
-   比所在的面暗;相邻两层的亮度差(CIELAB 的 L*)与浅色相同，不用同一个白色透明度去叠，那样深底上的差会比浅底上大得多。 */
+   深色下这里换掉颜色、阴影的颜色与毛玻璃的底色，组件只用主题里的颜色，不分外观各写一份。 */
 @layer base {
   :root {
     color-scheme: light;
     --shade-tile: rgba(17, 24, 39, 0.03);
     --shade-card: rgba(17, 24, 39, 0.05);
+    --shade-card-edge: rgba(17, 24, 39, 0.07);
     --shade-raised: rgba(17, 24, 39, 0.1);
     --shade-segment: rgba(17, 24, 39, 0.1);
     --shade-segment-edge: rgba(17, 24, 39, 0.04);
@@ -183,88 +148,38 @@
     --shade-popover: rgba(15, 23, 42, 0.18);
     --shade-toast: rgba(0, 0, 0, 0.12);
     --shade-pick: rgba(17, 24, 39, 0.16);
-    --shade-preview: rgba(17, 24, 39, 0.12);
-    --glass-row-ring: rgb(255 255 255 / 0.9);
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --color-foreground: #ececf1;
-    --color-foreground-secondary: #c4c6cd;
-    --color-muted-foreground: #acafb7;
-    --color-subtle: #7a7d86;
-    --color-border: #4b4b50;
-    --color-border-strong: #57575c;
-    --color-border-subtle: #444449;
-    --color-hairline: rgb(255 255 255 / 0.08);
-    --color-row-line: rgb(255 255 255 / 0.06);
-    --color-surface: #37373c;
-    --color-surface-alt: #323237;
-    --color-surface-soft: #39393e;
-    --color-code: #343439;
-    --color-code-ink: #e3e4ea;
-
-    --color-panel: #3d3d42;
-    --color-panel-hover: #3b3b40;
-    --color-control: #414146;
-    --color-raised: #545459;
-    --color-knob: #f2f2f5;
+    --color-foreground: #ededed;
+    --color-foreground-secondary: #bcbcbc;
+    --color-muted-foreground: #a6a6a6;
+    --color-subtle: #676767;
+    --color-tile: #1c1c1e;
+    --color-panel: #1c1c1e;
+    --color-primary: #30d158;
+    --color-on-primary: #000;
+    --color-primary-soft: rgba(48, 209, 88, 0.16);
+    --color-solid: #fff;
+    --color-on-solid: #000;
+    --color-border: rgba(255, 255, 255, 0.14);
+    --color-border-control: rgba(255, 255, 255, 0.34);
+    --color-row-line: rgba(255, 255, 255, 0.07);
+    --color-fill: rgba(255, 255, 255, 0.07);
+    --color-track: #585858;
+    --color-knob: #f2f2f2;
+    --color-raised: #555;
+    --color-scrim: rgba(0, 0, 0, 0.42);
     --color-mark: #f2f2f5;
-    --color-mark-ring: #3d3d42;
-    --color-halo: #38383f;
-    --color-wash: rgb(255 255 255 / 0.042);
-    --color-fill-faint: rgb(255 255 255 / 0.025);
-    --color-fill-subtle: rgb(255 255 255 / 0.04);
-    --color-fill: rgb(255 255 255 / 0.05);
-    --color-fill-strong: rgb(255 255 255 / 0.07);
-    --color-sticky: rgb(57 57 62 / 0.95);
-    --color-neutral-soft: #35353a;
-    --color-nav-active: rgb(255 255 255 / 0.055);
-    --color-ripple: rgb(255 255 255 / 0.1);
     --color-caption-hover: rgb(255 255 255 / 0.0605);
     --color-caption-press: rgb(255 255 255 / 0.0419);
     --color-scrollbar: rgb(255 255 255 / 0.18);
     --color-scrollbar-hover: rgb(255 255 255 / 0.32);
-    --color-graph-link: #5a5e68;
-    --color-graph-in: #fb8c3c;
-    --color-graph-out: #5b9dff;
-    --color-graph-both: #b08cff;
-
-    --color-primary: #0a84ff;
-    --color-primary-ink: #6bb4ff;
-    --color-primary-hover: #2a93ff;
-    --color-primary-solid: #0a6fdc;
-    --color-primary-solid-hover: #0961c2;
-    --color-primary-soft: #224062;
-    --color-primary-border: #2563a8;
-    --color-primary-strong: #8cc4ff;
-    --color-ok: #30d158;
-    --color-ok-soft: #2b4637;
-    --color-ok-strong: #5ee08a;
-    --color-ok-on-soft: #7ee8a2;
-    --color-warn: #ff9f0a;
-    --color-warn-soft: #4c3d2a;
-    --color-warn-strong: #ffc85a;
-    --color-warn-ink: #ffb340;
-    --color-warn-on-soft: #ffd27a;
-    --color-bad: #ff8f87;
-    --color-bad-soft: #4e3538;
-    --color-bad-strong: #ffa39c;
-    --color-bad-border: #764141;
-    --color-bad-on-soft: #ffb5af;
-    --color-group: #b8a1fb;
-    --color-group-soft: #433d58;
-    --color-group-strong: #c9b8ff;
-    --color-group-border: #5e5385;
-    --color-group-ink: #d6c9ff;
-    --color-group-count: #b9a3ff;
-
-    --color-glass-tile: rgb(255 255 255 / 0.075);
-    --color-glass-card: rgb(255 255 255 / 0.028);
-    --color-scrim: rgb(0 0 0 / 0.32);
-    --color-scrim-strong: rgb(0 0 0 / 0.42);
+    --color-graph-link: rgb(255 255 255 / 0.22);
 
     --shade-tile: rgb(0 0 0 / 0.2);
     --shade-card: rgb(0 0 0 / 0.18);
+    --shade-card-edge: rgb(255 255 255 / 0.08);
     --shade-raised: rgb(0 0 0 / 0.4);
     --shade-segment: rgb(0 0 0 / 0.35);
     --shade-segment-edge: rgb(255 255 255 / 0.06);
@@ -273,11 +188,10 @@
     --shade-popover: rgb(0 0 0 / 0.5);
     --shade-toast: rgb(0 0 0 / 0.4);
     --shade-pick: rgb(0 0 0 / 0.45);
-    --shade-preview: rgb(255 255 255 / 0.1);
-    --glass-row-ring: rgb(255 255 255 / 0.18);
   }
 }
 
+/* 不开字体抗锯齿(-webkit-font-smoothing: antialiased):它把笔画渲染得更细，灰色小字发虚。 */
 @layer base {
   *,
   ::before,
@@ -289,14 +203,13 @@
   #root {
     height: 100%;
   }
-  /* user-select 要写上 -webkit- 前缀:WKWebView 只认带前缀的写法,开发模式下 Tailwind 也不会补。 */
+  /* user-select 要写上 -webkit- 前缀:WKWebView 只认带前缀的写法，开发模式下 Tailwind 也不会补。 */
   body {
     background: transparent;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     color: var(--color-foreground);
-    -webkit-font-smoothing: antialiased;
     -webkit-user-select: none;
     user-select: none;
     overflow: hidden;
@@ -305,12 +218,22 @@
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
+  /* 字重只用 400 和 600:浏览器给 b、strong 的 bolder 在已是半粗的父元素里会算成 900。 */
+  b,
+  strong {
+    font-weight: 600;
+  }
+  /* 浏览器默认的焦点框用系统的强调色(macOS 上默认是蓝色),换成绿色;组件自己写了焦点样式的(outline-none 加光圈)不受影响。 */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
   input,
   textarea {
     -webkit-user-select: text;
     user-select: text;
   }
-  /* 细滚动条：透明轨道、圆角淡色滑块，与原型的轻量观感一致。 */
+  /* 细滚动条：透明轨道、圆角淡色滑块。 */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -329,49 +252,28 @@
   }
 }
 
-/* 窗口底色：整窗就是应用，背后是 macOS 的毛玻璃或 Windows 11 的 Mica,页面只铺一层带淡彩的半透明底色;深色下彩更暗、底更深。
-   没有 Mica 的 Windows 上窗口是不透明的底色，与最底下这层同色(浅色、深色各一份，见 window_windows.go 的 windowColour)。 */
+/* 窗口底色：整窗就是应用，背后是 macOS 的毛玻璃或 Windows 11 的 Mica,左栏和作用域栏直接透出它;页面只铺一层不带彩的半透明灰。
+   没有 Mica 的 Windows 上窗口是不透明的底色，与这层同色(浅色、深色各一份，见 appearance_windows.go 的 windowColour)。 */
 @utility window-backdrop {
-  background:
-    radial-gradient(circle at 12% 18%, rgba(215, 227, 248, 0.55) 0%, transparent 45%),
-    radial-gradient(circle at 88% 15%, rgba(245, 226, 235, 0.5) 0%, transparent 40%),
-    radial-gradient(circle at 85% 85%, rgba(210, 238, 252, 0.55) 0%, transparent 45%),
-    radial-gradient(circle at 15% 85%, rgba(230, 224, 248, 0.5) 0%, transparent 45%),
-    rgba(236, 239, 245, 0.6);
+  background: rgba(236, 236, 236, 0.6);
 
   :root[data-theme="dark"] & {
-    background:
-      radial-gradient(circle at 12% 18%, rgba(48, 66, 104, 0.22) 0%, transparent 45%),
-      radial-gradient(circle at 88% 15%, rgba(86, 52, 74, 0.18) 0%, transparent 40%),
-      radial-gradient(circle at 85% 85%, rgba(36, 72, 96, 0.2) 0%, transparent 45%),
-      radial-gradient(circle at 15% 85%, rgba(62, 50, 104, 0.2) 0%, transparent 45%),
-      rgba(26, 26, 30, 0.72);
+    background: rgba(28, 28, 28, 0.72);
   }
 }
 
-/* 毛玻璃材质：浮在内容上的表面(弹窗、抽屉、弹层、提示、右键菜单、勾选后的操作栏、toast)加上 glass 类，
-   只换底色(background)、滤镜(backdrop-filter)、边缘(box-shadow)与字色(color)四样，结构、间距、圆角不变。
-   - 底色是一层白(深色下是一层比卡片略亮的灰，和浅色一样浮在上面的表面比底下亮，不做成更暗的黑块),浓度 = --glass-alpha × 设置里的浓度(--glass-tint,0–1.5,浅色、深色各一个值，
-     见 lib/theme.ts)× 悬停时提亮(--glass-lift)。这些表面底下都是列表的文字而不是图片，所以只有一档：
-     浓到上面的字在最密的列表上也够对比度。
-   - 滤镜先模糊、提饱和度、略提亮(深色下略压暗到约 0.9),把底下的文字糊掉、颜色留住;
-     浓度低于 1 时饱和度与明暗跟着变弱，到 0 只剩模糊、边缘与阴影。
+/* 毛玻璃材质：只给五种浮在内容上的小表面(右键菜单、弹层、提示、toast、勾选后的操作栏)加 glass 类，
+   只换底色(background)、滤镜(backdrop-filter)与边缘(box-shadow),结构、间距、圆角与字色不变。
+   - 底色是一层白(深色下是 tile 的深灰),浓度是固定的 --glass-alpha(glass 0.6,glass-clear 0.35)× 悬停时提亮(--glass-lift)。
+   - 滤镜先模糊、略提亮(深色下略压暗),把底下的文字糊掉;不提高饱和度(--glass-saturate 为 1),背后的颜色不会在表面上染出色块。
      在 Chromium 上最后再接一道把背景变成不透明的滤镜(--glass-solid,见 lib/glass.ts),不然窗口背后透明时，
      没模糊的原内容会从玻璃底下透出来。
-   - 边缘：扁平，只有一圈均匀的 0.5px 轮廓线(浅色是淡的深色线，深色是淡的白线),不画斜面亮线、内侧柔光和高光:
-     这些在浅色下是白叠白看不出来，深色下会显出来，让表面像凸起的按钮。
-     投影各表面沿用原来的档位，经 --glass-drop 传入，深色下更深。
-   - 字色：表面上的字一律用墨色(--glass-ink 标题与图标,--glass-ink-secondary 次要文字,深色下是浅色的墨),把 foreground、foreground-secondary、
-     muted-foreground 换成墨色;subtle(禁用、占位)与各状态色(失败的红等)不变。
-   - 背后内容少、上面字也少的表面(操作栏、toast、提示)另加 glass-clear:模糊轻、白色淡，背后的颜色与形状透得出来。
-   - 系统要求减少透明度或开了强制颜色时，换成同样颜色的不透明底(--glass-opaque),不模糊。macOS 的 WKWebView 不认 prefers-reduced-transparency,
+   - 边缘：一圈均匀的 0.5px 轮廓线(--glass-edge)。投影各表面沿用原来的档位，经 --glass-drop 传入;
+     拖放中的插入线这类状态经 --glass-state 叠在边缘上，不把边缘整个换掉。
+   - 背后内容少、上面字也少的表面(操作栏、toast、提示)另加 glass-clear:模糊轻、白色淡。
+   - 系统要求减少透明度或开了强制颜色时，换成 tile 的不透明底，不模糊。macOS 的 WKWebView 不认 prefers-reduced-transparency,
      由根元素上的 data-reduce-transparency 标出(lib/glass.ts 问 Go 端)。
-   各项数值都用 @property 登记，浓度在状态之间平滑过渡;悬停时提亮的表面(操作栏、toast)自己加 --glass-lift 的过渡。 */
-@property --glass-tint {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
+   悬停时提亮用 @property 登记，能平滑过渡;提亮的表面(操作栏、toast)自己加 --glass-lift 的过渡。 */
 @property --glass-alpha {
   syntax: "<number>";
   inherits: true;
@@ -382,63 +284,41 @@
   inherits: false;
   initial-value: 1;
 }
-@property --glass-ink {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: rgb(0 0 0 / 0.86);
-}
-@property --glass-ink-secondary {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: rgb(60 60 67 / 0.76);
-}
 
 @layer base {
   :root {
     --glass-blur: 24px;
+    --glass-saturate: 1;
     --glass-base: 255 255 255;
-    --glass-sat: 0.8;
     --glass-bright: 0.06;
-    --glass-opaque: rgb(255 255 255);
     --glass-drop-default: 0 6px 24px rgb(0 0 0 / 0.08);
     --glass-edge: 0 0 0 0.5px rgb(0 0 0 / 0.06);
-    transition: --glass-tint 240ms ease;
   }
   :root[data-theme="dark"] {
-    --glass-base: 74 74 80;
-    --glass-sat: 0.6;
+    --glass-base: 28 28 30;
     --glass-bright: -0.1;
-    --glass-opaque: rgb(62 62 68);
     --glass-drop-default: 0 6px 24px rgb(0 0 0 / 0.35);
     --glass-edge: inset 0 0 0 0.5px rgb(255 255 255 / 0.08);
-    --glass-ink: rgb(255 255 255 / 0.94);
-    --glass-ink-secondary: rgb(235 235 245 / 0.64);
   }
 }
 
 @utility glass {
-  --glass-k: min(1, var(--glass-tint));
-  --color-foreground: var(--glass-ink);
-  --color-foreground-secondary: var(--glass-ink-secondary);
-  --color-muted-foreground: var(--glass-ink-secondary);
   border-color: transparent;
-  background: rgb(var(--glass-base) / min(1, calc(var(--glass-alpha) * var(--glass-tint) * var(--glass-lift))));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + var(--glass-sat) * var(--glass-k)))
-    brightness(calc(1 + var(--glass-bright) * var(--glass-k))) var(--glass-solid,);
-  backdrop-filter: blur(var(--glass-blur)) saturate(calc(1 + var(--glass-sat) * var(--glass-k)))
-    brightness(calc(1 + var(--glass-bright) * var(--glass-k))) var(--glass-solid,);
+  background: rgb(var(--glass-base) / min(1, calc(var(--glass-alpha) * var(--glass-lift))));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(calc(1 + var(--glass-bright)))
+    var(--glass-solid,);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(calc(1 + var(--glass-bright))) var(--glass-solid,);
   box-shadow:
     var(--glass-edge),
     var(--glass-drop, var(--glass-drop-default));
-  color: var(--glass-ink);
 
   @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
-    background: var(--glass-opaque);
+    background: var(--color-tile);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
   :root[data-reduce-transparency] & {
-    background: var(--glass-opaque);
+    background: var(--color-tile);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -449,25 +329,25 @@
   --glass-alpha: 0.35;
 }
 
-/* 要压过工具类(utilities 层)的底色、边框与字色的状态，集中写在层外(components 层的规则压不过它):
-   左栏点了集合或组，滚到的那一节的标题闪一下(压过节标题的不透明底色);失败的 toast 保留红边红字(压过 glass)。 */
+/* 左栏点了集合或组，滚到的那一节的标题闪一下;拖到组的节标题上时同样高亮(已在组里的是灰底)。
+   节标题的底色是工具类 bg-tile,这几条写在层外才压得过它;淡色叠在 tile 上，吸顶时下面的行不透出来。 */
 .list-section > .section-head {
   transition: background-color 0.6s ease-out;
 }
-.list-section[data-flash] > .section-head {
-  background: var(--color-primary-soft);
+.list-section[data-flash] > .section-head,
+[data-dragging] .section-head[data-drop-hover] {
+  background: linear-gradient(var(--color-primary-soft), var(--color-primary-soft)), var(--color-tile);
   transition: none;
 }
-.swipe-toast[data-tone="error"] .swipe-toast-card {
-  border-color: var(--color-bad-border);
-  color: var(--color-bad-strong);
+[data-dragging] .section-head[data-drop-hover][data-already] {
+  background: linear-gradient(var(--color-fill), var(--color-fill)), var(--color-tile);
 }
 
 @layer components {
   /* 技能文件与更新说明渲染出来的 Markdown(components/app/markdown.tsx):react-markdown 生成的元素没有类名，只能按元素写样式。 */
   .md {
-    font-size: 12.5px;
-    line-height: 1.6;
+    font-size: var(--text-body-long);
+    line-height: var(--text-body-long--line-height);
     color: var(--color-foreground-secondary);
     -webkit-user-select: text;
     user-select: text;
@@ -476,7 +356,8 @@
   .md h1,
   .md h2,
   .md h3 {
-    font-size: 15px;
+    font-size: var(--text-heading);
+    line-height: var(--text-heading--line-height);
     font-weight: 600;
     color: var(--color-foreground);
     margin: 4px 0 6px;
@@ -484,7 +365,7 @@
   .md h4,
   .md h5,
   .md h6 {
-    font-size: 13px;
+    font-size: var(--text-body);
     font-weight: 600;
     color: var(--color-foreground);
     margin: 10px 0 4px;
@@ -504,25 +385,22 @@
     list-style: decimal;
   }
   .md a {
-    color: var(--color-primary-ink);
+    color: var(--color-primary);
   }
   .md code {
     font-family: var(--font-mono);
-    font-size: 11.5px;
-    background: var(--color-code);
-    padding: 1px 5px;
-    border-radius: 4px;
-    border: 1px solid var(--color-border);
-    color: var(--color-code-ink);
+    background: var(--color-fill);
+    padding: 1px 4px;
+    border-radius: var(--radius-control);
+    color: var(--color-foreground);
   }
   .md pre {
     margin: 6px 0;
     padding: 8px 10px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 8px;
+    background: var(--color-fill);
+    border-radius: var(--radius-card);
     overflow-x: auto;
-    line-height: 1.5;
+    line-height: var(--text-body--line-height);
   }
   .md pre code,
   .md pre code.hljs {
@@ -534,13 +412,13 @@
   .md blockquote {
     margin: 6px 0;
     padding: 0 10px;
-    border-left: 3px solid var(--color-border-strong);
+    border-left: 3px solid var(--color-border);
     color: var(--color-muted-foreground);
   }
   .md hr {
     margin: 10px 0;
     border: 0;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--color-row-line);
   }
   .md del {
     color: var(--color-muted-foreground);
@@ -559,7 +437,7 @@
   /* anywhere 会把每列的最小宽度算成一个字，短的列被挤成一字一行;break-word 只在放不下时断开。 */
   .md table {
     border-collapse: collapse;
-    font-size: 12px;
+    line-height: var(--text-body--line-height);
     overflow-wrap: break-word;
   }
   .md th,
@@ -573,15 +451,15 @@
     white-space: nowrap;
     font-weight: 600;
     color: var(--color-foreground);
-    background: var(--color-surface);
+    background: var(--color-fill);
   }
   /* 画出来的图:Pele 的配色走 --pele-* 变量，按宽度排版;Graphviz 的 SVG 自带配色，按正文字号定宽(见 markdown.tsx 的 fitDot),
      放不下时和表格一样横向滚动。 */
   .md-diagram {
     margin: 6px 0;
     padding: 8px;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
     background: var(--color-panel);
     overflow-x: auto;
     --pele-font: var(--font-sans);
@@ -589,9 +467,9 @@
     --pele-fg: var(--color-foreground);
     --pele-muted: var(--color-muted-foreground);
     --pele-line: var(--color-foreground-secondary);
-    --pele-surface: var(--color-surface);
-    --pele-surface-alt: var(--color-surface-alt);
-    --pele-border: var(--color-border-strong);
+    --pele-surface: var(--color-fill);
+    --pele-surface-alt: var(--color-fill);
+    --pele-border: var(--color-border-control);
     --pele-accent: var(--color-primary);
   }
   .md-diagram svg {
@@ -620,77 +498,53 @@
     }
   }
 
-  /* 代码高亮在深色下换成 GitHub Dark 的配色(浅色用上面引入的 github.css);注释色调亮了一些，在代码块底上够对比度。 */
-  :root[data-theme="dark"] .md {
-    .hljs {
-      color: #c9d1d9;
-    }
-    .hljs-doctag,
-    .hljs-keyword,
-    .hljs-meta .hljs-keyword,
-    .hljs-template-tag,
-    .hljs-template-variable,
-    .hljs-type,
-    .hljs-variable.language_ {
-      color: #ff7b72;
-    }
-    .hljs-title,
-    .hljs-title.class_,
-    .hljs-title.class_.inherited__,
-    .hljs-title.function_ {
-      color: #d2a8ff;
-    }
-    .hljs-attr,
-    .hljs-attribute,
-    .hljs-literal,
-    .hljs-meta,
-    .hljs-number,
-    .hljs-operator,
-    .hljs-variable,
-    .hljs-selector-attr,
-    .hljs-selector-class,
-    .hljs-selector-id {
-      color: #79c0ff;
-    }
-    .hljs-regexp,
-    .hljs-string,
-    .hljs-meta .hljs-string {
-      color: #a5d6ff;
-    }
-    .hljs-built_in,
-    .hljs-symbol {
-      color: #ffa657;
-    }
-    .hljs-comment,
-    .hljs-code,
-    .hljs-formula {
-      color: #a2aab4;
-    }
-    .hljs-name,
-    .hljs-quote,
-    .hljs-selector-tag,
-    .hljs-selector-pseudo {
-      color: #7ee787;
-    }
-    .hljs-subst,
-    .hljs-emphasis,
-    .hljs-strong {
-      color: #c9d1d9;
-    }
-    .hljs-section {
-      color: #58a6ff;
-    }
-    .hljs-bullet {
-      color: #f2cc60;
-    }
-    .hljs-addition {
-      color: #aff5b4;
-      background-color: #033a16;
-    }
-    .hljs-deletion {
-      color: #ffdcd7;
-      background-color: #67060c;
-    }
+  /* 代码高亮只用灰度：关键字、标题用主要档并加粗，字符串与数字用次要档，注释用标注档的斜体，其余跟正文。
+     两种外观共用，颜色跟着四档文字走。 */
+  .md .hljs {
+    color: var(--color-foreground);
+  }
+  .md :is(.hljs-keyword, .hljs-doctag, .hljs-template-tag, .hljs-type, .hljs-selector-tag, .hljs-section, .hljs-title, .hljs-name) {
+    color: var(--color-foreground);
+    font-weight: 600;
+  }
+  .md
+    :is(
+      .hljs-string,
+      .hljs-regexp,
+      .hljs-number,
+      .hljs-literal,
+      .hljs-attr,
+      .hljs-attribute,
+      .hljs-built_in,
+      .hljs-symbol,
+      .hljs-variable,
+      .hljs-template-variable,
+      .hljs-meta,
+      .hljs-bullet,
+      .hljs-link,
+      .hljs-selector-attr,
+      .hljs-selector-class,
+      .hljs-selector-id,
+      .hljs-selector-pseudo
+    ) {
+    color: var(--color-foreground-secondary);
+  }
+  .md :is(.hljs-comment, .hljs-quote) {
+    color: var(--color-muted-foreground);
+    font-style: italic;
+  }
+  .md .hljs-emphasis {
+    font-style: italic;
+  }
+  .md .hljs-strong {
+    font-weight: 600;
+  }
+  .md .hljs-addition {
+    color: var(--color-primary);
+  }
+  .md .hljs-deletion {
+    color: var(--color-muted-foreground);
+    text-decoration: line-through;
   }
 
   /* 列表是名为 list 的尺寸容器：技能行按它的宽度换成两层(rows.tsx 的 @max-[600px]/list);
@@ -708,7 +562,7 @@
   [data-dragging] [data-drop-scope],
   [data-dragging="skill"] [data-drop-group],
   [data-dragging="collection"] [data-drop-group] {
-    outline: 1.5px dashed var(--color-primary-border);
+    outline: 1.5px dashed var(--color-border-control);
     outline-offset: -2px;
   }
   [data-dragging] [data-aim] {
@@ -722,17 +576,17 @@
   }
   [data-dragging] [data-already]::after {
     content: attr(data-already);
-    font-size: 10px;
+    font-size: var(--text-caption);
     color: var(--color-muted-foreground);
     margin-left: 4px;
   }
   [data-dragging] [data-drop-hover] {
     background: var(--color-primary-soft);
     outline: 2px solid var(--color-primary);
-    color: var(--color-primary-ink);
+    color: var(--color-foreground);
   }
   [data-dragging] [data-drop-hover][data-already] {
-    background: var(--color-neutral-soft);
+    background: var(--color-fill);
     outline-color: var(--color-subtle);
     color: var(--color-foreground-secondary);
   }
@@ -744,18 +598,17 @@
   }
 }
 
-/* 状态圈(components/ui/status-mark.tsx):各状态下底圈、弧、对勾与叉的显隐与颜色。 */
+/* 状态圈(components/ui/status-mark.tsx):各状态下底圈、弧、对勾与叉的显隐。颜色跟随文字:
+   对勾和叉都用主要档的文字色，绿色不表示完成。 */
 @layer components {
   .status-mark {
     overflow: visible;
     color: currentColor;
     transition: color 200ms ease;
   }
-  .status-mark[data-status="done"] {
-    color: var(--color-ok);
-  }
+  .status-mark[data-status="done"],
   .status-mark[data-status="failed"] {
-    color: var(--color-bad);
+    color: var(--color-foreground);
   }
   .status-mark-track {
     fill: currentColor;
@@ -819,7 +672,7 @@
   }
 }
 
-/* 可下滑关掉的 toast(components/ui/swipe-toast.tsx):升起、收起的阶段与底边的引线。
+/* 可下滑关掉的 toast(components/ui/swipe-toast.tsx):升起、收起的阶段与底边的引线(主要档的文字色，失败时也不换色)。
    新出现时从底部升起(支持 @starting-style 时用它，否则等 data-mounted);收起时沉下去淡出。
    升降在外层(.swipe-toast-lift)做位移，淡入淡出放在卡片自己身上(--st-fade × 下滑时的 --st-swipe):
    卡片是毛玻璃，祖先的 opacity 小于 1 时 Chromium 截断它看到的背景，过渡中会变成一块深灰。 */
@@ -831,10 +684,7 @@
 @layer components {
   .swipe-toast {
     --st-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-    --st-fuse: var(--color-primary);
-  }
-  .swipe-toast[data-tone="error"] {
-    --st-fuse: var(--color-bad);
+    --st-fuse: var(--color-foreground);
   }
   .swipe-toast-lift {
     transform: translateY(0);

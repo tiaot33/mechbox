@@ -4,10 +4,10 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 const selectBox =
-  "min-w-0 rounded-[7px] border border-border bg-control px-1.5 text-xs text-foreground outline-none focus-visible:ring-3 focus-visible:ring-primary-soft";
+  "min-w-0 rounded-control border border-border-control bg-panel px-2 text-body text-foreground outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft disabled:border-border disabled:text-subtle";
 
 function NativeSelect({ className, ...props }: ComponentProps<"select">) {
-  return <select data-slot="native-select" className={cn(selectBox, "h-[26px] max-w-[150px]", className)} {...props} />;
+  return <select data-slot="native-select" className={cn(selectBox, "h-7 max-w-[150px]", className)} {...props} />;
 }
 
 function SelectButton({ className, type = "button", ...props }: ComponentProps<"button">) {
@@ -15,7 +15,7 @@ function SelectButton({ className, type = "button", ...props }: ComponentProps<"
     <button
       data-slot="select-button"
       type={type}
-      className={cn(selectBox, "inline-flex min-h-[26px] max-w-[260px] items-center gap-1 py-[3px] text-left", className)}
+      className={cn(selectBox, "inline-flex min-h-7 max-w-[260px] items-center gap-1 py-[3px] text-left", className)}
       {...props}
     />
   );
