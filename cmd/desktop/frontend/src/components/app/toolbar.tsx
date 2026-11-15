@@ -4,7 +4,7 @@
 // 外框(拖动区、红绿灯的位置、Windows 的窗口按钮)见 titlebar.tsx。
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
-import { useLoadedSnapshot } from "@/lib/library";
+import { useLoadedSnapshot, useSnapshot } from "@/lib/library";
 import { checkableCollections, pageTitle } from "@/lib/model";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -60,7 +60,8 @@ export function Toolbar() {
           <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
             <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>
             {listing && <Count value={listing.total} />}
-            <BusyMark />
+            {/* 从左栏集合右键发起的检查画在那一行上;左栏收起时由这里补上。顶栏按钮发起的画在按钮上。 */}
+            <BusyMark checks={!left && "collections"} />
           </span>
         </>
       }
@@ -88,7 +89,7 @@ export function Toolbar() {
 
 // Actions 是顶栏右边的动作：检查更新(检查中与检查完在按钮上标出)、入库技能、技能市场。用轻按钮，和左栏的页面分开。
 function Actions() {
-  const s = useLoadedSnapshot()!;
+  const s = useSnapshot();
   const ui = useUI();
   const busy = useBusy();
   const checkStatus = useCheckMark("all");

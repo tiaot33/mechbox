@@ -4,14 +4,14 @@
 // 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换;这台机器上拖出来的集合与组的先后清掉，旧库的 ID 对不上新库。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AppService, LibraryService, type ConfigStatus } from "@bindings/cmd/desktop";
+import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { CannotPullReason, ErrorCode, type SyncBackup, type SyncBackupID, type SyncPullPlan } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { invalidateSyncStatus, syncSettingsQuery, type LibraryError } from "@/lib/library";
 import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { clearPicked, openSettings } from "@/lib/view";
+import { clearPicked } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -32,14 +32,15 @@ function cannotPull(reason: string): string | undefined {
 // Pull 是拉回的那一步：列出的备份、选中的那份与它的同步计划(选中后才去下载校验)。
 type Pull = { backups: SyncBackup[]; selected: SyncBackupID | null; plan: SyncPullPlan | null };
 
-export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose: () => void }) {
+// SyncDialog 只在配置好同步时打开(左栏同步那一行、卸载 Mechbox 里的「先去同步」都只在配置好时出现)。
+export function SyncDialog({ onClose }: { onClose: () => void }) {
   const ui = useUI();
   const t = useT().sync;
   const [pull, setPull] = useState<Pull | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   const [pulled, setPulled] = useState(false);
   const { setLanguage } = useLanguage();
-  const settings = useQuery({ ...syncSettingsQuery, enabled: config.sync }).data;
+  const settings = useQuery(syncSettingsQuery).data;
 
   const push = async () => {
     setWorking("push");
@@ -124,33 +125,17 @@ export function SyncDialog({ config, onClose }: { config: ConfigStatus; onClose:
       }
     >
       <Hint>{t.intro}</Hint>
-      {!config.sync && (
-        <Notice tone="warn">
-          {t.notConfigured}
-          <div className="mt-1.5">
-            <Button
-              onClick={() => {
-                onClose();
-                openSettings("sync");
-              }}
-            >
-              {t.openSettings}
-            </Button>
-          </div>
-        </Notice>
-      )}
-      {/* 没配置时推、拉都只会报缺少配置，按钮置灰，从上面的"去设置"填。 */}
       {!pull && (
         <div className="flex items-center gap-2">
-          <Button className="grow" disabled={!config.sync || (working !== null && working !== "push")} loading={working === "push"} onClick={push}>
+          <Button className="grow" disabled={working !== null && working !== "push"} loading={working === "push"} onClick={push}>
             {t.pushTo}
           </Button>
-          <Button className="grow" disabled={!config.sync || (working !== null && working !== "list")} loading={working === "list"} onClick={list}>
+          <Button className="grow" disabled={working !== null && working !== "list"} loading={working === "list"} onClick={list}>
             {t.pullFrom}
           </Button>
         </div>
       )}
-      {config.sync && !pull && <SyncStatusLine folder={settings?.folder ?? ""} />}
+      {!pull && <SyncStatusLine folder={settings?.folder ?? ""} />}
       {pulled && <Notice tone="ok">{t.pulled}</Notice>}
       {pull && pull.backups.length === 0 && <Notice>{t.noBackups([settings?.bucket, settings?.folder].filter(Boolean).join("/") || "S3")}</Notice>}
       {pull && pull.backups.length > 0 && (

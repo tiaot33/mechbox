@@ -23,21 +23,19 @@ import {
   wslTitle,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { openGraph, toggleSection, toggleUnfolded, useView } from "@/lib/view";
-import { notInterested, previewCollection, previewNewSkills } from "@/features/fetch/preview";
-import { deleteGroup, renameGroup } from "@/features/group/group";
+import { toggleSection, toggleUnfolded, useView } from "@/lib/view";
+import { notInterested, previewNewSkills } from "@/features/fetch/preview";
 import { uninstallGroup } from "@/features/install/install";
-import { openHistory, openUpdate } from "@/features/update/update";
+import { openUpdate } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ContextMenuEntries, DropdownMenuEntries, useCollectionMenu, useGroupMenu, type MenuEntry } from "@/components/app/menus";
 import { useCollectionDrop, useDnD, useGroupDrop } from "@/components/app/dnd";
 import { Icon, SourceIcon } from "@/components/app/icons";
 import { Chip, PlaceAgentMark, WSLBadge } from "@/components/app/parts";
 import { SectionPick } from "./pick";
-
-// MenuEntry 是节标题菜单里的一项("separator" 是分隔线);同一份既画在「⋯」里，也画在右键菜单里。
-export type MenuEntry = { label: string; onSelect: () => void; danger?: boolean; className?: string } | "separator";
+import { nameIndent, pickColumn } from "./rows";
 
 // Section 是一节：标题 + 一块行。标题左边留一列和行首的勾选框对齐(gutter;更新页的行不能勾选，不留),
 // 给了 pick 时这一列是勾选框，一次勾上这一节的这些技能;actions 是标题右边常驻的(要处理的事),menu 是收起来的不常用的动作。
@@ -80,7 +78,7 @@ export function Section({
         headProps?.className,
       )}
     >
-      {gutter && <span className="mr-2 flex w-3.5 shrink-0">{pick && <SectionPick ids={pick} />}</span>}
+      {gutter && <span className={cn("mr-2 flex shrink-0", pickColumn)}>{pick && <SectionPick ids={pick} />}</span>}
       <span className="flex min-w-0 grow items-center gap-2">{head}</span>
       {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
       {menu && <SectionMenu entries={menu} />}
@@ -101,15 +99,7 @@ export function Section({
         <ContextMenu>
           <ContextMenuTrigger asChild>{bar}</ContextMenuTrigger>
           <ContextMenuContent>
-            {menu.map((m, i) =>
-              m === "separator" ? (
-                <ContextMenuSeparator key={i} />
-              ) : (
-                <ContextMenuItem key={i} danger={m.danger} onSelect={m.onSelect}>
-                  {m.label}
-                </ContextMenuItem>
-              ),
-            )}
+            <ContextMenuEntries entries={menu} />
           </ContextMenuContent>
         </ContextMenu>
       ) : (
@@ -132,15 +122,7 @@ function SectionMenu({ entries }: { entries: MenuEntry[] }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
-        {entries.map((m, i) =>
-          m === "separator" ? (
-            <DropdownMenuSeparator key={i} />
-          ) : (
-            <DropdownMenuItem key={i} danger={m.danger} className={m.className} onSelect={m.onSelect}>
-              {m.label}
-            </DropdownMenuItem>
-          ),
-        )}
+        <DropdownMenuEntries entries={entries} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -148,7 +130,8 @@ function SectionMenu({ entries }: { entries: MenuEntry[] }) {
 
 // Counts 是节标题上淡色的数字说明。
 function Counts({ children }: { children: React.ReactNode }) {
-  return <span className="shrink-0 text-[11px] text-muted-foreground">{children}</span>;
+  // 放不下时比名字先截短(名字是认出这一节的依据)，比后面的来源版本晚截。
+  return <span className="min-w-0 shrink-[30] truncate text-[11px] text-muted-foreground">{children}</span>;
 }
 
 // inUse 是一节里算作在用的技能：装在至少一个地方的。技能库页节标题的个数和行的先后都按它。
@@ -189,11 +172,7 @@ export function CollectionSection({
   const local = isLocal(collection.source);
   const label = sourceLabel(s, collection.source);
   const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : ""].filter(Boolean);
-  const menu: MenuEntry[] = [
-    ...(showGraph ? [{ label: t.graph.open, className: "graph-open", onSelect: () => openGraph({ kind: "collection", id: collection.id }) }, "separator" as const] : []),
-    { label: t.sidebar.otherSkills, onSelect: () => previewCollection(collection.id) },
-    { label: t.sidebar.history, onSelect: () => openHistory({ collection_id: collection.id }, t.list.historyTitle(label)) },
-  ];
+  const menu = useCollectionMenu(collection, { graph: showGraph });
   const head = (
     <>
       <span
@@ -235,7 +214,7 @@ function CollectionNews({ collection }: { collection: Collection }) {
   const fresh = collection.new_skills ?? [];
   if (!fresh.length) return null;
   return (
-    <div className="collection-new flex min-w-0 items-center gap-3 border-b border-row-line py-1 pr-3 pl-[42px] text-[11px] text-muted-foreground">
+    <div className={cn("collection-new flex min-w-0 items-center gap-3 border-b border-row-line py-1 pr-3 text-[11px] text-muted-foreground", nameIndent)}>
       <span className="min-w-0 grow truncate">{t.drawer.newSkills(sourceLabel(s, collection.source), fresh)}</span>
       <Button variant="link" className="text-[11px]" onClick={() => previewNewSkills(collection.id)}>
         {t.drawer.goFetch}
@@ -270,11 +249,7 @@ export function GroupSection({
   const t = useT();
   const scopes = s.groupInstalls.filter((a) => a.group_id === group.id).map((a) => a.scope);
   const size = group.members?.length ?? 0;
-  const menu: MenuEntry[] = [
-    ...(showGraph ? [{ label: t.graph.open, className: "graph-open", onSelect: () => openGraph({ kind: "group", id: group.id }) }, "separator" as const] : []),
-    { label: t.sidebar.renameWith, onSelect: () => renameGroup(group.id) },
-    { label: t.sidebar.deleteGroupWith, danger: true, onSelect: () => deleteGroup(group.id) },
-  ];
+  const menu = useGroupMenu(group, { graph: showGraph });
   const head = (
     <>
       <span
@@ -346,7 +321,7 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
           onClick={() => toggleUnfolded(id)}
         >
           {/* 箭头在勾选框那一列，文字和技能名对齐。 */}
-          <span className="flex w-3.5 shrink-0 justify-center">
+          <span className={cn("flex shrink-0 justify-center", pickColumn)}>
             <Icon name="chev" className={cn("size-2.5 transition-transform", unfolded && "rotate-90")} />
           </span>
           <span className="truncate">{label}</span>

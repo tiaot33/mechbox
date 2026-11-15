@@ -546,7 +546,6 @@ export const en = {
     noteHint: "Notes live only in the database, not in the skill's files, and travel with Sync. In lists, hover over the skill's name to see it.",
     noteSaved: "Note saved",
     otherSkillsHint: "Read the Source it was fetched from again to see what else the author has published",
-    otherSkills: "See other skills in the Source",
     newSkills: (source: string, names: string[]) => `${source} published ${count(names.length, "new skill")} (${names.join(", ")})`,
     goFetch: "Fetch",
     notInterested: "Not interested",
@@ -759,8 +758,6 @@ export const en = {
     groupInstalledIn: "Group installed in",
     uninstallGroupHere: "Uninstall the Group install in this Scope",
     notGroupInstalled: "Not Group installed in any Scope yet",
-    rename: "Rename",
-    deleteGroup: "Delete Group",
     changedSkills: (names: string[]) => `${and(names)} changed`,
     newVersionEdited: "New Version; updating replaces your edits",
     changedSkillsEdited: (names: string[]) => `${and(names)} changed; updating replaces your edits`,
@@ -776,9 +773,7 @@ export const en = {
     updateAll: "Update all",
     revisionMove: (from: string, to: string) => `${from} → ${to}`,
     revisionLatest: (from: string, to: string) => `${from} · latest ${to}`,
-    otherSkillsHint: "Read the Source it was fetched from again to see what else the author has published",
     historyTitle: (label: string) => `History of ${label}`,
-    history: "History",
   },
 
   plan: {
@@ -983,7 +978,7 @@ export const en = {
     dark: "Dark",
     glassTint: "Glass tint",
     glassTintDesc: (dark: boolean) =>
-      `How dense the background of dialogs, drawers, menus, the selection bar, notifications and the list's section headers is. Further left is clearer, down to just the blur, the edge and the shadow; further right is more opaque. Light and dark appearance each keep their own value; this adjusts the ${dark ? "dark" : "light"} one.`,
+      `How dense the background of dialogs, drawers, menus, the selection bar and notifications is. Further left is clearer, down to just the blur, the edge and the shadow; further right is more opaque. Light and dark appearance each keep their own value; this adjusts the ${dark ? "dark" : "light"} one.`,
     glassTintOpaque:
       "Your system is set to reduce transparency or uses a contrast theme, so glass surfaces are shown opaque and this setting has no effect.",
     followSystem: "System",
@@ -1075,11 +1070,8 @@ export const en = {
     back: "Back",
     pullConfirm: "Pull and replace this machine's Library",
     intro: "Pushing stores the whole Library on S3 as a backup of this machine; pulling replaces this machine's Library with a backup from any machine, to reproduce the same setup on another machine. Pushing can run automatically at an interval set in Settings; pulling is always manual.",
-    notConfigured:
-      "S3 isn't configured: fill in the bucket, Access Key ID and Secret Access Key in the Sync section of Settings.",
     pushTo: "Push to S3",
     pullFrom: "Pull from S3…",
-    openSettings: "Open Settings",
     pulled:
       "Switched to this backup from S3. Folders in Agent directories weren't touched: for projects marked “Not on this machine” on the right, first point them to their location on this machine; then check each Scope's status and use “Reinstall all” as needed.",
     noBackups: (location: string) =>
@@ -1305,7 +1297,6 @@ export const en = {
 
   graph: {
     open: "Graph",
-    openTitle: "See which of these skills mention each other",
     back: (page: string) => `Back to ${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
       `${count(skills, "skill")}, ${count(mentions, "mention")}${outside ? `, mentioning ${count(outside, "skill")} ${group ? "outside the Group" : "in other Collections"}` : ""}`,

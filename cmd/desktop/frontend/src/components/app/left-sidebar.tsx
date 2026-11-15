@@ -10,32 +10,27 @@ import { useQuery } from "@tanstack/react-query";
 import type { ConfigStatus } from "@bindings/cmd/desktop";
 import { SyncInterval, type Collection, type CollectionID, type Group } from "@bindings/internal/library";
 import { useSnapshot, configQuery, releaseQuery, syncStatusQuery } from "@/lib/library";
-import { checkUpdates, useCheckMark } from "@/features/update/check";
-import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
-import { previewCollection } from "@/features/fetch/preview";
-import { openHistory, openUpdate } from "@/features/update/update";
+import { useCheckMark } from "@/features/update/check";
+import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { useT } from "@/lib/i18n";
 import {
   collectionSkills,
   foldCollections,
-  hasUpdate,
   isLocal,
   pending,
   shortPath,
-  missingFromGroup,
   sourceKindLabel,
   sourceLabel,
   wslTitle,
   type Page,
   isDefaultOrder,
 } from "@/lib/model";
-import { useBusy, useUI } from "@/lib/ui";
+import { useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
 import {
   foldUnfolded,
   jumpTo,
-  openGraph,
   openPage,
   openSettings,
   smallCollectionsKey,
@@ -51,9 +46,6 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Hint } from "@/components/ui/field";
@@ -61,6 +53,7 @@ import { StatusMark } from "@/components/ui/status-mark";
 import { Icon } from "./icons";
 import { leftClass } from "./layout";
 import { NavCount, navItem } from "./nav";
+import { ContextMenuEntries, useCollectionMenu, useGroupMenu } from "./menus";
 import { TailPath, tailPath, Truncated, WSLBadge } from "./parts";
 import { isWSLPath } from "@/lib/paths";
 import { platform } from "@/lib/platform";
@@ -206,7 +199,7 @@ export function LeftSidebar() {
         <ReleaseRow />
         {config.sync && (
           <li>
-            <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog config={config} onClose={close} />)}>
+            <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog onClose={close} />)}>
               <Icon name="cloud" />
               <span className="grow">{t.sync}</span>
               <span className={cn("text-[11px] text-muted-foreground", pushFailed && "text-warn-strong")}>{syncLabel}</span>
@@ -233,13 +226,11 @@ export function LeftSidebar() {
 
 // CollectionRow 是左栏的一个集合：点了跳到那一节;拖到右栏作用域 = 逐个直接安装，拖到组上 = 加入该组，拖到别的集合上 = 调整先后
 // (segment 是开着折叠时它所在的那段，只接受同一段里拖来的);
-// 名字放不下时悬停显示全名;右键菜单是关系图、检查更新、更新、来源里的其他技能、更新历史与加入组。开着它的关系图时这一行标为选中。
+// 名字放不下时悬停显示全名;右键菜单和列表里这个集合的节标题是同一份(见 menus.tsx)。开着它的关系图时这一行标为选中。
 function CollectionRow({ collection: c, segment }: { collection: Collection; segment?: CollectionID[] }) {
   const s = useSnapshot();
   const dnd = useDnD();
-  const busy = useBusy();
   const drop = useCollectionDrop(c.id, segment);
-  const groups = s.groups;
   const tt = useT();
   const t = tt.sidebar;
   const label = sourceLabel(s, c.source);
@@ -250,6 +241,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
   const skills = collectionSkills(s, c);
   const checkStatus = useCheckMark(c.id);
   const page = useCurrentPage();
+  const menu = useCollectionMenu(c, { graph: true });
   return (
     <li>
       <ContextMenu>
@@ -280,35 +272,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => openGraph({ kind: "collection", id: c.id })}>{tt.graph.open}</ContextMenuItem>
-          <ContextMenuSeparator />
-          {!local && (
-            <ContextMenuItem disabled={busy} onSelect={() => checkUpdates([c.id], c.id)}>
-              {tt.toolbar.check}
-            </ContextMenuItem>
-          )}
-          {!local && skills.some(hasUpdate) && <ContextMenuItem onSelect={() => openUpdate(c.id)}>{t.update}</ContextMenuItem>}
-          <ContextMenuItem onSelect={() => previewCollection(c.id)}>{t.otherSkills}</ContextMenuItem>
-          <ContextMenuItem onSelect={() => openHistory({ collection_id: c.id }, tt.list.historyTitle(label))}>{t.history}</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>{t.addToGroup}</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {groups.map((g) => {
-                const already = missingFromGroup(s, c.id, g.id).length === 0;
-                return (
-                  <ContextMenuItem key={g.id} disabled={already || busy} onSelect={() => addCollectionToGroup(g.id, c.id)}>
-                    <span className="min-w-0 grow truncate">{g.name}</span>
-                    {already && <span className="shrink-0 text-[10px] text-subtle">{tt.layout.alreadyThere}</span>}
-                  </ContextMenuItem>
-                );
-              })}
-              {s.groups.length > 0 && <ContextMenuSeparator />}
-              <ContextMenuItem disabled={busy} onSelect={() => createGroup(c.skills ?? [])}>
-                {t.newGroupWith}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          <ContextMenuEntries entries={menu} />
         </ContextMenuContent>
       </ContextMenu>
     </li>
@@ -338,13 +302,14 @@ function SmallCollectionsRow({ folded, open, onToggle }: { folded: Collection[];
 }
 
 // GroupRow 是左栏的一个组：点了跳到那一节;拖到右栏作用域 = 组安装，拖到别的组上 = 调整先后，接受技能与集合(加入本组);
-// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单是关系图、重命名、删除与新建组。开着它的关系图时这一行标为选中。
+// 名字放不下时悬停显示全名;悬停出现重命名、删除按钮，右键菜单和列表里这个组的节标题是同一份，另加新建组(见 menus.tsx)。开着它的关系图时这一行标为选中。
 function GroupRow({ group: g }: { group: Group }) {
   const dnd = useDnD();
   const drop = useGroupDrop(g.id);
   const tt = useT();
   const t = tt.sidebar;
   const page = useCurrentPage();
+  const menu = useGroupMenu(g, { graph: true, newGroup: true });
   return (
     <li>
       <ContextMenu>
@@ -393,14 +358,7 @@ function GroupRow({ group: g }: { group: Group }) {
           </ContextMenuTrigger>
         </Truncated>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => openGraph({ kind: "group", id: g.id })}>{tt.graph.open}</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => renameGroup(g.id)}>{t.renameWith}</ContextMenuItem>
-          <ContextMenuItem danger onSelect={() => deleteGroup(g.id)}>
-            {t.deleteGroupWith}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => createGroup()}>{t.newGroupWith}</ContextMenuItem>
+          <ContextMenuEntries entries={menu} />
         </ContextMenuContent>
       </ContextMenu>
     </li>

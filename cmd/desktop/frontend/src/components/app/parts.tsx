@@ -197,10 +197,11 @@ export function Chip({
 
 // BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈(ui.run 传了 busyMark: false 的除外)，
 // 全部结束后转动的弧合成整圈，合拢后画出对勾(有失败的画叉),停一下再淡出;只有被取消的写操作时直接消失。
-// checks 为 true 时(左栏不显示)也画检查更新的进度，检查本来画在左栏上。
-export function BusyMark({ checks = false }: { checks?: boolean }) {
+// checks 是还要画哪些检查更新的进度(检查本来画在发起处):true 是全部(设置页，看不到顶栏的检查按钮),
+// "collections" 是从左栏集合右键发起的(主界面左栏不显示时)。
+export function BusyMark({ checks = false }: { checks?: boolean | "collections" }) {
   const writes = useMarkStatus(useBusyMarkRunning(), useSettled());
-  const check = useCheckMark();
+  const check = useCheckMark(checks === "collections" ? "collections" : undefined);
   const t = useT();
   const shown = checks ? check : null;
   const status = writes === "running" || shown === "running" ? "running" : (writes ?? shown);

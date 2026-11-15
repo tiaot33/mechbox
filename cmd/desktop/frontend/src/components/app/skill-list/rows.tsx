@@ -55,27 +55,41 @@ import { flash } from "./flash";
 
 // 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
-// 列表窄了(开着技能详情)时描述挪到名字下面，名字、装在哪(在这里的状态)和日期仍然看得全;列表的宽度按 .a-list 这个容器算。
-// 窄的时候除名字和描述外的格子跨两行、上下居中;描述放在名字那一列的第二行(desc 是每种列宽下它该放的位置)。
+// 列表窄了(开着技能详情)时每行两层：描述挪到名字下面;技能库页的装在哪和日期上下叠在最后一列(where、date),
+// 作用域页的状态跨两层。名字、装在哪(在这里的状态)和日期仍然看得全;列表的宽度按 .a-list 这个容器算。
+// 各列宽下 desc、where、date 是窄的时候它们放的格子，勾选框和开关跨两层、上下居中(span)。
 const layouts = {
   library: {
-    cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(64px,120px)_64px]",
+    cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-1 @max-[600px]/list:row-start-2",
+    where: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-1",
+    date: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
   },
   pickLibrary: {
-    cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(64px,120px)_64px]",
+    cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
+    where: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-1",
+    date: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
   },
   scope: {
     cols: "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[30px_minmax(0,1fr)_minmax(80px,140px)]",
     desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
+    where: "@max-[600px]/list:row-span-2",
+    date: "",
   },
   pickScope: {
     cols: "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[14px_30px_minmax(0,1fr)_minmax(80px,140px)]",
     desc: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2",
+    where: "@max-[600px]/list:row-span-2",
+    date: "",
   },
 };
-// span 是窄的时候跨两行的格子(勾选框、开关、装在哪、日期)。
+// 行首勾选框那一列(上面列宽里的 14px):行的左内边距 12(px-3)+ 这一列 14 + 列间距 16 = 42。
+// 节标题、「没装的」折叠行、节标题下的说明行用 pickColumn 留出同一列，或用 nameIndent 直接缩进到技能名。
+export const pickColumn = "w-3.5";
+export const nameIndent = "pl-[42px]";
+
+// span 是窄的时候跨两层的格子(勾选框、开关)。
 const span = "@max-[600px]/list:row-span-2";
 
 const rowClass =
@@ -172,10 +186,10 @@ export function SkillRow(props: {
           )}
         </span>
       )}
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-        {/* 放不下时先截组标签，再截名字(至少留几个字);有新版本、同名这类标记是要处理的事，不被挤掉。 */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        {/* 名字放得下时写全;后面的标记放不下就折到下一行，有新版本、同名这类要处理的事不被截掉。 */}
         <span
-          className={cn("skill-name min-w-12 truncate text-[12.5px] font-semibold", scope && !here && !identical && !props.fromGlobal && "font-medium text-foreground-secondary")}
+          className={cn("skill-name max-w-full min-w-0 truncate text-[12.5px] font-semibold", scope && !here && !identical && !props.fromGlobal && "font-medium text-foreground-secondary")}
           title={skill.note || undefined}
         >
           {skill.name}
@@ -264,7 +278,7 @@ export function SkillRow(props: {
           </p>
         )}
       </div>
-      <div className={cn("flex min-w-0", span)}>
+      <div className={cn("flex min-w-0", layout.where)}>
         {scope ? (
           identical ? (
             <IdenticalState identical={identical} skill={skill} />
@@ -276,7 +290,7 @@ export function SkillRow(props: {
         )}
       </div>
       {!scope && (
-        <div className={cn("flex min-w-0 justify-end", span)}>
+        <div className={cn("flex min-w-0 justify-end", layout.date)}>
           <Changed skill={skill} />
         </div>
       )}

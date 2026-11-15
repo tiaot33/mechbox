@@ -35,7 +35,7 @@ import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { SkillRow, UnmanagedRow } from "./rows";
+import { nameIndent, SkillRow, UnmanagedRow } from "./rows";
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
@@ -58,6 +58,21 @@ export function SkillList() {
     scroller.current.scrollTop = restore;
     doneRestoreScroll();
   }, [restore, listing?.kind]);
+  const page = !listing ? "" : listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind;
+  // 技能详情并排打开或关上时列表变窄、变宽，跨过 600px 时每行在一层和两层之间换，行高跟着变:
+  // 把选中的那一行(刚点开详情的)留在视口里，不让它被挤出去。宽度按容器的内容宽度算，和 rows.tsx 的容器查询一致。
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let narrow: boolean | null = null;
+    const observer = new ResizeObserver(([entry]) => {
+      const now = entry.contentRect.width < 600;
+      if (narrow !== null && now !== narrow) el.querySelector(".skill-row[data-selected]")?.scrollIntoView({ block: "nearest" });
+      narrow = now;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [page]);
   if (!listing) return <main className={centerClass} />;
   if (listing.kind === "graph") {
     return (
@@ -71,8 +86,8 @@ export function SkillList() {
       {/* 上边距放在里面一层：滚动区自己没有上内边距，吸顶的节标题才贴着底板上沿。换页时换一个滚动区，回到顶上。 */}
       <div
         ref={scroller}
-        key={listing.kind === "scope" ? listing.scope : listing.kind === "project" ? `project-${listing.project}` : listing.kind}
-        className="a-list @container/list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
+        key={page}
+        className="a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15"
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
         // 抽屉忙不忙在按下时看：松开前弹层已经收起了。选中了文字(拖选)也不关。
@@ -234,7 +249,7 @@ function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>
         {skills.map((skill) => (
           <SkillRow key={skill.id} skill={skill} showSource />
         ))}
-        {skills.length === 0 && <EmptyRows>{t.noMatch}</EmptyRows>}
+        {skills.length === 0 && <EmptyRows aligned={false}>{t.noMatch}</EmptyRows>}
       </Section>
     </>
   );
@@ -384,8 +399,9 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
   );
 }
 
-function EmptyRows({ children }: { children: React.ReactNode }) {
-  return <p className="py-3 pr-3 pl-[42px] text-[11.5px] text-muted-foreground">{children}</p>;
+// EmptyRows 是一节里没有行时的说明;aligned 时(行首有勾选框那一列的节)和技能名对齐。
+function EmptyRows({ aligned = true, children }: { aligned?: boolean; children: React.ReactNode }) {
+  return <p className={cn("py-3 pr-3 text-[11.5px] text-muted-foreground", aligned ? nameIndent : "pl-3")}>{children}</p>;
 }
 
 // 空状态放在列表区的视觉中部，用上边距定位。

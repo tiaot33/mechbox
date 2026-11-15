@@ -10,6 +10,21 @@ const surface =
 const itemClass =
   "flex h-[26px] cursor-default items-center gap-2 rounded-md px-2 text-xs outline-none select-none data-[disabled]:text-subtle data-[highlighted]:bg-glass-row-hover data-[state=open]:bg-glass-row-selected data-[state=open]:shadow-glass-row";
 
+const dangerClass = "text-bad-strong";
+
+const separatorClass = "mx-1 my-1 h-px bg-hairline";
+
+const subSurface = cn(surface, "max-h-72 overflow-y-auto");
+
+// SubChevron 是子菜单那一项右边的箭头。
+function SubChevron() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto size-2.5 text-muted-foreground" aria-hidden>
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
 function ContextMenu(props: ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
 }
@@ -30,14 +45,14 @@ function ContextMenuItem({ className, danger = false, ...props }: ComponentProps
   return (
     <ContextMenuPrimitive.Item
       data-slot="context-menu-item"
-      className={cn(itemClass, danger && "text-bad-strong", className)}
+      className={cn(itemClass, danger && dangerClass, className)}
       {...props}
     />
   );
 }
 
 function ContextMenuSeparator({ className, ...props }: ComponentProps<typeof ContextMenuPrimitive.Separator>) {
-  return <ContextMenuPrimitive.Separator data-slot="context-menu-separator" className={cn("mx-1 my-1 h-px bg-hairline", className)} {...props} />;
+  return <ContextMenuPrimitive.Separator data-slot="context-menu-separator" className={cn(separatorClass, className)} {...props} />;
 }
 
 function ContextMenuSub(props: ComponentProps<typeof ContextMenuPrimitive.Sub>) {
@@ -48,9 +63,7 @@ function ContextMenuSubTrigger({ className, children, ...props }: ComponentProps
   return (
     <ContextMenuPrimitive.SubTrigger data-slot="context-menu-sub-trigger" className={cn(itemClass, className)} {...props}>
       {children}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto size-2.5 text-muted-foreground" aria-hidden>
-        <polyline points="9 18 15 12 9 6" />
-      </svg>
+      <SubChevron />
     </ContextMenuPrimitive.SubTrigger>
   );
 }
@@ -58,13 +71,20 @@ function ContextMenuSubTrigger({ className, children, ...props }: ComponentProps
 function ContextMenuSubContent({ className, ...props }: ComponentProps<typeof ContextMenuPrimitive.SubContent>) {
   return (
     <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.SubContent data-slot="context-menu-sub-content" collisionPadding={8} className={cn(surface, "max-h-72 overflow-y-auto", className)} {...props} />
+      <ContextMenuPrimitive.SubContent data-slot="context-menu-sub-content" collisionPadding={8} className={cn(subSurface, className)} {...props} />
     </ContextMenuPrimitive.Portal>
   );
 }
 
-// 菜单的表面与选项样式，下拉菜单(dropdown-menu.tsx)共用。
-export { surface as menuSurface, itemClass as menuItemClass };
+// 菜单的表面、选项、分隔线、子菜单的样式与箭头，下拉菜单(dropdown-menu.tsx)共用。
+export {
+  surface as menuSurface,
+  itemClass as menuItemClass,
+  dangerClass as menuDangerClass,
+  separatorClass as menuSeparatorClass,
+  subSurface as menuSubSurface,
+  SubChevron as MenuSubChevron,
+};
 
 export {
   ContextMenu,

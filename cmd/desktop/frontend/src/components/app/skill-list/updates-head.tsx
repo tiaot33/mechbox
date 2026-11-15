@@ -58,13 +58,14 @@ export function UpdatesHead() {
           todo.some(deletedInSource) ? t.deletedSkills(names(todo.filter(deletedInSource))) : "",
         ].filter(Boolean);
         return (
-          <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-b border-row-line pb-2" data-risk={risk ? "" : undefined}>
+          <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-b border-row-line pb-2">
             <div className={barRowClass}>
-              <b className="min-w-0 truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
-              {/* 风险读回来之后才出现：放在名字后面的空白里，这一行原有的内容不挪动。 */}
+              {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
+              <b className="max-w-1/2 min-w-0 shrink-0 truncate">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+              {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
               {risk && (
-                <Badge tone="bad" className="update-risk" title={t.riskTitle}>
-                  {risk}
+                <Badge tone="bad" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
+                  <span className="truncate">{risk}</span>
                 </Badge>
               )}
               <span className="grow" />

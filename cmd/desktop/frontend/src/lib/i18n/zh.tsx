@@ -509,7 +509,6 @@ export const zh = {
     noteHint: "备注只存在数据库里，不写进技能文件，随同步走；在列表里鼠标停在技能名字上也能看到。",
     noteSaved: "已保存备注",
     otherSkillsHint: "按入库时的来源重新读取，看看作者还发布了哪些技能",
-    otherSkills: "看来源里的其他技能",
     newSkills: (source: string, names: string[]) => `${source} 新发布了 ${names.length} 个技能（${names.join("、")}）`,
     goFetch: "去入库",
     notInterested: "不感兴趣",
@@ -716,8 +715,6 @@ export const zh = {
     groupInstalledIn: "组安装于",
     uninstallGroupHere: "卸载这个作用域的组安装",
     notGroupInstalled: "尚未组安装到任何作用域",
-    rename: "重命名",
-    deleteGroup: "删除组",
     changedSkills: (names: string[]) => `${names.join("、")} 有变化`,
     newVersionEdited: "有新版本，更新会换掉你的修改",
     changedSkillsEdited: (names: string[]) => `${names.join("、")} 有变化，更新会换掉你的修改`,
@@ -732,9 +729,7 @@ export const zh = {
     updateAll: "全部更新",
     revisionMove: (from: string, to: string) => `${from} → ${to}`,
     revisionLatest: (from: string, to: string) => `${from} · 最新 ${to}`,
-    otherSkillsHint: "按入库时的来源重新读取，看看作者又发布了哪些技能",
     historyTitle: (label: string) => `${label} 的历史`,
-    history: "历史",
   },
 
   plan: {
@@ -924,7 +919,7 @@ export const zh = {
     dark: "深色",
     glassTint: "毛玻璃浓度",
     glassTintDesc: (dark: boolean) =>
-      `弹窗、抽屉、菜单、操作栏、提示和列表里节标题的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
+      `弹窗、抽屉、菜单、操作栏和提示的底色有多浓。往左更透明，到最左只剩模糊、边缘和阴影；往右更不透明。浅色、深色外观各记一个值，这里调的是${dark ? "深色" : "浅色"}外观的。`,
     glassTintOpaque: "系统要求减少透明度或用了高对比度主题，毛玻璃现在显示为不透明的底，这一项不起作用。",
     wslDistro: "全局目录",
     wslDistroDesc:
@@ -1012,11 +1007,8 @@ export const zh = {
     back: "返回",
     pullConfirm: "拉回并替换本机的库",
     intro: "推送把整个技能库存到 S3，成为这台机器的一份备份；拉回用任一台机器的一份备份替换本机的库，在另一台机器上还原同样的配置。推送可以在设置里按间隔自动进行，拉回始终手动。",
-    notConfigured:
-      "未配置 S3：在设置页的同步分区填写存储桶、Access Key ID 和 Secret Access Key。",
     pushTo: "推送到 S3",
     pullFrom: "从 S3 拉回…",
-    openSettings: "去设置",
     pulled: '已换成 S3 上的这份备份。Agent 目录里的文件夹没有动：右栏里标着"不在这台机器上"的项目，先改项目位置指到本机；再在各作用域查看状态，按需"全部重新安装"。',
     noBackups: (location: string) => `${location} 里还没有备份。另一台机器推送过的话，核对两台机器同步设置里的存储桶与文件夹是否一致。`,
     chooseBackup: "选一份备份拉回，默认是别的机器最新推送的那份：",
@@ -1235,7 +1227,6 @@ export const zh = {
 
   graph: {
     open: "关系图",
-    openTitle: "看这些技能之间谁提到了谁",
     back: (page: string) => `返回${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
       `${skills} 个技能，${mentions} 条提到${outside ? `，提到了${group ? "组外" : "其他集合"}的 ${outside} 个技能` : ""}`,
