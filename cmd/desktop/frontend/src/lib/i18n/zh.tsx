@@ -116,6 +116,7 @@ export const zh = {
     statusSourceLatest: "作者的新版",
     statusMissing: "文件夹不在了",
     statusRootMissing: "项目不在这台机器上",
+    reinstallAt: "要重新安装的地方：",
     revisionUnknown: "来源版本未知",
     revisionSame: (revision: string) => `在 ${revision}`,
     revisionMixed: (r: Extract<RevisionSummary, { kind: "mixed" }>) =>
@@ -217,6 +218,7 @@ export const zh = {
     groupDeleted: "已删除组",
     reinstallSkill: (name: string) => `「${name}」`,
     allCurrent: (what: string) => `${what}已安装的都是当前版本`,
+    offMachineSkipped: (what: string, n: number) => `${what}没有要重新安装的；项目不在这台机器上的 ${n} 处没动`,
     kept: keptAsIs,
     nothingReinstalled: (what: string, edited: number, missing: number) =>
       [`没有重新安装（${what}）`, keptAsIs(edited, missing)].filter(Boolean).join("；"),

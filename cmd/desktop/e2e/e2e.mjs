@@ -1784,8 +1784,8 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await checkUpdates("1 个技能有新版本");
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
-  assert((await card("delta").locator('[data-slot="badge"][data-tone="info"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
-  // 名字后面的提醒圆点是按钮：键盘聚焦后按回车，打开这个技能所在集合的更新计划。
+  assert((await card("delta").locator('[data-slot="badge"][data-tone="update"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
+  // 名字后面的更新图标是按钮：键盘聚焦后按回车，打开这个技能所在集合的更新计划。
   await card("delta").locator('button[data-slot="alert-dot"]').focus();
   await page.keyboard.press("Enter");
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新" }).waitFor();

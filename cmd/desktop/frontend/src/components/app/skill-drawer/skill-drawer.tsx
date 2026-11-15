@@ -246,7 +246,7 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   return (
     <>
     {renamedTo(skill) && (
-      <Notice alert className="mx-2 mb-2.5" action={<Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>{d.view}</Button>}>
+      <Notice className="mx-2 mb-2.5" action={<Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>{d.view}</Button>}>
         {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
       </Notice>
     )}

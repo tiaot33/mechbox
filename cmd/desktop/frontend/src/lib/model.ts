@@ -21,7 +21,7 @@ import {
   type UnmanagedSkill,
 } from "@bindings/internal/library";
 import { currentLanguage, messages } from "./i18n";
-import { worstLevel, type Level, type Tone } from "./level";
+import { worstLevel, type Level, type Mark, type Tone } from "./level";
 import type { Snapshot } from "./library";
 import { isWSLPath, windowsHome, wslLocation, wslRest } from "./paths";
 import { platform } from "./platform";
@@ -368,26 +368,51 @@ export const folderKey = (p: SkillScopeInspection) => `${p.skill_id}|${p.folder}
 export const folderPresent = (p: Pick<SkillScopeInspection, "status">) =>
   p.status !== SkillScopeStatus.SkillScopeMissing && p.status !== SkillScopeStatus.SkillScopeRootMissing;
 
+// canInstall 是能装到的地方：项目不在这台机器上的装不上。
+export const canInstall = (p: Pick<SkillScopeInspection, "status">) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
+
+// needsReinstall 是这一处要重新安装。项目不在这台机器上的不算：那里装不回去，要处理的是项目本身，
+// 提醒只在项目上(作用域栏、设置页的项目行),不落到装在那里的每个技能上。
 export function needsReinstall(p: SkillScopeInspection): boolean {
-  return p.status !== SkillScopeStatus.SkillScopeCurrent;
+  return p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p);
 }
 
-// reinstallLevel 是几处安装里要重新安装的那些最重到哪一级提醒(列表里「装在哪」一列和作用域栏的小圆点按它上色):
-// 有文件夹不在了、项目不在这台机器上的是严重，有被手动改过、版本落后的是注意，只有在 app 外更新到了作者新版的是提示;都不用重新安装时没有。
+// reinstallLevel 是几处安装里要重新安装的那些最重到哪一级提醒(作用域栏 Agent 行、作用域页摘要的提醒图标按它取级别):
+// 有文件夹不在了的是严重，有被手动改过、版本落后的是注意;在 app 外更新到了作者新版的不是提醒(是更新),不算;都不用重新安装时没有。
 export function reinstallLevel(places: SkillScopeInspection[]): Level | undefined {
   return worstLevel(places.filter(needsReinstall).map((p) => skillScopeStatus(p.status, p.source_latest).tone));
+}
+
+// ReinstallAlert 是一个技能要重新安装的原因之一：级别、原因(label)、tip 逐行写出是哪几处。
+export type ReinstallAlert = { tone: Mark; label: string; tip: string };
+
+// reinstallAlerts 是一个技能要重新安装的那几处，按原因(文件夹不在了、被手动改过……)各合成一条;
+// 技能库页把它们合进技能名后面的图标。在 app 外更新到了作者新版的那条是更新(tone 为 update),画在更新的图标里，
+// tip 只列地方;其余的 tip 先写一句要重新安装，免得「旧版本」被读成库里的是旧版。
+export function reinstallAlerts(s: Snapshot, id: SkillID): ReinstallAlert[] {
+  const head = messages().model.reinstallAt;
+  const by = new Map<string, ReinstallAlert>();
+  for (const p of mergeProjectPlaces(s, skillScopesOf(s, id)).filter(needsReinstall)) {
+    const st = skillScopeStatus(p.status, p.source_latest);
+    if (st.tone === "plain") continue;
+    const at = scopeLabel(s, p.scope);
+    const had = by.get(st.label);
+    by.set(st.label, had ? { ...had, tip: `${had.tip}\n${at}` } : { tone: st.tone, label: st.label, tip: st.tone === "update" ? at : `${head}\n${at}` });
+  }
+  return [...by.values()];
 }
 
 // sourceLatest 为 true(见 SkillScopeInspection.source_latest)时被改过的那一处是在 app 外更新到了作者的新版，不说"被手动改过"。
 export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false): { label: string; tone: Tone } {
   const m = messages();
-  if (status === SkillScopeStatus.SkillScopeModified && sourceLatest) return { label: m.model.statusSourceLatest, tone: "info" };
+  if (status === SkillScopeStatus.SkillScopeModified && sourceLatest) return { label: m.model.statusSourceLatest, tone: "update" };
   return {
     [SkillScopeStatus.SkillScopeCurrent]: { label: m.model.statusCurrent, tone: "plain" as const },
     [SkillScopeStatus.SkillScopeStale]: { label: m.model.statusStale, tone: "warn" as const },
     [SkillScopeStatus.SkillScopeModified]: { label: m.model.statusModified, tone: "warn" as const },
     [SkillScopeStatus.SkillScopeMissing]: { label: m.model.statusMissing, tone: "critical" as const },
-    [SkillScopeStatus.SkillScopeRootMissing]: { label: m.model.statusRootMissing, tone: "critical" as const },
+    // 项目不在这台机器上是项目的事：技能详情里那一行照实写出来，不算这个技能的提醒。
+    [SkillScopeStatus.SkillScopeRootMissing]: { label: m.model.statusRootMissing, tone: "plain" as const },
     [SkillScopeStatus.$zero]: { label: m.common.unknown, tone: "plain" as const },
   }[status];
 }

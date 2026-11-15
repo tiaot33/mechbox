@@ -23,7 +23,7 @@ import {
   needsReinstall,
   parseScope,
   pending,
-  reinstallLevel,
+  reinstallAlerts,
   renamedTo,
   sameNameInLibrary,
   sameNameNote,
@@ -31,7 +31,6 @@ import {
   skillSameNameNote,
   shortPath,
   skillScopeIn,
-  skillScopesOf,
   skillScopeStatus,
   sourceKindLabel,
   sourceLabel,
@@ -46,7 +45,7 @@ import { doneFlash, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { AlertDot, Badge, Dot } from "@/components/ui/badge";
+import { AlertIcon, Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
@@ -135,6 +134,8 @@ export function SkillRow(props: {
   const same = scope ? (folder ? sameNameNote(s, scope, folder) : undefined) : skillSameNameNote(s, skill.id);
   const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
+  // 技能库页上，要重新安装的那几处合进名字后面的图标;作用域页的行在最后一列写这一处的状态，不再合进来。
+  const places = scope ? [] : reinstallAlerts(s, skill.id);
   const translated = translatedDescription(skill);
   const ref = useFlash(skill.id, scope);
 
@@ -198,25 +199,32 @@ export function SkillRow(props: {
         >
           {skill.name}
         </span>
-        {/* 这一行的提醒合成一个圆点(按最重的一级),鼠标停住时逐条列出;有可以更新的时点圆点打开所在集合的更新计划。 */}
-        <AlertDot
+        {/* 这一行的提醒(技能本身的，加上要重新安装的那几处)合成一个图标，按最重的一级，鼠标停住时逐条列出。 */}
+        <AlertIcon
           items={[
             same && sameNameAlert(same, t.list.sameName),
+            ...places.filter((x) => x.tone !== "update"),
+            // 作者从来源里删掉了它：不是新版本，是一条提示，和这一行的其他提醒合在一起。
+            deletedInSource(skill) && !skill.kept_deleted && { tone: "info", label: t.list.deleted, tip: t.list.deletedTitle },
             // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
             skill.edited && { tone: "info", label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
-            // 计入角标的才标出来。
-            pending(skill) &&
-              hasUpdate(skill) && {
-                tone: "info",
-                label: renamedTo(skill) ? t.list.maybeRenamed : t.list.newVersion,
-                tip: renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle,
-                onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }),
-              },
-            deletedInSource(skill) && !skill.kept_deleted && { tone: "info", label: t.list.deleted, tip: t.list.deletedTitle },
             // 有新版本、但更新会换掉用户的修改：更新计划里它默认不勾。
             pending(skill) && updateAvailable(skill) && skill.edited && { tone: "warn", label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
             // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨。
             twins.length > 0 && { tone: "info", label: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)), className: "dup-name-note" },
+          ]}
+        />
+        {/* 更新不是提醒：另画一个主题绿的向上箭头，点它打开所在集合的更新计划;只标计入角标的。 */}
+        <AlertIcon
+          items={[
+            pending(skill) &&
+              hasUpdate(skill) && {
+                tone: "update",
+                label: renamedTo(skill) ? t.list.maybeRenamed : t.list.newVersion,
+                tip: renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle,
+                onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }),
+              },
+            ...places.filter((x) => x.tone === "update").map((x) => ({ ...x, onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }) })),
           ]}
         />
         {deletedInSource(skill) && skill.kept_deleted && (
@@ -293,17 +301,13 @@ function useFlash(id: SkillID, scope: ScopeKey | undefined) {
   return ref;
 }
 
-// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时用提醒的圆点(按最重的那一处的级别)和主要档的字标出，
+// Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时字用主要档(原因在名字后面的提醒图标里),
 // 装着的用次要档，不抢技能名的注意力。
 function Where({ skill }: { skill: Skill }) {
-  const s = useSnapshot();
   const t = useT().list;
-  const w = installedSummary(s, skill.id);
-  const level = reinstallLevel(skillScopesOf(s, skill.id));
+  const w = installedSummary(useSnapshot(), skill.id);
   return (
-    // 圆点画在这一列左边的列间距里：有没有圆点，文字都从同一条线开始。
-    <span className="skill-where relative flex min-w-0 items-center text-caption" title={w.title || undefined}>
-      {level && <Dot tone={level} className="absolute top-1/2 -left-3 -translate-y-1/2" />}
+    <span className="skill-where flex min-w-0 items-center text-caption" title={w.title || undefined}>
       <span className={cn("truncate", w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground")}>
         {w.text || t.notInstalled}
       </span>

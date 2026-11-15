@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { select } from "d3-selection";
 import "d3-transition";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
-import type { Mention, MentionsFilter, Skill, SkillID } from "@bindings/internal/library";
+import type { CollectionID, Mention, MentionsFilter, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
 import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHits, type GraphLink, type GraphNode, type MentionGraph, type Relation } from "@/lib/graph";
@@ -177,16 +177,11 @@ function nameWidth(text: string): number {
   return ctx.measureText(text).width;
 }
 
-// 圆点只用灰度：集合里的技能是标注档的灰，没有来源的技能是禁用档的浅灰。
-const collectionColor = "var(--color-muted-foreground)";
+// 按集合着色：同一个集合在哪张图里都是同一种颜色(按左栏里集合的顺序取色);没有来源的技能是灰色。
+const palette = ["#3b82f6", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444", "#84cc16"];
 const noCollection = "var(--color-subtle)";
-// 点了一个技能时三种关系的线都用主要档的颜色，靠线型区分：它提到的是实线，提到它的是虚线，互相提到的是点线。
-const relationColor = "var(--color-foreground)";
-const relationStroke: Record<Relation, { width: number; dash?: string; cap?: "round" }> = {
-  out: { width: 2 },
-  in: { width: 2, dash: "5 3" },
-  both: { width: 2.4, dash: "0.5 3.5", cap: "round" },
-};
+// 点了一个技能时三种关系的颜色：提到它的、它提到的、互相提到的。
+const relationColor: Record<Relation, string> = { in: "var(--color-graph-in)", out: "var(--color-graph-out)", both: "var(--color-graph-both)" };
 const linkColor = "var(--color-graph-link)";
 const litColor = "var(--color-primary)";
 
@@ -206,6 +201,7 @@ interface Tip {
 // Canvas 是图本身：SVG 画圆点和线,d3-zoom 负责拖动画布与滚轮、捏合缩放;圆点可以拖动。
 function Canvas({ graph }: { graph: MentionGraph }) {
   const t = useT().graph;
+  const s = useSnapshot();
   const search = useView((v) => v.search);
   const drawer = useView((v) => v.drawer);
   const markers = useId().replace(/:/g, "");
@@ -331,7 +327,10 @@ function Canvas({ graph }: { graph: MentionGraph }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [tip?.pinned]);
 
-  const colorOf = (n: GraphNode) => (n.collection === null ? noCollection : collectionColor);
+  const colorOf = useMemo(() => {
+    const index = new Map<CollectionID, number>(s.collections.map((c, i) => [c.id, i]));
+    return (n: GraphNode) => (n.collection === null ? noCollection : palette[(index.get(n.collection) ?? 0) % palette.length]);
+  }, [s.collections]);
   const linkByKey = useMemo(() => new Map(graph.links.map((l) => [l.key, l])), [graph]);
   const tipLink = tip ? linkByKey.get(tip.key) : undefined;
   const named = useMemo(() => labelled(graph.nodes), [graph]);
@@ -415,7 +414,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         }}
       >
         <defs>
-          {Object.entries({ base: linkColor, lit: litColor, rel: relationColor }).map(([name, color]) => (
+          {Object.entries({ base: linkColor, lit: litColor, ...relationColor }).map(([name, color]) => (
             <g key={name}>
               <marker id={`${markers}-end-${name}`} viewBox="0 -5 10 10" refX={10} markerWidth={7} markerHeight={7} orient="auto">
                 <path d="M0,-4.5L10,0L0,4.5Z" fill={color} />
@@ -437,8 +436,8 @@ function Canvas({ graph }: { graph: MentionGraph }) {
               const rel = focus && (l.from === selected || l.to === selected) ? focus.relation.get(l.from === selected ? l.to : l.from) : undefined;
               const hidden = focus !== null && !rel;
               const isLit = !!lit?.links.has(l.key);
-              const kind = rel ? "rel" : isLit ? "lit" : "base";
-              const color = rel ? relationColor : isLit ? litColor : linkColor;
+              const kind = rel ?? (isLit ? "lit" : "base");
+              const color = rel ? relationColor[rel] : isLit ? litColor : linkColor;
               const d = linkPath(a, b, radius(na), radius(nb), l.both, focus ? [nameWidth(na.skill.name), nameWidth(nb.skill.name)] : undefined);
               const dim = !hidden && !rel && ((lit && !isLit) || (searching && !matches(search, na.skill) && !matches(search, nb.skill)));
               return (
@@ -453,9 +452,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                     d={d}
                     fill="none"
                     stroke={color}
-                    strokeWidth={rel ? relationStroke[rel].width : isLit ? 2 : 1.3}
-                    strokeDasharray={rel && relationStroke[rel].dash}
-                    strokeLinecap={rel && relationStroke[rel].cap}
+                    strokeWidth={rel || isLit ? 2 : 1.3}
                     markerEnd={`url(#${markers}-end-${kind})`}
                     markerStart={l.both ? `url(#${markers}-start-${kind})` : undefined}
                   />
@@ -551,18 +548,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
         <div className="graph-legend pointer-events-none absolute top-2.5 left-3 flex gap-3 rounded-control bg-panel px-2 py-1 text-caption text-foreground-secondary">
           {(["in", "out", "both"] as const).map((r) => (
             <span key={r} className="flex items-center gap-1.5">
-              <svg aria-hidden width="18" height="4" className="overflow-visible">
-                <line
-                  x1="1"
-                  y1="2"
-                  x2="17"
-                  y2="2"
-                  stroke={relationColor}
-                  strokeWidth={relationStroke[r].width}
-                  strokeDasharray={relationStroke[r].dash}
-                  strokeLinecap={relationStroke[r].cap}
-                />
-              </svg>
+              <span className="h-[3px] w-4 rounded-full" style={{ background: relationColor[r] }} />
               {t.relation[r]}
             </span>
           ))}
