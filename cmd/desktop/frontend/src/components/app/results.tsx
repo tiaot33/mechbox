@@ -51,7 +51,7 @@ function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"]
   return {
     [GroupMemberOutcome.MemberInstalled]: { text: t.memberInstalled, tone: "plain" as const },
     [GroupMemberOutcome.MemberAlreadyInstalled]: { text: t.memberAlready, tone: "plain" as const },
-    [GroupMemberOutcome.MemberSkipped]: { text: t.memberSkipped, tone: "todo" as const },
+    [GroupMemberOutcome.MemberSkipped]: { text: t.memberSkipped, tone: "warn" as const },
   }[outcome];
 }
 
@@ -59,7 +59,7 @@ export function memberRows(s: Snapshot, results: GroupMemberResult[]): ResultRow
   return results.map((r) => ({
     label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
     outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
-    tone: memberOutcome(r.outcome)?.tone ?? "todo",
+    tone: memberOutcome(r.outcome)?.tone ?? "info",
     reason: r.error ? describeError(r.error) : undefined,
   }));
 }
@@ -85,7 +85,7 @@ export async function runEach<T>(items: T[], call: (item: T) => Promise<unknown>
         try {
           await call(item);
         } catch (e) {
-          rows.push({ label: label(item), outcome: t.failed, tone: "must", reason: describeError(toLibraryError(e)) });
+          rows.push({ label: label(item), outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
         }
       }
     },
@@ -99,7 +99,7 @@ export function failedRow(s: Snapshot, r: ReinstallResult): ResultRow {
   return {
     label: `${skillName(s, r.skill_id)} · ${scopeLabel(s, r.scope)}`,
     outcome: messages().actions.failed,
-    tone: "must",
+    tone: "critical",
     reason: r.error ? describeError(r.error) : undefined,
   };
 }

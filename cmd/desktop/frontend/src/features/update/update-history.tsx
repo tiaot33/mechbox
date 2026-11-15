@@ -201,7 +201,7 @@ function reinstallText(outcome: string): { text: string; tone: Tone } | undefine
   const known: Record<string, { text: string; tone: Tone }> = {
     [ReinstallOutcome.Reinstalled]: { text: t.placedOk, tone: "plain" },
     [ReinstallOutcome.ReinstallCurrent]: { text: t.placedCurrent, tone: "plain" },
-    [ReinstallOutcome.ReinstallFailed]: { text: t.placedFailed, tone: "must" },
+    [ReinstallOutcome.ReinstallFailed]: { text: t.placedFailed, tone: "critical" },
   };
   return known[outcome];
 }
@@ -214,7 +214,7 @@ function Places({ record }: { record: UpdateRecord }) {
   const names = new Map((record.skills ?? []).map((x) => [x.skill_id, x.name]));
   const name = (i: RecordedInstall) => names.get(i.skill_id) ?? s.skills.find((x) => x.id === i.skill_id)?.name ?? `#${i.skill_id}`;
   const outcome = (i: RecordedInstall) =>
-    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText(i.outcome) ?? { text: i.outcome, tone: "todo" as Tone });
+    record.kind === UpdateRecordKind.UpdateRecordRollback ? rollbackOutcome(i.outcome) : (reinstallText(i.outcome) ?? { text: i.outcome, tone: "info" as Tone });
   return (
     <details className="update-places">
       <Summary className="text-caption text-muted-foreground">

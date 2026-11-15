@@ -345,7 +345,7 @@ export function FileDiff({
   return (
     <div
       data-slot="file-diff-panel"
-      className={cn("flex flex-col overflow-hidden rounded-card bg-panel shadow-card", fill && "min-h-0 grow basis-0")}
+      className={cn("flex flex-col overflow-hidden rounded-card border border-border bg-panel", fill && "min-h-0 grow basis-0")}
     >
       {/* 标题条固定高度：换到不显示切换的文件时，下面的差异不上下跳。 */}
       <div className="flex h-10 shrink-0 items-center gap-2.5 border-b border-row-line pr-1.5 pl-3">

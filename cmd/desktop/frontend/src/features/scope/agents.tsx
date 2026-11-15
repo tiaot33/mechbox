@@ -73,7 +73,7 @@ export async function editAgent(agent: Agent, input: CustomAgent, onInvalid: (er
       skipped.map((m) => ({
         label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : messages().model.global}`,
         outcome: t.notMigrated,
-        tone: "todo" as const,
+        tone: "warn" as const,
         reason: t.notMigratedReason(shortPath(s, m.to), shortPath(s, m.from)),
       })),
       t.migratedPartly(migrations.length - skipped.length, skipped.length),

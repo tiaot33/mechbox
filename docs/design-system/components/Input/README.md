@@ -2,9 +2,10 @@
 
 单行输入框 Input 和多行的 Textarea,样式一致。
 
-- 高 `control`(28 px),圆角 `radius-control`(6 px,原来是 8 px),`border` 的浅边框(聚焦时换成 `primary` 加光圈)〔已确认 2026-11-15〕,`panel` 底。
+- 高 24 px,和按钮一样;圆角 `radius-control`(7 px),`border` 的浅边框(聚焦时换成 `primary` 加光圈)〔已确认 2026-11-15〕,`panel` 底。
 - 聚焦用绿色:`primary` 边框加 3 px 的 `primary-soft` 光圈(第 11 节)。
 - 占位文字用 `subtle`;禁用时整体 60% 不透明度(照搬)。
 - 输入的是路径、地址这类标识符时，字用 `mono`;技能名不用。
+- 和按钮、搜索框、下拉框排在一行时,形状和高度相同(8.2)。
 
 你提供:值、占位文字、是否禁用。

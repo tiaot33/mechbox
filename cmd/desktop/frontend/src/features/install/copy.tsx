@@ -386,12 +386,12 @@ function SkillRow({
         <input type="checkbox" className="shrink-0 accent-primary" checked={on} disabled={!single || !!reason} onChange={onToggle} />
         <b className="shrink-0 font-semibold whitespace-nowrap">{skill.name}</b>
         {single && copyOverwrites(single.status) && (
-          <Badge tone="must" title={t.untrackedTitle(shortPath(s, single.folder))}>
+          <Badge tone="warn" title={t.untrackedTitle(shortPath(s, single.folder))}>
             {t.untracked}
           </Badge>
         )}
         {reason && (
-          <Badge tone="must" title={reason}>
+          <Badge tone="warn" title={reason}>
             {t.blocked}
           </Badge>
         )}
@@ -434,7 +434,7 @@ function GroupRow({
           {members && <span className="shrink-0 text-caption text-muted-foreground">{t.groupMembers(coming.length)}</span>}
           <span className="min-w-0 grow truncate text-caption text-muted-foreground">{t.groupStanding(scopeLabel(s, place.to))}</span>
           {reason && (
-            <Badge tone="must" title={reason}>
+            <Badge tone="warn" title={reason}>
               {t.blocked}
             </Badge>
           )}
@@ -473,10 +473,10 @@ async function runCopy(
   // installed 按"哪一处的哪个技能"记，同一个技能既随组又直接安装时只算一次;groups 是记下的组安装数。
   const installed = new Set<string>();
   let groups = 0;
-  const skip = (label: string, reason: string) => rows.push({ label, outcome: a.memberSkipped, tone: "todo", reason });
+  const skip = (label: string, reason: string) => rows.push({ label, outcome: a.memberSkipped, tone: "warn", reason });
   let failed = false;
   const fail = (label: string, e: unknown) => {
-    rows.push({ label, outcome: a.failed, tone: "must", reason: describeError(toLibraryError(e)) });
+    rows.push({ label, outcome: a.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
     failed = true;
   };
   await ui.run(

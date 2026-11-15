@@ -35,7 +35,7 @@ import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { nameIndent, SkillRow, UnmanagedRow } from "./rows";
+import { nameIndent, pickColumn, SkillRow, UnmanagedRow } from "./rows";
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
@@ -155,7 +155,8 @@ function ArrangeBar({ children }: { children?: React.ReactNode }) {
   const arrange = useView((v) => v.arrange);
   const t = useT().list;
   return (
-    <div className="mb-2.5 flex items-center gap-2">
+    // 和下面各节的名字、技能名在同一条线上。
+    <div className={cn("mb-1.5 flex items-center gap-2", nameIndent)}>
       <Segmented
         className="arrange-seg"
         value={arrange}
@@ -194,7 +195,7 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
     const look = sectionLook(s, t, section, section.key === sectionKey("rest", "collection", scope, notHere));
     const count = notHere ? section.all.length : scope ? t.hereCount(section.all.length) : section.skills.length;
     return (
-      <Section id={section.key} pick={pick} head={<PlainHead {...look} count={count} />}>
+      <Section id={section.key} icon={look.icon} pick={pick} head={<PlainHead name={look.name} title={look.title} count={count} />}>
         {rows}
       </Section>
     );
@@ -269,7 +270,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
       {(l.hereSections.length > 0 || l.notHereSkills.length > 0) && (
-        <div className="mt-3">
+        <div className="mt-2.5">
           <ArrangeBar>
             {!search && !l.hereCount && !l.hereUnmanaged.length && <span className="min-w-0 text-caption text-muted-foreground">{t.nothingHere}</span>}
           </ArrangeBar>
@@ -277,13 +278,14 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
       )}
       {/* 上面：Agent 在这里看得到的。块里第一节没有上边距，由块自己补上。 */}
       {inUse && (
-        <div className="in-use mt-3">
+        <div className="in-use mt-1">
           {l.hereSections.map((x) => (
             <SkillSectionView key={x.key} section={x} scope={scope} />
           ))}
           {l.hereUnmanaged.length > 0 && (
             <Section
               id="scope-unmanaged"
+              icon={<Icon name="inbox" className="size-3.5 text-muted-foreground" />}
               head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}
               actions={
                 // 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。
@@ -308,6 +310,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
           {project && global > 0 && (
             <Section
               id="scope-global"
+              icon={<Icon name="globe" className="size-3.5 text-muted-foreground" />}
               defaultCollapsed
               pick={l.global.map((x) => x.id)}
               head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}
@@ -338,15 +341,18 @@ function NotHere({ scope, listing: l, more }: { scope: ScopeKey; listing: Extrac
   const unfolded = useView((v) => v.unfolded.has(id)) || searching;
   const names = l.notHereSkills.map((x) => x.name);
   return (
-    <div className="not-here mt-4 border-t border-row-line pt-2">
+    <div className="not-here mt-3 border-t border-row-line pt-1">
       <button
         type="button"
-        className="not-installed-fold not-here-fold flex w-full min-w-0 items-center gap-1.5 rounded-control px-1 py-1.5 text-left text-body text-muted-foreground hover:bg-fill hover:text-foreground"
+        className="not-installed-fold not-here-fold flex h-8 w-full min-w-0 items-center gap-4 rounded-control px-3 text-left text-body text-muted-foreground hover:bg-fill hover:text-foreground"
         aria-expanded={unfolded}
         disabled={searching}
         onClick={() => toggleUnfolded(id)}
       >
-        <Icon name="chev" className={cn("size-2.5 shrink-0 transition-transform", unfolded && "rotate-90")} />
+        {/* 箭头在勾选框那一列，文字和上面各节的名字在同一条线上。 */}
+        <span className={cn("flex shrink-0 justify-center", pickColumn)}>
+          <Icon name="chev" className={cn("size-2.5 transition-transform", unfolded && "rotate-90")} />
+        </span>
         <span className="truncate">{unfolded && !searching ? t.hideNotHere : t.notHereBlock(names, more)}</span>
       </button>
       {unfolded &&
@@ -372,9 +378,9 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           key={a.scope}
           id={`project-${page.project}:${a.scope}`}
           pick={a.skills.map((x) => x.id)}
+          icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
           head={
             <PlainHead
-              icon={<PlaceAgentMark code={a.agent.code} place={page.project} />}
               name={agentNameIn(s, a.agent.code, page.project)}
               count={t.skillCount(a.all)}
               title={projectFolderNote(s, a.agent.code, page.project)}

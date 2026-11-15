@@ -50,10 +50,10 @@ export function Places({
                   (p.source_latest ? (
                     <span className="update-place-latest text-caption text-muted-foreground">{t.alreadyLatest}</span>
                   ) : (
-                    <Badge tone="must">{modified ?? t.modifiedHere}</Badge>
+                    <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>
                   ))}
-                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="must">{t.rootMissing}</Badge>}
-                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="must">{t.folderMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="critical">{t.rootMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="critical">{t.folderMissing}</Badge>}
                 {sharedWithNote(p).length > 0 && (
                   <span className="text-caption text-muted-foreground">
                     {t.sharedFolder(sharedWithNote(p).map((code) => agentName(s, code)))}

@@ -148,10 +148,10 @@ export function LeftSidebar() {
             <Icon name={s.foldCollections ? "expand" : "fold"} />
           </Button>
         )}
-        <span className="pr-1.5 text-caption font-semibold text-muted-foreground">{t.bySource}</span>
+        <span className="pr-[10px] text-caption text-muted-foreground">{t.bySource}</span>
       </SectionHead>
       {!collapsed.has("collections") && (
-        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
+        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[22px]">
           {shown.map((c) => (
             <CollectionRow key={c.id} collection={c} segment={segment(c)} />
           ))}
@@ -188,7 +188,7 @@ export function LeftSidebar() {
         </Button>
       </SectionHead>
       {!collapsed.has("groups") && (
-        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[15px]">
+        <ul className="mt-0.5 flex flex-col gap-0.5 pl-[22px]">
           {groups.map((g) => (
             <GroupRow key={g.id} group={g} />
           ))}
@@ -204,7 +204,7 @@ export function LeftSidebar() {
             <button type="button" className={navItem()} onClick={() => ui.open((close) => <SyncDialog onClose={close} />)}>
               <Icon name="cloud" />
               <span className="grow">{t.sync}</span>
-              {pushFailed ? <Badge tone="must">{syncLabel}</Badge> : <span className="text-caption text-muted-foreground">{syncLabel}</span>}
+              {pushFailed ? <Badge tone="critical">{syncLabel}</Badge> : <span className="text-caption text-muted-foreground">{syncLabel}</span>}
             </button>
           </li>
         )}
@@ -393,13 +393,16 @@ function SectionHead({
         <div className="nav-sec group/sec flex items-center justify-between pt-2.5 pr-0.5">
           <button
             type="button"
-            className="sec-toggle flex h-[26px] min-w-0 flex-1 items-center gap-[5px] rounded-control pr-1.5 pl-2 text-caption font-semibold text-muted-foreground hover:bg-fill hover:text-foreground"
+            className="sec-toggle flex h-7 min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-caption font-semibold text-muted-foreground hover:bg-fill hover:text-foreground"
             aria-expanded={!closed}
             onClick={() => onToggle((set) => toggled(set, id))}
           >
-            <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
+            {/* 箭头占图标那一列(14px),名字和「技能库」的字、下面各行的字在同一条线上。 */}
+            <span className="grid w-3.5 shrink-0 place-items-center">
+              <Icon name="down" className={cn("size-2.5 transition-transform", closed && "-rotate-90")} />
+            </span>
             <span>{name}</span>
-            <span className="ml-0.5 font-mono text-caption text-muted-foreground tabular-nums">{count}</span>
+            <span className="-ml-0.5 text-caption font-normal text-muted-foreground tabular-nums">{count}</span>
           </button>
           {children}
         </div>
@@ -419,7 +422,7 @@ function ReleaseRow() {
       <button type="button" className={cn(navItem(), "release-row")} title={t.sidebarTitle(latest.version)} onClick={() => openRelease(latest)}>
         <Icon name="up" />
         <span className="grow">{t.sidebar}</span>
-        <Badge tone="todo" className="font-mono">{latest.version}</Badge>
+        <Badge tone="info" className="font-mono">{latest.version}</Badge>
       </button>
     </li>
   );

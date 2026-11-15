@@ -77,7 +77,7 @@ export function Count({ value, className }: { value: number; className?: string 
   return (
     <span
       data-slot="count"
-      className={cn("min-w-5 shrink-0 rounded-pill bg-fill px-[5px] text-center font-mono text-caption text-muted-foreground tabular-nums", className)}
+      className={cn("min-w-5 shrink-0 rounded-pill bg-count px-[5px] text-center text-caption text-muted-foreground tabular-nums", className)}
     >
       {value}
     </span>
@@ -211,27 +211,24 @@ export function Summary({ className, children }: { className?: string; children:
   );
 }
 
-// Chip 是带 × 的小胶囊(技能所属的组、组安装到的作用域),点 × 移除;group 时用组的紫色。
+// Chip 是带 × 的小标签(技能所属的组、组安装到的作用域),点 × 移除;和「要处理」的标签一样是中性的：浅色下细边，深色下半透明的浅底。
 export function Chip({
   children,
   onRemove,
   removeTitle,
   small = false,
-  group = false,
 }: {
   children: React.ReactNode;
   onRemove: () => void;
   removeTitle: string;
   small?: boolean;
-  group?: boolean;
 }) {
   return (
     <span
       data-slot="chip"
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-control border border-border bg-panel px-2 text-caption whitespace-nowrap text-foreground-secondary",
+        "inline-flex h-6 items-center gap-1 rounded-control border border-tag-border bg-tag px-2 text-caption whitespace-nowrap text-foreground-secondary",
         small && "h-5 pr-1.5 pl-[3px]",
-        group && "border-transparent bg-group-soft text-group",
       )}
     >
       {children}

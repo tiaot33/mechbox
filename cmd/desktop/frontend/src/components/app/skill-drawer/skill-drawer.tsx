@@ -93,7 +93,7 @@ function DrawerSheet({
         {...(!skill.description && { "aria-describedby": undefined })}
       >
         <ResizeHandle {...drawerWidth} max={max} edge="left" width={width} onWidth={setWidth} label={d.resizeWidth} className="left-0" />
-        <SheetHeader className="h-11 pr-3 pl-3.5 text-caption font-semibold text-muted-foreground">
+        <SheetHeader className="h-11 pr-3 pl-[18px] text-caption font-semibold text-muted-foreground">
           <span className="grow">{d.title}</span>
           <SheetClose asChild>
             <Button variant="ghost" size="icon" aria-label={t.common.close}>
@@ -108,9 +108,8 @@ function DrawerSheet({
                 {skill.name}
               </SheetTitle>
               {hasUpdate(skill) && (
-                // 普通按钮：更新页上和「全部更新」同屏时，主要按钮只有那一个。
-                <Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>
-                  <Icon name="up" />
+                // 「更新」到处是同一个样子：绿色的胶囊。
+                <Button variant="pill" onClick={() => openUpdate(skill.collection_id, { focus: id })}>
                   {d.update}
                 </Button>
               )}
@@ -135,7 +134,7 @@ function DrawerSheet({
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">
-              <Button size="sm" onClick={async () => (await removeSkill(id)) && onClose()}>
+              <Button variant="ghost" onClick={async () => (await removeSkill(id)) && onClose()}>
                 {d.removeSkill}
               </Button>
             </div>
@@ -224,10 +223,10 @@ function NoteCard({ skill, editing, onEditing }: { skill: Skill; editing: boolea
           />
           <div className="flex items-center gap-2">
             <Hint className="grow">{d.noteHint}</Hint>
-            <Button size="sm" disabled={saving} onClick={() => onEditing(false)}>
+            <Button variant="ghost" disabled={saving} onClick={() => onEditing(false)}>
               {t.common.cancel}
             </Button>
-            <Button size="sm" loading={saving} disabled={draft.trim() === saved} onClick={() => void save()}>
+            <Button loading={saving} disabled={draft.trim() === saved} onClick={() => void save()}>
               {d.saveNote}
             </Button>
           </div>
@@ -247,11 +246,11 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   return (
     <>
     {renamedTo(skill) && (
-      <Notice alert className="mb-2.5 flex items-center gap-2">
+      <Notice alert className="mx-2 mb-2.5 flex items-center gap-2">
         <span className="grow">
           {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
         </span>
-        <Button size="sm" onClick={() => openUpdate(skill.collection_id, { focus: id })}>
+        <Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>
           {d.view}
         </Button>
       </Notice>
@@ -260,14 +259,14 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
       (skill.kept_deleted ? (
         <Hint className="px-2">{d.keptDeleted(sourceLabel(s, skill.source))}</Hint>
       ) : (
-        <Notice className="mb-2.5 flex items-center gap-2">
+        <Notice className="mx-2 mb-2.5 flex items-center gap-2">
           <span className="grow">
             {d.deletedInSource(sourceLabel(s, skill.source), skill.name)}
           </span>
-          <Button size="sm" onClick={async () => (await removeSkill(id)) && onClose()}>
+          <Button onClick={async () => (await removeSkill(id)) && onClose()}>
             {d.remove}
           </Button>
-          <Button size="sm" onClick={() => keepDeleted(id)}>
+          <Button onClick={() => keepDeleted(id)}>
             {d.keep}
           </Button>
         </Notice>
@@ -277,7 +276,7 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
 }
 
 // Actions 是技能上的操作：重新读取(本地目录来源)、全部重新安装、更新历史、添加备注(还没有备注时)。
-// 来源里的其他技能与新技能在集合的节标题上。
+// 会改动磁盘的两个是普通按钮，只是看看或记一笔的两个是轻按钮，一排里分得出主次。来源里的其他技能与新技能在集合的节标题上。
 function Actions({ skill, onAddNote }: { skill: Skill; onAddNote?: () => void }) {
   const s = useSnapshot();
   const t = useT();
@@ -285,24 +284,24 @@ function Actions({ skill, onAddNote }: { skill: Skill; onAddNote?: () => void })
   const id = skill.id;
   const installed = skillScopesOf(s, id);
   return (
-    <div className="flex flex-wrap gap-1.5 px-2">
+    <div className="flex flex-wrap items-center gap-1.5 px-2">
       {isLocal(skill.source) && (
-        <Button size="sm" onClick={() => rereadSkill(skill)} title={d.rereadTitle}>
+        <Button onClick={() => rereadSkill(skill)} title={d.rereadTitle}>
           <Icon name="up" />
           {d.reread}
         </Button>
       )}
       {installed.length > 0 && (
-        <Button size="sm" onClick={() => reinstall({ skill_id: id }, t.actions.reinstallSkill(skill.name))}>
+        <Button onClick={() => reinstall({ skill_id: id }, t.actions.reinstallSkill(skill.name))}>
           <Icon name="refresh" />
           {d.reinstallAll}
         </Button>
       )}
-      <Button size="sm" onClick={() => openHistory({ skill_id: id }, d.historyTitle(skill.name))} title={d.historyHint}>
+      <Button variant="ghost" onClick={() => openHistory({ skill_id: id }, d.historyTitle(skill.name))} title={d.historyHint}>
         {d.history}
       </Button>
       {onAddNote && (
-        <Button size="sm" onClick={onAddNote}>
+        <Button variant="ghost" onClick={onAddNote}>
           {d.addNote}
         </Button>
       )}

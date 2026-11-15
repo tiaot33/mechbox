@@ -256,7 +256,7 @@ export function SwipeToast({
             }
           }}
         >
-          {tone === "error" && <Icon name="alert" className="shrink-0" />}
+          {tone === "error" && <Icon name="alert" className="shrink-0 text-warn" />}
           <span className="min-w-0 grow text-center">{children}</span>
           {actionLabel && (
             <Button

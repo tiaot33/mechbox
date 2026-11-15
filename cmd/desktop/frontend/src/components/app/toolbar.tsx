@@ -70,9 +70,9 @@ export function Toolbar() {
           {s && <Actions />}
           <SearchInput
             ref={search}
-            className="h-7 min-w-[110px] flex-[0_1_240px] text-caption"
+            className="min-w-[110px] flex-[0_1_240px] text-caption"
             icon={<Icon name="search" className="size-[13px] text-muted-foreground" />}
-            suffix={<kbd className="rounded-pill border border-border px-1.5 font-sans text-caption text-muted-foreground">{t.searchKey()}</kbd>}
+            suffix={<kbd className="rounded-[4px] border border-border px-1 font-sans text-caption text-muted-foreground">{t.searchKey()}</kbd>}
             placeholder={t.search}
             value={text}
             onChange={(e) => setSearch(e.target.value)}

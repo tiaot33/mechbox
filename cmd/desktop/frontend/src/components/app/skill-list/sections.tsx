@@ -3,7 +3,8 @@
 // 拖到同类的节标题上调整先后;组的节标题也接受技能与集合(加入该组)。
 // 节标题上只常驻名字、统计和要处理的事(集合的更新、来源里的新技能，组安装于哪些作用域);关系图、看来源里的其他技能、历史、
 // 组的重命名与删除这类不常用的收在标题右边的「⋯」里，右键节标题是同一个菜单。
-// 节标题和技能行对齐：标题的勾选框和行首的勾选框在同一列，后面的图标和行里的技能名对齐;收起箭头在最右边。
+// 节标题和技能行对齐：标题的图标在行首勾选框那一列(鼠标移上去或勾了技能以后换成这一节的勾选框),标题的名字和行里的技能名在同一条线上;
+// 名字和后面的数字说明按基线对齐;收起箭头在最右边，和行尾的日期右对齐。
 import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -41,6 +42,7 @@ import { nameIndent, pickColumn } from "./rows";
 // defaultCollapsed 的节(项目里来自全局的)默认收起，点一下展开;收起状态记在界面状态里，按 id 存与默认相反的那些。搜索时都展开，搜到的行都看得见。
 export function Section({
   id,
+  icon,
   head,
   actions,
   menu,
@@ -53,6 +55,7 @@ export function Section({
   children,
 }: {
   id: string;
+  icon?: React.ReactNode; // 画在勾选框那一列;没有这一列(gutter 为 false)时不画
   head: React.ReactNode;
   actions?: React.ReactNode;
   menu?: MenuEntry[];
@@ -67,23 +70,38 @@ export function Section({
   const flipped = useView((v) => v.flipped.has(id));
   const searching = useView((v) => !!v.search.trim());
   const collapsed = !searching && defaultCollapsed !== flipped;
+  const picking = useView((v) => v.picked.size > 0);
+  const pickable = !!pick?.length;
   const t = useT().list;
   const bar = (
     <div
       {...headProps}
       className={cn(
         // 吸顶时底下的行滚过去，标题用内容区的不透明底色挡住。
-        "section-head group/head sticky top-0 z-[1] flex min-h-9 min-w-0 items-center gap-2 border-b border-row-line px-3 py-1 text-body bg-tile",
+        "section-head group/head sticky top-0 z-[1] flex min-h-9 min-w-0 items-center gap-2 border-b border-border px-3 py-0.5 text-body bg-tile",
         headProps?.className,
       )}
     >
-      {gutter && <span className={cn("mr-2 flex shrink-0", pickColumn)}>{pick && <SectionPick ids={pick} />}</span>}
-      <span className="flex min-w-0 grow items-center gap-2">{head}</span>
+      {gutter && (
+        <span className={cn("relative mr-2 flex h-3.5 shrink-0 items-center justify-end", pickColumn)}>
+          {icon && (
+            <span className={cn("section-icon flex shrink-0", pickable && (picking ? "invisible" : "group-hover/head:invisible group-focus-within/head:invisible"))}>
+              {icon}
+            </span>
+          )}
+          {pick && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <SectionPick ids={pick} />
+            </span>
+          )}
+        </span>
+      )}
+      <span className="flex min-w-0 grow items-baseline gap-2.5">{head}</span>
       {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
       {menu && <SectionMenu entries={menu} />}
       <button
         type="button"
-        className="sec-toggle grid size-5 shrink-0 place-items-center rounded-control text-muted-foreground hover:bg-fill hover:text-foreground"
+        className="sec-toggle -mr-[5px] grid size-5 shrink-0 place-items-center rounded-control text-muted-foreground hover:bg-fill hover:text-foreground"
         aria-expanded={!collapsed}
         title={collapsed ? t.expandSection : t.collapseSection}
         onClick={() => toggleSection(id)}
@@ -93,7 +111,7 @@ export function Section({
     </div>
   );
   return (
-    <section className={cn("list-section mt-8 first:mt-0", className)} data-section={id}>
+    <section className={cn("list-section mt-4 first:mt-0", className)} data-section={id}>
       {menu ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>{bar}</ContextMenuTrigger>
@@ -174,14 +192,13 @@ export function CollectionSection({
   const head = (
     <>
       <span
-        className="collection-handle flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing"
+        className="collection-handle flex min-w-0 cursor-grab items-baseline gap-2 active:cursor-grabbing"
         draggable
         onDragStart={(e) => dnd.start(e, { kind: "collection", id: collection.id }, t.list.collectionDrag(label, skills.length))}
         onDragEnd={dnd.end}
         title={t.list.collectionDragTitle(skills.length)}
       >
-        <SourceIcon type={collection.source.type} className="size-3.5 shrink-0 text-muted-foreground" />
-        <b className="section-name truncate font-semibold" title={wslTitle(local ? collection.source.label : undefined)}>
+        <b className="section-name truncate text-heading" title={wslTitle(local ? collection.source.label : undefined)}>
           {label}
         </b>
         {local && <WSLBadge path={collection.source.label} />}
@@ -193,13 +210,21 @@ export function CollectionSection({
     </>
   );
   const actions = !local && skills.some(hasUpdate) && (
-    <Button size="sm" variant="tinted" onClick={() => openUpdate(collection.id)}>
-      <Icon name="up" />
+    <Button variant="pill" onClick={() => openUpdate(collection.id)}>
       {t.list.update}
     </Button>
   );
   return (
-    <Section id={id} pick={pick} head={head} actions={actions || undefined} menu={menu} sub={<CollectionNews collection={collection} />} headProps={drop}>
+    <Section
+      id={id}
+      icon={<SourceIcon type={collection.source.type} className="size-3.5 shrink-0 text-muted-foreground" />}
+      pick={pick}
+      head={head}
+      actions={actions || undefined}
+      menu={menu}
+      sub={<CollectionNews collection={collection} />}
+      headProps={drop}
+    >
       {children}
     </Section>
   );
@@ -212,7 +237,7 @@ function CollectionNews({ collection }: { collection: Collection }) {
   const fresh = collection.new_skills ?? [];
   if (!fresh.length) return null;
   return (
-    <div className={cn("collection-new flex min-w-0 items-center gap-3 border-b border-row-line py-1 pr-3 text-caption text-muted-foreground", nameIndent)}>
+    <div className={cn("collection-new flex h-7 min-w-0 items-center gap-3 border-b border-row-line pr-3 text-caption text-muted-foreground", nameIndent)}>
       <span className="min-w-0 grow truncate">{t.drawer.newSkills(sourceLabel(s, collection.source), fresh)}</span>
       <Button variant="link" className="text-caption" onClick={() => previewNewSkills(collection.id)}>
         {t.drawer.goFetch}
@@ -251,17 +276,16 @@ export function GroupSection({
   const head = (
     <>
       <span
-        className="group-handle flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing"
+        className="group-handle flex min-w-0 cursor-grab items-baseline gap-2 active:cursor-grabbing"
         draggable
         onDragStart={(e) => dnd.start(e, { kind: "group", id: group.id }, t.list.groupDrag(group.name, size))}
         onDragEnd={dnd.end}
         title={t.list.groupDragTitle(size)}
       >
-        <Icon name="layers" className="size-3.5 shrink-0 text-muted-foreground" />
-        <b className="section-name truncate font-semibold">{group.name}</b>
+        <b className="section-name truncate text-heading">{group.name}</b>
       </span>
       <Counts>{count ?? t.list.skillCount(size)}</Counts>
-      <span className="ml-1 inline-flex min-w-0 grow shrink-[100] items-center gap-1 overflow-hidden text-caption whitespace-nowrap text-muted-foreground">
+      <span className="inline-flex min-w-0 grow shrink-[100] items-center gap-1 self-center overflow-hidden text-caption whitespace-nowrap text-muted-foreground">
         {scopes.length ? (
           <>
             {t.list.groupInstalledIn}
@@ -279,18 +303,18 @@ export function GroupSection({
     </>
   );
   return (
-    <Section id={id} pick={pick} head={head} menu={menu} headProps={drop}>
+    <Section id={id} icon={<Icon name="layers" className="size-3.5 shrink-0 text-muted-foreground" />} pick={pick} head={head} menu={menu} headProps={drop}>
       {children}
     </Section>
   );
 }
 
 // PlainHead 是不能拖的节标题：没有来源、没有归组、作用域页的未纳管技能与来自全局、作用域页下面那块(没装在这里的)的各节、项目页的各个 Agent。
-export function PlainHead({ icon, name, count, title }: { icon?: React.ReactNode; name: string; count: React.ReactNode; title?: string }) {
+// 图标交给 Section 的 icon,画在勾选框那一列。
+export function PlainHead({ name, count, title }: { name: string; count: React.ReactNode; title?: string }) {
   return (
-    <span className="flex min-w-0 grow items-center gap-2" title={title}>
-      {icon}
-      <b className="section-name truncate font-semibold">{name}</b>
+    <span className="flex min-w-0 grow items-baseline gap-2.5" title={title}>
+      <b className="section-name truncate text-heading">{name}</b>
       <Counts>{count}</Counts>
     </span>
   );
@@ -314,7 +338,7 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
       {foldable && (
         <button
           type="button"
-          className="not-installed-fold flex w-full min-w-0 items-center gap-4 px-3 py-2 text-left text-caption text-muted-foreground hover:bg-fill hover:text-foreground"
+          className="not-installed-fold flex h-8 w-full min-w-0 items-center gap-4 px-3 text-left text-caption text-muted-foreground hover:bg-fill hover:text-foreground"
           aria-expanded={unfolded}
           onClick={() => toggleUnfolded(id)}
         >

@@ -129,7 +129,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
           {c.fetched ? (
             <Badge title={t.alreadyTitle}>{t.already}</Badge>
           ) : c.new ? (
-            <Badge tone="todo" title={t.newTitle}>
+            <Badge tone="info" title={t.newTitle}>
               {t.new}
             </Badge>
           ) : null}

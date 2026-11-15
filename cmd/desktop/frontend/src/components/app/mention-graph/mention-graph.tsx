@@ -69,7 +69,7 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
-        <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-card border border-border bg-panel text-body text-muted-foreground shadow-tile">
+        <div className="graph-empty flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded-card border border-border bg-panel text-body text-muted-foreground">
           {members.length ? (
             unjudged ? t.noneByRules(unjudged) : t.none
           ) : (
@@ -400,7 +400,7 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   };
 
   return (
-    <div ref={box} className="graph-canvas relative min-h-0 flex-1 overflow-hidden rounded-card border border-border bg-panel shadow-tile">
+    <div ref={box} className="graph-canvas relative min-h-0 flex-1 overflow-hidden rounded-card border border-border bg-panel">
       <svg
         ref={svgRef}
         className="graph-svg block size-full cursor-grab select-none active:cursor-grabbing"

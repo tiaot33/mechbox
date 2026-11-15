@@ -83,15 +83,15 @@ export function PlannedRow({
         <label title={p.description || undefined}>
           <input type="checkbox" className="shrink-0 accent-primary" checked={picked} onChange={onToggle} />
           <b className="fetch-unmanaged-name shrink-0 font-semibold whitespace-nowrap">{p.name}</b>
-          {p.in_repository && <Badge tone="todo">{t.inRepository}</Badge>}
+          {p.in_repository && <Badge tone="info">{t.inRepository}</Badge>}
           {!p.in_repository && p.in_project_lock && (
-            <Badge tone="todo" title={t.inLockTitle}>
+            <Badge tone="info" title={t.inLockTitle}>
               {t.inLock}
             </Badge>
           )}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
           {p.source_latest_of ? (
-            <Badge tone="todo" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
+            <Badge tone="info" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
               {t.sourceLatest}
             </Badge>
           ) : (
@@ -137,8 +137,8 @@ export function ConflictRow({
         <label title={p.description || undefined}>
           <input type="radio" name={`conflict-${group}`} className="shrink-0 accent-primary" checked={picked} onChange={onPick} />
           <span className="min-w-0 truncate">{agents}</span>
-          {p.in_repository && <Badge tone="todo">{t.inRepository}</Badge>}
-          {!p.in_repository && p.in_project_lock && <Badge tone="todo">{t.inLock}</Badge>}
+          {p.in_repository && <Badge tone="info">{t.inRepository}</Badge>}
+          {!p.in_repository && p.in_project_lock && <Badge tone="info">{t.inLock}</Badge>}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
           {!!p.skill_id && (
             <Badge className="fetch-unmanaged-in-library" title={t.inLibraryNote}>
@@ -146,7 +146,7 @@ export function ConflictRow({
             </Badge>
           )}
           {!!p.source_latest_of && (
-            <Badge tone="todo" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
+            <Badge tone="info" className="fetch-unmanaged-source-latest" title={t.sourceLatestTitle(p.name)}>
               {t.sourceLatest}
             </Badge>
           )}

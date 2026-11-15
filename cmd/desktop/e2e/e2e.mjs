@@ -1470,10 +1470,12 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await selectScope("Claude Code");
     await unmanaged("kit-a").waitFor();
     assert.equal(await unmanaged("kit-a").locator(".unmanaged-source-label").textContent(), `来自 ${kit}`, "卡片上写出认出的来源");
-    // 行首的「入库」和来源都要能看全。
+    // 行首的「入库」要能看全;行高固定，来源不占一行，写在描述的悬停提示里(上面核对的是留在 DOM 里的那一份)。
     const clipped = (el) => el.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
     assert(!(await clipped(unmanaged("kit-a").locator(".fetch-unmanaged"))), "「入库」没被截断");
-    assert(!(await clipped(unmanaged("kit-a").locator(".unmanaged-source-label"))), "来源没被截断");
+    // 每一行一样高：有来源的和没有来源的行高相同。
+    const rowHeight = (name) => unmanaged(name).evaluate((e) => e.getBoundingClientRect().height);
+    assert.equal(await rowHeight("kit-a"), await rowHeight("kit-c"), "有没有来源，行高都一样");
     await page.screenshot({ path: path.join(SHOTS, "unmanaged-source-label.png") });
     assert((await unmanaged("kit-c").locator(".unmanaged-source-label").count()) === 0, "认不出的不写来源");
 
@@ -1776,10 +1778,10 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   await checkUpdates("1 个技能有新版本");
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
-  assert((await card("delta").locator('[data-slot="badge"][data-tone="todo"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
+  assert((await card("delta").locator('[data-slot="badge"][data-tone="info"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
-  await row.locator('.update-risk[data-tone="must"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
   assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
@@ -2252,7 +2254,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await updatesNav().click();
   const row = page.locator(".update-row", { hasText: "trio.zip" });
   await row.getByText("lambda 可能改名为 lambda-kit", { exact: false }).waitFor();
-  await row.locator('.update-risk[data-tone="must"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
+  await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
   await btn(row, "查看").click();
   await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
   await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
@@ -3498,7 +3500,8 @@ await step("项目目录被移走 → 标记不在这台机器上 → 改项目�
   await refocus();
   await settle();
   const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
-  await row.locator('[data-slot="badge"]', { hasText: "不在这台机器上" }).waitFor();
+  // 作用域栏很窄：只画「严重」一级的图标，「不在这台机器上」留在 DOM 里、写在悬停提示里。
+  await row.locator('.proj-missing[data-tone="critical"]', { hasText: "不在这台机器上" }).waitFor();
   await row.hover();
   await row.locator(".row-actions button[title='改项目位置']").click();
   await modal().locator('[data-slot="input"]').fill(`${HOME}/code/proj-b-moved`);
@@ -3507,7 +3510,7 @@ await step("项目目录被移走 → 标记不在这台机器上 → 改项目�
   await settle();
   const moved = page.locator(".a-right .nav-item.proj", { hasText: "proj-b-moved" });
   assert((await moved.count()) === 1, "项目名应随新位置变化");
-  assert((await moved.locator('[data-slot="badge"]', { hasText: "不在这台机器上" }).count()) === 0, "改位置后不应再标不在这台机器上");
+  assert((await moved.locator(".proj-missing").count()) === 0, "改位置后不应再标不在这台机器上");
 });
 
 await step("注销项目(删除项目里已安装的文件夹)", async () => {

@@ -1,6 +1,11 @@
-// shadcn/ui 的 Button,按设计系统分档(参照 macOS 原生控件：胶囊形、略微浮起，按下时缩一点):主要(primary,实心绿、顶上一道亮线，一屏或一个弹窗里只有一个)、普通(default,浮起的白色胶囊，细边加轻投影)、
-// 轻(ghost,没有边框、次要档的灰字，顶栏、列表行内与「跳过」「不感兴趣」这类动作);
-// 淡绿(tinted,淡绿底、绿字)给列表里反复出现、又要一眼看到的动作(节标题上的「更新」),比主要按钮轻。破坏性不是另一档：平时用普通;
+// shadcn/ui 的 Button,照 macOS 设置页的按钮：一块没有边框、没有投影的灰底，圆角 7 px,高 24 px(和输入框、下拉框、分段选择一样高),字在正中;按下时缩一点。
+// 按轻重分四档，一个页面或弹窗里从上到下最多各用到一次主要和强调:
+// - 主要(primary):实心绿底白字，一屏或一个弹窗里只有一个;
+// - 绿胶囊(pill):实心绿底白字、胶囊形。只给「更新」和「入库」:它们在列表里反复出现，是这个应用最常做的两件事，要一眼认出来;
+// - 强调(accent):和普通按钮一样的灰底，字是半粗的绿色。给一块区域里最要紧的那个动作(技能详情的「安装」);
+// - 普通(default):灰底、主要档的字。常用但不抢眼的动作;
+// - 轻(ghost):没有底、次要档的灰字，悬停才铺灰底。顶栏、列表行内，以及不常用的动作(「更新历史」「添加备注」「跳过」「不感兴趣」)。
+// 破坏性不是另一档：平时用普通或轻;
 // 确认删除的弹窗里，确认按钮用实心强调(solid)。文字链接(link)只用于去别的地方，动作用轻按钮。
 // loading 时文字留着占位、上面盖一个转圈，按钮宽度不变;done 时转圈合成对勾(给操作完成后停一下再关弹窗的按钮用)。
 // ripple 的按钮按下时缩一点，从按下的位置漾开一圈。
@@ -11,26 +16,25 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "./spinner";
 
 const buttonVariants = cva(
-  "relative inline-flex shrink-0 items-center justify-center gap-[5px] whitespace-nowrap outline-none transition-[color,background-color,box-shadow,transform,filter] duration-150 focus-visible:ring-3 focus-visible:ring-primary-soft enabled:active:scale-[0.97]",
+  "relative inline-flex shrink-0 items-center justify-center gap-[5px] rounded-control whitespace-nowrap outline-none transition-[color,background-color,box-shadow,transform,filter] duration-150 focus-visible:ring-3 focus-visible:ring-primary-soft enabled:active:scale-[0.97]",
   {
     variants: {
       variant: {
         default:
-          "rounded-pill bg-control text-foreground shadow-control hover:bg-control-hover active:bg-control-active disabled:text-subtle disabled:hover:bg-control",
-        primary:
-          "rounded-pill bg-primary bg-linear-to-b from-white/12 to-white/0 text-on-primary shadow-primary hover:brightness-105 active:brightness-95 disabled:opacity-45 disabled:hover:brightness-100",
-        tinted:
-          "rounded-pill bg-primary-soft text-on-primary-soft hover:bg-primary/20 disabled:opacity-45 disabled:hover:bg-primary-soft",
-        solid:
-          "rounded-pill bg-solid bg-linear-to-b from-white/12 to-white/0 text-on-solid shadow-primary hover:bg-solid/85 disabled:opacity-45 disabled:hover:bg-solid",
-        ghost:
-          "rounded-pill text-foreground-secondary hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent",
+          "bg-control text-foreground hover:bg-control-hover active:bg-control-active disabled:text-subtle disabled:hover:bg-control",
+        primary: "bg-primary text-on-primary hover:brightness-110 active:brightness-95 disabled:opacity-45 disabled:hover:brightness-100",
+        pill: "rounded-pill bg-primary px-3 text-on-primary hover:brightness-110 active:brightness-95 disabled:opacity-45 disabled:hover:brightness-100",
+        accent:
+          "bg-control font-semibold text-on-primary-soft hover:bg-control-hover active:bg-control-active disabled:font-normal disabled:text-subtle disabled:hover:bg-control",
+        solid: "bg-solid text-on-solid hover:bg-solid/85 disabled:opacity-45 disabled:hover:bg-solid",
+        ghost: "text-foreground-secondary hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent",
         link: "text-primary hover:underline focus-visible:ring-0 focus-visible:underline disabled:text-subtle disabled:no-underline enabled:active:scale-100",
       },
       size: {
-        default: "h-7 px-3.5 text-body [&_[data-slot=icon]]:size-3.5",
-        sm: "h-6 px-3 text-body [&_[data-slot=icon]]:size-3",
-        icon: "size-7 [&_[data-slot=icon]]:size-3.5",
+        // 字比行框的中线低半个像素(中文字形偏下),底下垫 1 px 把它托回正中。
+        default: "h-6 px-2.5 pb-px text-body [&_[data-slot=icon]]:size-3",
+        sm: "h-6 px-2 pb-px text-body [&_[data-slot=icon]]:size-3",
+        icon: "size-6 [&_[data-slot=icon]]:size-3.5",
         "icon-sm": "size-5 [&_[data-slot=icon]]:size-3",
         inline: "h-auto p-0 text-body",
       },
@@ -100,7 +104,7 @@ function Button({
       aria-busy={loading || undefined}
       onPointerDown={(e) => {
         onPointerDown?.(e);
-        if (ripple && e.button === 0) spawnRipple(e, variant === "primary" || variant === "solid");
+        if (ripple && e.button === 0) spawnRipple(e, variant === "primary" || variant === "pill" || variant === "solid");
       }}
       {...props}
     >
@@ -108,7 +112,7 @@ function Button({
         <>
           <span className="invisible inline-flex items-center gap-[5px]">{children}</span>
           <span className="absolute inset-0 grid place-items-center">
-            <Spinner status={loading ? "running" : "done"} className={cn(done && variant === "primary" && "[&_svg]:text-on-primary!", done && variant === "solid" && "[&_svg]:text-on-solid!")} />
+            <Spinner status={loading ? "running" : "done"} className={cn(done && (variant === "primary" || variant === "pill") && "[&_svg]:text-on-primary!", done && variant === "solid" && "[&_svg]:text-on-solid!")} />
           </span>
         </>
       ) : (

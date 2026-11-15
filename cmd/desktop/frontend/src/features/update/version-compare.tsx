@@ -101,13 +101,13 @@ function Compare({ opts, onClose }: { opts: CompareOptions; onClose: () => void 
             path={path}
             onPath={setPath}
             badge={opts.badge}
-            className="w-[clamp(200px,20%,280px)] shrink-0 overflow-y-auto rounded-card bg-panel p-1.5 shadow-card"
+            className="w-[clamp(200px,20%,280px)] shrink-0 overflow-y-auto rounded-card border border-border bg-panel p-1.5"
           />
         )}
         <div className="flex min-w-0 grow flex-col">
           {/* 两个版本内容相同时没有文件可看，在这里直接说明。 */}
           {empty ? (
-            <div className="flex grow items-center justify-center rounded-card bg-panel text-body text-muted-foreground shadow-card">
+            <div className="flex grow items-center justify-center rounded-card border border-border bg-panel text-body text-muted-foreground">
               {tt.common.sameContent}
             </div>
           ) : (

@@ -133,10 +133,11 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     useView.setState({ settingsSection: null });
   }, [wanted, settings]);
 
+  // 一个分区：标题在上，下面是一块浅灰底的圆角区域，里面一行一个设置(照 macOS 的设置页);标题和行里的字在同一条线上。
   const card = (section: Section, note: React.ReactNode, children: React.ReactNode, tip?: React.ReactNode) => (
-    <Card key={section} className="scroll-mt-4" ref={(el) => void (refs.current[section] = el)}>
-      <CardHeader title={<Tipped tip={tip}>{t[section]}</Tipped>} note={note} />
-      {children}
+    <Card key={section} className="mx-0 scroll-mt-4 border-t-0 pt-0 pb-0 first:pt-0" ref={(el) => void (refs.current[section] = el)}>
+      <CardHeader className="mb-1.5 min-h-6 items-center px-3" title={<Tipped tip={tip}>{t[section]}</Tipped>} note={note} />
+      <div className="set-group rounded-card bg-fill px-3">{children}</div>
     </Card>
   );
   const register = () => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} onClose={close} />);
@@ -181,7 +182,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             onKeyDown={release}
             onPointerDown={release}
           >
-            <div className="settings mx-auto flex max-w-[680px] flex-col gap-3 px-5 pt-4 pb-15">
+            <div className="settings mx-auto flex max-w-[680px] flex-col gap-6 px-5 pt-5 pb-15">
               {card(
                 "general",
                 null,
@@ -212,25 +213,25 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 null,
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
-              {card("github", t.tokenInLibrary, <GitHubSection />)}
+              {card("github", t.tokenInLibrary, <div className="py-3"><GitHubSection /></div>)}
               {card(
                 "ai",
                 t.aiInLibrary,
                 <>
                   {settings && <TranslateSection settings={settings} save={save} />}
                   {/* 上面的开关改了就生效，和下面要点保存的表单用分隔线分开。 */}
-                  <div className="mt-1 border-t border-border-subtle pt-3">
+                  <div className="border-t border-row-line py-3">
                     <AISection />
                   </div>
                 </>,
               )}
-              {card("sync", t.syncOnThisMachine, <SyncSection />, credentialsT.syncHint)}
+              {card("sync", t.syncOnThisMachine, <div className="py-3"><SyncSection /></div>, credentialsT.syncHint)}
               {card(
                 "about",
                 null,
                 <>
                   <AboutSection />
-                  <SetRow className="uninstall-row mt-3">
+                  <SetRow className="uninstall-row border-t! border-row-line">
                     <Tipped className="grow" tip={t.uninstallDesc()}>
                       {t.uninstall}
                     </Tipped>

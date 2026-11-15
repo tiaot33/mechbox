@@ -16,8 +16,8 @@ function verdict(entries: AuditEntry[]): { tone: Tone; text: string } {
   const fail = entries.filter((e) => e.status === AuditStatus.AuditFail).length;
   const warn = entries.filter((e) => e.status === AuditStatus.AuditWarn).length;
   const t = messages().audit;
-  if (fail) return { tone: "must", text: t.failed(fail) };
-  if (warn) return { tone: "todo", text: t.warned(warn) };
+  if (fail) return { tone: "critical", text: t.failed(fail) };
+  if (warn) return { tone: "warn", text: t.warned(warn) };
   return { tone: "plain", text: t.passed(entries.length) };
 }
 
@@ -26,8 +26,8 @@ function statusBadge(status: string): { label: string; tone: Tone } | undefined 
   const t = messages().audit;
   const known: Record<string, { label: string; tone: Tone }> = {
     [AuditStatus.AuditPass]: { label: t.pass, tone: "plain" },
-    [AuditStatus.AuditWarn]: { label: t.warn, tone: "todo" },
-    [AuditStatus.AuditFail]: { label: t.fail, tone: "must" },
+    [AuditStatus.AuditWarn]: { label: t.warn, tone: "warn" },
+    [AuditStatus.AuditFail]: { label: t.fail, tone: "critical" },
   };
   return known[status];
 }

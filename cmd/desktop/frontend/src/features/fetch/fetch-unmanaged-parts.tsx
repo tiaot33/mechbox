@@ -28,7 +28,7 @@ export function outsideTarget(planned: PlannedUnmanagedSkill) {
 export function OutsideBadge({ planned, home }: { planned: PlannedUnmanagedSkill; home: string }) {
   const t = useT().unmanaged;
   return (
-    <Badge tone="todo" title={t.outsideTitle(homePath(home, outsideTarget(planned)))}>
+    <Badge tone="info" title={t.outsideTitle(homePath(home, outsideTarget(planned)))}>
       {t.outside}
     </Badge>
   );

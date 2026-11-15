@@ -20,9 +20,9 @@ import {
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/app/icons";
 import { InfoTip } from "@/components/app/parts";
 import { barClass, barRowClass } from "./heads";
 
@@ -40,7 +40,7 @@ export function UpdatesHead() {
   const risks = usePlanRisks(s, collections);
   const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
   return (
-    <div className={barClass}>
+    <div className={cn(barClass, "px-3")}>
       {collections.map((c, i) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
@@ -66,7 +66,7 @@ export function UpdatesHead() {
               <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
               {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
               {risk && (
-                <Badge tone="must" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
+                <Badge tone="warn" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>
                   <span className="truncate">{risk}</span>
                 </Badge>
               )}
@@ -74,7 +74,6 @@ export function UpdatesHead() {
               {i === 0 && <InfoTip tip={t.updatesFooter} />}
               {plain.length === 0 && edited.length > 0 ? (
                 <Button size="sm" onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
-                  <Icon name="up" />
                   {t.updateEdited}
                 </Button>
               ) : (
@@ -83,8 +82,7 @@ export function UpdatesHead() {
                 </Button>
               )}
               {plain.length > 0 && (
-                <Button size="sm" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
-                  <Icon name="up" />
+                <Button variant="pill" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
                   {t.update}
                 </Button>
               )}
@@ -98,8 +96,7 @@ export function UpdatesHead() {
       {direct.length > 1 && (
         <div className={barRowClass}>
           <span className="grow" />
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
-            <Icon name="up" />
+          <Button variant="pill" disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
             {t.updateAll}
           </Button>
         </div>

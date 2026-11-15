@@ -41,7 +41,7 @@ export function SkillDiff({
     [versionID, plan.id, item.skill.id],
   );
   const risk = useMemo(() => new Map((item.risks ?? []).map((r) => [r.path, riskLabel(r)])), [item.risks]);
-  const badge = (p: string) => risk.has(p) && <Badge tone="must">{risk.get(p)}</Badge>;
+  const badge = (p: string) => risk.has(p) && <Badge tone="warn">{risk.get(p)}</Badge>;
   const title = t.changesOf(item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name);
   const enlarge = (diff: VersionDiff, origin: Element) =>
     openCompare({

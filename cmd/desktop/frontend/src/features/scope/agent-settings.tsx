@@ -36,19 +36,23 @@ export function AgentSection({
         return (
           <SetRow key={a.code}>
             <AgentMark name={a.name} />
-            <div className="min-w-0 grow">
-              <div className="flex items-center gap-1.5">
-                {a.name}
-                {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
-              </div>
-              <div className="truncate font-mono text-caption text-muted-foreground select-text">
-                {t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
-              </div>
-            </div>
+            {/* 一行：名字、检测到没有，后面是它的两个目录(放不下就截断，悬停看全)。 */}
+            <span className="shrink-0">{a.name}</span>
+            {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
+            <span
+              className="min-w-0 grow truncate font-mono text-caption text-muted-foreground select-text"
+              title={t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
+            >
+              {t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
+            </span>
             {a.custom && (
               <>
-                <Button onClick={() => void edit(a)}>{t.edit}</Button>
-                <Button onClick={() => void deleteAgent(a)}>{t.delete}</Button>
+                <Button variant="ghost" onClick={() => void edit(a)}>
+                  {t.edit}
+                </Button>
+                <Button variant="ghost" onClick={() => void deleteAgent(a)}>
+                  {t.delete}
+                </Button>
               </>
             )}
             {shown !== undefined && (

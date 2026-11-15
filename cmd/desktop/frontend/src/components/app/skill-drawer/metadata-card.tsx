@@ -125,7 +125,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
         <dt>{d.groups}</dt>
         <dd className="flex flex-wrap items-center gap-1.5">
           {groups.map((g) => (
-            <Chip key={g.id} group removeTitle={d.removeFromGroup} onRemove={() => removeSkillFromGroup(g.id, id)}>
+            <Chip key={g.id} removeTitle={d.removeFromGroup} onRemove={() => removeSkillFromGroup(g.id, id)}>
               {g.name}
             </Chip>
           ))}
@@ -155,10 +155,10 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
 function checkStatus(status: UpdateCheckStatus): { label: string; tone: Tone } {
   const t = messages().drawer;
   const known: Record<UpdateCheckStatus, { label: string; tone: Tone }> = {
-    [UpdateCheckStatus.UpdateAvailable]: { label: t.checkAvailable, tone: "todo" },
+    [UpdateCheckStatus.UpdateAvailable]: { label: t.checkAvailable, tone: "info" },
     [UpdateCheckStatus.UpdateCurrent]: { label: t.checkCurrent, tone: "plain" },
-    [UpdateCheckStatus.UpdateDeleted]: { label: t.checkDeleted, tone: "todo" },
-    [UpdateCheckStatus.UpdateFailed]: { label: t.checkFailed, tone: "must" },
+    [UpdateCheckStatus.UpdateDeleted]: { label: t.checkDeleted, tone: "info" },
+    [UpdateCheckStatus.UpdateFailed]: { label: t.checkFailed, tone: "critical" },
     [UpdateCheckStatus.$zero]: { label: t.checkCurrent, tone: "plain" },
   };
   return known[status];

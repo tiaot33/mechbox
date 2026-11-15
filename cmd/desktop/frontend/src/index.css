@@ -1,7 +1,9 @@
 /* 样式入口:Tailwind 主题(设计系统 docs/design-system/tokens.json 的颜色、字号、圆角、阴影与毛玻璃参数)、浮在内容上的表面的毛玻璃材质与少量全局样式。
    组件的样式写在组件里;这里只放工具类管不到的：页面基础样式、窗口底色、毛玻璃材质、渲染出来的 Markdown、拖放中的高亮，
    以及状态圈与 toast 按状态切换的动画。
-   主题先清空 Tailwind 自带的颜色、字号与圆角，只留设计系统里的档位：界面只用黑、白、绿，字号四档，圆角三档加胶囊形。 */
+   主题先清空 Tailwind 自带的颜色、字号与圆角，只留设计系统里的档位：黑、白、灰之外，绿只给动作与选中，红、橙、蓝只给三级提醒(严重、注意、提示)的小圆点和字;
+   字号五档，圆角三档加胶囊形。
+   浅色和深色不是同一套样子换个颜色，各自定样子(见 control、tag、count 与三级提醒几组变量)。 */
 @import "tailwindcss";
 
 @source not "../dist";
@@ -47,33 +49,47 @@
   /* tile 是内容区的底(中间的底板、弹窗、技能详情抽屉、吸顶的节标题);panel 是浮起的表面(卡片、列表框、输入框)。 */
   --color-tile: #fff;
   --color-panel: #fff;
-  /* 唯一的绿：实心的主要按钮、开着的开关、选中、焦点圈、去别处的文字链接、文件差异里的新增。不表示「已完成」「已是最新」。
+  /* 绿只给动作和选中：实心的主要按钮、淡绿按钮、开着的开关、选中、焦点圈、去别处的文字链接、文件差异里的新增。不表示任何状态。
      on-primary 是压在它上面的字;primary-soft 是选中的行的淡绿底与焦点圈外的光圈。 */
   --color-primary: #15803d;
   --color-on-primary: #fff;
   --color-primary-soft: rgba(21, 128, 61, 0.12);
-  /* on-primary-soft 是淡绿底上的绿字(「要处理」的标签、淡绿按钮),浅色下比 primary 深一点，11 px 也够对比度。 */
+  /* on-primary-soft 是淡绿底上的绿字(淡绿按钮),浅色下比 primary 深一点，11 px 也够对比度。 */
   --color-on-primary-soft: #166534;
-  /* 组的颜色：列表里技能名后面的组名标签。界面上唯一的第二种色相，只给组用。 */
-  --color-group: #6d28d9;
-  --color-group-soft: rgba(109, 40, 217, 0.1);
-  /* 实心强调：「必须处理」的标签与确认删除的按钮。 */
+  /* 提醒分三级，每级一种颜色、一种圆点;颜色不用在别处。提醒不抢眼：没有底色和边框，只是一个 6 px 的小圆点，地方够时后面跟一行字。
+     <级> 是圆点的颜色，<级>-fg 是跟在后面的字。浅色下颜色压深一些(白底上看得清),深色下提亮。
+     - critical(严重，红，实心点外面一圈 critical-halo 的淡晕):已经坏了，不处理就用不了。
+     - warn(注意，橙，实心点):有风险或有冲突，不处理可能丢东西或用错。
+     - info(提示，蓝，空心圈):有一件可以做的事，放着也没事;后面的字用次要档的灰，不上色。 */
+  --color-critical: #d92d20;
+  --color-critical-halo: rgba(217, 45, 32, 0.22);
+  --color-critical-fg: #b42318;
+  --color-warn: #d97706;
+  --color-warn-fg: #92400e;
+  --color-info: #2f7fd6;
+  /* 中性的小标签(带 × 的小标签、组的整组开关):浅色下透明底加细边，深色下半透明的浅底、不描边。 */
+  --color-tag: transparent;
+  --color-tag-border: rgba(0, 0, 0, 0.14);
+  /* 计数的底：浅色下没有底，只是一个灰色的数字;深色下是半透明的浅底。 */
+  --color-count: transparent;
+  /* 实心强调：确认删除的按钮。 */
   --color-solid: #000;
   --color-on-solid: #fff;
-  /* border 只分开两块表面;border-control 是控件的强调边框(拖放时可放下的目标、复选框);输入框、下拉框、分段选择用 border,普通按钮用 fill 的浅灰底、不描边;row-line 是行与行之间的线。 */
+  /* border 只分开两块表面，也是输入框、搜索框的边;border-control 是控件的强调边框(拖放时可放下的目标、复选框);row-line 是行与行之间、分区与分区之间的线。 */
   --color-border: rgba(0, 0, 0, 0.12);
   --color-border-control: rgba(0, 0, 0, 0.42);
   --color-row-line: rgba(0, 0, 0, 0.07);
-  /* 悬停的底、菜单的高亮项、Notice 的灰底、分段选择的槽、计数与代码块的底。 */
+  /* 悬停的底、菜单的高亮项、Notice 的灰底、分段选择的槽与代码块的底。 */
   --color-fill: rgba(0, 0, 0, 0.05);
-  /* track 是开关关着的槽;knob 是圆钮;raised 是分段选择里选中的一段;scrim 是弹窗背后的遮罩。 */
+  /* track 是开关关着的槽;knob 是圆钮;scrim 是弹窗背后的遮罩。 */
   --color-track: #d4d4d4;
   --color-knob: #fff;
-  --color-raised: #fff;
-  /* control 是普通按钮、下拉框和分段选择里选中那一段的面：比底板略浮起的白(深色下是浅一些的灰),hover / active 是悬停和按下时的面。 */
-  --color-control: #fff;
-  --color-control-hover: #f6f6f6;
-  --color-control-active: #ececec;
+  /* control 是普通按钮、下拉框的面：照 macOS 的样子，一块没有边框、没有投影的灰(浅色下是黑 6%,深色下是白 10%),压在白底或灰底上都看得出;
+     hover / active 是悬停和按下时的面。segment 是分段选择里选中的一段：浅色下是白，深色下是浅一些的灰，带 shadow-control 的细边与投影。 */
+  --color-control: rgba(0, 0, 0, 0.06);
+  --color-control-hover: rgba(0, 0, 0, 0.1);
+  --color-control-active: rgba(0, 0, 0, 0.14);
+  --color-segment: #fff;
   --color-scrim: rgba(0, 0, 0, 0.18);
   /* 只有两处保留原色:mark 是 Agent 品牌图标的底，深色下仍是浅色，纯黑的 logo 也看得清;caption-close 是 Windows 上关闭窗口按钮悬停时的红，
      上面写白字(white)。 */
@@ -87,28 +103,24 @@
   --color-scrollbar-hover: rgba(0, 0, 0, 0.28);
   --color-graph-link: rgba(0, 0, 0, 0.18);
 
-  /* 圆角三档加胶囊形:control 给按钮、输入框、下拉框、分段选择、标签;card 给卡片、列表框、菜单、弹层、提示、toast;
-     tile 给中间的底板、弹窗、技能详情抽屉;pill 只给开关和计数。 */
-  --radius-control: 6px;
+  /* 圆角三档加胶囊形:control 给按钮、输入框、搜索框、下拉框、分段选择，排在一行的控件都是这一档(24 px 高配 7 px 圆角，照 macOS 的比例);
+     card 给列表框、菜单、弹层、提示、toast;tile 给中间的底板、弹窗、技能详情抽屉;pill 只给开关和计数。 */
+  --radius-control: 7px;
   --radius-card: 10px;
   --radius-tile: 14px;
   --radius-pill: 9999px;
 
   /* 阴影的颜色经 --shade-* 给出(在下面的 :root 里，深色下更深):Tailwind 把阴影的值直接写进工具类，换 --shadow-* 本身不起作用。 */
   --shadow-tile: 0 1px 2px var(--shade-tile);
-  --shadow-card: 0 4px 4px var(--shade-card), 0 0 0 1px var(--shade-card-edge);
   --shadow-raised: 0 4px 12px -4px var(--shade-raised);
-  --shadow-segment: 0 1px 2px var(--shade-segment), 0 0 0 1px var(--shade-segment-edge);
   --shadow-sheet: -12px 0 40px var(--shade-sheet);
   --shadow-dialog: 0 24px 60px var(--shade-dialog);
   --shadow-popover: 0 16px 40px var(--shade-popover);
   --shadow-toast: 0 8px 24px var(--shade-toast);
   --shadow-pick: 0 8px 28px var(--shade-pick);
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.2);
-  /* 浮起的控件(普通按钮、下拉框、分段选择选中的一段):一圈很细的边加一点投影，深色下顶上多一道淡亮线。 */
+  /* 分段选择里选中的一段：一圈很淡的细边加一点投影，深色下顶上多一道淡亮线。按钮和下拉框没有边也没有投影。 */
   --shadow-control: inset 0 0.5px 0 var(--shade-control-highlight), 0 0 0 0.5px var(--shade-control-edge), 0 1px 2px var(--shade-control);
-  /* 主要按钮：同样的细边与投影，顶上一道淡亮线，看起来是一块有厚度的面。 */
-  --shadow-primary: inset 0 0.5px 0 rgba(255, 255, 255, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.14);
 
   --animate-fade-in: fade-in 0.12s ease-out;
   --animate-dialog-in: dialog-in 0.14s ease-out;
@@ -153,18 +165,14 @@
   :root {
     color-scheme: light;
     --shade-tile: rgba(17, 24, 39, 0.03);
-    --shade-card: rgba(17, 24, 39, 0.05);
-    --shade-card-edge: rgba(17, 24, 39, 0.07);
     --shade-raised: rgba(17, 24, 39, 0.1);
-    --shade-segment: rgba(17, 24, 39, 0.1);
-    --shade-segment-edge: rgba(17, 24, 39, 0.04);
     --shade-sheet: rgba(15, 23, 42, 0.14);
     --shade-dialog: rgba(15, 23, 42, 0.22);
     --shade-popover: rgba(15, 23, 42, 0.18);
     --shade-toast: rgba(0, 0, 0, 0.12);
     --shade-pick: rgba(17, 24, 39, 0.16);
-    --shade-control: rgba(0, 0, 0, 0.08);
-    --shade-control-edge: rgba(0, 0, 0, 0.14);
+    --shade-control: rgba(0, 0, 0, 0.12);
+    --shade-control-edge: rgba(0, 0, 0, 0.06);
     --shade-control-highlight: rgba(255, 255, 255, 0);
   }
   :root[data-theme="dark"] {
@@ -179,8 +187,15 @@
     --color-on-primary: #000;
     --color-primary-soft: rgba(48, 209, 88, 0.16);
     --color-on-primary-soft: #30d158;
-    --color-group: #c4a7ff;
-    --color-group-soft: rgba(196, 167, 255, 0.16);
+    --color-critical: #ff5a4f;
+    --color-critical-halo: rgba(255, 90, 79, 0.3);
+    --color-critical-fg: #ff8a80;
+    --color-warn: #ff9f0a;
+    --color-warn-fg: #ffb340;
+    --color-info: #5eb0ff;
+    --color-tag: rgba(255, 255, 255, 0.1);
+    --color-tag-border: transparent;
+    --color-count: rgba(255, 255, 255, 0.07);
     --color-solid: #fff;
     --color-on-solid: #000;
     --color-border: rgba(255, 255, 255, 0.14);
@@ -189,10 +204,10 @@
     --color-fill: rgba(255, 255, 255, 0.07);
     --color-track: #585858;
     --color-knob: #f2f2f2;
-    --color-raised: #555;
-    --color-control: #434345;
-    --color-control-hover: #4c4c4f;
-    --color-control-active: #57575a;
+    --color-control: rgba(255, 255, 255, 0.1);
+    --color-control-hover: rgba(255, 255, 255, 0.15);
+    --color-control-active: rgba(255, 255, 255, 0.2);
+    --color-segment: #636366;
     --color-scrim: rgba(0, 0, 0, 0.42);
     --color-mark: #f2f2f5;
     --color-caption-hover: rgb(255 255 255 / 0.0605);
@@ -202,11 +217,7 @@
     --color-graph-link: rgb(255 255 255 / 0.22);
 
     --shade-tile: rgb(0 0 0 / 0.2);
-    --shade-card: rgb(0 0 0 / 0.18);
-    --shade-card-edge: rgb(255 255 255 / 0.08);
     --shade-raised: rgb(0 0 0 / 0.4);
-    --shade-segment: rgb(0 0 0 / 0.35);
-    --shade-segment-edge: rgb(255 255 255 / 0.06);
     --shade-sheet: rgb(0 0 0 / 0.45);
     --shade-dialog: rgb(0 0 0 / 0.55);
     --shade-popover: rgb(0 0 0 / 0.5);

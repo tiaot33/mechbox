@@ -7,6 +7,7 @@ import {
   agentNameIn,
   groupStateIn,
   needsReinstall,
+  reinstallLevel,
   parseScope,
   placeOf,
   projectName,
@@ -28,9 +29,11 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/app/icons";
 import { WSLBadge } from "@/components/app/parts";
 import { Badge } from "@/components/ui/badge";
+import { nameIndent } from "./rows";
 
-// 列表顶部的摘要条(作用域摘要、更新列表)共用的外观。
-export const barClass = "a-scope-sum flex flex-col gap-2 rounded-card border border-border bg-panel px-3 py-2.5 shadow-tile";
+// 列表顶部的摘要条(作用域摘要、更新列表)共用的外观：不是浮起的卡片，直接排在底板上，和下面的列表之间隔一条线。
+// 左右内边距由用的地方给：文字要和下面列表里的技能名在同一条线上(作用域页、项目页的行前面有勾选框那一列，更新页没有)。
+export const barClass = "a-scope-sum flex flex-col gap-1.5 border-b border-row-line pt-0.5 pb-2.5";
 
 export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
@@ -53,41 +56,43 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const c = useT().copy;
   const agent = agentNameIn(s, sc.agent, placeOf(sc));
   return (
-    <div className={barClass}>
-      <div className="flex min-w-0 items-center gap-2.5">
-        <b className="scope-sees min-w-0 truncate text-body font-semibold">
+    <div className={cn(barClass, nameIndent, "pr-3")}>
+      {/* 第一行：标题在左，这一页的动作都在右边排成一排。 */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <b className="scope-sees min-w-0 grow truncate text-heading">
           {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), sees) : t.scopeSeesGlobal(agent, sees)}
         </b>
-        <span className="grow" />
+        {issues > 0 && (
+          <Button className="shrink-0" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
+            <Icon name="refresh" />
+            {t.reinstallAll}
+          </Button>
+        )}
         {others && (
-          <Button size="sm" className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent, placeOf(sc))}>
+          <Button className="copy-agent-open shrink-0" title={c.openTitle(agentName(s, sc.agent))} onClick={() => openCopyFromAgent(sc.agent, placeOf(sc))}>
             <Icon name="plus" />
             {c.open}
           </Button>
         )}
       </div>
-      <div className={barRowClass}>
-        <span className="text-caption text-muted-foreground">{t.agentDirectory}</span>
-        <WSLBadge path={directory} />
-        <span className="max-w-[360px] truncate font-mono text-caption select-text" title={wslTitle(directory)}>
-          {directory ? shortPath(s, directory) : "…"}
+      {/* 第二行：目录和各个数字从左到右写成一行，要重新安装的用「注意」的标签标出。 */}
+      <div className={cn(barRowClass, "gap-x-3 text-caption text-muted-foreground")}>
+        <span className="flex min-w-0 items-center gap-1.5">
+          {t.agentDirectory}
+          <WSLBadge path={directory} />
+          <span className="max-w-[360px] truncate font-mono text-foreground-secondary select-text" title={wslTitle(directory)}>
+            {directory ? shortPath(s, directory) : "…"}
+          </span>
         </span>
-        <span className="grow" />
         <Stat value={installed.length} label={t.statInstalled} />
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
-        <Stat value={issues} label={t.statStale} warn={issues > 0} />
-        {issues > 0 && (
-          <Button size="sm" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
-            <Icon name="refresh" />
-            {t.reinstallAll}
-          </Button>
-        )}
+        {issues > 0 && <Stat value={issues} label={t.statStale} warn={reinstallLevel(installed) ?? "warn"} />}
       </div>
       {s.groups.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-caption text-muted-foreground">{t.groups}</span>
+        <div className="flex h-6 items-center gap-1.5 overflow-hidden">
+          <span className="shrink-0 text-caption text-muted-foreground">{t.groups}</span>
           {groups.map((g) => {
             const state = groupStateIn(s, g, scope);
             const on = state === "on";
@@ -98,15 +103,15 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
                 data-state={state}
                 aria-pressed={on}
                 className={cn(
-                  "gchip inline-flex h-6 items-center gap-1.5 rounded-control border border-border px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
-                  on && "border-transparent bg-fill font-semibold text-foreground",
+                  "gchip inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-control border border-tag-border bg-tag px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
+                  on && "text-foreground",
                 )}
                 onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
-                <i className={cn("size-[7px] rounded-full border-[1.5px] border-muted-foreground", on && "border-foreground bg-foreground")} />
+                <i className={cn("size-[7px] rounded-full border-[1.5px] border-muted-foreground", on && "border-primary bg-primary")} />
                 {g.name}
-                <span className={cn("font-mono text-caption font-normal text-muted-foreground tabular-nums", on && "text-foreground")}>
+                <span className="text-caption text-muted-foreground tabular-nums">
                   {viaGroupCount(s, g, scope)}/{g.members?.length ?? 0}
                 </span>
               </button>
@@ -128,52 +133,46 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
   const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
   return (
-    <div className={barClass}>
-      <div className="flex min-w-0 items-center gap-2.5">
-        <b className="project-sum min-w-0 truncate text-body font-semibold">{t.projectHas(name, total)}</b>
-        <span className="grow" />
+    <div className={cn(barClass, nameIndent, "pr-3")}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <b className="project-sum min-w-0 grow truncate text-heading">{t.projectHas(name, total)}</b>
+        {unmanaged > 0 && (
+          <Button className="fetch-all-unmanaged shrink-0" title={t.fetchAllTitle} onClick={() => void offerFetchProject(s.agents, project, false)}>
+            {t.fetchAll}
+          </Button>
+        )}
         {others && (
-          <Button size="sm" className="copy-project-open shrink-0" title={c.projectOpenTitle(name)} onClick={() => openCopyFromProject(project.id)}>
+          <Button className="copy-project-open shrink-0" title={c.projectOpenTitle(name)} onClick={() => openCopyFromProject(project.id)}>
             <Icon name="plus" />
             {c.projectOpen}
           </Button>
         )}
       </div>
-      <div className={barRowClass}>
-        <span className="text-caption text-muted-foreground">{t.projectDirectory}</span>
-        <WSLBadge path={project.path} />
-        <span className="max-w-[360px] truncate font-mono text-caption select-text" title={wslTitle(project.path)}>
-          {shortPath(s, project.path)}
+      <div className={cn(barRowClass, "gap-x-3 text-caption text-muted-foreground")}>
+        <span className="flex min-w-0 items-center gap-1.5">
+          {t.projectDirectory}
+          <WSLBadge path={project.path} />
+          <span className="max-w-[360px] truncate font-mono text-foreground-secondary select-text" title={wslTitle(project.path)}>
+            {shortPath(s, project.path)}
+          </span>
         </span>
-        <span className="grow" />
-        {unmanaged > 0 && (
-          <>
-            <Stat value={unmanaged} label={t.statNotInLibrary} />
-            <Button
-              size="sm"
-              className="fetch-all-unmanaged"
-              title={t.fetchAllTitle}
-              onClick={() => void offerFetchProject(s.agents, project, false)}
-            >
-              {t.fetchAll}
-            </Button>
-          </>
-        )}
+        {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
       </div>
     </div>
   );
 }
 
-function Stat({ value, label, warn = false }: { value: number; label: string; warn?: boolean }) {
+// warn 是这一项要提醒时的级别(需重新安装的按最重的那一处)。
+function Stat({ value, label, warn }: { value: number; label: string; warn?: "critical" | "warn" | "info" }) {
   return (
-    <span className="stat text-body text-foreground-secondary" data-tone={warn ? "warn" : undefined}>
+    <span className="stat shrink-0 whitespace-nowrap" data-tone={warn ? "warn" : undefined}>
       {warn ? (
-        <Badge tone="must">
+        <Badge tone={warn}>
           {value} {label}
         </Badge>
       ) : (
         <>
-          <b className="mr-0.5 font-semibold text-foreground tabular-nums">{value}</b> {label}
+          <b className="font-semibold text-foreground-secondary tabular-nums">{value}</b> {label}
         </>
       )}
     </span>

@@ -16,6 +16,7 @@ import {
   agentsUsedIn,
   mergeProjectPlaces,
   needsReinstall,
+  reinstallLevel,
   parseScope,
   placeOf,
   projectFolderNote,
@@ -33,13 +34,13 @@ import { cn } from "@/lib/utils";
 import { openProject, openScope, toggleMoreAgents, toggleProject, useCurrentPage, useView } from "@/lib/view";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { unregisterProject } from "@/features/scope/projects";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { alreadyInScope, dropProps, useDnD } from "./dnd";
 import { Icon } from "./icons";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
+import { Badge, Dot } from "@/components/ui/badge";
 import { PlaceAgentMark, WSLBadge } from "./parts";
 
 export function ScopePanel() {
@@ -73,6 +74,7 @@ export function ScopePanel() {
     const key = scopeKey(scopeOf(agent.code, place));
     const installed = skillScopesIn(s, key);
     const issues = installed.filter(needsReinstall).length;
+    const level = reinstallLevel(installed);
     const already = !!dnd.item && alreadyInScope(s, dnd.item, key);
     return (
       <li key={key}>
@@ -89,9 +91,8 @@ export function ScopePanel() {
           <span className="grow truncate" title={projectFolderNote(s, agent.code, place)}>
             {agentNameIn(s, agent.code, place)}
           </span>
-          {issues > 0 && (
-            <i className="size-1.5 shrink-0 rounded-full bg-primary" title={t.issues(issues)} />
-          )}
+          {/* 这里有要重新安装的技能：提醒的圆点，按最重的那一处的级别。 */}
+          {level && <Dot tone={level} title={t.issues(issues)} />}
           <NavCount value={installed.length} accent />
         </button>
       </li>
@@ -160,7 +161,7 @@ export function ScopePanel() {
                 role="button"
                 tabIndex={0}
                 aria-expanded={open}
-                className={cn(navItem({ kind: "tree" }), "proj gap-1.5", current && "font-semibold text-foreground")}
+                className={cn(navItem({ kind: "tree" }), "proj", current && "font-semibold text-foreground")}
                 data-active={active}
                 onClick={() => openProject(p.id)}
                 onKeyDown={pressKeys(() => openProject(p.id))}
@@ -169,7 +170,8 @@ export function ScopePanel() {
               >
                 <button
                   type="button"
-                  className="proj-toggle -m-1 grid size-[18px] shrink-0 place-items-center rounded-control hover:bg-fill"
+                  // 箭头占 Agent 图标那一列(14px):项目名和上面全局的 Agent 名在同一条线上。
+                  className="proj-toggle -mx-0.5 -my-1 grid size-[18px] shrink-0 place-items-center rounded-control hover:bg-fill"
                   aria-label={open ? t.collapseProject : t.expandProject}
                   title={open ? t.collapseProject : t.expandProject}
                   onClick={(e) => {
@@ -179,12 +181,12 @@ export function ScopePanel() {
                 >
                   <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
                 </button>
-                <Icon name="folder" className="size-[13px]" />
                 <span className="min-w-0 truncate">{projectName(s, p.id)}</span>
                 <WSLBadge path={p.path} />
                 <span className="grow" />
+                {/* 栏很窄：只画「严重」一级的圆点，「不在这台机器上」写在悬停提示里，不把项目名挤没。 */}
                 {p.missing && (
-                  <Badge tone="must" title={t.missingBadgeTitle}>
+                  <Badge tone="critical" compact className="proj-missing" tip={t.missingBadgeTitle}>
                     {t.missing}
                   </Badge>
                 )}
@@ -230,7 +232,7 @@ export function ScopePanel() {
                 )}
                 inert={!open}
               >
-                <ul className="flex min-h-0 flex-col gap-0.5 overflow-hidden pt-0.5 pl-[18px]">{agentRows(p.id)}</ul>
+                <ul className="flex min-h-0 flex-col gap-0.5 overflow-hidden pt-0.5 pl-[22px]">{agentRows(p.id)}</ul>
               </div>
             </li>
           );
@@ -300,7 +302,7 @@ function RailHead({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="nav-sec group/sec flex h-[26px] items-center justify-between pr-0.5 pl-2 text-caption font-semibold text-muted-foreground not-first:mt-2.5 first:mt-1">
+    <div className="nav-sec group/sec flex h-7 items-center justify-between pr-0.5 pl-2 text-caption font-semibold text-muted-foreground not-first:mt-2.5 first:mt-1">
       <span className="inline-flex min-w-0 items-center gap-[5px]">
         <Icon name={icon} className="size-[11px]" />
         {label}

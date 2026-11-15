@@ -204,7 +204,8 @@ function InstallTo({ skillID }: { skillID: number }) {
       {target.selectable ? (
         <>
           <AgentPicker target={target} taken={t.drawer.hasIt} />
-          <Button disabled={!target.scopes.length} onClick={() => void installSkillTo(skillID, target.scopes)}>
+          {/* 这一块里最要紧的动作：强调按钮。 */}
+          <Button variant="accent" disabled={!target.scopes.length} onClick={() => void installSkillTo(skillID, target.scopes)}>
             <Icon name="plus" />
             {t.drawer.install}
           </Button>

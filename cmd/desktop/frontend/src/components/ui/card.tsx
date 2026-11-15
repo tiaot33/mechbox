@@ -1,10 +1,10 @@
-// 不透明的卡片(详情抽屉与设置页的分区):标题在左，说明或操作在右。
+// 分区(详情抽屉与设置页):不是浮起的卡片，没有底色、边框和投影，和上一个分区之间用一条线和间距分开;标题在左，说明或操作在右。
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 function Card({ className, ...props }: ComponentProps<"section">) {
   return (
-    <section data-slot="card" className={cn("rounded-card bg-panel px-4 py-3.5 text-body shadow-card", className)} {...props} />
+    <section data-slot="card" className={cn("mx-2 border-t border-row-line pt-4 pb-2 text-body first:border-t-0 first:pt-1", className)} {...props} />
   );
 }
 

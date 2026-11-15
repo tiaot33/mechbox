@@ -160,7 +160,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
   const planned = items.flatMap((x, i) => {
     const r = settled[i];
     if (r.status === "fulfilled") return [{ ...x, plan: r.value }];
-    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "must", reason: describeError(toLibraryError(r.reason)) });
+    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(r.reason)) });
     return [];
   });
   const untracked = planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
@@ -191,11 +191,11 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
       const row = label(skill, scope);
       if (plan.status === InstallPlanStatus.InstallOccupied) {
-        rows.push({ label: row, outcome: t.memberSkipped, tone: "todo", reason: occupiedReason(s, skill.id, plan) });
+        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan) });
         continue;
       }
       if (isUntracked && !overwrite) {
-        rows.push({ label: row, outcome: t.memberSkipped, tone: "todo", reason: t.untrackedBody(shortPath(s, plan.folder), plan.name) });
+        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: t.untrackedBody(shortPath(s, plan.folder), plan.name) });
         continue;
       }
       try {
@@ -203,7 +203,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
         rows.push({ label: row, outcome: t.memberInstalled, tone: "plain" });
         installed++;
       } catch (e) {
-        rows.push({ label: row, outcome: t.failed, tone: "must", reason: describeError(toLibraryError(e)) });
+        rows.push({ label: row, outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
         failed = true;
       }
     }
@@ -298,7 +298,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
   const rows: ResultRow[] = viaGroup.map((p) => ({
     label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`,
     outcome: t.memberSkipped,
-    tone: "todo",
+    tone: "warn",
     reason: t.onlyViaGroup,
   }));
   let done = 0;
@@ -312,7 +312,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
         const err = toLibraryError(e);
         // 全局共用一个文件夹的几处：卸载其中一处时其余几处的直接安装一起撤了。
         if (err.code === ErrorCode.NotFound) continue;
-        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.failed, tone: "must", reason: describeError(err) });
+        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.failed, tone: "critical", reason: describeError(err) });
         failed = true;
       }
     }

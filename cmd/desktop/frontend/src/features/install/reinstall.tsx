@@ -75,7 +75,7 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
       } catch (e) {
         const err = toLibraryError(e);
         if (err.code === ErrorCode.Canceled) throw e;
-        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.notUninstalled, tone: "must", reason: describeError(err) });
+        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.notUninstalled, tone: "critical", reason: describeError(err) });
       }
     }
     return { results, rows, uninstalled };

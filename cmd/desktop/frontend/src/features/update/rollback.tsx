@@ -26,14 +26,14 @@ export function rollbackOutcome(outcome: string): { text: string; tone: Tone } {
     [RollbackOutcome.RollbackReinstalled]: { text: t.rollbackReinstalled, tone: "plain" },
     [RollbackOutcome.RollbackCurrent]: { text: t.rollbackCurrent, tone: "plain" },
     [RollbackOutcome.RollbackReinstalledSince]: { text: t.rollbackReinstalledSince, tone: "plain" },
-    [RollbackOutcome.RollbackModified]: { text: t.rollbackModified, tone: "must" },
-    [RollbackOutcome.RollbackMissing]: { text: t.rollbackMissing, tone: "must" },
-    [RollbackOutcome.RollbackRootMissing]: { text: t.rollbackRootMissing, tone: "must" },
+    [RollbackOutcome.RollbackModified]: { text: t.rollbackModified, tone: "warn" },
+    [RollbackOutcome.RollbackMissing]: { text: t.rollbackMissing, tone: "critical" },
+    [RollbackOutcome.RollbackRootMissing]: { text: t.rollbackRootMissing, tone: "critical" },
     [RollbackOutcome.RollbackUninstalled]: { text: t.rollbackUninstalled, tone: "plain" },
     [RollbackOutcome.RollbackRemoved]: { text: t.rollbackRemoved, tone: "plain" },
-    [RollbackOutcome.RollbackFailed]: { text: t.rollbackFailed, tone: "must" },
+    [RollbackOutcome.RollbackFailed]: { text: t.rollbackFailed, tone: "critical" },
   };
-  return known[outcome] ?? { text: t.rollbackUnknown, tone: "todo" };
+  return known[outcome] ?? { text: t.rollbackUnknown, tone: "info" };
 }
 
 export const putBack = (r: { outcome: string }) => r.outcome === RollbackOutcome.RollbackReinstalled || r.outcome === RollbackOutcome.RollbackCurrent;

@@ -155,27 +155,26 @@ export function ProjectsSection() {
     {s.projects.map((p) => (
       <SetRow key={p.id}>
         <Icon name="folder" />
-        <div className="min-w-0 grow">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate">{projectName(s, p.id)}</span>
-            <WSLBadge path={p.path} />
-          </div>
-          <div className="truncate font-mono text-caption text-muted-foreground select-text" title={p.path}>
-            {shortPath(s, p.path)}
-          </div>
-        </div>
+        {/* 一行：项目名，后面是它的目录(放不下就截断，悬停看全)。 */}
+        <span className="max-w-1/2 shrink-0 truncate">{projectName(s, p.id)}</span>
+        <WSLBadge path={p.path} />
+        <span className="min-w-0 grow truncate font-mono text-caption text-muted-foreground select-text" title={p.path}>
+          {shortPath(s, p.path)}
+        </span>
         {p.missing && (
-          <Badge tone="must" title={t.missingTitle}>
+          <Badge tone="critical" title={t.missingTitle}>
             {t.missing}
           </Badge>
         )}
-        <Button onClick={() => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={p} onClose={close} />)}>
+        <Button variant="ghost" onClick={() => ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={p} onClose={close} />)}>
           {t.relocate}
         </Button>
-        <Button onClick={() => void unregisterProject(p)}>{t.unregister}</Button>
+        <Button variant="ghost" onClick={() => void unregisterProject(p)}>
+          {t.unregister}
+        </Button>
       </SetRow>
     ))}
-    {s.projects.length === 0 && <Hint>{t.noProjects}</Hint>}
+    {s.projects.length === 0 && <Hint className="py-3">{t.noProjects}</Hint>}
   </>
   );
 }
@@ -232,14 +231,14 @@ export function AboutSection() {
   const s = useSnapshot();
   const t = useT().settings;
   return (
-  <dl className="kv grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-body [&_dt]:text-muted-foreground">
+  <dl className="kv grid grid-cols-[110px_1fr] items-center gap-x-3 text-body [&_dd]:min-h-10 [&_dd]:border-t [&_dd]:border-row-line [&_dd]:py-2 [&_dd:first-of-type]:border-t-0 [&_dt]:flex [&_dt]:h-full [&_dt]:items-center [&_dt]:border-t [&_dt]:border-row-line [&_dt]:text-muted-foreground [&_dt:first-of-type]:border-t-0">
     <dt>{t.version}</dt>
-    <dd className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
-      <span className="font-mono leading-6 select-text">{s.info.version}</span>
+    <dd className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <span className="font-mono select-text">{s.info.version}</span>
       <ReleaseCheck />
     </dd>
     <dt>{t.databasePath}</dt>
-    <dd className="font-mono text-caption break-all select-text">{s.info.library_path}</dd>
+    <dd className="flex items-center font-mono text-caption break-all select-text">{s.info.library_path}</dd>
   </dl>
   );
 }
