@@ -14,6 +14,9 @@ export function worstLevel(tones: readonly (Tone | undefined)[]): Level | undefi
   return levels.find((l) => tones.includes(l));
 }
 
+// 先后：三级提醒从重到轻，更新排在最后(更新另画一个图标，和提醒放在一起时也不盖住提醒)。
+const order: readonly Mark[] = [...levels, "update"];
+
 export function byLevel(a: Mark, b: Mark): number {
-  return levels.indexOf(a as Level) - levels.indexOf(b as Level);
+  return order.indexOf(a) - order.indexOf(b);
 }

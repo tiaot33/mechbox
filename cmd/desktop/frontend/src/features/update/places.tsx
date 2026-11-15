@@ -52,7 +52,7 @@ export function Places({
                   ) : (
                     <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>
                   ))}
-                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge tone="critical">{t.rootMissing}</Badge>}
+                {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge>{t.rootMissing}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="critical">{t.folderMissing}</Badge>}
                 {sharedWithNote(p).length > 0 && (
                   <span className="text-caption text-muted-foreground">

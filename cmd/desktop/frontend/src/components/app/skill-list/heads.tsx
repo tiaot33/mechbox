@@ -89,7 +89,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
-        {issues > 0 && <Stat value={issues} label={t.statStale} level={reinstallLevel(installed) ?? "warn"} />}
+        {issues > 0 && <Stat value={issues} label={t.statStale} level={reinstallLevel(installed)} />}
       </div>
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">

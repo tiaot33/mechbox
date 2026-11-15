@@ -1,6 +1,6 @@
 // 同名技能的标记与说明：在这个 Agent 里同名的几个技能会怎样(哪个生效、是否都出现)。
 import { useT } from "@/lib/i18n";
-import { AlertDot, type Alert } from "@/components/ui/badge";
+import { AlertIcon, type Alert } from "@/components/ui/badge";
 
 type Note = { text: string; title: string };
 
@@ -12,7 +12,7 @@ export function sameNameAlert(note: Note, label: string): Alert {
 
 export function SameNameBadge({ note }: { note: Note }) {
   const t = useT().list;
-  return <AlertDot items={[sameNameAlert(note, t.sameName)]} />;
+  return <AlertIcon items={[sameNameAlert(note, t.sameName)]} />;
 }
 
 // sameNameTip 是同名提醒的说明：先写后果，再写是哪个文件夹;两句一样时(技能库页)只写一遍。

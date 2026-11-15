@@ -197,7 +197,9 @@ describe("项目不在这台机器上", () => {
     });
     const alerts = reinstallAlerts(s, 1);
     expect(alerts.map((a) => a.tone)).toEqual(["critical", "update"]);
-    expect(alerts[0].tip.split("\n")).toHaveLength(2);
+    // 要重新安装的先写一句，再逐行写地方;作者新版那条是更新，只列地方。
+    expect(alerts[0].tip.split("\n")).toEqual(["要重新安装的地方：", "Claude Code · 全局", "Codex · 全局"]);
+    expect(alerts[1].tip).toBe("Claude Code · web");
   });
 
   it("同一个技能在别处文件夹不在了，照样是严重", () => {

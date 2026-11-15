@@ -20,7 +20,7 @@ import {
   type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
-import { folderKey, needsReinstall, notTakenOver, scopeKey } from "./model";
+import { canInstall, folderKey, needsReinstall, notTakenOver, scopeKey } from "./model";
 
 // placeKey 标识一处安装：哪个技能装在哪个作用域。
 export const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
@@ -37,8 +37,7 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
   return new Set(skills.filter((p) => p.change === PlannedChange.PlannedChanged && !p.skipped).map((p) => p.skill.id));
 }
 
-// canInstall 是能装到的地方：项目不在这台机器上的不能勾。
-export const canInstall = (p: SkillScopeInspection) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
+export { canInstall } from "./model";
 
 // edited 是用户在这里改过的一处：被改过、又不是在 app 外更新到了作者的新版(source_latest)。
 const edited = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest;
@@ -83,7 +82,7 @@ export function updateInstalls(plan: UpdatePlan, checked: Set<SkillID>, installO
 // refreshRequests 是本地目录内容没变时"重新读取"要补换的地方：不是当前版本、能装到的几处里，用户改过的、文件夹不在了的不动，
 // 其余换成当前版本。keptEdited / keptMissing 是没动的文件夹数。
 export function refreshRequests(inspected: SkillScopeInspection[]) {
-  const behind = inspected.filter((p) => p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p));
+  const behind = inspected.filter(needsReinstall);
   const kept = (status: SkillScopeStatus) => new Set(behind.filter((p) => p.status === status).map(folderKey)).size;
   return {
     requests: behind

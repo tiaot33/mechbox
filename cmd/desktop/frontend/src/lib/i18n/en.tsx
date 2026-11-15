@@ -118,6 +118,7 @@ export const en = {
     statusSourceLatest: "Author’s newer version",
     statusMissing: "Folder missing",
     statusRootMissing: "Project not on this machine",
+    reinstallAt: "To reinstall at:",
     revisionUnknown: "Revision unknown",
     revisionSame: (revision: string) => `At ${revision}`,
     revisionMixed: (r: Extract<RevisionSummary, { kind: "mixed" }>) =>
@@ -230,6 +231,7 @@ export const en = {
     groupDeleted: "Group deleted",
     reinstallSkill: (name: string) => `“${name}”`,
     allCurrent: (what: string) => `Everything installed for ${what} is already the current Version`,
+    offMachineSkipped: (what: string, n: number) => `Nothing to reinstall for ${what}; ${count(n, "place")} in Projects not on this machine left as is`,
     kept: keptAsIs,
     nothingReinstalled: (what: string, edited: number, missing: number) =>
       [`Nothing reinstalled (${what})`, keptAsIs(edited, missing)].filter(Boolean).join("; "),

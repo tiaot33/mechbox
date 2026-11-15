@@ -45,7 +45,7 @@ import { doneFlash, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { AlertDot, Badge } from "@/components/ui/badge";
+import { AlertIcon, Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
@@ -200,7 +200,7 @@ export function SkillRow(props: {
           {skill.name}
         </span>
         {/* 这一行的提醒(技能本身的，加上要重新安装的那几处)合成一个图标，按最重的一级，鼠标停住时逐条列出。 */}
-        <AlertDot
+        <AlertIcon
           items={[
             same && sameNameAlert(same, t.list.sameName),
             ...places.filter((x) => x.tone !== "update"),
@@ -215,7 +215,7 @@ export function SkillRow(props: {
           ]}
         />
         {/* 更新不是提醒：另画一个主题绿的向上箭头，点它打开所在集合的更新计划;只标计入角标的。 */}
-        <AlertDot
+        <AlertIcon
           items={[
             pending(skill) &&
               hasUpdate(skill) && {
@@ -224,7 +224,7 @@ export function SkillRow(props: {
                 tip: renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle,
                 onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }),
               },
-            ...places.filter((x) => x.tone === "update"),
+            ...places.filter((x) => x.tone === "update").map((x) => ({ ...x, onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }) })),
           ]}
         />
         {deletedInSource(skill) && skill.kept_deleted && (

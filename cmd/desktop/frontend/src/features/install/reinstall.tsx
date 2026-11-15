@@ -10,7 +10,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { toggled } from "@/lib/utils";
-import { overwriteKey, placeKey, planReinstall, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
+import { canInstall, overwriteKey, placeKey, planReinstall, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot } from "@/lib/library";
@@ -46,7 +46,9 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
   const single = !!filter.skill_id && !!filter.scope;
   const { targets, modified, missing } = reinstallTargets(inspected ?? [], single);
   if (!targets.length) {
-    ui.toast(t.allCurrent(what));
+    // 项目不在这台机器上的几处没核对过，不说成「都是当前版本」。
+    const off = (inspected ?? []).filter((p) => !canInstall(p)).length;
+    ui.toast(off ? t.offMachineSkipped(what, off) : t.allCurrent(what));
     return;
   }
   let chosen: ReinstallChoices = { overwrite: new Set(), missing: new Map() };

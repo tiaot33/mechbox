@@ -40,7 +40,7 @@ import { alreadyInScope, dropProps, useDnD } from "./dnd";
 import { Icon } from "@/components/ui/icon";
 import { rightClass } from "./layout";
 import { NavCount, navItem } from "./nav";
-import { AlertDot, Dot } from "@/components/ui/badge";
+import { AlertIcon, MarkIcon } from "@/components/ui/badge";
 import { PlaceAgentMark, WSLBadge } from "./parts";
 
 export function ScopePanel() {
@@ -92,7 +92,7 @@ export function ScopePanel() {
             {agentNameIn(s, agent.code, place)}
           </span>
           {/* 这里有要重新安装的技能：提醒的图标，按最重的那一处的级别。 */}
-          {level && <Dot tone={level} title={t.issues(issues)} />}
+          {level && <MarkIcon tone={level} title={t.issues(issues)} />}
           <NavCount value={installed.length} accent />
         </button>
       </li>
@@ -186,7 +186,7 @@ export function ScopePanel() {
                 <span className="grow" />
                 {/* 栏很窄：只画「严重」一级的图标，「不在这台机器上」写在悬停提示里，不把项目名挤没。 */}
                 {p.missing && (
-                  <AlertDot items={[{ tone: "critical", label: t.missing, tip: t.missingBadgeTitle, className: "proj-missing" }]} />
+                  <AlertIcon items={[{ tone: "critical", label: t.missing, tip: t.missingBadgeTitle, className: "proj-missing" }]} />
                 )}
                 {!open && (
                   <span className="inline-flex items-center gap-[3px] group-hover:hidden">

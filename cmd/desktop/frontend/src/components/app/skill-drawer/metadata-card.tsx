@@ -110,7 +110,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             <dd>
               {check ? (
                 <>
-                  <Badge tone={checkStatus(check.status).tone}>
+                  <Badge tone={check.renamed_to ? "update" : checkStatus(check.status).tone}>
                     {check.renamed_to ? d.maybeRenamedTo(check.renamed_to) : checkStatus(check.status).label}
                   </Badge>{" "}
                   {check.skipped && <span className="text-caption text-muted-foreground">{d.skipped}</span>}
