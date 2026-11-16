@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { CollectionID, GroupID, ProjectID, Scope, SkillID } from "@bindings/internal/library";
+import type { CollectionID, GroupID, ProjectID, Scope, Skill, SkillID } from "@bindings/internal/library";
 import { forgetLibraryCaches, queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
@@ -35,8 +35,15 @@ export type DragItem =
   | { kind: "collection"; id: CollectionID };
 
 // Jump 是左栏点了集合或组之后要滚到的那一节;n 每次点都变，连点同一个也会再滚一次。
+// 换页、换分节方式之前它一直留着，左栏据此把那个集合或组标成选中(用户看得出现在看的是哪一个)。
 export interface Jump {
   section: string;
+  n: number;
+}
+
+// Fresh 是刚从来源入库的几个技能：技能库页上展开它们所在的节里没装的那几行，滚到第一行，几行一起闪一下;n 每次入库都变。
+export interface Fresh {
+  ids: ReadonlySet<SkillID>;
   n: number;
 }
 
@@ -62,6 +69,7 @@ interface ViewState {
   anchor: string | null; // 上一次单独勾选或取消的那一行(PickRow.key),按住 Shift 勾选时从它勾到点的那一行
   jump: Jump | null;
   flash: Flash | null;
+  fresh: Fresh | null;
   drawer: SkillID | null;
   drag: DragItem | null;
   settings: boolean;
@@ -82,7 +90,7 @@ export interface Back {
 // libraryState 是按技能库里的 ID(技能、集合、组、项目)记下的界面状态的初始值;拉回整库时回到它(forgetLibrary)。
 function libraryState(): Pick<
   ViewState,
-  "page" | "expanded" | "moreAgents" | "flipped" | "unfolded" | "picked" | "anchor" | "jump" | "flash" | "drawer" | "back" | "restoreScroll"
+  "page" | "expanded" | "moreAgents" | "flipped" | "unfolded" | "picked" | "anchor" | "jump" | "flash" | "fresh" | "drawer" | "back" | "restoreScroll"
 > {
   return {
     page: { kind: "all" },
@@ -94,6 +102,7 @@ function libraryState(): Pick<
     anchor: null,
     jump: null,
     flash: null,
+    fresh: null,
     drawer: null,
     back: null,
     restoreScroll: null,
@@ -118,7 +127,7 @@ const get = useView.getState;
 let pickRound = 0;
 
 export const setSearch = (search: string) => set({ search });
-export const setArrange = (arrange: Arrange) => set({ arrange });
+export const setArrange = (arrange: Arrange) => set((v) => (v.arrange === arrange ? {} : { arrange, jump: null }));
 export const toggleLeft = () => set((v) => ({ left: !v.left }));
 export const toggleRight = () => set((v) => ({ right: !v.right }));
 export const toggleProject = (place: Place) => set((v) => ({ expanded: toggled(v.expanded, place) }));
@@ -144,11 +153,11 @@ export const closeDrawer = () => set({ drawer: null });
 // openPage 换到技能库或更新页;左栏上次要跳到的那一节作废，回到技能库页时不再滚过去。
 export const openPage = (page: Page) => goTo(page);
 
-// goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节、要闪的那一行作废。
+// goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节、要闪的那几行作废。
 function goTo(page: Page, extra: Partial<ViewState> = {}) {
   const changed = !samePage(get().page, page);
   if (changed) pickRound++;
-  set({ page, jump: null, flash: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
+  set({ page, jump: null, flash: null, fresh: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
 }
 
 // openGraph 打开集合或组的关系图页(节标题上的「关系图」、左栏右键菜单);记下现在在哪一页、列表滚到了哪里、搜索与勾选，
@@ -185,6 +194,20 @@ export function forgetLibrary(): Promise<void> {
 // flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
 export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));
 export const doneFlash = (n: number) => set((v) => (v.flash?.n === n ? { flash: null } : {}));
+// markFresh 标出刚入库的几个技能(在技能库页上调用):清掉搜索、展开它们所在的节(按集合是那个集合或「没有来源」,
+// 按组是「没有归组」——刚入库的还不在任何组里),好让这几行都画出来。
+export function markFresh(skills: Pick<Skill, "id" | "collection_id">[]) {
+  const keys = new Set([
+    ...skills.map((x) => (x.collection_id ? sectionKey("collection", x.collection_id) : sectionKey("rest", "collection"))),
+    sectionKey("rest", "group"),
+  ]);
+  set((v) => ({
+    search: "",
+    flipped: new Set([...v.flipped].filter((k) => !keys.has(k))),
+    fresh: { ids: new Set(skills.map((x) => x.id)), n: (v.fresh?.n ?? 0) + 1 },
+  }));
+}
+export const doneFresh = (n: number) => set((v) => (v.fresh?.n === n ? { fresh: null } : {}));
 
 // togglePick 勾选或取消一行的技能。rows 是按住 Shift 点的：列表里各行从上到下，
 // 从上一次单独勾选的那一行到这一行都设成和这一行点完后一样的状态;上一次的那一行已经不在列表里时只改这一行。

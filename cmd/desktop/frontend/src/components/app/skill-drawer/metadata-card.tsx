@@ -8,6 +8,7 @@ import {
   collectionSkills,
   installedWhere,
   isLocal,
+  localChanged,
   noSource,
   pending,
   revisionSummary,
@@ -103,6 +104,17 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             </span>
           )}
         </dd>
+        {/* 本地目录来源：目录里改过时写出来(读目录时比出来的),在上面「重新读取」。 */}
+        {localChanged(skill) && (
+          <>
+            <dt>{d.updateCheck}</dt>
+            <dd>
+              <Badge tone="update" title={t.list.localChangedTitle}>
+                {t.list.localChanged}
+              </Badge>
+            </dd>
+          </>
+        )}
         {/* 本地目录来源不检查更新，只有"重新读取";没有来源的技能只能用目录里的修改更新。 */}
         {!isLocal(skill.source) && !noSource(skill.source) && (
           <>
@@ -110,7 +122,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             <dd>
               {check ? (
                 <>
-                  <Badge tone={check.renamed_to ? "update" : checkStatus(check.status).tone}>
+                  <Badge tone={check.renamed_to ? "rename" : checkStatus(check.status).tone}>
                     {check.renamed_to ? d.maybeRenamedTo(check.renamed_to) : checkStatus(check.status).label}
                   </Badge>{" "}
                   {check.skipped && <span className="text-caption text-muted-foreground">{d.skipped}</span>}

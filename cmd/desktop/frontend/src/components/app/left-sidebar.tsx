@@ -22,6 +22,7 @@ import {
   pending,
   shortPath,
   sourceKindLabel,
+  sectionKey,
   sourceLabel,
   wslTitle,
   type Page,
@@ -70,6 +71,7 @@ const pathMax = 24;
 export function LeftSidebar() {
   const s = useSnapshot();
   const page = useCurrentPage();
+  const jumped = useView((v) => v.jump?.section);
   // 设置页保存 GitHub 令牌或同步设置后让它失效重读，保存晚于回到主界面完成时也一样。
   const config = useQuery(configQuery).data ?? noConfig;
   const ui = useUI();
@@ -101,7 +103,8 @@ export function LeftSidebar() {
       <button
         type="button"
         className={navItem({ kind: "main" })}
-        data-active={page.kind === target.kind}
+        // 从左栏跳到了某个集合或组时，选中的是那一行，不是「技能库」。
+        data-active={page.kind === target.kind && !(target.kind === "all" && jumped)}
         onClick={() => openPage(target)}
         title={title}
       >
@@ -243,6 +246,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
   const skills = collectionSkills(s, c);
   const checkStatus = useCheckMark(c.id);
   const page = useCurrentPage();
+  const jumped = useView((v) => v.jump?.section);
   const menu = useCollectionMenu(c, { graph: true });
   return (
     <li>
@@ -255,7 +259,7 @@ function CollectionRow({ collection: c, segment }: { collection: Collection; seg
             <button
               type="button"
               className={navItem({ kind: "item" })}
-              data-active={page.kind === "graph" && page.set.kind === "collection" && page.set.id === c.id}
+              data-active={(page.kind === "graph" && page.set.kind === "collection" && page.set.id === c.id) || jumped === sectionKey("collection", c.id)}
               onClick={() => jumpTo({ kind: "collection", id: c.id })}
               draggable
               onDragStart={(e) => dnd.start(e, { kind: "collection", id: c.id }, tt.list.collectionDrag(label, skills.length))}
@@ -311,6 +315,7 @@ function GroupRow({ group: g }: { group: Group }) {
   const tt = useT();
   const t = tt.sidebar;
   const page = useCurrentPage();
+  const jumped = useView((v) => v.jump?.section);
   const menu = useGroupMenu(g, { graph: true, newGroup: true });
   return (
     <li>
@@ -321,7 +326,7 @@ function GroupRow({ group: g }: { group: Group }) {
               role="button"
               tabIndex={0}
               className={navItem({ kind: "item" })}
-              data-active={page.kind === "graph" && page.set.kind === "group" && page.set.id === g.id}
+              data-active={(page.kind === "graph" && page.set.kind === "group" && page.set.id === g.id) || jumped === sectionKey("group", g.id)}
               onClick={() => jumpTo({ kind: "group", id: g.id })}
               onKeyDown={pressKeys(() => jumpTo({ kind: "group", id: g.id }))}
               draggable

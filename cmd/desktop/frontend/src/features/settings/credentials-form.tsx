@@ -30,7 +30,8 @@ import { useUI } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Tipped } from "@/components/app/parts";
-import { Field, Hint } from "@/components/ui/field";
+import { Hint } from "@/components/ui/field";
+import { SetRow } from "@/components/app/set-row";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
@@ -81,18 +82,14 @@ type SyncField = Exclude<keyof SyncSettings, "keep" | "auto_push">;
 type SyncInput = { key: SyncField; label: string; secret?: boolean };
 
 // 同步设置里常填的连接项排在外面;文件夹、Session Token 和保留份数(在 SyncForm 里)收在「高级」里。
-const syncFields = (): SyncInput[][] => {
+const syncFields = (): SyncInput[] => {
   const t = messages().credentials;
   return [
-    [{ key: "endpoint", label: t.endpoint }],
-    [
-      { key: "bucket", label: t.bucket },
-      { key: "region", label: t.region },
-    ],
-    [
-      { key: "access_key_id", label: t.accessKeyId },
-      { key: "secret_access_key", label: t.secretAccessKey, secret: true },
-    ],
+    { key: "endpoint", label: t.endpoint },
+    { key: "bucket", label: t.bucket },
+    { key: "region", label: t.region },
+    { key: "access_key_id", label: t.accessKeyId },
+    { key: "secret_access_key", label: t.secretAccessKey, secret: true },
   ];
 };
 
@@ -118,9 +115,9 @@ function GitHubForm({ saved }: { saved: string }) {
         void invalidateConfig();
       }}
     >
-      <Field label={<Tipped tip={t.tokenHint}>{t.token}</Tipped>}>
+      <FormRow label={<Tipped tip={t.tokenHint}>{t.token}</Tipped>}>
         <TextInput secret value={token} onChange={setToken} />
-      </Field>
+      </FormRow>
     </SaveForm>
   );
 }
@@ -132,7 +129,7 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
   const [draft, setDraft] = useState<SyncSettings>(saved);
   const value = (s: SyncSettings, key: SyncField) => s[key] ?? "";
   const dirty =
-    [...fields.flat(), ...advanced].some(({ key }) => value(draft, key) !== value(saved, key)) ||
+    [...fields, ...advanced].some(({ key }) => value(draft, key) !== value(saved, key)) ||
     (draft.keep ?? 0) !== (saved.keep ?? 0) ||
     (draft.auto_push ?? "") !== (saved.auto_push ?? "");
   const intervals = [
@@ -141,15 +138,12 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
     { value: SyncInterval.SyncDaily, label: t.autoPushDaily },
     { value: SyncInterval.SyncWeekly, label: t.autoPushWeekly },
   ];
-  const row = (inputs: SyncInput[]) => (
-    <div key={inputs[0].key} className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
-      {inputs.map((f) => (
-        <Field key={f.key} label={f.label} className="flex-1">
-          <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
-        </Field>
-      ))}
-    </div>
-  );
+  const row = (inputs: SyncInput[]) =>
+    inputs.map((f) => (
+      <FormRow key={f.key} label={f.label}>
+        <TextInput secret={f.secret} value={value(draft, f.key)} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
+      </FormRow>
+    ));
   return (
     <SaveForm
       dirty={dirty}
@@ -166,38 +160,32 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
       }}
       footer={<SyncStatusLine folder={saved.folder ?? ""} />}
     >
-      {fields.map(row)}
-      <div className="flex min-w-0 items-start gap-2">
-        <Field label={<Tipped tip={t.autoPushHint}>{t.autoPush}</Tipped>} className="flex-1">
-          <NativeSelect
-            className="max-w-none"
-            value={draft.auto_push ?? ""}
-            onChange={(e) => setDraft((d) => ({ ...d, auto_push: e.target.value as SyncInterval }))}
-          >
-            {intervals.map((i) => (
-              <option key={i.value} value={i.value}>
-                {i.label}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <div className="flex-1" />
-      </div>
+      {row(fields)}
+      <FormRow label={<Tipped tip={t.autoPushHint}>{t.autoPush}</Tipped>}>
+        <NativeSelect
+          className="max-w-none"
+          value={draft.auto_push ?? ""}
+          onChange={(e) => setDraft((d) => ({ ...d, auto_push: e.target.value as SyncInterval }))}
+        >
+          {intervals.map((i) => (
+            <option key={i.value} value={i.value}>
+              {i.label}
+            </option>
+          ))}
+        </NativeSelect>
+      </FormRow>
       <Advanced filled={advanced.some(({ key }) => value(saved, key)) || !!saved.keep}>
         {row(advanced)}
-        <div className="flex min-w-0 items-start gap-2">
-          <Field label={<Tipped tip={t.keepHint(defaultKeep)}>{t.keep}</Tipped>} className="flex-1">
-            <Input
-              className="font-mono"
-              type="number"
-              min={1}
-              placeholder={String(defaultKeep)}
-              value={draft.keep ? String(draft.keep) : ""}
-              onChange={(e) => setDraft((d) => ({ ...d, keep: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
-            />
-          </Field>
-          <div className="flex-1" />
-        </div>
+        <FormRow label={<Tipped tip={t.keepHint(defaultKeep)}>{t.keep}</Tipped>}>
+          <Input
+            className="font-mono"
+            type="number"
+            min={1}
+            placeholder={String(defaultKeep)}
+            value={draft.keep ? String(draft.keep) : ""}
+            onChange={(e) => setDraft((d) => ({ ...d, keep: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
+          />
+        </FormRow>
       </Advanced>
     </SaveForm>
   );
@@ -275,11 +263,9 @@ function AIForm({ saved }: { saved: AISettings }) {
         </Button>
       }
     >
-      <div className="flex flex-col items-start gap-1">
-        <span className="text-body text-muted-foreground">
-          <Tipped tip={t.aiHint}>{t.provider}</Tipped>
-        </span>
+      <FormRow label={<Tipped tip={t.aiHint}>{t.provider}</Tipped>} plain>
         <Segmented
+          className="ml-auto"
           value={provider}
           onChange={set("provider")}
           options={[
@@ -287,25 +273,23 @@ function AIForm({ saved }: { saved: AISettings }) {
             { value: AIProvider.AIProviderAnthropic, label: t.providerAnthropic },
           ]}
         />
-      </div>
-      <Field label={t.baseURL}>
+      </FormRow>
+      <FormRow label={t.baseURL}>
         <TextInput value={draft.base_url ?? ""} onChange={set("base_url")} />
-      </Field>
-      <div className="flex min-w-0 items-start gap-2 [&:lang(en)]:items-end">
-        <Field label={t.apiKey} className="flex-1">
-          <TextInput secret value={draft.api_key ?? ""} onChange={set("api_key")} />
-        </Field>
-        <Field label={t.model} className="flex-1">
-          <TextInput value={draft.model ?? ""} onChange={set("model")} />
-        </Field>
-      </div>
+      </FormRow>
+      <FormRow label={t.apiKey}>
+        <TextInput secret value={draft.api_key ?? ""} onChange={set("api_key")} />
+      </FormRow>
+      <FormRow label={t.model}>
+        <TextInput value={draft.model ?? ""} onChange={set("model")} />
+      </FormRow>
       <Advanced filled={!!saved.headers || !!saved.body}>
-        <Field label={t.headers}>
+        <FormRow label={t.headers} tall>
           <TextArea rows={2} value={draft.headers ?? ""} onChange={set("headers")} placeholder={t.headersPlaceholder} />
-        </Field>
-        <Field label={<Tipped tip={t.bodyHint}>{t.body}</Tipped>}>
+        </FormRow>
+        <FormRow label={<Tipped tip={t.bodyHint}>{t.body}</Tipped>} tall>
           <TextArea rows={3} value={draft.body ?? ""} onChange={set("body")} placeholder={bodyExamples[provider]} />
-        </Field>
+        </FormRow>
       </Advanced>
     </SaveForm>
   );
@@ -343,7 +327,7 @@ function SaveForm<T>({
   };
   return (
     <form className="flex flex-col gap-2.5" onSubmit={submit}>
-      <fieldset className="flex min-w-0 flex-col gap-2.5" disabled={saving}>
+      <fieldset className="flex min-w-0 flex-col" disabled={saving}>
         {children}
       </fieldset>
       <div className="flex items-center gap-2">
@@ -365,17 +349,34 @@ function Advanced({ filled, children }: { filled: boolean; children: React.React
   const [open, setOpen] = useState(filled);
   return (
     <>
-      <button
-        type="button"
-        className="advanced-toggle inline-flex items-center gap-1 self-start text-caption text-muted-foreground hover:text-foreground"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
-        {t.advanced}
-      </button>
+      <SetRow>
+        <button
+          type="button"
+          className="advanced-toggle inline-flex items-center gap-1 self-center text-caption text-muted-foreground hover:text-foreground"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <Icon name="chev" className={cn("size-2.5 transition-transform", open && "rotate-90")} />
+          {t.advanced}
+        </button>
+      </SetRow>
       {open && children}
     </>
+  );
+}
+
+// FormRow 是表单里的一行，和设置页其他分区的行一样(SetRow):标签在左，控件在右、宽度固定;点标签聚焦控件。
+// tall 的行放多行输入框，随内容长高、标签贴顶;plain 的行不把控件撑到固定宽度(分段选择按自身宽度靠右)。
+function FormRow({ label, tall = false, plain = false, children }: { label: React.ReactNode; tall?: boolean; plain?: boolean; children: React.ReactNode }) {
+  // 分段选择是几个按钮，不包在 label 里：点标签的字会点到第一个按钮。
+  const Box = plain ? "div" : "label";
+  return (
+    <SetRow className={cn(tall && "h-auto items-start py-2")}>
+      <Box data-slot="field" className={cn("flex min-w-0 grow items-center gap-3", tall && "items-start")}>
+        <span className={cn("min-w-0 grow text-body", tall && "pt-1")}>{label}</span>
+        <span className={cn("flex shrink-0", !plain && "w-[300px] max-w-[55%] [&>*]:w-full")}>{children}</span>
+      </Box>
+    </SetRow>
   );
 }
 

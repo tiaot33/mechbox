@@ -15,7 +15,8 @@ import {
   agentsIn,
   agentsUsedIn,
   mergeProjectPlaces,
-  needsReinstall,
+  editedHere,
+  needsRepair,
   reinstallLevel,
   parseScope,
   placeOf,
@@ -73,7 +74,9 @@ export function ScopePanel() {
   const scopeRow = (agent: Agent, place: Place) => {
     const key = scopeKey(scopeOf(agent.code, place));
     const installed = skillScopesIn(s, key);
-    const issues = installed.filter(needsReinstall).length;
+    // 提醒按最重的一处：文件夹不在了、版本落后要重新安装;只有被手动改过的是提示一级(用户自己的修改)。
+    const issues = installed.filter(needsRepair).length;
+    const edited = installed.filter(editedHere).length;
     const level = reinstallLevel(installed);
     const already = !!dnd.item && alreadyInScope(s, dnd.item, key);
     return (
@@ -91,8 +94,8 @@ export function ScopePanel() {
           <span className="grow truncate" title={projectFolderNote(s, agent.code, place)}>
             {agentNameIn(s, agent.code, place)}
           </span>
-          {/* 这里有要重新安装的技能：提醒的图标，按最重的那一处的级别。 */}
-          {level && <MarkIcon tone={level} title={t.issues(issues)} />}
+          {/* 这里有要重新安装或被手动改过的技能：提醒的图标，按最重的那一处的级别。 */}
+          {level && <MarkIcon tone={level} title={[issues ? t.issues(issues) : "", edited ? t.edited(edited) : ""].filter(Boolean).join("\n")} />}
           <NavCount value={installed.length} accent />
         </button>
       </li>

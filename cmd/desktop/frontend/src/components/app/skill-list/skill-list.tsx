@@ -40,6 +40,7 @@ import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow } from "
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
+import { useSameNameCopies } from "./same-name";
 
 // notBlank 是列表里不算空白的地方：技能行、节标题、作用域页与项目页顶部的摘要条，以及各种控件。
 // 列表里新加能点的东西要用按钮、链接或带 role 的元素(或加进这里),否则点它也会关上技能详情。
@@ -52,6 +53,7 @@ export function SkillList() {
   const listing = usePageListing();
   const scroller = useRef<HTMLDivElement>(null);
   const restore = useView((v) => v.restoreScroll);
+  const picking = useView((v) => v.picked.size > 0);
   const busy = useRef(false);
   // 从关系图页返回：列表滚回打开关系图之前的位置。
   useLayoutEffect(() => {
@@ -88,7 +90,8 @@ export function SkillList() {
       <div
         ref={scroller}
         key={page}
-        className={cn("a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15", nameIndentVars)}
+        // 勾选了技能时底部浮着操作栏(PickBar,换行时两层):多留出它的高度，滚到底时最后一行不被盖住。
+        className={cn("a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15", picking && listing.kind !== "updates" && "pb-28", nameIndentVars)}
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
         // 抽屉忙不忙在按下时看：松开前弹层已经收起了。选中了文字(拖选)也不关。
@@ -267,6 +270,9 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const global = l.global.length + l.globalUnmanaged.length;
   const inUse = l.hereSections.length > 0 || l.hereUnmanaged.length > 0 || (project && global > 0);
   const empty = !inUse && !l.notHereSkills.length;
+  // 这里的未纳管技能在同一层的别处有同名、内容不同的：行上和整批入库的确认里都说出来。
+  // 还在比内容时，整批入库的入口先等着：确认要和行上一样写出同名不同内容的几份。
+  const same = useSameNameCopies(scope);
   return (
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
@@ -295,7 +301,9 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
                     variant="ghost"
                     className="fetch-all-unmanaged shrink-0"
                     title={t.fetchAllTitle}
-                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)) }, false)}
+                    loading={same.pending}
+                    disabled={same.pending}
+                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)), elsewhere: same.copies }, false)}
                   >
                     {t.fetchAll}
                   </Button>
@@ -303,7 +311,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
               }
             >
               {l.hereUnmanaged.map((u) => (
-                <UnmanagedRow key={u.folder} skill={u} headed />
+                <UnmanagedRow key={u.folder} skill={u} headed copies={same.copies.get(u.folder)} />
               ))}
             </Section>
           )}

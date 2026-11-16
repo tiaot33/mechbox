@@ -239,6 +239,17 @@ export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undef
   });
 }
 
+// sameNameCopiesQuery 比较几个作用域里不是库装的技能文件夹的内容(整批入库的计划，见 PlanFetchUnmanaged),
+// 用来认出同名但内容不同的几份;作用域页只在别处有同名的未纳管技能时才查(见 model 的 sameNameScopes)。只读，随写操作重读。
+export function sameNameCopiesQuery(scopes: Scope[]) {
+  return queryOptions({
+    queryKey: ["same-name-copies", scopes.map(scopeKey).sort()],
+    queryFn: ({ signal }) => list(wails(signal, LibraryService.PlanFetchUnmanaged({ scopes }))),
+    enabled: scopes.length > 1,
+    meta: ids,
+  });
+}
+
 // 版本按 ID 读，在同一个库里内容不会变：浏览途中技能被更新，读到的仍是同一版本;拉回整库之后重读(forgetLibraryIDs)。
 export const versionQuery = (id: VersionID) =>
   queryOptions({ queryKey: ["version", id], queryFn: ({ signal }) => wails(signal, LibraryService.GetVersion(id)), meta: stableIDs });

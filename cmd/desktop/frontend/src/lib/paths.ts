@@ -78,3 +78,18 @@ export function resolveFetchInput(input: string, home: string, wsl: boolean): Pa
   if (/^\.\.?(\/|$)/.test(text)) return { error: messages().paths.fetchRelative };
   return { path: text };
 }
+
+// pathParts 把路径切成几段，每段带着结尾的分隔符(/ 或 \\),界面在段与段之间允许折行(见 PathText)。
+// 不用正则的后行断言：旧版 WebKit(macOS 12 上的 Safari 16.3 及更早)不认，模块解析时就会报错，整个界面白屏。
+export function pathParts(path: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  for (let i = 0; i < path.length; i++) {
+    if (path[i] === "/" || path[i] === "\\") {
+      parts.push(path.slice(start, i + 1));
+      start = i + 1;
+    }
+  }
+  if (start < path.length) parts.push(path.slice(start));
+  return parts;
+}

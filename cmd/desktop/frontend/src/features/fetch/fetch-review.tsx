@@ -15,7 +15,7 @@ import { homePath } from "@/lib/model";
 import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { useView } from "@/lib/view";
+import { markFresh, useView } from "@/lib/view";
 import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { cn, toggled } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -94,10 +94,13 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     if (!fetched) return setFetching(null);
     // 入库只是放进技能库，还没有 Agent 能用：提示里说清停在哪，给下一步"装到…"。
     const ids = fetched.map((x) => x.id);
-    ui.toast(t.fetched(ids.length), "ok", { label: t.installTo, onClick: () => void chooseAndInstall(ids, pageInstallTarget(useView.getState().page)) });
+    // 在技能库页上时，刚入库的几行展开、滚到、闪一下;别的页上提示里写出名字。
+    const here = useView.getState().page.kind === "all";
+    ui.toast(t.fetched(fetched.map((x) => x.name), here), "ok", { label: t.installTo, onClick: () => void chooseAndInstall(ids, pageInstallTarget(useView.getState().page)) });
     setFetching("done");
     await new Promise((r) => window.setTimeout(r, MARK_DRAWN_MS + 100));
     onClose();
+    if (here) markFresh(fetched);
   };
 
   const groups = new Map<string, Candidate[]>();
@@ -117,7 +120,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
         className={cn(grouped && "pl-6")}
       >
         <label title={c.description || undefined}>
-          {/* 每条一行，描述放在悬停提示里，几十个候选也能一屏看完。 */}
+          {/* 每条一行，几十个候选也能一屏看完：描述跟在名字后面，放不下时截断，悬停看全;路径排在最后、更淡。 */}
           <input
             type="checkbox"
             className="shrink-0 accent-primary"
@@ -133,7 +136,8 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
               {t.new}
             </Badge>
           ) : null}
-          <span className="min-w-0 grow truncate font-mono text-caption text-muted-foreground">{rel !== c.name ? rel : ""}</span>
+          <span className="candidate-desc min-w-0 grow truncate text-caption text-foreground-secondary">{c.description}</span>
+          {rel !== c.name && <span className="max-w-[30%] min-w-0 shrink-[2] truncate font-mono text-caption text-muted-foreground">{rel}</span>}
           {c.plugin_name && <span className="shrink-0 text-caption text-muted-foreground">{c.plugin_name}</span>}
           {github && <Audit previewID={preview.id} candidate={c} />}
         </label>

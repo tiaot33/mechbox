@@ -11,6 +11,7 @@ import { DrawerDock } from "@/components/app/skill-drawer/skill-drawer";
 import { SkillList } from "@/components/app/skill-list/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
+import { checkLocalDirectories } from "@/features/update/check";
 import { useAutoTranslate } from "@/features/skill/translate";
 import { checkReleaseFromMenu, useInstallFailureNotice } from "@/features/release/release";
 import { setDragGhost } from "@/components/app/dnd";
@@ -52,8 +53,12 @@ function Main() {
   useInstallFailureNotice();
 
   // 窗口切回前台时重读技能库，对照磁盘巡检已安装的技能：用户在 Finder、终端里改了技能文件夹，切回来界面就跟上。
+  // 本地目录来源的目录也读一遍，列表上标出目录里改过的技能。
   useEffect(() => {
-    const reload = () => void reloadLibrary();
+    const reload = () => {
+      void reloadLibrary();
+      void checkLocalDirectories();
+    };
     window.addEventListener("focus", reload);
     return () => window.removeEventListener("focus", reload);
   }, []);
@@ -71,6 +76,8 @@ function Main() {
   useEffect(() => {
     if (!s || firstOpen.current) return;
     firstOpen.current = true;
+    // 打开 app 时读一遍本地目录来源的目录(见 checkLocalDirectories)。
+    void checkLocalDirectories();
     void offerFirstOpen(s.agents);
   }, [s]);
 

@@ -9,7 +9,10 @@ import {
   folderPresent,
   identicalState,
   mergeProjectPlaces,
+  editedHere,
   needsReinstall,
+  needsRepair,
+  notTakenOver,
   placeOf,
   projectName,
   scopeKey,
@@ -27,19 +30,20 @@ import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
+import { MoreMenu, type MenuEntry } from "@/components/app/menus";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/ui/icon";
 import { PlaceAgentMark, Tipped } from "@/components/app/parts";
 
 // InstallCard 是各作用域的安装与状态：直接安装开关、经哪个组装上、是不是当前版本;不是当前版本的可以单条重新安装，
-// 被手动改过的可以"用这里的修改更新";改成了作者新版的(在 app 外更新过)说清楚，给"更新"。
+// 被手动改过的可以"用这里的修改更新";改成了作者新版的(在 app 外更新过)说清楚，给"更新"。能做的事收在状态后面的「⋯」里，行高固定。
 // 别处和它一模一样、不是 app 装的文件夹(就是这个技能)也列出来，可以"入库"。文件夹在的地方，路径后面可以在文件管理器中显示。下面是"安装到…"。开关只控制直接安装的说明在卡片标题的提示里。
 export function InstallCard({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const { drawer: d, common } = useT();
   const id = skill.id;
   const installed = mergeProjectPlaces(s, skillScopesOf(s, id));
-  const stale = installed.filter(needsReinstall).length;
+  const stale = installed.filter(needsRepair).length;
   const copies = identicalsOf(s, id);
   return (
     <Card>
@@ -76,9 +80,11 @@ export function InstallCard({ skill }: { skill: Skill }) {
                     />
                   </td>
                   <td>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <PlaceAgentMark code={p.scope.agent} place={placeOf(p.scope)} />
-                      {scopeLabel(s, p.scope)}
+                      <span className="min-w-0 truncate" title={scopeLabel(s, p.scope)}>
+                        {scopeLabel(s, p.scope)}
+                      </span>
                     </div>
                     <div className="flex min-w-0 items-center gap-0.5">
                       <span className="truncate font-mono text-caption text-muted-foreground" title={p.folder}>{shortPath(s, p.folder)}</span>
@@ -97,36 +103,33 @@ export function InstallCard({ skill }: { skill: Skill }) {
                     </div>
                   </td>
                   <td>
-                    <span className="inline-flex flex-wrap gap-1">
+                    {/* 一行写完，放不下的截断，悬停看全(直接安装又随几个组装时也不把行撑高)。 */}
+                    <span
+                      className="flex min-w-0 gap-1 overflow-hidden whitespace-nowrap"
+                      title={[p.direct ? d.direct : "", ...(p.groups ?? []).map((g) => d.viaGroup(s.groups.find((x) => x.id === g)?.name))].filter(Boolean).join("\n")}
+                    >
                       {p.direct && <Badge>{d.direct}</Badge>}
                       {(p.groups ?? []).map((g) => (
-                        <Badge key={g}>
-                          {d.viaGroup(s.groups.find((x) => x.id === g)?.name)}
+                        <Badge key={g} className="min-w-0 shrink">
+                          <span className="truncate">{d.viaGroup(s.groups.find((x) => x.id === g)?.name)}</span>
                         </Badge>
                       ))}
                     </span>
                   </td>
                   <td>
-                    {/* 状态在上，能做的事是跟在后面的小按钮(灰底):和状态的字分得开，一眼看得出能点。 */}
-                    <div className="flex flex-wrap items-center gap-1">
-                      <Badge tone={st.tone} className="mr-0.5">
-                        {st.label}
+                    {/* 一行写完：状态，能做的事收在后面的「⋯」里，行高和其他行一样，不被按钮撑高。 */}
+                    <div className="flex min-w-0 items-center gap-1">
+                      <Badge tone={st.tone} className="min-w-0 shrink" title={st.label}>
+                        <span className="truncate">{st.label}</span>
                       </Badge>
-                      {needsReinstall(p) && (
-                        <Button size="sm" onClick={() => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope))}>
-                          {d.reinstall}
-                        </Button>
-                      )}
-                      {p.status === SkillScopeStatus.SkillScopeModified && p.source_latest && (
-                        <Button size="sm" onClick={() => void openUpdate(skill.collection_id, { focus: id })} title={d.updateToLatestHint}>
-                          {d.updateToLatest}
-                        </Button>
-                      )}
-                      {p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest && (
-                        <Button size="sm" onClick={() => updateFromScope(skill, p.scope)} title={d.updateFromHereHint}>
-                          {d.updateFromHere}
-                        </Button>
-                      )}
+                      <PlaceActions
+                        actions={[
+                          p.status === SkillScopeStatus.SkillScopeModified &&
+                            p.source_latest && { label: d.updateToLatest, title: d.updateToLatestHint, onSelect: () => void openUpdate(skill.collection_id, { focus: id }) },
+                          editedHere(p) && { label: d.updateFromHere, title: d.updateFromHereHint, className: "place-update-from-here", onSelect: () => updateFromScope(skill, p.scope) },
+                          needsReinstall(p) && { label: d.reinstall, className: "place-reinstall", onSelect: () => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope)) },
+                        ]}
+                      />
                     </div>
                   </td>
                 </tr>
@@ -136,9 +139,11 @@ export function InstallCard({ skill }: { skill: Skill }) {
               <tr key={u.folder} className="identical-place">
                 <td />
                 <td>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
                     <PlaceAgentMark code={u.scope.agent} place={placeOf(u.scope)} />
-                    {scopeLabel(s, u.scope)}
+                    <span className="min-w-0 truncate" title={scopeLabel(s, u.scope)}>
+                      {scopeLabel(s, u.scope)}
+                    </span>
                   </div>
                   <div className="flex min-w-0 items-center gap-0.5">
                     <span className="truncate font-mono text-caption text-muted-foreground" title={u.folder}>{shortPath(s, u.folder)}</span>
@@ -155,17 +160,26 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   </div>
                 </td>
                 <td>
-                  <span className="identical-notes text-caption text-muted-foreground" title={identicalState(skill, u).title}>
-                    {identicalState(skill, u).text}
+                  <span className="identical-notes block truncate text-caption text-muted-foreground" title={identicalState(skill, u, s.info.home_dir).title}>
+                    {identicalState(skill, u, s.info.home_dir).text}
                   </span>
                 </td>
                 <td>
-                  {identicalState(skill, u).stale && (
-                    <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
-                  )}{" "}
-                  <Button variant="pill" size="sm" className="take-over" onClick={() => void fetchUnmanaged(u)} title={identicalState(skill, u).title}>
-                    {d.takeOver}
-                  </Button>
+                  <div className="flex min-w-0 items-center gap-1">
+                    {identicalState(skill, u, s.info.home_dir).stale && (
+                      <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
+                    )}
+                    {/* 提交在项目仓库里、指向 Agent 目录以外的默认不入库：按钮是普通的灰底，不推用户去入库。 */}
+                    <Button
+                      variant={notTakenOver(u) ? "pill" : "pillQuiet"}
+                      size="sm"
+                      className="take-over"
+                      onClick={() => void fetchUnmanaged(u)}
+                      title={identicalState(skill, u, s.info.home_dir).title}
+                    >
+                      {d.takeOver}
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -206,4 +220,12 @@ function InstallTo({ skillID }: { skillID: number }) {
       )}
     </div>
   );
+}
+
+// PlaceActions 是安装表里一处能做的事(用这里的修改更新、更新到作者新版、重新安装),收在一个「⋯」菜单里;没有能做的事时不画。
+function PlaceActions({ actions }: { actions: (MenuEntry | false | undefined)[] }) {
+  const t = useT().drawer;
+  const entries = actions.filter((x): x is MenuEntry => !!x);
+  if (!entries.length) return null;
+  return <MoreMenu entries={entries} label={t.placeActions} className="place-actions" align="end" />;
 }

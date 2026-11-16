@@ -134,6 +134,8 @@ function DrawerSheet({
             )}
 
             <MetadataCard skill={skill} versions={versions} />
+            {/* 版本历史紧跟着来源与检查更新：「最近有没有变、哪天变的」是常来查的，不排在可能很长的 SKILL.md 后面。 */}
+            <VersionsCard key={`versions-${id}`} name={skill.name} versions={versions} currentID={skill.version_id} />
 
             {skill.source.type === SourceType.SourceGitHub && <AuditCard skillID={id} />}
 
@@ -141,7 +143,6 @@ function DrawerSheet({
 
             {/* 换技能或技能换了版本时重新挂载：选中的文件、显示原文还是译文都回到默认。 */}
             <FilesCard key={`files-${skill.version_id}`} versionID={skill.version_id} files={files} skillName={skill.name} />
-            <VersionsCard key={`versions-${id}`} name={skill.name} versions={versions} currentID={skill.version_id} />
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">

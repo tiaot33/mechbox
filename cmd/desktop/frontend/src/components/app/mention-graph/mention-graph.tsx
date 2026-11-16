@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
 import { SearchLine } from "@/components/app/skill-list/search-line";
+import { Tipped } from "@/components/app/parts";
 import { useJudgeMentions, type Judging } from "@/features/graph/judge";
 
 // MentionGraphPage 是关系图页的内容：members 是这个集合或组里的技能。
@@ -61,11 +62,13 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
       <div className="[&>.search-line]:mb-0">
         <SearchLine results={searchHits(graph, search)} />
       </div>
-      <div className="graph-summary flex min-w-0 items-center gap-2 text-caption text-muted-foreground">
-        <span className="shrink-0 text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
-        <span className="min-w-0 truncate">{t.hint}</span>
+      {/* 顶部一行读完：数字在前，怎么看图的说明收进旁边的悬停提示;单个词的技能名的判断状态跟在同一行后面。 */}
+      <div className="graph-summary flex min-w-0 items-center gap-4 text-caption text-muted-foreground">
+        <Tipped tip={t.hint} className="shrink-0 text-foreground-secondary">
+          {t.summary(members.length, graph.edges.length, outside, group)}
+        </Tipped>
+        <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       </div>
-      <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
@@ -95,42 +98,40 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
   let action: { label: string; run: () => void; away?: boolean } | undefined;
   switch (judging.state) {
     case "judging":
-      text = t.judging(judging.count);
+      [text, reason] = [t.judgingShort(judging.count), t.judging(judging.count)];
       break;
     case "unconfigured":
-      [text, action] = [t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
+      [text, reason, action] = [t.unjudgedShort(judging.count), t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
       break;
     case "stopped":
-      [text, reason] = [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason];
+      [text, reason] = [t.judgeStoppedShort(unjudged), [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason].filter(Boolean).join("\n")];
       action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai"), away: true } : { label: t.retry, run: retry };
       break;
     case "done": {
       if (!judging.failed?.length) return null;
       const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
-      [text, reason] = [t.judgeSkipped(names), judging.reason];
+      [text, reason] = [t.judgeSkippedShort(names.length), [t.judgeSkipped(names), judging.reason].filter(Boolean).join("\n")];
       break;
     }
     default:
       return null;
   }
   const warn = judging.state === "stopped" || judging.state === "done";
+  // 一行写完：短句在前，原因和细节在悬停提示里。
   return (
     <div
-      className={cn("graph-judge flex min-w-0 items-start gap-2 text-caption", warn ? "text-foreground" : "text-muted-foreground")}
+      className={cn("graph-judge flex min-w-0 items-center gap-2 text-caption", warn ? "text-foreground" : "text-muted-foreground")}
       data-state={judging.state}
     >
-      {judging.state === "judging" && <Spinner className="mt-[3px]" />}
-      <div className="flex min-w-0 flex-col select-text">
-        <span>
-          {text}
-          {action && (
-            <Button variant={action.away ? "link" : "ghost"} size="inline" className="graph-judge-action ml-2 text-caption" onClick={action.run}>
-              {action.label}
-            </Button>
-          )}
-        </span>
-        {reason && <span className="whitespace-pre-line text-muted-foreground">{reason}</span>}
-      </div>
+      {judging.state === "judging" && <Spinner />}
+      <Tipped tip={reason && <span className="whitespace-pre-line select-text">{reason}</span>} className="min-w-0">
+        <span className="min-w-0 truncate">{text}</span>
+      </Tipped>
+      {action && (
+        <Button variant={action.away ? "link" : "ghost"} size="inline" className="graph-judge-action shrink-0 text-caption" onClick={action.run}>
+          {action.label}
+        </Button>
+      )}
     </div>
   );
 }
@@ -142,7 +143,9 @@ function Centered({ children }: { children: React.ReactNode }) {
 // Loose 是图下方的一行：和这里的技能都没有连线的，点了同样打开详情。
 function Loose({ skills }: { skills: Skill[] }) {
   const t = useT().graph;
+  const s = useSnapshot();
   const search = useView((v) => v.search);
+  const installed = new Set(s.skillScopes.map((p) => p.skill_id));
   return (
     <div className="graph-loose flex max-h-[30%] min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto text-caption text-muted-foreground">
       <span className="shrink-0">{t.loose(skills.length)}</span>
@@ -154,9 +157,12 @@ function Loose({ skills }: { skills: Skill[] }) {
             "graph-loose-skill rounded-control border border-border bg-panel px-2 py-0.5 text-foreground-secondary hover:bg-fill hover:text-foreground",
             !matches(search, x) && "opacity-35",
           )}
+          data-installed={installed.has(x.id) || undefined}
           onClick={() => toggleDrawer(x.id)}
           title={x.description}
         >
+          {/* 和图里的圆点一样：装了的实心，没装的空心。 */}
+          <i className={cn("mr-1.5 inline-block size-[7px] rounded-full border-[1.5px] border-foreground-secondary align-middle", installed.has(x.id) ? "bg-foreground-secondary" : "bg-transparent")} />
           {x.name}
         </button>
       ))}
@@ -204,6 +210,8 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   const s = useSnapshot();
   const search = useView((v) => v.search);
   const drawer = useView((v) => v.drawer);
+  // 装在至少一个地方的技能画实心圆，没装的画淡色的圆加一圈同色的边：一眼分得出哪些已安装。
+  const installed = useMemo(() => new Set(s.skillScopes.map((p) => p.skill_id)), [s.skillScopes]);
   const markers = useId().replace(/:/g, "");
   const box = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -506,11 +514,16 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                   onMouseLeave={() => setHoverNode(null)}
                 >
                   {isSelected && <circle r={r + 4} fill="none" stroke="var(--color-primary)" strokeWidth={2} />}
+                  {/* 已安装的实心，没装的淡色;本集合或组以外的另用虚线边(装了的照样实心)。 */}
+                  <circle r={r} fill="var(--color-panel)" />
                   <circle
+                    className="graph-node-dot"
+                    data-installed={installed.has(id) || undefined}
                     r={r}
-                    fill={n.outside ? "var(--color-panel)" : color}
-                    stroke={n.outside ? color : "var(--color-panel)"}
-                    strokeWidth={n.outside ? 1.6 : 2}
+                    fill={color}
+                    fillOpacity={installed.has(id) ? 1 : n.outside ? 0 : 0.28}
+                    stroke={n.outside || !installed.has(id) ? color : "var(--color-panel)"}
+                    strokeWidth={n.outside || !installed.has(id) ? 1.6 : 2}
                     strokeDasharray={n.outside ? "3 2" : undefined}
                   />
                   {showName && (

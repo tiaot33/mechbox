@@ -18,7 +18,7 @@ import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/ui/icon";
-import { Tipped, WSLBadge } from "@/components/app/parts";
+import { PathText, Tipped, WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
@@ -241,7 +241,9 @@ export function AboutSection() {
       <ReleaseCheck />
     </dd>
     <dt>{t.databasePath}</dt>
-    <dd className="flex items-center font-mono text-caption break-all select-text">{s.info.library_path}</dd>
+    <dd className="flex items-center font-mono text-caption select-text">
+      <PathText path={s.info.library_path} className="min-w-0" />
+    </dd>
   </dl>
   );
 }

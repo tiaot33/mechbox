@@ -1,5 +1,5 @@
 // 主界面共用的小部件:Agent 标记、计数、顶栏的忙碌标记、WSL 发行版标记与路径输入的回显、路径末段、截断文字的浮动提示、说明的悬停提示与带提示的标签、诊断列表，以及集合切换。
-import { useRef, useState } from "react";
+import { useRef, useState, Fragment } from "react";
 import type { AgentCode } from "@bindings/internal/library";
 import { Badge } from "@/components/ui/badge";
 import { Hint } from "@/components/ui/field";
@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useT } from "@/lib/i18n";
 import { useHasWSL, useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
-import { wslLocation } from "@/lib/paths";
+import { pathParts, wslLocation } from "@/lib/paths";
 import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -208,6 +208,21 @@ export function Summary({ className, children }: { className?: string; children:
       <Icon name="chev" className="size-2.5 shrink-0 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90" />
       {children}
     </summary>
+  );
+}
+
+// PathText 是可以折行的路径：只在路径分隔符(/ 和 \\)后面折行，不在一段名字中间断开(一段长到一行放不下时溢出，不硬断)。
+export function PathText({ path, className }: { path: string; className?: string }) {
+  const parts = pathParts(path);
+  return (
+    <span className={className}>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && <wbr />}
+        </Fragment>
+      ))}
+    </span>
   );
 }
 

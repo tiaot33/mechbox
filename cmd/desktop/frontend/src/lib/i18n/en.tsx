@@ -28,15 +28,6 @@ const wslName = (distro: string) => `WSL · ${distro}`;
 const bin = () => (platform() === "windows" ? "Recycle Bin" : "Trash");
 const putBack = () => (platform() === "mac" ? "put back" : "restored");
 
-// day 是技能最近一次变化的日子：today、yesterday、几天前，再早写日期(不是今年的带上年)。
-const day = (date: Date) => {
-  const now = new Date();
-  const days = Math.round((new Date(now.toDateString()).getTime() - new Date(date.toDateString()).getTime()) / 864e5);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days} days ago`;
-  return date.toLocaleDateString("en", { month: "short", day: "numeric", ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) });
-};
 
 const where = (w: InstalledWhere) =>
   w.total ? `installed in ${w.total > 2 ? `${w.places.join(", ")} and ${w.total - 2} more` : and(w.places)}` : "not installed anywhere";
@@ -119,6 +110,7 @@ export const en = {
     statusMissing: "Folder missing",
     statusRootMissing: "Project not on this machine",
     reinstallAt: "To reinstall at:",
+    editedAt: "Edited here; you can update the Library with these edits:",
     revisionUnknown: "Revision unknown",
     revisionSame: (revision: string) => `At ${revision}`,
     revisionMixed: (r: Extract<RevisionSummary, { kind: "mixed" }>) =>
@@ -131,10 +123,9 @@ export const en = {
     unknownSource: "Unknown Source",
     library: "Library",
     updates: "Updates",
-    agentsGlobal: (names: string[]) => (names.length > 2 ? `${names.length} Agents global` : `${and(names)} global`),
+    agentsGlobal: (names: string[]) => `${and(names)} global`,
     projectCount: (n: number) => count(n, "project"),
     listSeparator: ", ",
-    changed: (kind: "updated" | "fetched", date: Date) => `${kind === "updated" ? "Updated" : "Fetched"} ${day(date)}`,
   },
 
   actions: {
@@ -187,6 +178,10 @@ export const en = {
     installedPlaces: (installed: number, rest: number) => `${count(installed, "place")} installed, ${rest} not installed`,
     groupInstalled: (group: string, scope: string, summary: string) => `Group installed “${group}” in ${scope}\n${summary}`,
     groupUninstallTitle: (group: string, scope: string) => `Uninstall the Group install of “${group}” in ${scope}`,
+    groupUninstallBody: (n: number, scope: string) =>
+      n
+        ? `${n === 1 ? "1 skill installed" : `${n} skills installed`} only through this Group will be uninstalled from ${scope}; direct installs and other Groups' installs stay.`
+        : `Every member still has a direct install or another Group install in ${scope}, so no folder is removed.`,
     groupUninstallShared: (n: number) =>
       n === 1
         ? "The skill folder below is shared with other Agents and kept only by this Group install: uninstalling deletes it, and none of the sharing Agents will count it as installed."
@@ -251,6 +246,7 @@ export const en = {
     notUninstalled: "Not uninstalled",
     modifiedTitle: "Some skill folders were edited",
     reinstallConfirmTitle: "Confirm before reinstalling",
+    reinstallNothingPicked: "Nothing is picked to reinstall yet: check the places to overwrite, or choose “Put back” for missing folders",
     putBackAll: "Put all back",
     missingNotice: (n: number) =>
       `The folder is gone in ${count(n, "place")}. You may have deleted it outside the app or by mistake, or it was never installed on this machine.`,
@@ -364,12 +360,10 @@ export const en = {
     agentDeleted: (name: string) => `Deleted Agent “${name}”`,
     twin: (source: string, w: InstalledWhere) => `${source}, ${where(w)}`,
     sameNameTwins: (name: string, twins: string[], note: string) => `The Library already has a skill named “${name}” (${twins.join("; ")}). ${note}`,
-    matchedVersion: (name: string, match: string, place: string) =>
-      `“${name}” matches a Version of “${match}” in the Library; recorded as installed in ${place}, with the folder left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
-    fetchedTracking: (name: string, source: string, place: string) =>
-      `“${name}” is now in the Library and will follow ${source} for update checks; the folder in ${place} is left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
-    fetched: (name: string, place: string) =>
-      `“${name}” is now in the Library; the folder in ${place} is left as it was. From now on you can turn it on or off in ${place} and install it elsewhere`,
+    matchedVersion: (name: string, match: string) =>
+      name === match ? `“${name}” matches the Library; recorded as installed here` : `“${name}” matches “${match}” in the Library; recorded as installed here`,
+    fetchedTracking: (name: string, source: string) => `Fetched “${name}”; it follows ${source} for update checks`,
+    fetched: (name: string) => `Fetched “${name}”; the folder is left as it was`,
     installElsewhere: "Install elsewhere…",
     fetchTitle: (name: string) => `Fetch “${name}”`,
     reinstallSourceLatest: "This place has the author’s newer version (updated outside the app). Overwriting puts back the version in the Library; to follow the author, use “Update”",
@@ -479,6 +473,8 @@ export const en = {
     sourceMoved: (name: string) => `The Source of ${name} just changed again. Open the Update plan and review it again`,
     goneFromDirectory: (name: string) => `“${name}” is no longer in the directory`,
     directoryMoved: "The directory changed while it was being read. Re-read it once more",
+    directoryNothingDefault: (label: string) => `Everything changed in ${label} is something you rolled back earlier, so nothing was read in; bring it back from the update history or plan`,
+    directoryUnchanged: (label: string) => `Nothing changed in ${label}; the Library already has what the directory holds now`,
     unchanged: (name: string, keptEdited: number, keptMissing: number) =>
       [`The content of “${name}” hasn't changed`, ...keptPlaces(keptEdited, keptMissing)].filter(Boolean).join(" · "),
     rereadTitle: (name: string) => `Re-read “${name}”`,
@@ -611,6 +607,7 @@ export const en = {
     files: "Files",
     filesNote: (n: number) => `${n} · read-only, from the Library`,
     viewSource: "View source",
+    placeActions: "Actions for this place",
     viewRendered: "View rendered",
     translateFileTitle: "Translate this file into the interface language with AI; the translation is kept in the database. Long files take a while",
     translateFileFailed: (skill: string, path: string, reason: string) => `Couldn't translate ${path} of "${skill}": ${reason}`,
@@ -639,7 +636,13 @@ export const en = {
     emptyGroupHint: "Drag skills onto this Group's heading or onto the Group in the left sidebar, or use \"Add to Group\" in skill details.",
     renamedTitle: (to: string) => `Maybe renamed to ${to} in the Source; click to see the Update plan`,
     availableTitle: "The Source has a new Version; click to see the Update plan",
-    maybeRenamed: "Maybe renamed",
+    localChanged: "Changed in directory",
+    localChangedCount: (n: number) => `${n} changed in the directory`,
+    reread: "Re-read",
+    rereadDirectoryTitle: "Read the current content of every changed skill in the directory as a new Version and swap it in where it's installed (places you edited or whose folder is missing stay as they are)",
+    localChangedTitle: "This skill changed in its local directory and differs from the current Version in the Library. Reread it in the skill details, or reread the whole directory from this section's “…”",
+    twinsShort: "Same name in Library",
+    libraryTwinTitle: (name: string) => `The Library already has “${name}”, and none of its Versions match this one: they won’t be merged, so fetching adds another “${name}”`,
     newVersion: "New Version",
     keptDeletedTitle: "The author deleted it from the Source; you chose to keep it",
     keptDeleted: "Deleted in Source",
@@ -666,6 +669,7 @@ export const en = {
     inLock: "In skills-lock.json",
     linkOutsideTitle: (target: string) => `Symlink to ${target}: not in any Agent's skill directory, so not fetched by default`,
     linkOutside: "Points outside Agent directories",
+    linkOutsideTo: (target: string) => `Links to ${target}`,
     foundTitle: (source: string) =>
       `From ${source}: a skill with the same name found on skills.sh, mostly matching the content here; after fetching, it follows that Source for update checks`,
     recordedTitle: (source: string) => `From ${source}: the Source recorded by npx skills; after fetching, it follows that Source for update checks`,
@@ -675,6 +679,9 @@ export const en = {
     fetchTitle: "Put it in the Library: the folder stays as it is; once fetched, you can turn it on or off, install it elsewhere, and take it along with Sync",
     fetch: "Fetch",
     sameName: "Same name",
+    sameNameCopies: "Same name elsewhere, different content",
+    sameNameCopiesTitle: (name: string, places: string[]) =>
+      `${places.join(", ")} also ${places.length === 1 ? "has" : "have"} ${name} with different content: they won't be merged into one skill, and only one copy gets fetched`,
     agentDirectory: "Agent directory",
     statInstalled: "installed",
     statNotInLibrary: "not in the Library",
@@ -688,6 +695,10 @@ export const en = {
       `This is the author’s newer version, updated outside the app. Click “Update” to bring “${name}” in the Library to this version; then this copy matches the Library, and fetching it only records where it is installed`,
     statGlobal: "from global",
     statStale: "to reinstall",
+    statEdited: "edited by hand",
+    statEditedTitle: "You or an Agent edited these places directly. They're your own edits: you can update the Library with them from the skill details; no need to reinstall",
+    groupInstalledHere: (here: number, size: number) => (here < size ? `Group installed · ${here} of ${size} installed` : `Group installed · ${size}`),
+    groupMembersHere: (here: number, size: number) => (here ? `No Group install · ${here} of ${size} installed` : "No Group install"),
     reinstallAll: "Reinstall all",
     fetchAllTitle: "Fetch the skills here that aren't in the Library in one go: check them one by one or a whole Source at once when you confirm; the folders stay as they are",
     fetchAll: "Fetch all…",
@@ -850,6 +861,9 @@ export const en = {
   },
 
   unmanaged: {
+    elsewhere: (places: string[]) => `${places.join(", ")} also ${places.length === 1 ? "has" : "have"} one, different content`,
+    elsewhereTitle: (name: string, places: string[]) =>
+      `${places.join(", ")} also ${places.length === 1 ? "has" : "have"} ${name} with different content. They aren't merged into one skill: only this copy is fetched now; the others stay out of the Library`,
     nothingHere: "There are no skills here that weren't installed by the Library",
     nothingAnywhere: "Every skill in the Agents' directories is already managed by the app",
     outsideTitle: (target: string) => `Symlink to ${target}`,
@@ -1148,6 +1162,7 @@ export const en = {
     addToGroup: "Add to Group",
     resetOrder: "Restore default order",
     otherSkills: "See other skills in the Source",
+    rereadDirectory: "Re-read the whole directory",
     history: "Update history",
     update: "Update…",
     noGroups: "No Groups yet. Gather skills by use case to install them together.",
@@ -1168,7 +1183,8 @@ export const en = {
     kindWellKnown: "well-known index",
     kindLocal: "Local directory",
     kindUnknown: "Unknown Source",
-    fetched: (n: number) => `Fetched ${count(n, "skill")} into the Library on the left; not installed for any Agent yet`,
+    fetched: (names: string[], here: boolean) =>
+      `Fetched ${count(names.length, "skill")}: ${firstNames(names)}${here ? "" : ", now in the Library"}; not installed for any Agent yet`,
     installTo: "Install to…",
     alreadyTitle: "A skill with the same name from the same Source is already in the Library; to get new content, click “Update” in the skill's details",
     already: "Fetched",
@@ -1224,6 +1240,7 @@ export const en = {
   scopes: {
     expandProject: "Expand",
     collapseProject: "Collapse",
+    edited: (n: number) => `${count(n, "skill")} edited by hand (your own edits)`,
     issues: (n: number) => `${count(n, "skill folder")} ${n === 1 ? "doesn't" : "don't"} match the current Version and need${n === 1 ? "s" : ""} reinstalling`,
     collapse: "Collapse",
     more: (n: number) => `${n} other ${n === 1 ? "Agent" : "Agents"}`,
@@ -1271,6 +1288,7 @@ export const en = {
     locked: (ref: string | undefined) => `The branch is set by ${ref} in the input; edit the input to change it.`,
     existingHint: "Skills already in Agent directories that the Library didn't install can be fetched in one go.",
     existing: "Fetch from Agent directories…",
+    refsNotGit: "Available once you enter a Git repository",
   },
 
   audit: {
@@ -1300,7 +1318,7 @@ export const en = {
     back: (page: string) => `Back to ${page}`,
     summary: (skills: number, mentions: number, outside: number, group: boolean) =>
       `${count(skills, "skill")}, ${count(mentions, "mention")}${outside ? `, mentioning ${count(outside, "skill")} ${group ? "outside the Group" : "in other Collections"}` : ""}`,
-    hint: "Bigger dots are mentioned by more skills; arrows point to the skill mentioned. Hover a skill or a line to see who mentions whom, click a line to pin its text; click a skill to see only its neighbors and its details, click empty space or press Esc to go back",
+    hint: "Solid dots are installed skills, faint ones aren't installed yet; bigger dots are mentioned by more skills; arrows point to the skill mentioned. Hover a skill or a line to see who mentions whom, click a line to pin its text; click a skill to see only its neighbors and its details, click empty space or press Esc to go back",
     none: "These skills don’t mention each other or any other skill in the Library.",
     loose: (n: number) => `${count(n, "skill")} not linked to any skill here:`,
     reading: "Reading skill files…",
@@ -1317,6 +1335,10 @@ export const en = {
     unjudged: (n: number) =>
       `${count(n, "place")} where a one-word skill name (such as review or spec) appears ${n === 1 ? "isn’t" : "aren’t"} checked yet and ${n === 1 ? "has" : "have"} no line. Set up AI in Settings to check them`,
     setUpAI: "Open Settings",
+    judgeStoppedShort: (n: number) => `Judging stopped; ${n} left`,
+    judgeSkippedShort: (n: number) => `Some places in ${n === 1 ? "1 skill" : `${n} skills`} weren’t judged`,
+    judgingShort: (n: number) => `Still judging ${n} one-word skill ${n === 1 ? "name" : "names"}`,
+    unjudgedShort: (n: number) => `${n} one-word skill ${n === 1 ? "name isn't" : "names aren't"} judged, so no lines yet`,
     judgeStopped: (n: number) => `Checking paused with ${count(n, "place")} left; what was checked is kept. You can retry in a moment`,
     judgeNeedsSettings: (n: number) =>
       `Checking stopped with ${count(n, "place")} left; what was checked is kept. Fix the AI settings and open the graph again to continue`,

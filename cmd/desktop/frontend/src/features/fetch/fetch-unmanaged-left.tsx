@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { fetchedMessage, itemOf, type Failed } from "./fetch-unmanaged-parts";
+import { markFresh, useView } from "@/lib/view";
 
 // LeftDialog 是入库之后还有没入库的技能时的那一屏：列出原因，改来源链接后可以逐个重试，清空链接就作为没有来源的技能入库。
 export function LeftDialog({
@@ -28,6 +29,11 @@ export function LeftDialog({
   const t = useT().unmanaged;
   const [fetched, setFetched] = useState(initialFetched);
   const [failed, setFailed] = useState(initialFailed);
+  // 关上时，在技能库页上把入库了的几行(含重试成功的)展开、滚到、闪一下。
+  const finish = () => {
+    close();
+    if (useView.getState().page.kind === "all") markFresh(fetched.flatMap((d) => (d.skill?.id ? [d.skill] : [])));
+  };
 
   // retry 用改过的来源链接重试一个没入库的技能;清空链接就作为没有来源的技能入库。按 key 找条目，几条一起重试也不会对错。
   const update = (key: string, change: Partial<Failed>) =>
@@ -58,9 +64,9 @@ export function LeftDialog({
     <Modal
       title={t.leftTitle}
       wide
-      onClose={close}
+      onClose={finish}
       footer={
-        <Button variant="primary" onClick={close} autoFocus>
+        <Button variant="primary" onClick={finish} autoFocus>
           {t.done}
         </Button>
       }

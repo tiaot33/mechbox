@@ -4,8 +4,8 @@ import type { CollectionID } from "@bindings/internal/library";
 import { create } from "zustand";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import { currentSnapshot } from "@/lib/library";
-import { deletedInSource, pending, renamedTo, sourceLabel, updateAvailable } from "@/lib/model";
+import { currentSnapshot, queryClient, reloadLibrary, snapshotQuery } from "@/lib/library";
+import { deletedInSource, isLocal, pending, renamedTo, sourceLabel, updateAvailable } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { showResults } from "@/components/app/results";
 import { useMarkStatus, type MarkStatus } from "@/components/ui/status-mark";
@@ -57,5 +57,26 @@ export async function checkUpdates(collections: CollectionID[], origin: CheckOri
     );
   } else {
     ui.toast(skills.length ? summary : t.nothingPending(checks.length));
+  }
+}
+
+// checkLocalDirectories 读一遍本地目录来源的目录，比出哪些技能在目录里改过(结论写在技能的 LastUpdateCheck 上，列表上标「目录里改过」)。
+// 只读：不改技能，也不碰装出去的文件夹;打开 app、窗口切回前台时在后台做，不弹提示、不转状态圈，读不成就算了。
+// 同时只做一次，免得频繁切窗口时叠起来。
+let localChecking = false;
+export async function checkLocalDirectories() {
+  if (localChecking) return;
+  const s = queryClient.getQueryData(snapshotQuery.queryKey);
+  const ids = s?.collections.filter((c) => isLocal(c.source)).map((c) => c.id) ?? [];
+  if (!ids.length) return;
+  localChecking = true;
+  try {
+    // 结论写在技能上，目录里新加、去掉的技能写在集合上(新技能):读完总要重读一次快照。
+    await LibraryService.CheckUpdates(ids);
+    await reloadLibrary();
+  } catch {
+    // 目录读不成(移走了、没权限)时列表上照旧，用户点「重新读取」时再说原因。
+  } finally {
+    localChecking = false;
   }
 }
