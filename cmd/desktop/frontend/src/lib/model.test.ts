@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
+  ErrorCode,
   SameNameRule,
   ScopeKind,
   SkillFileProblemKind,
@@ -63,6 +64,9 @@ import {
   foldCollections,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
+  errorOccupier,
+  occupierOf,
+  twinReplaceScopes,
 } from "./model";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
@@ -744,6 +748,44 @@ describe("skillSameNameNote", () => {
     expect(note?.text).toBe("Codex 的全局（库装的）和项目「web-app」（库装的）里都有 docs：Codex 在「web-app」里两份都会出现");
     expect(note?.title).toBe(note?.text);
     expect(skillSameNameNote(s, 5)).toBeUndefined();
+  });
+});
+
+describe("库里同名的技能", () => {
+  // 两个 tdd:A(1) 装在 Claude Code 全局;B(2) 装在 Codex 全局、Claude Code 在项目 7、Codex 在项目 9,和 Claude Code 在项目 8(不在这台机器上)。
+  const s = snapshot({
+    skills: [skill(1, "tdd", "a/skills"), skill(2, "tdd", "b/skills")],
+    skillScopes: [
+      installed(1, "claude-code"),
+      installed(2, "codex"),
+      installed(2, "claude-code", 7),
+      installed(2, "codex", 9),
+      { ...installed(2, "claude-code", 8), status: SkillScopeStatus.SkillScopeRootMissing },
+    ],
+  });
+
+  it("移除 B 留下 A 时，能换上 A 的是 B 装着、项目在这台机器上、那个 Agent 在全局没装 A 的几处", () => {
+    // Claude Code 在项目 7 里本来就用得到全局的 A,不再装一份。
+    expect(twinReplaceScopes(s, 2, 1)).toEqual([where("codex"), where("codex", 9)]);
+    expect(twinReplaceScopes(s, 1, 2)).toEqual([where("claude-code")]);
+  });
+
+  it("没装在任何地方时没有要换的", () => {
+    expect(twinReplaceScopes(snapshot({ skills: s.skills }), 1, 2)).toEqual([]);
+  });
+
+  it("安装被占用时，占着的是库里同名的另一个技能才能点开它", () => {
+    expect(occupierOf(s, 1, 2)).toBe(2);
+    // 占着的是这个技能自己的另一个作用域、不在快照里、没有占用者：没有可打开的。
+    expect(occupierOf(s, 1, 1)).toBeUndefined();
+    expect(occupierOf(s, 1, 9)).toBeUndefined();
+    expect(occupierOf(s, 1, undefined)).toBeUndefined();
+  });
+
+  it("安装失败的错误里，被占用(FailedPrecondition)时才有占着的技能", () => {
+    expect(errorOccupier(s, 1, { code: ErrorCode.FailedPrecondition, details: { skill_id: 2 } })).toBe(2);
+    expect(errorOccupier(s, 1, { code: ErrorCode.NotFound, details: { skill_id: 2 } })).toBeUndefined();
+    expect(errorOccupier(s, 1, undefined)).toBeUndefined();
   });
 });
 
