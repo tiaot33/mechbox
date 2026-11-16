@@ -250,6 +250,32 @@ func TestUpgradeKeepsEveryTableOfTheOldestVersion(t *testing.T) {
 	}
 }
 
+// 旧结构把检查失败记成结论 failed:升级后改记在 update_check_failed 上,结论留空,别的技能的结论不变。
+func TestUpgradeMovesFailedChecksOutOfTheConclusion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.db")
+	writeOldestLibrary(t, path)
+	db := openRaw(t, path)
+	if _, err := db.Exec(`UPDATE skills SET update_check_status = 'failed', update_check_revision = '', update_check_content = '' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := open(path, testLayout(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	got := selectColumns(t, s.db, "skills", []string{"id", "update_check_status", "update_check_failed"})
+	if want := []string{"1|''|1", "2|'deleted'|0"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("skills after upgrade = %q; want %q", got, want)
+	}
+	skill, err := s.GetSkill(t.Context(), 1)
+	if err != nil || !skill.CheckFailed || skill.CheckStatus != "" || skill.CheckedAt.IsZero() {
+		t.Fatalf("skill after upgrade = %+v, %v; want it marked failed with the time of the check", skill, err)
+	}
+}
+
 func probeSchema(t *testing.T) string {
 	t.Helper()
 	schema := testLayout(t).schema

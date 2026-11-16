@@ -28,6 +28,7 @@ func (c cancelAfterPlacement) Err() error {
 }
 
 func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
+	t.Parallel()
 	for _, uninstall := range []bool{false, true} {
 		name := "install"
 		if uninstall {
@@ -35,7 +36,7 @@ func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
-			t.Setenv("HOME", t.TempDir())
+			setTestHome(t, t.TempDir())
 			lib := openTestLibrary(t)
 			group, err := lib.CreateGroup(ctx, "batch")
 			if err != nil {
@@ -144,8 +145,9 @@ func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 }
 
 func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, source, "example")
@@ -204,7 +206,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 
 func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	group, err := lib.CreateGroup(ctx, "batch")
 	if err != nil {
@@ -294,8 +296,9 @@ func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
 // 空组也能安装:组安装带时间记录下来;之后加入的成员随之安装。成员全部移出(uninstall)后组安装仍在,
 // 再次加入又会安装。再次 InstallGroup 不改变组安装的时间。
 func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.ScopeDirectory(ctx, scope)
@@ -342,8 +345,9 @@ func TestEmptyGroupInstallIsRecordedAndCoversLaterMembers(t *testing.T) {
 // 作用域根目录(项目为已登记路径)不在本机时 Library 不创建它:Install / InstallGroup 报 FailedPrecondition,
 // 不写盘、不留记录、不记组安装;加入成员跳过该 Scope,成员关系照加。根目录存在而 Agent 目录不存在时照常创建。
 func TestMissingScopeRootIsNeverCreated(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {

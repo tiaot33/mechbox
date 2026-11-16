@@ -28,8 +28,8 @@ func TestUpdateCarriesSelectedSkillsToOneSourceRevision(t *testing.T) {
 		"third/SKILL.md":  skillDocument("third", "old"),
 	}), "")
 	var requests atomic.Int32
-	transport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+	transport := testTransport(t)
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		requests.Add(1)
 		return transport.RoundTrip(r)
 	})
@@ -85,6 +85,7 @@ func TestUpdateCarriesSelectedSkillsToOneSourceRevision(t *testing.T) {
 }
 
 func TestUpdateIsAllOrNothing(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	root := t.TempDir()
@@ -203,7 +204,7 @@ func TestURLCollectionIsJudgedAgainstOneArchiveWhenValidatorsDiffer(t *testing.T
 		t.Fatal(err)
 	}
 	v3 := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v3"), "second/SKILL.md": skillDocument("second", "v3")})
-	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		header := make(http.Header)
 		if r.Header.Get("If-None-Match") == `"v2"` {
 			header.Set("ETag", `"v2"`)
@@ -241,6 +242,7 @@ func TestURLCollectionIsJudgedAgainstOneArchiveWhenValidatorsDiffer(t *testing.T
 }
 
 func TestUpdateRejectsInvalidRequests(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "one")
@@ -271,6 +273,7 @@ func TestUpdateRejectsInvalidRequests(t *testing.T) {
 }
 
 func TestUpdateMarksSelectedSkillsCurrent(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"changed", "unchanged", "never checked"} {
 		t.Run(name, func(t *testing.T) {
 			lib := openTestLibrary(t)
@@ -301,8 +304,9 @@ func TestUpdateMarksSelectedSkillsCurrent(t *testing.T) {
 // 按更新计划更新并同时重新安装
 
 func TestUpdateReinstallsCheckedPlacesOnly(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -351,8 +355,9 @@ func TestUpdateReinstallsCheckedPlacesOnly(t *testing.T) {
 
 // 更新时文件夹不在了的地方:没同意不装回去,同意后装回新版。
 func TestUpdatePutsBackMissingFolderOnlyWithConsent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -452,6 +457,7 @@ func TestUpdateConflictsOnlyWhenACheckedSkillChangedAgain(t *testing.T) {
 }
 
 func TestUpdateRefusesToWriteIntoAPulledLibrary(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
@@ -473,7 +479,7 @@ func TestUpdateRefusesToWriteIntoAPulledLibrary(t *testing.T) {
 func TestKeptDeletedSkillStopsCountingAndSurvivesRestart(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,6 +522,7 @@ func TestKeptDeletedSkillStopsCountingAndSurvivesRestart(t *testing.T) {
 }
 
 func TestKeepDeletedSkillFoundByUpdatePlan(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	root := t.TempDir()

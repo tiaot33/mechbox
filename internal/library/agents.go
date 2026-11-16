@@ -185,7 +185,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 	}
 	if opts.Migrate {
 		for _, item := range installs {
-			project := item.target.projectID != nil
+			project := item.target.ProjectID != nil
 			if !changed[project] {
 				continue
 			}
@@ -206,7 +206,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 	planned := map[string]bool{}
 	result.Migrations = []AgentMigration{}
 	for _, item := range installs {
-		project := item.target.projectID != nil
+		project := item.target.ProjectID != nil
 		if !changed[project] {
 			continue
 		}
@@ -280,7 +280,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 			}
 		}
 		for _, item := range claimed {
-			if err := tx.ClaimSkillScope(ctx, int64(item.SkillID), item.target.record(), item.CreatedAt); err != nil {
+			if err := tx.ClaimSkillScope(ctx, int64(item.SkillID), item.target.Scope, item.CreatedAt); err != nil {
 				return err
 			}
 		}
@@ -296,7 +296,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
 	destination := item.target
 	destination.relative = row.GlobalPath
-	if destination.projectID != nil {
+	if destination.ProjectID != nil {
 		destination.relative = row.ProjectPath
 	}
 	destination.directory = agentdir.Join(destination.root, destination.relative)
@@ -335,7 +335,7 @@ func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed 
 		if other.Scope.Agent == string(code) && changed[other.Scope.ProjectID != nil] {
 			continue
 		}
-		claimed, err := l.resolveRow(ctx, scopeRowOf(other.Scope))
+		claimed, err := l.resolveRow(ctx, other.Scope)
 		if err != nil {
 			return false, err
 		}
@@ -420,7 +420,7 @@ func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentIns
 			return nil, err
 		}
 		item := agentInstall{SkillScope: skillScope, target: target}
-		place, err := l.store.PlaceSkillScopes(ctx, int64(skillScope.SkillID), target.record())
+		place, err := l.store.PlaceSkillScopes(ctx, int64(skillScope.SkillID), target.Scope)
 		if err != nil {
 			return nil, err
 		}

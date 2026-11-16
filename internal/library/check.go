@@ -11,8 +11,8 @@ import (
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -191,7 +191,7 @@ func (r *collectionRead) conclusions() ([]store.UpdateCheck, *Error) {
 		case missingSkill(checked.err):
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision, Renamed: r.renames[i].latest.Name, Content: r.renames[i].content}
 		default:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateFailed)}
+			conclusions[i] = store.UpdateCheck{Failed: true}
 			if failure == nil {
 				failure = ErrorOf(checked.err)
 			}
@@ -289,23 +289,15 @@ func (l *Library) saveCollectionRead(ctx context.Context, read *collectionRead, 
 			if err != nil {
 				return err
 			}
-			versionID := current.VersionID
-			stored, err := tx.UpdateCheck(ctx, id)
+			conclusion := conclusions[i]
+			conclusion.At = now
+			written, err := tx.ConcludeCheck(ctx, id, read.states[i].versionID, read.states[i].checkSerial, conclusion)
 			if err != nil {
 				return err
 			}
-			conclusion := conclusions[i]
-			conclusion.Since = read.states[i].checkSerial
-			written := stored.Serial != read.states[i].checkSerial
-			if versionID == read.states[i].versionID && (!written || UpdateCheckStatus(stored.Status) == UpdateFailed) {
-				conclusion.At = now
-				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
+			if written && conclusion.Found && read.linked[i].ID != 0 {
+				if err := tx.ForgetRename(ctx, read.linked[i].ID); err != nil {
 					return err
-				}
-				if conclusion.Found && read.linked[i].ID != 0 {
-					if err := tx.ForgetRename(ctx, read.linked[i].ID); err != nil {
-						return err
-					}
 				}
 			}
 			row, err := tx.GetSkill(ctx, id)
@@ -346,7 +338,7 @@ func haves(states []currentVersion) []source.Have {
 }
 
 func (c currentVersion) followsAuthor() bool {
-	return c.base != 0 && c.source.Type != local.Type
+	return c.base != 0 && !catalog.UserAuthored(c.source.Type)
 }
 
 func keepEdits(checked []checkedSkill, states []currentVersion) {

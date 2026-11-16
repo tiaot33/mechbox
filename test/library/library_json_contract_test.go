@@ -10,6 +10,7 @@ import (
 
 // 接入方按 JSON 字段名与枚举值对接;术语改名后的字段与取值在这里逐一钉住。
 func TestJSONFieldNamesAndValuesFollowTerminology(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name  string

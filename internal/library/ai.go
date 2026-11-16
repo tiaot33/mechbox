@@ -73,14 +73,14 @@ func aiSettingsOf(stored store.AISettings) AISettings {
 func (l *Library) SetAISettings(ctx context.Context, settings AISettings) (err error) {
 	defer func() { err = typedError(err) }()
 	settings = normalizeAISettings(settings)
-	if _, err := parseAISettings("set ai settings", settings); err != nil {
+	if _, err := l.parseAISettings("set ai settings", settings); err != nil {
 		return err
 	}
 	provider := string(settings.Provider)
 	if settings.Provider == AIProviderOpenAI {
 		provider = ""
 	}
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.SetAISettings(ctx, store.AISettings{
 		Provider: provider, BaseURL: settings.BaseURL, APIKey: settings.APIKey, Model: settings.Model,
@@ -98,7 +98,7 @@ func (l *Library) SetAISettings(ctx context.Context, settings AISettings) (err e
 func (l *Library) TestAISettings(ctx context.Context, settings AISettings) (err error) {
 	defer func() { err = typedError(err) }()
 	settings = normalizeAISettings(settings)
-	parsed, err := parseAISettings("test ai settings", settings)
+	parsed, err := l.parseAISettings("test ai settings", settings)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func normalizeAISettings(settings AISettings) AISettings {
 	return settings
 }
 
-func parseAISettings(operation string, settings AISettings) (ai.Settings, error) {
+func (l *Library) parseAISettings(operation string, settings AISettings) (ai.Settings, error) {
 	switch settings.Provider {
 	case AIProviderOpenAI, AIProviderAnthropic:
 	default:
@@ -142,6 +142,7 @@ func parseAISettings(operation string, settings AISettings) (ai.Settings, error)
 		return ai.Settings{}, argumentError(operation, "body", err.Error())
 	}
 	return ai.Settings{
+		Client:   l.client,
 		Provider: string(settings.Provider), BaseURL: settings.BaseURL, APIKey: settings.APIKey, Model: settings.Model,
 		Headers: headers, Body: body,
 	}, nil
@@ -154,7 +155,7 @@ func (l *Library) aiSettings(ctx context.Context, operation string) (ai.Settings
 	if err != nil {
 		return ai.Settings{}, err
 	}
-	return parseAISettings(operation, aiSettingsOf(stored))
+	return l.parseAISettings(operation, aiSettingsOf(stored))
 }
 
 type skillFailure struct {

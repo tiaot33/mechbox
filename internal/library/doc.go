@@ -6,6 +6,7 @@
 // 装出去的是 SkillScope。集合(Collection)与组(Group)只给出技能 ID,技能信息统一从 [Library.ListSkills] 取。
 //
 // 用 [Open] 打开库,得到 [*Library];用完调用 [Library.Close]。方法可在多个 goroutine 里同时调用。
+// 这个 Library 发出的 HTTP 请求与用户主目录默认用这台机器的,要换(测试里接假远端、用临时主目录)时给 [Open] 传 [Option]。
 // 方法返回的错误用 [ErrorOf] 取出 [*Error],或用 [IsCode] 按错误码判断。
 //
 // # 用户流程
@@ -164,7 +165,13 @@
 // 先把要写的文件夹暂存好,再开事务写记录,把文件夹移到位,提交事务,最后清理备份;任何一步失败都倒序撤销,
 // 数据库与磁盘不会只改一边。
 //
-// 入库预览按固定顺序识别输入(fetch.go 的 previewTarget):本地路径 → 托管平台的 raw / archive / release 链接 →
+// 方法之间用一把读写锁排开(library.go 的 sharedOperation / exclusiveOperation)。三种操作取独占:改 Agent 目录的;
+// 先读数据库或磁盘、再按读到的情况写,而读不在写的那个事务里的(安装前查占用、生成设备目录名);换 Library 自己内存里的状态的
+// (主目录、GitHub 令牌、拉回时整库替换)。其余取共享:只读的,以及读和写全在一个事务里的写入(建组、调整先后、存设置、记检查更新的结论),
+// 事务之间由 SQLite 排开,不必挡住别的读。要联网的操作联网期间不持锁:读库、联网、写回各取一次,写回时在事务里核对库没被拉回替换、
+// 技能没换版本。同一次调用里已经取了锁再取时不重复加锁;已经取了共享再要独占是代码写错了,直接 panic,不会悄悄只拿着共享继续。
+//
+// 入库预览按固定顺序识别输入(source/catalog 的 Locate):本地路径 → 托管平台的 raw / archive / release 链接 →
 // GitHub → GitLab、SSH 与 .git 地址 → 其他 http(s) 链接;其他链接依次试直接下载、well-known 索引与 git ls-remote,
 // 按内容判断。识别结果是来源类型与定位信息,定位信息对 Library 不透明,由各来源自己生成和解释。
 //

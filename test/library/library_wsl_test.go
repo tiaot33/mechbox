@@ -30,6 +30,8 @@ func openWSLLibrary(t *testing.T) (*library.Library, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	setTestHome(t, home)
+	// 充当发行版的是本机的 sh,发行版的主目录就是它看到的 $HOME。
 	t.Setenv("HOME", home)
 	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
 	lib := openTestLibrary(t)

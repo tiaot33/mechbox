@@ -15,6 +15,7 @@ import (
 )
 
 func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		closeFirst bool
@@ -65,7 +66,7 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,6 +87,7 @@ func TestFacadeFailuresAlwaysReturnTypedErrors(t *testing.T) {
 }
 
 func TestErrorJSONOmitsEmptyDetailsAndInternalErr(t *testing.T) {
+	t.Parallel()
 	plain, err := json.Marshal(&library.Error{Code: library.Internal, Message: "boom", Err: errors.New("hidden")})
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +118,7 @@ func TestErrorJSONOmitsEmptyDetailsAndInternalErr(t *testing.T) {
 
 // ErrorOf 是桌面端错误编码的唯一入口:每个码的 code / details 原样进入 JSON,Err 不外泄但仍可 errors.Is。
 func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
+	t.Parallel()
 	codes := []library.ErrorCode{
 		library.InvalidArgument, library.NotFound, library.AlreadyExists, library.Conflict,
 		library.FailedPrecondition, library.Canceled, library.SourceUnreachable, library.SourceInvalid,
@@ -151,6 +154,7 @@ func TestErrorOfEncodesEveryCodeWithDetails(t *testing.T) {
 
 // 非 *Error 的 error 按技能库规则归类,无可识别原因的记为 internal;消息保留、原错误仍可 errors.Is;nil 仍是 nil。
 func TestErrorOfPlainErrorIsInternal(t *testing.T) {
+	t.Parallel()
 	plain := errors.New("boom")
 	got := library.ErrorOf(fmt.Errorf("op: %w", plain))
 	if got == nil || got.Code != library.Internal || got.Message != "op: boom" || !errors.Is(got, plain) {
@@ -226,7 +230,7 @@ func TestFacadeFailureCodes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			setTestHome(t, t.TempDir())
 			lib := openTestLibrary(t)
 			err := test.call(t, lib)
 			requireLibraryError(t, err, test.want)

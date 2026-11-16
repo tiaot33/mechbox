@@ -12,6 +12,7 @@ import (
 
 // 应用的设置存在数据库里:整组替换,值为空的项不保存,重新打开同一个数据库仍是保存的那一组。
 func TestAppSettingsAreReplacedAsAWholeAndKept(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "library.db")
 	first := openTestLibraryAt(t, path)
 	if got, err := first.AppSettings(t.Context()); err != nil || len(got) != 0 {
@@ -34,6 +35,7 @@ func TestAppSettingsAreReplacedAsAWholeAndKept(t *testing.T) {
 
 // 设置项名为空或带首尾空白时报 InvalidArgument,原来的设置不变。
 func TestAppSettingsRejectInvalidNames(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	setAppSettings(t, lib, map[string]string{"language": "en"})
 	for _, name := range []string{"", " language", "language\n"} {
@@ -48,6 +50,7 @@ func TestAppSettingsRejectInvalidNames(t *testing.T) {
 
 // 数据库里明文存着令牌与密钥:新建的数据库文件只有当前用户能读写;已有的、权限更宽的数据库文件连同 -wal 打开时改成 0600。
 func TestOpenRestrictsDatabaseFileToOwner(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows 上文件权限由 ACL 决定")
 	}

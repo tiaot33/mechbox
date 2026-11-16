@@ -32,9 +32,7 @@ type searchedSite struct {
 func serveSearchedSite(t *testing.T, api *gitHubAPIMock) *searchedSite {
 	t.Helper()
 	s := &searchedSite{site: &site{pages: map[string][]byte{}, etags: map[string]string{}, statuses: map[string]int{}, hits: map[string]int{}}, api: api}
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(s.roundTrip)}
-	t.Cleanup(func() { http.DefaultClient = client })
+	stubHTTP(t, s.roundTrip)
 	return s
 }
 
@@ -161,7 +159,7 @@ func TestFindUnmanagedSourcesRecognizesSkillsWithoutSourceRecords(t *testing.T) 
 func TestFindUnmanagedSourcesTakesTheMostSimilarSourceAboveTheThreshold(t *testing.T) {
 	isolateGit(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	s := serveSearchedSite(t, nil)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -213,7 +211,7 @@ func TestFindUnmanagedSourcesTakesTheMostSimilarSourceAboveTheThreshold(t *testi
 func TestFindUnmanagedSourcesRunsAtMostFourRequestsAndOpensEachSourceOnce(t *testing.T) {
 	isolateGit(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	s := serveSearchedSite(t, nil)
 	s.delay = 20 * time.Millisecond
 	lib := openTestLibrary(t)
@@ -300,10 +298,10 @@ func (r *sourceReads) roundTrip(next func(*http.Request) (*http.Response, error)
 func TestFindUnmanagedSourcesReadsAtMostTwoSourcesAtATime(t *testing.T) {
 	isolateGit(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	s := serveSearchedSite(t, nil)
 	reads := &sourceReads{skills: 2, before: map[string]int{}, read: map[string]int{}}
-	http.DefaultClient = &http.Client{Transport: fetchTransport(reads.roundTrip(s.roundTrip, 30*time.Millisecond))}
+	stubHTTP(t, reads.roundTrip(s.roundTrip, 30*time.Millisecond))
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	directory := scopeDirectory(t, lib, claude)
@@ -343,8 +341,9 @@ func TestFindUnmanagedSourcesReadsAtMostTwoSourcesAtATime(t *testing.T) {
 }
 
 func TestFindUnmanagedSourcesErrors(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	if found, err := lib.FindUnmanagedSources(t.Context(), library.FindUnmanagedSourcesRequest{}); err != nil || found == nil || len(found) != 0 {

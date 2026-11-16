@@ -12,6 +12,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/market"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
@@ -158,7 +159,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		}
 		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
 			entry.SourceInput, entry.SourceRef = record.input, record.ref
-			entry.InProjectLock = target.projectID != nil
+			entry.InProjectLock = target.ProjectID != nil
 		}
 		if entry.InRepository, err = committed.has(ctx, target, found.Name); err != nil {
 			return nil, err
@@ -194,10 +195,10 @@ type repository struct {
 type committedFolders map[repository]map[string]bool
 
 func (c committedFolders) has(ctx context.Context, target resolvedScope, name string) (bool, error) {
-	if target.projectID == nil {
+	if target.ProjectID == nil {
 		return false, nil
 	}
-	key := repository{projectID: *target.projectID, relative: target.relative}
+	key := repository{projectID: ProjectID(*target.ProjectID), relative: target.relative}
 	if _, ok := c[key]; !ok {
 		committed, err := agentdir.Committed(ctx, target.root, target.relative)
 		if err != nil {
@@ -235,7 +236,7 @@ func (s sameFolders) of(ctx context.Context, target resolvedScope, path string) 
 		if inRepository, err := s.committed.has(ctx, other.target, other.Name); err != nil || inRepository {
 			continue
 		}
-		if _, inLock := s.records.find(other.target, skillName(other.Folder), other.Name); inLock && other.target.projectID != nil {
+		if _, inLock := s.records.find(other.target, skillName(other.Folder), other.Name); inLock && other.target.ProjectID != nil {
 			continue
 		}
 		same = append(same, other)
@@ -273,7 +274,7 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 			return nil
 		}
 		entry := &entries[indexes[index]]
-		found, err := recognize(ctx, l.store, diskOf(state), []store.Scope{entry.found.target.record()}, latests)
+		found, err := recognize(ctx, l.store, diskOf(state), []store.Scope{entry.found.target.Scope}, latests)
 		if err != nil {
 			return err
 		}
@@ -300,9 +301,9 @@ func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
 	}
 	var directories []string
 	for _, agent := range agents {
-		rows := []scopeRow{{agent: AgentCode(agent.Code)}}
+		rows := []store.Scope{{Agent: agent.Code}}
 		for _, project := range projects {
-			rows = append(rows, scopeRow{agent: AgentCode(agent.Code), projectID: new(ProjectID(project.ID))})
+			rows = append(rows, store.Scope{Agent: agent.Code, ProjectID: new(project.ID)})
 		}
 		for _, row := range rows {
 			target, err := l.resolveRow(ctx, row)
@@ -355,20 +356,20 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 	}
 	globals := map[global][]SameNameFolder{}
 	for _, found := range folders {
-		if found.target.projectID == nil {
-			key := global{found.target.agent, skillName(found.Folder)}
+		if found.target.ProjectID == nil {
+			key := global{AgentCode(found.target.Agent), skillName(found.Folder)}
 			globals[key] = append(globals[key], SameNameFolder{Folder: found.Path, SkillID: found.skillID})
 		}
 	}
 	skills = []SameNameSkill{}
 	for _, found := range folders {
-		if found.target.projectID == nil {
+		if found.target.ProjectID == nil {
 			continue
 		}
 		name := skillName(found.Folder)
-		for _, other := range globals[global{found.target.agent, name}] {
+		for _, other := range globals[global{AgentCode(found.target.Agent), name}] {
 			skills = append(skills, SameNameSkill{
-				Agent: found.target.agent, ProjectID: *found.target.projectID, Name: name,
+				Agent: AgentCode(found.target.Agent), ProjectID: ProjectID(*found.target.ProjectID), Name: name,
 				Global: other, Project: SameNameFolder{Folder: found.Path, SkillID: found.skillID},
 			})
 		}
@@ -430,12 +431,12 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 	roots := map[string]rootCheck{}
 	unlisted := map[string]bool{}
 	for _, agent := range agents {
-		rows := []scopeRow{{agent: AgentCode(agent.Code)}}
+		rows := []store.Scope{{Agent: agent.Code}}
 		for _, project := range projects {
-			rows = append(rows, scopeRow{agent: AgentCode(agent.Code), projectID: new(ProjectID(project.ID))})
+			rows = append(rows, store.Scope{Agent: agent.Code, ProjectID: new(project.ID)})
 		}
 		for _, row := range rows {
-			if only != nil && !only[row.scope()] {
+			if only != nil && !only[scopeFrom(row)] {
 				continue
 			}
 			target, err := l.resolveRow(ctx, row)
@@ -469,7 +470,7 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 				return nil, err
 			}
 			for _, found := range listed {
-				folders = append(folders, scopeFolder{Folder: found, target: target, skillID: claimed[folder{row.scope(), found.Name}]})
+				folders = append(folders, scopeFolder{Folder: found, target: target, skillID: claimed[folder{scopeFrom(row), found.Name}]})
 			}
 		}
 	}
@@ -556,13 +557,13 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 	for name := range maps.Clone(searched) {
 		wg.Go(func() {
 			limit.do(ctx, func() {
-				results, err := market.Search(ctx, name)
+				results, err := market.Search(ctx, l.client, name)
 				if err != nil {
 					return
 				}
 				var inputs []string
 				for _, result := range results {
-					if _, input, ok := searchInputs(result); ok && result.Name == name && !slices.Contains(inputs, input) {
+					if _, input, ok := catalog.SearchInputs(result.Source, result.Name); ok && result.Name == name && !slices.Contains(inputs, input) {
 						inputs = append(inputs, input)
 					}
 				}
@@ -730,7 +731,7 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 		if err != nil {
 			return nil
 		}
-		recognized, err := recognize(ctx, l.store, disk, []store.Scope{targets[i].record()}, latests)
+		recognized, err := recognize(ctx, l.store, disk, []store.Scope{targets[i].Scope}, latests)
 		if err != nil {
 			return err
 		}

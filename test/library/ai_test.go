@@ -33,6 +33,7 @@ var noAISettings = library.AISettings{Provider: library.AIProviderOpenAI}
 // AI 设置存在数据库里:各项去掉首尾空白,重新打开同一个数据库仍是保存的那一组;留空的项删掉,全部留空即清掉。
 // 接口类型没选过或留空时读出为 OpenAI 兼容。
 func TestAISettingsAreTrimmedKeptAndCleared(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "library.db")
 	first := openTestLibraryAt(t, path)
 	aiSettingsAre(t, first, noAISettings)
@@ -58,6 +59,7 @@ func TestAISettingsAreTrimmedKeptAndCleared(t *testing.T) {
 // 接口类型不认识、服务地址不是 http(s) 地址时,保存与测试连接都报 InvalidArgument 并指出是哪一项,原来的设置不变;
 // 测试连接还要求填了模型。
 func TestAISettingsRejectInvalidValues(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	saved := library.AISettings{Provider: library.AIProviderOpenAI, APIKey: "sk-test", Model: "gpt-test"}
 	setAISettings(t, lib, saved)
@@ -89,6 +91,7 @@ func TestAISettingsRejectInvalidValues(t *testing.T) {
 
 // AI 设置和 GitHub 令牌一样随推送、拉回走:拉回的一侧换成推送那份库里的;拉回一份没有 AI 设置的库,本机的随之清掉。
 func TestAISettingsTravelWithSync(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	pushed := library.AISettings{Provider: library.AIProviderAnthropic, APIKey: "sk-synced", Model: "claude-test"}
 	pushing := stub.open(t)
@@ -322,6 +325,7 @@ func TestAISettingsTestSendsMessageWithGivenSettings(t *testing.T) {
 // 其他 4xx 为 InvalidArgument;连不上也是 SourceUnreachable。失败不重试,一次测试只发一条消息。
 // 服务地址指到一个对什么都回 200 网页的站点时,回答的不是这种接口的响应,按地址不对报 NotFound,不说成连不上。
 func TestAISettingsTestClassifiesServiceAnswers(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
@@ -366,6 +370,7 @@ func TestAISettingsTestClassifiesServiceAnswers(t *testing.T) {
 
 // 请求头与请求体存的是用户填的原文(去掉首尾空白),重新打开仍是那样;留空即删掉。
 func TestAISettingsKeepHeadersAndBodyAsTyped(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "library.db")
 	first := openTestLibraryAt(t, path)
 	setAISettings(t, first, library.AISettings{
@@ -386,6 +391,7 @@ func TestAISettingsKeepHeadersAndBodyAsTyped(t *testing.T) {
 // 请求头有一行不是「名字: 值」,或请求体不是一个 JSON 对象时,保存与测试连接都报 InvalidArgument 并指出是哪一项,
 // 原来的设置不变,也不发请求。
 func TestAISettingsRejectInvalidHeadersAndBody(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	lib := openTestLibrary(t)
 	saved := library.AISettings{Provider: library.AIProviderOpenAI, Model: "gpt-test", Headers: "X-Title: Mechbox"}
@@ -424,6 +430,7 @@ func isFieldError(err error, field string) bool {
 // 测试连接带上请求头与请求体:请求头和库自己设的同名时用填的(如代理要的 Authorization);请求体顶层的每个字段
 // 原样写进请求体,覆盖库填的同名字段(Anthropic 的 max_tokens),字段名里的点不当成路径。
 func TestAISettingsTestSendsCustomHeadersAndBody(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	lib := openTestLibrary(t)
 	headers := "X-Title: Mechbox\nAuthorization: Bearer proxy-token"

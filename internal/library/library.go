@@ -3,16 +3,12 @@ package library
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
-	"github.com/tiaot33/mechbox/internal/library/internal/source"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/git"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/wellknown"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
 )
@@ -20,10 +16,12 @@ import (
 // Library 是桌面端使用的完整进程内技能库(Library) API。它不是 HTTP 或 RPC 契约;
 // 见 docs/adr/0008-desktop-is-wails-v3-in-process.md。
 type Library struct {
-	store  *store.Store
-	home   agentdir.Home
-	distro string
-	mu     sync.RWMutex
+	store    *store.Store
+	client   *http.Client
+	userHome string
+	home     agentdir.Home
+	distro   string
+	mu       sync.RWMutex
 
 	pushMu sync.Mutex
 
@@ -35,10 +33,7 @@ type Library struct {
 	plans     map[UpdatePlanID]*planState
 	closed    bool
 
-	github   *github.Client
-	download download.Kind
-	local    local.Kind
-	sources  source.Kinds
+	sources *catalog.Catalog
 }
 
 const (
@@ -48,20 +43,49 @@ const (
 
 type libraryOperationKey struct{}
 
+type heldOperation struct {
+	library   *Library
+	exclusive bool
+}
+
+func (l *Library) heldOperation(ctx context.Context) (heldOperation, bool) {
+	held, ok := ctx.Value(libraryOperationKey{}).(heldOperation)
+	return held, ok && held.library == l
+}
+
 func (l *Library) sharedOperation(ctx context.Context) (context.Context, func()) {
-	if ctx.Value(libraryOperationKey{}) == l {
+	if _, held := l.heldOperation(ctx); held {
 		return ctx, func() {}
 	}
 	l.mu.RLock()
-	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
+	return context.WithValue(ctx, libraryOperationKey{}, heldOperation{library: l}), l.mu.RUnlock
 }
 
 func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func()) {
-	if ctx.Value(libraryOperationKey{}) == l {
+	if held, ok := l.heldOperation(ctx); ok {
+		if !held.exclusive {
+			panic("library: exclusive operation requested while holding the shared lock")
+		}
 		return ctx, func() {}
 	}
 	l.mu.Lock()
-	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
+	return context.WithValue(ctx, libraryOperationKey{}, heldOperation{library: l, exclusive: true}), l.mu.Unlock
+}
+
+// Option 是 [Open] 的选项:让这个 Library 不用这台机器默认的 HTTP 客户端或用户主目录。应用照常打开自己的库时不用传;
+// 测试用它给每个 Library 接上各自的假远端和临时主目录,互不影响,也就不必改全局的 http.DefaultClient 与 HOME。
+type Option func(*Library)
+
+// WithHTTPClient 让这个 Library 发出的 HTTP 请求都经 client:读 GitHub、直接下载、well-known 站点,搜索 skills.sh 与查审计,
+// 同步用的 S3,以及调用 AI 服务。不传时用 http.DefaultClient。git 与 gh 命令自己联网,不经它。
+func WithHTTPClient(client *http.Client) Option {
+	return func(l *Library) { l.client = client }
+}
+
+// WithHomeDirectory 把 dir 当作当前用户的主目录:各 Agent 的全局目录在它下面,[Library.HomeDirectory] 返回它,
+// [Library.SetWSLDistro] 传空字符串、拉回同步之后回到的也是它。不传时取这台机器当前用户的主目录。dir 要是绝对路径。
+func WithHomeDirectory(dir string) Option {
+	return func(l *Library) { l.userHome = dir }
 }
 
 // Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本。旧版本应用(v0.0.2 起,schema 版本 27 起)建的库
@@ -72,13 +96,17 @@ func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func
 // 数据库里明文存着 GitHub 令牌、AI 的 API Key 与 S3 密钥,所以打开时把数据库文件(连同 -wal、-shm)改成只有当前用户能读写(0600)。
 // 应用内置的 Agent 以本版应用为准:缺的补上,已有的名称和目录被覆盖,厂商换了读取目录时已有的库也随应用版本用上新目录;
 // 库里有、本版应用不认识的 Agent(例如从装了更新版本应用的机器同步来的)保持原样。
-func Open(path string) (lib *Library, err error) {
+func Open(path string, options ...Option) (lib *Library, err error) {
 	defer func() { err = typedError(err) }()
+	opened := &Library{client: http.DefaultClient}
+	for _, option := range options {
+		option(opened)
+	}
 	db, err := store.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	home, err := agentdir.UserHome()
+	home, err := opened.resolveHome(context.Background(), "")
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
@@ -88,26 +116,11 @@ func Open(path string) (lib *Library, err error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
-	client := github.NewClient()
-	client.SetToken(token)
-	direct := download.New(maxFetchFiles, maxFetchSize)
-	directory := local.New(maxFetchFiles, maxFetchSize)
-	return &Library{
-		store:    db,
-		home:     home,
-		previews: map[FetchPreviewID]*previewState{},
-		plans:    map[UpdatePlanID]*planState{},
-		github:   client,
-		download: direct,
-		local:    directory,
-		sources: source.Kinds{
-			github.Type:    client,
-			git.Type:       git.Kind{},
-			download.Type:  direct,
-			wellknown.Type: wellknown.New(maxFetchFiles, maxFetchSize),
-			local.Type:     directory,
-		},
-	}, nil
+	opened.store, opened.home = db, home
+	opened.previews, opened.plans = map[FetchPreviewID]*previewState{}, map[UpdatePlanID]*planState{}
+	opened.sources = catalog.New(opened.client, maxFetchFiles, maxFetchSize)
+	opened.sources.SetToken(token)
+	return opened, nil
 }
 
 // Close 关闭 Library:丢弃全部入库预览与更新计划句柄,清空 GitHub 缓存并关闭数据库。
@@ -126,7 +139,7 @@ func (l *Library) Close() (err error) {
 	}
 	clear(l.plans)
 	l.previewMu.Unlock()
-	l.github.Close()
+	l.sources.Close()
 	return l.store.Close()
 }
 
@@ -169,7 +182,7 @@ func (l *Library) WSLDistro(ctx context.Context) (distro string, err error) {
 // 发行版打不开(没有这个发行版、WSL 没有响应)时返回 FailedPrecondition,原来的选择不变。
 func (l *Library) SetWSLDistro(ctx context.Context, distro string) (err error) {
 	defer func() { err = typedError(err) }()
-	home, err := resolveHome(ctx, distro)
+	home, err := l.resolveHome(ctx, distro)
 	if err != nil {
 		return err
 	}
@@ -182,11 +195,14 @@ func (l *Library) SetWSLDistro(ctx context.Context, distro string) (err error) {
 	return nil
 }
 
-func resolveHome(ctx context.Context, distro string) (agentdir.Home, error) {
-	if distro == "" {
-		return agentdir.UserHome()
+func (l *Library) resolveHome(ctx context.Context, distro string) (agentdir.Home, error) {
+	switch {
+	case distro != "":
+		return agentdir.DistroHome(ctx, distro)
+	case l.userHome != "":
+		return agentdir.HomeAt(l.userHome), nil
 	}
-	return agentdir.DistroHome(ctx, distro)
+	return agentdir.UserHome()
 }
 
 // GitHubToken 返回存在数据库里的 GitHub 个人访问令牌(设置页显示它);没设置时为空,此时匿名访问 GitHub。
@@ -211,7 +227,7 @@ func (l *Library) SetGitHubToken(ctx context.Context, token string) (err error) 
 	if err := l.store.SetGitHubToken(ctx, token); err != nil {
 		return err
 	}
-	l.github.SetToken(token)
+	l.sources.SetToken(token)
 	return nil
 }
 
@@ -233,7 +249,7 @@ func (l *Library) SetAppSettings(ctx context.Context, settings map[string]string
 			return argumentError("set app settings", "settings", fmt.Sprintf("invalid setting name %q", name))
 		}
 	}
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.SetAppSettings(ctx, settings)
 }

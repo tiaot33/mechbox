@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -28,6 +29,7 @@ type Skill struct {
 	UpdatedAt     time.Time
 	CheckedAt     time.Time
 	CheckStatus   string
+	CheckFailed   bool
 	CheckRevision string
 	RenamedTo     string
 	Skipped       bool
@@ -66,7 +68,7 @@ const skillQuery = `
 	SELECT skills.id, skills.name, current_version.description,
 		ifnull(sources.id, 0), ifnull(sources.type, ''), ifnull(sources.locator, ''), current_version.id, current_version.revision,
 		first_version.created_at, CASE WHEN current_version.created_at = first_version.created_at THEN '' ELSE current_version.created_at END,
-		skills.update_checked_at, skills.update_check_status, skills.update_check_revision, skills.update_check_renamed_to,
+		skills.update_checked_at, skills.update_check_status, skills.update_check_failed, skills.update_check_revision, skills.update_check_renamed_to,
 		skills.update_check_content != '' AND EXISTS (
 			SELECT 1 FROM skipped_changes WHERE skipped_changes.skill_id = skills.id AND skipped_changes.content = skills.update_check_content
 		),
@@ -139,7 +141,7 @@ func (q queries) listSkills(ctx context.Context, operation, clause string, args 
 func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 	var skill Skill
 	var fetchedAt, updatedAt, checkedAt, translations string
-	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited, &skill.Note, &translations)
+	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckFailed, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited, &skill.Note, &translations)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -155,7 +157,7 @@ func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 	if skill.UpdatedAt, err = parseTime(updatedAt); err != nil {
 		return Skill{}, fmt.Errorf("decode updated at: %w", err)
 	}
-	if skill.CheckStatus != "" {
+	if skill.CheckStatus != "" || skill.CheckFailed {
 		if skill.CheckedAt, err = parseTime(checkedAt); err != nil {
 			return Skill{}, fmt.Errorf("decode update checked at: %w", err)
 		}
@@ -245,7 +247,7 @@ type SourceLatest struct {
 }
 
 func (q queries) SourceLatests(ctx context.Context) ([]SourceLatest, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT id, current_version_id, name, update_check_content FROM skills WHERE update_check_status = 'available' AND update_check_content != '' ORDER BY id`)
+	rows, err := q.q.QueryContext(ctx, `SELECT id, current_version_id, name, update_check_content FROM skills WHERE update_check_status = 'available' AND update_check_content != '' AND NOT update_check_failed ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list source latest contents: %w", wrap(err))
 	}
@@ -357,7 +359,7 @@ func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision 
 func (t *Tx) UpdateCheck(ctx context.Context, skillID int64) (UpdateCheck, error) {
 	var check UpdateCheck
 	var checkedAt string
-	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status, update_check_revision, update_check_content, update_check_renamed_to, update_check_serial FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &check.Status, &check.Revision, &check.Content, &check.Renamed, &check.Serial); err != nil {
+	if err := t.q.QueryRowContext(ctx, `SELECT update_checked_at, update_check_status, update_check_revision, update_check_content, update_check_renamed_to, update_check_failed FROM skills WHERE id = ?`, skillID).Scan(&checkedAt, &check.Status, &check.Revision, &check.Content, &check.Renamed, &check.Failed); err != nil {
 		return UpdateCheck{}, fmt.Errorf("read update check: %w", wrap(err))
 	}
 	var err error
@@ -374,19 +376,38 @@ type UpdateCheck struct {
 	Content  string
 	Renamed  string
 	Found    bool
-	Since    int64
-	Serial   int64
+	Failed   bool
 }
 
 func (t *Tx) SaveUpdateCheck(ctx context.Context, skillID int64, check UpdateCheck) error {
-	if _, err := t.q.ExecContext(ctx, `
-		UPDATE skills SET update_checked_at = ?, update_check_status = ?, update_check_revision = ?, update_check_content = ?, update_check_renamed_to = ?,
-			kept_serial = CASE WHEN ? AND kept_serial <= ? THEN 0 ELSE kept_serial END, update_check_serial = update_check_serial + 1
-		WHERE id = ?
-	`, formatTime(check.At), check.Status, check.Revision, check.Content, check.Renamed, check.Found, check.Since, skillID); err != nil {
-		return fmt.Errorf("save update check: %w", wrap(err))
+	_, err := t.writeUpdateCheck(ctx, skillID, check, math.MaxInt64, ``)
+	return err
+}
+
+func (t *Tx) ConcludeCheck(ctx context.Context, skillID, versionID, serial int64, check UpdateCheck) (bool, error) {
+	return t.writeUpdateCheck(ctx, skillID, check, serial, ` AND current_version_id = ? AND (update_check_serial = ? OR update_check_failed)`, versionID, serial)
+}
+
+func (t *Tx) writeUpdateCheck(ctx context.Context, skillID int64, check UpdateCheck, keptUntil int64, condition string, args ...any) (bool, error) {
+	columns := `update_check_failed = 1`
+	values := []any{formatTime(check.At)}
+	if !check.Failed {
+		columns = `update_check_failed = 0, update_check_status = ?, update_check_revision = ?, update_check_content = ?, update_check_renamed_to = ?,
+			kept_serial = CASE WHEN ? AND kept_serial <= ? THEN 0 ELSE kept_serial END`
+		values = append(values, check.Status, check.Revision, check.Content, check.Renamed, check.Found, keptUntil)
 	}
-	return nil
+	values = append(append(values, skillID), args...)
+	result, err := t.q.ExecContext(ctx, `
+		UPDATE skills SET update_checked_at = ?, `+columns+`, update_check_serial = update_check_serial + 1
+		WHERE id = ?`+condition, values...)
+	if err != nil {
+		return false, fmt.Errorf("save update check: %w", wrap(err))
+	}
+	written, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("save update check: %w", wrap(err))
+	}
+	return written > 0, nil
 }
 
 func (t *Tx) KeepDeleted(ctx context.Context, skillID int64) error {

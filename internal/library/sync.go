@@ -109,7 +109,7 @@ func (l *Library) SetSyncSettings(ctx context.Context, settings SyncSettings) (e
 	if settings.Keep > 0 {
 		stored.Keep = strconv.Itoa(settings.Keep)
 	}
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.SetSyncSettings(ctx, stored)
 }
@@ -217,6 +217,7 @@ func (l *Library) syncTarget(ctx context.Context) (syncTarget, error) {
 	settings := syncSettings(stored)
 	return syncTarget{
 		s3: s3.Settings{
+			Client:   l.client,
 			Endpoint: settings.Endpoint, Bucket: settings.Bucket, Region: settings.Region,
 			AccessKeyID: settings.AccessKeyID, SecretAccessKey: settings.SecretAccessKey, SessionToken: settings.SessionToken,
 		},
@@ -508,7 +509,7 @@ func (l *Library) SyncPull(ctx context.Context, backup SyncBackupID) (err error)
 	defer image.Close()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	home, err := resolveHome(ctx, l.distro)
+	home, err := l.resolveHome(ctx, l.distro)
 	if err != nil {
 		return fmt.Errorf("sync pull: %w", err)
 	}
@@ -520,7 +521,7 @@ func (l *Library) SyncPull(ctx context.Context, backup SyncBackupID) (err error)
 	if err != nil {
 		return fmt.Errorf("sync pull: %w", err)
 	}
-	l.github.SetToken(token)
+	l.sources.SetToken(token)
 	return nil
 }
 

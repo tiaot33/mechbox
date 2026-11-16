@@ -64,8 +64,9 @@ func TestEditedSkillTakesTheAuthorsNewVersionAndRollsBackToTheEdits(t *testing.T
 }
 
 func TestRereadingLocalSourceReplacesTheEditsWithTheDirectory(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, dir := fetchLocalSkill(t, lib, "notes", "from the directory")
 	claude := library.GlobalScope(library.AgentClaudeCode)

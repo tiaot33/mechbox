@@ -131,6 +131,15 @@ Windows 本机的目录读不出可执行位，相关的测试也不需要 Windo
 
 辅助函数用真实的 SQLite 文件、Git 仓库和 `httptest` 服务，不用 mock。要隔离本机的 `gh` 登录时用 `stubGitHubCLI`。
 
+### 假远端、主目录与并行
+
+每个顶层测试有自己的假远端和用户主目录，不改全局的 `http.DefaultClient` 和 `HOME`：
+
+- **打开技能库**用 `openTestLibrary` 或 `openTestLibraryAt`。直接调用 `library.Open` 时带上 `testOptions(t)...`，否则这个技能库会访问真的网络、用进程的主目录。
+- **假远端**用 `stubHTTP(t, ...)` 设置，或用建在它上面的 `serveArchive`、`serveSite`、`stubHTTPResponse`。要把自己不管的请求转给原来的假远端时，先用 `testTransport(t)` 取出它。
+- **主目录**用 `setTestHome(t, dir)` 指定；没指定时是一个临时目录。整个测试进程的 `HOME` 在 `TestMain` 里换成了空目录，`git`、`gh` 读不到本机的配置。
+- **并行**：不调用 `t.Setenv`、不依赖计时的测试，第一行写 `t.Parallel()`。要换环境变量的测试（给 `git`、`gh` 换配置，用 WSL 或 Windows 的模拟）不能并行，写了 Go 会直接 panic。
+
 ### 新增来源或绑定方法时要改的测试
 
 - 新增一种来源：在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。其余步骤见 `AGENTS.md` 的「新增一种来源」。

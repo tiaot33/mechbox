@@ -10,6 +10,7 @@ import (
 
 // 每个来源一个集合,按首次入库的先后排列而不是按名字;只有一个技能的集合照样列出。
 func TestListCollectionsListsOneCollectionPerSourceInFetchOrder(t *testing.T) {
+	t.Parallel()
 	firstSource := filepath.Join(t.TempDir(), "z-first-skill")
 	secondSource := filepath.Join(t.TempDir(), "a-second-skill")
 	writeLocalSkill(t, firstSource, "# First\n")
@@ -35,6 +36,7 @@ func TestListCollectionsListsOneCollectionPerSourceInFetchOrder(t *testing.T) {
 
 // 集合里的技能按 ID 升序,每个技能的 CollectionID 就是它所在集合的 ID。
 func TestCollectionSkillsCarryTheirCollectionID(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	root := t.TempDir()
@@ -66,6 +68,7 @@ func TestCollectionSkillsCarryTheirCollectionID(t *testing.T) {
 
 // 最后一个技能移除后集合不再列出;再从同一来源入库,集合的 ID 不变。
 func TestCollectionDisappearsWithItsLastSkillAndKeepsItsIDOnRefetch(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "only")
@@ -89,6 +92,7 @@ func TestCollectionDisappearsWithItsLastSkillAndKeepsItsIDOnRefetch(t *testing.T
 }
 
 func TestListCollectionsOfEmptyLibraryIsEmptyList(t *testing.T) {
+	t.Parallel()
 	requireCollections(t, openTestLibrary(t), []library.Collection{})
 }
 
@@ -101,6 +105,7 @@ func requireCollections(t *testing.T, lib *library.Library, want []library.Colle
 }
 
 func TestMarkNotInterestedValidatesInput(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "demo")
@@ -118,6 +123,7 @@ func TestMarkNotInterestedValidatesInput(t *testing.T) {
 // 拖出来的先后:排过的在前,没列出的按原来的先后接在后面;之后入库的新来源排在最后;
 // 集合因最后一个技能移除而消失、再入库时回到原来的位置(仍在它原先后面的集合之前);传空恢复首次入库的先后。
 func TestReorderCollectionsListsCollectionsInTheChosenOrder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	a := fetchNamedSkill(t, lib, "alpha")
@@ -158,6 +164,7 @@ func TestReorderCollectionsListsCollectionsInTheChosenOrder(t *testing.T) {
 
 // 重复、不是正数或不存在的集合整次拒绝,先后不变。
 func TestReorderCollectionsValidatesInput(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	a := fetchNamedSkill(t, lib, "alpha")

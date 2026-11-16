@@ -19,6 +19,7 @@ import (
 // 更新保留旧版本:版本列表与按 ID 读取返回同一个值,历史版本的文件按版本 ID 原样可读,
 // 差异按 from → to 的方向归类,反过来比较时新增与删除互换。
 func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "first\n")
@@ -102,6 +103,7 @@ func TestUpdatePreservesHistoryAndDiffsVersions(t *testing.T) {
 
 // 同一个版本比较得到空差异,三类都是空数组,经 JSON 读取时不是 null。
 func TestDiffSameVersionIsEmpty(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "same")
 	diff, err := lib.DiffVersions(t.Context(), skill.VersionID, skill.VersionID)
@@ -119,6 +121,7 @@ func TestDiffSameVersionIsEmpty(t *testing.T) {
 
 // 只改了可执行权限也产生新版本,差异把该文件列为改动,界面能看出这次为什么有新版本。
 func TestExecutableOnlyChangeShowsInDiff(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "script-skill")
 	writeLocalSkill(t, source, "body\n")
@@ -190,6 +193,7 @@ func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
 
 // 比较差异时技能被并发移除:每次比较要么得到完整正确的差异,要么返回 NotFound,不会把真实的改动报成空差异。
 func TestDiffVersionsWhileSkillIsRemoved(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	want := library.VersionDiff{Changed: []string{"SKILL.md"}, Added: []string{}, Deleted: []string{}}
@@ -235,6 +239,7 @@ func TestDiffVersionsWhileSkillIsRemoved(t *testing.T) {
 }
 
 func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	first := fetchNamedSkill(t, lib, "one")
 	second := fetchNamedSkill(t, lib, "two")
@@ -253,6 +258,7 @@ func TestDiffVersionsAcrossSkillsIsInvalidArgument(t *testing.T) {
 // Skill.VersionID 是当前版本的 SkillVersion.ID:还没有回滚时,入库、Update 与 GetSkill 都与 ListVersions 的最后一项一致,
 // 无变化的 Update 不换版本。
 func TestSkillReportsCurrentVersionID(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	dir := filepath.Join(t.TempDir(), "demo")
@@ -286,6 +292,7 @@ func TestSkillReportsCurrentVersionID(t *testing.T) {
 }
 
 func TestVersionFilesReportMissingAndCanceled(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "present")

@@ -25,7 +25,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-// archiveServer 打桩 URL 来源的压缩包服务端(接管 http.DefaultClient),可配置 ETag 或 Last-Modified;
+// archiveServer 打桩 URL 来源的压缩包服务端(接管这个测试的 HTTP 请求),可配置 ETag 或 Last-Modified;
 // 请求带的条件头与当前 validator 相同时回 304。
 type archiveServer struct {
 	mu                sync.Mutex
@@ -35,13 +35,11 @@ type archiveServer struct {
 	alwaysNotModified bool
 }
 
-// newArchiveServer 接管 http.DefaultClient 提供 archive;etag 为空表示服务端不给 validator。
+// newArchiveServer 接管这个测试的 HTTP 请求提供 archive;etag 为空表示服务端不给 validator。
 func newArchiveServer(t *testing.T, archive []byte, etag string) *archiveServer {
 	t.Helper()
 	server := &archiveServer{archive: archive, etag: etag}
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(server.roundTrip)}
-	t.Cleanup(func() { http.DefaultClient = client })
+	stubHTTP(t, server.roundTrip)
 	return server
 }
 
@@ -315,9 +313,121 @@ func openTestLibrary(t *testing.T) *library.Library {
 	return openTestLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
 }
 
+// testWorld 是一个顶层测试自己的远端与主目录,取代改全局的 http.DefaultClient 与 HOME:这个测试(连同它的子测试)里
+// 打开的 Library,HTTP 请求都交给当前设的假远端,主目录是当前设的那个。各顶层测试各有一份,不碰环境变量的测试因此可以并行。
+type testWorld struct {
+	mu        sync.Mutex
+	roundTrip func(*http.Request) (*http.Response, error)
+	home      string
+}
+
+var testWorlds sync.Map
+
+func worldOf(t *testing.T) *testWorld {
+	root, _, _ := strings.Cut(t.Name(), "/")
+	world, _ := testWorlds.LoadOrStore(root, &testWorld{})
+	return world.(*testWorld)
+}
+
+// RoundTrip 把请求交给当前的假远端;没设假远端时照常发出去(S3、AI 的假服务就是本机上真的 HTTP 服务)。
+func (w *testWorld) RoundTrip(r *http.Request) (*http.Response, error) {
+	w.mu.Lock()
+	roundTrip := w.roundTrip
+	w.mu.Unlock()
+	if roundTrip == nil {
+		return http.DefaultTransport.RoundTrip(r)
+	}
+	return roundTrip(r)
+}
+
+// stubHTTP 让这个测试里的 Library 把 HTTP 请求都交给 roundTrip;调用它的测试(或子测试)结束时换回原来的。
+func stubHTTP(t *testing.T, roundTrip func(*http.Request) (*http.Response, error)) {
+	t.Helper()
+	world := worldOf(t)
+	world.mu.Lock()
+	previous := world.roundTrip
+	world.roundTrip = roundTrip
+	world.mu.Unlock()
+	t.Cleanup(func() {
+		world.mu.Lock()
+		world.roundTrip = previous
+		world.mu.Unlock()
+	})
+}
+
+// testTransport 给出这个测试当前的假远端(没设时是真的网络),供新的假远端把自己不管的请求转给它。
+func testTransport(t *testing.T) http.RoundTripper {
+	t.Helper()
+	world := worldOf(t)
+	world.mu.Lock()
+	defer world.mu.Unlock()
+	if world.roundTrip == nil {
+		return http.DefaultTransport
+	}
+	return fetchTransport(world.roundTrip)
+}
+
+// setTestHome 把 dir 定为这个测试里之后打开的 Library 的用户主目录;调用它的测试(或子测试)结束时换回原来的。
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+	world := worldOf(t)
+	world.mu.Lock()
+	previous := world.home
+	world.home = dir
+	world.mu.Unlock()
+	t.Cleanup(func() {
+		world.mu.Lock()
+		world.home = previous
+		world.mu.Unlock()
+	})
+}
+
+// testHome 返回这个测试当前的用户主目录;没设过时建一个临时目录,所以测试里的 Library 从不碰这台机器真的主目录。
+func testHome(t *testing.T) string {
+	t.Helper()
+	world := worldOf(t)
+	world.mu.Lock()
+	home := world.home
+	world.mu.Unlock()
+	if home == "" {
+		home = t.TempDir()
+		setTestHome(t, home)
+	}
+	return home
+}
+
+// testHTTPOption 让 Library 的 HTTP 请求走这个测试的假远端。
+func testHTTPOption(t *testing.T) library.Option {
+	t.Helper()
+	return library.WithHTTPClient(&http.Client{Transport: worldOf(t)})
+}
+
+// testOptions 是测试里打开 Library 都要带的选项:HTTP 请求走这个测试的假远端,主目录是这个测试的。
+func testOptions(t *testing.T) []library.Option {
+	t.Helper()
+	return []library.Option{testHTTPOption(t), library.WithHomeDirectory(testHome(t))}
+}
+
+// TestMain 让整个测试进程用一个空的主目录:git、gh 这些子进程读 HOME 下的配置与凭据,不该受这台机器上的影响。
+// Library 的主目录不看它,由 testOptions 按测试给出。
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "mechbox-test-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("HOME", home); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
+
 func openTestLibraryAt(t *testing.T, path string) *library.Library {
 	t.Helper()
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,11 +459,9 @@ func setSyncSettings(t *testing.T, lib *library.Library, settings library.SyncSe
 // stubHTTPResponse 让所有 HTTP 请求都得到同一个响应,用于模拟远端返回的状态与内容。
 func stubHTTPResponse(t *testing.T, status int, body io.Reader) {
 	t.Helper()
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: status, Body: io.NopCloser(body), Header: make(http.Header)}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 }
 
 // networkGate 让测试里的远端在收到请求后停住,直到测试放行。
@@ -663,7 +771,7 @@ type renameFixture struct {
 func newRenameFixture(t *testing.T) *renameFixture {
 	t.Helper()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	fx := &renameFixture{lib: openTestLibrary(t), claude: library.GlobalScope(library.AgentClaudeCode), codex: library.GlobalScope(library.AgentCodex), dirs: map[library.Scope]string{}}
 	fx.server = newArchiveServer(t, zipArchive(t, map[string]string{
 		"pdf-tools/SKILL.md":       skillDocument("pdf-tools", renamedBody),
@@ -700,7 +808,7 @@ func newRenameFixture(t *testing.T) *renameFixture {
 	return fx
 }
 
-// site 接管 http.DefaultClient,按完整 URL 回答固定内容,其余一律 404,并记下每个 URL 被请求的次数。
+// site 接管这个测试的 HTTP 请求,按完整 URL 回答固定内容,其余一律 404,并记下每个 URL 被请求的次数。
 type site struct {
 	mu       sync.Mutex
 	pages    map[string][]byte
@@ -712,9 +820,7 @@ type site struct {
 func serveSite(t *testing.T) *site {
 	t.Helper()
 	s := &site{pages: map[string][]byte{}, etags: map[string]string{}, statuses: map[string]int{}, hits: map[string]int{}}
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(s.roundTrip)}
-	t.Cleanup(func() { http.DefaultClient = client })
+	stubHTTP(t, s.roundTrip)
 	return s
 }
 
@@ -829,7 +935,7 @@ type scopeEditFixture struct {
 func newScopeEditFixture(t *testing.T) scopeEditFixture {
 	t.Helper()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
 	skill := fetchArchive(t, lib, server.request())[0]

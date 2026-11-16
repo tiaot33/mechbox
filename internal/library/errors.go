@@ -131,8 +131,8 @@ func typedError(err error) error {
 	if exists, ok := errors.AsType[*agentdir.TargetExistsError](err); ok {
 		return &Error{Code: AlreadyExists, Message: err.Error(), Details: ErrorDetails{Path: exists.Path}, Err: err}
 	}
-	if _, ok := errors.AsType[*source.InputError](err); ok {
-		return &Error{Code: InvalidArgument, Message: err.Error(), Err: err}
+	if input, ok := errors.AsType[*source.InputError](err); ok {
+		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: input.Field}, Err: err}
 	}
 	if errors.Is(err, ai.ErrTruncated) {
 		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: "max_tokens"}, Err: err}

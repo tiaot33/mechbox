@@ -47,7 +47,7 @@ func holdDirectTransaction(t *testing.T, path, begin string) func() {
 // rollback journal 下这会等满 busy_timeout 后失败;WAL 下读者永不阻塞写者。
 func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestFetchCommitsWhileAnotherProcessHoldsLongRead(t *testing.T) {
 // 这条要等满 5 s 的 busy_timeout,接受它慢。
 func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestWriteReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 // 另一进程占着写锁超过等待上限时,打开库同样返回可重试的 Busy;对方释放后即可打开。
 func TestOpenReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,13 +116,13 @@ func TestOpenReportsBusyWhenAnotherProcessHoldsWriteLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := holdDirectTransaction(t, path, `BEGIN IMMEDIATE`)
-	blocked, err := library.Open(path)
+	blocked, err := library.Open(path, testOptions(t)...)
 	if err == nil {
 		_ = blocked.Close()
 	}
 	requireLibraryError(t, err, library.Busy)
 	release()
-	reopened, err := library.Open(path)
+	reopened, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatalf("Open after the other writer released = %v, want success", err)
 	}
@@ -137,7 +137,7 @@ func TestTwoLibraryInstancesInterleaveReadsAndWrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
 	var instances [2]*library.Library
 	for i := range instances {
-		lib, err := library.Open(path)
+		lib, err := library.Open(path, testOptions(t)...)
 		if err != nil {
 			t.Fatal(err)
 		}

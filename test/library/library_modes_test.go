@@ -39,7 +39,7 @@ func requireExecutableScript(t *testing.T, lib *library.Library, version library
 }
 
 func TestInspectWithoutFileModesComparesOnlyContent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	skill := installExample(t, lib, claude)
@@ -51,7 +51,7 @@ func TestInspectWithoutFileModesComparesOnlyContent(t *testing.T) {
 }
 
 func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	claude, codex := library.GlobalScope(library.AgentClaudeCode), library.GlobalScope(library.AgentCodex)
@@ -91,7 +91,7 @@ func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testin
 }
 
 func TestUnmanagedCopyWithoutFileModesIsRecognized(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	claude, codex := library.GlobalScope(library.AgentClaudeCode), library.GlobalScope(library.AgentCodex)
@@ -111,7 +111,7 @@ func TestUnmanagedCopyWithoutFileModesIsRecognized(t *testing.T) {
 }
 
 func TestFetchUnmanagedWithSourceWithoutFileModesTakesSourceModes(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "alpha")
@@ -136,7 +136,7 @@ func TestFetchUnmanagedWithSourceWithoutFileModesTakesSourceModes(t *testing.T) 
 }
 
 func TestSourceLatestWithoutFileModesIsRecognized(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "alpha")
@@ -169,7 +169,7 @@ func TestSourceLatestWithoutFileModesIsRecognized(t *testing.T) {
 // Windows 本机的一份读不出可执行位,只按内容认作库里的技能;WSL 里同样内容、可执行位和库里不同的一份不是那个技能。
 // 整批入库的计划不能借着前一份把后一份也并进「库里的技能」,入库时也不能因此多出一个技能。
 func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
 	lib := openTestLibrary(t)
 	ctx := t.Context()

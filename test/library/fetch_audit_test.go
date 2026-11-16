@@ -25,12 +25,8 @@ type skillsAuditMock struct {
 func serveSkillsAudit(t *testing.T, respond func(*http.Request) (*http.Response, error)) *skillsAuditMock {
 	t.Helper()
 	mock := &skillsAuditMock{respond: respond}
-	client := http.DefaultClient
-	previous := client.Transport
-	if previous == nil {
-		previous = http.DefaultTransport
-	}
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+	previous := testTransport(t)
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host != "skills.sh" {
 			return previous.RoundTrip(r)
 		}
@@ -39,8 +35,7 @@ func serveSkillsAudit(t *testing.T, respond func(*http.Request) (*http.Response,
 		respond := mock.respond
 		mock.mu.Unlock()
 		return respond(r)
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	return mock
 }
 
@@ -196,11 +191,9 @@ func TestGetCandidateAuditValidatesHandleAndCandidate(t *testing.T) {
 func TestGetCandidateAuditWorksOnCloneFallback(t *testing.T) {
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	redirectGitHubClone(t, repo)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return textResponse(http.StatusInternalServerError, "boom"), nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	serveSkillsAudit(t, func(*http.Request) (*http.Response, error) {
 		return textResponse(http.StatusOK, sampleAuditBody), nil
 	})

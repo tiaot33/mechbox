@@ -246,14 +246,21 @@ func TestGitLabReleaseDownloadLinkIsDirectDownload(t *testing.T) {
 	}
 }
 
+// 链接里带用户名或密码时不联网、直接拒绝,免得凭据写进库里、随同步传出去;托管平台的 raw、archive 这类下载链接也一样。
 func TestLinkWithCredentialsIsRejectedBeforeContactingIt(t *testing.T) {
 	isolateGit(t)
 	s := serveSite(t)
-	link := "https://user:secret@corp.example/org/repo"
 	lib := openTestLibrary(t)
-	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: link})
-	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "input"})
-	if len(s.hits) != 0 {
-		t.Fatalf("requests = %v; want none", s.hits)
+	for _, link := range []string{
+		"https://user:secret@corp.example/org/repo",
+		"https://user:secret@gitlab.example/group/repo/-/raw/main/SKILL.md",
+		"https://token@github.com/owner/repo/archive/refs/heads/main.zip",
+	} {
+		s.put(link, []byte(skillDocument("demo", "body")))
+		_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: link})
+		requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "input"})
+		if len(s.hits) != 0 {
+			t.Fatalf("%s: requests = %v; want none", link, s.hits)
+		}
 	}
 }

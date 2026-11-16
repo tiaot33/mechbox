@@ -114,9 +114,10 @@ func TestUpdatePlanShowsRisksCommitsDiffAndSourceContent(t *testing.T) {
 }
 
 func TestUpdatePlanListsEachInstallOfChangedSkills(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	root := t.TempDir()
 	for _, name := range []string{"pdf", "docx", "notes", "gone"} {
@@ -260,6 +261,7 @@ func TestSkipStopsCountingUntilTheSkillChangesAgain(t *testing.T) {
 // 审查补充:计划之后的写回要认得出技能和库已经换了。
 
 func TestSkipRejectsRemovedSkillAndReplacedLibrary(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	stub := newS3Stub(t)
 	lib := stub.open(t)

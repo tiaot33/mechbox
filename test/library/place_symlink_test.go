@@ -32,7 +32,7 @@ func newLinkedFixture(t *testing.T) linkedFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"tdd/SKILL.md": skillDocument("tdd", "v1")}), "")
 	skill := fetchArchive(t, lib, server.request())[0]
@@ -270,12 +270,13 @@ func pathExists(path string) (bool, error) {
 // 指向 Agent 目录以外的符号链接
 
 func TestUnmanagedLinksOutsideAgentDirectoriesAreMarkedAndNotSelected(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -532,12 +533,13 @@ func TestUninstallFailureKeepsTheLinkAndTheLinkedFolder(t *testing.T) {
 
 // 只是大小写不同的路径指向 Agent 目录(macOS 默认的卷不区分大小写):不算指向 Agent 目录以外。区分大小写的文件系统上跳过。
 func TestUnmanagedLinkToACaseVariantOfAnAgentDirectoryIsNotOutside(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claudeDirectory := scopeDirectory(t, lib, library.GlobalScope(library.AgentClaudeCode))
 	writeUnmanagedSkill(t, scopeDirectory(t, lib, library.GlobalScope(library.AgentCodex)), "pdf", "read pdfs")

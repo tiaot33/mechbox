@@ -282,7 +282,7 @@ func (l *Library) judge(ctx context.Context, settings ai.Settings, replica strin
 	for i, candidate := range candidates {
 		judgments[candidate.name] = answers[i]
 	}
-	write, unlock := l.exclusiveOperation(ctx)
+	write, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.InTx(write, func(tx *store.Tx) error {
 		if err := tx.RequireReplica(write, replica); err != nil {

@@ -179,6 +179,9 @@ func openImage(ctx context.Context, data []byte, l layout) (*Image, error) {
 	}
 	if err != nil {
 		image.Close()
+		if canceled := ctx.Err(); canceled != nil {
+			return nil, canceled
+		}
 		if sqliteErr, ok := errors.AsType[sqlite3.Error](err); ok && (sqliteErr.Code == sqlite3.ErrCorrupt || sqliteErr.Code == sqlite3.ErrNotADB) {
 			err = fmt.Errorf("%w: %w", ErrUnacceptable, err)
 		}

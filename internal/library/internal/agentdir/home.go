@@ -29,6 +29,10 @@ func UserHome() (Home, error) {
 	return Home{root: root}, nil
 }
 
+func HomeAt(root string) Home {
+	return Home{root: root}
+}
+
 func DistroHome(ctx context.Context, distro string) (Home, error) {
 	root, err := wsl.Home(ctx, distro)
 	if err != nil {

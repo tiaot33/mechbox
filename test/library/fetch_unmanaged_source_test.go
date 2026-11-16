@@ -62,7 +62,7 @@ type sourcedSkillFixture struct {
 func newSourcedSkillFixture(t *testing.T) sourcedSkillFixture {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"skills/pdf/SKILL.md":       {content: []byte(skillDocument("pdf", "v1")), mode: 0o644},
 		"skills/pdf/scripts/run.sh": {content: []byte(pdfScript), mode: 0o755},

@@ -65,7 +65,7 @@ func (q queries) NewSkills(ctx context.Context) (map[int64][]string, error) {
 		SELECT source_skills.source_id, source_skills.name FROM source_skills
 		WHERE source_skills.new = 1 AND NOT EXISTS (
 			SELECT 1 FROM skills WHERE skills.source_id = source_skills.source_id
-				AND (skills.name = source_skills.name OR skills.update_check_status = 'deleted' AND skills.update_check_renamed_to = source_skills.name)
+				AND (skills.name = source_skills.name OR skills.update_check_status = 'deleted' AND skills.update_check_renamed_to = source_skills.name AND NOT skills.update_check_failed)
 		)
 		ORDER BY source_skills.source_id, source_skills.name
 	`)
