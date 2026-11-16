@@ -2,6 +2,7 @@
 // 拉回先列出所有机器的备份，默认选别的机器里最新的一份(新机器开着自动推送时，本机刚推的那份几乎是空的),看它的同步计划，用户确认后用它替换本机的库;列出之后那份备份被删掉或改写返回 Conflict,重新列出。
 // 拉回不动 Agent 目录：之后把不在这台机器上的项目改到本机位置，再在各作用域重新安装。
 // 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换;这台机器上拖出来的集合与组的先后清掉，旧库的 ID 对不上新库。
+// 按旧库记下的界面状态与查询缓存都作废(技能详情关上、勾选清空，版本、文件列表与审计重新读取),界面按新库读完之前弹窗关不掉。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
@@ -11,7 +12,7 @@ import { describeError } from "@/lib/errors";
 import { invalidateSyncStatus, syncSettingsQuery, type LibraryError } from "@/lib/library";
 import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { clearPicked } from "@/lib/view";
+import { forgetLibrary } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -85,14 +86,18 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
     if (!pull?.selected) return;
     const id = pull.selected;
     setWorking("run");
-    const done = await ui.run(() => LibraryService.SyncPull(id).then(() => true), {
-      success: t.pullDone,
-      onError: onConflict,
-    });
+    // 拉回的是另一份库：旧库的 ID 会套到新库的别的技能上。按旧库记下的界面状态与缓存都作废，等界面按新库读完才算拉回完成;
+    // 这期间弹窗关不掉，盖着的界面点不到，不会按旧库的 ID 打开详情、弹出确认或写备注。
+    const done = await ui.run(
+      async () => {
+        await LibraryService.SyncPull(id);
+        await forgetLibrary();
+        return true;
+      },
+      { success: t.pullDone, onError: onConflict, reload: false },
+    );
     setWorking(null);
     if (done) {
-      // 拉回的是另一份库：旧库的 ID 会套到新库的别的技能上，勾选作废。
-      clearPicked();
       setPull(null);
       setPulled(true);
       await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
@@ -104,11 +109,13 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal
       title={t.title}
-      onClose={onClose}
+      onClose={() => working !== "run" && onClose()}
       footer={
         pull ? (
           <>
-            <Button onClick={() => setPull(null)}>{t.back}</Button>
+            <Button disabled={working === "run"} onClick={() => setPull(null)}>
+              {t.back}
+            </Button>
             <span className="grow" />
             {pull.backups.length > 0 && (
               <Button

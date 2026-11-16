@@ -1,11 +1,12 @@
 // 技能详情里的版本历史：与当前版本比较(打开比较弹窗看逐行差异),查看旧版本的文件。
 import { useState } from "react";
-import { LibraryService } from "@bindings/cmd/desktop";
-import type { FileMetadata, SkillVersion, VersionID } from "@bindings/internal/library";
+import { useQuery } from "@tanstack/react-query";
+import type { SkillVersion, VersionID } from "@bindings/internal/library";
 import { compareVersions } from "@/features/update/version-compare";
 import { formatDate } from "@/lib/content";
+import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
-import { useUI } from "@/lib/ui";
+import { toLibraryError, versionFilesQuery } from "@/lib/library";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,23 +18,23 @@ import { Code, useFileContent } from "./files-card";
 // VersionsCard 列出版本历史(最新在前);可查看某个版本的文件，或与当前版本比较(打开比较弹窗)。
 // 版本按这个技能入库以来的先后编号(版本 1 是入库时的那一份),不用库里全局的版本 ID。
 export function VersionsCard({ name, versions, currentID }: { name: string; versions: SkillVersion[]; currentID: VersionID }) {
-  const ui = useUI();
   const tt = useT();
   const t = tt.drawer;
   const number = new Map(versions.map((v, i) => [v.id, i + 1]));
   const list = [...versions].reverse();
-  const [viewing, setViewing] = useState<{ id: VersionID; files: FileMetadata[] } | null>(null);
-  const [viewPath, setViewPath] = useState("");
-  const viewedText = useFileContent(viewing?.id, viewPath);
+  // 正在看哪个版本的文件：文件列表按版本 ID 查询，界面上总是最后点的那个版本，收起后晚返回的读取也不会再展开。
+  const [viewing, setViewing] = useState<VersionID | null>(null);
+  const [chosenPath, setViewPath] = useState("");
+  const viewed = useQuery({ ...versionFilesQuery(viewing ?? 0), enabled: viewing !== null });
+  const files = viewed.data ?? [];
+  const viewPath = files.some((f) => f.path === chosenPath) ? chosenPath : (files[0]?.path ?? "");
+  const viewedText = useFileContent(viewing ?? undefined, viewPath);
 
   const compare = (v: SkillVersion, origin: Element) =>
     compareVersions({ title: t.compareTitle(name, number.get(v.id)), from: v.id, to: currentID, origin });
-  const view = async (v: SkillVersion) => {
-    const files = await ui.run(() => LibraryService.ListVersionFiles(v.id), { reload: false });
-    if (files !== undefined) {
-      setViewing({ id: v.id, files: files ?? [] });
-      setViewPath(files?.[0]?.path ?? "");
-    }
+  const view = (v: SkillVersion) => {
+    setViewing(v.id);
+    setViewPath("");
   };
 
   const notes = (v: SkillVersion) => [v.based_on ? t.basedOn(number.get(v.based_on)) : "", v.maybe_edited ? t.maybeEdited : ""].filter(Boolean);
@@ -66,12 +67,12 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
           </li>
         ))}
       </ol>
-      {viewing && (
+      {viewing !== null && (
         <div className="mt-2 flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
-            <b className="text-caption">{t.versionFiles(number.get(viewing.id))}</b>
+            <b className="text-caption">{t.versionFiles(number.get(viewing))}</b>
             <NativeSelect value={viewPath} onChange={(e) => setViewPath(e.target.value)}>
-              {viewing.files.map((f) => (
+              {files.map((f) => (
                 <option key={f.path} value={f.path}>
                   {f.path}
                 </option>
@@ -82,7 +83,13 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
               {t.collapse}
             </Button>
           </div>
-          {viewedText === null ? <Notice>{tt.common.binary}</Notice> : viewedText !== undefined ? <Code>{viewedText}</Code> : null}
+          {viewed.isError ? (
+            <Notice alert>{describeError(toLibraryError(viewed.error))}</Notice>
+          ) : viewedText === null ? (
+            <Notice>{tt.common.binary}</Notice>
+          ) : viewedText !== undefined ? (
+            <Code>{viewedText}</Code>
+          ) : null}
         </div>
       )}
     </Card>

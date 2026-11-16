@@ -27,6 +27,7 @@ import {
   defaultSkills,
   detachedBy,
   linkWrites,
+  lostEdits,
   overwriteKey,
   planReinstall,
   refreshRequests,
@@ -247,6 +248,26 @@ describe("写之前说明符号链接", () => {
     expect(detachedBy([target])).toEqual([{ place: target, by: [global(codex)] }]);
     const linker = place(1, global(codex), SkillScopeStatus.SkillScopeStale, { link_target: target.folder });
     expect(detachedBy([target, linker])).toEqual([]);
+  });
+});
+
+describe("删掉文件夹之前说明会丢的修改", () => {
+  it("只列被手动改过的地方;在 app 外更新到作者新版的不算", () => {
+    const edited = place(1, global(claude), SkillScopeStatus.SkillScopeModified);
+    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
+    const latest = place(3, global(claude), SkillScopeStatus.SkillScopeModified, { source_latest: true });
+    expect(lostEdits([edited, current, latest])).toEqual([edited]);
+  });
+
+  it("是符号链接的那一处只删链接，指着的文件夹和修改都还在，不算", () => {
+    const link = place(1, global(claude), SkillScopeStatus.SkillScopeModified, { link_target: "/home/.agents/skills/s1" });
+    expect(lostEdits([link])).toEqual([]);
+  });
+
+  it("共用一个文件夹的几处只算一处", () => {
+    const a = place(1, project(claude, 1), SkillScopeStatus.SkillScopeModified);
+    const b = { ...place(1, project(codex, 1), SkillScopeStatus.SkillScopeModified), folder: a.folder };
+    expect(lostEdits([a, b])).toEqual([a]);
   });
 });
 

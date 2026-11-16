@@ -1,7 +1,7 @@
 // 已登记项目：登记、改位置、注销(注销时可选一并卸载装在项目里的技能)。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type RegisteredProject } from "@bindings/internal/library";
-import { detachedBy } from "@/lib/consent";
+import { detachedBy, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
@@ -10,7 +10,6 @@ import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice } from "@/components/app/link-notes";
 import { offerProject } from "@/features/fetch/fetch-unmanaged-all";
-import { lostEdits } from "@/features/skill/remove";
 
 // registerProject 登记项目;登记之后把用户带到这个项目里不是库装的技能，一次确认全部入库。
 export async function registerProject(path: string): Promise<boolean> {
@@ -52,7 +51,7 @@ export async function unregisterProject(project: RegisteredProject) {
           {
             value: FolderPolicy.Remove,
             label: t.removeProjectFolders,
-            desc: t.removeFolders(new Set(places.map((p) => p.folder)).size, lostEdits(places)),
+            desc: t.removeFolders(new Set(places.map((p) => p.folder)).size, lostEdits(places).length),
           },
           { value: FolderPolicy.Keep, label: t.keepProjectFolders, desc: t.keepProjectFoldersDesc },
         ]

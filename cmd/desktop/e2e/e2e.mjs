@@ -3,6 +3,7 @@
 import assert from "node:assert";
 import { chromium } from "playwright-core";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -4040,6 +4041,346 @@ await step("照着另一个项目装：在项目页照着它，各 Agent 装到�
   await selectScope("Codex", "cq-to");
   assert((await page.locator('.gchip[data-state="on"]', { hasText: "照项目组" }).count()) === 1, "cq-to 的 Codex 是同一个组的组安装");
   assert((await card("cq-beta").locator('[role="switch"][aria-checked="true"]').count()) === 1, "cq-beta 是直接安装");
+});
+
+// ============ 卸载会丢掉的修改 ============
+group("uninstall-edited", []);
+await step("卸载被手动改过的文件夹：单个卸载、勾选几个一起卸载、整组卸载，先现查磁盘，确认里都列出修改会丢的那几处，取消则不动", async () => {
+  for (const name of ["ue-a", "ue-b", "ue-c"]) {
+    fs.mkdirSync(`${HOME}/code/uninstall-edited/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/uninstall-edited/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/uninstall-edited`);
+  await toast("已入库 3 个技能");
+  await settle();
+  await page.locator(".a-left .nav-sec", { hasText: "组" }).locator("button[title='新建组']").click();
+  await modal().locator('[data-slot="input"]').fill("改过的组");
+  await btn(modal(), "创建").click();
+  await toast("已创建组「改过的组」");
+  await settle();
+  await openDrawer("ue-c");
+  await drawer().locator("select.chip-add").selectOption({ label: "改过的组" });
+  await toast("已把「ue-c」加入「改过的组」");
+  await settle();
+  await closeDrawer();
+  await selectScope("Claude Code");
+  for (const name of ["ue-a", "ue-b"]) {
+    await card(name).locator('[role="switch"]').click();
+    await toast(`已安装「${name}」`);
+    await settle();
+  }
+  await page.locator(".gchip", { hasText: "改过的组" }).click();
+  await toast("已把「改过的组」组安装到");
+  await settle();
+  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，卸载前要现查出来。
+  const skillsDir = `${HOME}/.claude/skills`;
+  for (const name of ["ue-a", "ue-b", "ue-c"]) fs.appendFileSync(`${skillsDir}/${name}/SKILL.md`, "\nedited by hand\n");
+  assert.equal(await card("ue-a").getByText("被手动改过").count(), 0, "快照里还没看到修改");
+  const lost = (name) => modal().locator(".lost-edits", { hasText: `${name} · Claude Code · 全局` });
+
+  // 单个卸载：只有 Claude Code 用这个文件夹、也没有链接指着它，以前直接删掉。
+  await card("ue-a").locator('[role="switch"]').click();
+  await lost("ue-a").waitFor({ timeout: 5000 }).catch(() => assert.fail("单个卸载被改过的技能，确认里应列出这一处"));
+  await btn(modal(), "取消").click();
+  await settle();
+  assert(fs.readFileSync(`${skillsDir}/ue-a/SKILL.md`, "utf8").includes("edited by hand"), "取消后被改过的 ue-a 应原样留着");
+  await card("ue-a").locator('[role="switch"]').click();
+  await lost("ue-a").waitFor();
+  await btn(modal(), "卸载").click();
+  await toast("已卸载「ue-a」");
+  await settle();
+  assert(!fs.existsSync(`${skillsDir}/ue-a`), "确认后才删掉 ue-a");
+
+  // 勾选几个一起卸载
+  const bar = page.locator(".pick-bar");
+  await card("ue-b").locator(".pick-box").click();
+  await bar.locator("span", { hasText: "已选 1 个" }).waitFor();
+  await btn(bar, "从这里卸载").click();
+  await lost("ue-b").waitFor({ timeout: 5000 }).catch(() => assert.fail("勾选卸载时，确认里应列出被改过的 ue-b"));
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
+  await page.keyboard.press("Escape");
+  assert(fs.existsSync(`${skillsDir}/ue-b/SKILL.md`), "取消后 ue-b 应留着");
+
+  // 整组卸载
+  await page.locator(".gchip", { hasText: "改过的组" }).click();
+  await lost("ue-c").waitFor({ timeout: 5000 }).catch(() => assert.fail("整组卸载时，确认里应列出被改过的成员 ue-c"));
+  await btn(modal(), "取消").click();
+  await settle();
+  assert(fs.readFileSync(`${skillsDir}/ue-c/SKILL.md`, "utf8").includes("edited by hand"), "取消后 ue-c 应原样留着");
+  assert.equal(await page.locator('.gchip[data-state="on"]', { hasText: "改过的组" }).count(), 1, "取消后组安装还在");
+  await clearScope();
+});
+
+// ============ 晚返回的请求 ============
+group("late-replies", []);
+await step("备注保存得慢：切到别的技能再切回来重新写，前一次保存返回时不关掉新的这次", async () => {
+  for (const name of ["nb-a", "nb-b"]) {
+    fs.mkdirSync(`${HOME}/code/late-notes/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/late-notes/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/late-notes`);
+  await toast("已入库 2 个技能");
+  await settle();
+  await openDrawer("nb-a");
+  const hold = await holdCall(methodID("SetSkillNote"));
+  try {
+    await btn(drawer(), "添加备注").click();
+    await drawer().locator("textarea").fill("第一次写的备注");
+    await btn(drawer(), "保存").click();
+    await hold.requested();
+    await card("nb-b").click();
+    await drawer().locator('[data-slot="sheet-title"]', { hasText: /^nb-b$/ }).waitFor();
+    await card("nb-a").click();
+    await drawer().locator('[data-slot="sheet-title"]', { hasText: /^nb-a$/ }).waitFor();
+    assert.equal(await drawer().locator("textarea").count(), 0, "切回来时上一次的编辑已经结束");
+    await btn(drawer(), "添加备注").click();
+    await drawer().locator("textarea").fill("后来写的草稿");
+    await hold.release();
+  } finally {
+    await hold.close();
+  }
+  await settle();
+  assert.equal(await drawer().locator("textarea").count(), 1, "前一次保存返回后，后来开始的编辑还开着");
+  assert.equal(await drawer().locator("textarea").inputValue(), "后来写的草稿", "后来写的草稿还在");
+  await btn(drawer(), "取消").click();
+  await closeDrawer();
+});
+
+await step("「查看文件」:点了收起以后，晚返回的读取不再展开;先点的版本晚返回时，仍显示最后点的那个", async () => {
+  const dir = `${HOME}/code/late-versions/vr`;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(`${dir}/SKILL.md`, '---\nname: vr\ndescription: "vr"\n---\n');
+  await clearScope();
+  await fetchLocal(`${HOME}/code/late-versions`);
+  await toast("已入库 1 个技能");
+  await settle();
+  await openDrawer("vr");
+  const rows = drawer().locator(".versions li");
+  for (const n of [2, 3]) {
+    fs.writeFileSync(`${dir}/SKILL.md`, `---\nname: vr\ndescription: "vr"\n---\nversion ${n}\n`);
+    await btn(drawer(), "重新读取").click();
+    await toast("已重新读取「vr」");
+    await settle();
+    await until(async () => (await rows.count()) === n, `重新读取后有 ${n} 个版本`);
+  }
+  const view = (n) => btn(rows.filter({ hasText: `版本 ${n}` }), "查看文件").click();
+  const shown = drawer().locator("b", { hasText: /^版本 \d+ 的文件$/ });
+
+  // 版本 1、2 当过当前版本，文件列表已在缓存里;重新载入后只有打开详情时读的版本 3 在缓存里。
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await clearScope();
+  await openDrawer("vr");
+  let hold = await holdCall(methodID("ListVersionFiles"));
+  try {
+    await view(1);
+    await hold.requested();
+    await btn(drawer(), "收起").click();
+    await hold.release();
+  } finally {
+    await hold.close();
+  }
+  assert.equal(await shown.count(), 0, "点了收起以后，晚返回的读取不再展开文件列表");
+
+  hold = await holdCall(methodID("ListVersionFiles"));
+  try {
+    await view(2);
+    await hold.requested();
+    await view(3);
+    await drawer().locator("b", { hasText: "版本 3 的文件" }).waitFor();
+    await hold.release();
+  } finally {
+    await hold.close();
+  }
+  assert.deepStrictEqual(await shown.allTextContents(), ["版本 3 的文件"], "先点的版本 2 晚返回时，仍显示最后点的版本 3");
+  await closeDrawer();
+});
+
+// ============ 批量安装全部失败 ============
+group("install-failed", []);
+await step("几个技能一起装到已登记、但目录被删掉的项目：一处都没装上，顶栏画叉，和结果列表一致", async () => {
+  for (const name of ["if-a", "if-b"]) {
+    fs.mkdirSync(`${HOME}/code/install-failed/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/install-failed/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  await clearScope();
+  await fetchLocal(`${HOME}/code/install-failed`);
+  await toast("已入库 2 个技能");
+  await settle();
+  const project = `${HOME}/code/proj-gone`;
+  fs.mkdirSync(project, { recursive: true });
+  await page.locator(".a-right .nav-sec button[title='登记项目']").click();
+  await modal().locator('[data-slot="input"]').fill(project);
+  await btn(modal(), "登记").click();
+  await toast("已登记项目");
+  await settle();
+  fs.rmSync(project, { recursive: true });
+  await refocus();
+  await settle();
+  const bar = page.locator(".pick-bar");
+  for (const name of ["if-a", "if-b"]) await card(name).locator(".pick-box").click();
+  await bar.locator("span", { hasText: "已选 2 个" }).waitFor();
+  await btn(bar, "安装到…").click();
+  await modal().locator(".install-picked select").nth(0).selectOption({ label: "proj-gone" });
+  await pickAgents(modal(), ["claude-code"]);
+  await btn(modal(), "安装").click();
+  await modal().locator('[data-slot="list-row"]', { hasText: "if-a" }).waitFor();
+  const mark = (status) => page.locator(`.tb-crumb [data-slot="status-mark"][data-status="${status}"]`);
+  await mark("failed").waitFor({ timeout: 1000 }).catch(() => assert.fail("一处都没装上时顶栏应画叉"));
+  assert.equal(await mark("done").count(), 0, "一处都没装上时顶栏不画对勾");
+  assert.equal(await modal().locator('[data-slot="list-row"]', { hasText: "失败" }).count(), 2, "结果列表里两处都失败");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  assert(!fs.existsSync(project), "项目目录仍不存在");
+});
+
+// ============ 拉回整库 ============
+// s3Server 是进程内的 S3 替身(路径风格，只认列出、读、写、删，不验签名):对象放在 objects 里，测试可以直接放进别的机器推送的备份。
+function s3Server() {
+  const objects = new Map();
+  const etagOf = (data) => `"${createHash("md5").update(data).digest("hex")}"`;
+  const server = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    const url = new globalThis.URL(req.url, "http://s3");
+    const [, bucket, ...rest] = url.pathname.split("/");
+    const key = decodeURIComponent(rest.join("/"));
+    const xml = (status, text) => res.writeHead(status, { "Content-Type": "application/xml" }).end(`<?xml version="1.0" encoding="UTF-8"?>${text}`);
+    if (bucket !== "pull-bucket") return xml(404, "<Error><Code>NoSuchBucket</Code></Error>");
+    if (!key && req.method === "GET") {
+      const prefix = url.searchParams.get("prefix") ?? "";
+      const contents = [...objects].filter(([k]) => k.startsWith(prefix)).map(([k, o]) => `<Contents><Key>${k}</Key><ETag>${o.etag}</ETag></Contents>`);
+      return xml(200, `<ListBucketResult><IsTruncated>false</IsTruncated>${contents.join("")}</ListBucketResult>`);
+    }
+    const object = objects.get(key);
+    if (req.method === "PUT") {
+      if (object && req.headers["if-none-match"] === "*") return xml(412, "<Error><Code>PreconditionFailed</Code></Error>");
+      const etag = etagOf(body);
+      objects.set(key, { data: body, etag, sha256: req.headers["x-amz-meta-sha256"] ?? "" });
+      return res.writeHead(200, { ETag: etag }).end();
+    }
+    if (req.method === "DELETE") {
+      objects.delete(key);
+      return res.writeHead(204).end();
+    }
+    if (!object) return xml(404, "<Error><Code>NoSuchKey</Code></Error>");
+    if (req.headers["if-match"] && req.headers["if-match"] !== object.etag) return xml(412, "<Error><Code>PreconditionFailed</Code></Error>");
+    res.writeHead(200, { ETag: object.etag, "x-amz-meta-sha256": object.sha256, "Content-Length": object.data.length });
+    res.end(req.method === "HEAD" ? undefined : object.data);
+  });
+  return {
+    objects,
+    put: (key, data) => objects.set(key, { data, etag: etagOf(data), sha256: "" }),
+    start: () => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${server.address().port}`))),
+    stop: () => new Promise((resolve) => {
+      server.close(resolve);
+      server.closeAllConnections();
+    }),
+  };
+}
+
+group("pull", []);
+await step("拉回另一台机器的库：技能详情关上，没保存的备注不会存到新库里同一个编号的技能上;版本的文件列表重新读取，不显示旧库的", async () => {
+  const s3 = s3Server();
+  const endpoint = await s3.start();
+  try {
+    const dir = `${HOME}/code/pull/pl-one`;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(`${dir}/SKILL.md`, '---\nname: pl-one\ndescription: "pl-one"\n---\n');
+    await clearScope();
+    await fetchLocal(`${HOME}/code/pull`);
+    await toast("已入库 1 个技能");
+    await settle();
+
+    // 设置页填好同步设置，推送一次。
+    const field = (label) => section("同步").locator('[data-slot="field"]', { hasText: label }).locator("input");
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await field("服务地址").fill(endpoint);
+    await field(/^存储桶$/).fill("pull-bucket");
+    await field("Access Key ID").fill("AKIDPULL");
+    await field("Secret Access Key").fill("pull-secret");
+    await btn(section("同步"), "保存").click();
+    await toast("已保存同步设置");
+    await settle();
+    await page.locator(".titlebar button[title='返回技能库']").click();
+    await page.waitForSelector(".a-list");
+    const sync = page.locator(".a-left .nav-item", { hasText: "同步" });
+    await sync.click();
+    await btn(modal(), "推送到 S3").click();
+    await toast("已推送到 S3");
+    await idle();
+    await page.keyboard.press("Escape");
+    await modal().waitFor({ state: "detached" });
+    assert.equal(s3.objects.size, 1, "推送后 S3 上有一份备份");
+
+    // 另一台机器的库：同一个编号的技能叫 pl-other、带着自己的备注，当前版本里多一个文件。
+    const [pushed] = s3.objects.values();
+    const copy = path.join(HOME, "other-library.db");
+    fs.writeFileSync(copy, pushed.data);
+    const other = new DatabaseSync(copy);
+    const { id, version } = other.prepare("SELECT id, current_version_id AS version FROM skills WHERE name = 'pl-one'").get();
+    other.prepare("UPDATE skills SET name = 'pl-other', note = '另一台机器的备注' WHERE id = ?").run(id);
+    other
+      .prepare("INSERT INTO version_files (version_id, path, fingerprint, mode) SELECT version_id, 'only-in-other.md', fingerprint, mode FROM version_files WHERE version_id = ? AND path = 'SKILL.md'")
+      .run(version);
+    other.close();
+    s3.put("other-device-abc123/library-20260101T000000.000Z.db", fs.readFileSync(copy));
+
+    // 本机：详情开着，文件列表已读过一次，备注写了一半没保存。
+    await openDrawer("pl-one");
+    await drawer().locator(".file-row", { hasText: "SKILL.md" }).waitFor();
+    await btn(drawer(), "添加备注").click();
+    await drawer().locator("textarea").fill("没保存的草稿");
+
+    await sync.click();
+    await btn(modal(), "从 S3 拉回…").click();
+    await modal().locator(".sync-backup", { hasText: "other-device-abc123" }).waitFor();
+    const pull = btn(modal(), "拉回并替换本机的库");
+    await until(async () => await pull.isEnabled(), "同步计划读完，可以拉回");
+    // 拉回进行中关不掉弹窗：盖着的旧库界面点不到，不会按旧库的编号打开详情、弹出确认或写备注。
+    const hold = await holdCall(methodID("SyncPull"));
+    try {
+      await pull.click();
+      await hold.requested();
+      await page.keyboard.press("Escape");
+      assert.equal(await modal().locator('[data-slot="dialog-title"]', { hasText: "同步" }).count(), 1, "拉回进行中按 Esc 不关同步弹窗");
+      await hold.release();
+    } finally {
+      await hold.close();
+    }
+    await toast("已从 S3 拉回并替换本机的技能库");
+    await idle();
+    await page.keyboard.press("Escape");
+    await modal().waitFor({ state: "detached" });
+
+    await drawer().waitFor({ state: "detached", timeout: 5000 }).catch(() => assert.fail("拉回整库后技能详情应关上"));
+    assert.equal(await page.locator("textarea").count(), 0, "没保存的备注草稿不再能保存");
+    const db = new DatabaseSync(LIBRARY, { readOnly: true });
+    try {
+      assert.deepStrictEqual({ ...db.prepare("SELECT name, note FROM skills WHERE id = ?").get(id) }, { name: "pl-other", note: "另一台机器的备注" }, "新库里同一个编号的技能保持拉回的样子");
+    } finally {
+      db.close();
+    }
+
+    await openDrawer("pl-other");
+    await drawer().locator(".file-row", { hasText: "only-in-other.md" }).waitFor({ timeout: 5000 }).catch(() => assert.fail("文件列表应重新读取，显示新库里这个版本的文件"));
+    await closeDrawer();
+
+    // 恢复：清空同步设置，免得后面的步骤去连这个已经关掉的服务。
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    for (const label of ["服务地址", /^存储桶$/, "Access Key ID", "Secret Access Key"]) await field(label).fill("");
+    await btn(section("同步"), "保存").click();
+    await toast("已保存同步设置");
+    await settle();
+    await page.locator(".titlebar button[title='返回技能库']").click();
+    await page.waitForSelector(".a-list");
+  } finally {
+    await s3.stop();
+  }
 });
 
 // ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============

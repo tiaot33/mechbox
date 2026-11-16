@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import type { CollectionID, GroupID, ProjectID, Scope, SkillID } from "@bindings/internal/library";
-import { queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
+import { forgetLibraryCaches, queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
   pageListing,
@@ -79,26 +79,36 @@ export interface Back {
   anchor: string | null;
 }
 
+// libraryState 是按技能库里的 ID(技能、集合、组、项目)记下的界面状态的初始值;拉回整库时回到它(forgetLibrary)。
+function libraryState(): Pick<
+  ViewState,
+  "page" | "expanded" | "moreAgents" | "flipped" | "unfolded" | "picked" | "anchor" | "jump" | "flash" | "drawer" | "back" | "restoreScroll"
+> {
+  return {
+    page: { kind: "all" },
+    expanded: new Set(),
+    moreAgents: new Set(),
+    flipped: new Set(),
+    unfolded: new Set(),
+    picked: new Set(),
+    anchor: null,
+    jump: null,
+    flash: null,
+    drawer: null,
+    back: null,
+    restoreScroll: null,
+  };
+}
+
 export const useView = create<ViewState>()(() => ({
-  page: { kind: "all" },
+  ...libraryState(),
   arrange: "collection",
   search: "",
   left: true,
   right: true,
-  expanded: new Set(),
-  moreAgents: new Set(),
-  flipped: new Set(),
-  unfolded: new Set(),
-  picked: new Set(),
-  anchor: null,
-  jump: null,
-  flash: null,
-  drawer: null,
   drag: null,
   settings: false,
   settingsSection: null,
-  back: null,
-  restoreScroll: null,
 }));
 
 const set = useView.setState;
@@ -162,6 +172,15 @@ export function closeGraph() {
 }
 
 export const doneRestoreScroll = () => set({ restoreScroll: null });
+
+// forgetLibrary 在拉回整库之后作废按旧库记下的一切，等界面按新库重读完：新库里同一个 ID 可能是另一个技能、集合、组或项目。
+// 界面状态回到初始(libraryState):技能详情关上(没保存的备注草稿随之丢掉),勾选清空，回到技能库页，
+// 左栏要跳到的那一节、要闪的那一行、关系图页的返回，以及按 ID 记下的展开与收起都作废;查询缓存见 forgetLibraryCaches。
+export function forgetLibrary(): Promise<void> {
+  pickRound++;
+  set(libraryState());
+  return forgetLibraryCaches();
+}
 
 // flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
 export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));

@@ -159,6 +159,8 @@ export const en = {
         ? "Uninstalling removes the direct install for these Agents; a Group install still keeps it, so the folder stays."
         : "Uninstalling deletes this folder, and none of these Agents will count it as installed."),
     uninstall: "Uninstall",
+    losesEdits: (n: number) =>
+      `${n === 1 ? "The place below was" : `The ${n} places below were`} edited by hand: uninstalling deletes ${n === 1 ? "the folder" : "the folders"}, and those edits will be lost for good.`,
     uninstalled: (name: string, scope: string) => `Removed the direct install of “${name}” in ${scope}`,
     onlyViaGroup: "This skill is only installed through a Group, so there's no direct install to uninstall. Uninstall it on the Group instead",
     groupInstallTitle: (group: string, scope: string) => `Group install “${group}” in ${scope}`,
@@ -294,10 +296,10 @@ export const en = {
     pickedInstalled: (n: number, where: string) => `Installed ${count(n, "skill")} in ${where}`,
     pickedNothingDirect: (where: string) => `None of the selected skills is installed directly in ${where}; nothing to uninstall`,
     uninstallPickedTitle: (n: number, where: string) => `Uninstall ${count(n, "skill")} from ${where}`,
-    uninstallPickedHint: (folders: number, edited: number, viaGroup: number) =>
+    uninstallPickedHint: (folders: number, viaGroup: number) =>
       [
         folders
-          ? `Removes their direct installs and deletes ${count(folders, "skill folder")}${edited ? `; ${count(edited, "place")} ${edited === 1 ? "was" : "were"} edited, and those edits will be lost` : ""}`
+          ? `Removes their direct installs and deletes ${count(folders, "skill folder")}`
           : "Removes their direct installs; Group installs still keep them, so no folder is deleted",
         viaGroup ? `${count(viaGroup, "place")} ${viaGroup === 1 ? "is" : "are"} installed only through a Group and will be skipped; uninstall that Group instead` : "",
       ]
