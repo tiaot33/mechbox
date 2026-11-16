@@ -71,9 +71,10 @@
   --color-tag-border: rgba(0, 0, 0, 0.14);
   /* 计数的底：浅色、深色下都没有底，只是一个灰色的数字，两种外观下样子一致。 */
   --color-count: transparent;
-  /* 实心强调：确认删除的按钮。 */
-  --color-solid: #000;
-  --color-on-solid: #fff;
+  /* 破坏性：会删掉用户内容、撤不回的动作。入口按钮和菜单项是红字，确认弹窗里的按钮是红底白字。
+     浅色、深色用同一个红：白底上 4.2:1,深色底板上 4.0:1,红底上的白字 4.2:1。 */
+  --color-destructive: #e5392e;
+  --color-on-destructive: #fff;
   /* border 只分开两块表面，也是输入框、搜索框的边;border-control 是控件的强调边框(拖放时可放下的目标、复选框);row-line 是行与行之间、分区与分区之间的线。 */
   --color-border: rgba(0, 0, 0, 0.12);
   --color-border-control: rgba(0, 0, 0, 0.42);
@@ -198,8 +199,6 @@
     --color-tag: rgba(255, 255, 255, 0.1);
     --color-tag-border: transparent;
     --color-count: transparent;
-    --color-solid: #fff;
-    --color-on-solid: #000;
     --color-border: rgba(255, 255, 255, 0.14);
     --color-border-control: rgba(255, 255, 255, 0.34);
     --color-row-line: rgba(255, 255, 255, 0.07);

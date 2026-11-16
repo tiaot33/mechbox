@@ -25,7 +25,8 @@
 .mb-btn-pill,.mb-btn-pill:hover{border-radius:var(--radius-pill);background:var(--primary);border-color:transparent;color:var(--on-primary);box-shadow:none}
 .mb-btn-primary,.mb-btn-primary:hover{background:var(--primary);border-color:transparent;color:var(--on-primary);box-shadow:none}
 .mb-btn-tinted,.mb-btn-tinted:hover{background:var(--control);border-color:transparent;box-shadow:none;color:var(--on-primary-soft);font-weight:600}
-.mb-btn-solid,.mb-btn-solid:hover{background:var(--solid);border-color:transparent;color:var(--on-solid);box-shadow:none}
+.mb-btn-destructive,.mb-btn-destructive:hover{background:var(--destructive);border-color:transparent;color:var(--on-destructive);box-shadow:none}
+.mb-btn-danger,.mb-btn-danger:hover{color:var(--destructive)}
 .mb-btn-light{border-color:transparent;background:transparent;box-shadow:none;color:var(--foreground-secondary)}
 .mb-btn-light:hover{background:var(--fill)}
 .mb-btn-light:hover{color:var(--foreground)}

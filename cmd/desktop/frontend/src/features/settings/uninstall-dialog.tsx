@@ -101,7 +101,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
           <Button disabled={working} onClick={onClose}>
             {t.cancel}
           </Button>
-          <Button variant="solid" disabled={!places || phase.kind === "done"} loading={phase.kind === "working"} onClick={() => void execute()}>
+          <Button variant="destructive" disabled={!places || phase.kind === "done"} loading={phase.kind === "working"} onClick={() => void execute()}>
             {phase.kind === "failed" ? t.retry : t.uninstall}
           </Button>
         </>

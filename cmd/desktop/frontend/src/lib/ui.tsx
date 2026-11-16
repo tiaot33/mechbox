@@ -338,7 +338,7 @@ function ConfirmDialog({ opts, close }: { opts: ConfirmOptions; close: (value?: 
       footer={
         <>
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant={opts.danger ? "solid" : "primary"} onClick={() => close(choice)} autoFocus>
+          <Button variant={opts.danger ? "destructive" : "primary"} onClick={() => close(choice)} autoFocus>
             {opts.confirm ?? t.common.ok}
           </Button>
         </>
